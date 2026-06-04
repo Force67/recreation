@@ -23,6 +23,7 @@ set(RECREATION_MODULES
   core
   ecs
   asset
+  render
 )
 
 foreach(module ${RECREATION_MODULES})
