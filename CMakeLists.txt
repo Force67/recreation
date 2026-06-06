@@ -24,6 +24,7 @@ set(RECREATION_MODULES
   ecs
   asset
   render
+  bethesda
 )
 
 foreach(module ${RECREATION_MODULES})
