@@ -25,6 +25,7 @@ set(RECREATION_MODULES
   asset
   render
   bethesda
+  world
 )
 
 foreach(module ${RECREATION_MODULES})
