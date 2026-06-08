@@ -26,6 +26,7 @@ set(RECREATION_MODULES
   render
   bethesda
   world
+  net
 )
 
 foreach(module ${RECREATION_MODULES})
