@@ -27,6 +27,7 @@ set(RECREATION_MODULES
   bethesda
   world
   net
+  script
 )
 
 foreach(module ${RECREATION_MODULES})
