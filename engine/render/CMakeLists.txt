@@ -5,6 +5,7 @@ recreation_add_module(render
   raytracing.cc
   upscaler.cc
   vulkan/vk_device.cc
+  vulkan/vk_swapchain.cc
 )
 
 target_link_libraries(recreation_render
