@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "core/types.h"
 
@@ -30,6 +31,12 @@ class Window {
   virtual NativeWindowHandles native_handles() const = 0;
   virtual u32 width() const = 0;
   virtual u32 height() const = 0;
+
+  // Vulkan glue. Backends that can present return the instance extensions
+  // they need and write a VkSurfaceKHR through the opaque out pointer.
+  // Headless windows return nothing, which tells the renderer to stay off.
+  virtual std::vector<const char*> vulkan_instance_extensions() const { return {}; }
+  virtual bool CreateVulkanSurface(void* vk_instance, void* out_vk_surface) { return false; }
 
   // Returns a platform window, or a headless stub when none is available.
   static std::unique_ptr<Window> Create(const WindowDesc& desc);

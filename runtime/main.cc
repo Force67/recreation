@@ -18,6 +18,7 @@ void PrintUsage() {
   REC_INFO("  --no-taa              disable temporal antialiasing");
   REC_INFO("  --upscaler <id>       fsr3 | dlss | xess");
   REC_INFO("  --no-rt               disable raytracing");
+  REC_INFO("  --validation          enable vulkan validation layers");
 }
 
 rec::bethesda::Game ParseGame(const std::string& id) {
@@ -53,6 +54,7 @@ int main(int argc, char** argv) {
     else if (arg == "--no-taa") config.renderer.aa_mode = rec::render::AntiAliasingMode::kNone;
     else if (arg == "--upscaler") config.renderer.upscaler = ParseUpscaler(next());
     else if (arg == "--no-rt") config.renderer.enable_raytracing = false;
+    else if (arg == "--validation") config.renderer.enable_validation = true;
     else {
       PrintUsage();
       return arg == "--help" ? 0 : 1;

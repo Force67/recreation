@@ -1,4 +1,5 @@
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include "core/log.h"
 #include "core/window.h"
@@ -39,6 +40,18 @@ class Sdl3Window final : public Window {
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(window_, &w, &h);
     return static_cast<u32>(h);
+  }
+
+  std::vector<const char*> vulkan_instance_extensions() const override {
+    Uint32 count = 0;
+    const char* const* extensions = SDL_Vulkan_GetInstanceExtensions(&count);
+    if (!extensions) return {};
+    return {extensions, extensions + count};
+  }
+
+  bool CreateVulkanSurface(void* vk_instance, void* out_vk_surface) override {
+    return SDL_Vulkan_CreateSurface(window_, static_cast<VkInstance>(vk_instance), nullptr,
+                                    static_cast<VkSurfaceKHR*>(out_vk_surface));
   }
 
  private:

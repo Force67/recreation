@@ -1,6 +1,8 @@
 #ifndef RECREATION_RENDER_RHI_DEVICE_H_
 #define RECREATION_RENDER_RHI_DEVICE_H_
 
+#include <volk.h>
+
 #include <memory>
 #include <string>
 
@@ -14,29 +16,39 @@ struct DeviceDesc {
   bool request_raytracing = true;
 };
 
-// What the physical device actually supports. Raytracing and friends are
-// queried, never assumed, so the same binary runs on a desktop GPU and an
-// android phone.
+// What the picked GPU actually supports. Optional features are queried,
+// never assumed, so the same binary runs on a desktop GPU and an android
+// phone. Vulkan 1.3 with dynamic rendering, synchronization2, buffer device
+// address, descriptor indexing and timeline semaphores is the hard baseline.
 struct DeviceCaps {
   std::string adapter_name;
-  bool raytracing = false;
+  u32 api_version = 0;
+  bool raytracing = false;  // acceleration structures + ray tracing pipeline
+  bool ray_query = false;
   bool mesh_shaders = false;
   bool fragment_shading_rate = false;
 };
 
-// Thin ownership wrapper over instance, physical device, logical device and
-// queues. Compiles to a stub without the Vulkan SDK so the headless server
-// and CI builds need no GPU stack.
+// Owns instance, surface, physical and logical device and the queues.
+// Returned device is a stub (is_stub() true) when no loader, no capable GPU
+// or no presentable window is available.
 class Device {
  public:
-  static std::unique_ptr<Device> Create(const DeviceDesc& desc, const NativeWindowHandles& window);
+  static std::unique_ptr<Device> Create(const DeviceDesc& desc, Window& window);
   ~Device();
 
   Device(const Device&) = delete;
   Device& operator=(const Device&) = delete;
 
   const DeviceCaps& caps() const { return caps_; }
-  bool is_stub() const { return is_stub_; }
+  bool is_stub() const { return device_ == VK_NULL_HANDLE; }
+
+  VkInstance instance() const { return instance_; }
+  VkPhysicalDevice physical_device() const { return physical_device_; }
+  VkDevice device() const { return device_; }
+  VkSurfaceKHR surface() const { return surface_; }
+  VkQueue graphics_queue() const { return graphics_queue_; }
+  u32 graphics_family() const { return graphics_family_; }
 
   void WaitIdle();
 
@@ -44,10 +56,13 @@ class Device {
   Device() = default;
 
   DeviceCaps caps_;
-  bool is_stub_ = true;
-
-  struct VulkanState;
-  std::unique_ptr<VulkanState> vk_;
+  VkInstance instance_ = VK_NULL_HANDLE;
+  VkDebugUtilsMessengerEXT debug_messenger_ = VK_NULL_HANDLE;
+  VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+  VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
+  VkDevice device_ = VK_NULL_HANDLE;
+  VkQueue graphics_queue_ = VK_NULL_HANDLE;
+  u32 graphics_family_ = 0;
 };
 
 }  // namespace rec::render

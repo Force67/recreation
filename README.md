@@ -30,10 +30,12 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-SDL3, Vulkan and zlib are optional at build time. Without SDL3 the runtime is
-headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without Vulkan
-the renderer compiles as a stub, without zlib compressed plugin records are
-rejected at load time.
+Vulkan headers and the volk loader are pinned and fetched at configure time,
+no SDK install needed. At runtime a Vulkan 1.3 driver is required for
+rendering, without one (or without a window) the renderer degrades to a stub.
+SDL3 and zlib stay optional at build time: without SDL3 the runtime is
+headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without zlib
+compressed plugin records are rejected at load time.
 
 Targets: Windows, Linux, Android (via the NDK toolchain file).
 

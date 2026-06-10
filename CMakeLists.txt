@@ -12,18 +12,25 @@ option(RECREATION_FETCH_SDL3 "Download SDL3 when not found on the system" OFF)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(warnings)
 
-find_package(Vulkan QUIET)
+include(FetchContent)
 find_package(ZLIB QUIET)
 
-if(Vulkan_FOUND)
-  message(STATUS "vulkan found, full renderer enabled")
-else()
-  message(STATUS "vulkan not found, renderer builds as stub")
-endif()
+# Vulkan headers and the volk loader are pinned and fetched, no SDK needed.
+# volk dlopens the system vulkan loader at runtime, missing drivers degrade
+# the renderer to a stub instead of failing the build.
+FetchContent_Declare(VulkanHeaders
+  GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+  GIT_TAG v1.4.304
+  GIT_SHALLOW ON)
+FetchContent_Declare(volk
+  GIT_REPOSITORY https://github.com/zeux/volk.git
+  GIT_TAG 1.4.304
+  GIT_SHALLOW ON)
+FetchContent_MakeAvailable(VulkanHeaders volk)
+target_link_libraries(volk PUBLIC Vulkan::Headers)
 
 find_package(SDL3 QUIET)
 if(NOT SDL3_FOUND AND RECREATION_FETCH_SDL3)
-  include(FetchContent)
   set(SDL_TEST_LIBRARY OFF)
   FetchContent_Declare(SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
