@@ -15,8 +15,8 @@ struct WindowDesc {
   bool fullscreen = false;
 };
 
-// Native handles the renderer needs to create a surface. Exactly one pair is
-// valid depending on platform (hwnd/hinstance, wl_surface/wl_display, ANativeWindow).
+// Opaque handles the renderer needs to create a surface. With the SDL3
+// backend `window` is the SDL_Window, headless leaves both null.
 struct NativeWindowHandles {
   void* window = nullptr;
   void* display = nullptr;

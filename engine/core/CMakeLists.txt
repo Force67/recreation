@@ -7,6 +7,12 @@ recreation_add_module(core
 
 target_link_libraries(recreation_core PUBLIC $<$<PLATFORM_ID:Linux>:pthread>)
 
+if(SDL3_FOUND)
+  target_sources(recreation_core PRIVATE window_sdl3.cc)
+  target_link_libraries(recreation_core PUBLIC SDL3::SDL3)
+  target_compile_definitions(recreation_core PRIVATE RECREATION_HAS_SDL3=1)
+endif()
+
 if(ANDROID)
   target_link_libraries(recreation_core PUBLIC log android)
 endif()

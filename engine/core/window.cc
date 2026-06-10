@@ -5,8 +5,8 @@
 namespace rec {
 namespace {
 
-// Placeholder until the per platform backends (win32, wayland/x11, android)
-// land. Lets the runtime loop and headless server run everywhere today.
+// Fallback when SDL3 is not compiled in or window creation fails. Keeps the
+// main loop and headless server running everywhere.
 class HeadlessWindow final : public Window {
  public:
   explicit HeadlessWindow(const WindowDesc& desc) : width_(desc.width), height_(desc.height) {}
@@ -23,8 +23,15 @@ class HeadlessWindow final : public Window {
 
 }  // namespace
 
+#if defined(RECREATION_HAS_SDL3)
+std::unique_ptr<Window> CreateSdl3Window(const WindowDesc& desc);
+#endif
+
 std::unique_ptr<Window> Window::Create(const WindowDesc& desc) {
-  REC_WARN("no native window backend yet, running headless");
+#if defined(RECREATION_HAS_SDL3)
+  if (auto window = CreateSdl3Window(desc)) return window;
+#endif
+  REC_WARN("no window backend available, running headless");
   return std::make_unique<HeadlessWindow>(desc);
 }
 

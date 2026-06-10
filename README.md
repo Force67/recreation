@@ -30,9 +30,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Vulkan and zlib are optional at build time. Without Vulkan the renderer
-compiles as a stub, without zlib compressed plugin records are rejected at
-load time.
+SDL3, Vulkan and zlib are optional at build time. Without SDL3 the runtime is
+headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without Vulkan
+the renderer compiles as a stub, without zlib compressed plugin records are
+rejected at load time.
 
 Targets: Windows, Linux, Android (via the NDK toolchain file).
 
