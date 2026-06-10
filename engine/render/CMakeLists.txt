@@ -1,10 +1,10 @@
 recreation_add_module(render
-  src/renderer.cc
-  src/render_graph.cc
-  src/taa.cc
-  src/raytracing.cc
-  src/upscaler.cc
-  src/vulkan/vk_device.cc
+  renderer.cc
+  render_graph.cc
+  taa.cc
+  raytracing.cc
+  upscaler.cc
+  vulkan/vk_device.cc
 )
 
 target_link_libraries(recreation_render PUBLIC recreation::core recreation::asset recreation::ecs)

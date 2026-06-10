@@ -1,12 +1,12 @@
 recreation_add_module(bethesda
-  src/game_profile.cc
-  src/plugin.cc
-  src/load_order.cc
-  src/bsa.cc
-  src/ba2.cc
-  src/nif.cc
-  src/converters.cc
-  src/strings.cc
+  game_profile.cc
+  plugin.cc
+  load_order.cc
+  bsa.cc
+  ba2.cc
+  nif.cc
+  converters.cc
+  strings.cc
 )
 
 target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset)

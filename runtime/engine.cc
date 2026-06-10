@@ -1,0 +1,103 @@
+#include "engine.h"
+
+#include <filesystem>
+
+#include "bethesda/archive.h"
+#include "bethesda/converters.h"
+#include "core/log.h"
+
+namespace rec {
+
+bool Engine::Initialize(const EngineConfig& config) {
+  config_ = config;
+  jobs_ = std::make_unique<JobSystem>();
+
+  if (!config_.headless) {
+    window_ = Window::Create({});
+    if (!renderer_.Initialize(config_.renderer, *window_)) return false;
+  }
+
+  if (!config_.data_dir.empty() && !LoadGameData()) return false;
+
+  if (config_.host_server) {
+    session_ = std::make_unique<net::ServerSession>(config_.port, replication_);
+  } else if (!config_.connect_address.empty()) {
+    session_ = std::make_unique<net::ClientSession>(
+        net::Endpoint{config_.connect_address, config_.port}, replication_);
+  }
+
+  scheduler_.AddSystem(ecs::Stage::kSim, "net", [this](ecs::World& world, f32 dt) {
+    if (session_) session_->Tick(world, dt);
+  });
+  scheduler_.AddSystem(ecs::Stage::kPostSim, "cell_streaming", [this](ecs::World& world, f32) {
+    if (!streamer_) return;
+    f32 player_position[3] = {0, 0, 0};  // TODO: from the player entity
+    streamer_->Update(world, player_position);
+  });
+
+  return true;
+}
+
+bool Engine::LoadGameData() {
+  game_ = config_.game != bethesda::Game::kUnknown
+              ? config_.game
+              : bethesda::GameProfile::DetectFromDataDir(config_.data_dir);
+  if (game_ == bethesda::Game::kUnknown) {
+    REC_ERROR("could not detect a supported game in {}", config_.data_dir);
+    return false;
+  }
+  const auto& profile = bethesda::GameProfile::For(game_);
+  REC_INFO("detected {}", profile.name);
+
+  MountArchives();
+  // Loose files mount last so they win over archives.
+  vfs_.Mount(asset::MakeLooseFileProvider(config_.data_dir));
+
+  assets_ = std::make_unique<asset::AssetDatabase>(vfs_);
+  bethesda::RegisterConverters(*assets_, profile);
+
+  auto order = bethesda::LoadOrder::FromPluginsTxt(config_.plugins_txt, profile);
+  if (!records_.LoadAll(config_.data_dir, order, profile)) return false;
+  REC_INFO("{} plugins, {} records", order.plugins().size(), records_.record_count());
+
+  streamer_ = std::make_unique<world::CellStreamer>(records_, *assets_);
+  return true;
+}
+
+void Engine::MountArchives() {
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(config_.data_dir, ec)) {
+    std::string path = entry.path().string();
+    // TODO: archive order should follow plugin order plus the ini resource
+    // lists, alphabetical is a placeholder.
+    if (auto provider = bethesda::OpenArchive(path)) vfs_.Mount(std::move(provider));
+  }
+}
+
+int Engine::Run() {
+  while (!quit_) {
+    if (window_ && !window_->PumpEvents()) break;
+
+    int steps = timer_.Tick();
+    f32 dt = static_cast<f32>(timer_.fixed_step());
+    for (int i = 0; i < steps; ++i) {
+      scheduler_.RunStage(ecs::Stage::kPreSim, world_, dt);
+      scheduler_.RunStage(ecs::Stage::kSim, world_, dt);
+      scheduler_.RunStage(ecs::Stage::kPostSim, world_, dt);
+    }
+
+    if (!config_.headless) {
+      scheduler_.RunStage(ecs::Stage::kPreRender, world_,
+                          static_cast<f32>(timer_.frame_delta()));
+      renderer_.RenderFrame(world_, static_cast<f32>(timer_.interpolation_alpha()));
+    }
+  }
+  return 0;
+}
+
+void Engine::Shutdown() {
+  if (!config_.headless) renderer_.Shutdown();
+  jobs_->WaitIdle();
+}
+
+}  // namespace rec

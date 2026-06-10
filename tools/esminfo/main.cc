@@ -3,7 +3,7 @@
 #include <map>
 #include <string>
 
-#include "recreation/bethesda/plugin.h"
+#include "bethesda/plugin.h"
 
 // Dumps header info and record counts of a plugin. Handy for checking the
 // parser against real game files.
