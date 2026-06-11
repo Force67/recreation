@@ -5,10 +5,10 @@ recreation_add_module(core
   window.cc
 )
 
-# znet_base is equilibrium's base library; linking it here makes base::
-# containers and strings available to every engine module.
+# equilibrium's base library; linking it here makes base:: containers and
+# strings available to every engine module.
 target_link_libraries(recreation_core PUBLIC
-  znet_base
+  equilibrium::base
   $<$<PLATFORM_ID:Linux>:pthread>)
 
 if(SDL3_FOUND)
