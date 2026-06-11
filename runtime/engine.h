@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
@@ -57,6 +58,8 @@ class Engine {
   std::unique_ptr<world::CellStreamer> streamer_;
 
   render::Renderer renderer_;
+  // Last frame's world matrices keyed by entity, for motion vectors.
+  std::unordered_map<u64, Mat4> prev_transforms_;
   net::ReplicationRegistry replication_;
   std::unique_ptr<net::Session> session_;
 

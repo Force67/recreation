@@ -2,6 +2,8 @@ recreation_add_module(render
   renderer.cc
   render_graph.cc
   mesh_pipeline.cc
+  post.cc
+  shader_util.cc
   taa.cc
   raytracing.cc
   upscaler.cc
@@ -21,4 +23,7 @@ endif()
 recreation_embed_shaders(recreation_render
   shaders/mesh.vert
   shaders/mesh.frag
+  shaders/fullscreen.vert
+  shaders/tonemap.frag
+  shaders/taa.comp
 )

@@ -134,10 +134,18 @@ int Engine::Run() {
 
       render::FrameView view;
       view.camera.eye = {2.4f, 1.8f, 2.4f};
+      // Rebuilt every frame so destroyed entities drop out on their own.
+      std::unordered_map<u64, Mat4> transforms;
       world_.Each<world::Transform, world::Renderable>(
-          [&](ecs::Entity, world::Transform& transform, world::Renderable& renderable) {
-            view.draws.push_back({renderable.mesh.hash, TransformMatrix(transform)});
+          [&](ecs::Entity entity, world::Transform& transform, world::Renderable& renderable) {
+            u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
+            Mat4 current = TransformMatrix(transform);
+            auto prev = prev_transforms_.find(key);
+            view.draws.push_back({renderable.mesh.hash, current,
+                                  prev != prev_transforms_.end() ? prev->second : current});
+            transforms.emplace(key, current);
           });
+      prev_transforms_ = std::move(transforms);
       renderer_.RenderFrame(view);
     }
   }

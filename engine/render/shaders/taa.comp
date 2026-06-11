@@ -1,0 +1,49 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_resolved;
+layout(set = 0, binding = 1) uniform sampler2D scene;
+layout(set = 0, binding = 2) uniform sampler2D history;
+layout(set = 0, binding = 3) uniform sampler2D motion;
+
+layout(push_constant) uniform Push {
+  vec2 inv_size;
+  float history_blend;
+  uint reset_history;
+} push;
+
+void main() {
+  ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 size = imageSize(out_resolved);
+  if (p.x >= size.x || p.y >= size.y) return;
+
+  vec3 curr = texelFetch(scene, p, 0).rgb;
+  if (push.reset_history != 0u) {
+    imageStore(out_resolved, p, vec4(curr, 1.0));
+    return;
+  }
+
+  vec2 uv = (vec2(p) + 0.5) * push.inv_size;
+  vec2 history_uv = uv + texelFetch(motion, p, 0).xy;
+  vec3 hist = texture(history, history_uv).rgb;
+
+  // Neighborhood clamp: history outside the 3x3 color bounds of the current
+  // frame is a disocclusion or lighting change, rein it in to kill ghosting.
+  vec3 box_min = curr;
+  vec3 box_max = curr;
+  for (int y = -1; y <= 1; ++y) {
+    for (int x = -1; x <= 1; ++x) {
+      vec3 c = texelFetch(scene, clamp(p + ivec2(x, y), ivec2(0), size - 1), 0).rgb;
+      box_min = min(box_min, c);
+      box_max = max(box_max, c);
+    }
+  }
+  hist = clamp(hist, box_min, box_max);
+
+  float blend = push.history_blend;
+  if (any(lessThan(history_uv, vec2(0.0))) || any(greaterThan(history_uv, vec2(1.0)))) {
+    blend = 0.0;  // reprojected off screen, no history to use
+  }
+  imageStore(out_resolved, p, vec4(mix(curr, hist, blend), 1.0));
+}

@@ -10,10 +10,10 @@ void RayTracingContext::BuildAccelerationStructures() {
 
 void RayTracingContext::AddPasses(RenderGraph& graph) {
   if (settings_.shadows) {
-    graph.AddPass("rt_shadows", [](RenderGraph::PassBuilder&) {}, [] {});
+    graph.AddPass("rt_shadows", [](RenderGraph::PassBuilder&) {}, [](PassContext&) {});
   }
   if (settings_.reflections) {
-    graph.AddPass("rt_reflections", [](RenderGraph::PassBuilder&) {}, [] {});
+    graph.AddPass("rt_reflections", [](RenderGraph::PassBuilder&) {}, [](PassContext&) {});
   }
 }
 

@@ -1,37 +1,232 @@
 #include "render/render_graph.h"
 
-namespace rec::render {
+#include "core/log.h"
+#include "render/rhi/device.h"
 
-ResourceHandle RenderGraph::CreateTexture(const TransientTextureDesc& desc) {
-  textures_.push_back(desc);
-  return static_cast<ResourceHandle>(textures_.size());
+namespace rec::render {
+namespace {
+
+struct UsageState {
+  VkImageLayout layout;
+  VkPipelineStageFlags2 stage;
+  VkAccessFlags2 access;
+  bool is_write;
+};
+
+UsageState StateFor(ResourceUsage usage) {
+  switch (usage) {
+    case ResourceUsage::kColorAttachment:
+      return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, true};
+    case ResourceUsage::kDepthAttachment:
+      return {VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+              VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                  VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                  VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+              true};
+    case ResourceUsage::kSampledFragment:
+      return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, false};
+    case ResourceUsage::kSampledCompute:
+      return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, false};
+    case ResourceUsage::kStorageWrite:
+      return {VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+              VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, true};
+  }
+  return {VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+          VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, true};
 }
 
-ResourceHandle RenderGraph::ImportBackbuffer() {
-  textures_.push_back({.name = "backbuffer"});
-  return static_cast<ResourceHandle>(textures_.size());
+VkImageUsageFlags ImageUsageFor(ResourceUsage usage) {
+  switch (usage) {
+    case ResourceUsage::kColorAttachment:
+      return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    case ResourceUsage::kDepthAttachment:
+      return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    case ResourceUsage::kSampledFragment:
+    case ResourceUsage::kSampledCompute:
+      return VK_IMAGE_USAGE_SAMPLED_BIT;
+    case ResourceUsage::kStorageWrite:
+      return VK_IMAGE_USAGE_STORAGE_BIT;
+  }
+  return 0;
+}
+
+VkImageAspectFlags AspectFor(VkFormat format) {
+  return format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+}
+
+}  // namespace
+
+TransientPool::~TransientPool() { Clear(); }
+
+void TransientPool::BeginFrame() {
+  for (Entry& entry : entries_) entry.in_use = false;
+}
+
+const GpuImage* TransientPool::Acquire(VkFormat format, VkExtent2D extent,
+                                       VkImageUsageFlags usage) {
+  for (Entry& entry : entries_) {
+    if (entry.in_use || entry.image.format != format ||
+        entry.image.extent.width != extent.width || entry.image.extent.height != extent.height ||
+        entry.usage != usage) {
+      continue;
+    }
+    entry.in_use = true;
+    return &entry.image;
+  }
+
+  Entry entry;
+  entry.image = device_.CreateImage2D(format, extent, usage, AspectFor(format));
+  if (entry.image.image == VK_NULL_HANDLE) return nullptr;
+  entry.usage = usage;
+  entry.in_use = true;
+  entries_.push_back(entry);
+  return &entries_.back().image;
+}
+
+void TransientPool::Clear() {
+  for (Entry& entry : entries_) device_.DestroyImage(entry.image);
+  entries_.clear();
+}
+
+ResourceHandle RenderGraph::CreateTexture(const TransientTextureDesc& desc) {
+  resources_.push_back({.desc = desc});
+  return static_cast<ResourceHandle>(resources_.size());
+}
+
+ResourceHandle RenderGraph::ImportImage(std::string name, const GpuImage& image,
+                                        VkImageLayout* layout) {
+  Resource resource;
+  resource.desc.name = std::move(name);
+  resource.desc.format = image.format;
+  resource.image = image;
+  resource.imported = true;
+  resource.external_layout = layout;
+  resource.layout = *layout;
+  // The previous frame's accesses are unknown to the graph; a full barrier
+  // on first touch is the safe default for persistent images.
+  resource.last_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  resource.last_access = VK_ACCESS_2_MEMORY_WRITE_BIT;
+  resource.last_was_write = true;
+  resources_.push_back(resource);
+  return static_cast<ResourceHandle>(resources_.size());
+}
+
+ResourceHandle RenderGraph::ImportBackbuffer(const GpuImage& image) {
+  Resource resource;
+  resource.desc.name = "backbuffer";
+  resource.desc.format = image.format;
+  resource.image = image;
+  resource.imported = true;
+  resource.is_backbuffer = true;
+  resource.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  resources_.push_back(resource);
+  return static_cast<ResourceHandle>(resources_.size());
 }
 
 void RenderGraph::AddPass(std::string name, SetupFn setup, ExecuteFn execute) {
-  Pass pass{.name = std::move(name), .builder = {}, .execute = std::move(execute)};
+  Pass pass{.name = std::move(name), .builder = {}, .execute = std::move(execute), .barriers = {}};
   setup(pass.builder);
   passes_.push_back(std::move(pass));
 }
 
-void RenderGraph::Compile() {
-  // TODO: cull unreferenced passes, derive barriers from read/write sets,
-  // alias transient memory.
+bool RenderGraph::Compile(Device& device, TransientPool& pool) {
+  // Transients get the union of every declared usage so one physical image
+  // serves all passes that touch it.
+  std::vector<VkImageUsageFlags> usages(resources_.size(), 0);
+  for (const Pass& pass : passes_) {
+    for (const auto& access : pass.builder.accesses) {
+      usages[access.handle - 1] |= ImageUsageFor(access.usage);
+    }
+  }
+  for (size_t i = 0; i < resources_.size(); ++i) {
+    Resource& resource = resources_[i];
+    if (resource.imported) continue;
+    const GpuImage* image = pool.Acquire(
+        resource.desc.format, {resource.desc.width, resource.desc.height}, usages[i]);
+    if (!image) {
+      REC_ERROR("transient allocation failed for {}", resource.desc.name);
+      return false;
+    }
+    resource.image = *image;
+  }
+
+  for (Pass& pass : passes_) {
+    for (const auto& access : pass.builder.accesses) {
+      Resource& resource = resources_[access.handle - 1];
+      UsageState next = StateFor(access.usage);
+      bool layout_change = resource.layout != next.layout;
+      bool hazard = resource.last_was_write || next.is_write;
+      if (!layout_change && !hazard) continue;
+
+      VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      barrier.srcStageMask = resource.last_stage;
+      barrier.srcAccessMask = resource.last_access;
+      barrier.dstStageMask = next.stage;
+      barrier.dstAccessMask = next.access;
+      barrier.oldLayout = resource.layout;
+      barrier.newLayout = next.layout;
+      barrier.image = resource.image.image;
+      barrier.subresourceRange = {AspectFor(resource.image.format), 0, 1, 0, 1};
+      if (barrier.srcStageMask == VK_PIPELINE_STAGE_2_NONE) {
+        // First touch of a transient: the pool may be recycling an image
+        // the previous frame still reads, so order behind everything.
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+      }
+      pass.barriers.push_back(barrier);
+
+      resource.layout = next.layout;
+      resource.last_stage = next.stage;
+      resource.last_access = next.access;
+      resource.last_was_write = next.is_write;
+    }
+  }
+
+  for (Resource& resource : resources_) {
+    if (resource.is_backbuffer) {
+      VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      barrier.srcStageMask = resource.last_stage;
+      barrier.srcAccessMask = resource.last_access;
+      barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+      barrier.oldLayout = resource.layout;
+      barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+      barrier.image = resource.image.image;
+      barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      final_barriers_.push_back(barrier);
+    }
+    if (resource.external_layout) *resource.external_layout = resource.layout;
+  }
+  return true;
 }
 
-void RenderGraph::Execute() {
-  for (auto& pass : passes_) {
-    if (pass.execute) pass.execute();
+void RenderGraph::Execute(PassContext& ctx) {
+  ctx.graph = this;
+  for (Pass& pass : passes_) {
+    if (!pass.barriers.empty()) {
+      VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = static_cast<u32>(pass.barriers.size());
+      dep.pImageMemoryBarriers = pass.barriers.data();
+      vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    }
+    if (pass.execute) pass.execute(ctx);
+  }
+  if (!final_barriers_.empty()) {
+    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = static_cast<u32>(final_barriers_.size());
+    dep.pImageMemoryBarriers = final_barriers_.data();
+    vkCmdPipelineBarrier2(ctx.cmd, &dep);
   }
 }
 
 void RenderGraph::Reset() {
-  textures_.clear();
+  resources_.clear();
   passes_.clear();
+  final_barriers_.clear();
 }
 
 }  // namespace rec::render
