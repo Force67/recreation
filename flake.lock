@@ -21,7 +21,8 @@
         "nixpkgs": "nixpkgs",
         "vma-src": "vma-src",
         "volk-src": "volk-src",
-        "vulkan-headers-src": "vulkan-headers-src"
+        "vulkan-headers-src": "vulkan-headers-src",
+        "zetanet-src": "zetanet-src"
       }
     },
     "vma-src": {
@@ -73,6 +74,19 @@
         "ref": "v1.4.304",
         "repo": "Vulkan-Headers",
         "type": "github"
+      }
+    },
+    "zetanet-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781183570,
+        "narHash": "sha256-hBOOiMf7bZLSBM3qameQLP9Zqik2ECg2eKpAZFWztuA=",
+        "path": "/home/captainspark/Documents/Projects/zetanet",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/captainspark/Documents/Projects/zetanet",
+        "type": "path"
       }
     }
   },

@@ -18,9 +18,16 @@
       url = "github:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.1.0";
       flake = false;
     };
+
+    # Sibling checkout on the devel branch, vendored equilibrium included.
+    # A path input so local fixes land in the sandbox without a commit.
+    zetanet-src = {
+      url = "path:/home/captainspark/Documents/Projects/zetanet";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src }:
+  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems
@@ -41,15 +48,18 @@
           src = self;
 
           nativeBuildInputs = with pkgs; [ cmake ninja glslang ];
-          buildInputs = with pkgs; [ sdl3 ];
+          buildInputs = with pkgs; [ sdl3 openssl ];
 
-          cmakeFlags = fetchContentFlags;
+          cmakeFlags = fetchContentFlags ++ [
+            "-DRECREATION_ZETANET_DIR=${zetanet-src}"
+          ];
 
           # No install rules yet, the binaries are the product.
           installPhase = ''
             runHook preInstall
             mkdir -p $out/bin
             cp runtime/recreation $out/bin/
+            cp runtime/recreation-server $out/bin/
             cp tools/esminfo/esminfo $out/bin/
             runHook postInstall
           '';
@@ -130,6 +140,7 @@
               gdb
               glslang
               sdl3
+              openssl  # zetanet crypto backend
               vulkan-headers
               vulkan-loader
               vulkan-validation-layers

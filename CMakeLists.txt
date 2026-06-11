@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 project(recreation VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+# equilibrium (vendored by zetanet) needs C++23, the engine uses it as its
+# container and string layer.
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -71,6 +73,37 @@ if(SDL3_FOUND)
   message(STATUS "sdl3 found, native windowing enabled")
 else()
   message(STATUS "sdl3 not found, runtime is headless")
+endif()
+
+# Zetanet (devel branch checkout) supplies the UDP transport and reliability
+# layer. Built in the equilibrium configuration so base:: containers, strings
+# and atomics are shared between the engine and the network stack.
+set(RECREATION_ZETANET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../zetanet" CACHE PATH
+  "Path to a zetanet checkout (devel branch)")
+if(NOT EXISTS "${RECREATION_ZETANET_DIR}/CMakeLists.txt")
+  message(FATAL_ERROR
+    "zetanet not found at ${RECREATION_ZETANET_DIR}, set RECREATION_ZETANET_DIR")
+endif()
+set(ZNET_USE_STL OFF CACHE BOOL "" FORCE)
+set(ZNET_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory(${RECREATION_ZETANET_DIR} zetanet EXCLUDE_FROM_ALL)
+
+# Nanobuf carries every message that crosses the wire. Schemas live in nbuf/,
+# generated bindings in nbuf/gen/ (checked in, so builds don't need rust), and
+# nbuf/runtime/ vendors the header-only C++ runtime.
+add_library(recreation_nanobuf INTERFACE)
+add_library(recreation::nanobuf ALIAS recreation_nanobuf)
+target_include_directories(recreation_nanobuf INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/gen
+  ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/runtime)
+
+find_program(RECREATION_NANOC nanoc
+  HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../nanobuf/target/release)
+if(RECREATION_NANOC)
+  add_custom_target(nanobuf_regen
+    COMMAND ${RECREATION_NANOC} build ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/protocol.nb
+            --lang cpp --out ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/gen
+    COMMENT "regenerating nanobuf bindings from nbuf/*.nb")
 endif()
 
 set(RECREATION_MODULES
