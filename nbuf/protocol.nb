@@ -1,0 +1,71 @@
+schema rec.net
+
+/// Why the server refused a join or dropped a client.
+enum DisconnectReason: u8 {
+  unknown = 0
+  shutdown = 1
+  kicked = 2
+  protocol_mismatch = 3
+  server_full = 4
+}
+
+/// First data-channel message a client sends once the zetanet handshake is
+/// connected. Everything before this rides zetanet's own control channel.
+message ClientJoin {
+  protocol: u32 @1
+  player_name: string @2
+}
+
+/// Server reply admitting a client to the session.
+message JoinAccept {
+  player_entity: u64 @1
+  server_tick: u64 @2
+  protocol: u32 @3
+  client_id: u32 @4
+  tick_rate: u16 @5
+  snapshot_rate: u16 @6
+}
+
+/// Server reply turning a client away.
+message JoinRefuse {
+  reason: DisconnectReason @1
+  detail: string @2
+}
+
+/// State of one replicated entity. Scalars only, so the whole record lives in
+/// the fixed section and encodes without heap traffic.
+message EntityState {
+  net_id: u64 @1
+  mesh: u64 @2
+  pos_x: f32 @3
+  pos_y: f32 @4
+  pos_z: f32 @5
+  rot_x: f32 @6
+  rot_y: f32 @7
+  rot_z: f32 @8
+  rot_w: f32 @9
+  scale: f32 @10
+  form_local_id: u32? @11
+  form_plugin: u16? @12
+}
+
+/// Server to client world state broadcast. A full snapshot carries every
+/// replicated entity and the client despawns anything absent; a delta carries
+/// only entities that changed since the previous broadcast.
+message Snapshot {
+  server_tick: u64 @1
+  full: bool @2
+  entities: list<EntityState> @3
+  despawned: list<u64> @4
+}
+
+/// Client to server input for its player entity.
+message PlayerInput {
+  client_tick: u64 @1
+  move_x: f32 @2
+  move_y: f32 @3
+  move_z: f32 @4
+  yaw: f32 @5
+  pitch: f32 @6
+  buttons: u32 @7
+}
