@@ -106,6 +106,8 @@ if(RECREATION_NANOC)
     COMMENT "regenerating nanobuf bindings from nbuf/*.nb")
 endif()
 
+add_subdirectory(third_party)
+
 set(RECREATION_MODULES
   core
   ecs
