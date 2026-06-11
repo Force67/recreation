@@ -76,7 +76,6 @@ class Renderer {
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkSemaphore image_available = VK_NULL_HANDLE;
-    VkSemaphore render_finished = VK_NULL_HANDLE;
     VkFence in_flight = VK_NULL_HANDLE;
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     GpuBuffer globals;  // host visible FrameGlobals
@@ -84,6 +83,8 @@ class Renderer {
 
   bool CreateFrameResources();
   void DestroyFrameResources();
+  bool CreateRenderFinishedSemaphores();
+  void DestroyRenderFinishedSemaphores();
   void RecreateSwapchain();
   void UpdateRenderResolution();
   void BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view);
@@ -97,6 +98,9 @@ class Renderer {
   std::unique_ptr<PostPass> post_;
   std::unordered_map<u64, GpuMesh> meshes_;
   FrameResources frames_[kFramesInFlight];
+  // One per swapchain image: a present may still wait on the semaphore
+  // until its image is reacquired, so frame slots cannot own these.
+  std::vector<VkSemaphore> render_finished_;
   std::unique_ptr<Upscaler> upscaler_;
   std::unique_ptr<RayTracingContext> raytracing_;
   RenderGraph graph_;

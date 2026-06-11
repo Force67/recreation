@@ -24,7 +24,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   }
 
   swapchain_ = Swapchain::Create(*device_, output_width_, output_height_);
-  if (!swapchain_ || !CreateFrameResources()) return false;
+  if (!swapchain_ || !CreateFrameResources() || !CreateRenderFinishedSemaphores()) return false;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
 
@@ -146,7 +146,7 @@ void Renderer::RenderFrame(const FrameView& view) {
   wait.semaphore = frame.image_available;
   wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
   VkSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-  signal.semaphore = frame.render_finished;
+  signal.semaphore = render_finished_[image_index];
   signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   VkCommandBufferSubmitInfo cmd_info{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
   cmd_info.commandBuffer = frame.cmd;
@@ -160,7 +160,7 @@ void Renderer::RenderFrame(const FrameView& view) {
   submit.pSignalSemaphoreInfos = &signal;
   vkQueueSubmit2(device_->graphics_queue(), 1, &submit, frame.in_flight);
 
-  VkResult presented = swapchain_->Present(frame.render_finished, image_index);
+  VkResult presented = swapchain_->Present(render_finished_[image_index], image_index);
   if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {
     RecreateSwapchain();
   }
@@ -351,8 +351,6 @@ bool Renderer::CreateFrameResources() {
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     if (vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &frame.image_available) !=
             VK_SUCCESS ||
-        vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &frame.render_finished) !=
-            VK_SUCCESS ||
         vkCreateFence(device_->device(), &fence_info, nullptr, &frame.in_flight) != VK_SUCCESS) {
       return false;
     }
@@ -390,10 +388,28 @@ void Renderer::DestroyFrameResources() {
     }
     if (frame.in_flight) vkDestroyFence(device_->device(), frame.in_flight, nullptr);
     if (frame.image_available) vkDestroySemaphore(device_->device(), frame.image_available, nullptr);
-    if (frame.render_finished) vkDestroySemaphore(device_->device(), frame.render_finished, nullptr);
     if (frame.pool) vkDestroyCommandPool(device_->device(), frame.pool, nullptr);
     frame = {};
   }
+  DestroyRenderFinishedSemaphores();
+}
+
+bool Renderer::CreateRenderFinishedSemaphores() {
+  render_finished_.resize(swapchain_->image_count());
+  for (VkSemaphore& semaphore : render_finished_) {
+    VkSemaphoreCreateInfo info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    if (vkCreateSemaphore(device_->device(), &info, nullptr, &semaphore) != VK_SUCCESS) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void Renderer::DestroyRenderFinishedSemaphores() {
+  for (VkSemaphore semaphore : render_finished_) {
+    if (semaphore) vkDestroySemaphore(device_->device(), semaphore, nullptr);
+  }
+  render_finished_.clear();
 }
 
 void Renderer::RecreateSwapchain() {
@@ -404,6 +420,8 @@ void Renderer::RecreateSwapchain() {
   swapchain_.reset();
   swapchain_ = Swapchain::Create(*device_, width, height);
   if (!swapchain_) return;
+  DestroyRenderFinishedSemaphores();
+  if (!CreateRenderFinishedSemaphores()) return;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
   UpdateRenderResolution();

@@ -50,7 +50,17 @@ RayTracingContext::~RayTracingContext() {
     vkDestroyAccelerationStructureKHR(device_.device(), blas.handle, nullptr);
     device_.DestroyBuffer(blas.buffer);
   }
+  device_.DestroyBuffer(blas_scratch_);
   for (Tlas& tlas : tlas_) DestroyTlas(tlas);
+}
+
+bool RayTracingContext::EnsureBlasScratch(u64 size) {
+  if (blas_scratch_.buffer && blas_scratch_.size >= size) return true;
+  device_.WaitIdle();
+  device_.DestroyBuffer(blas_scratch_);
+  blas_scratch_ = device_.CreateBuffer(
+      size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+  return blas_scratch_.buffer != VK_NULL_HANDLE;
 }
 
 void RayTracingContext::DestroyTlas(Tlas& tlas) {
@@ -111,19 +121,20 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
     return false;
   }
 
-  GpuBuffer scratch = device_.CreateBuffer(
-      sizes.buildScratchSize + scratch_alignment_,
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+  if (!EnsureBlasScratch(sizes.buildScratchSize + scratch_alignment_)) {
+    vkDestroyAccelerationStructureKHR(device_.device(), blas.handle, nullptr);
+    device_.DestroyBuffer(blas.buffer);
+    return false;
+  }
   build.dstAccelerationStructure = blas.handle;
   build.scratchData.deviceAddress =
-      AlignUp(BufferAddress(device_.device(), scratch.buffer), scratch_alignment_);
+      AlignUp(BufferAddress(device_.device(), blas_scratch_.buffer), scratch_alignment_);
 
   VkAccelerationStructureBuildRangeInfoKHR range{.primitiveCount = primitive_count};
   const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
   device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
     vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, &ranges);
   });
-  device_.DestroyBuffer(scratch);
 
   VkAccelerationStructureDeviceAddressInfoKHR address_info{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR};

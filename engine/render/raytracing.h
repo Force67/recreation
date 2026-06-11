@@ -71,12 +71,17 @@ class RayTracingContext {
   explicit RayTracingContext(Device& device) : device_(device) {}
 
   bool EnsureTlasCapacity(Tlas& tlas, u32 instance_count);
+  bool EnsureBlasScratch(u64 size);
   void DestroyTlas(Tlas& tlas);
 
   Device& device_;
   RayTracingSettings settings_;
   u32 scratch_alignment_ = 128;
   std::unordered_map<u64, Blas> blas_;
+  // Reused across builds. Freeing scratch right after the fence tripped
+  // lavapipe, whose build workers can outlive the signal; a persistent
+  // arena avoids both that and the per-build allocation.
+  GpuBuffer blas_scratch_;
   Tlas tlas_[kSlots];
 };
 
