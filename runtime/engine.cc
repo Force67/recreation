@@ -1,12 +1,31 @@
 #include "engine.h"
 
+#include <cmath>
 #include <filesystem>
 
+#include "asset/primitives.h"
 #include "bethesda/archive.h"
 #include "bethesda/converters.h"
 #include "core/log.h"
+#include "core/math.h"
+#include "world/components.h"
 
 namespace rec {
+namespace {
+
+struct Spin {
+  f32 angle = 0;
+  f32 speed = 0.9f;
+};
+
+Mat4 TransformMatrix(const world::Transform& transform) {
+  return MakeTranslation({transform.position[0], transform.position[1], transform.position[2]}) *
+         MakeFromQuat(transform.rotation[0], transform.rotation[1], transform.rotation[2],
+                      transform.rotation[3]) *
+         MakeScale(transform.scale);
+}
+
+}  // namespace
 
 bool Engine::Initialize(const EngineConfig& config) {
   config_ = config;
@@ -17,7 +36,11 @@ bool Engine::Initialize(const EngineConfig& config) {
     if (!renderer_.Initialize(config_.renderer, *window_)) return false;
   }
 
-  if (!config_.data_dir.empty() && !LoadGameData()) return false;
+  if (!config_.data_dir.empty()) {
+    if (!LoadGameData()) return false;
+  } else {
+    CreateDemoScene();
+  }
 
   if (config_.host_server) {
     session_ = std::make_unique<net::ServerSession>(config_.port, replication_);
@@ -36,6 +59,25 @@ bool Engine::Initialize(const EngineConfig& config) {
   });
 
   return true;
+}
+
+void Engine::CreateDemoScene() {
+  asset::Mesh cube = asset::MakeCube(0.7f, asset::MakeAssetId("builtin/cube"));
+  renderer_.UploadMesh(cube);
+
+  ecs::Entity entity = world_.Create();
+  world_.Add(entity, world::Transform{});
+  world_.Add(entity, world::Renderable{cube.id});
+  world_.Add(entity, Spin{});
+
+  scheduler_.AddSystem(ecs::Stage::kSim, "demo_spin", [](ecs::World& world, f32 dt) {
+    world.Each<Spin, world::Transform>([dt](ecs::Entity, Spin& spin, world::Transform& t) {
+      spin.angle += spin.speed * dt;
+      t.rotation[1] = std::sin(spin.angle * 0.5f);
+      t.rotation[3] = std::cos(spin.angle * 0.5f);
+    });
+  });
+  REC_INFO("no game data given, spinning a cube instead");
 }
 
 bool Engine::LoadGameData() {
@@ -89,7 +131,14 @@ int Engine::Run() {
     if (!config_.headless) {
       scheduler_.RunStage(ecs::Stage::kPreRender, world_,
                           static_cast<f32>(timer_.frame_delta()));
-      renderer_.RenderFrame(world_, static_cast<f32>(timer_.interpolation_alpha()));
+
+      render::FrameView view;
+      view.camera.eye = {2.4f, 1.8f, 2.4f};
+      world_.Each<world::Transform, world::Renderable>(
+          [&](ecs::Entity, world::Transform& transform, world::Renderable& renderable) {
+            view.draws.push_back({renderable.mesh.hash, TransformMatrix(transform)});
+          });
+      renderer_.RenderFrame(view);
     }
   }
   return 0;

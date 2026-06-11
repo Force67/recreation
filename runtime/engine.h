@@ -39,6 +39,7 @@ class Engine {
  private:
   bool LoadGameData();
   void MountArchives();
+  void CreateDemoScene();
 
   EngineConfig config_;
   bethesda::Game game_ = bethesda::Game::kUnknown;
