@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "core/types.h"
+#include "render/render_graph.h"
 
 namespace rec::render {
 
@@ -20,12 +21,16 @@ struct UpscalerDesc {
 
 struct UpscalerInputs {
   // Resource handles into the render graph, filled by the renderer.
-  u32 color = 0;
-  u32 depth = 0;
-  u32 motion_vectors = 0;
-  u32 exposure = 0;
-  f32 jitter_x = 0;
+  ResourceHandle color = kInvalidResource;
+  ResourceHandle depth = kInvalidResource;
+  ResourceHandle motion_vectors = kInvalidResource;
+  ResourceHandle exposure = kInvalidResource;
+  f32 jitter_x = 0;  // pixel units, the same value baked into the projection
   f32 jitter_y = 0;
+  f32 sharpness = 0;
+  f32 frame_delta_seconds = 0;
+  f32 camera_near = 0.1f;
+  f32 camera_fov_y = 1.0472f;
   bool reset_history = false;
 };
 
@@ -36,7 +41,9 @@ class Upscaler {
   virtual ~Upscaler() = default;
 
   virtual bool Initialize(const UpscalerDesc& desc) = 0;
-  virtual void AddToGraph(class RenderGraph& graph, const UpscalerInputs& inputs) = 0;
+  // Adds the upscale pass and returns the handle of the full resolution
+  // output, or kInvalidResource on failure (renderer shows the input then).
+  virtual ResourceHandle AddToGraph(RenderGraph& graph, const UpscalerInputs& inputs) = 0;
   virtual UpscalerKind kind() const = 0;
 };
 

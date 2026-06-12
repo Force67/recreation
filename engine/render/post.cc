@@ -2,8 +2,8 @@
 
 #include "core/log.h"
 #include "render/shader_util.h"
-#include "shaders/fullscreen_vert.h"
-#include "shaders/tonemap_frag.h"
+#include "shaders/fullscreen_vs_hlsl.h"
+#include "shaders/tonemap_ps_hlsl.h"
 
 namespace rec::render {
 
@@ -33,17 +33,24 @@ std::unique_ptr<PostPass> PostPass::Create(Device& device, VkFormat output_forma
     return nullptr;
   }
 
+  VkPushConstantRange push_range{};
+  push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  push_range.size = sizeof(Params);
+
   VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   layout_info.setLayoutCount = 1;
   layout_info.pSetLayouts = &pass->set_layout_;
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &push_range;
   if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &pass->layout_) !=
       VK_SUCCESS) {
     return nullptr;
   }
 
   VkShaderModule vert =
-      CreateShaderModule(device.device(), k_fullscreen_vert, sizeof(k_fullscreen_vert));
-  VkShaderModule frag = CreateShaderModule(device.device(), k_tonemap_frag, sizeof(k_tonemap_frag));
+      CreateShaderModule(device.device(), k_fullscreen_vs_hlsl, sizeof(k_fullscreen_vs_hlsl));
+  VkShaderModule frag =
+      CreateShaderModule(device.device(), k_tonemap_ps_hlsl, sizeof(k_tonemap_ps_hlsl));
   if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE) {
     REC_ERROR("post shader module creation failed");
     return nullptr;
@@ -136,7 +143,7 @@ PostPass::~PostPass() {
 }
 
 void PostPass::Record(PassContext& ctx, VkImageView input, VkImageView output,
-                      VkExtent2D output_extent) {
+                      VkExtent2D output_extent, const Params& params) {
   VkDescriptorSet set = ctx.allocate_set(set_layout_);
   VkDescriptorImageInfo image_info{};
   image_info.sampler = sampler_;
@@ -171,6 +178,7 @@ void PostPass::Record(PassContext& ctx, VkImageView input, VkImageView output,
   vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
   vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set, 0,
                           nullptr);
+  vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(params), &params);
   vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
   vkCmdEndRendering(ctx.cmd);
 }

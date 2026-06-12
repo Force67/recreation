@@ -5,13 +5,13 @@
 
 namespace rec::render {
 
-std::unique_ptr<Swapchain> Swapchain::Create(Device& device, u32 width, u32 height) {
+std::unique_ptr<Swapchain> Swapchain::Create(Device& device, u32 width, u32 height, bool vsync) {
   auto swapchain = std::unique_ptr<Swapchain>(new Swapchain(device));
-  if (!swapchain->Init(width, height)) return nullptr;
+  if (!swapchain->Init(width, height, vsync)) return nullptr;
   return swapchain;
 }
 
-bool Swapchain::Init(u32 width, u32 height) {
+bool Swapchain::Init(u32 width, u32 height, bool vsync) {
   VkSurfaceCapabilitiesKHR caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_.physical_device(), device_.surface(), &caps);
 
@@ -40,8 +40,10 @@ bool Swapchain::Init(u32 width, u32 height) {
   base::Vector<VkPresentModeKHR> modes(mode_count);
   vkGetPhysicalDeviceSurfacePresentModesKHR(device_.physical_device(), device_.surface(),
                                             &mode_count, modes.data());
-  VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;  // always available
-  if (modes.find(VK_PRESENT_MODE_MAILBOX_KHR) != nullptr) {
+  // Fifo is the vsync path and always available; mailbox gives unthrottled
+  // frames without tearing when vsync is off.
+  VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+  if (!vsync && modes.find(VK_PRESENT_MODE_MAILBOX_KHR) != nullptr) {
     present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
   }
 

@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 
+#include <cmath>
 #include <cstring>
 
 #include "core/log.h"
@@ -11,6 +12,9 @@ Renderer::~Renderer() = default;
 
 bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   desc_ = desc;
+  settings_.aa_mode = desc.aa_mode;
+  settings_.upscaler = desc.upscaler;
+  settings_.rt_shadows = desc.raytracing.shadows;
   output_width_ = window.width();
   output_height_ = window.height();
 
@@ -23,7 +27,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     return true;
   }
 
-  swapchain_ = Swapchain::Create(*device_, output_width_, output_height_);
+  swapchain_ = Swapchain::Create(*device_, output_width_, output_height_, settings_.vsync);
   if (!swapchain_ || !CreateFrameResources() || !CreateRenderFinishedSemaphores()) return false;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
@@ -32,44 +36,111 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     raytracing_ = RayTracingContext::Create(*device_);
     raytracing_->Configure(desc.raytracing);
   }
-  rt_shadows_ = raytracing_ && device_->caps().ray_query && desc.raytracing.shadows;
+  rt_available_ = raytracing_ && device_->caps().ray_query;
 
   transient_pool_ = std::make_unique<TransientPool>(*device_);
+  material_system_ = MaterialSystem::Create(*device_);
+  if (!material_system_) return false;
   mesh_pipeline_ = MeshPipeline::Create(*device_, kSceneColorFormat, kMotionFormat, kDepthFormat,
-                                        rt_shadows_);
+                                        material_system_->set_layout());
   post_ = PostPass::Create(*device_, swapchain_->format());
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
 
-  if (desc.upscaler != UpscalerKind::kNone) {
-    upscaler_ = CreateUpscaler({.kind = desc.upscaler,
-                                .render_width = output_width_ * 2 / 3,
-                                .render_height = output_height_ * 2 / 3,
-                                .output_width = output_width_,
-                                .output_height = output_height_},
-                               *device_);
-    if (upscaler_) {
-      desc_.aa_mode = AntiAliasingMode::kUpscaler;
-    } else {
-      REC_WARN("upscaler unavailable, falling back to taa");
-      desc_.upscaler = UpscalerKind::kNone;
-      desc_.aa_mode = AntiAliasingMode::kTaa;
-    }
+  if (settings_.upscaler != UpscalerKind::kNone && !CreateUpscalerForSettings()) {
+    REC_WARN("upscaler unavailable, falling back to taa");
+    settings_.upscaler = UpscalerKind::kNone;
+    settings_.aa_mode = AntiAliasingMode::kTaa;
   }
+  applied_upscaler_ = settings_.upscaler;
+  applied_quality_ = settings_.upscaler_quality;
+  applied_aa_ = settings_.aa_mode;
+  applied_vsync_ = settings_.vsync;
+
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
 
   return true;
 }
 
-void Renderer::UpdateRenderResolution() {
+bool Renderer::CreateUpscalerForSettings() {
+  f32 scale = UpscalerScale(settings_.upscaler_quality);
+  u32 render_width = static_cast<u32>(static_cast<f32>(output_width_) / scale);
+  u32 render_height = static_cast<u32>(static_cast<f32>(output_height_) / scale);
+  upscaler_ = CreateUpscaler({.kind = settings_.upscaler,
+                              .render_width = render_width,
+                              .render_height = render_height,
+                              .output_width = output_width_,
+                              .output_height = output_height_,
+                              .sharpness = settings_.sharpness},
+                             *device_);
   if (upscaler_) {
-    // Quality preset, 1.5x per axis. Presets become configurable later.
-    render_width_ = output_width_ * 2 / 3;
-    render_height_ = output_height_ * 2 / 3;
+    settings_.aa_mode = AntiAliasingMode::kUpscaler;
+    return true;
+  }
+  return false;
+}
+
+void Renderer::UpdateRenderResolution() {
+  if (upscaler_ && settings_.aa_mode == AntiAliasingMode::kUpscaler) {
+    f32 scale = UpscalerScale(settings_.upscaler_quality);
+    render_width_ = static_cast<u32>(static_cast<f32>(output_width_) / scale);
+    render_height_ = static_cast<u32>(static_cast<f32>(output_height_) / scale);
   } else {
     render_width_ = output_width_;
     render_height_ = output_height_;
   }
+}
+
+void Renderer::ApplySettings() {
+  if (settings_.vsync != applied_vsync_) {
+    applied_vsync_ = settings_.vsync;
+    RecreateSwapchain();
+  }
+
+  // kUpscaler is only valid with a live upscaler.
+  if (settings_.aa_mode == AntiAliasingMode::kUpscaler && settings_.upscaler == UpscalerKind::kNone) {
+    settings_.aa_mode = AntiAliasingMode::kTaa;
+  }
+
+  bool upscaler_changed = settings_.upscaler != applied_upscaler_ ||
+                          settings_.upscaler_quality != applied_quality_;
+  if (upscaler_changed) {
+    device_->WaitIdle();
+    upscaler_.reset();
+    if (settings_.upscaler != UpscalerKind::kNone) {
+      if (!CreateUpscalerForSettings()) {
+        REC_WARN("upscaler unavailable, falling back to taa");
+        settings_.upscaler = UpscalerKind::kNone;
+        settings_.aa_mode = AntiAliasingMode::kTaa;
+      }
+    } else if (settings_.aa_mode == AntiAliasingMode::kUpscaler) {
+      settings_.aa_mode = AntiAliasingMode::kTaa;
+    }
+    applied_upscaler_ = settings_.upscaler;
+    applied_quality_ = settings_.upscaler_quality;
+    UpdateRenderResolution();
+    transient_pool_->Clear();
+    taa_.Resize(*device_, {render_width_, render_height_});
+    taa_.Reset();
+    has_prev_frame_ = false;
+  }
+
+  if (settings_.aa_mode != applied_aa_) {
+    bool resolution_changes = settings_.aa_mode == AntiAliasingMode::kUpscaler ||
+                              applied_aa_ == AntiAliasingMode::kUpscaler;
+    applied_aa_ = settings_.aa_mode;
+    if (resolution_changes) {
+      device_->WaitIdle();
+      UpdateRenderResolution();
+      transient_pool_->Clear();
+      taa_.Resize(*device_, {render_width_, render_height_});
+    }
+    taa_.Reset();
+    has_prev_frame_ = false;
+  }
+
+  taa_.Configure({.history_blend = settings_.taa_history_blend,
+                  .jitter_sample_count = taa_.settings().jitter_sample_count});
 }
 
 bool Renderer::UploadMesh(const asset::Mesh& mesh) {
@@ -91,13 +162,32 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rt_usage);
   gpu.index_count = static_cast<u32>(lod.indices.size());
   gpu.vertex_count = static_cast<u32>(lod.vertices.size());
+  if (lod.submeshes.empty()) {
+    gpu.submeshes.push_back({0, gpu.index_count, 0});
+  } else {
+    for (const asset::Submesh& submesh : lod.submeshes) {
+      gpu.submeshes.push_back({submesh.index_offset, submesh.index_count, submesh.material.hash});
+    }
+  }
   meshes_[mesh.id.hash] = gpu;
   if (raytracing_) raytracing_->BuildBlas(mesh.id.hash, gpu);
   return true;
 }
 
+bool Renderer::UploadTexture(const asset::Texture& texture) {
+  if (!material_system_) return false;
+  return material_system_->UploadTexture(texture);
+}
+
+bool Renderer::UploadMaterial(const asset::Material& material) {
+  if (!material_system_) return false;
+  return material_system_->UploadMaterial(material);
+}
+
 void Renderer::RenderFrame(const FrameView& view) {
   if (!device_ || device_->is_stub() || !swapchain_) return;
+
+  ApplySettings();
 
   FrameResources& frame = frames_[frame_index_ % kFramesInFlight];
   vkWaitForFences(device_->device(), 1, &frame.in_flight, VK_TRUE, UINT64_MAX);
@@ -168,6 +258,8 @@ void Renderer::RenderFrame(const FrameView& view) {
 }
 
 void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view) {
+  bool rt_shadows = rt_available_ && settings_.rt_shadows;
+
   // Camera state for both this frame and reprojection. Jitter lives in the
   // projection, not the matrices used for motion vectors.
   f32 aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
@@ -175,18 +267,38 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   Mat4 view_proj = proj * LookAt(view.camera.eye, view.camera.target, {0, 1, 0});
 
   bool temporal =
-      desc_.aa_mode == AntiAliasingMode::kTaa || desc_.aa_mode == AntiAliasingMode::kUpscaler;
+      settings_.aa_mode == AntiAliasingMode::kTaa ||
+      settings_.aa_mode == AntiAliasingMode::kUpscaler;
   f32 jitter_x = 0, jitter_y = 0;
   if (temporal) {
-    JitterSequence::Sample(frame_index_, taa_.settings().jitter_sample_count, &jitter_x,
-                           &jitter_y);
+    u32 sample_count = taa_.settings().jitter_sample_count;
+    if (settings_.aa_mode == AntiAliasingMode::kUpscaler) {
+      // FSR-style phase count grows with the scale factor squared.
+      f32 scale = static_cast<f32>(output_width_) / static_cast<f32>(render_width_);
+      sample_count = static_cast<u32>(std::ceil(8.0f * scale * scale));
+    }
+    JitterSequence::Sample(frame_index_, sample_count, &jitter_x, &jitter_y);
   }
+
+  bool first_frame = !has_prev_frame_;
 
   FrameGlobals globals;
   globals.view_proj = view_proj;
   globals.prev_view_proj = has_prev_frame_ ? prev_view_proj_ : view_proj;
   globals.jitter[0] = 2.0f * jitter_x / static_cast<f32>(render_width_);
   globals.jitter[1] = 2.0f * jitter_y / static_cast<f32>(render_height_);
+  Vec3 sun = Normalize(settings_.sun_direction);
+  globals.sun_direction[0] = sun.x;
+  globals.sun_direction[1] = sun.y;
+  globals.sun_direction[2] = sun.z;
+  globals.sun_direction[3] = settings_.sun_intensity;
+  globals.sun_color[0] = settings_.sun_color.x;
+  globals.sun_color[1] = settings_.sun_color.y;
+  globals.sun_color[2] = settings_.sun_color.z;
+  globals.sun_color[3] = settings_.ambient;
+  globals.camera_position[0] = view.camera.eye.x;
+  globals.camera_position[1] = view.camera.eye.y;
+  globals.camera_position[2] = view.camera.eye.z;
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -202,7 +314,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
        .height = render_height_});
 
   u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
-  if (rt_shadows_) {
+  if (rt_shadows) {
     base::Vector<RayTracingContext::Instance> instances;
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
@@ -222,7 +334,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
       },
-      [this, scene_color, motion, depth, tlas_slot, &frame, &view](PassContext& ctx) {
+      [this, scene_color, motion, depth, tlas_slot, rt_shadows, &frame,
+       &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(scene_color).view;
@@ -242,7 +355,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         depth_attachment.imageView = ctx.graph->image(depth).view;
         depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
 
         VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -273,7 +386,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
         VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-        if (rt_shadows_) {
+        if (rt_shadows) {
           tlas = raytracing_->tlas(tlas_slot);
           tlas_info.accelerationStructureCount = 1;
           tlas_info.pAccelerationStructures = &tlas;
@@ -287,28 +400,45 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         }
         vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
 
-        mesh_pipeline_->Bind(ctx.cmd, globals_set);
+        mesh_pipeline_->Bind(ctx.cmd, globals_set, rt_shadows, settings_.wireframe);
+        VkDescriptorSet bound_material = VK_NULL_HANDLE;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh) continue;
           mesh_pipeline_->Draw(ctx.cmd, *mesh,
                                {.model = item.transform, .prev_model = item.prev_transform});
+          for (const GpuSubmesh& submesh : mesh->submeshes) {
+            VkDescriptorSet material = material_system_->set(submesh.material);
+            if (material != bound_material) {
+              mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              bound_material = material;
+            }
+            mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+          }
         }
         vkCmdEndRendering(ctx.cmd);
       });
 
   ResourceHandle post_input = scene_color;
-  switch (desc_.aa_mode) {
+  switch (settings_.aa_mode) {
     case AntiAliasingMode::kTaa:
       post_input = taa_.AddToGraph(graph_, scene_color, motion, frame_index_);
       break;
-    case AntiAliasingMode::kUpscaler:
-      upscaler_->AddToGraph(graph_, {.color = scene_color,
-                                     .depth = depth,
-                                     .motion_vectors = motion,
-                                     .jitter_x = jitter_x,
-                                     .jitter_y = jitter_y});
+    case AntiAliasingMode::kUpscaler: {
+      ResourceHandle upscaled =
+          upscaler_->AddToGraph(graph_, {.color = scene_color,
+                                         .depth = depth,
+                                         .motion_vectors = motion,
+                                         .jitter_x = jitter_x,
+                                         .jitter_y = jitter_y,
+                                         .sharpness = settings_.sharpness,
+                                         .frame_delta_seconds = view.frame_delta_seconds,
+                                         .camera_near = 0.1f,
+                                         .camera_fov_y = view.camera.fov_y,
+                                         .reset_history = first_frame});
+      if (upscaled != kInvalidResource) post_input = upscaled;
       break;
+    }
     case AntiAliasingMode::kNone:
       break;
   }
@@ -320,16 +450,41 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   backbuffer_image.extent = swapchain_->extent();
   ResourceHandle backbuffer = graph_.ImportBackbuffer(backbuffer_image);
 
+  PostPass::Params post_params{settings_.exposure, static_cast<u32>(settings_.tonemap)};
   graph_.AddPass(
       "post",
       [&](RenderGraph::PassBuilder& builder) {
         builder.Read(post_input, ResourceUsage::kSampledFragment);
         builder.Write(backbuffer, ResourceUsage::kColorAttachment);
       },
-      [this, post_input, backbuffer](PassContext& ctx) {
+      [this, post_input, backbuffer, post_params](PassContext& ctx) {
         post_->Record(ctx, ctx.graph->image(post_input).view, ctx.graph->image(backbuffer).view,
-                      ctx.graph->image(backbuffer).extent);
+                      ctx.graph->image(backbuffer).extent, post_params);
       });
+
+  if (view.ui_draw) {
+    graph_.AddPass(
+        "ui",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(backbuffer, ResourceUsage::kColorAttachment);
+        },
+        [this, backbuffer, &view](PassContext& ctx) {
+          VkRenderingAttachmentInfo color{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          color.imageView = ctx.graph->image(backbuffer).view;
+          color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+          color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+          rendering.renderArea = {{0, 0}, ctx.graph->image(backbuffer).extent};
+          rendering.layerCount = 1;
+          rendering.colorAttachmentCount = 1;
+          rendering.pColorAttachments = &color;
+          vkCmdBeginRendering(ctx.cmd, &rendering);
+          view.ui_draw(ctx.cmd);
+          vkCmdEndRendering(ctx.cmd);
+        });
+  }
 }
 
 bool Renderer::CreateFrameResources() {
@@ -418,16 +573,30 @@ void Renderer::RecreateSwapchain() {
   if (width == 0 || height == 0) return;  // minimized
   device_->WaitIdle();
   swapchain_.reset();
-  swapchain_ = Swapchain::Create(*device_, width, height);
+  swapchain_ = Swapchain::Create(*device_, width, height, settings_.vsync);
   if (!swapchain_) return;
   DestroyRenderFinishedSemaphores();
   if (!CreateRenderFinishedSemaphores()) return;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
+
+  // The upscaler is sized for the output, rebuild it alongside.
+  if (upscaler_) {
+    upscaler_.reset();
+    if (!CreateUpscalerForSettings()) {
+      settings_.upscaler = UpscalerKind::kNone;
+      settings_.aa_mode = AntiAliasingMode::kTaa;
+      applied_upscaler_ = UpscalerKind::kNone;
+    }
+  }
   UpdateRenderResolution();
   transient_pool_->Clear();
   taa_.Resize(*device_, {render_width_, render_height_});
   has_prev_frame_ = false;
+}
+
+void Renderer::WaitIdle() {
+  if (device_ && !device_->is_stub()) device_->WaitIdle();
 }
 
 void Renderer::Shutdown() {
@@ -440,6 +609,7 @@ void Renderer::Shutdown() {
     }
     meshes_.clear();
     taa_.Destroy(*device_);
+    material_system_.reset();
     transient_pool_.reset();
   }
   graph_.Reset();
@@ -451,18 +621,14 @@ void Renderer::Shutdown() {
   device_.reset();
 }
 
-void Renderer::SetAntiAliasing(AntiAliasingMode mode) {
-  if (mode == AntiAliasingMode::kUpscaler && !upscaler_) mode = AntiAliasingMode::kTaa;
-  desc_.aa_mode = mode;
-  taa_.Reset();
-}
-
-void Renderer::SetUpscaler(UpscalerKind kind) {
-  desc_.upscaler = kind;
-  taa_.Reset();
-  // TODO: recreate upscaler and transient targets at the new render resolution.
-}
-
 const DeviceCaps* Renderer::caps() const { return device_ ? &device_->caps() : nullptr; }
+
+VkFormat Renderer::swapchain_format() const {
+  return swapchain_ ? swapchain_->format() : VK_FORMAT_UNDEFINED;
+}
+
+u32 Renderer::swapchain_image_count() const {
+  return swapchain_ ? swapchain_->image_count() : 0;
+}
 
 }  // namespace rec::render

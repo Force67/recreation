@@ -5,6 +5,7 @@
 
 #include "render/render_graph.h"
 #include "render/rhi/device.h"
+#include "render/settings.h"
 
 namespace rec::render {
 
@@ -20,7 +21,13 @@ class PostPass {
   PostPass(const PostPass&) = delete;
   PostPass& operator=(const PostPass&) = delete;
 
-  void Record(PassContext& ctx, VkImageView input, VkImageView output, VkExtent2D output_extent);
+  struct Params {
+    f32 exposure = 1.0f;
+    u32 tonemap = 0;  // TonemapOperator
+  };
+
+  void Record(PassContext& ctx, VkImageView input, VkImageView output, VkExtent2D output_extent,
+              const Params& params);
 
  private:
   explicit PostPass(Device& device) : device_(device) {}

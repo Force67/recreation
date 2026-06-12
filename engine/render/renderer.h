@@ -1,6 +1,7 @@
 #ifndef RECREATION_RENDER_RENDERER_H_
 #define RECREATION_RENDER_RENDERER_H_
 
+#include <functional>
 #include <memory>
 
 #include <base/containers/unordered_map.h>
@@ -10,12 +11,14 @@
 #include "core/math.h"
 #include "core/window.h"
 #include "render/antialiasing.h"
+#include "render/material_system.h"
 #include "render/mesh_pipeline.h"
 #include "render/post.h"
 #include "render/raytracing.h"
 #include "render/render_graph.h"
 #include "render/rhi/device.h"
 #include "render/rhi/swapchain.h"
+#include "render/settings.h"
 #include "render/upscaler.h"
 
 namespace rec::render {
@@ -46,7 +49,11 @@ struct DrawItem {
 
 struct FrameView {
   CameraPose camera;
+  f32 frame_delta_seconds = 1.0f / 60.0f;  // upscalers want real frame time
   base::Vector<DrawItem> draws;
+  // Recorded inside the final ui pass with the backbuffer bound as the
+  // color attachment. The debug ui renders ImGui draw data here.
+  std::function<void(VkCommandBuffer)> ui_draw;
 };
 
 class Renderer {
@@ -57,15 +64,29 @@ class Renderer {
   bool Initialize(const RendererDesc& desc, Window& window);
   void RenderFrame(const FrameView& view);
   void Shutdown();
+  void WaitIdle();
 
-  // Makes a mesh drawable, keyed by its asset id. No-op without a device.
+  // Makes a mesh drawable, keyed by its asset id. Materials referenced by
+  // submeshes should be uploaded first. No-op without a device.
   bool UploadMesh(const asset::Mesh& mesh);
+  bool UploadTexture(const asset::Texture& texture);
+  bool UploadMaterial(const asset::Material& material);
 
-  // Switching AA or upscaler at runtime resets temporal history.
-  void SetAntiAliasing(AntiAliasingMode mode);
-  void SetUpscaler(UpscalerKind kind);
+  // Live tunables. Mutate freely; RenderFrame diffs against the applied
+  // state and reconfigures, including full upscaler swaps.
+  RenderSettings& settings() { return settings_; }
 
   const DeviceCaps* caps() const;
+  Device* device() { return device_.get(); }
+  VkFormat swapchain_format() const;
+  u32 swapchain_image_count() const;
+  u32 render_width() const { return render_width_; }
+  u32 render_height() const { return render_height_; }
+  u32 output_width() const { return output_width_; }
+  u32 output_height() const { return output_height_; }
+  bool upscaler_active() const { return upscaler_ != nullptr; }
+  u32 mesh_count() const { return static_cast<u32>(meshes_.size()); }
+  const MaterialSystem* materials() const { return material_system_.get(); }
 
  private:
   static constexpr u32 kFramesInFlight = 2;
@@ -88,13 +109,17 @@ class Renderer {
   void DestroyRenderFinishedSemaphores();
   void RecreateSwapchain();
   void UpdateRenderResolution();
+  void ApplySettings();
+  bool CreateUpscalerForSettings();
   void BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view);
 
   RendererDesc desc_;
+  RenderSettings settings_;
   Window* window_ = nullptr;
   std::unique_ptr<Device> device_;
   std::unique_ptr<Swapchain> swapchain_;
   std::unique_ptr<TransientPool> transient_pool_;
+  std::unique_ptr<MaterialSystem> material_system_;
   std::unique_ptr<MeshPipeline> mesh_pipeline_;
   std::unique_ptr<PostPass> post_;
   base::UnorderedMap<u64, GpuMesh> meshes_;
@@ -106,9 +131,16 @@ class Renderer {
   std::unique_ptr<RayTracingContext> raytracing_;
   RenderGraph graph_;
   TaaPass taa_;
+
+  // Settings already in effect, diffed against settings_ each frame.
+  UpscalerKind applied_upscaler_ = UpscalerKind::kNone;
+  UpscalerQuality applied_quality_ = UpscalerQuality::kQuality;
+  AntiAliasingMode applied_aa_ = AntiAliasingMode::kTaa;
+  bool applied_vsync_ = false;
+
   Mat4 prev_view_proj_ = Mat4::Identity();
   bool has_prev_frame_ = false;
-  bool rt_shadows_ = false;
+  bool rt_available_ = false;
   u32 frame_index_ = 0;
   u32 render_width_ = 0;
   u32 render_height_ = 0;

@@ -11,7 +11,7 @@ namespace rec::render {
 
 class Swapchain {
  public:
-  static std::unique_ptr<Swapchain> Create(Device& device, u32 width, u32 height);
+  static std::unique_ptr<Swapchain> Create(Device& device, u32 width, u32 height, bool vsync);
   ~Swapchain();
 
   Swapchain(const Swapchain&) = delete;
@@ -31,7 +31,7 @@ class Swapchain {
  private:
   explicit Swapchain(Device& device) : device_(device) {}
 
-  bool Init(u32 width, u32 height);
+  bool Init(u32 width, u32 height, bool vsync);
 
   Device& device_;
   VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
