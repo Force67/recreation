@@ -241,6 +241,10 @@ std::unique_ptr<Device> Device::Create(const DeviceDesc& desc, Window& window) {
   device->caps_.ray_query = ray_query.rayQuery;
   device->caps_.mesh_shaders = mesh.meshShader;
   device->caps_.fragment_shading_rate = shading_rate.pipelineFragmentShadingRate;
+  device->caps_.fill_mode_non_solid = features.features.fillModeNonSolid;
+  if (features.features.samplerAnisotropy) {
+    device->caps_.max_anisotropy = props.limits.maxSamplerAnisotropy;
+  }
 
   f32 priority = 1.0f;
   VkDeviceQueueCreateInfo queue_info{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};

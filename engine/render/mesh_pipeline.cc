@@ -3,22 +3,23 @@
 #include "asset/mesh.h"
 #include "core/log.h"
 #include "render/shader_util.h"
-#include "shaders/mesh_frag.h"
-#include "shaders/mesh_rt_frag.h"
-#include "shaders/mesh_vert.h"
+#include "shaders/mesh_ps_hlsl.h"
+#include "shaders/mesh_rt_ps_hlsl.h"
+#include "shaders/mesh_vs_hlsl.h"
 
 namespace rec::render {
 
 std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat color_format,
                                                    VkFormat motion_format, VkFormat depth_format,
-                                                   bool rt_shadows) {
+                                                   VkDescriptorSetLayout material_layout) {
   auto pipeline = std::unique_ptr<MeshPipeline>(new MeshPipeline(device));
+  bool rt = device.caps().ray_query;
 
   VkDescriptorSetLayoutBinding bindings[2]{};
   bindings[0].binding = 0;
   bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   bindings[0].descriptorCount = 1;
-  bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   bindings[1].binding = 1;
   bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
   bindings[1].descriptorCount = 1;
@@ -26,7 +27,7 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
 
   VkDescriptorSetLayoutCreateInfo set_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = rt_shadows ? 2 : 1;
+  set_info.bindingCount = rt ? 2 : 1;
   set_info.pBindings = bindings;
   if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &pipeline->set_layout_) !=
       VK_SUCCESS) {
@@ -37,9 +38,10 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
   push_range.size = sizeof(MeshPushConstants);
 
+  VkDescriptorSetLayout set_layouts[2] = {pipeline->set_layout_, material_layout};
   VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 1;
-  layout_info.pSetLayouts = &pipeline->set_layout_;
+  layout_info.setLayoutCount = 2;
+  layout_info.pSetLayouts = set_layouts;
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push_range;
   if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &pipeline->layout_) !=
@@ -47,40 +49,38 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
     return nullptr;
   }
 
-  VkShaderModule vert = CreateShaderModule(device.device(), k_mesh_vert, sizeof(k_mesh_vert));
-  VkShaderModule frag =
-      rt_shadows ? CreateShaderModule(device.device(), k_mesh_rt_frag, sizeof(k_mesh_rt_frag))
-                 : CreateShaderModule(device.device(), k_mesh_frag, sizeof(k_mesh_frag));
-  if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE) {
+  VkShaderModule vert = CreateShaderModule(device.device(), k_mesh_vs_hlsl, sizeof(k_mesh_vs_hlsl));
+  VkShaderModule frag = CreateShaderModule(device.device(), k_mesh_ps_hlsl, sizeof(k_mesh_ps_hlsl));
+  VkShaderModule frag_rt =
+      rt ? CreateShaderModule(device.device(), k_mesh_rt_ps_hlsl, sizeof(k_mesh_rt_ps_hlsl))
+         : VK_NULL_HANDLE;
+  if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE ||
+      (rt && frag_rt == VK_NULL_HANDLE)) {
     REC_ERROR("mesh shader module creation failed");
     return nullptr;
   }
-
-  VkPipelineShaderStageCreateInfo stages[2];
-  stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  stages[0].module = vert;
-  stages[0].pName = "main";
-  stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  stages[1].module = frag;
-  stages[1].pName = "main";
 
   VkVertexInputBindingDescription binding{};
   binding.stride = sizeof(asset::Vertex);
   binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-  VkVertexInputAttributeDescription attributes[2]{};
+  VkVertexInputAttributeDescription attributes[5]{};
   attributes[0] = {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
                    .offset = offsetof(asset::Vertex, position)};
   attributes[1] = {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
                    .offset = offsetof(asset::Vertex, normal)};
+  attributes[2] = {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+                   .offset = offsetof(asset::Vertex, tangent)};
+  attributes[3] = {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+                   .offset = offsetof(asset::Vertex, uv)};
+  attributes[4] = {.location = 4, .binding = 0, .format = VK_FORMAT_R8G8B8A8_UNORM,
+                   .offset = offsetof(asset::Vertex, color)};
 
   VkPipelineVertexInputStateCreateInfo vertex_input{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
   vertex_input.vertexBindingDescriptionCount = 1;
   vertex_input.pVertexBindingDescriptions = &binding;
-  vertex_input.vertexAttributeDescriptionCount = 2;
+  vertex_input.vertexAttributeDescriptionCount = 5;
   vertex_input.pVertexAttributeDescriptions = attributes;
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{
@@ -131,6 +131,15 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   rendering.pColorAttachmentFormats = color_formats;
   rendering.depthAttachmentFormat = depth_format;
 
+  VkPipelineShaderStageCreateInfo stages[2];
+  stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+  stages[0].module = vert;
+  stages[0].pName = "main";
+  stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  stages[1].pName = "main";
+
   VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   info.pNext = &rendering;
   info.stageCount = 2;
@@ -145,26 +154,46 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   info.pDynamicState = &dynamic;
   info.layout = pipeline->layout_;
 
-  VkResult result = vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
-                                              &pipeline->pipeline_);
+  bool wire_capable = device.caps().fill_mode_non_solid;
+  for (u32 variant = 0; variant < 4; ++variant) {
+    if ((variant & kRt) && !rt) continue;
+    if ((variant & kWire) && !wire_capable) continue;
+    stages[1].module = (variant & kRt) ? frag_rt : frag;
+    raster.polygonMode = (variant & kWire) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+    if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
+                                  &pipeline->pipelines_[variant]) != VK_SUCCESS) {
+      REC_ERROR("mesh pipeline creation failed (variant {})", variant);
+      pipeline->pipelines_[variant] = VK_NULL_HANDLE;
+    }
+  }
+
   vkDestroyShaderModule(device.device(), vert, nullptr);
   vkDestroyShaderModule(device.device(), frag, nullptr);
-  if (result != VK_SUCCESS) {
-    REC_ERROR("mesh pipeline creation failed");
-    return nullptr;
-  }
+  if (frag_rt) vkDestroyShaderModule(device.device(), frag_rt, nullptr);
+  if (pipeline->pipelines_[0] == VK_NULL_HANDLE) return nullptr;
   return pipeline;
 }
 
 MeshPipeline::~MeshPipeline() {
-  if (pipeline_) vkDestroyPipeline(device_.device(), pipeline_, nullptr);
+  for (VkPipeline pipeline : pipelines_) {
+    if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
+  }
   if (layout_) vkDestroyPipelineLayout(device_.device(), layout_, nullptr);
   if (set_layout_) vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
 }
 
-void MeshPipeline::Bind(VkCommandBuffer cmd, VkDescriptorSet globals) {
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+void MeshPipeline::Bind(VkCommandBuffer cmd, VkDescriptorSet globals, bool rt_shadows,
+                        bool wireframe) {
+  u32 variant = (rt_shadows ? kRt : 0) | (wireframe ? kWire : 0);
+  if (pipelines_[variant] == VK_NULL_HANDLE) variant &= ~kWire;
+  if (pipelines_[variant] == VK_NULL_HANDLE) variant = 0;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_[variant]);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &globals, 0,
+                          nullptr);
+}
+
+void MeshPipeline::BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material) {
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 1, 1, &material, 0,
                           nullptr);
 }
 
@@ -173,7 +202,10 @@ void MeshPipeline::Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPush
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices.buffer, &offset);
   vkCmdBindIndexBuffer(cmd, mesh.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(cmd, mesh.index_count, 1, 0, 0, 0);
+}
+
+void MeshPipeline::DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh) {
+  vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
 }
 
 }  // namespace rec::render

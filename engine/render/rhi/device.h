@@ -29,6 +29,8 @@ struct DeviceCaps {
   bool ray_query = false;
   bool mesh_shaders = false;
   bool fragment_shading_rate = false;
+  bool fill_mode_non_solid = false;  // wireframe debug views
+  f32 max_anisotropy = 1.0f;         // 1 = anisotropic filtering unavailable
 };
 
 // Owns instance, surface, physical and logical device and the queues.
@@ -64,7 +66,7 @@ class Device {
   void DestroyBuffer(GpuBuffer& buffer);
 
   GpuImage CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageFlags usage,
-                         VkImageAspectFlags aspect);
+                         VkImageAspectFlags aspect, u32 mip_levels = 1);
   void DestroyImage(GpuImage& image);
 
  private:

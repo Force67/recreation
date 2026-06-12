@@ -108,12 +108,12 @@ void Device::DestroyBuffer(GpuBuffer& buffer) {
 }
 
 GpuImage Device::CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageFlags usage,
-                               VkImageAspectFlags aspect) {
+                               VkImageAspectFlags aspect, u32 mip_levels) {
   VkImageCreateInfo image_info{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   image_info.imageType = VK_IMAGE_TYPE_2D;
   image_info.format = format;
   image_info.extent = {extent.width, extent.height, 1};
-  image_info.mipLevels = 1;
+  image_info.mipLevels = mip_levels;
   image_info.arrayLayers = 1;
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.usage = usage;
@@ -135,7 +135,7 @@ GpuImage Device::CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageF
   view_info.image = image.image;
   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
   view_info.format = format;
-  view_info.subresourceRange = {aspect, 0, 1, 0, 1};
+  view_info.subresourceRange = {aspect, 0, mip_levels, 0, 1};
   vkCreateImageView(device_, &view_info, nullptr, &image.view);
   return image;
 }

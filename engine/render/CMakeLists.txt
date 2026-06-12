@@ -2,6 +2,7 @@ recreation_add_module(render
   renderer.cc
   render_graph.cc
   mesh_pipeline.cc
+  material_system.cc
   post.cc
   shader_util.cc
   taa.cc

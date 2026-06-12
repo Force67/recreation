@@ -5,6 +5,8 @@
 
 #include <vk_mem_alloc.h>
 
+#include <base/containers/vector.h>
+
 #include "core/types.h"
 
 namespace rec::render {
@@ -24,11 +26,20 @@ struct GpuImage {
   VkExtent2D extent{};
 };
 
+// Index range drawn with one material. Materials resolve at upload time so
+// the draw loop is a plain array walk.
+struct GpuSubmesh {
+  u32 index_offset = 0;
+  u32 index_count = 0;
+  u64 material = 0;  // material asset hash, 0 = default material
+};
+
 struct GpuMesh {
   GpuBuffer vertices;
   GpuBuffer indices;
   u32 index_count = 0;
   u32 vertex_count = 0;
+  base::Vector<GpuSubmesh> submeshes;
 };
 
 }  // namespace rec::render
