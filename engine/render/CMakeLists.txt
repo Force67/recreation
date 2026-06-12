@@ -21,10 +21,10 @@ if(NOT MSVC)
 endif()
 
 recreation_embed_shaders(recreation_render
-  shaders/mesh.vert
-  shaders/mesh.frag
-  shaders/mesh_rt.frag
-  shaders/fullscreen.vert
-  shaders/tonemap.frag
-  shaders/taa.comp
+  shaders/mesh.vs.hlsl
+  shaders/mesh.ps.hlsl
+  shaders/mesh_rt.ps.hlsl
+  shaders/fullscreen.vs.hlsl
+  shaders/tonemap.ps.hlsl
+  shaders/taa.cs.hlsl
 )

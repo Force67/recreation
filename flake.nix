@@ -47,7 +47,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = with pkgs; [ cmake ninja glslang ];
+          nativeBuildInputs = with pkgs; [ cmake ninja directx-shader-compiler ];
           buildInputs = with pkgs; [ sdl3 openssl ];
 
           cmakeFlags = fetchContentFlags ++ [
@@ -138,7 +138,8 @@
               cmake
               ninja
               gdb
-              glslang
+              directx-shader-compiler  # dxc, hlsl -> spirv
+              glslang                  # FidelityFX shader permutations
               sdl3
               openssl  # zetanet crypto backend
               vulkan-headers

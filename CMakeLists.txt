@@ -10,7 +10,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(RECREATION_BUILD_TOOLS "Build offline tools" ON)
 option(RECREATION_ENABLE_VALIDATION "Enable vulkan validation layers in debug" ON)
 option(RECREATION_FETCH_SDL3 "Download SDL3 when not found on the system" OFF)
-
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(warnings)
 
@@ -35,24 +34,10 @@ FetchContent_Declare(VulkanMemoryAllocator
 FetchContent_MakeAvailable(VulkanHeaders volk VulkanMemoryAllocator)
 target_link_libraries(volk PUBLIC Vulkan::Headers)
 
-# Shaders compile to spirv at build time and get embedded. Prefer a host
-# glslang (required when cross compiling, e.g. android), build one otherwise.
-find_program(RECREATION_GLSLANG NAMES glslang glslangValidator)
-if(NOT RECREATION_GLSLANG)
-  if(CMAKE_CROSSCOMPILING)
-    message(FATAL_ERROR "cross compiling needs a host glslang in PATH")
-  endif()
-  set(ENABLE_OPT OFF)
-  set(ENABLE_HLSL OFF)
-  set(ENABLE_SPVREMAPPER OFF)
-  set(GLSLANG_TESTS OFF)
-  set(GLSLANG_ENABLE_INSTALL OFF)
-  FetchContent_Declare(glslang
-    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
-    GIT_TAG 15.1.0
-    GIT_SHALLOW ON)
-  FetchContent_MakeAvailable(glslang)
-  message(STATUS "glslang not found, building it")
+# Shaders are hlsl, compiled to spirv at build time with dxc and embedded.
+find_program(RECREATION_DXC dxc)
+if(NOT RECREATION_DXC)
+  message(FATAL_ERROR "dxc (DirectXShaderCompiler) is required to compile hlsl to spirv")
 endif()
 include(shaders)
 

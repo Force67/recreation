@@ -3,7 +3,7 @@
 #include "core/log.h"
 #include "render/rhi/device.h"
 #include "render/shader_util.h"
-#include "shaders/taa_comp.h"
+#include "shaders/taa_cs_hlsl.h"
 
 namespace rec::render {
 namespace {
@@ -73,7 +73,7 @@ bool TaaPass::Initialize(Device& device) {
     return false;
   }
 
-  VkShaderModule shader = CreateShaderModule(device.device(), k_taa_comp, sizeof(k_taa_comp));
+  VkShaderModule shader = CreateShaderModule(device.device(), k_taa_cs_hlsl, sizeof(k_taa_cs_hlsl));
   if (shader == VK_NULL_HANDLE) {
     REC_ERROR("taa shader module creation failed");
     return false;
