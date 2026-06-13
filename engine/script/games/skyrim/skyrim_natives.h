@@ -21,6 +21,8 @@ class SkyrimBindings {
 
   // Game
   virtual papyrus::ObjectRef GetPlayer() { return {}; }
+  // Looks up a form by its runtime (load-order) form id.
+  virtual papyrus::ObjectRef GetForm(u32 form_id) { return {}; }
 
   // Form
   virtual u32 GetFormId(papyrus::ObjectRef form) { return 0; }

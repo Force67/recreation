@@ -179,6 +179,9 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Game", "GetPlayer", [bindings](VirtualMachine&, ObjectRef, Args&) {
     return Value::Object(Resolve(bindings).GetPlayer());
   });
+  reg.Register("Game", "GetForm", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetForm(static_cast<u32>(ArgI(a, 0))));
+  });
   reg.Register("Game", "GetGameSettingFloat", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Float(Resolve(bindings).GetGameSettingFloat(ArgS(a, 0)));
   });

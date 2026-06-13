@@ -82,6 +82,15 @@ u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) {
   return static_cast<u32>(form.handle);
 }
 
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetForm(u32 form_id) {
+  if (!records_) return {};
+  // Runtime form id: high byte is the load-order index, low 24 bits the local
+  // id. (Light/ESL forms 0xFE... are not resolved here and yield None.)
+  bethesda::GlobalFormId id{static_cast<u16>((form_id >> 24) & 0xFF), form_id & 0x00FFFFFFu};
+  if (!records_->Find(id)) return {};
+  return papyrus::ObjectRef{id.packed()};
+}
+
 i32 RecordBackedSkyrimBindings::GetFormType(ObjectRef form) {
   if (!records_) return 0;
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(form));

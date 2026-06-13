@@ -32,6 +32,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void set_player(papyrus::ObjectRef player) { player_ = player; }
 
   papyrus::ObjectRef GetPlayer() override { return player_; }
+  papyrus::ObjectRef GetForm(u32 form_id) override;
 
   // Form data, from records.
   u32 GetFormId(papyrus::ObjectRef form) override;

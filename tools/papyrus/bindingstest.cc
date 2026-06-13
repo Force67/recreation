@@ -100,6 +100,14 @@ int main(int argc, char** argv) {
     std::printf("  (no keyworded weapon found to test form natives)\n");
   }
 
+  // Game.GetForm round-trips a real weapon's runtime form id back to its handle.
+  if (weapon) {
+    u32 runtime_id = (static_cast<u32>(weapon->plugin) << 24) | weapon->local_id;
+    ObjectRef looked_up = bindings.GetForm(runtime_id);
+    check("Game.GetForm resolves to the same handle", looked_up.handle == Handle(*weapon));
+    check("Game.GetForm of a missing id is None", bindings.GetForm(0x00FFFFFE).handle == 0);
+  }
+
   // ActorBase data from a real NPC_ record.
   std::optional<GlobalFormId> npc_base;
   records.EachOfType(FourCc('N', 'P', 'C', '_'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
