@@ -21,3 +21,20 @@ recreation_set_warnings(nativescan)
 add_executable(bindingstest bindingstest.cc)
 target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda recreation::asset)
 recreation_set_warnings(bindingstest)
+
+add_executable(pexsoak soak.cc)
+target_link_libraries(pexsoak PRIVATE recreation::script recreation::bethesda recreation::asset)
+recreation_set_warnings(pexsoak)
+
+add_executable(pexfuzz fuzz.cc)
+target_link_libraries(pexfuzz PRIVATE recreation::script recreation::bethesda recreation::asset)
+recreation_set_warnings(pexfuzz)
+
+# Deterministic VM regression suite (no game data needed), so `ctest` is the
+# one-command gate. The corpus checks (pexsoak/pexfuzz/nativescan) take the
+# Skyrim data dir and run separately.
+add_test(NAME papyrus_selftest COMMAND pexrun selftest)
+add_test(NAME papyrus_skyrimtest COMMAND pexrun skyrimtest)
+add_test(NAME papyrus_guesttest COMMAND pexrun guesttest)
+add_test(NAME papyrus_conctest COMMAND pexrun conctest)
+add_test(NAME papyrus_separationtest COMMAND pexrun separationtest)

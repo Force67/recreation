@@ -14,6 +14,16 @@ option(RECREATION_FSR3 "Enable the AMD FSR 3.1 upscaler backend" ON)
 option(RECREATION_DLSS "Enable the NVIDIA DLSS upscaler backend" ON)
 option(RECREATION_NRD "Enable the NVIDIA NRD ray tracing denoiser" ON)
 option(RECREATION_JOLT "Enable Jolt physics" ON)
+option(RECREATION_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+
+# Sanitizer build for the regression suite: the papyrus vm (parser, interpreter,
+# native dispatch, threaded guest) is validated memory-safe, leak-free and
+# UB-free over the whole shipped corpus under these. Applied globally so the
+# instrumentation is consistent across the engine and the tools.
+if(RECREATION_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
 
 if(RECREATION_FSR3 AND NOT EXISTS
    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FidelityFX-SDK/sdk/include/FidelityFX/host/ffx_fsr3upscaler.h)
@@ -171,6 +181,7 @@ endforeach()
 add_subdirectory(runtime)
 
 if(RECREATION_BUILD_TOOLS)
+  enable_testing()  # papyrus vm regression suite, run with `ctest`
   add_subdirectory(tools/esminfo)
   add_subdirectory(tools/papyrus)
 endif()

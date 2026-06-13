@@ -9,9 +9,11 @@
 // interpreter so its opcode handling can be checked end to end.
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <thread>
 #include <utility>
 #include <string>
 #include <unordered_map>
@@ -665,17 +667,125 @@ int SkyrimTest() {
   return failures ? 1 : 0;
 }
 
+// Hammers the guest's thread-safe facade from many host threads at once. The
+// guest runs the VM on one dedicated thread, so concurrent submissions must
+// serialize there with no lost work, no race and no deadlock. The direct test
+// of "the papyrus vm runs compartmentalized on its own thread".
+int ConcurrencyTest() {
+  using rec::script::PapyrusGuest;
+  Builder cb;
+  cb.obj.name = cb.S("Counter");
+  cb.obj.parent_class = cb.S("");
+  {
+    MemberVariable n;
+    n.name = cb.S("n");
+    n.type = cb.S("Int");
+    n.initial_value = cb.IntV(0);
+    cb.obj.variables.push_back(n);
+    State def;
+    def.name = cb.S("");
+    cb.obj.states.push_back(std::move(def));
+  }
+  PexFile counter = MakeScript(cb);
+
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  guest.Start();
+  guest.SubmitFor([c = std::move(counter)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(c));
+      }).get();
+  ObjectRef shared = guest.CreateInstance("Counter").get();
+
+  const int kThreads = 8, kPerThread = 1500;
+  std::atomic<int> bad_handles{0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&] {
+      for (int i = 0; i < kPerThread; ++i) {
+        guest
+            .SubmitFor([shared](VirtualMachine& vm) {
+              Value* m = vm.MemberVar(shared, "n");
+              if (m) *m = Value::Int(m->ToInt() + 1);
+              return 0;
+            })
+            .get();
+      }
+      if (guest.CreateInstance("Counter").get().handle == 0) ++bad_handles;
+    });
+  }
+  for (std::thread& th : threads) th.join();
+  int final = guest
+                  .SubmitFor([shared](VirtualMachine& vm) {
+                    Value* m = vm.MemberVar(shared, "n");
+                    return m ? m->ToInt() : -1;
+                  })
+                  .get();
+  guest.Stop();
+
+  int failures = 0;
+  auto check = [&](const char* what, bool ok) {
+    std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
+    if (!ok) ++failures;
+  };
+  check("no lost updates under 8-thread contention", final == kThreads * kPerThread);
+  check("concurrent CreateInstance all valid", bad_handles.load() == 0);
+  std::printf("%s (%d failures)\n", failures ? "CONCTEST FAILED" : "CONCTEST PASSED", failures);
+  return failures ? 1 : 0;
+}
+
+// Proves the VM core is game-agnostic: a fabricated foreign-game native table
+// (standing in for a future Fallout dialect) plugs into the same core and
+// dispatches, with no Skyrim surface present. The test of "make it sound and
+// separated" so adding FO4/76 never touches the VM core.
+int SeparationTest() {
+  int failures = 0;
+  auto check = [&](const char* what, bool ok) {
+    std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
+    if (!ok) ++failures;
+  };
+
+  NativeRegistry foreign;
+  foreign.Register("Workshop", "GetObjectCount",
+                   [](VirtualMachine&, ObjectRef, std::vector<Value>&) { return Value::Int(76); });
+  VirtualMachine vm(&foreign);
+
+  Builder b;
+  b.obj.name = b.S("WorkshopUser");
+  b.obj.parent_class = b.S("");
+  Function f;
+  f.return_type = b.S("Int");
+  f.is_global = true;
+  f.locals.push_back({b.S("r"), b.S("Int")});
+  Instruction cs;
+  cs.op = Op::kCallStatic;
+  cs.args = {b.Id("Workshop"), b.Id("GetObjectCount"), b.Id("r")};
+  f.code = {cs, Make(Op::kReturn, {b.Id("r")})};
+  State def;
+  def.name = b.S("");
+  def.functions.push_back({b.S("run"), std::move(f)});
+  b.obj.states.push_back(std::move(def));
+  std::string type = vm.AddScript(MakeScript(b));
+
+  check("VM core dispatches a foreign-game native", vm.CallGlobal(type, "run", {}).ToInt() == 76);
+  check("no skyrim surface in a foreign table", foreign.Find("Math", "Sqrt") == nullptr);
+  check("foreign table carries only its own natives", foreign.size() == 1);
+  std::printf("%s (%d failures)\n", failures ? "SEPARATIONTEST FAILED" : "SEPARATIONTEST PASSED",
+              failures);
+  return failures ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
   if (argc == 2 && std::string(argv[1]) == "skyrimtest") return SkyrimTest();
   if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
+  if (argc == 2 && std::string(argv[1]) == "conctest") return ConcurrencyTest();
+  if (argc == 2 && std::string(argv[1]) == "separationtest") return SeparationTest();
   if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
   if (argc == 4 && std::string(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
-               "usage: %s [selftest|skyrimtest|guesttest]\n"
+               "usage: %s [selftest|skyrimtest|guesttest|conctest|separationtest]\n"
                "       %s vmtest <data_dir>\n"
                "       %s hosttest <runtimeconfig.json> <assembly.dll>\n"
                "       %s <data_dir> <Script> <Function>\n",
