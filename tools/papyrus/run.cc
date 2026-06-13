@@ -773,6 +773,57 @@ int SeparationTest() {
   return failures ? 1 : 0;
 }
 
+// Verifies the VM's native-call trace ring: off by default, records only while
+// enabled, keeps a running total, and clears. This backs the debug trace window.
+int TraceTest() {
+  NativeRegistry natives;
+  rec::script::skyrim::RegisterSkyrimNatives(natives, nullptr);
+  VirtualMachine vm(&natives);
+  int failures = 0;
+  auto check = [&](const char* what, bool ok) {
+    std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
+    if (!ok) ++failures;
+  };
+
+  check("tracing off by default", !vm.native_trace());
+  vm.set_native_trace(true);
+  vm.CallGlobal("Math", "Sqrt", {Value::Float(9)});
+  vm.CallGlobal("Math", "Abs", {Value::Float(-1)});
+  vm.CallGlobal("Utility", "RandomInt", {Value::Int(1), Value::Int(1)});
+  check("3 native calls counted", vm.native_call_count() == 3);
+  check("3 calls in the ring", vm.native_trace_log().size() == 3);
+  check("oldest is Math.Sqrt", !vm.native_trace_log().empty() &&
+                                   vm.native_trace_log().front().function == "Sqrt");
+  check("newest is Utility.RandomInt", vm.native_trace_log().back().function == "RandomInt");
+
+  vm.ClearNativeTrace();
+  check("clear empties ring + count", vm.native_call_count() == 0 && vm.native_trace_log().empty());
+
+  vm.set_native_trace(false);
+  vm.CallGlobal("Math", "Sqrt", {Value::Float(4)});
+  check("disabled: counted, not ringed", vm.native_call_count() == 1 && vm.native_trace_log().empty());
+
+  // The exact path the engine debug window drives: enable, call, and snapshot
+  // all marshalled through the guest thread.
+  using rec::script::PapyrusGuest;
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
+  guest.Start();
+  guest.Submit([](VirtualMachine& g) { g.set_native_trace(true); });
+  guest.SubmitFor([](VirtualMachine& g) {
+        g.CallGlobal("Math", "Sqrt", {Value::Float(16)});
+        g.CallGlobal("Math", "Abs", {Value::Float(-2)});
+        return 0;
+      }).get();
+  auto log = guest.SubmitFor([](VirtualMachine& g) { return g.native_trace_log(); }).get();
+  guest.Stop();
+  check("guest-thread snapshot has 2 natives", log.size() == 2);
+  check("guest-thread newest is Math.Abs", !log.empty() && log.back().function == "Abs");
+
+  std::printf("%s (%d failures)\n", failures ? "TRACETEST FAILED" : "TRACETEST PASSED", failures);
+  return failures ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -781,6 +832,7 @@ int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
   if (argc == 2 && std::string(argv[1]) == "conctest") return ConcurrencyTest();
   if (argc == 2 && std::string(argv[1]) == "separationtest") return SeparationTest();
+  if (argc == 2 && std::string(argv[1]) == "tracetest") return TraceTest();
   if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
   if (argc == 4 && std::string(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);

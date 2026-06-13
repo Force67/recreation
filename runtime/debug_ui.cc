@@ -98,7 +98,7 @@ bool DebugUi::wants_keyboard() const {
 }
 
 void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
-                    render::FrameView* view, QuestPanel* quests) {
+                    render::FrameView* view, QuestPanel* quests, NativeTracePanel* trace) {
   if (!initialized_) return;
 
   frame_times_[frame_time_cursor_] = frame_delta * 1000.0f;
@@ -344,6 +344,45 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     if (show_demo_) ImGui::ShowDemoWindow(&show_demo_);
   }
 
+  // Separate, independently-toggled window (F2): the recently invoked Papyrus
+  // native functions, newest first, plus a busiest-natives tally.
+  if (trace_visible_ && trace && trace->available) {
+    ImGui::SetNextWindowPos({410, 16}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({340, 460}, ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Papyrus natives (F2 hides)", &trace_visible_)) {
+      ImGui::Text("%llu native calls", static_cast<unsigned long long>(trace->total));
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Clear") && trace->clear) trace->clear();
+
+      if (ImGui::BeginTabBar("trace_tabs")) {
+        if (ImGui::BeginTabItem("Recent")) {
+          if (ImGui::BeginChild("recent", {0, 0})) {
+            for (const std::string& call : trace->recent) ImGui::TextUnformatted(call.c_str());
+          }
+          ImGui::EndChild();
+          ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Busiest")) {
+          if (ImGui::BeginTable("busiest", 2,
+                                ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                    ImGuiTableFlags_SizingStretchProp)) {
+            for (const auto& [name, count] : trace->top) {
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+              ImGui::TextUnformatted(name.c_str());
+              ImGui::TableNextColumn();
+              ImGui::Text("%u", count);
+            }
+            ImGui::EndTable();
+          }
+          ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+      }
+    }
+    ImGui::End();
+  }
+
   ImGui::Render();
   if (visible_ || ImGui::GetDrawData()->TotalVtxCount > 0) {
     view->ui_draw = [](VkCommandBuffer cmd) {
@@ -363,7 +402,8 @@ DebugUi::~DebugUi() = default;
 bool DebugUi::Initialize(Window&, render::Renderer&) { return false; }
 void DebugUi::Shutdown() {}
 void DebugUi::BeginFrame() {}
-void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*, QuestPanel*) {}
+void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*, QuestPanel*,
+                    NativeTracePanel*) {}
 bool DebugUi::wants_mouse() const { return false; }
 bool DebugUi::wants_keyboard() const { return false; }
 

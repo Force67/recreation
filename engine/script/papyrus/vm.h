@@ -40,6 +40,25 @@ class VirtualMachine : public VmInterface {
   bool HasScript(const std::string& type) const;
   size_t script_count() const { return scripts_.size(); }
 
+  // A traced native invocation: the script type that declared it, the function
+  // name, and a monotonic sequence number (1 = first since tracing began).
+  struct NativeCall {
+    std::string script_type;
+    std::string function;
+    u64 seq = 0;
+  };
+  // Native-call tracing for the debug overlay. Off by default (it copies two
+  // strings per native call); the engine turns it on only while the trace
+  // window is open. The ring keeps the most recent calls, newest last.
+  void set_native_trace(bool on) { native_trace_enabled_ = on; }
+  bool native_trace() const { return native_trace_enabled_; }
+  u64 native_call_count() const { return native_call_count_; }
+  const std::vector<NativeCall>& native_trace_log() const { return native_trace_; }
+  void ClearNativeTrace() {
+    native_trace_.clear();
+    native_call_count_ = 0;
+  }
+
   // Instantiates a known script type. Member variables are seeded from the
   // script's declared defaults. Returns None for an unknown type.
   ObjectRef CreateInstance(const std::string& type);
@@ -120,6 +139,13 @@ class VirtualMachine : public VmInterface {
   bool ArrayValid(ArrayRef array) const { return array.id != 0 && array.id <= arrays_.size(); }
   bool StructValid(StructRef s) const { return s.id != 0 && s.id <= structs_.size(); }
   void WarnUnbound(const std::string& type, const std::string& function);
+  // Appends a native invocation to the trace ring when tracing is enabled.
+  void RecordNative(const std::string& type, const std::string& function);
+
+  static constexpr size_t kNativeTraceCap = 256;
+  bool native_trace_enabled_ = false;
+  u64 native_call_count_ = 0;
+  std::vector<NativeCall> native_trace_;  // ring, oldest at front
 
   const NativeRegistry* natives_;
   std::unordered_map<std::string, LoadedScript> scripts_;  // key: lowercased type

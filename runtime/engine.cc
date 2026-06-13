@@ -7,6 +7,8 @@
 #include <cstring>
 #include <filesystem>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
@@ -49,6 +51,9 @@ bool Engine::Initialize(const EngineConfig& config) {
     if (!debug_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("debug ui unavailable");
     }
+    // REC_TRACE=1 opens the native-call trace window at startup (the F2 toggle
+    // is unreachable in a headless screenshot capture).
+    if (std::getenv("REC_TRACE")) debug_ui_.ToggleTrace();
     if (!game_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("game ui unavailable");
     }
@@ -775,6 +780,56 @@ void Engine::RefreshQuestPanel(f32 dt) {
           .get();
 }
 
+void Engine::RefreshNativeTrace(f32 dt) {
+  if (!scripts_) {
+    native_trace_panel_.available = false;
+    return;
+  }
+  native_trace_panel_.available = true;
+  if (!native_trace_panel_.clear) {
+    native_trace_panel_.clear = [this] {
+      scripts_->guest().Submit(
+          [](script::papyrus::VirtualMachine& vm) { vm.ClearNativeTrace(); });
+    };
+  }
+
+  // Tracing copies two strings per native call, so only run it while the window
+  // is open; flip the guest's flag when the visibility changes.
+  bool want = debug_ui_.trace_visible();
+  if (want != native_trace_on_) {
+    native_trace_on_ = want;
+    scripts_->guest().Submit(
+        [want](script::papyrus::VirtualMachine& vm) { vm.set_native_trace(want); });
+  }
+  if (!want) return;
+
+  trace_ui_timer_ -= dt;
+  if (!native_trace_panel_.recent.empty() && trace_ui_timer_ > 0.0f) return;
+  trace_ui_timer_ = 0.15f;
+
+  using NativeCall = script::papyrus::VirtualMachine::NativeCall;
+  auto snap = scripts_->guest()
+                  .SubmitFor([](script::papyrus::VirtualMachine& vm) {
+                    return std::pair<u64, std::vector<NativeCall>>(vm.native_call_count(),
+                                                                   vm.native_trace_log());
+                  })
+                  .get();
+  native_trace_panel_.total = snap.first;
+  const std::vector<NativeCall>& log = snap.second;
+
+  native_trace_panel_.recent.clear();
+  native_trace_panel_.recent.reserve(log.size());
+  for (auto it = log.rbegin(); it != log.rend(); ++it)
+    native_trace_panel_.recent.push_back(it->script_type + "." + it->function);
+
+  std::unordered_map<std::string, u32> counts;
+  for (const NativeCall& c : log) ++counts[c.script_type + "." + c.function];
+  std::vector<std::pair<std::string, u32>> top(counts.begin(), counts.end());
+  std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+  if (top.size() > 40) top.resize(40);
+  native_trace_panel_.top = std::move(top);
+}
+
 bool Engine::LoadGltfScene() {
   asset::GltfScene scene;
   if (!asset::LoadGltfScene(config_.gltf_path, &scene)) return false;
@@ -830,6 +885,7 @@ void Engine::UpdateCamera(f32 frame_delta) {
   }
 
   if (input.key_pressed(Key::kF1) && !kb) debug_ui_.ToggleVisible();
+  if (input.key_pressed(Key::kF2) && !kb) debug_ui_.ToggleTrace();
   if (input.key_pressed(Key::kF) && !menu && !kb && !walk_mode_) ThrowPhysicsCube();
   if (input.key_pressed(Key::kEscape) && !kb) game_ui_.ToggleMenu();
   if (game_ui_.quit_requested()) RequestQuit();
@@ -956,7 +1012,8 @@ int Engine::Run() {
       prev_transforms_ = std::move(transforms);
       EmitActorDraws(view);
       RefreshQuestPanel(frame_delta);
-      debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_);
+      RefreshNativeTrace(frame_delta);
+      debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_, &native_trace_panel_);
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
       renderer_.RenderFrame(view);
     } else {

@@ -163,8 +163,10 @@ Value VirtualMachine::Invoke(const Resolved& target, ObjectRef self, std::vector
                              const std::string& method_name) {
   if (target.fn->is_native) {
     if (natives_) {
-      if (const NativeFunction* nf = natives_->Find(target.defining_type, method_name))
+      if (const NativeFunction* nf = natives_->Find(target.defining_type, method_name)) {
+        RecordNative(target.defining_type, method_name);
         return (*nf)(*this, self, args);
+      }
     }
     // No bound implementation. Rather than fail, return the neutral default of
     // the function's declared return type (false / 0 / "" / None). Scripts that
@@ -200,11 +202,20 @@ Value VirtualMachine::CallGlobal(const std::string& script_type, const std::stri
     }
   }
   if (natives_) {
-    if (const NativeFunction* nf = natives_->Find(script_type, function))
+    if (const NativeFunction* nf = natives_->Find(script_type, function)) {
+      RecordNative(script_type, function);
       return (*nf)(*this, ObjectRef{0}, args);
+    }
   }
   WarnUnbound(script_type, function);
   return Value();
+}
+
+void VirtualMachine::RecordNative(const std::string& type, const std::string& function) {
+  ++native_call_count_;
+  if (!native_trace_enabled_) return;
+  if (native_trace_.size() >= kNativeTraceCap) native_trace_.erase(native_trace_.begin());
+  native_trace_.push_back({type, function, native_call_count_});
 }
 
 Value VirtualMachine::CallMethod(ObjectRef self, const std::string& method,

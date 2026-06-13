@@ -22,6 +22,7 @@ enum class Key : u8 {
   kLeftCtrl,
   kEscape,
   kF1,
+  kF2,
   kCount,
 };
 

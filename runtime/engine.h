@@ -110,6 +110,9 @@ class Engine {
   // Refreshes the debug overlay's quest snapshot (throttled) and wires its
   // start/stop/stage callbacks to the guest thread.
   void RefreshQuestPanel(f32 dt);
+  // Enables guest native-call tracing while the trace window is open and
+  // snapshots its ring into the overlay (throttled).
+  void RefreshNativeTrace(f32 dt);
   bool StartNetworking();
   void CreateDemoScene();
   void CreateWaterDemoScene();
@@ -162,6 +165,11 @@ class Engine {
   base::Vector<std::pair<u64, std::string>> quest_records_;
   QuestPanel quest_panel_;
   f32 quest_ui_timer_ = 0;
+  // Native-call trace window state (F2): the overlay snapshot, refresh timer,
+  // and whether guest tracing is currently enabled.
+  NativeTracePanel native_trace_panel_;
+  f32 trace_ui_timer_ = 0;
+  bool native_trace_on_ = false;
   GameUi game_ui_;
   physics::PhysicsWorld physics_;
   // Dynamic bodies mirrored into ECS transforms after each step.

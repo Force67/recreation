@@ -25,6 +25,7 @@ Key TranslateKey(SDL_Scancode code) {
     case SDL_SCANCODE_LCTRL: return Key::kLeftCtrl;
     case SDL_SCANCODE_ESCAPE: return Key::kEscape;
     case SDL_SCANCODE_F1: return Key::kF1;
+    case SDL_SCANCODE_F2: return Key::kF2;
     default: return Key::kCount;
   }
 }
