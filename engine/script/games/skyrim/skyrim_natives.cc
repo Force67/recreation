@@ -4,6 +4,8 @@
 #include <numbers>
 #include <vector>
 
+#include "core/log.h"
+
 namespace rec::script::skyrim {
 namespace {
 
@@ -76,6 +78,41 @@ void RegisterMath(papyrus::NativeRegistry& reg) {
   });
   reg.Register("Math", "Atan2", [](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Float(static_cast<f32>(std::atan2(ArgF(a, 0), ArgF(a, 1)) * kRadToDeg));
+  });
+  reg.Register("Math", "DegreesToRadians", [](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Float(static_cast<f32>(ArgF(a, 0) * kDegToRad));
+  });
+  reg.Register("Math", "RadiansToDegrees", [](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Float(static_cast<f32>(ArgF(a, 0) * kRadToDeg));
+  });
+}
+
+void RegisterDebug(papyrus::NativeRegistry& reg) {
+  // Engine-independent diagnostics. Output natives that the guest also binds
+  // (Trace, Notification) stay with the guest; these are the value-returning
+  // ones a default could answer wrongly.
+  reg.Register("Debug", "GetPlatformName",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Str("PC"); });
+  reg.Register("Debug", "GetVersionNumber",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Str("1.6.640"); });
+  reg.Register("Debug", "TraceStack", [](VirtualMachine&, ObjectRef, Args& a) {
+    REC_INFO("[papyrus:stack] {}", a.empty() ? "" : a[0].ToString());
+    return Value();
+  });
+}
+
+void RegisterGameControls(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
+  // Player controls default to enabled, so the neutral "false" would be wrong;
+  // register them explicitly. A control system can override later.
+  static const char* const kControls[] = {
+      "IsActivateControlsEnabled",  "IsCamSwitchControlsEnabled", "IsFastTravelControlsEnabled",
+      "IsFightingControlsEnabled",  "IsJournalControlsEnabled",   "IsLookingControlsEnabled",
+      "IsMenuControlsEnabled",      "IsMovementControlsEnabled",  "IsSneakingControlsEnabled",
+      "IsFastTravelEnabled"};
+  for (const char* name : kControls)
+    reg.Register("Game", name, [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); });
+  reg.Register("Game", "GetRealHoursPassed", [bindings](VirtualMachine&, ObjectRef, Args&) {
+    return Value::Float(Resolve(bindings).GetRealHoursPassed());
   });
 }
 
@@ -239,8 +276,10 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
 
 void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   RegisterMath(reg);
+  RegisterDebug(reg);
   RegisterUtility(reg, bindings);
   RegisterGameAndForms(reg, bindings);
+  RegisterGameControls(reg, bindings);
   RegisterObjectReference(reg, bindings);
   RegisterActor(reg, bindings);
 }

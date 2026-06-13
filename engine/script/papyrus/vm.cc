@@ -166,8 +166,12 @@ Value VirtualMachine::Invoke(const Resolved& target, ObjectRef self, std::vector
       if (const NativeFunction* nf = natives_->Find(target.defining_type, method_name))
         return (*nf)(*this, self, args);
     }
+    // No bound implementation. Rather than fail, return the neutral default of
+    // the function's declared return type (false / 0 / "" / None). Scripts that
+    // call an engine function not yet wired keep running with a sound value;
+    // this is the uniform handler for the long tail of native declarations.
     WarnUnbound(target.defining_type, method_name);
-    return Value();
+    return DefaultForTypeName(target.script->pex.Str(target.fn->return_type));
   }
   call_stack_.push_back(target.defining_type);
   Value result = ExecuteFunction(target.script->pex, *target.script->object, *target.fn, self,
