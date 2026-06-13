@@ -103,15 +103,43 @@ void RegisterDebug(papyrus::NativeRegistry& reg) {
 }
 
 void RegisterGameControls(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
-  // Player controls default to enabled, so the neutral "false" would be wrong;
-  // register them explicitly. A control system can override later.
-  static const char* const kControls[] = {
-      "IsActivateControlsEnabled",  "IsCamSwitchControlsEnabled", "IsFastTravelControlsEnabled",
-      "IsFightingControlsEnabled",  "IsJournalControlsEnabled",   "IsLookingControlsEnabled",
-      "IsMenuControlsEnabled",      "IsMovementControlsEnabled",  "IsSneakingControlsEnabled",
-      "IsFastTravelEnabled"};
-  for (const char* name : kControls)
-    reg.Register("Game", name, [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); });
+  // Each query reports a real control category's gate state.
+  auto query = [bindings](i32 category) {
+    return [bindings, category](VirtualMachine&, ObjectRef, Args&) {
+      return Value::Bool(Resolve(bindings).IsPlayerControlEnabled(category));
+    };
+  };
+  reg.Register("Game", "IsMovementControlsEnabled", query(0));
+  reg.Register("Game", "IsFightingControlsEnabled", query(1));
+  reg.Register("Game", "IsCamSwitchControlsEnabled", query(2));
+  reg.Register("Game", "IsLookingControlsEnabled", query(3));
+  reg.Register("Game", "IsSneakingControlsEnabled", query(4));
+  reg.Register("Game", "IsMenuControlsEnabled", query(5));
+  reg.Register("Game", "IsActivateControlsEnabled", query(6));
+  reg.Register("Game", "IsJournalControlsEnabled", query(7));
+  reg.Register("Game", "IsFastTravelControlsEnabled", query(8));
+  reg.Register("Game", "IsFastTravelEnabled", query(8));
+
+  // DisablePlayerControls / EnablePlayerControls toggle categories 0-7; the bool
+  // args follow Skyrim's order and defaults.
+  auto toggle = [](SkyrimBindings& b, Args& a, bool enable) {
+    static constexpr bool kDefault[8] = {true, true, false, true, false, true, true, true};
+    for (i32 c = 0; c < 8; ++c)
+      if (ArgB(a, c, kDefault[c])) b.SetPlayerControl(c, enable);
+  };
+  reg.Register("Game", "DisablePlayerControls", [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
+    toggle(Resolve(bindings), a, false);
+    return Value();
+  });
+  reg.Register("Game", "EnablePlayerControls", [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
+    toggle(Resolve(bindings), a, true);
+    return Value();
+  });
+  reg.Register("Game", "EnableFastTravel", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    Resolve(bindings).SetPlayerControl(8, ArgB(a, 0, true));
+    return Value();
+  });
+
   reg.Register("Game", "GetRealHoursPassed", [bindings](VirtualMachine&, ObjectRef, Args&) {
     return Value::Float(Resolve(bindings).GetRealHoursPassed());
   });

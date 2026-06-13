@@ -239,6 +239,19 @@ void RecordBackedSkyrimBindings::ModCrimeGold(ObjectRef faction, i32 delta) {
   gold = std::max(0, gold + delta);
 }
 
+void RecordBackedSkyrimBindings::SetPlayerControl(i32 category, bool enabled) {
+  if (!player_controls_init_) {
+    player_controls_.fill(true);
+    player_controls_init_ = true;
+  }
+  if (category >= 0 && category < kControlCount) player_controls_[category] = enabled;
+}
+
+bool RecordBackedSkyrimBindings::IsPlayerControlEnabled(i32 category) {
+  if (!player_controls_init_) return true;  // all enabled until something toggles
+  return category >= 0 && category < kControlCount ? player_controls_[category] : true;
+}
+
 RecordBackedSkyrimBindings::ActorValue& RecordBackedSkyrimBindings::Av(ObjectRef actor,
                                                                        const std::string& av) {
   auto& values = actor_values_[actor.handle];

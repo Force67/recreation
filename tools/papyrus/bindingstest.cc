@@ -215,6 +215,14 @@ int main(int argc, char** argv) {
   bindings.SetOpen(door, true);
   check("door open after SetOpen (1)", bindings.GetOpenState(door) == 1);
 
+  // Player controls (new system).
+  check("movement controls enabled by default", bindings.IsPlayerControlEnabled(0));
+  bindings.SetPlayerControl(0, false);
+  check("movement controls disabled after toggle", !bindings.IsPlayerControlEnabled(0));
+  check("fighting controls still enabled", bindings.IsPlayerControlEnabled(1));
+  bindings.SetPlayerControl(0, true);
+  check("movement controls re-enabled", bindings.IsPlayerControlEnabled(0));
+
   std::printf("%s (%d failures)\n", failures ? "BINDINGSTEST FAILED" : "BINDINGSTEST PASSED",
               failures);
   return failures ? 1 : 0;

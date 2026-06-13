@@ -75,6 +75,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) override;
   void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) override;
 
+  // Player controls (new system).
+  void SetPlayerControl(i32 category, bool enabled) override;
+  bool IsPlayerControlEnabled(i32 category) override;
+
   // Actor values (new system): permanent base + damageable current.
   f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) override;
   f32 GetBaseActorValue(papyrus::ObjectRef actor, const std::string& av) override;
@@ -143,6 +147,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   std::unordered_map<u64, std::unordered_map<u64, i32>> faction_ranks_;  // actor -> faction -> rank
   std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;      // faction -> other
   std::unordered_map<u64, i32> crime_gold_;                             // faction -> gold
+  std::array<bool, SkyrimBindings::kControlCount> player_controls_{};   // true = enabled
+  bool player_controls_init_ = false;
 };
 
 }  // namespace rec::script::skyrim

@@ -113,6 +113,13 @@ class SkyrimBindings {
   virtual bool IsObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective) { return false; }
   virtual bool IsObjectiveCompleted(papyrus::ObjectRef quest, i32 objective) { return false; }
 
+  // Player control gate (new system). Categories: 0 movement, 1 fighting,
+  // 2 cam-switch, 3 looking, 4 sneaking, 5 menu, 6 activate, 7 journal,
+  // 8 fast-travel. All enabled by default; cutscene scripts toggle them.
+  static constexpr i32 kControlCount = 9;
+  virtual void SetPlayerControl(i32 category, bool enabled) {}
+  virtual bool IsPlayerControlEnabled(i32 category) { return true; }
+
   // Game settings and time.
   virtual f32 GetGameSettingFloat(const std::string& name) { return 0; }
   virtual f32 GetRealHoursPassed() { return 0; }
