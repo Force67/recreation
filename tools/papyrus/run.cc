@@ -23,6 +23,9 @@
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
 #include "script/papyrus_guest.h"
+#include "script/host/bridge.h"
+#include "script/host/clr_host.h"
+#include "script/host/guest_bridge.h"
 
 namespace {
 
@@ -303,14 +306,15 @@ PexFile MakeScript(Builder& b) {
   return std::move(b.pex);
 }
 
-// Exercises the threaded guest end to end: the dedicated VM thread, FIFO
-// command ordering, native dispatch through the inheritance chain, the update
-// scheduler and OnUpdate event firing, plus cross-thread reads via futures.
-int GuestTest() {
-  using rec::script::PapyrusGuest;
+struct TickerScripts {
+  PexFile form;
+  PexFile ticker;
+};
 
-  // A minimal base script declaring the timer native, and a subclass that
-  // registers for an update and counts how many times OnUpdate fires.
+// A minimal base script declaring the timer native, and a Ticker subclass that
+// registers for one update and counts OnUpdate firings into a Count property.
+// Shared by the guest and host tests.
+TickerScripts BuildTickerScripts() {
   Builder fb;
   fb.obj.name = fb.S("Form");
   fb.obj.parent_class = fb.S("");
@@ -324,17 +328,23 @@ int GuestTest() {
     def.functions.push_back({fb.S("RegisterForSingleUpdate"), std::move(reg)});
     fb.obj.states.push_back(std::move(def));
   }
-  PexFile form = MakeScript(fb);
 
   Builder tb;
   tb.obj.name = tb.S("Ticker");
   tb.obj.parent_class = tb.S("Form");
   {
     MemberVariable count;
-    count.name = tb.S("::count_var");
+    count.name = tb.S("::Count_var");
     count.type = tb.S("Int");
     count.initial_value = tb.IntV(0);
     tb.obj.variables.push_back(count);
+
+    Property prop;  // auto Int property Count, backed by ::Count_var
+    prop.name = tb.S("Count");
+    prop.type = tb.S("Int");
+    prop.flags = 0x7;  // readable | writable | auto
+    prop.auto_var_name = tb.S("::Count_var");
+    tb.obj.properties.push_back(prop);
 
     Function begin;
     begin.return_type = tb.S("");
@@ -347,7 +357,7 @@ int GuestTest() {
     Function on_update;
     on_update.return_type = tb.S("");
     on_update.code = {
-        Make(Op::kIAdd, {tb.Id("::count_var"), tb.Id("::count_var"), tb.IntV(1)}),
+        Make(Op::kIAdd, {tb.Id("::Count_var"), tb.Id("::Count_var"), tb.IntV(1)}),
         Make(Op::kReturn, {}),
     };
 
@@ -357,7 +367,19 @@ int GuestTest() {
     def.functions.push_back({tb.S("OnUpdate"), std::move(on_update)});
     tb.obj.states.push_back(std::move(def));
   }
-  PexFile ticker = MakeScript(tb);
+
+  return {MakeScript(fb), MakeScript(tb)};
+}
+
+// Exercises the threaded guest end to end: the dedicated VM thread, FIFO
+// command ordering, native dispatch through the inheritance chain, the update
+// scheduler and OnUpdate event firing, plus cross-thread reads via futures.
+int GuestTest() {
+  using rec::script::PapyrusGuest;
+
+  TickerScripts scripts = BuildTickerScripts();
+  PexFile form = std::move(scripts.form);
+  PexFile ticker = std::move(scripts.ticker);
 
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
   guest.Start();
@@ -372,7 +394,7 @@ int GuestTest() {
   auto read_count = [&] {
     return guest
         .SubmitFor([inst](VirtualMachine& vm) {
-          Value* m = vm.MemberVar(inst, "::count_var");
+          Value* m = vm.MemberVar(inst, "::Count_var");
           return m ? m->ToInt() : -1;
         })
         .get();
@@ -402,16 +424,65 @@ int GuestTest() {
   return failures ? 1 : 0;
 }
 
+// Drives the full two-worlds path: boots the .NET CoreCLR host, hands it a
+// bridge to a live Papyrus guest, and lets managed C# create an instance, run
+// its update loop and read a property back. Verifies the guest state the
+// managed code produced. Skips cleanly (rc 0) when no .NET runtime is present.
+int HostTest(const std::string& runtime_config, const std::string& assembly) {
+  using rec::script::PapyrusGuest;
+
+  TickerScripts scripts = BuildTickerScripts();
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  guest.Start();
+  guest.SubmitFor([f = std::move(scripts.form)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(f));
+      }).get();
+  guest.SubmitFor([t = std::move(scripts.ticker)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(t));
+      }).get();
+
+  rec::script::host::GuestBridge bridge = rec::script::host::MakeGuestBridge(guest);
+  rec::script::host::ClrHost host;
+  if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
+                       "Recreation.ScriptHost, Recreation.Scripting", "Main")) {
+    std::printf("HOSTTEST SKIPPED (no .NET runtime / entrypoint)\n");
+    guest.Stop();
+    return 0;
+  }
+
+  int managed_result = host.Invoke(&bridge);
+  std::printf("[native] managed Main returned %d\n", managed_result);
+
+  int guest_count = guest
+                        .SubmitFor([&](VirtualMachine& vm) {
+                          // The instance the managed side created has handle 1.
+                          Value* m = vm.MemberVar(ObjectRef{1}, "::Count_var");
+                          return m ? m->ToInt() : -1;
+                        })
+                        .get();
+
+  host.Shutdown();
+  guest.Stop();
+
+  bool ok = managed_result == 1 && guest_count == 1;
+  std::printf("guest-side Count = %d\n%s\n", guest_count,
+              ok ? "HOSTTEST PASSED" : "HOSTTEST FAILED");
+  return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
   if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
   if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
+  if (argc == 4 && std::string(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
-               "usage: %s [selftest|guesttest] | %s vmtest <data_dir> | %s <data_dir> <Script> "
-               "<Function>\n",
-               argv[0], argv[0], argv[0]);
+               "usage: %s [selftest|guesttest]\n"
+               "       %s vmtest <data_dir>\n"
+               "       %s hosttest <runtimeconfig.json> <assembly.dll>\n"
+               "       %s <data_dir> <Script> <Function>\n",
+               argv[0], argv[0], argv[0], argv[0]);
   return 2;
 }

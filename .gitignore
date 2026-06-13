@@ -2,6 +2,9 @@ build/
 out/
 .cache/
 compile_commands.json
+# .NET managed build artifacts
+engine/script/managed/obj/
+engine/script/managed/bin/
 .vs/
 .idea/
 .direnv/

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The engine's managed scripting layer: the "main" world users write code
+       against. Built as a class library hosted in-process by ClrHost.
+       EnableDynamicLoading emits the .runtimeconfig.json and dependency graph
+       the hosting APIs need to load this assembly from native code. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AssemblyName>Recreation.Scripting</AssemblyName>
+    <RootNamespace>Recreation</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>
