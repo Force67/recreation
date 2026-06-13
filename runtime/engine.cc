@@ -719,10 +719,60 @@ void Engine::AttachQuestScripts() {
                         if (!created.empty()) {
                           ++quests;
                           instances += static_cast<int>(created.size());
+                          std::string name = record.GetString(FourCc('E', 'D', 'I', 'D'));
+                          if (name.empty()) name = std::to_string(id.local_id);
+                          quest_records_.push_back({handle, std::move(name)});
                         }
                       });
   REC_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
            quests, scripts_->loaded_script_count());
+}
+
+void Engine::RefreshQuestPanel(f32 dt) {
+  if (!scripts_ || !script_bindings_ || quest_records_.empty()) {
+    quest_panel_.available = false;
+    return;
+  }
+  quest_panel_.available = true;
+
+  // Mutations run on the guest thread (the bindings' only legal caller).
+  if (!quest_panel_.set_running) {
+    quest_panel_.set_running = [this](u64 handle, bool run) {
+      auto* binds = script_bindings_.get();
+      scripts_->guest().Submit([binds, handle, run](script::papyrus::VirtualMachine&) {
+        if (run)
+          binds->StartQuest(script::papyrus::ObjectRef{handle});
+        else
+          binds->StopQuest(script::papyrus::ObjectRef{handle});
+      });
+    };
+    quest_panel_.set_stage = [this](u64 handle, i32 stage) {
+      auto* binds = script_bindings_.get();
+      scripts_->guest().Submit([binds, handle, stage](script::papyrus::VirtualMachine&) {
+        binds->SetStage(script::papyrus::ObjectRef{handle}, stage);
+      });
+    };
+  }
+
+  // Snapshot the live state at a few Hz; one guest round-trip for all quests.
+  quest_ui_timer_ -= dt;
+  if (!quest_panel_.quests.empty() && quest_ui_timer_ > 0.0f) return;
+  quest_ui_timer_ = 0.2f;
+  auto* binds = script_bindings_.get();
+  base::Vector<std::pair<u64, std::string>> src = quest_records_;
+  quest_panel_.quests =
+      scripts_->guest()
+          .SubmitFor([binds, src](script::papyrus::VirtualMachine&) {
+            std::vector<QuestPanel::Quest> out;
+            out.reserve(src.size());
+            for (const auto& [handle, name] : src) {
+              script::papyrus::ObjectRef q{handle};
+              out.push_back({name, handle, binds->IsRunning(q), binds->IsQuestActive(q),
+                             binds->GetStage(q)});
+            }
+            return out;
+          })
+          .get();
 }
 
 bool Engine::LoadGltfScene() {
@@ -905,7 +955,8 @@ int Engine::Run() {
           });
       prev_transforms_ = std::move(transforms);
       EmitActorDraws(view);
-      debug_ui_.Build(renderer_, camera_, frame_delta, &view);
+      RefreshQuestPanel(frame_delta);
+      debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_);
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
       renderer_.RenderFrame(view);
     } else {

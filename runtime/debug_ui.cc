@@ -98,7 +98,7 @@ bool DebugUi::wants_keyboard() const {
 }
 
 void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
-                    render::FrameView* view) {
+                    render::FrameView* view, QuestPanel* quests) {
   if (!initialized_) return;
 
   frame_times_[frame_time_cursor_] = frame_delta * 1000.0f;
@@ -295,6 +295,49 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
         ImGui::Checkbox("ImGui demo window", &show_demo_);
       }
+
+      if (quests && quests->available &&
+          ImGui::CollapsingHeader("Quests", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int running = 0;
+        for (const auto& q : quests->quests) running += q.running ? 1 : 0;
+        ImGui::Text("%zu quests, %d running", quests->quests.size(), running);
+        ImGui::TextDisabled("Papyrus quest scripts attached from VMAD");
+        if (ImGui::BeginTable("quest_list", 3,
+                              ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_SizingStretchProp,
+                              {0, 240})) {
+          ImGui::TableSetupColumn("Quest", ImGuiTableColumnFlags_WidthStretch);
+          ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 90);
+          ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 120);
+          for (const QuestPanel::Quest& q : quests->quests) {
+            ImGui::TableNextRow();
+            ImGui::PushID(static_cast<int>(q.handle));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(q.name.c_str());
+            ImGui::TableNextColumn();
+            if (q.running)
+              ImGui::TextColored({0.4f, 0.9f, 0.4f, 1}, "stage %d", q.stage);
+            else
+              ImGui::TextDisabled("stopped");
+            ImGui::TableNextColumn();
+            if (q.running) {
+              if (ImGui::SmallButton("Stop") && quests->set_running)
+                quests->set_running(q.handle, false);
+              ImGui::SameLine();
+              int stage = q.stage;
+              ImGui::SetNextItemWidth(60);
+              if (ImGui::InputInt("##stage", &stage, 0, 0,
+                                  ImGuiInputTextFlags_EnterReturnsTrue) &&
+                  quests->set_stage)
+                quests->set_stage(q.handle, stage);
+            } else if (ImGui::SmallButton("Start") && quests->set_running) {
+              quests->set_running(q.handle, true);
+            }
+            ImGui::PopID();
+          }
+          ImGui::EndTable();
+        }
+      }
     }
     ImGui::End();
 
@@ -320,7 +363,7 @@ DebugUi::~DebugUi() = default;
 bool DebugUi::Initialize(Window&, render::Renderer&) { return false; }
 void DebugUi::Shutdown() {}
 void DebugUi::BeginFrame() {}
-void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*) {}
+void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*, QuestPanel*) {}
 bool DebugUi::wants_mouse() const { return false; }
 bool DebugUi::wants_keyboard() const { return false; }
 

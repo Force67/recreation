@@ -4,6 +4,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <base/containers/unordered_map.h>
 
@@ -106,6 +107,9 @@ class Engine {
   // Instantiates the Papyrus scripts attached to quest records (bounded), so a
   // slice of the game's scripts run live inside the engine.
   void AttachQuestScripts();
+  // Refreshes the debug overlay's quest snapshot (throttled) and wires its
+  // start/stop/stage callbacks to the guest thread.
+  void RefreshQuestPanel(f32 dt);
   bool StartNetworking();
   void CreateDemoScene();
   void CreateWaterDemoScene();
@@ -153,6 +157,11 @@ class Engine {
   render::Renderer renderer_;
   FlyCamera camera_;
   DebugUi debug_ui_;
+  // Quest console: the (handle, name) of each attached quest, plus the debug
+  // overlay's live snapshot/callbacks. Refreshed on a timer off the guest.
+  base::Vector<std::pair<u64, std::string>> quest_records_;
+  QuestPanel quest_panel_;
+  f32 quest_ui_timer_ = 0;
   GameUi game_ui_;
   physics::PhysicsWorld physics_;
   // Dynamic bodies mirrored into ECS transforms after each step.

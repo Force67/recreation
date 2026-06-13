@@ -1,6 +1,10 @@
 #ifndef RECREATION_RUNTIME_DEBUG_UI_H_
 #define RECREATION_RUNTIME_DEBUG_UI_H_
 
+#include <functional>
+#include <string>
+#include <vector>
+
 #include "core/types.h"
 #include "core/window.h"
 #include "render/renderer.h"
@@ -8,6 +12,25 @@
 namespace rec {
 
 class FlyCamera;
+
+// Live quest state the engine feeds the debug overlay so it can list quests and
+// drive them. The engine fills `quests` from a throttled snapshot of the guest's
+// quest state and wires the callbacks to the guest thread; the overlay only
+// reads the snapshot and invokes the callbacks. handle is the quest's packed
+// form id (its papyrus instance handle).
+struct QuestPanel {
+  struct Quest {
+    std::string name;
+    u64 handle = 0;
+    bool running = false;
+    bool active = true;
+    i32 stage = 0;
+  };
+  bool available = false;
+  std::vector<Quest> quests;
+  std::function<void(u64 handle, bool run)> set_running;
+  std::function<void(u64 handle, i32 stage)> set_stage;
+};
 
 // Dear ImGui overlay: frame stats plus live toggles for every render
 // feature. Rendered through the renderer's ui pass straight onto the
@@ -29,7 +52,7 @@ class DebugUi {
   // Builds the panels and fills view->ui_draw. Always pairs with a
   // BeginFrame, even while hidden.
   void Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
-             render::FrameView* view);
+             render::FrameView* view, QuestPanel* quests = nullptr);
 
   void ToggleVisible() { visible_ = !visible_; }
   bool wants_mouse() const;
