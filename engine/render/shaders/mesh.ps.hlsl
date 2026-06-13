@@ -14,7 +14,7 @@ struct FrameGlobals {
   uint flags;
   float time;
   uint debug_view;  // render::DebugView, isolates a shading channel
-  float pad;
+  float reflection_cutoff;
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
 

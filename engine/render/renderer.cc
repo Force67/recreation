@@ -54,7 +54,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   mesh_pipeline_ = MeshPipeline::Create(*device_, kSceneColorFormat, kMotionFormat,
                                         kNormalFormat, kDepthFormat,
                                         material_system_->set_layout(),
-                                        environment_->env_set_layout());
+                                        environment_->env_set_layout(),
+                                        bindless_ ? bindless_->set_layout() : VK_NULL_HANDLE);
   post_ = PostPass::Create(*device_, swapchain_->format());
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
@@ -452,6 +453,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   bool rt_shadows = rt_available_ && settings_.rt_shadows;
   bool rtao_active = rt_available_ && settings_.rtao;
   bool ddgi_active = ddgi_ && settings_.ddgi && settings_.ibl;
+  bool reflections_active = rt_available_ && settings_.rt_reflections && bindless_ != nullptr;
+  // The ray-query fragment variant serves both shadows and reflections.
+  bool use_rt_frag = rt_shadows || reflections_active;
   time_seconds_ += view.frame_delta_seconds;
 
   // Transparent work is gathered up front: water forces a tlas (the water
@@ -527,8 +531,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (rtao_active) globals.flags |= kFrameFlagAoValid;
   if (ddgi_active) globals.flags |= kFrameFlagDdgi;
   if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
+  if (rt_shadows) globals.flags |= kFrameFlagRtShadows;
+  if (reflections_active) globals.flags |= kFrameFlagReflections;
   globals.time = static_cast<f32>(time_seconds_);
   globals.debug_view = static_cast<u32>(settings_.debug_view);
+  globals.reflection_cutoff = settings_.reflection_roughness_cutoff;
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -571,7 +578,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
-  if (rt_shadows || rtao_active || ddgi_active || water_pipeline_active) {
+  if (rt_shadows || rtao_active || ddgi_active || water_pipeline_active || reflections_active) {
     base::Vector<RayTracingContext::Instance> instances;
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
@@ -720,8 +727,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(depth, ResourceUsage::kDepthAttachment);
         if (ao != kInvalidResource) builder.Read(ao, ResourceUsage::kSampledFragment);
       },
-      [this, scene_color, motion, depth, ao, tlas_slot, rt_shadows, ddgi_active, &frame,
-       &view](PassContext& ctx) {
+      [this, scene_color, motion, depth, ao, tlas_slot, rt_shadows, use_rt_frag, ddgi_active,
+       &frame, &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(scene_color).view;
@@ -770,7 +777,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
         VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-        if (rt_shadows) {
+        if (use_rt_frag) {
           tlas = raytracing_->tlas(tlas_slot);
           tlas_info.accelerationStructureCount = 1;
           tlas_info.pAccelerationStructures = &tlas;
@@ -791,7 +798,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
         environment_->WriteEnvSet(env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr);
 
-        mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, rt_shadows, settings_.wireframe);
+        VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
+        mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
+                             settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         bool skinned_bound = false;
         for (const DrawItem& item : view.draws) {
@@ -799,7 +808,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           if (!mesh || mesh->all_blend) continue;
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
           if (draw_skinned != skinned_bound) {
-            mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, rt_shadows, settings_.wireframe);
+            mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, use_rt_frag, settings_.wireframe);
             skinned_bound = draw_skinned;
           }
           MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
@@ -819,7 +828,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           }
         }
         if (skinned_bound) {
-          mesh_pipeline_->SetSkinned(ctx.cmd, false, rt_shadows, settings_.wireframe);
+          mesh_pipeline_->SetSkinned(ctx.cmd, false, use_rt_frag, settings_.wireframe);
         }
         if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
         vkCmdEndRendering(ctx.cmd);
@@ -862,8 +871,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
         },
         [this, composite, motion, depth, opaque_color, opaque_depth, tlas_slot, rt_shadows,
-         ddgi_active, water_pipeline_active, transparent = std::move(transparent), &frame,
-         &view](PassContext& ctx) {
+         use_rt_frag, ddgi_active, water_pipeline_active,
+         transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
           VkRenderingAttachmentInfo colors[2];
           colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
           colors[0].imageView = ctx.graph->image(composite).view;
@@ -944,7 +953,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                 water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
                              opaque_depth);
               } else {
-                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, rt_shadows);
+                VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
+                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, bindless_set,
+                                          use_rt_frag);
               }
               mode = wanted;
               bound_material = VK_NULL_HANDLE;

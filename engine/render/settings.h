@@ -23,6 +23,7 @@ enum class DebugView : u8 {
   kIndirectGi,
   kDirectLight,
   kEmissive,
+  kReflection,  // raw traced specular reflection (rt variant only)
 };
 
 // Resolution scaling presets matching the vendor upscaler naming. The ratio
@@ -69,6 +70,9 @@ struct RenderSettings {
   f32 ddgi_intensity = 1.0f;
 
   bool water_reflections = true;  // raytraced; off falls back to sky only
+
+  bool rt_reflections = true;  // raytraced specular for opaque surfaces (needs ray query)
+  f32 reflection_roughness_cutoff = 0.6f;  // above this, fall back to prefiltered ibl
 
   Vec3 sun_direction{-0.35f, -0.9f, -0.25f};  // travel direction of the light
   f32 sun_intensity = 4.0f;

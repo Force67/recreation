@@ -15,9 +15,11 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
                                                    VkFormat motion_format,
                                                    VkFormat normal_format, VkFormat depth_format,
                                                    VkDescriptorSetLayout material_layout,
-                                                   VkDescriptorSetLayout environment_layout) {
+                                                   VkDescriptorSetLayout environment_layout,
+                                                   VkDescriptorSetLayout bindless_layout) {
   auto pipeline = std::unique_ptr<MeshPipeline>(new MeshPipeline(device));
   bool rt = device.caps().ray_query;
+  pipeline->has_bindless_ = bindless_layout != VK_NULL_HANDLE;
 
   VkDescriptorSetLayoutBinding bindings[2]{};
   bindings[0].binding = 0;
@@ -42,10 +44,10 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
   push_range.size = sizeof(MeshPushConstants);
 
-  VkDescriptorSetLayout set_layouts[3] = {pipeline->set_layout_, material_layout,
-                                          environment_layout};
+  VkDescriptorSetLayout set_layouts[4] = {pipeline->set_layout_, material_layout,
+                                          environment_layout, bindless_layout};
   VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 3;
+  layout_info.setLayoutCount = pipeline->has_bindless_ ? 4 : 3;
   layout_info.pSetLayouts = set_layouts;
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push_range;
@@ -302,8 +304,9 @@ MeshPipeline::~MeshPipeline() {
 }
 
 void MeshPipeline::Bind(VkCommandBuffer cmd, VkDescriptorSet globals,
-                        VkDescriptorSet environment, bool rt_shadows, bool wireframe) {
-  u32 variant = (rt_shadows ? kRt : 0) | (wireframe ? kWire : 0);
+                        VkDescriptorSet environment, VkDescriptorSet bindless, bool use_rt,
+                        bool wireframe) {
+  u32 variant = (use_rt ? kRt : 0) | (wireframe ? kWire : 0);
   if (pipelines_[variant] == VK_NULL_HANDLE) variant &= ~kWire;
   if (pipelines_[variant] == VK_NULL_HANDLE) variant = 0;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_[variant]);
@@ -311,16 +314,24 @@ void MeshPipeline::Bind(VkCommandBuffer cmd, VkDescriptorSet globals,
                           nullptr);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 2, 1, &environment, 0,
                           nullptr);
+  if (has_bindless_ && bindless != VK_NULL_HANDLE) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 3, 1, &bindless, 0,
+                            nullptr);
+  }
 }
 
 void MeshPipeline::BindBlend(VkCommandBuffer cmd, VkDescriptorSet globals,
-                             VkDescriptorSet environment, bool rt_shadows) {
-  u32 variant = rt_shadows && blend_pipelines_[1] != VK_NULL_HANDLE ? 1 : 0;
+                             VkDescriptorSet environment, VkDescriptorSet bindless, bool use_rt) {
+  u32 variant = use_rt && blend_pipelines_[1] != VK_NULL_HANDLE ? 1 : 0;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blend_pipelines_[variant]);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &globals, 0,
                           nullptr);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 2, 1, &environment, 0,
                           nullptr);
+  if (has_bindless_ && bindless != VK_NULL_HANDLE) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 3, 1, &bindless, 0,
+                            nullptr);
+  }
 }
 
 void MeshPipeline::BindPrepass(VkCommandBuffer cmd, VkDescriptorSet globals) {
@@ -334,14 +345,14 @@ void MeshPipeline::BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material) {
                           nullptr);
 }
 
-void MeshPipeline::SetSkinned(VkCommandBuffer cmd, bool skinned, bool rt_shadows, bool wireframe) {
+void MeshPipeline::SetSkinned(VkCommandBuffer cmd, bool skinned, bool use_rt, bool wireframe) {
   if (skinned) {
-    VkPipeline p = skinned_pipelines_[rt_shadows ? kRt : 0];
+    VkPipeline p = skinned_pipelines_[use_rt ? kRt : 0];
     if (p == VK_NULL_HANDLE) p = skinned_pipelines_[0];
     if (p != VK_NULL_HANDLE) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
     return;
   }
-  u32 variant = (rt_shadows ? kRt : 0) | (wireframe ? kWire : 0);
+  u32 variant = (use_rt ? kRt : 0) | (wireframe ? kWire : 0);
   if (pipelines_[variant] == VK_NULL_HANDLE) variant &= ~kWire;
   if (pipelines_[variant] == VK_NULL_HANDLE) variant = 0;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_[variant]);

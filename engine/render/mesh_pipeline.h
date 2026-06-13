@@ -23,7 +23,7 @@ struct FrameGlobals {
   u32 flags = 0;
   f32 time = 0;  // seconds, drives water waves
   u32 debug_view = 0;  // render::DebugView, isolates a shading channel
-  f32 pad = 0;
+  f32 reflection_cutoff = 0.6f;  // roughness above which rt reflections fall back to ibl
 };
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.
@@ -31,6 +31,8 @@ inline constexpr u32 kFrameFlagIbl = 1u << 0;
 inline constexpr u32 kFrameFlagAoValid = 1u << 1;
 inline constexpr u32 kFrameFlagDdgi = 1u << 2;
 inline constexpr u32 kFrameFlagWaterRt = 1u << 3;
+inline constexpr u32 kFrameFlagReflections = 1u << 4;  // opaque rt specular reflections
+inline constexpr u32 kFrameFlagRtShadows = 1u << 5;    // trace sun shadow in the rt variant
 
 // model + prev_model are 128 bytes; skinned draws append the bone palette's
 // buffer device address and this mesh's offset into it (needs a 144 byte push
@@ -50,11 +52,14 @@ struct MeshPushConstants {
 // all sharing one layout so they swap mid-frame without rebinding sets.
 class MeshPipeline {
  public:
+  // bindless_layout enables set 3 (the scene tables the rt variant reads for
+  // reflection hit shading); pass VK_NULL_HANDLE when ray query is unavailable.
   static std::unique_ptr<MeshPipeline> Create(Device& device, VkFormat color_format,
                                               VkFormat motion_format, VkFormat normal_format,
                                               VkFormat depth_format,
                                               VkDescriptorSetLayout material_layout,
-                                              VkDescriptorSetLayout environment_layout);
+                                              VkDescriptorSetLayout environment_layout,
+                                              VkDescriptorSetLayout bindless_layout);
   ~MeshPipeline();
 
   MeshPipeline(const MeshPipeline&) = delete;
@@ -63,13 +68,15 @@ class MeshPipeline {
   VkDescriptorSetLayout set_layout() const { return set_layout_; }
   bool has_rt_variant() const { return pipelines_[kRt] != VK_NULL_HANDLE; }
 
+  // use_rt selects the ray-query fragment variant (shadows and/or reflections);
+  // bindless is bound as set 3 when the pipeline was built with it.
   void Bind(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
-            bool rt_shadows, bool wireframe);
+            VkDescriptorSet bindless, bool use_rt, bool wireframe);
   void BindPrepass(VkCommandBuffer cmd, VkDescriptorSet globals);
   // Transparent variant: alpha blend over the opaque result, depth tested
   // against the prepass without writing. Set state mirrors Bind.
   void BindBlend(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
-                 bool rt_shadows);
+                 VkDescriptorSet bindless, bool use_rt);
   void BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
   void Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push);
   void DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh);
@@ -78,7 +85,7 @@ class MeshPipeline {
   // mid-pass without rebinding descriptor sets (the layout is shared). The draw
   // loop calls these when it crosses a skinned/non-skinned mesh boundary.
   bool has_skinning() const { return skinned_pipelines_[0] != VK_NULL_HANDLE; }
-  void SetSkinned(VkCommandBuffer cmd, bool skinned, bool rt_shadows, bool wireframe);
+  void SetSkinned(VkCommandBuffer cmd, bool skinned, bool use_rt, bool wireframe);
   void SetPrepassSkinned(VkCommandBuffer cmd, bool skinned);
 
  private:
@@ -91,6 +98,7 @@ class MeshPipeline {
   Device& device_;
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
+  bool has_bindless_ = false;  // set 3 present in the layout
   VkPipeline pipelines_[4] = {};  // [rt | wire]
   VkPipeline blend_pipelines_[2] = {};  // [rt]
   VkPipeline prepass_pipeline_ = VK_NULL_HANDLE;

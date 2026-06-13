@@ -20,9 +20,9 @@ const char* kAaModes[] = {"None", "TAA", "FSR3 Upscaler", "DLSS Upscaler"};
 const char* kQualities[] = {"Native AA (1.0x)", "Quality (1.5x)", "Balanced (1.7x)",
                             "Performance (2.0x)"};
 const char* kTonemaps[] = {"ACES", "Reinhard", "None"};
-const char* kDebugViews[] = {"Off",         "Base color", "World normal",
-                             "Roughness",   "Metallic",   "Ambient occlusion",
-                             "Indirect GI", "Direct light", "Emissive"};
+const char* kDebugViews[] = {"Off",         "Base color",   "World normal",
+                             "Roughness",   "Metallic",     "Ambient occlusion",
+                             "Indirect GI", "Direct light", "Emissive", "Reflection"};
 
 }  // namespace
 
@@ -191,6 +191,11 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
           }
         }
         ImGui::Checkbox("Water RT reflections", &settings.water_reflections);
+        ImGui::Checkbox("RT reflections", &settings.rt_reflections);
+        if (settings.rt_reflections) {
+          ImGui::SliderFloat("Reflection roughness", &settings.reflection_roughness_cutoff, 0.05f,
+                             1.0f, "%.2f");
+        }
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!caps || !caps->fill_mode_non_solid);
         ImGui::Checkbox("Wireframe", &settings.wireframe);

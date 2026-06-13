@@ -16,7 +16,7 @@ struct FrameGlobals {
   uint flags;
   float time;
   uint debug_view;  // render::DebugView, isolates a shading channel
-  float pad;
+  float reflection_cutoff;  // roughness above which reflections fall back to ibl
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
 
@@ -61,13 +61,42 @@ struct DdgiVolume {
 };
 [[vk::binding(6, 2)]] ConstantBuffer<DdgiVolume> ddgi;
 
+// Scene tables for reflection hit shading (set 3), matching water.ps.hlsl.
+struct MeshRecord {
+  uint64_t vertex_address;
+  uint64_t index_address;
+  uint geometry_offset;
+  uint pad0;
+  uint pad1;
+  uint pad2;
+};
+struct GeometryRecord {
+  uint index_offset;
+  uint material_index;
+};
+struct MaterialRecord {
+  float4 base_color_factor;
+  float3 emissive;
+  uint base_color_texture;
+};
+[[vk::binding(0, 3)]] StructuredBuffer<MeshRecord> mesh_records;
+[[vk::binding(1, 3)]] StructuredBuffer<GeometryRecord> geometry_records;
+[[vk::binding(2, 3)]] StructuredBuffer<MaterialRecord> material_records;
+[[vk::binding(3, 3)]] Texture2D bindless_textures[];
+[[vk::binding(4, 3)]] SamplerState bindless_sampler;
+
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
+static const uint kFrameReflections = 16u;
+static const uint kFrameRtShadows = 32u;
 static const float kPi = 3.14159265359;
 static const float kPrefilterMips = 6.0;
+static const uint kVertexStride = 52;
+static const uint kNormalOffset = 12;
+static const uint kUvOffset = 40;
 
 struct PsIn {
   float4 sv_position : SV_Position;
@@ -174,6 +203,73 @@ float3 SampleDdgi(float3 world_pos, float3 n, float3 v) {
   return mean * mean * ddgi.params.w;
 }
 
+// Nearest-probe diffuse gi for a reflection hit (cheaper than the full blend).
+float3 SampleDdgiNearest(float3 world_pos, float3 n) {
+  if ((frame.flags & kFrameDdgi) == 0u) return 0.0.xxx;
+  float3 local = (world_pos - ddgi.origin.xyz) / ddgi.origin.w;
+  if (any(local < 0.0) || any(local > float3(ddgi.counts.xyz - 1))) return 0.0.xxx;
+  uint3 probe = (uint3)round(local);
+  float texels = (float)ddgi.counts.w;
+  float2 atlas = float2((ddgi.counts.w + 2) * ddgi.counts.x * ddgi.counts.z,
+                        (ddgi.counts.w + 2) * ddgi.counts.y);
+  float3 irr = ddgi_irradiance
+      .SampleLevel(ddgi_irradiance_sampler,
+                   float3(ProbeAtlasUv(probe, n, texels, atlas), 0.0), 0.0).rgb;
+  return irr * irr * ddgi.params.w;
+}
+
+// One reflection bounce through the scene tables: sun (no secondary shadow) +
+// nearest-probe gi + emissive at the hit, prefiltered sky on miss.
+float3 TraceReflection(float3 origin, float3 dir) {
+  RayDesc ray;
+  ray.Origin = origin;
+  ray.TMin = 0.02;
+  ray.Direction = dir;
+  ray.TMax = 200.0;
+  RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
+  rq.TraceRayInline(tlas, RAY_FLAG_NONE, 0xff, ray);
+  rq.Proceed();
+  if (rq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) {
+    return min(prefiltered_cube.SampleLevel(prefiltered_sampler, dir, 1.0).rgb, 8.0.xxx);
+  }
+
+  float3 hit_pos = origin + dir * rq.CommittedRayT();
+  MeshRecord mesh = mesh_records[NonUniformResourceIndex(rq.CommittedInstanceID())];
+  GeometryRecord geometry = geometry_records[mesh.geometry_offset + rq.CommittedGeometryIndex()];
+  uint64_t index_base =
+      mesh.index_address + (geometry.index_offset + rq.CommittedPrimitiveIndex() * 3) * 4;
+  uint3 tri;
+  tri.x = vk::RawBufferLoad<uint>(index_base);
+  tri.y = vk::RawBufferLoad<uint>(index_base + 4);
+  tri.z = vk::RawBufferLoad<uint>(index_base + 8);
+  float2 bary = rq.CommittedTriangleBarycentrics();
+  float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
+  float3 n_local = 0.0.xxx;
+  float2 uv = 0.0.xx;
+  [unroll]
+  for (uint corner = 0; corner < 3; ++corner) {
+    uint64_t vertex = mesh.vertex_address + tri[corner] * kVertexStride;
+    n_local += vk::RawBufferLoad<float3>(vertex + kNormalOffset, 4) * w[corner];
+    uv += vk::RawBufferLoad<float2>(vertex + kUvOffset, 4) * w[corner];
+  }
+  float3x4 to_world = rq.CommittedObjectToWorld3x4();
+  float3 hit_n = normalize(mul((float3x3)to_world, n_local));
+  if (dot(hit_n, dir) > 0.0) hit_n = -hit_n;
+
+  MaterialRecord hit_material =
+      material_records[NonUniformResourceIndex(geometry.material_index)];
+  float3 albedo = hit_material.base_color_factor.rgb;
+  if (hit_material.base_color_texture != 0xffffffffu) {
+    albedo *= bindless_textures[NonUniformResourceIndex(hit_material.base_color_texture)]
+                  .SampleLevel(bindless_sampler, uv, 2.0).rgb;
+  }
+  float3 to_sun = normalize(-frame.sun_direction.xyz);
+  float3 sun = frame.sun_color.rgb * frame.sun_direction.w;
+  float ndl = max(dot(hit_n, to_sun), 0.0);
+  return albedo / kPi * sun * ndl + albedo * SampleDdgiNearest(hit_pos, hit_n) +
+         hit_material.emissive;
+}
+
 // Cook-Torrance ggx with Schlick fresnel and Smith visibility for the sun,
 // split-sum ibl with Fdez-Aguera multi-scatter for ambient.
 float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
@@ -218,6 +314,14 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     float3 r = reflect(-v, n);
     float3 radiance =
         prefiltered_cube.SampleLevel(prefiltered_sampler, r, roughness * (kPrefilterMips - 1.0)).rgb;
+    // Hybrid specular: trace the reflection for smooth surfaces, fade to the
+    // prefiltered probe as roughness climbs to the cutoff (which gets blurry
+    // enough that the cube is indistinguishable and far cheaper).
+    if ((frame.flags & kFrameReflections) != 0u && roughness < frame.reflection_cutoff) {
+      float blend = saturate(roughness / max(frame.reflection_cutoff, 1e-3));
+      float3 traced = TraceReflection(input.world_pos + n * 0.02, r);
+      radiance = lerp(traced, radiance, blend);
+    }
     float3 irradiance = irradiance_cube.Sample(irradiance_sampler, n).rgb;
     if ((frame.flags & kFrameDdgi) != 0u) {
       irradiance += SampleDdgi(input.world_pos, n, v);
@@ -248,6 +352,7 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     case 6: return ambient;     // indirect (ibl + ddgi), ao applied
     case 7: return lit;         // direct sun, shadowed
     case 8: return emissive;
+    case 9: return TraceReflection(input.world_pos + n * 0.02, reflect(-v, n));  // raw reflection
   }
   return lit + ambient + emissive;
 }
@@ -260,6 +365,7 @@ float ShadowNoise(float2 pixel, float offset) {
 }
 
 float SunShadow(PsIn input, float3 n) {
+  if ((frame.flags & kFrameRtShadows) == 0u) return 1.0;  // reflections-only rt frame
   float3 l = normalize(-frame.sun_direction.xyz);
   if (dot(n, l) <= 0.0) return 1.0;  // ndl already zeroes the contribution
 
