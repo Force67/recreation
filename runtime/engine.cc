@@ -51,9 +51,6 @@ bool Engine::Initialize(const EngineConfig& config) {
     if (!debug_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("debug ui unavailable");
     }
-    // REC_TRACE=1 opens the native-call trace window at startup (the F2 toggle
-    // is unreachable in a headless screenshot capture).
-    if (std::getenv("REC_TRACE")) debug_ui_.ToggleTrace();
     if (!game_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("game ui unavailable");
     }

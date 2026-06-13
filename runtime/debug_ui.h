@@ -76,7 +76,7 @@ class DebugUi {
  private:
   bool initialized_ = false;
   bool visible_ = true;
-  bool trace_visible_ = false;  // the native-call trace window (F2)
+  bool trace_visible_ = true;  // the native-call trace window (F2 toggles)
   bool show_demo_ = false;
   VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;  // outlives imgui init info
   f32 frame_times_[150] = {};
