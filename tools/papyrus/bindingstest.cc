@@ -121,6 +121,21 @@ int main(int argc, char** argv) {
     check("MoveTo snaps to target", bindings.GetDistance(r, other) == 0.0f);
   }
 
+  // Quest state (new system).
+  ObjectRef quest{0x123};
+  check("quest stage default 0", bindings.GetStage(quest) == 0);
+  bindings.SetStage(quest, 10);
+  check("SetStage 10 -> GetStage 10", bindings.GetStage(quest) == 10);
+  check("stage 10 marked done", bindings.GetStageDone(quest, 10));
+  check("stage 5 not done", !bindings.GetStageDone(quest, 5));
+  check("running after SetStage", bindings.IsRunning(quest));
+  bindings.SetObjectiveDisplayed(quest, 1, true);
+  bindings.SetObjectiveCompleted(quest, 1, true);
+  check("objective 1 displayed", bindings.IsObjectiveDisplayed(quest, 1));
+  check("objective 1 completed", bindings.IsObjectiveCompleted(quest, 1));
+  bindings.StopQuest(quest);
+  check("stopped quest not running", !bindings.IsRunning(quest));
+
   std::printf("%s (%d failures)\n", failures ? "BINDINGSTEST FAILED" : "BINDINGSTEST PASSED",
               failures);
   return failures ? 1 : 0;

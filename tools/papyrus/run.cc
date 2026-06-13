@@ -494,6 +494,9 @@ struct TestBindings : rec::script::skyrim::SkyrimBindings {
   bool IsDead(ObjectRef) override { return false; }
   bool IsInCombat(ObjectRef) override { return true; }
   i32 GetItemCount(ObjectRef, ObjectRef) override { return 3; }
+  std::unordered_map<rec::u64, i32> stages;
+  i32 GetStage(ObjectRef q) override { return stages.count(q.handle) ? stages[q.handle] : 0; }
+  void SetStage(ObjectRef q, i32 s) override { stages[q.handle] = s; }
 };
 
 // Validates the Skyrim native surface: fully-implemented Math/Utility globals,
@@ -565,6 +568,22 @@ int SkyrimTest() {
   check("Actor.IsInCombat() == true (bindings)", vm.Call(actor, "IsInCombat", {}).ToBool());
   check("inherited GetItemCount() == 3",
         vm.Call(actor, "GetItemCount", {Value::Object({0})}).ToInt() == 3);
+
+  // Quest natives dispatch through the VM to the bindings' quest system.
+  Builder qb;
+  qb.obj.name = qb.S("Quest");
+  qb.obj.parent_class = qb.S("");
+  {
+    State def;
+    def.name = qb.S("");
+    def.functions.push_back(NativeMethod(qb, "SetStage", {{"aiStage", "Int"}}));
+    def.functions.push_back(NativeMethod(qb, "GetStage", {}));
+    qb.obj.states.push_back(std::move(def));
+  }
+  vm.AddScript(MakeScript(qb));
+  ObjectRef quest = vm.CreateInstance("Quest");
+  vm.Call(quest, "SetStage", {Value::Int(15)});
+  check("Quest.SetStage/GetStage dispatch == 15", vm.Call(quest, "GetStage", {}).ToInt() == 15);
 
   std::printf("%s (%d failures)\n", failures ? "SKYRIMTEST FAILED" : "SKYRIMTEST PASSED", failures);
   return failures ? 1 : 0;

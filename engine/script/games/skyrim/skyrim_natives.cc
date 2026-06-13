@@ -19,6 +19,7 @@ constexpr f64 kRadToDeg = 180.0 / std::numbers::pi;
 
 f32 ArgF(const Args& a, size_t i) { return i < a.size() ? a[i].ToFloat() : 0.0f; }
 i32 ArgI(const Args& a, size_t i) { return i < a.size() ? a[i].ToInt() : 0; }
+bool ArgB(const Args& a, size_t i, bool fallback) { return i < a.size() ? a[i].ToBool() : fallback; }
 std::string ArgS(const Args& a, size_t i) { return i < a.size() ? a[i].ToString() : std::string(); }
 ObjectRef ArgO(const Args& a, size_t i) { return i < a.size() ? a[i].as_object() : ObjectRef{}; }
 
@@ -227,6 +228,58 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   });
 }
 
+void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
+  reg.Register("Quest", "GetStage", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetStage(self));
+  });
+  reg.Register("Quest", "GetCurrentStageID", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetStage(self));
+  });
+  reg.Register("Quest", "SetStage", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetStage(self, ArgI(a, 0));
+    return Value::Bool(true);
+  });
+  reg.Register("Quest", "GetStageDone", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).GetStageDone(self, ArgI(a, 0)));
+  });
+  reg.Register("Quest", "IsRunning", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsRunning(self));
+  });
+  reg.Register("Quest", "Start", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).StartQuest(self);
+    return Value::Bool(true);
+  });
+  reg.Register("Quest", "Stop", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).StopQuest(self);
+    return Value();
+  });
+  reg.Register("Quest", "Reset", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).ResetQuest(self);
+    return Value();
+  });
+  reg.Register("Quest", "IsActive", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsQuestActive(self));
+  });
+  reg.Register("Quest", "SetActive", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetQuestActive(self, ArgB(a, 0, true));
+    return Value();
+  });
+  reg.Register("Quest", "SetObjectiveDisplayed", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetObjectiveDisplayed(self, ArgI(a, 0), ArgB(a, 1, true));
+    return Value();
+  });
+  reg.Register("Quest", "SetObjectiveCompleted", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), ArgB(a, 1, true));
+    return Value();
+  });
+  reg.Register("Quest", "IsObjectiveDisplayed", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).IsObjectiveDisplayed(self, ArgI(a, 0)));
+  });
+  reg.Register("Quest", "IsObjectiveCompleted", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).IsObjectiveCompleted(self, ArgI(a, 0)));
+  });
+}
+
 void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Float(Resolve(bindings).GetActorValue(self, ArgS(a, 0)));
@@ -282,6 +335,7 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterGameControls(reg, bindings);
   RegisterObjectReference(reg, bindings);
   RegisterActor(reg, bindings);
+  RegisterQuest(reg, bindings);
 }
 
 }  // namespace rec::script::skyrim

@@ -59,6 +59,21 @@ class SkyrimBindings {
   virtual void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) {}
   virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
 
+  // Quests (new in-engine state system).
+  virtual i32 GetStage(papyrus::ObjectRef quest) { return 0; }
+  virtual void SetStage(papyrus::ObjectRef quest, i32 stage) {}
+  virtual bool GetStageDone(papyrus::ObjectRef quest, i32 stage) { return false; }
+  virtual bool IsRunning(papyrus::ObjectRef quest) { return false; }
+  virtual void StartQuest(papyrus::ObjectRef quest) {}
+  virtual void StopQuest(papyrus::ObjectRef quest) {}
+  virtual void ResetQuest(papyrus::ObjectRef quest) {}
+  virtual bool IsQuestActive(papyrus::ObjectRef quest) { return false; }
+  virtual void SetQuestActive(papyrus::ObjectRef quest, bool active) {}
+  virtual void SetObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective, bool displayed) {}
+  virtual void SetObjectiveCompleted(papyrus::ObjectRef quest, i32 objective, bool completed) {}
+  virtual bool IsObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective) { return false; }
+  virtual bool IsObjectiveCompleted(papyrus::ObjectRef quest, i32 objective) { return false; }
+
   // Game settings and time.
   virtual f32 GetGameSettingFloat(const std::string& name) { return 0; }
   virtual f32 GetRealHoursPassed() { return 0; }

@@ -186,4 +186,64 @@ void RecordBackedSkyrimBindings::RemoveItem(ObjectRef container, ObjectRef item,
   if (item_it->second == 0) it->second.erase(item_it);
 }
 
+i32 RecordBackedSkyrimBindings::GetStage(ObjectRef quest) { return quests_[quest.handle].stage; }
+
+void RecordBackedSkyrimBindings::SetStage(ObjectRef quest, i32 stage) {
+  QuestState& q = quests_[quest.handle];
+  q.stage = stage;
+  q.stage_done[stage] = true;
+  q.running = true;  // setting a stage implies the quest is running
+}
+
+bool RecordBackedSkyrimBindings::GetStageDone(ObjectRef quest, i32 stage) {
+  auto it = quests_.find(quest.handle);
+  if (it == quests_.end()) return false;
+  auto stage_it = it->second.stage_done.find(stage);
+  return stage_it != it->second.stage_done.end() && stage_it->second;
+}
+
+bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) { return quests_[quest.handle].running; }
+
+void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
+  quests_[quest.handle].running = true;
+}
+
+void RecordBackedSkyrimBindings::StopQuest(ObjectRef quest) {
+  quests_[quest.handle].running = false;
+}
+
+void RecordBackedSkyrimBindings::ResetQuest(ObjectRef quest) { quests_[quest.handle] = QuestState{}; }
+
+bool RecordBackedSkyrimBindings::IsQuestActive(ObjectRef quest) {
+  return quests_[quest.handle].active;
+}
+
+void RecordBackedSkyrimBindings::SetQuestActive(ObjectRef quest, bool active) {
+  quests_[quest.handle].active = active;
+}
+
+void RecordBackedSkyrimBindings::SetObjectiveDisplayed(ObjectRef quest, i32 objective,
+                                                       bool displayed) {
+  quests_[quest.handle].objective_displayed[objective] = displayed;
+}
+
+void RecordBackedSkyrimBindings::SetObjectiveCompleted(ObjectRef quest, i32 objective,
+                                                       bool completed) {
+  quests_[quest.handle].objective_completed[objective] = completed;
+}
+
+bool RecordBackedSkyrimBindings::IsObjectiveDisplayed(ObjectRef quest, i32 objective) {
+  auto it = quests_.find(quest.handle);
+  if (it == quests_.end()) return false;
+  auto obj_it = it->second.objective_displayed.find(objective);
+  return obj_it != it->second.objective_displayed.end() && obj_it->second;
+}
+
+bool RecordBackedSkyrimBindings::IsObjectiveCompleted(ObjectRef quest, i32 objective) {
+  auto it = quests_.find(quest.handle);
+  if (it == quests_.end()) return false;
+  auto obj_it = it->second.objective_completed.find(objective);
+  return obj_it != it->second.objective_completed.end() && obj_it->second;
+}
+
 }  // namespace rec::script::skyrim

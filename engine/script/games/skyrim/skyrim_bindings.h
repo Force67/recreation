@@ -59,7 +59,31 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void AddItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) override;
   void RemoveItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) override;
 
+  // Quests (new system): stage, running state, objectives.
+  i32 GetStage(papyrus::ObjectRef quest) override;
+  void SetStage(papyrus::ObjectRef quest, i32 stage) override;
+  bool GetStageDone(papyrus::ObjectRef quest, i32 stage) override;
+  bool IsRunning(papyrus::ObjectRef quest) override;
+  void StartQuest(papyrus::ObjectRef quest) override;
+  void StopQuest(papyrus::ObjectRef quest) override;
+  void ResetQuest(papyrus::ObjectRef quest) override;
+  bool IsQuestActive(papyrus::ObjectRef quest) override;
+  void SetQuestActive(papyrus::ObjectRef quest, bool active) override;
+  void SetObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective, bool displayed) override;
+  void SetObjectiveCompleted(papyrus::ObjectRef quest, i32 objective, bool completed) override;
+  bool IsObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective) override;
+  bool IsObjectiveCompleted(papyrus::ObjectRef quest, i32 objective) override;
+
  private:
+  struct QuestState {
+    bool running = false;
+    bool active = true;
+    i32 stage = 0;
+    std::unordered_map<i32, bool> stage_done;
+    std::unordered_map<i32, bool> objective_displayed;
+    std::unordered_map<i32, bool> objective_completed;
+  };
+
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   std::array<f32, 3> Position(papyrus::ObjectRef ref);
 
@@ -69,6 +93,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   std::unordered_map<u64, std::unordered_map<std::string, f32>> actor_values_;
   std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
   std::unordered_map<u64, std::array<f32, 3>> positions_;  // SetPosition/MoveTo overrides
+  std::unordered_map<u64, QuestState> quests_;
 };
 
 }  // namespace rec::script::skyrim
