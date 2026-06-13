@@ -5,6 +5,7 @@
 
 namespace rec::script {
 
+using papyrus::ArrayRef;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
@@ -45,24 +46,69 @@ std::string ScriptSystem::EnsureScriptLoaded(const std::string& name) {
   return type;
 }
 
-Value ScriptSystem::ToValue(const bethesda::ScriptProperty& property) {
-  switch (property.type) {
-    case 1:  // object reference: keyed by form id (the engine's object identity)
-      return Value::Object(ObjectRef{property.object_value.form_id});
+namespace {
+
+// Writes a baked VMAD property onto a live instance. Arrays are built in the VM
+// heap, which is why this runs on the guest thread with the VM in hand. Object
+// values are keyed by form id, the engine's object identity.
+void SeedProperty(VirtualMachine& vm, ObjectRef inst, const bethesda::ScriptProperty& p) {
+  switch (p.type) {
+    case 1:
+      vm.SetProperty(inst, p.name, Value::Object(ObjectRef{p.object_value.form_id}));
+      break;
     case 2:
-      return Value::Str(property.string_value);
+      vm.SetProperty(inst, p.name, Value::Str(p.string_value));
+      break;
     case 3:
-      return Value::Int(property.int_value);
+      vm.SetProperty(inst, p.name, Value::Int(p.int_value));
+      break;
     case 4:
-      return Value::Float(property.float_value);
+      vm.SetProperty(inst, p.name, Value::Float(p.float_value));
+      break;
     case 5:
-      return Value::Bool(property.bool_value);
+      vm.SetProperty(inst, p.name, Value::Bool(p.bool_value));
+      break;
+    case 11: {
+      ArrayRef a = vm.ArrayCreate("", static_cast<i32>(p.object_array.size()));
+      for (size_t i = 0; i < p.object_array.size(); ++i)
+        vm.ArraySet(a, static_cast<i32>(i), Value::Object(ObjectRef{p.object_array[i].form_id}));
+      vm.SetProperty(inst, p.name, Value::Array(a));
+      break;
+    }
+    case 12: {
+      ArrayRef a = vm.ArrayCreate("String", static_cast<i32>(p.string_array.size()));
+      for (size_t i = 0; i < p.string_array.size(); ++i)
+        vm.ArraySet(a, static_cast<i32>(i), Value::Str(p.string_array[i]));
+      vm.SetProperty(inst, p.name, Value::Array(a));
+      break;
+    }
+    case 13: {
+      ArrayRef a = vm.ArrayCreate("Int", static_cast<i32>(p.int_array.size()));
+      for (size_t i = 0; i < p.int_array.size(); ++i)
+        vm.ArraySet(a, static_cast<i32>(i), Value::Int(p.int_array[i]));
+      vm.SetProperty(inst, p.name, Value::Array(a));
+      break;
+    }
+    case 14: {
+      ArrayRef a = vm.ArrayCreate("Float", static_cast<i32>(p.float_array.size()));
+      for (size_t i = 0; i < p.float_array.size(); ++i)
+        vm.ArraySet(a, static_cast<i32>(i), Value::Float(p.float_array[i]));
+      vm.SetProperty(inst, p.name, Value::Array(a));
+      break;
+    }
+    case 15: {
+      ArrayRef a = vm.ArrayCreate("Bool", static_cast<i32>(p.bool_array.size()));
+      for (size_t i = 0; i < p.bool_array.size(); ++i)
+        vm.ArraySet(a, static_cast<i32>(i), Value::Bool(p.bool_array[i] != 0));
+      vm.SetProperty(inst, p.name, Value::Array(a));
+      break;
+    }
     default:
-      // Array properties are not seeded yet; the script keeps its declared
-      // default (an empty array). Logged once so coverage gaps are visible.
-      return Value();
+      break;
   }
 }
+
+}  // namespace
 
 std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
                                                    const bethesda::ScriptAttachment& att) {
@@ -81,12 +127,9 @@ std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
             .get();
     if (inst.handle == 0) continue;  // already instantiated on this form
 
-    for (const bethesda::ScriptProperty& property : entry.properties) {
-      Value value = ToValue(property);
-      guest_.Submit([inst, name = property.name, value](VirtualMachine& vm) mutable {
-        vm.SetProperty(inst, name, std::move(value));
-      });
-    }
+    guest_.Submit([inst, props = entry.properties](VirtualMachine& vm) {
+      for (const bethesda::ScriptProperty& p : props) SeedProperty(vm, inst, p);
+    });
     guest_.RaiseEvent(inst, "OnInit");
     instances.push_back(inst);
   }

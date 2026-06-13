@@ -102,14 +102,34 @@ void RegisterUtility(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Utility", "Wait", wait);
   reg.Register("Utility", "WaitMenuMode", wait);
   reg.Register("Utility", "WaitGameTime", wait);
+  reg.Register("Utility", "GetCurrentGameTime", [bindings](VirtualMachine&, ObjectRef, Args&) {
+    return Value::Float(Resolve(bindings).GetCurrentGameTime());
+  });
+  reg.Register("Utility", "IsInMenuMode",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 }
 
 void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Game", "GetPlayer", [bindings](VirtualMachine&, ObjectRef, Args&) {
     return Value::Object(Resolve(bindings).GetPlayer());
   });
+  reg.Register("Game", "GetGameSettingFloat", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Float(Resolve(bindings).GetGameSettingFloat(ArgS(a, 0)));
+  });
+  reg.Register("Game", "UsingGamepad",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
+
   reg.Register("Form", "GetFormID", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(static_cast<i32>(Resolve(bindings).GetFormId(self)));
+  });
+  reg.Register("Form", "GetType", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetFormType(self));
+  });
+  reg.Register("Form", "GetName", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Str(Resolve(bindings).GetName(self));
+  });
+  reg.Register("Form", "HasKeyword", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).HasKeyword(self, ArgO(a, 0)));
   });
 }
 
@@ -143,6 +163,31 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
     Resolve(bindings).SetEnabled(self, false);
     return Value();
   });
+  reg.Register("ObjectReference", "IsDisabled", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsDisabled(self));
+  });
+  reg.Register("ObjectReference", "GetItemCount", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Int(Resolve(bindings).GetItemCount(self, ArgO(a, 0)));
+  });
+  reg.Register("ObjectReference", "AddItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).AddItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
+    return Value();
+  });
+  reg.Register("ObjectReference", "RemoveItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemoveItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
+    return Value();
+  });
+  reg.Register("ObjectReference", "Activate", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).Activate(self, ArgO(a, 0));
+    return Value();
+  });
+  reg.Register("ObjectReference", "Delete", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).Delete(self);
+    return Value();
+  });
+  reg.Register("ObjectReference", "PlaceAtMe", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Object(Resolve(bindings).PlaceAtMe(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1));
+  });
 }
 
 void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -170,6 +215,23 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   });
   reg.Register("Actor", "IsDead", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Bool(Resolve(bindings).IsDead(self));
+  });
+  reg.Register("Actor", "IsInCombat", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsInCombat(self));
+  });
+  reg.Register("Actor", "IsSneaking", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsSneaking(self));
+  });
+  reg.Register("Actor", "GetCombatTarget", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).GetCombatTarget(self));
+  });
+  reg.Register("Actor", "EquipItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).EquipItem(self, ArgO(a, 0));
+    return Value();
+  });
+  reg.Register("Actor", "AddSpell", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).AddSpell(self, ArgO(a, 0));
+    return Value();
   });
 }
 

@@ -45,8 +45,6 @@ class ScriptSystem {
   size_t loaded_script_count();
 
  private:
-  papyrus::Value ToValue(const bethesda::ScriptProperty& property);
-
   asset::Vfs* vfs_;
   PapyrusGuest guest_;
 };

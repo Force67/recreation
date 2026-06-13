@@ -24,6 +24,9 @@ class SkyrimBindings {
 
   // Form
   virtual u32 GetFormId(papyrus::ObjectRef form) { return 0; }
+  virtual i32 GetFormType(papyrus::ObjectRef form) { return 0; }
+  virtual std::string GetName(papyrus::ObjectRef form) { return ""; }
+  virtual bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) { return false; }
 
   // ObjectReference spatial state (engine transform / ECS).
   virtual f32 GetPositionX(papyrus::ObjectRef ref) { return 0; }
@@ -33,6 +36,16 @@ class SkyrimBindings {
   virtual f32 GetDistance(papyrus::ObjectRef a, papyrus::ObjectRef b) { return 0; }
   virtual void MoveTo(papyrus::ObjectRef ref, papyrus::ObjectRef target) {}
   virtual void SetEnabled(papyrus::ObjectRef ref, bool enabled) {}
+  virtual bool IsDisabled(papyrus::ObjectRef ref) { return false; }
+  virtual i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) { return 0; }
+  virtual void AddItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) {}
+  virtual void RemoveItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) {}
+  virtual void Activate(papyrus::ObjectRef target, papyrus::ObjectRef activator) {}
+  virtual void Delete(papyrus::ObjectRef ref) {}
+  virtual papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where, papyrus::ObjectRef base,
+                                       i32 count) {
+    return {};
+  }
 
   // Actor values and state.
   virtual f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
@@ -40,9 +53,16 @@ class SkyrimBindings {
   virtual void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) {}
   virtual i32 GetLevel(papyrus::ObjectRef actor) { return 1; }
   virtual bool IsDead(papyrus::ObjectRef actor) { return false; }
+  virtual bool IsInCombat(papyrus::ObjectRef actor) { return false; }
+  virtual bool IsSneaking(papyrus::ObjectRef actor) { return false; }
+  virtual papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) { return {}; }
+  virtual void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) {}
+  virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
 
-  // Time (real seconds since start; in-game clock handled by the engine).
+  // Game settings and time.
+  virtual f32 GetGameSettingFloat(const std::string& name) { return 0; }
   virtual f32 GetRealHoursPassed() { return 0; }
+  virtual f32 GetCurrentGameTime() { return 0; }  // days since game start
 };
 
 // Registers the Skyrim Papyrus native surface into reg, bound against bindings

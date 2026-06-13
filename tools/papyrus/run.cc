@@ -492,6 +492,8 @@ struct TestBindings : rec::script::skyrim::SkyrimBindings {
   }
   i32 GetLevel(ObjectRef) override { return 5; }
   bool IsDead(ObjectRef) override { return false; }
+  bool IsInCombat(ObjectRef) override { return true; }
+  i32 GetItemCount(ObjectRef, ObjectRef) override { return 3; }
 };
 
 // Validates the Skyrim native surface: fully-implemented Math/Utility globals,
@@ -511,6 +513,7 @@ int SkyrimTest() {
     State def;
     def.name = ob.S("");
     def.functions.push_back(NativeMethod(ob, "GetPositionX", {}));
+    def.functions.push_back(NativeMethod(ob, "GetItemCount", {{"akItem", "Form"}}));
     ob.obj.states.push_back(std::move(def));
   }
   vm.AddScript(MakeScript(ob));
@@ -524,6 +527,7 @@ int SkyrimTest() {
     def.functions.push_back(NativeMethod(ac, "GetActorValue", {{"asValueName", "String"}}));
     def.functions.push_back(NativeMethod(ac, "GetLevel", {}));
     def.functions.push_back(NativeMethod(ac, "IsDead", {}));
+    def.functions.push_back(NativeMethod(ac, "IsInCombat", {}));
     ac.obj.states.push_back(std::move(def));
   }
   vm.AddScript(MakeScript(ac));
@@ -558,6 +562,9 @@ int SkyrimTest() {
   check("Actor.IsDead() == false", vm.Call(actor, "IsDead", {}).ToBool() == false);
   check("inherited ObjectReference.GetPositionX() == 1",
         nearly(vm.Call(actor, "GetPositionX", {}).ToFloat(), 1));
+  check("Actor.IsInCombat() == true (bindings)", vm.Call(actor, "IsInCombat", {}).ToBool());
+  check("inherited GetItemCount() == 3",
+        vm.Call(actor, "GetItemCount", {Value::Object({0})}).ToInt() == 3);
 
   std::printf("%s (%d failures)\n", failures ? "SKYRIMTEST FAILED" : "SKYRIMTEST PASSED", failures);
   return failures ? 1 : 0;
