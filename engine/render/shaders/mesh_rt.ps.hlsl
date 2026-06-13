@@ -14,7 +14,9 @@ struct FrameGlobals {
   float4 camera_position;  // xyz eye, w ibl intensity
   float4 misc;             // x,y render size, z sun angular radius, w frame index
   uint flags;
-  float3 pad;
+  float time;
+  uint debug_view;  // render::DebugView, isolates a shading channel
+  float pad;
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
 
@@ -234,6 +236,19 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   ambient *= ao;
 
   float3 emissive = emissive_map.Sample(emissive_sampler, input.uv).rgb * material.emissive_factor;
+
+  // Debug channels isolate one shading input so it can be eyeballed. They share
+  // the lit path's exact data, so they verify those inputs, not a separate copy.
+  switch (frame.debug_view) {
+    case 1: return albedo;
+    case 2: return n * 0.5 + 0.5;
+    case 3: return roughness.xxx;
+    case 4: return metallic.xxx;
+    case 5: return ao.xxx;
+    case 6: return ambient;     // indirect (ibl + ddgi), ao applied
+    case 7: return lit;         // direct sun, shadowed
+    case 8: return emissive;
+  }
   return lit + ambient + emissive;
 }
 

@@ -106,6 +106,16 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     screenshot_path_ = value;
   }
 
+  // REC_DEBUG_VIEW=<n> pins a debug channel at startup for headless capture;
+  // exposure is fixed so the channel reads at its true magnitude.
+  if (const char* dv = std::getenv("REC_DEBUG_VIEW")) {
+    settings_.debug_view = static_cast<DebugView>(std::atoi(dv));
+    if (settings_.debug_view != DebugView::kOff) {
+      settings_.auto_exposure = false;
+      settings_.exposure = 1.0f;
+    }
+  }
+
   return true;
 }
 
@@ -518,6 +528,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (ddgi_active) globals.flags |= kFrameFlagDdgi;
   if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
   globals.time = static_cast<f32>(time_seconds_);
+  globals.debug_view = static_cast<u32>(settings_.debug_view);
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;

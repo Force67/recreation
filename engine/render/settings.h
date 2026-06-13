@@ -10,6 +10,21 @@ namespace rec::render {
 
 enum class TonemapOperator : u8 { kAces, kReinhard, kNone };
 
+// Debug visualization of an isolated shading channel, written straight to the
+// scene target (still tonemapped). kOff is the normal lit image. Mirrored in
+// mesh.ps.hlsl as the debug_view field of FrameGlobals.
+enum class DebugView : u8 {
+  kOff,
+  kBaseColor,
+  kWorldNormal,
+  kRoughness,
+  kMetallic,
+  kAmbientOcclusion,
+  kIndirectGi,
+  kDirectLight,
+  kEmissive,
+};
+
 // Resolution scaling presets matching the vendor upscaler naming. The ratio
 // is per axis: render = output / ratio.
 enum class UpscalerQuality : u8 { kNativeAa, kQuality, kBalanced, kPerformance };
@@ -38,6 +53,7 @@ struct RenderSettings {
   f32 sun_angular_radius = 0.005f;  // radians; 0 reverts to hard shadows
   bool wireframe = false;
   bool vsync = false;
+  DebugView debug_view = DebugView::kOff;  // isolate a shading channel
 
   bool sky = true;  // procedural atmosphere as the background
   bool ibl = true;  // sky-driven image based lighting

@@ -20,6 +20,9 @@ const char* kAaModes[] = {"None", "TAA", "FSR3 Upscaler", "DLSS Upscaler"};
 const char* kQualities[] = {"Native AA (1.0x)", "Quality (1.5x)", "Balanced (1.7x)",
                             "Performance (2.0x)"};
 const char* kTonemaps[] = {"ACES", "Reinhard", "None"};
+const char* kDebugViews[] = {"Off",         "Base color", "World normal",
+                             "Roughness",   "Metallic",   "Ambient occlusion",
+                             "Indirect GI", "Direct light", "Emissive"};
 
 }  // namespace
 
@@ -193,6 +196,10 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         ImGui::Checkbox("Wireframe", &settings.wireframe);
         ImGui::EndDisabled();
         ImGui::Checkbox("VSync", &settings.vsync);
+        int debug_view = static_cast<int>(settings.debug_view);
+        if (ImGui::Combo("Debug view", &debug_view, kDebugViews, IM_ARRAYSIZE(kDebugViews))) {
+          settings.debug_view = static_cast<render::DebugView>(debug_view);
+        }
       }
 
       if (ImGui::CollapsingHeader("Global illumination", ImGuiTreeNodeFlags_DefaultOpen)) {

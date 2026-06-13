@@ -22,7 +22,8 @@ struct FrameGlobals {
   f32 misc[4] = {0, 0, 0, 0};  // x,y render size, z sun angular radius, w frame index
   u32 flags = 0;
   f32 time = 0;  // seconds, drives water waves
-  f32 pad[2] = {0, 0};
+  u32 debug_view = 0;  // render::DebugView, isolates a shading channel
+  f32 pad = 0;
 };
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.
