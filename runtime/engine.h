@@ -26,6 +26,7 @@
 #include "net/session.h"
 #include "physics/physics_world.h"
 #include "render/renderer.h"
+#include "script/games/skyrim/skyrim_bindings.h"
 #include "script/script_system.h"
 #include "world/cell_streaming.h"
 
@@ -144,6 +145,9 @@ class Engine {
   std::unique_ptr<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   std::unique_ptr<world::CellStreamer> streamer_;
+  // Declared before scripts_ so the guest thread (which calls into the bindings)
+  // is joined in ScriptSystem's destructor before the bindings are torn down.
+  std::unique_ptr<rec::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
   std::unique_ptr<rec::script::ScriptSystem> scripts_;
 
   render::Renderer renderer_;

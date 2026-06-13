@@ -17,3 +17,7 @@ recreation_set_warnings(scripttest)
 add_executable(nativescan nativescan.cc)
 target_link_libraries(nativescan PRIVATE recreation::script recreation::bethesda recreation::asset)
 recreation_set_warnings(nativescan)
+
+add_executable(bindingstest bindingstest.cc)
+target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda recreation::asset)
+recreation_set_warnings(bindingstest)

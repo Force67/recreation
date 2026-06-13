@@ -606,9 +606,11 @@ bool Engine::LoadGameData() {
   REC_INFO("{} plugins, {} records", order.plugins().size(), records_.record_count());
 
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
-  // off the main thread. Native scripts dispatch through neutral bindings until
-  // the engine surfaces are wired in.
-  scripts_ = std::make_unique<rec::script::ScriptSystem>(game_, &vfs_, nullptr);
+  // off the main thread. Form natives read the RecordStore; actor values and
+  // inventory are backed by the bindings' own stores.
+  script_bindings_ = std::make_unique<rec::script::skyrim::RecordBackedSkyrimBindings>(&records_);
+  script_bindings_->set_player(rec::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
+  scripts_ = std::make_unique<rec::script::ScriptSystem>(game_, &vfs_, script_bindings_.get());
   AttachQuestScripts();
 
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
