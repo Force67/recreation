@@ -8,6 +8,7 @@ recreation_add_module(script
   papyrus_guest.cc
   host/clr_host.cc
   host/guest_bridge.cc
+  games/skyrim/skyrim_natives.cc
 )
 
 # The CoreCLR host dlopens libhostfxr at runtime (no build-time .NET needed),

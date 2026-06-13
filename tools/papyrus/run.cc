@@ -9,8 +9,10 @@
 // interpreter so its opcode handling can be checked end to end.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <utility>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -26,6 +28,7 @@
 #include "script/host/bridge.h"
 #include "script/host/clr_host.h"
 #include "script/host/guest_bridge.h"
+#include "script/games/skyrim/skyrim_natives.h"
 
 namespace {
 
@@ -470,16 +473,107 @@ int HostTest(const std::string& runtime_config, const std::string& assembly) {
   return ok ? 0 : 1;
 }
 
+// A native method on a synthetic script (is_native, no body).
+NamedFunction NativeMethod(Builder& b, const char* name,
+                           std::vector<std::pair<const char*, const char*>> params) {
+  Function fn;
+  fn.is_native = true;
+  fn.return_type = b.S("");
+  for (auto& p : params) fn.params.push_back({b.S(p.first), b.S(p.second)});
+  return {b.S(name), std::move(fn)};
+}
+
+// Engine bindings stub with known values, so native results are checkable.
+struct TestBindings : rec::script::skyrim::SkyrimBindings {
+  ObjectRef GetPlayer() override { return ObjectRef{0x14}; }
+  f32 GetPositionX(ObjectRef) override { return 1.0f; }
+  f32 GetActorValue(ObjectRef, const std::string& av) override {
+    return (av == "Health" || av == "health") ? 100.0f : 0.0f;
+  }
+  i32 GetLevel(ObjectRef) override { return 5; }
+  bool IsDead(ObjectRef) override { return false; }
+};
+
+// Validates the Skyrim native surface: fully-implemented Math/Utility globals,
+// and engine-bound method natives dispatched (including through inheritance) to
+// the bindings.
+int SkyrimTest() {
+  TestBindings bindings;
+  NativeRegistry natives;
+  rec::script::skyrim::RegisterSkyrimNatives(natives, &bindings);
+  VirtualMachine vm(&natives);
+
+  // ObjectReference (native GetPositionX) and Actor extends it (native AV ops).
+  Builder ob;
+  ob.obj.name = ob.S("ObjectReference");
+  ob.obj.parent_class = ob.S("");
+  {
+    State def;
+    def.name = ob.S("");
+    def.functions.push_back(NativeMethod(ob, "GetPositionX", {}));
+    ob.obj.states.push_back(std::move(def));
+  }
+  vm.AddScript(MakeScript(ob));
+
+  Builder ac;
+  ac.obj.name = ac.S("Actor");
+  ac.obj.parent_class = ac.S("ObjectReference");
+  {
+    State def;
+    def.name = ac.S("");
+    def.functions.push_back(NativeMethod(ac, "GetActorValue", {{"asValueName", "String"}}));
+    def.functions.push_back(NativeMethod(ac, "GetLevel", {}));
+    def.functions.push_back(NativeMethod(ac, "IsDead", {}));
+    ac.obj.states.push_back(std::move(def));
+  }
+  vm.AddScript(MakeScript(ac));
+  ObjectRef actor = vm.CreateInstance("Actor");
+
+  int failures = 0;
+  auto check = [&](const char* what, bool ok) {
+    std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
+    if (!ok) ++failures;
+  };
+  auto nearly = [](f32 a, f32 b) { return std::fabs(a - b) < 0.001f; };
+
+  // Globals (no script needed; resolved straight from the native table).
+  check("Math.Sqrt(16) == 4", nearly(vm.CallGlobal("Math", "Sqrt", {Value::Float(16)}).ToFloat(), 4));
+  check("Math.Abs(-3) == 3", nearly(vm.CallGlobal("Math", "Abs", {Value::Float(-3)}).ToFloat(), 3));
+  check("Math.Floor(3.9) == 3", vm.CallGlobal("Math", "Floor", {Value::Float(3.9f)}).ToInt() == 3);
+  check("Math.Ceiling(3.1) == 4",
+        vm.CallGlobal("Math", "Ceiling", {Value::Float(3.1f)}).ToInt() == 4);
+  check("Math.Pow(2,10) == 1024",
+        nearly(vm.CallGlobal("Math", "Pow", {Value::Float(2), Value::Float(10)}).ToFloat(), 1024));
+  check("Math.Sin(90deg) == 1", nearly(vm.CallGlobal("Math", "Sin", {Value::Float(90)}).ToFloat(), 1));
+  check("Math.Cos(0deg) == 1", nearly(vm.CallGlobal("Math", "Cos", {Value::Float(0)}).ToFloat(), 1));
+  check("Utility.RandomInt(7,7) == 7",
+        vm.CallGlobal("Utility", "RandomInt", {Value::Int(7), Value::Int(7)}).ToInt() == 7);
+  check("Game.GetPlayer() == 0x14",
+        vm.CallGlobal("Game", "GetPlayer", {}).as_object().handle == 0x14);
+
+  // Method natives via dispatch (GetPositionX inherited from ObjectReference).
+  check("Actor.GetActorValue(Health) == 100",
+        nearly(vm.Call(actor, "GetActorValue", {Value::Str("Health")}).ToFloat(), 100));
+  check("Actor.GetLevel() == 5", vm.Call(actor, "GetLevel", {}).ToInt() == 5);
+  check("Actor.IsDead() == false", vm.Call(actor, "IsDead", {}).ToBool() == false);
+  check("inherited ObjectReference.GetPositionX() == 1",
+        nearly(vm.Call(actor, "GetPositionX", {}).ToFloat(), 1));
+
+  std::printf("%s (%d failures)\n", failures ? "SKYRIMTEST FAILED" : "SKYRIMTEST PASSED", failures);
+  return failures ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
+  if (argc == 2 && std::string(argv[1]) == "skyrimtest") return SkyrimTest();
   if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
   if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
   if (argc == 4 && std::string(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
-               "usage: %s [selftest|guesttest]\n"
+               "usage: %s [selftest|skyrimtest|guesttest]\n"
                "       %s vmtest <data_dir>\n"
                "       %s hosttest <runtimeconfig.json> <assembly.dll>\n"
                "       %s <data_dir> <Script> <Function>\n",
