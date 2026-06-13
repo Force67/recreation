@@ -142,6 +142,65 @@ void RecordBackedSkyrimBindings::MoveTo(ObjectRef ref, ObjectRef target) {
   positions_[ref.handle] = Position(target);
 }
 
+f32 RecordBackedSkyrimBindings::GetScale(ObjectRef ref) {
+  auto it = scales_.find(ref.handle);
+  return it == scales_.end() ? 1.0f : it->second;
+}
+
+void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) {
+  scales_[ref.handle] = scale;
+}
+
+i32 RecordBackedSkyrimBindings::GetFactionRank(ObjectRef actor, ObjectRef faction) {
+  auto it = faction_ranks_.find(actor.handle);
+  if (it == faction_ranks_.end()) return -2;  // not in faction
+  auto rank_it = it->second.find(faction.handle);
+  return rank_it == it->second.end() ? -2 : rank_it->second;
+}
+
+void RecordBackedSkyrimBindings::SetFactionRank(ObjectRef actor, ObjectRef faction, i32 rank) {
+  faction_ranks_[actor.handle][faction.handle] = rank;
+}
+
+bool RecordBackedSkyrimBindings::IsInFaction(ObjectRef actor, ObjectRef faction) {
+  auto it = faction_ranks_.find(actor.handle);
+  return it != faction_ranks_.end() && it->second.count(faction.handle);
+}
+
+void RecordBackedSkyrimBindings::AddToFaction(ObjectRef actor, ObjectRef faction) {
+  faction_ranks_[actor.handle].try_emplace(faction.handle, 0);
+}
+
+void RecordBackedSkyrimBindings::RemoveFromFaction(ObjectRef actor, ObjectRef faction) {
+  auto it = faction_ranks_.find(actor.handle);
+  if (it != faction_ranks_.end()) it->second.erase(faction.handle);
+}
+
+i32 RecordBackedSkyrimBindings::GetReaction(ObjectRef faction, ObjectRef other) {
+  auto it = reactions_.find(faction.handle);
+  if (it == reactions_.end()) return 0;
+  auto other_it = it->second.find(other.handle);
+  return other_it == it->second.end() ? 0 : other_it->second;
+}
+
+void RecordBackedSkyrimBindings::SetReaction(ObjectRef faction, ObjectRef other, i32 reaction) {
+  reactions_[faction.handle][other.handle] = reaction;
+}
+
+i32 RecordBackedSkyrimBindings::GetCrimeGold(ObjectRef faction) {
+  auto it = crime_gold_.find(faction.handle);
+  return it == crime_gold_.end() ? 0 : it->second;
+}
+
+void RecordBackedSkyrimBindings::SetCrimeGold(ObjectRef faction, i32 gold) {
+  crime_gold_[faction.handle] = std::max(0, gold);
+}
+
+void RecordBackedSkyrimBindings::ModCrimeGold(ObjectRef faction, i32 delta) {
+  i32& gold = crime_gold_[faction.handle];
+  gold = std::max(0, gold + delta);
+}
+
 f32 RecordBackedSkyrimBindings::GetActorValue(ObjectRef actor, const std::string& av) {
   auto actor_it = actor_values_.find(actor.handle);
   if (actor_it != actor_values_.end()) {

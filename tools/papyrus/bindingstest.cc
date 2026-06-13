@@ -136,6 +136,24 @@ int main(int argc, char** argv) {
   bindings.StopQuest(quest);
   check("stopped quest not running", !bindings.IsRunning(quest));
 
+  // Factions (new system) and scale.
+  ObjectRef npc{0x1A};
+  ObjectRef thieves{0x2BUL};
+  check("not in faction -> rank -2", bindings.GetFactionRank(npc, thieves) == -2);
+  bindings.AddToFaction(npc, thieves);
+  check("added to faction", bindings.IsInFaction(npc, thieves));
+  bindings.SetFactionRank(npc, thieves, 3);
+  check("faction rank set to 3", bindings.GetFactionRank(npc, thieves) == 3);
+  bindings.RemoveFromFaction(npc, thieves);
+  check("removed from faction", !bindings.IsInFaction(npc, thieves));
+  bindings.SetCrimeGold(thieves, 100);
+  bindings.ModCrimeGold(thieves, 50);
+  check("crime gold 100 + 50 = 150", bindings.GetCrimeGold(thieves) == 150);
+  ObjectRef rock{0x3C};
+  check("default scale is 1.0", bindings.GetScale(rock) == 1.0f);
+  bindings.SetScale(rock, 2.5f);
+  check("scale set to 2.5", bindings.GetScale(rock) == 2.5f);
+
   std::printf("%s (%d failures)\n", failures ? "BINDINGSTEST FAILED" : "BINDINGSTEST PASSED",
               failures);
   return failures ? 1 : 0;

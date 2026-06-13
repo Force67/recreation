@@ -226,6 +226,38 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   reg.Register("ObjectReference", "PlaceAtMe", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Object(Resolve(bindings).PlaceAtMe(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1));
   });
+  reg.Register("ObjectReference", "GetScale", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Float(Resolve(bindings).GetScale(self));
+  });
+  reg.Register("ObjectReference", "SetScale", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetScale(self, ArgF(a, 0));
+    return Value();
+  });
+  // Refs are enabled unless disabled; the neutral "false" would be wrong.
+  reg.Register("ObjectReference", "IsEnabled", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(!Resolve(bindings).IsDisabled(self));
+  });
+}
+
+void RegisterFaction(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
+  reg.Register("Faction", "GetReaction", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Int(Resolve(bindings).GetReaction(self, ArgO(a, 0)));
+  });
+  reg.Register("Faction", "SetReaction", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetReaction(self, ArgO(a, 0), ArgI(a, 1));
+    return Value();
+  });
+  reg.Register("Faction", "GetCrimeGold", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetCrimeGold(self));
+  });
+  reg.Register("Faction", "SetCrimeGold", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetCrimeGold(self, ArgI(a, 0));
+    return Value();
+  });
+  reg.Register("Faction", "ModCrimeGold", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).ModCrimeGold(self, ArgI(a, 0));
+    return Value();
+  });
 }
 
 void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -323,6 +355,24 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
     Resolve(bindings).AddSpell(self, ArgO(a, 0));
     return Value();
   });
+  reg.Register("Actor", "GetFactionRank", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Int(Resolve(bindings).GetFactionRank(self, ArgO(a, 0)));
+  });
+  reg.Register("Actor", "SetFactionRank", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetFactionRank(self, ArgO(a, 0), ArgI(a, 1));
+    return Value();
+  });
+  reg.Register("Actor", "IsInFaction", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).IsInFaction(self, ArgO(a, 0)));
+  });
+  reg.Register("Actor", "AddToFaction", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).AddToFaction(self, ArgO(a, 0));
+    return Value();
+  });
+  reg.Register("Actor", "RemoveFromFaction", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemoveFromFaction(self, ArgO(a, 0));
+    return Value();
+  });
 }
 
 }  // namespace
@@ -336,6 +386,7 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterObjectReference(reg, bindings);
   RegisterActor(reg, bindings);
   RegisterQuest(reg, bindings);
+  RegisterFaction(reg, bindings);
 }
 
 }  // namespace rec::script::skyrim

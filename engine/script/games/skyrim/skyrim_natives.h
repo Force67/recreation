@@ -46,6 +46,8 @@ class SkyrimBindings {
                                        i32 count) {
     return {};
   }
+  virtual f32 GetScale(papyrus::ObjectRef ref) { return 1.0f; }
+  virtual void SetScale(papyrus::ObjectRef ref, f32 scale) {}
 
   // Actor values and state.
   virtual f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
@@ -58,6 +60,18 @@ class SkyrimBindings {
   virtual papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) { return {}; }
   virtual void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) {}
   virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
+
+  // Faction membership (actor side) and faction-wide reaction / crime state.
+  virtual i32 GetFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction) { return -2; }
+  virtual void SetFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction, i32 rank) {}
+  virtual bool IsInFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) { return false; }
+  virtual void AddToFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) {}
+  virtual void RemoveFromFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) {}
+  virtual i32 GetReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other) { return 0; }
+  virtual void SetReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other, i32 reaction) {}
+  virtual i32 GetCrimeGold(papyrus::ObjectRef faction) { return 0; }
+  virtual void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) {}
+  virtual void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) {}
 
   // Quests (new in-engine state system).
   virtual i32 GetStage(papyrus::ObjectRef quest) { return 0; }

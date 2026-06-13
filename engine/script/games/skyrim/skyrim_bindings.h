@@ -47,6 +47,20 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void SetPosition(papyrus::ObjectRef ref, f32 x, f32 y, f32 z) override;
   f32 GetDistance(papyrus::ObjectRef a, papyrus::ObjectRef b) override;
   void MoveTo(papyrus::ObjectRef ref, papyrus::ObjectRef target) override;
+  f32 GetScale(papyrus::ObjectRef ref) override;
+  void SetScale(papyrus::ObjectRef ref, f32 scale) override;
+
+  // Factions (new system): membership/rank, reactions, crime gold.
+  i32 GetFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction) override;
+  void SetFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction, i32 rank) override;
+  bool IsInFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) override;
+  void AddToFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) override;
+  void RemoveFromFaction(papyrus::ObjectRef actor, papyrus::ObjectRef faction) override;
+  i32 GetReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other) override;
+  void SetReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other, i32 reaction) override;
+  i32 GetCrimeGold(papyrus::ObjectRef faction) override;
+  void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) override;
+  void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) override;
 
   // Actor values (new system).
   f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) override;
@@ -93,7 +107,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   std::unordered_map<u64, std::unordered_map<std::string, f32>> actor_values_;
   std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
   std::unordered_map<u64, std::array<f32, 3>> positions_;  // SetPosition/MoveTo overrides
+  std::unordered_map<u64, f32> scales_;                    // SetScale overrides (default 1.0)
   std::unordered_map<u64, QuestState> quests_;
+  std::unordered_map<u64, std::unordered_map<u64, i32>> faction_ranks_;  // actor -> faction -> rank
+  std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;      // faction -> other
+  std::unordered_map<u64, i32> crime_gold_;                             // faction -> gold
 };
 
 }  // namespace rec::script::skyrim
