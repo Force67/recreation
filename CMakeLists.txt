@@ -172,4 +172,5 @@ add_subdirectory(runtime)
 
 if(RECREATION_BUILD_TOOLS)
   add_subdirectory(tools/esminfo)
+  add_subdirectory(tools/papyrus)
 endif()

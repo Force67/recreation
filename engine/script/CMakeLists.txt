@@ -1,4 +1,6 @@
 recreation_add_module(script
+  papyrus/opcode.cc
+  papyrus/pex.cc
   papyrus_vm.cc
 )
 
