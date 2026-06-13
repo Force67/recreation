@@ -6,6 +6,7 @@ recreation_add_module(script
   papyrus/native.cc
   papyrus/vm.cc
   papyrus_guest.cc
+  script_system.cc
   host/clr_host.cc
   host/guest_bridge.cc
   games/skyrim/skyrim_natives.cc

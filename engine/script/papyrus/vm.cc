@@ -99,14 +99,23 @@ void VirtualMachine::SeedMembers(Instance& inst, const std::string& type) {
 }
 
 ObjectRef VirtualMachine::CreateInstance(const std::string& type) {
+  return CreateInstanceWithHandle(type, next_handle_++);
+}
+
+ObjectRef VirtualMachine::CreateInstanceWithHandle(const std::string& type, u64 handle) {
   LoadedScript* s = FindScript(type);
-  if (!s) return ObjectRef{0};
-  u64 handle = next_handle_++;
+  if (!s || handle == 0 || instances_.count(handle)) return ObjectRef{0};
+  if (handle >= next_handle_) next_handle_ = handle + 1;
   Instance inst;
   inst.type = s->name;
   SeedMembers(inst, s->name);
   instances_[handle] = std::move(inst);
   return ObjectRef{handle};
+}
+
+std::string VirtualMachine::ParentClassOf(const std::string& type) {
+  LoadedScript* s = FindScript(type);
+  return s ? s->parent : "";
 }
 
 void VirtualMachine::DestroyInstance(ObjectRef instance) { instances_.erase(instance.handle); }

@@ -43,7 +43,15 @@ class VirtualMachine : public VmInterface {
   // Instantiates a known script type. Member variables are seeded from the
   // script's declared defaults. Returns None for an unknown type.
   ObjectRef CreateInstance(const std::string& type);
+  // Same, but with a caller-chosen handle (the engine uses a form id, so an
+  // object reference between scripts resolves to the same instance). Returns
+  // None on unknown type or if the handle is taken.
+  ObjectRef CreateInstanceWithHandle(const std::string& type, u64 handle);
   void DestroyInstance(ObjectRef instance);
+
+  // The parent class name of a loaded type, "" if none or unknown. Used to
+  // walk and lazily load the script's ancestor chain.
+  std::string ParentClassOf(const std::string& type);
   bool IsAlive(ObjectRef instance) const;
   std::string TypeOf(ObjectRef instance);
 
