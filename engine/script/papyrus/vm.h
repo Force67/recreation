@@ -33,6 +33,10 @@ class VirtualMachine : public VmInterface {
   // known type. Returns the type name, or "" on a parse failure.
   std::string LoadScript(ByteSpan pex_data);
 
+  // Registers an already-parsed script. Returns the type name, or "" if the
+  // file has no object.
+  std::string AddScript(PexFile pex);
+
   bool HasScript(const std::string& type) const;
   size_t script_count() const { return scripts_.size(); }
 

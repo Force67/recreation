@@ -57,8 +57,15 @@ const Function* FindInState(const PexFile& pex, const Object& object, const std:
 }  // namespace
 
 std::string VirtualMachine::LoadScript(ByteSpan pex_data) {
+  PexFile pex;
+  if (!ParsePex(pex_data, &pex)) return "";
+  return AddScript(std::move(pex));
+}
+
+std::string VirtualMachine::AddScript(PexFile pex) {
+  if (pex.objects.empty()) return "";
   LoadedScript ls;
-  if (!ParsePex(pex_data, &ls.pex) || ls.pex.objects.empty()) return "";
+  ls.pex = std::move(pex);
   ls.name = ls.pex.Str(ls.pex.objects[0].name);
   ls.parent = ls.pex.Str(ls.pex.objects[0].parent_class);
   std::string key = Lower(ls.name);

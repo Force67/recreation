@@ -22,6 +22,7 @@
 #include "script/papyrus/pex.h"
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
+#include "script/papyrus_guest.h"
 
 namespace {
 
@@ -102,6 +103,12 @@ struct Builder {
     VariableData d;
     d.type = VariableData::Type::kInteger;
     d.int_value = v;
+    return d;
+  }
+  VariableData FloatV(f32 v) {
+    VariableData d;
+    d.type = VariableData::Type::kFloat;
+    d.float_value = v;
     return d;
   }
   VariableData StrV(const std::string& s) {
@@ -290,14 +297,121 @@ int VmTest(const std::string& data_dir) {
   return failures ? 1 : 0;
 }
 
+// Builds a one-object script in memory and returns the PexFile.
+PexFile MakeScript(Builder& b) {
+  b.pex.objects.push_back(b.obj);
+  return std::move(b.pex);
+}
+
+// Exercises the threaded guest end to end: the dedicated VM thread, FIFO
+// command ordering, native dispatch through the inheritance chain, the update
+// scheduler and OnUpdate event firing, plus cross-thread reads via futures.
+int GuestTest() {
+  using rec::script::PapyrusGuest;
+
+  // A minimal base script declaring the timer native, and a subclass that
+  // registers for an update and counts how many times OnUpdate fires.
+  Builder fb;
+  fb.obj.name = fb.S("Form");
+  fb.obj.parent_class = fb.S("");
+  {
+    Function reg;
+    reg.return_type = fb.S("");
+    reg.is_native = true;
+    reg.params.push_back({fb.S("afInterval"), fb.S("Float")});
+    State def;
+    def.name = fb.S("");
+    def.functions.push_back({fb.S("RegisterForSingleUpdate"), std::move(reg)});
+    fb.obj.states.push_back(std::move(def));
+  }
+  PexFile form = MakeScript(fb);
+
+  Builder tb;
+  tb.obj.name = tb.S("Ticker");
+  tb.obj.parent_class = tb.S("Form");
+  {
+    MemberVariable count;
+    count.name = tb.S("::count_var");
+    count.type = tb.S("Int");
+    count.initial_value = tb.IntV(0);
+    tb.obj.variables.push_back(count);
+
+    Function begin;
+    begin.return_type = tb.S("");
+    Instruction call;
+    call.op = Op::kCallMethod;
+    call.args = {tb.Id("RegisterForSingleUpdate"), tb.Id("self"), tb.Id("::NoneVar")};
+    call.var_args = {tb.FloatV(0.5f)};
+    begin.code = {call};
+
+    Function on_update;
+    on_update.return_type = tb.S("");
+    on_update.code = {
+        Make(Op::kIAdd, {tb.Id("::count_var"), tb.Id("::count_var"), tb.IntV(1)}),
+        Make(Op::kReturn, {}),
+    };
+
+    State def;
+    def.name = tb.S("");
+    def.functions.push_back({tb.S("begin"), std::move(begin)});
+    def.functions.push_back({tb.S("OnUpdate"), std::move(on_update)});
+    tb.obj.states.push_back(std::move(def));
+  }
+  PexFile ticker = MakeScript(tb);
+
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  guest.Start();
+  guest.SubmitFor([f = std::move(form)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(f));
+      }).get();
+  guest.SubmitFor([t = std::move(ticker)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(t));
+      }).get();
+  ObjectRef inst = guest.CreateInstance("Ticker").get();
+
+  auto read_count = [&] {
+    return guest
+        .SubmitFor([inst](VirtualMachine& vm) {
+          Value* m = vm.MemberVar(inst, "::count_var");
+          return m ? m->ToInt() : -1;
+        })
+        .get();
+  };
+
+  int failures = 0;
+  auto check = [&](const char* what, bool ok) {
+    std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
+    if (!ok) ++failures;
+  };
+
+  check("instance created on guest thread", guest.SubmitFor([inst](VirtualMachine& vm) {
+                                                   return vm.IsAlive(inst);
+                                                 }).get());
+  check("count starts at 0", read_count() == 0);
+
+  guest.RaiseEvent(inst, "begin");  // schedules a single update 0.5s out
+  guest.Tick(0.4f);
+  check("no update before 0.5s", read_count() == 0);
+  guest.Tick(0.2f);  // clock crosses 0.5s
+  check("OnUpdate fired once by 0.6s", read_count() == 1);
+  guest.Tick(1.0f);  // single-shot does not refire
+  check("single update does not repeat", read_count() == 1);
+
+  guest.Stop();
+  std::printf("%s (%d failures)\n", failures ? "GUESTTEST FAILED" : "GUESTTEST PASSED", failures);
+  return failures ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
+  if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
   if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
-               "usage: %s selftest | %s vmtest <data_dir> | %s <data_dir> <Script> <Function>\n",
+               "usage: %s [selftest|guesttest] | %s vmtest <data_dir> | %s <data_dir> <Script> "
+               "<Function>\n",
                argv[0], argv[0], argv[0]);
   return 2;
 }

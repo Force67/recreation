@@ -5,7 +5,7 @@ recreation_add_module(script
   papyrus/interpreter.cc
   papyrus/native.cc
   papyrus/vm.cc
-  papyrus_vm.cc
+  papyrus_guest.cc
 )
 
 target_link_libraries(recreation_script PUBLIC
