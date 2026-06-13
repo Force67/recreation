@@ -56,10 +56,17 @@ class SkyrimBindings {
   virtual i32 GetOpenState(papyrus::ObjectRef ref) { return 3; }  // 1 open, 3 closed
   virtual void SetOpen(papyrus::ObjectRef ref, bool open) {}
 
-  // Actor values and state.
+  // Actor values and state. The value has a permanent base and a damageable
+  // current; percentage is current/base.
   virtual f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
+  virtual f32 GetBaseActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
+  virtual f32 GetActorValuePercentage(papyrus::ObjectRef actor, const std::string& av) {
+    return 1.0f;
+  }
   virtual void SetActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) {}
+  virtual void ForceActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) {}
   virtual void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) {}
+  virtual void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) {}
   virtual i32 GetLevel(papyrus::ObjectRef actor) { return 1; }
   virtual bool IsDead(papyrus::ObjectRef actor) { return false; }
   virtual bool IsInCombat(papyrus::ObjectRef actor) { return false; }

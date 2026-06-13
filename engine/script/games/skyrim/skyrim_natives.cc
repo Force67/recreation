@@ -340,8 +340,18 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Float(Resolve(bindings).GetActorValue(self, ArgS(a, 0)));
   });
+  reg.Register("Actor", "GetBaseActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Float(Resolve(bindings).GetBaseActorValue(self, ArgS(a, 0)));
+  });
+  reg.Register("Actor", "GetActorValuePercentage", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Float(Resolve(bindings).GetActorValuePercentage(self, ArgS(a, 0)));
+  });
   reg.Register("Actor", "SetActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetActorValue(self, ArgS(a, 0), ArgF(a, 1));
+    return Value();
+  });
+  reg.Register("Actor", "ForceActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).ForceActorValue(self, ArgS(a, 0), ArgF(a, 1));
     return Value();
   });
   reg.Register("Actor", "ModActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
@@ -353,7 +363,7 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
     return Value();
   });
   reg.Register("Actor", "RestoreActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).ModActorValue(self, ArgS(a, 0), ArgF(a, 1));
+    Resolve(bindings).RestoreActorValue(self, ArgS(a, 0), ArgF(a, 1));
     return Value();
   });
   reg.Register("Actor", "GetLevel", [bindings](VirtualMachine&, ObjectRef self, Args&) {

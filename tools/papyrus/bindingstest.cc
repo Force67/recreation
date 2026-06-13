@@ -54,8 +54,12 @@ int main(int argc, char** argv) {
   bindings.SetActorValue(actor, "Health", 80.0f);
   check("set Health -> 80", bindings.GetActorValue(actor, "Health") == 80.0f);
   bindings.ModActorValue(actor, "Health", -25.0f);
-  check("damage 25 -> 55", bindings.GetActorValue(actor, "Health") == 55.0f);
+  check("damage 25 -> current 55", bindings.GetActorValue(actor, "Health") == 55.0f);
+  check("base Health still 80", bindings.GetBaseActorValue(actor, "Health") == 80.0f);
+  check("Health percentage 55/80", bindings.GetActorValuePercentage(actor, "Health") == 0.6875f);
   check("not dead at 55", !bindings.IsDead(actor));
+  bindings.RestoreActorValue(actor, "Health", 1000.0f);
+  check("restore caps at base 80", bindings.GetActorValue(actor, "Health") == 80.0f);
   bindings.ModActorValue(actor, "Health", -100.0f);
   check("dead after lethal damage", bindings.IsDead(actor));
 

@@ -68,10 +68,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) override;
   void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) override;
 
-  // Actor values (new system).
+  // Actor values (new system): permanent base + damageable current.
   f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) override;
+  f32 GetBaseActorValue(papyrus::ObjectRef actor, const std::string& av) override;
+  f32 GetActorValuePercentage(papyrus::ObjectRef actor, const std::string& av) override;
   void SetActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) override;
+  void ForceActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) override;
   void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) override;
+  void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
 
   // Inventory (new system).
@@ -104,13 +108,18 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
     std::unordered_map<i32, bool> objective_completed;
   };
 
+  struct ActorValue {
+    f32 base = 0;
+    f32 current = 0;
+  };
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   std::array<f32, 3> Position(papyrus::ObjectRef ref);
+  ActorValue& Av(papyrus::ObjectRef actor, const std::string& av);
 
   const bethesda::RecordStore* records_ = nullptr;
   const bethesda::StringTable* strings_ = nullptr;
   papyrus::ObjectRef player_;
-  std::unordered_map<u64, std::unordered_map<std::string, f32>> actor_values_;
+  std::unordered_map<u64, std::unordered_map<std::string, ActorValue>> actor_values_;
   std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
   std::unordered_map<u64, std::array<f32, 3>> positions_;  // SetPosition/MoveTo overrides
   std::unordered_map<u64, f32> scales_;                    // SetScale overrides (default 1.0)

@@ -227,22 +227,48 @@ void RecordBackedSkyrimBindings::ModCrimeGold(ObjectRef faction, i32 delta) {
   gold = std::max(0, gold + delta);
 }
 
+RecordBackedSkyrimBindings::ActorValue& RecordBackedSkyrimBindings::Av(ObjectRef actor,
+                                                                       const std::string& av) {
+  auto& values = actor_values_[actor.handle];
+  std::string key = Lower(av);
+  auto it = values.find(key);
+  if (it != values.end()) return it->second;
+  f32 d = DefaultActorValue(av);
+  return values[key] = ActorValue{d, d};
+}
+
 f32 RecordBackedSkyrimBindings::GetActorValue(ObjectRef actor, const std::string& av) {
-  auto actor_it = actor_values_.find(actor.handle);
-  if (actor_it != actor_values_.end()) {
-    auto av_it = actor_it->second.find(Lower(av));
-    if (av_it != actor_it->second.end()) return av_it->second;
-  }
-  return DefaultActorValue(av);
+  return Av(actor, av).current;
+}
+
+f32 RecordBackedSkyrimBindings::GetBaseActorValue(ObjectRef actor, const std::string& av) {
+  return Av(actor, av).base;
+}
+
+f32 RecordBackedSkyrimBindings::GetActorValuePercentage(ObjectRef actor, const std::string& av) {
+  ActorValue& v = Av(actor, av);
+  if (v.base <= 0.0f) return 0.0f;
+  return std::clamp(v.current / v.base, 0.0f, 1.0f);
 }
 
 void RecordBackedSkyrimBindings::SetActorValue(ObjectRef actor, const std::string& av, f32 value) {
-  actor_values_[actor.handle][Lower(av)] = value;
+  ActorValue& v = Av(actor, av);
+  v.base = value;
+  v.current = value;
+}
+
+void RecordBackedSkyrimBindings::ForceActorValue(ObjectRef actor, const std::string& av, f32 value) {
+  SetActorValue(actor, av, value);
 }
 
 void RecordBackedSkyrimBindings::ModActorValue(ObjectRef actor, const std::string& av, f32 delta) {
-  f32 current = GetActorValue(actor, av);
-  actor_values_[actor.handle][Lower(av)] = current + delta;
+  Av(actor, av).current += delta;
+}
+
+void RecordBackedSkyrimBindings::RestoreActorValue(ObjectRef actor, const std::string& av,
+                                                   f32 amount) {
+  ActorValue& v = Av(actor, av);
+  v.current = std::min(v.base, v.current + amount);
 }
 
 bool RecordBackedSkyrimBindings::IsDead(ObjectRef actor) {
