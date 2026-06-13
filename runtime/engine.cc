@@ -702,15 +702,16 @@ void Engine::MountArchives() {
 
 void Engine::AttachQuestScripts() {
   if (!scripts_) return;
-  // Quests are the game's always-on scripts. Instantiating a bounded slice of
-  // them at load proves the guest runs real scripts inside the engine; the cap
-  // keeps startup cost bounded (each script pulls its .pex chain from the BSA).
-  constexpr int kMaxQuests = 32;
+  // Quests are the game's always-on scripts. Every quest with a Papyrus script
+  // is instantiated so the quest browser lists the full set (main quests
+  // included), not an arbitrary prefix. config.max_quest_scripts > 0 caps it for
+  // a faster bring-up; 0 (the default) attaches them all.
+  int limit = config_.max_quest_scripts;
   int quests = 0;
   int instances = 0;
   records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
                       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-                        if (quests >= kMaxQuests) return;
+                        if (limit > 0 && quests >= limit) return;
                         bethesda::Record record;
                         if (!records_.Parse(id, &record)) return;
                         const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));

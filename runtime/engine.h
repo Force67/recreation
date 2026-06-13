@@ -46,6 +46,9 @@ struct EngineConfig {
   // Editor id ("WhiterunBanneredMare") or a hex load order form id ("0x...").
   std::string interior;
   f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
+  // Cap on quest scripts instantiated at load (0 = all). The quest browser
+  // lists what's attached; the default attaches every scripted quest.
+  int max_quest_scripts = 0;
   render::RendererDesc renderer;
   bool headless = false;
   bool host_server = false;
