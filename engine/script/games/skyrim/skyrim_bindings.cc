@@ -151,6 +151,32 @@ void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) {
   scales_[ref.handle] = scale;
 }
 
+bool RecordBackedSkyrimBindings::IsLocked(ObjectRef ref) {
+  auto it = locks_.find(ref.handle);
+  return it != locks_.end() && it->second.locked;
+}
+
+void RecordBackedSkyrimBindings::SetLocked(ObjectRef ref, bool locked) {
+  locks_[ref.handle].locked = locked;
+}
+
+i32 RecordBackedSkyrimBindings::GetLockLevel(ObjectRef ref) {
+  auto it = locks_.find(ref.handle);
+  return it == locks_.end() ? 0 : it->second.level;
+}
+
+void RecordBackedSkyrimBindings::SetLockLevel(ObjectRef ref, i32 level) {
+  locks_[ref.handle].level = level;
+}
+
+i32 RecordBackedSkyrimBindings::GetOpenState(ObjectRef ref) {
+  auto it = open_.find(ref.handle);
+  if (it == open_.end()) return 3;  // closed
+  return it->second ? 1 : 3;
+}
+
+void RecordBackedSkyrimBindings::SetOpen(ObjectRef ref, bool open) { open_[ref.handle] = open; }
+
 i32 RecordBackedSkyrimBindings::GetFactionRank(ObjectRef actor, ObjectRef faction) {
   auto it = faction_ranks_.find(actor.handle);
   if (it == faction_ranks_.end()) return -2;  // not in faction

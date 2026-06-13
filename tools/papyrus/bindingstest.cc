@@ -154,6 +154,20 @@ int main(int argc, char** argv) {
   bindings.SetScale(rock, 2.5f);
   check("scale set to 2.5", bindings.GetScale(rock) == 2.5f);
 
+  // Lock and door state (new system).
+  ObjectRef chest2{0x4D};
+  check("not locked by default", !bindings.IsLocked(chest2));
+  bindings.SetLocked(chest2, true);
+  bindings.SetLockLevel(chest2, 50);
+  check("locked after Lock(true)", bindings.IsLocked(chest2));
+  check("lock level 50", bindings.GetLockLevel(chest2) == 50);
+  bindings.SetLocked(chest2, false);
+  check("unlocked after Lock(false)", !bindings.IsLocked(chest2));
+  ObjectRef door{0x5E};
+  check("door closed by default (3)", bindings.GetOpenState(door) == 3);
+  bindings.SetOpen(door, true);
+  check("door open after SetOpen (1)", bindings.GetOpenState(door) == 1);
+
   std::printf("%s (%d failures)\n", failures ? "BINDINGSTEST FAILED" : "BINDINGSTEST PASSED",
               failures);
   return failures ? 1 : 0;

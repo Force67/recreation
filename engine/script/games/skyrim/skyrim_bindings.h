@@ -49,6 +49,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   void MoveTo(papyrus::ObjectRef ref, papyrus::ObjectRef target) override;
   f32 GetScale(papyrus::ObjectRef ref) override;
   void SetScale(papyrus::ObjectRef ref, f32 scale) override;
+  bool IsLocked(papyrus::ObjectRef ref) override;
+  void SetLocked(papyrus::ObjectRef ref, bool locked) override;
+  i32 GetLockLevel(papyrus::ObjectRef ref) override;
+  void SetLockLevel(papyrus::ObjectRef ref, i32 level) override;
+  i32 GetOpenState(papyrus::ObjectRef ref) override;
+  void SetOpen(papyrus::ObjectRef ref, bool open) override;
 
   // Factions (new system): membership/rank, reactions, crime gold.
   i32 GetFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction) override;
@@ -108,6 +114,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings {
   std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
   std::unordered_map<u64, std::array<f32, 3>> positions_;  // SetPosition/MoveTo overrides
   std::unordered_map<u64, f32> scales_;                    // SetScale overrides (default 1.0)
+  struct LockState {
+    bool locked = false;
+    i32 level = 0;
+  };
+  std::unordered_map<u64, LockState> locks_;
+  std::unordered_map<u64, bool> open_;
   std::unordered_map<u64, QuestState> quests_;
   std::unordered_map<u64, std::unordered_map<u64, i32>> faction_ranks_;  // actor -> faction -> rank
   std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;      // faction -> other

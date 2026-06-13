@@ -237,6 +237,30 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   reg.Register("ObjectReference", "IsEnabled", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Bool(!Resolve(bindings).IsDisabled(self));
   });
+  reg.Register("ObjectReference", "Is3DLoaded",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); });
+  // Lock(abLock=true,...): Lock(false) is the in-game way to unlock.
+  reg.Register("ObjectReference", "Lock", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetLocked(self, ArgB(a, 0, true));
+    return Value();
+  });
+  reg.Register("ObjectReference", "IsLocked", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Bool(Resolve(bindings).IsLocked(self));
+  });
+  reg.Register("ObjectReference", "GetLockLevel", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetLockLevel(self));
+  });
+  reg.Register("ObjectReference", "SetLockLevel", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetLockLevel(self, ArgI(a, 0));
+    return Value();
+  });
+  reg.Register("ObjectReference", "GetOpenState", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetOpenState(self));
+  });
+  reg.Register("ObjectReference", "SetOpen", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetOpen(self, ArgB(a, 0, true));
+    return Value();
+  });
 }
 
 void RegisterFaction(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {

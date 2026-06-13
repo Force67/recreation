@@ -48,6 +48,13 @@ class SkyrimBindings {
   }
   virtual f32 GetScale(papyrus::ObjectRef ref) { return 1.0f; }
   virtual void SetScale(papyrus::ObjectRef ref, f32 scale) {}
+  // Lock and door state (new system).
+  virtual bool IsLocked(papyrus::ObjectRef ref) { return false; }
+  virtual void SetLocked(papyrus::ObjectRef ref, bool locked) {}
+  virtual i32 GetLockLevel(papyrus::ObjectRef ref) { return 0; }
+  virtual void SetLockLevel(papyrus::ObjectRef ref, i32 level) {}
+  virtual i32 GetOpenState(papyrus::ObjectRef ref) { return 3; }  // 1 open, 3 closed
+  virtual void SetOpen(papyrus::ObjectRef ref, bool open) {}
 
   // Actor values and state.
   virtual f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
