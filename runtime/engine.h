@@ -26,6 +26,7 @@
 #include "net/session.h"
 #include "physics/physics_world.h"
 #include "render/renderer.h"
+#include "script/script_system.h"
 #include "world/cell_streaming.h"
 
 namespace rec {
@@ -101,6 +102,9 @@ class Engine {
   bool LoadGameData();
   bool LoadInterior();
   void MountArchives();
+  // Instantiates the Papyrus scripts attached to quest records (bounded), so a
+  // slice of the game's scripts run live inside the engine.
+  void AttachQuestScripts();
   bool StartNetworking();
   void CreateDemoScene();
   void CreateWaterDemoScene();
@@ -140,6 +144,7 @@ class Engine {
   std::unique_ptr<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   std::unique_ptr<world::CellStreamer> streamer_;
+  std::unique_ptr<rec::script::ScriptSystem> scripts_;
 
   render::Renderer renderer_;
   FlyCamera camera_;

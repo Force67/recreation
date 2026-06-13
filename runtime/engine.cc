@@ -13,6 +13,8 @@
 #include "bethesda/archive.h"
 #include "bethesda/converters.h"
 #include "bethesda/nif.h"
+#include "bethesda/record.h"
+#include "bethesda/script_attachment.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "world/components.h"
@@ -603,6 +605,12 @@ bool Engine::LoadGameData() {
   if (!records_.LoadAll(config_.data_dir, order, profile)) return false;
   REC_INFO("{} plugins, {} records", order.plugins().size(), records_.record_count());
 
+  // The Papyrus guest: a separate, single-threaded world that runs game scripts
+  // off the main thread. Native scripts dispatch through neutral bindings until
+  // the engine surfaces are wired in.
+  scripts_ = std::make_unique<rec::script::ScriptSystem>(game_, &vfs_, nullptr);
+  AttachQuestScripts();
+
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
   if (config_.demo_scene == "actor") return CreateSkyrimActor();
 
@@ -683,6 +691,36 @@ void Engine::MountArchives() {
     // lists, alphabetical is a placeholder.
     if (auto provider = bethesda::OpenArchive(path)) vfs_.Mount(std::move(provider));
   }
+}
+
+void Engine::AttachQuestScripts() {
+  if (!scripts_) return;
+  // Quests are the game's always-on scripts. Instantiating a bounded slice of
+  // them at load proves the guest runs real scripts inside the engine; the cap
+  // keeps startup cost bounded (each script pulls its .pex chain from the BSA).
+  constexpr int kMaxQuests = 32;
+  int quests = 0;
+  int instances = 0;
+  records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
+                      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+                        if (quests >= kMaxQuests) return;
+                        bethesda::Record record;
+                        if (!records_.Parse(id, &record)) return;
+                        const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
+                        if (!vmad) return;
+                        bethesda::ScriptAttachment attachment;
+                        if (!bethesda::ParseScriptAttachment(vmad->data, &attachment) ||
+                            attachment.scripts.empty())
+                          return;
+                        u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
+                        auto created = scripts_->AttachScripts(handle, attachment);
+                        if (!created.empty()) {
+                          ++quests;
+                          instances += static_cast<int>(created.size());
+                        }
+                      });
+  REC_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
+           quests, scripts_->loaded_script_count());
 }
 
 bool Engine::LoadGltfScene() {
@@ -833,6 +871,10 @@ int Engine::Run() {
       scheduler_.RunStage(ecs::Stage::kPostSim, world_, dt);
     }
 
+    // The guest advances on the main loop's clock; it does its work on its own
+    // thread, so this only posts a tick.
+    if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
+
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());
       debug_ui_.BeginFrame();
@@ -874,6 +916,8 @@ int Engine::Run() {
 }
 
 void Engine::Shutdown() {
+  // Stop the guest thread before tearing down the systems its bindings touch.
+  scripts_.reset();
   if (!config_.headless) {
     renderer_.WaitIdle();
     game_ui_.Shutdown();
