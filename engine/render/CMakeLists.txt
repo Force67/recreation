@@ -65,6 +65,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/mesh.vs.hlsl
   shaders/mesh_skin.vs.hlsl
   shaders/shadow.vs.hlsl
+  shaders/shadow_skin.vs.hlsl
   shaders/shadow.ps.hlsl
   shaders/particle.vs.hlsl
   shaders/particle.ps.hlsl

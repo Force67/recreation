@@ -744,31 +744,55 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         [&](RenderGraph::PassBuilder& builder) {
           builder.Write(shadow_atlas, ResourceUsage::kDepthAttachment);
         },
-        [this, shadow_atlas, &view](PassContext& ctx) {
+        [this, shadow_atlas, &frame, &view](PassContext& ctx) {
           VkImageView atlas = ctx.graph->image(shadow_atlas).view;
-          shadow_.Render(ctx.cmd, atlas, [this, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
-            VkDescriptorSet bound_material = VK_NULL_HANDLE;
-            for (const DrawItem& item : view.draws) {
-              const GpuMesh* mesh = meshes_.find(item.mesh);
-              if (!mesh || mesh->all_blend || mesh->no_rt) continue;
-              vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
-                                 sizeof(Mat4), &item.transform);
-              VkDeviceSize offset = 0;
-              vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
-              vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-              for (const GpuSubmesh& submesh : mesh->submeshes) {
-                if (submesh.blend) continue;
-                // Bind the material so masked casters alpha-test in the fragment.
-                VkDescriptorSet material = material_system_->set(submesh.material);
-                if (material != bound_material) {
-                  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1,
-                                          &material, 0, nullptr);
-                  bound_material = material;
+          shadow_.Render(
+              ctx.cmd, atlas, [this, &frame, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
+                VkDescriptorSet bound_material = VK_NULL_HANDLE;
+                VkPipeline bound_pipeline = VK_NULL_HANDLE;
+                for (const DrawItem& item : view.draws) {
+                  const GpuMesh* mesh = meshes_.find(item.mesh);
+                  // no_rt skips grass-like fill geometry, but skinned actors are
+                  // no_rt only to stay out of the tlas; they still cast shadows.
+                  if (!mesh || mesh->all_blend || (mesh->no_rt && !mesh->skinned)) continue;
+                  // Skinned casters run the bone-blended vertex stage so the
+                  // shadow tracks the animated pose, not the bind pose.
+                  bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
+                                      shadow_.skinned_pipeline() != VK_NULL_HANDLE;
+                  VkPipeline pipeline =
+                      draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
+                  if (pipeline != bound_pipeline) {
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                    bound_pipeline = pipeline;
+                  }
+                  vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
+                                     sizeof(Mat4), &item.transform);
+                  VkDeviceSize offset = 0;
+                  vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
+                  if (draw_skinned) {
+                    vkCmdBindVertexBuffers(cmd, 1, 1, &mesh->skinning.buffer, &offset);
+                    struct {
+                      u64 bone_address;
+                      u32 skin_offset;
+                      u32 pad;
+                    } skin{frame.bone_palette_address, static_cast<u32>(item.skin_offset), 0};
+                    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 2 * sizeof(Mat4),
+                                       sizeof(skin), &skin);
+                  }
+                  vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+                  for (const GpuSubmesh& submesh : mesh->submeshes) {
+                    if (submesh.blend) continue;
+                    // Bind the material so masked casters alpha-test in the fragment.
+                    VkDescriptorSet material = material_system_->set(submesh.material);
+                    if (material != bound_material) {
+                      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1,
+                                              &material, 0, nullptr);
+                      bound_material = material;
+                    }
+                    vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
+                  }
                 }
-                vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
-              }
-            }
-          });
+              });
         });
   }
 

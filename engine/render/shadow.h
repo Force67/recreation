@@ -51,13 +51,16 @@ class ShadowPass {
   // Records the depth-only cascade renders into cmd against the atlas view the
   // graph allocated (already in DEPTH_ATTACHMENT layout). draw is invoked once
   // per cascade with that cascade's light_view_proj pushed; the caller emits its
-  // opaque draws inside.
+  // opaque draws inside, binding pipeline() for static and skinned_pipeline()
+  // for animated casters (both share layout()).
   void Render(VkCommandBuffer cmd, VkImageView atlas_view,
               const std::function<void(VkCommandBuffer, VkPipelineLayout)>& draw);
 
   VkBuffer cascade_buffer(u32 frame_slot) const { return cascades_[frame_slot].buffer; }
   u64 cascade_buffer_size() const { return sizeof(CascadeData); }
   VkPipelineLayout layout() const { return layout_; }
+  VkPipeline pipeline() const { return pipeline_; }
+  VkPipeline skinned_pipeline() const { return skinned_pipeline_; }
 
  private:
   static constexpr u32 kFramesInFlight = 2;
@@ -65,6 +68,7 @@ class ShadowPass {
   Settings settings_;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipeline_ = VK_NULL_HANDLE;
+  VkPipeline skinned_pipeline_ = VK_NULL_HANDLE;
   GpuBuffer cascades_[kFramesInFlight];
   CascadeData current_{};
 };

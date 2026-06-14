@@ -9,6 +9,7 @@
 #include "core/log.h"
 #include "render/shader_util.h"
 #include "shaders/shadow_ps_hlsl.h"
+#include "shaders/shadow_skin_vs_hlsl.h"
 #include "shaders/shadow_vs_hlsl.h"
 
 namespace rec::render {
@@ -20,7 +21,9 @@ Vec3 Mul(const Vec3& v, f32 s) { return {v.x * s, v.y * s, v.z * s}; }
 }  // namespace
 
 bool ShadowPass::Initialize(Device& device, VkDescriptorSetLayout material_layout) {
-  VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, 2 * sizeof(Mat4)};
+  // Covers the skinned permutation's trailing bone_address + skin_offset; the
+  // static caster only writes the two leading matrices.
+  VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, 2 * sizeof(Mat4) + 16};
   VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   layout_info.setLayoutCount = 1;
   layout_info.pSetLayouts = &material_layout;  // set 0: alpha-test inputs
@@ -31,33 +34,12 @@ bool ShadowPass::Initialize(Device& device, VkDescriptorSetLayout material_layou
   }
 
   VkShaderModule vs = CreateShaderModule(device.device(), k_shadow_vs_hlsl, sizeof(k_shadow_vs_hlsl));
+  VkShaderModule skin_vs =
+      CreateShaderModule(device.device(), k_shadow_skin_vs_hlsl, sizeof(k_shadow_skin_vs_hlsl));
   VkShaderModule ps = CreateShaderModule(device.device(), k_shadow_ps_hlsl, sizeof(k_shadow_ps_hlsl));
-  if (vs == VK_NULL_HANDLE || ps == VK_NULL_HANDLE) return false;
-  VkPipelineShaderStageCreateInfo stages[2];
-  stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  stages[0].module = vs;
-  stages[0].pName = "main";
-  stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  stages[1].module = ps;
-  stages[1].pName = "main";
+  if (vs == VK_NULL_HANDLE || skin_vs == VK_NULL_HANDLE || ps == VK_NULL_HANDLE) return false;
 
-  VkVertexInputBindingDescription binding{};
-  binding.stride = sizeof(asset::Vertex);
-  binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  VkVertexInputAttributeDescription attrs[2] = {
-      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
-       .offset = offsetof(asset::Vertex, position)},
-      {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
-       .offset = offsetof(asset::Vertex, uv)}};
-  VkPipelineVertexInputStateCreateInfo vertex_input{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-  vertex_input.vertexBindingDescriptionCount = 1;
-  vertex_input.pVertexBindingDescriptions = &binding;
-  vertex_input.vertexAttributeDescriptionCount = 2;
-  vertex_input.pVertexAttributeDescriptions = attrs;
-
+  // Shared state for both permutations.
   VkPipelineInputAssemblyStateCreateInfo ia{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
   ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -100,24 +82,65 @@ bool ShadowPass::Initialize(Device& device, VkDescriptorSetLayout material_layou
   VkPipelineRenderingCreateInfo rendering{.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
   rendering.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
 
-  VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-  info.pNext = &rendering;
-  info.stageCount = 2;
-  info.pStages = stages;
-  info.pVertexInputState = &vertex_input;
-  info.pInputAssemblyState = &ia;
-  info.pViewportState = &viewport;
-  info.pRasterizationState = &raster;
-  info.pMultisampleState = &ms;
-  info.pDepthStencilState = &ds;
-  info.pColorBlendState = &blend;
-  info.pDynamicState = &dynamic;
-  info.layout = layout_;
-  VkResult r =
-      vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_);
+  // Position (binding 0) + uv for alpha test; the skinned variant adds the bone
+  // index/weight stream (binding 1) so it skins in the vertex stage.
+  VkVertexInputBindingDescription bindings[2] = {};
+  bindings[0].binding = 0;
+  bindings[0].stride = sizeof(asset::Vertex);
+  bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  bindings[1].binding = 1;
+  bindings[1].stride = sizeof(asset::SkinnedVertexExtra);
+  bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  VkVertexInputAttributeDescription attrs[4] = {
+      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
+       .offset = offsetof(asset::Vertex, position)},
+      {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+       .offset = offsetof(asset::Vertex, uv)},
+      {.location = 5, .binding = 1, .format = VK_FORMAT_R8G8B8A8_UINT,
+       .offset = offsetof(asset::SkinnedVertexExtra, bone_indices)},
+      {.location = 6, .binding = 1, .format = VK_FORMAT_R8G8B8A8_UNORM,
+       .offset = offsetof(asset::SkinnedVertexExtra, bone_weights)}};
+
+  auto make_pipeline = [&](VkShaderModule vertex, bool skinned, VkPipeline* out) -> bool {
+    VkPipelineShaderStageCreateInfo stages[2];
+    stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vertex;
+    stages[0].pName = "main";
+    stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = ps;
+    stages[1].pName = "main";
+
+    VkPipelineVertexInputStateCreateInfo vertex_input{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertex_input.vertexBindingDescriptionCount = skinned ? 2u : 1u;
+    vertex_input.pVertexBindingDescriptions = bindings;
+    vertex_input.vertexAttributeDescriptionCount = skinned ? 4u : 2u;
+    vertex_input.pVertexAttributeDescriptions = attrs;
+
+    VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    info.pNext = &rendering;
+    info.stageCount = 2;
+    info.pStages = stages;
+    info.pVertexInputState = &vertex_input;
+    info.pInputAssemblyState = &ia;
+    info.pViewportState = &viewport;
+    info.pRasterizationState = &raster;
+    info.pMultisampleState = &ms;
+    info.pDepthStencilState = &ds;
+    info.pColorBlendState = &blend;
+    info.pDynamicState = &dynamic;
+    info.layout = layout_;
+    return vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, out) ==
+           VK_SUCCESS;
+  };
+
+  bool ok = make_pipeline(vs, false, &pipeline_) && make_pipeline(skin_vs, true, &skinned_pipeline_);
   vkDestroyShaderModule(device.device(), vs, nullptr);
+  vkDestroyShaderModule(device.device(), skin_vs, nullptr);
   vkDestroyShaderModule(device.device(), ps, nullptr);
-  if (r != VK_SUCCESS) {
+  if (!ok) {
     REC_ERROR("shadow pipeline creation failed");
     return false;
   }
@@ -228,7 +251,8 @@ void ShadowPass::Render(VkCommandBuffer cmd, VkImageView atlas_view,
   rendering.layerCount = 1;
   rendering.pDepthAttachment = &depth;
   vkCmdBeginRendering(cmd, &rendering);
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+  // The draw callback binds pipeline()/skinned_pipeline() per mesh; both share
+  // this layout, so the per-cascade light matrix push below stays valid.
 
   for (u32 i = 0; i < settings_.cascade_count; ++i) {
     VkViewport vp{static_cast<f32>(i * res), 0.0f, static_cast<f32>(res), static_cast<f32>(res),
@@ -245,9 +269,11 @@ void ShadowPass::Render(VkCommandBuffer cmd, VkImageView atlas_view,
 
 void ShadowPass::Destroy(Device& device) {
   if (pipeline_) vkDestroyPipeline(device.device(), pipeline_, nullptr);
+  if (skinned_pipeline_) vkDestroyPipeline(device.device(), skinned_pipeline_, nullptr);
   if (layout_) vkDestroyPipelineLayout(device.device(), layout_, nullptr);
   for (u32 i = 0; i < kFramesInFlight; ++i) device.DestroyBuffer(cascades_[i]);
   pipeline_ = VK_NULL_HANDLE;
+  skinned_pipeline_ = VK_NULL_HANDLE;
   layout_ = VK_NULL_HANDLE;
 }
 

@@ -2,16 +2,26 @@
 // one sub-rect of the cascade atlas. The uv is passed through so the fragment
 // stage can alpha-test masked materials (perforated foliage shadows); fully
 // opaque casters never sample it. One draw per cascade, the light matrix
-// arrives per draw.
+// arrives per draw. REC_SKINNED adds the bone weight stream so animated meshes
+// cast a pose-matched shadow instead of their bind pose.
 struct PushData {
   column_major float4x4 light_view_proj;
   column_major float4x4 model;
+#ifdef REC_SKINNED
+  uint64_t bone_address;  // device address of the frame bone palette
+  uint skin_offset;       // first bone of this mesh in the palette
+  uint pad;
+#endif
 };
 [[vk::push_constant]] PushData push;
 
 struct VsIn {
   [[vk::location(0)]] float3 position : POSITION;
   [[vk::location(3)]] float2 uv : TEXCOORD0;
+#ifdef REC_SKINNED
+  [[vk::location(5)]] uint4 bone_indices : BLENDINDICES0;
+  [[vk::location(6)]] float4 bone_weights : BLENDWEIGHT0;  // unorm 0..1
+#endif
 };
 
 struct VsOut {
@@ -19,8 +29,32 @@ struct VsOut {
   [[vk::location(0)]] float2 uv : TEXCOORD0;
 };
 
+#ifdef REC_SKINNED
+// Same bone palette layout as mesh_skin.vs: each bone a column-major 4x4.
+float3 SkinPosition(VsIn input) {
+  float3 position = float3(0, 0, 0);
+  float4 p = float4(input.position, 1.0);
+  [unroll]
+  for (uint i = 0; i < 4; ++i) {
+    float w = input.bone_weights[i];
+    if (w <= 0.0) continue;
+    uint64_t addr = push.bone_address + (uint64_t)(push.skin_offset + input.bone_indices[i]) * 64;
+    float4 c0 = vk::RawBufferLoad<float4>(addr + 0);
+    float4 c1 = vk::RawBufferLoad<float4>(addr + 16);
+    float4 c2 = vk::RawBufferLoad<float4>(addr + 32);
+    float4 c3 = vk::RawBufferLoad<float4>(addr + 48);
+    position += w * (c0 * p.x + c1 * p.y + c2 * p.z + c3 * p.w).xyz;
+  }
+  return position;
+}
+#endif
+
 VsOut main(VsIn input) {
-  float4 world = mul(push.model, float4(input.position, 1.0));
+  float3 local_pos = input.position;
+#ifdef REC_SKINNED
+  local_pos = SkinPosition(input);
+#endif
+  float4 world = mul(push.model, float4(local_pos, 1.0));
   VsOut o;
   o.pos = mul(push.light_view_proj, world);
   o.uv = input.uv;
