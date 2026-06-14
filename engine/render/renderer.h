@@ -236,9 +236,20 @@ class Renderer {
   bool environment_dirty_ = true;
 
   void WriteScreenshot(u32 image_index);
+  void WriteHdr();  // reads back the captured linear hdr buffer to a .hdr file
 
   std::string screenshot_path_;
   f64 screenshot_at_ = -1;  // seconds; <0 means immediately when armed
+
+  // Linear-hdr frame export (radiance .hdr). REC_HDR=<path>[:seconds].
+  std::string hdr_path_;
+  f64 hdr_at_ = -1;
+  bool hdr_pending_ = false;  // the copy pass ran this frame; read it back after submit
+  u32 hdr_width_ = 0, hdr_height_ = 0;
+  GpuBuffer hdr_readback_;  // host-visible rgba32f, one float4 per pixel
+  VkDescriptorSetLayout hdr_set_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout hdr_layout_ = VK_NULL_HANDLE;
+  VkPipeline hdr_pipeline_ = VK_NULL_HANDLE;
   Mat4 prev_view_proj_ = Mat4::Identity();
   Mat4 prev_view_ = Mat4::Identity();
   Mat4 prev_proj_ = Mat4::Identity();

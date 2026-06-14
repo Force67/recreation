@@ -105,6 +105,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/ddgi_border.cs.hlsl
   shaders/water.ps.hlsl
   shaders/copy.cs.hlsl
+  shaders/hdr_capture.cs.hlsl
   shaders/pathtrace.cs.hlsl
   shaders/fog.cs.hlsl
 )

@@ -9,6 +9,8 @@
 #include <stb_image_write.h>
 
 #include "core/log.h"
+#include "render/shader_util.h"
+#include "shaders/hdr_capture_cs_hlsl.h"
 
 namespace rec::render {
 namespace {
@@ -76,6 +78,45 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
   if (!ssr_.Initialize(*device_)) return false;   // raster reflection fallback
   if (!ssgi_.Initialize(*device_)) return false;  // raster diffuse-gi fallback
+
+  // Linear-hdr export: a compute copy from the resolved scene into a host buffer.
+  {
+    VkDescriptorSetLayoutBinding hb[2]{};
+    hb[0].binding = 0;
+    hb[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    hb[0].descriptorCount = 1;
+    hb[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    hb[1].binding = 1;
+    hb[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    hb[1].descriptorCount = 1;
+    hb[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    VkDescriptorSetLayoutCreateInfo si{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    si.bindingCount = 2;
+    si.pBindings = hb;
+    if (vkCreateDescriptorSetLayout(device_->device(), &si, nullptr, &hdr_set_layout_) != VK_SUCCESS)
+      return false;
+    VkPushConstantRange pr{VK_SHADER_STAGE_COMPUTE_BIT, 0, 2 * sizeof(u32)};
+    VkPipelineLayoutCreateInfo li{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    li.setLayoutCount = 1;
+    li.pSetLayouts = &hdr_set_layout_;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges = &pr;
+    if (vkCreatePipelineLayout(device_->device(), &li, nullptr, &hdr_layout_) != VK_SUCCESS)
+      return false;
+    VkShaderModule m =
+        CreateShaderModule(device_->device(), k_hdr_capture_cs_hlsl, sizeof(k_hdr_capture_cs_hlsl));
+    if (m == VK_NULL_HANDLE) return false;
+    VkComputePipelineCreateInfo ci{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    ci.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    ci.stage.module = m;
+    ci.stage.pName = "main";
+    ci.layout = hdr_layout_;
+    VkResult r =
+        vkCreateComputePipelines(device_->device(), VK_NULL_HANDLE, 1, &ci, nullptr, &hdr_pipeline_);
+    vkDestroyShaderModule(device_->device(), m, nullptr);
+    if (r != VK_SUCCESS) return false;
+  }
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
@@ -138,6 +179,17 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     screenshot_path_ = value;
   }
 
+  // REC_HDR=/tmp/frame.hdr:12 exports the linear-hdr frame (radiance rgbe) at t=12s.
+  if (const char* spec = std::getenv("REC_HDR")) {
+    std::string value = spec;
+    size_t colon = value.find_last_of(':');
+    if (colon != std::string::npos) {
+      hdr_at_ = std::atof(value.c_str() + colon + 1);
+      value.resize(colon);
+    }
+    hdr_path_ = value;
+  }
+
   if (const char* wf = std::getenv("REC_WIREFRAME")) {
     settings_.wireframe = std::atoi(wf) != 0;
   }
@@ -182,6 +234,28 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 void Renderer::CaptureScreenshot(const std::string& path) {
   screenshot_path_ = path;
   screenshot_at_ = -1;
+}
+
+void Renderer::WriteHdr() {
+  device_->WaitIdle();  // the capture compute wrote hdr_readback_; drain before reading
+  const f32* src = static_cast<const f32*>(hdr_readback_.mapped);
+  if (!src) {
+    hdr_path_.clear();
+    return;
+  }
+  base::Vector<f32> rgb(static_cast<size_t>(hdr_width_) * hdr_height_ * 3);
+  for (size_t i = 0; i < static_cast<size_t>(hdr_width_) * hdr_height_; ++i) {
+    rgb[i * 3 + 0] = src[i * 4 + 0];
+    rgb[i * 3 + 1] = src[i * 4 + 1];
+    rgb[i * 3 + 2] = src[i * 4 + 2];
+  }
+  if (stbi_write_hdr(hdr_path_.c_str(), static_cast<int>(hdr_width_),
+                     static_cast<int>(hdr_height_), 3, rgb.data())) {
+    REC_INFO("hdr frame written: {} ({}x{})", hdr_path_, hdr_width_, hdr_height_);
+  } else {
+    REC_WARN("hdr write failed: {}", hdr_path_);
+  }
+  hdr_path_.clear();
 }
 
 void Renderer::WriteScreenshot(u32 image_index) {
@@ -538,6 +612,10 @@ void Renderer::RenderFrame(const FrameView& view) {
 
   if (!screenshot_path_.empty() && time_seconds_ >= screenshot_at_) {
     WriteScreenshot(image_index);
+  }
+  if (hdr_pending_) {
+    WriteHdr();
+    hdr_pending_ = false;
   }
 
   VkResult presented = swapchain_->Present(render_finished_[image_index], image_index);
@@ -1455,6 +1533,65 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   u32 post_width = upscaled ? output_width_ : render_width_;
   u32 post_height = upscaled ? output_height_ : render_height_;
 
+  // Linear-hdr export: copy the resolved scene (pre-tonemap) into a host buffer.
+  hdr_pending_ = false;
+  if (!hdr_path_.empty() && time_seconds_ >= hdr_at_) {
+    u64 need = static_cast<u64>(post_width) * post_height * sizeof(f32) * 4;
+    if (hdr_readback_.size != need) {
+      device_->DestroyBuffer(hdr_readback_);
+      hdr_readback_ = device_->CreateBuffer(need, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+    }
+    hdr_width_ = post_width;
+    hdr_height_ = post_height;
+    hdr_pending_ = hdr_readback_.mapped != nullptr;
+    if (hdr_pending_) {
+      VkBuffer dst = hdr_readback_.buffer;
+      graph_.AddPass(
+          "hdr_capture",
+          [&](RenderGraph::PassBuilder& builder) {
+            builder.Read(post_input, ResourceUsage::kSampledCompute);
+          },
+          [this, post_input, dst, post_width, post_height](PassContext& ctx) {
+            VkDescriptorSet set = ctx.allocate_set(hdr_set_layout_);
+            VkDescriptorBufferInfo binfo{dst, 0, VK_WHOLE_SIZE};
+            VkDescriptorImageInfo iinfo{VK_NULL_HANDLE, ctx.graph->image(post_input).view,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet w[2];
+            w[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w[0].dstSet = set;
+            w[0].dstBinding = 0;
+            w[0].descriptorCount = 1;
+            w[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            w[0].pBufferInfo = &binfo;
+            w[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w[1].dstSet = set;
+            w[1].dstBinding = 1;
+            w[1].descriptorCount = 1;
+            w[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            w[1].pImageInfo = &iinfo;
+            vkUpdateDescriptorSets(ctx.device->device(), 2, w, 0, nullptr);
+
+            u32 push[2] = {post_width, post_height};
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, hdr_pipeline_);
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, hdr_layout_, 0, 1, &set,
+                                    0, nullptr);
+            vkCmdPushConstants(ctx.cmd, hdr_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push),
+                               push);
+            vkCmdDispatch(ctx.cmd, (post_width + 7) / 8, (post_height + 7) / 8, 1);
+
+            VkMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            b.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+            b.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+            VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &b;
+            vkCmdPipelineBarrier2(ctx.cmd, &dep);
+          });
+    }
+  }
+
   exposure_.AddToGraph(graph_, post_input, post_width, post_height, view.frame_delta_seconds);
   ResourceHandle bloom = kInvalidResource;
   if (settings_.bloom) {
@@ -1660,6 +1797,10 @@ void Renderer::Shutdown() {
     ssao_.Destroy(*device_);
     ssr_.Destroy(*device_);
     ssgi_.Destroy(*device_);
+    if (hdr_pipeline_) vkDestroyPipeline(device_->device(), hdr_pipeline_, nullptr);
+    if (hdr_layout_) vkDestroyPipelineLayout(device_->device(), hdr_layout_, nullptr);
+    if (hdr_set_layout_) vkDestroyDescriptorSetLayout(device_->device(), hdr_set_layout_, nullptr);
+    device_->DestroyBuffer(hdr_readback_);
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
     gaussians_.Destroy(*device_);
