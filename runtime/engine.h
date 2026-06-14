@@ -138,6 +138,8 @@ class Engine {
   void CreateCornellDemoScene();
   // A gpu-simulated ember fountain (compute), scaled past what the cpu sim can.
   void CreateGpuParticleDemoScene();
+  // A shell-fur ball: the hair/fur rendering technique on a sphere.
+  void CreateFurDemoScene();
 
   // A simple cpu particle fountain for the demos. Integrates + spawns each
   // frame and emits the live billboards into the frame view.
@@ -176,6 +178,8 @@ class Engine {
   Vec3 particle_emitter_{0, 0, 0};
   u32 gpu_particle_count_ = 0;  // > 0 selects the gpu-simulated fountain
   Vec3 gpu_particle_emitter_{0, 0, 0};
+  bool fur_ball_ = false;
+  Vec3 fur_position_{0, 0, 0};
   base::Vector<DemoParticle> demo_particles_;
   base::Vector<render::GaussianInstance> demo_gaussians_;
   u32 particle_seed_ = 0x9e3779b9u;

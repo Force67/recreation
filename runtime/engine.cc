@@ -586,6 +586,41 @@ void Engine::CreateGpuParticleDemoScene() {
   REC_INFO("gpu particle demo: {} compute-simulated embers", gpu_particle_count_);
 }
 
+void Engine::CreateFurDemoScene() {
+  // A fuzzy sphere: an opaque brown core (so the shells have a solid base and a
+  // depth occluder) under the shell-fur pass that draws the coat.
+  asset::Mesh ground = asset::MakeCube(12.0f, asset::MakeAssetId("builtin/fur/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -12.0f, 0}});  // top at y = 0
+  world_.Add(floor, world::Renderable{ground.id});
+
+  asset::Material core;
+  core.id = asset::MakeAssetId("builtin/fur/core");
+  core.base_color_factor[0] = 0.4f;
+  core.base_color_factor[1] = 0.28f;
+  core.base_color_factor[2] = 0.15f;
+  core.roughness_factor = 0.9f;
+  if (!config_.headless) renderer_.UploadMaterial(core);
+  asset::Mesh sphere = asset::MakeSphere(1.0f, 64, 96, asset::MakeAssetId("builtin/fur/coremesh"));
+  sphere.lods[0].submeshes[0].material = core.id;
+  if (!config_.headless) renderer_.UploadMesh(sphere);
+  ecs::Entity ball = world_.Create();
+  world_.Add(ball, world::Transform{.position = {0, 1.05f, 0}});
+  world_.Add(ball, world::Renderable{sphere.id});
+
+  fur_ball_ = true;
+  fur_position_ = {0.0f, 1.05f, 0.0f};
+
+  camera_.set_position({0.0f, 1.4f, 4.2f});
+  camera_.set_yaw_pitch(0.0f, -0.06f);
+  camera_.speed = 3.0f;
+  REC_INFO("fur demo: shell-based hair/fur on a sphere");
+}
+
 void Engine::CreateDemoScene() {
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
@@ -593,6 +628,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "cornell") {
     CreateCornellDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "fur") {
+    CreateFurDemoScene();
     return;
   }
   if (config_.demo_scene == "gpuparticles") {
@@ -1425,6 +1464,10 @@ int Engine::Run() {
       if (gpu_particle_count_ > 0) {
         view.gpu_particle_count = gpu_particle_count_;
         view.gpu_particle_emitter = gpu_particle_emitter_;
+      }
+      if (fur_ball_) {
+        view.fur_ball = true;
+        view.fur_position = fur_position_;
       }
       if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
       RefreshQuestPanel(frame_delta);
