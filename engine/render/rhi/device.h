@@ -67,6 +67,8 @@ class Device {
 
   GpuImage CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageFlags usage,
                          VkImageAspectFlags aspect, u32 mip_levels = 1);
+  GpuImage CreateImageCube(VkFormat format, u32 size, VkImageUsageFlags usage,
+                           u32 mip_levels = 1);
   void DestroyImage(GpuImage& image);
 
  private:

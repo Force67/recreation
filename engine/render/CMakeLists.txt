@@ -3,6 +3,8 @@ recreation_add_module(render
   render_graph.cc
   mesh_pipeline.cc
   material_system.cc
+  environment.cc
+  ddgi.cc
   post.cc
   shader_util.cc
   taa.cc
@@ -34,4 +36,12 @@ recreation_embed_shaders(recreation_render
   shaders/fullscreen.vs.hlsl
   shaders/tonemap.ps.hlsl
   shaders/taa.cs.hlsl
+  shaders/sky.cs.hlsl
+  shaders/sky.ps.hlsl
+  shaders/irradiance.cs.hlsl
+  shaders/prefilter.cs.hlsl
+  shaders/brdf_lut.cs.hlsl
+  shaders/ddgi_rays.cs.hlsl
+  shaders/ddgi_blend.cs.hlsl
+  shaders/ddgi_border.cs.hlsl
 )

@@ -140,6 +140,39 @@ GpuImage Device::CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageF
   return image;
 }
 
+GpuImage Device::CreateImageCube(VkFormat format, u32 size, VkImageUsageFlags usage,
+                                 u32 mip_levels) {
+  VkImageCreateInfo image_info{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.format = format;
+  image_info.extent = {size, size, 1};
+  image_info.mipLevels = mip_levels;
+  image_info.arrayLayers = 6;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.usage = usage;
+
+  VmaAllocationCreateInfo alloc_info{};
+  alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+
+  GpuImage image;
+  image.format = format;
+  image.extent = {size, size};
+  if (vmaCreateImage(allocator_, &image_info, &alloc_info, &image.image, &image.allocation,
+                     nullptr) != VK_SUCCESS) {
+    REC_ERROR("cube image allocation failed");
+    return {};
+  }
+
+  VkImageViewCreateInfo view_info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  view_info.image = image.image;
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+  view_info.format = format;
+  view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels, 0, 6};
+  vkCreateImageView(device_, &view_info, nullptr, &image.view);
+  return image;
+}
+
 void Device::DestroyImage(GpuImage& image) {
   if (image.view) vkDestroyImageView(device_, image.view, nullptr);
   if (image.image) vmaDestroyImage(allocator_, image.image, image.allocation);
