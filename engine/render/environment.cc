@@ -66,6 +66,21 @@ std::unique_ptr<EnvironmentSystem> EnvironmentSystem::Create(Device& device) {
     return nullptr;
   }
 
+  // Comparison sampler for the cascade shadow atlas: hardware pcf, depth-less-or
+  // -equal returns the lit fraction, clamped so taps near a cascade edge hold.
+  VkSamplerCreateInfo shadow_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+  shadow_info.magFilter = VK_FILTER_LINEAR;
+  shadow_info.minFilter = VK_FILTER_LINEAR;
+  shadow_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  shadow_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  shadow_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  shadow_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  shadow_info.compareEnable = VK_TRUE;
+  shadow_info.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  if (vkCreateSampler(device.device(), &shadow_info, nullptr, &env->shadow_sampler_) != VK_SUCCESS) {
+    return nullptr;
+  }
+
   VkDescriptorPoolSize sizes[] = {
       {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16},
       {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16},
@@ -117,7 +132,12 @@ bool EnvironmentSystem::CreateDummies() {
   black_array_ = device_.CreateImage2D(VK_FORMAT_R16G16B16A16_SFLOAT, {1, 1},
                                        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                                        VK_IMAGE_ASPECT_COLOR_BIT);
-  if (!white_.image || !black_array_.image) return false;
+  // Stand-in shadow atlas (1x1 depth, cleared lit) so the env set is always
+  // complete even when cascaded shadow maps are off.
+  shadow_dummy_ = device_.CreateImage2D(VK_FORMAT_D32_SFLOAT, {1, 1},
+                                        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                        VK_IMAGE_ASPECT_DEPTH_BIT);
+  if (!white_.image || !black_array_.image || !shadow_dummy_.image) return false;
 
   VkImageViewCreateInfo view_info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view_info.image = black_array_.image;
@@ -128,9 +148,9 @@ bool EnvironmentSystem::CreateDummies() {
     return false;
   }
 
-  dummy_volume_ = device_.CreateBuffer(256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+  dummy_volume_ = device_.CreateBuffer(512, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
   if (!dummy_volume_.mapped) return false;
-  std::memset(dummy_volume_.mapped, 0, 256);
+  std::memset(dummy_volume_.mapped, 0, 512);
 
   device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
     for (GpuImage* image : {&white_, &black_array_}) {
@@ -160,6 +180,32 @@ bool EnvironmentSystem::CreateDummies() {
       barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       vkCmdPipelineBarrier2(cmd, &dep);
     }
+
+    // The depth dummy: clear to 1.0 (fully lit) and leave it shader-readable.
+    VkImageSubresourceRange depth_range{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.image = shadow_dummy_.image;
+    barrier.subresourceRange = depth_range;
+    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &barrier;
+    vkCmdPipelineBarrier2(cmd, &dep);
+
+    VkClearDepthStencilValue clear{1.0f, 0};
+    vkCmdClearDepthStencilImage(cmd, shadow_dummy_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                &clear, 1, &depth_range);
+
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier2(cmd, &dep);
   });
   return true;
 }
@@ -261,8 +307,9 @@ bool EnvironmentSystem::CreatePipelines() {
   brdf_gen_.set = allocate(brdf_gen_.set_layout);
   write_set(brdf_gen_.set, brdf_lut_.view, VK_NULL_HANDLE);
 
-  // Set 2 of the mesh pipeline: ibl inputs, per frame ao, ddgi atlases.
-  VkDescriptorSetLayoutBinding env_bindings[7]{};
+  // Set 2 of the mesh pipeline: ibl inputs, per frame ao, ddgi atlases, then the
+  // cascade shadow atlas (7, comparison sampler) and the cascade ubo (8).
+  VkDescriptorSetLayoutBinding env_bindings[9]{};
   for (u32 i = 0; i < 6; ++i) {
     env_bindings[i].binding = i;
     env_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -273,9 +320,17 @@ bool EnvironmentSystem::CreatePipelines() {
   env_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   env_bindings[6].descriptorCount = 1;
   env_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  env_bindings[7].binding = 7;
+  env_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  env_bindings[7].descriptorCount = 1;
+  env_bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  env_bindings[8].binding = 8;
+  env_bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  env_bindings[8].descriptorCount = 1;
+  env_bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutCreateInfo env_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  env_info.bindingCount = 7;
+  env_info.bindingCount = 9;
   env_info.pBindings = env_bindings;
   if (vkCreateDescriptorSetLayout(device_.device(), &env_info, nullptr, &env_set_layout_) !=
       VK_SUCCESS) {
@@ -529,8 +584,9 @@ void EnvironmentSystem::DrawSky(VkCommandBuffer cmd, VkDescriptorSet globals) {
 }
 
 void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
-                                    const DdgiBinding* ddgi) const {
-  VkDescriptorImageInfo images[6]{};
+                                    const DdgiBinding* ddgi, VkImageView shadow_view,
+                                    VkBuffer cascade_buffer, u64 cascade_size) const {
+  VkDescriptorImageInfo images[7]{};
   images[0] = {sampler_, irradiance_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   images[1] = {sampler_, prefiltered_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   images[2] = {sampler_, brdf_lut_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -540,10 +596,14 @@ void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
                ddgi ? ddgi->layout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   images[5] = {sampler_, ddgi ? ddgi->distance : black_array_view_,
                ddgi ? ddgi->layout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  images[6] = {shadow_sampler_, shadow_view ? shadow_view : shadow_dummy_.view,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   VkDescriptorBufferInfo volume{ddgi ? ddgi->volume : dummy_volume_.buffer, 0,
                                 ddgi ? ddgi->volume_size : 256};
+  VkDescriptorBufferInfo cascades{cascade_buffer ? cascade_buffer : dummy_volume_.buffer, 0,
+                                  cascade_buffer ? cascade_size : 512};
 
-  VkWriteDescriptorSet writes[7];
+  VkWriteDescriptorSet writes[9];
   for (u32 i = 0; i < 6; ++i) {
     writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     writes[i].dstSet = set;
@@ -558,7 +618,19 @@ void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
   writes[6].descriptorCount = 1;
   writes[6].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   writes[6].pBufferInfo = &volume;
-  vkUpdateDescriptorSets(device_.device(), 7, writes, 0, nullptr);
+  writes[7] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[7].dstSet = set;
+  writes[7].dstBinding = 7;
+  writes[7].descriptorCount = 1;
+  writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[7].pImageInfo = &images[6];
+  writes[8] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[8].dstSet = set;
+  writes[8].dstBinding = 8;
+  writes[8].descriptorCount = 1;
+  writes[8].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[8].pBufferInfo = &cascades;
+  vkUpdateDescriptorSets(device_.device(), 9, writes, 0, nullptr);
 }
 
 void EnvironmentSystem::DestroyComputePass(ComputePass& pass) {
@@ -590,9 +662,11 @@ EnvironmentSystem::~EnvironmentSystem() {
   device_.DestroyImage(brdf_lut_);
   device_.DestroyImage(white_);
   device_.DestroyImage(black_array_);
+  device_.DestroyImage(shadow_dummy_);
   device_.DestroyBuffer(dummy_volume_);
   if (pool_) vkDestroyDescriptorPool(device, pool_, nullptr);
   if (sampler_) vkDestroySampler(device, sampler_, nullptr);
+  if (shadow_sampler_) vkDestroySampler(device, shadow_sampler_, nullptr);
 }
 
 }  // namespace rec::render

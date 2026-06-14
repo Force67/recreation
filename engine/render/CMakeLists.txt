@@ -10,6 +10,7 @@ recreation_add_module(render
   environment.cc
   ambient_occlusion.cc
   ssao.cc
+  shadow.cc
   bloom.cc
   ddgi.cc
   exposure.cc
@@ -59,6 +60,7 @@ endif()
 set(RECREATION_RENDER_SHADERS
   shaders/mesh.vs.hlsl
   shaders/mesh_skin.vs.hlsl
+  shaders/shadow.vs.hlsl
   shaders/mesh.ps.hlsl
   shaders/mesh_rt.ps.hlsl
   shaders/fullscreen.vs.hlsl

@@ -293,6 +293,21 @@ inline Mat4 PerspectiveReversedZ(f32 fov_y_radians, f32 aspect, f32 near_plane) 
   return r;
 }
 
+// Right-handed orthographic projection with a [0,1] depth range (Vulkan), no y
+// flip. Used for shadow cascades: the map is rendered and sampled with the same
+// matrix, so it stays self-consistent without matching the camera's clip space.
+inline Mat4 Orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near_plane, f32 far_plane) {
+  Mat4 r;
+  r.m[0] = 2.0f / (right - left);
+  r.m[5] = 2.0f / (top - bottom);
+  r.m[10] = -1.0f / (far_plane - near_plane);
+  r.m[12] = -(right + left) / (right - left);
+  r.m[13] = -(top + bottom) / (top - bottom);
+  r.m[14] = -near_plane / (far_plane - near_plane);
+  r.m[15] = 1.0f;
+  return r;
+}
+
 }  // namespace rec
 
 #endif  // RECREATION_CORE_MATH_H_

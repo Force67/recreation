@@ -52,6 +52,12 @@ struct RenderSettings {
 
   bool rt_shadows = true;  // masked by device caps and the renderer desc
   f32 sun_angular_radius = 0.005f;  // radians; 0 reverts to hard shadows
+
+  // Cascaded shadow maps: the raster sun-shadow path. Used when ray-traced
+  // shadows are unavailable or off, so non-rt tiers still cast sun shadows.
+  bool shadow_maps = false;
+  u32 shadow_resolution = 2048;  // per-cascade square; presets drop it on handhelds
+  f32 shadow_distance = 160.0f;  // furthest shadowed camera distance, meters
   bool wireframe = false;
   bool vsync = false;
   DebugView debug_view = DebugView::kOff;  // isolate a shading channel

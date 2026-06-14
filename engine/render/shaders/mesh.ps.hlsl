@@ -59,11 +59,22 @@ struct DdgiVolume {
 };
 [[vk::binding(6, 2)]] ConstantBuffer<DdgiVolume> ddgi;
 
+[[vk::combinedImageSampler]] [[vk::binding(7, 2)]] Texture2D shadow_atlas;
+[[vk::combinedImageSampler]] [[vk::binding(7, 2)]] SamplerComparisonState shadow_sampler;
+
+struct CascadeData {
+  column_major float4x4 light_view_proj[4];
+  float4 p0;  // x cascade count, y depth bias, z 1/count, w atlas inset
+  float4 p1;  // x cascade-local texel, y unused, z normal bias, w unused
+};
+[[vk::binding(8, 2)]] ConstantBuffer<CascadeData> cascades;
+
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
+static const uint kFrameShadowMap = 64u;
 static const float kPi = 3.14159265359;
 static const float kPrefilterMips = 6.0;
 
@@ -250,7 +261,40 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   return lit + ambient + emissive;
 }
 
-float SunShadow(PsIn input, float3 n) { return 1.0; }
+// Cascaded shadow map lookup: pick the tightest cascade that contains the
+// (normal-biased) point, then 3x3 pcf through the comparison sampler. Returns
+// 1 (lit) when shadow maps are off or the point falls beyond the last cascade.
+float SunShadow(PsIn input, float3 n) {
+  if ((frame.flags & kFrameShadowMap) == 0u) return 1.0;
+  uint count = (uint)cascades.p0.x;
+  float bias = cascades.p0.y;
+  float inv_count = cascades.p0.z;
+  float inset = cascades.p0.w;
+  float texel = cascades.p1.x;
+  float3 biased = input.world_pos + n * cascades.p1.z;
+
+  for (uint i = 0; i < count; ++i) {
+    float4 clip = mul(cascades.light_view_proj[i], float4(biased, 1.0));
+    float3 ndc = clip.xyz / clip.w;
+    float2 uv = ndc.xy * 0.5 + 0.5;
+    if (uv.x < inset || uv.x > 1.0 - inset || uv.y < inset || uv.y > 1.0 - inset) continue;
+    if (ndc.z < 0.0 || ndc.z > 1.0) continue;
+
+    float ref = ndc.z - bias;
+    float sum = 0.0;
+    [unroll]
+    for (int oy = -1; oy <= 1; ++oy) {
+      [unroll]
+      for (int ox = -1; ox <= 1; ++ox) {
+        float2 luv = clamp(uv + float2(ox, oy) * texel, inset, 1.0 - inset);
+        float2 atlas_uv = float2((float(i) + luv.x) * inv_count, luv.y);
+        sum += shadow_atlas.SampleCmpLevelZero(shadow_sampler, atlas_uv, ref);
+      }
+    }
+    return sum / 9.0;
+  }
+  return 1.0;
+}
 
 PsOut main(PsIn input) {
   float4 base = base_color_map.Sample(base_color_sampler, input.uv) *

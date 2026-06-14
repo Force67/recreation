@@ -60,6 +60,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
+  if (!shadow_.Initialize(*device_)) return false;  // raster sun-shadow fallback
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -287,6 +288,9 @@ void Renderer::ApplySettings() {
                    .intensity = settings_.ao_intensity * 1.8f,
                    .power = 1.5f,
                    .sample_count = std::clamp(settings_.ao_rays * 8u, 4u, 32u)});
+  shadow_.Configure({.cascade_count = ShadowPass::kMaxCascades,
+                     .resolution = settings_.shadow_resolution,
+                     .distance = settings_.shadow_distance});
   exposure_.Configure({.automatic = settings_.auto_exposure,
                        .compensation = settings_.exposure,
                        .adaptation_speed = settings_.adaptation_speed,
@@ -482,6 +486,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   nrd_ao = rtao_active && nrd_.available();
 #endif
   bool ss_ao = settings_.ssao && !nrd_ao && !path_trace;
+  // Cascaded shadow maps: the raster sun-shadow path, used whenever ray-traced
+  // shadows are not. The rt fragment variant traces its own shadow ray instead.
+  bool csm_active = settings_.shadow_maps && !rt_shadows && !path_trace;
   time_seconds_ += view.frame_delta_seconds;
 
   // Transparent work is gathered up front: water forces a tlas (the water
@@ -555,6 +562,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.misc[3] = static_cast<f32>(frame_index_ % 4096);
   if (settings_.ibl) globals.flags |= kFrameFlagIbl;
   if (nrd_ao || ss_ao) globals.flags |= kFrameFlagAoValid;
+  if (csm_active) globals.flags |= kFrameFlagShadowMap;
   if (ddgi_active) globals.flags |= kFrameFlagDdgi;
   if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
   if (rt_shadows) globals.flags |= kFrameFlagRtShadows;
@@ -580,6 +588,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // pool from allocating images no pass touches.
   ResourceHandle motion = kInvalidResource, depth = kInvalidResource;
   ResourceHandle normals = kInvalidResource, depth_export = kInvalidResource;
+  ResourceHandle shadow_atlas = kInvalidResource;
+  if (csm_active) {
+    shadow_atlas = graph_.CreateTexture({.name = "shadow_atlas",
+                                         .format = VK_FORMAT_D32_SFLOAT,
+                                         .width = shadow_.atlas_width(),
+                                         .height = shadow_.atlas_height()});
+  }
   if (!path_trace) {
     motion = graph_.CreateTexture(
         {.name = "motion", .format = kMotionFormat, .width = render_width_,
@@ -652,6 +667,39 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                             environment_->sky_view(), environment_->sampler(), scene_color, pt);
   } else {
     pt_was_active_ = false;
+
+  u32 shadow_slot = frame_index_ % 2;
+  if (csm_active) {
+    Vec3 fwd = Normalize(view.camera.target - view.camera.eye);
+    Vec3 right = Normalize(Cross(fwd, Vec3{0, 1, 0}));
+    Vec3 up = Cross(right, fwd);
+    f32 aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
+    shadow_.Update(view.camera.eye, fwd, right, up, view.camera.fov_y, aspect,
+                   settings_.sun_direction, shadow_slot);
+    graph_.AddPass(
+        "shadow_cascades",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(shadow_atlas, ResourceUsage::kDepthAttachment);
+        },
+        [this, shadow_atlas, &view](PassContext& ctx) {
+          VkImageView atlas = ctx.graph->image(shadow_atlas).view;
+          shadow_.Render(ctx.cmd, atlas, [this, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
+            for (const DrawItem& item : view.draws) {
+              const GpuMesh* mesh = meshes_.find(item.mesh);
+              if (!mesh || mesh->all_blend || mesh->no_rt) continue;
+              vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
+                                 sizeof(Mat4), &item.transform);
+              VkDeviceSize offset = 0;
+              vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
+              vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+              for (const GpuSubmesh& submesh : mesh->submeshes) {
+                if (submesh.blend) continue;
+                vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
+              }
+            }
+          });
+        });
+  }
 
   graph_.AddPass(
       "prepass",
@@ -789,9 +837,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
         if (ao != kInvalidResource) builder.Read(ao, ResourceUsage::kSampledFragment);
+        if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
       },
       [this, scene_color, motion, depth, ao, tlas_slot, rt_shadows, use_rt_frag, ddgi_active,
-       &frame, &view](PassContext& ctx) {
+       csm_active, shadow_slot, shadow_atlas, &frame, &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(scene_color).view;
@@ -859,7 +908,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             ao != kInvalidResource ? ctx.graph->image(ao).view : VK_NULL_HANDLE;
         EnvironmentSystem::DdgiBinding ddgi_binding;
         if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
-        environment_->WriteEnvSet(env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr);
+        environment_->WriteEnvSet(
+            env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr,
+            csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
+            csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
+            shadow_.cascade_buffer_size());
 
         VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
@@ -931,9 +984,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Write(depth, ResourceUsage::kDepthAttachment);
           builder.Read(opaque_color, ResourceUsage::kSampledFragment);
           builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
+          if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
         },
         [this, composite, motion, depth, opaque_color, opaque_depth, tlas_slot, rt_shadows,
-         use_rt_frag, ddgi_active, water_pipeline_active,
+         use_rt_frag, ddgi_active, water_pipeline_active, csm_active, shadow_slot, shadow_atlas,
          transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
           VkRenderingAttachmentInfo colors[2];
           colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -997,8 +1051,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
           EnvironmentSystem::DdgiBinding ddgi_binding;
           if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
-          environment_->WriteEnvSet(env_set, VK_NULL_HANDLE,
-                                    ddgi_active ? &ddgi_binding : nullptr);
+          environment_->WriteEnvSet(
+              env_set, VK_NULL_HANDLE, ddgi_active ? &ddgi_binding : nullptr,
+              csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
+              csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
+              shadow_.cascade_buffer_size());
 
           enum class Mode { kNone, kWater, kBlend };
           Mode mode = Mode::kNone;
@@ -1189,7 +1246,7 @@ bool Renderer::CreateFrameResources() {
     // frame dispatch sets; harmless reservations otherwise. The acceleration
     // structure size must stay last so it can be dropped without the extension.
     VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 24},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256},
@@ -1306,6 +1363,7 @@ void Renderer::Shutdown() {
     meshes_.clear();
     taa_.Destroy(*device_);
     ssao_.Destroy(*device_);
+    shadow_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);

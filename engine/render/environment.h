@@ -56,9 +56,11 @@ class EnvironmentSystem {
     VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   };
 
-  // Fills a freshly allocated set 2. Null ao view or ddgi binding fall back
-  // to the neutral dummies.
-  void WriteEnvSet(VkDescriptorSet set, VkImageView ao_view, const DdgiBinding* ddgi) const;
+  // Fills a freshly allocated set 2. Null ao view, ddgi binding or shadow view
+  // fall back to the neutral dummies (white ao, black ddgi, lit shadow).
+  void WriteEnvSet(VkDescriptorSet set, VkImageView ao_view, const DdgiBinding* ddgi,
+                   VkImageView shadow_view = VK_NULL_HANDLE,
+                   VkBuffer cascade_buffer = VK_NULL_HANDLE, u64 cascade_size = 0) const;
 
  private:
   struct ComputePass {
@@ -78,6 +80,7 @@ class EnvironmentSystem {
 
   Device& device_;
   VkSampler sampler_ = VK_NULL_HANDLE;
+  VkSampler shadow_sampler_ = VK_NULL_HANDLE;  // comparison sampler for cascades
   VkDescriptorPool pool_ = VK_NULL_HANDLE;
 
   GpuImage sky_;         // rgba16f cube
@@ -88,9 +91,10 @@ class EnvironmentSystem {
   VkImageView irradiance_storage_view_ = VK_NULL_HANDLE;   // 2d array, mip 0
   VkImageView prefilter_storage_views_[kPrefilterMips] = {};
 
-  // Neutral fallbacks: white ao, black ddgi atlases, zeroed volume.
+  // Neutral fallbacks: white ao, black ddgi atlases, lit shadow, zeroed volume.
   GpuImage white_;
   GpuImage black_array_;
+  GpuImage shadow_dummy_;  // 1x1 depth cleared to 1.0 (fully lit)
   VkImageView black_array_view_ = VK_NULL_HANDLE;
   GpuBuffer dummy_volume_;
 

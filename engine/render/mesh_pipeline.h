@@ -33,6 +33,7 @@ inline constexpr u32 kFrameFlagDdgi = 1u << 2;
 inline constexpr u32 kFrameFlagWaterRt = 1u << 3;
 inline constexpr u32 kFrameFlagReflections = 1u << 4;  // opaque rt specular reflections
 inline constexpr u32 kFrameFlagRtShadows = 1u << 5;    // trace sun shadow in the rt variant
+inline constexpr u32 kFrameFlagShadowMap = 1u << 6;    // sample cascaded shadow maps (raster path)
 
 // model + prev_model are 128 bytes; skinned draws append the bone palette's
 // buffer device address and this mesh's offset into it (needs a 144 byte push

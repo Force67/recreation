@@ -212,6 +212,15 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             settings.sun_angular_radius = degrees / 57.29578f;
           }
         }
+        ImGui::EndDisabled();
+        ImGui::Checkbox("Cascaded shadow maps", &settings.shadow_maps);
+        if (settings.shadow_maps) {
+          ImGui::SliderFloat("Shadow distance", &settings.shadow_distance, 30.0f, 400.0f, "%.0f");
+          ImGui::TextDisabled(caps && caps->ray_query && settings.rt_shadows
+                                  ? "(rt shadows active; cascades are the fallback)"
+                                  : "raster sun shadows");
+        }
+        ImGui::BeginDisabled(!ray_query);
         ImGui::Checkbox("Water RT reflections", &settings.water_reflections);
         ImGui::Checkbox("RT reflections", &settings.rt_reflections);
         if (settings.rt_reflections) {

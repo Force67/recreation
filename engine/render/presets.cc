@@ -48,6 +48,7 @@ RenderSettings PresetSettings(QualityPreset preset, const DeviceCaps& caps) {
       s.bloom = false;
       s.ssao = true;
       s.ao_rays = 1;  // 8 screen-space taps
+      s.shadow_resolution = 1024;  // one small cascade atlas fits the power budget
       s.sun_angular_radius = 0.0f;
       break;
 
@@ -164,6 +165,10 @@ RenderSettings PresetSettings(QualityPreset preset, const DeviceCaps& caps) {
     s.fog = false;
     s.path_trace = false;
   }
+
+  // Cascaded shadow maps are the sun-shadow path whenever ray tracing isn't, so
+  // every non-rt tier (and forced-low on capable gpus) still casts sun shadows.
+  if (!s.rt_shadows) s.shadow_maps = true;
   if (s.upscaler == UpscalerKind::kDlss &&
       Lower(caps.adapter_name).find("nvidia") == std::string::npos) {
     s.upscaler = UpscalerKind::kFsr3;
