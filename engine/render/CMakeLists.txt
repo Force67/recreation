@@ -12,6 +12,7 @@ recreation_add_module(render
   ssao.cc
   shadow.cc
   particles.cc
+  overdraw.cc
   bloom.cc
   ddgi.cc
   exposure.cc
@@ -64,6 +65,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/shadow.vs.hlsl
   shaders/particle.vs.hlsl
   shaders/particle.ps.hlsl
+  shaders/overdraw.ps.hlsl
   shaders/mesh.ps.hlsl
   shaders/mesh_rt.ps.hlsl
   shaders/fullscreen.vs.hlsl

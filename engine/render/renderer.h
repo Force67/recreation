@@ -24,6 +24,7 @@
 #include "render/volumetric_fog.h"
 #include "render/material_system.h"
 #include "render/mesh_pipeline.h"
+#include "render/overdraw.h"
 #include "render/particles.h"
 #include "render/post.h"
 #include "render/raytracing.h"
@@ -193,6 +194,7 @@ class Renderer {
   PathTracer path_tracer_;
   VolumetricFog volumetric_fog_;
   ParticleSystem particles_;
+  OverdrawPass overdraw_;
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;

@@ -62,6 +62,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
   if (!shadow_.Initialize(*device_)) return false;  // raster sun-shadow fallback
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
+  if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -1148,6 +1149,34 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     pf.soft_fade = 0.6f;
     particles_.AddToGraph(graph_, lit, depth_export, view.particles, pf, frame_index_ % 2);
   }
+
+  // Overdraw debug view: clear lit and additive-replay all geometry so the heat
+  // ramp shows how many layers each pixel shaded.
+  if (settings_.debug_view == DebugView::kOverdraw) {
+    graph_.AddPass(
+        "overdraw",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(lit, ResourceUsage::kColorAttachment);
+        },
+        [this, lit, view_proj, &view](PassContext& ctx) {
+          overdraw_.Render(
+              ctx.cmd, ctx.graph->image(lit).view, {render_width_, render_height_}, view_proj,
+              [this, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
+                for (const DrawItem& item : view.draws) {
+                  const GpuMesh* mesh = meshes_.find(item.mesh);
+                  if (!mesh || mesh->indices.buffer == VK_NULL_HANDLE) continue;
+                  vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
+                                     sizeof(Mat4), &item.transform);
+                  VkDeviceSize offset = 0;
+                  vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
+                  vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+                  for (const GpuSubmesh& submesh : mesh->submeshes) {
+                    vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
+                  }
+                }
+              });
+        });
+  }
   }  // end raster path
 
   // The path tracer already resolved antialiasing through accumulation; the
@@ -1389,6 +1418,7 @@ void Renderer::Shutdown() {
     ssao_.Destroy(*device_);
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
+    overdraw_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);

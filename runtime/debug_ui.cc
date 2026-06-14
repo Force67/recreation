@@ -24,7 +24,8 @@ const char* kTonemaps[] = {"ACES", "Reinhard", "None"};
 const char* kColorGrades[] = {"Neutral", "Warm", "Cool", "Cinematic"};
 const char* kDebugViews[] = {"Off",         "Base color",   "World normal",
                              "Roughness",   "Metallic",     "Ambient occlusion",
-                             "Indirect GI", "Direct light", "Emissive", "Reflection"};
+                             "Indirect GI", "Direct light", "Emissive", "Reflection",
+                             "Overdraw"};
 
 // Row 0 is "Custom" (hand-tuned); the rest map to QualityPreset below.
 const char* kPresets[] = {"Custom",  "Auto-detect", "Android", "Steam Deck", "Low end",
