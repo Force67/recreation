@@ -3,6 +3,7 @@ recreation_add_module(asset
   asset_database.cc
   primitives.cc
   gltf_loader.cc
+  materialx.cc
 )
 
 target_link_libraries(recreation_asset PUBLIC recreation::core)

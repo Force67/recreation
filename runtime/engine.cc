@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "asset/gltf_loader.h"
+#include "asset/materialx.h"
 #include "asset/primitives.h"
 #include "bethesda/archive.h"
 #include "bethesda/converters.h"
@@ -665,6 +666,55 @@ void Engine::CreateAutoLodDemoScene() {
   REC_INFO("auto-lod demo: decimated lods on a single high-poly sphere");
 }
 
+void Engine::CreateMaterialXDemoScene() {
+  // One sphere per MaterialX file listed (comma separated) in REC_MTLX, so the
+  // imported standard_surface lobes can be eyeballed against the source.
+  asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/mtlx/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -8.6f, 0}});  // top at y = -0.6
+  world_.Add(floor, world::Renderable{ground.id});
+
+  base::Vector<std::string> paths;
+  if (const char* env = std::getenv("REC_MTLX")) {
+    std::string s = env, cur;
+    for (char c : s) {
+      if (c == ',') {
+        if (!cur.empty()) paths.push_back(cur);
+        cur.clear();
+      } else {
+        cur.push_back(c);
+      }
+    }
+    if (!cur.empty()) paths.push_back(cur);
+  }
+  if (paths.empty()) REC_WARN("mtlx demo: set REC_MTLX=a.mtlx,b.mtlx to load materials");
+
+  int n = static_cast<int>(paths.size());
+  for (int i = 0; i < n; ++i) {
+    asset::Material mat;
+    mat.id = asset::MakeAssetId("builtin/mtlx/mat" + std::to_string(i));
+    if (!asset::LoadMaterialX(paths[i], &mat)) continue;
+    if (!config_.headless) renderer_.UploadMaterial(mat);
+    std::string tag = "builtin/mtlx/sphere" + std::to_string(i);
+    asset::Mesh sphere = asset::MakeSphere(0.6f, 40, 60, asset::MakeAssetId(tag));
+    sphere.lods[0].submeshes[0].material = mat.id;
+    if (!config_.headless) renderer_.UploadMesh(sphere);
+    ecs::Entity e = world_.Create();
+    f32 x = (static_cast<f32>(i) - (n - 1) * 0.5f) * 1.5f;
+    world_.Add(e, world::Transform{.position = {x, 0.0f, 0.0f}});
+    world_.Add(e, world::Renderable{sphere.id});
+  }
+
+  camera_.set_position({0.0f, 0.9f, 4.5f});
+  camera_.set_yaw_pitch(0.0f, -0.12f);
+  camera_.speed = 3.0f;
+  REC_INFO("materialx demo: {} materials", n);
+}
+
 void Engine::CreateDemoScene() {
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
@@ -684,6 +734,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "autolod") {
     CreateAutoLodDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "mtlx") {
+    CreateMaterialXDemoScene();
     return;
   }
   if (config_.demo_scene == "materials") {

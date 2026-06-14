@@ -145,6 +145,8 @@ class Engine {
   // A high-poly sphere with auto-generated (decimated) lods, instanced at
   // increasing distance so the simplifier's coarser lods read with range.
   void CreateAutoLodDemoScene();
+  // A row of spheres, each shaded by a MaterialX (.mtlx) file from REC_MTLX.
+  void CreateMaterialXDemoScene();
 
   // A simple cpu particle fountain for the demos. Integrates + spawns each
   // frame and emits the live billboards into the frame view.
