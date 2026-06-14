@@ -14,6 +14,8 @@ struct TaaPushConstants {
   f32 inv_size[2];
   f32 history_blend;
   u32 reset_history;
+  u32 debug;  // 1 = output the disocclusion heatmap instead of the resolved color
+  u32 pad[3];
 };
 
 f32 Halton(u32 index, u32 base) {
@@ -43,17 +45,19 @@ bool TaaPass::Initialize(Device& device) {
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   vkCreateSampler(device.device(), &sampler_info, nullptr, &sampler_);
 
-  VkDescriptorSetLayoutBinding bindings[4]{};
+  VkDescriptorSetLayoutBinding bindings[5]{};
   bindings[0] = {.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                  .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
   for (u32 i = 1; i < 4; ++i) {
     bindings[i] = {.binding = i, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                    .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
   }
+  bindings[4] = {.binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
 
   VkDescriptorSetLayoutCreateInfo set_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = 4;
+  set_info.bindingCount = 5;
   set_info.pBindings = bindings;
   if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &set_layout_) !=
       VK_SUCCESS) {
@@ -122,7 +126,8 @@ void TaaPass::Destroy(Device& device) {
 }
 
 ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
-                                   ResourceHandle motion, u32 frame_index) {
+                                   ResourceHandle motion, u32 frame_index,
+                                   bool debug_disocclusion) {
   u32 write_index = frame_index % 2;
   u32 read_index = 1 - write_index;
   ResourceHandle resolved =
@@ -133,6 +138,17 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
   bool reset = !history_valid_;
   history_valid_ = true;
 
+  // The disocclusion view writes its heatmap to a side target so the resolved
+  // history keeps accumulating the real color (writing the heatmap back into the
+  // ping-pong would feed it in as history and read as full rejection forever).
+  ResourceHandle debug_target = kInvalidResource;
+  if (debug_disocclusion) {
+    debug_target = graph.CreateTexture({.name = "taa_disocclusion",
+                                        .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+                                        .width = extent_.width,
+                                        .height = extent_.height});
+  }
+
   graph.AddPass(
       "taa_resolve",
       [&](RenderGraph::PassBuilder& builder) {
@@ -140,11 +156,16 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
         builder.Read(motion, ResourceUsage::kSampledCompute);
         builder.Read(history, ResourceUsage::kSampledCompute);
         builder.Write(resolved, ResourceUsage::kStorageWrite);
+        if (debug_target != kInvalidResource) builder.Write(debug_target, ResourceUsage::kStorageWrite);
       },
-      [this, color, motion, history, resolved, reset](PassContext& ctx) {
+      [this, color, motion, history, resolved, reset, debug_disocclusion,
+       debug_target](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(set_layout_);
 
-        VkDescriptorImageInfo images[4]{};
+        VkImageView debug_view =
+            debug_target != kInvalidResource ? ctx.graph->image(debug_target).view
+                                             : ctx.graph->image(resolved).view;
+        VkDescriptorImageInfo images[5]{};
         images[0] = {.imageView = ctx.graph->image(resolved).view,
                      .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
         images[1] = {.sampler = sampler_, .imageView = ctx.graph->image(color).view,
@@ -153,24 +174,26 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         images[3] = {.sampler = sampler_, .imageView = ctx.graph->image(motion).view,
                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        images[4] = {.imageView = debug_view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
 
-        VkWriteDescriptorSet writes[4];
-        for (u32 i = 0; i < 4; ++i) {
+        VkWriteDescriptorSet writes[5];
+        for (u32 i = 0; i < 5; ++i) {
           writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
           writes[i].dstSet = set;
           writes[i].dstBinding = i;
           writes[i].descriptorCount = 1;
-          writes[i].descriptorType = i == 0 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-                                            : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+          writes[i].descriptorType = (i == 0 || i == 4) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+                                                        : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
           writes[i].pImageInfo = &images[i];
         }
-        vkUpdateDescriptorSets(ctx.device->device(), 4, writes, 0, nullptr);
+        vkUpdateDescriptorSets(ctx.device->device(), 5, writes, 0, nullptr);
 
         TaaPushConstants push{};
         push.inv_size[0] = 1.0f / static_cast<f32>(extent_.width);
         push.inv_size[1] = 1.0f / static_cast<f32>(extent_.height);
         push.history_blend = settings_.history_blend;
         push.reset_history = reset ? 1u : 0u;
+        push.debug = debug_disocclusion ? 1u : 0u;
 
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0,
@@ -178,7 +201,7 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
         vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
         vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
       });
-  return resolved;
+  return debug_target != kInvalidResource ? debug_target : resolved;
 }
 
 }  // namespace rec::render

@@ -1382,7 +1382,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (!path_trace) {
   switch (settings_.aa_mode) {
     case AntiAliasingMode::kTaa:
-      post_input = taa_.AddToGraph(graph_, lit, motion, frame_index_);
+      post_input = taa_.AddToGraph(graph_, lit, motion, frame_index_,
+                                   settings_.debug_view == DebugView::kTemporalHistory);
       break;
     case AntiAliasingMode::kUpscaler: {
       ResourceHandle upscaled =

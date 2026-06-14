@@ -5,11 +5,13 @@
 [[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState history_sampler;
 [[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D motion;
 [[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState motion_sampler;
+[[vk::image_format("rgba16f")]] [[vk::binding(4, 0)]] RWTexture2D<float4> debug_out;
 
 struct PushData {
   float2 inv_size;
   float history_blend;
   uint reset_history;
+  uint debug;  // 1 = output the disocclusion heatmap
 };
 [[vk::push_constant]] PushData push;
 
@@ -24,12 +26,13 @@ void main(uint3 id : SV_DispatchThreadID) {
   float3 curr = scene.Load(int3(p, 0)).rgb;
   if (push.reset_history != 0u) {
     out_resolved[p] = float4(curr, 1.0);
+    if (push.debug != 0u) debug_out[p] = float4(0.0, 0.05, 0.15, 1.0);  // no history yet
     return;
   }
 
   float2 uv = (float2(p) + 0.5) * push.inv_size;
   float2 history_uv = uv + motion.Load(int3(p, 0)).xy;
-  float3 hist = history.SampleLevel(history_sampler, history_uv, 0).rgb;
+  float3 raw_hist = history.SampleLevel(history_sampler, history_uv, 0).rgb;
 
   // Neighborhood clamp: history outside the 3x3 color bounds of the current
   // frame is a disocclusion or lighting change, rein it in to kill ghosting.
@@ -44,11 +47,22 @@ void main(uint3 id : SV_DispatchThreadID) {
       box_max = max(box_max, c);
     }
   }
-  hist = clamp(hist, box_min, box_max);
+  float3 hist = clamp(raw_hist, box_min, box_max);
 
   float blend = push.history_blend;
-  if (any(history_uv < 0.0) || any(history_uv > 1.0)) {
-    blend = 0.0;  // reprojected off screen, no history to use
-  }
+  bool offscreen = any(history_uv < 0.0) || any(history_uv > 1.0);
+  if (offscreen) blend = 0.0;  // reprojected off screen, no history to use
+
+  // Always write the real resolved color so the history ping-pong stays valid.
   out_resolved[p] = float4(lerp(curr, hist, blend), 1.0);
+
+  if (push.debug != 0u) {
+    // How far the clamp had to pull the history back into the current frame's
+    // local color range: high where temporal reuse breaks (disocclusion, fast
+    // motion, lighting change). Off-screen reprojection is full rejection. Goes
+    // to a side target so it never feeds back into the history.
+    float reject = saturate(length(raw_hist - hist) * 6.0);
+    if (offscreen) reject = 1.0;
+    debug_out[p] = float4(lerp(float3(0.0, 0.05, 0.15), float3(1.0, 0.1, 0.0), reject), 1.0);
+  }
 }
