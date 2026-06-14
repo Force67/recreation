@@ -92,6 +92,11 @@ struct RenderSettings {
   bool rt_reflections = true;  // raytraced specular for opaque surfaces (needs ray query)
   f32 reflection_roughness_cutoff = 0.6f;  // above this, fall back to prefiltered ibl
 
+  // Screen-space reflections. The non-rt reflection fallback: runs whenever
+  // ray-traced reflections are not, so low-end/mobile tiers still get grazing
+  // specular off the floor and walls.
+  bool ssr = true;
+
   bool path_trace = false;  // reference progressive path tracer (needs ray query)
 
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)

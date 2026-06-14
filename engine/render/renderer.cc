@@ -74,6 +74,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
+  if (!ssr_.Initialize(*device_)) return false;   // raster reflection fallback
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
@@ -113,6 +114,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
   ssao_.Resize(*device_, {render_width_, render_height_});
+  ssr_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
@@ -135,6 +137,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   if (const char* wf = std::getenv("REC_WIREFRAME")) {
     settings_.wireframe = std::atoi(wf) != 0;
+  }
+  if (const char* s = std::getenv("REC_SSR")) {
+    settings_.ssr = std::atoi(s) != 0;
   }
 
   // REC_DEBUG_VIEW=<n> pins a debug channel at startup for headless capture;
@@ -285,6 +290,7 @@ void Renderer::ApplySettings() {
     transient_pool_->Clear();
     taa_.Resize(*device_, {render_width_, render_height_});
     ssao_.Resize(*device_, {render_width_, render_height_});
+  ssr_.Resize(*device_, {render_width_, render_height_});
     path_tracer_.Resize(*device_, {render_width_, render_height_});
     if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
@@ -304,6 +310,7 @@ void Renderer::ApplySettings() {
       transient_pool_->Clear();
       taa_.Resize(*device_, {render_width_, render_height_});
       ssao_.Resize(*device_, {render_width_, render_height_});
+  ssr_.Resize(*device_, {render_width_, render_height_});
       path_tracer_.Resize(*device_, {render_width_, render_height_});
       if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
@@ -552,6 +559,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // and read black. Distance lod then only applies on non-rt (low/mobile) tiers.
   bool tlas_shaded =
       rt_shadows || rtao_active || ddgi_active || reflections_active || path_trace;
+  // Screen-space reflections stand in for ray-traced reflections on raster tiers.
+  bool ssr_active = settings_.ssr && !path_trace && !reflections_active;
   time_seconds_ += view.frame_delta_seconds;
 
   // Transparent work is gathered up front: water forces a tlas (the water
@@ -1111,6 +1120,17 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         vkCmdEndRendering(ctx.cmd);
       });
 
+  // Screen-space reflections over the opaque result (before transparency, which
+  // does not reflect). Replaces scene_color downstream so everything composites
+  // onto the reflected image. Only on raster tiers; rt tiers reflect via the tlas.
+  if (ssr_active && normals != kInvalidResource) {
+    ResourceHandle reflected =
+        ssr_.AddToGraph(graph_, scene_color, depth_export, normals, view_proj,
+                        globals.inv_view_proj, view.camera.eye, frame_index_);
+    scene_color = reflected;
+    lit = reflected;
+  }
+
   if (!transparent.empty() && water_) {
     std::sort(transparent.begin(), transparent.end(),
               [](const TransparentDraw& a, const TransparentDraw& b) {
@@ -1589,6 +1609,7 @@ void Renderer::Shutdown() {
     meshes_.clear();
     taa_.Destroy(*device_);
     ssao_.Destroy(*device_);
+    ssr_.Destroy(*device_);
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
     gaussians_.Destroy(*device_);

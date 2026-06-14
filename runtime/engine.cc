@@ -177,6 +177,7 @@ void Engine::ApplyRenderPreset() {
   }
   if (env.path_trace) tuned.path_trace = true;
   if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
+  tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
   tuned.color_grade = env.color_grade;      // presets never set a grade
   tuned.sun_direction = env.sun_direction;  // honor REC_SUN_DIR over the default
 

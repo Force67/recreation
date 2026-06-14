@@ -36,6 +36,7 @@
 #include "render/settings.h"
 #include "render/shadow.h"
 #include "render/ssao.h"
+#include "render/ssr.h"
 #include "render/upscaler.h"
 #include "render/water.h"
 
@@ -194,6 +195,7 @@ class Renderer {
   TaaPass taa_;
   RtaoPass rtao_;
   SsaoPass ssao_;
+  SsrPass ssr_;
   ShadowPass shadow_;
 #if defined(RECREATION_HAS_NRD)
   NrdDenoiser nrd_;
