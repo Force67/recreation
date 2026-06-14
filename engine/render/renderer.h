@@ -36,6 +36,7 @@
 #include "render/settings.h"
 #include "render/fur.h"
 #include "render/shadow.h"
+#include "render/wboit.h"
 #include "render/ssao.h"
 #include "render/ssgi.h"
 #include "render/ssr.h"
@@ -88,6 +89,8 @@ struct FrameView {
   // shell-fur ball: when enabled, the fur pass draws a fuzzy sphere here.
   bool fur_ball = false;
   Vec3 fur_position{};
+  // order-independent transparency instances (wboit demo).
+  base::Vector<WboitInstance> oit;
   // 3D gaussian splats: non-triangle primitives, projected and alpha blended
   // over the resolved scene.
   base::Vector<GaussianInstance> gaussians;
@@ -218,6 +221,7 @@ class Renderer {
   ParticleSystem particles_;
   GaussianSplat gaussians_;
   FurPass fur_;
+  WboitPass wboit_;
   OverdrawPass overdraw_;
   GpuCull gpu_cull_;
   Mat4 pt_prev_view_proj_ = Mat4::Identity();

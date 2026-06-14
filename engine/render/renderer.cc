@@ -121,6 +121,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!fur_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
+  if (!wboit_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gpu_cull_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
@@ -1423,6 +1424,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                     std::max(settings_.ambient, 0.12f), FurPass::Params{});
   }
 
+  // Order-independent transparency (weighted blended) over the lit scene.
+  if (!view.oit.empty() && !path_trace) {
+    Vec3 sun_col = applied_sun_color_ * applied_sun_intensity_;
+    lit = wboit_.AddToGraph(graph_, lit, depth, view.oit, view_proj, applied_sun_direction_,
+                            sun_col, std::max(settings_.ambient, 0.12f), render_width_,
+                            render_height_);
+  }
+
   // Lit billboard particles blend over the resolved scene, faded against the
   // prepass depth, before temporal reconstruction. Either a cpu-uploaded set or
   // the gpu-simulated fountain.
@@ -1805,6 +1814,7 @@ void Renderer::Shutdown() {
     particles_.Destroy(*device_);
     gaussians_.Destroy(*device_);
     fur_.Destroy(*device_);
+    wboit_.Destroy(*device_);
     overdraw_.Destroy(*device_);
     gpu_cull_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);

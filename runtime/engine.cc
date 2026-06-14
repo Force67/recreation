@@ -666,6 +666,54 @@ void Engine::CreateAutoLodDemoScene() {
   REC_INFO("auto-lod demo: decimated lods on a single high-poly sphere");
 }
 
+void Engine::CreateOitDemoScene() {
+  // Five interpenetrating transparent spheres of different colours; weighted
+  // blended oit composites them with no sorting, so every layer shows through.
+  asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/oit/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -8.0f, 0}});  // top at y = 0
+  world_.Add(floor, world::Renderable{ground.id});
+
+  struct S {
+    Vec3 pos;
+    Vec3 color;
+    f32 alpha;
+  };
+  const S spheres[5] = {{{-0.45f, 1.2f, 0.25f}, {1.0f, 0.12f, 0.12f}, 0.55f},
+                        {{0.45f, 1.2f, -0.2f}, {0.12f, 1.0f, 0.18f}, 0.55f},
+                        {{0.0f, 1.2f, 0.5f}, {0.15f, 0.3f, 1.0f}, 0.55f},
+                        {{0.0f, 1.65f, 0.0f}, {1.0f, 0.95f, 0.15f}, 0.5f},
+                        {{0.0f, 0.75f, 0.1f}, {0.15f, 1.0f, 1.0f}, 0.5f}};
+  const f32 radius = 0.6f;
+  bool reverse = std::getenv("REC_OIT_REVERSE") != nullptr;  // verify order independence
+  for (int j = 0; j < 5; ++j) {
+    const S& s = spheres[reverse ? 4 - j : j];
+    render::WboitInstance inst;
+    Mat4 m{};
+    m.m[0] = m.m[5] = m.m[10] = radius;
+    m.m[15] = 1.0f;
+    m.m[12] = s.pos.x;
+    m.m[13] = s.pos.y;
+    m.m[14] = s.pos.z;
+    inst.model = m;
+    inst.color[0] = s.color.x;
+    inst.color[1] = s.color.y;
+    inst.color[2] = s.color.z;
+    inst.color[3] = s.alpha;
+    oit_instances_.push_back(inst);
+  }
+
+  camera_.set_position({0.0f, 1.3f, 4.2f});
+  camera_.set_yaw_pitch(0.0f, -0.06f);
+  camera_.speed = 3.0f;
+  REC_INFO("oit demo: {} overlapping transparent spheres{}", oit_instances_.size(),
+           reverse ? " (reversed order)" : "");
+}
+
 void Engine::CreateMaterialXDemoScene() {
   // One sphere per MaterialX file listed (comma separated) in REC_MTLX, so the
   // imported standard_surface lobes can be eyeballed against the source.
@@ -738,6 +786,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "mtlx") {
     CreateMaterialXDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "oit") {
+    CreateOitDemoScene();
     return;
   }
   if (config_.demo_scene == "materials") {
@@ -1626,6 +1678,7 @@ int Engine::Run() {
         view.fur_ball = true;
         view.fur_position = fur_position_;
       }
+      if (!oit_instances_.empty()) view.oit = oit_instances_;
       if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
       RefreshQuestPanel(frame_delta);
       RefreshNativeTrace(frame_delta);
