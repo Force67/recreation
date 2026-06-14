@@ -10,6 +10,7 @@ recreation_add_module(render
   environment.cc
   ambient_occlusion.cc
   ssao.cc
+  gpu_cull.cc
   shadow.cc
   particles.cc
   overdraw.cc
@@ -80,6 +81,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/prepass.ps.hlsl
   shaders/rtao.cs.hlsl
   shaders/ssao.cs.hlsl
+  shaders/cull.cs.hlsl
   shaders/bloom_down.cs.hlsl
   shaders/bloom_up.cs.hlsl
   shaders/histogram.cs.hlsl

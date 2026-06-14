@@ -65,6 +65,7 @@ struct RenderSettings {
   f32 shadow_distance = 160.0f;  // furthest shadowed camera distance, meters
   bool wireframe = false;
   bool vsync = false;
+  bool gpu_culling = true;  // gpu compute frustum culling of the opaque indirect draws
   DebugView debug_view = DebugView::kOff;  // isolate a shading channel
 
   bool sky = true;  // procedural atmosphere as the background

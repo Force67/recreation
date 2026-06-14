@@ -46,6 +46,8 @@ struct GpuMesh {
   bool no_rt = false;      // grass-like fill geometry, excluded from the tlas
   bool skinned = false;    // drawn with the skinned pipeline against a bone palette
   u32 bindless_index = 0;  // mesh record in the bindless registry
+  f32 bounds_center[3] = {0, 0, 0};  // model-space bounding sphere, for gpu culling
+  f32 bounds_radius = 0;             // 0 = unknown, treated as never-culled
   base::Vector<GpuSubmesh> submeshes;
 };
 

@@ -176,6 +176,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         const render::RenderGraph::Stats& g = renderer.graph_stats();
         ImGui::Text("frame graph transients: %u (%.1f MB)", g.transient_count,
                     g.transient_bytes * mb);
+        ImGui::Text("opaque draws: %u / %u visible (gpu cull)", renderer.draws_visible(),
+                    renderer.draws_total());
       }
 
       if (const render::RenderGraph::Stats& g = renderer.graph_stats();

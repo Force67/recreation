@@ -19,6 +19,7 @@
 #include "render/denoiser_nrd.h"
 #include "render/exposure.h"
 #include "render/environment.h"
+#include "render/gpu_cull.h"
 #include "render/gpu_profiler.h"
 #include "render/path_tracer.h"
 #include "render/volumetric_fog.h"
@@ -130,6 +131,11 @@ class Renderer {
   // resources, barrier and memory totals).
   const RenderGraph::Stats& graph_stats() const { return graph_.stats(); }
 
+  // Opaque indirect draw counts for the debug overlay: total submitted vs the
+  // count that survived gpu frustum culling (one frame stale).
+  u32 draws_total() const { return cull_total_commands_; }
+  u32 draws_visible() const { return cull_visible_; }
+
  private:
   static constexpr u32 kFramesInFlight = 2;
   static constexpr VkFormat kSceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -195,6 +201,7 @@ class Renderer {
   VolumetricFog volumetric_fog_;
   ParticleSystem particles_;
   OverdrawPass overdraw_;
+  GpuCull gpu_cull_;
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;
@@ -222,6 +229,8 @@ class Renderer {
   bool has_prev_frame_ = false;
   bool rt_available_ = false;
   u32 frame_index_ = 0;
+  u32 cull_total_commands_ = 0;  // opaque indirect draws this frame
+  u32 cull_visible_ = 0;         // survivors from the last completed cull (fence-safe)
   u32 render_width_ = 0;
   u32 render_height_ = 0;
   u32 output_width_ = 0;

@@ -64,6 +64,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
+  if (!gpu_cull_.Initialize(*device_)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -373,6 +374,8 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
   for (const GpuSubmesh& submesh : gpu.submeshes) {
     if (!submesh.blend) gpu.all_blend = false;
   }
+  std::memcpy(gpu.bounds_center, mesh.bounds_center, sizeof(f32) * 3);
+  gpu.bounds_radius = mesh.bounds_radius;
   gpu.no_rt = mesh.exclude_from_rt;
   if (bindless_ && !gpu.all_blend && !gpu.no_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
@@ -724,6 +727,47 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         });
   }
 
+  // GPU-driven culling: build one indirect command per opaque submesh and one
+  // cull instance per opaque mesh, in the exact order the prepass/scene draw
+  // loops walk view.draws, then let a compute pass zero the culled instanceCounts.
+  u32 cull_slot = frame_index_ % 2;
+  VkBuffer cull_commands = gpu_cull_.command_buffer(cull_slot);
+  u32 cull_instance_count = 0;
+  {
+    GpuCull::Instance* insts = gpu_cull_.instances(cull_slot);
+    GpuCull::Command* cmds = gpu_cull_.commands(cull_slot);
+    u32 cmd_total = 0;
+    for (const DrawItem& item : view.draws) {
+      const GpuMesh* mesh = meshes_.find(item.mesh);
+      if (!mesh || mesh->all_blend) continue;
+      if (cull_instance_count >= GpuCull::kMaxInstances || cmd_total >= GpuCull::kMaxCommands) break;
+      GpuCull::Instance& inst = insts[cull_instance_count];
+      inst.model = item.transform;
+      inst.bounds[0] = mesh->bounds_center[0];
+      inst.bounds[1] = mesh->bounds_center[1];
+      inst.bounds[2] = mesh->bounds_center[2];
+      inst.bounds[3] = mesh->bounds_radius;
+      inst.first_cmd = cmd_total;
+      inst.cull_disabled = (mesh->skinned || mesh->bounds_radius <= 0.0f) ? 1u : 0u;
+      inst.pad = 0;
+      u32 mesh_cmds = 0;
+      for (const GpuSubmesh& submesh : mesh->submeshes) {
+        if (submesh.blend) continue;
+        if (cmd_total >= GpuCull::kMaxCommands) break;
+        cmds[cmd_total] = {submesh.index_count, 1u, submesh.index_offset, 0, 0u};
+        ++cmd_total;
+        ++mesh_cmds;
+      }
+      inst.cmd_count = mesh_cmds;
+      if (mesh_cmds > 0) ++cull_instance_count;
+    }
+    cull_total_commands_ = cmd_total;
+    // This slot's previous cull finished (the frame fence was waited on), so its
+    // count is valid; read it before AddToGraph resets the buffer.
+    cull_visible_ = settings_.gpu_culling ? gpu_cull_.last_visible(cull_slot) : cmd_total;
+  }
+  gpu_cull_.AddToGraph(graph_, view_proj, cull_instance_count, settings_.gpu_culling, cull_slot);
+
   graph_.AddPass(
       "prepass",
       [&](RenderGraph::PassBuilder& builder) {
@@ -732,7 +776,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(depth_export, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
       },
-      [this, normals, motion, depth_export, depth, &frame, &view](PassContext& ctx) {
+      [this, normals, motion, depth_export, depth, cull_commands, &frame, &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[3];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(normals).view;
@@ -785,6 +829,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         bool skinned_bound = false;
+        u32 cull_cmd_index = 0;  // matches the cull build order
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh || mesh->all_blend) continue;
@@ -806,7 +851,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               mesh_pipeline_->BindMaterial(ctx.cmd, material);
               bound_material = material;
             }
-            mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+            vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
+                                     cull_cmd_index * GpuCull::kCommandStride, 1,
+                                     GpuCull::kCommandStride);
+            ++cull_cmd_index;
           }
         }
         vkCmdEndRendering(ctx.cmd);
@@ -863,7 +911,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
       },
       [this, scene_color, motion, depth, ao, tlas_slot, rt_shadows, use_rt_frag, ddgi_active,
-       csm_active, shadow_slot, shadow_atlas, &frame, &view](PassContext& ctx) {
+       csm_active, shadow_slot, shadow_atlas, cull_commands, &frame, &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(scene_color).view;
@@ -942,6 +990,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                              settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         bool skinned_bound = false;
+        u32 cull_cmd_index = 0;  // matches the cull build + prepass order
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh || mesh->all_blend) continue;
@@ -963,7 +1012,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               mesh_pipeline_->BindMaterial(ctx.cmd, material);
               bound_material = material;
             }
-            mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+            vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
+                                     cull_cmd_index * GpuCull::kCommandStride, 1,
+                                     GpuCull::kCommandStride);
+            ++cull_cmd_index;
           }
         }
         if (skinned_bound) {
@@ -1323,7 +1375,7 @@ bool Renderer::CreateFrameResources() {
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256},
         {VK_DESCRIPTOR_TYPE_SAMPLER, 16},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32},
         {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 4},
     };
     VkDescriptorPoolCreateInfo descriptor_info{
@@ -1437,6 +1489,7 @@ void Renderer::Shutdown() {
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
     overdraw_.Destroy(*device_);
+    gpu_cull_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);
