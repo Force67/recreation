@@ -29,6 +29,7 @@ enum class DebugView : u8 {
   kEmissive,
   kReflection,  // raw traced specular reflection (rt variant only)
   kOverdraw,    // additive geometry heat ramp (own pass, not a shading channel)
+  kBounds,      // cull / acceleration-structure bounding boxes (overlay)
 };
 
 // Resolution scaling presets matching the vendor upscaler naming. The ratio

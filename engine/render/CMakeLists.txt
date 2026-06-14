@@ -85,6 +85,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/rtao.cs.hlsl
   shaders/ssao.cs.hlsl
   shaders/cull.cs.hlsl
+  shaders/bounds.vs.hlsl
+  shaders/bounds.ps.hlsl
   shaders/bloom_down.cs.hlsl
   shaders/bloom_up.cs.hlsl
   shaders/histogram.cs.hlsl

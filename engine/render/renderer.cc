@@ -65,7 +65,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
-  if (!gpu_cull_.Initialize(*device_)) return false;
+  if (!gpu_cull_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -1231,6 +1231,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     gf.screen_x = static_cast<f32>(render_width_);
     gf.screen_y = static_cast<f32>(render_height_);
     gaussians_.AddToGraph(graph_, lit, view.gaussians, gf, frame_index_ % 2);
+  }
+
+  // Bounds / acceleration-structure debug view: overlay the cull bounding boxes.
+  if (settings_.debug_view == DebugView::kBounds) {
+    gpu_cull_.AddBoundsPass(graph_, lit, view_proj, cull_instance_count, cull_slot);
   }
 
   // Overdraw debug view: clear lit and additive-replay all geometry so the heat

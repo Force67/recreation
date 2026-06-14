@@ -40,7 +40,7 @@ class GpuCull {
   static constexpr u32 kMaxCommands = 1u << 15;   // 32768 opaque submeshes
   static constexpr u32 kMaxInstances = 1u << 14;  // 16384 draws
 
-  bool Initialize(Device& device);
+  bool Initialize(Device& device, VkFormat color_format);
   void Destroy(Device& device);
 
   // Begins filling the frame slot's buffers; returns mapped spans to append to.
@@ -54,15 +54,24 @@ class GpuCull {
   void AddToGraph(RenderGraph& graph, const Mat4& view_proj, u32 instance_count, bool enabled,
                   u32 slot);
 
+  // Debug view: wireframe boxes around each instance's world bounding sphere
+  // (the cull / acceleration-structure bounds), overlaid on color.
+  void AddBoundsPass(RenderGraph& graph, ResourceHandle color, const Mat4& view_proj,
+                     u32 instance_count, u32 slot);
+
   // Visible draw count written by the previous frame's cull (one frame stale).
   u32 last_visible(u32 slot) const;
 
  private:
   static constexpr u32 kFramesInFlight = 2;
+  bool CreateBoundsPipeline(Device& device, VkFormat color_format);
 
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipeline_ = VK_NULL_HANDLE;
+  VkDescriptorSetLayout bounds_set_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout bounds_layout_ = VK_NULL_HANDLE;
+  VkPipeline bounds_pipeline_ = VK_NULL_HANDLE;
   GpuBuffer instances_[kFramesInFlight];
   GpuBuffer commands_[kFramesInFlight];
   GpuBuffer counts_[kFramesInFlight];
