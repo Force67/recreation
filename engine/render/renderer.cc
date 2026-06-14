@@ -63,6 +63,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
+  if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gpu_cull_.Initialize(*device_)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
@@ -1220,6 +1221,18 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     particles_.AddToGraph(graph_, lit, depth_export, view.particles, pf, frame_index_ % 2);
   }
 
+  // 3D gaussian splats: non-triangle primitives blended over the resolved scene.
+  if (!view.gaussians.empty()) {
+    GaussianSplat::Frame gf;
+    gf.view = view_mat;
+    gf.proj_x = proj.m[0];
+    gf.proj_y = proj.m[5];
+    gf.near_plane = 0.1f;
+    gf.screen_x = static_cast<f32>(render_width_);
+    gf.screen_y = static_cast<f32>(render_height_);
+    gaussians_.AddToGraph(graph_, lit, view.gaussians, gf, frame_index_ % 2);
+  }
+
   // Overdraw debug view: clear lit and additive-replay all geometry so the heat
   // ramp shows how many layers each pixel shaded.
   if (settings_.debug_view == DebugView::kOverdraw) {
@@ -1488,6 +1501,7 @@ void Renderer::Shutdown() {
     ssao_.Destroy(*device_);
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
+    gaussians_.Destroy(*device_);
     overdraw_.Destroy(*device_);
     gpu_cull_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);

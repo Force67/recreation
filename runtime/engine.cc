@@ -420,6 +420,48 @@ void Engine::UpdateParticles(f32 dt, render::FrameView& view) {
   }
 }
 
+void Engine::CreateGaussianDemoScene() {
+  // A colored sphere reconstructed from 3D gaussian splats: fibonacci-distributed
+  // points on the surface, each an isotropic gaussian tinted by its direction.
+  // Demonstrates the non-triangle primitive path projecting and blending splats.
+  asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/gsplat/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -8.0f, 0}});  // top at y = 0
+  world_.Add(floor, world::Renderable{ground.id});
+
+  const u32 kCount = 12000;
+  const f32 radius = 1.6f;
+  const f32 golden = 2.39996323f;
+  demo_gaussians_.reserve(kCount);
+  for (u32 i = 0; i < kCount; ++i) {
+    f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(kCount);
+    f32 y = 1.0f - 2.0f * t;
+    f32 r = std::sqrt(std::max(0.0f, 1.0f - y * y));
+    f32 phi = static_cast<f32>(i) * golden;
+    Vec3 dir{std::cos(phi) * r, y, std::sin(phi) * r};
+    render::GaussianInstance g;
+    g.position[0] = dir.x * radius;
+    g.position[1] = dir.y * radius + 1.8f;
+    g.position[2] = dir.z * radius;
+    g.scale[0] = g.scale[1] = g.scale[2] = 0.05f;
+    g.rotation[3] = 1.0f;  // identity
+    g.color[0] = dir.x * 0.5f + 0.5f;
+    g.color[1] = dir.y * 0.5f + 0.5f;
+    g.color[2] = dir.z * 0.5f + 0.5f;
+    g.opacity = 0.9f;
+    demo_gaussians_.push_back(g);
+  }
+
+  camera_.set_position({0.0f, 1.9f, 5.2f});
+  camera_.set_yaw_pitch(0.0f, -0.04f);
+  camera_.speed = 3.0f;
+  REC_INFO("gaussian splat demo: {} splats", demo_gaussians_.size());
+}
+
 void Engine::CreateDemoScene() {
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
@@ -427,6 +469,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "materials") {
     CreateMaterialDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "gaussian") {
+    CreateGaussianDemoScene();
     return;
   }
   asset::Mesh cube = asset::MakeCube(0.7f, asset::MakeAssetId("builtin/cube"));
@@ -1240,6 +1286,7 @@ int Engine::Run() {
       prev_transforms_ = std::move(transforms);
       EmitActorDraws(view);
       UpdateParticles(frame_delta, view);
+      if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
       RefreshQuestPanel(frame_delta);
       RefreshNativeTrace(frame_delta);
       debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_, &native_trace_panel_);

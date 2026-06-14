@@ -128,6 +128,8 @@ class Engine {
   void CreateWaterDemoScene();
   // Sphere grid sweeping the extended pbr lobes (clearcoat/anisotropy/sheen).
   void CreateMaterialDemoScene();
+  // A sphere built from 3D gaussian splats (non-triangle primitive path).
+  void CreateGaussianDemoScene();
 
   // A simple cpu particle fountain for the demos. Integrates + spawns each
   // frame and emits the live billboards into the frame view.
@@ -165,6 +167,7 @@ class Engine {
   bool particles_enabled_ = false;
   Vec3 particle_emitter_{0, 0, 0};
   base::Vector<DemoParticle> demo_particles_;
+  base::Vector<render::GaussianInstance> demo_gaussians_;
   u32 particle_seed_ = 0x9e3779b9u;
   f32 particle_spawn_accum_ = 0;
 

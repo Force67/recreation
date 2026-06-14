@@ -13,6 +13,7 @@ recreation_add_module(render
   gpu_cull.cc
   shadow.cc
   particles.cc
+  gaussian.cc
   overdraw.cc
   bloom.cc
   ddgi.cc
@@ -67,6 +68,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/shadow.ps.hlsl
   shaders/particle.vs.hlsl
   shaders/particle.ps.hlsl
+  shaders/gsplat.vs.hlsl
+  shaders/gsplat.ps.hlsl
   shaders/overdraw.ps.hlsl
   shaders/mesh.ps.hlsl
   shaders/mesh_rt.ps.hlsl
