@@ -11,7 +11,7 @@ void PrintUsage() {
   REC_INFO("  --data-dir <path>     game Data directory");
   REC_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
   REC_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
-  REC_INFO("  --demo <id>           builtin scene: water");
+  REC_INFO("  --demo <id>           builtin scene: water | materials");
   REC_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
   REC_INFO("  --headless            no window, no renderer");
   REC_INFO("  --server              host a server");

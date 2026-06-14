@@ -222,6 +222,18 @@ bool LoadGltfScene(const std::string& path, GltfScene* out) {
                           : src.alpha_mode == cgltf_alpha_mode_mask ? AlphaMode::kMask
                                                                     : AlphaMode::kBlend;
     material.two_sided = src.double_sided;
+    // Extended pbr lobes (KHR_materials_*). Untouched extensions keep the
+    // neutral defaults from the Material struct.
+    if (src.has_clearcoat) {
+      material.clearcoat = src.clearcoat.clearcoat_factor;
+      material.clearcoat_roughness = src.clearcoat.clearcoat_roughness_factor;
+    }
+    if (src.has_anisotropy) material.anisotropy = src.anisotropy.anisotropy_strength;
+    if (src.has_ior) material.ior = src.ior.ior;
+    if (src.has_sheen) {
+      std::memcpy(material.sheen_color, src.sheen.sheen_color_factor, sizeof(f32) * 3);
+      material.sheen_roughness = src.sheen.sheen_roughness_factor;
+    }
   }
 
   out->meshes.resize(data->meshes_count);

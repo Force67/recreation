@@ -313,6 +313,12 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   params.metallic_factor = material.metallic_factor;
   params.roughness_factor = material.roughness_factor;
   params.alpha_cutoff = material.alpha_cutoff;
+  params.clearcoat = material.clearcoat;
+  params.clearcoat_roughness = material.clearcoat_roughness;
+  params.anisotropy = material.anisotropy;
+  params.ior = material.ior;
+  std::memcpy(params.sheen_color, material.sheen_color, sizeof(f32) * 3);
+  params.sheen_roughness = material.sheen_roughness;
   // Blend materials draw without the cutout test; mask materials cut.
   if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
   if (material.normal && textures_.find(material.normal.hash)) {

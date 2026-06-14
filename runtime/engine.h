@@ -126,6 +126,8 @@ class Engine {
   void ApplyRenderPreset();
   void CreateDemoScene();
   void CreateWaterDemoScene();
+  // Sphere grid sweeping the extended pbr lobes (clearcoat/anisotropy/sheen).
+  void CreateMaterialDemoScene();
   void CreateTestCharacter();
   // Assembles an animated actor from real Skyrim data: loads skeleton.nif into
   // an engine Skeleton and the worn body-part NIFs as skinned meshes bound to

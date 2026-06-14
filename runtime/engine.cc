@@ -261,9 +261,86 @@ void Engine::CreateWaterDemoScene() {
   REC_INFO("water demo scene");
 }
 
+void Engine::CreateMaterialDemoScene() {
+  // A grid of spheres sweeping the extended pbr lobes so each reads against the
+  // sun and the procedural sky: clearcoat, anisotropy, sheen, and a plain
+  // roughness ramp as a control. One material + mesh per sphere.
+  asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/matdemo/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -8.5f, 0}});  // top at y = -0.5
+  world_.Add(floor, world::Renderable{ground.id});
+
+  int counter = 0;
+  auto spawn = [&](Vec3 pos, asset::Material mat) {
+    std::string tag = "builtin/matdemo/" + std::to_string(counter++);
+    mat.id = asset::MakeAssetId(tag + "/mat");
+    asset::Mesh sphere = asset::MakeSphere(0.5f, 32, 48, asset::MakeAssetId(tag + "/mesh"));
+    sphere.lods[0].submeshes[0].material = mat.id;
+    if (!config_.headless) {
+      renderer_.UploadMaterial(mat);
+      renderer_.UploadMesh(sphere);
+    }
+    ecs::Entity e = world_.Create();
+    world_.Add(e, world::Transform{.position = {pos.x, pos.y, pos.z}});
+    world_.Add(e, world::Renderable{sphere.id});
+  };
+
+  const f32 xs[5] = {-2.8f, -1.4f, 0.0f, 1.4f, 2.8f};
+  for (int i = 0; i < 5; ++i) {
+    f32 t = static_cast<f32>(i) / 4.0f;
+    // Row 1: clearcoat 0..1 over a dark red dielectric.
+    asset::Material coat;
+    coat.base_color_factor[0] = 0.5f; coat.base_color_factor[1] = 0.04f;
+    coat.base_color_factor[2] = 0.04f;
+    coat.roughness_factor = 0.45f;
+    coat.clearcoat = t;
+    coat.clearcoat_roughness = 0.05f;
+    spawn({xs[i], 0.0f, 1.0f}, coat);
+
+    // Row 2: anisotropy -1..1 over a brushed metal.
+    asset::Material metal;
+    metal.base_color_factor[0] = 0.95f; metal.base_color_factor[1] = 0.93f;
+    metal.base_color_factor[2] = 0.88f;
+    metal.metallic_factor = 1.0f;
+    metal.roughness_factor = 0.35f;
+    metal.anisotropy = t * 2.0f - 1.0f;
+    spawn({xs[i], 0.0f, -1.2f}, metal);
+
+    // Row 3: sheen 0..1 over a matte blue cloth.
+    asset::Material cloth;
+    cloth.base_color_factor[0] = 0.05f; cloth.base_color_factor[1] = 0.07f;
+    cloth.base_color_factor[2] = 0.25f;
+    cloth.roughness_factor = 0.9f;
+    cloth.sheen_color[0] = t; cloth.sheen_color[1] = t; cloth.sheen_color[2] = t;
+    cloth.sheen_roughness = 0.3f;
+    spawn({xs[i], 0.0f, -3.4f}, cloth);
+
+    // Row 4 (control): plain metal, roughness 0.05..1.
+    asset::Material rough;
+    rough.base_color_factor[0] = 0.9f; rough.base_color_factor[1] = 0.6f;
+    rough.base_color_factor[2] = 0.2f;
+    rough.metallic_factor = 1.0f;
+    rough.roughness_factor = 0.05f + t * 0.9f;
+    spawn({xs[i], 0.0f, -5.6f}, rough);
+  }
+
+  camera_.set_position({0.0f, 1.25f, 3.4f});
+  camera_.set_yaw_pitch(0.0f, -0.12f);
+  camera_.speed = 4.0f;
+  REC_INFO("material preview: clearcoat, anisotropy, sheen and roughness sweeps");
+}
+
 void Engine::CreateDemoScene() {
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "materials") {
+    CreateMaterialDemoScene();
     return;
   }
   asset::Mesh cube = asset::MakeCube(0.7f, asset::MakeAssetId("builtin/cube"));

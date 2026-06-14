@@ -34,6 +34,13 @@ class MaterialSystem {
     f32 alpha_cutoff = 0.5f;
     u32 flags = 0;
     f32 pad = 0;
+    // Extended pbr lobes, one 16-byte row each (matches std140 in mesh.ps).
+    f32 clearcoat = 0;
+    f32 clearcoat_roughness = 0;
+    f32 anisotropy = 0;
+    f32 ior = 1.5f;
+    f32 sheen_color[3] = {0, 0, 0};
+    f32 sheen_roughness = 0.3f;
   };
   static constexpr u32 kFlagAlphaMask = 1u << 0;
   static constexpr u32 kFlagHasNormalMap = 1u << 1;

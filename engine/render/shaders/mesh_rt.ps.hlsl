@@ -28,6 +28,12 @@ struct MaterialParams {
   float alpha_cutoff;
   uint flags;
   float pad;
+  float clearcoat;
+  float clearcoat_roughness;
+  float anisotropy;
+  float ior;
+  float3 sheen_color;
+  float sheen_roughness;
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material;
 
@@ -270,8 +276,41 @@ float3 TraceReflection(float3 origin, float3 dir) {
          hit_material.emissive;
 }
 
+// --- BRDF lobes shared by the base, clearcoat, sheen and anisotropy paths ---
+float D_GGX(float ndh, float a) {
+  float a2 = a * a;
+  float d = ndh * ndh * (a2 - 1.0) + 1.0;
+  return a2 / max(kPi * d * d, 1e-7);
+}
+float V_SmithGGXCorrelated(float ndv, float ndl, float a) {
+  float a2 = a * a;
+  float gv = ndl * sqrt(ndv * ndv * (1.0 - a2) + a2);
+  float gl = ndv * sqrt(ndl * ndl * (1.0 - a2) + a2);
+  return 0.5 / max(gv + gl, 1e-5);
+}
+float D_GGXAniso(float ndh, float tdh, float bdh, float ax, float ay) {
+  float d = tdh * tdh / (ax * ax) + bdh * bdh / (ay * ay) + ndh * ndh;
+  return 1.0 / max(kPi * ax * ay * d * d, 1e-7);
+}
+float V_GGXAniso(float ndv, float ndl, float tdv, float bdv, float tdl, float bdl, float ax,
+                 float ay) {
+  float gv = ndl * length(float3(ax * tdv, ay * bdv, ndv));
+  float gl = ndv * length(float3(ax * tdl, ay * bdl, ndl));
+  return 0.5 / max(gv + gl, 1e-5);
+}
+float D_Charlie(float ndh, float roughness) {
+  float a = max(roughness, 0.07);
+  float inv = 1.0 / a;
+  float sin2 = max(1.0 - ndh * ndh, 0.0);
+  return (2.0 + inv) * pow(sin2, inv * 0.5) / (2.0 * kPi);
+}
+float V_Ashikhmin(float ndv, float ndl) {
+  return clamp(1.0 / (4.0 * (ndl + ndv - ndl * ndv)), 0.0, 1.0);
+}
+
 // Cook-Torrance ggx with Schlick fresnel and Smith visibility for the sun,
-// split-sum ibl with Fdez-Aguera multi-scatter for ambient.
+// split-sum ibl with Fdez-Aguera multi-scatter for ambient. Optional clearcoat,
+// sheen and anisotropy lobes layer on top.
 float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float3 v = normalize(frame.camera_position.xyz - input.world_pos);
   if (dot(n, v) < 0.0) n = -n;  // shade double sided geometry from both sides
@@ -284,7 +323,9 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float3 l = normalize(-frame.sun_direction.xyz);
   float ndl = max(dot(n, l), 0.0);
 
-  float3 f0 = lerp(0.04.xxx, albedo, metallic);
+  // Dielectric f0 from the ior (1.5 reproduces the classic 0.04).
+  float dielectric_f0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
+  float3 f0 = lerp(dielectric_f0.xxx, albedo, metallic);
   float3 diffuse_color = albedo * (1.0 - metallic);
 
   float3 h = normalize(l + v);
@@ -292,16 +333,43 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float ndh = max(dot(n, h), 0.0);
   float vdh = max(dot(v, h), 0.0);
   float a = roughness * roughness;
-  float a2 = a * a;
-  float denom = ndh * ndh * (a2 - 1.0) + 1.0;
-  float distribution = a2 / max(kPi * denom * denom, 1e-6);
-  float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-  float vis = (ndv / (ndv * (1.0 - k) + k)) * (ndl / (ndl * (1.0 - k) + k));
   float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-  float3 specular = distribution * vis * fresnel / max(4.0 * ndv * ndl, 1e-4);
+
+  float3 specular;
+  if (abs(material.anisotropy) > 0.001) {
+    // Anisotropic ggx along the surface tangent (brushed-metal streaks).
+    float3 tan_w = normalize(input.tangent.xyz - n * dot(input.tangent.xyz, n));
+    float3 bitan_w = cross(n, tan_w) * input.tangent.w;
+    float aniso = clamp(material.anisotropy, -1.0, 1.0);
+    float ax = max(a * (1.0 + aniso), 1e-3);
+    float ay = max(a * (1.0 - aniso), 1e-3);
+    float d_aniso = D_GGXAniso(ndh, dot(tan_w, h), dot(bitan_w, h), ax, ay);
+    float v_aniso = V_GGXAniso(ndv, ndl, dot(tan_w, v), dot(bitan_w, v), dot(tan_w, l),
+                               dot(bitan_w, l), ax, ay);
+    specular = d_aniso * v_aniso * fresnel;
+  } else {
+    specular = D_GGX(ndh, a) * V_SmithGGXCorrelated(ndv, ndl, a) * fresnel;
+  }
+
+  float3 direct = diffuse_color / kPi + specular;
+
+  // Sheen: a retroreflective lobe for cloth, added over the base.
+  if (dot(material.sheen_color, 1.0) > 0.001) {
+    direct += material.sheen_color * D_Charlie(ndh, material.sheen_roughness) *
+              V_Ashikhmin(ndv, ndl);
+  }
+
+  // Clearcoat: a smooth ggx lobe over a 1.5-ior coat that dims the base by its
+  // own fresnel reflectance.
+  float coat_fresnel_v = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+  if (material.clearcoat > 0.001) {
+    float cc_a = max(material.clearcoat_roughness * material.clearcoat_roughness, 1e-3);
+    float cc_f = (0.04 + 0.96 * pow(1.0 - vdh, 5.0)) * material.clearcoat;
+    direct = direct * (1.0 - cc_f) + D_GGX(ndh, cc_a) * V_SmithGGXCorrelated(ndv, ndl, cc_a) * cc_f;
+  }
 
   float3 sun = frame.sun_color.rgb * frame.sun_direction.w;
-  float3 lit = (diffuse_color / kPi + specular) * sun * ndl * shadow;
+  float3 lit = direct * sun * ndl * shadow;
 
   float ao = 1.0;
   if ((frame.flags & kFrameAoValid) != 0u) {
@@ -338,6 +406,15 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     ambient = albedo * frame.sun_color.w;
   }
   ambient *= ao;
+
+  // Clearcoat reflects the environment through its smooth coat as well.
+  if (material.clearcoat > 0.001 && (frame.flags & kFrameIbl) != 0u) {
+    float cc_r = clamp(material.clearcoat_roughness, 0.045, 1.0);
+    float3 coat_refl = prefiltered_cube
+        .SampleLevel(prefiltered_sampler, reflect(-v, n), cc_r * (kPrefilterMips - 1.0)).rgb;
+    float cc_f = coat_fresnel_v * material.clearcoat;
+    ambient = ambient * (1.0 - cc_f) + coat_refl * cc_f * frame.camera_position.w;
+  }
 
   float3 emissive = emissive_map.Sample(emissive_sampler, input.uv).rgb * material.emissive_factor;
 

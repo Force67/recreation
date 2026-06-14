@@ -122,6 +122,54 @@ Mesh MakeCube(f32 half_extent, AssetId id) {
   return mesh;
 }
 
+Mesh MakeSphere(f32 radius, u32 rings, u32 segments, AssetId id) {
+  Mesh mesh;
+  mesh.id = id;
+  MeshLod& lod = mesh.lods.emplace_back();
+  rings = rings < 2 ? 2 : rings;
+  segments = segments < 3 ? 3 : segments;
+
+  for (u32 y = 0; y <= rings; ++y) {
+    f32 v = static_cast<f32>(y) / static_cast<f32>(rings);
+    f32 phi = v * 3.14159265f;  // 0..pi, pole to pole
+    f32 sin_phi = std::sin(phi), cos_phi = std::cos(phi);
+    for (u32 x = 0; x <= segments; ++x) {
+      f32 u = static_cast<f32>(x) / static_cast<f32>(segments);
+      f32 theta = u * 6.2831853f;
+      f32 sin_theta = std::sin(theta), cos_theta = std::cos(theta);
+      Vec3 n{sin_phi * cos_theta, cos_phi, sin_phi * sin_theta};
+      Vertex vertex{};
+      vertex.position[0] = n.x * radius;
+      vertex.position[1] = n.y * radius;
+      vertex.position[2] = n.z * radius;
+      vertex.normal[0] = n.x;
+      vertex.normal[1] = n.y;
+      vertex.normal[2] = n.z;
+      // Tangent runs along +theta (the latitude circle), for anisotropy.
+      vertex.tangent[0] = -sin_theta;
+      vertex.tangent[1] = 0.0f;
+      vertex.tangent[2] = cos_theta;
+      vertex.tangent[3] = 1.0f;
+      vertex.uv[0] = u;
+      vertex.uv[1] = v;
+      lod.vertices.push_back(vertex);
+    }
+  }
+
+  u32 stride = segments + 1;
+  for (u32 y = 0; y < rings; ++y) {
+    for (u32 x = 0; x < segments; ++x) {
+      u32 a = y * stride + x;
+      u32 b = a + stride;
+      for (u32 i : {a, b, a + 1, a + 1, b, b + 1}) lod.indices.push_back(i);
+    }
+  }
+
+  lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), AssetId{}});
+  mesh.bounds_radius = radius;
+  return mesh;
+}
+
 void MakeSkinnedBiped(AssetId mesh_id, Skeleton* out_skeleton, Mesh* out_mesh) {
   u32 count = static_cast<u32>(sizeof(kBiped) / sizeof(kBiped[0]));
 
