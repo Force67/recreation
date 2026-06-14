@@ -128,6 +128,18 @@ class Engine {
   void CreateWaterDemoScene();
   // Sphere grid sweeping the extended pbr lobes (clearcoat/anisotropy/sheen).
   void CreateMaterialDemoScene();
+
+  // A simple cpu particle fountain for the demos. Integrates + spawns each
+  // frame and emits the live billboards into the frame view.
+  struct DemoParticle {
+    Vec3 position;
+    Vec3 velocity;
+    f32 life = 0;
+    f32 max_life = 1;
+    f32 size = 0.1f;
+    Vec3 color;
+  };
+  void UpdateParticles(f32 dt, render::FrameView& view);
   void CreateTestCharacter();
   // Assembles an animated actor from real Skyrim data: loads skeleton.nif into
   // an engine Skeleton and the worn body-part NIFs as skinned meshes bound to
@@ -149,6 +161,12 @@ class Engine {
   void UpdateActors(f32 dt);
   // Appends each actor's skinned draws + bone palettes to the frame view.
   void EmitActorDraws(render::FrameView& view);
+
+  bool particles_enabled_ = false;
+  Vec3 particle_emitter_{0, 0, 0};
+  base::Vector<DemoParticle> demo_particles_;
+  u32 particle_seed_ = 0x9e3779b9u;
+  f32 particle_spawn_accum_ = 0;
 
   EngineConfig config_;
   bethesda::Game game_ = bethesda::Game::kUnknown;

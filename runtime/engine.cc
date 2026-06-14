@@ -257,6 +257,10 @@ void Engine::CreateWaterDemoScene() {
     if (body) physics_entities_.push_back({body, block});
   }
 
+  // An ember fountain in front of the camera to exercise the particle path.
+  particles_enabled_ = true;
+  particle_emitter_ = {-7.0f, 0.8f, 0.0f};
+
   camera_.set_position({-14.0f, 3.0f, 0.0f});
   camera_.set_yaw_pitch(1.5708f, -0.25f);
   REC_INFO("water demo scene");
@@ -333,6 +337,66 @@ void Engine::CreateMaterialDemoScene() {
   camera_.set_yaw_pitch(0.0f, -0.12f);
   camera_.speed = 4.0f;
   REC_INFO("material preview: clearcoat, anisotropy, sheen and roughness sweeps");
+}
+
+void Engine::UpdateParticles(f32 dt, render::FrameView& view) {
+  if (!particles_enabled_) return;
+  if (dt > 0.05f) dt = 0.05f;  // clamp hitches so the fountain never explodes
+  auto rnd = [&]() -> f32 {
+    particle_seed_ ^= particle_seed_ << 13;
+    particle_seed_ ^= particle_seed_ >> 17;
+    particle_seed_ ^= particle_seed_ << 5;
+    return static_cast<f32>(particle_seed_ & 0xffffffu) / 16777216.0f;
+  };
+
+  // Integrate and swap-remove the dead.
+  for (size_t i = 0; i < demo_particles_.size();) {
+    DemoParticle& p = demo_particles_[i];
+    p.life -= dt;
+    if (p.life <= 0.0f) {
+      demo_particles_[i] = demo_particles_.back();
+      demo_particles_.pop_back();
+      continue;
+    }
+    p.velocity.y -= 4.0f * dt;  // gravity
+    p.position.x += p.velocity.x * dt;
+    p.position.y += p.velocity.y * dt;
+    p.position.z += p.velocity.z * dt;
+    ++i;
+  }
+
+  // Spawn an upward cone of embers at a steady rate.
+  particle_spawn_accum_ += 1400.0f * dt;
+  u32 spawn = static_cast<u32>(particle_spawn_accum_);
+  particle_spawn_accum_ -= static_cast<f32>(spawn);
+  for (u32 s = 0; s < spawn && demo_particles_.size() < 20000; ++s) {
+    DemoParticle p;
+    p.position = particle_emitter_;
+    f32 ang = rnd() * 6.2831853f;
+    f32 spread = rnd() * 1.4f;
+    p.velocity = {std::cos(ang) * spread, 4.5f + rnd() * 2.0f, std::sin(ang) * spread};
+    p.max_life = 1.6f + rnd() * 0.8f;
+    p.life = p.max_life;
+    p.size = 0.12f + rnd() * 0.10f;
+    p.color = {1.0f, 0.45f + rnd() * 0.3f, 0.1f};  // warm embers
+    demo_particles_.push_back(p);
+  }
+
+  // Emit live billboards into the frame view.
+  view.particles.reserve(demo_particles_.size());
+  for (const DemoParticle& p : demo_particles_) {
+    f32 t = p.life / p.max_life;  // 1 at birth, 0 at death
+    render::ParticleInstance inst;
+    inst.pos[0] = p.position.x;
+    inst.pos[1] = p.position.y;
+    inst.pos[2] = p.position.z;
+    inst.size = p.size * (1.3f - 0.3f * t);
+    inst.color[0] = p.color.x;
+    inst.color[1] = p.color.y;
+    inst.color[2] = p.color.z;
+    inst.color[3] = t * t * 0.8f;  // fade out over life
+    view.particles.push_back(inst);
+  }
 }
 
 void Engine::CreateDemoScene() {
@@ -1154,6 +1218,7 @@ int Engine::Run() {
           });
       prev_transforms_ = std::move(transforms);
       EmitActorDraws(view);
+      UpdateParticles(frame_delta, view);
       RefreshQuestPanel(frame_delta);
       RefreshNativeTrace(frame_delta);
       debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_, &native_trace_panel_);

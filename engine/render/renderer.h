@@ -24,6 +24,7 @@
 #include "render/volumetric_fog.h"
 #include "render/material_system.h"
 #include "render/mesh_pipeline.h"
+#include "render/particles.h"
 #include "render/post.h"
 #include "render/raytracing.h"
 #include "render/render_graph.h"
@@ -71,6 +72,9 @@ struct FrameView {
   // Bone palette for every skinned draw this frame, concatenated; each skinned
   // DrawItem indexes its run by skin_offset. Column-major model-space matrices.
   base::Vector<Mat4> bone_matrices;
+  // Live billboard particles for this frame (engine-simulated). Drawn lit and
+  // soft-faded over the resolved scene before reconstruction.
+  base::Vector<ParticleInstance> particles;
   // Recorded inside the final ui pass with the backbuffer bound as the
   // color attachment. hud_draw (the libultragui HUD/menu) records first, then
   // ui_draw (the debug ImGui overlay) on top.
@@ -188,6 +192,7 @@ class Renderer {
   GpuProfiler profiler_;
   PathTracer path_tracer_;
   VolumetricFog volumetric_fog_;
+  ParticleSystem particles_;
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;
