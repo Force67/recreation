@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -60,7 +61,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
-  if (!shadow_.Initialize(*device_)) return false;  // raster sun-shadow fallback
+  if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
@@ -128,6 +129,15 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   }
   if (const char* cg = std::getenv("REC_COLOR_GRADE")) {
     settings_.color_grade = static_cast<ColorGrade>(std::atoi(cg));
+  }
+  // REC_SUN_DIR="x,y,z" overrides the sun travel direction, for headless
+  // lighting/shadow tests (normalized; y clamped below the horizon).
+  if (const char* sd = std::getenv("REC_SUN_DIR")) {
+    Vec3 d{};
+    if (std::sscanf(sd, "%f,%f,%f", &d.x, &d.y, &d.z) == 3) {
+      f32 len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+      if (len > 1e-4f) settings_.sun_direction = {d.x / len, d.y / len, d.z / len};
+    }
   }
   if (const char* pt = std::getenv("REC_PATHTRACE")) settings_.path_trace = std::atoi(pt) != 0;
   if (const char* fg = std::getenv("REC_FOG")) settings_.fog = std::atoi(fg) != 0;
@@ -689,6 +699,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         [this, shadow_atlas, &view](PassContext& ctx) {
           VkImageView atlas = ctx.graph->image(shadow_atlas).view;
           shadow_.Render(ctx.cmd, atlas, [this, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
+            VkDescriptorSet bound_material = VK_NULL_HANDLE;
             for (const DrawItem& item : view.draws) {
               const GpuMesh* mesh = meshes_.find(item.mesh);
               if (!mesh || mesh->all_blend || mesh->no_rt) continue;
@@ -699,6 +710,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
               for (const GpuSubmesh& submesh : mesh->submeshes) {
                 if (submesh.blend) continue;
+                // Bind the material so masked casters alpha-test in the fragment.
+                VkDescriptorSet material = material_system_->set(submesh.material);
+                if (material != bound_material) {
+                  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1,
+                                          &material, 0, nullptr);
+                  bound_material = material;
+                }
                 vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
               }
             }

@@ -32,19 +32,21 @@ bool OverdrawPass::Initialize(Device& device, VkFormat color_format) {
   stages[1].module = ps;
   stages[1].pName = "main";
 
-  // Same vertex layout as the mesh/shadow pipelines: position at location 0.
+  // shadow.vs reads position (0) and uv (3); supply both from the vertex buffer.
   VkVertexInputBindingDescription binding{};
   binding.stride = sizeof(asset::Vertex);
   binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  VkVertexInputAttributeDescription attr{.location = 0, .binding = 0,
-                                         .format = VK_FORMAT_R32G32B32_SFLOAT,
-                                         .offset = offsetof(asset::Vertex, position)};
+  VkVertexInputAttributeDescription attrs[2] = {
+      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
+       .offset = offsetof(asset::Vertex, position)},
+      {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+       .offset = offsetof(asset::Vertex, uv)}};
   VkPipelineVertexInputStateCreateInfo vertex_input{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
   vertex_input.vertexBindingDescriptionCount = 1;
   vertex_input.pVertexBindingDescriptions = &binding;
-  vertex_input.vertexAttributeDescriptionCount = 1;
-  vertex_input.pVertexAttributeDescriptions = &attr;
+  vertex_input.vertexAttributeDescriptionCount = 2;
+  vertex_input.pVertexAttributeDescriptions = attrs;
 
   VkPipelineInputAssemblyStateCreateInfo ia{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};

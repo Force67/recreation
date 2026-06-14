@@ -8,6 +8,7 @@
 #include "asset/mesh.h"
 #include "core/log.h"
 #include "render/shader_util.h"
+#include "shaders/shadow_ps_hlsl.h"
 #include "shaders/shadow_vs_hlsl.h"
 
 namespace rec::render {
@@ -18,9 +19,11 @@ Vec3 Mul(const Vec3& v, f32 s) { return {v.x * s, v.y * s, v.z * s}; }
 
 }  // namespace
 
-bool ShadowPass::Initialize(Device& device) {
+bool ShadowPass::Initialize(Device& device, VkDescriptorSetLayout material_layout) {
   VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, 2 * sizeof(Mat4)};
   VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.setLayoutCount = 1;
+  layout_info.pSetLayouts = &material_layout;  // set 0: alpha-test inputs
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push;
   if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &layout_) != VK_SUCCESS) {
@@ -28,24 +31,32 @@ bool ShadowPass::Initialize(Device& device) {
   }
 
   VkShaderModule vs = CreateShaderModule(device.device(), k_shadow_vs_hlsl, sizeof(k_shadow_vs_hlsl));
-  if (vs == VK_NULL_HANDLE) return false;
-  VkPipelineShaderStageCreateInfo stage{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-  stage.module = vs;
-  stage.pName = "main";
+  VkShaderModule ps = CreateShaderModule(device.device(), k_shadow_ps_hlsl, sizeof(k_shadow_ps_hlsl));
+  if (vs == VK_NULL_HANDLE || ps == VK_NULL_HANDLE) return false;
+  VkPipelineShaderStageCreateInfo stages[2];
+  stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+  stages[0].module = vs;
+  stages[0].pName = "main";
+  stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  stages[1].module = ps;
+  stages[1].pName = "main";
 
   VkVertexInputBindingDescription binding{};
   binding.stride = sizeof(asset::Vertex);
   binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  VkVertexInputAttributeDescription attr{.location = 0, .binding = 0,
-                                         .format = VK_FORMAT_R32G32B32_SFLOAT,
-                                         .offset = offsetof(asset::Vertex, position)};
+  VkVertexInputAttributeDescription attrs[2] = {
+      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT,
+       .offset = offsetof(asset::Vertex, position)},
+      {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT,
+       .offset = offsetof(asset::Vertex, uv)}};
   VkPipelineVertexInputStateCreateInfo vertex_input{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
   vertex_input.vertexBindingDescriptionCount = 1;
   vertex_input.pVertexBindingDescriptions = &binding;
-  vertex_input.vertexAttributeDescriptionCount = 1;
-  vertex_input.pVertexAttributeDescriptions = &attr;
+  vertex_input.vertexAttributeDescriptionCount = 2;
+  vertex_input.pVertexAttributeDescriptions = attrs;
 
   VkPipelineInputAssemblyStateCreateInfo ia{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -91,8 +102,8 @@ bool ShadowPass::Initialize(Device& device) {
 
   VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   info.pNext = &rendering;
-  info.stageCount = 1;
-  info.pStages = &stage;
+  info.stageCount = 2;
+  info.pStages = stages;
   info.pVertexInputState = &vertex_input;
   info.pInputAssemblyState = &ia;
   info.pViewportState = &viewport;
@@ -105,6 +116,7 @@ bool ShadowPass::Initialize(Device& device) {
   VkResult r =
       vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_);
   vkDestroyShaderModule(device.device(), vs, nullptr);
+  vkDestroyShaderModule(device.device(), ps, nullptr);
   if (r != VK_SUCCESS) {
     REC_ERROR("shadow pipeline creation failed");
     return false;

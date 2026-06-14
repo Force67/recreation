@@ -34,7 +34,9 @@ class ShadowPass {
     f32 normal_bias = 0.06f;   // world offset along the surface normal
   };
 
-  bool Initialize(Device& device);
+  // material_layout is set 0 here (the mesh pipeline's material set), bound per
+  // submesh so the fragment stage can alpha-test masked casters.
+  bool Initialize(Device& device, VkDescriptorSetLayout material_layout);
   void Destroy(Device& device);
   void Configure(const Settings& settings);
 
