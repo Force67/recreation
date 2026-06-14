@@ -13,10 +13,16 @@ jobs:
       - name: deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build glslang-tools zlib1g-dev \
+          sudo apt-get install -y ninja-build zlib1g-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
             libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
+      - name: dxc
+        run: |
+          curl -fsSL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/linux_dxc_2026_05_26.x86_64.tar.gz \
+            | sudo tar -xz -C /usr/local
+          sudo chmod +x /usr/local/bin/dxc
+          sudo ldconfig
       - name: configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON
       - name: build
@@ -32,6 +38,11 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - name: dxc
+        run: |
+          curl.exe -fsSL -o dxc.zip https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/dxc_2026_05_27.zip
+          Expand-Archive dxc.zip -DestinationPath $env:GITHUB_WORKSPACE\dxc
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\dxc\bin\x64"
       - name: configure
         run: cmake -B build -DRECREATION_FETCH_SDL3=ON
       - name: build
@@ -50,7 +61,13 @@ jobs:
       - name: deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build glslang-tools
+          sudo apt-get install -y ninja-build
+      - name: dxc
+        run: |
+          curl -fsSL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/linux_dxc_2026_05_26.x86_64.tar.gz \
+            | sudo tar -xz -C /usr/local
+          sudo chmod +x /usr/local/bin/dxc
+          sudo ldconfig
       - name: configure
         run: >
           cmake -B build-android -G Ninja
