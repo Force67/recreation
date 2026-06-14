@@ -29,6 +29,9 @@ struct Material {
   f32 ior = 1.5f;                  // KHR_materials_ior, dielectric f0
   f32 sheen_color[3] = {0, 0, 0};  // KHR_materials_sheen
   f32 sheen_roughness = 0.3f;
+  // Subsurface scattering: wrap + back-scatter translucency for skin/wax/leaves.
+  f32 subsurface_color[3] = {0.9f, 0.3f, 0.2f};
+  f32 subsurface = 0.0f;  // 0 = off
   AlphaMode alpha_mode = AlphaMode::kOpaque;
   bool two_sided = false;
   // Routed to the dedicated water pipeline: animated waves, raytraced

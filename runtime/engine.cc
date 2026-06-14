@@ -325,7 +325,17 @@ void Engine::CreateMaterialDemoScene() {
     cloth.sheen_roughness = 0.3f;
     spawn({xs[i], 0.0f, -3.4f}, cloth);
 
-    // Row 4 (control): plain metal, roughness 0.05..1.
+    // Row 4: subsurface scattering 0..1 over pale waxy skin.
+    asset::Material skin;
+    skin.base_color_factor[0] = 0.85f; skin.base_color_factor[1] = 0.6f;
+    skin.base_color_factor[2] = 0.5f;
+    skin.roughness_factor = 0.55f;
+    skin.subsurface = t;
+    skin.subsurface_color[0] = 0.9f; skin.subsurface_color[1] = 0.2f;
+    skin.subsurface_color[2] = 0.12f;
+    spawn({xs[i], 0.0f, 2.2f}, skin);
+
+    // Row 5 (control): plain metal, roughness 0.05..1.
     asset::Material rough;
     rough.base_color_factor[0] = 0.9f; rough.base_color_factor[1] = 0.6f;
     rough.base_color_factor[2] = 0.2f;

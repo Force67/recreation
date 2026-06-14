@@ -34,6 +34,8 @@ struct MaterialParams {
   float ior;
   float3 sheen_color;
   float sheen_roughness;
+  float3 subsurface_color;
+  float subsurface;
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material;
 
@@ -370,6 +372,15 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
 
   float3 sun = frame.sun_color.rgb * frame.sun_direction.w;
   float3 lit = direct * sun * ndl * shadow;
+
+  // Subsurface scattering: a wrapped front term softens the terminator and a
+  // view-aligned back term glows where light transmits through thin geometry.
+  if (material.subsurface > 0.001) {
+    float3 sss_h = normalize(l + n * 0.2);
+    float back = pow(saturate(dot(v, -sss_h)), 2.0);
+    float wrap = saturate((dot(n, l) + 0.4) / 1.4);
+    lit += material.subsurface_color * material.subsurface * (back + 0.4 * wrap) * sun * shadow;
+  }
 
   float ao = 1.0;
   if ((frame.flags & kFrameAoValid) != 0u) {
