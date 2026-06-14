@@ -1332,8 +1332,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   // Lit billboard particles blend over the resolved scene, faded against the
-  // prepass depth, before temporal reconstruction.
-  if (!view.particles.empty()) {
+  // prepass depth, before temporal reconstruction. Either a cpu-uploaded set or
+  // the gpu-simulated fountain.
+  if (!view.particles.empty() || view.gpu_particle_count > 0) {
     Vec3 fwd = Normalize(view.camera.target - view.camera.eye);
     Vec3 right = Normalize(Cross(fwd, Vec3{0, 1, 0}));
     ParticleSystem::Frame pf;
@@ -1346,7 +1347,17 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     pf.ambient = std::max(settings_.ambient, 0.15f);
     pf.near_plane = 0.1f;
     pf.soft_fade = 0.6f;
-    particles_.AddToGraph(graph_, lit, depth_export, view.particles, pf, frame_index_ % 2);
+    if (view.gpu_particle_count > 0) {
+      ParticleSystem::Sim sim;
+      sim.emitter[0] = view.gpu_particle_emitter.x;
+      sim.emitter[1] = view.gpu_particle_emitter.y;
+      sim.emitter[2] = view.gpu_particle_emitter.z;
+      sim.dt = view.frame_delta_seconds;
+      sim.count = view.gpu_particle_count;
+      particles_.SimulateAndDraw(graph_, lit, depth_export, sim, pf, frame_index_ % 2);
+    } else {
+      particles_.AddToGraph(graph_, lit, depth_export, view.particles, pf, frame_index_ % 2);
+    }
   }
 
   // 3D gaussian splats: non-triangle primitives blended over the resolved scene.

@@ -71,6 +71,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/shadow.ps.hlsl
   shaders/particle.vs.hlsl
   shaders/particle.ps.hlsl
+  shaders/particle_sim.cs.hlsl
   shaders/gsplat.vs.hlsl
   shaders/gsplat.ps.hlsl
   shaders/overdraw.ps.hlsl

@@ -565,6 +565,27 @@ void Engine::CreateCornellDemoScene() {
   REC_INFO("cornell box: gi color-bleed test (red/green walls)");
 }
 
+void Engine::CreateGpuParticleDemoScene() {
+  // A dense ember fountain simulated entirely on the gpu: 200k particles, far
+  // past the ~20k the cpu fountain caps at, proving the compute sim runs.
+  asset::Mesh ground = asset::MakeCube(12.0f, asset::MakeAssetId("builtin/gpufx/ground"));
+  for (asset::MeshLod& lod : ground.lods) {
+    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+  }
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -12.0f, 0}});  // top at y = 0
+  world_.Add(floor, world::Renderable{ground.id});
+
+  gpu_particle_count_ = 200000;
+  gpu_particle_emitter_ = {0.0f, 0.1f, 0.0f};
+
+  camera_.set_position({0.0f, 2.6f, 7.5f});
+  camera_.set_yaw_pitch(0.0f, -0.18f);
+  camera_.speed = 4.0f;
+  REC_INFO("gpu particle demo: {} compute-simulated embers", gpu_particle_count_);
+}
+
 void Engine::CreateDemoScene() {
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
@@ -572,6 +593,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "cornell") {
     CreateCornellDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "gpuparticles") {
+    CreateGpuParticleDemoScene();
     return;
   }
   if (config_.demo_scene == "materials") {
@@ -1397,6 +1422,10 @@ int Engine::Run() {
       prev_transforms_ = std::move(transforms);
       EmitActorDraws(view);
       UpdateParticles(frame_delta, view);
+      if (gpu_particle_count_ > 0) {
+        view.gpu_particle_count = gpu_particle_count_;
+        view.gpu_particle_emitter = gpu_particle_emitter_;
+      }
       if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
       RefreshQuestPanel(frame_delta);
       RefreshNativeTrace(frame_delta);

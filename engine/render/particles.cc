@@ -6,6 +6,7 @@
 #include "core/log.h"
 #include "render/shader_util.h"
 #include "shaders/particle_ps_hlsl.h"
+#include "shaders/particle_sim_cs_hlsl.h"
 #include "shaders/particle_vs_hlsl.h"
 
 namespace rec::render {
@@ -21,6 +22,19 @@ struct ParticlePush {
   f32 sun_intensity;
   f32 sun_color[3];
   f32 ambient;
+};
+
+struct ParticleSimPush {
+  f32 emitter[3];
+  f32 dt;
+  f32 gravity;
+  f32 spawn_speed;
+  f32 life_min;
+  f32 life_range;
+  f32 size_min;
+  f32 size_range;
+  u32 count;
+  u32 frame;
 };
 
 }  // namespace
@@ -145,6 +159,57 @@ bool ParticleSystem::Initialize(Device& device, VkFormat color_format) {
                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
     if (!buffers_[i].mapped) return false;
   }
+
+  // GPU simulation: a compute pipeline over the persistent state buffer.
+  VkDescriptorSetLayoutBinding sim_bindings[2]{};
+  for (u32 i = 0; i < 2; ++i) {
+    sim_bindings[i].binding = i;
+    sim_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    sim_bindings[i].descriptorCount = 1;
+    sim_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo sim_set_info{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  sim_set_info.bindingCount = 2;
+  sim_set_info.pBindings = sim_bindings;
+  if (vkCreateDescriptorSetLayout(device.device(), &sim_set_info, nullptr, &sim_set_layout_) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  VkPushConstantRange sim_push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ParticleSimPush)};
+  VkPipelineLayoutCreateInfo sim_layout_info{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  sim_layout_info.setLayoutCount = 1;
+  sim_layout_info.pSetLayouts = &sim_set_layout_;
+  sim_layout_info.pushConstantRangeCount = 1;
+  sim_layout_info.pPushConstantRanges = &sim_push;
+  if (vkCreatePipelineLayout(device.device(), &sim_layout_info, nullptr, &sim_layout_) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  VkShaderModule sim_module =
+      CreateShaderModule(device.device(), k_particle_sim_cs_hlsl, sizeof(k_particle_sim_cs_hlsl));
+  if (sim_module == VK_NULL_HANDLE) return false;
+  VkComputePipelineCreateInfo sim_info{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  sim_info.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+  sim_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  sim_info.stage.module = sim_module;
+  sim_info.stage.pName = "main";
+  sim_info.layout = sim_layout_;
+  VkResult sim_r = vkCreateComputePipelines(device.device(), VK_NULL_HANDLE, 1, &sim_info, nullptr,
+                                            &sim_pipeline_);
+  vkDestroyShaderModule(device.device(), sim_module, nullptr);
+  if (sim_r != VK_SUCCESS) {
+    REC_ERROR("particle sim pipeline creation failed");
+    return false;
+  }
+
+  // 64 bytes per state entry; zero-init so every particle's seed is 0 and spawns
+  // on first touch.
+  sim_state_ = device.CreateBuffer(static_cast<u64>(kMaxParticles) * 64,
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+  if (!sim_state_.mapped) return false;
+  std::memset(sim_state_.mapped, 0, static_cast<size_t>(kMaxParticles) * 64);
   return true;
 }
 
@@ -163,70 +228,138 @@ void ParticleSystem::AddToGraph(RenderGraph& graph, ResourceHandle color, Resour
         builder.Read(depth, ResourceUsage::kSampledFragment);
       },
       [this, color, depth, buffer, count, frame](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(set_layout_);
-        VkDescriptorBufferInfo buffer_info{buffer, 0, count * sizeof(ParticleInstance)};
-        VkDescriptorImageInfo depth_info{VK_NULL_HANDLE, ctx.graph->image(depth).view,
-                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet writes[2];
-        writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        writes[0].dstSet = set;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorCount = 1;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[0].pBufferInfo = &buffer_info;
-        writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        writes[1].dstSet = set;
-        writes[1].dstBinding = 1;
-        writes[1].descriptorCount = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        writes[1].pImageInfo = &depth_info;
-        vkUpdateDescriptorSets(ctx.device->device(), 2, writes, 0, nullptr);
+        RecordDraw(ctx, color, depth, buffer, count, frame);
+      });
+}
 
-        const GpuImage& target = ctx.graph->image(color);
-        VkRenderingAttachmentInfo attachment{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        attachment.imageView = target.view;
-        attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // blend over the lit scene
-        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-        rendering.renderArea = {{0, 0}, target.extent};
-        rendering.layerCount = 1;
-        rendering.colorAttachmentCount = 1;
-        rendering.pColorAttachments = &attachment;
-        vkCmdBeginRendering(ctx.cmd, &rendering);
+void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
+                                VkBuffer instances, u32 count, const Frame& frame) {
+  VkDescriptorSet set = ctx.allocate_set(set_layout_);
+  VkDescriptorBufferInfo buffer_info{instances, 0, count * sizeof(ParticleInstance)};
+  VkDescriptorImageInfo depth_info{VK_NULL_HANDLE, ctx.graph->image(depth).view,
+                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  VkWriteDescriptorSet writes[2];
+  writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[0].dstSet = set;
+  writes[0].dstBinding = 0;
+  writes[0].descriptorCount = 1;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[0].pBufferInfo = &buffer_info;
+  writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[1].dstSet = set;
+  writes[1].dstBinding = 1;
+  writes[1].descriptorCount = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  writes[1].pImageInfo = &depth_info;
+  vkUpdateDescriptorSets(ctx.device->device(), 2, writes, 0, nullptr);
 
-        VkViewport vp{0, 0, static_cast<f32>(target.extent.width),
-                      static_cast<f32>(target.extent.height), 0.0f, 1.0f};
-        VkRect2D scissor{{0, 0}, target.extent};
-        vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set, 0,
-                                nullptr);
+  const GpuImage& target = ctx.graph->image(color);
+  VkRenderingAttachmentInfo attachment{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  attachment.imageView = target.view;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // blend over the lit scene
+  attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+  rendering.renderArea = {{0, 0}, target.extent};
+  rendering.layerCount = 1;
+  rendering.colorAttachmentCount = 1;
+  rendering.pColorAttachments = &attachment;
+  vkCmdBeginRendering(ctx.cmd, &rendering);
 
-        ParticlePush push{};
-        push.view_proj = frame.view_proj;
-        push.cam_right[0] = frame.cam_right.x;
-        push.cam_right[1] = frame.cam_right.y;
-        push.cam_right[2] = frame.cam_right.z;
-        push.near_plane = frame.near_plane;
-        push.cam_up[0] = frame.cam_up.x;
-        push.cam_up[1] = frame.cam_up.y;
-        push.cam_up[2] = frame.cam_up.z;
-        push.soft_fade = frame.soft_fade;
-        push.sun_dir[0] = frame.sun_direction.x;
-        push.sun_dir[1] = frame.sun_direction.y;
-        push.sun_dir[2] = frame.sun_direction.z;
-        push.sun_intensity = frame.sun_intensity;
-        push.sun_color[0] = frame.sun_color.x;
-        push.sun_color[1] = frame.sun_color.y;
-        push.sun_color[2] = frame.sun_color.z;
-        push.ambient = frame.ambient;
-        vkCmdPushConstants(ctx.cmd, layout_,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(push), &push);
-        vkCmdDraw(ctx.cmd, 4, count, 0, 0);
-        vkCmdEndRendering(ctx.cmd);
+  VkViewport vp{0, 0, static_cast<f32>(target.extent.width),
+                static_cast<f32>(target.extent.height), 0.0f, 1.0f};
+  VkRect2D scissor{{0, 0}, target.extent};
+  vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+  vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
+  vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+  vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set, 0, nullptr);
+
+  ParticlePush push{};
+  push.view_proj = frame.view_proj;
+  push.cam_right[0] = frame.cam_right.x;
+  push.cam_right[1] = frame.cam_right.y;
+  push.cam_right[2] = frame.cam_right.z;
+  push.near_plane = frame.near_plane;
+  push.cam_up[0] = frame.cam_up.x;
+  push.cam_up[1] = frame.cam_up.y;
+  push.cam_up[2] = frame.cam_up.z;
+  push.soft_fade = frame.soft_fade;
+  push.sun_dir[0] = frame.sun_direction.x;
+  push.sun_dir[1] = frame.sun_direction.y;
+  push.sun_dir[2] = frame.sun_direction.z;
+  push.sun_intensity = frame.sun_intensity;
+  push.sun_color[0] = frame.sun_color.x;
+  push.sun_color[1] = frame.sun_color.y;
+  push.sun_color[2] = frame.sun_color.z;
+  push.ambient = frame.ambient;
+  vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                     sizeof(push), &push);
+  vkCmdDraw(ctx.cmd, 4, count, 0, 0);
+  vkCmdEndRendering(ctx.cmd);
+}
+
+void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
+                                     const Sim& sim, const Frame& frame, u32 frame_slot) {
+  u32 count = std::min(sim.count, kMaxParticles);
+  if (count == 0) return;
+  VkBuffer instances = buffers_[frame_slot].buffer;
+  VkBuffer state = sim_state_.buffer;
+
+  graph.AddPass(
+      "gpu_particles",
+      [&](RenderGraph::PassBuilder& builder) {
+        builder.Write(color, ResourceUsage::kColorAttachment);
+        builder.Read(depth, ResourceUsage::kSampledFragment);
+      },
+      [this, color, depth, instances, state, count, sim, frame](PassContext& ctx) {
+        // Step the simulation, then draw the freshly written billboards.
+        VkDescriptorSet sim_set = ctx.allocate_set(sim_set_layout_);
+        VkDescriptorBufferInfo infos[2] = {{state, 0, VK_WHOLE_SIZE},
+                                           {instances, 0, count * sizeof(ParticleInstance)}};
+        VkWriteDescriptorSet sim_writes[2];
+        for (u32 i = 0; i < 2; ++i) {
+          sim_writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          sim_writes[i].dstSet = sim_set;
+          sim_writes[i].dstBinding = i;
+          sim_writes[i].descriptorCount = 1;
+          sim_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+          sim_writes[i].pBufferInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(ctx.device->device(), 2, sim_writes, 0, nullptr);
+
+        ParticleSimPush sp{};
+        sp.emitter[0] = sim.emitter[0];
+        sp.emitter[1] = sim.emitter[1];
+        sp.emitter[2] = sim.emitter[2];
+        sp.dt = sim.dt < 0.05f ? sim.dt : 0.05f;  // clamp hitches
+        sp.gravity = sim.gravity;
+        sp.spawn_speed = sim.spawn_speed;
+        sp.life_min = sim.life_min;
+        sp.life_range = sim.life_range;
+        sp.size_min = sim.size_min;
+        sp.size_range = sim.size_range;
+        sp.count = count;
+        sp.frame = 0x9e3779b9u ^ count;  // nonzero seed salt; per-particle index varies it
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sim_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sim_layout_, 0, 1, &sim_set,
+                                0, nullptr);
+        vkCmdPushConstants(ctx.cmd, sim_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(sp), &sp);
+        vkCmdDispatch(ctx.cmd, (count + 63) / 64, 1, 1);
+
+        // The instance writes must be visible to the vertex pull; the state
+        // writes to the next frame's sim (same queue, ordered).
+        VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        barrier.dstStageMask =
+            VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+        VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(ctx.cmd, &dep);
+
+        RecordDraw(ctx, color, depth, instances, count, frame);
       });
 }
 
@@ -234,6 +367,10 @@ void ParticleSystem::Destroy(Device& device) {
   if (pipeline_) vkDestroyPipeline(device.device(), pipeline_, nullptr);
   if (layout_) vkDestroyPipelineLayout(device.device(), layout_, nullptr);
   if (set_layout_) vkDestroyDescriptorSetLayout(device.device(), set_layout_, nullptr);
+  if (sim_pipeline_) vkDestroyPipeline(device.device(), sim_pipeline_, nullptr);
+  if (sim_layout_) vkDestroyPipelineLayout(device.device(), sim_layout_, nullptr);
+  if (sim_set_layout_) vkDestroyDescriptorSetLayout(device.device(), sim_set_layout_, nullptr);
+  device.DestroyBuffer(sim_state_);
   for (u32 i = 0; i < kFramesInFlight; ++i) device.DestroyBuffer(buffers_[i]);
 }
 

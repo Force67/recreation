@@ -47,15 +47,39 @@ class ParticleSystem {
                   const base::Vector<ParticleInstance>& particles, const Frame& frame,
                   u32 frame_slot);
 
+  // Fountain emitter parameters for the gpu simulation.
+  struct Sim {
+    f32 emitter[3] = {0, 0, 0};
+    f32 dt = 0.0f;
+    u32 count = 0;        // live particle count (fixed; dead ones respawn)
+    f32 gravity = 4.0f;
+    f32 spawn_speed = 4.5f;
+    f32 life_min = 1.6f;
+    f32 life_range = 0.8f;
+    f32 size_min = 0.12f;
+    f32 size_range = 0.10f;
+  };
+  static constexpr u32 kMaxParticles = 1u << 18;  // 262144
+
+  // Simulates the particles on the gpu (one compute dispatch over the persistent
+  // state buffer) and draws the resulting billboards, in a single pass.
+  void SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
+                       const Sim& sim, const Frame& frame, u32 frame_slot);
+
  private:
   static constexpr u32 kFramesInFlight = 2;
-  static constexpr u32 kMaxParticles = 1u << 16;  // 65536
+  void RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth, VkBuffer instances,
+                  u32 count, const Frame& frame);
 
   Device* device_ = nullptr;
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipeline_ = VK_NULL_HANDLE;
-  GpuBuffer buffers_[kFramesInFlight];  // host-visible particle storage
+  VkDescriptorSetLayout sim_set_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout sim_layout_ = VK_NULL_HANDLE;
+  VkPipeline sim_pipeline_ = VK_NULL_HANDLE;
+  GpuBuffer buffers_[kFramesInFlight];  // host-visible billboard storage
+  GpuBuffer sim_state_;                 // persistent gpu particle state
 };
 
 }  // namespace rec::render
