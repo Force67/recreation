@@ -321,6 +321,8 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   params.sheen_roughness = material.sheen_roughness;
   std::memcpy(params.subsurface_color, material.subsurface_color, sizeof(f32) * 3);
   params.subsurface = material.subsurface;
+  params.iridescence = material.iridescence;
+  params.iridescence_thickness = material.iridescence_thickness;
   // Blend materials draw without the cutout test; mask materials cut.
   if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
   if (material.normal && textures_.find(material.normal.hash)) {

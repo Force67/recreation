@@ -32,6 +32,10 @@ struct Material {
   // Subsurface scattering: wrap + back-scatter translucency for skin/wax/leaves.
   f32 subsurface_color[3] = {0.9f, 0.3f, 0.2f};
   f32 subsurface = 0.0f;  // 0 = off
+  // Thin-film interference (KHR_materials_iridescence): a view-angle dependent
+  // rainbow on the specular, for soap bubbles, oil, beetle shells.
+  f32 iridescence = 0.0f;
+  f32 iridescence_thickness = 400.0f;  // film thickness in nm
   AlphaMode alpha_mode = AlphaMode::kOpaque;
   bool two_sided = false;
   // Routed to the dedicated water pipeline: animated waves, raytraced

@@ -335,13 +335,14 @@ void Engine::CreateMaterialDemoScene() {
     skin.subsurface_color[2] = 0.12f;
     spawn({xs[i], 0.0f, 2.2f}, skin);
 
-    // Row 5 (control): plain metal, roughness 0.05..1.
-    asset::Material rough;
-    rough.base_color_factor[0] = 0.9f; rough.base_color_factor[1] = 0.6f;
-    rough.base_color_factor[2] = 0.2f;
-    rough.metallic_factor = 1.0f;
-    rough.roughness_factor = 0.05f + t * 0.9f;
-    spawn({xs[i], 0.0f, -5.6f}, rough);
+    // Row 5: thin-film iridescence, film thickness sweep over a dark dielectric.
+    asset::Material irid;
+    irid.base_color_factor[0] = 0.04f; irid.base_color_factor[1] = 0.04f;
+    irid.base_color_factor[2] = 0.05f;
+    irid.roughness_factor = 0.12f;
+    irid.iridescence = 1.0f;
+    irid.iridescence_thickness = 250.0f + t * 700.0f;  // 250..950 nm
+    spawn({xs[i], 0.0f, -5.6f}, irid);
   }
 
   camera_.set_position({0.0f, 1.25f, 3.4f});

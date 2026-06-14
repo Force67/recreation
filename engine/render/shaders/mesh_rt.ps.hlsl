@@ -36,6 +36,9 @@ struct MaterialParams {
   float sheen_roughness;
   float3 subsurface_color;
   float subsurface;
+  float iridescence;
+  float iridescence_thickness;
+  float2 irid_pad;
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material;
 
@@ -309,6 +312,14 @@ float D_Charlie(float ndh, float roughness) {
 float V_Ashikhmin(float ndv, float ndl) {
   return clamp(1.0 / (4.0 * (ndl + ndv - ndl * ndv)), 0.0, 1.0);
 }
+// Thin-film interference: an iridescent rgb from the optical path difference at
+// the view angle, blended into f0 (soap bubble / oil slick look).
+float3 ThinFilm(float ndv, float thickness_nm, float film_ior) {
+  float opd = 2.0 * film_ior * thickness_nm * ndv;  // path difference, nm
+  float3 wl = float3(612.0, 549.0, 465.0);          // r,g,b wavelengths, nm
+  float3 phase = 6.2831853 * opd / wl;
+  return 0.5 + 0.5 * cos(phase);
+}
 
 // Cook-Torrance ggx with Schlick fresnel and Smith visibility for the sun,
 // split-sum ibl with Fdez-Aguera multi-scatter for ambient. Optional clearcoat,
@@ -335,6 +346,9 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float ndh = max(dot(n, h), 0.0);
   float vdh = max(dot(v, h), 0.0);
   float a = roughness * roughness;
+  if (material.iridescence > 0.001) {
+    f0 = lerp(f0, ThinFilm(ndv, material.iridescence_thickness, 1.3), material.iridescence);
+  }
   float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
 
   float3 specular;
