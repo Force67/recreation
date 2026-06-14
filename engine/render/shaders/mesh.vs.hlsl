@@ -1,11 +1,15 @@
 struct FrameGlobals {
   column_major float4x4 view_proj;
   column_major float4x4 prev_view_proj;
+  column_major float4x4 inv_view_proj;
   float2 jitter;  // ndc units, applied on top of the unjittered clip pos
   float2 prev_jitter;
   float4 sun_direction;  // xyz travel direction of the light, w intensity
-  float4 sun_color;      // rgb color, w ambient
-  float4 camera_position;
+  float4 sun_color;      // rgb color, w flat ambient when ibl is off
+  float4 camera_position;  // xyz eye, w ibl intensity
+  float4 misc;             // x,y render size, z sun angular radius, w frame index
+  uint flags;
+  float3 pad;
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
 

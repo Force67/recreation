@@ -155,8 +155,15 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
       }
 
       if (ImGui::CollapsingHeader("Features", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::BeginDisabled(!caps || !caps->ray_query);
+        bool ray_query = caps && caps->ray_query;
+        ImGui::BeginDisabled(!ray_query);
         ImGui::Checkbox("Raytraced shadows", &settings.rt_shadows);
+        if (settings.rt_shadows) {
+          f32 degrees = settings.sun_angular_radius * 57.29578f;
+          if (ImGui::SliderFloat("Sun radius (deg)", &degrees, 0.0f, 2.0f, "%.2f")) {
+            settings.sun_angular_radius = degrees / 57.29578f;
+          }
+        }
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!caps || !caps->fill_mode_non_solid);
         ImGui::Checkbox("Wireframe", &settings.wireframe);
@@ -164,7 +171,32 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         ImGui::Checkbox("VSync", &settings.vsync);
       }
 
+      if (ImGui::CollapsingHeader("Global illumination", ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool ray_query = caps && caps->ray_query;
+        ImGui::Checkbox("Image based lighting", &settings.ibl);
+        if (settings.ibl) {
+          ImGui::SliderFloat("IBL intensity", &settings.ibl_intensity, 0.0f, 4.0f);
+        }
+        ImGui::BeginDisabled(!ray_query || !settings.ibl);
+        ImGui::Checkbox("DDGI probes", &settings.ddgi);
+        if (settings.ddgi) {
+          ImGui::SliderFloat("Probe spacing", &settings.ddgi_spacing, 0.5f, 5.0f);
+          ImGui::SliderFloat("GI intensity", &settings.ddgi_intensity, 0.0f, 4.0f);
+        }
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!ray_query);
+        ImGui::Checkbox("RT ambient occlusion", &settings.rtao);
+        if (settings.rtao) {
+          ImGui::SliderFloat("AO radius", &settings.ao_radius, 0.2f, 5.0f);
+          ImGui::SliderFloat("AO intensity", &settings.ao_intensity, 0.2f, 3.0f);
+          int rays = static_cast<int>(settings.ao_rays);
+          if (ImGui::SliderInt("AO rays", &rays, 1, 8)) settings.ao_rays = rays;
+        }
+        ImGui::EndDisabled();
+      }
+
       if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Procedural sky", &settings.sky);
         f32 direction[3] = {settings.sun_direction.x, settings.sun_direction.y,
                             settings.sun_direction.z};
         if (ImGui::SliderFloat3("Sun direction", direction, -1.0f, 1.0f)) {
@@ -184,7 +216,16 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         if (ImGui::Combo("Tonemap", &tonemap, kTonemaps, IM_ARRAYSIZE(kTonemaps))) {
           settings.tonemap = static_cast<render::TonemapOperator>(tonemap);
         }
-        ImGui::SliderFloat("Exposure", &settings.exposure, 0.1f, 8.0f, "%.2f",
+        ImGui::Checkbox("Bloom", &settings.bloom);
+        if (settings.bloom) {
+          ImGui::SliderFloat("Bloom intensity", &settings.bloom_intensity, 0.0f, 0.2f, "%.3f");
+        }
+        ImGui::Checkbox("Auto exposure", &settings.auto_exposure);
+        if (settings.auto_exposure) {
+          ImGui::SliderFloat("Adaptation speed", &settings.adaptation_speed, 0.5f, 10.0f);
+        }
+        ImGui::SliderFloat(settings.auto_exposure ? "Compensation" : "Exposure",
+                           &settings.exposure, 0.1f, 8.0f, "%.2f",
                            ImGuiSliderFlags_Logarithmic);
       }
 

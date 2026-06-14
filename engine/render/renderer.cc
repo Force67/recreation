@@ -41,10 +41,24 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   transient_pool_ = std::make_unique<TransientPool>(*device_);
   material_system_ = MaterialSystem::Create(*device_);
   if (!material_system_) return false;
-  mesh_pipeline_ = MeshPipeline::Create(*device_, kSceneColorFormat, kMotionFormat, kDepthFormat,
-                                        material_system_->set_layout());
+  environment_ = EnvironmentSystem::Create(*device_);
+  if (!environment_) return false;
+  mesh_pipeline_ = MeshPipeline::Create(*device_, kSceneColorFormat, kMotionFormat,
+                                        kNormalFormat, kDepthFormat,
+                                        material_system_->set_layout(),
+                                        environment_->env_set_layout());
   post_ = PostPass::Create(*device_, swapchain_->format());
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
+  if (rt_available_ && !rtao_.Initialize(*device_)) return false;
+  if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
+  if (rt_available_) {
+    ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler());
+    if (!ddgi_) return false;
+  }
+  if (!environment_->CreateSkyPipeline(mesh_pipeline_->set_layout(), kSceneColorFormat,
+                                       kMotionFormat, kDepthFormat)) {
+    return false;
+  }
 
   if (settings_.upscaler != UpscalerKind::kNone && !CreateUpscalerForSettings()) {
     REC_WARN("upscaler unavailable, falling back to taa");
@@ -58,6 +72,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 
   return true;
 }
@@ -121,6 +136,7 @@ void Renderer::ApplySettings() {
     UpdateRenderResolution();
     transient_pool_->Clear();
     taa_.Resize(*device_, {render_width_, render_height_});
+    if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
     taa_.Reset();
     has_prev_frame_ = false;
   }
@@ -134,6 +150,7 @@ void Renderer::ApplySettings() {
       UpdateRenderResolution();
       transient_pool_->Clear();
       taa_.Resize(*device_, {render_width_, render_height_});
+      if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
     }
     taa_.Reset();
     has_prev_frame_ = false;
@@ -141,6 +158,32 @@ void Renderer::ApplySettings() {
 
   taa_.Configure({.history_blend = settings_.taa_history_blend,
                   .jitter_sample_count = taa_.settings().jitter_sample_count});
+  rtao_.Configure({.radius = settings_.ao_radius,
+                   .intensity = settings_.ao_intensity,
+                   .ray_count = settings_.ao_rays == 0 ? 1 : settings_.ao_rays});
+  exposure_.Configure({.automatic = settings_.auto_exposure,
+                       .compensation = settings_.exposure,
+                       .adaptation_speed = settings_.adaptation_speed,
+                       .manual_exposure = settings_.exposure});
+  if (ddgi_) {
+    ddgi_->Configure({.probe_spacing = settings_.ddgi_spacing,
+                      .hysteresis = 0.97f,
+                      .energy_scale = settings_.ddgi_intensity});
+  }
+
+  Vec3 sun = Normalize(settings_.sun_direction);
+  bool sun_changed = sun.x != applied_sun_direction_.x || sun.y != applied_sun_direction_.y ||
+                     sun.z != applied_sun_direction_.z ||
+                     settings_.sun_intensity != applied_sun_intensity_ ||
+                     settings_.sun_color.x != applied_sun_color_.x ||
+                     settings_.sun_color.y != applied_sun_color_.y ||
+                     settings_.sun_color.z != applied_sun_color_.z;
+  if (sun_changed) {
+    applied_sun_direction_ = sun;
+    applied_sun_intensity_ = settings_.sun_intensity;
+    applied_sun_color_ = settings_.sun_color;
+    environment_dirty_ = true;
+  }
 }
 
 bool Renderer::UploadMesh(const asset::Mesh& mesh) {
@@ -259,6 +302,8 @@ void Renderer::RenderFrame(const FrameView& view) {
 
 void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view) {
   bool rt_shadows = rt_available_ && settings_.rt_shadows;
+  bool rtao_active = rt_available_ && settings_.rtao;
+  bool ddgi_active = ddgi_ && settings_.ddgi && settings_.ibl;
 
   // Camera state for both this frame and reprojection. Jitter lives in the
   // projection, not the matrices used for motion vectors.
@@ -285,6 +330,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   FrameGlobals globals;
   globals.view_proj = view_proj;
   globals.prev_view_proj = has_prev_frame_ ? prev_view_proj_ : view_proj;
+  globals.inv_view_proj = Inverse(view_proj);
   globals.jitter[0] = 2.0f * jitter_x / static_cast<f32>(render_width_);
   globals.jitter[1] = 2.0f * jitter_y / static_cast<f32>(render_height_);
   Vec3 sun = Normalize(settings_.sun_direction);
@@ -299,6 +345,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.camera_position[0] = view.camera.eye.x;
   globals.camera_position[1] = view.camera.eye.y;
   globals.camera_position[2] = view.camera.eye.z;
+  globals.camera_position[3] = settings_.ibl_intensity;
+  globals.misc[0] = static_cast<f32>(render_width_);
+  globals.misc[1] = static_cast<f32>(render_height_);
+  globals.misc[2] = settings_.sun_angular_radius;
+  globals.misc[3] = static_cast<f32>(frame_index_ % 4096);
+  if (settings_.ibl) globals.flags |= kFrameFlagIbl;
+  if (rtao_active) globals.flags |= kFrameFlagAoValid;
+  if (ddgi_active) globals.flags |= kFrameFlagDdgi;
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -312,9 +366,24 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   ResourceHandle depth = graph_.CreateTexture(
       {.name = "depth", .format = kDepthFormat, .width = render_width_,
        .height = render_height_});
+  ResourceHandle normals = graph_.CreateTexture(
+      {.name = "normals", .format = kNormalFormat, .width = render_width_,
+       .height = render_height_});
+
+  if (environment_dirty_ && (settings_.ibl || settings_.sky)) {
+    environment_dirty_ = false;
+    Vec3 env_sun = applied_sun_direction_;
+    f32 env_intensity = applied_sun_intensity_;
+    Vec3 env_color = applied_sun_color_;
+    graph_.AddPass(
+        "env_update", [](RenderGraph::PassBuilder&) {},
+        [this, env_sun, env_intensity, env_color](PassContext& ctx) {
+          environment_->RecordUpdate(ctx.cmd, env_sun, env_intensity, env_color);
+        });
+  }
 
   u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
-  if (rt_shadows) {
+  if (rt_shadows || rtao_active || ddgi_active) {
     base::Vector<RayTracingContext::Instance> instances;
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
@@ -328,13 +397,97 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   graph_.AddPass(
+      "prepass",
+      [&](RenderGraph::PassBuilder& builder) {
+        builder.Write(normals, ResourceUsage::kColorAttachment);
+        builder.Write(motion, ResourceUsage::kColorAttachment);
+        builder.Write(depth, ResourceUsage::kDepthAttachment);
+      },
+      [this, normals, motion, depth, &frame, &view](PassContext& ctx) {
+        VkRenderingAttachmentInfo colors[2];
+        colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        colors[0].imageView = ctx.graph->image(normals).view;
+        colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colors[1] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        colors[1].imageView = ctx.graph->image(motion).view;
+        colors[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colors[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkRenderingAttachmentInfo depth_attachment{
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        depth_attachment.imageView = ctx.graph->image(depth).view;
+        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
+
+        VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+        rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = 2;
+        rendering.pColorAttachments = colors;
+        rendering.pDepthAttachment = &depth_attachment;
+        vkCmdBeginRendering(ctx.cmd, &rendering);
+
+        VkViewport viewport{0, 0, static_cast<f32>(render_width_),
+                            static_cast<f32>(render_height_), 0.0f, 1.0f};
+        VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
+        vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
+
+        VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
+        VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
+        VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = globals_set;
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.pBufferInfo = &buffer_info;
+        vkUpdateDescriptorSets(device_->device(), 1, &write, 0, nullptr);
+
+        mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
+        VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        for (const DrawItem& item : view.draws) {
+          const GpuMesh* mesh = meshes_.find(item.mesh);
+          if (!mesh) continue;
+          mesh_pipeline_->Draw(ctx.cmd, *mesh,
+                               {.model = item.transform, .prev_model = item.prev_transform});
+          for (const GpuSubmesh& submesh : mesh->submeshes) {
+            VkDescriptorSet material = material_system_->set(submesh.material);
+            if (material != bound_material) {
+              mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              bound_material = material;
+            }
+            mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+          }
+        }
+        vkCmdEndRendering(ctx.cmd);
+      });
+
+  if (ddgi_active) {
+    ddgi_->AddToGraph(graph_, *raytracing_, tlas_slot, view.camera.eye,
+                      applied_sun_direction_, applied_sun_intensity_, applied_sun_color_,
+                      frame_index_);
+  }
+
+  ResourceHandle ao = kInvalidResource;
+  if (rtao_active) {
+    ao = rtao_.AddToGraph(graph_, *raytracing_, tlas_slot, depth, normals, motion,
+                          globals.inv_view_proj, frame_index_);
+  }
+
+  graph_.AddPass(
       "scene",
       [&](RenderGraph::PassBuilder& builder) {
         builder.Write(scene_color, ResourceUsage::kColorAttachment);
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
+        if (ao != kInvalidResource) builder.Read(ao, ResourceUsage::kSampledFragment);
       },
-      [this, scene_color, motion, depth, tlas_slot, rt_shadows, &frame,
+      [this, scene_color, motion, depth, ao, tlas_slot, rt_shadows, ddgi_active, &frame,
        &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -346,17 +499,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         colors[1] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[1].imageView = ctx.graph->image(motion).view;
         colors[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // the prepass wrote motion
         colors[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colors[1].clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
 
         VkRenderingAttachmentInfo depth_attachment{
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         depth_attachment.imageView = ctx.graph->image(depth).view;
         depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // prepass depth, tested EQUAL
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
 
         VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
         rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
@@ -400,7 +551,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         }
         vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
 
-        mesh_pipeline_->Bind(ctx.cmd, globals_set, rt_shadows, settings_.wireframe);
+        VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
+        VkImageView ao_view =
+            ao != kInvalidResource ? ctx.graph->image(ao).view : VK_NULL_HANDLE;
+        EnvironmentSystem::DdgiBinding ddgi_binding;
+        if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
+        environment_->WriteEnvSet(env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr);
+
+        mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, rt_shadows, settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
@@ -416,6 +574,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
           }
         }
+        if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
         vkCmdEndRendering(ctx.cmd);
       });
 
@@ -443,6 +602,17 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       break;
   }
 
+  // Dimensions of the aa-resolved image the post stack runs at.
+  bool upscaled = settings_.aa_mode == AntiAliasingMode::kUpscaler && post_input != scene_color;
+  u32 post_width = upscaled ? output_width_ : render_width_;
+  u32 post_height = upscaled ? output_height_ : render_height_;
+
+  exposure_.AddToGraph(graph_, post_input, post_width, post_height, view.frame_delta_seconds);
+  ResourceHandle bloom = kInvalidResource;
+  if (settings_.bloom) {
+    bloom = bloom_.AddToGraph(graph_, post_input, post_width, post_height);
+  }
+
   GpuImage backbuffer_image;
   backbuffer_image.image = swapchain_->image(image_index);
   backbuffer_image.view = swapchain_->view(image_index);
@@ -450,16 +620,22 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   backbuffer_image.extent = swapchain_->extent();
   ResourceHandle backbuffer = graph_.ImportBackbuffer(backbuffer_image);
 
-  PostPass::Params post_params{settings_.exposure, static_cast<u32>(settings_.tonemap)};
+  PostPass::Params post_params{static_cast<u32>(settings_.tonemap), settings_.bloom_intensity,
+                               bloom != kInvalidResource ? 1u : 0u, 0};
   graph_.AddPass(
       "post",
       [&](RenderGraph::PassBuilder& builder) {
         builder.Read(post_input, ResourceUsage::kSampledFragment);
+        if (bloom != kInvalidResource) builder.Read(bloom, ResourceUsage::kSampledFragment);
         builder.Write(backbuffer, ResourceUsage::kColorAttachment);
       },
-      [this, post_input, backbuffer, post_params](PassContext& ctx) {
-        post_->Record(ctx, ctx.graph->image(post_input).view, ctx.graph->image(backbuffer).view,
-                      ctx.graph->image(backbuffer).extent, post_params);
+      [this, post_input, bloom, backbuffer, post_params](PassContext& ctx) {
+        VkImageView bloom_view = bloom != kInvalidResource ? ctx.graph->image(bloom).view
+                                                           : ctx.graph->image(post_input).view;
+        post_->Record(ctx, ctx.graph->image(post_input).view, bloom_view,
+                      exposure_.exposure_buffer(), exposure_.exposure_buffer_size(),
+                      ctx.graph->image(backbuffer).view, ctx.graph->image(backbuffer).extent,
+                      post_params);
       });
 
   if (view.ui_draw) {
@@ -511,17 +687,18 @@ bool Renderer::CreateFrameResources() {
     }
 
     VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 32},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16},
         {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 4},
     };
     VkDescriptorPoolCreateInfo descriptor_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    descriptor_info.maxSets = 16;
+    descriptor_info.maxSets = 64;
     // The acceleration structure pool size is only legal with the extension
     // enabled, drop it otherwise.
-    descriptor_info.poolSizeCount = device_->caps().raytracing ? 4 : 3;
+    descriptor_info.poolSizeCount = device_->caps().raytracing ? 5 : 4;
     descriptor_info.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(device_->device(), &descriptor_info, nullptr,
                                &frame.descriptor_pool) != VK_SUCCESS) {
@@ -592,6 +769,7 @@ void Renderer::RecreateSwapchain() {
   UpdateRenderResolution();
   transient_pool_->Clear();
   taa_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
   has_prev_frame_ = false;
 }
 
@@ -609,6 +787,11 @@ void Renderer::Shutdown() {
     }
     meshes_.clear();
     taa_.Destroy(*device_);
+    if (rt_available_) rtao_.Destroy(*device_);
+    bloom_.Destroy(*device_);
+    exposure_.Destroy(*device_);
+    ddgi_.reset();
+    environment_.reset();
     material_system_.reset();
     transient_pool_.reset();
   }

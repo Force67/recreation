@@ -35,14 +35,34 @@ struct RenderSettings {
   f32 taa_history_blend = 0.9f;
 
   bool rt_shadows = true;  // masked by device caps and the renderer desc
+  f32 sun_angular_radius = 0.005f;  // radians; 0 reverts to hard shadows
   bool wireframe = false;
   bool vsync = false;
+
+  bool sky = true;  // procedural atmosphere as the background
+  bool ibl = true;  // sky-driven image based lighting
+  f32 ibl_intensity = 1.0f;
+
+  bool rtao = true;  // ray traced ambient occlusion (needs ray query)
+  f32 ao_radius = 1.2f;
+  f32 ao_intensity = 1.0f;
+  u32 ao_rays = 2;
+
+  bool ddgi = true;  // probe based diffuse gi (needs ray query)
+  f32 ddgi_spacing = 1.5f;
+  f32 ddgi_intensity = 1.0f;
 
   Vec3 sun_direction{-0.35f, -0.9f, -0.25f};  // travel direction of the light
   f32 sun_intensity = 4.0f;
   Vec3 sun_color{1.0f, 0.96f, 0.9f};
   f32 ambient = 0.06f;
 
+  bool bloom = true;
+  f32 bloom_intensity = 0.04f;
+
+  bool auto_exposure = true;
+  f32 adaptation_speed = 3.0f;
+  // Compensation multiplier under auto exposure, absolute exposure without.
   f32 exposure = 1.0f;
   TonemapOperator tonemap = TonemapOperator::kAces;
 };

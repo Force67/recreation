@@ -10,7 +10,12 @@
 #include "asset/mesh.h"
 #include "core/math.h"
 #include "core/window.h"
+#include "render/ambient_occlusion.h"
 #include "render/antialiasing.h"
+#include "render/bloom.h"
+#include "render/ddgi.h"
+#include "render/exposure.h"
+#include "render/environment.h"
 #include "render/material_system.h"
 #include "render/mesh_pipeline.h"
 #include "render/post.h"
@@ -92,6 +97,7 @@ class Renderer {
   static constexpr u32 kFramesInFlight = 2;
   static constexpr VkFormat kSceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
   static constexpr VkFormat kMotionFormat = VK_FORMAT_R16G16_SFLOAT;
+  static constexpr VkFormat kNormalFormat = VK_FORMAT_R16G16_SFLOAT;
   static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 
   struct FrameResources {
@@ -120,6 +126,8 @@ class Renderer {
   std::unique_ptr<Swapchain> swapchain_;
   std::unique_ptr<TransientPool> transient_pool_;
   std::unique_ptr<MaterialSystem> material_system_;
+  std::unique_ptr<EnvironmentSystem> environment_;
+  std::unique_ptr<DdgiSystem> ddgi_;
   std::unique_ptr<MeshPipeline> mesh_pipeline_;
   std::unique_ptr<PostPass> post_;
   base::UnorderedMap<u64, GpuMesh> meshes_;
@@ -131,12 +139,20 @@ class Renderer {
   std::unique_ptr<RayTracingContext> raytracing_;
   RenderGraph graph_;
   TaaPass taa_;
+  RtaoPass rtao_;
+  BloomPass bloom_;
+  ExposurePass exposure_;
 
   // Settings already in effect, diffed against settings_ each frame.
   UpscalerKind applied_upscaler_ = UpscalerKind::kNone;
   UpscalerQuality applied_quality_ = UpscalerQuality::kQuality;
   AntiAliasingMode applied_aa_ = AntiAliasingMode::kTaa;
   bool applied_vsync_ = false;
+  // Sun state baked into the environment maps; differing means regenerate.
+  Vec3 applied_sun_direction_{};
+  f32 applied_sun_intensity_ = -1;
+  Vec3 applied_sun_color_{};
+  bool environment_dirty_ = true;
 
   Mat4 prev_view_proj_ = Mat4::Identity();
   bool has_prev_frame_ = false;
