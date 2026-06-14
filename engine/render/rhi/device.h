@@ -61,6 +61,16 @@ class Device {
 
   void WaitIdle();
 
+  // Live gpu memory usage from VMA, summed over the device-local heaps, for the
+  // debug overlay. budget is the driver's estimate of what the app may use.
+  struct MemoryBudget {
+    u64 used_bytes = 0;
+    u64 budget_bytes = 0;
+    u64 allocated_bytes = 0;  // bytes in live VMA allocations
+    u32 allocation_count = 0;
+  };
+  MemoryBudget memory_budget() const;
+
   // Records into a transient command buffer and blocks until execution
   // finished. For uploads and one-off transitions, not the frame path.
   void ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record);

@@ -160,6 +160,48 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
       }
 
+      if (render::Device* device = renderer.device();
+          device && ImGui::CollapsingHeader("GPU memory")) {
+        render::Device::MemoryBudget mem = device->memory_budget();
+        const f64 mb = 1.0 / (1024.0 * 1024.0);
+        ImGui::Text("used %.0f / %.0f MB", mem.used_bytes * mb, mem.budget_bytes * mb);
+        if (mem.budget_bytes > 0) {
+          ImGui::ProgressBar(static_cast<f32>(static_cast<f64>(mem.used_bytes) / mem.budget_bytes),
+                             {-1, 0});
+        }
+        ImGui::Text("%u allocations, %.0f MB live", mem.allocation_count,
+                    mem.allocated_bytes * mb);
+        const render::RenderGraph::Stats& g = renderer.graph_stats();
+        ImGui::Text("frame graph transients: %u (%.1f MB)", g.transient_count,
+                    g.transient_bytes * mb);
+      }
+
+      if (const render::RenderGraph::Stats& g = renderer.graph_stats();
+          !g.passes.empty() && ImGui::CollapsingHeader("Frame graph")) {
+        ImGui::Text("%zu passes, %u barriers", g.passes.size(), g.barrier_count);
+        if (ImGui::BeginTable("fg_passes", 4,
+                              ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_SizingStretchProp,
+                              {0, 180})) {
+          ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch);
+          ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed, 24);
+          ImGui::TableSetupColumn("W", ImGuiTableColumnFlags_WidthFixed, 24);
+          ImGui::TableSetupColumn("Bar", ImGuiTableColumnFlags_WidthFixed, 30);
+          for (const auto& p : g.passes) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(p.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", p.reads);
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", p.writes);
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", p.barriers);
+          }
+          ImGui::EndTable();
+        }
+      }
+
       if (ImGui::CollapsingHeader("Anti-aliasing & upscaling",
                                   ImGuiTreeNodeFlags_DefaultOpen)) {
         int aa = settings.aa_mode == render::AntiAliasingMode::kNone   ? 0

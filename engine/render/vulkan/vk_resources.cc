@@ -64,6 +64,23 @@ void Device::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record)
   vkFreeCommandBuffers(device_, immediate_pool_, 1, &cmd);
 }
 
+Device::MemoryBudget Device::memory_budget() const {
+  MemoryBudget result;
+  if (!allocator_) return result;
+  VkPhysicalDeviceMemoryProperties props;
+  vkGetPhysicalDeviceMemoryProperties(physical_device_, &props);
+  VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
+  vmaGetHeapBudgets(allocator_, budgets);
+  for (u32 i = 0; i < props.memoryHeapCount; ++i) {
+    if (!(props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)) continue;
+    result.used_bytes += budgets[i].usage;
+    result.budget_bytes += budgets[i].budget;
+    result.allocated_bytes += budgets[i].statistics.allocationBytes;
+    result.allocation_count += budgets[i].statistics.allocationCount;
+  }
+  return result;
+}
+
 GpuBuffer Device::CreateBuffer(u64 size, VkBufferUsageFlags usage, bool host_visible) {
   VkBufferCreateInfo buffer_info{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.size = size;

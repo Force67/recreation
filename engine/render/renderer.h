@@ -121,6 +121,10 @@ class Renderer {
   f32 gpu_frame_ms() const { return profiler_.total_ms(); }
   u32 path_trace_samples() const { return path_tracer_.accumulated_samples(); }
 
+  // Last compiled frame graph, for the debug inspector (passes, transient
+  // resources, barrier and memory totals).
+  const RenderGraph::Stats& graph_stats() const { return graph_.stats(); }
+
  private:
   static constexpr u32 kFramesInFlight = 2;
   static constexpr VkFormat kSceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;

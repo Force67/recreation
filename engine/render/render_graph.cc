@@ -6,6 +6,25 @@
 namespace rec::render {
 namespace {
 
+// Bytes per texel for the formats the graph allocates, for the memory readout.
+u32 FormatBytes(VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_R8_UNORM: return 1;
+    case VK_FORMAT_R16G16_SFLOAT: return 4;
+    case VK_FORMAT_R32_SFLOAT: return 4;
+    case VK_FORMAT_D32_SFLOAT: return 4;
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_UNORM: return 4;
+    case VK_FORMAT_R16G16B16A16_SFLOAT: return 8;
+    case VK_FORMAT_R32G32B32A32_SFLOAT: return 16;
+    default: return 4;
+  }
+}
+
+bool IsReadUsage(ResourceUsage usage) {
+  return usage == ResourceUsage::kSampledFragment || usage == ResourceUsage::kSampledCompute;
+}
+
 struct UsageState {
   VkImageLayout layout;
   VkPipelineStageFlags2 stage;
@@ -202,6 +221,33 @@ bool RenderGraph::Compile(Device& device, TransientPool& pool) {
       final_barriers_.push_back(barrier);
     }
     if (resource.external_layout) *resource.external_layout = resource.layout;
+  }
+
+  // Snapshot the compiled graph for the debug inspector.
+  stats_ = Stats{};
+  for (const Pass& pass : passes_) {
+    Stats::Pass entry;
+    entry.name = pass.name;
+    for (const auto& access : pass.builder.accesses) {
+      if (IsReadUsage(access.usage)) ++entry.reads; else ++entry.writes;
+    }
+    entry.barriers = static_cast<u32>(pass.barriers.size());
+    stats_.barrier_count += entry.barriers;
+    stats_.passes.push_back(std::move(entry));
+  }
+  for (const Resource& resource : resources_) {
+    Stats::Resource entry;
+    entry.name = resource.desc.name;
+    entry.width = resource.desc.width;
+    entry.height = resource.desc.height;
+    entry.imported = resource.imported;
+    entry.bytes = static_cast<u64>(resource.desc.width) * resource.desc.height *
+                  FormatBytes(resource.desc.format);
+    if (!resource.imported) {
+      stats_.transient_bytes += entry.bytes;
+      ++stats_.transient_count;
+    }
+    stats_.resources.push_back(std::move(entry));
   }
   return true;
 }

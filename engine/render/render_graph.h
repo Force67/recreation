@@ -119,6 +119,31 @@ class RenderGraph {
 
   const GpuImage& image(ResourceHandle handle) const { return resources_[handle - 1].image; }
 
+  // A snapshot of the compiled frame graph for the debug inspector: passes with
+  // their read/write/barrier counts, transient resources with their footprint,
+  // and totals. Captured at the end of Compile.
+  struct Stats {
+    struct Pass {
+      std::string name;
+      u32 reads = 0;
+      u32 writes = 0;
+      u32 barriers = 0;
+    };
+    struct Resource {
+      std::string name;
+      u32 width = 0;
+      u32 height = 0;
+      u64 bytes = 0;
+      bool imported = false;
+    };
+    base::Vector<Pass> passes;
+    base::Vector<Resource> resources;
+    u64 transient_bytes = 0;
+    u32 transient_count = 0;
+    u32 barrier_count = 0;
+  };
+  const Stats& stats() const { return stats_; }
+
  private:
   struct Resource {
     TransientTextureDesc desc;
@@ -143,6 +168,7 @@ class RenderGraph {
   base::Vector<Resource> resources_;
   base::Vector<Pass> passes_;
   base::Vector<VkImageMemoryBarrier2> final_barriers_;
+  Stats stats_;
   PassBegin pass_begin_;
   PassEnd pass_end_;
 };
