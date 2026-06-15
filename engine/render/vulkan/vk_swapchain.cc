@@ -57,6 +57,27 @@ bool Swapchain::Init(u32 width, u32 height, bool vsync) {
   u32 image_count = caps.minImageCount + 1;
   if (caps.maxImageCount > 0) image_count = std::min(image_count, caps.maxImageCount);
 
+  // Desktop surfaces support OPAQUE; Android surfaces often only offer INHERIT.
+  // Pick the first supported value rather than assuming OPAQUE.
+  VkCompositeAlphaFlagBitsKHR composite = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  for (VkCompositeAlphaFlagBitsKHR pref :
+       {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR}) {
+    if (caps.supportedCompositeAlpha & pref) {
+      composite = pref;
+      break;
+    }
+  }
+
+  // On a portrait-native panel the surface reports a rotated currentTransform.
+  // Letting the display engine apply it (preTransform = identity) keeps the
+  // engine rendering in the surface's reported orientation with no pre-rotation
+  // pass; fall back to the current transform when identity is unsupported.
+  VkSurfaceTransformFlagBitsKHR transform = caps.currentTransform;
+  if (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+    transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+  }
+
   VkSwapchainCreateInfoKHR info{.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
   info.surface = device_.surface();
   info.minImageCount = image_count;
@@ -67,8 +88,8 @@ bool Swapchain::Init(u32 width, u32 height, bool vsync) {
   info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                     VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  info.preTransform = caps.currentTransform;
-  info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  info.preTransform = transform;
+  info.compositeAlpha = composite;
   info.presentMode = present_mode;
   info.clipped = VK_TRUE;
 
