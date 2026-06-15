@@ -15,6 +15,7 @@ struct FrameGlobals {
   float time;
   uint debug_view;  // render::DebugView, isolates a shading channel
   float reflection_cutoff;
+  uint ao_ray_count;  // rt ao rays/pixel this frame (0 when ao is screen-space)
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
 
@@ -363,6 +364,13 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     case 6: return ambient;     // indirect (ibl + ddgi), ao applied
     case 7: return lit;         // direct sun, shadowed
     case 8: return emissive;
+    case 14: {  // ray-count heatmap: the raster path only casts rt ao rays
+      float rays = float(frame.ao_ray_count);
+      if (rays <= 0.0) return float3(0.02, 0.02, 0.02);
+      float t = saturate(rays / 8.0);
+      return saturate(float3(1.5 - abs(4.0 * t - 3.0), 1.5 - abs(4.0 * t - 2.0),
+                             1.5 - abs(4.0 * t - 1.0)));
+    }
   }
   return lit + ambient + emissive;
 }

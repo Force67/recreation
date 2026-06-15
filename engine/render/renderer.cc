@@ -752,6 +752,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.time = static_cast<f32>(time_seconds_);
   globals.debug_view = static_cast<u32>(settings_.debug_view);
   globals.reflection_cutoff = settings_.reflection_roughness_cutoff;
+  globals.ao_ray_count = nrd_ao ? settings_.ao_rays : 0u;  // rt ao rays, for the ray-count view
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;

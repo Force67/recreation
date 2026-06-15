@@ -32,6 +32,7 @@ enum class DebugView : u8 {
   kBounds,      // cull / acceleration-structure bounding boxes (overlay)
   kTemporalHistory,  // taa disocclusion heatmap (where history is rejected)
   kMotionVectors,    // screen-space velocity (red = +x, green = +y, grey = still)
+  kRayCount,         // per-pixel ray-tracing cost heatmap (shadow + ao + reflection)
 };
 
 // Resolution scaling presets matching the vendor upscaler naming. The ratio

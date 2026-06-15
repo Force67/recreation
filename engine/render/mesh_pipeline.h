@@ -24,6 +24,7 @@ struct FrameGlobals {
   f32 time = 0;  // seconds, drives water waves
   u32 debug_view = 0;  // render::DebugView, isolates a shading channel
   f32 reflection_cutoff = 0.6f;  // roughness above which rt reflections fall back to ibl
+  u32 ao_ray_count = 0;  // rt ao rays/pixel this frame (0 when ao is screen-space), for the ray-count view
 };
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.
