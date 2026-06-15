@@ -6,6 +6,7 @@
 #include <android/native_window.h>
 #include <android_native_app_glue.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -86,8 +87,8 @@ rec::EngineConfig LoadConfig(android_app* app) {
   // that does not depend on the platform screenshotter.
   std::string shot = get("screenshot");
   if (!shot.empty()) {
-    std::string path = std::string(app->activity->internalDataPath) + "/frame.png:" + shot;
-    setenv("REC_SCREENSHOT", path.c_str(), 1);
+    std::string shot_path = std::string(app->activity->internalDataPath) + "/frame.png:" + shot;
+    setenv("REC_SCREENSHOT", shot_path.c_str(), 1);
   }
 
   __android_log_print(ANDROID_LOG_INFO, kTag, "config: game=%s data_dir=%s", active.c_str(),
@@ -101,11 +102,37 @@ struct AppState {
   rec::EngineConfig config;
   bool initialized = false;
   bool finished = false;
-  // Last touch position, for turning drags into camera-look deltas.
-  bool touching = false;
-  float last_x = 0;
-  float last_y = 0;
+  // Touch controls: a pointer that goes down in the left half drives a virtual
+  // movement stick (mapped to WASD), one in the right half looks around (mapped
+  // to a mouse-look drag). Each control is owned by a single pointer id.
+  int move_pointer = -1;
+  float move_origin_x = 0;
+  float move_origin_y = 0;
+  int look_pointer = -1;
+  float look_last_x = 0;
+  float look_last_y = 0;
 };
+
+void SetKey(rec::InputState& input, rec::Key key, bool down) {
+  input.keys[static_cast<rec::u8>(key)] = down;
+}
+
+// Maps the virtual stick offset (pixels from where the finger went down) to the
+// fly camera's movement keys, with a small deadzone.
+void ApplyMoveStick(rec::InputState& input, float dx, float dy) {
+  constexpr float kDeadzone = 36.0f;
+  SetKey(input, rec::Key::kW, dy < -kDeadzone);
+  SetKey(input, rec::Key::kS, dy > kDeadzone);
+  SetKey(input, rec::Key::kA, dx < -kDeadzone);
+  SetKey(input, rec::Key::kD, dx > kDeadzone);
+}
+
+void ClearMoveStick(rec::InputState& input) {
+  SetKey(input, rec::Key::kW, false);
+  SetKey(input, rec::Key::kS, false);
+  SetKey(input, rec::Key::kA, false);
+  SetKey(input, rec::Key::kD, false);
+}
 
 void HandleCmd(android_app* app, int32_t cmd) {
   auto* state = static_cast<AppState*>(app->userData);
@@ -139,34 +166,79 @@ void HandleCmd(android_app* app, int32_t cmd) {
   }
 }
 
+void PointerDown(AppState* state, rec::InputState& input, int id, float x, float y, float mid_x) {
+  if (x < mid_x) {
+    if (state->move_pointer < 0) {
+      state->move_pointer = id;
+      state->move_origin_x = x;
+      state->move_origin_y = y;
+    }
+  } else if (state->look_pointer < 0) {
+    state->look_pointer = id;
+    state->look_last_x = x;
+    state->look_last_y = y;
+    input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = true;
+  }
+}
+
+void PointerUp(AppState* state, rec::InputState& input, int id) {
+  if (id == state->move_pointer) {
+    state->move_pointer = -1;
+    ClearMoveStick(input);
+  } else if (id == state->look_pointer) {
+    state->look_pointer = -1;
+    input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = false;
+  }
+}
+
 int32_t HandleInput(android_app* app, AInputEvent* event) {
   auto* state = static_cast<AppState*>(app->userData);
-  if (!state->initialized) return 0;
+  if (!state->initialized || state->window == nullptr) return 0;
   if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
 
   rec::InputState& input = state->window->mutable_input();
-  int32_t action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
-  float x = AMotionEvent_getX(event, 0);
-  float y = AMotionEvent_getY(event, 0);
-  switch (action) {
+  // Touch x arrives in the activity's (landscape) space; the larger dimension is
+  // the horizontal extent, so split the zones at half of it.
+  const float mid_x = 0.5f * static_cast<float>(std::max(state->window->width(), state->window->height()));
+
+  const int32_t action = AMotionEvent_getAction(event);
+  const int32_t masked = action & AMOTION_EVENT_ACTION_MASK;
+  switch (masked) {
     case AMOTION_EVENT_ACTION_DOWN:
-      state->touching = true;
-      state->last_x = x;
-      state->last_y = y;
-      input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = true;
+    case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+      const int32_t index = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
+                            AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+      PointerDown(state, input, AMotionEvent_getPointerId(event, index),
+                  AMotionEvent_getX(event, index), AMotionEvent_getY(event, index), mid_x);
       break;
-    case AMOTION_EVENT_ACTION_MOVE:
-      if (state->touching) {
-        input.mouse_dx += x - state->last_x;
-        input.mouse_dy += y - state->last_y;
-        state->last_x = x;
-        state->last_y = y;
+    }
+    case AMOTION_EVENT_ACTION_MOVE: {
+      const size_t count = AMotionEvent_getPointerCount(event);
+      for (size_t i = 0; i < count; ++i) {
+        const int id = AMotionEvent_getPointerId(event, i);
+        const float x = AMotionEvent_getX(event, i);
+        const float y = AMotionEvent_getY(event, i);
+        if (id == state->move_pointer) {
+          ApplyMoveStick(input, x - state->move_origin_x, y - state->move_origin_y);
+        } else if (id == state->look_pointer) {
+          input.mouse_dx += x - state->look_last_x;
+          input.mouse_dy += y - state->look_last_y;
+          state->look_last_x = x;
+          state->look_last_y = y;
+        }
       }
       break;
+    }
+    case AMOTION_EVENT_ACTION_POINTER_UP: {
+      const int32_t index = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
+                            AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+      PointerUp(state, input, AMotionEvent_getPointerId(event, index));
+      break;
+    }
     case AMOTION_EVENT_ACTION_UP:
     case AMOTION_EVENT_ACTION_CANCEL:
-      state->touching = false;
-      input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = false;
+      PointerUp(state, input, state->move_pointer);
+      PointerUp(state, input, state->look_pointer);
       break;
     default:
       break;
@@ -185,6 +257,16 @@ void android_main(android_app* app) {
   state.config = LoadConfig(app);
 
   while (!state.finished) {
+    // Look deltas are per-frame; the window backend never resets them, so clear
+    // them here before this frame's motion events accumulate. Movement keys are
+    // held state and persist until the stick pointer lifts.
+    if (state.initialized) {
+      rec::InputState& input = state.window->mutable_input();
+      input.mouse_dx = 0;
+      input.mouse_dy = 0;
+      input.wheel = 0;
+    }
+
     int events = 0;
     android_poll_source* source = nullptr;
     // Block for events until the engine is up; once rendering, drain without
