@@ -24,9 +24,17 @@ void main(uint3 id : SV_DispatchThreadID) {
   if (p.x >= size.x || p.y >= size.y) return;
 
   float3 curr = scene.Load(int3(p, 0)).rgb;
+
+  // Motion-vector view: red = +x velocity, green = +y, grey = still. Independent
+  // of the history, so it works even on the reset frame.
+  if (push.debug == 2u) {
+    float2 mv = motion.Load(int3(p, 0)).xy;
+    debug_out[p] = float4(0.5 + mv.x * 300.0, 0.5 + mv.y * 300.0, 0.5, 1.0);
+  }
+
   if (push.reset_history != 0u) {
     out_resolved[p] = float4(curr, 1.0);
-    if (push.debug != 0u) debug_out[p] = float4(0.0, 0.05, 0.15, 1.0);  // no history yet
+    if (push.debug == 1u) debug_out[p] = float4(0.0, 0.05, 0.15, 1.0);  // no history yet
     return;
   }
 
@@ -56,7 +64,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Always write the real resolved color so the history ping-pong stays valid.
   out_resolved[p] = float4(lerp(curr, hist, blend), 1.0);
 
-  if (push.debug != 0u) {
+  if (push.debug == 1u) {
     // How far the clamp had to pull the history back into the current frame's
     // local color range: high where temporal reuse breaks (disocclusion, fast
     // motion, lighting change). Off-screen reprojection is full rejection. Goes

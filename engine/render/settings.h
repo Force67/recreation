@@ -31,6 +31,7 @@ enum class DebugView : u8 {
   kOverdraw,    // additive geometry heat ramp (own pass, not a shading channel)
   kBounds,      // cull / acceleration-structure bounding boxes (overlay)
   kTemporalHistory,  // taa disocclusion heatmap (where history is rejected)
+  kMotionVectors,    // screen-space velocity (red = +x, green = +y, grey = still)
 };
 
 // Resolution scaling presets matching the vendor upscaler naming. The ratio

@@ -40,10 +40,10 @@ class TaaPass {
   void Reset() { history_valid_ = false; }
 
   // Adds the resolve pass and returns the handle of the resolved output.
-  // debug_disocclusion replaces the output with a heatmap of where history is
-  // rejected (clamped or reprojected off-screen), for the temporal-history view.
+  // debug_mode replaces the output with a debug visualization to a side target:
+  // 1 = disocclusion heatmap (history rejection), 2 = motion vectors.
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle motion,
-                            u32 frame_index, bool debug_disocclusion = false);
+                            u32 frame_index, u32 debug_mode = 0);
 
   const Settings& settings() const { return settings_; }
 

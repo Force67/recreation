@@ -25,7 +25,8 @@ const char* kColorGrades[] = {"Neutral", "Warm", "Cool", "Cinematic", "Custom (.
 const char* kDebugViews[] = {"Off",         "Base color",   "World normal",
                              "Roughness",   "Metallic",     "Ambient occlusion",
                              "Indirect GI", "Direct light", "Emissive", "Reflection",
-                             "Overdraw",    "Bounds (BVH)", "Temporal history"};
+                             "Overdraw",    "Bounds (BVH)", "Temporal history",
+                             "Motion vectors"};
 
 // Row 0 is "Custom" (hand-tuned); the rest map to QualityPreset below.
 const char* kPresets[] = {"Custom",  "Auto-detect", "Android", "Steam Deck", "Low end",

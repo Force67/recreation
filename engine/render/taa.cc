@@ -126,8 +126,8 @@ void TaaPass::Destroy(Device& device) {
 }
 
 ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
-                                   ResourceHandle motion, u32 frame_index,
-                                   bool debug_disocclusion) {
+                                   ResourceHandle motion, u32 frame_index, u32 debug_mode) {
+  bool debug_disocclusion = debug_mode != 0;
   u32 write_index = frame_index % 2;
   u32 read_index = 1 - write_index;
   ResourceHandle resolved =
@@ -158,7 +158,7 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
         builder.Write(resolved, ResourceUsage::kStorageWrite);
         if (debug_target != kInvalidResource) builder.Write(debug_target, ResourceUsage::kStorageWrite);
       },
-      [this, color, motion, history, resolved, reset, debug_disocclusion,
+      [this, color, motion, history, resolved, reset, debug_mode,
        debug_target](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(set_layout_);
 
@@ -193,7 +193,7 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
         push.inv_size[1] = 1.0f / static_cast<f32>(extent_.height);
         push.history_blend = settings_.history_blend;
         push.reset_history = reset ? 1u : 0u;
-        push.debug = debug_disocclusion ? 1u : 0u;
+        push.debug = debug_mode;
 
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0,
