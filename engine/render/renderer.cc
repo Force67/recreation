@@ -26,6 +26,25 @@ u32 SelectLod(const GpuMesh& mesh, f32 distance) {
   return lod < lod_count ? lod : lod_count - 1;
 }
 
+// Gribb-Hartmann frustum planes (left,right,bottom,top,near) from a column-major
+// view_proj, normalized so a point is inside when dot(n,p)+d >= 0. Far is skipped.
+void ExtractFrustumPlanes(const Mat4& vp, f32 out[5][4]) {
+  const f32* m = vp.m;
+  auto row = [&](int r, int c) { return m[c * 4 + r]; };
+  f32 p[5][4] = {
+      {row(3, 0) + row(0, 0), row(3, 1) + row(0, 1), row(3, 2) + row(0, 2), row(3, 3) + row(0, 3)},
+      {row(3, 0) - row(0, 0), row(3, 1) - row(0, 1), row(3, 2) - row(0, 2), row(3, 3) - row(0, 3)},
+      {row(3, 0) + row(1, 0), row(3, 1) + row(1, 1), row(3, 2) + row(1, 2), row(3, 3) + row(1, 3)},
+      {row(3, 0) - row(1, 0), row(3, 1) - row(1, 1), row(3, 2) - row(1, 2), row(3, 3) - row(1, 3)},
+      {row(2, 0), row(2, 1), row(2, 2), row(2, 3)},
+  };
+  for (int i = 0; i < 5; ++i) {
+    f32 len = std::sqrt(p[i][0] * p[i][0] + p[i][1] * p[i][1] + p[i][2] * p[i][2]);
+    if (len < 1e-8f) len = 1.0f;
+    for (int c = 0; c < 4; ++c) out[i][c] = p[i][c] / len;
+  }
+}
+
 }  // namespace
 
 Renderer::Renderer() = default;
@@ -125,6 +144,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!wboit_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gpu_cull_.Initialize(*device_, kSceneColorFormat)) return false;
+  if (!meshlet_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -456,6 +476,11 @@ void Renderer::ApplySettings() {
     applied_sun_color_ = settings_.sun_color;
     environment_dirty_ = true;
   }
+}
+
+void Renderer::UploadMeshletMesh(const asset::Mesh& mesh) {
+  if (!device_ || device_->is_stub()) return;
+  meshlet_.Upload(*device_, mesh);
 }
 
 bool Renderer::UploadMesh(const asset::Mesh& mesh) {
@@ -1527,6 +1552,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   // Bounds / acceleration-structure debug view: overlay the cull bounding boxes.
+  // Mesh-shader meshlet demo: clusters cull + draw on the gpu, composited into
+  // the lit scene with depth. Only active when a meshlet mesh was uploaded.
+  if (meshlet_.active()) {
+    meshlet_visible_ = meshlet_.last_visible(frame_index_);  // fence-safe, read before reset
+    f32 planes[5][4];
+    ExtractFrustumPlanes(view_proj, planes);
+    meshlet_.AddToGraph(graph_, lit, depth, view_proj, planes, view.camera.eye, frame_index_);
+  }
+
   if (settings_.debug_view == DebugView::kBounds) {
     gpu_cull_.AddBoundsPass(graph_, lit, view_proj, cull_instance_count, cull_slot);
   }
@@ -1875,6 +1909,7 @@ void Renderer::Shutdown() {
     wboit_.Destroy(*device_);
     overdraw_.Destroy(*device_);
     gpu_cull_.Destroy(*device_);
+    meshlet_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);

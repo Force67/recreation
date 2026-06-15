@@ -152,6 +152,9 @@ class Engine {
   // A wall hiding a dense grid of small cubes: the gpu hi-z occlusion cull drops
   // the hidden draws (watch "opaque draws: N / M visible" in the debug overlay).
   void CreateOcclusionDemoScene();
+  // A dense sphere drawn through the mesh-shader meshlet path, each cluster
+  // tinted, with gpu frustum + backface-cone cluster culling.
+  void CreateMeshletDemoScene();
 
   // A simple cpu particle fountain for the demos. Integrates + spawns each
   // frame and emits the live billboards into the frame view.

@@ -22,6 +22,7 @@
 #include "render/gaussian.h"
 #include "render/gpu_cull.h"
 #include "render/gpu_profiler.h"
+#include "render/meshlet.h"
 #include "render/path_tracer.h"
 #include "render/volumetric_fog.h"
 #include "render/material_system.h"
@@ -121,6 +122,9 @@ class Renderer {
   bool UploadMesh(const asset::Mesh& mesh);
   bool UploadTexture(const asset::Texture& texture);
   bool UploadMaterial(const asset::Material& material);
+  // Builds + uploads a mesh for the mesh-shader meshlet path (the --demo meshlet
+  // scene draws it instead of the normal raster geometry).
+  void UploadMeshletMesh(const asset::Mesh& mesh);
 
   // Live tunables. Mutate freely; RenderFrame diffs against the applied
   // state and reconfigures, including full upscaler swaps.
@@ -153,6 +157,11 @@ class Renderer {
   // count that survived gpu frustum culling (one frame stale).
   u32 draws_total() const { return cull_total_commands_; }
   u32 draws_visible() const { return cull_visible_; }
+
+  // Mesh-shader meshlet counts (0 total when no meshlet mesh is loaded): total
+  // clusters vs the count that survived gpu frustum + cone cluster culling.
+  u32 meshlets_total() const { return meshlet_.meshlet_count(); }
+  u32 meshlets_visible() const { return meshlet_visible_; }
 
  private:
   static constexpr u32 kFramesInFlight = 2;
@@ -226,6 +235,7 @@ class Renderer {
   WboitPass wboit_;
   OverdrawPass overdraw_;
   GpuCull gpu_cull_;
+  MeshletPass meshlet_;
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;
@@ -266,6 +276,7 @@ class Renderer {
   u32 frame_index_ = 0;
   u32 cull_total_commands_ = 0;  // opaque indirect draws this frame
   u32 cull_visible_ = 0;         // survivors from the last completed cull (fence-safe)
+  u32 meshlet_visible_ = 0;      // survivors of the last meshlet cluster cull (fence-safe)
   u32 render_width_ = 0;
   u32 render_height_ = 0;
   u32 output_width_ = 0;

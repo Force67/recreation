@@ -179,6 +179,10 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
                     g.transient_bytes * mb);
         ImGui::Text("opaque draws: %u / %u visible (gpu cull)", renderer.draws_visible(),
                     renderer.draws_total());
+        if (renderer.meshlets_total() > 0) {
+          ImGui::Text("meshlets: %u / %u drawn (cluster cull)", renderer.meshlets_visible(),
+                      renderer.meshlets_total());
+        }
       }
 
       if (const render::RenderGraph::Stats& g = renderer.graph_stats();

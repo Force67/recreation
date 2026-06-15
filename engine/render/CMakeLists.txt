@@ -16,6 +16,7 @@ recreation_add_module(render
   shadow.cc
   shadow_trace.cc
   exr_write.cc
+  meshlet.cc
   particles.cc
   fur.cc
   wboit.cc
@@ -101,6 +102,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/ssgi.cs.hlsl
   shaders/cull.cs.hlsl
   shaders/hiz_reduce.cs.hlsl
+  shaders/meshlet.ms.hlsl
+  shaders/meshlet.ps.hlsl
   shaders/bounds.vs.hlsl
   shaders/bounds.ps.hlsl
   shaders/bloom_down.cs.hlsl

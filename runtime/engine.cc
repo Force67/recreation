@@ -774,6 +774,21 @@ void Engine::CreateOcclusionDemoScene() {
   REC_INFO("occlusion demo: {} small cubes hidden behind a wall (gpu hi-z cull)", idx);
 }
 
+void Engine::CreateMeshletDemoScene() {
+  // A dense sphere rendered through the mesh-shader meshlet path: the gpu splits
+  // it into clusters, frustum/cone-culls them, and tints each a distinct color
+  // so the decomposition is visible. The mesh is not a normal Renderable; the
+  // renderer draws it via the meshlet pass (watch "meshlet: N meshlets ...").
+  asset::Mesh sphere = asset::MakeSphere(1.5f, 64, 128, asset::MakeAssetId("builtin/meshlet/sphere"));
+  if (!config_.headless) renderer_.UploadMeshletMesh(sphere);
+
+  camera_.set_position({0.0f, 0.0f, 4.5f});
+  camera_.set_yaw_pitch(0.0f, 0.0f);
+  camera_.speed = 3.0f;
+  REC_INFO("meshlet demo: mesh-shader cluster rendering ({} tris)",
+           sphere.lods[0].indices.size() / 3);
+}
+
 void Engine::CreateMaterialXDemoScene() {
   // One sphere per MaterialX file listed (comma separated) in REC_MTLX, so the
   // imported standard_surface lobes can be eyeballed against the source.
@@ -866,6 +881,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "occlusion") {
     CreateOcclusionDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "meshlet") {
+    CreateMeshletDemoScene();
     return;
   }
   asset::Mesh cube = asset::MakeCube(0.7f, asset::MakeAssetId("builtin/cube"));
