@@ -659,8 +659,20 @@ void Renderer::RenderFrame(const FrameView& view) {
   }
 
   VkResult presented = swapchain_->Present(render_finished_[image_index], image_index);
-  if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {
+  if (presented == VK_ERROR_OUT_OF_DATE_KHR) {
     RecreateSwapchain();
+  } else if (presented == VK_SUBOPTIMAL_KHR) {
+    // Android reports SUBOPTIMAL every frame because preTransform (identity)
+    // differs from the panel's rotation, which is stable and handled by the
+    // display engine; recreating on that alone would rebuild every frame. Only
+    // recreate when the surface extent actually changed (a real resize).
+    VkSurfaceCapabilitiesKHR caps{};
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_->physical_device(), device_->surface(), &caps);
+    if (caps.currentExtent.width != 0xffffffffu &&
+        (caps.currentExtent.width != swapchain_->extent().width ||
+         caps.currentExtent.height != swapchain_->extent().height)) {
+      RecreateSwapchain();
+    }
   }
   ++frame_index_;
 }
@@ -1887,6 +1899,9 @@ void Renderer::RecreateSwapchain() {
   UpdateRenderResolution();
   transient_pool_->Clear();
   taa_.Resize(*device_, {render_width_, render_height_});
+  ssao_.Resize(*device_, {render_width_, render_height_});
+  ssr_.Resize(*device_, {render_width_, render_height_});
+  ssgi_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
