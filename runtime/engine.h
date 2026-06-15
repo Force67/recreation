@@ -155,6 +155,9 @@ class Engine {
   // A dense sphere drawn through the mesh-shader meshlet path, each cluster
   // tinted, with gpu frustum + backface-cone cluster culling.
   void CreateMeshletDemoScene();
+  // A row of colored dynamic omni lights over tiles and bumps (forward point
+  // lighting + the light-complexity debug view).
+  void CreatePointLightDemoScene();
 
   // A simple cpu particle fountain for the demos. Integrates + spawns each
   // frame and emits the live billboards into the frame view.
@@ -203,6 +206,7 @@ class Engine {
   base::Vector<render::WboitInstance> oit_instances_;
   base::Vector<DemoParticle> demo_particles_;
   base::Vector<render::GaussianInstance> demo_gaussians_;
+  base::Vector<render::PointLight> demo_lights_;
   u32 particle_seed_ = 0x9e3779b9u;
   f32 particle_spawn_accum_ = 0;
 

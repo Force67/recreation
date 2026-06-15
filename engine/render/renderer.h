@@ -78,6 +78,8 @@ struct FrameView {
   CameraPose camera;
   f32 frame_delta_seconds = 1.0f / 60.0f;  // upscalers want real frame time
   base::Vector<DrawItem> draws;
+  // Dynamic omni lights this frame, accumulated in the forward lighting pass.
+  base::Vector<PointLight> lights;
   // Bone palette for every skinned draw this frame, concatenated; each skinned
   // DrawItem indexes its run by skin_offset. Column-major model-space matrices.
   base::Vector<Mat4> bone_matrices;
@@ -179,9 +181,11 @@ class Renderer {
     GpuBuffer globals;  // host visible FrameGlobals
     GpuBuffer bone_palette;  // host visible skinning matrices, read by device address
     VkDeviceAddress bone_palette_address = 0;
+    GpuBuffer lights;  // host visible PointLight array
   };
   // Max bones across all skinned draws in one frame.
   static constexpr u32 kMaxFrameBones = 8192;
+  static constexpr u32 kMaxFrameLights = 256;
 
   bool CreateFrameResources();
   void DestroyFrameResources();

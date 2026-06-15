@@ -311,7 +311,7 @@ bool EnvironmentSystem::CreatePipelines() {
   // cascade shadow atlas (7) + cascade ubo (8), the opaque scene color (9,
   // sampled by transmissive materials for refraction), and the SIGMA-denoised
   // sun shadow (10, screen-space R8 sampled by the rt lighting variant).
-  VkDescriptorSetLayoutBinding env_bindings[11]{};
+  VkDescriptorSetLayoutBinding env_bindings[12]{};
   for (u32 i = 0; i < 6; ++i) {
     env_bindings[i].binding = i;
     env_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -338,9 +338,13 @@ bool EnvironmentSystem::CreatePipelines() {
   env_bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   env_bindings[10].descriptorCount = 1;
   env_bindings[10].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  env_bindings[11].binding = 11;  // dynamic point lights
+  env_bindings[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  env_bindings[11].descriptorCount = 1;
+  env_bindings[11].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutCreateInfo env_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  env_info.bindingCount = 11;
+  env_info.bindingCount = 12;
   env_info.pBindings = env_bindings;
   if (vkCreateDescriptorSetLayout(device_.device(), &env_info, nullptr, &env_set_layout_) !=
       VK_SUCCESS) {
@@ -596,7 +600,8 @@ void EnvironmentSystem::DrawSky(VkCommandBuffer cmd, VkDescriptorSet globals) {
 void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
                                     const DdgiBinding* ddgi, VkImageView shadow_view,
                                     VkBuffer cascade_buffer, u64 cascade_size,
-                                    VkImageView opaque_color, VkImageView sun_shadow_view) const {
+                                    VkImageView opaque_color, VkImageView sun_shadow_view,
+                                    VkBuffer lights, u64 lights_size) const {
   VkDescriptorImageInfo images[9]{};
   images[0] = {sampler_, irradiance_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   images[1] = {sampler_, prefiltered_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -617,8 +622,10 @@ void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
                                 ddgi ? ddgi->volume_size : 256};
   VkDescriptorBufferInfo cascades{cascade_buffer ? cascade_buffer : dummy_volume_.buffer, 0,
                                   cascade_buffer ? cascade_size : 512};
+  VkDescriptorBufferInfo light_buf{lights ? lights : dummy_volume_.buffer, 0,
+                                   lights ? lights_size : 256};
 
-  VkWriteDescriptorSet writes[11];
+  VkWriteDescriptorSet writes[12];
   for (u32 i = 0; i < 6; ++i) {
     writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     writes[i].dstSet = set;
@@ -657,7 +664,13 @@ void EnvironmentSystem::WriteEnvSet(VkDescriptorSet set, VkImageView ao_view,
   writes[10].descriptorCount = 1;
   writes[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   writes[10].pImageInfo = &images[8];
-  vkUpdateDescriptorSets(device_.device(), 11, writes, 0, nullptr);
+  writes[11] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[11].dstSet = set;
+  writes[11].dstBinding = 11;
+  writes[11].descriptorCount = 1;
+  writes[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  writes[11].pBufferInfo = &light_buf;
+  vkUpdateDescriptorSets(device_.device(), 12, writes, 0, nullptr);
 }
 
 void EnvironmentSystem::DestroyComputePass(ComputePass& pass) {

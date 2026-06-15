@@ -778,6 +778,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.debug_view = static_cast<u32>(settings_.debug_view);
   globals.reflection_cutoff = settings_.reflection_roughness_cutoff;
   globals.ao_ray_count = nrd_ao ? settings_.ao_rays : 0u;  // rt ao rays, for the ray-count view
+
+  // Dynamic point lights: copy into the host-visible frame buffer (capped).
+  u32 light_count = std::min<u32>(static_cast<u32>(view.lights.size()), kMaxFrameLights);
+  if (light_count > 0) {
+    std::memcpy(frame.lights.mapped, view.lights.data(), light_count * sizeof(PointLight));
+  }
+  globals.light_count = light_count;
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -1244,7 +1251,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr,
             csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
             csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
-            shadow_.cascade_buffer_size(), VK_NULL_HANDLE, sun_shadow_view);
+            shadow_.cascade_buffer_size(), VK_NULL_HANDLE, sun_shadow_view, frame.lights.buffer,
+            frame.lights.size);
 
         VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
@@ -1416,7 +1424,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               env_set, VK_NULL_HANDLE, ddgi_active ? &ddgi_binding : nullptr,
               csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
               csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
-              shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view);
+              shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
+              frame.lights.buffer, frame.lights.size);
 
           enum class Mode { kNone, kWater, kBlend };
           Mode mode = Mode::kNone;
@@ -1810,6 +1819,10 @@ bool Renderer::CreateFrameResources() {
     VkBufferDeviceAddressInfo address_info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
     address_info.buffer = frame.bone_palette.buffer;
     frame.bone_palette_address = vkGetBufferDeviceAddress(device_->device(), &address_info);
+
+    frame.lights = device_->CreateBuffer(static_cast<u64>(kMaxFrameLights) * sizeof(PointLight),
+                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+    if (!frame.lights.mapped) return false;
   }
   return true;
 }
@@ -1818,6 +1831,7 @@ void Renderer::DestroyFrameResources() {
   for (FrameResources& frame : frames_) {
     if (frame.globals.buffer) device_->DestroyBuffer(frame.globals);
     if (frame.bone_palette.buffer) device_->DestroyBuffer(frame.bone_palette);
+    if (frame.lights.buffer) device_->DestroyBuffer(frame.lights);
     if (frame.descriptor_pool) {
       vkDestroyDescriptorPool(device_->device(), frame.descriptor_pool, nullptr);
     }

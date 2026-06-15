@@ -8,6 +8,13 @@
 
 namespace rec::render {
 
+// A dynamic omni light, accumulated in the forward lighting pass. Packed in
+// float4s so the StructuredBuffer stride matches the shader exactly.
+struct PointLight {
+  f32 pos_radius[4] = {0, 0, 0, 1};       // xyz position, w influence radius (meters)
+  f32 color_intensity[4] = {1, 1, 1, 1};  // rgb color, w intensity
+};
+
 // Per frame camera and lighting state, bound as set 0. Layout matches the
 // std140 block in mesh.vert/mesh.frag.
 struct FrameGlobals {
@@ -25,6 +32,7 @@ struct FrameGlobals {
   u32 debug_view = 0;  // render::DebugView, isolates a shading channel
   f32 reflection_cutoff = 0.6f;  // roughness above which rt reflections fall back to ibl
   u32 ao_ray_count = 0;  // rt ao rays/pixel this frame (0 when ao is screen-space), for the ray-count view
+  u32 light_count = 0;   // dynamic point lights in the bound light buffer
 };
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.

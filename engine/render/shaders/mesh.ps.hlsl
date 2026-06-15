@@ -16,8 +16,15 @@ struct FrameGlobals {
   uint debug_view;  // render::DebugView, isolates a shading channel
   float reflection_cutoff;
   uint ao_ray_count;  // rt ao rays/pixel this frame (0 when ao is screen-space)
+  uint light_count;   // dynamic point lights in the light buffer
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+
+struct PointLight {
+  float4 pos_radius;       // xyz position, w influence radius
+  float4 color_intensity;  // rgb color, w intensity
+};
+[[vk::binding(11, 2)]] StructuredBuffer<PointLight> point_lights;
 
 struct MaterialParams {
   float4 base_color_factor;
@@ -314,6 +321,31 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     lit += material.subsurface_color * material.subsurface * (back + 0.4 * wrap) * sun * shadow;
   }
 
+  // Dynamic point lights: ggx + diffuse with smooth radius falloff. light_hits
+  // drives the light-complexity debug view.
+  uint light_hits = 0;
+  for (uint li = 0; li < frame.light_count; ++li) {
+    PointLight pl = point_lights[li];
+    float3 to_l = pl.pos_radius.xyz - input.world_pos;
+    float dist2 = dot(to_l, to_l);
+    float lr = pl.pos_radius.w;
+    if (dist2 >= lr * lr) continue;
+    float dist = sqrt(max(dist2, 1e-8));
+    float3 pl_l = to_l / dist;
+    float pndl = max(dot(n, pl_l), 0.0);
+    if (pndl <= 0.0) continue;
+    ++light_hits;
+    float falloff = saturate(1.0 - dist2 / (lr * lr));
+    falloff *= falloff;
+    float3 pl_h = normalize(pl_l + v);
+    float pndh = max(dot(n, pl_h), 0.0);
+    float pvdh = max(dot(v, pl_h), 0.0);
+    float3 pf = f0 + (1.0 - f0) * pow(1.0 - pvdh, 5.0);
+    float3 pspec = D_GGX(pndh, a) * V_SmithGGXCorrelated(ndv, pndl, a) * pf;
+    float3 pdiff = diffuse_color * (1.0 / kPi) * (1.0 - pf);
+    lit += (pdiff + pspec) * pl.color_intensity.rgb * pl.color_intensity.w * falloff * pndl;
+  }
+
   float ao = 1.0;
   if ((frame.flags & kFrameAoValid) != 0u) {
     ao = ao_map.Sample(ao_sampler, input.sv_position.xy / frame.misc.xy).r;
@@ -368,6 +400,12 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
       float rays = float(frame.ao_ray_count);
       if (rays <= 0.0) return float3(0.02, 0.02, 0.02);
       float t = saturate(rays / 8.0);
+      return saturate(float3(1.5 - abs(4.0 * t - 3.0), 1.5 - abs(4.0 * t - 2.0),
+                             1.5 - abs(4.0 * t - 1.0)));
+    }
+    case 15: {  // light-complexity heatmap: point lights affecting this pixel
+      if (light_hits == 0u) return float3(0.02, 0.02, 0.02);
+      float t = saturate(float(light_hits) / 6.0);
       return saturate(float3(1.5 - abs(4.0 * t - 3.0), 1.5 - abs(4.0 * t - 2.0),
                              1.5 - abs(4.0 * t - 1.0)));
     }

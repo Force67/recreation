@@ -63,7 +63,8 @@ class EnvironmentSystem {
                    VkImageView shadow_view = VK_NULL_HANDLE,
                    VkBuffer cascade_buffer = VK_NULL_HANDLE, u64 cascade_size = 0,
                    VkImageView opaque_color = VK_NULL_HANDLE,
-                   VkImageView sun_shadow_view = VK_NULL_HANDLE) const;
+                   VkImageView sun_shadow_view = VK_NULL_HANDLE,
+                   VkBuffer lights = VK_NULL_HANDLE, u64 lights_size = 0) const;
 
  private:
   struct ComputePass {

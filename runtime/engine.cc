@@ -774,6 +774,62 @@ void Engine::CreateOcclusionDemoScene() {
   REC_INFO("occlusion demo: {} small cubes hidden behind a wall (gpu hi-z cull)", idx);
 }
 
+void Engine::CreatePointLightDemoScene() {
+  // A grid of white tiles under a row of colored omni lights, with the sun dimmed
+  // so the dynamic point lights dominate. Verifies forward point lighting and the
+  // light-complexity view (REC_DEBUG_VIEW=15) where light volumes overlap.
+  asset::Material floor_mat;
+  floor_mat.id = asset::MakeAssetId("builtin/lights/floor");
+  floor_mat.base_color_factor[0] = floor_mat.base_color_factor[1] = floor_mat.base_color_factor[2] =
+      0.32f;  // mid-dark so colored light reflects as colour, not blown-out white
+  floor_mat.roughness_factor = 0.5f;
+  floor_mat.metallic_factor = 0.0f;
+  if (!config_.headless) renderer_.UploadMaterial(floor_mat);
+
+  asset::Mesh ground = asset::MakeBox(6.0f, 0.1f, 6.0f, asset::MakeAssetId("builtin/lights/ground"));
+  ground.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
+  if (!config_.headless) renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -0.1f, 0}});
+  world_.Add(floor, world::Renderable{ground.id});
+
+  // A few low bumps so the lights wrap over shapes, not just a flat plane.
+  for (int i = 0; i < 5; ++i) {
+    f32 x = -3.2f + i * 1.6f;
+    std::string tag = "builtin/lights/bump" + std::to_string(i);
+    asset::Mesh s = asset::MakeSphere(0.6f, 24, 32, asset::MakeAssetId(tag));
+    s.lods[0].submeshes.push_back({0, static_cast<u32>(s.lods[0].indices.size()), floor_mat.id});
+    if (!config_.headless) renderer_.UploadMesh(s);
+    ecs::Entity e = world_.Create();
+    world_.Add(e, world::Transform{.position = {x, 0.3f, 0.0f}});
+    world_.Add(e, world::Renderable{s.id});
+  }
+
+  const f32 col[8][3] = {{1, 0.2f, 0.2f}, {0.2f, 1, 0.2f}, {0.3f, 0.4f, 1}, {1, 0.9f, 0.2f},
+                         {1, 0.3f, 1},    {0.2f, 1, 1},    {1, 0.6f, 0.2f}, {0.6f, 0.4f, 1}};
+  for (int i = 0; i < 8; ++i) {
+    render::PointLight l;
+    l.pos_radius[0] = -3.5f + i * 1.0f;
+    l.pos_radius[1] = 0.9f;
+    l.pos_radius[2] = -0.5f + (i % 2) * 1.0f;
+    l.pos_radius[3] = 2.2f;  // influence radius (overlapping, for the complexity view)
+    l.color_intensity[0] = col[i][0];
+    l.color_intensity[1] = col[i][1];
+    l.color_intensity[2] = col[i][2];
+    l.color_intensity[3] = 4.0f;
+    demo_lights_.push_back(l);
+  }
+
+  renderer_.settings().sun_intensity = 0.25f;  // dim the sun + ibl so the point lights dominate
+  renderer_.settings().ibl = false;
+  renderer_.settings().ambient = 0.02f;
+  camera_.set_position({0.0f, 2.4f, 5.5f});
+  camera_.set_yaw_pitch(0.0f, -0.32f);
+  camera_.speed = 3.0f;
+  REC_INFO("point-light demo: {} dynamic omni lights", demo_lights_.size());
+}
+
 void Engine::CreateMeshletDemoScene() {
   // A dense sphere rendered through the mesh-shader meshlet path: the gpu splits
   // it into clusters, frustum/cone-culls them, and tints each a distinct color
@@ -885,6 +941,10 @@ void Engine::CreateDemoScene() {
   }
   if (config_.demo_scene == "meshlet") {
     CreateMeshletDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "lights") {
+    CreatePointLightDemoScene();
     return;
   }
   asset::Mesh cube = asset::MakeCube(0.7f, asset::MakeAssetId("builtin/cube"));
@@ -1763,6 +1823,7 @@ int Engine::Run() {
       }
       if (!oit_instances_.empty()) view.oit = oit_instances_;
       if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
+      if (!demo_lights_.empty()) view.lights = demo_lights_;
       RefreshQuestPanel(frame_delta);
       RefreshNativeTrace(frame_delta);
       debug_ui_.Build(renderer_, camera_, frame_delta, &view, &quest_panel_, &native_trace_panel_);
