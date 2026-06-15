@@ -3,11 +3,8 @@
 #include <cstring>
 #include <fstream>
 
+#include "bethesda/compression.h"
 #include "core/log.h"
-
-#if defined(RECREATION_HAS_ZLIB)
-#include <zlib.h>
-#endif
 
 namespace rec::bethesda {
 namespace {
@@ -73,26 +70,8 @@ bool DecompressRecord(ByteSpan compressed, base::Vector<u8>* out) {
   if (compressed.size() < 4) return false;
   u32 uncompressed_size;
   std::memcpy(&uncompressed_size, compressed.data(), 4);
-#if defined(RECREATION_HAS_ZLIB)
   out->resize(uncompressed_size);
-  uLongf dest_len = uncompressed_size;
-  int rc = uncompress(out->data(), &dest_len, compressed.data() + 4,
-                      static_cast<uLong>(compressed.size() - 4));
-  return rc == Z_OK && dest_len == uncompressed_size;
-#else
-  REC_WARN("compressed record skipped, built without zlib");
-  return false;
-#endif
-}
-
-bool ParseRecord(const RecordHeader& header, ByteSpan record_data, Record* out) {
-  out->header = header;
-  ByteSpan payload = record_data;
-  if (header.flags & kRecordFlagCompressed) {
-    if (!DecompressRecord(record_data, &out->decompressed)) return false;
-    payload = ByteSpan(out->decompressed.data(), out->decompressed.size());
-  }
-  return ParseSubrecords(payload, &out->subrecords);
+  return ZlibInflate(compressed.subspan(4), out->data(), uncompressed_size);
 }
 
 bool EndsWithEsl(const std::string& path) {
@@ -101,6 +80,15 @@ bool EndsWithEsl(const std::string& path) {
 }
 
 }  // namespace
+
+bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* out) {
+  out->header = header;
+  if (header.flags & kRecordFlagCompressed) {
+    if (!DecompressRecord(payload, &out->decompressed)) return false;
+    payload = ByteSpan(out->decompressed.data(), out->decompressed.size());
+  }
+  return ParseSubrecords(payload, &out->subrecords);
+}
 
 const Subrecord* Record::Find(u32 fourcc) const {
   for (const auto& sub : subrecords) {
@@ -150,7 +138,7 @@ bool PluginFile::ParseHeader(const GameProfile& profile) {
   is_light_ = (header.flags & kPluginFlagLight) != 0;
 
   Record tes4;
-  if (!ParseRecord(header, reader.Take(header.data_size), &tes4)) return false;
+  if (!ParseRecordPayload(header, reader.Take(header.data_size), &tes4)) return false;
   records_begin_ = reader.pos;
 
   if (const Subrecord* hedr = tes4.Find(kHedr); hedr && hedr->data.size() >= 8) {
@@ -170,9 +158,10 @@ bool PluginFile::ParseHeader(const GameProfile& profile) {
   return true;
 }
 
-bool PluginFile::VisitRecords(const RecordVisitor& visitor) const {
+bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
   Reader reader{ByteSpan(data_.data(), data_.size())};
   reader.pos = records_begin_;
+  GroupContext ctx;
 
   while (reader.remaining() >= sizeof(GroupHeader)) {
     u32 type;
@@ -180,8 +169,16 @@ bool PluginFile::VisitRecords(const RecordVisitor& visitor) const {
 
     if (type == kGrup) {
       // Skip the group header and walk its contents inline, which flattens
-      // nested groups without recursion.
-      if (!reader.Skip(sizeof(GroupHeader))) return false;
+      // nested groups without recursion. The labels of world children and
+      // cell children groups carry the context records need; records always
+      // follow their enclosing group header, so last-seen labels are enough.
+      GroupHeader group;
+      if (!reader.Read(&group)) return false;
+      if (group.group_type == 1) ctx.worldspace = RawFormId{group.label};
+      if (group.group_type == 6 || group.group_type == 8 || group.group_type == 9) {
+        ctx.cell = RawFormId{group.label};
+        ctx.cell_group_type = group.group_type;
+      }
       continue;
     }
 
@@ -189,15 +186,20 @@ bool PluginFile::VisitRecords(const RecordVisitor& visitor) const {
     if (!reader.Read(&header) || reader.remaining() < header.data_size) return false;
     ByteSpan payload = reader.Take(header.data_size);
     if (header.flags & kRecordFlagDeleted) continue;
-
-    Record record;
-    if (!ParseRecord(header, payload, &record)) {
-      REC_WARN("{}: failed to parse record {:08x}", file_name_, header.form_id.value);
-      continue;
-    }
-    visitor(record);
+    visitor(header, payload, ctx);
   }
   return true;
+}
+
+bool PluginFile::VisitRecords(const RecordVisitor& visitor) const {
+  return VisitRecordsRaw([&](const RecordHeader& header, ByteSpan payload, const GroupContext&) {
+    Record record;
+    if (!ParseRecordPayload(header, payload, &record)) {
+      REC_WARN("{}: failed to parse record {:08x}", file_name_, header.form_id.value);
+      return;
+    }
+    visitor(record);
+  });
 }
 
 }  // namespace rec::bethesda

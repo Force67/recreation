@@ -37,7 +37,10 @@ class LoadOrder {
 };
 
 // The merged view of all loaded plugins. Conflicts resolve by last loaded
-// wins, which is the rule the entire mod ecosystem is built around.
+// wins, which is the rule the entire mod ecosystem is built around. Records
+// are indexed lazily: the store keeps raw payload spans into the plugin
+// bytes and only decompresses/parses when asked, which keeps the multi
+// million record base game loadable in a couple of seconds.
 class RecordStore {
  public:
   // Loads every enabled plugin and merges records. Returns false if a
@@ -45,20 +48,55 @@ class RecordStore {
   bool LoadAll(const std::string& data_dir, const LoadOrder& order, const GameProfile& profile);
 
   struct StoredRecord {
-    Record record;
+    RecordHeader header;
+    ByteSpan payload;  // raw, possibly compressed, owned by the plugin
     u16 winning_plugin = 0;
   };
 
   const StoredRecord* Find(GlobalFormId id) const;
+  // Decompresses and splits the winning record into subrecords.
+  bool Parse(GlobalFormId id, Record* out) const;
   size_t record_count() const { return records_.size(); }
 
   // Iterates winning records of one type, e.g. all CELL or all WEAP.
-  void EachOfType(u32 fourcc, const std::function<void(GlobalFormId, const Record&)>& fn) const;
+  void EachOfType(u32 fourcc,
+                  const std::function<void(GlobalFormId, const StoredRecord&)>& fn) const;
+
+  // Resolves a raw form id found inside a record body against the masters of
+  // the plugin that body came from.
+  GlobalFormId ResolveFrom(RawFormId raw, u16 plugin) const;
+
+  // Exterior worldspace index built during load: per worldspace, the CELL,
+  // LAND and temporary REFR children at each grid coordinate. Keyed by
+  // (x << 16 | y) of the cell grid coordinate, ids are packed GlobalFormIds.
+  struct ExteriorCell {
+    u64 cell = 0;
+    u64 land = 0;
+    base::Vector<u64> refs;
+  };
+  static u32 GridKey(i16 x, i16 y) {
+    return static_cast<u32>(static_cast<u16>(x)) << 16 | static_cast<u16>(y);
+  }
+  using ExteriorGrid = base::UnorderedMap<u32, ExteriorCell>;
+  const ExteriorGrid* ExteriorCells(GlobalFormId worldspace) const;
+
+  // Finds a worldspace by editor id, e.g. "Tamriel". Invalid plugin 0xffff
+  // when not found.
+  GlobalFormId FindWorldspace(std::string_view editor_id) const;
 
  private:
-  base::Vector<PluginFile> plugins_;  // keeps subrecord spans alive
+  struct CellGridSlot {
+    u64 worldspace = 0;  // packed
+    u32 grid_key = 0;
+  };
+
+  LoadOrder order_;
+  base::Vector<PluginFile> plugins_;             // keeps payload spans alive
+  base::Vector<const PluginFile*> by_order_;     // load order index -> plugin, may be null
   base::UnorderedMap<u64, StoredRecord> records_;
   base::UnorderedMap<u32, base::Vector<u64>> by_type_;
+  base::UnorderedMap<u64, ExteriorGrid> exterior_;       // worldspace -> grid
+  base::UnorderedMap<u64, CellGridSlot> cell_grid_;      // CELL id -> grid slot
 };
 
 }  // namespace rec::bethesda

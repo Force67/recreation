@@ -24,6 +24,7 @@ struct GameProfile {
   // Elements stay std::string: master names feed path concatenation and
   // std::ifstream in the loaders.
   base::Vector<std::string> base_masters;
+  std::string exterior_worldspace;  // editor id of the main outdoor worldspace
   bool supports_esl = true;
   bool has_loose_script_source = true;
 

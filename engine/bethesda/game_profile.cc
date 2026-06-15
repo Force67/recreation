@@ -12,6 +12,7 @@ const GameProfile& GameProfile::For(Game game) {
       .plugin_version = 1.71f,
       .base_masters = {"Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm",
                        "Dragonborn.esm"},
+      .exterior_worldspace = "Tamriel",
   };
   static const GameProfile fallout4{
       .game = Game::kFallout4,
@@ -19,6 +20,7 @@ const GameProfile& GameProfile::For(Game game) {
       .archive_format = ArchiveFormat::kBa2,
       .plugin_version = 1.0f,
       .base_masters = {"Fallout4.esm"},
+      .exterior_worldspace = "Commonwealth",
   };
   static const GameProfile fallout76{
       .game = Game::kFallout76,
@@ -26,6 +28,7 @@ const GameProfile& GameProfile::For(Game game) {
       .archive_format = ArchiveFormat::kBa2,
       .plugin_version = 1.0f,
       .base_masters = {"SeventySix.esm"},
+      .exterior_worldspace = "Appalachia",
       .supports_esl = false,
       .has_loose_script_source = false,
   };
