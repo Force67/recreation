@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(recreation VERSION 0.1.0 LANGUAGES CXX)
+project(recreation VERSION 0.1.0 LANGUAGES CXX C)
 
 # equilibrium (vendored by zetanet) needs C++23, the engine uses it as its
 # container and string layer.
@@ -14,7 +14,22 @@ option(RECREATION_FSR3 "Enable the AMD FSR 3.1 upscaler backend" ON)
 option(RECREATION_DLSS "Enable the NVIDIA DLSS upscaler backend" ON)
 option(RECREATION_NRD "Enable the NVIDIA NRD ray tracing denoiser" ON)
 option(RECREATION_JOLT "Enable Jolt physics" ON)
+option(RECREATION_NET "Enable networking (zetanet transport + replication)" ON)
 option(RECREATION_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+
+# Android is a first-class target, but several desktop backends do not apply:
+# DLSS/FSR3/NRD ship x86_64 host libraries (and Adreno has no HW ray tracing or
+# mesh shaders, so the raster path is the real path), SDL3 is replaced by a
+# native ANativeWindow backend, and zetanet's crypto backend (OpenSSL/mbedTLS)
+# is not in the NDK sysroot. Force them off so an Android configure is clean.
+if(ANDROID)
+  set(RECREATION_DLSS OFF CACHE BOOL "" FORCE)
+  set(RECREATION_FSR3 OFF CACHE BOOL "" FORCE)
+  set(RECREATION_NRD OFF CACHE BOOL "" FORCE)
+  set(RECREATION_NET OFF CACHE BOOL "" FORCE)
+  set(RECREATION_FETCH_SDL3 OFF CACHE BOOL "" FORCE)
+  set(RECREATION_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+endif()
 
 # Sanitizer build for the regression suite: the papyrus vm (parser, interpreter,
 # native dispatch, threaded guest) is validated memory-safe, leak-free and
@@ -72,6 +87,11 @@ FetchContent_Declare(VulkanMemoryAllocator
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(VulkanHeaders volk VulkanMemoryAllocator)
 target_link_libraries(volk PUBLIC Vulkan::Headers)
+if(ANDROID)
+  # So volk's loader compiles the android-surface entry point and consumers see
+  # vkCreateAndroidSurfaceKHR / VkAndroidSurfaceCreateInfoKHR.
+  target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_ANDROID_KHR=1)
+endif()
 
 # Shaders are hlsl, compiled to spirv at build time with dxc and embedded.
 find_program(RECREATION_DXC dxc)
@@ -104,13 +124,26 @@ endif()
 # and atomics are shared between the engine and the network stack.
 set(RECREATION_ZETANET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../zetanet" CACHE PATH
   "Path to a zetanet checkout (devel branch)")
-if(NOT EXISTS "${RECREATION_ZETANET_DIR}/CMakeLists.txt")
-  message(FATAL_ERROR
-    "zetanet not found at ${RECREATION_ZETANET_DIR}, set RECREATION_ZETANET_DIR")
+if(RECREATION_NET)
+  if(NOT EXISTS "${RECREATION_ZETANET_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+      "zetanet not found at ${RECREATION_ZETANET_DIR}, set RECREATION_ZETANET_DIR")
+  endif()
+  set(ZNET_USE_STL OFF CACHE BOOL "" FORCE)
+  set(ZNET_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${RECREATION_ZETANET_DIR} zetanet EXCLUDE_FROM_ALL)
+else()
+  # Networking is off (Android), but the whole engine depends on
+  # equilibrium::base for its containers and strings. Pull in just that from
+  # the zetanet checkout's vendored copy, skipping the crypto-backed transport.
+  if(NOT EXISTS "${RECREATION_ZETANET_DIR}/vendor/equilibrium/CMakeLists.txt")
+    message(FATAL_ERROR
+      "equilibrium not found at ${RECREATION_ZETANET_DIR}/vendor/equilibrium")
+  endif()
+  set(EQ_USE_STD_ATOMIC ON CACHE BOOL "" FORCE)
+  set(EQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${RECREATION_ZETANET_DIR}/vendor/equilibrium equilibrium EXCLUDE_FROM_ALL)
 endif()
-set(ZNET_USE_STL OFF CACHE BOOL "" FORCE)
-set(ZNET_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-add_subdirectory(${RECREATION_ZETANET_DIR} zetanet EXCLUDE_FROM_ALL)
 
 # Nanobuf carries every message that crosses the wire. Schemas live in nbuf/,
 # generated bindings in nbuf/gen/ (checked in, so builds don't need rust), and
@@ -170,9 +203,11 @@ set(RECREATION_MODULES
   anim
   bethesda
   world
-  net
   script
 )
+if(RECREATION_NET)
+  list(APPEND RECREATION_MODULES net)
+endif()
 
 foreach(module ${RECREATION_MODULES})
   add_subdirectory(engine/${module})

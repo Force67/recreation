@@ -57,4 +57,11 @@ if(RECREATION_JOLT)
   set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
   set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
   add_subdirectory(JoltPhysics/Build jolt EXCLUDE_FROM_ALL)
+  # This Jolt revision's Core.h leans on <type_traits> arriving transitively,
+  # which holds under libstdc++ but not the NDK's libc++ (only some traits leak
+  # through). Force-include it so std::is_trivially_constructible resolves, for
+  # Jolt's own sources and for engine code that includes Jolt headers (PUBLIC).
+  if(ANDROID AND TARGET Jolt)
+    target_compile_options(Jolt PUBLIC -include type_traits)
+  endif()
 endif()
