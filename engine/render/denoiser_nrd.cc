@@ -419,9 +419,13 @@ void NrdDenoiser::SetFrame(const FrameSettings& settings) {
   common.cameraJitter[1] = settings.jitter[1] / static_cast<f32>(extent_.height);
   common.cameraJitterPrev[0] = settings.jitter_prev[0] / static_cast<f32>(extent_.width);
   common.cameraJitterPrev[1] = settings.jitter_prev[1] / static_cast<f32>(extent_.height);
-  // 2D screen-space motion in uv; scale converts to pixels for NRD.
-  common.motionVectorScale[0] = static_cast<f32>(extent_.width);
-  common.motionVectorScale[1] = static_cast<f32>(extent_.height);
+  // IN_MV is already a uv-space delta ((prev-curr)*0.5, same as the taa pass
+  // samples), and NRD wants mv in uv too ("pixelUvPrev = pixelUv + mv", pixelUv
+  // in 0..1), so the scale is identity. Scaling by the resolution made every
+  // motion ~width times too large, so the slightest camera/geometry motion
+  // reprojected off screen and nuked the whole shadow/ao history every frame.
+  common.motionVectorScale[0] = 1.0f;
+  common.motionVectorScale[1] = 1.0f;
   common.motionVectorScale[2] = 0.0f;
   common.resourceSize[0] = common.rectSize[0] = static_cast<uint16_t>(extent_.width);
   common.resourceSize[1] = common.rectSize[1] = static_cast<uint16_t>(extent_.height);
