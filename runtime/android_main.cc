@@ -7,6 +7,7 @@
 #include <android_native_app_glue.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -78,6 +79,16 @@ rec::EngineConfig LoadConfig(android_app* app) {
   if (!preset.empty()) config.preset = rec::render::ParsePreset(preset);
   std::string interior = get("interior");
   if (!interior.empty()) config.interior = interior;
+  if (get("validation") == "1") config.renderer.enable_validation = true;
+  if (get("no_rt") == "1") config.renderer.enable_raytracing = false;
+  // screenshot=<seconds>: the renderer reads REC_SCREENSHOT and writes the
+  // frame at that time to the app's data dir, for on-device render verification
+  // that does not depend on the platform screenshotter.
+  std::string shot = get("screenshot");
+  if (!shot.empty()) {
+    std::string path = std::string(app->activity->internalDataPath) + "/frame.png:" + shot;
+    setenv("REC_SCREENSHOT", path.c_str(), 1);
+  }
 
   __android_log_print(ANDROID_LOG_INFO, kTag, "config: game=%s data_dir=%s", active.c_str(),
                       config.data_dir.c_str());

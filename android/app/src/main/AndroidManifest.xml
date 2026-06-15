@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The engine reads game data trees (BSA/BA2, loose files) straight off
+         shared storage with native file I/O, so it needs all-files access; the
+         launcher walks the user through granting it. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <uses-feature android:name="android.hardware.vulkan.version"
+        android:version="0x00401000" android:required="true" />
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Recreation">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Native Vulkan renderer. Subclasses NativeActivity only to drive
+             immersive fullscreen and keep the screen awake; the engine itself
+             runs from librecreation.so via android.app.lib_name. -->
+        <activity
+            android:name=".GameActivity"
+            android:exported="false"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|density|navigation|uiMode"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.Recreation.Fullscreen"
+            tools:ignore="DiscouragedApi">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="recreation" />
+        </activity>
+    </application>
+</manifest>
