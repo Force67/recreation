@@ -2,12 +2,26 @@
 
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 
 namespace rec::script::papyrus {
 namespace {
 
 const std::string kEmpty;
+
+// libc++ (the NDK toolchain) does not implement std::from_chars for floating
+// point and deletes the overload, so fall back to strtof there. Both do a
+// locale-independent decimal parse, so the result matches the desktop path.
+f32 ParseFloat(const std::string& s) {
+#if defined(_LIBCPP_VERSION)
+  return std::strtof(s.c_str(), nullptr);
+#else
+  f32 out = 0;
+  std::from_chars(s.data(), s.data() + s.size(), out);
+  return out;
+#endif
+}
 
 // Papyrus float-to-string keeps trailing fractional digits trimmed, matching
 // how the game prints floats in logs and HUD text.
@@ -50,12 +64,8 @@ f32 Value::ToFloat() const {
       return std::get<f32>(data_);
     case ValueType::kBool:
       return std::get<bool>(data_) ? 1.0f : 0.0f;
-    case ValueType::kString: {
-      const std::string& s = std::get<std::string>(data_);
-      f32 out = 0;
-      std::from_chars(s.data(), s.data() + s.size(), out);
-      return out;
-    }
+    case ValueType::kString:
+      return ParseFloat(std::get<std::string>(data_));
     default:
       return 0;
   }

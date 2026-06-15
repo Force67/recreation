@@ -39,7 +39,7 @@ void PapyrusGuest::Stop() {
 
 void PapyrusGuest::ThreadMain() {
   for (;;) {
-    std::move_only_function<void(VirtualMachine&)> job;
+    MoveOnlyFunction<void(VirtualMachine&)> job;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       wake_.wait(lock, [this] { return stop_ || !queue_.empty(); });
@@ -54,7 +54,7 @@ void PapyrusGuest::ThreadMain() {
   }
 }
 
-void PapyrusGuest::Submit(std::move_only_function<void(VirtualMachine&)> fn) {
+void PapyrusGuest::Submit(MoveOnlyFunction<void(VirtualMachine&)> fn) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.push_back(std::move(fn));

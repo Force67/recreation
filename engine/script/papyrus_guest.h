@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "bethesda/game_profile.h"
+#include "core/move_only_function.h"
 #include "core/types.h"
 #include "script/papyrus/native.h"
 #include "script/papyrus/value.h"
@@ -43,7 +44,7 @@ class PapyrusGuest {
   // Runs fn on the guest thread. Submit is fire-and-forget; SubmitFor returns a
   // future carrying fn's result. Both are safe to call from any thread and both
   // accept move-only callables (events carry move-only argument vectors).
-  void Submit(std::move_only_function<void(papyrus::VirtualMachine&)> fn);
+  void Submit(MoveOnlyFunction<void(papyrus::VirtualMachine&)> fn);
   template <typename Fn>
   auto SubmitFor(Fn fn) -> std::future<decltype(fn(std::declval<papyrus::VirtualMachine&>()))>;
 
@@ -79,7 +80,7 @@ class PapyrusGuest {
   std::thread thread_;
   std::mutex mutex_;
   std::condition_variable wake_;
-  std::deque<std::move_only_function<void(papyrus::VirtualMachine&)>> queue_;
+  std::deque<MoveOnlyFunction<void(papyrus::VirtualMachine&)>> queue_;
   bool stop_ = false;
   bool running_ = false;
 
