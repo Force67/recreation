@@ -12,6 +12,8 @@
 namespace rec::render {
 namespace {
 
+constexpr VkFormat kParticleMotionFormat = VK_FORMAT_R16G16_SFLOAT;  // == kMotionFormat
+
 struct ParticlePush {
   Mat4 view_proj;
   f32 cam_right[3];
@@ -22,6 +24,7 @@ struct ParticlePush {
   f32 sun_intensity;
   f32 sun_color[3];
   f32 ambient;
+  Mat4 prev_view_proj;
 };
 
 struct ParticleSimPush {
@@ -107,20 +110,24 @@ bool ParticleSystem::Initialize(Device& device, VkFormat color_format) {
   VkPipelineDepthStencilStateCreateInfo ds{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};  // no test/write
 
-  VkPipelineColorBlendAttachmentState blend{};
-  blend.blendEnable = VK_TRUE;
-  blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-  blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-  blend.colorBlendOp = VK_BLEND_OP_ADD;
-  blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-  blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-  blend.alphaBlendOp = VK_BLEND_OP_ADD;
-  blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  // attachment 0 = lit colour, attachment 1 = motion. Both alpha-weighted so the
+  // particle's velocity feeds the motion buffer where it is opaque.
+  VkPipelineColorBlendAttachmentState blends[2]{};
+  blends[0].blendEnable = VK_TRUE;
+  blends[0].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  blends[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  blends[0].colorBlendOp = VK_BLEND_OP_ADD;
+  blends[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  blends[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  blends[0].alphaBlendOp = VK_BLEND_OP_ADD;
+  blends[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                             VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  blends[1] = blends[0];
+  blends[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
   VkPipelineColorBlendStateCreateInfo blend_state{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-  blend_state.attachmentCount = 1;
-  blend_state.pAttachments = &blend;
+  blend_state.attachmentCount = 2;
+  blend_state.pAttachments = blends;
 
   VkDynamicState dynamics[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
   VkPipelineDynamicStateCreateInfo dynamic{
@@ -128,9 +135,10 @@ bool ParticleSystem::Initialize(Device& device, VkFormat color_format) {
   dynamic.dynamicStateCount = 2;
   dynamic.pDynamicStates = dynamics;
 
+  VkFormat color_formats[2] = {color_format, kParticleMotionFormat};
   VkPipelineRenderingCreateInfo rendering{.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachmentFormats = &color_format;
+  rendering.colorAttachmentCount = 2;
+  rendering.pColorAttachmentFormats = color_formats;
 
   VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   info.pNext = &rendering;
@@ -214,6 +222,7 @@ bool ParticleSystem::Initialize(Device& device, VkFormat color_format) {
 }
 
 void ParticleSystem::AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
+                                ResourceHandle motion,
                                 const base::Vector<ParticleInstance>& particles, const Frame& frame,
                                 u32 frame_slot) {
   if (particles.empty()) return;
@@ -225,15 +234,17 @@ void ParticleSystem::AddToGraph(RenderGraph& graph, ResourceHandle color, Resour
       "particles",
       [&](RenderGraph::PassBuilder& builder) {
         builder.Write(color, ResourceUsage::kColorAttachment);
+        builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Read(depth, ResourceUsage::kSampledFragment);
       },
-      [this, color, depth, buffer, count, frame](PassContext& ctx) {
-        RecordDraw(ctx, color, depth, buffer, count, frame);
+      [this, color, depth, motion, buffer, count, frame](PassContext& ctx) {
+        RecordDraw(ctx, color, depth, motion, buffer, count, frame);
       });
 }
 
 void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
-                                VkBuffer instances, u32 count, const Frame& frame) {
+                                ResourceHandle motion, VkBuffer instances, u32 count,
+                                const Frame& frame) {
   VkDescriptorSet set = ctx.allocate_set(set_layout_);
   VkDescriptorBufferInfo buffer_info{instances, 0, count * sizeof(ParticleInstance)};
   VkDescriptorImageInfo depth_info{VK_NULL_HANDLE, ctx.graph->image(depth).view,
@@ -254,16 +265,19 @@ void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, Resource
   vkUpdateDescriptorSets(ctx.device->device(), 2, writes, 0, nullptr);
 
   const GpuImage& target = ctx.graph->image(color);
-  VkRenderingAttachmentInfo attachment{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  attachment.imageView = target.view;
-  attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // blend over the lit scene
-  attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  VkRenderingAttachmentInfo attachments[2];
+  attachments[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  attachments[0].imageView = target.view;
+  attachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // blend over the lit scene
+  attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  attachments[1] = attachments[0];
+  attachments[1].imageView = ctx.graph->image(motion).view;  // blend velocity over the mvecs
   VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
   rendering.renderArea = {{0, 0}, target.extent};
   rendering.layerCount = 1;
-  rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachments = &attachment;
+  rendering.colorAttachmentCount = 2;
+  rendering.pColorAttachments = attachments;
   vkCmdBeginRendering(ctx.cmd, &rendering);
 
   VkViewport vp{0, 0, static_cast<f32>(target.extent.width),
@@ -292,6 +306,7 @@ void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, Resource
   push.sun_color[1] = frame.sun_color.y;
   push.sun_color[2] = frame.sun_color.z;
   push.ambient = frame.ambient;
+  push.prev_view_proj = frame.prev_view_proj;
   vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                      sizeof(push), &push);
   vkCmdDraw(ctx.cmd, 4, count, 0, 0);
@@ -299,7 +314,8 @@ void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, Resource
 }
 
 void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                                     const Sim& sim, const Frame& frame, u32 frame_slot) {
+                                     ResourceHandle motion, const Sim& sim, const Frame& frame,
+                                     u32 frame_slot) {
   u32 count = std::min(sim.count, kMaxParticles);
   if (count == 0) return;
   VkBuffer instances = buffers_[frame_slot].buffer;
@@ -309,9 +325,10 @@ void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, R
       "gpu_particles",
       [&](RenderGraph::PassBuilder& builder) {
         builder.Write(color, ResourceUsage::kColorAttachment);
+        builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Read(depth, ResourceUsage::kSampledFragment);
       },
-      [this, color, depth, instances, state, count, sim, frame](PassContext& ctx) {
+      [this, color, depth, motion, instances, state, count, sim, frame](PassContext& ctx) {
         // Step the simulation, then draw the freshly written billboards.
         VkDescriptorSet sim_set = ctx.allocate_set(sim_set_layout_);
         VkDescriptorBufferInfo infos[2] = {{state, 0, VK_WHOLE_SIZE},
@@ -359,7 +376,7 @@ void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, R
         dep.pMemoryBarriers = &barrier;
         vkCmdPipelineBarrier2(ctx.cmd, &dep);
 
-        RecordDraw(ctx, color, depth, instances, count, frame);
+        RecordDraw(ctx, color, depth, motion, instances, count, frame);
       });
 }
 

@@ -13,6 +13,7 @@ struct PushData {
   float sun_intensity;
   float3 sun_color;
   float ambient;
+  column_major float4x4 prev_view_proj;
 };
 [[vk::push_constant]] PushData push;
 
@@ -20,9 +21,15 @@ struct PsIn {
   float4 pos : SV_Position;
   [[vk::location(0)]] float2 uv : TEXCOORD0;
   [[vk::location(1)]] float4 color : COLOR0;
+  [[vk::location(2)]] float2 motion : TEXCOORD1;
 };
 
-float4 main(PsIn input) : SV_Target0 {
+struct PsOut {
+  float4 color : SV_Target0;
+  float4 motion : SV_Target1;  // xy = velocity; w = alpha for the blend
+};
+
+PsOut main(PsIn input) {
   float r2 = dot(input.uv, input.uv);
   if (r2 > 1.0) discard;  // round sprite
 
@@ -43,5 +50,8 @@ float4 main(PsIn input) : SV_Target0 {
 
   float alpha = input.color.a * smoothstep(1.0, 0.55, sqrt(r2)) * soft;
   if (alpha <= 0.001) discard;
-  return float4(lit, alpha);
+  PsOut o;
+  o.color = float4(lit, alpha);
+  o.motion = float4(input.motion, 0.0, alpha);  // alpha-weighted into the motion buffer
+  return o;
 }

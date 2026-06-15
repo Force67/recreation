@@ -1440,6 +1440,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     Vec3 right = Normalize(Cross(fwd, Vec3{0, 1, 0}));
     ParticleSystem::Frame pf;
     pf.view_proj = view_proj;
+    pf.prev_view_proj = globals.prev_view_proj;
     pf.cam_right = right;
     pf.cam_up = Cross(right, fwd);
     pf.sun_direction = settings_.sun_direction;
@@ -1455,9 +1456,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       sim.emitter[2] = view.gpu_particle_emitter.z;
       sim.dt = view.frame_delta_seconds;
       sim.count = view.gpu_particle_count;
-      particles_.SimulateAndDraw(graph_, lit, depth_export, sim, pf, frame_index_ % 2);
+      particles_.SimulateAndDraw(graph_, lit, depth_export, motion, sim, pf, frame_index_ % 2);
     } else {
-      particles_.AddToGraph(graph_, lit, depth_export, view.particles, pf, frame_index_ % 2);
+      particles_.AddToGraph(graph_, lit, depth_export, motion, view.particles, pf, frame_index_ % 2);
     }
   }
 

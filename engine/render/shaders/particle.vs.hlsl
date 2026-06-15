@@ -5,6 +5,8 @@ struct Particle {
   float3 pos;
   float size;
   float4 color;  // rgb tint, a opacity
+  float3 prev_pos;  // last frame's centre, for the motion vector
+  float pad;
 };
 [[vk::binding(0, 0)]] StructuredBuffer<Particle> particles;
 
@@ -18,6 +20,7 @@ struct PushData {
   float sun_intensity;
   float3 sun_color;
   float ambient;
+  column_major float4x4 prev_view_proj;
 };
 [[vk::push_constant]] PushData push;
 
@@ -25,6 +28,7 @@ struct VsOut {
   float4 pos : SV_Position;
   [[vk::location(0)]] float2 uv : TEXCOORD0;  // -1..1 across the quad
   [[vk::location(1)]] float4 color : COLOR0;
+  [[vk::location(2)]] float2 motion : TEXCOORD1;  // centre velocity, uv space
 };
 
 static const float2 kCorners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};
@@ -37,5 +41,9 @@ VsOut main(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
   o.pos = mul(push.view_proj, float4(world, 1.0));
   o.uv = c;
   o.color = p.color;
+  // Centre motion, matching the prepass convention (prev - curr) * 0.5 in uv.
+  float4 cc = mul(push.view_proj, float4(p.pos, 1.0));
+  float4 pc = mul(push.prev_view_proj, float4(p.prev_pos, 1.0));
+  o.motion = (pc.xy / pc.w - cc.xy / cc.w) * 0.5;
   return o;
 }

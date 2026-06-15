@@ -17,6 +17,8 @@ struct ParticleInstance {
   f32 pos[3] = {0, 0, 0};
   f32 size = 0.1f;
   f32 color[4] = {1, 1, 1, 1};  // rgb tint, a opacity
+  f32 prev_pos[3] = {0, 0, 0};  // last frame's centre, for the motion vector
+  f32 pad = 0;
 };
 
 // Camera-facing billboard particle renderer. The engine owns the simulation;
@@ -30,6 +32,7 @@ class ParticleSystem {
 
   struct Frame {
     Mat4 view_proj;
+    Mat4 prev_view_proj;  // for the particle motion vectors
     Vec3 cam_right;
     Vec3 cam_up;
     Vec3 sun_direction;  // travel direction
@@ -42,10 +45,11 @@ class ParticleSystem {
 
   // Uploads particles into the frame slot's buffer and adds the draw pass.
   // No-op when particles is empty. color is the resolved scene color (blended
-  // into), depth is the prepass reversed-z depth export (sampled for fade).
+  // into), depth is the prepass reversed-z depth export, motion is the velocity
+  // target the particles write into (for stable temporal reconstruction).
   void AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                  const base::Vector<ParticleInstance>& particles, const Frame& frame,
-                  u32 frame_slot);
+                  ResourceHandle motion, const base::Vector<ParticleInstance>& particles,
+                  const Frame& frame, u32 frame_slot);
 
   // Fountain emitter parameters for the gpu simulation.
   struct Sim {
@@ -64,12 +68,12 @@ class ParticleSystem {
   // Simulates the particles on the gpu (one compute dispatch over the persistent
   // state buffer) and draws the resulting billboards, in a single pass.
   void SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                       const Sim& sim, const Frame& frame, u32 frame_slot);
+                       ResourceHandle motion, const Sim& sim, const Frame& frame, u32 frame_slot);
 
  private:
   static constexpr u32 kFramesInFlight = 2;
-  void RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth, VkBuffer instances,
-                  u32 count, const Frame& frame);
+  void RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
+                  ResourceHandle motion, VkBuffer instances, u32 count, const Frame& frame);
 
   Device* device_ = nullptr;
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;

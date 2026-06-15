@@ -421,6 +421,9 @@ void Engine::UpdateParticles(f32 dt, render::FrameView& view) {
     inst.color[1] = p.color.y;
     inst.color[2] = p.color.z;
     inst.color[3] = t * t * 0.8f;  // fade out over life
+    inst.prev_pos[0] = p.position.x - p.velocity.x * dt;  // one frame back, for the motion vector
+    inst.prev_pos[1] = p.position.y - p.velocity.y * dt;
+    inst.prev_pos[2] = p.position.z - p.velocity.z * dt;
     view.particles.push_back(inst);
   }
 }

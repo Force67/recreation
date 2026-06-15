@@ -19,6 +19,8 @@ struct ParticleInstance {  // matches render::ParticleInstance / particle.vs
   float3 pos;
   float size;
   float4 color;
+  float3 prev_pos;
+  float pad;
 };
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<ParticleState> state;
@@ -69,9 +71,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     p.life = Rng(seed) * p.max_life;  // spread across the lifecycle so it streams
   }
 
+  float3 old_pos = p.pos;
   p.life -= push.dt;
   if (p.life <= 0.0) {
     Respawn(p, seed);
+    old_pos = p.pos;  // teleported to the emitter: no motion across the respawn
   } else {
     p.vel.y -= push.gravity * push.dt;
     p.pos += p.vel * push.dt;
@@ -84,5 +88,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   inst.pos = p.pos;
   inst.size = p.size * (1.3 - 0.3 * t);
   inst.color = float4(p.color, t * t * 0.8);
+  inst.prev_pos = old_pos;
+  inst.pad = 0.0;
   instances[i] = inst;
 }
