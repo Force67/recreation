@@ -18,5 +18,6 @@ if(SDL3_FOUND)
 endif()
 
 if(ANDROID)
-  target_link_libraries(recreation_core PUBLIC log android)
+  target_sources(recreation_core PRIVATE window_android.cc)
+  target_link_libraries(recreation_core PUBLIC volk log android)
 endif()

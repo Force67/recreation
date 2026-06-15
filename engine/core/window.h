@@ -9,6 +9,10 @@
 #include "core/input.h"
 #include "core/types.h"
 
+#if defined(__ANDROID__)
+struct ANativeWindow;
+#endif
+
 namespace rec {
 
 struct WindowDesc {
@@ -61,6 +65,20 @@ class Window {
   InputState input_;
   std::function<void(const void*)> event_hook_;
 };
+
+#if defined(__ANDROID__)
+// Android window the activity drives. The activity owns the native-glue event
+// loop and feeds input and lifecycle into the window each frame, so the engine
+// keeps its own Run()/RunFrame() structure unchanged.
+class AndroidWindowBase : public Window {
+ public:
+  virtual InputState& mutable_input() = 0;
+  virtual void RequestQuit() = 0;
+  virtual ::ANativeWindow* native_window() const = 0;
+};
+
+std::unique_ptr<AndroidWindowBase> CreateAndroidWindow(::ANativeWindow* window);
+#endif
 
 }  // namespace rec
 
