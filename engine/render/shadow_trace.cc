@@ -25,6 +25,7 @@ struct ShadowTracePush {
   f32 inv_size[2];
   f32 tan_angular_radius;
   f32 max_distance;
+  f32 jitter[2];
 };
 
 }  // namespace
@@ -93,7 +94,8 @@ void ShadowTracePass::Destroy(Device& device) {
 ResourceHandle ShadowTracePass::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing,
                                            u32 tlas_slot, ResourceHandle depth,
                                            const Mat4& inv_view_proj, const Vec3& sun_direction,
-                                           f32 near_plane, f32 angular_radius) {
+                                           f32 near_plane, f32 angular_radius, f32 jitter_x,
+                                           f32 jitter_y) {
   ResourceHandle penumbra =
       graph.CreateTexture({.name = "shadow_penumbra", .format = NrdDenoiser::kPenumbraFormat,
                            .width = extent_.width, .height = extent_.height});
@@ -106,7 +108,7 @@ ResourceHandle ShadowTracePass::AddToGraph(RenderGraph& graph, RayTracingContext
         builder.Write(penumbra, ResourceUsage::kStorageWrite);
       },
       [this, &raytracing, tlas_slot, depth, penumbra, inv_view_proj, to_light, near_plane,
-       angular_radius](PassContext& ctx) {
+       angular_radius, jitter_x, jitter_y](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(set_layout_);
 
         VkDescriptorImageInfo images[2]{};
@@ -152,6 +154,8 @@ ResourceHandle ShadowTracePass::AddToGraph(RenderGraph& graph, RayTracingContext
         push.inv_size[1] = 1.0f / static_cast<f32>(extent_.height);
         push.tan_angular_radius = std::tan(angular_radius > 0.0f ? angular_radius : 0.0045f);
         push.max_distance = 1000.0f;
+        push.jitter[0] = jitter_x;
+        push.jitter[1] = jitter_y;
 
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0,

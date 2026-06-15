@@ -1149,7 +1149,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // (instead of the noisier inline trace the temporal pass had to integrate).
       ResourceHandle penumbra =
           shadow_trace_.AddToGraph(graph_, *raytracing_, tlas_slot, depth_export,
-                                   globals.inv_view_proj, sun, 0.1f, settings_.sun_angular_radius);
+                                   globals.inv_view_proj, sun, 0.1f, settings_.sun_angular_radius,
+                                   globals.jitter[0], globals.jitter[1]);
       sun_shadow = nrd_.DenoiseShadow(graph_, nrd_inputs.normal_roughness, nrd_inputs.view_z, motion,
                                       penumbra);
     }

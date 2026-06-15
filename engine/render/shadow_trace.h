@@ -25,7 +25,8 @@ class ShadowTracePass {
   // the light's travel direction; angular_radius is the sun's half-angle (rad).
   ResourceHandle AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
                             ResourceHandle depth, const Mat4& inv_view_proj,
-                            const Vec3& sun_direction, f32 near_plane, f32 angular_radius);
+                            const Vec3& sun_direction, f32 near_plane, f32 angular_radius,
+                            f32 jitter_x, f32 jitter_y);
 
  private:
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;

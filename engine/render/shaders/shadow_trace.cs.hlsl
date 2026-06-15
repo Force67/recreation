@@ -16,6 +16,7 @@ struct PushData {
   float2 inv_size;
   float tan_angular_radius;             // tan(sun angular radius)
   float max_distance;                   // shadow ray length
+  float2 jitter;                        // ndc projection jitter (screen = unjittered + jitter)
 };
 [[vk::push_constant]] PushData push;
 
@@ -33,7 +34,12 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 
   float2 uv = (float2(id.xy) + 0.5) * push.inv_size;
-  float2 ndc = uv * 2.0 - 1.0;
+  // The depth buffer is rendered with a jittered projection (screen = unjittered
+  // + jitter), but inv_view_proj is unjittered. Undo the jitter on the pixel
+  // center so the reconstructed world pos sits on the actual sampled surface
+  // instead of wobbling ~slope*jitter each frame (that wobble made the 1-spp
+  // sun shadow flicker, which SIGMA then bled through during camera motion).
+  float2 ndc = uv * 2.0 - 1.0 - push.jitter;
   float4 world = mul(push.inv_view_proj, float4(ndc, depth, 1.0));
   float3 world_pos = world.xyz / world.w;
 
