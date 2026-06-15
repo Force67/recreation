@@ -26,7 +26,9 @@
 #include "game_ui.h"
 #include "ecs/scheduler.h"
 #include "ecs/world.h"
+#if RECREATION_HAS_NET
 #include "net/session.h"
+#endif
 #include "physics/physics_world.h"
 #include "render/presets.h"
 #include "render/renderer.h"
@@ -66,8 +68,14 @@ struct EngineConfig {
 
 class Engine {
  public:
-  bool Initialize(const EngineConfig& config);
+  // `window` lets a platform supply its own surface (Android hands the engine
+  // the activity's ANativeWindow); when null the engine creates one itself.
+  bool Initialize(const EngineConfig& config, std::unique_ptr<Window> window = nullptr);
   int Run();
+  // One iteration of the main loop. Returns false when the engine wants to
+  // stop. Platforms that own the loop (Android's activity) drive this directly
+  // instead of the blocking Run().
+  bool RunFrame();
   void Shutdown();
 
   // Safe to call from a signal handler; Run() returns after the current
@@ -122,7 +130,9 @@ class Engine {
   // Enables guest native-call tracing while the trace window is open and
   // snapshots its ring into the overlay (throttled).
   void RefreshNativeTrace(f32 dt);
+#if RECREATION_HAS_NET
   bool StartNetworking();
+#endif
   // Resolves the configured quality tier from the gpu (or a forced preset) and
   // applies it to the renderer's live settings.
   void ApplyRenderPreset();
@@ -278,10 +288,12 @@ class Engine {
   Vec3 walk_target_{};
   // Last frame's world matrices keyed by entity, for motion vectors.
   base::UnorderedMap<u64, Mat4> prev_transforms_;
+#if RECREATION_HAS_NET
   std::unique_ptr<net::Session> session_;
   // Typed views into session_, null unless that role is active.
   net::ServerSession* server_session_ = nullptr;
   net::ClientSession* client_session_ = nullptr;
+#endif
   f32 demo_input_time_ = 0;
 
   std::atomic<bool> quit_ = false;

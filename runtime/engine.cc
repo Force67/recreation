@@ -40,12 +40,12 @@ Mat4 TransformMatrix(const world::Transform& transform) {
 
 }  // namespace
 
-bool Engine::Initialize(const EngineConfig& config) {
+bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> window) {
   config_ = config;
   jobs_ = std::make_unique<JobSystem>();
 
   if (!config_.headless) {
-    window_ = Window::Create({});
+    window_ = window ? std::move(window) : Window::Create({});
     if (!renderer_.Initialize(config_.renderer, *window_)) return false;
     ApplyRenderPreset();
   }
@@ -104,7 +104,9 @@ bool Engine::Initialize(const EngineConfig& config) {
     CreateDemoScene();
   }
 
+#if RECREATION_HAS_NET
   if (!StartNetworking()) return false;
+#endif
 
   scheduler_.AddSystem(ecs::Stage::kPostSim, "cell_streaming", [this](ecs::World& world, f32) {
     if (!streamer_) return;
@@ -114,6 +116,7 @@ bool Engine::Initialize(const EngineConfig& config) {
   return true;
 }
 
+#if RECREATION_HAS_NET
 bool Engine::StartNetworking() {
   net::SessionConfig net_config;
   net_config.port = config_.port;
@@ -151,6 +154,7 @@ bool Engine::StartNetworking() {
   }
   return true;
 }
+#endif  // RECREATION_HAS_NET
 
 void Engine::ApplyRenderPreset() {
   render::Device* device = renderer_.device();
@@ -954,6 +958,7 @@ void Engine::CreateDemoScene() {
     renderer_.UploadMesh(ground);
   }
 
+#if RECREATION_HAS_NET
   if (!config_.connect_address.empty()) {
     // Clients get their world from server snapshots; the meshes above are
     // uploaded so replicated Renderables resolve. The demo input swings the
@@ -970,6 +975,7 @@ void Engine::CreateDemoScene() {
     REC_INFO("no game data given, joining as demo client");
     return;
   }
+#endif
 
   ecs::Entity entity = world_.Create();
   world_.Add(entity, world::Transform{.position = {-2.4f, 0.5f, 0}});
@@ -981,10 +987,12 @@ void Engine::CreateDemoScene() {
   world_.Add(floor, world::Transform{.position = {0, -3.6f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
 
+#if RECREATION_HAS_NET
   if (config_.host_server) {
     world_.Add(entity, net::AllocateNetworkId());
     world_.Add(floor, net::AllocateNetworkId());
   }
+#endif
 
   scheduler_.AddSystem(ecs::Stage::kSim, "demo_spin", [](ecs::World& world, f32 dt) {
     world.Each<Spin, world::Transform>([dt](ecs::Entity, Spin& spin, world::Transform& t) {
@@ -1768,10 +1776,10 @@ void Engine::ThrowPhysicsCube() {
   physics_entities_.push_back({body, entity});
 }
 
-int Engine::Run() {
-  while (!quit_.load(std::memory_order_relaxed)) {
-    if (window_ && !window_->PumpEvents()) break;
-
+bool Engine::RunFrame() {
+  if (quit_.load(std::memory_order_relaxed)) return false;
+  if (window_ && !window_->PumpEvents()) return false;
+  {
     int steps = timer_.Tick();
     f32 dt = static_cast<f32>(timer_.fixed_step());
     for (int i = 0; i < steps; ++i) {
@@ -1834,6 +1842,12 @@ int Engine::Run() {
       // spinning a core.
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+  }
+  return !quit_.load(std::memory_order_relaxed);
+}
+
+int Engine::Run() {
+  while (RunFrame()) {
   }
   return 0;
 }
