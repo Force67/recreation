@@ -9,6 +9,7 @@
 #include <stb_image_write.h>
 
 #include "core/log.h"
+#include "render/exr_write.h"
 #include "render/shader_util.h"
 #include "shaders/hdr_capture_cs_hlsl.h"
 
@@ -254,9 +255,16 @@ void Renderer::WriteHdr() {
     rgb[i * 3 + 1] = src[i * 4 + 1];
     rgb[i * 3 + 2] = src[i * 4 + 2];
   }
-  if (stbi_write_hdr(hdr_path_.c_str(), static_cast<int>(hdr_width_),
-                     static_cast<int>(hdr_height_), 3, rgb.data())) {
-    REC_INFO("hdr frame written: {} ({}x{})", hdr_path_, hdr_width_, hdr_height_);
+  // .exr (OpenEXR float) is the production container; .hdr (radiance rgbe) is the
+  // default. Both store the same linear pre-tonemap scene.
+  bool is_exr = hdr_path_.size() >= 4 &&
+                hdr_path_.compare(hdr_path_.size() - 4, 4, ".exr") == 0;
+  bool ok = is_exr ? WriteExrRgbF32(hdr_path_, hdr_width_, hdr_height_, rgb.data())
+                   : stbi_write_hdr(hdr_path_.c_str(), static_cast<int>(hdr_width_),
+                                    static_cast<int>(hdr_height_), 3, rgb.data()) != 0;
+  if (ok) {
+    REC_INFO("{} frame written: {} ({}x{})", is_exr ? "exr" : "hdr", hdr_path_, hdr_width_,
+             hdr_height_);
   } else {
     REC_WARN("hdr write failed: {}", hdr_path_);
   }

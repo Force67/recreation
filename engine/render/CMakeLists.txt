@@ -15,6 +15,7 @@ recreation_add_module(render
   gpu_cull.cc
   shadow.cc
   shadow_trace.cc
+  exr_write.cc
   particles.cc
   fur.cc
   wboit.cc
