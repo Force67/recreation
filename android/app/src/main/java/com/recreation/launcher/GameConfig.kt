@@ -21,6 +21,23 @@ sealed interface LaunchTarget {
 
 val DEMO_SCENES = listOf("materials", "water", "cornell", "lights", "oit", "meshlet")
 
+/** How a configured Data path looks on disk, used to drive the path indicator. */
+enum class PathStatus { EMPTY, MISSING, EXISTS, DATA_DIR }
+
+private val DATA_EXTENSIONS = setOf("esm", "esp", "ba2", "bsa")
+
+/** Classifies a Data-folder path: empty, non-existent, an existing directory, or
+ *  one that actually holds game archives/plugins (the strongest signal). */
+fun dataPathStatus(path: String): PathStatus {
+    if (path.isBlank()) return PathStatus.EMPTY
+    val dir = File(path)
+    if (!dir.isDirectory) return PathStatus.MISSING
+    val looksLikeData = dir.listFiles()?.any {
+        it.isFile && it.extension.lowercase() in DATA_EXTENSIONS
+    } == true
+    return if (looksLikeData) PathStatus.DATA_DIR else PathStatus.EXISTS
+}
+
 /** Launcher state: persisted to SharedPreferences for the UI, and serialized to
  *  the engine's recreation.cfg (read by runtime/android_main.cc) on launch. */
 data class GameConfig(
@@ -30,6 +47,17 @@ data class GameConfig(
     val raytracing: Boolean = false,
 ) {
     fun dataDir(id: GameId): String = dataDirs[id].orEmpty()
+
+    fun withDataDir(id: GameId, path: String): GameConfig =
+        copy(dataDirs = dataDirs + (id to path))
+
+    /** Demos always launch; a game needs a Data path that exists on disk. */
+    val canLaunch: Boolean
+        get() = when (val t = target) {
+            is LaunchTarget.Demo -> true
+            is LaunchTarget.Game -> dataPathStatus(dataDir(t.id)) in
+                setOf(PathStatus.EXISTS, PathStatus.DATA_DIR)
+        }
 
     /** Writes the key=value config the native entry point parses. */
     fun writeNativeConfig(context: Context) {

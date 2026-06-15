@@ -9,21 +9,28 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -38,6 +46,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,9 +54,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.recreation.launcher.ui.theme.RecreationTheme
@@ -55,10 +65,12 @@ import com.recreation.launcher.ui.theme.RecreationTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The launcher is reachable over the keyguard, so a phone left locked
+        // can still be configured and launched.
+        setShowWhenLocked(true)
         // Direct-launch path (e.g. adb-driven verification): skip the UI and go
-        // straight into the renderer, showing over the keyguard if locked.
+        // straight into the renderer.
         if (intent?.getBooleanExtra("launch", false) == true) {
-            setShowWhenLocked(true)
             startActivity(Intent(this, GameActivity::class.java))
             finish()
             return
@@ -84,18 +96,28 @@ fun LauncherScreen() {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = {
-                Text("recreation", style = MaterialTheme.typography.titleLarge)
-            })
+            TopAppBar(
+                title = { LauncherTitle() },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+            )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 text = { Text("Launch") },
                 icon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                expanded = config.canLaunch,
                 onClick = {
+                    if (!config.canLaunch) return@ExtendedFloatingActionButton
                     config.save(context)
                     config.writeNativeConfig(context)
                     context.startActivity(Intent(context, GameActivity::class.java))
+                },
+                containerColor = if (config.canLaunch) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
                 },
             )
         },
@@ -116,20 +138,49 @@ fun LauncherScreen() {
 
             LaunchTargetCard(config = config, onChange = { config = it })
 
-            GamePathsCard(config = config, onChange = { config = it })
+            GamePathsCard(
+                config = config,
+                storageGranted = storageGranted,
+                onChange = { config = it },
+            )
 
             AdvancedCard(config = config, onChange = { config = it })
 
-            Spacer(Modifier.height(80.dp))
+            Spacer(Modifier.height(88.dp))
         }
     }
 }
 
 @Composable
+private fun LauncherTitle() {
+    Column {
+        Text(
+            "recreation",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "Bethesda engine launcher",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+    Card(
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
             content()
         }
     }
@@ -138,11 +189,22 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun StorageCard(granted: Boolean, onGrant: () -> Unit) {
     SectionCard("Storage access") {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             val icon: ImageVector = if (granted) Icons.Filled.CheckCircle else Icons.Filled.Warning
-            Icon(icon, contentDescription = null)
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (granted) successColor() else MaterialTheme.colorScheme.error,
+            )
             Text(
-                if (granted) "All-files access granted." else "Needed to read game data off shared storage.",
+                if (granted) {
+                    "All-files access granted."
+                } else {
+                    "Needed to read game data off shared storage."
+                },
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -151,44 +213,30 @@ private fun StorageCard(granted: Boolean, onGrant: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LaunchTargetCard(config: GameConfig, onChange: (GameConfig) -> Unit) {
-    SectionCard("Launch") {
+    SectionCard("Launch target") {
         for (game in GameId.entries) {
             val selected = (config.target as? LaunchTarget.Game)?.id == game
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(selected = selected) {
-                        onChange(config.copy(target = LaunchTarget.Game(game)))
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = selected, onClick = {
-                    onChange(config.copy(target = LaunchTarget.Game(game)))
-                })
-                Text(game.display, style = MaterialTheme.typography.bodyLarge)
-            }
+            TargetRow(
+                label = game.display,
+                selected = selected,
+                onSelect = { onChange(config.copy(target = LaunchTarget.Game(game))) },
+            )
         }
 
         val demoSelected = config.target is LaunchTarget.Demo
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .selectable(selected = demoSelected) {
-                    onChange(config.copy(target = LaunchTarget.Demo("materials")))
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = demoSelected, onClick = {
-                onChange(config.copy(target = LaunchTarget.Demo("materials")))
-            })
-            Text("Demo scene (no assets needed)", style = MaterialTheme.typography.bodyLarge)
-        }
+        TargetRow(
+            label = "Demo scene",
+            supporting = "No game assets needed",
+            selected = demoSelected,
+            onSelect = { onChange(config.copy(target = LaunchTarget.Demo("materials"))) },
+        )
 
         if (demoSelected) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val current = (config.target as LaunchTarget.Demo).scene
+            val current = (config.target as LaunchTarget.Demo).scene
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DEMO_SCENES.forEach { scene ->
                     FilterChip(
                         selected = scene == current,
@@ -202,25 +250,111 @@ private fun LaunchTargetCard(config: GameConfig, onChange: (GameConfig) -> Unit)
 }
 
 @Composable
-private fun GamePathsCard(config: GameConfig, onChange: (GameConfig) -> Unit) {
+private fun TargetRow(
+    label: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    supporting: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Column(Modifier.padding(start = 4.dp)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (supporting != null) {
+                Text(
+                    supporting,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GamePathsCard(
+    config: GameConfig,
+    storageGranted: Boolean,
+    onChange: (GameConfig) -> Unit,
+) {
+    var browsing by remember { mutableStateOf<GameId?>(null) }
+
     SectionCard("Game data paths") {
         Text(
             "Point each game at its Data folder on the device (e.g. " +
                 "/storage/emulated/0/recreation/SkyrimSE/Data).",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         for (game in GameId.entries) {
-            OutlinedTextField(
-                value = config.dataDir(game),
-                onValueChange = {
-                    onChange(config.copy(dataDirs = config.dataDirs + (game to it)))
-                },
-                label = { Text(game.display) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            GamePathField(
+                game = game,
+                path = config.dataDir(game),
+                storageGranted = storageGranted,
+                onPathChange = { onChange(config.withDataDir(game, it)) },
+                onBrowse = { browsing = game },
             )
         }
     }
+
+    browsing?.let { game ->
+        FolderBrowserDialog(
+            start = config.dataDir(game),
+            onSelect = {
+                onChange(config.withDataDir(game, it))
+                browsing = null
+            },
+            onDismiss = { browsing = null },
+        )
+    }
+}
+
+@Composable
+private fun GamePathField(
+    game: GameId,
+    path: String,
+    storageGranted: Boolean,
+    onPathChange: (String) -> Unit,
+    onBrowse: () -> Unit,
+) {
+    val status = remember(path) { dataPathStatus(path) }
+    OutlinedTextField(
+        value = path,
+        onValueChange = onPathChange,
+        label = { Text(game.display) },
+        singleLine = true,
+        leadingIcon = { PathStatusIcon(status) },
+        trailingIcon = {
+            IconButton(onClick = onBrowse, enabled = storageGranted) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = "Browse")
+            }
+        },
+        supportingText = { Text(pathStatusLabel(status)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun PathStatusIcon(status: PathStatus) {
+    val (icon, tint) = when (status) {
+        PathStatus.EMPTY -> Icons.Outlined.RadioButtonUnchecked to MaterialTheme.colorScheme.onSurfaceVariant
+        PathStatus.MISSING -> Icons.Filled.Cancel to MaterialTheme.colorScheme.error
+        PathStatus.EXISTS -> Icons.Filled.CheckCircle to MaterialTheme.colorScheme.onSurfaceVariant
+        PathStatus.DATA_DIR -> Icons.Filled.CheckCircle to successColor()
+    }
+    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+}
+
+private fun pathStatusLabel(status: PathStatus): String = when (status) {
+    PathStatus.EMPTY -> "Not set"
+    PathStatus.MISSING -> "Folder not found"
+    PathStatus.EXISTS -> "Folder exists (no game files detected)"
+    PathStatus.DATA_DIR -> "Looks like a Data folder"
 }
 
 @Composable
@@ -247,13 +381,18 @@ private fun ToggleRow(label: String, description: String, checked: Boolean, onCh
             Text(
                 description,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Default,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Switch(checked = checked, onCheckedChange = onCheck)
     }
 }
+
+/** A green that reads as "ok" on both the light and dark Material schemes. */
+@Composable
+private fun successColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF7FD18B) else Color(0xFF2E7D32)
 
 private fun requestAllFilesAccess(context: android.content.Context): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
