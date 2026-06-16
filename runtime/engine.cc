@@ -21,6 +21,7 @@
 #include "bethesda/script_attachment.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "quest/quest_def.h"
 #include "world/components.h"
 
 namespace rec {
@@ -1329,10 +1330,17 @@ bool Engine::LoadGameData() {
   if (!records_.LoadAll(config_.data_dir, order, profile)) return false;
   REC_INFO("{} plugins, {} records", order.plugins().size(), records_.record_count());
 
+  // Localized string tables, base masters first so their ids win the collisions
+  // a single id-keyed table cannot avoid (the main quest text lives in the base
+  // game master). Plugins without string files (non-localized) are skipped.
+  for (const std::string& plugin : order.plugins()) strings_.Load(vfs_, plugin, "english");
+  REC_INFO("loaded {} localized strings", strings_.size());
+
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
   script_bindings_ = std::make_unique<rec::script::skyrim::RecordBackedSkyrimBindings>(&records_);
+  script_bindings_->set_strings(&strings_);
   script_bindings_->set_player(rec::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
   scripts_ = std::make_unique<rec::script::ScriptSystem>(game_, &vfs_, script_bindings_.get());
   // Hand the bindings the guest VM so quest stage fragments can execute (run on
@@ -1452,15 +1460,22 @@ void Engine::AttachQuestScripts() {
                         if (!created.empty()) {
                           ++quests;
                           instances += static_cast<int>(created.size());
-                          std::string name = record.GetString(FourCc('E', 'D', 'I', 'D'));
+                          // Parse the quest's stages and objectives (log text,
+                          // objective text, compass targets) for the HUD/debugger.
+                          quest::QuestDef def =
+                              quest::ParseQuestDefinition(handle, record, &strings_);
+                          std::string name = !def.name.empty() ? def.name : def.editor_id;
                           if (name.empty()) name = std::to_string(id.local_id);
                           quest_records_.push_back({handle, std::move(name)});
-                          // Register the stage->fragment map on the guest thread so
-                          // SetStage runs the quest's authored logic.
+                          // Register the stage->fragment map and definition on the
+                          // guest thread (the bindings' only caller) so SetStage runs
+                          // the quest's authored logic and snapshots carry its text.
                           auto* binds = script_bindings_.get();
                           scripts_->guest().Submit(
-                              [binds, handle, fragments = std::move(fragments)](
-                                  rec::script::papyrus::VirtualMachine&) {
+                              [binds, handle, def = std::move(def),
+                               fragments = std::move(fragments)](
+                                  rec::script::papyrus::VirtualMachine&) mutable {
+                                binds->quest_system().SetDefinition(std::move(def));
                                 for (const auto& f : fragments)
                                   binds->SetStageFragment(handle, f.stage, f.function);
                               });

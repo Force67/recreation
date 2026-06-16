@@ -18,6 +18,7 @@
 #include "asset/vfs.h"
 #include "bethesda/game_profile.h"
 #include "bethesda/load_order.h"
+#include "bethesda/strings.h"
 #include "core/frame_timer.h"
 #include "core/job_system.h"
 #include "core/window.h"
@@ -245,6 +246,8 @@ class Engine {
   asset::Vfs vfs_;
   std::unique_ptr<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
+  // Localized FULL/log/objective text for records (quest names, journal text).
+  bethesda::StringTable strings_;
   std::unique_ptr<world::CellStreamer> streamer_;
   // Declared before scripts_ so the guest thread (which calls into the bindings)
   // is joined in ScriptSystem's destructor before the bindings are torn down.
