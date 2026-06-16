@@ -36,7 +36,6 @@ bool QuestSystem::SetStage(QuestHandle quest, i32 stage) {
   const bool already_done = q.stage_done[stage];
   q.stage = stage;
   q.stage_done[stage] = true;
-  q.ever_set_stage = true;
   q.running = true;  // setting a stage implies the quest is running
   // Re-setting an already-done stage is a no-op in the game, so it raises no
   // event (and the caller does not re-run its fragment).
@@ -196,7 +195,6 @@ void QuestSystem::ApplyStatus(const QuestStatus& status) {
   q.running = status.running;
   q.active = status.active;
   q.stage = status.stage;
-  q.ever_set_stage = true;
   q.stage_done[status.stage] = true;
   for (const ObjectiveStatus& os : status.objectives) {
     q.objective_displayed[os.index] = os.displayed;

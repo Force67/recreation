@@ -124,7 +124,6 @@ class QuestSystem {
     bool running = false;
     bool active = true;
     i32 stage = 0;
-    bool ever_set_stage = false;
     std::unordered_map<i32, bool> stage_done;
     std::unordered_map<i32, bool> objective_displayed;
     std::unordered_map<i32, bool> objective_completed;
