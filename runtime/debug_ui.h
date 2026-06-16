@@ -25,12 +25,38 @@ struct QuestPanel {
     u64 handle = 0;
     bool running = false;
     bool active = true;
+    bool complete = false;
     i32 stage = 0;
+  };
+  // One journal stage of the selected quest, with the engine's done flag.
+  struct Stage {
+    i32 index = 0;
+    std::string log;
+    bool done = false;
+  };
+  // One objective of the selected quest, with its live display state.
+  struct Objective {
+    i32 index = 0;
+    std::string text;
+    bool displayed = false;
+    bool completed = false;
+  };
+  // Full breakdown of the selected quest, filled by the engine for `selected`.
+  struct Detail {
+    u64 handle = 0;  // matches `selected` once the engine has filled it
+    std::string editor_id;
+    i32 completion_stage = -1;  // stage that completes the quest, -1 if none
+    std::vector<Stage> stages;
+    std::vector<Objective> objectives;
   };
   bool available = false;
   std::vector<Quest> quests;
+  u64 selected = 0;  // UI -> engine: which quest to expand in `detail`
+  Detail detail;     // engine -> UI: breakdown of `selected`
   std::function<void(u64 handle, bool run)> set_running;
   std::function<void(u64 handle, i32 stage)> set_stage;
+  std::function<void(u64 handle, i32 objective, bool displayed)> set_objective_displayed;
+  std::function<void(u64 handle, i32 objective, bool completed)> set_objective_completed;
 };
 
 // Recently invoked Papyrus native functions, for the trace window. The engine

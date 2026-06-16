@@ -5,6 +5,7 @@
 #if defined(RECREATION_HAS_IMGUI)
 
 #include <algorithm>
+#include <cctype>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -391,20 +392,40 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         for (const auto& q : quests->quests) running += q.running ? 1 : 0;
         ImGui::Text("%zu quests, %d running", quests->quests.size(), running);
         ImGui::TextDisabled("Papyrus quest scripts attached from VMAD");
+
+        // Case-insensitive name/id filter (1000+ quests load).
+        static char filter[64] = "";
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##questfilter", "filter quests by name", filter, sizeof(filter));
+        std::string needle = filter;
+        std::transform(needle.begin(), needle.end(), needle.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+
         if (ImGui::BeginTable("quest_list", 3,
                               ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
                                   ImGuiTableFlags_SizingStretchProp,
-                              {0, 240})) {
+                              {0, 200})) {
           ImGui::TableSetupColumn("Quest", ImGuiTableColumnFlags_WidthStretch);
-          ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 90);
-          ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 120);
+          ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 80);
+          ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 60);
           for (const QuestPanel::Quest& q : quests->quests) {
+            if (!needle.empty()) {
+              std::string name = q.name;
+              std::transform(name.begin(), name.end(), name.begin(),
+                             [](unsigned char c) { return std::tolower(c); });
+              if (name.find(needle) == std::string::npos) continue;
+            }
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(q.handle));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(q.name.c_str());
+            bool selected = quests->selected == q.handle;
+            if (ImGui::Selectable(q.name.c_str(), selected,
+                                  ImGuiSelectableFlags_SpanAllColumns))
+              quests->selected = q.handle;
             ImGui::TableNextColumn();
-            if (q.running)
+            if (q.complete)
+              ImGui::TextColored({0.5f, 0.8f, 1.0f, 1}, "done %d", q.stage);
+            else if (q.running)
               ImGui::TextColored({0.4f, 0.9f, 0.4f, 1}, "stage %d", q.stage);
             else
               ImGui::TextDisabled("stopped");
@@ -412,19 +433,91 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             if (q.running) {
               if (ImGui::SmallButton("Stop") && quests->set_running)
                 quests->set_running(q.handle, false);
-              ImGui::SameLine();
-              int stage = q.stage;
-              ImGui::SetNextItemWidth(60);
-              if (ImGui::InputInt("##stage", &stage, 0, 0,
-                                  ImGuiInputTextFlags_EnterReturnsTrue) &&
-                  quests->set_stage)
-                quests->set_stage(q.handle, stage);
             } else if (ImGui::SmallButton("Start") && quests->set_running) {
               quests->set_running(q.handle, true);
             }
             ImGui::PopID();
           }
           ImGui::EndTable();
+        }
+
+        // Selected-quest debugger: drive its stages and objectives directly.
+        const QuestPanel::Detail& d = quests->detail;
+        if (quests->selected != 0 && d.handle == quests->selected) {
+          const QuestPanel::Quest* q = nullptr;
+          for (const QuestPanel::Quest& it : quests->quests)
+            if (it.handle == quests->selected) q = &it;
+          ImGui::Separator();
+          if (q) ImGui::Text("%s", q->name.c_str());
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s  0x%llx", d.editor_id.c_str(),
+                              static_cast<unsigned long long>(d.handle));
+
+          ImGui::PushID("detail");
+          if (q && q->running) {
+            if (ImGui::SmallButton("Stop") && quests->set_running)
+              quests->set_running(d.handle, false);
+          } else if (ImGui::SmallButton("Start") && quests->set_running) {
+            quests->set_running(d.handle, true);
+          }
+          ImGui::SameLine();
+          static int set_stage = 0;
+          ImGui::SetNextItemWidth(70);
+          ImGui::InputInt("##setstage", &set_stage, 0, 0);
+          ImGui::SameLine();
+          if (ImGui::SmallButton("Set stage") && quests->set_stage)
+            quests->set_stage(d.handle, set_stage);
+          ImGui::SameLine();
+          // Skip to the next defined stage above the current one.
+          if (ImGui::SmallButton("Next") && q && quests->set_stage) {
+            i32 next = -1;
+            for (const QuestPanel::Stage& s : d.stages)
+              if (s.index > q->stage && (next < 0 || s.index < next)) next = s.index;
+            if (next >= 0) quests->set_stage(d.handle, next);
+          }
+          if (d.completion_stage >= 0) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Complete") && quests->set_stage)
+              quests->set_stage(d.handle, d.completion_stage);
+          }
+
+          if (!d.stages.empty() && ImGui::TreeNode("Stages")) {
+            for (const QuestPanel::Stage& s : d.stages) {
+              ImGui::PushID(s.index);
+              if (ImGui::SmallButton("Set") && quests->set_stage)
+                quests->set_stage(d.handle, s.index);
+              ImGui::SameLine();
+              bool current = q && s.index == q->stage;
+              ImVec4 col = current ? ImVec4{0.4f, 0.9f, 0.4f, 1}
+                                   : (s.done ? ImVec4{0.7f, 0.7f, 0.7f, 1}
+                                             : ImVec4{0.5f, 0.5f, 0.5f, 1});
+              ImGui::TextColored(col, "%d", s.index);
+              if (!s.log.empty()) {
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", s.log.c_str());
+              }
+              ImGui::PopID();
+            }
+            ImGui::TreePop();
+          }
+
+          if (!d.objectives.empty() && ImGui::TreeNode("Objectives")) {
+            for (const QuestPanel::Objective& o : d.objectives) {
+              ImGui::PushID(o.index);
+              bool displayed = o.displayed;
+              if (ImGui::Checkbox("show", &displayed) && quests->set_objective_displayed)
+                quests->set_objective_displayed(d.handle, o.index, displayed);
+              ImGui::SameLine();
+              bool completed = o.completed;
+              if (ImGui::Checkbox("done", &completed) && quests->set_objective_completed)
+                quests->set_objective_completed(d.handle, o.index, completed);
+              ImGui::SameLine();
+              ImGui::TextWrapped("%d. %s", o.index, o.text.c_str());
+              ImGui::PopID();
+            }
+            ImGui::TreePop();
+          }
+          ImGui::PopID();
         }
       }
     }

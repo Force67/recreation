@@ -1529,6 +1529,18 @@ void Engine::RefreshQuestPanel(f32 dt) {
         binds->SetStage(script::papyrus::ObjectRef{handle}, stage);
       });
     };
+    quest_panel_.set_objective_displayed = [this](u64 handle, i32 objective, bool displayed) {
+      auto* binds = script_bindings_.get();
+      scripts_->guest().Submit([binds, handle, objective, displayed](script::papyrus::VirtualMachine&) {
+        binds->SetObjectiveDisplayed(script::papyrus::ObjectRef{handle}, objective, displayed);
+      });
+    };
+    quest_panel_.set_objective_completed = [this](u64 handle, i32 objective, bool completed) {
+      auto* binds = script_bindings_.get();
+      scripts_->guest().Submit([binds, handle, objective, completed](script::papyrus::VirtualMachine&) {
+        binds->SetObjectiveCompleted(script::papyrus::ObjectRef{handle}, objective, completed);
+      });
+    };
   }
 
   // Snapshot the live state at a few Hz; one guest round-trip serves both the
@@ -1539,29 +1551,44 @@ void Engine::RefreshQuestPanel(f32 dt) {
   quest_ui_timer_ = 0.2f;
   auto* binds = script_bindings_.get();
   base::Vector<std::pair<u64, std::string>> src = quest_records_;
+  u64 selected = quest_panel_.selected;
 
   struct Snapshot {
     std::vector<QuestPanel::Quest> panel;
     std::vector<quest::QuestStatus> running;
+    QuestPanel::Detail detail;
   };
   Snapshot snap =
       scripts_->guest()
-          .SubmitFor([binds, src](script::papyrus::VirtualMachine&) {
+          .SubmitFor([binds, src, selected](script::papyrus::VirtualMachine&) {
             const quest::QuestSystem& qs = binds->quest_system();
             Snapshot out;
             out.panel.reserve(src.size());
             for (const auto& [handle, edid] : src) {
               const quest::QuestDef* def = qs.Definition(handle);
               std::string name = (def && !def->name.empty()) ? def->name : edid;
-              out.panel.push_back(
-                  {std::move(name), handle, qs.IsRunning(handle), qs.IsActive(handle),
-                   qs.GetStage(handle)});
+              out.panel.push_back({std::move(name), handle, qs.IsRunning(handle),
+                                   qs.IsActive(handle), qs.IsComplete(handle), qs.GetStage(handle)});
             }
             out.running = qs.RunningStatuses();
+            // Expand the selected quest into stages and objectives for the debugger.
+            if (selected != 0) {
+              out.detail.handle = selected;
+              if (const quest::QuestDef* def = qs.Definition(selected)) {
+                out.detail.editor_id = def->editor_id;
+                out.detail.completion_stage = def->CompletionStage();
+                for (const quest::StageDef& s : def->stages)
+                  out.detail.stages.push_back({s.index, s.log_entry, qs.GetStageDone(selected, s.index)});
+              }
+              quest::QuestStatus st = qs.Status(selected);
+              for (const quest::ObjectiveStatus& o : st.objectives)
+                out.detail.objectives.push_back({o.index, o.text, o.displayed, o.completed});
+            }
             return out;
           })
           .get();
   quest_panel_.quests = std::move(snap.panel);
+  quest_panel_.detail = std::move(snap.detail);
   UpdateQuestHud(snap.running);
 }
 
