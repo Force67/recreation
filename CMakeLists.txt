@@ -203,6 +203,7 @@ set(RECREATION_MODULES
   anim
   bethesda
   world
+  quest
   script
 )
 if(RECREATION_NET)
