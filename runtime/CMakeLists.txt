@@ -18,6 +18,7 @@ set(RECREATION_RUNTIME_MODULES
   recreation::bethesda
   recreation::world
   recreation::quest
+  recreation::dialogue
   recreation::script
 )
 

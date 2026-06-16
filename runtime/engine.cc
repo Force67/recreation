@@ -1378,6 +1378,11 @@ bool Engine::LoadGameData() {
   for (const std::string& plugin : order.plugins()) strings_.Load(vfs_, plugin, "english");
   REC_INFO("loaded {} localized strings", strings_.size());
 
+  // Index dialogue topics by quest so an NPC conversation opens without
+  // rescanning every DIAL.
+  dialogue_.Build(records_);
+  REC_INFO("dialogue: {} topics indexed", dialogue_.topic_count());
+
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
@@ -1565,6 +1570,48 @@ void Engine::AttachQuestScripts() {
     ReportQuestToCompletion(want);
     quit_.store(true, std::memory_order_relaxed);
   }
+
+  // REC_DIALOGUE_REPORT=<EDID> dumps a quest's dialogue topics/responses, then
+  // quits. Confirms DIAL/INFO parsing (and fragment offsets) against real data.
+  if (const char* want = std::getenv("REC_DIALOGUE_REPORT")) {
+    ReportDialogue(want);
+    quit_.store(true, std::memory_order_relaxed);
+  }
+}
+
+void Engine::ReportDialogue(const std::string& edid) {
+  u64 handle = 0;
+  for (const auto& [h, name] : quest_records_) {
+    if (name == edid) {
+      handle = h;
+      break;
+    }
+  }
+  if (handle == 0) {
+    std::printf("dialogue report: no quest matching '%s'\n", edid.c_str());
+    return;
+  }
+  const std::vector<dialogue::Handle>& topics = dialogue_.TopicsForQuest(handle);
+  std::printf("=== dialogue for %s (0x%llx): %zu topics ===\n", edid.c_str(),
+              static_cast<unsigned long long>(handle), topics.size());
+  int with_fragment = 0;
+  for (dialogue::Handle t : topics) {
+    bethesda::GlobalFormId dial{static_cast<u16>(t >> 32), static_cast<u32>(t & 0xffffffffu)};
+    dialogue::Topic topic = dialogue::ParseTopic(records_, dial, &strings_);
+    std::printf("topic [%s] \"%s\" (%zu responses)\n", topic.editor_id.c_str(),
+                topic.text.c_str(), topic.responses.size());
+    for (const dialogue::Response& r : topic.responses) {
+      std::printf("  player: \"%s\"\n  npc:    \"%s\"\n", r.player_line.c_str(),
+                  r.npc_line.c_str());
+      if (!r.fragment_script.empty()) {
+        ++with_fragment;
+        std::printf("  fragment: %s.%s\n", r.fragment_script.c_str(),
+                    r.fragment_function.c_str());
+      }
+    }
+  }
+  std::printf("=== %d responses carry a fragment ===\n", with_fragment);
+  std::fflush(stdout);
 }
 
 void Engine::ReportQuestToCompletion(const std::string& edid) {

@@ -21,6 +21,7 @@
 #include "bethesda/load_order.h"
 #include "bethesda/strings.h"
 #include "core/frame_timer.h"
+#include "dialogue/dialogue.h"
 #include "core/job_system.h"
 #include "core/window.h"
 #include "debug_ui.h"
@@ -148,6 +149,9 @@ class Engine {
   // REC_QUEST_REPORT debug aid: drives the named quest through its stages to
   // completion on the guest thread and prints the journey to stdout.
   void ReportQuestToCompletion(const std::string& edid);
+  // REC_DIALOGUE_REPORT debug aid: prints the named quest's dialogue topics,
+  // responses, and the fragment each response would run.
+  void ReportDialogue(const std::string& edid);
   // Walk-mode activation: finds the form the player faces, shows its HUD prompt,
   // and on `activate_pressed` raises its Papyrus OnActivate (the player as the
   // activator), so scripted refs and NPCs react and can advance quests.
@@ -263,6 +267,8 @@ class Engine {
   bethesda::RecordStore records_;
   // Localized FULL/log/objective text for records (quest names, journal text).
   bethesda::StringTable strings_;
+  // DIAL topics indexed by quest, for NPC dialogue.
+  dialogue::DialogueDb dialogue_;
   std::unique_ptr<world::CellStreamer> streamer_;
   // Declared before scripts_ so the guest thread (which calls into the bindings)
   // is joined in ScriptSystem's destructor before the bindings are torn down.
