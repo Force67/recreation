@@ -148,6 +148,13 @@ class Engine {
   // REC_QUEST_REPORT debug aid: drives the named quest through its stages to
   // completion on the guest thread and prints the journey to stdout.
   void ReportQuestToCompletion(const std::string& edid);
+  // Walk-mode activation: finds the form the player faces, shows its HUD prompt,
+  // and on `activate_pressed` raises its Papyrus OnActivate (the player as the
+  // activator), so scripted refs and NPCs react and can advance quests.
+  void UpdateInteraction(bool activate_pressed);
+  // Builds the activation prompt label, e.g. "Talk to Whiterun Guard" or
+  // "Activate Iron Sword", from the reference's base object record.
+  std::string ActivationLabel(bethesda::GlobalFormId refr);
   // Enables guest native-call tracing while the trace window is open and
   // snapshots its ring into the overlay (throttled).
   void RefreshNativeTrace(f32 dt);
@@ -286,6 +293,10 @@ class Engine {
   // so a stage/objective change raises the "quest updated" banner once.
   u64 hud_tracked_quest_ = 0;
   u32 hud_tracked_revision_ = 0;
+  // Activation: the form the player is looking at in walk mode (0 = none) and
+  // the cached HUD label, recomputed only when the target changes.
+  u64 activate_target_ = 0;
+  std::string activate_label_;
   // Native-call trace window state (F2): the overlay snapshot, refresh timer,
   // and whether guest tracing is currently enabled.
   NativeTracePanel native_trace_panel_;

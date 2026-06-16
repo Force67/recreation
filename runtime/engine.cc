@@ -24,6 +24,8 @@
 #include "core/math.h"
 #include "quest/quest_def.h"
 #include "world/components.h"
+#include "world/interaction.h"
+#include "script/papyrus/value.h"
 
 namespace rec {
 namespace {
@@ -1644,6 +1646,104 @@ void Engine::ReportQuestToCompletion(const std::string& edid) {
   std::fflush(stdout);
 }
 
+std::string Engine::ActivationLabel(bethesda::GlobalFormId refr) {
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(refr);
+  if (!stored) return "Activate";
+  bethesda::Record record;
+  if (!records_.Parse(refr, &record)) return "Activate";
+
+  // The placed reference points at its base object through NAME; the base
+  // carries the displayed name and the type that picks the verb.
+  std::string verb = "Activate";
+  std::string name;
+  if (const bethesda::Subrecord* nm = record.Find(FourCc('N', 'A', 'M', 'E')); nm && nm->data.size() >= 4) {
+    u32 raw;
+    std::memcpy(&raw, nm->data.data(), 4);
+    bethesda::GlobalFormId base = records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
+    if (const bethesda::RecordStore::StoredRecord* bstored = records_.Find(base)) {
+      if (bstored->header.type == FourCc('N', 'P', 'C', '_') ||
+          bstored->header.type == FourCc('A', 'C', 'H', 'R'))
+        verb = "Talk to";
+      bethesda::Record brecord;
+      if (records_.Parse(base, &brecord)) {
+        if (const bethesda::Subrecord* full = brecord.Find(FourCc('F', 'U', 'L', 'L'))) {
+          if (full->data.size() >= 4) {
+            u32 string_id;
+            std::memcpy(&string_id, full->data.data(), 4);
+            if (const base::String* s = strings_.Find(string_id)) name = std::string(s->c_str());
+          }
+          if (name.empty()) name = brecord.GetString(FourCc('F', 'U', 'L', 'L'));
+        }
+      }
+    }
+  }
+  return name.empty() ? verb : verb + " " + name;
+}
+
+void Engine::UpdateInteraction(bool activate_pressed) {
+  // Activation is a walk-mode affordance and needs the guest to dispatch events.
+  if (!walk_mode_ || player_actor_ < 0 || !scripts_ || !script_bindings_) {
+    if (activate_target_ != 0) {
+      activate_target_ = 0;
+      game_ui_.SetActivatePrompt("");
+    }
+    return;
+  }
+
+  // Skyrim's activation reach is ~150 units; the world is meters (~70 units/m).
+  constexpr f32 kRange = 2.2f;
+  constexpr f32 kFacingDot = 0.45f;  // ~63 degree cone
+  const Vec3 eye = walk_eye_;
+  const Vec3 fwd = Normalize(walk_target_ - walk_eye_);
+
+  // Collect the form-linked refs near the eye; a coarse cull keeps this cheap
+  // even in a dense cell, and the cap bounds a pathological frame.
+  base::Vector<world::ActivationCandidate> candidates;
+  const f32 coarse_sq = (kRange + 0.5f) * (kRange + 0.5f);
+  world_.Each<world::FormLink, world::Transform>(
+      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+        if (candidates.size() >= 512) return;
+        const f32 dx = t.position[0] - eye.x, dy = t.position[1] - eye.y, dz = t.position[2] - eye.z;
+        if (dx * dx + dy * dy + dz * dz > coarse_sq) return;
+        world::ActivationCandidate c;
+        c.form_handle = link.form.packed();
+        c.pos[0] = t.position[0];
+        c.pos[1] = t.position[1];
+        c.pos[2] = t.position[2];
+        candidates.push_back(c);
+      });
+
+  const float p[3] = {eye.x, eye.y, eye.z};
+  const float f[3] = {fwd.x, fwd.y, fwd.z};
+  const int idx = world::PickActivationTarget(p, f, candidates.data(),
+                                              static_cast<int>(candidates.size()), kRange, kFacingDot);
+  if (idx < 0) {
+    if (activate_target_ != 0) {
+      activate_target_ = 0;
+      game_ui_.SetActivatePrompt("");
+    }
+    return;
+  }
+
+  const u64 handle = candidates[idx].form_handle;
+  if (handle != activate_target_) {
+    activate_target_ = handle;
+    bethesda::GlobalFormId form{static_cast<u16>(handle >> 32),
+                                static_cast<u32>(handle & 0xffffffffu)};
+    activate_label_ = ActivationLabel(form);
+    game_ui_.SetActivatePrompt(activate_label_ + "   [E]");
+  }
+
+  if (activate_pressed) {
+    REC_INFO("activate: {} (0x{:x})", activate_label_, handle);
+    // Raise OnActivate(player) on the ref's script instance. Scripted activators
+    // and NPCs run their authored response, which can set quest stages.
+    scripts_->guest().RaiseEvent(
+        script::papyrus::ObjectRef{handle}, "OnActivate",
+        {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
+  }
+}
+
 void Engine::RefreshQuestPanel(f32 dt) {
   if (!scripts_ || !script_bindings_ || quest_records_.empty()) {
     quest_panel_.available = false;
@@ -1863,11 +1963,13 @@ void Engine::UpdateCamera(f32 frame_delta) {
 
   if (walk_mode_ && player_actor_ >= 0) {
     WalkUpdate(frame_delta, !menu && !kb);
+    UpdateInteraction(input.key_pressed(Key::kE) && !menu && !kb);
   } else {
     bool allow_mouse = !menu && (!debug_ui_.wants_mouse() || camera_.looking());
     bool allow_keyboard = !menu && !kb;
     camera_.Update(input, allow_mouse, allow_keyboard, frame_delta);
     window_->SetRelativeMouseMode(!menu && camera_.looking());
+    UpdateInteraction(false);  // clears any stale prompt outside walk mode
   }
   DriveCamera(frame_delta);  // orbit / replay overrides + record
 
