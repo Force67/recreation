@@ -23,6 +23,7 @@ enum class Key : u8 {
   kEscape,
   kF1,
   kF2,
+  kF3,
   kCount,
 };
 

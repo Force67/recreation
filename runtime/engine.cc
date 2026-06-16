@@ -1982,6 +1982,7 @@ void Engine::UpdateCamera(f32 frame_delta) {
 
   if (input.key_pressed(Key::kF1) && !kb) debug_ui_.ToggleVisible();
   if (input.key_pressed(Key::kF2) && !kb) debug_ui_.ToggleTrace();
+  if (input.key_pressed(Key::kF3) && !kb) debug_ui_.ToggleQuests();
   if (input.key_pressed(Key::kF) && !menu && !kb && !walk_mode_) ThrowPhysicsCube();
   if (input.key_pressed(Key::kEscape) && !kb) game_ui_.ToggleMenu();
   if (game_ui_.quit_requested()) RequestQuit();

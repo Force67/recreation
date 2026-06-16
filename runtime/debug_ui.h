@@ -95,14 +95,20 @@ class DebugUi {
 
   void ToggleVisible() { visible_ = !visible_; }
   void ToggleTrace() { trace_visible_ = !trace_visible_; }
+  void ToggleQuests() { quests_visible_ = !quests_visible_; }
   bool trace_visible() const { return trace_visible_; }
   bool wants_mouse() const;
   bool wants_keyboard() const;
 
  private:
+  // Renders the quest debugger body (list + selected-quest stage/objective
+  // controls) into the current window.
+  void RenderQuestPanel(QuestPanel* quests);
+
   bool initialized_ = false;
   bool visible_ = true;
-  bool trace_visible_ = true;  // the native-call trace window (F2 toggles)
+  bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
+  bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
   bool show_demo_ = false;
   int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row
   VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;  // outlives imgui init info
