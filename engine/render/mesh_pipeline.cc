@@ -175,6 +175,29 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
     }
   }
 
+  // Transparent variants: blend over the opaque pass, test against its
+  // depth without writing, shade with the same pbr shaders.
+  depth.depthWriteEnable = VK_FALSE;
+  depth.depthCompareOp = VK_COMPARE_OP_GREATER;  // reversed z
+  raster.polygonMode = VK_POLYGON_MODE_FILL;
+  blend_attachments[0].blendEnable = VK_TRUE;
+  blend_attachments[0].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  blend_attachments[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  blend_attachments[0].colorBlendOp = VK_BLEND_OP_ADD;
+  blend_attachments[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  blend_attachments[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  blend_attachments[0].alphaBlendOp = VK_BLEND_OP_ADD;
+  for (u32 variant = 0; variant < 2; ++variant) {
+    if (variant == 1 && !rt) continue;
+    stages[1].module = variant == 1 ? frag_rt : frag;
+    if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
+                                  &pipeline->blend_pipelines_[variant]) != VK_SUCCESS) {
+      REC_ERROR("mesh blend pipeline creation failed");
+      pipeline->blend_pipelines_[variant] = VK_NULL_HANDLE;
+    }
+  }
+  blend_attachments[0].blendEnable = VK_FALSE;
+
   // Prepass: depth write + normals/motion targets, same layout.
   stages[1].module = frag_prepass;
   raster.polygonMode = VK_POLYGON_MODE_FILL;
@@ -194,7 +217,8 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   vkDestroyShaderModule(device.device(), frag, nullptr);
   vkDestroyShaderModule(device.device(), frag_prepass, nullptr);
   if (frag_rt) vkDestroyShaderModule(device.device(), frag_rt, nullptr);
-  if (pipeline->pipelines_[0] == VK_NULL_HANDLE || pipeline->prepass_pipeline_ == VK_NULL_HANDLE) {
+  if (pipeline->pipelines_[0] == VK_NULL_HANDLE || pipeline->prepass_pipeline_ == VK_NULL_HANDLE ||
+      pipeline->blend_pipelines_[0] == VK_NULL_HANDLE) {
     return nullptr;
   }
   return pipeline;
@@ -202,6 +226,9 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
 
 MeshPipeline::~MeshPipeline() {
   for (VkPipeline pipeline : pipelines_) {
+    if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
+  }
+  for (VkPipeline pipeline : blend_pipelines_) {
     if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
   }
   if (prepass_pipeline_) vkDestroyPipeline(device_.device(), prepass_pipeline_, nullptr);
@@ -215,6 +242,16 @@ void MeshPipeline::Bind(VkCommandBuffer cmd, VkDescriptorSet globals,
   if (pipelines_[variant] == VK_NULL_HANDLE) variant &= ~kWire;
   if (pipelines_[variant] == VK_NULL_HANDLE) variant = 0;
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_[variant]);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &globals, 0,
+                          nullptr);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 2, 1, &environment, 0,
+                          nullptr);
+}
+
+void MeshPipeline::BindBlend(VkCommandBuffer cmd, VkDescriptorSet globals,
+                             VkDescriptorSet environment, bool rt_shadows) {
+  u32 variant = rt_shadows && blend_pipelines_[1] != VK_NULL_HANDLE ? 1 : 0;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blend_pipelines_[variant]);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &globals, 0,
                           nullptr);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 2, 1, &environment, 0,

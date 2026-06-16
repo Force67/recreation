@@ -3,6 +3,7 @@ recreation_add_module(render
   render_graph.cc
   mesh_pipeline.cc
   material_system.cc
+  bindless.cc
   environment.cc
   ambient_occlusion.cc
   bloom.cc

@@ -31,6 +31,7 @@ class RayTracingContext {
 
   struct Instance {
     u64 mesh_key = 0;
+    u32 custom_index = 0;  // shader-visible instanceCustomIndex (bindless mesh record)
     Mat4 transform = Mat4::Identity();
   };
 

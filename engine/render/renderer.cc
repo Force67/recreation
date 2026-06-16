@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -39,7 +40,11 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   rt_available_ = raytracing_ && device_->caps().ray_query;
 
   transient_pool_ = std::make_unique<TransientPool>(*device_);
-  material_system_ = MaterialSystem::Create(*device_);
+  if (rt_available_) {
+    bindless_ = BindlessRegistry::Create(*device_);
+    if (!bindless_) return false;
+  }
+  material_system_ = MaterialSystem::Create(*device_, bindless_.get());
   if (!material_system_) return false;
   environment_ = EnvironmentSystem::Create(*device_);
   if (!environment_) return false;
@@ -52,7 +57,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
-    ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler());
+    ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
+                               *bindless_);
     if (!ddgi_) return false;
   }
   if (!environment_->CreateSkyPipeline(mesh_pipeline_->set_layout(), kSceneColorFormat,
@@ -206,14 +212,34 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
   gpu.index_count = static_cast<u32>(lod.indices.size());
   gpu.vertex_count = static_cast<u32>(lod.vertices.size());
   if (lod.submeshes.empty()) {
-    gpu.submeshes.push_back({0, gpu.index_count, 0});
+    gpu.submeshes.push_back({0, gpu.index_count, 0, false});
   } else {
     for (const asset::Submesh& submesh : lod.submeshes) {
-      gpu.submeshes.push_back({submesh.index_offset, submesh.index_count, submesh.material.hash});
+      bool blend = material_system_ && material_system_->is_blend(submesh.material.hash);
+      gpu.submeshes.push_back(
+          {submesh.index_offset, submesh.index_count, submesh.material.hash, blend});
     }
   }
+  gpu.all_blend = true;
+  for (const GpuSubmesh& submesh : gpu.submeshes) {
+    if (!submesh.blend) gpu.all_blend = false;
+  }
+  if (bindless_ && !gpu.all_blend) {
+    base::Vector<BindlessRegistry::GeometryRecord> geometries;
+    for (const GpuSubmesh& submesh : gpu.submeshes) {
+      if (submesh.blend || submesh.index_count == 0) continue;
+      geometries.push_back({submesh.index_offset,
+                            material_system_->bindless_material(submesh.material)});
+    }
+    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices.buffer, gpu.indices.buffer,
+                                                 geometries.data(),
+                                                 static_cast<u32>(geometries.size()));
+    if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
+  }
   meshes_[mesh.id.hash] = gpu;
-  if (raytracing_) raytracing_->BuildBlas(mesh.id.hash, gpu);
+  // Pure transparency never enters the tlas: water occluding rtao and
+  // shadow rays would black out everything under it.
+  if (raytracing_ && !gpu.all_blend) raytracing_->BuildBlas(mesh.id.hash, gpu);
   return true;
 }
 
@@ -387,7 +413,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     base::Vector<RayTracingContext::Instance> instances;
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
-      instances.push_back({.mesh_key = item.mesh, .transform = item.transform});
+      const GpuMesh* mesh = meshes_.find(item.mesh);
+      if (!mesh || mesh->all_blend) continue;
+      instances.push_back({.mesh_key = item.mesh,
+                           .custom_index = mesh->bindless_index,
+                           .transform = item.transform});
     }
     graph_.AddPass(
         "tlas_build", [](RenderGraph::PassBuilder&) {},
@@ -560,12 +590,21 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, rt_shadows, settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        bool any_blend = false;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh) continue;
+          if (mesh->all_blend) {
+            any_blend = true;
+            continue;
+          }
           mesh_pipeline_->Draw(ctx.cmd, *mesh,
                                {.model = item.transform, .prev_model = item.prev_transform});
           for (const GpuSubmesh& submesh : mesh->submeshes) {
+            if (submesh.blend) {
+              any_blend = true;
+              continue;
+            }
             VkDescriptorSet material = material_system_->set(submesh.material);
             if (material != bound_material) {
               mesh_pipeline_->BindMaterial(ctx.cmd, material);
@@ -575,6 +614,51 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           }
         }
         if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
+
+        if (any_blend) {
+          // Sorted back to front by item origin; per submesh sorting waits
+          // for per-submesh bounds.
+          struct TransparentDraw {
+            const DrawItem* item;
+            const GpuSubmesh* submesh;
+            f32 distance_sq;
+          };
+          base::Vector<TransparentDraw> transparent;
+          for (const DrawItem& item : view.draws) {
+            const GpuMesh* mesh = meshes_.find(item.mesh);
+            if (!mesh) continue;
+            for (const GpuSubmesh& submesh : mesh->submeshes) {
+              if (!submesh.blend) continue;
+              f32 dx = item.transform.m[12] - view.camera.eye.x;
+              f32 dy = item.transform.m[13] - view.camera.eye.y;
+              f32 dz = item.transform.m[14] - view.camera.eye.z;
+              transparent.push_back({&item, &submesh, dx * dx + dy * dy + dz * dz});
+            }
+          }
+          std::sort(transparent.begin(), transparent.end(),
+                    [](const TransparentDraw& a, const TransparentDraw& b) {
+                      return a.distance_sq > b.distance_sq;
+                    });
+
+          mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, rt_shadows);
+          bound_material = VK_NULL_HANDLE;
+          const DrawItem* bound_item = nullptr;
+          for (const TransparentDraw& draw : transparent) {
+            if (draw.item != bound_item) {
+              const GpuMesh* mesh = meshes_.find(draw.item->mesh);
+              mesh_pipeline_->Draw(ctx.cmd, *mesh,
+                                   {.model = draw.item->transform,
+                                    .prev_model = draw.item->prev_transform});
+              bound_item = draw.item;
+            }
+            VkDescriptorSet material = material_system_->set(draw.submesh->material);
+            if (material != bound_material) {
+              mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              bound_material = material;
+            }
+            mesh_pipeline_->DrawSubmesh(ctx.cmd, *draw.submesh);
+          }
+        }
         vkCmdEndRendering(ctx.cmd);
       });
 
@@ -793,6 +877,7 @@ void Renderer::Shutdown() {
     ddgi_.reset();
     environment_.reset();
     material_system_.reset();
+    bindless_.reset();
     transient_pool_.reset();
   }
   graph_.Reset();

@@ -71,8 +71,10 @@ void Barrier(VkCommandBuffer cmd, VkImage image, u32 base_mip, u32 mip_count,
 
 }  // namespace
 
-std::unique_ptr<MaterialSystem> MaterialSystem::Create(Device& device) {
+std::unique_ptr<MaterialSystem> MaterialSystem::Create(Device& device,
+                                                       BindlessRegistry* registry) {
   auto system = std::unique_ptr<MaterialSystem>(new MaterialSystem(device));
+  system->registry_ = registry;
 
   VkSamplerCreateInfo sampler_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -141,6 +143,11 @@ bool MaterialSystem::CreateDefaults() {
   default_material.base_color_factor[1] = 0.6f;
   default_material.base_color_factor[2] = 0.65f;
   default_material.roughness_factor = 0.8f;
+  if (registry_) {
+    BindlessRegistry::MaterialRecord record;
+    std::memcpy(record.base_color_factor, default_material.base_color_factor, sizeof(f32) * 4);
+    registry_->RegisterMaterial(record);  // index 0, the fallback
+  }
   default_set_ = AllocateSet();
   if (default_set_ == VK_NULL_HANDLE) return false;
   return WriteSet(default_set_, 0, default_material);
@@ -244,6 +251,13 @@ bool MaterialSystem::UploadTexture(const asset::Texture& texture) {
   GpuImage image = UploadTextureImage(texture);
   if (image.image == VK_NULL_HANDLE) return false;
   textures_.insert(texture.id.hash, image);
+  if (registry_ && texture.is_srgb) {
+    // Only color textures matter for ray hit shading.
+    u32 index = registry_->RegisterTexture(image.view);
+    if (index != BindlessRegistry::kInvalidIndex) {
+      bindless_textures_.insert(texture.id.hash, index);
+    }
+  }
   return true;
 }
 
@@ -299,7 +313,8 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   params.metallic_factor = material.metallic_factor;
   params.roughness_factor = material.roughness_factor;
   params.alpha_cutoff = material.alpha_cutoff;
-  if (material.alpha_mode != asset::AlphaMode::kOpaque) params.flags |= kFlagAlphaMask;
+  // Blend materials draw without the cutout test; mask materials cut.
+  if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
   if (material.normal && textures_.find(material.normal.hash)) {
     params.flags |= kFlagHasNormalMap;
   }
@@ -342,7 +357,32 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material) {
   if (set == VK_NULL_HANDLE) return false;
   if (!WriteSet(set, sets_in_last_pool_ - 1, material)) return false;
   sets_.insert(material.id.hash, set);
+  blend_modes_.insert(material.id.hash, static_cast<u8>(material.alpha_mode));
+  if (registry_) {
+    BindlessRegistry::MaterialRecord record;
+    std::memcpy(record.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
+    std::memcpy(record.emissive, material.emissive_factor, sizeof(f32) * 3);
+    if (const u32* texture = bindless_textures_.find(material.base_color.hash)) {
+      record.base_color_texture = *texture;
+    }
+    u32 index = registry_->RegisterMaterial(record);
+    if (index != BindlessRegistry::kInvalidIndex) {
+      bindless_materials_.insert(material.id.hash, index);
+    }
+  }
   return true;
+}
+
+u32 MaterialSystem::bindless_material(u64 material_hash) const {
+  if (const u32* index = bindless_materials_.find(material_hash)) return *index;
+  return 0;
+}
+
+bool MaterialSystem::is_blend(u64 material_hash) const {
+  if (const u8* mode = blend_modes_.find(material_hash)) {
+    return static_cast<asset::AlphaMode>(*mode) == asset::AlphaMode::kBlend;
+  }
+  return false;
 }
 
 VkDescriptorSet MaterialSystem::set(u64 material_hash) const {

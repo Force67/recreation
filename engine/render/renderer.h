@@ -12,6 +12,7 @@
 #include "core/window.h"
 #include "render/ambient_occlusion.h"
 #include "render/antialiasing.h"
+#include "render/bindless.h"
 #include "render/bloom.h"
 #include "render/ddgi.h"
 #include "render/exposure.h"
@@ -125,6 +126,7 @@ class Renderer {
   std::unique_ptr<Device> device_;
   std::unique_ptr<Swapchain> swapchain_;
   std::unique_ptr<TransientPool> transient_pool_;
+  std::unique_ptr<BindlessRegistry> bindless_;
   std::unique_ptr<MaterialSystem> material_system_;
   std::unique_ptr<EnvironmentSystem> environment_;
   std::unique_ptr<DdgiSystem> ddgi_;

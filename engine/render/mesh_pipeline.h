@@ -59,6 +59,10 @@ class MeshPipeline {
   void Bind(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
             bool rt_shadows, bool wireframe);
   void BindPrepass(VkCommandBuffer cmd, VkDescriptorSet globals);
+  // Transparent variant: alpha blend over the opaque result, depth tested
+  // against the prepass without writing. Set state mirrors Bind.
+  void BindBlend(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
+                 bool rt_shadows);
   void BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
   void Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push);
   void DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh);
@@ -74,6 +78,7 @@ class MeshPipeline {
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipelines_[4] = {};  // [rt | wire]
+  VkPipeline blend_pipelines_[2] = {};  // [rt]
   VkPipeline prepass_pipeline_ = VK_NULL_HANDLE;
 };
 

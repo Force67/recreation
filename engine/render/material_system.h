@@ -8,6 +8,7 @@
 
 #include "asset/material.h"
 #include "asset/texture.h"
+#include "render/bindless.h"
 #include "render/rhi/device.h"
 
 namespace rec::render {
@@ -37,7 +38,8 @@ class MaterialSystem {
   static constexpr u32 kFlagAlphaMask = 1u << 0;
   static constexpr u32 kFlagHasNormalMap = 1u << 1;
 
-  static std::unique_ptr<MaterialSystem> Create(Device& device);
+  // registry may be null (no raytracing); hit-shading tables are skipped.
+  static std::unique_ptr<MaterialSystem> Create(Device& device, BindlessRegistry* registry);
   ~MaterialSystem();
 
   MaterialSystem(const MaterialSystem&) = delete;
@@ -53,6 +55,14 @@ class MaterialSystem {
 
   // Set for a material hash; 0 or unknown hashes get the default material.
   VkDescriptorSet set(u64 material_hash) const;
+
+  // Blended materials draw in the sorted transparent pass instead of the
+  // opaque one. Unknown hashes are opaque.
+  bool is_blend(u64 material_hash) const;
+
+  // Bindless material record index for ray hit shading; 0 (the default
+  // material) for unknown hashes.
+  u32 bindless_material(u64 material_hash) const;
 
   VkDescriptorSetLayout set_layout() const { return set_layout_; }
   u32 texture_count() const { return static_cast<u32>(textures_.size()); }
@@ -72,6 +82,7 @@ class MaterialSystem {
   const GpuImage* texture_or(u64 hash, const GpuImage& fallback) const;
 
   Device& device_;
+  BindlessRegistry* registry_ = nullptr;
   VkSampler sampler_ = VK_NULL_HANDLE;
   VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
   base::Vector<VkDescriptorPool> pools_;
@@ -80,6 +91,9 @@ class MaterialSystem {
   base::Vector<GpuBuffer> param_buffers_;  // one per pool, host visible
   base::UnorderedMap<u64, GpuImage> textures_;
   base::UnorderedMap<u64, VkDescriptorSet> sets_;
+  base::UnorderedMap<u64, u8> blend_modes_;  // asset::AlphaMode per material
+  base::UnorderedMap<u64, u32> bindless_textures_;   // texture hash -> registry index
+  base::UnorderedMap<u64, u32> bindless_materials_;  // material hash -> registry index
   VkDescriptorSet default_set_ = VK_NULL_HANDLE;
 
   GpuImage white_;        // srgb-safe 1x1 white, also neutral mr/emissive

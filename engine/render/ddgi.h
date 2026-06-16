@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "core/math.h"
+#include "render/bindless.h"
 #include "render/environment.h"
 #include "render/render_graph.h"
 #include "render/rhi/device.h"
@@ -18,9 +19,10 @@ class RayTracingContext;
 // irradiance and filtered distance atlases, and the forward pass samples
 // them with chebyshev visibility weights.
 //
-// Probe ray hits shade from the sun (shadow tested) plus the previous
-// frame's probes with a flat albedo; bindless geometry access for true
-// material colored bounce is on the roadmap.
+// Probe ray hits fetch their triangle's interpolated normal, uv and
+// material through the bindless scene tables, then shade from the sun
+// (shadow tested), emissive and the previous frame's probes, so the bounce
+// carries real material color.
 class DdgiSystem {
  public:
   static constexpr u32 kProbesX = 16;
@@ -37,7 +39,7 @@ class DdgiSystem {
   };
 
   static std::unique_ptr<DdgiSystem> Create(Device& device, VkImageView sky_view,
-                                            VkSampler sky_sampler);
+                                            VkSampler sky_sampler, BindlessRegistry& bindless);
   ~DdgiSystem();
 
   DdgiSystem(const DdgiSystem&) = delete;
@@ -84,6 +86,7 @@ class DdgiSystem {
 
   VkImageView sky_view_ = VK_NULL_HANDLE;
   VkSampler sky_sampler_ = VK_NULL_HANDLE;
+  BindlessRegistry* bindless_ = nullptr;
 
   VkDescriptorSetLayout rays_set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout rays_layout_ = VK_NULL_HANDLE;

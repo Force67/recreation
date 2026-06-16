@@ -282,7 +282,8 @@ PsOut main(PsIn input) {
   float shadow = SunShadow(input, n);
 
   PsOut output;
-  output.color = float4(ShadeSurface(input, base.rgb, n, shadow), 1.0);
+  // Alpha carries through for the blend pass; opaque targets ignore it.
+  output.color = float4(ShadeSurface(input, base.rgb, n, shadow), base.a);
   // Uv offset from this pixel to where the surface was last frame.
   float2 curr = input.curr_clip.xy / input.curr_clip.w;
   float2 prev = input.prev_clip.xy / input.prev_clip.w;

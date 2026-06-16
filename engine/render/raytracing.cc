@@ -75,11 +75,14 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
   if (blas_.contains(mesh_key)) return true;
   if (mesh.vertex_count == 0 || mesh.index_count == 0) return false;
 
-  VkAccelerationStructureGeometryKHR geometry{
+  // One geometry per opaque submesh: hit shaders resolve the material from
+  // CommittedGeometryIndex through the bindless geometry table, which is
+  // written in the same order. Blend submeshes stay out entirely.
+  VkAccelerationStructureGeometryKHR geometry_template{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
-  geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-  geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-  auto& triangles = geometry.geometry.triangles;
+  geometry_template.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+  geometry_template.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+  auto& triangles = geometry_template.geometry.triangles;
   triangles = {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR};
   triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
   triangles.vertexData.deviceAddress = BufferAddress(device_.device(), mesh.vertices.buffer);
@@ -88,20 +91,33 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
   triangles.indexType = VK_INDEX_TYPE_UINT32;
   triangles.indexData.deviceAddress = BufferAddress(device_.device(), mesh.indices.buffer);
 
+  base::Vector<VkAccelerationStructureGeometryKHR> geometries;
+  base::Vector<VkAccelerationStructureBuildRangeInfoKHR> range_infos;
+  base::Vector<u32> primitive_counts;
+  for (const GpuSubmesh& submesh : mesh.submeshes) {
+    if (submesh.blend || submesh.index_count == 0) continue;
+    geometries.push_back(geometry_template);
+    VkAccelerationStructureBuildRangeInfoKHR range{};
+    range.primitiveCount = submesh.index_count / 3;
+    range.primitiveOffset = submesh.index_offset * sizeof(u32);
+    range_infos.push_back(range);
+    primitive_counts.push_back(range.primitiveCount);
+  }
+  if (geometries.empty()) return false;
+
   VkAccelerationStructureBuildGeometryInfoKHR build{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
   build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
   build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
   build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  build.geometryCount = 1;
-  build.pGeometries = &geometry;
+  build.geometryCount = static_cast<u32>(geometries.size());
+  build.pGeometries = geometries.data();
 
-  u32 primitive_count = mesh.index_count / 3;
   VkAccelerationStructureBuildSizesInfoKHR sizes{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
   vkGetAccelerationStructureBuildSizesKHR(device_.device(),
                                           VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build,
-                                          &primitive_count, &sizes);
+                                          primitive_counts.data(), &sizes);
 
   Blas blas;
   blas.buffer = device_.CreateBuffer(
@@ -130,8 +146,7 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
   build.scratchData.deviceAddress =
       AlignUp(BufferAddress(device_.device(), blas_scratch_.buffer), scratch_alignment_);
 
-  VkAccelerationStructureBuildRangeInfoKHR range{.primitiveCount = primitive_count};
-  const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
+  const VkAccelerationStructureBuildRangeInfoKHR* ranges = range_infos.data();
   device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
     vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, &ranges);
   });
@@ -218,6 +233,7 @@ void RayTracingContext::BuildTlas(VkCommandBuffer cmd, u32 slot,
     if (!blas) continue;
     VkAccelerationStructureInstanceKHR gpu{};
     gpu.transform = ToTransformMatrix(instance.transform);
+    gpu.instanceCustomIndex = instance.custom_index & 0xffffffu;
     gpu.mask = 0xff;
     gpu.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
     gpu.accelerationStructureReference = blas->address;
@@ -260,7 +276,8 @@ void RayTracingContext::BuildTlas(VkCommandBuffer cmd, u32 slot,
   VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
   barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
   barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-  barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+  barrier.dstStageMask =
+      VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
   barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
   VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dep.memoryBarrierCount = 1;

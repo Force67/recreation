@@ -93,10 +93,12 @@ void MemoryBarrier2(VkCommandBuffer cmd, VkPipelineStageFlags2 src_stage,
 }  // namespace
 
 std::unique_ptr<DdgiSystem> DdgiSystem::Create(Device& device, VkImageView sky_view,
-                                               VkSampler sky_sampler) {
+                                               VkSampler sky_sampler,
+                                               BindlessRegistry& bindless) {
   auto ddgi = std::unique_ptr<DdgiSystem>(new DdgiSystem(device));
   ddgi->sky_view_ = sky_view;
   ddgi->sky_sampler_ = sky_sampler;
+  ddgi->bindless_ = &bindless;
   if (!ddgi->CreateResources(sky_view, sky_sampler) || !ddgi->CreatePipelines()) return nullptr;
   return ddgi;
 }
@@ -182,9 +184,11 @@ bool DdgiSystem::CreatePipelines() {
       return false;
     }
     VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size};
+    VkDescriptorSetLayout set_layouts[2] = {*set_layout, bindless_->set_layout()};
     VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    layout_info.setLayoutCount = 1;
-    layout_info.pSetLayouts = set_layout;
+    // The rays pass resolves hit materials through the bindless set.
+    layout_info.setLayoutCount = tlas ? 2 : 1;
+    layout_info.pSetLayouts = set_layouts;
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push;
     if (vkCreatePipelineLayout(device_.device(), &layout_info, nullptr, layout) != VK_SUCCESS) {
@@ -343,9 +347,10 @@ void DdgiSystem::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u
           writes[4].pBufferInfo = &volume_info;
           vkUpdateDescriptorSets(ctx.device->device(), 5, writes, 0, nullptr);
         }
+        VkDescriptorSet rays_sets[2] = {rays_set, bindless_->set()};
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rays_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rays_layout_, 0, 1,
-                                &rays_set, 0, nullptr);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, rays_layout_, 0, 2,
+                                rays_sets, 0, nullptr);
         vkCmdPushConstants(ctx.cmd, rays_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                            sizeof(rays_push), &rays_push);
         vkCmdDispatch(ctx.cmd, (kRaysPerProbe + 31) / 32, kProbeCount, 1);
