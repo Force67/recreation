@@ -65,6 +65,7 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
   constexpr u32 kLand = FourCc('L', 'A', 'N', 'D');
   constexpr u32 kXclc = FourCc('X', 'C', 'L', 'C');
   constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
+  constexpr u32 kInfo = FourCc('I', 'N', 'F', 'O');
   constexpr f32 kCellSize = 4096.0f;
 
   size_t persistent_refs = 0;
@@ -153,6 +154,9 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
         u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
         exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
         ++persistent_refs;
+      } else if (header.type == kInfo && inserted && ctx.dialogue.value != 0) {
+        // Dialogue response under its DIAL topic (topic children group label).
+        topic_infos_[order.Resolve(ctx.dialogue, i, masters).packed()].push_back(id.packed());
       }
     });
     plugins_.push_back(std::move(*plugin));
@@ -222,6 +226,10 @@ GlobalFormId RecordStore::FindInteriorCell(std::string_view editor_id) const {
 
 const base::Vector<u64>* RecordStore::InteriorRefs(GlobalFormId cell) const {
   return interior_.find(cell.packed());
+}
+
+const base::Vector<u64>* RecordStore::TopicInfos(GlobalFormId dial) const {
+  return topic_infos_.find(dial.packed());
 }
 
 }  // namespace rec::bethesda

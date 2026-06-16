@@ -184,6 +184,9 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
         ctx.cell = RawFormId{group.label};
         ctx.cell_group_type = group.group_type;
       }
+      // Topic children (type 7): the label is the parent DIAL, so the INFO
+      // records that follow can be tied back to their dialogue topic.
+      if (group.group_type == 7) ctx.dialogue = RawFormId{group.label};
       continue;
     }
 

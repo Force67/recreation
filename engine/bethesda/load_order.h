@@ -93,6 +93,10 @@ class RecordStore {
   // All REFR children (persistent and temporary) of an interior cell.
   const base::Vector<u64>* InteriorRefs(GlobalFormId cell) const;
 
+  // The INFO response records under a DIAL topic, in file order (the order the
+  // engine evaluates them). Null when the topic has no children.
+  const base::Vector<u64>* TopicInfos(GlobalFormId dial) const;
+
  private:
   struct CellGridSlot {
     u64 worldspace = 0;  // packed
@@ -107,6 +111,7 @@ class RecordStore {
   base::UnorderedMap<u64, ExteriorGrid> exterior_;       // worldspace -> grid
   base::UnorderedMap<u64, CellGridSlot> cell_grid_;      // CELL id -> grid slot
   base::UnorderedMap<u64, base::Vector<u64>> interior_;  // CELL id -> refs
+  base::UnorderedMap<u64, base::Vector<u64>> topic_infos_;  // DIAL id -> INFO ids
 };
 
 }  // namespace rec::bethesda

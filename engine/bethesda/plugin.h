@@ -24,6 +24,7 @@ struct GroupContext {
   RawFormId worldspace;     // label of the enclosing world children group (type 1)
   RawFormId cell;           // label of the enclosing cell children group (type 6/8/9)
   i32 cell_group_type = 0;  // 8 persistent, 9 temporary
+  RawFormId dialogue;       // label of the enclosing topic children group (type 7)
 };
 
 // Decompresses (if flagged) and splits a record payload into subrecords.
