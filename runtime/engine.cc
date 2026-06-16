@@ -174,6 +174,9 @@ bool Engine::StartNetworking() {
         scripts_->guest().Submit([binds, status](script::papyrus::VirtualMachine&) {
           binds->quest_system().ApplyStatus(status);
         });
+        if (std::getenv("REC_NET_QUEST_LOG"))
+          REC_INFO("net: applied quest 0x{:x} stage {} complete {}", status.handle, status.stage,
+                   status.complete ? 1 : 0);
       });
     }
   } else {
