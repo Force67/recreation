@@ -1,0 +1,360 @@
+#include "world/land_baker.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <string>
+
+#include "core/log.h"
+
+namespace rec::world {
+namespace {
+
+constexpr f32 kCellSize = 4096.0f;
+// Land textures repeat every 512 game units (~7.3 m), the same scale the
+// terrain mesh UVs used before baking.
+constexpr f32 kRepeatUnits = 512.0f;
+// 256 keeps the bake around 4 ms; dirt paths stay ~10 texels wide.
+constexpr u32 kBakeSize = 256;
+// One texture repeat covers kBakeSize * kRepeatUnits / kCellSize = 32 bake
+// texels, so layers decode at the mip closest to that.
+constexpr u32 kLayerSize = 32;
+constexpr u32 kQuadGrid = 17;  // VTXT opacity grid per quadrant
+
+constexpr u32 kBtxt = FourCc('B', 'T', 'X', 'T');
+constexpr u32 kAtxt = FourCc('A', 'T', 'X', 'T');
+constexpr u32 kVtxt = FourCc('V', 'T', 'X', 'T');
+constexpr u32 kTnam = FourCc('T', 'N', 'A', 'M');
+constexpr u32 kTx00 = FourCc('T', 'X', '0', '0');
+
+f32 SrgbToLinear(u8 v) {
+  static const auto table = [] {
+    base::Vector<f32> t(256);
+    for (u32 i = 0; i < 256; ++i) {
+      f32 c = static_cast<f32>(i) / 255.0f;
+      t[i] = c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+    }
+    return t;
+  }();
+  return table[v];
+}
+
+u8 LinearToSrgb(f32 v) {
+  v = std::clamp(v, 0.0f, 1.0f);
+  f32 c = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+  return static_cast<u8>(c * 255.0f + 0.5f);
+}
+
+u32 Rgb565To888(u16 c, u8 out[3]) {
+  out[0] = static_cast<u8>(((c >> 11) & 0x1f) * 255 / 31);
+  out[1] = static_cast<u8>(((c >> 5) & 0x3f) * 255 / 63);
+  out[2] = static_cast<u8>((c & 0x1f) * 255 / 31);
+  return 0;
+}
+
+// Decodes the color half of a BC1/BC3 block (8 bytes) into 4x4 RGB.
+void DecodeBc1Colors(const u8* block, bool always_four, u8 out[16][3]) {
+  u16 c0, c1;
+  std::memcpy(&c0, block, 2);
+  std::memcpy(&c1, block + 2, 2);
+  u8 palette[4][3];
+  Rgb565To888(c0, palette[0]);
+  Rgb565To888(c1, palette[1]);
+  if (always_four || c0 > c1) {
+    for (int k = 0; k < 3; ++k) {
+      palette[2][k] = static_cast<u8>((2 * palette[0][k] + palette[1][k]) / 3);
+      palette[3][k] = static_cast<u8>((palette[0][k] + 2 * palette[1][k]) / 3);
+    }
+  } else {
+    for (int k = 0; k < 3; ++k) {
+      palette[2][k] = static_cast<u8>((palette[0][k] + palette[1][k]) / 2);
+      palette[3][k] = 0;
+    }
+  }
+  u32 bits;
+  std::memcpy(&bits, block + 4, 4);
+  for (u32 i = 0; i < 16; ++i) {
+    const u8* c = palette[(bits >> (i * 2)) & 3];
+    out[i][0] = c[0];
+    out[i][1] = c[1];
+    out[i][2] = c[2];
+  }
+}
+
+size_t MipOffset(const asset::Texture& texture, u32 mip, u32* width, u32* height) {
+  bool compressed = texture.format != asset::TextureFormat::kRgba8;
+  size_t block = (texture.format == asset::TextureFormat::kBc1 ||
+                  texture.format == asset::TextureFormat::kBc4)
+                     ? 8
+                     : 16;
+  size_t offset = 0;
+  for (u32 m = 0; m < mip; ++m) {
+    u32 w = std::max(1u, texture.width >> m);
+    u32 h = std::max(1u, texture.height >> m);
+    offset += compressed ? ((w + 3) / 4) * ((h + 3) / 4) * block : static_cast<size_t>(w) * h * 4;
+  }
+  *width = std::max(1u, texture.width >> mip);
+  *height = std::max(1u, texture.height >> mip);
+  return offset;
+}
+
+struct QuadLayer {
+  u64 ltex = 0;
+  u32 quadrant = 0;
+  f32 opacity[kQuadGrid * kQuadGrid] = {};
+};
+
+}  // namespace
+
+bool LandBaker::DecodeTexture(const asset::Texture& texture, Layer* out) const {
+  if (texture.format != asset::TextureFormat::kBc1 &&
+      texture.format != asset::TextureFormat::kBc3 &&
+      texture.format != asset::TextureFormat::kRgba8) {
+    return false;
+  }
+  // The smallest mip still at or above the sampling resolution.
+  u32 mip = 0;
+  for (u32 m = 0; m + 1 < texture.mip_count; ++m) {
+    if (std::max(texture.width >> (m + 1), texture.height >> (m + 1)) < kLayerSize) break;
+    mip = m + 1;
+  }
+  u32 width, height;
+  size_t offset = MipOffset(texture, mip, &width, &height);
+
+  base::Vector<u8> rgba(static_cast<size_t>(width) * height * 4);
+  if (texture.format == asset::TextureFormat::kRgba8) {
+    if (offset + rgba.size() > texture.data.size()) return false;
+    std::memcpy(rgba.data(), texture.data.data() + offset, rgba.size());
+  } else {
+    bool bc3 = texture.format == asset::TextureFormat::kBc3;
+    size_t block_size = bc3 ? 16 : 8;
+    u32 bw = (width + 3) / 4, bh = (height + 3) / 4;
+    if (offset + static_cast<size_t>(bw) * bh * block_size > texture.data.size()) return false;
+    for (u32 by = 0; by < bh; ++by) {
+      for (u32 bx = 0; bx < bw; ++bx) {
+        const u8* block = texture.data.data() + offset +
+                          (static_cast<size_t>(by) * bw + bx) * block_size;
+        u8 colors[16][3];
+        DecodeBc1Colors(block + (bc3 ? 8 : 0), bc3, colors);
+        for (u32 py = 0; py < 4; ++py) {
+          for (u32 px = 0; px < 4; ++px) {
+            u32 x = bx * 4 + px, y = by * 4 + py;
+            if (x >= width || y >= height) continue;
+            u8* dst = rgba.data() + (static_cast<size_t>(y) * width + x) * 4;
+            const u8* c = colors[py * 4 + px];
+            dst[0] = c[0];
+            dst[1] = c[1];
+            dst[2] = c[2];
+          }
+        }
+      }
+    }
+  }
+
+  // Square sampling grid in linear space; non square sources resample by
+  // nearest.
+  out->size = kLayerSize;
+  out->rgb.resize(static_cast<size_t>(kLayerSize) * kLayerSize * 3);
+  for (u32 y = 0; y < kLayerSize; ++y) {
+    u32 sy = y * height / kLayerSize;
+    for (u32 x = 0; x < kLayerSize; ++x) {
+      u32 sx = x * width / kLayerSize;
+      const u8* src = rgba.data() + (static_cast<size_t>(sy) * width + sx) * 4;
+      f32* dst = out->rgb.data() + (static_cast<size_t>(y) * kLayerSize + x) * 3;
+      dst[0] = SrgbToLinear(src[0]);
+      dst[1] = SrgbToLinear(src[1]);
+      dst[2] = SrgbToLinear(src[2]);
+    }
+  }
+  return true;
+}
+
+const LandBaker::Layer* LandBaker::DefaultLayer() {
+  if (default_layer_.size == 0) {
+    const asset::Texture* texture = assets_.LoadTexture("textures/landscape/tundra01.dds");
+    if (!texture || !DecodeTexture(*texture, &default_layer_)) {
+      default_layer_.size = 1;
+      default_layer_.rgb.resize(3);
+      default_layer_.rgb[0] = 0.09f;  // linear tundra-ish
+      default_layer_.rgb[1] = 0.10f;
+      default_layer_.rgb[2] = 0.05f;
+    }
+  }
+  return &default_layer_;
+}
+
+const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
+  if (ltex_packed == 0) return DefaultLayer();
+  if (const Layer* known = layers_.find(ltex_packed)) {
+    return known->size != 0 ? known : DefaultLayer();
+  }
+  Layer* layer = layers_.emplace(ltex_packed).first;
+
+  // LTEX -> TNAM -> TXST -> TX00 diffuse path.
+  bethesda::GlobalFormId ltex_id{static_cast<u16>(ltex_packed >> 32),
+                                 static_cast<u32>(ltex_packed)};
+  bethesda::Record ltex;
+  std::string path;
+  if (records_.Parse(ltex_id, &ltex)) {
+    if (const bethesda::Subrecord* tnam = ltex.Find(kTnam); tnam && tnam->data.size() >= 4) {
+      u32 raw;
+      std::memcpy(&raw, tnam->data.data(), 4);
+      bethesda::GlobalFormId txst_id = records_.ResolveFrom(
+          bethesda::RawFormId{raw}, records_.Find(ltex_id)->winning_plugin);
+      bethesda::Record txst;
+      if (records_.Parse(txst_id, &txst)) path = txst.GetString(kTx00);
+    }
+  }
+  if (!path.empty()) {
+    path = asset::NormalizePath(path);
+    if (!path.starts_with("textures/")) path = "textures/" + path;
+    if (const asset::Texture* texture = assets_.LoadTexture(path)) {
+      DecodeTexture(*texture, layer);
+    }
+  }
+  if (layer->size == 0) {
+    REC_DEBUG("land texture missing for ltex {:x}, using default", ltex_packed);
+    return DefaultLayer();
+  }
+  return layer;
+}
+
+asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
+                                     i16 grid_y) {
+  // Layer setup straight from the subrecord stream: BTXT sets a quadrant
+  // base, ATXT opens an additive layer whose VTXT opacities follow.
+  u64 base[4] = {};
+  bool any = false;
+  base::Vector<QuadLayer> layers;
+  QuadLayer* open = nullptr;
+  for (const bethesda::Subrecord& sub : land.subrecords) {
+    if ((sub.type == kBtxt || sub.type == kAtxt) && sub.data.size() >= 8) {
+      u32 raw;
+      u8 quadrant = sub.data[4];
+      std::memcpy(&raw, sub.data.data(), 4);
+      if (quadrant > 3) continue;
+      u64 ltex = raw == 0 ? 0 : records_.ResolveFrom(bethesda::RawFormId{raw}, land_plugin).packed();
+      any = true;
+      if (sub.type == kBtxt) {
+        base[quadrant] = ltex;
+        open = nullptr;
+      } else {
+        layers.emplace_back();
+        open = &layers.back();
+        open->ltex = ltex;
+        open->quadrant = quadrant;
+      }
+    } else if (sub.type == kVtxt && open) {
+      for (size_t i = 0; i + 8 <= sub.data.size(); i += 8) {
+        u16 position;
+        f32 opacity;
+        std::memcpy(&position, sub.data.data() + i, 2);
+        std::memcpy(&opacity, sub.data.data() + i + 4, 4);
+        if (position < kQuadGrid * kQuadGrid) {
+          open->opacity[position] = std::clamp(opacity, 0.0f, 1.0f);
+        }
+      }
+    }
+  }
+  // Cells without texture layers share one default bake; the cell size is
+  // an exact multiple of the repeat so it tiles world-consistently.
+  if (!any) {
+    if (default_albedo_) return default_albedo_;
+    layers.clear();
+  }
+
+  // Decode every needed LTEX first; inserting into layers_ can rehash the
+  // map, so pointers are only taken once the set is complete.
+  for (u32 q = 0; q < 4; ++q) LayerFor(base[q]);
+  for (const QuadLayer& layer : layers) LayerFor(layer.ltex);
+  auto stable_layer = [&](u64 ltex) -> const Layer* {
+    if (ltex == 0) return DefaultLayer();
+    const Layer* layer = layers_.find(ltex);
+    return layer && layer->size != 0 ? layer : DefaultLayer();
+  };
+  const Layer* base_layers[4];
+  for (u32 q = 0; q < 4; ++q) base_layers[q] = stable_layer(base[q]);
+  base::Vector<const Layer*> layer_textures(layers.size());
+  for (size_t i = 0; i < layers.size(); ++i) layer_textures[i] = stable_layer(layers[i].ltex);
+
+  // World anchored sample of a decoded layer, tiled every kRepeatUnits.
+  auto sample = [&](const Layer& layer, f32 world_x, f32 world_y, f32 out[3]) {
+    f32 u = world_x / kRepeatUnits;
+    f32 v = -world_y / kRepeatUnits;
+    u -= std::floor(u);
+    v -= std::floor(v);
+    u32 x = std::min(layer.size - 1, static_cast<u32>(u * static_cast<f32>(layer.size)));
+    u32 y = std::min(layer.size - 1, static_cast<u32>(v * static_cast<f32>(layer.size)));
+    const f32* texel = layer.rgb.data() + (static_cast<size_t>(y) * layer.size + x) * 3;
+    out[0] = texel[0];
+    out[1] = texel[1];
+    out[2] = texel[2];
+  };
+
+  asset::Texture texture;
+  std::string name = any ? "land/albedo/" + std::to_string(grid_x) + "_" + std::to_string(grid_y)
+                         : "land/albedo/default";
+  texture.id = asset::MakeAssetId(name);
+  texture.format = asset::TextureFormat::kRgba8;
+  texture.width = kBakeSize;
+  texture.height = kBakeSize;
+  texture.is_srgb = true;
+  texture.data.resize(static_cast<size_t>(kBakeSize) * kBakeSize * 4);
+
+  // Per quadrant so the inner loop only visits the layers that apply there.
+  constexpr f32 kQuadSize = kCellSize * 0.5f;
+  constexpr u32 kQuadTexels = kBakeSize / 2;
+  for (u32 quadrant = 0; quadrant < 4; ++quadrant) {
+    base::Vector<u32> quad_layers;
+    for (u32 i = 0; i < layers.size(); ++i) {
+      if (layers[i].quadrant == quadrant) quad_layers.push_back(i);
+    }
+    u32 tx0 = (quadrant & 1) ? kQuadTexels : 0;
+    u32 ty0 = (quadrant & 2) ? kQuadTexels : 0;
+    for (u32 qy = 0; qy < kQuadTexels; ++qy) {
+      u32 ty = ty0 + qy;
+      // Texel rows run south to north, matching the terrain mesh V = y/cell.
+      f32 ly = (static_cast<f32>(ty) + 0.5f) / kBakeSize * kCellSize;
+      f32 world_y = static_cast<f32>(grid_y) * kCellSize + ly;
+      f32 gy = (static_cast<f32>(qy) + 0.5f) / kQuadTexels * (kQuadGrid - 1);
+      u32 cy = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+      f32 fy = gy - static_cast<f32>(cy);
+      for (u32 qx = 0; qx < kQuadTexels; ++qx) {
+        u32 tx = tx0 + qx;
+        f32 lx = (static_cast<f32>(tx) + 0.5f) / kBakeSize * kCellSize;
+        f32 world_x = static_cast<f32>(grid_x) * kCellSize + lx;
+        f32 gx = (static_cast<f32>(qx) + 0.5f) / kQuadTexels * (kQuadGrid - 1);
+        u32 cx = std::min(static_cast<u32>(gx), kQuadGrid - 2);
+        f32 fx = gx - static_cast<f32>(cx);
+
+        f32 color[3];
+        sample(*base_layers[quadrant], world_x, world_y, color);
+        for (u32 i : quad_layers) {
+          // Bilinear opacity on the quadrant's 17x17 grid.
+          const f32* o = layers[i].opacity;
+          f32 o00 = o[cy * kQuadGrid + cx], o10 = o[cy * kQuadGrid + cx + 1];
+          f32 o01 = o[(cy + 1) * kQuadGrid + cx], o11 = o[(cy + 1) * kQuadGrid + cx + 1];
+          f32 opacity = (o00 * (1 - fx) + o10 * fx) * (1 - fy) + (o01 * (1 - fx) + o11 * fx) * fy;
+          if (opacity <= 0.001f) continue;
+          f32 layer_color[3];
+          sample(*layer_textures[i], world_x, world_y, layer_color);
+          for (int k = 0; k < 3; ++k) color[k] += (layer_color[k] - color[k]) * opacity;
+        }
+
+        u8* dst = texture.data.data() + (static_cast<size_t>(ty) * kBakeSize + tx) * 4;
+        dst[0] = LinearToSrgb(color[0]);
+        dst[1] = LinearToSrgb(color[1]);
+        dst[2] = LinearToSrgb(color[2]);
+        dst[3] = 0xff;
+      }
+    }
+  }
+
+  asset::AssetId id = texture.id;
+  assets_.AddTexture(std::move(texture));
+  ++baked_;
+  if (!any) default_albedo_ = id;
+  return id;
+}
+
+}  // namespace rec::world

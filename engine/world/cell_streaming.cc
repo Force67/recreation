@@ -21,8 +21,13 @@ constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
 constexpr u32 kVhgt = FourCc('V', 'H', 'G', 'T');
 constexpr u32 kVnml = FourCc('V', 'N', 'M', 'L');
 constexpr u32 kVclr = FourCc('V', 'C', 'L', 'R');
+constexpr u32 kDnam = FourCc('D', 'N', 'A', 'M');
+constexpr u32 kXclw = FourCc('X', 'C', 'L', 'W');
 
 constexpr u32 kRecordFlagInitiallyDisabled = 0x800;
+constexpr u32 kCellFlagHasWater = 0x2;
+// XCLW placeholder meaning "use the worldspace default water height".
+constexpr f32 kNoCellWater = 3.0e38f;
 
 // The one and only Bethesda -> engine conversion (see the class comment):
 // engine = (x, z, -y) * kUnitsToMeters. As a quaternion the axis change is a
@@ -93,7 +98,16 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
     return false;
   }
   EnsureLandMaterial();
-  REC_INFO("streaming worldspace {} ({} exterior cells)", editor_id, grid_->size());
+  // WRLD DNAM holds the default land and water heights; cells without their
+  // own XCLW flood at the water height (Tamriel: -14000, the ocean).
+  bethesda::Record wrld;
+  if (records_.Parse(worldspace_, &wrld)) {
+    if (const bethesda::Subrecord* dnam = wrld.Find(kDnam); dnam && dnam->data.size() >= 8) {
+      std::memcpy(&default_water_height_, dnam->data.data() + 4, 4);
+    }
+  }
+  REC_INFO("streaming worldspace {} ({} exterior cells, default water {})", editor_id,
+           grid_->size(), default_water_height_);
   return true;
 }
 
@@ -164,8 +178,11 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (mesh_budget == 0 || ref_budget == 0) all_done = false;
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
-    REC_INFO("streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped",
-             loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_);
+    REC_INFO(
+        "streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped, "
+        "{} land bakes, {} water planes",
+        loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_,
+        baker_.baked_count(), water_planes_);
   } else if (!all_done) {
     announced_idle_ = false;
   }
@@ -181,13 +198,14 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     if (mesh_budget == 0) return false;
     --mesh_budget;
     SpawnTerrain(world, grid_x, grid_y, cell);
+    SpawnWater(world, grid_x, grid_y, cell);
     cell.terrain_done = true;
   }
   while (cell.next_ref < cell.source->refs.size()) {
     if (mesh_budget == 0 || ref_budget == 0) return false;
     u64 ref_id = cell.source->refs[cell.next_ref];
     --ref_budget;
-    if (!SpawnReference(world, grid_x, grid_y, ref_id, cell, mesh_budget)) {
+    if (!SpawnReference(world, grid_x, grid_y, ref_id, cell, mesh_budget, false)) {
       // Budget ran out mid-reference; retry the same ref next tick.
       return false;
     }
@@ -221,6 +239,20 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     if (!records_.Parse(land_id, &land)) return false;
     f32 heights[kLandGridPoints * kLandGridPoints];
     if (!DecodeLandHeights(land, heights)) return false;
+
+    // Bake the cell's blended albedo; cells without texture layers keep the
+    // shared default material.
+    asset::AssetId material_id = land_material_;
+    asset::AssetId albedo =
+        baker_.BakeAlbedo(land, records_.Find(land_id)->winning_plugin, grid_x, grid_y);
+    if (albedo) {
+      asset::Material material;
+      material.id = asset::MakeAssetId(mesh_name + "/material");
+      material.base_color = albedo;
+      material.roughness_factor = 1.0f;
+      assets_.AddMaterial(material);
+      material_id = material.id;
+    }
 
     asset::Mesh built;
     built.id = mesh_id;
@@ -263,10 +295,10 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
           const u8* color = vclr->data.data() + i * 3;
           v.color = color[0] | color[1] << 8 | color[2] << 16 | 0xffu << 24;
         }
-        // Tile the land texture every 512 units (~7.3 m), anchored to the
-        // world so neighboring cells line up.
-        v.uv[0] = (static_cast<f32>(grid_x) * kCellSize + v.position[0]) / 512.0f;
-        v.uv[1] = (static_cast<f32>(grid_y) * kCellSize + v.position[1]) / -512.0f;
+        // The baked albedo covers the cell exactly; tiling of the source
+        // land textures happens inside the bake.
+        v.uv[0] = v.position[0] / kCellSize;
+        v.uv[1] = v.position[1] / kCellSize;
         lod.vertices.push_back(v);
       }
     }
@@ -315,8 +347,110 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   return true;
 }
 
+const asset::Mesh* CellStreamer::EnsureWaterMesh() {
+  asset::AssetId mesh_id = asset::MakeAssetId("water/cell");
+  if (const asset::Mesh* mesh = assets_.FindMesh(mesh_id)) return mesh;
+
+  asset::Material material;
+  material.id = asset::MakeAssetId("water/cell/material");
+  material.base_color_factor[0] = 0.08f;
+  material.base_color_factor[1] = 0.12f;
+  material.base_color_factor[2] = 0.16f;
+  material.base_color_factor[3] = 0.75f;
+  material.metallic_factor = 0;
+  material.roughness_factor = 0.05f;
+  material.alpha_mode = asset::AlphaMode::kBlend;
+  material.two_sided = true;
+  assets_.AddMaterial(material);
+
+  // One cell sized quad in Bethesda space (z up), instanced per flooded cell.
+  asset::Mesh built;
+  built.id = mesh_id;
+  built.lods.emplace_back();
+  asset::MeshLod& lod = built.lods[0];
+  for (u32 i = 0; i < 4; ++i) {
+    asset::Vertex v;
+    v.position[0] = (i & 1) ? kCellSize : 0.0f;
+    v.position[1] = (i & 2) ? kCellSize : 0.0f;
+    v.position[2] = 0.0f;
+    v.normal[2] = 1;
+    v.tangent[0] = 1;
+    v.tangent[3] = 1;
+    v.uv[0] = v.position[0] / kCellSize;
+    v.uv[1] = v.position[1] / kCellSize;
+    lod.vertices.push_back(v);
+  }
+  for (u32 index : {0u, 1u, 2u, 1u, 3u, 2u}) lod.indices.push_back(index);
+  asset::Submesh submesh;
+  submesh.index_count = 6;
+  submesh.material = material.id;
+  lod.submeshes.push_back(submesh);
+  built.bounds_center[0] = kCellSize * 0.5f;
+  built.bounds_center[1] = kCellSize * 0.5f;
+  built.bounds_radius = kCellSize * 0.7072f;
+  return assets_.AddMesh(std::move(built));
+}
+
+bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell) {
+  if (cell.source->cell == 0) return false;
+  bethesda::Record record;
+  if (!records_.Parse({static_cast<u16>(cell.source->cell >> 32),
+                       static_cast<u32>(cell.source->cell)},
+                      &record)) {
+    return false;
+  }
+  const bethesda::Subrecord* data = record.Find(kData);
+  u16 flags = 0;
+  if (data && data->data.size() >= 1) {
+    flags = data->data[0];
+    if (data->data.size() >= 2) flags |= static_cast<u16>(data->data[1]) << 8;
+  }
+  if (!(flags & kCellFlagHasWater)) return false;
+
+  f32 height = kNoCellWater;
+  if (const bethesda::Subrecord* xclw = record.Find(kXclw); xclw && xclw->data.size() >= 4) {
+    std::memcpy(&height, xclw->data.data(), 4);
+  }
+  if (height >= kNoCellWater || std::isnan(height)) height = default_water_height_;
+  if (height <= -kNoCellWater) return false;
+
+  // Skip cells whose terrain sits entirely above the water level.
+  if (cell.source->land != 0) {
+    bethesda::Record land;
+    f32 heights[kLandGridPoints * kLandGridPoints];
+    if (records_.Parse({static_cast<u16>(cell.source->land >> 32),
+                        static_cast<u32>(cell.source->land)},
+                       &land) &&
+        DecodeLandHeights(land, heights)) {
+      f32 min_h = heights[0];
+      for (f32 h : heights) min_h = std::min(min_h, h);
+      if (min_h >= height) return false;
+    }
+  }
+
+  const asset::Mesh* mesh = EnsureWaterMesh();
+  if (!mesh || !EnsureUploaded(*mesh)) return false;
+
+  ecs::Entity entity = world.Create();
+  Transform transform;
+  Vec3 position = ToEngine(static_cast<f32>(grid_x) * kCellSize,
+                           static_cast<f32>(grid_y) * kCellSize, height);
+  transform.position[0] = position.x;
+  transform.position[1] = position.y;
+  transform.position[2] = position.z;
+  std::memcpy(transform.rotation, kAxisChange, sizeof(transform.rotation));
+  transform.scale = kUnitsToMeters;
+  world.Add(entity, transform);
+  world.Add(entity, Renderable{mesh->id});
+  world.Add(entity, CellMembership{grid_x, grid_y, false});
+  cell.entities.push_back(entity);
+  ++spawned_entities_;
+  ++water_planes_;
+  return true;
+}
+
 bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64 ref_id,
-                                  LoadedCell& cell, u32& mesh_budget) {
+                                  LoadedCell& cell, u32& mesh_budget, bool interior) {
   bethesda::GlobalFormId id{static_cast<u16>(ref_id >> 32), static_cast<u32>(ref_id)};
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   if (!stored) return true;
@@ -363,7 +497,7 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   world.Add(entity, transform);
   world.Add(entity, Renderable{mesh->id});
   world.Add(entity, FormLink{id});
-  world.Add(entity, CellMembership{grid_x, grid_y, false});
+  world.Add(entity, CellMembership{grid_x, grid_y, interior});
   cell.entities.push_back(entity);
   ++spawned_entities_;
   return true;
@@ -486,10 +620,46 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   return true;
 }
 
-void CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_id) {
-  // TODO: interiors need the cell children index extended past exteriors.
-  (void)world;
-  (void)cell_id;
+bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_id,
+                                Vec3* camera_position) {
+  const base::Vector<u64>* refs = records_.InteriorRefs(cell_id);
+  if (!refs) {
+    REC_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin,
+              cell_id.local_id);
+    return false;
+  }
+
+  // One shot, unbudgeted: an interior loads completely before the first
+  // frame and its entities never unload.
+  LoadedCell cell;
+  u32 mesh_budget = 0xffffffff;
+  for (u64 ref_id : *refs) {
+    SpawnReference(world, 0, 0, ref_id, cell, mesh_budget, true);
+  }
+
+  // Spawn slightly above the centroid of what was placed.
+  Vec3 centroid{};
+  u32 count = 0;
+  for (ecs::Entity entity : cell.entities) {
+    if (const Transform* transform = world.Get<Transform>(entity)) {
+      centroid.x += transform->position[0];
+      centroid.y += transform->position[1];
+      centroid.z += transform->position[2];
+      ++count;
+    }
+  }
+  if (count > 0) {
+    f32 inv = 1.0f / static_cast<f32>(count);
+    centroid.x *= inv;
+    centroid.y *= inv;
+    centroid.z *= inv;
+  }
+  centroid.y += 1.5f;
+  *camera_position = centroid;
+
+  REC_INFO("interior {:04x}:{:06x}: {} refs, {} entities", cell_id.plugin, cell_id.local_id,
+           refs->size(), cell.entities.size());
+  return !cell.entities.empty();
 }
 
 }  // namespace rec::world

@@ -11,6 +11,7 @@
 #include "bethesda/load_order.h"
 #include "core/math.h"
 #include "ecs/world.h"
+#include "world/land_baker.h"
 
 namespace rec::world {
 
@@ -39,7 +40,7 @@ class CellStreamer {
   };
 
   CellStreamer(const bethesda::RecordStore& records, asset::AssetDatabase& assets)
-      : records_(records), assets_(assets) {}
+      : records_(records), assets_(assets), baker_(records, assets) {}
 
   void Configure(const Settings& settings) { settings_ = settings; }
   void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
@@ -50,7 +51,9 @@ class CellStreamer {
   // Called each sim tick with the camera position in engine units.
   void Update(ecs::World& world, const Vec3& camera_position);
 
-  void LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_id);
+  // Loads one interior cell completely, no streaming. `camera_position`
+  // receives a spawn point above the centroid of the placed references.
+  bool LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_id, Vec3* camera_position);
 
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
@@ -73,15 +76,18 @@ class CellStreamer {
                            u32& mesh_budget, u32& ref_budget);
   void UnloadCell(ecs::World& world, u32 key);
   bool SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
+  bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   bool SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64 ref_id, LoadedCell& cell,
-                      u32& mesh_budget);
+                      u32& mesh_budget, bool interior);
   const asset::Mesh* MeshForBase(bethesda::GlobalFormId base_id, u32& mesh_budget,
                                  bool& budget_exceeded);
   bool EnsureUploaded(const asset::Mesh& mesh);
   void EnsureLandMaterial();
+  const asset::Mesh* EnsureWaterMesh();
 
   const bethesda::RecordStore& records_;
   asset::AssetDatabase& assets_;
+  LandBaker baker_;
   Settings settings_;
   Uploads uploads_;
   bethesda::GlobalFormId worldspace_;
@@ -92,7 +98,9 @@ class CellStreamer {
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
+  f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units
   size_t spawned_entities_ = 0;
+  size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;
 };
