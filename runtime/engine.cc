@@ -162,6 +162,9 @@ bool Engine::StartNetworking() {
       // A client activating a reference runs OnActivate authoritatively here; the
       // resulting quest/world changes replicate back through the usual channels.
       server_session_->SetActivateSink([this](u64 handle) { RaiseActivate(handle); });
+      // A client picking a dialogue topic runs that INFO's fragment here, so the
+      // quest advances on the server and replicates to everyone.
+      server_session_->SetDialogueSink([this](u64 info) { RunInfoFragment(info); });
     }
     // Stream authoritative NPC transforms; the session deltas them so only the
     // NPCs that actually moved this tick go out.
@@ -1711,8 +1714,32 @@ void Engine::ReportDialogue(const std::string& edid) {
   const std::vector<dialogue::Handle>& topics = dialogue_.TopicsForQuest(handle);
   std::printf("=== dialogue for %s (0x%llx): %zu topics ===\n", edid.c_str(),
               static_cast<unsigned long long>(handle), topics.size());
+  // Attaches an INFO's TIF_ script and calls its begin fragment, returning
+  // whether the fragment actually dispatched (script loaded + function found) --
+  // the end-to-end check that dialogue selection can advance quests.
+  auto fire = [&](u64 info) -> bool {
+    if (!scripts_ || info == 0) return false;
+    bethesda::GlobalFormId id{static_cast<u16>(info >> 32), static_cast<u32>(info & 0xffffffffu)};
+    bethesda::Record rec;
+    if (!records_.Parse(id, &rec)) return false;
+    const bethesda::Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
+    if (!vmad) return false;
+    bethesda::ScriptAttachment att;
+    bethesda::InfoFragments frags;
+    if (!bethesda::ParseInfoFragments(vmad->data, &att, &frags) || frags.begin.function.empty())
+      return false;
+    scripts_->AttachScripts(info, att);
+    std::string fn = frags.begin.function;
+    return scripts_->guest()
+        .SubmitFor([info, fn](script::papyrus::VirtualMachine& vm) {
+          return vm.TryCall(script::papyrus::ObjectRef{info}, fn, {});
+        })
+        .get();
+  };
+
   int with_fragment = 0;
   int with_conditions = 0;
+  int dispatched = 0;
   for (dialogue::Handle t : topics) {
     bethesda::GlobalFormId dial{static_cast<u16>(t >> 32), static_cast<u32>(t & 0xffffffffu)};
     dialogue::Topic topic = dialogue::ParseTopic(records_, dial, &strings_);
@@ -1723,8 +1750,10 @@ void Engine::ReportDialogue(const std::string& edid) {
                   r.npc_line.c_str());
       if (!r.fragment_script.empty()) {
         ++with_fragment;
-        std::printf("  fragment: %s.%s\n", r.fragment_script.c_str(),
-                    r.fragment_function.c_str());
+        const bool ran = fire(r.info);
+        if (ran) ++dispatched;
+        std::printf("  fragment: %s.%s [%s]\n", r.fragment_script.c_str(),
+                    r.fragment_function.c_str(), ran ? "dispatched" : "no-op");
       }
       if (!r.conditions.empty()) {
         ++with_conditions;
@@ -1732,8 +1761,8 @@ void Engine::ReportDialogue(const std::string& edid) {
       }
     }
   }
-  std::printf("=== %d responses carry a fragment, %d carry conditions ===\n", with_fragment,
-              with_conditions);
+  std::printf("=== %d responses carry a fragment (%d dispatched), %d carry conditions ===\n",
+              with_fragment, dispatched, with_conditions);
   std::fflush(stdout);
 }
 
@@ -1974,19 +2003,34 @@ void Engine::SelectDialogueOption(int index) {
     return;
   const DialogueOption opt = dialogue_session_.options[index];
   dialogue_session_.npc_line = opt.npc_line;  // show the reply
-  // The INFO fragment (which advances the quest) is server-authoritative: a
-  // client asks the server, the host/single-player runs it on the guest. NOTE:
-  // proper dispatch needs the INFO's TIF_ script instance, not yet wired, so the
-  // fragment is best-effort (no-op) for now -- the conversation flow works.
-  if (client_session_ && client_session_->joined()) {
-    client_session_->SendActivate(opt.info);
-  } else if (scripts_ && !opt.fragment_function.empty()) {
-    const u64 quest = opt.quest;
-    const std::string fn = opt.fragment_function;
-    scripts_->guest().Submit([quest, fn](script::papyrus::VirtualMachine& vm) {
-      vm.TryCall(script::papyrus::ObjectRef{quest}, fn, {});
-    });
-  }
+  // Firing the INFO fragment (which advances the quest) is server-authoritative:
+  // a client asks the server, the host / single-player runs it directly.
+  if (client_session_ && client_session_->joined())
+    client_session_->SendDialogueSelect(opt.info);
+  else
+    RunInfoFragment(opt.info);
+}
+
+void Engine::RunInfoFragment(u64 info) {
+  if (!scripts_ || info == 0) return;
+  const bethesda::GlobalFormId id{static_cast<u16>(info >> 32),
+                                  static_cast<u32>(info & 0xffffffffu)};
+  bethesda::Record record;
+  if (!records_.Parse(id, &record)) return;
+  const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
+  if (!vmad) return;
+  bethesda::ScriptAttachment attachment;
+  bethesda::InfoFragments frags;
+  if (!bethesda::ParseInfoFragments(vmad->data, &attachment, &frags)) return;
+  if (frags.begin.function.empty()) return;
+  // Attach the TIF_ script to the INFO handle (idempotent -- only creates the
+  // instance + seeds properties the first time), then run the begin fragment on
+  // it. Its seeded quest property lets the fragment SetStage the right quest.
+  scripts_->AttachScripts(info, attachment);
+  const std::string fn = frags.begin.function;
+  scripts_->guest().Submit([info, fn](script::papyrus::VirtualMachine& vm) {
+    vm.TryCall(script::papyrus::ObjectRef{info}, fn, {});
+  });
 }
 
 void Engine::CloseDialogue() { dialogue_session_ = DialogueSession{}; }

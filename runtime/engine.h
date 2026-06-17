@@ -244,6 +244,10 @@ class Engine {
   void SelectDialogueOption(int index);
   void CloseDialogue();
   void UpdateDialogueInput(const InputState& input);
+  // Runs an INFO record's TIF_ dialogue fragment authoritatively: lazily attaches
+  // the script to the INFO handle (seeding its quest property) and calls the
+  // begin fragment, which advances the quest. Server / single-player only.
+  void RunInfoFragment(u64 info);
   // Builds the activation prompt label, e.g. "Talk to Whiterun Guard" or
   // "Activate Iron Sword", from the reference's base object record.
   std::string ActivationLabel(bethesda::GlobalFormId refr);
