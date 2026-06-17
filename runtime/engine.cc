@@ -2551,7 +2551,12 @@ void Engine::UpdateFollowers(f32 dt) {
     goal[2] += sep[2] * 0.6f;
 
     world::Transform* t = followers[i].transform;
-    StepNpcSteering(followers[i].entity, goal, t->position, t->rotation, params.speed,
+    // Route the slot through pathfinding so a follower behind a wall rounds it
+    // instead of pressing into it; close, clear slots resolve to a straight line.
+    const Vec3 self{t->position[0], t->position[1], t->position[2]};
+    const Vec3 wp = NavigateTo(self, Vec3{goal[0], goal[1], goal[2]});
+    const float nav_goal[3] = {wp.x, wp.y, wp.z};
+    StepNpcSteering(followers[i].entity, nav_goal, t->position, t->rotation, params.speed,
                     params.arrive_radius, params.stop_radius, dt);
   }
 }
