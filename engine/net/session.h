@@ -67,6 +67,10 @@ class ServerSession final : public Session {
   // logic runs on the server and replicates back. When unset, activations drop.
   void SetActivateSink(std::function<void(u64)> sink) { activate_sink_ = std::move(sink); }
 
+  // Sink invoked with the INFO handle each time a client picks a dialogue topic.
+  // The engine runs the INFO fragment authoritatively (advancing the quest).
+  void SetDialogueSink(std::function<void(u64)> sink) { dialogue_sink_ = std::move(sink); }
+
   // Authoritative NPC transforms to stream. Set by the engine to walk the world's
   // NPC entities; only the ones that moved since last tick go out (unreliable).
   void SetActorSource(std::function<std::vector<ActorState>()> source) {
@@ -102,6 +106,7 @@ class ServerSession final : public Session {
   base::Vector<u32> scratch_dropped_;
   std::function<std::vector<quest::QuestStatus>()> quest_source_;
   std::function<void(u64)> activate_sink_;
+  std::function<void(u64)> dialogue_sink_;
   std::function<std::vector<ActorState>()> actor_source_;
   QuestReplicator quest_replicator_;
   ActorReplicator actor_replicator_;
@@ -124,6 +129,8 @@ class ClientSession final : public Session {
   // Sends an activation request for `handle` to the server on the reliable
   // channel. The server is authoritative for the response (dialogue/quests).
   void SendActivate(u64 handle);
+  // Sends the chosen dialogue INFO handle to the server, which runs its fragment.
+  void SendDialogueSelect(u64 info);
 
   // Sink invoked once per quest in every kQuestUpdate received. The engine
   // wires this to QuestSystem::ApplyStatus so the client journal mirrors the

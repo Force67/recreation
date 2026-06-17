@@ -96,6 +96,12 @@ void ServerSession::PollMessages(ecs::World& world) {
         activate_sink_(handle);
         break;
       }
+      case MessageType::kDialogueSelect: {
+        if (!dialogue_sink_ || packet.data.size() < 8) break;
+        const u64 info = nanobuf::LoadLe<u64>(reinterpret_cast<const u8*>(packet.data.data()));
+        dialogue_sink_(info);
+        break;
+      }
       default:
         REC_WARN("net: unhandled message type {} from peer {}",
                  static_cast<u16>(packet.type), peer);
@@ -344,6 +350,14 @@ void ClientSession::SendActivate(u64 handle) {
   std::vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), handle);
   client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kActivateRef, payload,
+                          /*reliable=*/true, tx::network::PacketPriority::High));
+}
+
+void ClientSession::SendDialogueSelect(u64 info) {
+  if (!joined_) return;
+  std::vector<u8> payload(8);
+  nanobuf::StoreLe<u64>(payload.data(), info);
+  client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kDialogueSelect, payload,
                           /*reliable=*/true, tx::network::PacketPriority::High));
 }
 

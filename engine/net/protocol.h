@@ -29,6 +29,7 @@ enum class MessageType : u16 {
   kWorldCommands = 107,  // quest-driven world mutations (spawn/move/enable/cleanup)
   kActivateRef = 108,    // client -> server: the player activated a reference
   kActorSync = 109,      // server -> clients: NPC transforms that changed
+  kDialogueSelect = 110,  // client -> server: the player chose a dialogue INFO
 };
 
 inline tx::network::PacketType ToPacketType(MessageType type) {
