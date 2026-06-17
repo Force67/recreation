@@ -227,6 +227,12 @@ bool Engine::StartNetworking() {
       client_session_->SetActorSink([this](const std::vector<net::ActorState>& actors) {
         net::ApplyActorStates(world_, quest_world_, actors, 0.1f);
       });
+      // Show the host's active objective waypoint on our own compass: store its
+      // world position; UpdateObjectiveMarkers turns it into a local bearing.
+      client_session_->SetObjectiveMarkerSink([this](const net::ObjectiveMarkerState& m) {
+        remote_marker_active_ = m.active;
+        remote_marker_pos_ = Vec3{m.x, m.y, m.z};
+      });
     }
   } else {
     return true;
@@ -2306,18 +2312,21 @@ void Engine::UpdateQuestHud(const std::vector<quest::QuestStatus>& running) {
 }
 
 void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& running) {
-  if (quest_markers_.empty()) {
-    if (!config_.headless) game_ui_.SetObjectiveMarker(false, 0, 0);
+  // A multiplayer client never owns markers or triggers; it shows the host's
+  // replicated marker, driven from its own camera.
+  if (client_session_) {
+    DriveObjectiveMarkerHud(remote_marker_active_, remote_marker_pos_);
     return;
   }
 
   // A marker is armed when its own quest is running and its objective is the
   // current displayed-and-incomplete one. Checked per marker against its own
   // quest (not just the single most-recently-changed one), so a seeded marker
-  // arms reliably even with many quests running at once.
+  // arms reliably even with many quests running at once. always_arm markers
+  // (demo / scripted) manage their own life.
   auto is_armed = [&](const QuestMarker& m) -> bool {
     if (m.fired) return false;
-    if (m.always_arm) return true;  // demo/scripted markers manage their own life
+    if (m.always_arm) return true;
     for (const quest::QuestStatus& q : running) {
       if (q.handle != m.quest) continue;
       for (const quest::ObjectiveStatus& o : q.objectives)
@@ -2333,10 +2342,10 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
       break;
     }
 
-  // Trigger: a player within an armed marker's radius advances the quest's
-  // stage. Host authoritative (a client receives the advance via quest
-  // replication), evaluated against the local player plus every networked one.
-  if (armed && armed->advance_stage >= 0 && !client_session_ && scripts_ && script_bindings_) {
+  // Trigger: a player within an armed marker's radius advances the quest's stage
+  // (host authoritative), evaluated against the local player plus every
+  // networked one. A client receives the advance via quest replication.
+  if (armed && armed->advance_stage >= 0 && scripts_ && script_bindings_) {
     const float marker[3] = {armed->pos.x, armed->pos.y, armed->pos.z};
     bool reached = false;
     if (player_actor_ >= 0)
@@ -2360,10 +2369,39 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
     }
   }
 
-  // HUD compass pip: bearing from the player's view to the armed marker, plus
-  // planar distance. Local player only (the marker lives in this peer's world).
+  const bool active = armed != nullptr;
+  const Vec3 pos = armed ? armed->pos : Vec3{};
+  DriveObjectiveMarkerHud(active, pos);
+
+#if RECREATION_HAS_NET
+  // Replicate the active marker to clients, but only when it meaningfully
+  // changes (the 0.1 m guard keeps float jitter off the reliable channel).
+  if (server_session_) {
+    const u64 quest = armed ? armed->quest : 0;
+    const bool changed =
+        active != sent_marker_active_ || quest != sent_marker_quest_ ||
+        (active && (std::fabs(pos.x - sent_marker_pos_.x) > 0.1f ||
+                    std::fabs(pos.y - sent_marker_pos_.y) > 0.1f ||
+                    std::fabs(pos.z - sent_marker_pos_.z) > 0.1f));
+    if (changed) {
+      net::ObjectiveMarkerState m;
+      m.active = active;
+      m.quest = quest;
+      m.x = pos.x;
+      m.y = pos.y;
+      m.z = pos.z;
+      server_session_->SendObjectiveMarker(m);
+      sent_marker_active_ = active;
+      sent_marker_pos_ = pos;
+      sent_marker_quest_ = quest;
+    }
+  }
+#endif
+}
+
+void Engine::DriveObjectiveMarkerHud(bool active, const Vec3& pos) {
   if (config_.headless) return;
-  if (!armed || player_actor_ < 0) {
+  if (!active || player_actor_ < 0) {
     game_ui_.SetObjectiveMarker(false, 0, 0);
     return;
   }
@@ -2371,7 +2409,7 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
   if (const world::Transform* t = world_.Get<world::Transform>(actors_[player_actor_].entity))
     ppos = Vec3{t->position[0], t->position[1], t->position[2]};
   const Vec3 view = walk_mode_ ? (walk_target_ - walk_eye_) : camera_.forward();
-  const Vec3 to{armed->pos.x - ppos.x, 0, armed->pos.z - ppos.z};
+  const Vec3 to{pos.x - ppos.x, 0, pos.z - ppos.z};
   const float view_fwd[3] = {view.x, view.y, view.z};
   const float to_marker[3] = {to.x, to.y, to.z};
   const f32 distance = Length(to);

@@ -247,6 +247,10 @@ class Engine {
   // The stage advance runs on the guest and replicates like any other, so a
   // client progresses by walking into the same trigger the host evaluates.
   void UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& running);
+  // Drives the HUD compass pip + distance for a marker at world `pos`, computed
+  // from this peer's own camera. Shared by the host (its armed marker) and a
+  // multiplayer client (the host's replicated marker).
+  void DriveObjectiveMarkerHud(bool active, const Vec3& pos);
   // Steers every registered follower NPC toward its formation slot behind the
   // player and writes the resulting transform (host authoritative; the motion
   // streams to clients via actor sync). A no-op with no followers.
@@ -473,6 +477,14 @@ class Engine {
   // Objective waypoints (host authoritative). Armed against the tracked quest's
   // current displayed objective; reaching one advances the quest's stage.
   base::Vector<QuestMarker> quest_markers_;
+  // Objective marker replication. Host: the last marker state sent to clients,
+  // so it only resends on change. Client: the host's marker, driving the local
+  // HUD pip from this peer's own camera.
+  bool sent_marker_active_ = false;
+  Vec3 sent_marker_pos_{};
+  u64 sent_marker_quest_ = 0;
+  bool remote_marker_active_ = false;
+  Vec3 remote_marker_pos_{};
   // NPCs steered to follow the player, keyed by form handle -> formation slot.
   base::UnorderedMap<u64, i32> followers_;
   // REC_MQ101_DEMO breadcrumb state: the quest, the ordered gameplay stages to
