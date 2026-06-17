@@ -61,6 +61,11 @@ class ServerSession final : public Session {
   // no-op when there are no clients or the list is empty.
   void SendWorldCommands(const std::vector<world::WorldCommand>& commands);
 
+  // Sink invoked with the form handle each time a client activates a reference.
+  // The engine wires this to raise OnActivate authoritatively, so quest/dialogue
+  // logic runs on the server and replicates back. When unset, activations drop.
+  void SetActivateSink(std::function<void(u64)> sink) { activate_sink_ = std::move(sink); }
+
   u32 client_count() const { return static_cast<u32>(clients_.size()); }
   u64 tick() const { return tick_; }
 
@@ -88,6 +93,7 @@ class ServerSession final : public Session {
   base::UnorderedMap<u32, RemoteClient> clients_;
   base::Vector<u32> scratch_dropped_;
   std::function<std::vector<quest::QuestStatus>()> quest_source_;
+  std::function<void(u64)> activate_sink_;
   QuestReplicator quest_replicator_;
   u64 tick_ = 0;
   bool force_keyframe_ = false;
@@ -104,6 +110,10 @@ class ClientSession final : public Session {
 
   // Local input forwarded to the server every tick once joined.
   void SetInput(const PlayerInput& input) { input_ = input; }
+
+  // Sends an activation request for `handle` to the server on the reliable
+  // channel. The server is authoritative for the response (dialogue/quests).
+  void SendActivate(u64 handle);
 
   // Sink invoked once per quest in every kQuestUpdate received. The engine
   // wires this to QuestSystem::ApplyStatus so the client journal mirrors the

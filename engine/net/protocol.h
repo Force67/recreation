@@ -27,6 +27,7 @@ enum class MessageType : u16 {
   kPlayerInput = 105,
   kQuestUpdate = 106,
   kWorldCommands = 107,  // quest-driven world mutations (spawn/move/enable/cleanup)
+  kActivateRef = 108,    // client -> server: the player activated a reference
 };
 
 inline tx::network::PacketType ToPacketType(MessageType type) {

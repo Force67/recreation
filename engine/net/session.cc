@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include <nanobuf.h>
+
 #include "core/log.h"
 #include "net/world_replication.h"
 
@@ -83,6 +85,14 @@ void ServerSession::PollMessages(ecs::World& world) {
             if (auto owned = input->ToOwned()) client->input = *owned;
           }
         }
+        break;
+      }
+      case MessageType::kActivateRef: {
+        // The payload is a single little-endian u64 form handle.
+        if (!activate_sink_ || packet.data.size() < 8) break;
+        const u64 handle =
+            nanobuf::LoadLe<u64>(reinterpret_cast<const u8*>(packet.data.data()));
+        activate_sink_(handle);
         break;
       }
       default:
@@ -315,6 +325,14 @@ void ClientSession::Tick(ecs::World& world, f32 dt) {
     }
   }
   ++tick_;
+}
+
+void ClientSession::SendActivate(u64 handle) {
+  if (!joined_) return;
+  std::vector<u8> payload(8);
+  nanobuf::StoreLe<u64>(payload.data(), handle);
+  client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kActivateRef, payload,
+                          /*reliable=*/true, tx::network::PacketPriority::High));
 }
 
 void ClientSession::PollMessages(ecs::World& world) {

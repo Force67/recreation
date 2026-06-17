@@ -158,6 +158,9 @@ bool Engine::StartNetworking() {
             })
             .get();
       });
+      // A client activating a reference runs OnActivate authoritatively here; the
+      // resulting quest/world changes replicate back through the usual channels.
+      server_session_->SetActivateSink([this](u64 handle) { RaiseActivate(handle); });
     }
   } else if (!config_.connect_address.empty()) {
     net_config.address = base::String(config_.connect_address.c_str());
@@ -1486,6 +1489,7 @@ bool Engine::LoadInterior() {
   camera_.speed = 5.0f;
   REC_INFO("camera start: interior {} at ({:.1f}, {:.1f}, {:.1f})", config_.interior, start.x,
            start.y, start.z);
+  REC_INFO("interior {}: {} npcs loaded", config_.interior, streamer_->spawned_npc_count());
   return true;
 }
 
@@ -1814,12 +1818,24 @@ void Engine::UpdateInteraction(bool activate_pressed) {
 
   if (activate_pressed) {
     REC_INFO("activate: {} (0x{:x})", activate_label_, handle);
-    // Raise OnActivate(player) on the ref's script instance. Scripted activators
-    // and NPCs run their authored response, which can set quest stages.
-    scripts_->guest().RaiseEvent(
-        script::papyrus::ObjectRef{handle}, "OnActivate",
-        {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
+    // A multiplayer client is not authoritative: it asks the server to run the
+    // activation (dialogue/quest logic) and receives the results replicated. The
+    // host and single-player raise it directly.
+    if (client_session_ && client_session_->joined())
+      client_session_->SendActivate(handle);
+    else
+      RaiseActivate(handle);
   }
+}
+
+void Engine::RaiseActivate(u64 handle) {
+  if (!scripts_) return;
+  // OnActivate(player). Scripted activators and NPCs run their authored response,
+  // which can set quest stages. The activator is the single Skyrim player ref;
+  // multiplayer treats any client's activation as "the player" for quest logic.
+  scripts_->guest().RaiseEvent(
+      script::papyrus::ObjectRef{handle}, "OnActivate",
+      {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
 }
 
 void Engine::RefreshQuestPanel(f32 dt) {

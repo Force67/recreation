@@ -297,6 +297,10 @@ class Engine {
   // Teleports the player actor (capsule + ECS transform), the target of a quest
   // MoveTo on the player. Coordinates are passed through as given.
   void TeleportPlayer(f32 x, f32 y, f32 z);
+  // Raises OnActivate(player) on a reference's script instance. The authoritative
+  // entry point: a host calls it directly, the server calls it for a client's
+  // activation request, and a client routes activations to the server instead.
+  void RaiseActivate(u64 handle);
   // Drains quest world commands into QuestWorld on the main thread, and (when
   // hosting) replicates the batch to clients.
   void ApplyQuestWorld();
