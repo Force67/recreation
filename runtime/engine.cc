@@ -27,6 +27,7 @@
 #include "world/interaction.h"
 #include "world/npc_ai.h"
 #include "world/objective_marker.h"
+#include "world/pathfind.h"
 #include "world/steering_avoidance.h"
 #include "script/games/skyrim/skyrim_condition_context.h"
 #include "script/papyrus/value.h"
@@ -2555,6 +2556,46 @@ void Engine::UpdateFollowers(f32 dt) {
   }
 }
 
+Vec3 Engine::NavigateTo(const Vec3& from, const Vec3& goal) {
+  if (!physics_.initialized()) return goal;
+  constexpr int kN = 15;       // odd so the NPC sits at the centre cell
+  constexpr f32 kCell = 0.7f;  // meters per cell (~10 m grid span)
+  const int c = kN / 2;
+  const Vec3 origin{from.x - static_cast<f32>(c) * kCell, from.y,
+                    from.z - static_cast<f32>(c) * kCell};  // grid (0,0) world
+  auto cell_world = [&](int gx, int gy) {
+    return Vec3{origin.x + static_cast<f32>(gx) * kCell, from.y,
+                origin.z + static_cast<f32>(gy) * kCell};
+  };
+  // A cell is blocked when a downward ray from above it finds no floor at a
+  // walkable height: a void / ledge (no hit, or floor far below) or a wall
+  // footprint (the ray hits the wall top / interior, well above the NPC's feet).
+  // Downward rays read floors cleanly, unlike horizontal rays grazing terrain.
+  bool grid[kN * kN];
+  for (int gy = 0; gy < kN; ++gy)
+    for (int gx = 0; gx < kN; ++gx) {
+      if (gx == c && gy == c) {
+        grid[gy * kN + gx] = false;  // the NPC's own cell
+        continue;
+      }
+      const Vec3 w = cell_world(gx, gy);
+      physics::PhysicsWorld::RayHit hit;
+      const bool floor = physics_.Raycast(Vec3{w.x, from.y + 2.0f, w.z}, Vec3{0, -1, 0}, 4.0f, &hit);
+      grid[gy * kN + gx] = !floor || std::fabs(hit.position.y - from.y) > 0.6f;
+    }
+  auto blocked = [&](int gx, int gy) -> bool { return grid[gy * kN + gx]; };
+  const world::PathNode start{c, c};
+  int ggx = std::clamp(static_cast<int>(std::lround((goal.x - origin.x) / kCell)), 0, kN - 1);
+  int ggy = std::clamp(static_cast<int>(std::lround((goal.z - origin.z) / kCell)), 0, kN - 1);
+  std::vector<world::PathNode> path;
+  if (!world::FindPath(kN, kN, blocked, start, {ggx, ggy}, &path, kN * kN) || path.size() < 2)
+    return goal;  // no route: head straight and let local avoidance cope
+  // Aim a few cells ahead along the path for smooth motion, not the next cell.
+  const world::PathNode& step = path[std::min<size_t>(3, path.size() - 1)];
+  const Vec3 w = cell_world(step.x, step.y);
+  return Vec3{w.x, goal.y, w.z};
+}
+
 void Engine::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
   if (guides_.empty() || client_session_) return;
@@ -2562,7 +2603,8 @@ void Engine::UpdateGuides(f32 dt) {
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
         const Vec3* target = guides_.find(link.form.packed());
         if (!target) return;
-        const float goal[3] = {target->x, target->y, target->z};
+        const Vec3 wp = NavigateTo(Vec3{t.position[0], t.position[1], t.position[2]}, *target);
+        const float goal[3] = {wp.x, wp.y, wp.z};
         StepNpcSteering(e, goal, t.position, t.rotation, 2.8f, 2.0f, 1.0f, dt);
       });
 }

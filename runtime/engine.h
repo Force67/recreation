@@ -283,6 +283,13 @@ class Engine {
   // Steers every scene guide NPC toward its assigned target (host authoritative;
   // streams to clients via actor sync). A no-op with no guides.
   void UpdateGuides(f32 dt);
+  // Returns the next world-space steering point from `from` toward `goal` that
+  // routes around walls and ledges: builds a small grid around `from`, marks a
+  // cell blocked when a downward ray finds no walkable floor at the NPC's height
+  // (void, ledge, or a wall footprint whose top is too high), A*-paths to the
+  // goal, and returns a point a few cells along that path. Falls back to `goal`
+  // when there is no physics or no route.
+  Vec3 NavigateTo(const Vec3& from, const Vec3& goal);
   // REC_MQ101_DEMO breadcrumb: once the player exists, walks MQ101 through a
   // curated sequence of gameplay stages. Each frame, if no waypoint is pending,
   // it drops the next one ahead of the player (and recruits nearby NPCs as
