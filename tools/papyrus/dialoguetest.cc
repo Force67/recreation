@@ -65,6 +65,24 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   r.subrecords.push_back(std::move(sub));
 }
 
+// A 32-byte (SE) CTDA payload: operator in the top 3 control bits, flags in the
+// low 5; comparison value; function index; param1.
+std::vector<u8> MakeCtda(u8 op_bits, u8 flags, float value, u16 function, u32 param1) {
+  std::vector<u8> b(32, 0);
+  b[0] = static_cast<u8>((op_bits << 5) | (flags & 0x1F));
+  std::memcpy(b.data() + 4, &value, 4);
+  std::memcpy(b.data() + 8, &function, 2);
+  std::memcpy(b.data() + 12, &param1, 4);
+  return b;
+}
+
+// A ConditionContext that knows only the quest's stage, so GetStage gates can be
+// driven deterministically.
+struct StageContext : quest::ConditionContext {
+  float stage = 0.0f;
+  float GetStage(rec::u64) const override { return stage; }
+};
+
 void TestInfoFragments() {
   std::puts("info vmad fragments:");
   std::vector<u8> vmad = MakeInfoVmad("TIF__010A1234", "Fragment_0");
@@ -108,11 +126,44 @@ void TestInfoRecord() {
   Check("no fragment without vmad", r2.fragment_script.empty());
 }
 
+void TestInfoConditions() {
+  std::puts("info conditions:");
+  Buffers buf;
+  bethesda::Record info;
+  Add(info, FourCc('N', 'A', 'M', '1'), buf.Str("Quest words."));
+  // GetStage(0x1234) >= 10  AND  GetStage(0x1234) < 100
+  std::vector<u8> c1 = MakeCtda(3 /* >= */, 0x00, 10.0f, 58, 0x1234);
+  std::vector<u8> c2 = MakeCtda(4 /* < */, 0x00, 100.0f, 58, 0x1234);
+  Add(info, FourCc('C', 'T', 'D', 'A'), buf.Bytes(c1.data(), c1.size()));
+  Add(info, FourCc('C', 'T', 'D', 'A'), buf.Bytes(c2.data(), c2.size()));
+
+  dialogue::Response r = dialogue::ParseInfoRecord(info, 5, "", nullptr);
+  Check("two conditions parsed", r.conditions.comparisons.size() == 2);
+  Check("condition func is GetStage", r.conditions.comparisons[0].func == quest::Func::kGetStage);
+  Check("param is the raw quest form id (resolved later by ParseTopic)",
+        r.conditions.comparisons[0].param1 == 0x1234);
+
+  StageContext ctx;
+  ctx.stage = 5.0f;
+  Check("below range -> unavailable", !dialogue::ResponseAvailable(r, ctx));
+  ctx.stage = 50.0f;
+  Check("in range -> available", dialogue::ResponseAvailable(r, ctx));
+  ctx.stage = 150.0f;
+  Check("above range -> unavailable", !dialogue::ResponseAvailable(r, ctx));
+
+  // A response with no conditions is always available.
+  bethesda::Record plain;
+  Add(plain, FourCc('N', 'A', 'M', '1'), buf.Str("Hi."));
+  dialogue::Response r2 = dialogue::ParseInfoRecord(plain, 6, "", nullptr);
+  Check("no conditions -> available", dialogue::ResponseAvailable(r2, ctx));
+}
+
 }  // namespace
 
 int main() {
   TestInfoFragments();
   TestInfoRecord();
+  TestInfoConditions();
   if (g_failures == 0) {
     std::puts("dialogue: all checks passed");
     return 0;

@@ -7,6 +7,7 @@
 
 #include "bethesda/form_id.h"
 #include "core/types.h"
+#include "quest/condition.h"
 
 namespace rec::bethesda {
 class RecordStore;
@@ -28,6 +29,10 @@ struct Response {
   std::string npc_line;     // first NAM1 response text
   std::string fragment_script;    // TIF_<info> script, empty if none
   std::string fragment_function;  // begin fragment function, e.g. "Fragment_0"
+  // Native condition list parsed from the INFO's CTDA. The response is only
+  // available when these pass. ParseInfoRecord leaves the form-id params raw;
+  // ParseTopic resolves them so they can be evaluated against engine state.
+  quest::ConditionList conditions;
 };
 
 // One DIAL topic and the responses under it.
@@ -50,6 +55,10 @@ Response ParseInfoRecord(const bethesda::Record& record, Handle info,
 // text (may be null). Returns a topic with dial == 0 if `dial` is not a DIAL.
 Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId dial,
                  const bethesda::StringTable* strings);
+
+// True if `response` may be shown given the world state `ctx` exposes -- i.e.
+// its parsed conditions pass. A response with no conditions is always available.
+bool ResponseAvailable(const Response& response, const quest::ConditionContext& ctx);
 
 // A startup index from quest handle to the DIAL topics bound to it (by QNAM),
 // so opening dialogue for a quest does not rescan every topic.

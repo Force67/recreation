@@ -7,6 +7,7 @@
 #include "bethesda/script_attachment.h"
 #include "bethesda/strings.h"
 #include "core/types.h"
+#include "quest/ctda.h"
 
 namespace rec::dialogue {
 namespace {
@@ -47,7 +48,15 @@ Response ParseInfoRecord(const bethesda::Record& record, Handle info,
       out.fragment_function = frags.begin.function;
     }
   }
+
+  // CTDA conditions gate whether this line is available. Left raw here (form-id
+  // params unresolved); ParseTopic resolves them against the load order.
+  out.conditions = quest::ParseConditions(record);
   return out;
+}
+
+bool ResponseAvailable(const Response& response, const quest::ConditionContext& ctx) {
+  return quest::Evaluate(response.conditions, ctx);
 }
 
 Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId dial,
@@ -80,8 +89,15 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
       bethesda::GlobalFormId info{static_cast<u16>(packed >> 32),
                                   static_cast<u32>(packed & 0xffffffffu)};
       bethesda::Record info_record;
-      if (records.Parse(info, &info_record))
-        out.responses.push_back(ParseInfoRecord(info_record, packed, out.text, strings));
+      if (!records.Parse(info, &info_record)) continue;
+      Response response = ParseInfoRecord(info_record, packed, out.text, strings);
+      // Resolve the condition form ids against the INFO's own plugin, so a
+      // GetStage(quest) condition names the same packed handle the quest system
+      // uses.
+      const bethesda::RecordStore::StoredRecord* info_stored = records.Find(info);
+      quest::ResolveConditionForms(response.conditions, records,
+                                   info_stored ? info_stored->winning_plugin : info.plugin);
+      out.responses.push_back(std::move(response));
     }
   }
   return out;

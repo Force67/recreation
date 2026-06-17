@@ -11,6 +11,7 @@ recreation_add_module(script
   host/guest_bridge.cc
   games/skyrim/skyrim_natives.cc
   games/skyrim/skyrim_bindings.cc
+  games/skyrim/skyrim_condition_context.cc
 )
 
 # The CoreCLR host dlopens libhostfxr at runtime (no build-time .NET needed),
