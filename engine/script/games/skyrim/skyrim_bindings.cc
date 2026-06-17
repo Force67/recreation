@@ -153,6 +153,7 @@ f32 RecordBackedSkyrimBindings::GetPositionY(ObjectRef ref) { return Position(re
 f32 RecordBackedSkyrimBindings::GetPositionZ(ObjectRef ref) { return Position(ref)[2]; }
 
 void RecordBackedSkyrimBindings::SetPosition(ObjectRef ref, f32 x, f32 y, f32 z) {
+  if (replica_mode_) return;  // server-authoritative: positions arrive replicated
   positions_[ref.handle] = {x, y, z};  // logical position for script reads
   if (!world_sink_) return;
   if (ref.handle == player_.handle)
@@ -169,6 +170,7 @@ f32 RecordBackedSkyrimBindings::GetDistance(ObjectRef a, ObjectRef b) {
 }
 
 void RecordBackedSkyrimBindings::MoveTo(ObjectRef ref, ObjectRef target) {
+  if (replica_mode_) return;
   std::array<f32, 3> p = Position(target);
   positions_[ref.handle] = p;
   if (!world_sink_) return;
@@ -179,6 +181,7 @@ void RecordBackedSkyrimBindings::MoveTo(ObjectRef ref, ObjectRef target) {
 }
 
 void RecordBackedSkyrimBindings::SetEnabled(ObjectRef ref, bool enabled) {
+  if (replica_mode_) return;
   disabled_[ref.handle] = !enabled;
   if (world_sink_) world_sink_->SetEnabled(active_quest_, ref.handle, enabled);
 }
@@ -189,12 +192,13 @@ bool RecordBackedSkyrimBindings::IsDisabled(ObjectRef ref) {
 }
 
 void RecordBackedSkyrimBindings::Delete(ObjectRef ref) {
+  if (replica_mode_) return;
   if (world_sink_) world_sink_->DeleteReference(active_quest_, ref.handle);
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::PlaceAtMe(ObjectRef where, ObjectRef base,
                                                          i32 /*count*/) {
-  if (!world_sink_) return ObjectRef{0};
+  if (replica_mode_ || !world_sink_) return ObjectRef{0};
   // Spawn at the placer's position; the sink allocates the new ref handle so we
   // can return it to the script immediately. Mirror the position locally so the
   // script's GetPosition on the new ref reads back.
@@ -538,6 +542,7 @@ void RecordBackedSkyrimBindings::RunScriptFragment(u64 quest, i32 node, const st
 }
 
 void RecordBackedSkyrimBindings::SetStage(ObjectRef quest, i32 stage) {
+  if (replica_mode_) return;  // server-authoritative: stage arrives via ApplyStatus
   // The quest system owns the state and tells us whether this is a fresh stage;
   // only then do we run the stage's logic. That logic now flows through the
   // quest graph: Advance enters the stage node and dispatches its on-enter
@@ -556,6 +561,7 @@ bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) {
 }
 
 void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
+  if (replica_mode_) return;  // server starts quests; clients mirror the result
   quest_system_.StartQuest(quest.handle);
   // Kick the opening stage so the quest's logic actually begins. The start
   // stage is the lowest one carrying a fragment.
@@ -568,10 +574,12 @@ void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
 }
 
 void RecordBackedSkyrimBindings::StopQuest(ObjectRef quest) {
+  if (replica_mode_) return;
   quest_system_.StopQuest(quest.handle);
 }
 
 void RecordBackedSkyrimBindings::ResetQuest(ObjectRef quest) {
+  if (replica_mode_) return;
   quest_system_.ResetQuest(quest.handle);
   quest_runtime_.erase(quest.handle);  // rebuild a fresh traversal on next start
   // Roll back everything the quest spawned/placed/moved in the world.
@@ -583,16 +591,19 @@ bool RecordBackedSkyrimBindings::IsQuestActive(ObjectRef quest) {
 }
 
 void RecordBackedSkyrimBindings::SetQuestActive(ObjectRef quest, bool active) {
+  if (replica_mode_) return;
   quest_system_.SetActive(quest.handle, active);
 }
 
 void RecordBackedSkyrimBindings::SetObjectiveDisplayed(ObjectRef quest, i32 objective,
                                                        bool displayed) {
+  if (replica_mode_) return;
   quest_system_.SetObjectiveDisplayed(quest.handle, objective, displayed);
 }
 
 void RecordBackedSkyrimBindings::SetObjectiveCompleted(ObjectRef quest, i32 objective,
                                                        bool completed) {
+  if (replica_mode_) return;
   quest_system_.SetObjectiveCompleted(quest.handle, objective, completed);
 }
 

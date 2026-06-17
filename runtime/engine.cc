@@ -1399,6 +1399,14 @@ bool Engine::LoadGameData() {
   // it is an actor/capsule, not a registry entity.
   script_bindings_->set_world_sink(&runtime_world_sink_);
   quest_world_.set_on_move_player([this](f32 x, f32 y, f32 z) { TeleportPlayer(x, y, z); });
+  // A connecting client is a passive replica: the server runs the scripts and is
+  // authoritative for quest and quest-driven world state; the client mirrors it
+  // through replicated quest snapshots and world commands. Definitions still load
+  // (for journal text), but the client's own scripts may not mutate that state.
+  // The host and single-player stay authoritative.
+  script_bindings_->set_replica_mode(!config_.connect_address.empty());
+  if (script_bindings_->replica_mode())
+    REC_INFO("multiplayer client: quests run server-authoritative (replica mode)");
   scripts_ = std::make_unique<rec::script::ScriptSystem>(game_, &vfs_, script_bindings_.get());
   // Hand the bindings the guest VM so quest stage fragments can execute (run on
   // the guest thread, where the bindings live).

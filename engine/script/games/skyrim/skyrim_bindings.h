@@ -47,6 +47,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Sink for quest-driven world mutations (spawn/move/enable/delete + cleanup).
   // Set by the runtime; when null, those bindings only update logical state.
   void set_world_sink(WorldEffectSink* sink) { world_sink_ = sink; }
+
+  // Replica mode (a multiplayer client): the server is authoritative for quests
+  // and quest-driven world state, so the client's own scripts must not mutate
+  // either -- it mirrors the server via QuestSystem::ApplyStatus and replicated
+  // world commands instead. Quest definitions still load (for journal text); the
+  // authoritative mutators just become no-ops. Host and single-player leave this
+  // false and run quests normally.
+  void set_replica_mode(bool replica) { replica_mode_ = replica; }
+  bool replica_mode() const { return replica_mode_; }
   // The guest VM, so SetStage can run the quest's stage fragment. Set once on
   // the guest thread (the only caller of these bindings).
   void set_vm(papyrus::VirtualMachine* vm) { vm_ = vm; }
@@ -180,6 +189,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::unordered_map<u64, bool> open_;
   std::unordered_map<u64, bool> disabled_;  // Disable() state, for IsDisabled
   WorldEffectSink* world_sink_ = nullptr;
+  bool replica_mode_ = false;  // true on a multiplayer client; see set_replica_mode
   // The quest whose fragment is currently running; world mutations made during
   // it are attributed to it so QuestWorld can roll them back. 0 outside a
   // fragment (engine-driven, unattributed).
