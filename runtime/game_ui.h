@@ -28,6 +28,15 @@ struct HudQuest {
   std::vector<Objective> objectives;
 };
 
+// The open conversation the dialogue panel shows: the speaker, their last line,
+// and the numbered player topics to choose from. open == false hides the panel.
+struct DialogueView {
+  bool open = false;
+  std::string speaker;
+  std::string npc_line;
+  std::vector<std::string> options;
+};
+
 // libultragui-driven HUD and pause menu. Runs ultragui in draw-data mode and
 // records its draw list into the renderer's ui pass, alongside the debug ImGui
 // overlay. Compiles to a stub when ultragui is unavailable (RECREATION_HAS_UGUI
@@ -56,6 +65,8 @@ class GameUi {
   void SetQuest(const HudQuest& quest);
   void FlashQuestUpdate(const std::string& message);
   void SetActivatePrompt(const std::string& prompt);
+  // The dialogue panel (speaker line + NPC reply + numbered player topics).
+  void SetDialogue(const DialogueView& dialogue);
 
   void ToggleMenu();
   bool menu_open() const;

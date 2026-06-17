@@ -27,6 +27,10 @@ Key TranslateKey(SDL_Scancode code) {
     case SDL_SCANCODE_F1: return Key::kF1;
     case SDL_SCANCODE_F2: return Key::kF2;
     case SDL_SCANCODE_F3: return Key::kF3;
+    case SDL_SCANCODE_1: return Key::k1;
+    case SDL_SCANCODE_2: return Key::k2;
+    case SDL_SCANCODE_3: return Key::k3;
+    case SDL_SCANCODE_4: return Key::k4;
     default: return Key::kCount;
   }
 }

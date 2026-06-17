@@ -25,6 +25,7 @@
 #include "quest/quest_def.h"
 #include "world/components.h"
 #include "world/interaction.h"
+#include "script/games/skyrim/skyrim_condition_context.h"
 #include "script/papyrus/value.h"
 
 namespace rec {
@@ -1912,14 +1913,94 @@ void Engine::UpdateInteraction(bool activate_pressed) {
 
   if (activate_pressed) {
     REC_INFO("activate: {} (0x{:x})", activate_label_, handle);
-    // A multiplayer client is not authoritative: it asks the server to run the
-    // activation (dialogue/quest logic) and receives the results replicated. The
-    // host and single-player raise it directly.
-    if (client_session_ && client_session_->joined())
+    // Activating an NPC opens a conversation; other refs raise OnActivate. A
+    // multiplayer client is not authoritative for the latter -- it asks the
+    // server -- but the dialogue menu itself is local (the player's own view).
+    const ecs::Entity e = quest_world_.Find(handle);
+    if (world_.IsAlive(e) && world_.Has<world::Npc>(e)) {
+      OpenDialogue(handle);
+    } else if (client_session_ && client_session_->joined()) {
       client_session_->SendActivate(handle);
-    else
+    } else {
       RaiseActivate(handle);
+    }
   }
+}
+
+void Engine::OpenDialogue(u64 npc) {
+  if (!scripts_ || !script_bindings_) return;
+  auto* binds = script_bindings_.get();
+  // Gather the NPC's available topics on the guest thread, which owns the quest
+  // state the conditions read; records_/dialogue_/strings_ are read-only here.
+  dialogue_session_ =
+      scripts_->guest()
+          .SubmitFor([this, npc, binds](script::papyrus::VirtualMachine&) {
+            DialogueSession s;
+            s.npc = npc;
+            s.open = true;
+            s.speaker = binds->GetName(script::papyrus::ObjectRef{npc});
+            script::skyrim::SkyrimConditionContext ctx(binds);
+            for (const quest::QuestStatus& q : binds->quest_system().AllStatuses()) {
+              if (!q.running) continue;
+              std::vector<dialogue::Topic> topics;
+              for (dialogue::Handle dial : dialogue_.TopicsForQuest(q.handle)) {
+                bethesda::GlobalFormId id{static_cast<u16>(dial >> 32),
+                                          static_cast<u32>(dial & 0xffffffffu)};
+                dialogue::Topic t = dialogue::ParseTopic(records_, id, &strings_);
+                if (t.dial != 0) topics.push_back(std::move(t));
+              }
+              for (const dialogue::Response& r : dialogue::AvailableResponses(topics, ctx)) {
+                if (s.options.size() >= 4) break;
+                DialogueOption opt;
+                opt.player_line = r.player_line;
+                opt.npc_line = r.npc_line;
+                opt.info = r.info;
+                opt.quest = q.handle;
+                opt.fragment_function = r.fragment_function;
+                s.options.push_back(std::move(opt));
+              }
+              if (s.options.size() >= 4) break;
+            }
+            return s;
+          })
+          .get();
+  REC_INFO("dialogue: opened with '{}' ({} topics)", dialogue_session_.speaker,
+           dialogue_session_.options.size());
+}
+
+void Engine::SelectDialogueOption(int index) {
+  if (!dialogue_session_.open || index < 0 ||
+      index >= static_cast<int>(dialogue_session_.options.size()))
+    return;
+  const DialogueOption opt = dialogue_session_.options[index];
+  dialogue_session_.npc_line = opt.npc_line;  // show the reply
+  // The INFO fragment (which advances the quest) is server-authoritative: a
+  // client asks the server, the host/single-player runs it on the guest. NOTE:
+  // proper dispatch needs the INFO's TIF_ script instance, not yet wired, so the
+  // fragment is best-effort (no-op) for now -- the conversation flow works.
+  if (client_session_ && client_session_->joined()) {
+    client_session_->SendActivate(opt.info);
+  } else if (scripts_ && !opt.fragment_function.empty()) {
+    const u64 quest = opt.quest;
+    const std::string fn = opt.fragment_function;
+    scripts_->guest().Submit([quest, fn](script::papyrus::VirtualMachine& vm) {
+      vm.TryCall(script::papyrus::ObjectRef{quest}, fn, {});
+    });
+  }
+}
+
+void Engine::CloseDialogue() { dialogue_session_ = DialogueSession{}; }
+
+void Engine::UpdateDialogueInput(const InputState& input) {
+  if (!dialogue_session_.open) return;
+  if (input.key_pressed(Key::kEscape)) {
+    CloseDialogue();
+    return;
+  }
+  if (input.key_pressed(Key::k1)) SelectDialogueOption(0);
+  else if (input.key_pressed(Key::k2)) SelectDialogueOption(1);
+  else if (input.key_pressed(Key::k3)) SelectDialogueOption(2);
+  else if (input.key_pressed(Key::k4)) SelectDialogueOption(3);
 }
 
 void Engine::RaiseActivate(u64 handle) {
@@ -2143,13 +2224,16 @@ void Engine::UpdateCamera(f32 frame_delta) {
   bool menu = game_ui_.menu_open();
   bool kb = debug_ui_.wants_keyboard();
 
-  if (input.key_pressed(Key::kT) && !menu && !kb && player_actor_ >= 0) {
+  if (input.key_pressed(Key::kT) && !menu && !kb && !dialogue_session_.open && player_actor_ >= 0) {
     walk_mode_ = !walk_mode_;
     REC_INFO("walk mode {}", walk_mode_ ? "on (WASD move, Shift run, Space jump, C view)" : "off");
   }
   if (input.key_pressed(Key::kC) && !menu && !kb) third_person_ = !third_person_;
 
-  if (walk_mode_ && player_actor_ >= 0) {
+  if (dialogue_session_.open) {
+    UpdateDialogueInput(input);  // 1-4 select a topic, Esc to leave
+    UpdateInteraction(false);    // freeze movement/activation while talking
+  } else if (walk_mode_ && player_actor_ >= 0) {
     WalkUpdate(frame_delta, !menu && !kb);
     UpdateInteraction(input.key_pressed(Key::kE) && !menu && !kb);
   } else {
@@ -2159,6 +2243,14 @@ void Engine::UpdateCamera(f32 frame_delta) {
     window_->SetRelativeMouseMode(!menu && camera_.looking());
     UpdateInteraction(false);  // clears any stale prompt outside walk mode
   }
+
+  // Mirror the conversation state into the HUD each frame.
+  DialogueView dv;
+  dv.open = dialogue_session_.open;
+  dv.speaker = dialogue_session_.speaker;
+  dv.npc_line = dialogue_session_.npc_line;
+  for (const DialogueOption& o : dialogue_session_.options) dv.options.push_back(o.player_line);
+  game_ui_.SetDialogue(dv);
   DriveCamera(frame_delta);  // orbit / replay overrides + record
 
   if (input.key_pressed(Key::kF1) && !kb) debug_ui_.ToggleVisible();

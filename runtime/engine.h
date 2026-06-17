@@ -195,6 +195,25 @@ class Engine {
     f32 capsule_offset = 0;  // entity origin to capsule centre, along up
   };
 
+  // One selectable line in an open conversation, plus the INFO fragment that
+  // runs (server-authoritatively) when it is chosen.
+  struct DialogueOption {
+    std::string player_line;
+    std::string npc_line;
+    u64 info = 0;
+    u64 quest = 0;
+    std::string fragment_function;
+  };
+  // The conversation the player has open with an NPC. Built on the guest thread
+  // (condition-gated) when an NPC is activated; empty/closed otherwise.
+  struct DialogueSession {
+    bool open = false;
+    u64 npc = 0;
+    std::string speaker;
+    std::string npc_line;
+    std::vector<DialogueOption> options;
+  };
+
   bool LoadGameData();
   bool LoadInterior();
   void MountArchives();
@@ -217,6 +236,14 @@ class Engine {
   // and on `activate_pressed` raises its Papyrus OnActivate (the player as the
   // activator), so scripted refs and NPCs react and can advance quests.
   void UpdateInteraction(bool activate_pressed);
+  // Opens a conversation with the NPC `npc` (gathers its condition-gated topics
+  // on the guest thread). SelectDialogueOption fires the chosen INFO fragment
+  // authoritatively (host runs it; a client asks the server). CloseDialogue ends
+  // it. UpdateDialogueInput drives selection/close keys while one is open.
+  void OpenDialogue(u64 npc);
+  void SelectDialogueOption(int index);
+  void CloseDialogue();
+  void UpdateDialogueInput(const InputState& input);
   // Builds the activation prompt label, e.g. "Talk to Whiterun Guard" or
   // "Activate Iron Sword", from the reference's base object record.
   std::string ActivationLabel(bethesda::GlobalFormId refr);
@@ -363,6 +390,7 @@ class Engine {
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
   dialogue::DialogueDb dialogue_;
+  DialogueSession dialogue_session_;
   std::unique_ptr<world::CellStreamer> streamer_;
   // Declared before scripts_ so the guest thread (which calls into the bindings)
   // is joined in ScriptSystem's destructor before the bindings are torn down.

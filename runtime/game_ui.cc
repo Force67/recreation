@@ -46,6 +46,7 @@ float CompassStripLeft(float heading_deg) {
 // fixed pool of pre-declared rows is filled and toggled each frame; the static
 // ultragui document has no way to add widgets on the fly.
 constexpr int kQuestObjectiveRows = 6;
+constexpr int kDialogueOptionRows = 4;  // matches the 1-4 selection keys
 constexpr float kToastSeconds = 4.0f;
 
 // The quest tracker (top-right objective list), the "quest updated" banner, and
@@ -78,6 +79,26 @@ std::string BuildQuestSection() {
       text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
   }
 )";
+  return s;
+}
+
+// The dialogue panel (bottom-centre): the speaker, their last line, and a fixed
+// pool of numbered topic rows filled/toggled each frame.
+std::string BuildDialogueSection() {
+  std::string s = R"(
+  panel dialogue_box {
+    position: absolute; left: 0; bottom: 70; width: 100vw; layout: column; align: center; gap: 4;
+    text dialogue_speaker { text: ""; font-size: 18; color: #ffcc55;
+      text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    text dialogue_npc { text: ""; font-size: 15; color: #d8def0; margin: 0 0 8 0;
+      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+)";
+  for (int i = 0; i < kDialogueOptionRows; ++i) {
+    s += "    text dialogue_opt" + std::to_string(i) +
+         " { text: \"\"; font-size: 15; color: #c7e0ff;"
+         " text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }\n";
+  }
+  s += "  }\n";
   return s;
 }
 
@@ -179,6 +200,7 @@ panel root {
 )";
 
   s += BuildQuestSection();
+  s += BuildDialogueSection();
 
   s += R"(
   panel menu {
@@ -283,6 +305,7 @@ struct GameUi::Impl {
   std::string toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
   std::string activate_prompt;
+  DialogueView dialogue;
 
   void SetStyleField(const char* name, void (*mutate)(ugui::Style&, float), float arg) {
     ugui::wid w = ui.FindWidget(name);
@@ -410,6 +433,10 @@ void GameUi::SetActivatePrompt(const std::string& prompt) {
   if (impl_->initialized) impl_->activate_prompt = prompt;
 }
 
+void GameUi::SetDialogue(const DialogueView& dialogue) {
+  if (impl_->initialized) impl_->dialogue = dialogue;
+}
+
 void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 frame_delta,
                    render::FrameView* view) {
   if (!impl_->initialized) return;
@@ -491,6 +518,24 @@ void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 fra
   if (prompt_on)
     ugui::SetText(impl->ui.FindWidget("activate_prompt"), impl->activate_prompt.c_str());
 
+  // Dialogue panel: speaker + last NPC line + numbered player topics.
+  const DialogueView& dlg = impl->dialogue;
+  impl->SetVisible("dialogue_box", dlg.open);
+  if (dlg.open) {
+    ugui::SetText(impl->ui.FindWidget("dialogue_speaker"), dlg.speaker.c_str());
+    ugui::SetText(impl->ui.FindWidget("dialogue_npc"), dlg.npc_line.c_str());
+    for (int i = 0; i < kDialogueOptionRows; ++i) {
+      const std::string row = "dialogue_opt" + std::to_string(i);
+      if (i < static_cast<int>(dlg.options.size())) {
+        const std::string line = std::to_string(i + 1) + ". " + dlg.options[i];
+        ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
+        impl->SetVisible(row.c_str(), true);
+      } else {
+        impl->SetVisible(row.c_str(), false);
+      }
+    }
+  }
+
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
@@ -524,6 +569,7 @@ void GameUi::Build(Window&, render::Renderer&, FlyCamera&, f32, render::FrameVie
 void GameUi::SetQuest(const HudQuest&) {}
 void GameUi::FlashQuestUpdate(const std::string&) {}
 void GameUi::SetActivatePrompt(const std::string&) {}
+void GameUi::SetDialogue(const DialogueView&) {}
 void GameUi::ToggleMenu() {}
 bool GameUi::menu_open() const { return false; }
 bool GameUi::quit_requested() const { return false; }

@@ -24,6 +24,10 @@ enum class Key : u8 {
   kF1,
   kF2,
   kF3,
+  k1,  // dialogue option select
+  k2,
+  k3,
+  k4,
   kCount,
 };
 
