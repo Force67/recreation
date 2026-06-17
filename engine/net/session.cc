@@ -102,6 +102,12 @@ void ServerSession::PollMessages(ecs::World& world) {
         dialogue_sink_(info);
         break;
       }
+      case MessageType::kStageRequest: {
+        if (!stage_request_sink_) break;
+        const ByteSpan blob(reinterpret_cast<const u8*>(packet.data.data()), packet.data.size());
+        if (auto req = DecodeStageRequest(blob)) stage_request_sink_(*req);
+        break;
+      }
       default:
         REC_WARN("net: unhandled message type {} from peer {}",
                  static_cast<u16>(packet.type), peer);
@@ -359,6 +365,13 @@ void ClientSession::SendDialogueSelect(u64 info) {
   nanobuf::StoreLe<u64>(payload.data(), info);
   client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kDialogueSelect, payload,
                           /*reliable=*/true, tx::network::PacketPriority::High));
+}
+
+void ClientSession::SendStageRequest(const StageRequest& req) {
+  if (!joined_) return;
+  client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kStageRequest,
+                          EncodeStageRequest(req), /*reliable=*/true,
+                          tx::network::PacketPriority::High));
 }
 
 void ClientSession::PollMessages(ecs::World& world) {

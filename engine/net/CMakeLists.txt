@@ -3,6 +3,7 @@ recreation_add_module(net
   quest_replication.cc
   replication.cc
   session.cc
+  stage_request.cc
   world_replication.cc
 )
 

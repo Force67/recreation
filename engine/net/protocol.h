@@ -30,6 +30,7 @@ enum class MessageType : u16 {
   kActivateRef = 108,    // client -> server: the player activated a reference
   kActorSync = 109,      // server -> clients: NPC transforms that changed
   kDialogueSelect = 110,  // client -> server: the player chose a dialogue INFO
+  kStageRequest = 111,    // client -> server: a debugger stage/objective/running change
 };
 
 inline tx::network::PacketType ToPacketType(MessageType type) {

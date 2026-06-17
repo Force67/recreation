@@ -15,6 +15,7 @@
 #include "net/protocol.h"
 #include "net/quest_replication.h"
 #include "net/replication.h"
+#include "net/stage_request.h"
 #include "quest/quest_system.h"
 #include "world/quest_world.h"
 
@@ -55,6 +56,14 @@ class ServerSession final : public Session {
   // [&qs] { return qs.AllStatuses(); }. When unset, no quest packets ship.
   void SetQuestSource(std::function<std::vector<quest::QuestStatus>()> source) {
     quest_source_ = std::move(source);
+  }
+
+  // Sink invoked for each kStageRequest a client sends. The engine wires this to
+  // the authoritative QuestSystem so a client's debugger acts through the
+  // server, whose change then replicates back as a normal QuestUpdate. When
+  // unset, stage requests are decoded and dropped.
+  void SetStageRequestSink(std::function<void(const StageRequest&)> sink) {
+    stage_request_sink_ = std::move(sink);
   }
 
   // Broadcasts a batch of quest-driven world commands (already drained and
@@ -105,6 +114,7 @@ class ServerSession final : public Session {
   base::UnorderedMap<u32, RemoteClient> clients_;
   base::Vector<u32> scratch_dropped_;
   std::function<std::vector<quest::QuestStatus>()> quest_source_;
+  std::function<void(const StageRequest&)> stage_request_sink_;
   std::function<void(u64)> activate_sink_;
   std::function<void(u64)> dialogue_sink_;
   std::function<std::vector<ActorState>()> actor_source_;
@@ -131,6 +141,9 @@ class ClientSession final : public Session {
   void SendActivate(u64 handle);
   // Sends the chosen dialogue INFO handle to the server, which runs its fragment.
   void SendDialogueSelect(u64 info);
+  // Asks the server to apply a quest-debugger change. No-op until joined; the
+  // result comes back through the normal quest replication.
+  void SendStageRequest(const StageRequest& req);
 
   // Sink invoked once per quest in every kQuestUpdate received. The engine
   // wires this to QuestSystem::ApplyStatus so the client journal mirrors the
