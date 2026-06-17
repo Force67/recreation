@@ -290,6 +290,10 @@ class Engine {
   // Gives every placed NPC entity a skinned actor (instanced from the shared
   // template) and drops actors whose NPC entity has streamed out. Non-headless.
   void SyncNpcActors();
+  // Maintains a kinematic collision capsule for each NPC and each other player,
+  // tracking its entity transform, so the local player's character collides with
+  // them (solid bodies; the shove pushes them). Drops bodies whose entity left.
+  void SyncSolidBodies();
   // Collects up to `max` non-female HDPT model paths of a head-part type
   // (3 = hair, 1 = face), for assembling an actor's head.
   base::Vector<std::string> FindHeadPartModels(u32 part_type, u32 max);
@@ -417,6 +421,8 @@ class Engine {
   bool npc_template_failed_ = false;
   base::UnorderedMap<u64, Actor> npc_actors_;
   base::Vector<u64> scratch_dead_actors_;
+  // Kinematic collision capsules for NPCs + other players, keyed like npc_actors_.
+  base::UnorderedMap<u64, physics::BodyId> solid_bodies_;
 
   // Walk-on-the-map mode: WASD drives the player actor, mouse looks, C swaps
   // first/third person. Toggled with T; otherwise the fly camera roams.

@@ -1411,6 +1411,44 @@ void Engine::SyncNpcActors() {
   for (u64 key : scratch_dead_actors_) npc_actors_.erase(key);
 }
 
+void Engine::SyncSolidBodies() {
+  if (config_.headless || !physics_.initialized()) return;
+  constexpr f32 kRadius = 0.3f, kHalfHeight = 0.55f;
+  constexpr f32 kCentreOffset = kRadius + kHalfHeight;  // feet -> capsule centre
+  const ecs::Entity local =
+      player_actor_ >= 0 ? actors_[player_actor_].entity : ecs::kInvalidEntity;
+
+  auto ensure = [&](ecs::Entity e, const world::Transform& t) {
+    const u64 key = static_cast<u64>(e.generation) << 32 | e.index;
+    const Vec3 centre{t.position[0], t.position[1] + kCentreOffset, t.position[2]};
+    if (physics::BodyId* body = solid_bodies_.find(key)) {
+      physics_.SetBodyPosition(*body, centre, t.rotation);
+    } else if (physics::BodyId id = physics_.AddKinematicCapsule(centre, kRadius, kHalfHeight)) {
+      solid_bodies_.insert(key, id);
+    }
+  };
+
+  world_.Each<world::Npc, world::Transform>(
+      [&](ecs::Entity e, world::Npc&, world::Transform& t) { ensure(e, t); });
+  // Other (networked) players are solid too; never block the local player itself.
+  world_.Each<net::NetworkId, world::Transform>(
+      [&](ecs::Entity e, net::NetworkId&, world::Transform& t) {
+        if (e.index == local.index && e.generation == local.generation) return;
+        ensure(e, t);
+      });
+
+  // Drop capsules whose entity is gone (cell unload / player disconnect).
+  scratch_dead_actors_.clear();
+  for (auto entry : solid_bodies_) {
+    const ecs::Entity e{static_cast<u32>(entry.key & 0xffffffffu), static_cast<u32>(entry.key >> 32)};
+    if (!world_.IsAlive(e)) scratch_dead_actors_.push_back(entry.key);
+  }
+  for (u64 key : scratch_dead_actors_) {
+    if (physics::BodyId* body = solid_bodies_.find(key)) physics_.RemoveBody(*body);
+    solid_bodies_.erase(key);
+  }
+}
+
 bool Engine::LoadGameData() {
   game_ = config_.game != bethesda::Game::kUnknown
               ? config_.game
@@ -2316,6 +2354,10 @@ bool Engine::RunFrame() {
   {
     int steps = timer_.Tick();
     f32 dt = static_cast<f32>(timer_.fixed_step());
+    // Place NPC / other-player collision capsules at their current transforms
+    // before the sim step, so the player's character controller collides with
+    // them where they are this frame.
+    SyncSolidBodies();
     for (int i = 0; i < steps; ++i) {
       scheduler_.RunStage(ecs::Stage::kPreSim, world_, dt);
       scheduler_.RunStage(ecs::Stage::kSim, world_, dt);
