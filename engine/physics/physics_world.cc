@@ -348,6 +348,26 @@ void PhysicsWorld::SetCharacterPosition(CharacterId id, const Vec3& position) {
   impl_->characters[id - 1].character->SetPosition(ToJolt(position));
 }
 
+BodyId PhysicsWorld::AddKinematicCapsule(const Vec3& position, f32 radius, f32 half_height) {
+  if (!impl_) return 0;
+  JPH::Ref<JPH::CapsuleShape> shape = new JPH::CapsuleShape(half_height, radius);
+  // Kinematic (driven by SetBodyPosition, immune to gravity/forces) but in the
+  // dynamic layer so the player's character controller collides with it.
+  JPH::BodyCreationSettings settings(shape, ToJolt(position), JPH::Quat::sIdentity(),
+                                     JPH::EMotionType::Kinematic, layers::kDynamic);
+  JPH::BodyID id =
+      impl_->system->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
+  return id.GetIndexAndSequenceNumber() + 1;
+}
+
+void PhysicsWorld::SetBodyPosition(BodyId id, const Vec3& position, const f32 rotation[4]) {
+  if (!impl_ || id == 0) return;
+  JPH::BodyID body(static_cast<JPH::uint32>(id - 1));
+  JPH::Quat q(rotation[0], rotation[1], rotation[2], rotation[3]);
+  impl_->system->GetBodyInterface().SetPositionAndRotation(body, ToJolt(position), q,
+                                                           JPH::EActivation::Activate);
+}
+
 void PhysicsWorld::RemoveBody(BodyId id) {
   if (!impl_ || id == 0) return;
   JPH::BodyID body(static_cast<JPH::uint32>(id - 1));

@@ -19,6 +19,8 @@ bool PhysicsWorld::has_mesh_shape(u64) const { return false; }
 BodyId PhysicsWorld::AddStaticMeshInstance(u64, const Vec3&, const f32[4], f32) { return 0; }
 BodyId PhysicsWorld::AddDynamicBox(const Vec3&, const Vec3&, f32, const Vec3&) { return 0; }
 BodyId PhysicsWorld::AddDynamicSphere(const Vec3&, f32, f32, const Vec3&) { return 0; }
+BodyId PhysicsWorld::AddKinematicCapsule(const Vec3&, f32, f32) { return 0; }
+void PhysicsWorld::SetBodyPosition(BodyId, const Vec3&, const f32[4]) {}
 void PhysicsWorld::RemoveBody(BodyId) {}
 CharacterId PhysicsWorld::CreateCharacter(const Vec3&, f32, f32) { return 0; }
 void PhysicsWorld::MoveCharacter(CharacterId, const Vec3&, bool, f32, Vec3*, bool*) {}

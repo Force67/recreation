@@ -58,6 +58,15 @@ class PhysicsWorld {
 
   void RemoveBody(BodyId id);
 
+  // Kinematic capsule: a solid body that never falls or tips and is driven by
+  // SetBodyPosition each tick. Used for NPCs and remote players so the local
+  // player's character controller collides with them (they block / get shoved)
+  // while their authoritative position comes from animation / replication.
+  BodyId AddKinematicCapsule(const Vec3& position, f32 radius, f32 half_height);
+  // Teleports a body to a new pose (rotation is x,y,z,w). For the kinematic
+  // capsules above, called every tick from the entity's transform.
+  void SetBodyPosition(BodyId id, const Vec3& position, const f32 rotation[4]);
+
   // Kinematic character controller (Jolt CharacterVirtual): a capsule that
   // walks slopes/stairs. `position` is the capsule centre. 0 is invalid.
   CharacterId CreateCharacter(const Vec3& position, f32 radius, f32 half_height);
