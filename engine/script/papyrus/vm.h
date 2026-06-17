@@ -80,6 +80,13 @@ class VirtualMachine : public VmInterface {
   Value CallGlobal(const std::string& script_type, const std::string& function,
                    std::vector<Value> args);
 
+  // Like Call, but for optional event handlers: dispatches only when the
+  // instance exists and actually defines the method, and never warns about a
+  // missing one. Returns true if it dispatched. This lets the engine broadcast
+  // events (OnDeath, OnItemAdded, ...) to forms whose script may not handle
+  // them, without log spam.
+  bool TryCall(ObjectRef self, const std::string& method, std::vector<Value> args);
+
   // VmInterface, used by the interpreter.
   Value CallMethod(ObjectRef self, const std::string& method, std::vector<Value> args) override;
   Value CallStatic(const std::string& script_type, const std::string& function,

@@ -73,8 +73,10 @@ std::future<ObjectRef> PapyrusGuest::CreateInstance(std::string type) {
 }
 
 void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<Value> args) {
+  // Events are optional handlers; TryCall dispatches only if the target defines
+  // one and never warns otherwise, so broadcasting to every form is cheap.
   Submit([target, event = std::move(event), args = std::move(args)](VirtualMachine& vm) mutable {
-    vm.Call(target, event, std::move(args));
+    vm.TryCall(target, event, std::move(args));
   });
 }
 

@@ -193,6 +193,15 @@ Value VirtualMachine::Call(ObjectRef self, const std::string& method, std::vecto
   return Invoke(r, self, std::move(args), method);
 }
 
+bool VirtualMachine::TryCall(ObjectRef self, const std::string& method, std::vector<Value> args) {
+  Instance* inst = FindInstance(self);
+  if (!inst) return false;
+  Resolved r;
+  if (!ResolveMethod(*inst, method, inst->type, &r)) return false;  // no handler: silent
+  Invoke(r, self, std::move(args), method);
+  return true;
+}
+
 Value VirtualMachine::CallGlobal(const std::string& script_type, const std::string& function,
                                  std::vector<Value> args) {
   if (LoadedScript* s = FindScript(script_type)) {
