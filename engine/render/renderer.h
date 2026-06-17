@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
@@ -26,6 +27,7 @@
 #include "render/rhi/swapchain.h"
 #include "render/settings.h"
 #include "render/upscaler.h"
+#include "render/water.h"
 
 namespace rec::render {
 
@@ -71,6 +73,7 @@ class Renderer {
   void RenderFrame(const FrameView& view);
   void Shutdown();
   void WaitIdle();
+
 
   // Makes a mesh drawable, keyed by its asset id. Materials referenced by
   // submeshes should be uploaded first. No-op without a device.
@@ -130,6 +133,7 @@ class Renderer {
   std::unique_ptr<MaterialSystem> material_system_;
   std::unique_ptr<EnvironmentSystem> environment_;
   std::unique_ptr<DdgiSystem> ddgi_;
+  std::unique_ptr<WaterPass> water_;
   std::unique_ptr<MeshPipeline> mesh_pipeline_;
   std::unique_ptr<PostPass> post_;
   base::UnorderedMap<u64, GpuMesh> meshes_;
@@ -157,6 +161,7 @@ class Renderer {
   bool environment_dirty_ = true;
 
   Mat4 prev_view_proj_ = Mat4::Identity();
+  f64 time_seconds_ = 0;
   bool has_prev_frame_ = false;
   bool rt_available_ = false;
   u32 frame_index_ = 0;

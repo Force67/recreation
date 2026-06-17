@@ -358,6 +358,7 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material) {
   if (!WriteSet(set, sets_in_last_pool_ - 1, material)) return false;
   sets_.insert(material.id.hash, set);
   blend_modes_.insert(material.id.hash, static_cast<u8>(material.alpha_mode));
+  if (material.is_water) water_.insert(material.id.hash, 1);
   if (registry_) {
     BindlessRegistry::MaterialRecord record;
     std::memcpy(record.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
@@ -371,6 +372,10 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material) {
     }
   }
   return true;
+}
+
+bool MaterialSystem::is_water(u64 material_hash) const {
+  return water_.find(material_hash) != nullptr;
 }
 
 u32 MaterialSystem::bindless_material(u64 material_hash) const {

@@ -52,6 +52,8 @@ struct RenderSettings {
   f32 ddgi_spacing = 1.5f;
   f32 ddgi_intensity = 1.0f;
 
+  bool water_reflections = true;  // raytraced; off falls back to sky only
+
   Vec3 sun_direction{-0.35f, -0.9f, -0.25f};  // travel direction of the light
   f32 sun_intensity = 4.0f;
   Vec3 sun_color{1.0f, 0.96f, 0.9f};

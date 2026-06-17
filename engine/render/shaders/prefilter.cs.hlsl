@@ -58,7 +58,8 @@ void main(uint3 id : SV_DispatchThreadID) {
     float3 l = normalize(2.0 * dot(v, h) * h - v);
     float ndl = dot(n, l);
     if (ndl > 0.0) {
-      sum += sky.SampleLevel(sky_sampler, l, 0).rgb * ndl;
+      // Disk-free: the analytic ggx sun term owns specular sun reflection.
+      sum += min(sky.SampleLevel(sky_sampler, l, 0).rgb, 16.0.xxx) * ndl;
       weight += ndl;
     }
   }

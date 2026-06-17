@@ -59,6 +59,7 @@ class MaterialSystem {
   // Blended materials draw in the sorted transparent pass instead of the
   // opaque one. Unknown hashes are opaque.
   bool is_blend(u64 material_hash) const;
+  bool is_water(u64 material_hash) const;
 
   // Bindless material record index for ray hit shading; 0 (the default
   // material) for unknown hashes.
@@ -92,6 +93,7 @@ class MaterialSystem {
   base::UnorderedMap<u64, GpuImage> textures_;
   base::UnorderedMap<u64, VkDescriptorSet> sets_;
   base::UnorderedMap<u64, u8> blend_modes_;  // asset::AlphaMode per material
+  base::UnorderedMap<u64, u8> water_;        // material hash -> is_water
   base::UnorderedMap<u64, u32> bindless_textures_;   // texture hash -> registry index
   base::UnorderedMap<u64, u32> bindless_materials_;  // material hash -> registry index
   VkDescriptorSet default_set_ = VK_NULL_HANDLE;

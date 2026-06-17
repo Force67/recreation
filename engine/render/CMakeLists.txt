@@ -4,6 +4,7 @@ recreation_add_module(render
   mesh_pipeline.cc
   material_system.cc
   bindless.cc
+  water.cc
   environment.cc
   ambient_occlusion.cc
   bloom.cc
@@ -55,4 +56,6 @@ recreation_embed_shaders(recreation_render
   shaders/ddgi_rays.cs.hlsl
   shaders/ddgi_blend.cs.hlsl
   shaders/ddgi_border.cs.hlsl
+  shaders/water.ps.hlsl
+  shaders/copy.cs.hlsl
 )

@@ -164,6 +164,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             settings.sun_angular_radius = degrees / 57.29578f;
           }
         }
+        ImGui::Checkbox("Water RT reflections", &settings.water_reflections);
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!caps || !caps->fill_mode_non_solid);
         ImGui::Checkbox("Wireframe", &settings.wireframe);

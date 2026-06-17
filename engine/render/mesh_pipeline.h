@@ -21,13 +21,15 @@ struct FrameGlobals {
   f32 camera_position[4] = {0, 0, 0, 1};  // xyz eye, w ibl intensity
   f32 misc[4] = {0, 0, 0, 0};  // x,y render size, z sun angular radius, w frame index
   u32 flags = 0;
-  f32 pad[3] = {0, 0, 0};
+  f32 time = 0;  // seconds, drives water waves
+  f32 pad[2] = {0, 0};
 };
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.
 inline constexpr u32 kFrameFlagIbl = 1u << 0;
 inline constexpr u32 kFrameFlagAoValid = 1u << 1;
 inline constexpr u32 kFrameFlagDdgi = 1u << 2;
+inline constexpr u32 kFrameFlagWaterRt = 1u << 3;
 
 // Stays within the 128 byte push constant minimum, everything else goes
 // through the globals buffer.

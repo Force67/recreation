@@ -42,6 +42,9 @@ struct Mesh {
   base::Vector<MeshLod> lods;
   f32 bounds_center[3] = {0, 0, 0};
   f32 bounds_radius = 0;
+  // Kept out of acceleration structures: dense fill geometry like grass
+  // would bloat the tlas and add ray noise without visual benefit.
+  bool exclude_from_rt = false;
 };
 
 }  // namespace rec::asset

@@ -23,6 +23,10 @@ struct Material {
   f32 alpha_cutoff = 0.5f;
   AlphaMode alpha_mode = AlphaMode::kOpaque;
   bool two_sided = false;
+  // Routed to the dedicated water pipeline: animated waves, raytraced
+  // reflections, refraction with absorption. base_color acts as the
+  // absorption tint, roughness scales the wave choppiness.
+  bool is_water = false;
 };
 
 }  // namespace rec::asset

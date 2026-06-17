@@ -60,6 +60,10 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
                                *bindless_);
     if (!ddgi_) return false;
+    water_ = WaterPass::Create(*device_, kSceneColorFormat, kMotionFormat, kDepthFormat,
+                               mesh_pipeline_->set_layout(), material_system_->set_layout(),
+                               environment_->env_set_layout(), bindless_->set_layout());
+    if (!water_) return false;
   }
   if (!environment_->CreateSkyPipeline(mesh_pipeline_->set_layout(), kSceneColorFormat,
                                        kMotionFormat, kDepthFormat)) {
@@ -82,6 +86,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   return true;
 }
+
 
 bool Renderer::CreateUpscalerForSettings() {
   f32 scale = UpscalerScale(settings_.upscaler_quality);
@@ -215,16 +220,18 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
     gpu.submeshes.push_back({0, gpu.index_count, 0, false});
   } else {
     for (const asset::Submesh& submesh : lod.submeshes) {
-      bool blend = material_system_ && material_system_->is_blend(submesh.material.hash);
+      bool water = material_system_ && material_system_->is_water(submesh.material.hash);
+      bool blend = water || (material_system_ && material_system_->is_blend(submesh.material.hash));
       gpu.submeshes.push_back(
-          {submesh.index_offset, submesh.index_count, submesh.material.hash, blend});
+          {submesh.index_offset, submesh.index_count, submesh.material.hash, blend, water});
     }
   }
   gpu.all_blend = true;
   for (const GpuSubmesh& submesh : gpu.submeshes) {
     if (!submesh.blend) gpu.all_blend = false;
   }
-  if (bindless_ && !gpu.all_blend) {
+  gpu.no_rt = mesh.exclude_from_rt;
+  if (bindless_ && !gpu.all_blend && !gpu.no_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
     for (const GpuSubmesh& submesh : gpu.submeshes) {
       if (submesh.blend || submesh.index_count == 0) continue;
@@ -239,7 +246,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
   meshes_[mesh.id.hash] = gpu;
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
-  if (raytracing_ && !gpu.all_blend) raytracing_->BuildBlas(mesh.id.hash, gpu);
+  if (raytracing_ && !gpu.all_blend && !gpu.no_rt) raytracing_->BuildBlas(mesh.id.hash, gpu);
   return true;
 }
 
@@ -330,6 +337,30 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   bool rt_shadows = rt_available_ && settings_.rt_shadows;
   bool rtao_active = rt_available_ && settings_.rtao;
   bool ddgi_active = ddgi_ && settings_.ddgi && settings_.ibl;
+  time_seconds_ += view.frame_delta_seconds;
+
+  // Transparent work is gathered up front: water forces a tlas (the water
+  // pipeline statically binds it) and an opaque snapshot pass.
+  struct TransparentDraw {
+    const DrawItem* item;
+    const GpuSubmesh* submesh;
+    f32 distance_sq;
+  };
+  base::Vector<TransparentDraw> transparent;
+  bool any_water = false;
+  for (const DrawItem& item : view.draws) {
+    const GpuMesh* mesh = meshes_.find(item.mesh);
+    if (!mesh) continue;
+    for (const GpuSubmesh& submesh : mesh->submeshes) {
+      if (!submesh.blend) continue;
+      f32 dx = item.transform.m[12] - view.camera.eye.x;
+      f32 dy = item.transform.m[13] - view.camera.eye.y;
+      f32 dz = item.transform.m[14] - view.camera.eye.z;
+      transparent.push_back({&item, &submesh, dx * dx + dy * dy + dz * dz});
+      if (submesh.water) any_water = true;
+    }
+  }
+  bool water_pipeline_active = any_water && water_ != nullptr;
 
   // Camera state for both this frame and reprojection. Jitter lives in the
   // projection, not the matrices used for motion vectors.
@@ -379,6 +410,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (settings_.ibl) globals.flags |= kFrameFlagIbl;
   if (rtao_active) globals.flags |= kFrameFlagAoValid;
   if (ddgi_active) globals.flags |= kFrameFlagDdgi;
+  if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
+  globals.time = static_cast<f32>(time_seconds_);
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -409,12 +442,12 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
-  if (rt_shadows || rtao_active || ddgi_active) {
+  if (rt_shadows || rtao_active || ddgi_active || water_pipeline_active) {
     base::Vector<RayTracingContext::Instance> instances;
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
       const GpuMesh* mesh = meshes_.find(item.mesh);
-      if (!mesh || mesh->all_blend) continue;
+      if (!mesh || mesh->all_blend || mesh->no_rt) continue;
       instances.push_back({.mesh_key = item.mesh,
                            .custom_index = mesh->bindless_index,
                            .transform = item.transform});
@@ -590,21 +623,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, rt_shadows, settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
-        bool any_blend = false;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
-          if (!mesh) continue;
-          if (mesh->all_blend) {
-            any_blend = true;
-            continue;
-          }
+          if (!mesh || mesh->all_blend) continue;
           mesh_pipeline_->Draw(ctx.cmd, *mesh,
                                {.model = item.transform, .prev_model = item.prev_transform});
           for (const GpuSubmesh& submesh : mesh->submeshes) {
-            if (submesh.blend) {
-              any_blend = true;
-              continue;
-            }
+            if (submesh.blend) continue;
             VkDescriptorSet material = material_system_->set(submesh.material);
             if (material != bound_material) {
               mesh_pipeline_->BindMaterial(ctx.cmd, material);
@@ -614,53 +639,167 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           }
         }
         if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
+        vkCmdEndRendering(ctx.cmd);
+      });
 
-        if (any_blend) {
-          // Sorted back to front by item origin; per submesh sorting waits
-          // for per-submesh bounds.
-          struct TransparentDraw {
-            const DrawItem* item;
-            const GpuSubmesh* submesh;
-            f32 distance_sq;
-          };
-          base::Vector<TransparentDraw> transparent;
-          for (const DrawItem& item : view.draws) {
-            const GpuMesh* mesh = meshes_.find(item.mesh);
-            if (!mesh) continue;
-            for (const GpuSubmesh& submesh : mesh->submeshes) {
-              if (!submesh.blend) continue;
-              f32 dx = item.transform.m[12] - view.camera.eye.x;
-              f32 dy = item.transform.m[13] - view.camera.eye.y;
-              f32 dz = item.transform.m[14] - view.camera.eye.z;
-              transparent.push_back({&item, &submesh, dx * dx + dy * dy + dz * dz});
+  if (!transparent.empty()) {
+    std::sort(transparent.begin(), transparent.end(),
+              [](const TransparentDraw& a, const TransparentDraw& b) {
+                return a.distance_sq > b.distance_sq;
+              });
+
+    // Snapshot of the opaque result for refraction, only when the water
+    // pipeline runs (undeclared transients would compile with zero usage).
+    ResourceHandle opaque_color = kInvalidResource;
+    ResourceHandle opaque_depth = kInvalidResource;
+    if (water_pipeline_active) {
+      opaque_color = graph_.CreateTexture(
+          {.name = "opaque_color", .format = kSceneColorFormat, .width = render_width_,
+           .height = render_height_});
+      opaque_depth = graph_.CreateTexture(
+          {.name = "opaque_depth", .format = VK_FORMAT_R32_SFLOAT, .width = render_width_,
+           .height = render_height_});
+      graph_.AddPass(
+          "opaque_copy",
+          [&](RenderGraph::PassBuilder& builder) {
+            builder.Read(scene_color, ResourceUsage::kSampledCompute);
+            builder.Read(depth, ResourceUsage::kSampledCompute);
+            builder.Write(opaque_color, ResourceUsage::kStorageWrite);
+            builder.Write(opaque_depth, ResourceUsage::kStorageWrite);
+          },
+          [this, scene_color, depth, opaque_color, opaque_depth](PassContext& ctx) {
+            water_->RecordCopy(ctx, scene_color, depth, opaque_color, opaque_depth,
+                               render_width_, render_height_);
+          });
+    }
+
+    graph_.AddPass(
+        "transparent",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(scene_color, ResourceUsage::kColorAttachment);
+          builder.Write(motion, ResourceUsage::kColorAttachment);
+          builder.Write(depth, ResourceUsage::kDepthAttachment);
+          if (water_pipeline_active) {
+            builder.Read(opaque_color, ResourceUsage::kSampledFragment);
+            builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
+          }
+        },
+        [this, scene_color, motion, depth, opaque_color, opaque_depth, tlas_slot, rt_shadows,
+         ddgi_active, water_pipeline_active, transparent = std::move(transparent), &frame,
+         &view](PassContext& ctx) {
+          VkRenderingAttachmentInfo colors[2];
+          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          colors[0].imageView = ctx.graph->image(scene_color).view;
+          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+          colors[1] = colors[0];
+          colors[1].imageView = ctx.graph->image(motion).view;
+
+          VkRenderingAttachmentInfo depth_attachment{
+              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          depth_attachment.imageView = ctx.graph->image(depth).view;
+          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
+          rendering.layerCount = 1;
+          rendering.colorAttachmentCount = 2;
+          rendering.pColorAttachments = colors;
+          rendering.pDepthAttachment = &depth_attachment;
+          vkCmdBeginRendering(ctx.cmd, &rendering);
+
+          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
+                              static_cast<f32>(render_height_), 0.0f, 1.0f};
+          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
+          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
+
+          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
+          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
+          VkWriteDescriptorSet writes[2];
+          writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          writes[0].dstSet = globals_set;
+          writes[0].dstBinding = 0;
+          writes[0].descriptorCount = 1;
+          writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+          writes[0].pBufferInfo = &buffer_info;
+          u32 write_count = 1;
+          VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
+          VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
+              .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+          if (rt_available_ && raytracing_) {
+            tlas = raytracing_->tlas(tlas_slot);
+            if (tlas != VK_NULL_HANDLE) {
+              tlas_info.accelerationStructureCount = 1;
+              tlas_info.pAccelerationStructures = &tlas;
+              writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+              writes[1].pNext = &tlas_info;
+              writes[1].dstSet = globals_set;
+              writes[1].dstBinding = 1;
+              writes[1].descriptorCount = 1;
+              writes[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+              write_count = 2;
             }
           }
-          std::sort(transparent.begin(), transparent.end(),
-                    [](const TransparentDraw& a, const TransparentDraw& b) {
-                      return a.distance_sq > b.distance_sq;
-                    });
+          vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
 
-          mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, rt_shadows);
-          bound_material = VK_NULL_HANDLE;
+          VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
+          EnvironmentSystem::DdgiBinding ddgi_binding;
+          if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
+          environment_->WriteEnvSet(env_set, VK_NULL_HANDLE,
+                                    ddgi_active ? &ddgi_binding : nullptr);
+
+          enum class Mode { kNone, kWater, kBlend };
+          Mode mode = Mode::kNone;
+          VkDescriptorSet bound_material = VK_NULL_HANDLE;
           const DrawItem* bound_item = nullptr;
           for (const TransparentDraw& draw : transparent) {
+            const GpuMesh* mesh = meshes_.find(draw.item->mesh);
+            if (!mesh) continue;
+            bool as_water = draw.submesh->water && water_pipeline_active;
+            Mode wanted = as_water ? Mode::kWater : Mode::kBlend;
+            if (mode != wanted) {
+              if (as_water) {
+                water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
+                             opaque_depth);
+              } else {
+                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, rt_shadows);
+              }
+              mode = wanted;
+              bound_material = VK_NULL_HANDLE;
+              bound_item = nullptr;
+            }
             if (draw.item != bound_item) {
-              const GpuMesh* mesh = meshes_.find(draw.item->mesh);
-              mesh_pipeline_->Draw(ctx.cmd, *mesh,
-                                   {.model = draw.item->transform,
-                                    .prev_model = draw.item->prev_transform});
+              MeshPushConstants push{.model = draw.item->transform,
+                                     .prev_model = draw.item->prev_transform};
+              if (as_water) {
+                vkCmdPushConstants(ctx.cmd, water_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                                   sizeof(push), &push);
+                VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &mesh->vertices.buffer, &offset);
+                vkCmdBindIndexBuffer(ctx.cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+              } else {
+                mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+              }
               bound_item = draw.item;
             }
             VkDescriptorSet material = material_system_->set(draw.submesh->material);
             if (material != bound_material) {
-              mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              if (as_water) {
+                water_->BindMaterial(ctx.cmd, material);
+              } else {
+                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              }
               bound_material = material;
             }
             mesh_pipeline_->DrawSubmesh(ctx.cmd, *draw.submesh);
           }
-        }
-        vkCmdEndRendering(ctx.cmd);
-      });
+          vkCmdEndRendering(ctx.cmd);
+        });
+  }
 
   ResourceHandle post_input = scene_color;
   switch (settings_.aa_mode) {
@@ -874,6 +1013,7 @@ void Renderer::Shutdown() {
     if (rt_available_) rtao_.Destroy(*device_);
     bloom_.Destroy(*device_);
     exposure_.Destroy(*device_);
+    water_.reset();
     ddgi_.reset();
     environment_.reset();
     material_system_.reset();

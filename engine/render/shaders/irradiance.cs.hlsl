@@ -44,7 +44,8 @@ void main(uint3 id : SV_DispatchThreadID) {
     float sin_theta = sqrt(u1);
     float phi = 2.0 * kPi * u2;
     float3 dir = t * (cos(phi) * sin_theta) + b * (sin(phi) * sin_theta) + n * cos_theta;
-    sum += sky.SampleLevel(sky_sampler, dir, 0).rgb;
+    // The raw sun disk stays out of ambient: direct sun light is analytic.
+    sum += min(sky.SampleLevel(sky_sampler, dir, 0).rgb, 16.0.xxx);
   }
   irradiance_out[id] = float4(sum / kSamples, 1.0);
 }

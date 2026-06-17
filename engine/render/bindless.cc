@@ -33,21 +33,23 @@ bool BindlessRegistry::Initialize() {
                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
   if (!mesh_table_.mapped || !geometry_table_.mapped || !material_table_.mapped) return false;
 
+  // Hit shading runs from ddgi compute and the water fragment shader.
+  VkShaderStageFlags stages = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   VkDescriptorSetLayoutBinding bindings[5]{};
   for (u32 i = 0; i < 3; ++i) {
     bindings[i].binding = i;
     bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[i].descriptorCount = 1;
-    bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[i].stageFlags = stages;
   }
   bindings[3].binding = 3;
   bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
   bindings[3].descriptorCount = kMaxTextures;
-  bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  bindings[3].stageFlags = stages;
   bindings[4].binding = 4;
   bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
   bindings[4].descriptorCount = 1;
-  bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  bindings[4].stageFlags = stages;
 
   VkDescriptorBindingFlags binding_flags[5] = {
       0, 0, 0,
