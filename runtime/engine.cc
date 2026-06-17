@@ -162,6 +162,9 @@ bool Engine::StartNetworking() {
       // resulting quest/world changes replicate back through the usual channels.
       server_session_->SetActivateSink([this](u64 handle) { RaiseActivate(handle); });
     }
+    // Stream authoritative NPC transforms; the session deltas them so only the
+    // NPCs that actually moved this tick go out.
+    server_session_->SetActorSource([this]() { return net::CollectActorStates(world_); });
   } else if (!config_.connect_address.empty()) {
     net_config.address = base::String(config_.connect_address.c_str());
     auto client = std::make_unique<net::ClientSession>(std::move(net_config));
@@ -186,6 +189,11 @@ bool Engine::StartNetworking() {
       // ECS, so applying straight to QuestWorld is safe.
       client_session_->SetWorldCommandSink(
           [this](const std::vector<world::WorldCommand>& cmds) { quest_world_.Apply(cmds); });
+      // Mirror authoritative NPC movement onto our existing (cell-loaded) NPC
+      // entities, interpolated between updates.
+      client_session_->SetActorSink([this](const std::vector<net::ActorState>& actors) {
+        net::ApplyActorStates(world_, quest_world_, actors, 0.1f);
+      });
     }
   } else {
     return true;
@@ -1424,6 +1432,9 @@ bool Engine::LoadGameData() {
   if (config_.demo_scene == "actor") return CreateSkyrimActor();
 
   streamer_ = std::make_unique<world::CellStreamer>(records_, *assets_);
+  // Register streamed NPCs in the quest world so quests can target them and
+  // clients can apply replicated actor transforms by form id.
+  streamer_->set_quest_world(&quest_world_);
   if (physics_.initialized()) {
     streamer_->set_physics(&physics_);
     physics_.set_water_height([this](const Vec3& position, f32* height, Vec3* flow) {
@@ -2224,6 +2235,36 @@ void Engine::ApplyQuestWorld() {
   if (server_session_) server_session_->SendWorldCommands(commands);  // mirror to clients
 }
 
+void Engine::ServerSimulateActors(f32 /*dt*/) {
+  // Pushers: the local player (listen server / single-player) plus every
+  // networked player. A player that is both contributes twice, which is
+  // harmless (the second shove is a no-op once the first cleared the radius).
+  base::Vector<Vec3> pushers;
+  const ecs::Entity local =
+      player_actor_ >= 0 ? actors_[player_actor_].entity : ecs::kInvalidEntity;
+  if (world_.IsAlive(local))
+    if (const world::Transform* t = world_.Get<world::Transform>(local))
+      pushers.push_back({t->position[0], t->position[1], t->position[2]});
+  world_.Each<net::NetworkId, world::Transform>(
+      [&](ecs::Entity, net::NetworkId&, world::Transform& t) {
+        pushers.push_back({t.position[0], t.position[1], t.position[2]});
+      });
+  if (pushers.empty()) return;
+
+  constexpr f32 kPushRadius = 0.6f;  // ~capsule radius in meters
+  world_.Each<world::Npc, world::Transform>([&](ecs::Entity, world::Npc&, world::Transform& nt) {
+    for (const Vec3& p : pushers) {
+      const float pusher[3] = {p.x, p.y, p.z};
+      float out[3];
+      if (world::ShoveOutOfRadius(pusher, nt.position, kPushRadius, out)) {
+        nt.position[0] = out[0];
+        nt.position[1] = out[1];
+        nt.position[2] = out[2];
+      }
+    }
+  });
+}
+
 bool Engine::RunFrame() {
   if (quit_.load(std::memory_order_relaxed)) return false;
   if (window_ && !window_->PumpEvents()) return false;
@@ -2243,6 +2284,10 @@ bool Engine::RunFrame() {
     // Apply (and, when hosting, replicate) the world mutations quests requested
     // on the guest thread. Main-thread only, so it owns the ECS exclusively here.
     ApplyQuestWorld();
+
+    // Authoritative NPC simulation runs on the host / single-player only; a
+    // client receives the results via actor sync instead of simulating.
+    if (!client_session_) ServerSimulateActors(static_cast<f32>(timer_.frame_delta()));
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());

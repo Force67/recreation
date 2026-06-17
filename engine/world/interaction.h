@@ -43,6 +43,34 @@ inline int PickActivationTarget(const float player_pos[3], const float player_fw
   return best;
 }
 
+// Server-authoritative "shove": if `target` sits inside a vertical cylinder of
+// `radius` around `pusher` on the horizontal (XZ) plane, writes the position it
+// is pushed out to (cylinder edge, height unchanged) into `out` and returns
+// true; returns false when it is already clear. A degenerate exact overlap is
+// shoved along +X so the result is deterministic. Engine space, +Y up.
+//
+// A simple stand-in for full character physics: it lets a player nudge an NPC
+// out of the way, and because it only moves the NPC's transform the existing
+// actor-sync replication carries the result to every client.
+inline bool ShoveOutOfRadius(const float pusher[3], const float target[3], float radius,
+                             float out[3]) {
+  const float dx = target[0] - pusher[0];
+  const float dz = target[2] - pusher[2];
+  const float dist_sq = dx * dx + dz * dz;
+  if (dist_sq >= radius * radius) return false;
+  out[1] = target[1];
+  const float dist = __builtin_sqrtf(dist_sq);
+  if (dist < 1e-4f) {  // exactly on top of the pusher: pick a fixed direction
+    out[0] = pusher[0] + radius;
+    out[2] = pusher[2];
+    return true;
+  }
+  const float scale = radius / dist;
+  out[0] = pusher[0] + dx * scale;
+  out[2] = pusher[2] + dz * scale;
+  return true;
+}
+
 }  // namespace rec::world
 
 #endif  // RECREATION_WORLD_INTERACTION_H_

@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "ecs/world.h"
+#include "net/actor_sync.h"
 #include "net/protocol.h"
 #include "net/quest_replication.h"
 #include "net/replication.h"
@@ -66,6 +67,12 @@ class ServerSession final : public Session {
   // logic runs on the server and replicates back. When unset, activations drop.
   void SetActivateSink(std::function<void(u64)> sink) { activate_sink_ = std::move(sink); }
 
+  // Authoritative NPC transforms to stream. Set by the engine to walk the world's
+  // NPC entities; only the ones that moved since last tick go out (unreliable).
+  void SetActorSource(std::function<std::vector<ActorState>()> source) {
+    actor_source_ = std::move(source);
+  }
+
   u32 client_count() const { return static_cast<u32>(clients_.size()); }
   u64 tick() const { return tick_; }
 
@@ -85,6 +92,7 @@ class ServerSession final : public Session {
   void TimeoutClients(ecs::World& world, f32 dt);
   void BroadcastSnapshot(ecs::World& world);
   void BroadcastQuests();
+  void BroadcastActors();
 
   SessionConfig config_;
   tx::network::ZServer server_;
@@ -94,7 +102,9 @@ class ServerSession final : public Session {
   base::Vector<u32> scratch_dropped_;
   std::function<std::vector<quest::QuestStatus>()> quest_source_;
   std::function<void(u64)> activate_sink_;
+  std::function<std::vector<ActorState>()> actor_source_;
   QuestReplicator quest_replicator_;
+  ActorReplicator actor_replicator_;
   u64 tick_ = 0;
   bool force_keyframe_ = false;
   bool started_ = false;
@@ -129,6 +139,12 @@ class ClientSession final : public Session {
     world_command_sink_ = std::move(sink);
   }
 
+  // Sink invoked with the NPC transforms in each kActorSync received. The engine
+  // wires this to ApplyActorStates so client NPCs mirror the host's movement.
+  void SetActorSink(std::function<void(const std::vector<ActorState>&)> sink) {
+    actor_sink_ = std::move(sink);
+  }
+
   bool joined() const { return joined_; }
   u64 player_net_id() const { return player_net_id_; }
   ecs::Entity player_entity() const { return applier_.Find(player_net_id_); }
@@ -142,6 +158,7 @@ class ClientSession final : public Session {
   SnapshotApplier applier_;
   std::function<void(const quest::QuestStatus&)> quest_sink_;
   std::function<void(const std::vector<world::WorldCommand>&)> world_command_sink_;
+  std::function<void(const std::vector<ActorState>&)> actor_sink_;
   PlayerInput input_;
   u64 player_net_id_ = 0;
   u64 tick_ = 0;

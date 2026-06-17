@@ -53,6 +53,7 @@ void ServerSession::Tick(ecs::World& world, f32 dt) {
   if (tick_ % config_.snapshot_interval_ticks == 0) {
     BroadcastSnapshot(world);
     BroadcastQuests();
+    BroadcastActors();
   }
   // Heartbeat for dedicated server logs.
   if (tick_ % (static_cast<u64>(config_.tick_rate) * 30) == 0) {
@@ -236,6 +237,17 @@ void ServerSession::BroadcastQuests() {
                           tx::network::PacketPriority::Medium));
 }
 
+void ServerSession::BroadcastActors() {
+  if (!actor_source_ || clients_.size() == 0) return;
+  std::vector<ActorState> changed = actor_replicator_.Build(actor_source_());
+  if (changed.empty()) return;  // no NPC moved this tick
+  std::vector<u8> blob = EncodeActorStates(changed);
+  // Unreliable like snapshots: the next update supersedes a lost one, and the
+  // client interpolates between them.
+  server_.Push(MakePacket(tx::network::ZPeerId::to_all, MessageType::kActorSync, blob,
+                          /*reliable=*/false, tx::network::PacketPriority::Medium));
+}
+
 void ServerSession::SendWorldCommands(const std::vector<world::WorldCommand>& commands) {
   if (clients_.size() == 0 || commands.empty()) return;
   std::vector<u8> blob = EncodeWorldCommands(commands);
@@ -386,6 +398,17 @@ void ClientSession::PollMessages(ecs::World& world) {
           world_command_sink_(*cmds);
         } else {
           REC_WARN("net: dropped corrupt world-command update");
+        }
+        break;
+      }
+      case MessageType::kActorSync: {
+        if (!actor_sink_) break;
+        const ByteSpan blob(reinterpret_cast<const u8*>(packet.data.data()),
+                            packet.data.size());
+        if (auto actors = DecodeActorStates(blob)) {
+          actor_sink_(*actors);
+        } else {
+          REC_WARN("net: dropped corrupt actor sync");
         }
         break;
       }

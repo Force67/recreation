@@ -304,6 +304,9 @@ class Engine {
   // Drains quest world commands into QuestWorld on the main thread, and (when
   // hosting) replicates the batch to clients.
   void ApplyQuestWorld();
+  // Server-side NPC simulation (host / single-player): players shove nearby NPCs
+  // out of the way. The moved transforms then stream to clients via actor sync.
+  void ServerSimulateActors(f32 dt);
   // Advances every actor's gait and recomputes its model-space bone matrices.
   void UpdateActors(f32 dt);
   // Appends each actor's skinned draws + bone palettes to the frame view.
