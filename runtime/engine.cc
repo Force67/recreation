@@ -26,6 +26,7 @@
 #include "world/components.h"
 #include "world/interaction.h"
 #include "world/npc_ai.h"
+#include "world/objective_marker.h"
 #include "script/games/skyrim/skyrim_condition_context.h"
 #include "script/papyrus/value.h"
 
@@ -2336,18 +2337,15 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
   // stage. Host authoritative (a client receives the advance via quest
   // replication), evaluated against the local player plus every networked one.
   if (armed && armed->advance_stage >= 0 && !client_session_ && scripts_ && script_bindings_) {
-    auto within = [&](f32 px, f32 pz) {
-      const f32 dx = px - armed->pos.x, dz = pz - armed->pos.z;
-      return dx * dx + dz * dz <= armed->radius * armed->radius;
-    };
+    const float marker[3] = {armed->pos.x, armed->pos.y, armed->pos.z};
     bool reached = false;
     if (player_actor_ >= 0)
       if (const world::Transform* t = world_.Get<world::Transform>(actors_[player_actor_].entity))
-        reached = within(t->position[0], t->position[2]);
+        reached = world::MarkerReached(t->position, marker, armed->radius);
     if (!reached)
       world_.Each<net::NetworkId, world::Transform>(
           [&](ecs::Entity, net::NetworkId&, world::Transform& t) {
-            if (within(t.position[0], t.position[2])) reached = true;
+            if (world::MarkerReached(t.position, marker, armed->radius)) reached = true;
           });
     if (reached) {
       armed->fired = true;
@@ -2372,21 +2370,12 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
   Vec3 ppos{};
   if (const world::Transform* t = world_.Get<world::Transform>(actors_[player_actor_].entity))
     ppos = Vec3{t->position[0], t->position[1], t->position[2]};
-  Vec3 view = walk_mode_ ? (walk_target_ - walk_eye_) : camera_.forward();
-  view.y = 0;
-  Vec3 to{armed->pos.x - ppos.x, 0, armed->pos.z - ppos.z};
+  const Vec3 view = walk_mode_ ? (walk_target_ - walk_eye_) : camera_.forward();
+  const Vec3 to{armed->pos.x - ppos.x, 0, armed->pos.z - ppos.z};
+  const float view_fwd[3] = {view.x, view.y, view.z};
+  const float to_marker[3] = {to.x, to.y, to.z};
   const f32 distance = Length(to);
-  if (Length(view) < 1e-4f || distance < 1e-4f) {
-    game_ui_.SetObjectiveMarker(true, 0, distance);
-    return;
-  }
-  view = Normalize(view);
-  to = Normalize(to);
-  // Signed angle from the view to the marker, positive when the marker is to the
-  // player's right (cross.y > 0 in this left-handed, +Y up convention).
-  const f32 det = view.z * to.x - view.x * to.z;
-  const f32 dot = view.x * to.x + view.z * to.z;
-  const f32 bearing = std::atan2(det, dot) * 57.29578f;
+  const f32 bearing = world::MarkerCompassBearingDeg(view_fwd, to_marker);
   game_ui_.SetObjectiveMarker(true, bearing, distance);
 }
 
