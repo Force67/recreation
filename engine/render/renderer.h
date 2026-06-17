@@ -74,6 +74,9 @@ class Renderer {
   void Shutdown();
   void WaitIdle();
 
+  // Saves the next presented frame as png. Also armed by the
+  // REC_SCREENSHOT env var ("path.png:seconds") for headless captures.
+  void CaptureScreenshot(const std::string& path);
 
   // Makes a mesh drawable, keyed by its asset id. Materials referenced by
   // submeshes should be uploaded first. No-op without a device.
@@ -160,6 +163,10 @@ class Renderer {
   Vec3 applied_sun_color_{};
   bool environment_dirty_ = true;
 
+  void WriteScreenshot(u32 image_index);
+
+  std::string screenshot_path_;
+  f64 screenshot_at_ = -1;  // seconds; <0 means immediately when armed
   Mat4 prev_view_proj_ = Mat4::Identity();
   f64 time_seconds_ = 0;
   bool has_prev_frame_ = false;

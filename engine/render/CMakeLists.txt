@@ -5,6 +5,7 @@ recreation_add_module(render
   material_system.cc
   bindless.cc
   water.cc
+  stb_impl.cc
   environment.cc
   ambient_occlusion.cc
   bloom.cc
@@ -23,6 +24,7 @@ recreation_add_module(render
 
 target_link_libraries(recreation_render
   PUBLIC recreation::core recreation::asset volk GPUOpen::VulkanMemoryAllocator)
+target_link_libraries(recreation_render PRIVATE recreation::stb)
 
 if(RECREATION_FSR3)
   target_sources(recreation_render PRIVATE upscaler_fsr3.cc)
@@ -31,7 +33,7 @@ if(RECREATION_FSR3)
 endif()
 
 if(NOT MSVC)
-  set_source_files_properties(vulkan/vma_impl.cc PROPERTIES COMPILE_OPTIONS -w)
+  set_source_files_properties(vulkan/vma_impl.cc stb_impl.cc PROPERTIES COMPILE_OPTIONS -w)
 endif()
 
 recreation_embed_shaders(recreation_render

@@ -125,9 +125,12 @@ GpuImage Device::CreateImage2D(VkFormat format, VkExtent2D extent, VkImageUsageF
   GpuImage image;
   image.format = format;
   image.extent = extent;
-  if (vmaCreateImage(allocator_, &image_info, &alloc_info, &image.image, &image.allocation,
-                     nullptr) != VK_SUCCESS) {
-    REC_ERROR("image allocation failed");
+  VkResult result = vmaCreateImage(allocator_, &image_info, &alloc_info, &image.image,
+                                   &image.allocation, nullptr);
+  if (result != VK_SUCCESS) {
+    REC_ERROR("image allocation failed: result {} format {} {}x{} usage {:#x} mips {}",
+              static_cast<int>(result), static_cast<int>(format), extent.width, extent.height,
+              static_cast<u64>(usage), mip_levels);
     return {};
   }
 

@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+
+#include <stb_image_write.h>
 
 #include "core/log.h"
 
@@ -84,9 +87,81 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   taa_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 
+  // Debug captures without window manager screenshots:
+  // REC_SCREENSHOT=/tmp/frame.png:12 saves the frame at t=12s.
+  if (const char* spec = std::getenv("REC_SCREENSHOT")) {
+    std::string value = spec;
+    size_t colon = value.find_last_of(':');
+    if (colon != std::string::npos) {
+      screenshot_at_ = std::atof(value.c_str() + colon + 1);
+      value.resize(colon);
+    }
+    screenshot_path_ = value;
+  }
+
   return true;
 }
 
+void Renderer::CaptureScreenshot(const std::string& path) {
+  screenshot_path_ = path;
+  screenshot_at_ = -1;
+}
+
+void Renderer::WriteScreenshot(u32 image_index) {
+  device_->WaitIdle();
+  VkExtent2D extent = swapchain_->extent();
+  u64 size = static_cast<u64>(extent.width) * extent.height * 4;
+  GpuBuffer staging = device_->CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+  if (!staging.mapped) return;
+
+  device_->ImmediateSubmit([&](VkCommandBuffer cmd) {
+    VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.image = swapchain_->image(image_index);
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &barrier;
+    vkCmdPipelineBarrier2(cmd, &dep);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {extent.width, extent.height, 1};
+    vkCmdCopyImageToBuffer(cmd, swapchain_->image(image_index),
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging.buffer, 1, &region);
+
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  });
+
+  // Swapchain is bgra; png wants rgb.
+  base::Vector<u8> pixels(static_cast<size_t>(extent.width) * extent.height * 3);
+  const u8* src = static_cast<const u8*>(staging.mapped);
+  for (size_t i = 0; i < static_cast<size_t>(extent.width) * extent.height; ++i) {
+    pixels[i * 3 + 0] = src[i * 4 + 2];
+    pixels[i * 3 + 1] = src[i * 4 + 1];
+    pixels[i * 3 + 2] = src[i * 4 + 0];
+  }
+  device_->DestroyBuffer(staging);
+  if (stbi_write_png(screenshot_path_.c_str(), static_cast<int>(extent.width),
+                     static_cast<int>(extent.height), 3, pixels.data(),
+                     static_cast<int>(extent.width) * 3)) {
+    REC_INFO("screenshot written: {}", screenshot_path_);
+  } else {
+    REC_WARN("screenshot write failed: {}", screenshot_path_);
+  }
+  screenshot_path_.clear();
+}
 
 bool Renderer::CreateUpscalerForSettings() {
   f32 scale = UpscalerScale(settings_.upscaler_quality);
@@ -325,6 +400,10 @@ void Renderer::RenderFrame(const FrameView& view) {
   submit.signalSemaphoreInfoCount = 1;
   submit.pSignalSemaphoreInfos = &signal;
   vkQueueSubmit2(device_->graphics_queue(), 1, &submit, frame.in_flight);
+
+  if (!screenshot_path_.empty() && time_seconds_ >= screenshot_at_) {
+    WriteScreenshot(image_index);
+  }
 
   VkResult presented = swapchain_->Present(render_finished_[image_index], image_index);
   if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) {
