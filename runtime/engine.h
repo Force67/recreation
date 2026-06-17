@@ -225,7 +225,8 @@ class Engine {
     i32 advance_stage = -1;  // <0: marker is display-only, never triggers
     Vec3 pos{};
     f32 radius = 2.5f;
-    bool fired = false;  // a trigger fires once; cleared by re-authoring
+    bool fired = false;      // a trigger fires once; cleared by re-authoring
+    bool always_arm = false;  // armed regardless of which objective is current
   };
 
   bool LoadGameData();
@@ -252,11 +253,14 @@ class Engine {
   void UpdateFollowers(f32 dt);
   // Registers / clears an NPC (by form handle) as a follower of the player.
   void SetFollower(u64 npc, bool follow);
-  // REC_MQ101_DEMO one-shot: once the player exists and MQ101 has surfaced an
-  // objective, drop a waypoint ahead of the player (reaching it completes the
-  // quest) and recruit nearby NPCs as followers. Stitches the new systems into a
-  // playable slice of the first main quest. Retries each frame until it seeds.
-  void SetupMq101Demo();
+  // REC_MQ101_DEMO breadcrumb: once the player exists, walks MQ101 through a
+  // curated sequence of gameplay stages. Each frame, if no waypoint is pending,
+  // it drops the next one ahead of the player (and recruits nearby NPCs as
+  // followers on the first); reaching a waypoint advances the quest to the next
+  // stage. The player walks the quest's journal to completion. A grace timeout
+  // advances anyway if a waypoint is not reached (stuck terrain / quest teleport),
+  // so the guided demo always finishes.
+  void Mq101DemoTick(f32 dt);
   // REC_QUEST_REPORT debug aid: drives the named quest through its stages to
   // completion on the guest thread and prints the journey to stdout.
   void ReportQuestToCompletion(const std::string& edid);
@@ -340,6 +344,16 @@ class Engine {
   // an engine Skeleton and the worn body-part NIFs as skinned meshes bound to
   // it by bone name. Returns false if the core skeleton/body could not load.
   bool CreateSkyrimActor();
+  // Builds the player's animated biped (shared rig + a character capsule) at
+  // `pos` and makes it actors_[player_actor_]. The capsule rests its feet at
+  // pos.y, so callers pass a point on the ground (streamed collision or a demo
+  // slab). Does not change walk mode; the caller decides. Used by the actor
+  // demo and by REC_PLAYER to drop a walkable avatar into the streamed world.
+  bool SpawnPlayerActor(const Vec3& pos);
+  // REC_PLAYER (implied by REC_MQ101_DEMO): spawn a walkable player at the
+  // loaded cell's start point and enter walk mode, so the streamed world is
+  // played on foot with its NPCs instead of flown over. A no-op otherwise.
+  void MaybeSpawnWorldPlayer(const Vec3& ground_pos);
   // Loads the shared character rig + meshes into `out` (skeleton, basis, bind
   // pose, body/head/hair parts), uploading each mesh once. Reused by the player
   // actor and as the template every NPC actor is instanced from. Returns false
@@ -461,8 +475,13 @@ class Engine {
   base::Vector<QuestMarker> quest_markers_;
   // NPCs steered to follow the player, keyed by form handle -> formation slot.
   base::UnorderedMap<u64, i32> followers_;
-  // REC_MQ101_DEMO: set at load, cleared once the interactive slice is seeded.
+  // REC_MQ101_DEMO breadcrumb state: the quest, the ordered gameplay stages to
+  // walk it through, and the index of the next waypoint. Active while pending.
   bool mq101_demo_pending_ = false;
+  u64 mq101_demo_quest_ = 0;
+  base::Vector<i32> mq101_demo_stages_;
+  size_t mq101_demo_next_ = 0;
+  f32 mq101_demo_wait_ = 0;  // seconds the current waypoint has gone unreached
   // Activation: the form the player is looking at in walk mode (0 = none) and
   // the cached HUD label, recomputed only when the target changes.
   u64 activate_target_ = 0;

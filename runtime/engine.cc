@@ -1290,22 +1290,43 @@ bool Engine::LoadActorTemplate(Actor* out) {
   return true;
 }
 
-bool Engine::CreateSkyrimActor() {
+bool Engine::SpawnPlayerActor(const Vec3& pos) {
   Actor actor;
   if (!LoadActorTemplate(&actor)) return false;
-  REC_INFO("loaded skyrim skeleton: {} bones", actor.skeleton.bones.size());
 
   actor.entity = world_.Create();
-  world_.Add(actor.entity, world::Transform{.position = {0, 0, 0}});
+  world_.Add(actor.entity, world::Transform{.position = {pos.x, pos.y, pos.z}});
   actor.animate = true;
-  actor.speed = 0.0f;  // idle while tuning foot ik
+  actor.speed = 0.0f;  // idle until walk input arrives
   actor.foot_ik = true;
   actor.ankle_height = 6.0f;  // game units: the ankle sits ~6u above the sole
 
-  // Character capsule so walk mode (T) drives the Skyrim actor too. Capsule
-  // half-height+radius = 0.85, so the entity origin (feet) sits on the ground.
+  // Character capsule the walk mode drives. Capsule half-height+radius = 0.85,
+  // so the entity origin (feet) rests at pos.y on the ground.
   actor.capsule_offset = 0.85f;
-  actor.character = physics_.CreateCharacter({0.0f, 0.85f, 0.0f}, 0.3f, 0.55f);
+  actor.character = physics_.CreateCharacter({pos.x, pos.y + actor.capsule_offset, pos.z}, 0.3f, 0.55f);
+
+  player_actor_ = static_cast<i32>(actors_.size());
+  actors_.push_back(std::move(actor));
+  return true;
+}
+
+void Engine::MaybeSpawnWorldPlayer(const Vec3& ground_pos) {
+  if (config_.headless) return;
+  if (!std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO")) return;
+  // Lift the spawn slightly so the capsule settles onto the floor instead of
+  // starting embedded in the collision.
+  if (!SpawnPlayerActor({ground_pos.x, ground_pos.y + 0.2f, ground_pos.z})) return;
+  walk_mode_ = true;
+  third_person_ = true;
+  if (std::getenv("REC_AUTOWALK")) auto_walk_ = true;
+  REC_INFO("player: walkable avatar spawned at ({:.1f}, {:.1f}, {:.1f}); walk mode on", ground_pos.x,
+           ground_pos.y, ground_pos.z);
+}
+
+bool Engine::CreateSkyrimActor() {
+  if (!SpawnPlayerActor({0, 0, 0})) return false;
+  REC_INFO("loaded skyrim skeleton: {} bones", actors_[player_actor_].skeleton.bones.size());
 
   // A ground slab to stand on (top at y = 0, where the skeleton's feet sit),
   // plus a step under one foot so the foot IK has something to adapt to.
@@ -1324,14 +1345,11 @@ bool Engine::CreateSkyrimActor() {
     physics_.AddStaticBox({0.5f, -0.33f, 0}, {0.45f, 0.45f, 0.45f});
   }
 
-  size_t part_count = actor.parts.size();
-  player_actor_ = static_cast<i32>(actors_.size());
-  actors_.push_back(std::move(actor));
-
   // The skeleton faces -Z in engine space, so frame it from the front.
   camera_.set_position({0.0f, 0.95f, -3.0f});
   camera_.set_yaw_pitch(3.14159f, -0.08f);
-  REC_INFO("skyrim actor ready ({} body parts); press T to walk it", part_count);
+  REC_INFO("skyrim actor ready ({} body parts); press T to walk it",
+           actors_[player_actor_].parts.size());
   if (std::getenv("REC_AUTOWALK")) {
     auto_walk_ = true;
     walk_mode_ = true;
@@ -1591,6 +1609,7 @@ bool Engine::LoadGameData() {
   camera_.speed = 30.0f;
   REC_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", config_.start_cell_x,
            config_.start_cell_y, start.x, start.y, start.z);
+  MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
   return true;
 }
 
@@ -1616,6 +1635,7 @@ bool Engine::LoadInterior() {
   REC_INFO("camera start: interior {} at ({:.1f}, {:.1f}, {:.1f})", config_.interior, start.x,
            start.y, start.z);
   REC_INFO("interior {}: {} npcs loaded", config_.interior, streamer_->spawned_npc_count());
+  MaybeSpawnWorldPlayer(start);
   return true;
 }
 
@@ -1719,18 +1739,24 @@ void Engine::AttachQuestScripts() {
     auto* binds = script_bindings_.get();
     for (const auto& [handle, name] : quest_records_) {
       if (name != "MQ101") continue;
-      scripts_->guest().Submit([binds, h = handle](rec::script::papyrus::VirtualMachine&) {
-        rec::script::papyrus::ObjectRef ref{h};
+      mq101_demo_quest_ = handle;
+      // Curated gameplay beats of Unbound; each stage exists in the QUST and
+      // runs a fragment that advances the journal (160 "Make your way to the
+      // Keep", on through entering and escaping the keep, to completion 900).
+      mq101_demo_stages_.clear();
+      for (i32 s : {160, 300, 500, 700, 900}) mq101_demo_stages_.push_back(s);
+      mq101_demo_next_ = 1;  // SetStage(stages[0]) now; waypoints drive stages[1..]
+      const i32 first = mq101_demo_stages_[0];
+      scripts_->guest().Submit([binds, handle, first](rec::script::papyrus::VirtualMachine&) {
+        rec::script::papyrus::ObjectRef ref{handle};
         binds->StartQuest(ref);
-        // Stage 160 is the first that displays an objective ("Make your way to
-        // the Keep"), so the marker has a live objective to arm against.
-        binds->SetStage(ref, 160);
+        binds->SetStage(ref, first);
       });
       quest_panel_.selected = handle;
       mq101_demo_pending_ = true;
       break;
     }
-    REC_INFO("debug: MQ101 interactive demo armed (walk to the marker to complete)");
+    REC_INFO("debug: MQ101 breadcrumb demo armed (walk the waypoints to complete the quest)");
   }
 
   // REC_QUEST_REPORT=<EDID> drives a quest through its stages to its completion
@@ -2290,6 +2316,7 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
   // arms reliably even with many quests running at once.
   auto is_armed = [&](const QuestMarker& m) -> bool {
     if (m.fired) return false;
+    if (m.always_arm) return true;  // demo/scripted markers manage their own life
     for (const quest::QuestStatus& q : running) {
       if (q.handle != m.quest) continue;
       for (const quest::ObjectiveStatus& o : q.objectives)
@@ -2439,70 +2466,67 @@ void Engine::UpdateFollowers(f32 dt) {
   }
 }
 
-void Engine::SetupMq101Demo() {
+void Engine::Mq101DemoTick(f32 dt) {
   if (!mq101_demo_pending_ || player_actor_ < 0 || !scripts_ || !script_bindings_) return;
-  u64 mq = 0;
-  for (const auto& [h, n] : quest_records_)
-    if (n == "MQ101") {
-      mq = h;
-      break;
+
+  // A live (unfired) demo waypoint means the player is still walking to it.
+  // Reaching it fires the trigger normally; if the player gets stuck on terrain
+  // or the quest's own fragment teleported them away, advance on a grace timeout
+  // so the guided demo still completes.
+  for (QuestMarker& m : quest_markers_)
+    if (m.quest == mq101_demo_quest_ && !m.fired) {
+      mq101_demo_wait_ += dt;
+      if (mq101_demo_wait_ > 12.0f) {
+        m.fired = true;
+        const u64 quest = mq101_demo_quest_;
+        const i32 stage = m.advance_stage;
+        auto* binds = script_bindings_.get();
+        scripts_->guest().Submit([binds, quest, stage](script::papyrus::VirtualMachine&) {
+          binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
+        });
+        REC_INFO("demo: MQ101 waypoint timed out, advancing to stage {}", stage);
+        mq101_demo_wait_ = 0.0f;
+      }
+      return;
     }
-  if (mq == 0) {
-    mq101_demo_pending_ = false;
+
+  mq101_demo_wait_ = 0.0f;
+  if (mq101_demo_next_ >= mq101_demo_stages_.size()) {
+    mq101_demo_pending_ = false;  // the last waypoint advanced the quest to completion
+    REC_INFO("demo: MQ101 breadcrumb finished, quest driven to its completion stage");
     return;
   }
 
-  // The opening fragment runs asynchronously on the guest; wait until MQ101 is
-  // running and has surfaced an objective before seeding, so the marker has one
-  // to arm against.
-  auto* binds = script_bindings_.get();
-  struct Seed {
-    bool running = false;
-    i32 objective = -1;
-    i32 complete_stage = -1;
-  };
-  const Seed seed = scripts_->guest()
-                        .SubmitFor([binds, mq](rec::script::papyrus::VirtualMachine&) {
-                          const quest::QuestSystem& qs = binds->quest_system();
-                          Seed s;
-                          s.running = qs.IsRunning(mq);
-                          if (const quest::QuestDef* def = qs.Definition(mq))
-                            s.complete_stage = def->CompletionStage();
-                          for (const quest::ObjectiveStatus& o : qs.Status(mq).objectives)
-                            if (o.displayed && !o.completed) {
-                              s.objective = o.index;
-                              break;
-                            }
-                          return s;
-                        })
-                        .get();
-  if (!seed.running || seed.objective < 0) return;  // retry next frame
+  const i32 advance_to = mq101_demo_stages_[mq101_demo_next_];
+  const bool first = mq101_demo_next_ == 1;
+  ++mq101_demo_next_;
 
+  // Drop the next waypoint a few meters ahead along the player's facing.
   Vec3 ppos{};
   if (const world::Transform* t = world_.Get<world::Transform>(actors_[player_actor_].entity))
     ppos = Vec3{t->position[0], t->position[1], t->position[2]};
   const Vec3 fwd{std::sin(cam_yaw_), 0.0f, -std::cos(cam_yaw_)};
   QuestMarker m;
-  m.quest = mq;
-  m.objective = seed.objective;
-  m.advance_stage = seed.complete_stage >= 0 ? seed.complete_stage : 900;
+  m.quest = mq101_demo_quest_;
+  m.advance_stage = advance_to;
+  m.always_arm = true;  // the demo owns its waypoints, independent of journal timing
   m.pos = ppos + fwd * 6.0f;
   quest_markers_.push_back(m);
 
-  // Recruit a few nearby NPCs as followers so the player has company on the way.
+  // Recruit a few nearby NPCs as companions when the walk begins.
   int recruited = 0;
-  world_.Each<world::Npc, world::FormLink, world::Transform>(
-      [&](ecs::Entity, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (recruited >= 3) return;
-        const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
-        if (dx * dx + dz * dz > 15.0f * 15.0f) return;
-        SetFollower(link.form.packed(), true);
-        ++recruited;
-      });
+  if (first)
+    world_.Each<world::Npc, world::FormLink, world::Transform>(
+        [&](ecs::Entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+          if (recruited >= 3) return;
+          const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
+          if (dx * dx + dz * dz > 15.0f * 15.0f) return;
+          SetFollower(link.form.packed(), true);
+          ++recruited;
+        });
 
-  mq101_demo_pending_ = false;
-  REC_INFO("demo: MQ101 marker at objective {} -> stage {}, {} follower(s) recruited", seed.objective,
-           m.advance_stage, recruited);
+  REC_INFO("demo: MQ101 waypoint dropped -> reaching it advances to stage {}{}", advance_to,
+           first ? Fmt(", %d companion(s) recruited", recruited) : std::string());
 }
 
 void Engine::RefreshNativeTrace(f32 dt) {
@@ -2840,7 +2864,7 @@ bool Engine::RunFrame() {
     // Steer follower NPCs toward the player (host authoritative; streams to
     // clients via actor sync, like any other NPC movement).
     UpdateFollowers(static_cast<f32>(timer_.frame_delta()));
-    if (mq101_demo_pending_) SetupMq101Demo();
+    Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());
