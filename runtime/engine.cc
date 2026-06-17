@@ -1321,7 +1321,9 @@ bool Engine::SpawnPlayerActor(const Vec3& pos) {
 
 void Engine::MaybeSpawnWorldPlayer(const Vec3& ground_pos) {
   if (config_.headless) return;
-  if (!std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO")) return;
+  if (!std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO") &&
+      !std::getenv("REC_MQ101_SCENE"))
+    return;
   // Lift the spawn slightly so the capsule settles onto the floor instead of
   // starting embedded in the collision.
   if (!SpawnPlayerActor({ground_pos.x, ground_pos.y + 0.2f, ground_pos.z})) return;
@@ -1765,6 +1767,13 @@ void Engine::AttachQuestScripts() {
       break;
     }
     REC_INFO("debug: MQ101 breadcrumb demo armed (walk the waypoints to complete the quest)");
+  }
+
+  // REC_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
+  // a guide NPC leads the player along a path while MQ101 advances to completion.
+  if (std::getenv("REC_MQ101_SCENE")) {
+    mq101_scene_pending_ = true;
+    REC_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
   }
 
   // REC_QUEST_REPORT=<EDID> drives a quest through its stages to its completion
@@ -2459,6 +2468,40 @@ void Engine::AvoidObstacles(const float self_pos[3], const float goal_dir[3], fl
   world::SteerAroundObstacles(goal_dir, candidates, clearances, kFan, 1.5f, out_dir);
 }
 
+bool Engine::StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3], float rot[4],
+                             float speed, float arrive_radius, float stop_radius, f32 dt) {
+  const world::SteerParams params{speed, arrive_radius, stop_radius};
+  const float self_pos[3] = {pos[0], pos[1], pos[2]};
+  const world::SteerOutput out = world::SteerToward(self_pos, goal, params);
+  float move_yaw = out.yaw;
+  if (!out.arrived) {
+    // Deflect the straight-line steer around nearby obstacles, then move along
+    // the chosen direction at the arrival-adjusted speed.
+    const float spd = __builtin_sqrtf(out.velocity[0] * out.velocity[0] +
+                                       out.velocity[2] * out.velocity[2]);
+    const float gx = goal[0] - self_pos[0], gz = goal[2] - self_pos[2];
+    const float gl = __builtin_sqrtf(gx * gx + gz * gz);
+    const float goal_dir[3] = {gl > 1e-4f ? gx / gl : 0.0f, 0.0f, gl > 1e-4f ? gz / gl : 0.0f};
+    float steer_dir[3];
+    AvoidObstacles(self_pos, goal_dir, steer_dir);
+    pos[0] += steer_dir[0] * spd * dt;
+    pos[2] += steer_dir[2] * spd * dt;
+    move_yaw = std::atan2(steer_dir[0], steer_dir[2]);
+    const float h = move_yaw * 0.5f;
+    rot[0] = 0;
+    rot[1] = std::sin(h);
+    rot[2] = 0;
+    rot[3] = std::cos(h);
+  }
+  // Drive the render actor's gait, if this NPC has a streamed-in instance.
+  const u64 key = static_cast<u64>(actor.generation) << 32 | actor.index;
+  if (Actor* a = npc_actors_.find(key)) {
+    a->speed = out.arrived ? 0.0f : speed;
+    if (!out.arrived) a->yaw = move_yaw;
+  }
+  return !out.arrived;
+}
+
 void Engine::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
   if (followers_.empty() || player_actor_ < 0 || client_session_) return;
@@ -2507,35 +2550,21 @@ void Engine::UpdateFollowers(f32 dt) {
     goal[2] += sep[2] * 0.6f;
 
     world::Transform* t = followers[i].transform;
-    const float self_pos[3] = {t->position[0], t->position[1], t->position[2]};
-    const world::SteerOutput out = world::SteerToward(self_pos, goal, params);
-    float move_yaw = out.yaw;
-    if (!out.arrived) {
-      // Deflect the straight-line steer around nearby obstacles, then move along
-      // the chosen direction at the arrival-adjusted speed.
-      const float speed = __builtin_sqrtf(out.velocity[0] * out.velocity[0] +
-                                          out.velocity[2] * out.velocity[2]);
-      const float gx = goal[0] - self_pos[0], gz = goal[2] - self_pos[2];
-      const float gl = __builtin_sqrtf(gx * gx + gz * gz);
-      const float goal_dir[3] = {gl > 1e-4f ? gx / gl : 0.0f, 0.0f, gl > 1e-4f ? gz / gl : 0.0f};
-      float steer_dir[3];
-      AvoidObstacles(self_pos, goal_dir, steer_dir);
-      t->position[0] += steer_dir[0] * speed * dt;
-      t->position[2] += steer_dir[2] * speed * dt;
-      move_yaw = std::atan2(steer_dir[0], steer_dir[2]);
-      const float h = move_yaw * 0.5f;
-      t->rotation[0] = 0;
-      t->rotation[1] = std::sin(h);
-      t->rotation[2] = 0;
-      t->rotation[3] = std::cos(h);
-    }
-    // Drive the render actor's gait, if this NPC has a streamed-in instance.
-    const u64 key = static_cast<u64>(followers[i].entity.generation) << 32 | followers[i].entity.index;
-    if (Actor* a = npc_actors_.find(key)) {
-      a->speed = out.arrived ? 0.0f : params.speed;
-      if (!out.arrived) a->yaw = move_yaw;
-    }
+    StepNpcSteering(followers[i].entity, goal, t->position, t->rotation, params.speed,
+                    params.arrive_radius, params.stop_radius, dt);
   }
+}
+
+void Engine::UpdateGuides(f32 dt) {
+  // Host authoritative: a client receives guide motion via actor sync.
+  if (guides_.empty() || client_session_) return;
+  world_.Each<world::Npc, world::FormLink, world::Transform>(
+      [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+        const Vec3* target = guides_.find(link.form.packed());
+        if (!target) return;
+        const float goal[3] = {target->x, target->y, target->z};
+        StepNpcSteering(e, goal, t.position, t.rotation, 2.8f, 2.0f, 1.0f, dt);
+      });
 }
 
 void Engine::Mq101DemoTick(f32 dt) {
@@ -2611,6 +2640,144 @@ void Engine::Mq101DemoTick(f32 dt) {
 
   REC_INFO("demo: MQ101 waypoint dropped -> reaching it advances to stage {}{}", advance_to,
            first ? Fmt(", %d companion(s) recruited", recruited) : std::string());
+}
+
+void Engine::Mq101Sink::GuideTo(u64 actor, const float pos[3]) {
+  const Vec3 target{pos[0], pos[1], pos[2]};
+  if (Vec3* g = e->guides_.find(actor))
+    *g = target;
+  else
+    e->guides_.insert(actor, target);
+}
+
+void Engine::Mq101Sink::SayInfo(u64 /*actor*/, u64 info) { e->RunInfoFragment(info); }
+
+void Engine::Mq101Sink::SetStage(u64 quest, i32 stage) {
+  if (!e->scripts_ || !e->script_bindings_) return;
+  auto* binds = e->script_bindings_.get();
+  e->scripts_->guest().Submit([binds, quest, stage](script::papyrus::VirtualMachine&) {
+    binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
+  });
+}
+
+bool Engine::Mq101Sink::ActorAt(u64 actor, const float pos[3], float radius) {
+  bool found = false, reached = false;
+  e->world_.Each<world::FormLink, world::Transform>(
+      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+        if (link.form.packed() != actor) return;
+        found = true;
+        const float dx = t.position[0] - pos[0], dz = t.position[2] - pos[2];
+        reached = dx * dx + dz * dz <= radius * radius;
+      });
+  return !found || reached;  // a streamed-out actor must not stall the scene
+}
+
+bool Engine::Mq101Sink::PlayerNear(const float pos[3], float radius) {
+  if (e->player_actor_ < 0) return true;
+  const world::Transform* t = e->world_.Get<world::Transform>(e->actors_[e->player_actor_].entity);
+  if (!t) return true;
+  const float dx = t->position[0] - pos[0], dz = t->position[2] - pos[2];
+  return dx * dx + dz * dz <= radius * radius;
+}
+
+bool Engine::StartMq101Scene() {
+  if (player_actor_ < 0 || !scripts_ || !script_bindings_) return false;
+  u64 mq = 0;
+  for (const auto& [h, n] : quest_records_)
+    if (n == "MQ101") {
+      mq = h;
+      break;
+    }
+  if (mq == 0) return false;
+
+  Vec3 ppos{};
+  if (const world::Transform* t = world_.Get<world::Transform>(actors_[player_actor_].entity))
+    ppos = Vec3{t->position[0], t->position[1], t->position[2]};
+  // Pick the nearest NPC as the guide who leads the escort.
+  u64 guide = 0;
+  float best = 1e18f;
+  world_.Each<world::Npc, world::FormLink, world::Transform>(
+      [&](ecs::Entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+        const float dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
+        const float d = dx * dx + dz * dz;
+        if (d < best) {
+          best = d;
+          guide = link.form.packed();
+        }
+      });
+  if (guide == 0) return false;  // NPCs not streamed in yet, retry
+
+  // The guide walks a path ahead of the player; each leg advances the journal.
+  const Vec3 fwd{std::sin(cam_yaw_), 0.0f, -std::cos(cam_yaw_)};
+  mq101_scene_.actions.clear();
+  auto add_set_stage = [&](i32 s) {
+    quest::SceneAction a;
+    a.kind = quest::SceneAction::Kind::kSetStage;
+    a.quest = mq;
+    a.stage = s;
+    mq101_scene_.actions.push_back(a);
+  };
+  auto add_guide_to = [&](const Vec3& p) {
+    quest::SceneAction a;
+    a.kind = quest::SceneAction::Kind::kGuideTo;
+    a.actor = guide;
+    a.pos[0] = p.x;
+    a.pos[1] = p.y;
+    a.pos[2] = p.z;
+    a.radius = 2.5f;
+    mq101_scene_.actions.push_back(a);
+  };
+  add_set_stage(160);
+  const i32 stages[3] = {300, 500, 900};
+  for (int i = 0; i < 3; ++i) {
+    add_guide_to(ppos + fwd * (8.0f * static_cast<f32>(i + 1)));
+    add_set_stage(stages[i]);
+  }
+  scene_sink_.e = this;
+  scene_runner_.Reset(&mq101_scene_);
+  mq101_scene_active_ = true;
+  mq101_scene_stuck_ticks_ = 0;
+  REC_INFO("scene: MQ101 escort armed, guide 0x{:x} leads the player to completion", guide);
+  return true;
+}
+
+void Engine::Mq101SceneTick(f32 dt) {
+  if (mq101_scene_pending_) {
+    if (StartMq101Scene()) mq101_scene_pending_ = false;
+    return;
+  }
+  if (!mq101_scene_active_) return;
+
+  const size_t before = scene_runner_.current_action();
+  const bool running = scene_runner_.Tick(scene_sink_, dt);
+  // Stall recovery: a guide has no global pathfinding, so a leg can wedge on
+  // geometry. If a beat makes no progress for a while, warp the guide to its
+  // mark so the escort always finishes (it reads as the guide catching up).
+  // kGuideTo legs run the steering for ~kWalkTicks before giving up (kept short
+  // because these streamed cells run at a low, variable frame rate).
+  constexpr i32 kWalkTicks = 90;
+  if (scene_runner_.current_action() != before) {
+    mq101_scene_stuck_ticks_ = 0;
+  } else if (++mq101_scene_stuck_ticks_ > kWalkTicks && before < mq101_scene_.actions.size()) {
+    const quest::SceneAction& a = mq101_scene_.actions[before];
+    if (a.kind == quest::SceneAction::Kind::kGuideTo) {
+      const float wx = a.pos[0], wy = a.pos[1], wz = a.pos[2];
+      world_.Each<world::FormLink, world::Transform>(
+          [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+            if (link.form.packed() != a.actor) return;
+            t.position[0] = wx;
+            t.position[1] = wy;
+            t.position[2] = wz;
+          });
+      REC_INFO("scene: guide reached the next mark");
+    }
+    mq101_scene_stuck_ticks_ = 0;
+  }
+  if (!running) {
+    mq101_scene_active_ = false;
+    guides_.clear();
+    REC_INFO("scene: MQ101 escort complete, quest driven to its completion stage");
+  }
 }
 
 void Engine::RefreshNativeTrace(f32 dt) {
@@ -2945,10 +3112,12 @@ bool Engine::RunFrame() {
     // Authoritative NPC simulation runs on the host / single-player only; a
     // client receives the results via actor sync instead of simulating.
     if (!client_session_) ServerSimulateActors(static_cast<f32>(timer_.frame_delta()));
-    // Steer follower NPCs toward the player (host authoritative; streams to
-    // clients via actor sync, like any other NPC movement).
+    // Steer follower NPCs toward the player and scene guides toward their
+    // targets (host authoritative; streams to clients via actor sync).
     UpdateFollowers(static_cast<f32>(timer_.frame_delta()));
+    UpdateGuides(static_cast<f32>(timer_.frame_delta()));
     Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
+    Mq101SceneTick(static_cast<f32>(timer_.frame_delta()));
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());

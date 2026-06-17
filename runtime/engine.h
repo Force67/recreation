@@ -35,6 +35,7 @@
 #endif
 #include "physics/physics_world.h"
 #include "quest/quest_system.h"
+#include "quest/scene.h"
 #include "render/presets.h"
 #include "render/renderer.h"
 #include "script/games/skyrim/skyrim_bindings.h"
@@ -229,6 +230,18 @@ class Engine {
     bool always_arm = false;  // armed regardless of which objective is current
   };
 
+  // SceneSink over the running engine: a scene guides NPCs (steered targets),
+  // runs INFO fragments, advances quest stages, and answers proximity queries.
+  // Nested so it can reach the engine's private steering/quest state via `e`.
+  struct Mq101Sink : public quest::SceneSink {
+    Engine* e = nullptr;
+    void GuideTo(u64 actor, const float pos[3]) override;
+    void SayInfo(u64 actor, u64 info) override;
+    void SetStage(u64 quest, i32 stage) override;
+    bool ActorAt(u64 actor, const float pos[3], float radius) override;
+    bool PlayerNear(const float pos[3], float radius) override;
+  };
+
   bool LoadGameData();
   bool LoadInterior();
   void MountArchives();
@@ -262,6 +275,14 @@ class Engine {
   // returns the clearest still-goal-ish one in `out_dir`. Falls back to
   // `goal_dir` when physics is unavailable.
   void AvoidObstacles(const float self_pos[3], const float goal_dir[3], float out_dir[3]);
+  // Steers one NPC (the actor entity) at `pos`/`rot` (updated in place) toward
+  // `goal` with arrival + obstacle avoidance, and drives its render gait.
+  // Returns true while still moving. Shared by followers and scene guides.
+  bool StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3], float rot[4],
+                       float speed, float arrive_radius, float stop_radius, f32 dt);
+  // Steers every scene guide NPC toward its assigned target (host authoritative;
+  // streams to clients via actor sync). A no-op with no guides.
+  void UpdateGuides(f32 dt);
   // REC_MQ101_DEMO breadcrumb: once the player exists, walks MQ101 through a
   // curated sequence of gameplay stages. Each frame, if no waypoint is pending,
   // it drops the next one ahead of the player (and recruits nearby NPCs as
@@ -270,6 +291,12 @@ class Engine {
   // advances anyway if a waypoint is not reached (stuck terrain / quest teleport),
   // so the guided demo always finishes.
   void Mq101DemoTick(f32 dt);
+  // REC_MQ101_SCENE: an NPC-driven escort scene. A guide NPC leads the player
+  // along a path while the quest advances stage by stage; the player follows.
+  // StartMq101Scene authors and arms it once the player and NPCs exist (returns
+  // false to retry); Mq101SceneTick starts it when pending then runs it.
+  bool StartMq101Scene();
+  void Mq101SceneTick(f32 dt);
   // REC_QUEST_REPORT debug aid: drives the named quest through its stages to
   // completion on the guest thread and prints the journey to stdout.
   void ReportQuestToCompletion(const std::string& edid);
@@ -492,6 +519,8 @@ class Engine {
   Vec3 remote_marker_pos_{};
   // NPCs steered to follow the player, keyed by form handle -> formation slot.
   base::UnorderedMap<u64, i32> followers_;
+  // Scene guide NPCs steered toward a fixed world target, keyed by form handle.
+  base::UnorderedMap<u64, Vec3> guides_;
   // REC_MQ101_DEMO breadcrumb state: the quest, the ordered gameplay stages to
   // walk it through, and the index of the next waypoint. Active while pending.
   bool mq101_demo_pending_ = false;
@@ -499,6 +528,14 @@ class Engine {
   base::Vector<i32> mq101_demo_stages_;
   size_t mq101_demo_next_ = 0;
   f32 mq101_demo_wait_ = 0;  // seconds the current waypoint has gone unreached
+  // REC_MQ101_SCENE escort: the authored scene, its runner, the engine sink, and
+  // the pending/active flags.
+  quest::Scene mq101_scene_;
+  quest::SceneRunner scene_runner_;
+  Mq101Sink scene_sink_;
+  bool mq101_scene_pending_ = false;
+  bool mq101_scene_active_ = false;
+  i32 mq101_scene_stuck_ticks_ = 0;  // ticks the current beat has not progressed
   // Activation: the form the player is looking at in walk mode (0 = none) and
   // the cached HUD label, recomputed only when the target changes.
   u64 activate_target_ = 0;
