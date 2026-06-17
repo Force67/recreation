@@ -158,12 +158,55 @@ void TestInfoConditions() {
   Check("no conditions -> available", dialogue::ResponseAvailable(r2, ctx));
 }
 
+quest::ConditionList StageCond(quest::CompareOp op, f32 value) {
+  quest::ConditionList c;
+  quest::Comparison cmp;
+  cmp.func = quest::Func::kGetStage;
+  cmp.op = op;
+  cmp.value = value;
+  c.comparisons.push_back(cmp);
+  return c;
+}
+
+void TestAvailableResponses() {
+  std::puts("available responses:");
+  StageContext ctx;
+  ctx.stage = 30.0f;
+
+  dialogue::Topic t1;
+  dialogue::Response r;
+  r.player_line = "always";
+  t1.responses.push_back(r);  // no conditions -> always available
+  r = dialogue::Response{};
+  r.player_line = "ge20";
+  r.conditions = StageCond(quest::CompareOp::kGreaterOrEqual, 20.0f);  // 30>=20 ok
+  t1.responses.push_back(r);
+  r = dialogue::Response{};
+  r.player_line = "ge40";
+  r.conditions = StageCond(quest::CompareOp::kGreaterOrEqual, 40.0f);  // 30>=40 no
+  t1.responses.push_back(r);
+
+  dialogue::Topic t2;
+  r = dialogue::Response{};
+  r.player_line = "lt100";
+  r.conditions = StageCond(quest::CompareOp::kLess, 100.0f);  // 30<100 ok
+  t2.responses.push_back(r);
+
+  std::vector<dialogue::Topic> topics{t1, t2};
+  std::vector<dialogue::Response> avail = dialogue::AvailableResponses(topics, ctx);
+  Check("3 of 4 responses available", avail.size() == 3);
+  Check("flattened in topic then response order",
+        avail.size() == 3 && avail[0].player_line == "always" && avail[1].player_line == "ge20" &&
+            avail[2].player_line == "lt100");
+}
+
 }  // namespace
 
 int main() {
   TestInfoFragments();
   TestInfoRecord();
   TestInfoConditions();
+  TestAvailableResponses();
   if (g_failures == 0) {
     std::puts("dialogue: all checks passed");
     return 0;

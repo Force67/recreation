@@ -59,6 +59,15 @@ bool ResponseAvailable(const Response& response, const quest::ConditionContext& 
   return quest::Evaluate(response.conditions, ctx);
 }
 
+std::vector<Response> AvailableResponses(const std::vector<Topic>& topics,
+                                         const quest::ConditionContext& ctx) {
+  std::vector<Response> out;
+  for (const Topic& topic : topics)
+    for (const Response& response : topic.responses)
+      if (ResponseAvailable(response, ctx)) out.push_back(response);
+  return out;
+}
+
 Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId dial,
                  const bethesda::StringTable* strings) {
   Topic out;

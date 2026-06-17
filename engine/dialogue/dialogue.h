@@ -60,6 +60,11 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
 // its parsed conditions pass. A response with no conditions is always available.
 bool ResponseAvailable(const Response& response, const quest::ConditionContext& ctx);
 
+// Flattens the responses of `topics` to those currently available under `ctx`,
+// in topic then response order -- the player's dialogue menu for an NPC.
+std::vector<Response> AvailableResponses(const std::vector<Topic>& topics,
+                                         const quest::ConditionContext& ctx);
+
 // A startup index from quest handle to the DIAL topics bound to it (by QNAM),
 // so opening dialogue for a quest does not rescan every topic.
 class DialogueDb {
