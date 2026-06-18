@@ -81,6 +81,7 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
   constexpr u32 kAlst = FourCc('A', 'L', 'S', 'T');  // reference alias id
   constexpr u32 kAlls = FourCc('A', 'L', 'L', 'S');  // location alias id
   constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // forced reference form id
+  constexpr u32 kAlua = FourCc('A', 'L', 'U', 'A');  // unique-actor NPC_ base
   constexpr u32 kAled = FourCc('A', 'L', 'E', 'D');  // alias block end
 
   QuestDef def;
@@ -154,6 +155,10 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kAlfr:
         if (in_alias && !def.aliases.empty())
           def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
+        break;
+      case kAlua:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().unique_actor_raw = ReadLe<u32>(sub);
         break;
       case kAled:
         in_alias = false;

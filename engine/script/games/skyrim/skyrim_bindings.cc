@@ -104,15 +104,26 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
   const quest::QuestDef* def = quest_system_.Definition(quest);
   if (!def) return {};
   const quest::AliasDef* a = def->FindAlias(alias_id);
-  if (!a || a->forced_ref_raw == 0) return {};
-  // The forced reference's raw id resolves against the quest record's plugin.
+  if (!a) return {};
+  // Alias form ids resolve against the quest record's plugin.
   const bethesda::GlobalFormId quest_id{static_cast<u16>(quest >> 32),
                                         static_cast<u32>(quest & 0xffffffffu)};
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(quest_id);
   const u16 plugin = stored ? stored->winning_plugin : static_cast<u16>(quest >> 32);
-  const bethesda::GlobalFormId ref =
-      records_->ResolveFrom(bethesda::RawFormId{a->forced_ref_raw}, plugin);
-  if (!records_->Find(ref)) return {};
+
+  bethesda::GlobalFormId ref;
+  if (a->forced_ref_raw != 0) {
+    // A forced reference (ALFR) names the placed ref directly.
+    ref = records_->ResolveFrom(bethesda::RawFormId{a->forced_ref_raw}, plugin);
+  } else if (a->unique_actor_raw != 0) {
+    // A unique-actor alias (ALUA) is filled with that NPC's placed ACHR.
+    const bethesda::GlobalFormId base =
+        records_->ResolveFrom(bethesda::RawFormId{a->unique_actor_raw}, plugin);
+    ref = records_->PlacedRefForBase(base);
+  } else {
+    return {};
+  }
+  if (ref.plugin == 0xffff || !records_->Find(ref)) return {};
   return papyrus::ObjectRef{ref.packed()};
 }
 

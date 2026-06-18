@@ -30,13 +30,14 @@ struct ObjectiveDef {
   std::vector<i32> target_aliases;  // QSTA alias ids (compass targets)
 };
 
-// One quest alias (ALST/ALLS block). Only the forced-reference form id (ALFR)
-// is kept: it is the one alias kind that resolves to a fixed world position
-// without runtime fill logic, which is enough to point the objective compass.
-// `forced_ref_raw` is plugin-relative; resolve it against the quest's plugin.
+// One quest alias (ALST/ALLS block). Holds the two fill rules that resolve to a
+// concrete reference without runtime conditions: a forced reference (ALFR) and a
+// unique-actor base (ALUA, whose single placed ACHR fills the alias). Both raw
+// form ids are plugin-relative; resolve them against the quest's plugin.
 struct AliasDef {
-  i32 id = 0;               // ALST/ALLS alias id, matches an objective's QSTA
-  u32 forced_ref_raw = 0;   // ALFR forced reference, 0 when the alias has none
+  i32 id = 0;                  // ALST/ALLS alias id, matches an objective's QSTA
+  u32 forced_ref_raw = 0;      // ALFR forced reference, 0 when none
+  u32 unique_actor_raw = 0;    // ALUA unique-actor NPC_ base, 0 when none
 };
 
 // The static, display-facing shape of a quest, parsed once from its QUST

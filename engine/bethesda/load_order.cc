@@ -238,6 +238,27 @@ GlobalFormId RecordStore::InteriorCellOfRef(GlobalFormId ref) const {
   return {};
 }
 
+GlobalFormId RecordStore::PlacedRefForBase(GlobalFormId base) const {
+  if (!base_to_achr_built_) {
+    base_to_achr_built_ = true;
+    constexpr u32 kAchr = FourCc('A', 'C', 'H', 'R');
+    constexpr u32 kName = FourCc('N', 'A', 'M', 'E');
+    EachOfType(kAchr, [&](GlobalFormId id, const StoredRecord& stored) {
+      Record record;
+      if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
+      const Subrecord* name = record.Find(kName);
+      if (!name || name->data.size() < 4) return;
+      u32 raw;
+      std::memcpy(&raw, name->data.data(), 4);
+      const u64 key = ResolveFrom(RawFormId{raw}, stored.winning_plugin).packed();
+      if (!base_to_achr_.find(key)) base_to_achr_[key] = id.packed();  // first placement wins
+    });
+  }
+  if (const u64* ref = base_to_achr_.find(base.packed()))
+    return GlobalFormId{static_cast<u16>(*ref >> 32), static_cast<u32>(*ref)};
+  return {};
+}
+
 const base::Vector<u64>* RecordStore::TopicInfos(GlobalFormId dial) const {
   return topic_infos_.find(dial.packed());
 }

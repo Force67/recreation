@@ -98,6 +98,12 @@ class RecordStore {
   // door). Lets a load door discover the interior to stream on entry.
   GlobalFormId InteriorCellOfRef(GlobalFormId ref) const;
 
+  // The placed actor reference (ACHR) a base NPC_ form is placed as, or invalid
+  // when none. Built lazily on first call by scanning every ACHR (a one-time
+  // cost), so a unique-actor quest alias can resolve its reference. First
+  // placement wins.
+  GlobalFormId PlacedRefForBase(GlobalFormId base) const;
+
   // The INFO response records under a DIAL topic, in file order (the order the
   // engine evaluates them). Null when the topic has no children.
   const base::Vector<u64>* TopicInfos(GlobalFormId dial) const;
@@ -117,6 +123,9 @@ class RecordStore {
   base::UnorderedMap<u64, CellGridSlot> cell_grid_;      // CELL id -> grid slot
   base::UnorderedMap<u64, base::Vector<u64>> interior_;  // CELL id -> refs
   base::UnorderedMap<u64, u64> ref_interior_cell_;       // interior REFR id -> CELL id
+  // base NPC_ id -> placed ACHR ref id, lazily built (see PlacedRefForBase).
+  mutable base::UnorderedMap<u64, u64> base_to_achr_;
+  mutable bool base_to_achr_built_ = false;
   base::UnorderedMap<u64, base::Vector<u64>> topic_infos_;  // DIAL id -> INFO ids
 };
 
