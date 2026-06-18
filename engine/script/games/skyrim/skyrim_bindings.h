@@ -72,6 +72,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetPlayer() override { return player_; }
   papyrus::ObjectRef GetForm(u32 form_id) override;
 
+  // The reference an alias handle is filled with (its quest's forced-reference
+  // alias, ALFR), or None. Backs ReferenceAlias.GetReference/GetActorRef so a
+  // quest fragment's alias properties resolve to real refs. See alias_handle.h.
+  papyrus::ObjectRef AliasReference(papyrus::ObjectRef alias) override;
+
   // Form data, from records.
   u32 GetFormId(papyrus::ObjectRef form) override;
   i32 GetFormType(papyrus::ObjectRef form) override;

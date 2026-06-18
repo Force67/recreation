@@ -45,6 +45,8 @@ class SkyrimBindings {
   virtual void MoveTo(papyrus::ObjectRef ref, papyrus::ObjectRef target) {}
   virtual void SetEnabled(papyrus::ObjectRef ref, bool enabled) {}
   virtual papyrus::ObjectRef GetBaseObject(papyrus::ObjectRef ref) { return {}; }
+  // The reference a quest alias is filled with (ReferenceAlias.GetReference).
+  virtual papyrus::ObjectRef AliasReference(papyrus::ObjectRef alias) { return {}; }
 
   // Cell data (CELL record).
   virtual bool IsInterior(papyrus::ObjectRef cell) { return false; }

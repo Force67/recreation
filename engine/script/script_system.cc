@@ -1,6 +1,7 @@
 #include "script/script_system.h"
 
 #include "core/log.h"
+#include "script/papyrus/alias_handle.h"
 #include "script/papyrus/vm.h"
 
 namespace rec::script {
@@ -53,9 +54,15 @@ namespace {
 // values are keyed by form id, the engine's object identity.
 void SeedProperty(VirtualMachine& vm, ObjectRef inst, const bethesda::ScriptProperty& p) {
   switch (p.type) {
-    case 1:
-      vm.SetProperty(inst, p.name, Value::Object(ObjectRef{p.object_value.form_id}));
+    case 1: {
+      // A quest alias property (alias_id set) becomes an alias handle the VM can
+      // call ReferenceAlias methods on; a plain object property is its form id.
+      const u64 handle = p.object_value.alias_id != 0xffff
+                             ? papyrus::EncodeAliasHandle(inst.handle, p.object_value.alias_id)
+                             : p.object_value.form_id;
+      vm.SetProperty(inst, p.name, Value::Object(ObjectRef{handle}));
       break;
+    }
     case 2:
       vm.SetProperty(inst, p.name, Value::Str(p.string_value));
       break;

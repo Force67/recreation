@@ -8,7 +8,9 @@
 
 #include "bethesda/record.h"
 #include "core/log.h"
+#include "quest/quest_def.h"
 #include "quest/quest_import.h"
+#include "script/papyrus/alias_handle.h"
 #include "script/papyrus/vm.h"
 
 namespace rec::script::skyrim {
@@ -93,6 +95,25 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetForm(u32 form_id) {
   bethesda::GlobalFormId id{static_cast<u16>((form_id >> 24) & 0xFF), form_id & 0x00FFFFFFu};
   if (!records_->Find(id)) return {};
   return papyrus::ObjectRef{id.packed()};
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
+  if (!records_ || !papyrus::IsAliasHandle(alias.handle)) return {};
+  const u64 quest = papyrus::AliasHandleQuest(alias.handle);
+  const i32 alias_id = static_cast<i32>(papyrus::AliasHandleAliasId(alias.handle));
+  const quest::QuestDef* def = quest_system_.Definition(quest);
+  if (!def) return {};
+  const quest::AliasDef* a = def->FindAlias(alias_id);
+  if (!a || a->forced_ref_raw == 0) return {};
+  // The forced reference's raw id resolves against the quest record's plugin.
+  const bethesda::GlobalFormId quest_id{static_cast<u16>(quest >> 32),
+                                        static_cast<u32>(quest & 0xffffffffu)};
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(quest_id);
+  const u16 plugin = stored ? stored->winning_plugin : static_cast<u16>(quest >> 32);
+  const bethesda::GlobalFormId ref =
+      records_->ResolveFrom(bethesda::RawFormId{a->forced_ref_raw}, plugin);
+  if (!records_->Find(ref)) return {};
+  return papyrus::ObjectRef{ref.packed()};
 }
 
 i32 RecordBackedSkyrimBindings::GetFormType(ObjectRef form) {

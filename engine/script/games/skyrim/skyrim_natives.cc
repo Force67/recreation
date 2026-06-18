@@ -289,6 +289,16 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   });
   reg.Register("ObjectReference", "Is3DLoaded",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); });
+  // A quest alias resolves to its filled reference. ReferenceAlias.GetReference
+  // is the native; GetActorReference/GetActorRef/GetRef are wrappers in script
+  // but are bound here too so a bare alias handle (no script instance) resolves.
+  auto alias_ref = [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).AliasReference(self));
+  };
+  reg.Register("ReferenceAlias", "GetReference", alias_ref);
+  reg.Register("ReferenceAlias", "GetActorReference", alias_ref);
+  reg.Register("ReferenceAlias", "GetActorRef", alias_ref);
+  reg.Register("ReferenceAlias", "GetRef", alias_ref);
   // Lock(abLock=true,...): Lock(false) is the in-game way to unlock.
   reg.Register("ObjectReference", "Lock", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetLocked(self, ArgB(a, 0, true));
