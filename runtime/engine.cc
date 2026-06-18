@@ -130,7 +130,15 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
 
   scheduler_.AddSystem(ecs::Stage::kPostSim, "cell_streaming", [this](ecs::World& world, f32) {
     if (!streamer_) return;
-    streamer_->Update(world, camera_.position());
+    // In walk mode the streamer follows the player, not the fly camera (which is
+    // frozen while walking): this keeps cells loaded as the player walks far and,
+    // crucially, as quest fragments and load doors teleport them across the
+    // worldspace, instead of leaving them stranded in unstreamed space.
+    Vec3 anchor = camera_.position();
+    if (walk_mode_ && player_actor_ >= 0)
+      if (const world::Transform* t = world.Get<world::Transform>(actors_[player_actor_].entity))
+        anchor = Vec3{t->position[0], t->position[1], t->position[2]};
+    streamer_->Update(world, anchor);
   });
 
   return true;
