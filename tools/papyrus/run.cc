@@ -336,6 +336,31 @@ int SelfTest() {
     check("AddItem fires OnItemAdded (count delivered)", got_m && got_m->ToInt() == 5);
   }
 
+  // Bare-ref native dispatch: a method call on a ref with no script instance
+  // (most refs, and quest aliases) still reaches an engine native registered on
+  // a base type, instead of silently returning None. None (handle 0) does not.
+  {
+    NativeRegistry bare_natives;
+    bare_natives.Register("ObjectReference", "Is3DLoaded",
+                          [](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+                            return Value::Bool(true);
+                          });
+    bare_natives.Register("ReferenceAlias", "GetReference",
+                          [](VirtualMachine&, ObjectRef self, std::vector<Value>&) {
+                            return Value::Object(ObjectRef{self.handle + 1});
+                          });
+    VirtualMachine bare_vm(&bare_natives);
+    const ObjectRef bare{0x1234};
+    check("bare ref dispatches an ObjectReference native",
+          bare_vm.Call(bare, "Is3DLoaded", {}).ToBool());
+    check("bare ref dispatches a ReferenceAlias native",
+          bare_vm.Call(bare, "GetReference", {}).as_object().handle == 0x1235);
+    check("None (handle 0) does not dispatch",
+          bare_vm.Call(ObjectRef{0}, "Is3DLoaded", {}).ToBool() == false);
+    check("an unbound bare-ref method is None",
+          bare_vm.Call(bare, "NoSuchMethod", {}).type() == rec::script::papyrus::ValueType::kNone);
+  }
+
   std::printf("%s (%d failures)\n", failures ? "SELFTEST FAILED" : "SELFTEST PASSED", failures);
   return failures ? 1 : 0;
 }
