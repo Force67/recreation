@@ -52,6 +52,12 @@ const ObjectiveDef* QuestDef::FindObjective(i32 index) const {
   return nullptr;
 }
 
+const AliasDef* QuestDef::FindAlias(i32 id) const {
+  for (const AliasDef& a : aliases)
+    if (a.id == id) return &a;
+  return nullptr;
+}
+
 i32 QuestDef::CompletionStage() const {
   i32 best = -1;
   for (const StageDef& s : stages) {
@@ -72,13 +78,18 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
   constexpr u32 kQobj = FourCc('Q', 'O', 'B', 'J');
   constexpr u32 kNnam = FourCc('N', 'N', 'A', 'M');
   constexpr u32 kQsta = FourCc('Q', 'S', 'T', 'A');
+  constexpr u32 kAlst = FourCc('A', 'L', 'S', 'T');  // reference alias id
+  constexpr u32 kAlls = FourCc('A', 'L', 'L', 'S');  // location alias id
+  constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // forced reference form id
+  constexpr u32 kAled = FourCc('A', 'L', 'E', 'D');  // alias block end
 
   QuestDef def;
   def.handle = handle;
 
   i32 cur_stage = 0;
-  bool in_stage = false;     // an INDX has opened a stage block
+  bool in_stage = false;      // an INDX has opened a stage block
   bool in_objective = false;  // a QOBJ has opened an objective block
+  bool in_alias = false;      // an ALST/ALLS has opened an alias block
 
   // Subrecords appear in declaration order: a stage is INDX then one or more
   // QSDT (+CNAM); an objective is QOBJ, NNAM, then its QSTA targets.
@@ -98,6 +109,7 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         cur_stage = ReadLe<u16>(sub);
         in_stage = true;
         in_objective = false;
+        in_alias = false;
         break;
       case kQsdt: {
         if (!in_stage) break;
@@ -116,6 +128,7 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         def.objectives.push_back(std::move(obj));
         in_objective = true;
         in_stage = false;
+        in_alias = false;
         break;
       }
       case kNnam:
@@ -125,6 +138,25 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kQsta:
         if (in_objective && !def.objectives.empty())
           def.objectives.back().target_aliases.push_back(ReadLe<i32>(sub));
+        break;
+      case kAlst:
+      case kAlls: {
+        // A new alias block. Reference (ALST) and location (ALLS) aliases share
+        // the id space an objective's QSTA points into.
+        AliasDef alias;
+        alias.id = ReadLe<i32>(sub);
+        def.aliases.push_back(alias);
+        in_alias = true;
+        in_stage = false;
+        in_objective = false;
+        break;
+      }
+      case kAlfr:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
+        break;
+      case kAled:
+        in_alias = false;
         break;
       default:
         break;

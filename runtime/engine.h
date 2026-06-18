@@ -279,6 +279,14 @@ class Engine {
   // from this peer's own camera. Shared by the host (its armed marker) and a
   // multiplayer client (the host's replicated marker).
   void DriveObjectiveMarkerHud(bool active, const Vec3& pos);
+  // Indexes a quest's objective -> world-target positions from its forced
+  // reference aliases, so the compass can point at the real objective location
+  // even when no scripted/debug marker is placed. Called once per quest at load
+  // (`plugin` resolves the alias form ids). ObjectiveTargetFor looks one up.
+  void IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin);
+  bool ObjectiveTargetFor(u64 quest, i32 objective, Vec3* out) const;
+  // World position (engine units) of a placed reference, from its REFR DATA.
+  bool RefWorldPosition(bethesda::GlobalFormId ref, Vec3* out) const;
   // Steers every registered follower NPC toward its formation slot behind the
   // player and writes the resulting transform (host authoritative; the motion
   // streams to clients via actor sync). A no-op with no followers.
@@ -552,6 +560,10 @@ class Engine {
   // Objective waypoints (host authoritative). Armed against the tracked quest's
   // current displayed objective; reaching one advances the quest's stage.
   base::Vector<QuestMarker> quest_markers_;
+  // Objective -> world target, keyed by (quest handle, objective index) packed,
+  // resolved once at load from forced-reference aliases. Lets the compass point
+  // at the real objective location with no scripted marker. Main-thread only.
+  base::UnorderedMap<u64, Vec3> objective_targets_;
   // Objective marker replication. Host: the last marker state sent to clients,
   // so it only resends on change. Client: the host's marker, driving the local
   // HUD pip from this peer's own camera.

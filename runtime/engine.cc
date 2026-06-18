@@ -1670,7 +1670,8 @@ void Engine::AttachQuestScripts() {
   int quests = 0;
   int instances = 0;
   records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
-                      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+                      [&](bethesda::GlobalFormId id,
+                          const bethesda::RecordStore::StoredRecord& stored) {
                         if (limit > 0 && quests >= limit) return;
                         bethesda::Record record;
                         if (!records_.Parse(id, &record)) return;
@@ -1690,6 +1691,9 @@ void Engine::AttachQuestScripts() {
                           // objective text, compass targets) for the HUD/debugger.
                           quest::QuestDef def =
                               quest::ParseQuestDefinition(handle, record, &strings_);
+                          // Resolve its objective compass targets from forced-ref
+                          // aliases now, while the records are at hand.
+                          IndexObjectiveTargets(def, stored.winning_plugin);
                           // Key the record list by editor id: it is the stable
                           // handle REC_START_QUEST and the debugger match on. The
                           // panel's display name comes from the quest definition.
@@ -1712,6 +1716,8 @@ void Engine::AttachQuestScripts() {
                       });
   REC_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
            quests, scripts_->loaded_script_count());
+  REC_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
+           objective_targets_.size());
 
   // REC_START_QUEST=<EDID>[:<stage>] starts a quest at load (runs its opening
   // stage fragment) so quest logic can be exercised without the UI. The optional
@@ -2540,15 +2546,35 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
     }
   }
 
-  const bool active = armed != nullptr;
-  const Vec3 pos = armed ? armed->pos : Vec3{};
+  // With nothing armed, still guide the player: point the compass at the tracked
+  // quest's current objective target (its forced-reference alias's world
+  // position). This only drives the HUD pip, it never advances a stage.
+  Vec3 guide_pos{};
+  bool guide_active = false;
+  if (!armed && hud_tracked_quest_ != 0) {
+    for (const quest::QuestStatus& q : running) {
+      if (q.handle != hud_tracked_quest_) continue;
+      for (const quest::ObjectiveStatus& o : q.objectives) {
+        if (!o.displayed || o.completed) continue;
+        if (ObjectiveTargetFor(q.handle, o.index, &guide_pos)) {
+          guide_active = true;
+          break;
+        }
+      }
+      break;
+    }
+  }
+
+  const bool active = armed != nullptr || guide_active;
+  const Vec3 pos = armed ? armed->pos : guide_pos;
+  const u64 marker_quest = armed ? armed->quest : (guide_active ? hud_tracked_quest_ : 0);
   DriveObjectiveMarkerHud(active, pos);
 
 #if RECREATION_HAS_NET
   // Replicate the active marker to clients, but only when it meaningfully
   // changes (the 0.1 m guard keeps float jitter off the reliable channel).
   if (server_session_) {
-    const u64 quest = armed ? armed->quest : 0;
+    const u64 quest = marker_quest;
     const bool changed =
         active != sent_marker_active_ || quest != sent_marker_quest_ ||
         (active && (std::fabs(pos.x - sent_marker_pos_.x) > 0.1f ||
@@ -2586,6 +2612,49 @@ void Engine::DriveObjectiveMarkerHud(bool active, const Vec3& pos) {
   const f32 distance = Length(to);
   const f32 bearing = world::MarkerCompassBearingDeg(view_fwd, to_marker);
   game_ui_.SetObjectiveMarker(true, bearing, distance);
+}
+
+// Packs a (quest handle, objective index) pair into one key. A quest handle
+// uses at most 48 bits and objective indices are small, so 12 low bits hold the
+// objective without colliding.
+static u64 ObjectiveKey(u64 quest, i32 objective) {
+  return (quest << 12) | (static_cast<u64>(objective) & 0xfffu);
+}
+
+bool Engine::RefWorldPosition(bethesda::GlobalFormId ref, Vec3* out) const {
+  bethesda::Record record;
+  if (!records_.Parse(ref, &record)) return false;
+  const bethesda::Subrecord* data = record.Find(FourCc('D', 'A', 'T', 'A'));
+  if (!data || data->data.size() < 12) return false;
+  f32 p[3];
+  std::memcpy(p, data->data.data(), 12);
+  constexpr f32 kUnitsToMeters = 0.01428f;  // Bethesda -> engine, axes (x, z, -y)
+  *out = Vec3{p[0] * kUnitsToMeters, p[2] * kUnitsToMeters, -p[1] * kUnitsToMeters};
+  return true;
+}
+
+void Engine::IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin) {
+  for (const quest::ObjectiveDef& obj : def.objectives) {
+    for (i32 alias_id : obj.target_aliases) {
+      const quest::AliasDef* alias = def.FindAlias(alias_id);
+      if (!alias || alias->forced_ref_raw == 0) continue;
+      bethesda::GlobalFormId ref =
+          records_.ResolveFrom(bethesda::RawFormId{alias->forced_ref_raw}, plugin);
+      Vec3 pos;
+      if (RefWorldPosition(ref, &pos)) {
+        objective_targets_.insert(ObjectiveKey(def.handle, obj.index), pos);
+        break;  // first resolvable target alias wins
+      }
+    }
+  }
+}
+
+bool Engine::ObjectiveTargetFor(u64 quest, i32 objective, Vec3* out) const {
+  if (const Vec3* pos = objective_targets_.find(ObjectiveKey(quest, objective))) {
+    *out = *pos;
+    return true;
+  }
+  return false;
 }
 
 void Engine::SetFollower(u64 npc, bool follow) {

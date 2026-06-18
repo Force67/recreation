@@ -30,6 +30,15 @@ struct ObjectiveDef {
   std::vector<i32> target_aliases;  // QSTA alias ids (compass targets)
 };
 
+// One quest alias (ALST/ALLS block). Only the forced-reference form id (ALFR)
+// is kept: it is the one alias kind that resolves to a fixed world position
+// without runtime fill logic, which is enough to point the objective compass.
+// `forced_ref_raw` is plugin-relative; resolve it against the quest's plugin.
+struct AliasDef {
+  i32 id = 0;               // ALST/ALLS alias id, matches an objective's QSTA
+  u32 forced_ref_raw = 0;   // ALFR forced reference, 0 when the alias has none
+};
+
 // The static, display-facing shape of a quest, parsed once from its QUST
 // record. The QuestSystem stores this beside the live state so snapshots can
 // carry log/objective text without the records.
@@ -40,9 +49,11 @@ struct QuestDef {
   i32 priority = 0;
   std::vector<StageDef> stages;
   std::vector<ObjectiveDef> objectives;
+  std::vector<AliasDef> aliases;
 
   const StageDef* FindStage(i32 index) const;
   const ObjectiveDef* FindObjective(i32 index) const;
+  const AliasDef* FindAlias(i32 id) const;
   // Lowest stage index flagged complete_quest, or -1 if none.
   i32 CompletionStage() const;
 };
