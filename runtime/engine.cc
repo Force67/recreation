@@ -2551,7 +2551,10 @@ void Engine::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& runni
   // position). This only drives the HUD pip, it never advances a stage.
   Vec3 guide_pos{};
   bool guide_active = false;
-  if (!armed && hud_tracked_quest_ != 0) {
+  // Targets are indexed in exterior space only, so the bearing is only valid
+  // while the player is out in the worldspace (not inside a streamed interior).
+  const bool exterior = !streamer_ || !streamer_->in_interior();
+  if (!armed && exterior && hud_tracked_quest_ != 0) {
     for (const quest::QuestStatus& q : running) {
       if (q.handle != hud_tracked_quest_) continue;
       for (const quest::ObjectiveStatus& o : q.objectives) {
@@ -2640,6 +2643,9 @@ void Engine::IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin) {
       if (!alias || alias->forced_ref_raw == 0) continue;
       bethesda::GlobalFormId ref =
           records_.ResolveFrom(bethesda::RawFormId{alias->forced_ref_raw}, plugin);
+      // Only exterior targets are usable: an interior ref's position is in its
+      // own cell space, so a world-compass bearing to it would be meaningless.
+      if (records_.InteriorCellOfRef(ref).plugin != 0xffff) continue;
       Vec3 pos;
       if (RefWorldPosition(ref, &pos)) {
         objective_targets_.insert(ObjectiveKey(def.handle, obj.index), pos);
