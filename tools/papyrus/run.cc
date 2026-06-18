@@ -422,6 +422,26 @@ int DisasmReal(const std::string& data_dir, const std::string& script, const std
     return 1;
   }
   const Object& obj = pex.objects[0];
+  // "@funcs" lists every function the script declares, with its states.
+  if (function == "@funcs") {
+    std::printf("%s : %s\n", pex.Str(obj.name).c_str(), pex.Str(obj.parent_class).c_str());
+    for (const State& s : obj.states)
+      for (const NamedFunction& nf : s.functions)
+        std::printf("  %s%s%s\n", pex.Str(nf.name).c_str(),
+                    nf.function.is_native ? " (native)" : "",
+                    s.name == obj.auto_state_name ? "" : (" [state " + pex.Str(s.name) + "]").c_str());
+    return 0;
+  }
+  // "@vars" dumps the object header (member variables and properties with their
+  // types) instead of a function, to inspect e.g. an alias property's type.
+  if (function == "@vars") {
+    std::printf("%s : %s\n", pex.Str(obj.name).c_str(), pex.Str(obj.parent_class).c_str());
+    for (const MemberVariable& v : obj.variables)
+      std::printf("  var %s : %s\n", pex.Str(v.name).c_str(), pex.Str(v.type).c_str());
+    for (const Property& p : obj.properties)
+      std::printf("  property %s : %s\n", pex.Str(p.name).c_str(), pex.Str(p.type).c_str());
+    return 0;
+  }
   const Object* owner = nullptr;
   const Function* fn = FindFunction(pex, obj, function, &owner);
   if (!fn) {
