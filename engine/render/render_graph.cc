@@ -16,9 +16,11 @@ struct UsageState {
 UsageState StateFor(ResourceUsage usage) {
   switch (usage) {
     case ResourceUsage::kColorAttachment:
+      // Read covers LOAD_OP_LOAD of previous content.
       return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, true};
+              VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+              true};
     case ResourceUsage::kDepthAttachment:
       return {VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
               VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |

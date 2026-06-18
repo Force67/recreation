@@ -27,8 +27,8 @@ float3 CubeDir(uint face, float2 uv) {
 static const float kPlanetRadius = 6371e3;
 static const float kAtmosphereRadius = 6471e3;
 static const float3 kRayleighScatter = float3(5.802e-6, 13.558e-6, 33.1e-6);
-static const float kMieScatter = 3.996e-6;
-static const float kMieAbsorb = 4.4e-6;
+static const float kMieScatter = 2.0e-6;
+static const float kMieAbsorb = 2.2e-6;
 static const float kRayleighHeight = 8500.0;
 static const float kMieHeight = 1200.0;
 static const int kViewSamples = 24;
@@ -97,6 +97,10 @@ void main(uint3 id : SV_DispatchThreadID) {
 
   float3 sun = push.sun_color * push.intensity;
   float3 sky = (kRayleighScatter * phase_r * sum_r + kMieScatter * phase_m * sum_m) * sun;
+  // Single scattering alone leaves horizons dark and salmon tinted; a flat
+  // skylight floor stands in for the missing multiple scattering.
+  sky += float3(0.22, 0.38, 0.75) * 0.035 * push.intensity * push.sun_color *
+         saturate(normalize(-push.sun_direction).y * 2.0);
 
   // Sun disk, attenuated by the full path transmittance; the bloom pass
   // gets something to flare on.

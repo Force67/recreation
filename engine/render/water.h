@@ -28,10 +28,9 @@ class WaterPass {
   WaterPass(const WaterPass&) = delete;
   WaterPass& operator=(const WaterPass&) = delete;
 
-  // Compute copy of scene color + depth into the snapshot transients.
-  void RecordCopy(PassContext& ctx, ResourceHandle scene_color, ResourceHandle depth,
-                  ResourceHandle opaque_color, ResourceHandle opaque_depth, u32 width,
-                  u32 height);
+  // Compute copy of the opaque scene color into the snapshot transient.
+  void RecordCopy(PassContext& ctx, ResourceHandle scene_color, ResourceHandle opaque_color,
+                  u32 width, u32 height);
 
   // Binds the water pipeline; sets 0-2 are the frame's globals/material-less
   // environment sets, set 4 is written from the snapshot views.

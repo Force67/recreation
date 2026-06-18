@@ -122,16 +122,18 @@ float GradNoise(float2 p) {
 }
 
 float WaveHeight(float2 p, float t) {
+  // Few low octaves: high frequency shimmer would just be eaten by the
+  // temporal passes, slow broad waves survive them.
   float h = 0.0;
   float amp = 1.0;
   float freq = 1.0;
-  float2 drift = float2(0.13, 0.07);
+  float2 drift = float2(0.35, 0.21);
   [unroll]
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < 3; ++i) {
     h += amp * GradNoise(p * freq + drift * t * freq);
-    amp *= 0.45;
-    freq *= 2.13;
-    drift = float2(-drift.y, drift.x) * 1.3;
+    amp *= 0.5;
+    freq *= 2.3;
+    drift = float2(-drift.y, drift.x) * 1.2;
   }
   return h;
 }
@@ -241,13 +243,15 @@ PsOut main(PsIn input) {
   float view_dist = length(frame.camera_position.xyz - input.world_pos);
 
   // Wave detail fades with distance so far water stays calm under taa.
-  float strength = lerp(0.5, 0.08, saturate(view_dist / 400.0)) *
+  // Fine anisotropic ripples; grazing fresnel amplifies slopes heavily, so
+  // amplitudes stay small and fade with distance.
+  float strength = lerp(0.045, 0.008, saturate(view_dist / 250.0)) *
                    saturate(material.roughness_factor * 16.0);
-  float3 n = WaveNormal(input.world_pos.xz * 0.7, frame.time * 0.8, strength);
+  float3 n = WaveNormal(input.world_pos.xz * float2(2.6, 1.4), frame.time * 0.7, strength);
 
   // Refraction against the opaque snapshot, distorted by the waves.
   float2 screen_uv = input.sv_position.xy / frame.misc.xy;
-  float2 distortion = n.xz * (0.035 / max(view_dist * 0.08, 1.0));
+  float2 distortion = n.xz * (0.015 / max(view_dist * 0.08, 1.0));
   float2 refracted_uv = clamp(screen_uv + distortion, 0.001, 0.999);
   float behind_depth = opaque_depth.SampleLevel(opaque_depth_sampler, refracted_uv, 0).r;
   if (behind_depth > input.sv_position.z) {
@@ -255,10 +259,15 @@ PsOut main(PsIn input) {
     refracted_uv = screen_uv;
     behind_depth = opaque_depth.SampleLevel(opaque_depth_sampler, refracted_uv, 0).r;
   }
-  float2 ndc = refracted_uv * 2.0 - 1.0;
-  float4 behind_world = mul(frame.inv_view_proj, float4(ndc, max(behind_depth, 1e-7), 1.0));
-  behind_world.xyz /= behind_world.w;
-  float water_depth = max(length(behind_world.xyz - input.world_pos), 0.0);
+  // Empty depth means open water to the horizon; reconstructing infinity
+  // would breed NaNs that temporal passes smear everywhere.
+  float water_depth = 200.0;
+  if (behind_depth > 1e-6) {
+    float2 ndc = refracted_uv * 2.0 - 1.0;
+    float4 behind_world = mul(frame.inv_view_proj, float4(ndc, behind_depth, 1.0));
+    behind_world.xyz /= behind_world.w;
+    water_depth = min(length(behind_world.xyz - input.world_pos), 200.0);
+  }
 
   float3 absorption = (1.0 - saturate(material.base_color_factor.rgb)) * 0.9;
   float3 transmittance = exp(-absorption * water_depth);

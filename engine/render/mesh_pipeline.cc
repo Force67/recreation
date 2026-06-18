@@ -198,14 +198,19 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   }
   blend_attachments[0].blendEnable = VK_FALSE;
 
-  // Prepass: depth write + normals/motion targets, same layout.
+  // Prepass: depth write + normals/motion/depth-export targets, same layout.
   stages[1].module = frag_prepass;
   raster.polygonMode = VK_POLYGON_MODE_FILL;
   depth.depthWriteEnable = VK_TRUE;
   depth.depthCompareOp = VK_COMPARE_OP_GREATER;  // reversed z
-  blend_attachments[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-  blend_attachments[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-  VkFormat prepass_formats[2] = {normal_format, motion_format};
+  VkPipelineColorBlendAttachmentState prepass_blend[3]{};
+  prepass_blend[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+  prepass_blend[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+  prepass_blend[2].colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+  blend.attachmentCount = 3;
+  blend.pAttachments = prepass_blend;
+  VkFormat prepass_formats[3] = {normal_format, motion_format, VK_FORMAT_R32_SFLOAT};
+  rendering.colorAttachmentCount = 3;
   rendering.pColorAttachmentFormats = prepass_formats;
   if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
                                 &pipeline->prepass_pipeline_) != VK_SUCCESS) {

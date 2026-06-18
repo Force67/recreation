@@ -43,6 +43,9 @@ float2 OctEncode(float3 d) {
 struct PsOut {
   float2 normal : SV_Target0;
   float2 motion : SV_Target1;
+  // Raw reversed-z exported as color: downstream passes sample this instead
+  // of the depth attachment, which then never leaves attachment layout.
+  float depth : SV_Target2;
 };
 
 PsOut main(PsIn input) {
@@ -66,5 +69,6 @@ PsOut main(PsIn input) {
   float2 curr = input.curr_clip.xy / input.curr_clip.w;
   float2 prev = input.prev_clip.xy / input.prev_clip.w;
   output.motion = (prev - curr) * 0.5;
+  output.depth = input.sv_position.z;
   return output;
 }

@@ -165,17 +165,17 @@ std::unique_ptr<WaterPass> WaterPass::Create(Device& device, VkFormat color_form
   }
 
   // Snapshot copy compute.
-  VkDescriptorSetLayoutBinding copy_bindings[4]{};
-  for (u32 i = 0; i < 4; ++i) {
+  VkDescriptorSetLayoutBinding copy_bindings[2]{};
+  for (u32 i = 0; i < 2; ++i) {
     copy_bindings[i].binding = i;
     copy_bindings[i].descriptorType =
-        i < 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        i < 1 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     copy_bindings[i].descriptorCount = 1;
     copy_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   }
   VkDescriptorSetLayoutCreateInfo copy_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  copy_info.bindingCount = 4;
+  copy_info.bindingCount = 2;
   copy_info.pBindings = copy_bindings;
   if (vkCreateDescriptorSetLayout(device.device(), &copy_info, nullptr,
                                   &pass->copy_set_layout_) != VK_SUCCESS) {
@@ -220,30 +220,25 @@ WaterPass::~WaterPass() {
   if (sampler_) vkDestroySampler(device, sampler_, nullptr);
 }
 
-void WaterPass::RecordCopy(PassContext& ctx, ResourceHandle scene_color, ResourceHandle depth,
-                           ResourceHandle opaque_color, ResourceHandle opaque_depth, u32 width,
-                           u32 height) {
+void WaterPass::RecordCopy(PassContext& ctx, ResourceHandle scene_color,
+                           ResourceHandle opaque_color, u32 width, u32 height) {
   VkDescriptorSet set = ctx.allocate_set(copy_set_layout_);
-  VkDescriptorImageInfo images[4]{};
+  VkDescriptorImageInfo images[2]{};
   images[0] = {.imageView = ctx.graph->image(opaque_color).view,
                .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-  images[1] = {.imageView = ctx.graph->image(opaque_depth).view,
-               .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-  images[2] = {.sampler = sampler_, .imageView = ctx.graph->image(scene_color).view,
+  images[1] = {.sampler = sampler_, .imageView = ctx.graph->image(scene_color).view,
                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  images[3] = {.sampler = sampler_, .imageView = ctx.graph->image(depth).view,
-               .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  VkWriteDescriptorSet writes[4];
-  for (u32 i = 0; i < 4; ++i) {
+  VkWriteDescriptorSet writes[2];
+  for (u32 i = 0; i < 2; ++i) {
     writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     writes[i].dstSet = set;
     writes[i].dstBinding = i;
     writes[i].descriptorCount = 1;
     writes[i].descriptorType =
-        i < 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        i == 0 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[i].pImageInfo = &images[i];
   }
-  vkUpdateDescriptorSets(ctx.device->device(), 4, writes, 0, nullptr);
+  vkUpdateDescriptorSets(ctx.device->device(), 2, writes, 0, nullptr);
 
   vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, copy_pipeline_);
   vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, copy_layout_, 0, 1, &set, 0,

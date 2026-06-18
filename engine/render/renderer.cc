@@ -507,6 +507,12 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   ResourceHandle normals = graph_.CreateTexture(
       {.name = "normals", .format = kNormalFormat, .width = render_width_,
        .height = render_height_});
+  // Raw reversed z exported by the prepass; every depth consumer samples
+  // this so the real depth attachment never changes layout mid frame
+  // (sampling round trips corrupt its compression metadata on nvidia).
+  ResourceHandle depth_export = graph_.CreateTexture(
+      {.name = "depth_export", .format = VK_FORMAT_R32_SFLOAT, .width = render_width_,
+       .height = render_height_});
 
   if (environment_dirty_ && (settings_.ibl || settings_.sky)) {
     environment_dirty_ = false;
@@ -543,10 +549,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       [&](RenderGraph::PassBuilder& builder) {
         builder.Write(normals, ResourceUsage::kColorAttachment);
         builder.Write(motion, ResourceUsage::kColorAttachment);
+        builder.Write(depth_export, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
       },
-      [this, normals, motion, depth, &frame, &view](PassContext& ctx) {
-        VkRenderingAttachmentInfo colors[2];
+      [this, normals, motion, depth_export, depth, &frame, &view](PassContext& ctx) {
+        VkRenderingAttachmentInfo colors[3];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(normals).view;
         colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -557,6 +564,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         colors[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colors[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colors[2] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        colors[2].imageView = ctx.graph->image(depth_export).view;
+        colors[2].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        colors[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colors[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
         VkRenderingAttachmentInfo depth_attachment{
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -569,7 +581,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
         rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
         rendering.layerCount = 1;
-        rendering.colorAttachmentCount = 2;
+        rendering.colorAttachmentCount = 3;
         rendering.pColorAttachments = colors;
         rendering.pDepthAttachment = &depth_attachment;
         vkCmdBeginRendering(ctx.cmd, &rendering);
@@ -594,10 +606,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
-          if (!mesh) continue;
+          if (!mesh || mesh->all_blend) continue;
           mesh_pipeline_->Draw(ctx.cmd, *mesh,
                                {.model = item.transform, .prev_model = item.prev_transform});
           for (const GpuSubmesh& submesh : mesh->submeshes) {
+            if (submesh.blend) continue;  // transparency owns its own depth
             VkDescriptorSet material = material_system_->set(submesh.material);
             if (material != bound_material) {
               mesh_pipeline_->BindMaterial(ctx.cmd, material);
@@ -617,7 +630,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
   ResourceHandle ao = kInvalidResource;
   if (rtao_active) {
-    ao = rtao_.AddToGraph(graph_, *raytracing_, tlas_slot, depth, normals, motion,
+    ao = rtao_.AddToGraph(graph_, *raytracing_, tlas_slot, depth_export, normals, motion,
                           globals.inv_view_proj, frame_index_);
   }
 
@@ -721,54 +734,48 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         vkCmdEndRendering(ctx.cmd);
       });
 
-  if (!transparent.empty()) {
+  ResourceHandle lit = scene_color;
+  if (!transparent.empty() && water_) {
     std::sort(transparent.begin(), transparent.end(),
               [](const TransparentDraw& a, const TransparentDraw& b) {
                 return a.distance_sq > b.distance_sq;
               });
 
-    // Snapshot of the opaque result for refraction, only when the water
-    // pipeline runs (undeclared transients would compile with zero usage).
-    ResourceHandle opaque_color = kInvalidResource;
-    ResourceHandle opaque_depth = kInvalidResource;
-    if (water_pipeline_active) {
-      opaque_color = graph_.CreateTexture(
-          {.name = "opaque_color", .format = kSceneColorFormat, .width = render_width_,
-           .height = render_height_});
-      opaque_depth = graph_.CreateTexture(
-          {.name = "opaque_depth", .format = VK_FORMAT_R32_SFLOAT, .width = render_width_,
-           .height = render_height_});
-      graph_.AddPass(
-          "opaque_copy",
-          [&](RenderGraph::PassBuilder& builder) {
-            builder.Read(scene_color, ResourceUsage::kSampledCompute);
-            builder.Read(depth, ResourceUsage::kSampledCompute);
-            builder.Write(opaque_color, ResourceUsage::kStorageWrite);
-            builder.Write(opaque_depth, ResourceUsage::kStorageWrite);
-          },
-          [this, scene_color, depth, opaque_color, opaque_depth](PassContext& ctx) {
-            water_->RecordCopy(ctx, scene_color, depth, opaque_color, opaque_depth,
-                               render_width_, render_height_);
-          });
-    }
+    // Transparency renders into a copy of the opaque result and refracts by
+    // sampling the original, which never returns to attachment layout
+    // afterwards: re-attaching a sampled image corrupts its compression
+    // metadata on nvidia (the depth export exists for the same reason).
+    ResourceHandle composite = graph_.CreateTexture(
+        {.name = "composite", .format = kSceneColorFormat, .width = render_width_,
+         .height = render_height_});
+    lit = composite;
+    graph_.AddPass(
+        "opaque_copy",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Read(scene_color, ResourceUsage::kSampledCompute);
+          builder.Write(composite, ResourceUsage::kStorageWrite);
+        },
+        [this, scene_color, composite](PassContext& ctx) {
+          water_->RecordCopy(ctx, scene_color, composite, render_width_, render_height_);
+        });
 
+    ResourceHandle opaque_color = scene_color;
+    ResourceHandle opaque_depth = depth_export;
     graph_.AddPass(
         "transparent",
         [&](RenderGraph::PassBuilder& builder) {
-          builder.Write(scene_color, ResourceUsage::kColorAttachment);
+          builder.Write(composite, ResourceUsage::kColorAttachment);
           builder.Write(motion, ResourceUsage::kColorAttachment);
           builder.Write(depth, ResourceUsage::kDepthAttachment);
-          if (water_pipeline_active) {
-            builder.Read(opaque_color, ResourceUsage::kSampledFragment);
-            builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
-          }
+          builder.Read(opaque_color, ResourceUsage::kSampledFragment);
+          builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
         },
-        [this, scene_color, motion, depth, opaque_color, opaque_depth, tlas_slot, rt_shadows,
+        [this, composite, motion, depth, opaque_color, opaque_depth, tlas_slot, rt_shadows,
          ddgi_active, water_pipeline_active, transparent = std::move(transparent), &frame,
          &view](PassContext& ctx) {
           VkRenderingAttachmentInfo colors[2];
           colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          colors[0].imageView = ctx.graph->image(scene_color).view;
+          colors[0].imageView = ctx.graph->image(composite).view;
           colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
           colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
           colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -839,6 +846,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             const GpuMesh* mesh = meshes_.find(draw.item->mesh);
             if (!mesh) continue;
             bool as_water = draw.submesh->water && water_pipeline_active;
+  
             Mode wanted = as_water ? Mode::kWater : Mode::kBlend;
             if (mode != wanted) {
               if (as_water) {
@@ -880,15 +888,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         });
   }
 
-  ResourceHandle post_input = scene_color;
+  ResourceHandle post_input = lit;
   switch (settings_.aa_mode) {
     case AntiAliasingMode::kTaa:
-      post_input = taa_.AddToGraph(graph_, scene_color, motion, frame_index_);
+      post_input = taa_.AddToGraph(graph_, lit, motion, frame_index_);
       break;
     case AntiAliasingMode::kUpscaler: {
       ResourceHandle upscaled =
-          upscaler_->AddToGraph(graph_, {.color = scene_color,
-                                         .depth = depth,
+          upscaler_->AddToGraph(graph_, {.color = lit,
+                                         .depth = depth_export,
                                          .motion_vectors = motion,
                                          .jitter_x = jitter_x,
                                          .jitter_y = jitter_y,
@@ -905,7 +913,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   // Dimensions of the aa-resolved image the post stack runs at.
-  bool upscaled = settings_.aa_mode == AntiAliasingMode::kUpscaler && post_input != scene_color;
+  bool upscaled = settings_.aa_mode == AntiAliasingMode::kUpscaler && post_input != lit;
   u32 post_width = upscaled ? output_width_ : render_width_;
   u32 post_height = upscaled ? output_height_ : render_height_;
 
