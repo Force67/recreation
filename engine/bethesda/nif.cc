@@ -764,6 +764,31 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
           if (set->size() > 1) normal = NormalizeTexturePath((*set)[1]);
         }
       }
+      // River, creek and waterfall fx surfaces carry water tile textures on
+      // plain lighting shaders; they belong to the water pipeline, not the
+      // generic blend path.
+      bool water_texture = diffuse.find("fxwater") != std::string::npos ||
+                           diffuse.find("watertile") != std::string::npos ||
+                           diffuse.find("fxrapids") != std::string::npos ||
+                           diffuse.find("defaultwater") != std::string::npos;
+      // Foam overlays (whitewater, waterfall strips) stay on the blend path.
+      if (diffuse.find("whitewater") != std::string::npos ||
+          diffuse.find("waterfall") != std::string::npos) {
+        water_texture = false;
+      }
+      if (water_texture) {
+        material.base_color_factor[0] = 0.08f;
+        material.base_color_factor[1] = 0.12f;
+        material.base_color_factor[2] = 0.16f;
+        material.base_color_factor[3] = 0.75f;
+        material.metallic_factor = 0;
+        material.roughness_factor = 0.05f;
+        material.alpha_mode = asset::AlphaMode::kBlend;
+        material.two_sided = true;
+        material.is_water = true;
+        diffuse.clear();
+        normal.clear();
+      }
       if (!diffuse.empty()) {
         material.base_color = asset::MakeAssetId(diffuse);
         if (std::ranges::find(result.texture_paths, diffuse) == result.texture_paths.end()) {
