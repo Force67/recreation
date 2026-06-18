@@ -11,11 +11,18 @@ option(RECREATION_BUILD_TOOLS "Build offline tools" ON)
 option(RECREATION_ENABLE_VALIDATION "Enable vulkan validation layers in debug" ON)
 option(RECREATION_FETCH_SDL3 "Download SDL3 when not found on the system" OFF)
 option(RECREATION_FSR3 "Enable the AMD FSR 3.1 upscaler backend" ON)
+option(RECREATION_JOLT "Enable Jolt physics" ON)
 
 if(RECREATION_FSR3 AND NOT EXISTS
    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FidelityFX-SDK/sdk/include/FidelityFX/host/ffx_fsr3upscaler.h)
   message(STATUS "FidelityFX-SDK not found, fsr3 disabled (run tools/get_fidelityfx.sh)")
   set(RECREATION_FSR3 OFF)
+endif()
+
+if(RECREATION_JOLT AND NOT EXISTS
+   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/JoltPhysics/Jolt/Jolt.cmake)
+  message(STATUS "JoltPhysics not found, physics disabled (run tools/get_jolt.sh)")
+  set(RECREATION_JOLT OFF)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -106,6 +113,7 @@ set(RECREATION_MODULES
   ecs
   asset
   render
+  physics
   bethesda
   world
   net

@@ -36,3 +36,15 @@ target_include_directories(recreation_stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/
 if(RECREATION_FSR3)
   include(fsr3.cmake)
 endif()
+
+# Jolt physics, downloaded via tools/get_jolt.sh. Builds its own static lib;
+# samples/tests/viewer stay off.
+if(RECREATION_JOLT)
+  set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+  set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+  set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+  set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+  set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+  set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+  add_subdirectory(JoltPhysics/Build jolt EXCLUDE_FROM_ALL)
+endif()

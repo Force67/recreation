@@ -8,3 +8,4 @@ compile_commands.json
 result
 assets/
 third_party/FidelityFX-SDK/
+third_party/JoltPhysics/
