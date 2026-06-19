@@ -319,6 +319,34 @@ panel root {
           :pressed { background: #b23a3a55; }
         }
       }
+      panel menu_settings {
+        layout: column; gap: 6; width: 340;
+        text settings_head { text: "Controls"; font-size: 14; color: #ffcc55;
+          letter-spacing: 3; text-transform: uppercase; margin: 0 0 6 0; }
+)";
+  // Keybinds list, one row per control.
+  const char* keybinds[][2] = {
+      {"F1", "Renderer overlay"}, {"F2", "Papyrus natives"}, {"F3", "Quest debugger"},
+      {"T", "Toggle walk / fly"}, {"E", "Activate / talk"},  {"J", "Journal"},
+      {"Esc", "Pause menu"},
+  };
+  for (const auto& kb : keybinds) {
+    s += "        panel kb_" + std::string(kb[0]) +
+         " { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;\n"
+         "          text { text: \"" + kb[1] + "\"; font-size: 14; color: #d8def0; }\n"
+         "          text { text: \"" + kb[0] +
+         "\"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }\n"
+         "        }\n";
+  }
+  s += R"(        panel settings_rule { width: 340; height: 1; background: #ffffff1f; margin: 16 0 6 0; }
+        button btn_settings_back {
+          text: "Back"; font-size: 19; color: #e8ecf6; text-align: center;
+          background: #ffcc5522; corner-radius: 9; padding: 14 0; cursor: pointer;
+          border-color: #ffcc5544; border-width: 1;
+          :hover { background: #ffcc5538; color: #ffffff; }
+          :pressed { background: #ffcc5555; }
+        }
+      }
     }
   }
 }
@@ -372,6 +400,7 @@ struct GameUi::Impl {
   const ugui::DrawData* draw_data = nullptr;
   bool initialized = false;
   bool menu_open = false;
+  bool settings_open = false;  // settings sub-view of the pause menu
   bool quit_requested = false;
   bool prev_mouse[3] = {};
   float stamina = 1.0f;
@@ -418,6 +447,11 @@ struct GameUi::Impl {
           s.visibility = v > 0.5f ? ugui::Visibility::kVisible : ugui::Visibility::kCollapsed;
         },
         menu_open ? 1.0f : 0.0f);
+    // Settings is a sub-view: the button column and the controls panel swap, and
+    // the title follows so "Settings" reads as its own screen.
+    SetVisible("menu_buttons", !settings_open);
+    SetVisible("menu_settings", settings_open);
+    ugui::SetText(ui.FindWidget("menu_title"), settings_open ? "Settings" : "Paused");
   }
 };
 
@@ -474,6 +508,13 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     if (!n) return;
     if (n->name == "btn_resume") {
       impl->menu_open = false;
+      impl->settings_open = false;
+      impl->ApplyMenuVisibility();
+    } else if (n->name == "btn_settings") {
+      impl->settings_open = true;
+      impl->ApplyMenuVisibility();
+    } else if (n->name == "btn_settings_back") {
+      impl->settings_open = false;
       impl->ApplyMenuVisibility();
     } else if (n->name == "btn_quit") {
       impl->quit_requested = true;
@@ -498,6 +539,7 @@ void GameUi::Shutdown() {
 void GameUi::ToggleMenu() {
   if (!impl_->initialized) return;
   impl_->menu_open = !impl_->menu_open;
+  impl_->settings_open = false;  // always reopen on the main pause screen
   impl_->ApplyMenuVisibility();
 }
 
