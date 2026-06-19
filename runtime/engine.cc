@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <thread>
@@ -44,6 +45,28 @@ bool Engine::Initialize(const EngineConfig& config) {
     if (!debug_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("debug ui unavailable");
     }
+  }
+
+  if (physics_.Initialize()) {
+    // A small cube every scene can throw around (F key).
+    asset::Mesh cube = asset::MakeCube(0.25f, asset::MakeAssetId("builtin/physics_cube"));
+    physics_cube_mesh_ = cube.id;
+    if (!config_.headless) renderer_.UploadMesh(cube);
+    scheduler_.AddSystem(ecs::Stage::kSim, "physics", [this](ecs::World& world, f32 dt) {
+      physics_.Update(dt);
+      for (const PhysicsEntity& body : physics_entities_) {
+        world::Transform* transform = world.Get<world::Transform>(body.entity);
+        if (!transform) continue;
+        Vec3 position;
+        f32 rotation[4];
+        if (physics_.GetBodyTransform(body.body, &position, rotation)) {
+          transform->position[0] = position.x;
+          transform->position[1] = position.y;
+          transform->position[2] = position.z;
+          std::memcpy(transform->rotation, rotation, sizeof(rotation));
+        }
+      }
+    });
   }
 
   if (!config_.gltf_path.empty()) {
@@ -151,20 +174,28 @@ void Engine::CreateWaterDemoScene() {
     renderer_.UploadMesh(ground);
   }
 
-  // Sea floor far below, water sheet at origin, an island of cubes.
+  // Sea floor far below, water sheet at origin, an island of cubes. The
+  // cubes are rigid bodies light enough to float: jolt buoyancy keeps them
+  // bobbing on the sheet.
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -48.0f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
   ecs::Entity sheet = world_.Create();
   world_.Add(sheet, world::Transform{});
   world_.Add(sheet, world::Renderable{water.id});
+  physics_.AddStaticBox({0, -48.0f, 0}, {40.0f, 40.0f, 40.0f});
+  physics_.set_water_height([](const Vec3&, f32* height) {
+    *height = 0.0f;
+    return true;
+  });
   for (int i = 0; i < 6; ++i) {
     ecs::Entity block = world_.Create();
     f32 angle = static_cast<f32>(i) * 1.047f;
-    world_.Add(block, world::Transform{.position = {std::cos(angle) * 6.0f,
-                                                    (i % 2) ? 1.5f : -0.4f,
-                                                    std::sin(angle) * 6.0f}});
+    Vec3 position{std::cos(angle) * 6.0f, 2.0f + (i % 3), std::sin(angle) * 6.0f};
+    world_.Add(block, world::Transform{.position = {position.x, position.y, position.z}});
     world_.Add(block, world::Renderable{cube.id});
+    physics::BodyId body = physics_.AddDynamicBox(position, {1.0f, 1.0f, 1.0f}, 400.0f, {});
+    if (body) physics_entities_.push_back({body, block});
   }
 
   camera_.set_position({-14.0f, 3.0f, 0.0f});
@@ -249,6 +280,12 @@ bool Engine::LoadGameData() {
   REC_INFO("{} plugins, {} records", order.plugins().size(), records_.record_count());
 
   streamer_ = std::make_unique<world::CellStreamer>(records_, *assets_);
+  if (physics_.initialized()) {
+    streamer_->set_physics(&physics_);
+    physics_.set_water_height([this](const Vec3& position, f32* height) {
+      return streamer_->WaterHeightAt(position, height);
+    });
+  }
   world::CellStreamer::Settings settings;
   settings.grass_density = config_.grass_density;
   streamer_->Configure(settings);
@@ -362,7 +399,22 @@ void Engine::UpdateCamera(f32 frame_delta) {
   window_->SetRelativeMouseMode(camera_.looking());
 
   if (input.key_pressed(Key::kF1) && !debug_ui_.wants_keyboard()) debug_ui_.ToggleVisible();
+  if (input.key_pressed(Key::kF) && !debug_ui_.wants_keyboard()) ThrowPhysicsCube();
   if (input.key_pressed(Key::kEscape) && !debug_ui_.wants_keyboard()) RequestQuit();
+}
+
+void Engine::ThrowPhysicsCube() {
+  if (!physics_.initialized() || !physics_cube_mesh_) return;
+  Vec3 forward = camera_.forward();
+  Vec3 origin = camera_.position() + forward * 0.8f;
+  // Wood-ish density: heavy enough to splash, light enough to float.
+  physics::BodyId body = physics_.AddDynamicBox(origin, {0.25f, 0.25f, 0.25f}, 350.0f,
+                                                forward * 14.0f);
+  if (!body) return;
+  ecs::Entity entity = world_.Create();
+  world_.Add(entity, world::Transform{.position = {origin.x, origin.y, origin.z}});
+  world_.Add(entity, world::Renderable{physics_cube_mesh_});
+  physics_entities_.push_back({body, entity});
 }
 
 int Engine::Run() {

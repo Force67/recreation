@@ -19,6 +19,7 @@
 #include "ecs/scheduler.h"
 #include "ecs/world.h"
 #include "net/session.h"
+#include "physics/physics_world.h"
 #include "render/renderer.h"
 #include "world/cell_streaming.h"
 
@@ -63,6 +64,7 @@ class Engine {
   bool StartNetworking();
   void CreateDemoScene();
   void CreateWaterDemoScene();
+  void ThrowPhysicsCube();
   bool LoadGltfScene();
   void UpdateCamera(f32 frame_delta);
 
@@ -84,6 +86,14 @@ class Engine {
   render::Renderer renderer_;
   FlyCamera camera_;
   DebugUi debug_ui_;
+  physics::PhysicsWorld physics_;
+  // Dynamic bodies mirrored into ECS transforms after each step.
+  struct PhysicsEntity {
+    physics::BodyId body;
+    ecs::Entity entity;
+  };
+  base::Vector<PhysicsEntity> physics_entities_;
+  asset::AssetId physics_cube_mesh_;
   // Last frame's world matrices keyed by entity, for motion vectors.
   base::UnorderedMap<u64, Mat4> prev_transforms_;
   std::unique_ptr<net::Session> session_;

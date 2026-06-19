@@ -10,6 +10,7 @@ target_link_libraries(recreation PRIVATE
   recreation::ecs
   recreation::asset
   recreation::render
+  recreation::physics
   recreation::bethesda
   recreation::world
   recreation::net
@@ -36,6 +37,7 @@ target_link_libraries(recreation-server PRIVATE
   recreation::ecs
   recreation::asset
   recreation::render
+  recreation::physics
   recreation::bethesda
   recreation::world
   recreation::net

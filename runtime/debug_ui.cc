@@ -230,6 +230,10 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
                            ImGuiSliderFlags_Logarithmic);
       }
 
+      if (ImGui::CollapsingHeader("Physics")) {
+        ImGui::TextDisabled("F throws a floating cube (jolt buoyancy)");
+      }
+
       if (ImGui::CollapsingHeader("Camera")) {
         Vec3 position = camera.position();
         ImGui::Text("position %.1f %.1f %.1f", position.x, position.y, position.z);
