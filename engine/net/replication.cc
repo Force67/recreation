@@ -44,6 +44,19 @@ world::Transform StateTransform(const EntityStateView& state) {
   return t;
 }
 
+constexpr f32 kGaitIdleSpeed = 0.05f;  // below this an actor reads as standing
+
+// Planar (XZ) speed of the segment a replica is blending across. This is the
+// velocity the smoothed transform travels at, so it matches what the host's
+// own locomotion would feed the gait. A zero-length or snapping segment reads
+// as idle.
+f32 SegmentPlanarSpeed(const InterpolatedTransform& interp) {
+  if (interp.duration <= 0) return 0;
+  const f32 dx = interp.to.position[0] - interp.from.position[0];
+  const f32 dz = interp.to.position[2] - interp.from.position[2];
+  return std::sqrt(dx * dx + dz * dz) / interp.duration;
+}
+
 // Lerps position and scale, nlerps the quaternion along the shorter arc.
 void Blend(const world::Transform& a, const world::Transform& b, f32 alpha,
            world::Transform* out) {
@@ -86,6 +99,12 @@ void TickInterpolation(ecs::World& world, f32 dt) {
           return;
         }
         Blend(interp.from, interp.to, alpha, &t);
+      });
+
+  world.Each<InterpolatedTransform, ReplicatedGait>(
+      [](ecs::Entity, InterpolatedTransform& interp, ReplicatedGait& gait) {
+        gait.speed = SegmentPlanarSpeed(interp);
+        gait.moving = gait.speed > kGaitIdleSpeed;
       });
 }
 
@@ -165,6 +184,7 @@ bool SnapshotApplier::Apply(ecs::World& world, const SnapshotView& snapshot,
       world.Add(entity, NetworkId{net_id});
       world.Add(entity, t);
       world.Add(entity, InterpolatedTransform{t, t, 0, 0});
+      world.Add(entity, ReplicatedGait{});
       if (state->mesh() != 0) {
         world.Add(entity, world::Renderable{asset::AssetId{state->mesh()}});
       }

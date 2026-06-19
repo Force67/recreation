@@ -14,6 +14,9 @@
 #include "core/math.h"
 #include "engine_internal.h"
 #include "world/components.h"
+#if RECREATION_HAS_NET
+#include "net/replication.h"
+#endif
 
 namespace rec {
 
@@ -370,6 +373,13 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
     anim::ComputeModelMatrices(actor.skeleton, actor.pose, &actor.bone_model);
     return;
   }
+#if RECREATION_HAS_NET
+  // A replicated actor (multiplayer client) gets no local steering, so drive its
+  // gait from the speed the net layer derived from its interpolated motion;
+  // otherwise it would slide without stepping.
+  if (const net::ReplicatedGait* gait = world_.Get<net::ReplicatedGait>(actor.entity))
+    actor.speed = gait->speed;
+#endif
   actor.locomotion.phase = anim::AdvancePhase(actor.locomotion.phase, actor.speed, dt);
   actor.locomotion.Apply(actor.skeleton, actor.speed, &actor.pose);
 

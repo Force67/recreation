@@ -33,8 +33,21 @@ struct InterpolatedTransform {
   f32 duration = 0;  // 0 snaps
 };
 
+// Render gait derived for a replicated actor. Snapshots carry transforms, not
+// animation state, so a walking NPC would otherwise slide across a client
+// without stepping. TickInterpolation fills this from the planar velocity of
+// the segment it is blending across; the engine reads it to drive the actor's
+// gait. Planar means the XZ ground plane (engine up is +Y), matching the speed
+// the host feeds its own locomotion.
+struct ReplicatedGait {
+  f32 speed = 0;        // meters per second along the ground plane
+  bool moving = false;  // speed above a small idle threshold
+};
+
 // Advances every InterpolatedTransform and writes the blended result into
-// the entity's Transform. Runs on clients in the pre-render stage.
+// the entity's Transform. Runs on clients in the pre-render stage. Where an
+// entity also carries ReplicatedGait, fills it from the planar velocity of
+// the active interpolation segment so the engine can animate walking actors.
 void TickInterpolation(ecs::World& world, f32 dt);
 
 // Server side: walks entities carrying NetworkId straight out of the
