@@ -231,7 +231,10 @@ void CellStreamer::UnloadCell(ecs::World& world, u32 key) {
   LoadedCell* cell = loaded_.find(key);
   if (!cell) return;
   for (ecs::Entity entity : cell->entities) world.Destroy(entity);
-  if (physics_ && cell->terrain_body) physics_->RemoveBody(cell->terrain_body);
+  if (physics_) {
+    if (cell->terrain_body) physics_->RemoveBody(cell->terrain_body);
+    for (physics::BodyId body : cell->bodies) physics_->RemoveBody(body);
+  }
   spawned_entities_ -= cell->entities.size();
   loaded_.erase(key);
 }
@@ -586,6 +589,26 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   world.Add(entity, CellMembership{grid_x, grid_y, interior});
   cell.entities.push_back(entity);
   ++spawned_entities_;
+
+  // Solid statics only: grass fill and water/blend planes don't collide.
+  bool collidable = physics_ && !mesh->exclude_from_rt && !mesh->lods.empty();
+  if (collidable) {
+    for (const asset::Submesh& submesh : mesh->lods[0].submeshes) {
+      const asset::Material* material = assets_.FindMaterial(submesh.material);
+      if (material && (material->is_water || material->alpha_mode == asset::AlphaMode::kBlend)) {
+        collidable = false;
+        break;
+      }
+    }
+  }
+  if (collidable) {
+    if (physics_->has_mesh_shape(mesh->id.hash) ||
+        physics_->RegisterMeshShape(mesh->id.hash, *mesh)) {
+      physics::BodyId body = physics_->AddStaticMeshInstance(
+          mesh->id.hash, position, transform.rotation, transform.scale);
+      if (body) cell.bodies.push_back(body);
+    }
+  }
   return true;
 }
 

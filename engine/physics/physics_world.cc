@@ -19,6 +19,8 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
+#include <base/containers/unordered_map.h>
+
 #include "core/log.h"
 
 namespace rec::physics {
@@ -86,6 +88,7 @@ struct PhysicsWorld::Impl {
   std::unique_ptr<JPH::JobSystemThreadPool> job_system;
   std::unique_ptr<JPH::PhysicsSystem> system;
   base::Vector<JPH::BodyID> dynamic_bodies;
+  base::UnorderedMap<u64, JPH::RefConst<JPH::Shape>> mesh_shapes;
 };
 
 PhysicsWorld::PhysicsWorld() = default;
@@ -184,6 +187,50 @@ BodyId PhysicsWorld::AddStaticMesh(const asset::Mesh& mesh, const Vec3& position
     return 0;
   }
   JPH::BodyCreationSettings settings(result.Get(), ToJolt(position),
+                                     JPH::Quat(rotation[0], rotation[1], rotation[2], rotation[3]),
+                                     JPH::EMotionType::Static, layers::kStatic);
+  JPH::BodyID id = impl_->system->GetBodyInterface().CreateAndAddBody(
+      settings, JPH::EActivation::DontActivate);
+  return id.GetIndexAndSequenceNumber() + 1;
+}
+
+bool PhysicsWorld::RegisterMeshShape(u64 key, const asset::Mesh& mesh) {
+  if (!impl_ || mesh.lods.empty()) return false;
+  if (impl_->mesh_shapes.find(key)) return true;
+  const asset::MeshLod& lod = mesh.lods[0];
+  if (lod.indices.size() < 3) return false;
+
+  JPH::VertexList vertices;
+  vertices.reserve(lod.vertices.size());
+  for (const asset::Vertex& v : lod.vertices) {
+    vertices.push_back({v.position[0], v.position[1], v.position[2]});
+  }
+  JPH::IndexedTriangleList triangles;
+  triangles.reserve(lod.indices.size() / 3);
+  for (size_t i = 0; i + 2 < lod.indices.size(); i += 3) {
+    triangles.push_back({lod.indices[i], lod.indices[i + 1], lod.indices[i + 2], 0});
+  }
+  JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+  JPH::ShapeSettings::ShapeResult result = settings.Create();
+  if (result.HasError()) return false;
+  impl_->mesh_shapes.insert(key, result.Get());
+  return true;
+}
+
+bool PhysicsWorld::has_mesh_shape(u64 key) const {
+  return impl_ && impl_->mesh_shapes.find(key) != nullptr;
+}
+
+BodyId PhysicsWorld::AddStaticMeshInstance(u64 key, const Vec3& position, const f32 rotation[4],
+                                           f32 scale) {
+  if (!impl_) return 0;
+  const JPH::RefConst<JPH::Shape>* shape = impl_->mesh_shapes.find(key);
+  if (!shape) return 0;
+  JPH::RefConst<JPH::Shape> instance = *shape;
+  if (scale != 1.0f) {
+    instance = new JPH::ScaledShape(instance, JPH::Vec3::sReplicate(scale));
+  }
+  JPH::BodyCreationSettings settings(instance, ToJolt(position),
                                      JPH::Quat(rotation[0], rotation[1], rotation[2], rotation[3]),
                                      JPH::EMotionType::Static, layers::kStatic);
   JPH::BodyID id = impl_->system->GetBodyInterface().CreateAndAddBody(

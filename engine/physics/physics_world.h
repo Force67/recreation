@@ -38,6 +38,11 @@ class PhysicsWorld {
   BodyId AddStaticBox(const Vec3& position, const Vec3& half_extent);
   BodyId AddStaticMesh(const asset::Mesh& mesh, const Vec3& position, const f32 rotation[4],
                        f32 scale);
+  // Shared-shape path for streamed instances: the mesh bakes once per key,
+  // every placement reuses it through a scale wrapper.
+  bool RegisterMeshShape(u64 key, const asset::Mesh& mesh);
+  bool has_mesh_shape(u64 key) const;
+  BodyId AddStaticMeshInstance(u64 key, const Vec3& position, const f32 rotation[4], f32 scale);
   // Heightfield grid of sample*sample values covering size x size meters,
   // anchored at `origin` (min corner). For streamed terrain cells.
   BodyId AddHeightField(const Vec3& origin, const f32* heights, u32 samples, f32 size);

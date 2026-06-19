@@ -80,6 +80,7 @@ class CellStreamer {
     base::Vector<ecs::Entity> entities;
     const bethesda::RecordStore::ExteriorCell* source = nullptr;
     physics::BodyId terrain_body = 0;
+    base::Vector<physics::BodyId> bodies;  // static ref colliders
     u32 next_ref = 0;
     bool terrain_done = false;
     bool grass_done = false;
