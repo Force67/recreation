@@ -132,11 +132,17 @@ void QuestDirector::AttachQuestScripts() {
     REC_INFO("debug: started {} quest(s) matching '{}'", started, edid);
   }
 
+  // The scripted MQ101 playthroughs run host-authoritatively: they drive quest
+  // stages and steer NPCs, which a multiplayer client only mirrors via quest /
+  // actor replication. Arming them on a client would push stage changes the
+  // guest discards in replica mode and steer NPCs the host already owns.
+  const bool host = ctx_.config->connect_address.empty();
+
   // REC_MQ101_DEMO seeds a playable slice of the first main quest: start MQ101
-  // (its opening fragment surfaces the first objective), then SetupMq101Demo
+  // (its opening fragment surfaces the first objective), then the npc director
   // drops a waypoint and recruits followers once the player and that objective
   // exist. Walk to the marker to complete the quest.
-  if (std::getenv("REC_MQ101_DEMO")) {
+  if (host && std::getenv("REC_MQ101_DEMO")) {
     const u64 handle = FindQuestHandle("MQ101");
     if (handle != 0) {
       quest_panel_.selected = handle;
@@ -147,7 +153,7 @@ void QuestDirector::AttachQuestScripts() {
 
   // REC_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
   // a guide NPC leads the player along a path while MQ101 advances to completion.
-  if (std::getenv("REC_MQ101_SCENE")) {
+  if (host && std::getenv("REC_MQ101_SCENE")) {
     npc_->ArmMq101Scene();
     REC_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
   }
@@ -570,10 +576,9 @@ void QuestDirector::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>
   // position). This only drives the HUD pip, it never advances a stage.
   Vec3 guide_pos{};
   bool guide_active = false;
-  // Targets are indexed in exterior space only, so the bearing is only valid
-  // while the player is out in the worldspace (not inside a streamed interior).
-  const bool exterior = !ctx_.streamer || !ctx_.streamer->in_interior();
-  if (!armed && exterior && hud_tracked_quest_ != 0) {
+  // ObjectiveTargetFor only returns a target whose space matches the player's
+  // current one (interior vs worldspace), so the bearing is always meaningful.
+  if (!armed && hud_tracked_quest_ != 0) {
     for (const quest::QuestStatus& q : running) {
       if (q.handle != hud_tracked_quest_) continue;
       for (const quest::ObjectiveStatus& o : q.objectives) {
@@ -661,12 +666,12 @@ void QuestDirector::IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin
       if (!alias || alias->forced_ref_raw == 0) continue;
       bethesda::GlobalFormId ref =
           records_.ResolveFrom(bethesda::RawFormId{alias->forced_ref_raw}, plugin);
-      // Only exterior targets are usable: an interior ref's position is in its
-      // own cell space, so a world-compass bearing to it would be meaningless.
-      if (records_.InteriorCellOfRef(ref).plugin != 0xffff) continue;
+      // Interior and exterior targets are both kept; the space is recorded so the
+      // compass only points at a target the player can actually navigate toward.
+      const bool interior = records_.InteriorCellOfRef(ref).plugin != 0xffff;
       Vec3 pos;
       if (RefWorldPosition(ref, &pos)) {
-        objective_targets_.insert(ObjectiveKey(def.handle, obj.index), pos);
+        objective_targets_.insert(ObjectiveKey(def.handle, obj.index), ObjTarget{pos, interior});
         break;  // first resolvable target alias wins
       }
     }
@@ -674,11 +679,14 @@ void QuestDirector::IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin
 }
 
 bool QuestDirector::ObjectiveTargetFor(u64 quest, i32 objective, Vec3* out) const {
-  if (const Vec3* pos = objective_targets_.find(ObjectiveKey(quest, objective))) {
-    *out = *pos;
-    return true;
-  }
-  return false;
+  const ObjTarget* t = objective_targets_.find(ObjectiveKey(quest, objective));
+  if (!t) return false;
+  // A target's position is only in the player's coordinate space when both are
+  // interior or both exterior; otherwise the bearing would point nowhere useful.
+  const bool player_interior = ctx_.streamer && ctx_.streamer->in_interior();
+  if (t->interior != player_interior) return false;
+  *out = t->pos;
+  return true;
 }
 
 void QuestDirector::RefreshNativeTrace(f32 dt) {

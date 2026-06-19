@@ -103,7 +103,15 @@ class QuestDirector {
   u64 pinned_quest_ = 0;
   base::Vector<u64> journal_handles_;
   base::Vector<QuestMarker> quest_markers_;
-  base::UnorderedMap<u64, Vec3> objective_targets_;
+  // Objective index -> world position of its forced-reference alias, with the
+  // space that position lives in. An interior ref's position is in its own cell
+  // space, so a compass bearing to it is only meaningful while the player is in
+  // that same space (handled by ObjectiveTargetFor).
+  struct ObjTarget {
+    Vec3 pos;
+    bool interior = false;
+  };
+  base::UnorderedMap<u64, ObjTarget> objective_targets_;
   bool sent_marker_active_ = false;
   Vec3 sent_marker_pos_{};
   u64 sent_marker_quest_ = 0;
