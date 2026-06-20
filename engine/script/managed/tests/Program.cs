@@ -43,6 +43,7 @@ internal static class Program
         BookTests.Run(check);
         PotionTests.Run(check);
         EnchantingTests.Run(check);
+        ZoneTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

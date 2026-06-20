@@ -108,6 +108,7 @@ public static class ModHost
         Cooldowns.Clear();
         FastTravel.Clear();
         PlayerControls.Clear();
+        Zones.Clear();
         EventBus.Clear();
         _booted = false;
     }
