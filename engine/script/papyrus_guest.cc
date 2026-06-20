@@ -141,8 +141,16 @@ void PapyrusGuest::BindEngineNatives() {
   };
   natives_.Register("Debug", "Trace", trace);
   natives_.Register("Debug", "TraceUser", trace);
-  natives_.Register("Debug", "Notification", trace);
   natives_.Register("Debug", "MessageBox", trace);
+  // Notification reaches the HUD toast when the runtime wires a handler, and the
+  // trace log either way for diagnostics.
+  natives_.Register("Debug", "Notification",
+                    [this](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                      const std::string message = args.empty() ? "" : args[0].ToString();
+                      REC_INFO("[papyrus] notification: {}", message);
+                      if (on_notification_) on_notification_(message);
+                      return Value();
+                    });
 }
 
 }  // namespace rec::script

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <memory>
 #include <array>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -213,6 +214,10 @@ class Engine {
 
   DebugUi debug_ui_;
   GameUi game_ui_;
+  // Debug.Notification messages awaiting display, pushed from the guest thread and
+  // drained to the HUD toast on the main loop.
+  std::mutex notification_mutex_;
+  std::vector<std::string> pending_notifications_;
   physics::PhysicsWorld physics_;
   // Dynamic bodies mirrored into ECS transforms after each step.
   base::Vector<PhysicsEntity> physics_entities_;

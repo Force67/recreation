@@ -441,6 +441,15 @@ bool Engine::RunFrame() {
       }
       debug_ui_.Build(renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
                       quest_->native_trace_panel());
+      // Drain queued Debug.Notification messages onto the HUD toast.
+      {
+        std::vector<std::string> notifications;
+        {
+          std::lock_guard<std::mutex> lock(notification_mutex_);
+          notifications.swap(pending_notifications_);
+        }
+        for (const std::string& message : notifications) game_ui_.FlashQuestUpdate(message);
+      }
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
       renderer_.RenderFrame(view);
     } else {
@@ -621,6 +630,18 @@ bool Engine::LoadGameData() {
     auto* binds = script_bindings_.get();
     scripts_->guest().Submit(
         [binds](rec::script::papyrus::VirtualMachine& vm) { binds->set_vm(&vm); });
+  }
+  // Route Debug.Notification (from Papyrus quests or C# mods) to the HUD toast.
+  // Set on the guest thread so it never races the native; the handler only queues,
+  // and the main loop drains it to the UI.
+  {
+    auto* guest = &scripts_->guest();
+    guest->Submit([guest, this](rec::script::papyrus::VirtualMachine&) {
+      guest->set_on_notification([this](const std::string& message) {
+        std::lock_guard<std::mutex> lock(notification_mutex_);
+        pending_notifications_.push_back(message);
+      });
+    });
   }
   quest_->AttachQuestScripts();
 

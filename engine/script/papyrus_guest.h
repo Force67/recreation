@@ -60,6 +60,13 @@ class PapyrusGuest {
   // Start(). After Start() the table must not be mutated from outside.
   papyrus::NativeRegistry& natives() { return natives_; }
 
+  // Where Debug.Notification messages go (a HUD toast in the runtime). Without a
+  // handler they fall back to the trace log. Set it on the guest thread (Submit)
+  // so the native, which also runs there, never races the assignment.
+  void set_on_notification(std::function<void(const std::string&)> fn) {
+    on_notification_ = std::move(fn);
+  }
+
  private:
   struct ScheduledUpdate {
     papyrus::ObjectRef target;
@@ -87,6 +94,10 @@ class PapyrusGuest {
   // Touched only on the guest thread.
   f64 clock_ = 0;
   std::vector<ScheduledUpdate> updates_;
+
+  // Set once on the guest thread (see set_on_notification); read by the
+  // Debug.Notification native, also on the guest thread.
+  std::function<void(const std::string&)> on_notification_;
 };
 
 template <typename Fn>
