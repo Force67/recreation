@@ -27,6 +27,11 @@ public static class ModHost
         if (_booted) return;
         _booted = true;
         Console.WriteLine("[managed] mod host booting");
+        // Complete the per-form component lifecycle: when a form unloads, detach
+        // the behaviours attached to it so they stop ticking on a stale handle.
+        // The subscription is cleared by Shutdown (EventBus.Clear) and re-added on
+        // the next Boot.
+        EventBus.Subscribe<FormUnloaded>(e => FormScripts.DetachAll(e.Form));
         LoadFrom(AppDomain.CurrentDomain.GetAssemblies());
     }
 

@@ -99,6 +99,7 @@ enum class ManagedEventId : std::int32_t {
   kItemRemoved = 6,         // a = container handle, b = item handle, i = count removed
   kLocationChanged = 7,     // a = interior cell id (0 outside), i = 1 if interior
   kKeyPressed = 8,          // a = key code (the engine's Key enum)
+  kFormUnloaded = 9,        // a = form handle (it streamed out / left the world)
 };
 
 struct ManagedEvent {

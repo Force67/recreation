@@ -19,7 +19,9 @@ std::vector<WorldCommand> WorldCommandQueue::Drain() {
 }
 
 void QuestWorld::Register(u64 handle, ecs::Entity entity) { registry_[handle] = entity; }
-void QuestWorld::Unregister(u64 handle) { registry_.erase(handle); }
+void QuestWorld::Unregister(u64 handle) {
+  if (registry_.erase(handle) != 0 && on_unregister_) on_unregister_(handle);
+}
 
 ecs::Entity QuestWorld::Find(u64 handle) const {
   auto it = registry_.find(handle);

@@ -27,6 +27,9 @@ public static class EngineEvents
             case ManagedEventId.FormLoaded:
                 EventBus.Publish(new FormLoaded(e.A));
                 break;
+            case ManagedEventId.FormUnloaded:
+                EventBus.Publish(new FormUnloaded(e.A));
+                break;
             case ManagedEventId.PlayerActivated:
                 EventBus.Publish(new PlayerActivated(e.A));
                 break;

@@ -66,6 +66,17 @@ public readonly struct FormLoaded(ulong formHandle) : IGameEvent
     public Actor Actor => Actor.From(FormHandle);
 }
 
+// Raised when a form leaves the world (it streams out). The OnDestroy half of
+// the FormLoaded lifecycle, the analog of gmod's EntityRemoved: FormScripts
+// detaches the behaviours on the form, and mods release any per-form state.
+public readonly struct FormUnloaded(ulong formHandle) : IGameEvent
+{
+    public ulong FormHandle { get; } = formHandle;
+
+    public Form Form => Form.From(FormHandle);
+    public ObjectReference Reference => ObjectReference.From(FormHandle);
+}
+
 // Raised when the player activates (uses) a reference, the analog of gmod's
 // PlayerUse. Mods react to the player interacting with the world.
 public readonly struct PlayerActivated(ulong targetHandle) : IGameEvent

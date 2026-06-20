@@ -37,6 +37,11 @@ public static class EngineEventsTests
         EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.FormLoaded, A = 0x55 });
         check.Equal("FormLoaded maps with handle", 0x55UL, loaded);
 
+        ulong unloaded = 0;
+        using var s4b = EventBus.Subscribe<FormUnloaded>(e => unloaded = e.FormHandle);
+        EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.FormUnloaded, A = 0x5A });
+        check.Equal("FormUnloaded maps with handle", 0x5AUL, unloaded);
+
         ulong used = 0;
         using var s5 = EventBus.Subscribe<PlayerActivated>(e => used = e.TargetHandle);
         EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.PlayerActivated, A = 0x66 });

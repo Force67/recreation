@@ -71,6 +71,12 @@ class QuestWorld {
     on_move_player_ = std::move(fn);
   }
 
+  // Fires when a tracked reference unloads (Unregister), so the runtime can raise
+  // a managed FormUnloaded event symmetric to the scripts-attached FormLoaded.
+  void set_on_unregister(std::function<void(u64 handle)> fn) {
+    on_unregister_ = std::move(fn);
+  }
+
   // Registers a pre-existing reference's entity (e.g. a cell-streamed REFR) so
   // quests can Move/Disable/Delete it. Spawned refs register themselves.
   void Register(u64 handle, ecs::Entity entity);
@@ -112,6 +118,7 @@ class QuestWorld {
   std::unordered_map<u64, ecs::Entity> registry_;
   std::unordered_map<u64, std::vector<Effect>> provenance_;
   std::function<void(u64, f32, f32, f32)> on_move_player_;
+  std::function<void(u64)> on_unregister_;
   u64 player_handle_ = 0x14;
 };
 

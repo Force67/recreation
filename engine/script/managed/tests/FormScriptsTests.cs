@@ -62,6 +62,7 @@ public static class FormScriptsTests
         EventBus.Clear();
 
         AutoAttachOnFormLoaded(check);
+        AutoDetachOnFormUnloaded(check);
     }
 
     // The gmod-style pattern: a mod subscribes to FormLoaded and attaches its own
@@ -84,6 +85,41 @@ public static class FormScriptsTests
         var attached = (GuardScript)FormScripts.For(Form.From(0x500))[0];
         EventBus.Publish(new ActorDied(0x500));
         check.Equal("auto-attached behaviour gets its form's events", 1, attached.Deaths);
+
+        ModHost.Shutdown();
+        EventBus.Clear();
+    }
+
+    // The symmetric half ModHost wires at boot: a form unloading detaches the
+    // behaviours on it, the OnDestroy side of the lifecycle. Mirrors ModHost's
+    // FormUnloaded -> FormScripts.DetachAll subscription so it runs without the
+    // full mod-discovery boot.
+    private static void AutoDetachOnFormUnloaded(Check check)
+    {
+        ModHost.Shutdown();
+        EventBus.Clear();
+
+        using var sub = EventBus.Subscribe<FormUnloaded>(e => FormScripts.DetachAll(e.Form));
+
+        GuardScript guard = FormScripts.Attach<GuardScript>(Form.From(0x600));
+        FormScripts.Attach<GuardScript>(Form.From(0x601));
+        check.Equal("two forms attached", 2, FormScripts.Count);
+
+        EngineEvents.Dispatch(new Interop.ManagedEvent
+        {
+            Id = Interop.ManagedEventId.FormUnloaded,
+            A = 0x600,
+        });
+        check.Equal("unload detaches the form's behaviour", 1, FormScripts.Count);
+        check.Equal("unload runs OnDetach", 1, guard.Detached);
+
+        // An unrelated form unloading leaves other attachments intact.
+        EngineEvents.Dispatch(new Interop.ManagedEvent
+        {
+            Id = Interop.ManagedEventId.FormUnloaded,
+            A = 0x999,
+        });
+        check.Equal("unrelated unload keeps attachments", 1, FormScripts.Count);
 
         ModHost.Shutdown();
         EventBus.Clear();
