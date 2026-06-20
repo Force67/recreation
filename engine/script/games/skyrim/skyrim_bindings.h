@@ -131,6 +131,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetWeaponDamage(papyrus::ObjectRef weapon) override;
   f32 GetArmorRating(papyrus::ObjectRef armor) override;
   papyrus::ObjectRef GetEnchantment(papyrus::ObjectRef item) override;
+  i32 GetIngredientEffectCount(papyrus::ObjectRef ingredient) override;
+  papyrus::ObjectRef GetNthIngredientEffectId(i32 index) override;
+  f32 GetNthIngredientEffectMagnitude(i32 index) override;
+  i32 GetNthIngredientEffectDuration(i32 index) override;
   i32 GetSex(papyrus::ObjectRef actor_base) override;
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
@@ -231,6 +235,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     f32 base = 0;
     f32 current = 0;
   };
+  // One parsed ingredient magic effect (INGR EFID/EFIT): the effect's global form
+  // handle and its base magnitude/duration, cached by GetIngredientEffectCount.
+  struct IngredientEffect {
+    u64 effect = 0;
+    f32 magnitude = 0;
+    i32 duration = 0;
+  };
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   // Reads a 4-byte form-id subrecord off `from`'s record and resolves it
   // against the load order. Used for record fields that point at another form.
@@ -319,6 +330,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::mutex live_positions_mutex_;
   std::unordered_map<u64, std::array<f32, 3>> live_positions_;
   std::vector<std::pair<u64, f32>> nearby_cache_;  // last result: (handle, distance in game units)
+  // Last GetIngredientEffectCount result, read by the GetNthIngredientEffect*
+  // accessors. Guest-thread only (record parsing), so it needs no lock.
+  std::vector<IngredientEffect> ingredient_effect_cache_;
 };
 
 }  // namespace rec::script::skyrim

@@ -94,4 +94,55 @@ f32 RecordBackedSkyrimBindings::GetArmorRating(ObjectRef armor) {
   return scaled / 100.0f;
 }
 
+i32 RecordBackedSkyrimBindings::GetIngredientEffectCount(ObjectRef ingredient) {
+  ingredient_effect_cache_.clear();
+  if (!records_) return 0;
+  const bethesda::GlobalFormId id = ToFormId(ingredient);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  if (!stored) return 0;
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec)) return 0;
+  if (rec.header.type != FourCc('I', 'N', 'G', 'R')) return 0;
+
+  // INGR lists up to four effects as ordered EFID (effect form id) / EFIT
+  // ({ float magnitude; uint32 area; uint32 duration }) pairs. Each EFID's id is
+  // resolved against the ingredient's load order so managed code gets a real
+  // global handle it can compare across ingredients.
+  IngredientEffect pending;
+  bool have_effect = false;
+  for (const bethesda::Subrecord& sub : rec.subrecords) {
+    if (sub.type == FourCc('E', 'F', 'I', 'D') && sub.data.size() >= 4) {
+      u32 raw;
+      std::memcpy(&raw, sub.data.data(), 4);
+      pending = IngredientEffect{};
+      pending.effect =
+          records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed();
+      have_effect = true;
+    } else if (sub.type == FourCc('E', 'F', 'I', 'T') && have_effect && sub.data.size() >= 12) {
+      std::memcpy(&pending.magnitude, sub.data.data(), 4);
+      u32 duration;
+      std::memcpy(&duration, sub.data.data() + 8, 4);
+      pending.duration = static_cast<i32>(duration);
+      ingredient_effect_cache_.push_back(pending);
+      have_effect = false;
+    }
+  }
+  return static_cast<i32>(ingredient_effect_cache_.size());
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthIngredientEffectId(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= ingredient_effect_cache_.size()) return {};
+  return papyrus::ObjectRef{ingredient_effect_cache_[static_cast<size_t>(index)].effect};
+}
+
+f32 RecordBackedSkyrimBindings::GetNthIngredientEffectMagnitude(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= ingredient_effect_cache_.size()) return 0.0f;
+  return ingredient_effect_cache_[static_cast<size_t>(index)].magnitude;
+}
+
+i32 RecordBackedSkyrimBindings::GetNthIngredientEffectDuration(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= ingredient_effect_cache_.size()) return 0;
+  return ingredient_effect_cache_[static_cast<size_t>(index)].duration;
+}
+
 }  // namespace rec::script::skyrim

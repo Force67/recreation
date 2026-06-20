@@ -41,6 +41,16 @@ public sealed class FakeBackend : IEngineBackend
     public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly Dictionary<ulong, int> _goldValue = new();   // item -> record value
     public void SetGoldValue(ulong item, int value) => _goldValue[item] = value;
+
+    // ingredient -> its magic effects, and the cache the Nth-accessors read after
+    // a GetIngredientEffectCount, mirroring the engine's parse-once-then-index ABI.
+    private readonly Dictionary<ulong, List<(ulong Effect, float Magnitude, int Duration)>>
+        _ingredientEffects = new();
+    private readonly List<(ulong Effect, float Magnitude, int Duration)> _effectCache = new();
+
+    public void SetIngredientEffects(ulong ingredient,
+        params (ulong effect, float magnitude, int duration)[] effects) =>
+        _ingredientEffects[ingredient] = effects.Select(e => (e.effect, e.magnitude, e.duration)).ToList();
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
     private readonly List<(ulong Handle, float Distance)> _nearbyCache = new();
@@ -244,6 +254,28 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Float(_weights.GetValueOrDefault(self));
             case "GetGoldValue":
                 return Value.Int(_goldValue.GetValueOrDefault(self));
+            case "GetIngredientEffectCount":
+                _effectCache.Clear();
+                if (_ingredientEffects.TryGetValue(self, out var effs)) _effectCache.AddRange(effs);
+                return Value.Int(_effectCache.Count);
+            case "GetNthIngredientEffectId":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _effectCache.Count
+                    ? Value.Object(_effectCache[idx].Effect) : Value.Object(0);
+            }
+            case "GetNthIngredientEffectMagnitude":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _effectCache.Count
+                    ? Value.Float(_effectCache[idx].Magnitude) : Value.Float(0);
+            }
+            case "GetNthIngredientEffectDuration":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _effectCache.Count
+                    ? Value.Int(_effectCache[idx].Duration) : Value.Int(0);
+            }
             case "GetSex":
                 return Value.Int(_sex.GetValueOrDefault(self));
             case "GetRace":

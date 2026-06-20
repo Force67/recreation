@@ -45,6 +45,16 @@ class SkyrimBindings {
   // non-flora. The form passed is the flora base, not a placed reference.
   virtual papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) { return {}; }
 
+  // The magic effects of an ingredient (INGR), for the C# alchemy logic. Call
+  // GetIngredientEffectCount first: it parses the ingredient's up-to-four effects
+  // (EFID/EFIT) into a cache and returns the count; the GetNthIngredientEffect*
+  // accessors then read that cache by index. Two ingredients share an effect when
+  // their effect ids match -- the rule managed code brews potions by.
+  virtual i32 GetIngredientEffectCount(papyrus::ObjectRef ingredient) { return 0; }
+  virtual papyrus::ObjectRef GetNthIngredientEffectId(i32 index) { return {}; }
+  virtual f32 GetNthIngredientEffectMagnitude(i32 index) { return 0; }
+  virtual i32 GetNthIngredientEffectDuration(i32 index) { return 0; }
+
   // ActorBase (NPC_ record data).
   virtual i32 GetSex(papyrus::ObjectRef actor_base) { return 0; }  // 0 male, 1 female
   virtual bool IsUnique(papyrus::ObjectRef actor_base) { return false; }
