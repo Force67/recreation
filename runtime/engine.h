@@ -1,6 +1,7 @@
 #ifndef RECREATION_RUNTIME_ENGINE_H_
 #define RECREATION_RUNTIME_ENGINE_H_
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <memory>
@@ -40,7 +41,7 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     c.quest = quest;
     c.handle = handle;
     c.base = base;
-    c.pos = {x, y, z};
+    c.pos = ToEngine(x, y, z);
     queue_->Push(c);
     return handle;
   }
@@ -74,8 +75,17 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     c.op = op;
     c.quest = quest;
     c.handle = handle;
-    c.pos = {x, y, z};
+    c.pos = ToEngine(x, y, z);
     queue_->Push(c);
+  }
+
+  // Bethesda game space (Z-up, ~70 units/m) to engine space (Y-up, metres),
+  // axes (x, z, -y). The bindings speak game units (Papyrus reads them back), so
+  // every position they hand the ECS is converted here at the one crossing
+  // point; QuestWorld then treats command positions as engine space.
+  static std::array<f32, 3> ToEngine(f32 x, f32 y, f32 z) {
+    constexpr f32 s = 0.01428f;
+    return {x * s, z * s, -y * s};
   }
 
   world::WorldCommandQueue* queue_;
