@@ -13,6 +13,9 @@ void PrintUsage() {
   REC_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
   REC_INFO("  --demo <id>           builtin scene: water | materials | gaussian");
   REC_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
+  REC_INFO("  --add-game <spec>     load another game's content live alongside the");
+  REC_INFO("                        primary, as <game>:<data-dir>[:<plugins.txt>]");
+  REC_INFO("                        (repeatable; runs its own isolated microvm)");
   REC_INFO("  --headless            no window, no renderer");
   REC_INFO("  --server              host a server");
   REC_INFO("  --connect <address>   join a server");
@@ -58,6 +61,32 @@ int main(int argc, char** argv) {
     else if (arg == "--demo") config.demo_scene = next();
     else if (arg == "--plugins") config.plugins_txt = next();
     else if (arg == "--game") config.game = ParseGame(next());
+    else if (arg == "--add-game") {
+      // <game>:<data-dir>[:<plugins.txt>]; the data dir may itself be absolute
+      // (a leading drive-less unix path), so split on the first and last colons.
+      std::string spec = next();
+      size_t first = spec.find(':');
+      if (first == std::string::npos) {
+        PrintUsage();
+        return 1;
+      }
+      rec::ExtraDomainConfig domain;
+      domain.game = ParseGame(spec.substr(0, first));
+      std::string rest = spec.substr(first + 1);
+      size_t plugins = rest.rfind(':');
+      // A bare "C" style colon inside the path is unlikely on this platform; a
+      // trailing ":plugins.txt" is recognized only when it ends in .txt.
+      if (plugins != std::string::npos && rest.substr(plugins + 1).ends_with(".txt")) {
+        domain.data_dir = rest.substr(0, plugins);
+        domain.plugins_txt = rest.substr(plugins + 1);
+      } else {
+        domain.data_dir = rest;
+      }
+      if (domain.plugins_txt.empty() && !domain.data_dir.empty()) {
+        domain.plugins_txt = domain.data_dir + "/../plugins.txt";
+      }
+      config.extra_domains.push_back(domain);
+    }
     else if (arg == "--headless") config.headless = true;
     else if (arg == "--server") config.host_server = true;
     else if (arg == "--connect") config.connect_address = next();

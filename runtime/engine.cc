@@ -111,6 +111,7 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
     if (!LoadGltfScene()) return false;
   } else if (!config_.data_dir.empty()) {
     if (!LoadGameData()) return false;
+    LoadExtraDomains();
   } else {
     demos_->CreateDemoScene();
   }
@@ -357,6 +358,8 @@ bool Engine::RunFrame() {
     // The guest advances on the main loop's clock; it does its work on its own
     // thread, so this only posts a tick.
     if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Secondary game domains tick their own isolated microvms in lockstep.
+    for (auto& domain : extra_domains_) domain->Tick(static_cast<f32>(timer_.frame_delta()));
     // Refresh the world-space position snapshot the managed proximity query reads
     // (registered refs plus the player), so mods see this frame's positions.
     if (managed_ && ctx_.bindings) {
@@ -486,6 +489,7 @@ void Engine::Shutdown() {
   // the guest thread holds, valid until the guest is joined.
   if (managed_) managed_->Shutdown();
   scripts_.reset();
+  extra_domains_.clear();  // joins each secondary guest thread before teardown
   managed_.reset();
   if (!config_.headless) {
     renderer_.WaitIdle();
@@ -760,6 +764,32 @@ bool Engine::LoadInterior() {
   REC_INFO("interior {}: {} npcs loaded", config_.interior, streamer_->spawned_npc_count());
   actors_->MaybeSpawnWorldPlayer(start);
   return true;
+}
+
+void Engine::LoadExtraDomains() {
+  for (const ExtraDomainConfig& cfg : config_.extra_domains) {
+    auto domain = std::make_unique<ContentDomain>();
+    // A multiplayer client mirrors the host, so secondary domains are replicas
+    // there too: their scripts read content but do not drive authoritative state.
+    if (!domain->Load(cfg.game, cfg.data_dir, cfg.plugins_txt,
+                      /*replica_mode=*/!config_.connect_address.empty())) {
+      REC_WARN("secondary domain failed to load: {}", cfg.data_dir);
+      continue;
+    }
+    // Surface its Debug.Notification on the same HUD toast as the primary game.
+    auto* guest = &domain->scripts()->guest();
+    guest->Submit([guest, this](rec::script::papyrus::VirtualMachine&) {
+      guest->set_on_notification([this](const std::string& message) {
+        std::lock_guard<std::mutex> lock(notification_mutex_);
+        pending_notifications_.push_back(message);
+      });
+    });
+    // Run that game's quests inside its own microvm (capped like the primary).
+    domain->AttachQuestScripts(config_.max_quest_scripts);
+    REC_INFO("secondary domain live: {} ({} records, isolated microvm)", domain->profile().name,
+             domain->records().record_count());
+    extra_domains_.push_back(std::move(domain));
+  }
 }
 
 void Engine::MountArchives() {

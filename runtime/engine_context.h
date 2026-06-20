@@ -32,9 +32,19 @@
 
 namespace rec {
 
+// An additional game loaded as a live secondary content domain alongside the
+// primary (rendered) game. Each runs its own isolated Papyrus microvm, so
+// Skyrim and Fallout 4 content stay live in one process at the same time.
+struct ExtraDomainConfig {
+  bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect
+  std::string data_dir;
+  std::string plugins_txt;
+};
+
 struct EngineConfig {
   std::string data_dir;
   std::string plugins_txt;
+  base::Vector<ExtraDomainConfig> extra_domains;
   std::string gltf_path;  // standalone gltf/glb scene (e.g. sponza)
   std::string demo_scene;  // "water" = empty map with a water sheet
   bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect

@@ -20,6 +20,7 @@
 #include "script/host/managed_host.h"
 
 #include "actor_system.h"
+#include "content_domain.h"
 #include "demo_scenes.h"
 #include "engine_context.h"
 #include "interaction_system.h"
@@ -130,6 +131,9 @@ class Engine {
 
  private:
   bool LoadGameData();
+  // Loads each --add-game as a live secondary content domain: its own data,
+  // records and Papyrus microvm, run alongside the primary (rendered) game.
+  void LoadExtraDomains();
   bool LoadInterior();
   void MountArchives();
   bool LoadGltfScene();
@@ -189,6 +193,11 @@ class Engine {
   // is joined in ScriptSystem's destructor before the bindings are torn down.
   std::unique_ptr<rec::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
   std::unique_ptr<rec::script::ScriptSystem> scripts_;
+  // Additional games loaded as live secondary content domains (Fallout 4 next to
+  // Skyrim, say). Each owns its data and an isolated Papyrus microvm, ticked
+  // every frame. Declared after scripts_ so the primary guest is unaffected by
+  // their teardown; cleared explicitly in Shutdown before the managed host.
+  base::Vector<std::unique_ptr<ContentDomain>> extra_domains_;
   // The managed (C#) scripting world, where user mods and Skyrim soft logic run.
   // Declared after scripts_ so it tears down before the guest thread it drives.
   // Null when .NET or the assembly is unavailable, leaving the engine unaffected.

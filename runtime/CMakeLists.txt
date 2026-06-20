@@ -3,6 +3,7 @@
 # when those middlewares are absent, so the same translation units serve all.
 set(RECREATION_RUNTIME_SOURCES
   engine.cc
+  content_domain.cc
   actor_system.cc
   demo_scenes.cc
   interaction_system.cc
