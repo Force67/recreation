@@ -40,6 +40,11 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data);
 struct NifConversion {
   base::UniquePointer<asset::Mesh> mesh;
   base::Vector<asset::Material> materials;
+  // Fallout 4 shader properties bind their textures through a .bgsm/.bgem
+  // material file instead of an inline texture set. Parallel to `materials`:
+  // the normalized "materials/..." path of each, or empty when textures were
+  // inline. The asset layer reads the file to fill the missing bindings.
+  base::Vector<std::string> material_files;
   // Normalized vfs paths ("textures/..."), deduplicated.
   base::Vector<std::string> texture_paths;
   u32 skipped_shapes = 0;  // strip/effect/empty shapes we cannot use yet

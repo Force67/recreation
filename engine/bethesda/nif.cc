@@ -206,7 +206,18 @@ struct ShaderInfo {
   bool effect = false;
   bool water = false;
   std::string effect_texture;
+  std::string material_file;  // FO4 .bgsm/.bgem referenced by the shader name
 };
+
+// A NIF shader name may name a Fallout 4 material file ("materials\...\x.bgsm").
+// Folds it to the "materials/..." vfs key; returns empty for non-material names.
+std::string MaterialFilePath(std::string_view raw) {
+  if (raw.empty()) return {};
+  std::string path = asset::NormalizePath(raw);
+  if (!path.ends_with(".bgsm") && !path.ends_with(".bgem")) return {};
+  size_t anchor = path.rfind("materials/");
+  return anchor != std::string::npos ? path.substr(anchor) : "materials/" + path;
+}
 
 // Refraction shapes (heat haze, glass distortion) carry a normal map in the
 // diffuse slot for the distortion effect; without refraction support they
@@ -779,7 +790,10 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     } else if (type == "BSLightingShaderProperty") {
       ShaderInfo info;
       info.shader_type = r.Read<u32>();
-      r.Skip(4);  // name
+      i32 name_index = r.Read<i32>();  // FO4: names the .bgsm material file
+      if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
+        info.material_file = MaterialFilePath(header->strings[name_index]);
+      }
       u32 extra = r.Read<u32>();
       if (!r.ok || extra > 4096) continue;
       r.Skip(4 * extra + 4);  // extra refs, controller
@@ -801,7 +815,10 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     } else if (type == "BSEffectShaderProperty") {
       ShaderInfo info;
       info.effect = true;
-      r.Skip(4);  // name
+      i32 name_index = r.Read<i32>();  // FO4: names the .bgem material file
+      if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
+        info.material_file = MaterialFilePath(header->strings[name_index]);
+      }
       u32 extra = r.Read<u32>();
       if (!r.ok || extra > 4096) continue;
       r.Skip(4 * extra + 4);  // extra refs, controller
@@ -943,6 +960,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     }
 
     result.materials.push_back(material);
+    result.material_files.push_back(shader ? shader->material_file : std::string());
     material_ids.emplace(key, material.id);
     return material.id;
   };

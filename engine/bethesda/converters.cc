@@ -145,11 +145,59 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
   return texture;
 }
 
-base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan, asset::AssetId id, std::string_view) {
+std::string NormalizeTexturePathLocal(std::string_view raw) {
+  if (raw.empty()) return {};
+  std::string path = asset::NormalizePath(raw);
+  size_t anchor = path.rfind("textures/");
+  if (anchor != std::string::npos) return path.substr(anchor);
+  return "textures/" + path;
+}
+
+// One length-prefixed, null-terminated string from a BGSM/BGEM at *cursor.
+std::string ReadBgsmString(ByteSpan data, size_t* cursor) {
+  if (*cursor + 4 > data.size()) return {};
+  u32 length;
+  std::memcpy(&length, data.data() + *cursor, 4);
+  *cursor += 4;
+  if (length > 1024 || *cursor + length > data.size()) return {};
+  std::string s(reinterpret_cast<const char*>(data.data() + *cursor), length);
+  *cursor += length;
+  while (!s.empty() && s.back() == '\0') s.pop_back();
+  return s;
+}
+
+// Fallout 4 BGSM (lighting) / BGEM (effect) material file, version 2. The
+// pre-texture header is a fixed size, so the texture string block starts at a
+// constant offset. Slot 0 is the base/diffuse texture; for BGSM slot 1 is the
+// normal map (BGEM slot 1 is a greyscale mask, not a normal, so it is ignored).
+constexpr size_t kBgsmV2TextureOffset = 63;
+
+bool ParseBgsmTextures(ByteSpan data, std::string* diffuse, std::string* normal) {
+  if (data.size() < kBgsmV2TextureOffset + 8) return false;
+  const bool bgsm = std::memcmp(data.data(), "BGSM", 4) == 0;
+  const bool bgem = std::memcmp(data.data(), "BGEM", 4) == 0;
+  if (!bgsm && !bgem) return false;
+  u32 version;
+  std::memcpy(&version, data.data() + 4, 4);
+  if (version != 2) return false;  // FO76 (v20+) has a different header
+
+  size_t cursor = kBgsmV2TextureOffset;
+  std::string base = ReadBgsmString(data, &cursor);
+  std::string second = ReadBgsmString(data, &cursor);
+  *diffuse = NormalizeTexturePathLocal(base);
+  *normal = bgsm ? NormalizeTexturePathLocal(second) : std::string();
+  return !diffuse->empty();
+}
+
+base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan data, asset::AssetId id,
+                                                 std::string_view) {
   auto material = base::MakeUnique<asset::Material>();
   material->id = id;
-  // TODO: BGSM/BGEM layout (version, texture paths, alpha settings), then
-  // map specular/smoothness to metallic/roughness.
+  std::string diffuse, normal;
+  if (ParseBgsmTextures(data, &diffuse, &normal)) {
+    if (!diffuse.empty()) material->base_color = asset::MakeAssetId(diffuse);
+    if (!normal.empty()) material->normal = asset::MakeAssetId(normal);
+  }
   return material;
 }
 
@@ -165,6 +213,29 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
         if (!conversion.mesh) return base::UniquePointer<asset::Mesh>();
         for (const std::string& texture : conversion.texture_paths) {
           database.LoadTexture(texture);
+        }
+        // Fallout 4 binds most textures through a .bgsm/.bgem material file
+        // rather than an inline texture set; resolve those the shader did not
+        // already fill from an inline set.
+        for (size_t i = 0; i < conversion.materials.size(); ++i) {
+          asset::Material& material = conversion.materials[i];
+          const std::string& material_file =
+              i < conversion.material_files.size() ? conversion.material_files[i] : std::string();
+          if (material_file.empty() || material.base_color) continue;
+          auto bytes = database.vfs().Read(material_file);
+          if (!bytes) continue;
+          std::string diffuse, normal;
+          if (!ParseBgsmTextures(ByteSpan(bytes->data(), bytes->size()), &diffuse, &normal)) {
+            continue;
+          }
+          if (!diffuse.empty()) {
+            material.base_color = asset::MakeAssetId(diffuse);
+            database.LoadTexture(diffuse);
+          }
+          if (!normal.empty()) {
+            material.normal = asset::MakeAssetId(normal);
+            database.LoadTexture(normal);
+          }
         }
         for (const asset::Material& material : conversion.materials) {
           database.AddMaterial(material);
