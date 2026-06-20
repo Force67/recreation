@@ -44,6 +44,33 @@ u32 ReadU32(const bethesda::Subrecord* sub, size_t offset) {
   return value;
 }
 
+// The actor-value name for a skill index, matching the Skyrim ActorValue enum
+// (the skills run 6..23). Empty for a non-skill index. The names are the ones the
+// actor-value store keys on, so a skill book's gain routes to the right value.
+const char* SkillAvName(u32 index) {
+  switch (index) {
+    case 6: return "OneHanded";
+    case 7: return "TwoHanded";
+    case 8: return "Marksman";
+    case 9: return "Block";
+    case 10: return "Smithing";
+    case 11: return "HeavyArmor";
+    case 12: return "LightArmor";
+    case 13: return "Pickpocket";
+    case 14: return "Lockpicking";
+    case 15: return "Sneak";
+    case 16: return "Alchemy";
+    case 17: return "Speechcraft";
+    case 18: return "Alteration";
+    case 19: return "Conjuration";
+    case 20: return "Destruction";
+    case 21: return "Illusion";
+    case 22: return "Restoration";
+    case 23: return "Enchanting";
+    default: return "";
+  }
+}
+
 }  // namespace
 
 f32 RecordBackedSkyrimBindings::GetWeight(ObjectRef form) {
@@ -55,6 +82,37 @@ f32 RecordBackedSkyrimBindings::GetWeight(ObjectRef form) {
   // Potions/food/poisons (ALCH) keep weight alone in DATA; value lives in ENIT.
   if (rec.header.type == FourCc('A', 'L', 'C', 'H')) return ReadF32(data, 0);
   return 0.0f;
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
+  if (!records_) return {};
+  const bethesda::GlobalFormId id = ToFormId(book);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  if (!stored) return {};
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec)) return {};
+  if (rec.header.type != FourCc('B', 'O', 'O', 'K')) return {};
+  // BOOK DATA: { uint8 flags; uint8 type; uint16 pad; uint32 teaches; ... }. The
+  // 0x04 flag marks a spell tome, where `teaches` is the taught spell's form id.
+  const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+  if (!data || data->data.size() < 8 || (data->data[0] & 0x04) == 0) return {};
+  u32 raw;
+  std::memcpy(&raw, data->data.data() + 4, 4);
+  return papyrus::ObjectRef{
+      records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed()};
+}
+
+std::string RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
+  if (!records_) return "";
+  bethesda::Record rec;
+  if (!records_->Parse(ToFormId(book), &rec)) return "";
+  if (rec.header.type != FourCc('B', 'O', 'O', 'K')) return "";
+  // The 0x01 flag marks a skill book, where `teaches` is the skill's AV index.
+  const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+  if (!data || data->data.size() < 8 || (data->data[0] & 0x01) == 0) return "";
+  u32 index;
+  std::memcpy(&index, data->data.data() + 4, 4);
+  return SkillAvName(index);
 }
 
 i32 RecordBackedSkyrimBindings::GetGoldValue(ObjectRef form) {

@@ -41,6 +41,12 @@ public sealed class FakeBackend : IEngineBackend
     public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly Dictionary<ulong, int> _goldValue = new();   // item -> record value
     public void SetGoldValue(ulong item, int value) => _goldValue[item] = value;
+    private readonly Dictionary<ulong, ulong> _bookSpell = new();   // book -> taught spell
+    private readonly Dictionary<ulong, string> _bookSkill = new();  // book -> taught skill av
+    private readonly HashSet<(ulong Actor, ulong Spell)> _spells = new();
+    public void SetBookSpell(ulong book, ulong spell) => _bookSpell[book] = spell;
+    public void SetBookSkill(ulong book, string skill) => _bookSkill[book] = skill;
+    public bool HasSpell(ulong actor, ulong spell) => _spells.Contains((actor, spell));
 
     // ingredient -> its magic effects, and the cache the Nth-accessors read after
     // a GetIngredientEffectCount, mirroring the engine's parse-once-then-index ABI.
@@ -287,6 +293,13 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Float(_weights.GetValueOrDefault(self));
             case "GetGoldValue":
                 return Value.Int(_goldValue.GetValueOrDefault(self));
+            case "GetBookSpell":
+                return Value.Object(_bookSpell.GetValueOrDefault(self));
+            case "GetBookSkill":
+                return Value.String(_bookSkill.GetValueOrDefault(self, ""));
+            case "AddSpell":
+                _spells.Add((self, args[0].AsHandle()));
+                return Value.None;
             case "GetLeveledListCount":
                 _leveledCache = _leveledLists.TryGetValue(self, out var ll)
                     ? ll : (0, 0, new List<(ulong, int, int)>());

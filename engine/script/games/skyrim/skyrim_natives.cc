@@ -238,6 +238,12 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetHarvestIngredient", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetHarvestIngredient(self));
   });
+  reg.Register("Form", "GetBookSpell", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).GetBookSpell(self));
+  });
+  reg.Register("Form", "GetBookSkill", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Str(Resolve(bindings).GetBookSkill(self));
+  });
   reg.Register("Form", "GetEnchantment", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetEnchantment(self));
   });

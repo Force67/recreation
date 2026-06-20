@@ -45,6 +45,12 @@ class SkyrimBindings {
   // non-flora. The form passed is the flora base, not a placed reference.
   virtual papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) { return {}; }
 
+  // Books (BOOK) that teach: GetBookSpell returns the spell a spell tome grants
+  // (None otherwise), GetBookSkill the actor-value name a skill book raises (empty
+  // otherwise). The two are mutually exclusive in the record's DATA flags.
+  virtual papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) { return {}; }
+  virtual std::string GetBookSkill(papyrus::ObjectRef book) { return ""; }
+
   // The magic effects of an ingredient (INGR), for the C# alchemy logic. Call
   // GetIngredientEffectCount first: it parses the ingredient's up-to-four effects
   // (EFID/EFIT) into a cache and returns the count; the GetNthIngredientEffect*

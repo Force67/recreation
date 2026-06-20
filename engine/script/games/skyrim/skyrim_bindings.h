@@ -126,6 +126,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::string GetName(papyrus::ObjectRef form) override;
   bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
   papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) override;
+  papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) override;
+  std::string GetBookSkill(papyrus::ObjectRef book) override;
   f32 GetWeight(papyrus::ObjectRef form) override;
   i32 GetGoldValue(papyrus::ObjectRef form) override;
   i32 GetWeaponDamage(papyrus::ObjectRef weapon) override;

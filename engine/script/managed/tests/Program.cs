@@ -40,6 +40,7 @@ internal static class Program
         AlchemyTests.Run(check);
         CraftingTests.Run(check);
         LeveledListTests.Run(check);
+        BookTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;
