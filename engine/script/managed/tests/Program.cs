@@ -53,6 +53,7 @@ internal static class Program
         DiseasesTests.Run(check);
         ShrinesTests.Run(check);
         VampirismTests.Run(check);
+        PickpocketingTests.Run(check);
         KeywordsTests.Run(check);
         FormDataTests.Run(check);
         RelationshipsTests.Run(check);

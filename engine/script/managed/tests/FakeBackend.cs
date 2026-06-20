@@ -41,6 +41,7 @@ public sealed class FakeBackend : IEngineBackend
     public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly Dictionary<ulong, int> _goldValue = new();   // item -> record value
     public void SetGoldValue(ulong item, int value) => _goldValue[item] = value;
+    public void SetWeight(ulong item, float weight) => _weights[item] = weight;
     private readonly Dictionary<ulong, (int Soul, int Capacity)> _soulGems = new();
     public void SetSoulGem(ulong gem, int soul, int capacity) => _soulGems[gem] = (soul, capacity);
     private readonly Dictionary<ulong, ulong> _bookSpell = new();   // book -> taught spell
