@@ -41,6 +41,7 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new RacialAbilities());
         ModHost.Register(new BlessingUpkeep());
         ModHost.Register(new VampireProgression());
+        ModHost.Register(new BeastForm());
 
         // Survival hunger is opt-in (it is not vanilla behaviour); enable it with
         // "survivalNeeds": true in Skyrim.json.
