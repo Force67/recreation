@@ -67,6 +67,18 @@ class SkyrimBindings {
   virtual papyrus::ObjectRef GetNthRecipeInput(i32 recipe, i32 input) { return {}; }
   virtual i32 GetNthRecipeInputQuantity(i32 recipe, i32 input) { return 0; }
 
+  // Leveled item lists (LVLI), the data behind loot, vendor stock and drops.
+  // GetLeveledListCount parses the list into a cache and returns its entry count
+  // (0 for a non-LVLI form); the other accessors read that cache -- the chance of
+  // nothing (LVLD), the flags (LVLF), and each entry's form/level/count (LVLO).
+  // The managed resolver does the level-gating and random picks.
+  virtual i32 GetLeveledListCount(papyrus::ObjectRef list) { return 0; }
+  virtual i32 GetLeveledChanceNone() { return 0; }
+  virtual i32 GetLeveledFlags() { return 0; }
+  virtual papyrus::ObjectRef GetNthLeveledForm(i32 index) { return {}; }
+  virtual i32 GetNthLeveledLevel(i32 index) { return 0; }
+  virtual i32 GetNthLeveledCount(i32 index) { return 0; }
+
   // ActorBase (NPC_ record data).
   virtual i32 GetSex(papyrus::ObjectRef actor_base) { return 0; }  // 0 male, 1 female
   virtual bool IsUnique(papyrus::ObjectRef actor_base) { return false; }

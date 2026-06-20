@@ -241,6 +241,24 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetEnchantment", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetEnchantment(self));
   });
+  reg.Register("Form", "GetLeveledListCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetLeveledListCount(self));
+  });
+  reg.Register("Form", "GetLeveledChanceNone", [bindings](VirtualMachine&, ObjectRef, Args&) {
+    return Value::Int(Resolve(bindings).GetLeveledChanceNone());
+  });
+  reg.Register("Form", "GetLeveledFlags", [bindings](VirtualMachine&, ObjectRef, Args&) {
+    return Value::Int(Resolve(bindings).GetLeveledFlags());
+  });
+  reg.Register("Form", "GetNthLeveledForm", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthLeveledForm(ArgI(a, 0)));
+  });
+  reg.Register("Form", "GetNthLeveledLevel", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Int(Resolve(bindings).GetNthLeveledLevel(ArgI(a, 0)));
+  });
+  reg.Register("Form", "GetNthLeveledCount", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Int(Resolve(bindings).GetNthLeveledCount(ArgI(a, 0)));
+  });
   reg.Register("Form", "GetIngredientEffectCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(Resolve(bindings).GetIngredientEffectCount(self));
   });

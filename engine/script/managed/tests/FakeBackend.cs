@@ -59,6 +59,18 @@ public sealed class FakeBackend : IEngineBackend
     public void AddRecipe(ulong output, int outputQty, ulong workbench,
                           params (ulong item, int qty)[] inputs) =>
         _recipes.Add((output, outputQty, workbench, inputs.Select(i => (i.item, i.qty)).ToList()));
+
+    // Leveled lists, and the single-slot cache the LVLI accessors read after a
+    // GetLeveledListCount (mirroring the engine's parse-once-then-index ABI).
+    private readonly Dictionary<ulong, (int ChanceNone, int Flags,
+                                        List<(ulong Form, int Level, int Count)> Entries)> _leveledLists = new();
+    private (int ChanceNone, int Flags, List<(ulong Form, int Level, int Count)> Entries) _leveledCache
+        = (0, 0, new());
+
+    public void SetLeveledList(ulong list, int chanceNone, int flags,
+                               params (ulong form, int level, int count)[] entries) =>
+        _leveledLists[list] = (chanceNone, flags,
+                               entries.Select(e => (e.form, e.level, e.count)).ToList());
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
     private readonly List<(ulong Handle, float Distance)> _nearbyCache = new();
@@ -275,6 +287,32 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Float(_weights.GetValueOrDefault(self));
             case "GetGoldValue":
                 return Value.Int(_goldValue.GetValueOrDefault(self));
+            case "GetLeveledListCount":
+                _leveledCache = _leveledLists.TryGetValue(self, out var ll)
+                    ? ll : (0, 0, new List<(ulong, int, int)>());
+                return Value.Int(_leveledCache.Entries.Count);
+            case "GetLeveledChanceNone":
+                return Value.Int(_leveledCache.ChanceNone);
+            case "GetLeveledFlags":
+                return Value.Int(_leveledCache.Flags);
+            case "GetNthLeveledForm":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _leveledCache.Entries.Count
+                    ? Value.Object(_leveledCache.Entries[idx].Form) : Value.Object(0);
+            }
+            case "GetNthLeveledLevel":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _leveledCache.Entries.Count
+                    ? Value.Int(_leveledCache.Entries[idx].Level) : Value.Int(0);
+            }
+            case "GetNthLeveledCount":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _leveledCache.Entries.Count
+                    ? Value.Int(_leveledCache.Entries[idx].Count) : Value.Int(0);
+            }
             case "GetIngredientEffectCount":
                 _effectCache.Clear();
                 if (_ingredientEffects.TryGetValue(self, out var effs)) _effectCache.AddRange(effs);

@@ -39,6 +39,7 @@ internal static class Program
         BarteringTests.Run(check);
         AlchemyTests.Run(check);
         CraftingTests.Run(check);
+        LeveledListTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

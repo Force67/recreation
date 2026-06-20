@@ -142,6 +142,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetNthRecipeInputCount(i32 recipe) override;
   papyrus::ObjectRef GetNthRecipeInput(i32 recipe, i32 input) override;
   i32 GetNthRecipeInputQuantity(i32 recipe, i32 input) override;
+  i32 GetLeveledListCount(papyrus::ObjectRef list) override;
+  i32 GetLeveledChanceNone() override;
+  i32 GetLeveledFlags() override;
+  papyrus::ObjectRef GetNthLeveledForm(i32 index) override;
+  i32 GetNthLeveledLevel(i32 index) override;
+  i32 GetNthLeveledCount(i32 index) override;
   i32 GetSex(papyrus::ObjectRef actor_base) override;
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
@@ -262,6 +268,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   };
   void BuildRecipes();  // fills recipe_cache_ from every COBJ record
   const Recipe* RecipeAt(i32 index) const;  // bounds-checked, nullptr if out of range
+  // A leveled list (LVLI) parsed into the cache GetLeveledListCount fills.
+  struct LeveledEntry {
+    u64 form = 0;
+    i32 level = 0;
+    i32 count = 0;
+  };
+  struct LeveledList {
+    i32 chance_none = 0;
+    i32 flags = 0;
+    std::vector<LeveledEntry> entries;
+  };
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   // Reads a 4-byte form-id subrecord off `from`'s record and resolves it
   // against the load order. Used for record fields that point at another form.
@@ -356,6 +373,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Every COBJ recipe, built lazily on first GetRecipeCount and reused after.
   std::vector<Recipe> recipe_cache_;
   bool recipes_built_ = false;
+  // Last leveled list parsed by GetLeveledListCount; the other LVLI accessors
+  // read it. Guest-thread only, like the other record caches.
+  LeveledList leveled_cache_;
 };
 
 }  // namespace rec::script::skyrim
