@@ -184,8 +184,9 @@ void Engine::CreateWaterDemoScene() {
   world_.Add(sheet, world::Transform{});
   world_.Add(sheet, world::Renderable{water.id});
   physics_.AddStaticBox({0, -48.0f, 0}, {40.0f, 40.0f, 40.0f});
-  physics_.set_water_height([](const Vec3&, f32* height) {
+  physics_.set_water_height([](const Vec3&, f32* height, Vec3* flow) {
     *height = 0.0f;
+    if (flow) *flow = {};
     return true;
   });
   for (int i = 0; i < 6; ++i) {
@@ -282,8 +283,8 @@ bool Engine::LoadGameData() {
   streamer_ = std::make_unique<world::CellStreamer>(records_, *assets_);
   if (physics_.initialized()) {
     streamer_->set_physics(&physics_);
-    physics_.set_water_height([this](const Vec3& position, f32* height) {
-      return streamer_->WaterHeightAt(position, height);
+    physics_.set_water_height([this](const Vec3& position, f32* height, Vec3* flow) {
+      return streamer_->WaterHeightAt(position, height, flow);
     });
   }
   world::CellStreamer::Settings settings;

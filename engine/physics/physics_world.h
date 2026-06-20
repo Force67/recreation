@@ -20,8 +20,9 @@ using BodyId = u64;
 // so streamed worlds and flat demo sheets share one path.
 class PhysicsWorld {
  public:
-  // Returns true and the surface height when `position` is over water.
-  using WaterHeightFn = std::function<bool(const Vec3& position, f32* height)>;
+  // Returns true with the surface height and flow velocity when `position`
+  // is over water. Flow drags floating bodies (rivers carry them).
+  using WaterHeightFn = std::function<bool(const Vec3& position, f32* height, Vec3* flow)>;
 
   PhysicsWorld();
   ~PhysicsWorld();

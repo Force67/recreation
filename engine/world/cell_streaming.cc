@@ -425,7 +425,7 @@ void CellStreamer::AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell,
                                                kCellSize * kUnitsToMeters);
 }
 
-bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height) {
+bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) {
   f32 beth_x = position.x / kUnitsToMeters;
   f32 beth_y = -position.z / kUnitsToMeters;
   i16 grid_x = static_cast<i16>(std::floor(beth_x / kCellSize));
@@ -435,6 +435,36 @@ bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height) {
   f32 game_height = 0;
   if (!CellWaterHeight(*cell, &game_height)) return false;
   *height = game_height * kUnitsToMeters;
+
+  // Rivers descend cell to cell; the water height gradient between loaded
+  // neighbors gives the downstream direction. Lakes are level and stay
+  // still. Engine z runs against bethesda y.
+  if (flow) {
+    *flow = {};
+    auto neighbor_height = [&](i16 dx, i16 dy, f32* out) {
+      const LoadedCell* neighbor = loaded_.find(CellKey(grid_x + dx, grid_y + dy));
+      if (!neighbor || !neighbor->source) return false;
+      f32 h = 0;
+      if (!CellWaterHeight(*neighbor, &h)) return false;
+      *out = h * kUnitsToMeters;
+      return true;
+    };
+    f32 cell_meters = kCellSize * kUnitsToMeters;
+    f32 east = *height, west = *height, north = *height, south = *height;
+    neighbor_height(1, 0, &east);
+    neighbor_height(-1, 0, &west);
+    neighbor_height(0, 1, &north);
+    neighbor_height(0, -1, &south);
+    f32 gradient_x = (east - west) / (2.0f * cell_meters);
+    f32 gradient_z = (south - north) / (2.0f * cell_meters);  // z = -bethesda y
+    Vec3 downhill{-gradient_x, 0, -gradient_z};
+    f32 steepness = std::sqrt(Dot(downhill, downhill));
+    if (steepness > 1e-5f) {
+      // Flow speed grows with the drop, capped at a brisk current.
+      f32 speed = std::min(steepness * 600.0f, 2.5f);
+      *flow = downhill * (speed / steepness);
+    }
+  }
   return true;
 }
 

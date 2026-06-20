@@ -130,19 +130,25 @@ void PhysicsWorld::Update(f32 dt) {
   if (water_height_) {
     JPH::BodyInterface& bodies = impl_->system->GetBodyInterface();
     for (JPH::BodyID id : impl_->dynamic_bodies) {
-      if (!bodies.IsActive(id)) continue;
       JPH::RVec3 position = bodies.GetCenterOfMassPosition(id);
       f32 surface = 0;
+      Vec3 flow{};
       if (!water_height_({static_cast<f32>(position.GetX()), static_cast<f32>(position.GetY()),
                           static_cast<f32>(position.GetZ())},
-                         &surface)) {
+                         &surface, &flow)) {
         continue;
+      }
+      // Moving water never lets floaters sleep; still water does.
+      bool in_flow = (flow.x != 0 || flow.y != 0 || flow.z != 0) && position.GetY() < surface;
+      if (!bodies.IsActive(id)) {
+        if (!in_flow) continue;
+        bodies.ActivateBody(id);
       }
       JPH::BodyLockWrite lock(impl_->system->GetBodyLockInterface(), id);
       if (!lock.Succeeded()) continue;
       JPH::Body& body = lock.GetBody();
       body.ApplyBuoyancyImpulse(JPH::RVec3(position.GetX(), surface, position.GetZ()),
-                                JPH::Vec3::sAxisY(), 1.2f, 0.4f, 0.05f, JPH::Vec3::sZero(),
+                                JPH::Vec3::sAxisY(), 1.2f, 0.5f, 0.05f, ToJolt(flow),
                                 impl_->system->GetGravity(), dt);
     }
   }

@@ -33,8 +33,9 @@ class CellStreamer {
   // colliders and water answers buoyancy queries.
   void set_physics(physics::PhysicsWorld* physics) { physics_ = physics; }
 
-  // Water surface height at an engine-space position, for buoyancy.
-  bool WaterHeightAt(const Vec3& position, f32* height);
+  // Water surface height and flow at an engine-space position, for
+  // buoyancy. Flow derives from the height gradient of neighboring cells.
+  bool WaterHeightAt(const Vec3& position, f32* height, Vec3* flow);
 
   struct Uploads {
     std::function<bool(const asset::Mesh&)> mesh;
