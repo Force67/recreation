@@ -244,6 +244,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetStage(papyrus::ObjectRef quest) override;
   void SetStage(papyrus::ObjectRef quest, i32 stage) override;
   bool GetStageDone(papyrus::ObjectRef quest, i32 stage) override;
+  std::string GetJournalEntry(papyrus::ObjectRef quest) override;
   bool IsRunning(papyrus::ObjectRef quest) override;
   void StartQuest(papyrus::ObjectRef quest) override;
   void StopQuest(papyrus::ObjectRef quest) override;

@@ -518,6 +518,10 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Bool(!_disabled.Contains(self));
             case "IsDisabled":
                 return Value.Bool(_disabled.Contains(self));
+            case "GetName":
+                return Value.String(_names.GetValueOrDefault(self, ""));
+            case "GetJournalEntry":
+                return Value.String(_journal.GetValueOrDefault(self, ""));
             default:
                 return Value.None;
         }
@@ -525,6 +529,12 @@ public sealed class FakeBackend : IEngineBackend
 
     private readonly Dictionary<ulong, string> _types = new();  // handle -> script type
     public void SetType(ulong handle, string type) => _types[handle] = type;
+
+    private readonly Dictionary<ulong, string> _names = new();  // form -> FULL name
+    public void SetName(ulong handle, string name) => _names[handle] = name;
+
+    private readonly Dictionary<ulong, string> _journal = new();  // quest -> log entry
+    public void SetJournalEntry(ulong quest, string entry) => _journal[quest] = entry;
 
     public bool IsScriptLoaded(string type) => false;
     public bool LoadScript(string type) => false;

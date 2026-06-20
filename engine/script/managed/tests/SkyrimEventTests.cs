@@ -17,45 +17,58 @@ public static class SkyrimEventTests
 
     private static void QuestTracker(Check check)
     {
+        var fake = new FakeBackend();
+        Native.Backend = fake;
         ModHost.Shutdown();
         EventBus.Clear();
+
+        const ulong quest = 0xABCD;
+        fake.SetName(quest, "The Way of the Voice");
 
         var tracker = new QuestProgressTracker();
         ModHost.Register(tracker);
         check.Equal("no stage before any event", -1, tracker.LastStage);
 
-        // The engine delivers events as ManagedEvent payloads; route one through
-        // the same translator the host uses.
+        // A log-entry stage carries journal text, so it raises a toast naming the
+        // quest, the way vanilla surfaces a journal update.
+        fake.SetJournalEntry(quest, "Speak with the Greybeards.");
         EngineEvents.Dispatch(new Interop.ManagedEvent
         {
             Id = Interop.ManagedEventId.QuestStageChanged,
-            A = 0xABCD,
+            A = quest,
             I = 40,
         });
         check.Equal("tracker recorded the stage", 40, tracker.LastStage);
-        check.Equal("tracker recorded the quest", 0xABCDUL, tracker.LastQuestHandle);
+        check.Equal("tracker recorded the quest", quest, tracker.LastQuestHandle);
+        check.Equal("journal stage toasts the quest name", "The Way of the Voice updated",
+                    fake.LastStringArg);
 
-        // A later stage updates it.
+        // A silent control stage (no journal text) advances state but raises no
+        // toast, so the last notification still reads from the log-entry stage.
+        fake.SetJournalEntry(quest, "");
         EngineEvents.Dispatch(new Interop.ManagedEvent
         {
             Id = Interop.ManagedEventId.QuestStageChanged,
-            A = 0xABCD,
+            A = quest,
             I = 50,
         });
         check.Equal("tracker follows progression", 50, tracker.LastStage);
+        check.Equal("control stage raises no toast", "The Way of the Voice updated",
+                    fake.LastStringArg);
 
         // Once destroyed it unsubscribes and stops tracking.
         ModHost.Unregister(tracker);
         EngineEvents.Dispatch(new Interop.ManagedEvent
         {
             Id = Interop.ManagedEventId.QuestStageChanged,
-            A = 0xABCD,
+            A = quest,
             I = 60,
         });
         check.Equal("unsubscribed after destroy", 50, tracker.LastStage);
 
         ModHost.Shutdown();
         EventBus.Clear();
+        Native.Backend = null;
     }
 
     private static void Combat(Check check)

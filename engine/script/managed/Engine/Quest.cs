@@ -19,6 +19,11 @@ public class Quest : Form
 
     public bool IsStageDone(int stage) => Call("GetStageDone", stage).AsBool();
 
+    // Journal (CNAM) text of the most recently set stage. Empty for a control
+    // stage with no log entry, so it doubles as "did this stage update the
+    // journal?" for code that surfaces progress to the player.
+    public string JournalEntry => Call("GetJournalEntry").AsString();
+
     public bool IsRunning => Call("IsRunning").AsBool();
     public bool IsActive
     {

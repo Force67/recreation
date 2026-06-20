@@ -803,6 +803,10 @@ bool RecordBackedSkyrimBindings::GetStageDone(ObjectRef quest, i32 stage) {
   return quest_system_.GetStageDone(quest.handle, stage);
 }
 
+std::string RecordBackedSkyrimBindings::GetJournalEntry(ObjectRef quest) {
+  return quest_system_.Status(quest.handle).log_entry;
+}
+
 bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) {
   return quest_system_.IsRunning(quest.handle);
 }

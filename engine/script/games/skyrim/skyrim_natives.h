@@ -230,6 +230,9 @@ class SkyrimBindings {
   virtual i32 GetStage(papyrus::ObjectRef quest) { return 0; }
   virtual void SetStage(papyrus::ObjectRef quest, i32 stage) {}
   virtual bool GetStageDone(papyrus::ObjectRef quest, i32 stage) { return false; }
+  // Journal (CNAM) text of the most recently set stage, empty for a control
+  // stage that carries no log entry. Lets soft logic surface journal updates.
+  virtual std::string GetJournalEntry(papyrus::ObjectRef quest) { return ""; }
   virtual bool IsRunning(papyrus::ObjectRef quest) { return false; }
   virtual void StartQuest(papyrus::ObjectRef quest) {}
   virtual void StopQuest(papyrus::ObjectRef quest) {}

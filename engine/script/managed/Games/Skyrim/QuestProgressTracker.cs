@@ -25,5 +25,15 @@ public sealed class QuestProgressTracker : GameBehaviour
         LastQuestHandle = e.QuestHandle;
         LastStage = e.Stage;
         Console.WriteLine($"[skyrim] quest 0x{e.QuestHandle:X} reached stage {e.Stage}");
+
+        // Surface the update to the player exactly when vanilla does: only stages
+        // carrying journal text are log entries; silent control stages (set-up,
+        // branching) leave JournalEntry empty and raise no toast.
+        Quest quest = Quest.From(e.QuestHandle);
+        if (quest.JournalEntry.Length > 0)
+        {
+            string name = quest.Name;
+            Debug.Notification(name.Length > 0 ? $"{name} updated" : "Journal updated");
+        }
     }
 }

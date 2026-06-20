@@ -544,6 +544,9 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Quest", "GetStageDone", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Bool(Resolve(bindings).GetStageDone(self, ArgI(a, 0)));
   });
+  reg.Register("Quest", "GetJournalEntry", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Str(Resolve(bindings).GetJournalEntry(self));
+  });
   // Scene fragments call Self.GetOwningQuest().SetStage(N) to advance the journal.
   reg.Register("Scene", "GetOwningQuest", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).SceneOwningQuest(self));
