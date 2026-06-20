@@ -39,6 +39,7 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new Harvesting());
         ModHost.Register(new BookLearning());
         ModHost.Register(new RacialAbilities());
+        ModHost.Register(new BlessingUpkeep());
 
         // Survival hunger is opt-in (it is not vanilla behaviour); enable it with
         // "survivalNeeds": true in Skyrim.json.
