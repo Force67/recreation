@@ -151,6 +151,26 @@ std::string RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
   return SkillAvName(index);
 }
 
+namespace {
+// Reads a one-byte soul-gem subrecord (SOUL or SLCP) off a SLGM record, 0 if the
+// form is not a soul gem or the subrecord is absent.
+i32 SoulGemByte(const bethesda::RecordStore* records, bethesda::GlobalFormId id, u32 subrecord) {
+  if (!records) return 0;
+  bethesda::Record rec;
+  if (!records->Parse(id, &rec) || rec.header.type != FourCc('S', 'L', 'G', 'M')) return 0;
+  const bethesda::Subrecord* sub = rec.Find(subrecord);
+  return sub && !sub->data.empty() ? sub->data[0] : 0;
+}
+}  // namespace
+
+i32 RecordBackedSkyrimBindings::GetSoulGemSoul(ObjectRef gem) {
+  return SoulGemByte(records_, ToFormId(gem), FourCc('S', 'O', 'U', 'L'));
+}
+
+i32 RecordBackedSkyrimBindings::GetSoulGemCapacity(ObjectRef gem) {
+  return SoulGemByte(records_, ToFormId(gem), FourCc('S', 'L', 'C', 'P'));
+}
+
 i32 RecordBackedSkyrimBindings::GetGoldValue(ObjectRef form) {
   if (!records_) return 0;
   bethesda::Record rec;

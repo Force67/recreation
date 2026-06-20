@@ -41,6 +41,8 @@ public sealed class FakeBackend : IEngineBackend
     public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly Dictionary<ulong, int> _goldValue = new();   // item -> record value
     public void SetGoldValue(ulong item, int value) => _goldValue[item] = value;
+    private readonly Dictionary<ulong, (int Soul, int Capacity)> _soulGems = new();
+    public void SetSoulGem(ulong gem, int soul, int capacity) => _soulGems[gem] = (soul, capacity);
     private readonly Dictionary<ulong, ulong> _bookSpell = new();   // book -> taught spell
     private readonly Dictionary<ulong, string> _bookSkill = new();  // book -> taught skill av
     private readonly HashSet<(ulong Actor, ulong Spell)> _spells = new();
@@ -421,6 +423,10 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Float(_weights.GetValueOrDefault(self));
             case "GetGoldValue":
                 return Value.Int(_goldValue.GetValueOrDefault(self));
+            case "GetSoulGemSoul":
+                return Value.Int(_soulGems.TryGetValue(self, out var sg1) ? sg1.Soul : 0);
+            case "GetSoulGemCapacity":
+                return Value.Int(_soulGems.TryGetValue(self, out var sg2) ? sg2.Capacity : 0);
             case "GetBookSpell":
                 return Value.Object(_bookSpell.GetValueOrDefault(self));
             case "GetBookSkill":

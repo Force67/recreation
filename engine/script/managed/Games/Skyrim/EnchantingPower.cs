@@ -34,4 +34,8 @@ public sealed class EnchantingPower
     // The strength one of an enchantment's effects would have for `enchanter`.
     public float Strength(MagicEffectInstance effect, Actor enchanter, SoulSize soul) =>
         Strength(effect.Magnitude, enchanter.GetValue(ActorValue.Enchanting), soul);
+
+    // The strength an effect would have powered by the soul in `soulGem`.
+    public float Strength(MagicEffectInstance effect, Actor enchanter, SoulGem soulGem) =>
+        Strength(effect, enchanter, soulGem.Soul);
 }

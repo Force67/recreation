@@ -62,6 +62,7 @@ internal static class Program
         EquipmentTests.Run(check);
         SmithingTests.Run(check);
         EnchantingPowerTests.Run(check);
+        SoulGemTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

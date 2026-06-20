@@ -46,6 +46,12 @@ class SkyrimBindings {
   // The enchantment on a weapon or armor form (its EITM); None if unenchanted.
   virtual papyrus::ObjectRef GetEnchantment(papyrus::ObjectRef item) { return {}; }
 
+  // A soul gem's soul state (SLGM): the soul currently held (SOUL, 0 empty .. 5
+  // grand) and the capacity it can hold (SLCP, its size class). Both 0 for a
+  // non-soul-gem. Managed code uses the soul to power enchanting or recharging.
+  virtual i32 GetSoulGemSoul(papyrus::ObjectRef gem) { return 0; }
+  virtual i32 GetSoulGemCapacity(papyrus::ObjectRef gem) { return 0; }
+
   // The ingredient a harvestable flora (FLOR) produces, from its PFIG; None for
   // non-flora. The form passed is the flora base, not a placed reference.
   virtual papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) { return {}; }

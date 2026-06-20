@@ -268,6 +268,12 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetEnchantment", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetEnchantment(self));
   });
+  reg.Register("Form", "GetSoulGemSoul", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetSoulGemSoul(self));
+  });
+  reg.Register("Form", "GetSoulGemCapacity", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetSoulGemCapacity(self));
+  });
   reg.Register("Form", "GetLeveledListCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(Resolve(bindings).GetLeveledListCount(self));
   });
