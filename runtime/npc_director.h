@@ -30,6 +30,12 @@ class NpcDirector {
   void SetFollower(u64 npc, bool follow);
   int follower_count() const { return static_cast<int>(followers_.size()); }
   bool is_follower(u64 npc) const { return followers_.find(npc) != nullptr; }
+  // True while a scripted MQ101 playthrough is driving the auto-walk goal, so
+  // the engine leaves the guided goal alone and only steers toward the tracked
+  // objective itself when no playthrough owns it.
+  bool guiding() const {
+    return mq101_demo_pending_ || mq101_scene_pending_ || mq101_scene_active_;
+  }
 
   void UpdateFollowers(f32 dt);
   void UpdateGuides(f32 dt);

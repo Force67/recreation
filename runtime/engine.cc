@@ -398,6 +398,14 @@ bool Engine::RunFrame() {
       demos_->EmitToView(frame_delta, view);
       quest_->RefreshQuestPanel(frame_delta);
       quest_->RefreshNativeTrace(frame_delta);
+      // Outside a scripted playthrough, the auto-walk test player heads for the
+      // tracked quest's current objective, so it walks the real route (and trips
+      // the world triggers along it) rather than wandering forward.
+      if (ctx_.auto_walk && !npc_->guiding()) {
+        Vec3 goal;
+        ctx_.auto_walk_has_goal = quest_->CurrentObjectiveTarget(&goal);
+        if (ctx_.auto_walk_has_goal) ctx_.auto_walk_goal = goal;
+      }
       debug_ui_.Build(renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
                       quest_->native_trace_panel());
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
