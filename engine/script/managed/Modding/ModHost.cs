@@ -102,6 +102,7 @@ public static class ModHost
         Behaviours.Clear();
         Mods.Clear();
         FormScripts.Clear();
+        Abilities.Clear();
         Effects.Clear();
         Scheduler.Clear();
         Coroutines.Clear();
