@@ -361,6 +361,9 @@ bool Engine::RunFrame() {
     npc_->UpdateGuides(static_cast<f32>(timer_.frame_delta()));
     npc_->Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
     npc_->Mq101SceneTick(static_cast<f32>(timer_.frame_delta()));
+    // World-driven progression: the player walking into a scripted trigger box
+    // fires its OnTriggerEnter, the native way Skyrim advances a quest.
+    interaction_->UpdateTriggers();
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());

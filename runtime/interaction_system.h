@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+
 #include "bethesda/record.h"
 #include "core/types.h"
 #include "core/window.h"
@@ -22,6 +25,11 @@ class InteractionSystem {
   InteractionSystem(EngineContext& ctx, ActorSystem* actors);
 
   void UpdateInteraction(bool activate_pressed);
+  // Host-authoritative trigger volumes: a placed reference with a script and a
+  // primitive bound is a trigger box; when the player enters it, its
+  // OnTriggerEnter runs (which can advance a quest, the way Skyrim drives
+  // progression from the world). Registers triggers lazily as cells stream in.
+  void UpdateTriggers();
   void SyncHud();  // mirror the open conversation / loot view into the HUD
 
   void OpenDialogue(u64 npc);
@@ -86,10 +94,24 @@ class InteractionSystem {
   FlyCamera& camera_;
   GameUi& game_ui_;
 
+  // A placed reference's trigger volume (engine space, axis-aligned box). `inside`
+  // tracks whether the player is currently within it, so OnTriggerEnter fires
+  // once per entry, not every frame.
+  struct TriggerVolume {
+    Vec3 center;
+    Vec3 half_extents;
+    bool inside = false;
+  };
+
   DialogueSession dialogue_session_;
   ContainerSession container_session_;
   u64 activate_target_ = 0;
   std::string activate_label_;
+  // Trigger references, keyed by form handle, plus the set of refs already
+  // examined (so each ref's record is parsed for a primitive/script only once).
+  base::UnorderedMap<u64, TriggerVolume> triggers_;
+  base::UnorderedMap<u64, u8> trigger_examined_;
+  base::Vector<u64> trigger_scratch_;
 };
 
 }  // namespace rec

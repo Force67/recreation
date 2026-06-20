@@ -19,6 +19,8 @@ constexpr u32 kName = FourCc('N', 'A', 'M', 'E');
 constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
 constexpr u32 kXscl = FourCc('X', 'S', 'C', 'L');
 constexpr u32 kAchr = FourCc('A', 'C', 'H', 'R');  // placed actor (NPC) reference
+constexpr u32 kVmad = FourCc('V', 'M', 'A', 'D');  // attached script(s)
+constexpr u32 kXprm = FourCc('X', 'P', 'R', 'M');  // primitive bound (trigger box)
 constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
 constexpr u32 kVhgt = FourCc('V', 'H', 'G', 'T');
 constexpr u32 kVnml = FourCc('V', 'N', 'M', 'L');
@@ -622,6 +624,27 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   const asset::Mesh* mesh = MeshForBase(base_id, mesh_budget, budget_exceeded);
   if (budget_exceeded) return false;
   if (!mesh) {
+    // A meshless reference carrying a script and a primitive bound is a trigger
+    // box: keep it as an invisible entity so the interaction layer can fire its
+    // OnTriggerEnter when the player walks in (world-driven quest progression).
+    if (refr.Find(kXprm) && refr.Find(kVmad)) {
+      f32 placement[6];
+      std::memcpy(placement, data->data.data(), 24);
+      ecs::Entity entity = world.Create();
+      Transform transform;
+      Vec3 position = ToEngine(placement[0], placement[1], placement[2]);
+      transform.position[0] = position.x;
+      transform.position[1] = position.y;
+      transform.position[2] = position.z;
+      RefrRotationToEngine(placement + 3, transform.rotation);
+      world.Add(entity, transform);
+      world.Add(entity, FormLink{id});
+      world.Add(entity, CellMembership{grid_x, grid_y, interior});
+      cell.entities.push_back(entity);
+      if (quest_world_) quest_world_->Register(id.packed(), entity);
+      ++spawned_entities_;
+      return true;
+    }
     ++skipped_refs_;
     return true;
   }

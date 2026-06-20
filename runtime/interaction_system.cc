@@ -1,5 +1,6 @@
 #include "interaction_system.h"
 
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -281,6 +282,76 @@ void InteractionSystem::RaiseActivate(u64 handle) {
   ctx_.scripts->guest().RaiseEvent(
       script::papyrus::ObjectRef{handle}, "OnActivate",
       {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
+}
+
+void InteractionSystem::UpdateTriggers() {
+  // Host-authoritative, walk-mode only; a client receives the resulting quest
+  // changes through replication rather than firing triggers itself.
+  if (!ctx_.walk_mode || !actors_->HasPlayer() || !ctx_.scripts) return;
+#if RECREATION_HAS_NET
+  if (ctx_.client_session) return;
+#endif
+
+  // Examine each placed reference once: one carrying both a script (VMAD) and a
+  // primitive bound (XPRM) is a trigger box. Attach its script so OnTriggerEnter
+  // can dispatch, and register its world-space volume.
+  world_.Each<world::FormLink, world::Transform>(
+      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+        const u64 handle = link.form.packed();
+        if (trigger_examined_.find(handle)) return;
+        trigger_examined_.insert(handle, 1);
+        const bethesda::GlobalFormId id{static_cast<u16>(handle >> 32),
+                                        static_cast<u32>(handle & 0xffffffffu)};
+        bethesda::Record record;
+        if (!records_.Parse(id, &record)) return;
+        const bethesda::Subrecord* xprm = record.Find(FourCc('X', 'P', 'R', 'M'));
+        const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
+        if (!xprm || xprm->data.size() < 12 || !vmad) return;  // not a scripted trigger box
+        bethesda::ScriptAttachment att;
+        if (!bethesda::ParseScriptAttachment(vmad->data, &att) || att.scripts.empty()) return;
+        ctx_.scripts->AttachScripts(handle, att);
+        // XPRM opens with the box half-extents (Bethesda units); map to engine
+        // axes (x, z, -y) and metres, as a reference's world position is.
+        f32 b[3];
+        std::memcpy(b, xprm->data.data(), 12);
+        constexpr f32 s = 0.01428f;
+        TriggerVolume vol;
+        vol.center = Vec3{t.position[0], t.position[1], t.position[2]};
+        vol.half_extents = Vec3{std::fabs(b[0]) * s, std::fabs(b[2]) * s, std::fabs(b[1]) * s};
+        triggers_.insert(handle, vol);
+        REC_INFO("trigger: registered scripted volume 0x{:x}", handle);
+      });
+
+  Vec3 player;
+  if (!actors_->PlayerWorldPos(&player)) return;
+
+  // Fire OnTriggerEnter once as the player crosses into a volume; drop volumes
+  // whose reference streamed out (and re-examine it if it streams back in).
+  trigger_scratch_.clear();
+  for (auto entry : triggers_) {
+    const ecs::Entity e = quest_world_.Find(entry.key);
+    if (!world_.IsAlive(e)) {
+      trigger_scratch_.push_back(entry.key);
+      continue;
+    }
+    if (const world::Transform* t = world_.Get<world::Transform>(e))
+      entry.value.center = Vec3{t->position[0], t->position[1], t->position[2]};
+    const TriggerVolume& v = entry.value;
+    const bool inside = std::fabs(player.x - v.center.x) <= v.half_extents.x &&
+                        std::fabs(player.y - v.center.y) <= v.half_extents.y &&
+                        std::fabs(player.z - v.center.z) <= v.half_extents.z;
+    if (inside && !entry.value.inside) {
+      REC_INFO("trigger: player entered 0x{:x}, raising OnTriggerEnter", entry.key);
+      ctx_.scripts->guest().RaiseEvent(
+          script::papyrus::ObjectRef{entry.key}, "OnTriggerEnter",
+          {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
+    }
+    entry.value.inside = inside;
+  }
+  for (u64 key : trigger_scratch_) {
+    triggers_.erase(key);
+    trigger_examined_.erase(key);
+  }
 }
 
 bool InteractionSystem::TryActivateDoor(u64 handle) {
