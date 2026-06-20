@@ -112,6 +112,12 @@ class SkyrimBindings {
   virtual bool IsEssential(papyrus::ObjectRef actor_base) { return false; }
   virtual papyrus::ObjectRef GetRace(papyrus::ObjectRef actor_base) { return {}; }
 
+  // A race's innate spells (RACE SPLO): its abilities and powers. GetRaceSpellCount
+  // parses them into a cache and returns the count; GetNthRaceSpell reads it by
+  // index. Managed code applies the abilities and uses the powers.
+  virtual i32 GetRaceSpellCount(papyrus::ObjectRef race) { return 0; }
+  virtual papyrus::ObjectRef GetNthRaceSpell(i32 index) { return {}; }
+
   // Proximity over a per-frame position snapshot: references within `radius`
   // (game units) of `center`. GetNearbyRefs computes and caches the set and
   // returns its size; GetNthNearbyRef reads that cached result by index. Both run

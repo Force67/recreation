@@ -229,6 +229,12 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetNthKeyword", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Object(Resolve(bindings).GetNthKeyword(ArgI(a, 0)));
   });
+  reg.Register("Form", "GetRaceSpellCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetRaceSpellCount(self));
+  });
+  reg.Register("Form", "GetNthRaceSpell", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthRaceSpell(ArgI(a, 0)));
+  });
   reg.Register("Form", "GetWeight", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Float(Resolve(bindings).GetWeight(self));
   });

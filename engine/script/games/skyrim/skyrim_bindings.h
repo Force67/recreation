@@ -162,6 +162,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
   papyrus::ObjectRef GetRace(papyrus::ObjectRef actor_base) override;
+  i32 GetRaceSpellCount(papyrus::ObjectRef race) override;
+  papyrus::ObjectRef GetNthRaceSpell(i32 index) override;
 
   i32 GetNearbyRefs(papyrus::ObjectRef center, f32 radius) override;
   papyrus::ObjectRef GetNthNearbyRef(i32 index) override;
@@ -396,6 +398,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::vector<MagicEffectData> magic_effect_cache_;
   // Last GetKeywordCount result (resolved keyword handles), read by GetNthKeyword.
   std::vector<u64> keyword_cache_;
+  // Last GetRaceSpellCount result (resolved spell handles), read by GetNthRaceSpell.
+  std::vector<u64> race_spell_cache_;
   // Every COBJ recipe, built lazily on first GetRecipeCount and reused after.
   std::vector<Recipe> recipe_cache_;
   bool recipes_built_ = false;

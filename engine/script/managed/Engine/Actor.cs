@@ -54,7 +54,7 @@ public class Actor : ObjectReference
     public bool IsEssential => Native.CallMethod(BaseObject.Handle, "IsEssential", default).AsBool();
     public bool IsUnique => Native.CallMethod(BaseObject.Handle, "IsUnique", default).AsBool();
     public Sex Sex => (Sex)Native.CallMethod(BaseObject.Handle, "GetSex", default).AsInt();
-    public Form Race => Form.From(Native.CallMethod(BaseObject.Handle, "GetRace", default).AsHandle());
+    public Race Race => Race.From(Native.CallMethod(BaseObject.Handle, "GetRace", default).AsHandle());
 
     // --- state ----------------------------------------------------------------
     public int Level => Call("GetLevel").AsInt();

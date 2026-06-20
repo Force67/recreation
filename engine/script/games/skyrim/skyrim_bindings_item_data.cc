@@ -292,6 +292,30 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthKeyword(i32 index) {
   return papyrus::ObjectRef{keyword_cache_[static_cast<size_t>(index)]};
 }
 
+i32 RecordBackedSkyrimBindings::GetRaceSpellCount(ObjectRef race) {
+  race_spell_cache_.clear();
+  if (!records_) return 0;
+  const bethesda::GlobalFormId id = ToFormId(race);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  if (!stored) return 0;
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E')) return 0;
+  // SPLO is a single spell form id (the race's innate abilities and powers).
+  for (const bethesda::Subrecord& sub : rec.subrecords) {
+    if (sub.type != FourCc('S', 'P', 'L', 'O') || sub.data.size() < 4) continue;
+    u32 raw;
+    std::memcpy(&raw, sub.data.data(), 4);
+    race_spell_cache_.push_back(
+        records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed());
+  }
+  return static_cast<i32>(race_spell_cache_.size());
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthRaceSpell(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= race_spell_cache_.size()) return {};
+  return papyrus::ObjectRef{race_spell_cache_[static_cast<size_t>(index)]};
+}
+
 i32 RecordBackedSkyrimBindings::GetSpellCost(ObjectRef spell) {
   return SpitField(records_, ToFormId(spell), 0);
 }

@@ -114,6 +114,11 @@ public sealed class FakeBackend : IEngineBackend
     public void SetHasKeyword(ulong item, ulong keyword) => _keywords.Add((item, keyword));
     private readonly List<ulong> _keywordCache = new();
 
+    // A race's innate spells, and the cache the accessors read after a count call.
+    private readonly Dictionary<ulong, List<ulong>> _raceSpells = new();
+    private readonly List<ulong> _raceSpellCache = new();
+    public void SetRaceSpells(ulong race, params ulong[] spells) => _raceSpells[race] = spells.ToList();
+
     // An actor's authored factions (faction handle, rank) and the cache the
     // enumeration accessors read after a GetFactionCount.
     private readonly Dictionary<ulong, List<(ulong Faction, int Rank)>> _factions = new();
@@ -292,6 +297,16 @@ public sealed class FakeBackend : IEngineBackend
                 _keywordCache.Clear();
                 _keywordCache.AddRange(_keywords.Where(k => k.Item1 == self).Select(k => k.Item2));
                 return Value.Int(_keywordCache.Count);
+            case "GetRaceSpellCount":
+                _raceSpellCache.Clear();
+                if (_raceSpells.TryGetValue(self, out var spells)) _raceSpellCache.AddRange(spells);
+                return Value.Int(_raceSpellCache.Count);
+            case "GetNthRaceSpell":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _raceSpellCache.Count
+                    ? Value.Object(_raceSpellCache[idx]) : Value.Object(0);
+            }
             case "GetNthKeyword":
             {
                 int idx = args[0].AsInt();
