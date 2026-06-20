@@ -49,6 +49,7 @@ internal static class Program
         SpellTests.Run(check);
         PowersTests.Run(check);
         AbilitiesTests.Run(check);
+        StandingStonesTests.Run(check);
         KeywordsTests.Run(check);
         FormDataTests.Run(check);
         RelationshipsTests.Run(check);
