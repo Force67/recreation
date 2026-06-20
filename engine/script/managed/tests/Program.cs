@@ -48,6 +48,7 @@ internal static class Program
         PowersTests.Run(check);
         AbilitiesTests.Run(check);
         KeywordsTests.Run(check);
+        FormDataTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

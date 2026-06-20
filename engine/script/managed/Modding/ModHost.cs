@@ -32,6 +32,7 @@ public static class ModHost
         // The subscription is cleared by Shutdown (EventBus.Clear) and re-added on
         // the next Boot.
         EventBus.Subscribe<FormUnloaded>(e => FormScripts.DetachAll(e.Form));
+        EventBus.Subscribe<FormUnloaded>(e => FormData.ClearForm(e.Form));
         LoadFrom(AppDomain.CurrentDomain.GetAssemblies());
     }
 
@@ -102,6 +103,7 @@ public static class ModHost
         Behaviours.Clear();
         Mods.Clear();
         FormScripts.Clear();
+        FormData.Clear();
         Abilities.Clear();
         Effects.Clear();
         Scheduler.Clear();
