@@ -84,6 +84,7 @@ public static class ModHost
     // per frame by the engine.
     public static void Tick(float deltaTime)
     {
+        Time.Advance(deltaTime);
         Scheduler.Advance(deltaTime);
         Coroutines.Advance(deltaTime);
         Cooldowns.Advance(deltaTime);
@@ -112,6 +113,7 @@ public static class ModHost
         FastTravel.Clear();
         PlayerControls.Clear();
         Zones.Clear();
+        Time.Reset();
         EventBus.Clear();
         _booted = false;
     }

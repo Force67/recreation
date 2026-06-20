@@ -22,6 +22,7 @@ internal static class Program
         ModLoaderTests.Run(check);
         ModConfigTests.Run(check);
         SchedulerTests.Run(check);
+        TimeTests.Run(check);
         CoroutineTests.Run(check);
         GateTests.Run(check);
         EffectsTests.Run(check);
