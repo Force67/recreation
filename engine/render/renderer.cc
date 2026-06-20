@@ -483,9 +483,10 @@ void Renderer::UploadMeshletMesh(const asset::Mesh& mesh) {
   meshlet_.Upload(*device_, mesh);
 }
 
-bool Renderer::UploadMesh(const asset::Mesh& mesh) {
+bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   if (!device_ || device_->is_stub()) return false;
   if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) return false;
+  const u64 mesh_key = mesh.id.hash ^ id_salt;
 
   const asset::MeshLod& lod = mesh.lods[0];
   VkBufferUsageFlags rt_usage =
@@ -562,10 +563,10 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
                                                  static_cast<u32>(geometries.size()));
     if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
   }
-  meshes_[mesh.id.hash] = gpu;
+  meshes_[mesh_key] = gpu;
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
-  if (raytracing_ && !gpu.all_blend && !gpu.no_rt) raytracing_->BuildBlas(mesh.id.hash, gpu);
+  if (raytracing_ && !gpu.all_blend && !gpu.no_rt) raytracing_->BuildBlas(mesh_key, gpu);
   return true;
 }
 
@@ -864,6 +865,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                            .custom_index = mesh->bindless_index,
                            .transform = item.transform});
     }
+    // Grow the TLAS now, on the build thread, so the record-time BuildTlas never
+    // stalls the device or frees buffers mid command buffer (which races the
+    // frame ring and corrupts the image). Spikes here when two worlds stream in.
+    raytracing_->ReserveTlas(tlas_slot, static_cast<u32>(instances.size()));
     graph_.AddPass(
         "tlas_build", [](RenderGraph::PassBuilder&) {},
         [this, tlas_slot, instances = std::move(instances)](PassContext& ctx) {

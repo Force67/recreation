@@ -49,8 +49,15 @@ class RayTracingContext {
   // build input usage.
   bool BuildBlas(u64 mesh_key, const GpuMesh& mesh);
 
+  // Grows the slot's TLAS to hold at least instance_count instances. This can
+  // stall (device idle) and reallocate, so it MUST be called during the CPU
+  // frame-build phase, never while a command buffer is recording. Doing the
+  // growth here keeps BuildTlas allocation-free at record time.
+  void ReserveTlas(u32 slot, u32 instance_count);
+
   // Records a full TLAS rebuild into cmd, including the barrier that makes
   // it visible to shader ray queries. Instances without a BLAS are skipped.
+  // Capacity must already cover the instances (see ReserveTlas).
   void BuildTlas(VkCommandBuffer cmd, u32 slot, const base::Vector<Instance>& instances);
 
   VkAccelerationStructureKHR tlas(u32 slot) const { return tlas_[slot].handle; }

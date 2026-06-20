@@ -128,8 +128,12 @@ class Renderer {
   void CaptureScreenshot(const std::string& path);
 
   // Makes a mesh drawable, keyed by its asset id. Materials referenced by
-  // submeshes should be uploaded first. No-op without a device.
-  bool UploadMesh(const asset::Mesh& mesh);
+  // submeshes should be uploaded first. No-op without a device. id_salt
+  // namespaces the mesh/BLAS key so two content domains with colliding asset
+  // paths (Skyrim and Fallout 4 both ship "meshes/...") do not overwrite each
+  // other; entities must carry the salted id in their Renderable. Zero (the
+  // primary game) leaves the key unchanged.
+  bool UploadMesh(const asset::Mesh& mesh, u64 id_salt = 0);
   bool UploadTexture(const asset::Texture& texture);
   bool UploadMaterial(const asset::Material& material);
   // Builds + uploads a mesh for the mesh-shader meshlet path (the --demo meshlet

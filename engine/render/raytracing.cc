@@ -222,6 +222,12 @@ bool RayTracingContext::EnsureTlasCapacity(Tlas& tlas, u32 instance_count) {
   return true;
 }
 
+void RayTracingContext::ReserveTlas(u32 slot, u32 instance_count) {
+  // Reserve for the upper bound (some instances may lack a BLAS and drop out in
+  // BuildTlas, but never more than this); a stall/realloc here is safe.
+  EnsureTlasCapacity(tlas_[slot], std::max(instance_count, 1u));
+}
+
 void RayTracingContext::BuildTlas(VkCommandBuffer cmd, u32 slot,
                                   const base::Vector<Instance>& instances) {
   Tlas& tlas = tlas_[slot];
