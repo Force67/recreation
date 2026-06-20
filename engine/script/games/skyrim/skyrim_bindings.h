@@ -164,6 +164,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetRace(papyrus::ObjectRef actor_base) override;
   i32 GetRaceSpellCount(papyrus::ObjectRef race) override;
   papyrus::ObjectRef GetNthRaceSpell(i32 index) override;
+  i32 GetRaceSkillBonusCount(papyrus::ObjectRef race) override;
+  std::string GetNthRaceSkillBonusSkill(i32 index) override;
+  i32 GetNthRaceSkillBonusValue(i32 index) override;
 
   i32 GetNearbyRefs(papyrus::ObjectRef center, f32 radius) override;
   papyrus::ObjectRef GetNthNearbyRef(i32 index) override;
@@ -400,6 +403,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::vector<u64> keyword_cache_;
   // Last GetRaceSpellCount result (resolved spell handles), read by GetNthRaceSpell.
   std::vector<u64> race_spell_cache_;
+  // Last GetRaceSkillBonusCount result as (skill AV index, bonus) pairs.
+  std::vector<std::pair<i32, i32>> race_skill_cache_;
   // Every COBJ recipe, built lazily on first GetRecipeCount and reused after.
   std::vector<Recipe> recipe_cache_;
   bool recipes_built_ = false;

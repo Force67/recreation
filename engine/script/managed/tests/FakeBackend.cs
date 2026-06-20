@@ -119,6 +119,12 @@ public sealed class FakeBackend : IEngineBackend
     private readonly List<ulong> _raceSpellCache = new();
     public void SetRaceSpells(ulong race, params ulong[] spells) => _raceSpells[race] = spells.ToList();
 
+    // A race's starting skill bonuses (skill name, bonus), and their cache.
+    private readonly Dictionary<ulong, List<(string Skill, int Bonus)>> _raceSkills = new();
+    private readonly List<(string Skill, int Bonus)> _raceSkillCache = new();
+    public void SetRaceSkillBonuses(ulong race, params (string skill, int bonus)[] bonuses) =>
+        _raceSkills[race] = bonuses.Select(b => (b.skill, b.bonus)).ToList();
+
     // An actor's authored factions (faction handle, rank) and the cache the
     // enumeration accessors read after a GetFactionCount.
     private readonly Dictionary<ulong, List<(ulong Faction, int Rank)>> _factions = new();
@@ -306,6 +312,22 @@ public sealed class FakeBackend : IEngineBackend
                 int idx = args[0].AsInt();
                 return idx >= 0 && idx < _raceSpellCache.Count
                     ? Value.Object(_raceSpellCache[idx]) : Value.Object(0);
+            }
+            case "GetRaceSkillBonusCount":
+                _raceSkillCache.Clear();
+                if (_raceSkills.TryGetValue(self, out var bonuses)) _raceSkillCache.AddRange(bonuses);
+                return Value.Int(_raceSkillCache.Count);
+            case "GetNthRaceSkillBonusSkill":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _raceSkillCache.Count
+                    ? Value.String(_raceSkillCache[idx].Skill) : Value.String("");
+            }
+            case "GetNthRaceSkillBonusValue":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _raceSkillCache.Count
+                    ? Value.Int(_raceSkillCache[idx].Bonus) : Value.Int(0);
             }
             case "GetNthKeyword":
             {

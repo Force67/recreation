@@ -24,6 +24,7 @@ public static class RaceTraitsTests
         fake.SetMagicEffectInfo(resistEffect, "ResistFrost", detrimental: false);
         fake.SetIngredientEffects(frostResist, (resistEffect, 50, 0));
         fake.SetRaceSpells(race, frostResist, battleCry);
+        fake.SetRaceSkillBonuses(race, ("TwoHanded", 10), ("OneHanded", 5));
         fake.SetActorBaseData(baseNpc, sex: 0, race: race);
         fake.SetBase(fake.Player, baseNpc, essential: false);
 
@@ -46,6 +47,18 @@ public static class RaceTraitsTests
         // Revoking reverts the passive.
         RaceTraits.Revoke(player);
         check.Equal("revoking reverts the value", 0f, fake.GetCurrent(player.Handle, "ResistFrost"));
+
+        // Starting skill bonuses read and apply.
+        var bonuses = player.Race.SkillBonuses;
+        check.Equal("two skill bonuses", 2, bonuses.Count);
+        check.Equal("the favoured skill is two-handed", "TwoHanded", bonuses[0].Skill);
+        check.Equal("the specialty bonus is +10", 10, bonuses[0].Bonus);
+
+        fake.SetValue(player.Handle, "TwoHanded", current: 15, baseValue: 15);
+        fake.SetValue(player.Handle, "OneHanded", current: 20, baseValue: 20);
+        RaceTraits.GrantSkillBonuses(player);
+        check.Equal("two-handed raised by the racial bonus", 25f, fake.GetCurrent(player.Handle, "TwoHanded"));
+        check.Equal("one-handed raised by the racial bonus", 25f, fake.GetCurrent(player.Handle, "OneHanded"));
 
         ModHost.Shutdown();
         EventBus.Clear();

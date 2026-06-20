@@ -34,4 +34,13 @@ public static class RaceTraits
     // key and fire through Powers.Use.
     public static IEnumerable<Spell> Powers(Actor actor) =>
         actor.Race.Abilities.Where(s => s.Type == SpellType.Power);
+
+    // Raises each of the actor's skills by its racial starting bonus. A one-time
+    // character-creation step: calling it again double-applies, so a mod grants it
+    // once when the character is made.
+    public static void GrantSkillBonuses(Actor actor)
+    {
+        foreach (RaceSkillBonus bonus in actor.Race.SkillBonuses)
+            actor.ModValue(bonus.Skill, bonus.Bonus);
+    }
 }

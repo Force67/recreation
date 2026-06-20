@@ -118,6 +118,13 @@ class SkyrimBindings {
   virtual i32 GetRaceSpellCount(papyrus::ObjectRef race) { return 0; }
   virtual papyrus::ObjectRef GetNthRaceSpell(i32 index) { return {}; }
 
+  // A race's starting skill bonuses (RACE DATA): the actor-value name of each
+  // skill it favours and the bonus. GetRaceSkillBonusCount parses them into a
+  // cache and returns the count; the GetNth accessors read it. Character creation.
+  virtual i32 GetRaceSkillBonusCount(papyrus::ObjectRef race) { return 0; }
+  virtual std::string GetNthRaceSkillBonusSkill(i32 index) { return ""; }
+  virtual i32 GetNthRaceSkillBonusValue(i32 index) { return 0; }
+
   // Proximity over a per-frame position snapshot: references within `radius`
   // (game units) of `center`. GetNearbyRefs computes and caches the set and
   // returns its size; GetNthNearbyRef reads that cached result by index. Both run

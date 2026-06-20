@@ -338,6 +338,34 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthRaceSpell(i32 index) {
   return papyrus::ObjectRef{race_spell_cache_[static_cast<size_t>(index)]};
 }
 
+i32 RecordBackedSkyrimBindings::GetRaceSkillBonusCount(ObjectRef race) {
+  race_skill_cache_.clear();
+  if (!records_) return 0;
+  bethesda::Record rec;
+  if (!records_->Parse(ToFormId(race), &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E')) return 0;
+  // RACE DATA opens with seven { uint8 skill-AV; uint8 bonus } pairs; an unused
+  // slot has skill 255.
+  const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+  if (!data || data->data.size() < 14) return 0;
+  for (int i = 0; i < 7; ++i) {
+    u8 skill = data->data[static_cast<size_t>(i) * 2];
+    u8 bonus = data->data[static_cast<size_t>(i) * 2 + 1];
+    if (skill == 255 || bonus == 0) continue;
+    race_skill_cache_.push_back({skill, bonus});
+  }
+  return static_cast<i32>(race_skill_cache_.size());
+}
+
+std::string RecordBackedSkyrimBindings::GetNthRaceSkillBonusSkill(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size()) return "";
+  return SkillAvName(static_cast<u32>(race_skill_cache_[static_cast<size_t>(index)].first));
+}
+
+i32 RecordBackedSkyrimBindings::GetNthRaceSkillBonusValue(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size()) return 0;
+  return race_skill_cache_[static_cast<size_t>(index)].second;
+}
+
 i32 RecordBackedSkyrimBindings::GetSpellCost(ObjectRef spell) {
   return SpitField(records_, ToFormId(spell), 0);
 }

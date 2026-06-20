@@ -2,6 +2,14 @@ using System.Collections.Generic;
 
 namespace Recreation;
 
+// A skill a race favours at character creation: the actor-value name and the
+// starting bonus (a race's +10 specialty or one of its +5 skills).
+public readonly struct RaceSkillBonus(string skill, int bonus)
+{
+    public string Skill { get; } = skill;
+    public int Bonus { get; } = bonus;
+}
+
 // A race (RACE record): the species an actor belongs to, carrying its innate
 // spells -- the constant-effect abilities (frost resistance, water-breathing) and
 // the once-a-day racial power. Reading them is the engine's job; applying the
@@ -23,6 +31,20 @@ public sealed class Race : Form
             var result = new Spell[count];
             for (int i = 0; i < count; i++)
                 result[i] = Spell.From(Call("GetNthRaceSpell", i).AsHandle());
+            return result;
+        }
+    }
+
+    // The race's starting skill bonuses (its +10 specialty and the +5 skills).
+    public IReadOnlyList<RaceSkillBonus> SkillBonuses
+    {
+        get
+        {
+            int count = Call("GetRaceSkillBonusCount").AsInt();
+            var result = new RaceSkillBonus[count];
+            for (int i = 0; i < count; i++)
+                result[i] = new RaceSkillBonus(Call("GetNthRaceSkillBonusSkill", i).AsString(),
+                                               Call("GetNthRaceSkillBonusValue", i).AsInt());
             return result;
         }
     }
