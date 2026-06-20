@@ -59,6 +59,8 @@ internal static class Program
         DamageMitigationTests.Run(check);
         SoulTrapTests.Run(check);
         ThuumTests.Run(check);
+        CharacterLevelTests.Run(check);
+        SkillProgressionTests.Run(check);
         KeywordsTests.Run(check);
         FormDataTests.Run(check);
         RelationshipsTests.Run(check);

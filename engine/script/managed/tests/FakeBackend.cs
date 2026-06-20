@@ -270,6 +270,14 @@ public sealed class FakeBackend : IEngineBackend
                 _current[(self, av)] = (_current.TryGetValue((self, av), out float c0) ? c0 : 0f) + args[1].AsFloat();
                 return Value.None;
             }
+            case "SetActorValue":
+            {
+                string av = Norm(args[0].AsString());
+                float v = args[1].AsFloat();
+                _base[(self, av)] = v;     // SetActorValue sets the permanent value
+                _current[(self, av)] = v;
+                return Value.None;
+            }
             case "RestoreActorValue":
             {
                 string av = Norm(args[0].AsString());
