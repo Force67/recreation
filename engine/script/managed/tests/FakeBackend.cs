@@ -61,6 +61,16 @@ public sealed class FakeBackend : IEngineBackend
         params (ulong effect, float magnitude, int duration)[] effects) =>
         _ingredientEffects[ingredient] = effects.Select(e => (e.effect, e.magnitude, e.duration)).ToList();
 
+    // A shout's words (SHOU SNAM): word of power, spell, recovery seconds. Mirrors
+    // the engine's parse-once-then-index ABI via GetShoutWordCount.
+    private readonly Dictionary<ulong, List<(ulong Word, ulong Spell, float Recovery)>>
+        _shoutWords = new();
+    private readonly List<(ulong Word, ulong Spell, float Recovery)> _shoutCache = new();
+
+    public void SetShoutWords(ulong shout,
+        params (ulong word, ulong spell, float recovery)[] words) =>
+        _shoutWords[shout] = words.Select(w => (w.word, w.spell, w.recovery)).ToList();
+
     // The actor value a magic effect modifies, and whether it is detrimental.
     private readonly Dictionary<ulong, string> _effectAv = new();
     private readonly HashSet<ulong> _effectDetrimental = new();
@@ -468,6 +478,25 @@ public sealed class FakeBackend : IEngineBackend
                 _effectCache.Clear();
                 if (_ingredientEffects.TryGetValue(self, out var effs)) _effectCache.AddRange(effs);
                 return Value.Int(_effectCache.Count);
+            case "GetShoutWordCount":
+                _shoutCache.Clear();
+                if (_shoutWords.TryGetValue(self, out var words)) _shoutCache.AddRange(words);
+                return Value.Int(_shoutCache.Count);
+            case "GetNthShoutWord":
+            {
+                int i = args[0].AsInt();
+                return i >= 0 && i < _shoutCache.Count ? Value.Object(_shoutCache[i].Word) : Value.Object(0);
+            }
+            case "GetNthShoutSpell":
+            {
+                int i = args[0].AsInt();
+                return i >= 0 && i < _shoutCache.Count ? Value.Object(_shoutCache[i].Spell) : Value.Object(0);
+            }
+            case "GetNthShoutRecoveryTime":
+            {
+                int i = args[0].AsInt();
+                return i >= 0 && i < _shoutCache.Count ? Value.Float(_shoutCache[i].Recovery) : Value.Float(0);
+            }
             case "GetMagicEffectActorValue":
                 return Value.String(_effectAv.GetValueOrDefault(self, ""));
             case "GetMagicEffectDetrimental":

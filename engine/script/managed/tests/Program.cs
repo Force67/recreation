@@ -58,6 +58,7 @@ internal static class Program
         PickpocketingTests.Run(check);
         DamageMitigationTests.Run(check);
         SoulTrapTests.Run(check);
+        ThuumTests.Run(check);
         KeywordsTests.Run(check);
         FormDataTests.Run(check);
         RelationshipsTests.Run(check);

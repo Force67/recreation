@@ -141,6 +141,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetNthMagicEffectId(i32 index) override;
   f32 GetNthMagicEffectMagnitude(i32 index) override;
   i32 GetNthMagicEffectDuration(i32 index) override;
+  i32 GetShoutWordCount(papyrus::ObjectRef shout) override;
+  papyrus::ObjectRef GetNthShoutWord(i32 index) override;
+  papyrus::ObjectRef GetNthShoutSpell(i32 index) override;
+  f32 GetNthShoutRecoveryTime(i32 index) override;
   std::string GetMagicEffectActorValue(papyrus::ObjectRef effect) override;
   bool GetMagicEffectDetrimental(papyrus::ObjectRef effect) override;
   f32 GetMagicEffectBaseCost(papyrus::ObjectRef effect) override;
@@ -278,6 +282,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     f32 magnitude = 0;
     i32 duration = 0;
   };
+  // One word of a shout (SHOU SNAM): the word of power, the spell it casts, and
+  // the seconds before the shout can be used again. Cached by GetShoutWordCount.
+  struct ShoutWordData {
+    u64 word = 0;
+    u64 spell = 0;
+    f32 recovery = 0;
+  };
   // A constructible-object recipe (COBJ), parsed once into recipe_cache_.
   struct CraftingInput {
     u64 item = 0;
@@ -403,6 +414,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Last GetMagicEffectCount result, read by the GetNthMagicEffect* accessors.
   // Guest-thread only (record parsing), so it needs no lock.
   std::vector<MagicEffectData> magic_effect_cache_;
+  // Last GetShoutWordCount result, read by the GetNthShout* accessors. Guest
+  // thread only.
+  std::vector<ShoutWordData> shout_word_cache_;
   // Last GetKeywordCount result (resolved keyword handles), read by GetNthKeyword.
   std::vector<u64> keyword_cache_;
   // Last GetRaceSpellCount result (resolved spell handles), read by GetNthRaceSpell.

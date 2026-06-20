@@ -72,6 +72,15 @@ class SkyrimBindings {
   virtual f32 GetNthMagicEffectMagnitude(i32 index) { return 0; }
   virtual i32 GetNthMagicEffectDuration(i32 index) { return 0; }
 
+  // A shout's words (SHOU): up to three, each a word of power with the spell it
+  // casts and its recovery time. Call GetShoutWordCount first to parse them into a
+  // cache; the GetNthShout* accessors then read it by index, mirroring the magic
+  // effect accessors above.
+  virtual i32 GetShoutWordCount(papyrus::ObjectRef shout) { return 0; }
+  virtual papyrus::ObjectRef GetNthShoutWord(i32 index) { return {}; }
+  virtual papyrus::ObjectRef GetNthShoutSpell(i32 index) { return {}; }
+  virtual f32 GetNthShoutRecoveryTime(i32 index) { return 0; }
+
   // Properties of a magic effect (MGEF): the actor-value name it modifies (empty
   // for values not modelled) and whether it is detrimental (damage rather than
   // restore/fortify). Together with the per-effect duration these let managed code

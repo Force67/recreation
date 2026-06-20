@@ -306,6 +306,18 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
                [bindings](VirtualMachine&, ObjectRef, Args& a) {
                  return Value::Int(Resolve(bindings).GetNthMagicEffectDuration(ArgI(a, 0)));
                });
+  reg.Register("Form", "GetShoutWordCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetShoutWordCount(self));
+  });
+  reg.Register("Form", "GetNthShoutWord", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthShoutWord(ArgI(a, 0)));
+  });
+  reg.Register("Form", "GetNthShoutSpell", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthShoutSpell(ArgI(a, 0)));
+  });
+  reg.Register("Form", "GetNthShoutRecoveryTime", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Float(Resolve(bindings).GetNthShoutRecoveryTime(ArgI(a, 0)));
+  });
   reg.Register("Form", "GetMagicEffectActorValue", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Str(Resolve(bindings).GetMagicEffectActorValue(self));
   });

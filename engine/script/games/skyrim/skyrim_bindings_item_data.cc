@@ -259,6 +259,49 @@ f32 RecordBackedSkyrimBindings::GetNthMagicEffectMagnitude(i32 index) {
   return magic_effect_cache_[static_cast<size_t>(index)].magnitude;
 }
 
+i32 RecordBackedSkyrimBindings::GetShoutWordCount(ObjectRef shout) {
+  shout_word_cache_.clear();
+  if (!records_) return 0;
+  const bethesda::GlobalFormId id = ToFormId(shout);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  if (!stored) return 0;
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec)) return 0;
+  if (rec.header.type != FourCc('S', 'H', 'O', 'U')) return 0;
+
+  // A SHOU lists up to three words as SNAM subrecords, each a 12-byte struct
+  // { formid word (WORD/WOOP); formid spell (SPEL); float recoveryTime }. The two
+  // form ids resolve against the shout's load order so managed code gets real
+  // global handles.
+  for (const bethesda::Subrecord& sub : rec.subrecords) {
+    if (sub.type != FourCc('S', 'N', 'A', 'M') || sub.data.size() < 12) continue;
+    u32 word_raw, spell_raw;
+    std::memcpy(&word_raw, sub.data.data(), 4);
+    std::memcpy(&spell_raw, sub.data.data() + 4, 4);
+    ShoutWordData entry;
+    entry.word = records_->ResolveFrom(bethesda::RawFormId{word_raw}, stored->winning_plugin).packed();
+    entry.spell = records_->ResolveFrom(bethesda::RawFormId{spell_raw}, stored->winning_plugin).packed();
+    std::memcpy(&entry.recovery, sub.data.data() + 8, 4);
+    shout_word_cache_.push_back(entry);
+  }
+  return static_cast<i32>(shout_word_cache_.size());
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthShoutWord(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return {};
+  return papyrus::ObjectRef{shout_word_cache_[static_cast<size_t>(index)].word};
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthShoutSpell(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return {};
+  return papyrus::ObjectRef{shout_word_cache_[static_cast<size_t>(index)].spell};
+}
+
+f32 RecordBackedSkyrimBindings::GetNthShoutRecoveryTime(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return 0.0f;
+  return shout_word_cache_[static_cast<size_t>(index)].recovery;
+}
+
 i32 RecordBackedSkyrimBindings::GetNthMagicEffectDuration(i32 index) {
   if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size()) return 0;
   return magic_effect_cache_[static_cast<size_t>(index)].duration;
