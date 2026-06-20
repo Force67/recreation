@@ -4,6 +4,7 @@
 #include <base/containers/vector.h>
 
 #include "asset/asset_id.h"
+#include "asset/skeleton.h"
 #include "core/types.h"
 
 namespace rec::asset {
@@ -20,8 +21,8 @@ struct Vertex {
 };
 
 struct SkinnedVertexExtra {
-  u8 bone_indices[4];
-  u8 bone_weights[4];
+  u8 bone_indices[4] = {};
+  u8 bone_weights[4] = {};
 };
 
 struct Submesh {
@@ -45,6 +46,10 @@ struct Mesh {
   // Kept out of acceleration structures: dense fill geometry like grass
   // would bloat the tlas and add ray noise without visual benefit.
   bool exclude_from_rt = false;
+  // Set when MeshLod::skinning is populated: the mesh skins on the GPU against
+  // a skeleton matched by `skin.bones` names. Empty for static geometry.
+  bool skinned = false;
+  SkinBinding skin;
 };
 
 }  // namespace rec::asset
