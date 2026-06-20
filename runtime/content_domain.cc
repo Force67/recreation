@@ -41,7 +41,8 @@ bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
   REC_INFO("domain {}: {} plugins, {} records", profile_->name, order.plugins().size(),
            records_.record_count());
 
-  for (const std::string& plugin : order.plugins()) strings_.Load(vfs_, plugin, "english");
+  for (const std::string& plugin : order.plugins())
+    strings_.Load(vfs_, plugin, profile_->string_language);
   dialogue_.Build(records_);
   REC_INFO("domain {}: {} strings, {} dialogue topics", profile_->name, strings_.size(),
            dialogue_.topic_count());

@@ -21,6 +21,7 @@ const GameProfile& GameProfile::For(Game game) {
       .plugin_version = 1.0f,
       .base_masters = {"Fallout4.esm"},
       .exterior_worldspace = "Commonwealth",
+      .string_language = "en",
   };
   static const GameProfile fallout76{
       .game = Game::kFallout76,
@@ -29,6 +30,7 @@ const GameProfile& GameProfile::For(Game game) {
       .plugin_version = 1.0f,
       .base_masters = {"SeventySix.esm"},
       .exterior_worldspace = "Appalachia",
+      .string_language = "en",
       .supports_esl = false,
       .has_loose_script_source = false,
   };

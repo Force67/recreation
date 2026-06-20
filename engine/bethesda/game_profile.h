@@ -25,6 +25,9 @@ struct GameProfile {
   // std::ifstream in the loaders.
   base::Vector<std::string> base_masters;
   std::string exterior_worldspace;  // editor id of the main outdoor worldspace
+  // Localized string file language token: Skyrim ships "english", the Fallout
+  // games "en" (strings/<plugin>_<token>.strings).
+  std::string string_language = "english";
   bool supports_esl = true;
   bool has_loose_script_source = true;
 
