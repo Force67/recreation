@@ -62,7 +62,7 @@ public sealed class Encumbrance : GameBehaviour
         Actor player = Game.Player;
         if (!player.Exists) return;
 
-        float carried = TotalWeight(player);
+        float carried = player.TotalWeight;
         float capacity = player.GetValue(ActorValue.CarryWeight);
         bool over = carried > capacity;
         if (over == _overEncumbered) return;
@@ -72,15 +72,5 @@ public sealed class Encumbrance : GameBehaviour
         else FastTravel.Unblock("encumbrance");
         player.ModValue(ActorValue.SpeedMult, over ? -SpeedPenalty : SpeedPenalty);
         EventBus.Publish(new EncumbranceChanged(over, carried, capacity));
-    }
-
-    // Total weight a container carries: each distinct item's unit weight times the
-    // count held.
-    public static float TotalWeight(ObjectReference holder)
-    {
-        float total = 0f;
-        foreach (Form item in holder.Items())
-            total += item.Weight * holder.GetItemCount(item);
-        return total;
     }
 }
