@@ -50,6 +50,7 @@ internal static class Program
         PowersTests.Run(check);
         AbilitiesTests.Run(check);
         StandingStonesTests.Run(check);
+        DiseasesTests.Run(check);
         KeywordsTests.Run(check);
         FormDataTests.Run(check);
         RelationshipsTests.Run(check);
