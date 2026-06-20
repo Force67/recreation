@@ -154,8 +154,12 @@ void QuestDirector::AttachQuestScripts() {
   // REC_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
   // a guide NPC leads the player along a path while MQ101 advances to completion.
   if (host && std::getenv("REC_MQ101_SCENE")) {
-    npc_->ArmMq101Scene();
-    REC_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
+    const u64 handle = FindQuestHandle("MQ101");
+    if (handle != 0) {
+      quest_panel_.selected = handle;
+      npc_->ArmMq101Scene(handle);
+      REC_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
+    }
   }
 
   // REC_JOURNAL opens the quest journal at load (it is normally toggled with J),

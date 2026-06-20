@@ -38,7 +38,7 @@ class NpcDirector {
 
   // Load-time arming from the quest director's REC_MQ101_* hooks.
   void ArmMq101Demo(u64 quest_handle);
-  void ArmMq101Scene() { mq101_scene_pending_ = true; }
+  void ArmMq101Scene(u64 quest_handle);
 
  private:
   // SceneSink over the running engine: a scene guides NPCs, runs INFO fragments,
@@ -78,6 +78,7 @@ class NpcDirector {
   quest::Scene mq101_scene_;
   quest::SceneRunner scene_runner_;
   Mq101Sink scene_sink_;
+  u64 mq101_scene_quest_ = 0;
   bool mq101_scene_pending_ = false;
   bool mq101_scene_active_ = false;
   f32 mq101_scene_stuck_time_ = 0;  // seconds the current beat has not progressed

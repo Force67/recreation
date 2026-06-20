@@ -357,13 +357,28 @@ bool NpcDirector::Mq101Sink::PlayerNear(const float pos[3], float radius) {
   return dx * dx + dz * dz <= radius * radius;
 }
 
+void NpcDirector::ArmMq101Scene(u64 quest_handle) {
+  // Start the quest right away (asynchronously on the guest, like the demo) so
+  // its opening fragment relocates the player to the real Helgen start; the
+  // escort then waits for NPCs to stream in there before picking a guide. The
+  // guest runs this once the player exists, so the MoveTo lands on the avatar.
+  mq101_scene_quest_ = quest_handle;
+  auto* binds = ctx_.bindings;
+  ctx_.scripts->guest().Submit([binds, quest_handle](script::papyrus::VirtualMachine&) {
+    script::papyrus::ObjectRef ref{quest_handle};
+    binds->StartQuest(ref);
+    binds->SetStage(ref, 160);  // "Make your way to the Keep"
+  });
+  mq101_scene_pending_ = true;
+}
+
 bool NpcDirector::StartMq101Scene() {
-  if (!actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings) return false;
-  const u64 mq = quest_->FindQuestHandle("MQ101");
-  if (mq == 0) return false;
+  if (mq101_scene_quest_ == 0 || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings)
+    return false;
+  const u64 mq = mq101_scene_quest_;
 
   Vec3 ppos{};
-  actors_->PlayerWorldPos(&ppos);
+  if (!actors_->PlayerWorldPos(&ppos)) return false;
   // Pick the nearest NPC within reach as the guide who leads the escort. The
   // companion who shares the player's start (Ralof / Hadvar in the keep) is the
   // closest actor, so nearest-within-radius resolves to the right one without
@@ -415,7 +430,8 @@ bool NpcDirector::StartMq101Scene() {
     set_stage(stage);
   };
 
-  set_stage(160);  // "Make your way to the Keep"
+  // Stage 160 was set when the escort armed (it relocated the player here); the
+  // guide now leads the remaining beats to completion.
   const i32 stages[4] = {300, 500, 700, 900};
   for (int i = 0; i < 4; ++i) lead_to(ppos + fwd * (8.0f * static_cast<f32>(i + 1)), stages[i]);
 
