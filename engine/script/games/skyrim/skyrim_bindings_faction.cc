@@ -87,4 +87,25 @@ i32 RecordBackedSkyrimBindings::AuthoredFactionRank(ObjectRef actor, ObjectRef f
   return -2;
 }
 
+i32 RecordBackedSkyrimBindings::AuthoredFactionReaction(ObjectRef faction, ObjectRef other) {
+  if (!records_) return 0;  // 0 = neutral
+  const bethesda::GlobalFormId id = ToFormId(faction);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  if (!stored) return 0;
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('F', 'A', 'C', 'T')) return 0;
+  // FACT XNAM is 12 bytes: { formid faction; int32 modifier; uint32 reaction }.
+  for (const bethesda::Subrecord& sub : rec.subrecords) {
+    if (sub.type != FourCc('X', 'N', 'A', 'M') || sub.data.size() < 12) continue;
+    u32 raw;
+    std::memcpy(&raw, sub.data.data(), 4);
+    if (records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed() != other.handle)
+      continue;
+    u32 reaction;
+    std::memcpy(&reaction, sub.data.data() + 8, 4);
+    return static_cast<i32>(reaction);
+  }
+  return 0;
+}
+
 }  // namespace rec::script::skyrim

@@ -299,6 +299,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // The rank an actor is authored into `faction` (its NPC_ SNAM), or -2 if it is
   // not authored into it. Backs GetFactionRank when no runtime override is set.
   i32 AuthoredFactionRank(papyrus::ObjectRef actor, papyrus::ObjectRef faction);
+  // The combat reaction `faction` is authored to hold toward `other` (its FACT
+  // XNAM): 0 neutral, 1 enemy, 2 ally, 3 friend. Backs GetReaction when no runtime
+  // override is set.
+  i32 AuthoredFactionReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other);
   std::array<f32, 3> Position(papyrus::ObjectRef ref);
   ActorValue& Av(papyrus::ObjectRef actor, const std::string& av);
 

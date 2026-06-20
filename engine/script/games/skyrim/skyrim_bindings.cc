@@ -347,10 +347,14 @@ void RecordBackedSkyrimBindings::RemoveFromFaction(ObjectRef actor, ObjectRef fa
 }
 
 i32 RecordBackedSkyrimBindings::GetReaction(ObjectRef faction, ObjectRef other) {
+  // A runtime override (SetReaction) wins; otherwise fall back to the reaction
+  // authored in the FACT record.
   auto it = reactions_.find(faction.handle);
-  if (it == reactions_.end()) return 0;
-  auto other_it = it->second.find(other.handle);
-  return other_it == it->second.end() ? 0 : other_it->second;
+  if (it != reactions_.end()) {
+    auto other_it = it->second.find(other.handle);
+    if (other_it != it->second.end()) return other_it->second;
+  }
+  return AuthoredFactionReaction(faction, other);
 }
 
 void RecordBackedSkyrimBindings::SetReaction(ObjectRef faction, ObjectRef other, i32 reaction) {

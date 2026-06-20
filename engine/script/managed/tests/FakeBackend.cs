@@ -121,6 +121,11 @@ public sealed class FakeBackend : IEngineBackend
     public void SetActorFactions(ulong actor, params (ulong faction, int rank)[] factions) =>
         _factions[actor] = factions.Select(f => (f.faction, f.rank)).ToList();
 
+    // Faction-to-faction combat reactions (0 neutral, 1 enemy, 2 ally, 3 friend).
+    private readonly Dictionary<(ulong, ulong), int> _reactions = new();
+    public void SetFactionReaction(ulong faction, ulong other, int reaction) =>
+        _reactions[(faction, other)] = reaction;
+
     public void SetPosition(ulong reference, float x, float y, float z) =>
         _positions[reference] = (x, y, z);
 
@@ -250,6 +255,8 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Bool(_essential.Contains(self));
             case "HasKeyword":
                 return Value.Bool(_keywords.Contains((self, args[0].AsHandle())));
+            case "GetReaction":
+                return Value.Int(_reactions.GetValueOrDefault((self, args[0].AsHandle())));
             case "GetFactionCount":
                 _factionCache.Clear();
                 if (_factions.TryGetValue(self, out var facs)) _factionCache.AddRange(facs);
