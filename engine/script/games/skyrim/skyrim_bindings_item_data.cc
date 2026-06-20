@@ -73,15 +73,37 @@ const char* SkillAvName(u32 index) {
   }
 }
 
-// The actor-value name a magic effect modifies (MGEF primary AV index): the three
-// pools plus the skills. Empty for values the actor-value store does not model, so
-// the managed consumable logic skips effects it cannot apply.
+// The actor-value name a magic effect modifies (MGEF primary AV index), covering
+// the values the actor-value store models: the skills, the three pools and their
+// regen rates, movement and carry weight, melee/unarmed damage, the resistances,
+// and the school power mods. Indices match the Skyrim ActorValue enum, verified
+// against the MGEF records. Empty for anything else, so the managed effect logic
+// skips what it cannot apply.
 const char* EffectAvName(i32 index) {
   switch (index) {
     case 24: return "Health";
     case 25: return "Magicka";
     case 26: return "Stamina";
-    default: return SkillAvName(static_cast<u32>(index));
+    case 30: return "SpeedMult";
+    case 32: return "CarryWeight";
+    case 34: return "MeleeDamage";
+    case 35: return "UnarmedDamage";
+    case 39: return "DamageResist";  // armor rating
+    case 40: return "PoisonResist";
+    case 41: return "ResistFire";
+    case 42: return "ResistShock";
+    case 43: return "ResistFrost";
+    case 44: return "ResistMagic";
+    case 45: return "ResistDisease";
+    case 108: return "AlterationPowerMod";
+    case 109: return "ConjurationPowerMod";
+    case 110: return "DestructionPowerMod";
+    case 111: return "IllusionPowerMod";
+    case 112: return "RestorationPowerMod";
+    case 155: return "HealRate";
+    case 156: return "MagickaRate";
+    case 157: return "StaminaRate";
+    default: return SkillAvName(static_cast<u32>(index));  // skills run 6..23
   }
 }
 

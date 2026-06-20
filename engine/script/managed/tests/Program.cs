@@ -56,6 +56,7 @@ internal static class Program
         LootTests.Run(check);
         CarryWeightTests.Run(check);
         RaceTests.Run(check);
+        RaceTraitsTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;
