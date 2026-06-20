@@ -831,11 +831,11 @@ void Engine::SetupExtraStreamers() {
     uploads.mesh = [this, salt](const asset::Mesh& mesh) {
       return renderer_.UploadMesh(mesh, salt);
     };
-    uploads.texture = [this](const asset::Texture& texture) {
-      return renderer_.UploadTexture(texture);
+    uploads.texture = [this, salt](const asset::Texture& texture) {
+      return renderer_.UploadTexture(texture, salt);
     };
-    uploads.material = [this](const asset::Material& material) {
-      return renderer_.UploadMaterial(material);
+    uploads.material = [this, salt](const asset::Material& material) {
+      return renderer_.UploadMaterial(material, salt);
     };
     streamer->SetUploads(std::move(uploads));
     if (!streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {

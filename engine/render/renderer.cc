@@ -531,9 +531,12 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       return;
     }
     for (const asset::Submesh& submesh : l.submeshes) {
-      bool water = material_system_ && material_system_->is_water(submesh.material.hash);
-      bool blend = water || (material_system_ && material_system_->is_blend(submesh.material.hash));
-      out.push_back({index_base + submesh.index_offset, submesh.index_count, submesh.material.hash,
+      // Store the salted material hash so every later draw-loop lookup matches
+      // this domain's materials (uploaded under the same salt).
+      u64 material = submesh.material.hash ^ id_salt;
+      bool water = material_system_ && material_system_->is_water(material);
+      bool blend = water || (material_system_ && material_system_->is_blend(material));
+      out.push_back({index_base + submesh.index_offset, submesh.index_count, material,
                      blend, water});
     }
   };
@@ -570,14 +573,14 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   return true;
 }
 
-bool Renderer::UploadTexture(const asset::Texture& texture) {
+bool Renderer::UploadTexture(const asset::Texture& texture, u64 id_salt) {
   if (!material_system_) return false;
-  return material_system_->UploadTexture(texture);
+  return material_system_->UploadTexture(texture, id_salt);
 }
 
-bool Renderer::UploadMaterial(const asset::Material& material) {
+bool Renderer::UploadMaterial(const asset::Material& material, u64 id_salt) {
   if (!material_system_) return false;
-  return material_system_->UploadMaterial(material);
+  return material_system_->UploadMaterial(material, id_salt);
 }
 
 void Renderer::RenderFrame(const FrameView& view) {

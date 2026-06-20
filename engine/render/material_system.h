@@ -59,12 +59,17 @@ class MaterialSystem {
   MaterialSystem& operator=(const MaterialSystem&) = delete;
 
   // Uploads pixel data and generates a full mip chain for single-mip
-  // uncompressed textures. BCn data uploads its baked mips as-is.
-  bool UploadTexture(const asset::Texture& texture);
+  // uncompressed textures. BCn data uploads its baked mips as-is. id_salt
+  // namespaces the texture key per content domain (asset paths collide across
+  // games); 0 keeps the unsalted key.
+  bool UploadTexture(const asset::Texture& texture, u64 id_salt = 0);
 
   // Builds the descriptor set for a material. Referenced textures must be
-  // uploaded first or they fall back to the defaults.
-  bool UploadMaterial(const asset::Material& material);
+  // uploaded first or they fall back to the defaults. id_salt namespaces the
+  // material key and its texture references per content domain (it must match
+  // the salt the referenced textures were uploaded with); 0 keeps the unsalted
+  // key.
+  bool UploadMaterial(const asset::Material& material, u64 id_salt = 0);
 
   // Set for a material hash; 0 or unknown hashes get the default material.
   VkDescriptorSet set(u64 material_hash) const;
@@ -92,7 +97,8 @@ class MaterialSystem {
   GpuImage UploadTextureImage(const asset::Texture& texture);
   bool AddPool();
   VkDescriptorSet AllocateSet();
-  bool WriteSet(VkDescriptorSet set, u32 param_index, const asset::Material& material);
+  bool WriteSet(VkDescriptorSet set, u32 param_index, const asset::Material& material,
+                u64 id_salt = 0);
   const GpuImage* texture_or(u64 hash, const GpuImage& fallback) const;
 
   Device& device_;

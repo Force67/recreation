@@ -134,8 +134,10 @@ class Renderer {
   // other; entities must carry the salted id in their Renderable. Zero (the
   // primary game) leaves the key unchanged.
   bool UploadMesh(const asset::Mesh& mesh, u64 id_salt = 0);
-  bool UploadTexture(const asset::Texture& texture);
-  bool UploadMaterial(const asset::Material& material);
+  // Same per-domain salt as UploadMesh; it must match so a mesh's submesh
+  // material references resolve to this domain's materials/textures.
+  bool UploadTexture(const asset::Texture& texture, u64 id_salt = 0);
+  bool UploadMaterial(const asset::Material& material, u64 id_salt = 0);
   // Builds + uploads a mesh for the mesh-shader meshlet path (the --demo meshlet
   // scene draws it instead of the normal raster geometry).
   void UploadMeshletMesh(const asset::Mesh& mesh);

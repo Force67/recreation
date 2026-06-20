@@ -248,16 +248,17 @@ GpuImage MaterialSystem::UploadTextureImage(const asset::Texture& texture) {
   return image;
 }
 
-bool MaterialSystem::UploadTexture(const asset::Texture& texture) {
-  if (textures_.find(texture.id.hash)) return true;
+bool MaterialSystem::UploadTexture(const asset::Texture& texture, u64 id_salt) {
+  u64 key = texture.id.hash ^ id_salt;
+  if (textures_.find(key)) return true;
   GpuImage image = UploadTextureImage(texture);
   if (image.image == VK_NULL_HANDLE) return false;
-  textures_.insert(texture.id.hash, image);
+  textures_.insert(key, image);
   if (registry_ && texture.is_srgb) {
     // Only color textures matter for ray hit shading.
     u32 index = registry_->RegisterTexture(image.view);
     if (index != BindlessRegistry::kInvalidIndex) {
-      bindless_textures_.insert(texture.id.hash, index);
+      bindless_textures_.insert(key, index);
     }
   }
   return true;
@@ -308,7 +309,7 @@ const GpuImage* MaterialSystem::texture_or(u64 hash, const GpuImage& fallback) c
 }
 
 bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
-                              const asset::Material& material) {
+                              const asset::Material& material, u64 id_salt) {
   Params params;
   std::memcpy(params.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
   std::memcpy(params.emissive_factor, material.emissive_factor, sizeof(f32) * 3);
@@ -328,7 +329,7 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   params.transmission = material.transmission;
   // Blend materials draw without the cutout test; mask materials cut.
   if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
-  if (material.normal && textures_.find(material.normal.hash)) {
+  if (material.normal && textures_.find(material.normal.hash ^ id_salt)) {
     params.flags |= kFlagHasNormalMap;
   }
 
@@ -339,10 +340,10 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   VkDescriptorBufferInfo buffer_info{buffer.buffer, offset, sizeof(Params)};
   VkDescriptorImageInfo images[4];
   const GpuImage* maps[4] = {
-      texture_or(material.base_color.hash, white_),
-      texture_or(material.normal.hash, flat_normal_),
-      texture_or(material.metallic_roughness.hash, white_),
-      texture_or(material.emissive.hash, white_),
+      texture_or(material.base_color.hash ^ id_salt, white_),
+      texture_or(material.normal.hash ^ id_salt, flat_normal_),
+      texture_or(material.metallic_roughness.hash ^ id_salt, white_),
+      texture_or(material.emissive.hash ^ id_salt, white_),
   };
   VkWriteDescriptorSet writes[5];
   writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -364,28 +365,29 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   return true;
 }
 
-bool MaterialSystem::UploadMaterial(const asset::Material& material) {
-  if (sets_.find(material.id.hash)) return true;
+bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt) {
+  u64 key = material.id.hash ^ id_salt;
+  if (sets_.find(key)) return true;
   VkDescriptorSet set = AllocateSet();
   if (set == VK_NULL_HANDLE) return false;
-  if (!WriteSet(set, sets_in_last_pool_ - 1, material)) return false;
-  sets_.insert(material.id.hash, set);
+  if (!WriteSet(set, sets_in_last_pool_ - 1, material, id_salt)) return false;
+  sets_.insert(key, set);
   // Transmissive (glass) materials route to the transparent pass so they can
   // sample the opaque scene behind them, regardless of their declared alpha.
   asset::AlphaMode mode =
       material.transmission > 0.0f ? asset::AlphaMode::kBlend : material.alpha_mode;
-  blend_modes_.insert(material.id.hash, static_cast<u8>(mode));
-  if (material.is_water) water_.insert(material.id.hash, 1);
+  blend_modes_.insert(key, static_cast<u8>(mode));
+  if (material.is_water) water_.insert(key, 1);
   if (registry_) {
     BindlessRegistry::MaterialRecord record;
     std::memcpy(record.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
     std::memcpy(record.emissive, material.emissive_factor, sizeof(f32) * 3);
-    if (const u32* texture = bindless_textures_.find(material.base_color.hash)) {
+    if (const u32* texture = bindless_textures_.find(material.base_color.hash ^ id_salt)) {
       record.base_color_texture = *texture;
     }
     u32 index = registry_->RegisterMaterial(record);
     if (index != BindlessRegistry::kInvalidIndex) {
-      bindless_materials_.insert(material.id.hash, index);
+      bindless_materials_.insert(key, index);
     }
   }
   return true;
