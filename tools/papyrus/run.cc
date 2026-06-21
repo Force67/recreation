@@ -723,63 +723,8 @@ int GuestTest() {
   return failures ? 1 : 0;
 }
 
-// Drives the full two-worlds path: boots the .NET CoreCLR host, hands it a
-// bridge to a live Papyrus guest, and lets managed C# create an instance, run
-// its update loop and read a property back. Verifies the guest state the
-// managed code produced. Skips cleanly (rc 0) when no .NET runtime is present.
-int HostTest(const std::string& runtime_config, const std::string& assembly) {
-  using rec::script::PapyrusGuest;
-
-  TickerScripts scripts = BuildTickerScripts();
-  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  guest.Start();
-  guest.SubmitFor([f = std::move(scripts.form)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(f));
-      }).get();
-  guest.SubmitFor([t = std::move(scripts.ticker)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(t));
-      }).get();
-
-  rec::script::host::GuestBridge bridge = rec::script::host::MakeGuestBridge(guest);
-  rec::script::host::ClrHost host;
-  if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
-                       "Recreation.ScriptHost, Recreation.Scripting", "Main")) {
-    std::printf("HOSTTEST SKIPPED (no .NET runtime / entrypoint)\n");
-    guest.Stop();
-    return 0;
-  }
-
-  int managed_result = host.Invoke(&bridge);
-  std::printf("[native] managed Main returned %d\n", managed_result);
-
-  int guest_count = guest
-                        .SubmitFor([&](VirtualMachine& vm) {
-                          // The instance the managed side created has handle 1.
-                          Value* m = vm.MemberVar(ObjectRef{1}, "::Count_var");
-                          return m ? m->ToInt() : -1;
-                        })
-                        .get();
-
-  host.Shutdown();
-  guest.Stop();
-
-  bool ok = managed_result == 1 && guest_count == 1;
-  std::printf("guest-side Count = %d\n%s\n", guest_count,
-              ok ? "HOSTTEST PASSED" : "HOSTTEST FAILED");
-  return ok ? 0 : 1;
-}
-
-// A native method on a synthetic script (is_native, no body).
-NamedFunction NativeMethod(Builder& b, const char* name,
-                           std::vector<std::pair<const char*, const char*>> params) {
-  Function fn;
-  fn.is_native = true;
-  fn.return_type = b.S("");
-  for (auto& p : params) fn.params.push_back({b.S(p.first), b.S(p.second)});
-  return {b.S(name), std::move(fn)};
-}
-
-// Engine bindings stub with known values, so native results are checkable.
+// Engine bindings stub with known values, so the managed SDK self-test can
+// assert on dispatched native results.
 struct TestBindings : rec::script::skyrim::SkyrimBindings {
   ObjectRef GetPlayer() override { return ObjectRef{0x14}; }
   f32 GetPositionX(ObjectRef) override { return 1.0f; }
@@ -795,6 +740,59 @@ struct TestBindings : rec::script::skyrim::SkyrimBindings {
   void SetStage(ObjectRef q, i32 s) override { stages[q.handle] = s; }
 };
 
+// Drives the full two-worlds path: boots the .NET CoreCLR host, hands it a
+// bridge to a live Papyrus guest backed by known bindings, and lets the managed
+// SDK self-test dispatch natives (Game.Player and its actor-value/state calls)
+// and run an instance lifecycle (create, call, tick, read a property). The
+// managed side returns its failure count; this asserts it is zero. Skips
+// cleanly (rc 0) when no .NET runtime is present.
+int HostTest(const std::string& runtime_config, const std::string& assembly) {
+  using rec::script::PapyrusGuest;
+
+  TestBindings bindings;
+  TickerScripts scripts = BuildTickerScripts();
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  guest.Start();
+  guest.SubmitFor([f = std::move(scripts.form)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(f));
+      }).get();
+  guest.SubmitFor([t = std::move(scripts.ticker)](VirtualMachine& vm) mutable {
+        return vm.AddScript(std::move(t));
+      }).get();
+
+  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
+  rec::script::host::ClrHost host;
+  if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
+                       "Recreation.ScriptHost, Recreation.Scripting", "SelfTest")) {
+    std::printf("HOSTTEST SKIPPED (no .NET runtime / entrypoint)\n");
+    guest.Stop();
+    return 0;
+  }
+
+  int failures = host.Invoke(&bridge);
+  std::printf("[native] managed SelfTest reported %d failure(s)\n", failures);
+
+  host.Shutdown();
+  guest.Stop();
+
+  bool ok = failures == 0;
+  std::printf("%s\n", ok ? "HOSTTEST PASSED" : "HOSTTEST FAILED");
+  return ok ? 0 : 1;
+}
+
+// A native method on a synthetic script (is_native, no body).
+NamedFunction NativeMethod(Builder& b, const char* name,
+                           std::vector<std::pair<const char*, const char*>> params) {
+  Function fn;
+  fn.is_native = true;
+  fn.return_type = b.S("");
+  for (auto& p : params) fn.params.push_back({b.S(p.first), b.S(p.second)});
+  return {b.S(name), std::move(fn)};
+}
+
+// Engine bindings stub with known values, so native results are checkable.
 // Validates the Skyrim native surface: fully-implemented Math/Utility globals,
 // and engine-bound method natives dispatched (including through inheritance) to
 // the bindings.
