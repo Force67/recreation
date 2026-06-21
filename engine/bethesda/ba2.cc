@@ -23,10 +23,15 @@ struct Ba2Header {
 };
 static_assert(sizeof(Ba2Header) == 24);
 
-// Starfield (v2/v3) inserts a u64 between the header and the file records; the
-// per-file record and texture chunk layouts are otherwise identical to FO4.
+// Starfield inserts an extra header between the 24 byte base header and the file
+// records; the per-file record and texture chunk layouts are otherwise
+// identical to FO4. v2 adds a u64; v3 (texture archives) adds that u64 plus a
+// u32 (value 3), so its records start 12 bytes in. Getting this wrong reads the
+// texture dimensions from the wrong offset and tries to allocate a garbage size.
 constexpr size_t ExtraHeaderSize(u32 version) {
-  return (version == 2 || version == 3) ? sizeof(u64) : 0;
+  if (version == 2) return sizeof(u64);
+  if (version == 3) return sizeof(u64) + sizeof(u32);
+  return 0;
 }
 
 // GNRL file record, 36 bytes on disk. A packed size of 0 means the bytes are

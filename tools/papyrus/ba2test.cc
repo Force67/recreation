@@ -228,6 +228,75 @@ void TestStarfieldGnrl(const std::string& dir) {
   }
 }
 
+// Starfield v3 texture archives put a u64 AND a u32 (12 bytes) between the
+// header and the records, where v2 has only the u64. Reading the v2 size here
+// would land on garbage texture dimensions; this confirms the v3 offset.
+void TestStarfieldV3Dx10(const std::string& dir) {
+  std::puts("ba2 Starfield (v3) DX10 round trip:");
+  std::vector<u8> mip0(16);
+  for (size_t i = 0; i < mip0.size(); ++i) mip0[i] = static_cast<u8>(i + 1);
+  const std::string name = "Textures\\Land\\Rock_color.DDS";
+
+  constexpr u64 kHeaderSize = 24;
+  constexpr u64 kExtraHeaderSize = 12;  // v3: u64 + u32
+  constexpr u64 kTexHeaderSize = 24;
+  constexpr u64 kChunkSize = 24;
+  const u64 chunk_data_offset = kHeaderSize + kExtraHeaderSize + kTexHeaderSize + kChunkSize;
+  const u64 name_table_offset = chunk_data_offset + mip0.size();
+  constexpr u16 kWidth = 4, kHeight = 4;
+  constexpr u8 kDxgiBc7 = 98;
+
+  std::vector<u8> b;
+  PutBytes(b, "BTDX", 4);
+  PutU32(b, 3);  // version
+  PutBytes(b, "DX10", 4);
+  PutU32(b, 1);
+  PutU64(b, name_table_offset);
+  PutU64(b, 1);  // v2/v3 u64
+  PutU32(b, 3);  // v3-only u32
+
+  PutU32(b, 0);  // name hash
+  PutBytes(b, "dds\0", 4);
+  PutU32(b, 0);  // dir hash
+  b.push_back(0);
+  b.push_back(1);             // chunk count
+  PutU16(b, kChunkSize);
+  PutU16(b, kHeight);
+  PutU16(b, kWidth);
+  b.push_back(1);             // mip count
+  b.push_back(kDxgiBc7);
+  b.push_back(0);
+  b.push_back(0);
+
+  PutU64(b, chunk_data_offset);
+  PutU32(b, 0);  // uncompressed
+  PutU32(b, static_cast<u32>(mip0.size()));
+  PutU16(b, 0);
+  PutU16(b, 0);
+  PutU32(b, 0xBAADF00D);
+
+  b.insert(b.end(), mip0.begin(), mip0.end());
+
+  PutU16(b, static_cast<u16>(name.size()));
+  PutBytes(b, name.data(), name.size());
+
+  auto provider = OpenSynthetic(b, dir + "/rec_ba2test_sf_v3.ba2");
+  Check("opens", provider != nullptr);
+  if (!provider) return;
+  auto dds = provider->Read("textures/land/rock_color.dds");
+  Check("reads", dds.has_value());
+  if (!dds) return;
+  auto u32_at = [&](size_t off) {
+    u32 v = 0;
+    if (off + 4 <= dds->size()) std::memcpy(&v, dds->data() + off, 4);
+    return v;
+  };
+  Check("dds height", u32_at(12) == kHeight);
+  Check("dds width", u32_at(16) == kWidth);
+  Check("mip data preserved", dds->size() == 148 + mip0.size() &&
+                                  std::memcmp(dds->data() + 148, mip0.data(), mip0.size()) == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -235,10 +304,12 @@ int main() {
   TestGnrl(dir);
   TestDx10(dir);
   TestStarfieldGnrl(dir);
+  TestStarfieldV3Dx10(dir);
   std::error_code ec;
   std::filesystem::remove(dir + "/rec_ba2test_gnrl.ba2", ec);
   std::filesystem::remove(dir + "/rec_ba2test_dx10.ba2", ec);
   std::filesystem::remove(dir + "/rec_ba2test_sf.ba2", ec);
+  std::filesystem::remove(dir + "/rec_ba2test_sf_v3.ba2", ec);
   if (g_failures == 0) {
     std::puts("ba2: all checks passed");
     return 0;
