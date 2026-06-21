@@ -1,6 +1,7 @@
 recreation_add_module(quest
   condition.cc
   ctda.cc
+  package_record.cc
   quest_def.cc
   quest_graph.cc
   quest_import.cc
