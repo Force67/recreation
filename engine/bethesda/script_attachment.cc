@@ -220,4 +220,45 @@ bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* fra
   return true;
 }
 
+bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* frags) {
+  Reader r(vmad);
+  if (!ReadScriptsSection(r, out)) return false;
+
+  // SCEN fragment section (SSE): a version byte, a flags byte (bit 0 = a begin
+  // fragment is present, bit 1 = an end fragment), the shared SF_ file name, the
+  // present begin/end fragments (each an unknown byte plus its script and
+  // function names, like INFO), then a phase count and one entry per phase that
+  // has a fragment.
+  r.U8();                  // version, unused
+  u8 flags = r.U8();
+  r.Str();                 // shared fragment file name, unused
+  if (flags & 0x01) {
+    r.U8();                // unknown
+    frags->begin.script_name = r.Str();
+    frags->begin.function = r.Str();
+  }
+  if (flags & 0x02) {
+    r.U8();                // unknown
+    frags->end.script_name = r.Str();
+    frags->end.function = r.Str();
+  }
+  u16 phase_count = r.U16();
+  for (u16 i = 0; i < phase_count && r.ok(); ++i) {
+    ScenePhaseFragment p;
+    u8 kind = r.U8();      // 1 = a phase-begin fragment, 2 = a phase-end fragment
+    p.phase = r.U32();
+    r.U8();                // unknown
+    p.on_begin = kind != 2;
+    p.fragment.script_name = r.Str();
+    p.fragment.function = r.Str();
+    if (r.ok()) frags->phases.push_back(std::move(p));
+  }
+  if (!r.ok()) {
+    frags->begin = SceneFragment{};
+    frags->end = SceneFragment{};
+    frags->phases.clear();
+  }
+  return true;
+}
+
 }  // namespace rec::bethesda

@@ -89,6 +89,30 @@ struct InfoFragments {
 // malformed fragment tail leaves whatever parsed cleanly.
 bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* frags);
 
+// A scene's Papyrus fragments. A SCEN's auto-generated SF_<scene> script runs
+// begin/end for the whole scene and one fragment per phase boundary; the phase
+// fragments are what call Quest.SetStage to advance the journal as the scene
+// plays. An empty `script_name` means the scene has no fragment of that kind.
+struct SceneFragment {
+  std::string script_name;
+  std::string function;
+};
+struct ScenePhaseFragment {
+  u32 phase = 0;          // phase number this fragment runs at
+  bool on_begin = true;   // true: run when the phase begins; false: when it ends
+  SceneFragment fragment;
+};
+struct SceneFragments {
+  SceneFragment begin;                     // run when the scene starts
+  SceneFragment end;                       // run when the scene ends
+  std::vector<ScenePhaseFragment> phases;  // per-phase begin fragments
+};
+
+// Parses a SCEN VMAD: the script list (into `out`) plus the scene begin/end and
+// per-phase fragments (into `frags`). Returns false if the script section is
+// malformed; a malformed fragment tail leaves whatever parsed cleanly.
+bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* frags);
+
 }  // namespace rec::bethesda
 
 #endif  // RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_

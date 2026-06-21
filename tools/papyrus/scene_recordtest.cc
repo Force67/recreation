@@ -14,6 +14,7 @@
 
 #include "bethesda/load_order.h"
 #include "bethesda/record.h"
+#include "bethesda/script_attachment.h"
 #include "core/types.h"
 #include "quest/scene_record.h"
 
@@ -51,6 +52,46 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   sub.type = type;
   sub.data = data;
   r.subrecords.push_back(std::move(sub));
+}
+
+// Flat little-endian appenders for hand-building a VMAD byte stream.
+void AppendU16(std::vector<u8>& v, u16 x) {
+  v.push_back(static_cast<u8>(x));
+  v.push_back(static_cast<u8>(x >> 8));
+}
+void AppendU32(std::vector<u8>& v, u32 x) {
+  for (int i = 0; i < 4; ++i) v.push_back(static_cast<u8>(x >> (8 * i)));
+}
+void AppendWStr(std::vector<u8>& v, const char* s) {
+  u16 len = static_cast<u16>(std::strlen(s));
+  AppendU16(v, len);
+  v.insert(v.end(), s, s + len);
+}
+
+// A SCEN VMAD with no user scripts, a begin + end scene fragment, and one
+// phase-end fragment for phase 4. Mirrors the SSE fragment layout the parser
+// reads (version, flags, shared file name, begin/end, phase count, entries).
+std::vector<u8> MakeSceneVmad() {
+  std::vector<u8> v;
+  AppendU16(v, 5);    // script section version
+  AppendU16(v, 2);    // object format
+  AppendU16(v, 0);    // script count
+  v.push_back(2);     // fragment version
+  v.push_back(0x03);  // flags: begin + end present
+  AppendWStr(v, "SF_Test");  // shared file name
+  v.push_back(0);            // begin: unknown
+  AppendWStr(v, "SF_Test");
+  AppendWStr(v, "Fragment_Begin");
+  v.push_back(0);            // end: unknown
+  AppendWStr(v, "SF_Test");
+  AppendWStr(v, "Fragment_End");
+  AppendU16(v, 1);           // phase count
+  v.push_back(2);            // phase fragment kind: 2 = phase-end
+  AppendU32(v, 4);           // phase number
+  v.push_back(0);            // unknown
+  AppendWStr(v, "SF_Test");
+  AppendWStr(v, "Fragment_P4");
+  return v;
 }
 
 // Builds an MQ101KeepEnemyScene-shaped SCEN: scene flags, two HNAM-bracketed
@@ -186,6 +227,31 @@ void TestEmpty() {
                                           def.actors.empty() && def.actions.empty());
 }
 
+void TestFragments() {
+  std::puts("scene vmad fragments:");
+  std::vector<u8> vmad = MakeSceneVmad();
+  bethesda::ScriptAttachment att;
+  bethesda::SceneFragments frags;
+  bool ok = bethesda::ParseSceneFragments(ByteSpan(vmad.data(), vmad.size()), &att, &frags);
+  Check("parse ok", ok);
+  Check("no user scripts", att.scripts.empty());
+  Check("scene begin fragment", frags.begin.function == "Fragment_Begin");
+  Check("scene end fragment", frags.end.function == "Fragment_End");
+  Check("one phase fragment", frags.phases.size() == 1);
+  if (frags.phases.size() == 1) {
+    Check("phase number 4", frags.phases[0].phase == 4);
+    Check("phase fragment is an end fragment", !frags.phases[0].on_begin);
+    Check("phase fragment function", frags.phases[0].fragment.function == "Fragment_P4");
+  }
+
+  // A truncated tail must not crash and must leave the fragments empty.
+  std::vector<u8> truncated(vmad.begin(), vmad.begin() + 10);
+  bethesda::SceneFragments frags2;
+  bethesda::ParseSceneFragments(ByteSpan(truncated.data(), truncated.size()), &att, &frags2);
+  Check("truncated tail -> no fragments",
+        frags2.begin.script_name.empty() && frags2.phases.empty());
+}
+
 // Dumps the real MQ101 SCEN scenes when a data dir is given. Validation only;
 // not part of the deterministic gate.
 int DumpReal(const std::string& data_dir) {
@@ -223,6 +289,25 @@ int DumpReal(const std::string& data_dir) {
                                      k, a.actor_alias, a.start_phase, a.end_phase,
                                      (unsigned long long)a.topic, (unsigned long long)a.package);
                        }
+                       // Scene Papyrus fragments: the scene begin/end and per-phase
+                       // functions that call SetStage to drive the journal.
+                       for (const Subrecord& s : rec.subrecords) {
+                         if (s.type != FourCc('V', 'M', 'A', 'D')) continue;
+                         ScriptAttachment att;
+                         SceneFragments frags;
+                         if (!ParseSceneFragments(s.data, &att, &frags)) {
+                           std::printf("  frags PARSE FAILED\n");
+                           ++g_failures;
+                           break;
+                         }
+                         std::printf("  frags begin='%s' end='%s' phases=%zu\n",
+                                     frags.begin.function.c_str(), frags.end.function.c_str(),
+                                     frags.phases.size());
+                         for (const ScenePhaseFragment& p : frags.phases)
+                           std::printf("    phase %u %-5s -> %s\n", p.phase,
+                                       p.on_begin ? "begin" : "end", p.fragment.function.c_str());
+                         break;
+                       }
                      });
   std::printf("MQ101 scenes parsed: %d\n", scenes);
   return scenes > 0 ? 0 : 1;
@@ -233,6 +318,7 @@ int DumpReal(const std::string& data_dir) {
 int main(int argc, char** argv) {
   TestParse();
   TestEmpty();
+  TestFragments();
 
   int rc = 0;
   if (argc >= 2) rc = DumpReal(argv[1]);
