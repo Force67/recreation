@@ -76,6 +76,11 @@ public sealed class OxygenCo2 : GameBehaviour
     // keyword rather than reaching for native player state.
     public bool Exerting { get; set; }
 
+    // Whether the player is hauling over-mass cargo. The mass system sets this so
+    // overburdening burns oxygen like sprinting does; kept separate from Exerting
+    // so the two exertion sources combine rather than overwrite each other.
+    public bool Overburdened { get; set; }
+
     // The hypoxia condition sustained maxed CO2 inflicts.
     public static readonly Affliction Hypoxia = new("Hypoxia", ActorValue.Health, 20f);
 
@@ -105,7 +110,7 @@ public sealed class OxygenCo2 : GameBehaviour
     {
         if (deltaTime <= 0f) return;
 
-        if (Exerting) AdjustOxygen(-DrainPerSecond * deltaTime);
+        if (Exerting || Overburdened) AdjustOxygen(-DrainPerSecond * deltaTime);
         else if (Oxygen < 100f) AdjustOxygen(RegenPerSecond * deltaTime);
 
         // CO2 only builds once oxygen is gone; with air to breathe it decays.
@@ -154,7 +159,7 @@ public sealed class OxygenCo2 : GameBehaviour
         _maxedSeconds = 0f;
         if (_hypoxic)
         {
-            Afflictions.Cure(Game.Player);
+            Afflictions.Cure(Game.Player, Hypoxia.Id);
             _hypoxic = false;
         }
     }

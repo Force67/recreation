@@ -72,5 +72,17 @@ public static class Afflictions
         return set.Count;
     }
 
+    // Cures a single affliction by id, reverting just its drain so it composes
+    // with any others the actor carries. Returns true when one was lifted.
+    public static bool Cure(Actor who, string id)
+    {
+        if (!Carried.TryGetValue(who.Handle, out Dictionary<string, Effect>? set)) return false;
+        if (!set.Remove(id, out Effect? drain)) return false;
+        Effects.Remove(drain);
+        if (set.Count == 0) Carried.Remove(who.Handle);
+        EventBus.Publish(new AfflictionsCured(who.Handle, 1));
+        return true;
+    }
+
     public static void Clear() => Carried.Clear();
 }

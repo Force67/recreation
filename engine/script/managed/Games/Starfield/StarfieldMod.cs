@@ -35,5 +35,14 @@ public sealed class StarfieldMod : IMod
             CarbonDioxideBuildingAt = config.GetFloat("co2BuildingAt", 25f),
             HypoxiaAfterSeconds = config.GetFloat("hypoxiaAfterSeconds", 5f),
         });
+        ModHost.Register(new EnvironmentalHazards
+        {
+            ExposurePerSecond = config.GetFloat("hazardExposurePerSecond", 20f),
+            RecoveryPerSecond = config.GetFloat("hazardRecoveryPerSecond", 25f),
+        });
+        ModHost.Register(new MassEncumbrance
+        {
+            SpeedPenalty = config.GetFloat("massSpeedPenalty", 35f),
+        });
     }
 }

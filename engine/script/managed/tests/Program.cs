@@ -16,6 +16,8 @@ internal static class Program
         FalloutTests.Run(check);
         StarfieldOxygenTests.Run(check);
         StarfieldAfflictionsTests.Run(check);
+        StarfieldHazardsTests.Run(check);
+        StarfieldMassTests.Run(check);
         InventoryTests.Run(check);
         ActorDataTests.Run(check);
         WrapperDispatchTests.Run(check);
