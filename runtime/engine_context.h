@@ -87,6 +87,10 @@ struct PhysicsEntity {
 struct EngineContext {
   const EngineConfig* config = nullptr;
 
+  // The detected primary game, set once after data loads. Subsystems read it to
+  // pick game-specific asset layouts (e.g. the actor system's body rig).
+  bethesda::Game game = bethesda::Game::kUnknown;
+
   // Always-present services (engine members; addresses stable for its lifetime).
   ecs::World* world = nullptr;
   ecs::Scheduler* scheduler = nullptr;

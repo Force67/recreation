@@ -8,6 +8,7 @@
 #include "anim/foot_ik.h"
 #include "asset/primitives.h"
 #include "bethesda/converters.h"
+#include "bethesda/material_db.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
 #include "core/log.h"
@@ -293,12 +294,112 @@ bool ActorSystem::LoadActorTemplate(Actor* out) {
   return true;
 }
 
+bool ActorSystem::LoadStarfieldActorPart(const std::string& path, Actor& actor,
+                                         const bethesda::StarfieldMaterialDb& mat_db) {
+  auto bytes = vfs_.Read(asset::NormalizePath(path));
+  if (!bytes) {
+    REC_WARN("starfield actor part not found: {}", path);
+    return false;
+  }
+  ByteSpan span(bytes->data(), bytes->size());
+  asset::AssetId id = asset::MakeAssetId(path);
+  base::UniquePointer<asset::Mesh> mesh =
+      bethesda::ConvertStarfieldSkinnedNif(*ctx_.assets, mat_db, span, id, path);
+  if (!mesh || !mesh->skinned || mesh->skin.bones.empty()) {
+    REC_WARN("starfield actor part {} has no skinned geometry", path);
+    return false;
+  }
+  // The converter adds the material and loads its textures into the database;
+  // upload both to the renderer, then the mesh, mirroring the cell streamer.
+  for (const asset::MeshLod& lod : mesh->lods) {
+    for (const asset::Submesh& submesh : lod.submeshes) {
+      const asset::Material* material = ctx_.assets->FindMaterial(submesh.material);
+      if (!material) continue;
+      const asset::AssetId textures[] = {material->base_color, material->normal,
+                                         material->metallic_roughness, material->emissive};
+      for (asset::AssetId texture_id : textures) {
+        if (!texture_id) continue;
+        if (const asset::Texture* texture = ctx_.assets->FindTexture(texture_id)) {
+          renderer_.UploadTexture(*texture);
+        }
+      }
+      renderer_.UploadMaterial(*material);
+    }
+  }
+  renderer_.UploadMesh(*mesh);
+
+  ActorPart part;
+  part.mesh = mesh->id;
+  part.skin = mesh->skin;
+  part.remap = anim::BuildBoneRemap(actor.skeleton, part.skin);
+  u32 matched = 0;
+  for (i32 b : part.remap) {
+    if (b >= 0) ++matched;
+  }
+  REC_INFO("starfield actor part {}: {} skin bones, {} matched to skeleton", path,
+           part.skin.bones.size(), matched);
+  actor.parts.push_back(std::move(part));
+  return true;
+}
+
+bool ActorSystem::LoadStarfieldActorTemplate(Actor* out) {
+  const std::string skel_path = "meshes/actors/human/characterassets/skeleton.nif";
+  auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
+  if (!skel_bytes) {
+    REC_ERROR("starfield skeleton.nif not found in the mounted archives");
+    return false;
+  }
+  asset::Skeleton skeleton;
+  if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
+                                    asset::MakeAssetId(skel_path), &skeleton)) {
+    REC_ERROR("failed to parse starfield skeleton.nif");
+    return false;
+  }
+  out->skeleton = std::move(skeleton);
+  out->pose.ResetToBind(out->skeleton);
+  // Unlike Skyrim, the Starfield character assets are authored in metres, not
+  // game units: the skeleton binds, the body bind transforms, and the skinned
+  // ".mesh" vertices all stay in metres. So skeleton_to_local only reorients
+  // Bethesda Z-up to engine Y-up (s = 1), instead of the Skyrim s = 0.01428 that
+  // also converts game units to metres.
+  constexpr f32 s = 1.0f;
+  Mat4 basis{};
+  basis.m[0] = s;
+  basis.m[6] = -s;
+  basis.m[9] = s;
+  basis.m[15] = 1.0f;
+  out->skeleton_to_local = basis;
+  out->ik_up = {0, 0, 1};       // Bethesda up
+  out->ik_forward = {0, 1, 0};  // Bethesda forward
+  anim::ComputeModelMatrices(out->skeleton, out->pose, &out->bone_model);
+
+  // The body materials resolve through the compiled material database, the same
+  // index ConvertStarfieldNif uses for the world. Built once here for the
+  // template (the bodies load only once), then dropped.
+  bethesda::StarfieldMaterialDb mat_db;
+  if (auto cdb = vfs_.Read("materials/materialsbeta.cdb")) {
+    mat_db.Build(ByteSpan(cdb->data(), cdb->size()));
+  }
+
+  const std::string skinned_parts[] = {
+      "meshes/actors/human/mesh/naked_body/naked_m.nif",
+      "meshes/actors/human/mesh/nakedhands/hands_3rd_m.nif",
+  };
+  bool any = false;
+  for (const std::string& p : skinned_parts) any = LoadStarfieldActorPart(p, *out, mat_db) || any;
+  if (!any) {
+    REC_ERROR("no starfield body parts loaded");
+    return false;
+  }
+  return true;
+}
+
 void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
-  // Fallback rig for games whose character assets are not the Skyrim layout
-  // LoadActorTemplate expects (Fallout 4, Starfield use different paths and the
-  // new skinned ".mesh" format): a procedural biped so their NPCs are visible
-  // placeholders rather than invisible markers. It is already in engine space
-  // (Y-up, metres), so skeleton_to_local stays identity.
+  // Fallback rig for games with no dedicated body loader (Fallout 4): a
+  // procedural biped so their NPCs are visible placeholders rather than
+  // invisible markers. Skyrim and Starfield load real skinned bodies; this
+  // catches them too only when those assets fail to parse. It is already in
+  // engine space (Y-up, metres), so skeleton_to_local stays identity.
   asset::Skeleton skeleton;
   asset::Mesh mesh;
   asset::MakeSkinnedBiped(asset::MakeAssetId("builtin/biped"), &skeleton, &mesh);
@@ -465,9 +566,12 @@ void ActorSystem::SyncNpcActors() {
   // Build the shared rig once; every NPC actor is instanced from it.
   if (!npc_template_) {
     Actor tmpl;
-    if (!LoadActorTemplate(&tmpl)) {
-      // The Skyrim body assets are absent (a Fallout 4 or Starfield session):
-      // fall back to the builtin biped so NPCs still populate the world.
+    bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
+                                                          : LoadActorTemplate(&tmpl);
+    if (!loaded) {
+      // The game's skinned body assets are absent or did not parse (e.g. a
+      // Fallout 4 session): fall back to the builtin biped so NPCs still
+      // populate the world.
       tmpl = Actor{};
       LoadBuiltinActorTemplate(&tmpl);
       REC_INFO("npc rendering: using the builtin biped (game body assets absent)");

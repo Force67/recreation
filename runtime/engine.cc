@@ -600,6 +600,7 @@ bool Engine::LoadGameData() {
     REC_ERROR("could not detect a supported game in {}", config_.data_dir);
     return false;
   }
+  ctx_.game = game_;
   const auto& profile = bethesda::GameProfile::For(game_);
   REC_INFO("detected {}", profile.name);
 

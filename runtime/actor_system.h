@@ -19,6 +19,10 @@
 
 namespace rec {
 
+namespace bethesda {
+class StarfieldMaterialDb;
+}
+
 // Owns the engine's skinned, animated characters: the walkable player, the test
 // bringup biped, and the per-NPC instances that mirror streamed-in ECS actors.
 // Kept engine-side (not ECS components) because the renderer needs the CPU skin
@@ -89,8 +93,11 @@ class ActorSystem {
   };
 
   bool LoadActorTemplate(Actor* out);
+  bool LoadStarfieldActorTemplate(Actor* out);
   void LoadBuiltinActorTemplate(Actor* out);
   bool LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone = -1);
+  bool LoadStarfieldActorPart(const std::string& path, Actor& actor,
+                              const bethesda::StarfieldMaterialDb& mat_db);
   base::Vector<std::string> FindHeadPartModels(u32 part_type, u32 max);
   void UpdateOneActor(Actor& actor, f32 dt);
   void EmitOneActor(Actor& actor, render::FrameView& view);
