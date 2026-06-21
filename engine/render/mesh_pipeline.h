@@ -31,11 +31,15 @@ inline constexpr u32 kFrameFlagAoValid = 1u << 1;
 inline constexpr u32 kFrameFlagDdgi = 1u << 2;
 inline constexpr u32 kFrameFlagWaterRt = 1u << 3;
 
-// Stays within the 128 byte push constant minimum, everything else goes
-// through the globals buffer.
+// model + prev_model are 128 bytes; skinned draws append the bone palette's
+// buffer device address and this mesh's offset into it (needs a 144 byte push
+// range, available on every desktop GPU). Non-skinned shaders ignore the tail.
 struct MeshPushConstants {
   Mat4 model;
   Mat4 prev_model;
+  u64 bone_address = 0;  // VkDeviceAddress of the frame bone palette, 0 = none
+  u32 skin_offset = 0;   // first bone of this mesh in the palette
+  u32 pad = 0;
 };
 
 // Forward pbr pipeline: classic vertex buffer, metallic roughness shading,
@@ -69,6 +73,13 @@ class MeshPipeline {
   void Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push);
   void DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh);
 
+  // Swap the bound pipeline between the static and GPU-skinned vertex paths
+  // mid-pass without rebinding descriptor sets (the layout is shared). The draw
+  // loop calls these when it crosses a skinned/non-skinned mesh boundary.
+  bool has_skinning() const { return skinned_pipelines_[0] != VK_NULL_HANDLE; }
+  void SetSkinned(VkCommandBuffer cmd, bool skinned, bool rt_shadows, bool wireframe);
+  void SetPrepassSkinned(VkCommandBuffer cmd, bool skinned);
+
  private:
   // Variant index bits.
   static constexpr u32 kRt = 1;
@@ -82,6 +93,9 @@ class MeshPipeline {
   VkPipeline pipelines_[4] = {};  // [rt | wire]
   VkPipeline blend_pipelines_[2] = {};  // [rt]
   VkPipeline prepass_pipeline_ = VK_NULL_HANDLE;
+  // Skinned vertex path: same fragment variants, extra vertex stream + VS.
+  VkPipeline skinned_pipelines_[2] = {};  // [rt]
+  VkPipeline skinned_prepass_pipeline_ = VK_NULL_HANDLE;
 };
 
 }  // namespace rec::render

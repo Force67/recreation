@@ -38,6 +38,7 @@ endif()
 
 recreation_embed_shaders(recreation_render
   shaders/mesh.vs.hlsl
+  shaders/mesh_skin.vs.hlsl
   shaders/mesh.ps.hlsl
   shaders/mesh_rt.ps.hlsl
   shaders/fullscreen.vs.hlsl

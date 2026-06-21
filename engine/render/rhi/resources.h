@@ -39,10 +39,12 @@ struct GpuSubmesh {
 struct GpuMesh {
   GpuBuffer vertices;
   GpuBuffer indices;
+  GpuBuffer skinning;      // per-vertex bone indices/weights, set when skinned
   u32 index_count = 0;
   u32 vertex_count = 0;
   bool all_blend = false;  // pure transparency (water): stays out of the tlas
   bool no_rt = false;      // grass-like fill geometry, excluded from the tlas
+  bool skinned = false;    // drawn with the skinned pipeline against a bone palette
   u32 bindless_index = 0;  // mesh record in the bindless registry
   base::Vector<GpuSubmesh> submeshes;
 };

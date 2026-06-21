@@ -291,6 +291,15 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh) {
       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rt_usage);
   gpu.index_count = static_cast<u32>(lod.indices.size());
   gpu.vertex_count = static_cast<u32>(lod.vertices.size());
+  // Skinned meshes carry a parallel bone index/weight stream, bound as a second
+  // vertex buffer by the skinned pipeline.
+  if (mesh.skinned && lod.skinning.size() == lod.vertices.size()) {
+    gpu.skinning = device_->CreateBufferWithData(
+        ByteSpan(reinterpret_cast<const u8*>(lod.skinning.data()),
+                 lod.skinning.size() * sizeof(asset::SkinnedVertexExtra)),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    gpu.skinned = gpu.skinning.buffer != VK_NULL_HANDLE;
+  }
   if (lod.submeshes.empty()) {
     gpu.submeshes.push_back({0, gpu.index_count, 0, false});
   } else {
@@ -495,6 +504,12 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
 
+  // Skinning palette for every skinned draw this frame, read by device address.
+  if (!view.bone_matrices.empty() && frame.bone_palette.mapped) {
+    u32 count = std::min<u32>(static_cast<u32>(view.bone_matrices.size()), kMaxFrameBones);
+    std::memcpy(frame.bone_palette.mapped, view.bone_matrices.data(), count * sizeof(Mat4));
+  }
+
   ResourceHandle scene_color = graph_.CreateTexture(
       {.name = "scene_color", .format = kSceneColorFormat, .width = render_width_,
        .height = render_height_});
@@ -604,11 +619,21 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        bool skinned_bound = false;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh || mesh->all_blend) continue;
-          mesh_pipeline_->Draw(ctx.cmd, *mesh,
-                               {.model = item.transform, .prev_model = item.prev_transform});
+          bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
+          if (draw_skinned != skinned_bound) {
+            mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
+            skinned_bound = draw_skinned;
+          }
+          MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+          if (draw_skinned && item.skin_offset >= 0) {
+            push.bone_address = frame.bone_palette_address;
+            push.skin_offset = static_cast<u32>(item.skin_offset);
+          }
+          mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;  // transparency owns its own depth
             VkDescriptorSet material = material_system_->set(submesh.material);
@@ -715,11 +740,21 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, rt_shadows, settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        bool skinned_bound = false;
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh || mesh->all_blend) continue;
-          mesh_pipeline_->Draw(ctx.cmd, *mesh,
-                               {.model = item.transform, .prev_model = item.prev_transform});
+          bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
+          if (draw_skinned != skinned_bound) {
+            mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, rt_shadows, settings_.wireframe);
+            skinned_bound = draw_skinned;
+          }
+          MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+          if (draw_skinned && item.skin_offset >= 0) {
+            push.bone_address = frame.bone_palette_address;
+            push.skin_offset = static_cast<u32>(item.skin_offset);
+          }
+          mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;
             VkDescriptorSet material = material_system_->set(submesh.material);
@@ -729,6 +764,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             }
             mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
           }
+        }
+        if (skinned_bound) {
+          mesh_pipeline_->SetSkinned(ctx.cmd, false, rt_shadows, settings_.wireframe);
         }
         if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
         vkCmdEndRendering(ctx.cmd);
@@ -1019,6 +1057,16 @@ bool Renderer::CreateFrameResources() {
     frame.globals = device_->CreateBuffer(sizeof(FrameGlobals),
                                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
     if (!frame.globals.mapped) return false;
+
+    // Bone palette: host visible, read in the skinned vertex shader through its
+    // device address (no descriptor binding). Column-major 4x4 per bone.
+    frame.bone_palette = device_->CreateBuffer(
+        static_cast<u64>(kMaxFrameBones) * sizeof(Mat4),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, true);
+    if (!frame.bone_palette.mapped) return false;
+    VkBufferDeviceAddressInfo address_info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+    address_info.buffer = frame.bone_palette.buffer;
+    frame.bone_palette_address = vkGetBufferDeviceAddress(device_->device(), &address_info);
   }
   return true;
 }
@@ -1026,6 +1074,7 @@ bool Renderer::CreateFrameResources() {
 void Renderer::DestroyFrameResources() {
   for (FrameResources& frame : frames_) {
     if (frame.globals.buffer) device_->DestroyBuffer(frame.globals);
+    if (frame.bone_palette.buffer) device_->DestroyBuffer(frame.bone_palette);
     if (frame.descriptor_pool) {
       vkDestroyDescriptorPool(device_->device(), frame.descriptor_pool, nullptr);
     }
@@ -1095,6 +1144,7 @@ void Renderer::Shutdown() {
     for (auto kv : meshes_) {
       device_->DestroyBuffer(kv.value.vertices);
       device_->DestroyBuffer(kv.value.indices);
+      if (kv.value.skinning.buffer) device_->DestroyBuffer(kv.value.skinning);
     }
     meshes_.clear();
     taa_.Destroy(*device_);

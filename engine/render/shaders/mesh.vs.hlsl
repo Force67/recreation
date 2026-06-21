@@ -16,6 +16,11 @@ struct FrameGlobals {
 struct PushData {
   column_major float4x4 model;
   column_major float4x4 prev_model;
+#ifdef REC_SKINNED
+  uint64_t bone_address;  // device address of the frame bone palette
+  uint skin_offset;       // first bone of this mesh in the palette
+  uint pad;
+#endif
 };
 [[vk::push_constant]] PushData push;
 
@@ -25,6 +30,10 @@ struct VsIn {
   [[vk::location(2)]] float4 tangent : TANGENT;
   [[vk::location(3)]] float2 uv : TEXCOORD0;
   [[vk::location(4)]] float4 color : COLOR0;
+#ifdef REC_SKINNED
+  [[vk::location(5)]] uint4 bone_indices : BLENDINDICES0;
+  [[vk::location(6)]] float4 bone_weights : BLENDWEIGHT0;  // unorm 0..1
+#endif
 };
 
 struct VsOut {
@@ -38,18 +47,50 @@ struct VsOut {
   [[vk::location(6)]] float4 color : COLOR0;
 };
 
+#ifdef REC_SKINNED
+// Each bone is a column-major 4x4 (64 bytes) in the palette, so M*v is the
+// weighted sum of columns. Normals/tangents use the upper 3x3.
+void SkinVertex(VsIn input, out float3 position, out float3 normal, out float3 tangent) {
+  position = float3(0, 0, 0);
+  normal = float3(0, 0, 0);
+  tangent = float3(0, 0, 0);
+  float4 p = float4(input.position, 1.0);
+  [unroll]
+  for (uint i = 0; i < 4; ++i) {
+    float w = input.bone_weights[i];
+    if (w <= 0.0) continue;
+    uint64_t addr = push.bone_address + (uint64_t)(push.skin_offset + input.bone_indices[i]) * 64;
+    float4 c0 = vk::RawBufferLoad<float4>(addr + 0);
+    float4 c1 = vk::RawBufferLoad<float4>(addr + 16);
+    float4 c2 = vk::RawBufferLoad<float4>(addr + 32);
+    float4 c3 = vk::RawBufferLoad<float4>(addr + 48);
+    position += w * (c0 * p.x + c1 * p.y + c2 * p.z + c3 * p.w).xyz;
+    normal += w * (c0.xyz * input.normal.x + c1.xyz * input.normal.y + c2.xyz * input.normal.z);
+    tangent +=
+        w * (c0.xyz * input.tangent.x + c1.xyz * input.tangent.y + c2.xyz * input.tangent.z);
+  }
+}
+#endif
+
 VsOut main(VsIn input) {
   VsOut output;
-  float4 world = mul(push.model, float4(input.position, 1.0));
+  float3 local_pos = input.position;
+  float3 local_normal = input.normal;
+  float3 local_tangent = input.tangent.xyz;
+#ifdef REC_SKINNED
+  SkinVertex(input, local_pos, local_normal, local_tangent);
+#endif
+  float4 world = mul(push.model, float4(local_pos, 1.0));
   float4 clip = mul(frame.view_proj, world);
   output.world_pos = world.xyz;
   // Motion vectors compare unjittered positions, so jitter only moves the
-  // rasterized sample, never the reprojection.
+  // rasterized sample, never the reprojection. Skinned deformation reuses the
+  // current pose for prev (rigid motion only).
   output.curr_clip = clip;
-  output.prev_clip = mul(frame.prev_view_proj, mul(push.prev_model, float4(input.position, 1.0)));
+  output.prev_clip = mul(frame.prev_view_proj, mul(push.prev_model, float4(local_pos, 1.0)));
   output.sv_position = clip + float4(frame.jitter * clip.w, 0.0, 0.0);
-  output.normal = mul((float3x3)push.model, input.normal);
-  output.tangent = float4(mul((float3x3)push.model, input.tangent.xyz), input.tangent.w);
+  output.normal = mul((float3x3)push.model, local_normal);
+  output.tangent = float4(mul((float3x3)push.model, local_tangent), input.tangent.w);
   output.uv = input.uv;
   output.color = input.color;
   return output;

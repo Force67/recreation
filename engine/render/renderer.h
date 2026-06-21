@@ -53,12 +53,18 @@ struct DrawItem {
   u64 mesh = 0;  // AssetId hash of an uploaded mesh
   Mat4 transform = Mat4::Identity();
   Mat4 prev_transform = Mat4::Identity();
+  // Index of this mesh's first bone in FrameView::bone_matrices, -1 = static.
+  // Only meaningful for skinned meshes.
+  i32 skin_offset = -1;
 };
 
 struct FrameView {
   CameraPose camera;
   f32 frame_delta_seconds = 1.0f / 60.0f;  // upscalers want real frame time
   base::Vector<DrawItem> draws;
+  // Bone palette for every skinned draw this frame, concatenated; each skinned
+  // DrawItem indexes its run by skin_offset. Column-major model-space matrices.
+  base::Vector<Mat4> bone_matrices;
   // Recorded inside the final ui pass with the backbuffer bound as the
   // color attachment. hud_draw (the libultragui HUD/menu) records first, then
   // ui_draw (the debug ImGui overlay) on top.
@@ -116,7 +122,11 @@ class Renderer {
     VkFence in_flight = VK_NULL_HANDLE;
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     GpuBuffer globals;  // host visible FrameGlobals
+    GpuBuffer bone_palette;  // host visible skinning matrices, read by device address
+    VkDeviceAddress bone_palette_address = 0;
   };
+  // Max bones across all skinned draws in one frame.
+  static constexpr u32 kMaxFrameBones = 8192;
 
   bool CreateFrameResources();
   void DestroyFrameResources();

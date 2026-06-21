@@ -5,6 +5,7 @@
 #include "render/shader_util.h"
 #include "shaders/mesh_ps_hlsl.h"
 #include "shaders/mesh_rt_ps_hlsl.h"
+#include "shaders/mesh_skin_vs_hlsl.h"
 #include "shaders/mesh_vs_hlsl.h"
 #include "shaders/prepass_ps_hlsl.h"
 
@@ -54,6 +55,8 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   }
 
   VkShaderModule vert = CreateShaderModule(device.device(), k_mesh_vs_hlsl, sizeof(k_mesh_vs_hlsl));
+  VkShaderModule vert_skin =
+      CreateShaderModule(device.device(), k_mesh_skin_vs_hlsl, sizeof(k_mesh_skin_vs_hlsl));
   VkShaderModule frag = CreateShaderModule(device.device(), k_mesh_ps_hlsl, sizeof(k_mesh_ps_hlsl));
   VkShaderModule frag_prepass =
       CreateShaderModule(device.device(), k_prepass_ps_hlsl, sizeof(k_prepass_ps_hlsl));
@@ -88,6 +91,25 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
   vertex_input.pVertexBindingDescriptions = &binding;
   vertex_input.vertexAttributeDescriptionCount = 5;
   vertex_input.pVertexAttributeDescriptions = attributes;
+
+  // Skinned variant: a second vertex stream (binding 1) carries 4 bone indices
+  // and 4 normalized weights per vertex.
+  VkVertexInputBindingDescription skinned_bindings[2] = {binding, {}};
+  skinned_bindings[1].binding = 1;
+  skinned_bindings[1].stride = sizeof(asset::SkinnedVertexExtra);
+  skinned_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  VkVertexInputAttributeDescription skinned_attributes[7];
+  for (int i = 0; i < 5; ++i) skinned_attributes[i] = attributes[i];
+  skinned_attributes[5] = {.location = 5, .binding = 1, .format = VK_FORMAT_R8G8B8A8_UINT,
+                           .offset = offsetof(asset::SkinnedVertexExtra, bone_indices)};
+  skinned_attributes[6] = {.location = 6, .binding = 1, .format = VK_FORMAT_R8G8B8A8_UNORM,
+                           .offset = offsetof(asset::SkinnedVertexExtra, bone_weights)};
+  VkPipelineVertexInputStateCreateInfo skinned_vertex_input{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+  skinned_vertex_input.vertexBindingDescriptionCount = 2;
+  skinned_vertex_input.pVertexBindingDescriptions = skinned_bindings;
+  skinned_vertex_input.vertexAttributeDescriptionCount = 7;
+  skinned_vertex_input.pVertexAttributeDescriptions = skinned_attributes;
 
   VkPipelineInputAssemblyStateCreateInfo input_assembly{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -175,6 +197,25 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
     }
   }
 
+  // Skinned main variants: same fragment shaders and main pass state, skinned
+  // vertex stage + the bone weight stream. Wireframe is not skinned.
+  if (vert_skin != VK_NULL_HANDLE) {
+    stages[0].module = vert_skin;
+    info.pVertexInputState = &skinned_vertex_input;
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    for (u32 variant = 0; variant < 2; ++variant) {
+      if ((variant & kRt) && !rt) continue;
+      stages[1].module = (variant & kRt) ? frag_rt : frag;
+      if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
+                                    &pipeline->skinned_pipelines_[variant]) != VK_SUCCESS) {
+        REC_ERROR("mesh skinned pipeline creation failed (variant {})", variant);
+        pipeline->skinned_pipelines_[variant] = VK_NULL_HANDLE;
+      }
+    }
+    stages[0].module = vert;
+    info.pVertexInputState = &vertex_input;
+  }
+
   // Transparent variants: blend over the opaque pass, test against its
   // depth without writing, shade with the same pbr shaders.
   depth.depthWriteEnable = VK_FALSE;
@@ -218,7 +259,20 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
     pipeline->prepass_pipeline_ = VK_NULL_HANDLE;
   }
 
+  // Skinned prepass: must match the skinned main pose so the EQUAL depth test
+  // passes.
+  if (vert_skin != VK_NULL_HANDLE) {
+    stages[0].module = vert_skin;
+    info.pVertexInputState = &skinned_vertex_input;
+    if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr,
+                                  &pipeline->skinned_prepass_pipeline_) != VK_SUCCESS) {
+      REC_ERROR("mesh skinned prepass pipeline creation failed");
+      pipeline->skinned_prepass_pipeline_ = VK_NULL_HANDLE;
+    }
+  }
+
   vkDestroyShaderModule(device.device(), vert, nullptr);
+  if (vert_skin) vkDestroyShaderModule(device.device(), vert_skin, nullptr);
   vkDestroyShaderModule(device.device(), frag, nullptr);
   vkDestroyShaderModule(device.device(), frag_prepass, nullptr);
   if (frag_rt) vkDestroyShaderModule(device.device(), frag_rt, nullptr);
@@ -235,6 +289,12 @@ MeshPipeline::~MeshPipeline() {
   }
   for (VkPipeline pipeline : blend_pipelines_) {
     if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
+  }
+  for (VkPipeline pipeline : skinned_pipelines_) {
+    if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
+  }
+  if (skinned_prepass_pipeline_) {
+    vkDestroyPipeline(device_.device(), skinned_prepass_pipeline_, nullptr);
   }
   if (prepass_pipeline_) vkDestroyPipeline(device_.device(), prepass_pipeline_, nullptr);
   if (layout_) vkDestroyPipelineLayout(device_.device(), layout_, nullptr);
@@ -274,10 +334,31 @@ void MeshPipeline::BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material) {
                           nullptr);
 }
 
+void MeshPipeline::SetSkinned(VkCommandBuffer cmd, bool skinned, bool rt_shadows, bool wireframe) {
+  if (skinned) {
+    VkPipeline p = skinned_pipelines_[rt_shadows ? kRt : 0];
+    if (p == VK_NULL_HANDLE) p = skinned_pipelines_[0];
+    if (p != VK_NULL_HANDLE) vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+    return;
+  }
+  u32 variant = (rt_shadows ? kRt : 0) | (wireframe ? kWire : 0);
+  if (pipelines_[variant] == VK_NULL_HANDLE) variant &= ~kWire;
+  if (pipelines_[variant] == VK_NULL_HANDLE) variant = 0;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines_[variant]);
+}
+
+void MeshPipeline::SetPrepassSkinned(VkCommandBuffer cmd, bool skinned) {
+  VkPipeline p = skinned && skinned_prepass_pipeline_ ? skinned_prepass_pipeline_ : prepass_pipeline_;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+}
+
 void MeshPipeline::Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push) {
   vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertices.buffer, &offset);
+  if (mesh.skinned && mesh.skinning.buffer != VK_NULL_HANDLE) {
+    vkCmdBindVertexBuffers(cmd, 1, 1, &mesh.skinning.buffer, &offset);
+  }
   vkCmdBindIndexBuffer(cmd, mesh.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 }
 
