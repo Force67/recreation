@@ -128,7 +128,8 @@ std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
   for (const bethesda::ScriptEntry& entry : att.scripts) {
     std::string type = EnsureScriptLoaded(entry.name);
     if (type.empty()) {
-      REC_WARN("script: cannot attach {}, .pex unavailable", entry.name);
+      if (warned_unloadable_.insert(entry.name).second)
+        REC_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
       continue;
     }
     ObjectRef inst =

@@ -78,8 +78,10 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
             attachment.scripts.empty())
           return;
         u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
+        // Best effort: a quest registers even when its Papyrus fails to load
+        // (Starfield PEX is not executed yet) so its stage machine still runs
+        // under the domain's microvm and replicates over the network.
         auto created = scripts_->AttachScripts(handle, attachment);
-        if (created.empty()) return;
         ++quests;
         instances += static_cast<int>(created.size());
         quest::QuestDef def = quest::ParseQuestDefinition(handle, record, &strings_);

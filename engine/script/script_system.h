@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "asset/vfs.h"
@@ -55,6 +56,10 @@ class ScriptSystem {
   asset::Vfs* vfs_;
   PapyrusGuest guest_;
   std::function<void(u64)> on_attach_;
+  // Script names we have already reported as unloadable, so a game whose
+  // bytecode the VM cannot execute yet (Starfield) warns once per script
+  // instead of once per attachment.
+  std::unordered_set<std::string> warned_unloadable_;
 };
 
 }  // namespace rec::script

@@ -117,36 +117,40 @@ void QuestDirector::AttachQuestScripts() {
                             attachment.scripts.empty())
                           return;
                         u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
+                        // Attaching the Papyrus scripts is best effort: the stage
+                        // machine, objectives and the debugger are driven by the
+                        // QUST record, not the bytecode. Starfield ships PEX the VM
+                        // does not yet execute, so its scripts fail to load; the
+                        // quest must still register so SetStage and the debugger
+                        // work. Only the stage fragments' side effects are lost.
                         auto created = ctx_.scripts->AttachScripts(handle, attachment);
-                        if (!created.empty()) {
-                          ++quests;
-                          instances += static_cast<int>(created.size());
-                          // Parse the quest's stages and objectives (log text,
-                          // objective text, compass targets) for the HUD/debugger.
-                          quest::QuestDef def =
-                              quest::ParseQuestDefinition(handle, record, &strings_);
-                          // Resolve its objective compass targets from forced-ref
-                          // aliases now, while the records are at hand.
-                          IndexObjectiveTargets(def, stored.winning_plugin);
-                          // Key the record list by editor id: it is the stable
-                          // handle REC_START_QUEST and the debugger match on. The
-                          // panel's display name comes from the quest definition.
-                          std::string edid =
-                              !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
-                          quest_records_.push_back({handle, std::move(edid)});
-                          // Register the stage->fragment map and definition on the
-                          // guest thread (the bindings' only caller) so SetStage runs
-                          // the quest's authored logic and snapshots carry its text.
-                          auto* binds = ctx_.bindings;
-                          ctx_.scripts->guest().Submit(
-                              [binds, handle, def = std::move(def),
-                               fragments = std::move(fragments)](
-                                  rec::script::papyrus::VirtualMachine&) mutable {
-                                binds->quest_system().SetDefinition(std::move(def));
-                                for (const auto& f : fragments)
-                                  binds->SetStageFragment(handle, f.stage, f.function);
-                              });
-                        }
+                        ++quests;
+                        instances += static_cast<int>(created.size());
+                        // Parse the quest's stages and objectives (log text,
+                        // objective text, compass targets) for the HUD/debugger.
+                        quest::QuestDef def =
+                            quest::ParseQuestDefinition(handle, record, &strings_);
+                        // Resolve its objective compass targets from forced-ref
+                        // aliases now, while the records are at hand.
+                        IndexObjectiveTargets(def, stored.winning_plugin);
+                        // Key the record list by editor id: it is the stable
+                        // handle REC_START_QUEST and the debugger match on. The
+                        // panel's display name comes from the quest definition.
+                        std::string edid =
+                            !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
+                        quest_records_.push_back({handle, std::move(edid)});
+                        // Register the stage->fragment map and definition on the
+                        // guest thread (the bindings' only caller) so SetStage runs
+                        // the quest's authored logic and snapshots carry its text.
+                        auto* binds = ctx_.bindings;
+                        ctx_.scripts->guest().Submit(
+                            [binds, handle, def = std::move(def),
+                             fragments = std::move(fragments)](
+                                rec::script::papyrus::VirtualMachine&) mutable {
+                              binds->quest_system().SetDefinition(std::move(def));
+                              for (const auto& f : fragments)
+                                binds->SetStageFragment(handle, f.stage, f.function);
+                            });
                       });
   REC_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
            quests, ctx_.scripts->loaded_script_count());
