@@ -124,12 +124,23 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
         moving_ = false;
         SetStatus("Moved");
       }
-    } else if (click) {
-      // A click in the viewport places the armed brush, otherwise it selects.
-      if (brush_ >= 0)
+    } else if (brush_ >= 0 && lmb && !PointerOverUi(input) && !ctx_.camera->looking()) {
+      // With a brush armed: the first click drops one; holding and dragging
+      // paint-scatters a copy every scatter_spacing_ metres (fast forests).
+      Vec3 aim;
+      if (!prev_lmb_) {
         PlaceBrush(input);
-      else
-        SelectUnderCursor(input);
+      } else if (AimPoint(input, &aim)) {
+        const f32 dx = aim.x - last_scatter_pos_.x, dz = aim.z - last_scatter_pos_.z;
+        if (dx * dx + dz * dz >= scatter_spacing_ * scatter_spacing_) {
+          if (PlaceArmedAt(aim, ScatterYaw()) != ecs::kInvalidEntity) {
+            last_scatter_pos_ = aim;
+            SetStatus("Scattering " + catalog_[brush_].name);
+          }
+        }
+      }
+    } else if (click) {
+      SelectUnderCursor(input);
     }
     ApplyKeyboard(input);
     UpdateGhost(input);
@@ -232,25 +243,40 @@ void MapEditor::ArmBrush(int catalog_index) {
   SetStatus("Placing: " + catalog_[brush_].name + "  (click to drop, Esc to clear)");
 }
 
-void MapEditor::PlaceBrush(const InputState& input) {
-  if (brush_ < 0 || !ctx_.world) return;
+ecs::Entity MapEditor::PlaceArmedAt(const Vec3& pos, f32 yaw) {
+  if (brush_ < 0 || !ctx_.world) return ecs::kInvalidEntity;
   const CatalogEntry& e = catalog_[brush_];
   world::CellStreamer* streamer = StreamerFor(e.domain);
-  if (!streamer) return;
+  if (!streamer) return ecs::kInvalidEntity;
+  const Quat yq = QuatFromAxisAngle({0, 1, 0}, yaw);
+  const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
+  ecs::Entity entity = streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
+  if (entity == ecs::kInvalidEntity) return ecs::kInvalidEntity;
+  placed_.push_back({entity, e.base, e.name, e.domain});
+  undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name, e.domain});
+  return entity;
+}
+
+f32 MapEditor::ScatterYaw() {
+  // A deterministic spread so a dragged forest does not look stamped, without
+  // touching a global RNG.
+  const u32 h = (++scatter_count_) * 2654435761u;
+  return static_cast<f32>(h % 360u) * 0.01745329f;
+}
+
+void MapEditor::PlaceBrush(const InputState& input) {
+  if (brush_ < 0 || !ctx_.world) return;
   Vec3 pos;
   if (!AimPoint(input, &pos)) return;
   // Drop it facing the brush yaw the user dialed in with R.
-  const Quat yq = QuatFromAxisAngle({0, 1, 0}, brush_yaw_);
-  const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
-  ecs::Entity entity = streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
+  ecs::Entity entity = PlaceArmedAt(pos, brush_yaw_);
   if (entity == ecs::kInvalidEntity) {
-    SetStatus("Could not load a model for " + e.name);
+    SetStatus("Could not load a model for " + catalog_[brush_].name);
     return;
   }
-  placed_.push_back({entity, e.base, e.name, e.domain});
-  undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name, e.domain});
   selection_ = entity;
-  SetStatus("Placed " + e.name);
+  last_scatter_pos_ = pos;
+  SetStatus("Placed " + catalog_[brush_].name);
 }
 
 void MapEditor::PlaceDemoBuild() {
@@ -298,6 +324,31 @@ void MapEditor::PlaceDemoBuild() {
       ++total;
     }
   }
+
+  // Showcase paint-scatter: a quick grove of a primary-game flora/tree asset
+  // beside the rows, the way a hold-drag would lay one down.
+  int flora = -1;
+  for (size_t i = 0; i < catalog_.size(); ++i) {
+    if (catalog_[i].domain == 0 && catalog_[i].category == 5) {
+      flora = static_cast<int>(i);
+      break;
+    }
+  }
+  if (flora >= 0) {
+    brush_ = flora;
+    const Vec3 grove = base_center + right * -13.0f;
+    for (int gx = 0; gx < 4; ++gx) {
+      for (int gz = 0; gz < 4; ++gz) {
+        Vec3 p = grove + right * (static_cast<f32>(gx) * 2.2f) +
+                 fwd_h * (static_cast<f32>(gz - 1) * 2.2f);
+        f32 g = 0;
+        if (ctx_.streamer->GroundHeight(p.x, p.z, &g)) p.y = g;
+        if (PlaceArmedAt(p, ScatterYaw()) != ecs::kInvalidEntity) ++total;
+      }
+    }
+    brush_ = -1;
+  }
+
   // Select the middle object so the selection reticle and inspector are live.
   if (!placed_.empty()) selection_ = placed_[placed_.size() / 2].entity;
 

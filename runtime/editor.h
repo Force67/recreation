@@ -140,6 +140,10 @@ class MapEditor {
   void ApplyKeyboard(const InputState& input);
   void ArmBrush(int catalog_index);
   void PlaceBrush(const InputState& input);
+  // Spawns the armed asset at an engine-space point facing `yaw`, tracking it for
+  // save/undo. Shared by single placement and paint-scatter.
+  ecs::Entity PlaceArmedAt(const Vec3& pos, f32 yaw);
+  f32 ScatterYaw();  // a varied, deterministic yaw per scattered object
   // A live preview of the armed asset following the aim point, so placing reads
   // as dragging it onto the world. ClearGhost destroys it.
   void UpdateGhost(const InputState& input);
@@ -196,6 +200,12 @@ class MapEditor {
   bool moving_ = false;           // G-grab gesture: selection follows the aim point
   world::Transform move_origin_;  // restore target if the move is cancelled
   bool prev_lmb_ = false;         // left-button edge detection (clicks, not holds)
+
+  // Paint-scatter: holding the place button and dragging drops a copy every
+  // `scatter_spacing_` metres, each at a varied yaw, for fast forests / clutter.
+  Vec3 last_scatter_pos_{};
+  f32 scatter_spacing_ = 1.5f;
+  u32 scatter_count_ = 0;
 
   std::vector<PlacedObject> placed_;
   std::vector<UndoOp> undo_;
