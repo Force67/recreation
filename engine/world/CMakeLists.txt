@@ -3,6 +3,7 @@ recreation_add_module(world
   grass_baker.cc
   land_baker.cc
   quest_world.cc
+  navgrid.cc
 )
 
 target_link_libraries(recreation_world PUBLIC recreation::physics)
