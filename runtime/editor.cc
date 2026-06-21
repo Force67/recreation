@@ -1,18 +1,24 @@
 #include "editor.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <utility>
 
+#include "asset/asset_database.h"
+#include "asset/asset_id.h"
+#include "asset/mesh.h"
 #include "bethesda/record.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "ecs/world.h"
 #include "engine_context.h"
 #include "render/renderer.h"
+#include "thumbnailer.h"
 #include "world/cell_streaming.h"
 
 namespace rec {
@@ -27,19 +33,16 @@ constexpr f32 kFallbackDist = 12.0f;     // place distance when no ground is hit
 constexpr f32 kIdentityRot[4] = {0, 0, 0, 1};
 constexpr f32 kUnitsToMeters = 0.01428f;  // mirrors CellStreamer; scale display
 
-// Toolbar actions, forwarded as EditorUiEvent::Kind::kTool with this index.
-enum ToolAction {
-  kToolSelect = 0,
-  kToolMove = 1,
-  kToolRotate = 2,
-  kToolScale = 3,
-  kToolDelete = 4,
-  kToolDuplicate = 5,
-  kToolUndo = 6,
-  kToolSave = 7,
-  kToolFocusSearch = 8,
-  kToolClearSearch = 9,
-};
+// Grid snap sizes cycled by the status-bar grid chip.
+constexpr f32 kGridSizes[] = {0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
+const char* const kGridLabels[] = {"0.5 m", "1 m", "2 m", "4 m", "8 m"};
+constexpr int kGridCount = 5;
+
+// The scene-tree group label for a catalog category (0 / unknown -> "Objects").
+std::string GroupName(int category) {
+  if (category >= 1 && category < kEditorCategoryCount) return kEditorCategories[category];
+  return "Objects";
+}
 
 }  // namespace
 
@@ -48,6 +51,7 @@ MapEditor::MapEditor(EngineContext& ctx) : ctx_(ctx) {
   // stays in MapEditor.
   if (ctx_.game_ui)
     ctx_.game_ui->SetEditorEventSink([this](const EditorUiEvent& e) { HandleUiEvent(e); });
+  for (bool& g : group_expanded_) g = true;  // scene tree starts fully expanded
 }
 
 void MapEditor::Toggle() {
@@ -151,7 +155,7 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
   if (!active_) return;
   status_age_ += dt;
 
-  if (allow_input && search_focused_) {
+  if (allow_input && (search_focused_ || scene_search_focused_)) {
     UpdateSearchInput(input);
     PushView();
     return;
@@ -236,24 +240,33 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
 }
 
 void MapEditor::UpdateSearchInput(const InputState& input) {
+  // Edit whichever search box has focus: the asset filter or the scene tree.
+  const bool scene = scene_search_focused_;
+  std::string& buf = scene ? scene_search_ : search_;
   bool changed = false;
   for (u8 i = 0; i < input.text_len; ++i) {
     const char c = input.text[i];
     if (c >= 32 && c < 127) {  // printable ASCII; the catalog is romanized
-      search_.push_back(c);
+      buf.push_back(c);
       changed = true;
     }
   }
-  if (input.key_pressed(Key::kBackspace) && !search_.empty()) {
-    search_.pop_back();
+  if (input.key_pressed(Key::kBackspace) && !buf.empty()) {
+    buf.pop_back();
     changed = true;
   }
-  if (input.key_pressed(Key::kReturn) || input.key_pressed(Key::kEscape)) search_focused_ = false;
+  if (input.key_pressed(Key::kReturn) || input.key_pressed(Key::kEscape)) {
+    search_focused_ = false;
+    scene_search_focused_ = false;
+  }
   // A click in the viewport commits the search and unfocuses.
   const bool lmb = input.button(MouseButton::kLeft);
-  if (lmb && !prev_lmb_ && !PointerOverUi(input)) search_focused_ = false;
+  if (lmb && !prev_lmb_ && !PointerOverUi(input)) {
+    search_focused_ = false;
+    scene_search_focused_ = false;
+  }
   prev_lmb_ = lmb;
-  if (changed) {
+  if (changed && !scene) {
     page_first_ = 0;
     RefreshFilter();
   }
@@ -338,7 +351,7 @@ ecs::Entity MapEditor::PlaceArmedAt(const Vec3& pos, f32 yaw) {
   const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
   ecs::Entity entity = streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
   if (entity == ecs::kInvalidEntity) return ecs::kInvalidEntity;
-  placed_.push_back({entity, e.base, e.name, e.domain});
+  placed_.push_back({entity, e.base, e.name, e.domain, e.category, e.type, e.editor_id});
   PushEdit({UndoKind::kPlace, entity, e.base, {}, e.name, e.domain});
   return entity;
 }
@@ -404,7 +417,7 @@ void MapEditor::PlaceDemoBuild() {
           }
         }
       }
-      placed_.push_back({entity, e.base, e.name, d});
+      placed_.push_back({entity, e.base, e.name, d, e.category, e.type, e.editor_id});
       PushEdit({UndoKind::kPlace, entity, e.base, {}, e.name, d});
       ++placed;
       ++total;
@@ -579,7 +592,7 @@ void MapEditor::DuplicateSelection() {
     Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
     ecs::Entity copy = streamer->PlaceObject(*ctx_.world, src.base, pos, t->rotation, user_scale);
     if (copy == ecs::kInvalidEntity) continue;
-    placed_.push_back({copy, src.base, src.name, src.domain});
+    placed_.push_back({copy, src.base, src.name, src.domain, src.category, src.type, src.editor_id});
     PushEdit({UndoKind::kPlace, copy, src.base, {}, src.name, src.domain});
     copies.push_back(copy);
   }
@@ -802,10 +815,12 @@ bool MapEditor::PointerOverUi(const InputState& input) const {
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
   const f32 x = input.mouse_x, y = input.mouse_y;
-  if (y < kEditorToolbarHeight) return true;                             // toolbar
-  if (y > h - kEditorStatusHeight) return true;                          // status bar
-  if (x < kEditorBrowserWidth) return true;                              // asset browser dock
-  if (!selected_.empty() && x > w - kEditorInspectorWidth) return true;  // inspector dock
+  if (y < kEdToolbarH) return true;          // toolbar
+  if (y > h - kEdStatusH) return true;       // status bar
+  if (x < kEdSceneW) return true;            // left scene/assets dock
+  if (x > w - kEdInspectorW) return true;    // inspector dock (always shown)
+  // Bottom asset-browser dock, between the side docks above the status bar.
+  if (y > h - kEdStatusH - kEdBrowserH) return true;
   return false;
 }
 
@@ -926,69 +941,208 @@ void MapEditor::BoxSelect(f32 x0, f32 y0, f32 x1, f32 y1, bool additive) {
 }
 
 void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
-  using Kind = EditorUiEvent::Kind;
+  using K = EditorUiEvent::Kind;
   switch (e.kind) {
-    case Kind::kPickRow: {
-      const int idx = page_first_ + e.index;
-      if (idx >= 0 && idx < static_cast<int>(filtered_.size())) ArmBrush(filtered_[idx]);
+    case K::kTool:
+      switch (e.index) {
+        case 0: brush_ = -1; moving_ = false; tool_ = 0; SetStatus("Select mode"); break;
+        case 1: tool_ = 1; BeginMove(); break;
+        case 2: tool_ = 2; RotateSelection(kRotateStep); break;
+        case 3: SetStatus("Terrain sculpting is not available yet"); break;
+        case 4: SetStatus("Paint: arm an asset, hold and drag to scatter"); break;
+        case 5: Toggle(); break;  // Play leaves the editor and resumes play
+        case 6: SaveLayout(); break;
+        case 7: Undo(); break;
+        case 8: Redo(); break;
+        default: break;
+      }
+      break;
+    case K::kGizmo:
+      if (e.index >= 0 && e.index < 4) {
+        tool_ = e.index;
+        if (e.index == 1)
+          BeginMove();
+        else
+          moving_ = false;
+      }
+      break;
+    case K::kLeftTab:
+      left_tab_ = e.index;  // 0 scene tree, 1 assets list
+      break;
+    case K::kTreeSelect: {
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      const TreeNode& n = tree_targets_[e.index];
+      if (n.kind == 0) {
+        root_expanded_ = !root_expanded_;
+      } else if (n.kind == 1) {
+        if (n.category >= 0 && n.category < kEditorCategoryCount)
+          group_expanded_[n.category] = !group_expanded_[n.category];
+      } else if (n.kind == 2 && ctx_.world->IsAlive(n.entity)) {
+        selected_ = {n.entity};
+        moving_ = false;
+      }
       break;
     }
-    case Kind::kCategory:
+    case K::kTreeExpand: {
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      const TreeNode& n = tree_targets_[e.index];
+      if (n.kind == 0)
+        root_expanded_ = !root_expanded_;
+      else if (n.kind == 1 && n.category >= 0 && n.category < kEditorCategoryCount)
+        group_expanded_[n.category] = !group_expanded_[n.category];
+      break;
+    }
+    case K::kTreeEye: {
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      const TreeNode& n = tree_targets_[e.index];
+      auto toggle = [&](ecs::Entity ent) {
+        if (!ctx_.world->IsAlive(ent)) return;
+        if (ctx_.world->Has<world::Hidden>(ent))
+          ctx_.world->Remove<world::Hidden>(ent);
+        else
+          ctx_.world->Add<world::Hidden>(ent, world::Hidden{});
+      };
+      if (n.kind == 2)
+        toggle(n.entity);
+      else if (n.kind == 1)
+        for (const PlacedObject& p : placed_) { if (p.category == n.category) toggle(p.entity); }
+      else
+        for (const PlacedObject& p : placed_) toggle(p.entity);
+      break;
+    }
+    case K::kTreeScroll:
+      tree_scroll_ = std::max(0, tree_scroll_ + e.index * kEdTreeRows);
+      break;
+    case K::kCategory:
       if (e.index >= 0 && e.index < kEditorCategoryCount) {
         category_ = e.index;
         page_first_ = 0;
         RefreshFilter();
       }
       break;
-    case Kind::kScroll: {
-      const int rows = kEditorBrowserRows;
-      page_first_ = std::clamp(page_first_ + e.index * rows, 0,
-                               std::max(0, static_cast<int>(filtered_.size()) - 1));
+    case K::kPickCard: {
+      const int idx = page_first_ + e.index;
+      if (idx >= 0 && idx < static_cast<int>(filtered_.size())) ArmBrush(filtered_[idx]);
       break;
     }
-    case Kind::kCloseBrowser:
-      brush_ = -1;
+    case K::kCardScroll:
+      page_first_ = std::clamp(page_first_ + e.index * kEdCards, 0,
+                               std::max(0, static_cast<int>(filtered_.size()) - 1));
       break;
-    case Kind::kTool:
-      switch (e.index) {
-        case kToolSelect:
-          brush_ = -1;
-          moving_ = false;
-          break;
-        case kToolMove:
-          BeginMove();
-          break;
-        case kToolRotate:
-          RotateSelection(kRotateStep);
-          break;
-        case kToolScale:
-          ScaleSelection(kScaleStep);
-          break;
-        case kToolDelete:
-          DeleteSelection();
-          break;
-        case kToolDuplicate:
-          DuplicateSelection();
-          break;
-        case kToolUndo:
-          Undo();
-          break;
-        case kToolSave:
-          SaveLayout();
-          break;
-        case kToolFocusSearch:
-          search_focused_ = true;
-          break;
-        case kToolClearSearch:
-          search_.clear();
-          search_focused_ = false;
-          page_first_ = 0;
-          RefreshFilter();
-          break;
-        default:
-          break;
+    case K::kFocusScene:
+      scene_search_focused_ = true;
+      search_focused_ = false;
+      break;
+    case K::kClearScene:
+      scene_search_.clear();
+      scene_search_focused_ = false;
+      break;
+    case K::kFocusAsset:
+      search_focused_ = true;
+      scene_search_focused_ = false;
+      break;
+    case K::kClearAsset:
+      search_.clear();
+      search_focused_ = false;
+      page_first_ = 0;
+      RefreshFilter();
+      break;
+    case K::kSnapToggle:
+      snap_ = !snap_;
+      SetStatus(snap_ ? "Grid snap ON" : "Grid snap OFF");
+      break;
+    case K::kGridCycle:
+      grid_index_ = (grid_index_ + 1) % kGridCount;
+      snap_grid_ = kGridSizes[grid_index_];
+      SetStatus(std::string("Grid ") + kGridLabels[grid_index_]);
+      break;
+  }
+}
+
+const asset::Mesh* MapEditor::MeshForCatalog(const CatalogEntry& e) {
+  if (e.domain != 0 || !ctx_.assets || !ctx_.records) return nullptr;
+  bethesda::Record rec;
+  if (!ctx_.records->Parse(e.base, &rec)) return nullptr;
+  std::string model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
+  if (model.empty()) return nullptr;
+  std::string path = asset::NormalizePath(model);
+  if (path.rfind("meshes/", 0) != 0) path = "meshes/" + path;
+  return ctx_.assets->LoadMesh(path);
+}
+
+u64 MapEditor::ThumbTexFor(u64 base_packed) const {
+  auto it = thumb_tex_.find(base_packed);
+  return it != thumb_tex_.end() ? it->second : 0;
+}
+
+void MapEditor::GenerateThumbnails() {
+  if (!ctx_.game_ui || !ctx_.renderer) return;
+  // First use: stand up the renderer + cache dir (once; never retried on failure).
+  if (!thumber_) {
+    if (thumber_tried_) return;
+    thumber_tried_ = true;
+    thumber_ = std::make_unique<Thumbnailer>();
+    if (!thumber_->Init(*ctx_.renderer, 128)) {
+      thumber_.reset();
+      return;
+    }
+    thumb_dir_ = "thumbs";
+    std::error_code ec;
+    std::filesystem::create_directories(thumb_dir_, ec);
+  }
+  if (!thumber_->ready()) return;
+
+  // Render at most a couple per frame; load from disk when a prop was already
+  // previewed in a previous session. Keyed by base form id so the asset cards
+  // and the inspector's model thumbnail share one cache.
+  int budget = 2;
+  std::vector<u8> pixels;
+  auto ensure = [&](u64 key, auto get_mesh) {
+    if (budget <= 0 || thumb_tex_.count(key) || thumb_failed_.count(key)) return;
+    char path[80];
+    std::snprintf(path, sizeof(path), "%s/%016llx.png", thumb_dir_.c_str(),
+                  static_cast<unsigned long long>(key));
+    bool ok = thumber_->LoadCached(path, pixels);
+    if (!ok) {
+      if (const asset::Mesh* mesh = get_mesh(); mesh && thumber_->Render(*mesh, pixels)) {
+        thumber_->SaveCached(path, pixels);
+        ok = true;
       }
-      break;
+    }
+    --budget;
+    if (!ok) {
+      thumb_failed_.insert(key);
+      return;
+    }
+    const u64 tex = ctx_.game_ui->CreateUiTexture(thumber_->size(), thumber_->size(), pixels.data());
+    if (tex)
+      thumb_tex_[key] = tex;
+    else
+      thumb_failed_.insert(key);
+  };
+
+  // Visible asset cards (primary game only).
+  for (int i = 0; i < kEdCards && budget > 0; ++i) {
+    const int idx = page_first_ + i;
+    if (idx >= static_cast<int>(filtered_.size())) break;
+    const CatalogEntry& e = catalog_[filtered_[idx]];
+    if (e.domain != 0) {
+      thumb_failed_.insert(e.base.packed());
+      continue;
+    }
+    ensure(e.base.packed(), [&] { return MeshForCatalog(e); });
+  }
+
+  // The inspector's model thumbnail for the primary selection.
+  if (budget > 0) {
+    const ecs::Entity sel = Primary();
+    const int pi = sel != ecs::kInvalidEntity ? FindPlaced(sel) : -1;
+    if (pi >= 0 && placed_[pi].domain == 0) {
+      ensure(placed_[pi].base.packed(), [&]() -> const asset::Mesh* {
+        const world::Renderable* r = ctx_.world->Get<world::Renderable>(sel);
+        return (r && ctx_.assets) ? ctx_.assets->FindMesh(r->mesh) : nullptr;
+      });
+    }
   }
 }
 
@@ -1000,36 +1154,114 @@ void MapEditor::PushView() {
     ctx_.game_ui->SetEditorView(v);
     return;
   }
-  v.browser_open = true;
-  v.tool = moving_ ? 1 : tool_;
-  v.category = category_;
-  v.search = search_;
-  v.search_focused = search_focused_;
-  for (int i = 0; i < kEditorCategoryCount; ++i) v.categories.push_back(kEditorCategories[i]);
+  GenerateThumbnails();
+  auto lower = [](std::string x) {
+    for (char& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return x;
+  };
+  // Long editor ids overrun the fixed tree rows / asset cards; ellipsize them.
+  auto clip = [](const std::string& s, size_t n) {
+    return s.size() > n ? s.substr(0, n) + "…" : s;
+  };
 
-  v.result_count = static_cast<int>(filtered_.size());
-  v.page_first = page_first_;
-  for (int row = 0; row < kEditorBrowserRows; ++row) {
-    const int idx = page_first_ + row;
+  // Toolbar highlight (Select/Move/Rotate map to buttons 0..2); gizmo bar mirrors
+  // the gizmo mode 0..3.
+  v.tool = (tool_ <= 2) ? tool_ : -1;
+  if (moving_) v.tool = 1;
+  v.gizmo = tool_;
+  v.left_tab = left_tab_;
+  v.scene_search = scene_search_;
+  v.scene_search_focused = scene_search_focused_;
+  v.asset_search = search_;
+  v.asset_search_focused = search_focused_;
+
+  // --- scene hierarchy: root -> non-empty category groups -> object leaves ---
+  const std::string needle = scene_search_.empty() ? "" : lower(scene_search_);
+  std::vector<EditorView::TreeRow> rows;
+  std::vector<TreeNode> flat;
+  {
+    EditorView::TreeRow r;
+    r.depth = 0;
+    r.icon = 0;
+    r.name = "Scene";
+    r.expand = root_expanded_ ? 2 : 1;
+    rows.push_back(r);
+    flat.push_back({0, -1, ecs::kInvalidEntity});
+  }
+  if (root_expanded_) {
+    for (int cat = 0; cat < kEditorCategoryCount; ++cat) {
+      std::vector<const PlacedObject*> objs;
+      for (const PlacedObject& p : placed_) {
+        if (!ctx_.world->IsAlive(p.entity)) continue;
+        const int pc = (p.category >= 1 && p.category < kEditorCategoryCount) ? p.category : 0;
+        if (pc != cat) continue;
+        if (!needle.empty() && lower(p.name).find(needle) == std::string::npos) continue;
+        objs.push_back(&p);
+      }
+      if (objs.empty()) continue;
+      EditorView::TreeRow g;
+      g.depth = 1;
+      g.icon = 1;
+      g.name = GroupName(cat) + "  (" + std::to_string(objs.size()) + ")";
+      g.expand = group_expanded_[cat] ? 2 : 1;
+      rows.push_back(g);
+      flat.push_back({1, cat, ecs::kInvalidEntity});
+      if (!group_expanded_[cat]) continue;
+      for (const PlacedObject* p : objs) {
+        EditorView::TreeRow leaf;
+        leaf.depth = 2;
+        leaf.icon = (cat == 6) ? 2 : 3;  // lights vs meshes
+        leaf.name = clip(p->name, 22);
+        leaf.selected =
+            std::find(selected_.begin(), selected_.end(), p->entity) != selected_.end();
+        leaf.hidden = ctx_.world->Has<world::Hidden>(p->entity);
+        rows.push_back(leaf);
+        flat.push_back({2, cat, p->entity});
+      }
+    }
+  }
+  v.tree_total = static_cast<int>(rows.size());
+  tree_scroll_ = std::clamp(tree_scroll_, 0, std::max(0, static_cast<int>(rows.size()) - kEdTreeRows));
+  tree_targets_.clear();
+  for (int i = 0; i < kEdTreeRows && tree_scroll_ + i < static_cast<int>(rows.size()); ++i) {
+    v.tree.push_back(rows[tree_scroll_ + i]);
+    tree_targets_.push_back(flat[tree_scroll_ + i]);
+  }
+
+  // --- asset-browser tabs and per-category counts (over the asset search) ---
+  for (int i = 0; i < kEditorCategoryCount; ++i) v.tabs.push_back(kEditorCategories[i]);
+  v.tab = category_;
+  {
+    const std::string an = search_.empty() ? "" : lower(search_);
+    std::vector<int> counts(kEditorCategoryCount, 0);
+    for (const CatalogEntry& e : catalog_) {
+      if (!an.empty() && lower(e.name).find(an) == std::string::npos &&
+          lower(e.editor_id).find(an) == std::string::npos)
+        continue;
+      ++counts[0];
+      if (e.category >= 1 && e.category < kEditorCategoryCount) ++counts[e.category];
+    }
+    for (int i = 0; i < kEditorCategoryCount; ++i)
+      v.cats.push_back({kEditorCategories[i], counts[i], i == category_});
+  }
+
+  // --- asset cards (current page of the active filter) ---
+  static const u32 kCatColors[kEditorCategoryCount] = {0x6c7bf5ff, 0x8a93a8ff, 0xc98a5aff,
+                                                       0x5ab0c9ff, 0xb98ad0ff, 0x57bd6aff,
+                                                       0xe8b54aff, 0xb6bcccff, 0xd07a7aff};
+  v.card_total = static_cast<int>(filtered_.size());
+  v.card_first = page_first_;
+  for (int i = 0; i < kEdCards; ++i) {
+    const int idx = page_first_ + i;
     if (idx >= static_cast<int>(filtered_.size())) break;
     const CatalogEntry& e = catalog_[filtered_[idx]];
-    EditorView::AssetRow ar;
-    ar.name = e.name;
-    char sub[96];
-    const char tc[5] = {static_cast<char>(e.type & 0xff), static_cast<char>((e.type >> 8) & 0xff),
-                        static_cast<char>((e.type >> 16) & 0xff),
-                        static_cast<char>((e.type >> 24) & 0xff), '\0'};
-    // With more than one game loaded, lead the subtitle with the game so a
-    // Fallout 4 prop is obviously distinct from a Skyrim one.
-    if (domains_.size() > 1 && e.domain >= 0 && e.domain < static_cast<int>(domains_.size())) {
-      std::snprintf(sub, sizeof(sub), "%s  %s  %s", domains_[e.domain].name.c_str(), tc,
-                    e.editor_id.c_str());
-    } else {
-      std::snprintf(sub, sizeof(sub), "%s  %s", tc, e.editor_id.c_str());
-    }
-    ar.subtitle = sub;
-    ar.armed = brush_ == filtered_[idx];
-    v.rows.push_back(std::move(ar));
+    EditorView::Card c;
+    c.name = clip(e.name, 11);
+    c.color = (e.category >= 0 && e.category < kEditorCategoryCount) ? kCatColors[e.category]
+                                                                     : 0x2a2f3aff;
+    c.armed = brush_ == filtered_[idx];
+    c.thumb = ThumbTexFor(e.base.packed());
+    v.cards.push_back(std::move(c));
   }
 
   // Marquee box (only once it is an actual drag, not a click).
@@ -1040,45 +1272,61 @@ void MapEditor::PushView() {
   v.marquee[2] = marquee_x1_;
   v.marquee[3] = marquee_y1_;
 
+  // --- inspector (primary selection) ---
   const ecs::Entity sel = Primary();
   if (sel != ecs::kInvalidEntity && ctx_.world->IsAlive(sel)) {
     if (const world::Transform* t = ctx_.world->Get<world::Transform>(sel)) {
       v.has_selection = true;
-      v.sel_pos[0] = t->position[0];
-      v.sel_pos[1] = t->position[1];
-      v.sel_pos[2] = t->position[2];
+      for (int a = 0; a < 3; ++a) v.pos[a] = t->position[a];
       Quat q{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
-      Vec3 f = Rotate(q, {0, 0, -1});
-      f32 yaw = std::atan2(f.x, -f.z) * 57.29578f;
-      if (yaw < 0) yaw += 360.0f;
-      v.sel_yaw_deg = yaw;
-      v.sel_scale = t->scale / kUnitsToMeters;
-      v.sel_title = "Selected object";
-      v.sel_subtitle = "move G / rotate R / scale wheel / delete X";
-      for (const PlacedObject& p : placed_) {
+      const f32 sinp = std::clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f);
+      v.rot[0] = std::asin(sinp) * 57.29578f;
+      v.rot[1] = std::atan2(2.0f * (q.w * q.y + q.z * q.x),
+                            1.0f - 2.0f * (q.x * q.x + q.y * q.y)) *
+                 57.29578f;
+      v.rot[2] = std::atan2(2.0f * (q.w * q.z + q.x * q.y),
+                            1.0f - 2.0f * (q.z * q.z + q.x * q.x)) *
+                 57.29578f;
+      const f32 us = t->scale / kUnitsToMeters;
+      v.scale[0] = v.scale[1] = v.scale[2] = us;
+      v.sel_count = static_cast<int>(selected_.size());
+
+      v.sel_name = "Object";
+      v.model_name = "model";
+      v.material_name = "Default_mat";
+      const PlacedObject* po = nullptr;
+      for (const PlacedObject& p : placed_)
         if (p.entity == sel) {
-          v.sel_title = p.name;
+          po = &p;
           break;
         }
+      if (po) {
+        v.sel_name = po->name;
+        v.model_name = po->editor_id.empty() ? po->name : po->editor_id;
+        const char tc[5] = {static_cast<char>(po->type & 0xff),
+                            static_cast<char>((po->type >> 8) & 0xff),
+                            static_cast<char>((po->type >> 16) & 0xff),
+                            static_cast<char>((po->type >> 24) & 0xff), '\0'};
+        v.sel_type = po->type ? tc : "";
+        v.sel_static = po->category == 1;
+        v.material_name = (v.sel_type.empty() ? std::string("Default") : v.sel_type) + "_mat";
+        v.model_thumb = ThumbTexFor(po->base.packed());
+        v.tags.push_back(GroupName(po->category));
+        if (domains_.size() > 1 && po->domain >= 0 && po->domain < static_cast<int>(domains_.size()))
+          v.tags.push_back(domains_[po->domain].name);
+      } else {
+        v.tags.push_back("Object");
       }
-      // A multi-selection leads with the count; the primary's transform shows.
-      if (selected_.size() > 1) {
-        v.sel_subtitle = v.sel_title + "  (primary)";
-        v.sel_title = std::to_string(selected_.size()) + " objects selected";
-      }
+      if (selected_.size() > 1) v.sel_name = std::to_string(selected_.size()) + " objects";
 
-      // Project the object's bounding sphere to the screen so the overlay can
-      // draw a tracking bracket around it. Mirrors the picking projection.
+      // Project the bounding sphere to the screen for the tracking bracket.
       Vec3 wc{t->position[0], t->position[1], t->position[2]};
-      f32 wr = 1.0f;
       if (ctx_.assets) {
         if (const world::Renderable* rnd = ctx_.world->Get<world::Renderable>(sel)) {
-          if (const asset::Mesh* mesh = ctx_.assets->FindMesh(rnd->mesh)) {
+          if (const asset::Mesh* mesh = ctx_.assets->FindMesh(rnd->mesh))
             wc += Rotate(q,
                          {mesh->bounds_center[0], mesh->bounds_center[1], mesh->bounds_center[2]}) *
                   t->scale;
-            wr = mesh->bounds_radius * t->scale;
-          }
         }
       }
       const Vec3 eye = ctx_.camera->position();
@@ -1098,14 +1346,15 @@ void MapEditor::PushView() {
           v.sel_on_screen = true;
           v.sel_screen[0] = (ndc_x * 0.5f + 0.5f) * w;
           v.sel_screen[1] = (0.5f - ndc_y * 0.5f) * h;
-          v.sel_screen_half = (wr / zc) / tan_half * (h * 0.5f) * 1.2f;
         }
       }
     }
   }
 
-  if (brush_ >= 0 && brush_ < static_cast<int>(catalog_.size())) v.brush = catalog_[brush_].name;
+  // --- status bar ---
   v.object_count = static_cast<int>(placed_.size());
+  v.snapping = snap_;
+  v.grid_label = kGridLabels[grid_index_];
   if (status_age_ < kStatusSeconds) v.status = status_;
   ctx_.game_ui->SetEditorView(v);
 }

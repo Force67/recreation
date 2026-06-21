@@ -52,69 +52,118 @@ struct ContainerView {
 
 // Editor overlay geometry, shared by the layout (game_ui.cc) and the pointer
 // hit-test (editor.cc) so a click on a panel never also acts on the world.
-constexpr float kEditorBrowserWidth = 360.0f;    // left asset-browser dock
-constexpr float kEditorToolbarHeight = 46.0f;    // top toolbar
-constexpr float kEditorInspectorWidth = 300.0f;  // right inspector dock
-constexpr float kEditorStatusHeight = 34.0f;     // bottom status bar
-constexpr int kEditorBrowserRows = 14;           // visible asset rows per page
-constexpr int kEditorCategoryTabs = 12;          // pooled category-tab widgets
-constexpr int kEditorToolButtons = 8;            // toolbar action buttons
+// A Creation-Kit-style dock layout: top toolbar, left scene/assets dock, right
+// inspector, a bottom asset browser between the side docks, and a status bar.
+constexpr float kEdToolbarH = 56.0f;     // top toolbar
+constexpr float kEdSceneW = 270.0f;      // left scene/assets dock
+constexpr float kEdInspectorW = 314.0f;  // right inspector dock
+constexpr float kEdStatusH = 30.0f;      // bottom status bar
+constexpr float kEdBrowserH = 214.0f;    // bottom asset-browser dock (above status)
+constexpr int kEdTreeRows = 18;          // visible scene-tree rows
+constexpr int kEdToolBtns = 9;           // Select Move Rotate Terrain Paint Play Save Undo Redo
+constexpr int kEdTabs = 9;               // asset-browser category tabs (== kEditorCategoryCount)
+constexpr int kEdCatRows = 9;            // left category list rows in the browser
+constexpr int kEdCards = 12;             // visible asset cards per page
+constexpr int kEdTags = 5;               // inspector tag chips
 
 // The map editor's whole screen state, rebuilt each frame by MapEditor and
 // mirrored into the editor overlay. Empty/!active hides every editor panel.
 struct EditorView {
   bool active = false;
-  bool browser_open = true;
-  int tool = 0;  // 0 select, 1 move, 2 rotate, 3 scale (matches MapEditor::Tool)
+  int tool = 0;  // active toolbar tool (0..8), drives the toolbar highlight
 
-  // Asset browser (left dock).
-  std::vector<std::string> categories;  // tab labels ("All", "Statics", ...)
-  int category = 0;                     // selected tab
-  std::string search;                   // text in the search box ("" shows hint)
-  bool search_focused = false;          // search box has keyboard focus
-  struct AssetRow {
-    std::string name;      // FULL name or editor id
-    std::string subtitle;  // "TYPE  editor_id"
-    bool armed = false;    // chosen as the place brush
+  // --- left dock: scene tree / assets tabs ---
+  int left_tab = 0;  // 0 = Scene, 1 = Assets
+  std::string scene_search;
+  bool scene_search_focused = false;
+  struct TreeRow {
+    int depth = 0;          // indent level (0 root, 1 group, 2 leaf)
+    int icon = 0;           // 0 root, 1 group, 2 light, 3 mesh
+    std::string name;
+    bool selected = false;  // part of the editor selection
+    bool hidden = false;    // eye toggled off (world::Hidden)
+    int expand = 0;         // 0 leaf, 1 collapsed, 2 expanded
   };
-  std::vector<AssetRow> rows;  // the visible page of filtered results
-  int result_count = 0;        // total matches in the filter
-  int page_first = 0;          // index of rows[0] within the filtered set
+  std::vector<TreeRow> tree;  // the visible window of the flattened tree
+  int tree_total = 0;         // total flattened rows (for the pager)
 
-  // Selection inspector (right dock).
+  // --- viewport overlays ---
+  int gizmo = 1;  // highlighted gizmo button: 0 hand, 1 move, 2 rotate, 3 scale
+
+  // --- right dock: inspector ---
   bool has_selection = false;
-  std::string sel_title;
-  std::string sel_subtitle;
-  float sel_pos[3] = {0, 0, 0};
-  float sel_yaw_deg = 0;
-  float sel_scale = 1;
-  // Screen-space selection bracket: where the selected object projects to (in
-  // window pixels) and its projected half-size, so the overlay can frame it.
+  std::string sel_name;   // object display name
+  std::string sel_type;   // record fourcc, e.g. "STAT"
+  std::string model_name;
+  std::string material_name;
+  u64 model_thumb = 0;  // rendered preview of the selected model (0 = none)
+  float pos[3] = {0, 0, 0};
+  float rot[3] = {0, 0, 0};    // euler degrees (pitch, yaw, roll)
+  float scale[3] = {1, 1, 1};
+  bool sel_static = false;
+  bool cast_shadow = true;
+  bool receive_shadow = true;
+  bool lightmap_static = false;
+  std::vector<std::string> tags;
+  int sel_count = 0;  // number of objects selected
+  // Screen-space selection bracket (window pixels).
   bool sel_on_screen = false;
   float sel_screen[2] = {0, 0};
-  float sel_screen_half = 40;
 
   // Marquee box-select rectangle (window pixels). Inactive hides it.
   bool marquee_active = false;
   float marquee[4] = {0, 0, 0, 0};  // x0, y0, x1, y1
 
-  // Status bar (bottom).
-  std::string brush;     // armed asset name ("" = none, in select mode)
-  std::string status;    // transient hint / confirmation message
-  int object_count = 0;  // editor-placed objects so far
+  // --- bottom dock: asset browser ---
+  std::vector<std::string> tabs;  // category tab labels
+  int tab = 0;                    // active tab (== category index)
+  std::string asset_search;
+  bool asset_search_focused = false;
+  struct CatRow {
+    std::string name;
+    int count = 0;
+    bool active = false;
+  };
+  std::vector<CatRow> cats;
+  struct Card {
+    std::string name;
+    u64 thumb = 0;   // ugui TextureId for the rendered preview (0 = none yet)
+    u32 color = 0;   // placeholder swatch colour (rgba8) until the thumb is ready
+    bool armed = false;
+  };
+  std::vector<Card> cards;
+  int card_total = 0;  // total filtered entries (for paging)
+  int card_first = 0;  // index of cards[0] within the filtered set
+
+  // --- status bar ---
+  std::string status;          // "Ready" / transient confirmation
+  std::string grid_label = "1 m";
+  bool snapping = false;
+  int object_count = 0;        // editor-placed objects so far
 };
 
 // A click (or scroll) inside the editor overlay, forwarded from the UI to
 // MapEditor which owns all the logic. `index` meaning depends on the kind.
 struct EditorUiEvent {
   enum class Kind {
-    kPickRow,      // index = visible row clicked (0..rows.size())
-    kCategory,     // index = category tab clicked
-    kTool,         // index = toolbar action (see MapEditor)
-    kScroll,       // index = +1 page down / -1 page up
-    kCloseBrowser  // index unused
+    kTool,        // index = toolbar tool (0..8)
+    kGizmo,       // index = viewport gizmo mode (0..3)
+    kLeftTab,     // index = 0 scene / 1 assets
+    kTreeSelect,  // index = visible tree row
+    kTreeEye,     // index = visible tree row (toggle visibility)
+    kTreeExpand,  // index = visible tree row (toggle expand)
+    kTreeScroll,  // index = +1 page down / -1 page up
+    kCategory,    // index = category (tab or left list)
+    kPickCard,    // index = visible card
+    kCardScroll,  // index = +1 page / -1 page
+    kFocusScene,
+    kClearScene,
+    kFocusAsset,
+    kClearAsset,
+    kSnapToggle,
+    kGridCycle,
   };
-  Kind kind = Kind::kPickRow;
+  Kind kind = Kind::kTool;
   int index = 0;
 };
 
@@ -169,6 +218,11 @@ class GameUi {
   // registers the callback that receives clicks/scrolls on the editor widgets.
   void SetEditorView(const EditorView& view);
   void SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink);
+
+  // Registers an RGBA8 image (width*height*4 bytes) with the UI's texture backend
+  // and returns its ugui TextureId, for editor asset-card thumbnails. Returns 0
+  // when the UI is unavailable. The id stays valid until shutdown.
+  u64 CreateUiTexture(int width, int height, const u8* rgba);
 
   void ToggleMenu();
   bool menu_open() const;

@@ -26,3 +26,7 @@ android/local.properties
 android/app/release/
 *.apk
 android/screenshots/
+
+# Map editor runtime artifacts
+thumbs/
+editor_layout.reclayout

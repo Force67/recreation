@@ -14,6 +14,7 @@ set(RECREATION_RUNTIME_SOURCES
   editor.cc
   editor_catalog.cc
   editor_io.cc
+  thumbnailer.cc
   debug_ui.cc
   game_ui.cc
 )
@@ -77,13 +78,15 @@ endif()
 # with engine-embedded shaders.
 if(RECREATION_HAS_UGUI)
   target_sources(recreation PRIVATE gui_backend.cc)
-  target_link_libraries(recreation PRIVATE ultragui)
+  target_link_libraries(recreation PRIVATE ultragui recreation::stb)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
   recreation_embed_shaders(recreation
     shaders/ugui_quad.vs.hlsl
     shaders/ugui_quad.ps.hlsl
     shaders/ugui_text.vs.hlsl
     shaders/ugui_text.ps.hlsl
+    shaders/thumb.vs.hlsl
+    shaders/thumb.ps.hlsl
   )
 endif()
 

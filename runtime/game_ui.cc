@@ -7,6 +7,7 @@
 #include <ugui/core/color.h>
 #include <ugui/style/style.h>
 #include <ugui/ultragui.h>
+#include <ugui/widgets/image.h>
 #include <ugui/widgets/text.h>
 #include <ugui/widgets/widget.h>
 #include <ugui/widgets/widget_registry.h>
@@ -175,178 +176,413 @@ std::string BuildContainerSection() {
   return s;
 }
 
-// The map editor overlay: a top toolbar, a left asset-browser dock, a right
-// selection inspector, a bottom status bar and a builder reticle. Everything is
-// pooled (fixed widget counts filled and toggled each frame) and starts hidden;
-// the engine collapses editor_root until the editor is on. Names are matched by
-// the click router (btn_tool*, btn_cat*, ed_row*, ed_search*, btn_scroll_*).
+// Editor icon glyphs, composed from panels: the UI font (Noto Sans) has no
+// symbol set, so toolbar / tree / inspector icons are drawn as little stacks of
+// filled and outlined rectangles inside an 18x18 relative box, the same trick
+// the crosshair uses. `col` is the mark colour.
+std::string Glyph(const std::string& k, const char* col) {
+  std::string c;
+  char b[256];
+  auto R = [&](float x, float y, float w, float h, const char* cc, float r = 0) {
+    std::snprintf(b, sizeof(b),
+                  "panel { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                  " background: %s; corner-radius: %g; }\n",
+                  x, y, w, h, cc, r);
+    c += b;
+  };
+  auto O = [&](float x, float y, float w, float h, const char* cc, float bw, float r) {
+    std::snprintf(b, sizeof(b),
+                  "panel { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                  " border-color: %s; border-width: %g; corner-radius: %g; }\n",
+                  x, y, w, h, cc, bw, r);
+    c += b;
+  };
+  if (k == "select") { R(4, 3, 2, 11, col); R(4, 3, 8, 2, col); R(8, 8, 5, 2, col); }
+  else if (k == "move") { R(8, 2, 2, 14, col, 1); R(2, 8, 14, 2, col, 1); }
+  else if (k == "rotate") { O(3, 3, 12, 12, col, 2, 6); R(13, 1, 4, 2, col); }
+  else if (k == "scale") { O(3, 7, 8, 8, col, 1.5f, 2); R(11, 3, 4, 4, col, 1); }
+  else if (k == "hand") { R(6, 7, 6, 8, col, 2); R(6, 4, 2, 5, col, 1); R(9, 3, 2, 6, col, 1); R(12, 5, 2, 4, col, 1); }
+  else if (k == "terrain") { R(2, 11, 4, 5, col, 1); R(7, 7, 4, 9, col, 1); R(12, 9, 4, 7, col, 1); }
+  else if (k == "paint") { R(4, 3, 9, 5, col, 2); R(8, 8, 2, 7, col, 1); }
+  else if (k == "play") { R(5, 4, 3, 10, col); R(8, 6, 3, 6, col); R(11, 8, 2, 2, col); }
+  else if (k == "save") { O(3, 3, 12, 12, col, 1.5f, 2); R(6, 3, 6, 3, col); R(6, 10, 6, 2, col); }
+  else if (k == "undo") { R(5, 8, 9, 2, col); R(5, 5, 2, 3, col); R(5, 10, 2, 3, col); R(12, 5, 2, 4, col); }
+  else if (k == "redo") { R(4, 8, 9, 2, col); R(11, 5, 2, 3, col); R(11, 10, 2, 3, col); R(4, 5, 2, 4, col); }
+  else if (k == "gear") { O(4, 4, 10, 10, col, 2, 5); R(8, 1, 2, 3, col); R(8, 14, 2, 3, col); R(1, 8, 3, 2, col); R(14, 8, 3, 2, col); }
+  else if (k == "cube") { O(4, 5, 10, 9, col, 1.5f, 1); R(4, 5, 10, 3, col); }
+  else if (k == "folder") { R(3, 6, 12, 8, col, 1); R(3, 4, 6, 3, col, 1); }
+  else if (k == "sphere") { O(3, 3, 12, 12, col, 1.5f, 6); R(6, 5, 3, 3, "#ffffff66", 2); }
+  else if (k == "magnify") { O(3, 3, 9, 9, col, 1.5f, 5); R(11, 11, 4, 2, col, 1); }
+  else if (k == "caret") { R(5, 7, 8, 2, col); R(6, 9, 6, 2, col); R(8, 11, 2, 2, col); }
+  else if (k == "triup") { R(8, 7, 2, 2, col); R(6, 9, 6, 2, col); R(5, 11, 8, 2, col); }
+  else if (k == "tridown") { R(5, 7, 8, 2, col); R(6, 9, 6, 2, col); R(8, 11, 2, 2, col); }
+  else if (k == "lock") { R(4, 8, 10, 7, col, 1); O(6, 4, 6, 6, col, 1.5f, 3); }
+  else if (k == "grid") { R(4, 4, 4, 4, col, 1); R(10, 4, 4, 4, col, 1); R(4, 10, 4, 4, col, 1); R(10, 10, 4, 4, col, 1); }
+  else if (k == "plus") { R(8, 4, 2, 10, col); R(4, 8, 10, 2, col); }
+  else if (k == "kebab") { R(8, 3, 2, 2, col, 1); R(8, 8, 2, 2, col, 1); R(8, 13, 2, 2, col, 1); }
+  else if (k == "eye") { O(3, 6, 12, 7, col, 1.5f, 4); R(7, 8, 4, 4, col, 2); }
+  else if (k == "minwin") { R(4, 9, 10, 2, col); }
+  else if (k == "maxwin") { O(4, 4, 10, 10, col, 1.5f, 1); }
+  return "panel { position: relative; width: 18; height: 18; " + c + " }\n";
+}
+
+// The map editor overlay, styled as a Creation-Kit-style dock layout: a top
+// toolbar (logo + labelled tool cluster + window controls), a left scene/assets
+// dock with a hierarchy tree, a right inspector, a bottom asset browser between
+// the side docks, and a status bar. Everything is pooled (fixed widget counts
+// filled and toggled each frame) and starts hidden; the engine collapses
+// editor_root until the editor is on. Names are matched by the click router
+// (btn_tool*, btn_giz*, btn_ltab*, ed_trow*, btn_btab*, cl_row*, card*, ...).
 std::string BuildEditorSection() {
-  std::string s = R"(
+  const char* AC = "#6c7bf5";   // accent indigo
+  const char* TXP = "#e6e9f2";  // primary text / icons
+  const char* TXS = "#9aa3b5";  // secondary text
+  const char* TXM = "#6b7488";  // muted text
+  std::string s;
+  char buf[2048];
+
+  // --- reticle, marquee box and selection bracket (static, world overlays) ---
+  s += R"(
   panel editor_root {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
 
-    panel editor_reticle {
+    panel ed_reticle {
       position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
       layout: column; justify: center; align: center;
-      panel ed_cross {
-        width: 24; height: 24; position: relative;
-        panel { position: absolute; left: 11; top: 2; width: 2; height: 8; background: #ffcc55dd; }
-        panel { position: absolute; left: 11; top: 14; width: 2; height: 8; background: #ffcc55dd; }
-        panel { position: absolute; left: 2; top: 11; width: 8; height: 2; background: #ffcc55dd; }
-        panel { position: absolute; left: 14; top: 11; width: 8; height: 2; background: #ffcc55dd; }
-        panel { position: absolute; left: 10; top: 10; width: 4; height: 4; corner-radius: 2; background: #ffffffee; }
+      panel { width: 18; height: 18; position: relative;
+        panel { position: absolute; left: 8; top: 2; width: 2; height: 6; background: #ffffffcc; }
+        panel { position: absolute; left: 8; top: 10; width: 2; height: 6; background: #ffffffcc; }
+        panel { position: absolute; left: 2; top: 8; width: 6; height: 2; background: #ffffffcc; }
+        panel { position: absolute; left: 10; top: 8; width: 6; height: 2; background: #ffffffcc; }
       }
     }
 
     panel ed_marquee {
       position: absolute; left: 0; top: 0; width: 0; height: 0;
-      background: #ffcc5518; border-color: #ffcc55cc; border-width: 1;
+      background: #6c7bf524; border-color: #6c7bf5cc; border-width: 1;
     }
 
     panel ed_select {
       position: absolute; left: 0; top: 0; width: 64; height: 64;
-      panel { position: absolute; left: 0; top: 0; width: 18; height: 3; background: #ffcc55; }
-      panel { position: absolute; left: 0; top: 0; width: 3; height: 18; background: #ffcc55; }
-      panel { position: absolute; left: 46; top: 0; width: 18; height: 3; background: #ffcc55; }
-      panel { position: absolute; left: 61; top: 0; width: 3; height: 18; background: #ffcc55; }
-      panel { position: absolute; left: 0; top: 61; width: 18; height: 3; background: #ffcc55; }
-      panel { position: absolute; left: 0; top: 46; width: 3; height: 18; background: #ffcc55; }
-      panel { position: absolute; left: 46; top: 61; width: 18; height: 3; background: #ffcc55; }
-      panel { position: absolute; left: 61; top: 46; width: 3; height: 18; background: #ffcc55; }
+      panel { position: absolute; left: 0; top: 0; width: 16; height: 2; background: #6c7bf5; }
+      panel { position: absolute; left: 0; top: 0; width: 2; height: 16; background: #6c7bf5; }
+      panel { position: absolute; left: 48; top: 0; width: 16; height: 2; background: #6c7bf5; }
+      panel { position: absolute; left: 62; top: 0; width: 2; height: 16; background: #6c7bf5; }
+      panel { position: absolute; left: 0; top: 62; width: 16; height: 2; background: #6c7bf5; }
+      panel { position: absolute; left: 0; top: 48; width: 2; height: 16; background: #6c7bf5; }
+      panel { position: absolute; left: 48; top: 62; width: 16; height: 2; background: #6c7bf5; }
+      panel { position: absolute; left: 62; top: 48; width: 2; height: 16; background: #6c7bf5; }
     }
-
-    panel editor_toolbar {
-      position: absolute; top: 0; left: 0; width: 100vw; height: 46;
-      layout: row; align: center; justify: space-between; padding: 0 18;
-      background: #0a0c14f7; border-color: #ffffff14; border-width: 1;
-      shadow-color: #00000088; shadow-blur: 18; shadow-y: 3;
-      panel ed_tb_left { layout: row; align: center; gap: 14;
-        text { text: "MAP EDITOR"; font-size: 15; color: #ffcc55; letter-spacing: 3; text-transform: uppercase; }
-        text ed_tb_hint { text: ""; font-size: 12; color: #8a93a8; letter-spacing: 1; }
-      }
-      panel ed_tb_tools { layout: row; align: center; gap: 6;
 )";
 
-  // Toolbar action buttons (children of ed_tb_tools). Indices match MapEditor's
-  // ToolAction enum.
-  const char* tools[kEditorToolButtons] = {"Select", "Move", "Rotate", "Scale",
-                                           "Delete", "Dupe", "Undo",   "Save"};
-  for (int i = 0; i < kEditorToolButtons; ++i) {
-    s += "        button btn_tool" + std::to_string(i) + " { text: \"" + tools[i] +
-         "\"; font-size: 13; color: #d8def0; text-align: center; padding: 7 12;"
-         " background: #ffffff0e; corner-radius: 7; cursor: pointer;"
-         " :hover { background: #ffcc5530; color: #ffffff; }"
-         " :pressed { background: #ffcc5555; } }\n";
+  // --- viewport overlays: gizmo bar, perspective chip, axis gizmo ---
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel ed_gizmobar { position: absolute; left: %g; top: %g; layout: row;"
+                " align: center; gap: 2; background: #14171fe8; corner-radius: 10; padding: 4;"
+                " border-color: #ffffff14; border-width: 1;\n",
+                kEdSceneW + 16.0f, kEdToolbarH + 14.0f);
+  s += buf;
+  const char* giz[4] = {"hand", "move", "rotate", "scale"};
+  for (int i = 0; i < 4; ++i) {
+    s += "      panel btn_giz" + std::to_string(i) +
+         " { padding: 6; corner-radius: 7; background: #ffffff00; cursor: pointer;"
+         " :hover { background: #ffffff14; }\n        " +
+         Glyph(giz[i], TXP) + "      }\n";
   }
-  s += "      }\n    }\n";  // close ed_tb_tools, editor_toolbar
+  s += "    }\n";
 
-  // Left asset-browser dock.
-  s += R"(
-    panel editor_browser {
-      position: absolute; left: 0; top: 46; width: 360; bottom: 34;
-      layout: column; align: start; padding: 16 18; gap: 10;
-      background: #0b0e16f7; border-color: #ffffff12; border-width: 1;
-      shadow-color: #000000aa; shadow-blur: 34; shadow-x: 8;
-      text { text: "Asset Browser"; font-size: 16; color: #ffcc55; letter-spacing: 3;
-        text-transform: uppercase; }
-      panel ed_search {
-        layout: row; align: center; justify: space-between; width: 324; padding: 9 12;
-        background: #05070ccc; corner-radius: 8; border-color: #ffffff16; border-width: 1;
-        cursor: text;
-        text ed_search_text { text: "Search assets..."; font-size: 14; color: #6b7488; }
-        button ed_search_clear { text: "x"; font-size: 13; color: #8a93a8; padding: 0 6;
-          background: #ffffff00; cursor: pointer; :hover { color: #ffffff; } }
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel ed_persp { position: absolute; right: %g; top: %g; layout: row;"
+                " align: center; gap: 8; background: #14171fe8; corner-radius: 8; padding: 7 11;"
+                " border-color: #ffffff14; border-width: 1;\n"
+                "      text { text: \"Perspective\"; font-size: 12; color: %s; }\n      %s    }\n",
+                kEdInspectorW + 16.0f, kEdToolbarH + 14.0f, TXS, Glyph("caret", TXS).c_str());
+  s += buf;
+
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel ed_axis { position: absolute; right: %g; top: %g; width: 60; height: 60;\n"
+                "      panel { position: absolute; left: 28; top: 8; width: 2; height: 22; background: #57bd6a; }\n"
+                "      text { position: absolute; left: 25; top: 0; font-size: 11; color: #57bd6a; text: \"Y\"; }\n"
+                "      panel { position: absolute; left: 29; top: 28; width: 22; height: 2; background: #e5564b; }\n"
+                "      text { position: absolute; left: 50; top: 22; font-size: 11; color: #e5564b; text: \"X\"; }\n"
+                "      panel { position: absolute; left: 8; top: 28; width: 22; height: 2; background: #4d8df0; }\n"
+                "      text { position: absolute; left: 1; top: 33; font-size: 11; color: #4d8df0; text: \"Z\"; }\n"
+                "      panel { position: absolute; left: 26; top: 26; width: 6; height: 6; corner-radius: 3; background: #cfd6e6; }\n    }\n",
+                kEdInspectorW + 26.0f, kEdToolbarH + 50.0f);
+  s += buf;
+
+  // --- top toolbar ---
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel editor_toolbar { position: absolute; top: 0; left: 0; width: 100vw;"
+                " height: %g; layout: row; align: center; justify: space-between; padding: 0 14;"
+                " background: #1b1e27f8; border-color: #ffffff12; border-width: 1;\n",
+                kEdToolbarH);
+  s += buf;
+  s += R"(      panel { layout: row; align: center; gap: 11;
+        panel { width: 30; height: 30; corner-radius: 8; background: #6c7bf5; layout: column;
+          justify: center; align: center; text { text: "R"; font-size: 17; color: #ffffff; } }
+        text { text: "RECREATION"; font-size: 14; color: #e6e9f2; letter-spacing: 2; }
       }
-      panel ed_cats { layout: row; align: center; gap: 6; width: 324;
+      panel ed_tb_tools { layout: row; align: center; gap: 3;
 )";
-
-  // Category tabs (children of ed_cats; pooled, filled/collapsed by the view).
-  for (int i = 0; i < kEditorCategoryTabs; ++i) {
-    s += "        button btn_cat" + std::to_string(i) +
-         " { text: \"\"; font-size: 12; color: #aab2c6; padding: 5 10;"
-         " background: #ffffff0c; corner-radius: 6; cursor: pointer;"
-         " :hover { background: #ffffff1a; color: #ffffff; } }\n";
+  const char* tlabel[kEdToolBtns] = {"Select", "Move", "Rotate", "Terrain", "Paint",
+                                     "Play",   "Save", "Undo",   "Redo"};
+  const char* tkind[kEdToolBtns] = {"select", "move", "rotate", "terrain", "paint",
+                                    "play",   "save", "undo",   "redo"};
+  for (int i = 0; i < kEdToolBtns; ++i) {
+    if (i == 5)
+      s += "        panel { width: 1; height: 28; background: #ffffff1c; margin: 0 6; }\n";
+    s += "        panel btn_tool" + std::to_string(i) +
+         " { layout: column; align: center; justify: center; gap: 3; padding: 5 8;"
+         " corner-radius: 9; cursor: pointer; background: #ffffff00; :hover { background: #ffffff12; }\n          " +
+         Glyph(tkind[i], TXP) + "          text btn_tool" + std::to_string(i) + "_lbl { text: \"" +
+         tlabel[i] + "\"; font-size: 10; color: " + TXS + "; }\n        }\n";
   }
-  s += "      }\n";  // close ed_cats
-  s += "      text ed_result_count { text: \"\"; font-size: 12; color: #8a93a8; }\n";
-  s += "      panel ed_rows { layout: column; align: start; gap: 3; width: 324;\n";
+  s += "      }\n";  // close ed_tb_tools
+  // Right cluster: world chip, settings, help, window controls.
+  s += "      panel { layout: row; align: center; gap: 9;\n";
+  s += "        panel { layout: row; align: center; gap: 7; background: #0e1016; corner-radius: 8;"
+       " padding: 6 10; border-color: #ffffff14; border-width: 1;\n"
+       "          text { text: \"Skyrim\"; font-size: 12; color: #cfd6e6; }\n          " +
+       Glyph("caret", TXS) + "        }\n";
+  s += "        panel { padding: 6; corner-radius: 7; background: #ffffff00; cursor: pointer;"
+       " :hover { background: #ffffff12; }\n          " +
+       Glyph("gear", TXS) + "        }\n";
+  s += "        button { text: \"?\"; font-size: 15; color: #9aa3b5; padding: 4 9; corner-radius: 7;"
+       " background: #ffffff00; cursor: pointer; :hover { background: #ffffff12; } }\n";
+  s += "        panel { layout: row; align: center; gap: 2; margin: 0 0 0 4;\n          " +
+       Glyph("minwin", TXM) + "          " + Glyph("maxwin", TXM) +
+       "          text { text: \"x\"; font-size: 14; color: #9aa3b5; padding: 0 4; }\n        }\n";
+  s += "      }\n    }\n";  // close right cluster, toolbar
 
-  // Asset rows (children of ed_rows; pooled). Each is a clickable panel with a
-  // name line and a subtitle line.
-  for (int i = 0; i < kEditorBrowserRows; ++i) {
+  // --- left dock: scene tree / assets ---
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel editor_scene { position: absolute; left: 0; top: %g; width: %g;"
+                " bottom: %g; layout: column; align: start; background: #171a22f8;"
+                " border-color: #ffffff12; border-width: 1;\n",
+                kEdToolbarH, kEdSceneW, kEdStatusH);
+  s += buf;
+  s += R"(      panel { layout: row; align: center; padding: 4 10 0 10; width: 100%;
+        panel btn_ltab0 { layout: column; align: center; gap: 6; padding: 9 12; cursor: pointer; background: #ffffff00;
+          text btn_ltab0_t { text: "Scene"; font-size: 13; color: #e6e9f2; }
+          panel btn_ltab0_ul { width: 38; height: 2; corner-radius: 1; background: #6c7bf5; }
+        }
+        panel btn_ltab1 { layout: column; align: center; gap: 6; padding: 9 12; cursor: pointer; background: #ffffff00;
+          text btn_ltab1_t { text: "Assets"; font-size: 13; color: #6b7488; }
+          panel btn_ltab1_ul { width: 38; height: 2; corner-radius: 1; background: #6c7bf500; }
+        }
+      }
+      panel { width: 100%; height: 1; background: #ffffff10; }
+      panel { layout: row; align: center; gap: 8; padding: 10 12 6 12; width: 100%;
+        panel ed_scene_search { layout: row; align: center; gap: 7; flex-grow: 1; background: #0e1016;
+          corner-radius: 8; padding: 7 10; border-color: #ffffff14; border-width: 1; cursor: text;
+)";
+  s += "          " + Glyph("magnify", TXM) +
+       "          text ed_scene_search_text { text: \"Search scene...\"; font-size: 12; color: #6b7488; flex-grow: 1; }\n"
+       "          button ed_scene_clear { text: \"x\"; font-size: 12; color: #6b7488; padding: 0 2;"
+       " background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n        }\n";
+  s += "        panel ed_scene_filter { padding: 7; corner-radius: 8; background: #0e1016;"
+       " border-color: #ffffff14; border-width: 1; cursor: pointer; :hover { background: #ffffff12; }\n          " +
+       Glyph("caret", TXM) + "        }\n      }\n";
+  // Tree rows (pooled).
+  s += "      panel ed_tree { layout: column; align: start; gap: 1; padding: 2 6; width: 100%;"
+       " flex-grow: 1; overflow: hidden;\n";
+  for (int i = 0; i < kEdTreeRows; ++i) {
     const std::string id = std::to_string(i);
-    s += "        panel ed_row" + id +
-         " { layout: column; align: start; width: 304; padding: 7 10; corner-radius: 7;"
-         " background: #ffffff08; cursor: pointer; :hover { background: #ffcc5522; }\n"
-         "          text ed_row" +
-         id +
-         "_name { text: \"\"; font-size: 14; color: #e8ecf6; }\n"
-         "          text ed_row" +
-         id +
-         "_sub { text: \"\"; font-size: 11; color: #7e879b; }\n"
+    s += "        panel ed_trow" + id +
+         " { layout: row; align: center; gap: 5; padding: 4 6; width: 100%; corner-radius: 6;"
+         " cursor: pointer; background: #ffffff00; :hover { background: #ffffff10; }\n"
+         "          panel ed_trow" + id + "_pad { width: 2; height: 1; }\n"
+         "          button ed_trow" + id + "_exp { text: \"\"; font-size: 13; color: #9aa3b5;"
+         " width: 14; text-align: center; background: #ffffff00; cursor: pointer; }\n"
+         "          panel ed_trow" + id + "_ico { width: 11; height: 11; corner-radius: 3; background: #6b7488; }\n"
+         "          text ed_trow" + id + "_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n"
+         "          panel ed_trow" + id + "_eye { width: 12; height: 12; corner-radius: 6; background: #c8cfdd; cursor: pointer; }\n"
          "        }\n";
   }
-  s += "      }\n";  // close ed_rows
+  s += "      }\n";  // close ed_tree
+  // Footer: add buttons + tree pager.
+  s += "      panel { layout: row; align: center; justify: space-between; padding: 6 10; width: 100%;\n"
+       "        panel { layout: row; align: center; gap: 6;\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("plus", TXS) + "          }\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("folder", TXS) + "          }\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("grid", TXS) + "          }\n";
+  s += "        }\n        panel { layout: row; align: center; gap: 4;\n";
+  s += "          panel btn_treeup { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("triup", TXS) + "          }\n";
+  s += "          panel btn_treedn { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("tridown", TXS) + "          }\n";
+  s += "        }\n      }\n    }\n";  // close footer, editor_scene
 
-  s += R"(
-      panel ed_scroll {
-        layout: row; align: center; gap: 8; width: 324;
-        button btn_scroll_up { text: "prev"; font-size: 12; color: #d8def0; padding: 6 12;
-          background: #ffffff0e; corner-radius: 6; cursor: pointer;
-          :hover { background: #ffcc5530; color: #ffffff; } }
-        button btn_scroll_down { text: "next"; font-size: 12; color: #d8def0; padding: 6 12;
-          background: #ffffff0e; corner-radius: 6; cursor: pointer;
-          :hover { background: #ffcc5530; color: #ffffff; } }
+  // --- right dock: inspector ---
+  auto section = [&](const char* title) {
+    s += "        panel { layout: row; align: center; gap: 6; width: 100%; margin: 4 0 0 0;\n          " +
+         Glyph("caret", TXS) + "          text { text: \"" + title +
+         "\"; font-size: 12; color: " + TXP + "; letter-spacing: 1; flex-grow: 1; }\n          " +
+         Glyph("kebab", TXM) + "        }\n";
+  };
+  auto chip = [&](const char* letter, const char* lcol, const std::string& valname) {
+    s += "          panel { layout: row; align: center; gap: 4; flex-grow: 1; background: #0e1016;"
+         " corner-radius: 6; padding: 5 6; border-color: #ffffff12; border-width: 1;\n"
+         "            text { text: \"" + std::string(letter) + "\"; font-size: 11; color: " + lcol + "; }\n"
+         "            text " + valname + " { text: \"0\"; font-size: 11; color: #d6dbe7; flex-grow: 1; }\n          }\n";
+  };
+  auto xyzrow = [&](const char* label, const std::string& px, const std::string& py,
+                    const std::string& pz, bool lock) {
+    s += "        panel { layout: row; align: center; gap: 8; width: 100%;\n"
+         "          text { text: \"" + std::string(label) + "\"; font-size: 12; color: " + TXS + "; width: 56; }\n"
+         "          panel { layout: row; align: center; gap: 5; flex-grow: 1;\n";
+    chip("X", "#e5564b", px);
+    chip("Y", "#57bd6a", py);
+    chip("Z", "#4d8df0", pz);
+    if (lock)
+      s += "          panel { width: 18; height: 18; layout: column; justify: center; align: center; " +
+           Glyph("lock", TXM) + "          }\n";
+    s += "          }\n        }\n";
+  };
+  auto toggle = [&](const char* label, const std::string& name) {
+    s += "        panel { layout: row; align: center; justify: space-between; width: 100%;\n"
+         "          text { text: \"" + std::string(label) + "\"; font-size: 12; color: #c2c9d6; }\n"
+         "          panel " + name + " { width: 34; height: 18; corner-radius: 9; background: " + AC + "; position: relative;\n"
+         "            panel " + name + "_k { position: absolute; left: 18; top: 2; width: 14; height: 14; corner-radius: 7; background: #ffffff; }\n          }\n        }\n";
+  };
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel editor_inspector { position: absolute; right: 0; top: %g; width: %g;"
+                " bottom: %g; layout: column; align: start; background: #171a22f8;"
+                " border-color: #ffffff12; border-width: 1; overflow: hidden;\n",
+                kEdToolbarH, kEdInspectorW, kEdStatusH);
+  s += buf;
+  s += "      panel { layout: row; align: center; justify: space-between; padding: 12 14; width: 100%;\n"
+       "        text { text: \"Inspector\"; font-size: 13; color: #e6e9f2; letter-spacing: 1; }\n        " +
+       Glyph("kebab", TXM) + "      }\n";
+  s += "      panel { width: 100%; height: 1; background: #ffffff10; }\n";
+  s += "      panel ed_insp_empty { layout: column; align: center; justify: center; padding: 40 0; width: 100%;\n"
+       "        text { text: \"No object selected\"; font-size: 12; color: #6b7488; } }\n";
+  s += "      panel ed_insp_body { layout: column; align: start; padding: 12 14; gap: 11; width: 100%;\n";
+  // Object row.
+  s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
+       "          panel { width: 26; height: 26; corner-radius: 6; background: #0e1016; layout: column; justify: center; align: center; " +
+       Glyph("cube", TXS) + "          }\n"
+       "          text ed_insp_name { text: \"\"; font-size: 15; color: #f2f4fb; flex-grow: 1; }\n"
+       "          panel { layout: row; align: center; gap: 6;\n"
+       "            text { text: \"Static\"; font-size: 11; color: #9aa3b5; }\n"
+       "            panel ed_insp_static { width: 14; height: 14; corner-radius: 4; background: #0e1016; border-color: #ffffff24; border-width: 1; }\n          }\n        }\n";
+  // Transform.
+  section("Transform");
+  s += "        panel { layout: column; gap: 7; width: 100%;\n";
+  xyzrow("Position", "ed_pos_x", "ed_pos_y", "ed_pos_z", false);
+  xyzrow("Rotation", "ed_rot_x", "ed_rot_y", "ed_rot_z", false);
+  xyzrow("Scale", "ed_scl_x", "ed_scl_y", "ed_scl_z", true);
+  s += "        }\n";
+  // Model.
+  section("Model");
+  s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
+       "          panel { width: 40; height: 40; corner-radius: 7; background: #0e1016; overflow: hidden;"
+       " image ed_model_thumb { width: 40; height: 40; } }\n"
+       "          panel { layout: row; align: center; gap: 7; flex-grow: 1; background: #0e1016;"
+       " corner-radius: 7; padding: 9 10; border-color: #ffffff14; border-width: 1;\n"
+       "            text ed_model_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n            " +
+       Glyph("folder", TXM) + "          }\n        }\n";
+  s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
+       "          panel { width: 28; height: 28; corner-radius: 14; background: #0e1016; layout: column; justify: center; align: center; " +
+       Glyph("sphere", TXS) + "          }\n"
+       "          panel { layout: row; align: center; gap: 7; flex-grow: 1; background: #0e1016;"
+       " corner-radius: 7; padding: 9 10; border-color: #ffffff14; border-width: 1;\n"
+       "            text ed_mat_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n"
+       "            text { text: \">\"; font-size: 12; color: #6b7488; }\n          }\n        }\n";
+  // Details.
+  section("Details");
+  toggle("Cast Shadow", "ed_tg_cast");
+  toggle("Receive Shadow", "ed_tg_recv");
+  toggle("Lightmap Static", "ed_tg_lm");
+  // Tags.
+  section("Tags");
+  s += "        panel ed_tags { layout: row; align: center; gap: 6; width: 100%;\n";
+  for (int i = 0; i < kEdTags; ++i)
+    s += "          panel ed_tag" + std::to_string(i) +
+         " { background: #6c7bf52e; corner-radius: 6; padding: 5 9;"
+         " text ed_tag" + std::to_string(i) + "_t { text: \"\"; font-size: 11; color: #b9c0ff; } }\n";
+  s += "          panel { padding: 5; corner-radius: 6; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; } " +
+       Glyph("plus", TXM) + "          }\n";
+  s += "        }\n";
+  s += "      }\n    }\n";  // close ed_insp_body, editor_inspector
+
+  // --- bottom dock: asset browser (width/left overridden each frame in C++) ---
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel editor_browser { position: absolute; left: %g; bottom: %g; width: 1000;"
+                " height: %g; layout: column; align: start; background: #171a22f8;"
+                " border-color: #ffffff12; border-width: 1;\n",
+                kEdSceneW, kEdStatusH, kEdBrowserH);
+  s += buf;
+  // Tab bar.
+  s += "      panel { layout: row; align: center; justify: space-between; width: 100%; padding: 0 12; height: 40;\n"
+       "        panel ed_btabs { layout: row; align: center; gap: 2;\n";
+  for (int i = 0; i < kEdTabs; ++i)
+    s += "          panel btn_btab" + std::to_string(i) +
+         " { layout: column; align: center; gap: 6; padding: 9 9; cursor: pointer; background: #ffffff00;\n"
+         "            text btn_btab" + std::to_string(i) + "_t { text: \"\"; font-size: 12; color: #9aa3b5; }\n"
+         "            panel btn_btab" + std::to_string(i) + "_ul { width: 100%; height: 2; corner-radius: 1; background: #6c7bf500; }\n          }\n";
+  s += "          panel { padding: 8; background: #ffffff00; cursor: pointer; :hover { background: #ffffff12; } " +
+       Glyph("plus", TXM) + "          }\n        }\n";
+  s += "        panel { layout: row; align: center; gap: 12;\n          " + Glyph("magnify", TXM);
+  s += "          panel { width: 90; height: 4; corner-radius: 2; background: #2a2f3a; position: relative;\n"
+       "            panel { position: absolute; left: 54; top: -3; width: 10; height: 10; corner-radius: 5; background: #6c7bf5; } }\n          " +
+       Glyph("grid", TXS);
+  s += "          panel ed_cardprev { padding: 5 8; background: #ffffff0c; corner-radius: 6; cursor: pointer; :hover { background: #ffffff18; } text { text: \"<\"; font-size: 13; color: #c2c9d6; } }\n";
+  s += "          panel ed_cardnext { padding: 5 8; background: #ffffff0c; corner-radius: 6; cursor: pointer; :hover { background: #ffffff18; } text { text: \">\"; font-size: 13; color: #c2c9d6; } }\n          " +
+       Glyph("kebab", TXM) + "        }\n      }\n";
+  s += "      panel { width: 100%; height: 1; background: #ffffff10; }\n";
+  // Body: category list + cards.
+  s += "      panel { layout: row; align: start; width: 100%; flex-grow: 1;\n"
+       "        panel { layout: column; align: start; gap: 2; width: 156; padding: 10 10;\n"
+       "          panel ed_asset_search { layout: row; align: center; gap: 7; width: 100%; background: #0e1016;"
+       " corner-radius: 7; padding: 6 9; border-color: #ffffff14; border-width: 1; cursor: text; margin: 0 0 6 0;\n            " +
+       Glyph("magnify", TXM) +
+       "            text ed_asset_search_text { text: \"Search props...\"; font-size: 11; color: #6b7488; flex-grow: 1; }\n"
+       "            button ed_asset_clear { text: \"x\"; font-size: 11; color: #6b7488; background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n          }\n";
+  for (int i = 0; i < kEdCatRows; ++i)
+    s += "          panel cl_row" + std::to_string(i) +
+         " { layout: row; align: center; justify: space-between; width: 100%; padding: 5 8;"
+         " corner-radius: 6; background: #ffffff00; cursor: pointer; :hover { background: #ffffff0e; }\n"
+         "            text cl_row" + std::to_string(i) + "_n { text: \"\"; font-size: 12; color: #c2c9d6; }\n"
+         "            text cl_row" + std::to_string(i) + "_c { text: \"\"; font-size: 11; color: #6b7488; }\n          }\n";
+  s += "        }\n        panel { width: 1; height: 100%; background: #ffffff0c; }\n";
+  s += "        panel ed_cards { layout: row; align: start; gap: 12; flex-grow: 1; padding: 12 14; overflow: hidden;\n";
+  for (int i = 0; i < kEdCards; ++i) {
+    const std::string id = std::to_string(i);
+    s += "          panel card" + id + " { layout: column; align: center; gap: 6; width: 86; cursor: pointer;\n"
+         "            panel card" + id + "_box { width: 86; height: 86; corner-radius: 8; background: #1f232e;"
+         " border-color: #ffffff14; border-width: 1; overflow: hidden; position: relative;\n"
+         "              panel card" + id + "_sw { position: absolute; left: 18; top: 18; width: 50; height: 50; corner-radius: 8; background: #2a2f3a; }\n"
+         "              image card" + id + "_img { position: absolute; left: 0; top: 0; width: 86; height: 86; }\n            }\n"
+         "            text card" + id + "_name { text: \"\"; font-size: 11; color: #c2c9d6; text-align: center; width: 86; }\n          }\n";
+  }
+  s += "        }\n      }\n    }\n";  // close cards, body, editor_browser
+
+  // --- status bar ---
+  std::snprintf(buf, sizeof(buf),
+                "\n    panel editor_status { position: absolute; left: 0; bottom: 0; width: 100vw;"
+                " height: %g; layout: row; align: center; justify: space-between; padding: 0 14;"
+                " background: #1b1e27f8; border-color: #ffffff12; border-width: 1;\n",
+                kEdStatusH);
+  s += buf;
+  s += R"(      panel { layout: row; align: center; gap: 8;
+        panel { width: 8; height: 8; corner-radius: 4; background: #46c463; }
+        text ed_status_left { text: "Ready"; font-size: 12; color: #c2c9d6; }
       }
-    }
-
-    panel editor_inspector {
-      position: absolute; right: 0; top: 46; width: 300; bottom: 34;
-      layout: column; align: start; padding: 18 20; gap: 6;
-      background: #0b0e16f7; border-color: #ffffff12; border-width: 1;
-      shadow-color: #000000aa; shadow-blur: 34; shadow-x: -8;
-      text { text: "Inspector"; font-size: 16; color: #ffcc55; letter-spacing: 3;
-        text-transform: uppercase; }
-      text ed_insp_title { text: ""; font-size: 17; color: #f2f4fb; margin: 6 0 0 0; }
-      text ed_insp_sub { text: ""; font-size: 12; color: #8a93a8; margin: 0 0 8 0; }
-      panel ed_insp_rule { width: 260; height: 1; background: #ffffff18; margin: 4 0 8 0; }
-      text ed_insp_pos { text: ""; font-size: 14; color: #d8def0; }
-      text ed_insp_rot { text: ""; font-size: 14; color: #d8def0; }
-      text ed_insp_scale { text: ""; font-size: 14; color: #d8def0; }
-      panel ed_insp_rule2 { width: 260; height: 1; background: #ffffff18; margin: 10 0 8 0; }
-      text { text: "G move   R rotate   wheel scale"; font-size: 12; color: #8a93a8; }
-      text { text: "X delete   Ctrl+V dupe   Ctrl+Z undo"; font-size: 12; color: #8a93a8; }
-    }
-
-    panel editor_help {
-      position: absolute; right: 0; top: 46; width: 300; bottom: 34;
-      layout: column; align: start; padding: 18 20; gap: 7;
-      background: #0b0e16f7; border-color: #ffffff12; border-width: 1;
-      shadow-color: #000000aa; shadow-blur: 34; shadow-x: -8;
-      text { text: "Controls"; font-size: 16; color: #ffcc55; letter-spacing: 3;
-        text-transform: uppercase; }
-      text { text: "Right-drag to fly,  WASD / Q E"; font-size: 13; color: #c7cfdf; margin: 6 0 0 0; }
-      panel { width: 260; height: 1; background: #ffffff18; margin: 4 0 4 0; }
-      text { text: "1. Click an asset on the left"; font-size: 13; color: #d8def0; }
-      text { text: "2. Aim at the ground"; font-size: 13; color: #d8def0; }
-      text { text: "3. Click to drop it"; font-size: 13; color: #d8def0; }
-      panel { width: 260; height: 1; background: #ffffff18; margin: 4 0 4 0; }
-      text { text: "Click a placed object to select"; font-size: 13; color: #c7cfdf; }
-      text { text: "Shift+click / drag a box to multi-select"; font-size: 12; color: #9aa2b6; }
-      text { text: "Ctrl+G group selection, click to stamp"; font-size: 12; color: #9aa2b6; }
-      text { text: "R   rotate the brush / selection"; font-size: 12; color: #9aa2b6; }
-      text { text: "G   grab and move,  X delete"; font-size: 12; color: #9aa2b6; }
-      text { text: "wheel  scale,   Ctrl+V duplicate"; font-size: 12; color: #9aa2b6; }
-      text { text: "B   grid snap,   Ctrl+Z undo / +Shift redo"; font-size: 12; color: #9aa2b6; }
-      text { text: "F5  save,   F4 exit editor"; font-size: 12; color: #9aa2b6; }
-    }
-
-    panel editor_status {
-      position: absolute; left: 0; bottom: 0; width: 100vw; height: 34;
-      layout: row; align: center; justify: space-between; padding: 0 18;
-      background: #0a0c14f7; border-color: #ffffff14; border-width: 1;
-      text ed_status_left { text: ""; font-size: 13; color: #ffcc55; }
-      text ed_status_right { text: ""; font-size: 12; color: #8a93a8; letter-spacing: 1; }
+      panel { layout: row; align: center; gap: 18;
+        panel { layout: row; align: center; gap: 7;
+          text { text: "Grid"; font-size: 11; color: #6b7488; }
+          panel ed_grid { layout: row; align: center; gap: 5; background: #0e1016; corner-radius: 6;
+            padding: 4 8; border-color: #ffffff14; border-width: 1; cursor: pointer;
+)";
+  s += "            text ed_grid_t { text: \"1 m\"; font-size: 11; color: #c2c9d6; }\n            " +
+       Glyph("caret", TXM) + "          }\n        }\n";
+  s += R"(        panel { layout: row; align: center; gap: 7;
+          text { text: "Snapping"; font-size: 11; color: #6b7488; }
+          panel ed_snap { width: 32; height: 16; corner-radius: 8; background: #2a2f3a; position: relative; cursor: pointer;
+            panel ed_snap_k { position: absolute; left: 2; top: 2; width: 12; height: 12; corner-radius: 6; background: #cfd6e6; } }
+        }
+        text ed_fps { text: "fps 60"; font-size: 11; color: #9aa3b5; }
+      }
     }
   }
 )";
@@ -590,6 +826,7 @@ struct GameUi::Impl {
   bool quit_requested = false;
   bool prev_mouse[3] = {};
   float stamina = 1.0f;
+  int last_fps = 0;  // last computed fps, shown in the editor status bar
 
   // Quest HUD state, set by the engine and applied each frame.
   HudQuest quest;
@@ -675,14 +912,26 @@ struct GameUi::Impl {
 };
 
 namespace {
-const ugui::Color kEdGold = ugui::Color::FromRgba8(0xff, 0xcc, 0x55, 0xff);
-const ugui::Color kEdTabIdle = ugui::Color::FromRgba8(0xff, 0xff, 0xff, 0x0c);
-const ugui::Color kEdTabActive = ugui::Color::FromRgba8(0xff, 0xcc, 0x55, 0x33);
-const ugui::Color kEdRowIdle = ugui::Color::FromRgba8(0xff, 0xff, 0xff, 0x08);
-const ugui::Color kEdRowArmed = ugui::Color::FromRgba8(0xff, 0xcc, 0x55, 0x3a);
-const ugui::Color kEdTextIdle = ugui::Color::FromRgba8(0xaa, 0xb2, 0xc6, 0xff);
-const ugui::Color kEdSearchHint = ugui::Color::FromRgba8(0x6b, 0x74, 0x88, 0xff);
-const ugui::Color kEdSearchText = ugui::Color::FromRgba8(0xe8, 0xec, 0xf6, 0xff);
+inline ugui::Color Rgba(u32 hex) {
+  return ugui::Color::FromRgba8((hex >> 24) & 0xff, (hex >> 16) & 0xff, (hex >> 8) & 0xff,
+                                hex & 0xff);
+}
+const ugui::Color kEdAccent = Rgba(0x6c7bf5ff);      // indigo accent
+const ugui::Color kEdAccentSoft = Rgba(0x6c7bf52e);  // selected-row wash
+const ugui::Color kEdClear = Rgba(0x00000000);
+const ugui::Color kEdTxP = Rgba(0xe6e9f2ff);  // primary text
+const ugui::Color kEdTxS = Rgba(0x9aa3b5ff);  // secondary text
+const ugui::Color kEdTxM = Rgba(0x6b7488ff);  // muted text
+const ugui::Color kEdLeaf = Rgba(0xd6dbe7ff);
+const ugui::Color kEdField = Rgba(0x0e1016ff);
+const ugui::Color kEdEyeOn = Rgba(0xc8cfddff);
+const ugui::Color kEdEyeOff = Rgba(0x4a505fff);
+const ugui::Color kEdToggleOff = Rgba(0x2a2f3aff);
+const ugui::Color kEdIcoGroup = Rgba(0x8a93a8ff);
+const ugui::Color kEdIcoMesh = Rgba(0x4d8df0ff);
+const ugui::Color kEdIcoLight = Rgba(0xe8b54aff);
+const ugui::Color kEdCardBorder = Rgba(0xffffff14);
+const ugui::Color kEdCat = Rgba(0xc2c9d6ff);
 }  // namespace
 
 void GameUi::Impl::ApplyEditorView() {
@@ -699,56 +948,176 @@ void GameUi::Impl::ApplyEditorView() {
   SetVisible("editor_root", editor.active);
   if (!editor.active) return;
 
-  // Toolbar hint reflects the current mode / armed brush.
-  ugui::SetText(ui.FindWidget("ed_tb_hint"),
-                editor.brush.empty() ? "select / build" : ("brush: " + editor.brush).c_str());
+  auto setText = [&](const std::string& n, const std::string& t) {
+    ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
+  };
+  auto setLeft = [&](const std::string& n, float v) {
+    SetStyleField(
+        n.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); }, v);
+  };
+  auto setWidth = [&](const std::string& n, float v) {
+    SetStyleField(
+        n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Px(v); }, v);
+  };
 
-  // Category tabs: fill labels, collapse the unused pool slots, gold the active.
-  for (int i = 0; i < kEditorCategoryTabs; ++i) {
-    const std::string id = "btn_cat" + std::to_string(i);
-    if (i < static_cast<int>(editor.categories.size())) {
-      ugui::SetText(ui.FindWidget(id.c_str()), editor.categories[i].c_str());
+  // Keep the bottom browser spanning between the side docks at any window width.
+  const float bw = host.window_width - kEdSceneW - kEdInspectorW;
+  setLeft("editor_browser", kEdSceneW);
+  setWidth("editor_browser", bw > 200.0f ? bw : 200.0f);
+
+  // Toolbar: highlight the active tool; gizmo bar mirrors the gizmo mode.
+  for (int i = 0; i < kEdToolBtns; ++i) {
+    const std::string id = "btn_tool" + std::to_string(i);
+    const bool on = i == editor.tool;
+    SetBackground(id.c_str(), on ? kEdAccent : kEdClear);
+    SetTextColor((id + "_lbl").c_str(), on ? kEdTxP : kEdTxS);
+  }
+  for (int i = 0; i < 4; ++i)
+    SetBackground(("btn_giz" + std::to_string(i)).c_str(), i == editor.gizmo ? kEdAccent : kEdClear);
+
+  // Left dock tabs.
+  SetTextColor("btn_ltab0_t", editor.left_tab == 0 ? kEdTxP : kEdTxM);
+  SetTextColor("btn_ltab1_t", editor.left_tab == 1 ? kEdTxP : kEdTxM);
+  SetBackground("btn_ltab0_ul", editor.left_tab == 0 ? kEdAccent : kEdClear);
+  SetBackground("btn_ltab1_ul", editor.left_tab == 1 ? kEdAccent : kEdClear);
+
+  // Scene tree search box.
+  {
+    const bool ph = editor.scene_search.empty() && !editor.scene_search_focused;
+    setText("ed_scene_search_text",
+            ph ? "Search scene..."
+               : editor.scene_search + (editor.scene_search_focused ? "|" : ""));
+    SetTextColor("ed_scene_search_text", ph ? kEdTxM : kEdTxP);
+  }
+
+  // Scene hierarchy tree rows.
+  for (int i = 0; i < kEdTreeRows; ++i) {
+    const std::string row = "ed_trow" + std::to_string(i);
+    if (i < static_cast<int>(editor.tree.size())) {
+      const EditorView::TreeRow& tr = editor.tree[i];
+      SetVisible(row.c_str(), true);
+      setText(row + "_name", tr.name);
+      setWidth(row + "_pad", 2.0f + tr.depth * 14.0f);
+      setText(row + "_exp", tr.expand == 1 ? "+" : tr.expand == 2 ? "-" : " ");
+      SetBackground(row.c_str(), tr.selected ? kEdAccentSoft : kEdClear);
+      SetTextColor((row + "_name").c_str(), tr.selected ? kEdTxP : kEdLeaf);
+      const ugui::Color ic = tr.icon == 0   ? kEdAccent
+                             : tr.icon == 1 ? kEdIcoGroup
+                             : tr.icon == 2 ? kEdIcoLight
+                                            : kEdIcoMesh;
+      SetBackground((row + "_ico").c_str(), ic);
+      SetBackground((row + "_eye").c_str(), tr.hidden ? kEdEyeOff : kEdEyeOn);
+    } else {
+      SetVisible(row.c_str(), false);
+    }
+  }
+
+  // Inspector: live selection or the empty state.
+  SetVisible("ed_insp_empty", !editor.has_selection);
+  SetVisible("ed_insp_body", editor.has_selection);
+  if (editor.has_selection) {
+    setText("ed_insp_name", editor.sel_name);
+    char b[48];
+    const char* pn[3] = {"ed_pos_x", "ed_pos_y", "ed_pos_z"};
+    const char* rn[3] = {"ed_rot_x", "ed_rot_y", "ed_rot_z"};
+    const char* sn[3] = {"ed_scl_x", "ed_scl_y", "ed_scl_z"};
+    for (int a = 0; a < 3; ++a) {
+      std::snprintf(b, sizeof(b), "%.1f", editor.pos[a]);
+      setText(pn[a], b);
+      std::snprintf(b, sizeof(b), "%.0f", editor.rot[a]);
+      setText(rn[a], b);
+      std::snprintf(b, sizeof(b), "%.2f", editor.scale[a]);
+      setText(sn[a], b);
+    }
+    setText("ed_model_name", editor.model_name);
+    setText("ed_mat_name", editor.material_name);
+    ugui::SetImageTexture(ui.FindWidget("ed_model_thumb"), editor.model_thumb,
+                          editor.model_thumb ? 40.0f : 0.0f, editor.model_thumb ? 40.0f : 0.0f);
+    SetBackground("ed_insp_static", editor.sel_static ? kEdAccent : kEdField);
+    auto toggle = [&](const char* name, bool on) {
+      SetBackground(name, on ? kEdAccent : kEdToggleOff);
+      setLeft(std::string(name) + "_k", on ? 18.0f : 2.0f);
+    };
+    toggle("ed_tg_cast", editor.cast_shadow);
+    toggle("ed_tg_recv", editor.receive_shadow);
+    toggle("ed_tg_lm", editor.lightmap_static);
+    for (int i = 0; i < kEdTags; ++i) {
+      const std::string t = "ed_tag" + std::to_string(i);
+      if (i < static_cast<int>(editor.tags.size())) {
+        SetVisible(t.c_str(), true);
+        setText(t + "_t", editor.tags[i]);
+      } else {
+        SetVisible(t.c_str(), false);
+      }
+    }
+  }
+
+  // Asset-browser tabs.
+  for (int i = 0; i < kEdTabs; ++i) {
+    const std::string id = "btn_btab" + std::to_string(i);
+    if (i < static_cast<int>(editor.tabs.size())) {
       SetVisible(id.c_str(), true);
-      const bool on = i == editor.category;
-      SetBackground(id.c_str(), on ? kEdTabActive : kEdTabIdle);
-      SetTextColor(id.c_str(), on ? kEdGold : kEdTextIdle);
+      setText(id + "_t", editor.tabs[i]);
+      const bool on = i == editor.tab;
+      SetTextColor((id + "_t").c_str(), on ? kEdTxP : kEdTxS);
+      SetBackground((id + "_ul").c_str(), on ? kEdAccent : kEdClear);
     } else {
       SetVisible(id.c_str(), false);
     }
   }
 
-  // Search box: typed text (with a caret while focused) or the placeholder.
+  // Asset-browser search box.
   {
-    std::string shown;
-    bool placeholder = editor.search.empty() && !editor.search_focused;
-    if (placeholder) {
-      shown = "Search assets...";
+    const bool ph = editor.asset_search.empty() && !editor.asset_search_focused;
+    setText("ed_asset_search_text",
+            ph ? "Search props..."
+               : editor.asset_search + (editor.asset_search_focused ? "|" : ""));
+    SetTextColor("ed_asset_search_text", ph ? kEdTxM : kEdTxP);
+  }
+
+  // Category list with counts.
+  for (int i = 0; i < kEdCatRows; ++i) {
+    const std::string id = "cl_row" + std::to_string(i);
+    if (i < static_cast<int>(editor.cats.size())) {
+      SetVisible(id.c_str(), true);
+      setText(id + "_n", editor.cats[i].name);
+      setText(id + "_c", std::to_string(editor.cats[i].count));
+      const bool on = editor.cats[i].active;
+      SetBackground(id.c_str(), on ? kEdAccentSoft : kEdClear);
+      SetTextColor((id + "_n").c_str(), on ? kEdTxP : kEdCat);
     } else {
-      shown = editor.search;
-      if (editor.search_focused) shown += "|";
+      SetVisible(id.c_str(), false);
     }
-    ugui::SetText(ui.FindWidget("ed_search_text"), shown.c_str());
-    SetTextColor("ed_search_text", placeholder ? kEdSearchHint : kEdSearchText);
   }
 
-  // Result count.
-  {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%d match%s", editor.result_count,
-                  editor.result_count == 1 ? "" : "es");
-    ugui::SetText(ui.FindWidget("ed_result_count"), buf);
-  }
-
-  // Asset rows: name + subtitle, collapse the unused pool, highlight the armed.
-  for (int i = 0; i < kEditorBrowserRows; ++i) {
-    const std::string row = "ed_row" + std::to_string(i);
-    if (i < static_cast<int>(editor.rows.size())) {
-      ugui::SetText(ui.FindWidget((row + "_name").c_str()), editor.rows[i].name.c_str());
-      ugui::SetText(ui.FindWidget((row + "_sub").c_str()), editor.rows[i].subtitle.c_str());
-      SetVisible(row.c_str(), true);
-      SetBackground(row.c_str(), editor.rows[i].armed ? kEdRowArmed : kEdRowIdle);
+  // Asset cards.
+  for (int i = 0; i < kEdCards; ++i) {
+    const std::string id = "card" + std::to_string(i);
+    if (i < static_cast<int>(editor.cards.size())) {
+      const EditorView::Card& cd = editor.cards[i];
+      SetVisible(id.c_str(), true);
+      setText(id + "_name", cd.name);
+      SetBackground((id + "_sw").c_str(), Rgba(cd.color ? cd.color : 0x2a2f3aff));
+      ugui::wid img = ui.FindWidget((id + "_img").c_str());
+      if (cd.thumb) {
+        ugui::SetImageTexture(img, cd.thumb, 86.0f, 86.0f);
+        SetVisible((id + "_sw").c_str(), false);
+      } else {
+        ugui::SetImageTexture(img, 0, 0.0f, 0.0f);
+        SetVisible((id + "_sw").c_str(), true);
+      }
+      // Armed/selected card: indigo border on the thumbnail box.
+      ugui::wid box = ui.FindWidget((id + "_box").c_str());
+      if (box.valid()) {
+        if (ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(box)) {
+          ugui::Style st = sc->style;
+          st.border_color = cd.armed ? kEdAccent : kEdCardBorder;
+          st.border_width = cd.armed ? 2.0f : 1.0f;
+          ugui::SetStyle(ui.world(), box, st);
+        }
+      }
     } else {
-      SetVisible(row.c_str(), false);
+      SetVisible(id.c_str(), false);
     }
   }
 
@@ -759,112 +1128,73 @@ void GameUi::Impl::ApplyEditorView() {
     const float y0 = std::min(editor.marquee[1], editor.marquee[3]);
     const float w = std::fabs(editor.marquee[2] - editor.marquee[0]);
     const float h = std::fabs(editor.marquee[3] - editor.marquee[1]);
-    SetStyleField(
-        "ed_marquee", [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); }, x0);
+    setLeft("ed_marquee", x0);
     SetStyleField("ed_marquee", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); }, y0);
-    SetStyleField("ed_marquee", [](ugui::Style& s, float v) { s.width = ugui::Length::Px(v); }, w);
+    setWidth("ed_marquee", w);
     SetStyleField("ed_marquee", [](ugui::Style& s, float v) { s.height = ugui::Length::Px(v); }, h);
   }
 
-  // Selection reticle: a fixed 64px corner bracket centred on the selected
-  // object's screen position, so it reads clearly whatever the object's size.
+  // Selection bracket: a fixed 64px corner reticle on the primary selection.
   const bool bracket = editor.has_selection && editor.sel_on_screen;
   SetVisible("ed_select", bracket);
   if (bracket) {
     constexpr float kHalf = 32.0f;
-    SetStyleField(
-        "ed_select", [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
-        editor.sel_screen[0] - kHalf);
-    SetStyleField(
-        "ed_select", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
-        editor.sel_screen[1] - kHalf);
-  }
-
-  // Inspector with a live selection, the controls card otherwise, so the right
-  // dock is always useful and the controls stay discoverable.
-  SetVisible("editor_inspector", editor.has_selection);
-  SetVisible("editor_help", !editor.has_selection);
-  if (editor.has_selection) {
-    ugui::SetText(ui.FindWidget("ed_insp_title"), editor.sel_title.c_str());
-    ugui::SetText(ui.FindWidget("ed_insp_sub"), editor.sel_subtitle.c_str());
-    char b[96];
-    std::snprintf(b, sizeof(b), "pos   %.1f   %.1f   %.1f", editor.sel_pos[0], editor.sel_pos[1],
-                  editor.sel_pos[2]);
-    ugui::SetText(ui.FindWidget("ed_insp_pos"), b);
-    std::snprintf(b, sizeof(b), "yaw   %.0f deg", editor.sel_yaw_deg);
-    ugui::SetText(ui.FindWidget("ed_insp_rot"), b);
-    std::snprintf(b, sizeof(b), "scale   %.2fx", editor.sel_scale);
-    ugui::SetText(ui.FindWidget("ed_insp_scale"), b);
+    setLeft("ed_select", editor.sel_screen[0] - kHalf);
+    SetStyleField("ed_select", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
+                  editor.sel_screen[1] - kHalf);
   }
 
   // Status bar.
-  ugui::SetText(ui.FindWidget("ed_status_left"), editor.status.c_str());
+  setText("ed_status_left", editor.status.empty() ? "Ready" : editor.status);
+  setText("ed_grid_t", editor.grid_label);
+  SetBackground("ed_snap", editor.snapping ? kEdAccent : kEdToggleOff);
+  setLeft("ed_snap_k", editor.snapping ? 18.0f : 2.0f);
   {
-    char b[96];
-    std::snprintf(b, sizeof(b), "%d placed     F4 exit     right-drag to fly", editor.object_count);
-    ugui::SetText(ui.FindWidget("ed_status_right"), b);
+    char b[32];
+    std::snprintf(b, sizeof(b), "fps %d", last_fps);
+    setText("ed_fps", b);
   }
 }
 
 bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
   if (!editor_sink || !editor.active) return false;
-  // Climb from the clicked widget to the nearest editor-handled name; clicking
-  // a row's text resolves to its parent row, a button's glyph to the button.
+  // Climb from the clicked widget (the deepest hit) to the nearest editor-handled
+  // name. Tree rows distinguish the eye / expand children by name suffix.
   ugui::wid w = target;
-  for (int depth = 0; depth < 6 && w.valid(); ++depth) {
+  for (int depth = 0; depth < 8 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
     if (n) {
       const std::string name = n->name.c_str();
-      auto suffix_index = [&](const char* prefix) -> int {
-        const size_t pl = std::strlen(prefix);
-        if (name.size() > pl && name.compare(0, pl, prefix) == 0)
-          return std::atoi(name.c_str() + pl);
+      auto pref = [&](const char* p) -> int {
+        const size_t pl = std::strlen(p);
+        if (name.size() >= pl && name.compare(0, pl, p) == 0) return std::atoi(name.c_str() + pl);
         return -1;
       };
+      auto has = [&](const char* sub) { return name.find(sub) != std::string::npos; };
+      using K = EditorUiEvent::Kind;
       EditorUiEvent e;
-      if (int i = suffix_index("btn_tool"); i >= 0) {
-        e.kind = EditorUiEvent::Kind::kTool;
+      if (int i = pref("ed_trow"); i >= 0) {
         e.index = i;
+        e.kind = has("_eye") ? K::kTreeEye : has("_exp") ? K::kTreeExpand : K::kTreeSelect;
         editor_sink(e);
         return true;
       }
-      if (int i = suffix_index("btn_cat"); i >= 0) {
-        e.kind = EditorUiEvent::Kind::kCategory;
-        e.index = i;
-        editor_sink(e);
-        return true;
-      }
-      if (name.rfind("ed_row", 0) == 0) {
-        // ed_row3 or ed_row3_name/_sub all map to row 3.
-        e.kind = EditorUiEvent::Kind::kPickRow;
-        e.index = std::atoi(name.c_str() + 6);
-        editor_sink(e);
-        return true;
-      }
-      if (name == "ed_search" || name == "ed_search_text") {
-        e.kind = EditorUiEvent::Kind::kTool;
-        e.index = 8;  // kToolFocusSearch
-        editor_sink(e);
-        return true;
-      }
-      if (name == "ed_search_clear") {
-        e.kind = EditorUiEvent::Kind::kTool;
-        e.index = 9;  // kToolClearSearch
-        editor_sink(e);
-        return true;
-      }
-      if (name == "btn_scroll_up") {
-        e.kind = EditorUiEvent::Kind::kScroll;
-        e.index = -1;
-        editor_sink(e);
-        return true;
-      }
-      if (name == "btn_scroll_down") {
-        e.kind = EditorUiEvent::Kind::kScroll;
-        e.index = 1;
-        editor_sink(e);
-        return true;
-      }
+      if (int i = pref("btn_tool"); i >= 0) { e.kind = K::kTool; e.index = i; editor_sink(e); return true; }
+      if (int i = pref("btn_giz"); i >= 0) { e.kind = K::kGizmo; e.index = i; editor_sink(e); return true; }
+      if (int i = pref("btn_ltab"); i >= 0) { e.kind = K::kLeftTab; e.index = i; editor_sink(e); return true; }
+      if (int i = pref("btn_btab"); i >= 0) { e.kind = K::kCategory; e.index = i; editor_sink(e); return true; }
+      if (int i = pref("cl_row"); i >= 0) { e.kind = K::kCategory; e.index = i; editor_sink(e); return true; }
+      if (int i = pref("card"); i >= 0) { e.kind = K::kPickCard; e.index = i; editor_sink(e); return true; }
+      if (name == "ed_scene_clear") { e.kind = K::kClearScene; editor_sink(e); return true; }
+      if (name == "ed_scene_search" || name == "ed_scene_search_text") { e.kind = K::kFocusScene; editor_sink(e); return true; }
+      if (name == "ed_asset_clear") { e.kind = K::kClearAsset; editor_sink(e); return true; }
+      if (name == "ed_asset_search" || name == "ed_asset_search_text") { e.kind = K::kFocusAsset; editor_sink(e); return true; }
+      if (name == "ed_cardprev") { e.kind = K::kCardScroll; e.index = -1; editor_sink(e); return true; }
+      if (name == "ed_cardnext") { e.kind = K::kCardScroll; e.index = 1; editor_sink(e); return true; }
+      if (name == "btn_treeup") { e.kind = K::kTreeScroll; e.index = -1; editor_sink(e); return true; }
+      if (name == "btn_treedn") { e.kind = K::kTreeScroll; e.index = 1; editor_sink(e); return true; }
+      if (name == "ed_snap") { e.kind = K::kSnapToggle; editor_sink(e); return true; }
+      if (name == "ed_grid") { e.kind = K::kGridCycle; editor_sink(e); return true; }
     }
     const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
     w = h ? h->parent : ugui::wid{};
@@ -939,16 +1269,8 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     }
   });
 
-  // Editor overlay starts collapsed; the engine reveals it on F4. The category
-  // strip wraps to a tag cloud, which the markup grammar cannot express.
+  // Editor overlay starts collapsed; the engine reveals it on F4.
   impl_->SetVisible("editor_root", false);
-  if (ugui::wid cats = impl_->ui.FindWidget("ed_cats"); cats.valid()) {
-    if (ugui::StyleC* sc = impl_->ui.world().Get<ugui::StyleC>(cats)) {
-      ugui::Style style = sc->style;
-      style.flex_wrap = ugui::FlexWrap::kWrap;
-      ugui::SetStyle(impl_->ui.world(), cats, style);
-    }
-  }
 
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
   if (std::getenv("RECREATION_UI_MENU")) impl_->menu_open = true;
@@ -1027,6 +1349,12 @@ void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink) 
   if (impl_->initialized) impl_->editor_sink = std::move(sink);
 }
 
+u64 GameUi::CreateUiTexture(int width, int height, const u8* rgba) {
+  if (!impl_->initialized || !rgba || width <= 0 || height <= 0) return 0;
+  return impl_->backend.CreateTexture(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                      ugui::RHIFormat::kRgba8Unorm, rgba, ugui::RHIFilter::kLinear);
+}
+
 void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 frame_delta,
                    render::FrameView* view) {
   if (!impl_->initialized) return;
@@ -1086,6 +1414,7 @@ void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 fra
 
   // Readout text.
   char buf[160];
+  impl->last_fps = static_cast<int>(frame_delta > 0 ? 1.0f / frame_delta + 0.5f : 0.0f);
   std::snprintf(buf, sizeof(buf), "%.0f fps", frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
   ugui::SetText(impl->ui.FindWidget("hud_fps"), buf);
   Vec3 pos = camera.position();
@@ -1240,6 +1569,7 @@ void GameUi::SetContainer(const ContainerView&) {}
 void GameUi::SetJournal(bool, const std::vector<HudQuest>&, int) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
+u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
 void GameUi::ToggleMenu() {}
 bool GameUi::menu_open() const { return false; }
 bool GameUi::quit_requested() const { return false; }

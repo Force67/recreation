@@ -3,9 +3,11 @@
 
 #include <base/containers/vector.h>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "bethesda/form_id.h"
@@ -13,6 +15,7 @@
 #include "core/types.h"
 #include "ecs/entity.h"
 #include "game_ui.h"
+#include "thumbnailer.h"
 #include "world/components.h"
 
 namespace rec::bethesda {
@@ -25,6 +28,9 @@ class CellStreamer;
 namespace rec::render {
 struct PointLight;
 }  // namespace rec::render
+namespace rec::asset {
+struct Mesh;
+}  // namespace rec::asset
 
 namespace rec {
 
@@ -72,10 +78,10 @@ class MapEditor {
 
   bool active() const { return active_; }
 
-  // True while the asset search box is focused, so the engine routes the
-  // keyboard to text entry instead of flying the camera (mirrors the debug
-  // overlay's wants_keyboard()).
-  bool wants_keyboard() const { return active_ && search_focused_; }
+  // True while a search box (asset browser or scene tree) is focused, so the
+  // engine routes the keyboard to text entry instead of flying the camera
+  // (mirrors the debug overlay's wants_keyboard()).
+  bool wants_keyboard() const { return active_ && (search_focused_ || scene_search_focused_); }
 
   // Receives a click/scroll on an editor widget (registered with GameUi as the
   // editor event sink). Public so the GameUi callback can reach it.
@@ -114,11 +120,24 @@ class MapEditor {
 
   // An object the editor placed (so it can be counted, re-selected and, later,
   // serialized). Streamed refs the editor edits are tracked only transiently.
+  // category/type/editor_id mirror the catalog entry so the scene tree can group
+  // it and the inspector can name its model (defaulted when unknown).
   struct PlacedObject {
     ecs::Entity entity;
     bethesda::GlobalFormId base;
     std::string name;
     int domain = 0;
+    int category = 0;
+    u32 type = 0;
+    std::string editor_id;
+  };
+
+  // One flattened scene-tree row's target, parallel to the pushed view rows, so
+  // a click resolves back to the root / a category group / a placed object.
+  struct TreeNode {
+    int kind = 0;  // 0 root, 1 group, 2 leaf
+    int category = 0;
+    ecs::Entity entity = ecs::kInvalidEntity;
   };
 
   // One part of a reusable group ("prefab"): a placeable form plus its transform
@@ -146,6 +165,14 @@ class MapEditor {
   void BuildCatalog();
   void RefreshFilter();  // recompute filtered_ from search_ + category_
   void EnsureDomains();  // default domains_ to the primary domain if unset
+
+  // --- asset thumbnails (thumbnailer.cc renderer + on-disk PNG cache) ---
+  // Renders a few pending previews per frame for the visible cards; cached to
+  // disk so later boots load instantly. ThumbTexFor returns the ready texture
+  // id (or 0). MeshForCatalog converts/loads an entry's model on demand.
+  void GenerateThumbnails();
+  u64 ThumbTexFor(u64 base_packed) const;  // ready texture id for a base form, or 0
+  const asset::Mesh* MeshForCatalog(const CatalogEntry& e);
 
   // The streamer that converts/uploads/places a given domain's assets.
   world::CellStreamer* StreamerFor(int domain) const;
@@ -232,9 +259,27 @@ class MapEditor {
   int page_first_ = 0;           // scroll offset into filtered_
   int brush_ = -1;               // catalog_ index of the armed asset, or -1
   f32 brush_yaw_ = 0;            // yaw the next placement faces (R orients it)
-  bool search_focused_ = false;  // search box has keyboard focus
+  bool search_focused_ = false;  // asset search box has keyboard focus
   bool snap_ = false;            // snap placements / moves to a ground grid
   f32 snap_grid_ = 1.0f;         // grid size in metres when snap_ is on
+  int grid_index_ = 1;           // index into the cycle of grid sizes
+
+  // Left dock: Scene tree / Assets tabs, a tree search box, per-group expand
+  // state and a scroll window into the flattened tree.
+  int left_tab_ = 0;  // 0 = Scene, 1 = Assets
+  std::string scene_search_;
+  bool scene_search_focused_ = false;
+  bool root_expanded_ = true;
+  bool group_expanded_[kEditorCategoryCount] = {};  // set true in the ctor
+  int tree_scroll_ = 0;
+  std::vector<TreeNode> tree_targets_;  // visible window, parallel to view rows
+
+  // Asset-card thumbnails: rendered on demand (a few per frame), cached to disk.
+  std::unique_ptr<Thumbnailer> thumber_;
+  bool thumber_tried_ = false;
+  std::unordered_map<u64, u64> thumb_tex_;  // base form id -> ugui TextureId
+  std::unordered_set<u64> thumb_failed_;    // base form ids that won't render
+  std::string thumb_dir_;
 
   // Live placement preview ("ghost"): a transient entity, excluded from picking
   // and never saved, that tracks the aim point while a brush is armed.
