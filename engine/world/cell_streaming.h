@@ -158,6 +158,9 @@ class CellStreamer {
   // Water level of the cell in game units; false when the cell has none.
   bool CellWaterHeight(const LoadedCell& cell, f32* height) const;
   void AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell, const f32* heights);
+  // Floor estimate (engine y) for a cell with no LAND, from its placed refs.
+  bool RefsGroundHeight(u32 grid_key, const bethesda::RecordStore::ExteriorCell& cell,
+                        f32* engine_y) const;
   bool SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64 ref_id, LoadedCell& cell,
                       u32& mesh_budget, bool interior);
   const asset::Mesh* MeshForBase(bethesda::GlobalFormId base_id, u32& mesh_budget,
@@ -198,6 +201,11 @@ class CellStreamer {
   // instead of re-parsing the LAND record on every sample. Cleared when the
   // streamed worldspace changes; LAND data is immutable so entries never go stale.
   mutable base::UnorderedMap<u32, base::Vector<f32>> ground_cache_;
+  // Estimated floor height (engine y) for cells with no LAND record, the city
+  // worldspaces (New Atlantis) where the ground is the building meshes, not a
+  // heightfield. Derived once from the cell's placed refs and cached like the
+  // LAND heights above. NaN marks a cell with too few refs to estimate.
+  mutable base::UnorderedMap<u32, f32> refs_ground_cache_;
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
   f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units

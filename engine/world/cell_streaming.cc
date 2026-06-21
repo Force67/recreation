@@ -1,8 +1,10 @@
 #include "world/cell_streaming.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #include "core/log.h"
@@ -833,7 +835,8 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   i16 cell_y = static_cast<i16>(std::floor(beth_y / kCellSize));
   const u32 grid_key = bethesda::RecordStore::GridKey(cell_x, cell_y);
   const bethesda::RecordStore::ExteriorCell* cell = grid_->find(grid_key);
-  if (!cell || cell->land == 0) return false;
+  if (!cell) return false;
+  if (cell->land == 0) return RefsGroundHeight(grid_key, *cell, engine_y);
 
   // Decode the cell's heightfield once and keep it; a placement sweep samples the
   // same few cells hundreds of times per frame.
@@ -861,6 +864,41 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   u32 c = std::min(kLandGridPoints - 1, static_cast<u32>(local_x / kSpacing));
   u32 r = std::min(kLandGridPoints - 1, static_cast<u32>(local_y / kSpacing));
   *engine_y = heights[r * kLandGridPoints + c] * kUnitsToMeters;
+  return true;
+}
+
+bool CellStreamer::RefsGroundHeight(u32 grid_key,
+                                    const bethesda::RecordStore::ExteriorCell& cell,
+                                    f32* engine_y) const {
+  if (const f32* cached = refs_ground_cache_.find(grid_key)) {
+    if (std::isnan(*cached)) return false;
+    *engine_y = *cached;
+    return true;
+  }
+  // City worldspaces have no heightfield: the floor is the building meshes. Take
+  // a low percentile of the placed refs' Z origins as the ground so the camera
+  // and player sit on the plaza, not under it. The percentile skips the odd
+  // buried prop without snapping up to a tower's base.
+  constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
+  base::Vector<f32> zs;
+  zs.reserve(cell.refs.size());
+  for (u64 ref : cell.refs) {
+    bethesda::Record record;
+    if (!records_.Parse({static_cast<u16>(ref >> 32), static_cast<u32>(ref)}, &record)) continue;
+    const bethesda::Subrecord* data = record.Find(kData);
+    if (!data || data->data.size() < 24) continue;
+    f32 pos[3];
+    std::memcpy(pos, data->data.data(), 12);
+    zs.push_back(pos[2]);
+  }
+  if (zs.size() < 8) {  // too sparse to trust an estimate
+    refs_ground_cache_.emplace(grid_key, std::numeric_limits<f32>::quiet_NaN());
+    return false;
+  }
+  std::sort(zs.begin(), zs.end());
+  const f32 ground = zs[zs.size() / 10] * kUnitsToMeters;
+  refs_ground_cache_.emplace(grid_key, ground);
+  *engine_y = ground;
   return true;
 }
 
