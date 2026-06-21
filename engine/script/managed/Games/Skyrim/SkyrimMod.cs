@@ -1,4 +1,5 @@
 using System;
+using Recreation;
 using Recreation.Modding;
 
 namespace Recreation.Games.Skyrim;
@@ -8,14 +9,19 @@ namespace Recreation.Games.Skyrim;
 // game-agnostic SDK. The mod host discovers this like any other mod and runs
 // OnLoad once at boot, where it brings each Skyrim system online.
 //
-// As more games land, this is gated on the active game profile so it installs
-// only under Skyrim; until the engine exposes that, it registers unconditionally
-// in this Skyrim-targeted build.
+// Gated on the active game so its systems install only when Skyrim is the primary
+// world, keeping them out of a Fallout or Starfield session that shares this
+// assembly (those games install their own layers, see StarfieldMod).
 [Mod("Skyrim", Author = "Recreation", Version = "1.0.0")]
 public sealed class SkyrimMod : IMod
 {
+    // The Skyrim content domain's name (the game profile name the engine reports).
+    private const string GameName = "Skyrim Special Edition";
+
     public void OnLoad()
     {
+        if (Domains.Primary?.Name != GameName) return;
+
         Console.WriteLine("[skyrim] installing gameplay systems");
 
         // Regen rates are tunable from config (Skyrim.json), defaulting to the
