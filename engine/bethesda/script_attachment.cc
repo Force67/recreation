@@ -75,6 +75,62 @@ ScriptObjectValue ReadObject(Reader& r, i16 object_format) {
   return v;
 }
 
+// Consumes a property value of `type` without keeping it. Used for the Fallout 4
+// struct type (whose members the engine ignores) and the per-fragment property
+// blocks FO4 carries, where the bytes only need skipping to stay aligned.
+void SkipPropertyValue(Reader& r, i16 object_format, u8 type);
+
+// Reads one property's name, type, status and value. Shared by the script
+// section and (skipping the value) the FO4 fragment-header property blocks.
+void SkipProperty(Reader& r, i16 object_format) {
+  r.Str();          // name
+  u8 type = r.U8();
+  r.U8();           // status
+  SkipPropertyValue(r, object_format, type);
+}
+
+void SkipPropertyValue(Reader& r, i16 object_format, u8 type) {
+  switch (type) {
+    case 1:
+      ReadObject(r, object_format);
+      break;
+    case 2:
+      r.Str();
+      break;
+    case 3:
+    case 4:
+      r.U32();
+      break;
+    case 5:
+      r.U8();
+      break;
+    case 11:
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) ReadObject(r, object_format);
+      break;
+    case 12:
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.Str();
+      break;
+    case 13:
+    case 14:
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.U32();
+      break;
+    case 15:
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.U8();
+      break;
+    case 17: {
+      // FO4 array-of-struct: a count of structs, each a count of members, each a
+      // name/type/status/value. The engine has no use for the values, so skip.
+      u32 elements = r.U32();
+      for (u32 e = 0; e < elements && r.ok(); ++e)
+        for (u32 m = r.U32(), i = 0; i < m && r.ok(); ++i) SkipProperty(r, object_format);
+      break;
+    }
+    default:
+      REC_WARN("vmad: unknown property type {}", type);
+      break;  // cannot size an unknown type; the caller's ok() check fails out
+  }
+}
+
 void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
   switch (p->type) {
     case 1:
@@ -117,6 +173,11 @@ void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
       for (u32 i = 0; i < n && r.ok(); ++i) p->bool_array.push_back(r.U8());
       break;
     }
+    case 17:
+      // FO4 struct array: not represented on ScriptProperty, but skipped so the
+      // rest of the script and the fragment tail stay aligned.
+      SkipPropertyValue(r, object_format, p->type);
+      break;
     default:
       REC_WARN("vmad: unknown property type {}", p->type);
       break;  // cannot size an unknown type; the caller's ok() check fails out
@@ -128,7 +189,9 @@ void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
 bool ReadScriptsSection(Reader& r, ScriptAttachment* out) {
   out->version = r.I16();
   out->object_format = r.I16();
-  if (out->version < 1 || out->version > 5 ||
+  // Skyrim/SSE is version 5; Fallout 4 bumps it to 6. The script/property
+  // section is identical for object_format 2; only the fragment tail differs.
+  if (out->version < 1 || out->version > 6 ||
       (out->object_format != 1 && out->object_format != 2)) {
     REC_WARN("vmad: bad header version {} format {}", out->version, out->object_format);
     return false;
@@ -161,6 +224,18 @@ bool ReadScriptsSection(Reader& r, ScriptAttachment* out) {
   return true;
 }
 
+// Fallout 4 (version 6) inserts an extra block at the start of every fragment
+// tail (quest, info and scene), right after the shared fragment file name: an
+// unknown byte followed by a Skyrim-style property list bound to the fragment
+// script. Skyrim (version 5) has neither. Skipping it leaves the reader at the
+// fragment entries, whose layout matches v5.
+void SkipFalloutFragmentHeader(Reader& r, const ScriptAttachment& att) {
+  if (att.version < 6) return;
+  r.U8();  // unknown
+  u16 prop_count = r.U16();
+  for (u16 i = 0; i < prop_count && r.ok(); ++i) SkipProperty(r, att.object_format);
+}
+
 }  // namespace
 
 bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out) {
@@ -174,10 +249,12 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
   if (!ReadScriptsSection(r, out)) return false;
 
   // Quest fragment section (SSE): a flags/version byte, the fragment count, the
-  // QF script file name, then one entry per stage-with-a-fragment.
+  // QF script file name, then one entry per stage-with-a-fragment. FO4 (v6) adds
+  // a property block after the file name (skipped); the entries match v5.
   r.U8();                       // flags/version, unused
   u16 fragment_count = r.U16();
   r.Str();                      // shared fragment file name, unused (per-entry name below)
+  SkipFalloutFragmentHeader(r, *out);
   for (u16 i = 0; i < fragment_count && r.ok(); ++i) {
     QuestStageFragment f;
     f.stage = r.U16();
@@ -203,6 +280,7 @@ bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* fra
   r.U8();                  // version, unused
   u8 flags = r.U8();
   r.Str();                 // shared fragment file name, unused
+  SkipFalloutFragmentHeader(r, *out);  // FO4 (v6) only
   if (flags & 0x01) {
     r.U8();                // unknown
     frags->begin.script_name = r.Str();
@@ -232,6 +310,7 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
   r.U8();                  // version, unused
   u8 flags = r.U8();
   r.Str();                 // shared fragment file name, unused
+  SkipFalloutFragmentHeader(r, *out);  // FO4 (v6) only
   if (flags & 0x01) {
     r.U8();                // unknown
     frags->begin.script_name = r.Str();
