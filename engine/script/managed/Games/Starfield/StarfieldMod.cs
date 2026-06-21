@@ -44,5 +44,7 @@ public sealed class StarfieldMod : IMod
         {
             SpeedPenalty = config.GetFloat("massSpeedPenalty", 35f),
         });
+        // Surfaces the systems above to the player as corner notifications.
+        ModHost.Register(new StarfieldNotifications());
     }
 }

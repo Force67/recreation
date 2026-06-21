@@ -209,12 +209,16 @@ public sealed class FakeBackend : IEngineBackend
     // In-game time in days; the fractional part is the time of day.
     public float GameTime { get; set; }
 
+    // Every Debug.Notification message shown, in order, for asserting UI prompts.
+    public List<string> Notifications { get; } = new();
+
     public Value CallGlobal(string type, string function, ReadOnlySpan<Value> args)
     {
         LastGlobalType = type;
         LastGlobalFunction = function;
         LastStringArg = args.Length > 0 && args[0].Kind == ValueKind.String ? args[0].AsString() : "";
         LastBoolArg = args.Length > 0 && args[0].AsBool();
+        if (type == "Debug" && function == "Notification") Notifications.Add(LastStringArg);
         if (type == "Game" && function == "GetPlayer") return Value.Object(Player);
         if (type == "Game" && function == "GetForm") return Value.Object((ulong)args[0].AsInt() & 0xFFFFFFFF);
         if (type == "Game" && function == "EnableFastTravel") FastTravelEnabled = LastBoolArg;
