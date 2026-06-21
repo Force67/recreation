@@ -33,6 +33,7 @@ int main() {
   // Round-trip a representative record (FO4-style plugin index + a real-ish id,
   // a non-trivial transform).
   LayoutEntry in;
+  in.domain = "fallout4";
   in.base = rec::bethesda::GlobalFormId{4, 0x0123ab};
   in.pos[0] = -140.5f;
   in.pos[1] = 29.13f;
@@ -48,6 +49,7 @@ int main() {
 
   LayoutEntry out;
   Check("parses its own output", ParsePlaceLine(line, &out));
+  Check("domain survives", out.domain == in.domain);
   Check("plugin survives", out.base.plugin == in.base.plugin);
   Check("local id survives", out.base.local_id == in.base.local_id);
   Check("position survives",
@@ -60,14 +62,16 @@ int main() {
   LayoutEntry scratch;
   Check("rejects a blank line", !ParsePlaceLine("", &scratch));
   Check("rejects a comment", !ParsePlaceLine("# recreation map layout v1", &scratch));
-  Check("rejects an unknown tag", !ParsePlaceLine("delete 4 1 2 3", &scratch));
-  Check("rejects a truncated record", !ParsePlaceLine("place 4 1 2 3", &scratch));
+  Check("rejects an unknown tag", !ParsePlaceLine("delete skyrimse 4 1 2 3", &scratch));
+  Check("rejects a truncated record", !ParsePlaceLine("place skyrimse 4 1 2 3", &scratch));
 
   // A hand-written record parses to the right values (format contract).
   LayoutEntry hand;
-  Check("parses a hand-written record", ParsePlaceLine("place 0 305 1 2 3 0 0 0 1 2", &hand));
-  Check("hand record values", hand.base.plugin == 0 && hand.base.local_id == 305 &&
-                                  Near(hand.pos[0], 1) && Near(hand.scale, 2));
+  Check("parses a hand-written record",
+        ParsePlaceLine("place skyrimse 0 305 1 2 3 0 0 0 1 2", &hand));
+  Check("hand record values", hand.domain == "skyrimse" && hand.base.plugin == 0 &&
+                                  hand.base.local_id == 305 && Near(hand.pos[0], 1) &&
+                                  Near(hand.scale, 2));
 
   std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "passed", g_failures,
               g_failures == 1 ? "" : "s");

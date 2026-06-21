@@ -11,10 +11,32 @@
 #include "game_ui.h"
 #include "world/components.h"
 
+namespace rec::bethesda {
+class RecordStore;
+class StringTable;
+}  // namespace rec::bethesda
+namespace rec::world {
+class CellStreamer;
+}  // namespace rec::world
+
 namespace rec {
 
 struct EngineContext;
 struct InputState;
+
+// One game whose assets the editor can browse and place. The primary (rendered)
+// game is domain 0; each `--add-game` content domain adds another, so a Fallout
+// 4 prop can be dropped into the Skyrim world (the streamer converts/uploads it
+// with that domain's own vfs and per-domain mesh salt, so it renders correctly
+// beside the primary game's content). `tag` is a stable slug stored in the
+// layout file so a saved placement reloads against the right game.
+struct EditorPlaceDomain {
+  std::string name;
+  std::string tag;
+  bethesda::RecordStore* records = nullptr;
+  bethesda::StringTable* strings = nullptr;
+  world::CellStreamer* streamer = nullptr;
+};
 
 // Asset browser category tabs. Index 0 ("All") aggregates the rest; each catalog
 // entry stores its specific bucket (1..N). Shared by the catalog builder and the
@@ -52,6 +74,11 @@ class MapEditor {
   // editor event sink). Public so the GameUi callback can reach it.
   void HandleUiEvent(const EditorUiEvent& e);
 
+  // The games whose assets the editor can place (domain 0 = primary). The engine
+  // wires this once data has loaded; if never called the editor falls back to
+  // the primary content domain alone.
+  void SetPlaceDomains(std::vector<EditorPlaceDomain> domains);
+
   // Enter or leave editor mode. Entering drops walk mode, frees the cursor and
   // arms the overlay; leaving clears the selection and the armed brush.
   void Toggle();
@@ -69,6 +96,7 @@ class MapEditor {
     std::string editor_id;  // EDID
     u32 type = 0;           // record fourcc (STAT, TREE, ...)
     int category = 0;       // index into the category tabs
+    int domain = 0;         // which game it came from (index into domains_)
   };
 
   // An object the editor placed (so it can be counted, re-selected and, later,
@@ -77,6 +105,7 @@ class MapEditor {
     ecs::Entity entity;
     bethesda::GlobalFormId base;
     std::string name;
+    int domain = 0;
   };
 
   // The inverse of one edit, for the undo stack.
@@ -87,11 +116,16 @@ class MapEditor {
     bethesda::GlobalFormId base;  // kDelete/kPlace base form
     world::Transform transform;   // kTransform: prior transform; kDelete: where it was
     std::string name;
+    int domain = 0;  // kDelete: the game to re-place from
   };
 
   // --- catalog (editor_catalog.cc) ---
   void BuildCatalog();
   void RefreshFilter();  // recompute filtered_ from search_ + category_
+  void EnsureDomains();  // default domains_ to the primary domain if unset
+
+  // The streamer that converts/uploads/places a given domain's assets.
+  world::CellStreamer* StreamerFor(int domain) const;
 
   // --- persistence (editor_io.cc) ---
   // The layout file is a tiny line-based record of placed objects (base form +
@@ -134,6 +168,9 @@ class MapEditor {
 
   EngineContext& ctx_;
   bool active_ = false;
+
+  // The games whose assets can be placed (domain 0 = primary game).
+  std::vector<EditorPlaceDomain> domains_;
 
   // Catalog + browser filter state.
   std::vector<CatalogEntry> catalog_;

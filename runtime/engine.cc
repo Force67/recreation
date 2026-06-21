@@ -1,5 +1,4 @@
 #include "engine.h"
-#include "engine_internal.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +17,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "engine_internal.h"
 #include "quest/quest_def.h"
 #include "script/host/managed_host.h"
 #include "script/papyrus/value.h"
@@ -25,6 +25,9 @@
 #include "world/interaction.h"
 
 namespace rec {
+
+// A stable per-game slug stored in the editor's layout file (defined below).
+static std::string GameSlug(bethesda::Game game);
 
 bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> window) {
   config_ = config;
@@ -267,17 +270,14 @@ bool Engine::StartNetworking() {
     return true;
   }
 
-  scheduler_.AddSystem(ecs::Stage::kSim, "net", [this](ecs::World& world, f32 dt) {
-    session_->Tick(world, dt);
-  });
+  scheduler_.AddSystem(ecs::Stage::kSim, "net",
+                       [this](ecs::World& world, f32 dt) { session_->Tick(world, dt); });
   if (client_session_) {
     // Remote transforms blend between snapshots. With a renderer that runs
     // per frame; headless clients smooth at the fixed step instead.
-    const ecs::Stage stage =
-        config_.headless ? ecs::Stage::kPostSim : ecs::Stage::kPreRender;
-    scheduler_.AddSystem(stage, "net_interpolation", [](ecs::World& world, f32 dt) {
-      net::TickInterpolation(world, dt);
-    });
+    const ecs::Stage stage = config_.headless ? ecs::Stage::kPostSim : ecs::Stage::kPreRender;
+    scheduler_.AddSystem(stage, "net_interpolation",
+                         [](ecs::World& world, f32 dt) { net::TickInterpolation(world, dt); });
   }
   return true;
 }
@@ -311,9 +311,9 @@ void Engine::ApplyRenderPreset() {
   if (env.path_trace) tuned.path_trace = true;
   if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
   tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
-  tuned.ssgi = env.ssgi;                       // honor REC_SSGI over the preset
-  tuned.color_grade = env.color_grade;      // presets never set a grade
-  tuned.sun_direction = env.sun_direction;  // honor REC_SUN_DIR over the default
+  tuned.ssgi = env.ssgi;                      // honor REC_SSGI over the preset
+  tuned.color_grade = env.color_grade;        // presets never set a grade
+  tuned.sun_direction = env.sun_direction;    // honor REC_SUN_DIR over the default
   if (std::getenv("REC_NO_OCCLUSION")) tuned.gpu_occlusion = false;  // a/b baseline
 
   renderer_.settings() = tuned;
@@ -392,8 +392,7 @@ bool Engine::RunFrame() {
     if (managed_ && ctx_.bindings) {
       quest_world_.SnapshotPositions(position_snapshot_);
       Vec3 pp;
-      if (actors_->PlayerWorldPos(&pp))
-        position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
+      if (actors_->PlayerWorldPos(&pp)) position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
       ctx_.bindings->UpdatePositionSnapshot(position_snapshot_);
     }
     // Advance the managed world: deliver any queued engine events to mod hooks,
@@ -408,7 +407,8 @@ bool Engine::RunFrame() {
     if (scripts_ && ctx_.bindings && !client_session_) {
       auto* binds = ctx_.bindings;
       const f32 sdt = static_cast<f32>(timer_.frame_delta());
-      scripts_->guest().Submit([binds, sdt](rec::script::papyrus::VirtualMachine&) { binds->TickScenes(sdt); });
+      scripts_->guest().Submit(
+          [binds, sdt](rec::script::papyrus::VirtualMachine&) { binds->TickScenes(sdt); });
     }
 
     // Apply (and, when hosting, replicate) the world mutations quests requested
@@ -517,7 +517,7 @@ void Engine::Shutdown() {
   if (managed_) managed_->Shutdown();
   scripts_.reset();
   extra_streamers_.clear();  // reference domain records/assets; drop before the domains
-  extra_domains_.clear();  // joins each secondary guest thread before teardown
+  extra_domains_.clear();    // joins each secondary guest thread before teardown
   managed_.reset();
   if (!config_.headless) {
     renderer_.WaitIdle();
@@ -553,16 +553,14 @@ void Engine::BootManagedScripting() {
   // Register the primary (rendered) game first, then every secondary domain, so a
   // C# mod can reach Skyrim and Fallout content at the same time. Each domain
   // dispatches into its own guest, keeping the games' state isolated.
-  managed_->AddDomain(bethesda::GameProfile::For(game_).name, scripts_->guest(),
-                      [this](const std::string& name) {
-                        return !scripts_->EnsureScriptLoaded(name).empty();
-                      });
+  managed_->AddDomain(
+      bethesda::GameProfile::For(game_).name, scripts_->guest(),
+      [this](const std::string& name) { return !scripts_->EnsureScriptLoaded(name).empty(); });
   for (auto& domain : extra_domains_) {
     ContentDomain* d = domain.get();
-    managed_->AddDomain(d->profile().name, d->scripts()->guest(),
-                        [d](const std::string& name) {
-                          return !d->scripts()->EnsureScriptLoaded(name).empty();
-                        });
+    managed_->AddDomain(d->profile().name, d->scripts()->guest(), [d](const std::string& name) {
+      return !d->scripts()->EnsureScriptLoaded(name).empty();
+    });
   }
   if (!managed_->Boot(/*dotnet_root=*/"", runtime_config, assembly)) {
     managed_.reset();  // unavailable: run without it
@@ -650,8 +648,8 @@ bool Engine::LoadGameData() {
       if (interior.plugin != 0xffff) {
         Vec3 spawn;
         if (streamer_->EnterInterior(world_, interior, &spawn))
-          REC_INFO("quest: entered interior {:04x}:{:06x} to move the player",
-                   interior.plugin, interior.local_id);
+          REC_INFO("quest: entered interior {:04x}:{:06x} to move the player", interior.plugin,
+                   interior.local_id);
       } else if (streamer_->in_interior()) {
         streamer_->EnterExterior(world_);  // a move back out to the worldspace
       }
@@ -733,8 +731,8 @@ bool Engine::LoadGameData() {
   if (managed_) {
     auto* host = managed_.get();
     streamer_->set_on_location_change([host](u64 cell, bool interior) {
-      host->QueueEvent({rec::script::host::ManagedEventId::kLocationChanged, cell, 0,
-                        interior ? 1 : 0, 0.0f});
+      host->QueueEvent(
+          {rec::script::host::ManagedEventId::kLocationChanged, cell, 0, interior ? 1 : 0, 0.0f});
     });
   }
   // Register streamed NPCs in the quest world so quests can target them and
@@ -784,7 +782,36 @@ bool Engine::LoadGameData() {
   actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
   showcase_regions_.push_back({{start.x, ground, start.z}, std::string(profile.name)});
   SetupExtraStreamers();
+
+  // Tell the editor which games' assets it can place: the primary, then each
+  // secondary content domain (so a Fallout 4 prop can be dropped into Skyrim).
+  if (editor_) {
+    std::vector<EditorPlaceDomain> domains;
+    domains.push_back(
+        {std::string(profile.name), GameSlug(game_), &records_, &strings_, streamer_.get()});
+    for (size_t i = 0; i < extra_domains_.size() && i < extra_streamers_.size(); ++i) {
+      ContentDomain& d = *extra_domains_[i];
+      domains.push_back({std::string(d.profile().name), GameSlug(d.profile().game), &d.records(),
+                         &d.strings(), extra_streamers_[i].get()});
+    }
+    editor_->SetPlaceDomains(std::move(domains));
+  }
   return true;
+}
+
+// A stable per-game slug stored in the editor's layout file, so a saved
+// placement reloads against the same game next run.
+static std::string GameSlug(bethesda::Game game) {
+  switch (game) {
+    case bethesda::Game::kSkyrimSe:
+      return "skyrimse";
+    case bethesda::Game::kFallout4:
+      return "fallout4";
+    case bethesda::Game::kFallout76:
+      return "fallout76";
+    default:
+      return "game";
+  }
 }
 
 void Engine::SetupExtraStreamers() {
@@ -805,8 +832,9 @@ void Engine::SetupExtraStreamers() {
   // defaults to a content-dense cell of its own (the primary camera's raw
   // coordinates usually land in empty ocean in the secondary world).
   i32 forced_x = 0, forced_y = 0;
-  const bool forced = std::getenv("REC_DOMAIN_CELL") &&
-                      std::sscanf(std::getenv("REC_DOMAIN_CELL"), "%d,%d", &forced_x, &forced_y) == 2;
+  const bool forced =
+      std::getenv("REC_DOMAIN_CELL") &&
+      std::sscanf(std::getenv("REC_DOMAIN_CELL"), "%d,%d", &forced_x, &forced_y) == 2;
   const Vec3 cam = camera_.position();
 
   for (size_t i = 0; i < extra_domains_.size(); ++i) {
@@ -857,16 +885,19 @@ void Engine::SetupExtraStreamers() {
       return renderer_.UploadMaterial(material, salt);
     };
     streamer->SetUploads(std::move(uploads));
-    if (!streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
-      REC_WARN("secondary domain {} has no worldspace '{}', not rendered", domain.profile().name,
-               domain.profile().exterior_worldspace);
-      continue;
+    if (streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
+      REC_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
+               domain.profile().name, region_x, region_y, place.x, place.y, place.z);
+      // The showcase flies over each rendered region; its ground baseline sits the
+      // same 10m below the placed camera-height anchor as the primary's does.
+      showcase_regions_.push_back(
+          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name)});
+    } else {
+      REC_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
+               domain.profile().name, domain.profile().exterior_worldspace);
     }
-    REC_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
-             domain.profile().name, region_x, region_y, place.x, place.y, place.z);
-    // The showcase flies over each rendered region; its ground baseline sits the
-    // same 10m below the placed camera-height anchor as the primary's does.
-    showcase_regions_.push_back({{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name)});
+    // Kept parallel to extra_domains_ even when not rendered, so the editor can
+    // place this game's assets (PlaceObject needs the per-domain streamer/salt).
     extra_streamers_.push_back(std::move(streamer));
   }
 }
@@ -980,7 +1011,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
 
   if (input.key_pressed(Key::kT) && !menu && !kb && !modal && !editor_on && actors_->HasPlayer()) {
     ctx_.walk_mode = !ctx_.walk_mode;
-    REC_INFO("walk mode {}", ctx_.walk_mode ? "on (WASD move, Shift run, Space jump, C view)" : "off");
+    REC_INFO("walk mode {}",
+             ctx_.walk_mode ? "on (WASD move, Shift run, Space jump, C view)" : "off");
   }
   if (input.key_pressed(Key::kC) && !menu && !kb && !modal && !editor_on)
     ctx_.third_person = !ctx_.third_person;
@@ -1018,14 +1050,15 @@ void Engine::UpdateCamera(f32 frame_delta) {
     interaction_->UpdateInteraction(false);  // clears any stale prompt outside walk mode
   }
 
-  interaction_->SyncHud();        // mirror the conversation / loot view into the HUD
-  DriveCamera(frame_delta);       // orbit / replay overrides + record
+  interaction_->SyncHud();   // mirror the conversation / loot view into the HUD
+  DriveCamera(frame_delta);  // orbit / replay overrides + record
 
   if (input.key_pressed(Key::kF1) && !kb) debug_ui_.ToggleVisible();
   if (input.key_pressed(Key::kF2) && !kb) debug_ui_.ToggleTrace();
   if (input.key_pressed(Key::kF3) && !kb) debug_ui_.ToggleQuests();
   if (input.key_pressed(Key::kF4) && !kb && editor_) editor_->Toggle();
-  if (input.key_pressed(Key::kF) && !menu && !kb && !ctx_.walk_mode && !editor_on) ThrowPhysicsCube();
+  if (input.key_pressed(Key::kF) && !menu && !kb && !ctx_.walk_mode && !editor_on)
+    ThrowPhysicsCube();
   // The editor owns Esc (cancel brush / move); only open the pause menu outside it.
   if (input.key_pressed(Key::kEscape) && !kb && !modal && !editor_on) game_ui_.ToggleMenu();
   if (game_ui_.quit_requested()) RequestQuit();
@@ -1075,7 +1108,7 @@ void Engine::DriveCamera(f32 dt) {
       if (const char* d = std::getenv("REC_SHOWCASE_SHOTS")) showcase_shot_dir_ = d;
       showcase_quit_ = std::getenv("REC_SHOWCASE_QUIT") != nullptr;
       if (cam_showcase_) {
-        ctx_.walk_mode = false;        // the cinematic owns the camera
+        ctx_.walk_mode = false;         // the cinematic owns the camera
         game_ui_.SetHudVisible(false);  // clean frames: no crosshair / compass / bars
         REC_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
                  showcase_regions_.size(), showcase_.duration(),
@@ -1096,7 +1129,8 @@ void Engine::DriveCamera(f32 dt) {
       int idx = showcase_.CaptureCrossed(prev, cam_time_, &label);
       if (idx >= 0) {
         for (char& ch : label) {
-          bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+          bool ok =
+              (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
           if (!ok) ch = '_';
         }
         char path[1024];
@@ -1118,7 +1152,8 @@ void Engine::DriveCamera(f32 dt) {
       }
       if (cam_time_ >= showcase_.duration()) {
         showcase_done_ = true;
-        f32 avg = showcase_frames_ > 0 ? showcase_bench_time_ / static_cast<f32>(showcase_frames_) : 0.0f;
+        f32 avg =
+            showcase_frames_ > 0 ? showcase_bench_time_ / static_cast<f32>(showcase_frames_) : 0.0f;
         REC_INFO("showcase done: {} frames over {:.1f}s, avg {:.0f} fps (min {:.0f}, max {:.0f})",
                  showcase_frames_, showcase_bench_time_, avg > 0 ? 1.0f / avg : 0.0f,
                  showcase_dt_max_ > 0 ? 1.0f / showcase_dt_max_ : 0.0f,
@@ -1263,8 +1298,8 @@ void Engine::ThrowPhysicsCube() {
   Vec3 forward = camera_.forward();
   Vec3 origin = camera_.position() + forward * 0.8f;
   // Wood-ish density: heavy enough to splash, light enough to float.
-  physics::BodyId body = physics_.AddDynamicBox(origin, {0.25f, 0.25f, 0.25f}, 350.0f,
-                                                forward * 14.0f);
+  physics::BodyId body =
+      physics_.AddDynamicBox(origin, {0.25f, 0.25f, 0.25f}, 350.0f, forward * 14.0f);
   if (!body) return;
   ecs::Entity entity = world_.Create();
   world_.Add(entity, world::Transform{.position = {origin.x, origin.y, origin.z}});

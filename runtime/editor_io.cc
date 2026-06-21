@@ -31,13 +31,16 @@ int MapEditor::SaveLayout() {
     return 0;
   }
   out << "# recreation map layout v1\n";
-  out << "# place <plugin> <local_id> <px py pz> <qx qy qz qw> <scale>\n";
+  out << "# place <game> <plugin> <local_id> <px py pz> <qx qy qz qw> <scale>\n";
   int n = 0;
   for (const PlacedObject& p : placed_) {
     if (!ctx_.world->IsAlive(p.entity)) continue;
     const world::Transform* t = ctx_.world->Get<world::Transform>(p.entity);
     if (!t) continue;
     editor::LayoutEntry e;
+    e.domain = (p.domain >= 0 && p.domain < static_cast<int>(domains_.size()))
+                   ? domains_[p.domain].tag
+                   : "primary";
     e.base = p.base;
     for (int i = 0; i < 3; ++i) e.pos[i] = t->position[i];
     for (int i = 0; i < 4; ++i) e.rot[i] = t->rotation[i];
@@ -54,27 +57,45 @@ int MapEditor::LoadLayout() {
   if (layout_path_.empty()) layout_path_ = DefaultLayoutPath();
   std::ifstream in(layout_path_);
   if (!in) return 0;  // no layout saved yet: a silent no-op
-  if (!ctx_.streamer || !ctx_.world) return 0;
+  if (!ctx_.world) return 0;
+  EnsureDomains();
 
   std::string line;
-  int n = 0;
+  int n = 0, skipped = 0;
   editor::LayoutEntry le;
   while (std::getline(in, line)) {
     if (!editor::ParsePlaceLine(line, &le)) continue;
-    ecs::Entity e = ctx_.streamer->PlaceObject(
-        *ctx_.world, le.base, Vec3{le.pos[0], le.pos[1], le.pos[2]}, le.rot, le.scale);
+    // Map the saved game slug back to a loaded domain; a placement whose game is
+    // not loaded this run is skipped rather than placed against the wrong assets.
+    int domain = -1;
+    for (int d = 0; d < static_cast<int>(domains_.size()); ++d) {
+      if (domains_[d].tag == le.domain) {
+        domain = d;
+        break;
+      }
+    }
+    if (domain < 0) {
+      ++skipped;
+      continue;
+    }
+    world::CellStreamer* streamer = StreamerFor(domain);
+    if (!streamer) continue;
+    ecs::Entity e = streamer->PlaceObject(*ctx_.world, le.base,
+                                          Vec3{le.pos[0], le.pos[1], le.pos[2]}, le.rot, le.scale);
     if (e == ecs::kInvalidEntity) continue;
     // Recover a display name from the catalog when it is built.
     std::string name = "object";
     for (const CatalogEntry& c : catalog_) {
-      if (c.base.plugin == le.base.plugin && c.base.local_id == le.base.local_id) {
+      if (c.domain == domain && c.base.plugin == le.base.plugin &&
+          c.base.local_id == le.base.local_id) {
         name = c.name;
         break;
       }
     }
-    placed_.push_back({e, le.base, std::move(name)});
+    placed_.push_back({e, le.base, std::move(name), domain});
     ++n;
   }
+  if (skipped > 0) REC_INFO("editor: skipped {} placements for unloaded games", skipped);
   if (n > 0) {
     SetStatus("Loaded " + std::to_string(n) + " saved objects");
     REC_INFO("editor: loaded {} objects from {}", n, layout_path_);

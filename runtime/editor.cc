@@ -76,6 +76,22 @@ void MapEditor::SetStatus(std::string message) {
   status_age_ = 0;
 }
 
+void MapEditor::SetPlaceDomains(std::vector<EditorPlaceDomain> domains) {
+  domains_ = std::move(domains);
+  catalog_built_ = false;  // rebuild against the new domain set next time it opens
+}
+
+void MapEditor::EnsureDomains() {
+  if (!domains_.empty()) return;
+  domains_.push_back({"Game", "primary", ctx_.records, ctx_.strings, ctx_.streamer});
+}
+
+world::CellStreamer* MapEditor::StreamerFor(int domain) const {
+  if (domain >= 0 && domain < static_cast<int>(domains_.size()) && domains_[domain].streamer)
+    return domains_[domain].streamer;
+  return ctx_.streamer;
+}
+
 void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
   if (!active_) return;
   status_age_ += dt;
@@ -217,80 +233,93 @@ void MapEditor::ArmBrush(int catalog_index) {
 }
 
 void MapEditor::PlaceBrush(const InputState& input) {
-  if (brush_ < 0 || !ctx_.streamer || !ctx_.world) return;
+  if (brush_ < 0 || !ctx_.world) return;
   const CatalogEntry& e = catalog_[brush_];
+  world::CellStreamer* streamer = StreamerFor(e.domain);
+  if (!streamer) return;
   Vec3 pos;
   if (!AimPoint(input, &pos)) return;
   // Drop it facing the brush yaw the user dialed in with R.
   const Quat yq = QuatFromAxisAngle({0, 1, 0}, brush_yaw_);
   const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
-  ecs::Entity entity = ctx_.streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
+  ecs::Entity entity = streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
   if (entity == ecs::kInvalidEntity) {
     SetStatus("Could not load a model for " + e.name);
     return;
   }
-  placed_.push_back({entity, e.base, e.name});
-  undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name});
+  placed_.push_back({entity, e.base, e.name, e.domain});
+  undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name, e.domain});
   selection_ = entity;
   SetStatus("Placed " + e.name);
 }
 
 void MapEditor::PlaceDemoBuild() {
   if (!ctx_.streamer || !ctx_.world || catalog_.empty()) return;
-  // A row on the ground a few metres ahead of the camera, spread along its right
-  // axis. We step through the catalog so the row shows a variety of models, and
-  // skip any whose mesh fails to convert.
+  EnsureDomains();
+  // One row per loaded game, on the ground ahead of the camera, so a multi-game
+  // session (--add-game) shows Skyrim and Fallout 4 props side by side in the
+  // same world. Each row steps further along the forward axis.
   const Vec3 eye = ctx_.camera->position();
   const Vec3 fwd = ctx_.camera->forward();
   const Vec3 right = Normalize(Cross(fwd, {0, 1, 0}));
-  const Vec3 center = eye + Vec3{fwd.x, 0, fwd.z} * 9.0f;
-  int placed = 0;
+  const Vec3 fwd_h = Normalize(Vec3{fwd.x, 0, fwd.z});
+  const Vec3 base_center = eye + fwd_h * 9.0f;
   const int kWant = 8;
-  for (size_t i = 0; i < catalog_.size() && placed < kWant; i += 17) {
-    const CatalogEntry& e = catalog_[i];
-    Vec3 pos = center + right * (static_cast<f32>(placed) - (kWant - 1) * 0.5f) * 3.0f;
-    f32 ground = 0;
-    if (ctx_.streamer->GroundHeight(pos.x, pos.z, &ground)) pos.y = ground;
-    asset::AssetId mid;
-    ecs::Entity entity =
-        ctx_.streamer->PlaceObject(*ctx_.world, e.base, pos, kIdentityRot, 1.0f, &mid);
-    if (entity == ecs::kInvalidEntity) continue;
-    // Keep the demo human-scale: skip oversized architecture and tiny clutter so
-    // the row reads as a tidy line of props.
-    f32 radius = 1.0f;
-    if (ctx_.assets) {
-      if (const asset::Mesh* mesh = ctx_.assets->FindMesh(mid))
-        radius = mesh->bounds_radius * kUnitsToMeters;
+  int total = 0;
+  for (int d = 0; d < static_cast<int>(domains_.size()); ++d) {
+    world::CellStreamer* streamer = StreamerFor(d);
+    if (!streamer) continue;
+    const Vec3 center = base_center + fwd_h * (static_cast<f32>(d) * 4.0f);
+    int placed = 0;
+    for (size_t i = 0; i < catalog_.size() && placed < kWant; i += 17) {
+      const CatalogEntry& e = catalog_[i];
+      if (e.domain != d) continue;
+      Vec3 pos = center + right * (static_cast<f32>(placed) - (kWant - 1) * 0.5f) * 3.0f;
+      f32 ground = 0;
+      if (ctx_.streamer->GroundHeight(pos.x, pos.z, &ground)) pos.y = ground;
+      asset::AssetId mid;
+      ecs::Entity entity =
+          streamer->PlaceObject(*ctx_.world, e.base, pos, kIdentityRot, 1.0f, &mid);
+      if (entity == ecs::kInvalidEntity) continue;
+      // Keep the primary row human-scale (its mesh bounds are in the shared asset
+      // db); secondary games are not size-filtered, just shown.
+      if (d == 0 && ctx_.assets) {
+        if (const asset::Mesh* mesh = ctx_.assets->FindMesh(mid)) {
+          const f32 radius = mesh->bounds_radius * kUnitsToMeters;
+          if (radius < 0.3f || radius > 2.5f) {
+            ctx_.world->Destroy(entity);
+            continue;
+          }
+        }
+      }
+      placed_.push_back({entity, e.base, e.name, d});
+      undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name, d});
+      ++placed;
+      ++total;
     }
-    if (radius < 0.3f || radius > 2.5f) {
-      ctx_.world->Destroy(entity);
-      continue;
-    }
-    placed_.push_back({entity, e.base, e.name});
-    undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name});
-    ++placed;
   }
   // Select the middle object so the selection reticle and inspector are live.
   if (!placed_.empty()) selection_ = placed_[placed_.size() / 2].entity;
 
-  // Frame the row for a clean capture (unless REC_CAM already pinned a vantage):
-  // a near-top-down vantage so dense start cells never occlude the row.
+  // Frame the rows for a clean capture (unless REC_CAM already pinned a vantage):
+  // a near-top-down vantage so dense start cells never occlude them.
   if (!std::getenv("REC_CAM")) {
-    Vec3 row_center = center;
+    Vec3 row_center = base_center + fwd_h * 2.0f;
     f32 cg = 0;
     if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg)) row_center.y = cg;
-    ctx_.camera->set_position(row_center + Vec3{0, 16.0f, 2.0f});
+    ctx_.camera->set_position(row_center + Vec3{0, 18.0f, 2.0f});
     ctx_.camera->set_yaw_pitch(0.0f, -1.4f);  // look almost straight down, slight tilt
   }
 
-  REC_INFO("editor: demo build placed {} objects", placed);
-  SetStatus("Demo build: placed " + std::to_string(placed) + " objects");
+  REC_INFO("editor: demo build placed {} objects across {} game(s)", total, domains_.size());
+  SetStatus("Demo build: placed " + std::to_string(total) + " objects");
   SaveLayout();
 }
 
 void MapEditor::UpdateGhost(const InputState& input) {
+  world::CellStreamer* streamer = brush_ >= 0 ? StreamerFor(catalog_[brush_].domain) : nullptr;
   const bool want =
-      brush_ >= 0 && !moving_ && ctx_.streamer && !PointerOverUi(input) && !ctx_.camera->looking();
+      brush_ >= 0 && !moving_ && streamer && !PointerOverUi(input) && !ctx_.camera->looking();
   if (!want) {
     ClearGhost();
     return;
@@ -305,7 +334,7 @@ void MapEditor::UpdateGhost(const InputState& input) {
       !ctx_.world->IsAlive(ghost_entity_)) {
     ClearGhost();
     const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
-    ghost_entity_ = ctx_.streamer->PlaceObject(*ctx_.world, catalog_[brush_].base, aim, rot, 1.0f);
+    ghost_entity_ = streamer->PlaceObject(*ctx_.world, catalog_[brush_].base, aim, rot, 1.0f);
     ghost_brush_ = brush_;
   } else if (world::Transform* t = ctx_.world->Get<world::Transform>(ghost_entity_)) {
     t->position[0] = aim.x;
@@ -351,6 +380,7 @@ void MapEditor::DeleteSelection() {
     if (p.entity == selection_) {
       op.base = p.base;
       op.name = p.name;
+      op.domain = p.domain;
       break;
     }
   }
@@ -365,17 +395,19 @@ void MapEditor::DeleteSelection() {
 }
 
 void MapEditor::DuplicateSelection() {
-  if (selection_ == ecs::kInvalidEntity || !ctx_.streamer) return;
+  if (selection_ == ecs::kInvalidEntity) return;
   const world::Transform* t = ctx_.world->Get<world::Transform>(selection_);
   if (!t) return;
   // Resolve the base form from our placed list; only editor-owned objects can be
   // duplicated (a streamed ref has no standalone base we track).
   bethesda::GlobalFormId base{0xffff, 0};
   std::string name = "object";
+  int domain = 0;
   for (const PlacedObject& p : placed_) {
     if (p.entity == selection_) {
       base = p.base;
       name = p.name;
+      domain = p.domain;
       break;
     }
   }
@@ -383,13 +415,15 @@ void MapEditor::DuplicateSelection() {
     SetStatus("Only placed assets can be duplicated");
     return;
   }
+  world::CellStreamer* streamer = StreamerFor(domain);
+  if (!streamer) return;
   // Native multiplier = stored scale without the unit->metre factor.
   const f32 user_scale = t->scale / kUnitsToMeters;
   Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
-  ecs::Entity e = ctx_.streamer->PlaceObject(*ctx_.world, base, pos, t->rotation, user_scale);
+  ecs::Entity e = streamer->PlaceObject(*ctx_.world, base, pos, t->rotation, user_scale);
   if (e == ecs::kInvalidEntity) return;
-  placed_.push_back({e, base, name});
-  undo_.push_back({UndoKind::kPlace, e, base, {}, name});
+  placed_.push_back({e, base, name, domain});
+  undo_.push_back({UndoKind::kPlace, e, base, {}, name, domain});
   selection_ = e;
   SetStatus("Duplicated " + name);
 }
@@ -433,16 +467,17 @@ void MapEditor::Undo() {
         if (world::Transform* t = ctx_.world->Get<world::Transform>(op.entity)) *t = op.transform;
       SetStatus("Undid transform");
       break;
-    case UndoKind::kDelete:
+    case UndoKind::kDelete: {
       // Re-place editor-owned deletes from their base form; live streamed refs
       // we cannot recreate just report that.
-      if (op.base.plugin != 0xffff && ctx_.streamer) {
+      world::CellStreamer* streamer = StreamerFor(op.domain);
+      if (op.base.plugin != 0xffff && streamer) {
         const f32 user_scale = op.transform.scale / kUnitsToMeters;
         Vec3 pos{op.transform.position[0], op.transform.position[1], op.transform.position[2]};
-        ecs::Entity e = ctx_.streamer->PlaceObject(*ctx_.world, op.base, pos, op.transform.rotation,
-                                                   user_scale);
+        ecs::Entity e =
+            streamer->PlaceObject(*ctx_.world, op.base, pos, op.transform.rotation, user_scale);
         if (e != ecs::kInvalidEntity) {
-          placed_.push_back({e, op.base, op.name});
+          placed_.push_back({e, op.base, op.name, op.domain});
           selection_ = e;
           SetStatus("Undid delete");
         }
@@ -450,6 +485,7 @@ void MapEditor::Undo() {
         SetStatus("Cannot restore a streamed object");
       }
       break;
+    }
   }
 }
 
@@ -675,7 +711,14 @@ void MapEditor::PushView() {
     const char tc[5] = {static_cast<char>(e.type & 0xff), static_cast<char>((e.type >> 8) & 0xff),
                         static_cast<char>((e.type >> 16) & 0xff),
                         static_cast<char>((e.type >> 24) & 0xff), '\0'};
-    std::snprintf(sub, sizeof(sub), "%s  %s", tc, e.editor_id.c_str());
+    // With more than one game loaded, lead the subtitle with the game so a
+    // Fallout 4 prop is obviously distinct from a Skyrim one.
+    if (domains_.size() > 1 && e.domain >= 0 && e.domain < static_cast<int>(domains_.size())) {
+      std::snprintf(sub, sizeof(sub), "%s  %s  %s", domains_[e.domain].name.c_str(), tc,
+                    e.editor_id.c_str());
+    } else {
+      std::snprintf(sub, sizeof(sub), "%s  %s", tc, e.editor_id.c_str());
+    }
     ar.subtitle = sub;
     ar.armed = brush_ == filtered_[idx];
     v.rows.push_back(std::move(ar));

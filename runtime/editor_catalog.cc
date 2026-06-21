@@ -15,8 +15,8 @@
 namespace rec {
 namespace {
 
-constexpr int kCatalogCap = 9000;  // total entries (keeps the first toggle snappy)
-constexpr int kPerTypeCap = 2500;  // per record type, so "All" stays varied
+constexpr int kPerDomainCap = 6000;  // entries per game (keeps the first toggle snappy)
+constexpr int kPerTypeCap = 2500;    // per record type, so "All" stays varied
 
 // The placeable base record types, with the browser category each maps to. Only
 // types CellStreamer::PlaceObject can resolve a world model for are listed, so
@@ -83,58 +83,67 @@ bool IsDeveloperJunk(const std::string& editor_id) {
 void MapEditor::BuildCatalog() {
   catalog_built_ = true;
   catalog_.clear();
-  if (!ctx_.records || !ctx_.strings) return;
-  const bethesda::RecordStore& records = *ctx_.records;
-  const bethesda::StringTable& strings = *ctx_.strings;
+  EnsureDomains();
 
   const u32 kEdid = FourCc('E', 'D', 'I', 'D');
   const u32 kModl = FourCc('M', 'O', 'D', 'L');
-  // Collapses entries that would read identically in the browser; keyed on the
-  // final display name and the record type so the first of each (name, type)
-  // pair wins.
-  std::unordered_set<std::string> seen;
-  for (const TypeBucket& tb : kPlaceableTypes) {
-    if (static_cast<int>(catalog_.size()) >= kCatalogCap) break;
-    int taken = 0;
-    records.EachOfType(
-        tb.type, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-          if (taken >= kPerTypeCap || static_cast<int>(catalog_.size()) >= kCatalogCap) return;
-          bethesda::Record record;
-          if (!records.Parse(id, &record)) return;
-          // Only forms with a world model are droppable.
-          const bethesda::Subrecord* modl = record.Find(kModl);
-          if (!modl || modl->data.empty()) return;
-          std::string editor_id = record.GetString(kEdid);
-          if (IsDeveloperJunk(editor_id)) return;
-          std::string name = DisplayName(record, strings, editor_id);
-          if (name.empty()) return;  // nameless and idless: not useful to browse
-          std::string key = Lower(name);
-          key.push_back('\x1f');
-          key.append(reinterpret_cast<const char*>(&tb.type), sizeof(tb.type));
-          if (!seen.insert(std::move(key)).second) return;  // duplicate display row
-          CatalogEntry e;
-          e.base = id;
-          e.type = tb.type;
-          e.category = tb.category;
-          e.editor_id = std::move(editor_id);
-          e.name = std::move(name);
-          catalog_.push_back(std::move(e));
-          ++taken;
-        });
+  // One game at a time, so a Fallout 4 prop and a Skyrim prop with the same name
+  // both appear (the dedupe set is per domain).
+  for (int domain = 0; domain < static_cast<int>(domains_.size()); ++domain) {
+    const EditorPlaceDomain& dom = domains_[domain];
+    if (!dom.records || !dom.strings) continue;
+    const bethesda::RecordStore& records = *dom.records;
+    const bethesda::StringTable& strings = *dom.strings;
+    const int domain_start = static_cast<int>(catalog_.size());
+
+    std::unordered_set<std::string> seen;  // collapse rows that read identically
+    for (const TypeBucket& tb : kPlaceableTypes) {
+      if (static_cast<int>(catalog_.size()) - domain_start >= kPerDomainCap) break;
+      int taken = 0;
+      records.EachOfType(
+          tb.type, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+            if (taken >= kPerTypeCap ||
+                static_cast<int>(catalog_.size()) - domain_start >= kPerDomainCap) {
+              return;
+            }
+            bethesda::Record record;
+            if (!records.Parse(id, &record)) return;
+            // Only forms with a world model are droppable.
+            const bethesda::Subrecord* modl = record.Find(kModl);
+            if (!modl || modl->data.empty()) return;
+            std::string editor_id = record.GetString(kEdid);
+            if (IsDeveloperJunk(editor_id)) return;
+            std::string name = DisplayName(record, strings, editor_id);
+            if (name.empty()) return;  // nameless and idless: not useful to browse
+            std::string key = Lower(name);
+            key.push_back('\x1f');
+            key.append(reinterpret_cast<const char*>(&tb.type), sizeof(tb.type));
+            if (!seen.insert(std::move(key)).second) return;  // duplicate display row
+            CatalogEntry e;
+            e.base = id;
+            e.type = tb.type;
+            e.category = tb.category;
+            e.domain = domain;
+            e.editor_id = std::move(editor_id);
+            e.name = std::move(name);
+            catalog_.push_back(std::move(e));
+            ++taken;
+          });
+    }
   }
 
-  // Group by category, then float entries with a real FULL name above id-only
-  // ones, then sort by name so the browser reads tidily; the filter keeps this
-  // order. An entry whose name fell back to its editor id reads as id-only.
+  // Group by category, then by game, then float entries with a real FULL name
+  // above id-only ones, then sort by name; the filter keeps this order.
   std::sort(catalog_.begin(), catalog_.end(), [](const CatalogEntry& a, const CatalogEntry& b) {
     if (a.category != b.category) return a.category < b.category;
+    if (a.domain != b.domain) return a.domain < b.domain;
     const bool a_named = a.name != a.editor_id;
     const bool b_named = b.name != b.editor_id;
     if (a_named != b_named) return a_named;
     return Lower(a.name) < Lower(b.name);
   });
-  REC_INFO("editor catalog: {} curated placeable forms across {} types", catalog_.size(),
-           sizeof(kPlaceableTypes) / sizeof(kPlaceableTypes[0]));
+  REC_INFO("editor catalog: {} curated placeable forms across {} game(s)", catalog_.size(),
+           domains_.size());
   RefreshFilter();
 }
 
