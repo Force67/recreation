@@ -327,6 +327,7 @@ std::string BuildEditorSection() {
       text { text: "3. Click to drop it"; font-size: 13; color: #d8def0; }
       panel { width: 260; height: 1; background: #ffffff18; margin: 4 0 4 0; }
       text { text: "Click a placed object to select"; font-size: 13; color: #c7cfdf; }
+      text { text: "Shift+click to multi-select"; font-size: 12; color: #9aa2b6; }
       text { text: "R   rotate the brush / selection"; font-size: 12; color: #9aa2b6; }
       text { text: "G   grab and move,  X delete"; font-size: 12; color: #9aa2b6; }
       text { text: "wheel  scale,   Ctrl+V duplicate"; font-size: 12; color: #9aa2b6; }

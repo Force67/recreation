@@ -61,7 +61,7 @@ void MapEditor::Toggle() {
       if (std::getenv("REC_EDITOR_DEMO")) PlaceDemoBuild();
     }
   } else {
-    selection_ = ecs::kInvalidEntity;
+    selected_.clear();
     moving_ = false;
     brush_ = -1;
     ClearGhost();
@@ -106,18 +106,24 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
     const bool lmb = input.button(MouseButton::kLeft);
     const bool click = lmb && !prev_lmb_ && !PointerOverUi(input) && !ctx_.camera->looking();
 
-    // A move gesture keeps the selection glued to the aim point until a click
-    // confirms it (or Esc cancels and restores the original transform).
+    // A move gesture rigidly drags the whole selection so it follows the aim
+    // point until a click confirms it (or Esc cancels and restores).
     if (moving_) {
       Vec3 aim;
-      world::Transform* t = SelectedTransform();
-      if (t && AimPoint(input, &aim)) {
-        t->position[0] = aim.x;
-        t->position[1] = aim.y;
-        t->position[2] = aim.z;
+      if (AimPoint(input, &aim)) {
+        const Vec3 delta{aim.x - move_pivot_.x, aim.y - move_pivot_.y, aim.z - move_pivot_.z};
+        for (size_t i = 0; i < selected_.size() && i < move_origins_.size(); ++i) {
+          if (world::Transform* t = ctx_.world->Get<world::Transform>(selected_[i])) {
+            t->position[0] = move_origins_[i].position[0] + delta.x;
+            t->position[1] = move_origins_[i].position[1] + delta.y;
+            t->position[2] = move_origins_[i].position[2] + delta.z;
+          }
+        }
       }
       if (input.key_pressed(Key::kEscape)) {
-        if (t) *t = move_origin_;
+        for (size_t i = 0; i < selected_.size() && i < move_origins_.size(); ++i)
+          if (world::Transform* t = ctx_.world->Get<world::Transform>(selected_[i]))
+            *t = move_origins_[i];
         moving_ = false;
         SetStatus("Move cancelled");
       } else if (click) {
@@ -140,7 +146,7 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
         }
       }
     } else if (click) {
-      SelectUnderCursor(input);
+      SelectUnderCursor(input, input.key(Key::kLeftShift));
     }
     ApplyKeyboard(input);
     UpdateGhost(input);
@@ -189,9 +195,7 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
     snap_ = !snap_;
     SetStatus(snap_ ? "Grid snap ON (1 m)" : "Grid snap OFF");
   }
-  if (selection_ != ecs::kInvalidEntity && !ctx_.world->IsAlive(selection_)) {
-    selection_ = ecs::kInvalidEntity;  // it was unloaded/destroyed elsewhere
-  }
+  PruneDeadSelection();
 
   if (input.key_pressed(Key::kEscape) && brush_ >= 0) {
     brush_ = -1;
@@ -210,30 +214,22 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
     return;
   }
 
-  if (selection_ == ecs::kInvalidEntity) return;
+  if (selected_.empty()) return;
 
   if (input.key_pressed(Key::kV) && ctrl) DuplicateSelection();
   if (input.key_pressed(Key::kX) || input.key_pressed(Key::kDelete)) DeleteSelection();
   if (input.key_pressed(Key::kG)) {
-    moving_ = !moving_;
-    if (moving_) {
-      if (world::Transform* t = SelectedTransform()) {
-        move_origin_ = *t;
-        RecordTransform(selection_);
-      }
-      SetStatus("Move: aim and click to drop, Esc to cancel");
-    }
+    if (moving_)
+      moving_ = false;  // toggle off; a click would also confirm
+    else
+      BeginMove();
   }
-  if (input.key_pressed(Key::kR)) {
-    RecordTransform(selection_);
+  if (input.key_pressed(Key::kR))
     RotateSelection(input.key(Key::kLeftShift) ? -kRotateStep : kRotateStep);
-  }
   // Wheel scales the selection when not navigating (the fly camera only consumes
   // the wheel while looking, so the two never collide).
-  if (input.wheel != 0.0f && !ctx_.camera->looking() && !moving_) {
-    RecordTransform(selection_);
+  if (input.wheel != 0.0f && !ctx_.camera->looking() && !moving_)
     ScaleSelection(std::pow(kScaleStep, input.wheel));
-  }
 }
 
 void MapEditor::ArmBrush(int catalog_index) {
@@ -274,7 +270,7 @@ void MapEditor::PlaceBrush(const InputState& input) {
     SetStatus("Could not load a model for " + catalog_[brush_].name);
     return;
   }
-  selection_ = entity;
+  selected_ = {entity};
   last_scatter_pos_ = pos;
   SetStatus("Placed " + catalog_[brush_].name);
 }
@@ -350,7 +346,7 @@ void MapEditor::PlaceDemoBuild() {
   }
 
   // Select the middle object so the selection reticle and inspector are live.
-  if (!placed_.empty()) selection_ = placed_[placed_.size() / 2].entity;
+  if (!placed_.empty()) selected_ = {placed_[placed_.size() / 2].entity};
 
   // Frame the rows for a clean capture (unless REC_CAM already pinned a vantage):
   // a near-top-down vantage so dense start cells never occlude them.
@@ -405,96 +401,125 @@ void MapEditor::ClearGhost() {
   ghost_brush_ = -1;
 }
 
-void MapEditor::SelectUnderCursor(const InputState& input) {
+void MapEditor::SelectUnderCursor(const InputState& input, bool additive) {
   f32 t = 0;
   ecs::Entity hit = PickEntity(input, &t);
-  selection_ = hit;
   moving_ = false;
-  if (selection_ == ecs::kInvalidEntity) {
+  if (hit == ecs::kInvalidEntity) {
+    if (!additive) selected_.clear();  // a plain click on empty space deselects
     SetStatus("Nothing under the cursor");
-  } else {
-    SetStatus("Selected");
+    return;
   }
+  if (additive) {
+    // Shift-click toggles the object in the set, building a multi-selection.
+    auto it = std::find(selected_.begin(), selected_.end(), hit);
+    if (it != selected_.end())
+      selected_.erase(it);
+    else
+      selected_.push_back(hit);
+  } else {
+    selected_ = {hit};
+  }
+  const size_t n = selected_.size();
+  SetStatus(n <= 1 ? "Selected" : std::to_string(n) + " selected");
 }
 
 void MapEditor::DeleteSelection() {
-  if (selection_ == ecs::kInvalidEntity || !ctx_.world->IsAlive(selection_)) return;
-  // Record enough to undo the delete (base form + where it sat) when we know it;
-  // a streamed ref we don't own is removed live but not re-creatable here.
-  UndoOp op;
-  op.kind = UndoKind::kDelete;
-  op.entity = selection_;
-  if (const world::Transform* t = ctx_.world->Get<world::Transform>(selection_)) op.transform = *t;
-  op.base = bethesda::GlobalFormId{0xffff, 0};
-  op.name = "object";
-  for (const PlacedObject& p : placed_) {
-    if (p.entity == selection_) {
-      op.base = p.base;
-      op.name = p.name;
-      op.domain = p.domain;
-      break;
+  PruneDeadSelection();
+  if (selected_.empty()) return;
+  int deleted = 0;
+  for (ecs::Entity e : selected_) {
+    if (!ctx_.world->IsAlive(e)) continue;
+    UndoOp op;
+    op.kind = UndoKind::kDelete;
+    op.entity = e;
+    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e)) op.transform = *t;
+    op.base = bethesda::GlobalFormId{0xffff, 0};
+    op.name = "object";
+    if (const int pi = FindPlaced(e); pi >= 0) {
+      op.base = placed_[pi].base;
+      op.name = placed_[pi].name;
+      op.domain = placed_[pi].domain;
     }
+    undo_.push_back(op);
+    ctx_.world->Destroy(e);
+    ++deleted;
   }
-  undo_.push_back(op);
-
-  ctx_.world->Destroy(selection_);
-  placed_.erase(std::remove_if(placed_.begin(), placed_.end(),
-                               [&](const PlacedObject& p) { return p.entity == selection_; }),
-                placed_.end());
-  selection_ = ecs::kInvalidEntity;
-  SetStatus("Deleted");
+  placed_.erase(
+      std::remove_if(placed_.begin(), placed_.end(),
+                     [&](const PlacedObject& p) { return !ctx_.world->IsAlive(p.entity); }),
+      placed_.end());
+  selected_.clear();
+  SetStatus("Deleted " + std::to_string(deleted));
 }
 
 void MapEditor::DuplicateSelection() {
-  if (selection_ == ecs::kInvalidEntity) return;
-  const world::Transform* t = ctx_.world->Get<world::Transform>(selection_);
-  if (!t) return;
-  // Resolve the base form from our placed list; only editor-owned objects can be
-  // duplicated (a streamed ref has no standalone base we track).
-  bethesda::GlobalFormId base{0xffff, 0};
-  std::string name = "object";
-  int domain = 0;
-  for (const PlacedObject& p : placed_) {
-    if (p.entity == selection_) {
-      base = p.base;
-      name = p.name;
-      domain = p.domain;
-      break;
-    }
+  PruneDeadSelection();
+  if (selected_.empty()) return;
+  std::vector<ecs::Entity> copies;
+  for (ecs::Entity e : selected_) {
+    const world::Transform* t = ctx_.world->Get<world::Transform>(e);
+    const int pi = FindPlaced(e);
+    if (!t || pi < 0) continue;  // only editor-owned objects can be duplicated
+    const PlacedObject src = placed_[pi];
+    world::CellStreamer* streamer = StreamerFor(src.domain);
+    if (!streamer) continue;
+    const f32 user_scale = t->scale / kUnitsToMeters;  // strip the unit->metre factor
+    Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
+    ecs::Entity copy = streamer->PlaceObject(*ctx_.world, src.base, pos, t->rotation, user_scale);
+    if (copy == ecs::kInvalidEntity) continue;
+    placed_.push_back({copy, src.base, src.name, src.domain});
+    undo_.push_back({UndoKind::kPlace, copy, src.base, {}, src.name, src.domain});
+    copies.push_back(copy);
   }
-  if (base.plugin == 0xffff) {
+  if (copies.empty()) {
     SetStatus("Only placed assets can be duplicated");
     return;
   }
-  world::CellStreamer* streamer = StreamerFor(domain);
-  if (!streamer) return;
-  // Native multiplier = stored scale without the unit->metre factor.
-  const f32 user_scale = t->scale / kUnitsToMeters;
-  Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
-  ecs::Entity e = streamer->PlaceObject(*ctx_.world, base, pos, t->rotation, user_scale);
-  if (e == ecs::kInvalidEntity) return;
-  placed_.push_back({e, base, name, domain});
-  undo_.push_back({UndoKind::kPlace, e, base, {}, name, domain});
-  selection_ = e;
-  SetStatus("Duplicated " + name);
+  selected_ = std::move(copies);  // select the new copies, ready to drag away
+  SetStatus("Duplicated " + std::to_string(selected_.size()));
 }
 
 void MapEditor::RotateSelection(f32 radians) {
-  world::Transform* t = SelectedTransform();
-  if (!t) return;
-  Quat cur{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
-  Quat yaw = QuatFromAxisAngle({0, 1, 0}, radians);
-  Quat nr = Normalize(yaw * cur);
-  t->rotation[0] = nr.x;
-  t->rotation[1] = nr.y;
-  t->rotation[2] = nr.z;
-  t->rotation[3] = nr.w;
+  PruneDeadSelection();
+  const Quat yaw = QuatFromAxisAngle({0, 1, 0}, radians);
+  for (ecs::Entity e : selected_) {
+    RecordTransform(e);
+    world::Transform* t = ctx_.world->Get<world::Transform>(e);
+    if (!t) continue;
+    Quat cur{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
+    Quat nr = Normalize(yaw * cur);
+    t->rotation[0] = nr.x;
+    t->rotation[1] = nr.y;
+    t->rotation[2] = nr.z;
+    t->rotation[3] = nr.w;
+  }
 }
 
 void MapEditor::ScaleSelection(f32 factor) {
-  world::Transform* t = SelectedTransform();
-  if (!t) return;
-  t->scale = std::clamp(t->scale * factor, kUnitsToMeters * 0.05f, kUnitsToMeters * 50.0f);
+  PruneDeadSelection();
+  for (ecs::Entity e : selected_) {
+    RecordTransform(e);
+    world::Transform* t = ctx_.world->Get<world::Transform>(e);
+    if (!t) continue;
+    t->scale = std::clamp(t->scale * factor, kUnitsToMeters * 0.05f, kUnitsToMeters * 50.0f);
+  }
+}
+
+void MapEditor::BeginMove() {
+  PruneDeadSelection();
+  if (selected_.empty()) return;
+  moving_ = true;
+  move_origins_.clear();
+  for (ecs::Entity e : selected_) {
+    RecordTransform(e);
+    world::Transform snapshot{};
+    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e)) snapshot = *t;
+    move_origins_.push_back(snapshot);
+  }
+  if (const world::Transform* pt = ctx_.world->Get<world::Transform>(Primary()))
+    move_pivot_ = Vec3{pt->position[0], pt->position[1], pt->position[2]};
+  SetStatus("Move: aim and click to drop, Esc to cancel");
 }
 
 void MapEditor::Undo() {
@@ -510,7 +535,7 @@ void MapEditor::Undo() {
       placed_.erase(std::remove_if(placed_.begin(), placed_.end(),
                                    [&](const PlacedObject& p) { return p.entity == op.entity; }),
                     placed_.end());
-      if (selection_ == op.entity) selection_ = ecs::kInvalidEntity;
+      selected_.erase(std::remove(selected_.begin(), selected_.end(), op.entity), selected_.end());
       SetStatus("Undid place");
       break;
     case UndoKind::kTransform:
@@ -529,7 +554,7 @@ void MapEditor::Undo() {
             streamer->PlaceObject(*ctx_.world, op.base, pos, op.transform.rotation, user_scale);
         if (e != ecs::kInvalidEntity) {
           placed_.push_back({e, op.base, op.name, op.domain});
-          selection_ = e;
+          selected_ = {e};
           SetStatus("Undid delete");
         }
       } else {
@@ -557,9 +582,26 @@ void MapEditor::RecordTransform(ecs::Entity entity) {
   undo_.push_back(op);
 }
 
+ecs::Entity MapEditor::Primary() const {
+  return selected_.empty() ? ecs::kInvalidEntity : selected_.back();
+}
+
+void MapEditor::PruneDeadSelection() {
+  selected_.erase(std::remove_if(selected_.begin(), selected_.end(),
+                                 [&](ecs::Entity e) { return !ctx_.world->IsAlive(e); }),
+                  selected_.end());
+}
+
+int MapEditor::FindPlaced(ecs::Entity e) const {
+  for (int i = 0; i < static_cast<int>(placed_.size()); ++i)
+    if (placed_[i].entity == e) return i;
+  return -1;
+}
+
 world::Transform* MapEditor::SelectedTransform() {
-  if (selection_ == ecs::kInvalidEntity || !ctx_.world->IsAlive(selection_)) return nullptr;
-  return ctx_.world->Get<world::Transform>(selection_);
+  const ecs::Entity e = Primary();
+  if (e == ecs::kInvalidEntity || !ctx_.world->IsAlive(e)) return nullptr;
+  return ctx_.world->Get<world::Transform>(e);
 }
 
 // --- picking / placement geometry ---
@@ -568,10 +610,10 @@ bool MapEditor::PointerOverUi(const InputState& input) const {
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
   const f32 x = input.mouse_x, y = input.mouse_y;
-  if (y < kEditorToolbarHeight) return true;     // toolbar
-  if (y > h - kEditorStatusHeight) return true;  // status bar
-  if (x < kEditorBrowserWidth) return true;      // asset browser dock
-  if (selection_ != ecs::kInvalidEntity && x > w - kEditorInspectorWidth) return true;  // inspector
+  if (y < kEditorToolbarHeight) return true;                             // toolbar
+  if (y > h - kEditorStatusHeight) return true;                          // status bar
+  if (x < kEditorBrowserWidth) return true;                              // asset browser dock
+  if (!selected_.empty() && x > w - kEditorInspectorWidth) return true;  // inspector dock
   return false;
 }
 
@@ -686,26 +728,13 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
           moving_ = false;
           break;
         case kToolMove:
-          if (selection_ != ecs::kInvalidEntity) {
-            moving_ = true;
-            if (world::Transform* t = SelectedTransform()) {
-              move_origin_ = *t;
-              RecordTransform(selection_);
-            }
-            SetStatus("Move: aim and click to drop, Esc to cancel");
-          }
+          BeginMove();
           break;
         case kToolRotate:
-          if (selection_ != ecs::kInvalidEntity) {
-            RecordTransform(selection_);
-            RotateSelection(kRotateStep);
-          }
+          RotateSelection(kRotateStep);
           break;
         case kToolScale:
-          if (selection_ != ecs::kInvalidEntity) {
-            RecordTransform(selection_);
-            ScaleSelection(kScaleStep);
-          }
+          ScaleSelection(kScaleStep);
           break;
         case kToolDelete:
           DeleteSelection();
@@ -775,8 +804,9 @@ void MapEditor::PushView() {
     v.rows.push_back(std::move(ar));
   }
 
-  if (selection_ != ecs::kInvalidEntity && ctx_.world->IsAlive(selection_)) {
-    if (const world::Transform* t = ctx_.world->Get<world::Transform>(selection_)) {
+  const ecs::Entity sel = Primary();
+  if (sel != ecs::kInvalidEntity && ctx_.world->IsAlive(sel)) {
+    if (const world::Transform* t = ctx_.world->Get<world::Transform>(sel)) {
       v.has_selection = true;
       v.sel_pos[0] = t->position[0];
       v.sel_pos[1] = t->position[1];
@@ -790,10 +820,15 @@ void MapEditor::PushView() {
       v.sel_title = "Selected object";
       v.sel_subtitle = "move G / rotate R / scale wheel / delete X";
       for (const PlacedObject& p : placed_) {
-        if (p.entity == selection_) {
+        if (p.entity == sel) {
           v.sel_title = p.name;
           break;
         }
+      }
+      // A multi-selection leads with the count; the primary's transform shows.
+      if (selected_.size() > 1) {
+        v.sel_subtitle = v.sel_title + "  (primary)";
+        v.sel_title = std::to_string(selected_.size()) + " objects selected";
       }
 
       // Project the object's bounding sphere to the screen so the overlay can
@@ -801,7 +836,7 @@ void MapEditor::PushView() {
       Vec3 wc{t->position[0], t->position[1], t->position[2]};
       f32 wr = 1.0f;
       if (ctx_.assets) {
-        if (const world::Renderable* rnd = ctx_.world->Get<world::Renderable>(selection_)) {
+        if (const world::Renderable* rnd = ctx_.world->Get<world::Renderable>(sel)) {
           if (const asset::Mesh* mesh = ctx_.assets->FindMesh(rnd->mesh)) {
             wc += Rotate(q,
                          {mesh->bounds_center[0], mesh->bounds_center[1], mesh->bounds_center[2]}) *

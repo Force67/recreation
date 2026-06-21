@@ -152,11 +152,12 @@ class MapEditor {
   // the layout. Driven by REC_EDITOR_DEMO so a capture (or a save/load round
   // trip) needs no interactive clicks.
   void PlaceDemoBuild();
-  void SelectUnderCursor(const InputState& input);
+  void SelectUnderCursor(const InputState& input, bool additive);
   void DeleteSelection();
   void DuplicateSelection();
   void RotateSelection(f32 radians);
   void ScaleSelection(f32 factor);
+  void BeginMove();  // snapshot the selection's transforms and start a grab
   void Undo();
   void RecordTransform(ecs::Entity entity);  // push a kTransform undo snapshot
   void SetStatus(std::string message);
@@ -168,7 +169,10 @@ class MapEditor {
   bool AimPoint(const InputState& input, Vec3* out) const;            // ray vs ground
   Vec3 Snap(const Vec3& p) const;                                     // grid-snap x/z when snap_
   ecs::Entity PickEntity(const InputState& input, f32* out_t) const;  // ray vs spheres
-  world::Transform* SelectedTransform();
+  ecs::Entity Primary() const;            // the active selection (inspector/reticle/move)
+  world::Transform* SelectedTransform();  // the primary's transform
+  void PruneDeadSelection();              // drop selected entities that were destroyed
+  int FindPlaced(ecs::Entity e) const;    // index into placed_, or -1
 
   EngineContext& ctx_;
   bool active_ = false;
@@ -194,12 +198,15 @@ class MapEditor {
   ecs::Entity ghost_entity_ = ecs::kInvalidEntity;
   int ghost_brush_ = -1;  // catalog index the ghost currently shows
 
-  // Selection + active tool.
-  ecs::Entity selection_ = ecs::kInvalidEntity;
-  int tool_ = 0;                  // 0 select, 1 move, 2 rotate, 3 scale
-  bool moving_ = false;           // G-grab gesture: selection follows the aim point
-  world::Transform move_origin_;  // restore target if the move is cancelled
-  bool prev_lmb_ = false;         // left-button edge detection (clicks, not holds)
+  // Selection (a set, for multi-select) + active tool. The "primary" is the last
+  // one added; the inspector, reticle and move pivot follow it. Shift-click adds
+  // or removes; a plain click replaces.
+  std::vector<ecs::Entity> selected_;
+  int tool_ = 0;         // 0 select, 1 move, 2 rotate, 3 scale
+  bool moving_ = false;  // G-grab gesture: the selection follows the aim point
+  std::vector<world::Transform> move_origins_;  // per-selected transform at grab start
+  Vec3 move_pivot_{};                           // primary's position at grab start
+  bool prev_lmb_ = false;                       // left-button edge detection (clicks, not holds)
 
   // Paint-scatter: holding the place button and dragging drops a copy every
   // `scatter_spacing_` metres, each at a varied yaw, for fast forests / clutter.
