@@ -101,6 +101,7 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
     REC_ERROR("worldspace has no exterior cells: {}", editor_id);
     return false;
   }
+  ground_cache_.clear();  // heights are per worldspace
   EnsureLandMaterial();
   // WRLD DNAM holds the default land and water heights; cells without their
   // own XCLW flood at the water height (Tamriel: -14000, the ocean).
@@ -196,9 +197,8 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     REC_INFO(
         "streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped, "
         "{} land bakes, {} water planes, {} grass instances ({} verts)",
-        loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_,
-        baker_.baked_count(), water_planes_, grass_baker_.total_instances(),
-        grass_baker_.total_vertices());
+        loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_, baker_.baked_count(),
+        water_planes_, grass_baker_.total_instances(), grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
   }
@@ -263,8 +263,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   bethesda::GlobalFormId land_id{static_cast<u16>(cell.source->land >> 32),
                                  static_cast<u32>(cell.source->land)};
 
-  std::string mesh_name =
-      "land/" + std::to_string(grid_x) + "_" + std::to_string(grid_y);
+  std::string mesh_name = "land/" + std::to_string(grid_x) + "_" + std::to_string(grid_y);
   asset::AssetId mesh_id = asset::MakeAssetId(mesh_name);
   bethesda::Record land;
   if (!records_.Parse(land_id, &land)) return false;
@@ -366,8 +365,8 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
 
   ecs::Entity entity = world.Create();
   Transform transform;
-  Vec3 position = ToWorld(static_cast<f32>(grid_x) * kCellSize,
-                          static_cast<f32>(grid_y) * kCellSize, 0.0f);
+  Vec3 position =
+      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, 0.0f);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
@@ -441,8 +440,8 @@ void CellStreamer::AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell,
   Vec3 origin{static_cast<f32>(grid_x) * kCellSize * kUnitsToMeters + world_offset_.x,
               world_offset_.y,
               -(static_cast<f32>(grid_y) + 1.0f) * kCellSize * kUnitsToMeters + world_offset_.z};
-  cell.terrain_body = physics_->AddHeightField(origin, engine_heights, kLandGridPoints,
-                                               kCellSize * kUnitsToMeters);
+  cell.terrain_body =
+      physics_->AddHeightField(origin, engine_heights, kLandGridPoints, kCellSize * kUnitsToMeters);
 }
 
 bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) {
@@ -491,9 +490,9 @@ bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) 
 bool CellStreamer::CellWaterHeight(const LoadedCell& cell, f32* height) const {
   if (cell.source->cell == 0) return false;
   bethesda::Record record;
-  if (!records_.Parse({static_cast<u16>(cell.source->cell >> 32),
-                       static_cast<u32>(cell.source->cell)},
-                      &record)) {
+  if (!records_.Parse(
+          {static_cast<u16>(cell.source->cell >> 32), static_cast<u32>(cell.source->cell)},
+          &record)) {
     return false;
   }
   const bethesda::Subrecord* data = record.Find(kData);
@@ -522,9 +521,9 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   if (cell.source->land != 0) {
     bethesda::Record land;
     f32 heights[kLandGridPoints * kLandGridPoints];
-    if (records_.Parse({static_cast<u16>(cell.source->land >> 32),
-                        static_cast<u32>(cell.source->land)},
-                       &land) &&
+    if (records_.Parse(
+            {static_cast<u16>(cell.source->land >> 32), static_cast<u32>(cell.source->land)},
+            &land) &&
         DecodeLandHeights(land, heights)) {
       f32 min_h = heights[0];
       for (f32 h : heights) min_h = std::min(min_h, h);
@@ -537,8 +536,8 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
 
   ecs::Entity entity = world.Create();
   Transform transform;
-  Vec3 position = ToWorld(static_cast<f32>(grid_x) * kCellSize,
-                          static_cast<f32>(grid_y) * kCellSize, height);
+  Vec3 position =
+      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, height);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
@@ -573,8 +572,8 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   // cell-local Bethesda space.
   ecs::Entity entity = world.Create();
   Transform transform;
-  Vec3 position = ToWorld(static_cast<f32>(grid_x) * kCellSize,
-                          static_cast<f32>(grid_y) * kCellSize, 0.0f);
+  Vec3 position =
+      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, 0.0f);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
@@ -701,8 +700,8 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   if (collidable) {
     if (physics_->has_mesh_shape(mesh->id.hash) ||
         physics_->RegisterMeshShape(mesh->id.hash, *mesh)) {
-      physics::BodyId body = physics_->AddStaticMeshInstance(
-          mesh->id.hash, position, transform.rotation, transform.scale);
+      physics::BodyId body = physics_->AddStaticMeshInstance(mesh->id.hash, position,
+                                                             transform.rotation, transform.scale);
       if (body) cell.bodies.push_back(body);
     }
   }
@@ -832,16 +831,29 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   f32 beth_y = -engine_z / kUnitsToMeters;
   i16 cell_x = static_cast<i16>(std::floor(beth_x / kCellSize));
   i16 cell_y = static_cast<i16>(std::floor(beth_y / kCellSize));
-  const bethesda::RecordStore::ExteriorCell* cell =
-      grid_->find(bethesda::RecordStore::GridKey(cell_x, cell_y));
+  const u32 grid_key = bethesda::RecordStore::GridKey(cell_x, cell_y);
+  const bethesda::RecordStore::ExteriorCell* cell = grid_->find(grid_key);
   if (!cell || cell->land == 0) return false;
 
-  bethesda::Record land;
-  if (!records_.Parse({static_cast<u16>(cell->land >> 32), static_cast<u32>(cell->land)}, &land)) {
-    return false;
+  // Decode the cell's heightfield once and keep it; a placement sweep samples the
+  // same few cells hundreds of times per frame.
+  base::Vector<f32>* slot = ground_cache_.find(grid_key);
+  if (!slot) {
+    bethesda::Record land;
+    if (!records_.Parse({static_cast<u16>(cell->land >> 32), static_cast<u32>(cell->land)},
+                        &land)) {
+      return false;
+    }
+    f32 heights[kLandGridPoints * kLandGridPoints];
+    if (!DecodeLandHeights(land, heights)) return false;
+    base::Vector<f32> decoded;
+    decoded.reserve(kLandGridPoints * kLandGridPoints);
+    for (u32 i = 0; i < kLandGridPoints * kLandGridPoints; ++i) decoded.push_back(heights[i]);
+    ground_cache_.emplace(grid_key, std::move(decoded));
+    slot = ground_cache_.find(grid_key);
+    if (!slot) return false;
   }
-  f32 heights[kLandGridPoints * kLandGridPoints];
-  if (!DecodeLandHeights(land, heights)) return false;
+  const f32* heights = slot->data();
 
   constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
   f32 local_x = beth_x - static_cast<f32>(cell_x) * kCellSize;
@@ -856,8 +868,7 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
                                 Vec3* camera_position) {
   const base::Vector<u64>* refs = records_.InteriorRefs(cell_id);
   if (!refs) {
-    REC_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin,
-              cell_id.local_id);
+    REC_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin, cell_id.local_id);
     return false;
   }
 

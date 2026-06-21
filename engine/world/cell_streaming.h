@@ -1,11 +1,11 @@
 #ifndef RECREATION_WORLD_CELL_STREAMING_H_
 #define RECREATION_WORLD_CELL_STREAMING_H_
 
-#include <functional>
-#include <string_view>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+
+#include <functional>
+#include <string_view>
 
 #include "asset/asset_database.h"
 #include "bethesda/load_order.h"
@@ -50,10 +50,10 @@ class CellStreamer {
   };
 
   struct Settings {
-    i32 load_radius = 3;          // cells around the camera cell
-    u32 mesh_budget = 6;          // new mesh conversions/uploads per update
-    u32 ref_budget = 192;         // reference instantiations per update
-    f32 grass_density = 1.0f;     // multiplies every GRAS density, 0 disables
+    i32 load_radius = 3;       // cells around the camera cell
+    u32 mesh_budget = 6;       // new mesh conversions/uploads per update
+    u32 ref_budget = 192;      // reference instantiations per update
+    f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
   };
 
   CellStreamer(const bethesda::RecordStore& records, asset::AssetDatabase& assets)
@@ -193,6 +193,11 @@ class CellStreamer {
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;
+  // Decoded LAND heights (game units) per cell GridKey, so a GroundHeight sweep
+  // (the editor's per-frame placement raycast) reuses one decode per cell
+  // instead of re-parsing the LAND record on every sample. Cleared when the
+  // streamed worldspace changes; LAND data is immutable so entries never go stale.
+  mutable base::UnorderedMap<u32, base::Vector<f32>> ground_cache_;
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
   f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units
