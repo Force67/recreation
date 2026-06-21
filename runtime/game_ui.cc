@@ -4,19 +4,19 @@
 
 #if defined(RECREATION_HAS_UGUI)
 
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <filesystem>
-#include <string>
-
 #include <ugui/core/color.h>
 #include <ugui/style/style.h>
 #include <ugui/ultragui.h>
 #include <ugui/widgets/text.h>
 #include <ugui/widgets/widget.h>
 #include <ugui/widgets/widget_registry.h>
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <string>
 
 #include "core/log.h"
 #include "core/window.h"
@@ -113,7 +113,8 @@ std::string BuildJournalSection() {
          " { text: \"\"; font-size: 16; color: #d8def0; margin: 0 0 3 0;"
          " text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }\n";
   }
-  s += "      panel journal_rule { width: 492; height: 1; background: #ffffff1f; margin: 12 0 12 0; }\n";
+  s += "      panel journal_rule { width: 492; height: 1; background: #ffffff1f; margin: 12 0 12 "
+       "0; }\n";
   for (int i = 0; i < kJournalObjRows; ++i) {
     s += "      text journal_obj" + std::to_string(i) +
          " { text: \"\"; font-size: 13; color: #c7e0ff; margin: 0 0 2 0;"
@@ -197,6 +198,18 @@ std::string BuildEditorSection() {
       }
     }
 
+    panel ed_select {
+      position: absolute; left: 0; top: 0; width: 64; height: 64;
+      panel { position: absolute; left: 0; top: 0; width: 18; height: 3; background: #ffcc55; }
+      panel { position: absolute; left: 0; top: 0; width: 3; height: 18; background: #ffcc55; }
+      panel { position: absolute; left: 46; top: 0; width: 18; height: 3; background: #ffcc55; }
+      panel { position: absolute; left: 61; top: 0; width: 3; height: 18; background: #ffcc55; }
+      panel { position: absolute; left: 0; top: 61; width: 18; height: 3; background: #ffcc55; }
+      panel { position: absolute; left: 0; top: 46; width: 3; height: 18; background: #ffcc55; }
+      panel { position: absolute; left: 46; top: 61; width: 18; height: 3; background: #ffcc55; }
+      panel { position: absolute; left: 61; top: 46; width: 3; height: 18; background: #ffcc55; }
+    }
+
     panel editor_toolbar {
       position: absolute; top: 0; left: 0; width: 100vw; height: 46;
       layout: row; align: center; justify: space-between; padding: 0 18;
@@ -211,8 +224,8 @@ std::string BuildEditorSection() {
 
   // Toolbar action buttons (children of ed_tb_tools). Indices match MapEditor's
   // ToolAction enum.
-  const char* tools[kEditorToolButtons] = {"Select", "Move",   "Rotate", "Scale",
-                                           "Delete", "Dupe",   "Undo",   "Save"};
+  const char* tools[kEditorToolButtons] = {"Select", "Move", "Rotate", "Scale",
+                                           "Delete", "Dupe", "Undo",   "Save"};
   for (int i = 0; i < kEditorToolButtons; ++i) {
     s += "        button btn_tool" + std::to_string(i) + " { text: \"" + tools[i] +
          "\"; font-size: 13; color: #d8def0; text-align: center; padding: 7 12;"
@@ -260,9 +273,11 @@ std::string BuildEditorSection() {
     s += "        panel ed_row" + id +
          " { layout: column; align: start; width: 304; padding: 7 10; corner-radius: 7;"
          " background: #ffffff08; cursor: pointer; :hover { background: #ffcc5522; }\n"
-         "          text ed_row" + id +
+         "          text ed_row" +
+         id +
          "_name { text: \"\"; font-size: 14; color: #e8ecf6; }\n"
-         "          text ed_row" + id +
+         "          text ed_row" +
+         id +
          "_sub { text: \"\"; font-size: 11; color: #7e879b; }\n"
          "        }\n";
   }
@@ -330,7 +345,7 @@ panel root {
   int count = 8 * kCompassTurns;
   for (int i = 0; i < count; ++i) {
     const char* card = kCardinals[i % 8];
-    bool major = (i % 2) == 0;       // N E S W
+    bool major = (i % 2) == 0;  // N E S W
     bool north = (i % 8) == 0;
     const char* color = north ? "#ffcc55" : (major ? "#e8ecf6" : "#6b7488");
     int font = major ? 15 : 11;
@@ -472,12 +487,16 @@ panel root {
   for (const auto& kb : keybinds) {
     s += "        panel kb_" + std::string(kb[0]) +
          " { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;\n"
-         "          text { text: \"" + kb[1] + "\"; font-size: 14; color: #d8def0; }\n"
-         "          text { text: \"" + kb[0] +
+         "          text { text: \"" +
+         kb[1] +
+         "\"; font-size: 14; color: #d8def0; }\n"
+         "          text { text: \"" +
+         kb[0] +
          "\"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }\n"
          "        }\n";
   }
-  s += R"(        panel settings_rule { width: 340; height: 1; background: #ffffff1f; margin: 16 0 6 0; }
+  s +=
+      R"(        panel settings_rule { width: 340; height: 1; background: #ffffff1f; margin: 16 0 6 0; }
         button btn_settings_back {
           text: "Back"; font-size: 19; color: #e8ecf6; text-align: center;
           background: #ffcc5522; corner-radius: 9; padding: 14 0; cursor: pointer;
@@ -705,6 +724,20 @@ void GameUi::Impl::ApplyEditorView() {
     }
   }
 
+  // Selection reticle: a fixed 64px corner bracket centred on the selected
+  // object's screen position, so it reads clearly whatever the object's size.
+  const bool bracket = editor.has_selection && editor.sel_on_screen;
+  SetVisible("ed_select", bracket);
+  if (bracket) {
+    constexpr float kHalf = 32.0f;
+    SetStyleField(
+        "ed_select", [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
+        editor.sel_screen[0] - kHalf);
+    SetStyleField(
+        "ed_select", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
+        editor.sel_screen[1] - kHalf);
+  }
+
   // Inspector (only with a live selection).
   SetVisible("editor_inspector", editor.has_selection);
   if (editor.has_selection) {
@@ -914,10 +947,10 @@ void GameUi::SetActivatePrompt(const std::string& prompt) {
 
 void GameUi::SetHudVisible(bool visible) {
   if (!impl_->initialized) return;
-  impl_->SetVisible("topbar", visible);     // compass
+  impl_->SetVisible("topbar", visible);  // compass
   impl_->SetVisible("crosshair", visible);
-  impl_->SetVisible("vitals", visible);     // health / magicka / stamina bars
-  impl_->SetVisible("readout", visible);    // fps / coords / heading
+  impl_->SetVisible("vitals", visible);   // health / magicka / stamina bars
+  impl_->SetVisible("readout", visible);  // fps / coords / heading
 }
 
 void GameUi::SetObjectiveMarker(bool active, float bearing_deg, float distance_m) {
@@ -1130,8 +1163,8 @@ void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 fra
   // Upload the glyph atlas if it grew this frame.
   if (impl->ui.text_engine().atlas_revision() != impl->font_revision) {
     ugui::Vec2 as = impl->ui.text_engine().atlas_size();
-    impl->backend.UpdateFontAtlas(impl->ui.text_engine().atlas_pixels(),
-                                  static_cast<u32>(as.x), static_cast<u32>(as.y));
+    impl->backend.UpdateFontAtlas(impl->ui.text_engine().atlas_pixels(), static_cast<u32>(as.x),
+                                  static_cast<u32>(as.y));
     impl->font_revision = impl->ui.text_engine().atlas_revision();
   }
 

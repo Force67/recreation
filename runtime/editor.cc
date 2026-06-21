@@ -226,25 +226,42 @@ void MapEditor::PlaceDemoBuild() {
   const Vec3 center = eye + Vec3{fwd.x, 0, fwd.z} * 9.0f;
   int placed = 0;
   const int kWant = 8;
-  for (size_t i = 0; i < catalog_.size() && placed < kWant; i += 53) {
+  for (size_t i = 0; i < catalog_.size() && placed < kWant; i += 17) {
     const CatalogEntry& e = catalog_[i];
     Vec3 pos = center + right * (static_cast<f32>(placed) - (kWant - 1) * 0.5f) * 3.0f;
     f32 ground = 0;
     if (ctx_.streamer->GroundHeight(pos.x, pos.z, &ground)) pos.y = ground;
-    ecs::Entity entity = ctx_.streamer->PlaceObject(*ctx_.world, e.base, pos, kIdentityRot, 1.0f);
+    asset::AssetId mid;
+    ecs::Entity entity =
+        ctx_.streamer->PlaceObject(*ctx_.world, e.base, pos, kIdentityRot, 1.0f, &mid);
     if (entity == ecs::kInvalidEntity) continue;
+    // Keep the demo human-scale: skip oversized architecture and tiny clutter so
+    // the row reads as a tidy line of props.
+    f32 radius = 1.0f;
+    if (ctx_.assets) {
+      if (const asset::Mesh* mesh = ctx_.assets->FindMesh(mid))
+        radius = mesh->bounds_radius * kUnitsToMeters;
+    }
+    if (radius < 0.3f || radius > 2.5f) {
+      ctx_.world->Destroy(entity);
+      continue;
+    }
     placed_.push_back({entity, e.base, e.name});
     undo_.push_back({UndoKind::kPlace, entity, e.base, {}, e.name});
     ++placed;
   }
-  // Frame the row for a clean capture: pull back and up, look at its centre.
-  Vec3 row_center = center;
-  f32 cg = 0;
-  if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg)) row_center.y = cg + 1.0f;
-  const Vec3 framed_eye = row_center + Vec3{fwd.x, 0, fwd.z} * -10.0f + Vec3{0, 6.0f, 0};
-  ctx_.camera->set_position(framed_eye);
-  const Vec3 d = Normalize(row_center - framed_eye);
-  ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(std::clamp(d.y, -1.0f, 1.0f)));
+  // Select the middle object so the selection reticle and inspector are live.
+  if (!placed_.empty()) selection_ = placed_[placed_.size() / 2].entity;
+
+  // Frame the row for a clean capture (unless REC_CAM already pinned a vantage):
+  // a near-top-down vantage so dense start cells never occlude the row.
+  if (!std::getenv("REC_CAM")) {
+    Vec3 row_center = center;
+    f32 cg = 0;
+    if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg)) row_center.y = cg;
+    ctx_.camera->set_position(row_center + Vec3{0, 16.0f, 2.0f});
+    ctx_.camera->set_yaw_pitch(0.0f, -1.4f);  // look almost straight down, slight tilt
+  }
 
   REC_INFO("editor: demo build placed {} objects", placed);
   SetStatus("Demo build: placed " + std::to_string(placed) + " objects");
@@ -618,6 +635,41 @@ void MapEditor::PushView() {
         if (p.entity == selection_) {
           v.sel_title = p.name;
           break;
+        }
+      }
+
+      // Project the object's bounding sphere to the screen so the overlay can
+      // draw a tracking bracket around it. Mirrors the picking projection.
+      Vec3 wc{t->position[0], t->position[1], t->position[2]};
+      f32 wr = 1.0f;
+      if (ctx_.assets) {
+        if (const world::Renderable* rnd = ctx_.world->Get<world::Renderable>(selection_)) {
+          if (const asset::Mesh* mesh = ctx_.assets->FindMesh(rnd->mesh)) {
+            wc += Rotate(q,
+                         {mesh->bounds_center[0], mesh->bounds_center[1], mesh->bounds_center[2]}) *
+                  t->scale;
+            wr = mesh->bounds_radius * t->scale;
+          }
+        }
+      }
+      const Vec3 eye = ctx_.camera->position();
+      const Vec3 cf = ctx_.camera->forward();
+      const Vec3 cr = Normalize(Cross(cf, {0, 1, 0}));
+      const Vec3 cu = Cross(cr, cf);
+      const Vec3 to = wc - eye;
+      const f32 zc = Dot(to, cf);
+      if (zc > 0.1f) {
+        const f32 w = static_cast<f32>(ctx_.renderer->output_width());
+        const f32 h = static_cast<f32>(ctx_.renderer->output_height());
+        const f32 aspect = h > 0 ? w / h : 1.0f;
+        const f32 tan_half = std::tan(kFovY * 0.5f);
+        const f32 ndc_x = (Dot(to, cr) / zc) / (tan_half * aspect);
+        const f32 ndc_y = (Dot(to, cu) / zc) / tan_half;
+        if (std::fabs(ndc_x) <= 1.3f && std::fabs(ndc_y) <= 1.3f) {
+          v.sel_on_screen = true;
+          v.sel_screen[0] = (ndc_x * 0.5f + 0.5f) * w;
+          v.sel_screen[1] = (0.5f - ndc_y * 0.5f) * h;
+          v.sel_screen_half = (wr / zc) / tan_half * (h * 0.5f) * 1.2f;
         }
       }
     }

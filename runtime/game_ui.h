@@ -52,13 +52,13 @@ struct ContainerView {
 
 // Editor overlay geometry, shared by the layout (game_ui.cc) and the pointer
 // hit-test (editor.cc) so a click on a panel never also acts on the world.
-constexpr float kEditorBrowserWidth = 360.0f;   // left asset-browser dock
-constexpr float kEditorToolbarHeight = 46.0f;   // top toolbar
-constexpr float kEditorInspectorWidth = 300.0f; // right inspector dock
-constexpr float kEditorStatusHeight = 34.0f;    // bottom status bar
-constexpr int kEditorBrowserRows = 14;          // visible asset rows per page
-constexpr int kEditorCategoryTabs = 12;         // pooled category-tab widgets
-constexpr int kEditorToolButtons = 8;           // toolbar action buttons
+constexpr float kEditorBrowserWidth = 360.0f;    // left asset-browser dock
+constexpr float kEditorToolbarHeight = 46.0f;    // top toolbar
+constexpr float kEditorInspectorWidth = 300.0f;  // right inspector dock
+constexpr float kEditorStatusHeight = 34.0f;     // bottom status bar
+constexpr int kEditorBrowserRows = 14;           // visible asset rows per page
+constexpr int kEditorCategoryTabs = 12;          // pooled category-tab widgets
+constexpr int kEditorToolButtons = 8;            // toolbar action buttons
 
 // The map editor's whole screen state, rebuilt each frame by MapEditor and
 // mirrored into the editor overlay. Empty/!active hides every editor panel.
@@ -88,6 +88,11 @@ struct EditorView {
   float sel_pos[3] = {0, 0, 0};
   float sel_yaw_deg = 0;
   float sel_scale = 1;
+  // Screen-space selection bracket: where the selected object projects to (in
+  // window pixels) and its projected half-size, so the overlay can frame it.
+  bool sel_on_screen = false;
+  float sel_screen[2] = {0, 0};
+  float sel_screen_half = 40;
 
   // Status bar (bottom).
   std::string brush;     // armed asset name ("" = none, in select mode)
