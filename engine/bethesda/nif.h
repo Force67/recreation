@@ -10,6 +10,7 @@
 
 #include "asset/material.h"
 #include "asset/mesh.h"
+#include "asset/skeleton.h"
 #include "core/types.h"
 
 namespace rec::bethesda {
@@ -28,6 +29,7 @@ struct NifHeader {
   base::Vector<u16> block_type_index;
   base::Vector<u32> block_sizes;
   base::Vector<u32> block_offsets;  // absolute offsets into the file
+  base::Vector<std::string> strings;  // header string table (node/bone names)
 };
 
 std::optional<NifHeader> ParseNifHeader(ByteSpan data);
@@ -42,9 +44,26 @@ struct NifConversion {
   base::Vector<std::string> texture_paths;
   u32 skipped_shapes = 0;  // strip/effect/empty shapes we cannot use yet
   u32 skinned_shapes = 0;  // shapes baked rigidly at their bind pose
+  // Set by ConvertNifSkinnedMesh: mesh->skinned with mesh->skin populated.
+  bool skinned = false;
 };
 
 NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path);
+
+// Like ConvertNifScene but keeps skinned shapes as runtime-skinned geometry:
+// vertices stay in bind space, MeshLod::skinning carries per-vertex bone
+// indices/weights, and mesh->skin names the bones to match against a skeleton.
+// Non-skinned shapes in the file are dropped. Used for actor body parts.
+NifConversion ConvertNifSkinnedMesh(ByteSpan data, asset::AssetId id, std::string_view source_path);
+
+// Like ConvertNifScene but keeps shapes whose skeleton is external (head, hair)
+// as static geometry in their bind pose, for rigid attachment to one bone.
+NifConversion ConvertNifRigid(ByteSpan data, asset::AssetId id, std::string_view source_path);
+
+// Builds a skeleton from a NIF node hierarchy (skeleton.nif or a self-contained
+// creature). Bones are ordered parents-before-children; transforms are the
+// node local binds in Bethesda object space. Returns false if no nodes parse.
+bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out);
 
 }  // namespace rec::bethesda
 

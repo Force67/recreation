@@ -102,11 +102,60 @@ Transform Compose(const Transform& parent, const Transform& local) {
   return out;
 }
 
+// Rotation part of a NIF Transform to a quaternion, consistent with the
+// engine MakeFromQuat (r[i*3+j] is row i, col j). Shoemake's branchy form.
+Quat QuatFromTransform(const Transform& t) {
+  const f32* m = t.r;  // m[row*3+col]
+  f32 trace = m[0] + m[4] + m[8];
+  Quat q;
+  if (trace > 0) {
+    f32 s = 0.5f / std::sqrt(trace + 1.0f);
+    q.w = 0.25f / s;
+    q.x = (m[7] - m[5]) * s;
+    q.y = (m[2] - m[6]) * s;
+    q.z = (m[3] - m[1]) * s;
+  } else if (m[0] > m[4] && m[0] > m[8]) {
+    f32 s = 2.0f * std::sqrt(1.0f + m[0] - m[4] - m[8]);
+    q.w = (m[7] - m[5]) / s;
+    q.x = 0.25f * s;
+    q.y = (m[1] + m[3]) / s;
+    q.z = (m[2] + m[6]) / s;
+  } else if (m[4] > m[8]) {
+    f32 s = 2.0f * std::sqrt(1.0f + m[4] - m[0] - m[8]);
+    q.w = (m[2] - m[6]) / s;
+    q.x = (m[1] + m[3]) / s;
+    q.y = 0.25f * s;
+    q.z = (m[5] + m[7]) / s;
+  } else {
+    f32 s = 2.0f * std::sqrt(1.0f + m[8] - m[0] - m[4]);
+    q.w = (m[3] - m[1]) / s;
+    q.x = (m[2] + m[6]) / s;
+    q.y = (m[5] + m[7]) / s;
+    q.z = 0.25f * s;
+  }
+  return Normalize(q);
+}
+
+// NIF Transform (row-major 3x3 rotation, uniform scale, translation) to the
+// engine's column-major Mat4. Multiplying the Mat4 by (x,y,z,1) reproduces
+// Transform::Apply, and Mat4 operator* matches Compose.
+Mat4 ToMat4(const Transform& t) {
+  Mat4 m = Mat4::Identity();
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) m.m[col * 4 + row] = t.r[row * 3 + col] * t.s;
+  }
+  m.m[12] = t.t[0];
+  m.m[13] = t.t[1];
+  m.m[14] = t.t[2];
+  return m;
+}
+
 // NiAVObject prefix shared by nodes and shapes: name, extra data list,
 // controller, flags, transform, collision object. Flag bit 0 is "hidden",
 // which collision proxy meshes rely on.
-Transform ReadAvObject(Reader& r, bool* hidden) {
-  r.Skip(4);  // name string index
+Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr) {
+  i32 name = r.Read<i32>();  // index into the header string table
+  if (name_index) *name_index = name;
   u32 extra_count = r.Read<u32>();
   if (extra_count > 4096) {
     r.ok = false;
@@ -126,6 +175,7 @@ Transform ReadAvObject(Reader& r, bool* hidden) {
 struct Node {
   Transform local;
   base::Vector<i32> children;
+  std::string name;  // resolved from the header string table, for bone matching
   bool hidden = false;
 };
 
@@ -317,6 +367,45 @@ bool ReadBsTriShapeGeometry(Reader& r, Geometry* out) {
   return true;
 }
 
+// BSDynamicTriShape (head, hair): the BSTriShape data carries normals/uv/
+// triangles (positions may be zero), then a dynamic Vector4 array holds the
+// real positions. Skinned layouts are fine; the caller rigid-attaches the mesh.
+bool ReadBsDynamicTriShape(Reader& r, Geometry* out) {
+  u64 desc = r.Read<u64>();
+  u32 triangle_count = r.Read<u16>();
+  u32 vertex_count = r.Read<u16>();
+  u32 data_size = r.Read<u32>();
+  if (!r.ok || vertex_count == 0) return false;
+
+  VertexLayout layout(desc);
+  if ((layout.flags & VertexLayout::kHasVertex) && layout.stride != 0 && data_size != 0 &&
+      data_size == layout.stride * vertex_count + 6 * triangle_count) {
+    const u8* base = r.Bytes(data_size);
+    if (!base) return false;
+    DecodePackedVertices(layout, base, vertex_count, &out->vertices, nullptr);
+    const u8* tris = base + layout.stride * vertex_count;
+    out->indices.resize(triangle_count * 3);
+    for (u32 i = 0; i < triangle_count * 3; ++i) {
+      u16 index;
+      std::memcpy(&index, tris + i * 2, 2);
+      if (index >= vertex_count) return false;
+      out->indices[i] = index;
+    }
+  } else {
+    if (data_size) r.Skip(data_size);
+    out->vertices.resize(vertex_count);
+  }
+
+  // Dynamic vertices: Vector4 per vertex, w unused. These are the live
+  // positions; triangles come from the skin partition (filled by the caller).
+  const u8* dyn = r.Bytes(16 * vertex_count);
+  if (!dyn) return false;
+  for (u32 i = 0; i < vertex_count; ++i) {
+    std::memcpy(out->vertices[i].position, dyn + i * 16, 12);
+  }
+  return !out->vertices.empty();
+}
+
 // NiSkinInstance / BSDismemberSkinInstance shared prefix.
 struct SkinInstanceBlock {
   i32 data = -1;       // NiSkinData
@@ -385,15 +474,22 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
   u32 data_size = r.Read<u32>();
   u32 vertex_size = r.Read<u32>();
   u64 desc = r.Read<u64>();
-  if (!r.ok || partition_count > 4096 || vertex_size == 0 || data_size % vertex_size != 0) {
-    return false;
+  if (!r.ok || partition_count > 4096) return false;
+  // A dynamic shape (head, hair) keeps its vertices in the shape block, so the
+  // partition's shared buffer is empty; only the triangles matter then.
+  // A dynamic shape (head, hair) keeps its positions in the shape block, so the
+  // partition buffer has no vertex flag; we still want its triangles.
+  bool has_buffer = vertex_size != 0 && data_size != 0;
+  u32 vertex_count = has_buffer ? data_size / vertex_size : 0;
+  if (has_buffer) {
+    VertexLayout layout(desc);
+    if (data_size % vertex_size != 0 || layout.stride != vertex_size) return false;
+    const u8* base = r.Bytes(data_size);
+    if (!base || vertex_count == 0) return false;
+    if (layout.flags & VertexLayout::kHasVertex) {
+      DecodePackedVertices(layout, base, vertex_count, &out->vertices, &out->skin);
+    }
   }
-  u32 vertex_count = data_size / vertex_size;
-  VertexLayout layout(desc);
-  if (!(layout.flags & VertexLayout::kHasVertex) || layout.stride != vertex_size) return false;
-  const u8* base = r.Bytes(data_size);
-  if (!base || vertex_count == 0) return false;
-  DecodePackedVertices(layout, base, vertex_count, &out->vertices, &out->skin);
 
   for (u32 p = 0; p < partition_count; ++p) {
     u32 part_vertices = r.Read<u16>();
@@ -422,7 +518,7 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
     for (u32 i = 0; i < part_triangles * 3; ++i) {
       u16 index;
       std::memcpy(&index, tris + i * 2, 2);
-      if (index >= vertex_count) return false;
+      if (has_buffer && index >= vertex_count) return false;
       out->indices.push_back(index);
     }
     out->spans.push_back(std::move(span));
@@ -556,7 +652,8 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   u32 string_count = r.Read<u32>();
   r.Skip(4);  // max string length
   if (!r.ok || string_count > 200000) return std::nullopt;
-  for (u32 i = 0; i < string_count; ++i) ReadSizedString(r);
+  header.strings.reserve(string_count);
+  for (u32 i = 0; i < string_count; ++i) header.strings.push_back(ReadSizedString(r));
   u32 group_count = r.Read<u32>();
   r.Skip(4 * static_cast<size_t>(group_count));
   if (!r.ok) return std::nullopt;
@@ -571,7 +668,8 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   return header;
 }
 
-NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::string_view source_path,
+                                    bool keep_skin, bool rigid_fallback) {
   NifConversion result;
   auto header = ParseNifHeader(data);
   if (!header) {
@@ -596,7 +694,11 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
 
     if (type.ends_with("Node")) {
       Node node;
-      node.local = ReadAvObject(r, &node.hidden);
+      i32 name_index = -1;
+      node.local = ReadAvObject(r, &node.hidden, &name_index);
+      if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
+        node.name = header->strings[name_index];
+      }
       u32 child_count = r.Read<u32>();
       if (!r.ok || child_count > 65536) continue;
       node.children.reserve(child_count);
@@ -625,25 +727,36 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
       if (!r.ok) continue;
       if (!ReadBsTriShapeGeometry(r, &shape.geometry) && shape.skin < 0) shape.skipped = true;
       shapes.emplace(i, std::move(shape));
+    } else if (type == "BSDynamicTriShape") {
+      // Head and hair: positions live in a dynamic array, so the geometry is
+      // read inline (not skinned); the actor loader rigid-attaches it.
+      Shape shape;
+      shape.local = ReadAvObject(r, &shape.hidden);
+      r.Skip(16);  // bounding sphere
+      shape.skin = r.Read<i32>();
+      shape.shader = r.Read<i32>();
+      shape.alpha = r.Read<i32>();
+      if (!r.ok) continue;
+      if (!ReadBsDynamicTriShape(r, &shape.geometry)) shape.skipped = true;
+      shapes.emplace(i, std::move(shape));
     } else if (type == "NiTriShape") {
       Shape shape;
       shape.local = ReadAvObject(r, &shape.hidden);
       shape.data = r.Read<i32>();
-      i32 skin = r.Read<i32>();
+      shape.skin = r.Read<i32>();  // kept so the rigid path can fall back to it
       u32 material_count = r.Read<u32>();
       if (!r.ok || material_count > 4096) continue;
       r.Skip(8 * material_count + 4 + 1);  // names+extra, active material, needs update
       shape.shader = r.Read<i32>();
       shape.alpha = r.Read<i32>();
       if (!r.ok) continue;
-      if (skin >= 0) shape.skipped = true;
       shapes.emplace(i, std::move(shape));
     } else if (type == "NiTriShapeData") {
       Geometry geometry;
       if (ReadNiTriShapeData(r, header->bs_version, &geometry)) {
         geometry_blocks.emplace(i, std::move(geometry));
       }
-    } else if (type == "NiTriStrips" || type == "BSDynamicTriShape") {
+    } else if (type == "NiTriStrips") {
       ++result.skipped_shapes;
     } else if (type == "NiSkinInstance" || type == "BSDismemberSkinInstance") {
       SkinInstanceBlock skin;
@@ -923,6 +1036,76 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
     return true;
   };
 
+  // Keeps a skinned shape for runtime GPU skinning instead of baking: vertices
+  // stay in bind space, per-vertex bone indices/weights are emitted, and the
+  // bones are merged (by name) into mesh->skin so a skeleton can drive them.
+  base::UnorderedMap<u64, u32> skin_bone_lookup;  // name hash -> mesh->skin index
+  auto name_hash = [](const std::string& s) -> u64 {
+    u64 h = 1469598103934665603ull;
+    for (char c : s) {
+      h ^= static_cast<u8>(c);
+      h *= 1099511628211ull;
+    }
+    return h;
+  };
+  auto emit_runtime_skin = [&](const Shape& shape, Geometry* out,
+                               base::Vector<asset::SkinnedVertexExtra>* out_skin) -> bool {
+    const SkinInstanceBlock* skin = skin_instances.find(static_cast<u32>(shape.skin));
+    if (!skin) return false;
+    const base::Vector<Transform>* skin_to_bone = skin_datas.find(static_cast<u32>(skin->data));
+    const SkinPartitionBlock* partition = skin_partitions.find(static_cast<u32>(skin->partition));
+    if (!skin_to_bone || !partition || skin_to_bone->size() != skin->bones.size()) return false;
+    if (partition->vertices.empty() || partition->indices.empty()) return false;
+
+    // Map this shape's skin bones into mesh->skin by node name (dismembered
+    // bodies split one skeleton across several partitions).
+    base::Vector<u32> bone_remap(skin->bones.size());
+    for (size_t b = 0; b < skin->bones.size(); ++b) {
+      i32 bone_block = skin->bones[b];
+      const Node* bone_node = bone_block >= 0 ? nodes.find(static_cast<u32>(bone_block)) : nullptr;
+      std::string bone_name = bone_node ? bone_node->name : std::string();
+      if (bone_name.empty()) bone_name = "Bone" + std::to_string(bone_block);
+      u64 h = name_hash(bone_name);
+      if (u32* known = skin_bone_lookup.find(h)) {
+        bone_remap[b] = *known;
+      } else {
+        u32 idx = static_cast<u32>(mesh->skin.bones.size());
+        mesh->skin.bones.push_back(bone_name);
+        mesh->skin.inverse_bind.push_back(ToMat4((*skin_to_bone)[b]));
+        skin_bone_lookup.emplace(h, idx);
+        bone_remap[b] = idx;
+      }
+    }
+
+    out->vertices = partition->vertices;
+    out->indices = partition->indices;
+    out_skin->resize(partition->vertices.size());
+    base::Vector<u8> resolved(partition->vertices.size());
+    for (const SkinPartitionBlock::Span& span : partition->spans) {
+      for (u32 k = 0; k < span.index_count; ++k) {
+        u32 v = partition->indices[span.first_index + k];
+        if (resolved[v]) continue;
+        resolved[v] = 1;
+        f32 w[4];
+        f32 total = 0;
+        for (u32 j = 0; j < 4; ++j) {
+          w[j] = partition->skin.weights[v * 4 + j];
+          total += w[j];
+        }
+        asset::SkinnedVertexExtra& extra = (*out_skin)[v];
+        for (u32 j = 0; j < 4; ++j) {
+          u8 local = partition->skin.bone_indices[v * 4 + j];
+          u32 global = local < span.bones.size() ? span.bones[local] : 0;  // skin->bones index
+          extra.bone_indices[j] =
+              global < bone_remap.size() ? static_cast<u8>(bone_remap[global]) : 0;
+          f32 norm = total > 1e-5f ? w[j] / total : (j == 0 ? 1.0f : 0.0f);
+          extra.bone_weights[j] = static_cast<u8>(std::lround(norm * 255.0f));
+        }
+      }
+    }
+    return true;
+  };
+
   // Flatten: depth first from the roots, baking world transforms.
   struct StackEntry {
     u32 block;
@@ -964,11 +1147,52 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
     }
     bool skinned = false;
     Geometry baked;
+    base::Vector<asset::SkinnedVertexExtra> baked_skin;  // keep_skin only
     const Geometry* geometry = &shape->geometry;
+    // BSDynamicTriShape (head, hair): dynamic positions are inline, the
+    // triangles live in the skin partition. Stitch them for the rigid path.
+    if (rigid_fallback && shape->skin >= 0 && !shape->geometry.vertices.empty() &&
+        shape->geometry.indices.empty()) {
+      const SkinInstanceBlock* skin = skin_instances.find(static_cast<u32>(shape->skin));
+      const SkinPartitionBlock* part =
+          skin ? skin_partitions.find(static_cast<u32>(skin->partition)) : nullptr;
+      if (part && !part->indices.empty()) {
+        baked = shape->geometry;
+        baked.indices = part->indices;
+        bool valid = true;
+        for (u32 idx : baked.indices) {
+          if (idx >= baked.vertices.size()) {
+            valid = false;
+            break;
+          }
+        }
+        if (valid) geometry = &baked;
+      }
+    }
     if (shape->skin >= 0 && geometry->vertices.empty()) {
-      if (bake_skinned(*shape, &baked)) {
+      bool ok = keep_skin ? emit_runtime_skin(*shape, &baked, &baked_skin)
+                          : bake_skinned(*shape, &baked);
+      if (ok) {
         geometry = &baked;
         skinned = true;
+      } else if (rigid_fallback) {
+        // External skeleton (head, hair): take the un-posed bind geometry so
+        // the caller can rigid-attach it to a bone.
+        if (shape->data >= 0) {
+          geometry = geometry_blocks.find(static_cast<u32>(shape->data));
+        } else {
+          const SkinInstanceBlock* skin = skin_instances.find(static_cast<u32>(shape->skin));
+          const SkinPartitionBlock* part =
+              skin ? skin_partitions.find(static_cast<u32>(skin->partition)) : nullptr;
+          if (part && !part->vertices.empty()) {
+            baked.vertices = part->vertices;
+            baked.indices = part->indices;
+            geometry = &baked;
+          } else {
+            geometry = nullptr;
+          }
+        }
+        if (!geometry || geometry->vertices.empty()) shape->skipped = true;
       } else {
         shape->skipped = true;
       }
@@ -976,16 +1200,24 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
       geometry = geometry_blocks.find(static_cast<u32>(shape->data));
       if (!geometry) shape->skipped = true;
     }
+    // A skinned mesh only carries skinned shapes; a stray static decal would
+    // have no bone to follow, so drop it.
+    if (keep_skin && !skinned) {
+      ++result.skipped_shapes;
+      continue;
+    }
     if (shape->skipped || !geometry || geometry->vertices.empty() || geometry->indices.empty()) {
       if (shape->skipped) ++result.skipped_shapes;
       continue;
     }
 
-    // Skinned geometry is already in scene space via the bone transforms.
+    // Skinned geometry stays in bind/skeleton space; baked geometry is already
+    // in scene space via its bone transforms.
     Transform world = skinned ? Transform{} : Compose(entry.world, shape->local);
     u32 vertex_base = static_cast<u32>(lod.vertices.size());
     u32 index_offset = static_cast<u32>(lod.indices.size());
-    for (const asset::Vertex& src : geometry->vertices) {
+    for (size_t vi = 0; vi < geometry->vertices.size(); ++vi) {
+      const asset::Vertex& src = geometry->vertices[vi];
       asset::Vertex v = src;
       world.Apply(src.position, v.position);
       world.Rotate(src.normal, v.normal);
@@ -995,6 +1227,7 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
         bounds_max[k] = std::max(bounds_max[k], v.position[k]);
       }
       lod.vertices.push_back(v);
+      if (keep_skin && skinned) lod.skinning.push_back(baked_skin[vi]);
     }
     for (u32 index : geometry->indices) lod.indices.push_back(vertex_base + index);
     if (skinned) ++result.skinned_shapes;
@@ -1018,8 +1251,109 @@ NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view
     radius_sq += d * d;
   }
   mesh->bounds_radius = std::sqrt(radius_sq);
+  if (keep_skin && !mesh->skin.bones.empty()) {
+    mesh->skinned = true;
+    result.skinned = true;
+    if (mesh->skin.bones.size() > 256) {
+      REC_WARN("nif {} skins {} bones, over the 256 GPU palette limit",
+               source_path, mesh->skin.bones.size());
+    }
+  }
   result.mesh = std::move(mesh);
   return result;
+}
+
+NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+  return ConvertNifImpl(data, id, source_path, /*keep_skin=*/false, /*rigid_fallback=*/false);
+}
+
+NifConversion ConvertNifSkinnedMesh(ByteSpan data, asset::AssetId id,
+                                    std::string_view source_path) {
+  return ConvertNifImpl(data, id, source_path, /*keep_skin=*/true, /*rigid_fallback=*/false);
+}
+
+NifConversion ConvertNifRigid(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+  return ConvertNifImpl(data, id, source_path, /*keep_skin=*/false, /*rigid_fallback=*/true);
+}
+
+bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) {
+  auto header = ParseNifHeader(data);
+  if (!header) return false;
+  u32 block_count = static_cast<u32>(header->block_sizes.size());
+
+  // Parse every NiNode: its name, local bind, and child block refs.
+  struct RawNode {
+    std::string name;
+    Transform local;
+    base::Vector<i32> children;
+  };
+  base::UnorderedMap<u32, RawNode> raw;
+  for (u32 i = 0; i < block_count; ++i) {
+    const std::string& type = header->block_types[header->block_type_index[i]];
+    if (!type.ends_with("Node")) continue;
+    Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
+    RawNode node;
+    i32 name_index = -1;
+    node.local = ReadAvObject(r, nullptr, &name_index);
+    if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
+      node.name = header->strings[name_index];
+    }
+    u32 child_count = r.Read<u32>();
+    if (!r.ok || child_count > 65536) continue;
+    for (u32 c = 0; c < child_count; ++c) node.children.push_back(r.Read<i32>());
+    if (r.ok) raw.emplace(i, std::move(node));
+  }
+  if (raw.empty()) return false;
+
+  base::Vector<u32> roots;
+  {
+    size_t footer = header->block_offsets.empty()
+                        ? 0
+                        : header->block_offsets[block_count - 1] +
+                              header->block_sizes[block_count - 1];
+    Reader r{data, footer};
+    u32 root_count = r.Read<u32>();
+    if (r.ok && root_count < 256) {
+      for (u32 i = 0; i < root_count; ++i) {
+        i32 root = r.Read<i32>();
+        if (r.ok && root >= 0 && raw.find(static_cast<u32>(root))) {
+          roots.push_back(static_cast<u32>(root));
+        }
+      }
+    }
+    if (roots.empty()) roots.push_back(0);
+  }
+
+  // Depth first so parents always land in `bones` before their children. The
+  // block index of a bone maps to its final array index.
+  out->bones.clear();
+  out->id = id;
+  base::UnorderedMap<u32, i32> block_to_bone;
+  struct Entry {
+    u32 block;
+    i32 parent;
+  };
+  base::Vector<Entry> stack;
+  for (u32 root : roots) stack.push_back({root, -1});
+  while (!stack.empty()) {
+    Entry entry = stack.back();
+    stack.pop_back();
+    const RawNode* node = raw.find(entry.block);
+    if (!node || block_to_bone.find(entry.block)) continue;
+    i32 index = static_cast<i32>(out->bones.size());
+    block_to_bone.emplace(entry.block, index);
+    asset::Bone bone;
+    bone.name = node->name;
+    bone.parent = entry.parent;
+    bone.bind_translation = {node->local.t[0], node->local.t[1], node->local.t[2]};
+    bone.bind_rotation = QuatFromTransform(node->local);
+    bone.bind_scale = node->local.s;
+    out->bones.push_back(std::move(bone));
+    for (i32 child : node->children) {
+      if (child >= 0) stack.push_back({static_cast<u32>(child), index});
+    }
+  }
+  return !out->bones.empty();
 }
 
 }  // namespace rec::bethesda
