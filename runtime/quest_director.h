@@ -60,6 +60,9 @@ class QuestDirector {
   // reporting which advance the journal -- the end-to-end check that real scene
   // fragments (Self.GetOwningQuest().SetStage(N)) drive the quest natively.
   void ReportSceneFragments(const std::string& edid);
+  // Like ReportSceneFragments but plays each scene through the timer-driven
+  // ScenePlayer (begin/phase/end over simulated time), the live cue mechanism.
+  void ReportScenePlay(const std::string& edid);
 
   // Editor-id -> quest handle (0 if unknown); used by the npc director's scene.
   u64 FindQuestHandle(const std::string& edid) const;

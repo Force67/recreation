@@ -16,12 +16,61 @@
 #include "engine_internal.h"
 #include "interaction_system.h"
 #include "npc_director.h"
+#include "quest/scene_player.h"
 #include "quest/scene_record.h"
 #include "script/papyrus/value.h"
 #include "world/components.h"
 #include "world/objective_marker.h"
 
 namespace rec {
+
+namespace {
+
+// One of a quest's scenes: its handle, editor id, and parsed Papyrus fragments.
+struct SceneJob {
+  u64 handle = 0;
+  std::string edid;
+  bethesda::SceneFragments frags;
+};
+
+// Parses every SCEN owned by `quest`, attaches its SF_ script so the VM can run
+// the Fragment_N functions, and returns the jobs. Main-thread only: AttachScripts
+// marshals to the guest, which would deadlock if called from it.
+std::vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
+                                        script::ScriptSystem* scripts, u64 quest) {
+  std::vector<SceneJob> jobs;
+  records.EachOfType(
+      FourCc('S', 'C', 'E', 'N'),
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+        bethesda::Record rec;
+        if (!records.Parse(id, &rec)) return;
+        quest::SceneDef def = quest::ParseSceneRecord(id.packed(), rec, &records);
+        if (def.quest != quest && (def.quest & 0xffffffffu) != (quest & 0xffffffffu)) return;
+        const bethesda::Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
+        if (!vmad) return;
+        bethesda::ScriptAttachment att;
+        bethesda::SceneFragments frags;
+        if (!bethesda::ParseSceneFragments(vmad->data, &att, &frags) || att.scripts.empty()) return;
+        if (frags.begin.function.empty() && frags.end.function.empty() && frags.phases.empty())
+          return;
+        scripts->AttachScripts(id.packed(), att);
+        jobs.push_back({id.packed(), rec.GetString(FourCc('E', 'D', 'I', 'D')), std::move(frags)});
+      });
+  return jobs;
+}
+
+// Bridges ScenePlayer cues to the bindings' scene fragment runners (which run the
+// SCEN's Papyrus fragments; those call Quest.SetStage to advance the journal).
+struct SceneCueSink : quest::ScenePlayerSink {
+  script::skyrim::RecordBackedSkyrimBindings* b;
+  void SceneBegin(u64 scene) override { b->RunSceneBegin(scene); }
+  void ScenePhase(u64 scene, u32 phase, bool on_begin) override {
+    b->RunScenePhase(scene, phase, on_begin);
+  }
+  void SceneEnd(u64 scene) override { b->RunSceneEnd(scene); }
+};
+
+}  // namespace
 
 QuestDirector::QuestDirector(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx),
@@ -325,33 +374,7 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
     return;
   }
 
-  // Gather the quest's scenes on the main thread: parse each SCEN's fragments and
-  // attach its SF_ script (so the VM can run the Fragment_N functions), exactly as
-  // the dialogue report attaches TIF_ scripts.
-  struct SceneJob {
-    u64 handle = 0;
-    std::string edid;
-    bethesda::SceneFragments frags;
-  };
-  std::vector<SceneJob> jobs;
-  records_.EachOfType(
-      FourCc('S', 'C', 'E', 'N'),
-      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-        bethesda::Record rec;
-        if (!records_.Parse(id, &rec)) return;
-        quest::SceneDef def = quest::ParseSceneRecord(id.packed(), rec, &records_);
-        // The scene's owning quest, resolved or raw-low-id (same plugin).
-        if (def.quest != handle && (def.quest & 0xffffffffu) != (handle & 0xffffffffu)) return;
-        const bethesda::Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
-        if (!vmad) return;
-        bethesda::ScriptAttachment att;
-        bethesda::SceneFragments frags;
-        if (!bethesda::ParseSceneFragments(vmad->data, &att, &frags) || att.scripts.empty()) return;
-        if (frags.begin.function.empty() && frags.end.function.empty() && frags.phases.empty())
-          return;  // no fragments -> nothing to drive the journal
-        ctx_.scripts->AttachScripts(id.packed(), att);
-        jobs.push_back({id.packed(), rec.GetString(FourCc('E', 'D', 'I', 'D')), std::move(frags)});
-      });
+  std::vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
 
   auto* binds = ctx_.bindings;
   std::string report =
@@ -400,6 +423,63 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
               note(Fmt("end %s", j.frags.end.function.c_str()));
             }
             emit(Fmt("result: %d fragment(s) advanced the journal, stage=%d complete=%s", advancing,
+                     qs.GetStage(handle), qs.IsComplete(handle) ? "YES" : "no"));
+            return r;
+          })
+          .get();
+  std::printf("%s", report.c_str());
+  std::fflush(stdout);
+}
+
+void QuestDirector::ReportScenePlay(const std::string& edid) {
+  const u64 handle = FindQuestHandle(edid);
+  if (handle == 0 || !ctx_.scripts) {
+    std::printf("scene play: no quest matching '%s'\n", edid.c_str());
+    return;
+  }
+  std::vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
+
+  auto* binds = ctx_.bindings;
+  // Drive each scene through the ScenePlayer over simulated time (the live
+  // mechanism, vs ReportSceneFragments which fires every fragment at once), and
+  // report which advance the journal. All on the guest thread, the bindings'
+  // only legal caller, so the player's cues can call the fragment runners.
+  std::string report =
+      ctx_.scripts->guest()
+          .SubmitFor([binds, handle, edid, jobs = std::move(jobs)](
+                         rec::script::papyrus::VirtualMachine&) mutable {
+            using rec::script::papyrus::ObjectRef;
+            quest::QuestSystem& qs = binds->quest_system();
+            std::string r;
+            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+
+            binds->StartQuest(ObjectRef{handle});
+            emit(Fmt("=== scene play: %s (0x%llx): %zu scene(s), start stage=%d ===", edid.c_str(),
+                     static_cast<unsigned long long>(handle), jobs.size(), qs.GetStage(handle)));
+
+            SceneCueSink sink;
+            sink.b = binds;
+            quest::ScenePlayer player;
+            constexpr f32 kDt = 0.5f;            // simulated frame step
+            constexpr f32 kPhaseSeconds = 1.5f;  // dwell per phase
+            int advancing = 0;
+            for (SceneJob& j : jobs) {
+              binds->SetSceneFragments(j.handle, handle, j.frags);
+              std::vector<u32> phases;
+              for (const auto& p : j.frags.phases) phases.push_back(p.phase);
+              std::sort(phases.begin(), phases.end());
+              phases.erase(std::unique(phases.begin(), phases.end()), phases.end());
+
+              const i32 before = qs.GetStage(handle);
+              player.Start(j.handle, phases, kPhaseSeconds, sink);
+              for (int guard = 0; player.IsPlaying(j.handle) && guard < 100000; ++guard)
+                player.Tick(kDt, sink);
+              const i32 now = qs.GetStage(handle);
+              emit(Fmt("scene %s (0x%llx): %zu phase(s), stage %d -> %d", j.edid.c_str(),
+                       static_cast<unsigned long long>(j.handle), phases.size(), before, now));
+              if (now != before) ++advancing;
+            }
+            emit(Fmt("result: %d scene(s) advanced the journal, stage=%d complete=%s", advancing,
                      qs.GetStage(handle), qs.IsComplete(handle) ? "YES" : "no"));
             return r;
           })
