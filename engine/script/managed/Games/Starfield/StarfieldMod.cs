@@ -44,6 +44,11 @@ public sealed class StarfieldMod : IMod
         {
             SpeedPenalty = config.GetFloat("massSpeedPenalty", 35f),
         });
+        // Quest progress pays character XP, driving leveling from real play.
+        ModHost.Register(new StarfieldQuestRewards
+        {
+            XpPerStage = config.GetFloat("questXpPerStage", 50f),
+        });
         // Surfaces the systems above to the player as corner notifications.
         ModHost.Register(new StarfieldNotifications());
     }
