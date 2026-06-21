@@ -14,6 +14,8 @@ internal static class Program
         SdkApiTests.Run(check);
         DomainsTests.Run(check);
         FalloutTests.Run(check);
+        StarfieldOxygenTests.Run(check);
+        StarfieldAfflictionsTests.Run(check);
         InventoryTests.Run(check);
         ActorDataTests.Run(check);
         WrapperDispatchTests.Run(check);
