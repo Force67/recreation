@@ -311,4 +311,10 @@ bool Lz4FrameDecompress(ByteSpan src, u8* dst, size_t dst_size) {
   return out_pos == dst_size;
 }
 
+bool Lz4BlockDecompress(ByteSpan src, u8* dst, size_t dst_size) {
+  size_t out_pos = 0;
+  if (!Lz4Block(src.data(), src.size(), dst, dst_size, &out_pos)) return false;
+  return out_pos == dst_size;
+}
+
 }  // namespace rec::bethesda

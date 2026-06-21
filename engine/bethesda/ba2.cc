@@ -57,10 +57,11 @@ struct TexEntry {
   base::Vector<TexChunk> chunks;
 };
 
-// Reads `entry`'s bytes from `file`, inflating when packed. Returns false on a
-// short read or a decompression failure.
-bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size,
-               u8* dst) {
+// Reads `entry`'s bytes from `file`, decompressing when packed. v3 (Starfield
+// texture) archives store raw LZ4 blocks; every other version uses zlib.
+// Returns false on a short read or a decompression failure.
+bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size, u8* dst,
+               bool lz4) {
   file.seekg(static_cast<std::streamoff>(offset));
   if (packed_size == 0) {
     file.read(reinterpret_cast<char*>(dst), full_size);
@@ -69,7 +70,8 @@ bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size,
   base::Vector<u8> packed(packed_size);
   file.read(reinterpret_cast<char*>(packed.data()), packed_size);
   if (!file) return false;
-  return ZlibInflate(ByteSpan(packed.data(), packed.size()), dst, full_size);
+  ByteSpan span(packed.data(), packed.size());
+  return lz4 ? Lz4BlockDecompress(span, dst, full_size) : ZlibInflate(span, dst, full_size);
 }
 
 void PutU32(u8* p, u32 v) { std::memcpy(p, &v, 4); }
@@ -191,11 +193,12 @@ class Ba2Provider final : public asset::FileProvider {
     std::string key(normalized_path);
     std::ifstream file(path_, std::ios::binary);
     if (!file) return std::nullopt;
+    const bool lz4 = header_.version == 3;
 
     if (auto it = entries_.find(key); it != entries_.end()) {
       const GnrlEntry& e = it->second;
       base::Vector<u8> data(e.full_size);
-      if (!ReadBlock(file, e.offset, e.packed_size, e.full_size, data.data())) {
+      if (!ReadBlock(file, e.offset, e.packed_size, e.full_size, data.data(), lz4)) {
         REC_WARN("ba2 read failed: {} in {}", normalized_path, path_);
         return std::nullopt;
       }
@@ -211,7 +214,7 @@ class Ba2Provider final : public asset::FileProvider {
       dds.resize(total);
       size_t cursor = header_size;
       for (const TexChunk& c : tex.chunks) {
-        if (!ReadBlock(file, c.offset, c.packed_size, c.full_size, dds.data() + cursor)) {
+        if (!ReadBlock(file, c.offset, c.packed_size, c.full_size, dds.data() + cursor, lz4)) {
           REC_WARN("ba2 tex read failed: {} in {}", normalized_path, path_);
           return std::nullopt;
         }

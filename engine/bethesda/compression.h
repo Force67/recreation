@@ -19,6 +19,10 @@ bool ZlibInflate(ByteSpan src, u8* dst, size_t dst_size);
 // this.
 bool Lz4FrameDecompress(ByteSpan src, u8* dst, size_t dst_size);
 
+// A single raw LZ4 block (no frame header). Starfield v3 BA2 texture chunks are
+// stored this way. dst_size must be the exact decompressed size.
+bool Lz4BlockDecompress(ByteSpan src, u8* dst, size_t dst_size);
+
 }  // namespace rec::bethesda
 
 #endif  // RECREATION_BETHESDA_COMPRESSION_H_
