@@ -848,6 +848,9 @@ void Engine::SetupExtraStreamers() {
     if (domain.profile().game == bethesda::Game::kSkyrimSe) {
       region_x = 5;
       region_y = -3;  // Whiterun
+    } else if (domain.profile().game == bethesda::Game::kStarfield) {
+      region_x = 5;
+      region_y = -3;  // New Atlantis: city architecture (towers, lobbies)
     }
     if (forced) {
       region_x = forced_x;
