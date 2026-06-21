@@ -53,9 +53,13 @@ class QuestDirector {
   QuestPanel* quest_panel() { return &quest_panel_; }
   NativeTracePanel* native_trace_panel() { return &native_trace_panel_; }
 
-  // Headless debug aids (REC_QUEST_REPORT / REC_DIALOGUE_REPORT).
+  // Headless debug aids (REC_QUEST_REPORT / REC_DIALOGUE_REPORT / REC_SCENE_REPORT).
   void ReportQuestToCompletion(const std::string& edid);
   void ReportDialogue(const std::string& edid);
+  // Attaches a quest's SCEN scripts and fires their begin/phase/end fragments,
+  // reporting which advance the journal -- the end-to-end check that real scene
+  // fragments (Self.GetOwningQuest().SetStage(N)) drive the quest natively.
+  void ReportSceneFragments(const std::string& edid);
 
   // Editor-id -> quest handle (0 if unknown); used by the npc director's scene.
   u64 FindQuestHandle(const std::string& edid) const;

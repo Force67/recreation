@@ -552,6 +552,58 @@ void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, std::str
   stage_fragments_[quest][stage] = std::move(function);
 }
 
+void RecordBackedSkyrimBindings::SetSceneFragments(u64 scene, u64 owning_quest,
+                                                   bethesda::SceneFragments frags) {
+  scene_fragments_[scene] = SceneFragmentSet{owning_quest, std::move(frags)};
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::SceneOwningQuest(papyrus::ObjectRef scene) {
+  auto it = scene_fragments_.find(scene.handle);
+  return papyrus::ObjectRef{it != scene_fragments_.end() ? it->second.owning_quest : 0};
+}
+
+void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
+                                                  const std::string& function) {
+  if (!vm_ || function.empty()) return;
+  // Scene fragments call SetStage, whose stage fragment can run more fragments;
+  // share the stage-fragment depth guard so a cyclic chain cannot blow the stack.
+  if (fragment_depth_ >= 32) {
+    REC_WARN("scene fragment recursion too deep at {}.{}", scene, function);
+    return;
+  }
+  ++fragment_depth_;
+  // Attribute world mutations during the fragment to the scene's quest, like a
+  // stage fragment, so QuestWorld can roll them back. Save/restore for nesting.
+  u64 prev_quest = active_quest_;
+  active_quest_ = owning_quest;
+  u64 before = vm_->native_call_count();
+  vm_->Call(papyrus::ObjectRef{scene}, function, {});
+  REC_DEBUG("scene fragment {} ran, {} native calls", function,
+            vm_->native_call_count() - before);
+  active_quest_ = prev_quest;
+  --fragment_depth_;
+}
+
+void RecordBackedSkyrimBindings::RunSceneBegin(u64 scene) {
+  auto it = scene_fragments_.find(scene);
+  if (it != scene_fragments_.end())
+    RunSceneFragment(scene, it->second.owning_quest, it->second.frags.begin.function);
+}
+
+void RecordBackedSkyrimBindings::RunSceneEnd(u64 scene) {
+  auto it = scene_fragments_.find(scene);
+  if (it != scene_fragments_.end())
+    RunSceneFragment(scene, it->second.owning_quest, it->second.frags.end.function);
+}
+
+void RecordBackedSkyrimBindings::RunScenePhase(u64 scene, u32 phase, bool on_begin) {
+  auto it = scene_fragments_.find(scene);
+  if (it == scene_fragments_.end()) return;
+  for (const auto& p : it->second.frags.phases)
+    if (p.phase == phase && p.on_begin == on_begin)
+      RunSceneFragment(scene, it->second.owning_quest, p.fragment.function);
+}
+
 void RecordBackedSkyrimBindings::RunStageFragment(ObjectRef quest, i32 stage) {
   if (!vm_) return;
   auto qit = stage_fragments_.find(quest.handle);

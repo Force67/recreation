@@ -542,6 +542,10 @@ bool Engine::LoadGameData() {
     quest_->ReportDialogue(want);
     quit_.store(true, std::memory_order_relaxed);
   }
+  if (const char* want = std::getenv("REC_SCENE_REPORT")) {
+    quest_->ReportSceneFragments(want);
+    quit_.store(true, std::memory_order_relaxed);
+  }
 
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
   if (config_.demo_scene == "actor") return actors_->CreateSkyrimActor();

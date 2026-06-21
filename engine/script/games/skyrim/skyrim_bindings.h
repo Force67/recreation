@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "bethesda/load_order.h"
+#include "bethesda/script_attachment.h"
 #include "bethesda/strings.h"
 #include "core/types.h"
 #include "quest/quest_graph.h"
@@ -62,6 +63,18 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Registers the Papyrus function a quest runs when it reaches `stage` (from
   // the QUST VMAD fragments). Populated at quest attach.
   void SetStageFragment(u64 quest, i32 stage, std::string function);
+
+  // Registers a scene's Papyrus fragments (from its SCEN VMAD): the begin/end and
+  // per-phase functions that call SetStage as the scene plays. `scene` is the
+  // scene form handle the SF_ script is attached to; `owning_quest` backs the
+  // scene's GetOwningQuest() and attributes the fragment's world mutations.
+  void SetSceneFragments(u64 scene, u64 owning_quest, bethesda::SceneFragments frags);
+  // Runs a scene's begin/end fragment, or the fragment(s) registered for a phase
+  // boundary (the begin or end of `phase`), via the VM. No-op without a VM or a
+  // registered fragment. Driven by the runtime scene executor at the right moment.
+  void RunSceneBegin(u64 scene);
+  void RunSceneEnd(u64 scene);
+  void RunScenePhase(u64 scene, u32 phase, bool on_begin);
 
   // The engine-side quest store these bindings delegate to. The runtime reads
   // it for the HUD / debugger / network and seeds it with QUST definitions; all
@@ -164,6 +177,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void SetObjectiveCompleted(papyrus::ObjectRef quest, i32 objective, bool completed) override;
   bool IsObjectiveDisplayed(papyrus::ObjectRef quest, i32 objective) override;
   bool IsObjectiveCompleted(papyrus::ObjectRef quest, i32 objective) override;
+  papyrus::ObjectRef SceneOwningQuest(papyrus::ObjectRef scene) override;
 
   // quest::QuestActionSink: the graph drives stage entry through here. State and
   // dedup still live in quest_system_ (SetStage records the stage before the
@@ -222,6 +236,16 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   int fragment_depth_ = 0;  // guards stage->fragment->SetStage recursion
   // Runs the fragment for a freshly-set stage, if one is registered.
   void RunStageFragment(papyrus::ObjectRef quest, i32 stage);
+
+  // A scene's registered fragments plus the quest they advance. Keyed by scene
+  // form handle (the SF_ script's instance), built at scene attach.
+  struct SceneFragmentSet {
+    u64 owning_quest = 0;
+    bethesda::SceneFragments frags;
+  };
+  std::unordered_map<u64, SceneFragmentSet> scene_fragments_;
+  // Runs one scene fragment function via the VM, attributed to its owning quest.
+  void RunSceneFragment(u64 scene, u64 owning_quest, const std::string& function);
 
   // Raises a Skyrim form event (OnDeath, OnItemAdded, ...) on the target form's
   // script instance, if it defines a handler -- a silent no-op without a VM or

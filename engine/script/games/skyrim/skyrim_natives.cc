@@ -392,12 +392,22 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Quest", "GetCurrentStageID", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(Resolve(bindings).GetStage(self));
   });
+  // The script-level Quest.SetStage lowers to SetCurrentStageID, so this is the
+  // native that actually advances the journal when a fragment calls SetStage().
+  reg.Register("Quest", "SetCurrentStageID", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetStage(self, ArgI(a, 0));
+    return Value::Bool(true);
+  });
   reg.Register("Quest", "SetStage", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetStage(self, ArgI(a, 0));
     return Value::Bool(true);
   });
   reg.Register("Quest", "GetStageDone", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Bool(Resolve(bindings).GetStageDone(self, ArgI(a, 0)));
+  });
+  // Scene fragments call Self.GetOwningQuest().SetStage(N) to advance the journal.
+  reg.Register("Scene", "GetOwningQuest", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).SceneOwningQuest(self));
   });
   reg.Register("Quest", "IsRunning", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Bool(Resolve(bindings).IsRunning(self));
