@@ -102,6 +102,7 @@ int main(int argc, char** argv) {
       }
       config.start_cell_x = std::stoi(cell.substr(0, comma));
       config.start_cell_y = std::stoi(cell.substr(comma + 1));
+      config.start_cell_explicit = true;
     }
     else if (arg == "--interior") config.interior = next();
     else if (arg == "--grass-density") config.grass_density = std::stof(next());

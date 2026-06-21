@@ -48,9 +48,12 @@ struct EngineConfig {
   std::string gltf_path;  // standalone gltf/glb scene (e.g. sponza)
   std::string demo_scene;  // "water" = empty map with a water sheet
   bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect
-  // Exterior cell the camera starts in. The default is the Whiterun plains.
+  // Exterior cell the camera starts in. When the user does not pass --cell the
+  // engine substitutes a content-dense cell for the detected game (Whiterun for
+  // Skyrim, New Atlantis for Starfield); start_cell_explicit pins the override.
   i32 start_cell_x = 5;
   i32 start_cell_y = -3;
+  bool start_cell_explicit = false;
   // Interior cell to load instead of streaming the exterior worldspace.
   // Editor id ("WhiterunBanneredMare") or a hex load order form id ("0x...").
   std::string interior;

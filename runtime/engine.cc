@@ -763,6 +763,14 @@ bool Engine::LoadGameData() {
   if (!config_.interior.empty()) return LoadInterior();
   if (!streamer_->SelectWorldspace(profile.exterior_worldspace)) return false;
 
+  // Without an explicit --cell, start in the game's content-dense cell so the
+  // first view is its signature locale, not whichever grid Whiterun happens to
+  // share. Starfield's New Atlantis core (-2,-6) holds ~7k refs.
+  if (!config_.start_cell_explicit && game_ == bethesda::Game::kStarfield) {
+    config_.start_cell_x = -2;
+    config_.start_cell_y = -6;
+  }
+
   // Drop the camera a bit above the terrain at the middle of the start cell.
   constexpr f32 kUnitsToMeters = 0.01428f;
   constexpr f32 kCellSize = 4096.0f;
@@ -849,8 +857,8 @@ void Engine::SetupExtraStreamers() {
       region_x = 5;
       region_y = -3;  // Whiterun
     } else if (domain.profile().game == bethesda::Game::kStarfield) {
-      region_x = 5;
-      region_y = -3;  // New Atlantis: city architecture (towers, lobbies)
+      region_x = -2;
+      region_y = -6;  // New Atlantis core: ~7k refs of city architecture
     }
     if (forced) {
       region_x = forced_x;
