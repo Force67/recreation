@@ -792,9 +792,12 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   if (ctx_.auto_walk) {
     // Test hook: head for the active quest marker / guide mark when one is set,
     // so the guided playthrough follows the quest; otherwise coast forward.
+    // Route through pathfinding so the player rounds interior walls (the keep)
+    // toward the goal rather than pressing straight into them.
     Vec3 ppos;
     if (ctx_.auto_walk_has_goal && actors_->PlayerWorldPos(&ppos)) {
-      Vec3 to{ctx_.auto_walk_goal.x - ppos.x, 0, ctx_.auto_walk_goal.z - ppos.z};
+      const Vec3 wp = npc_->PathToward(ppos, ctx_.auto_walk_goal);
+      Vec3 to{wp.x - ppos.x, 0, wp.z - ppos.z};
       const f32 len = Length(to);
       move = len > 0.5f ? to * (1.0f / len) : fwd;
     } else {

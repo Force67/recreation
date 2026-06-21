@@ -195,8 +195,8 @@ void NpcDirector::UpdateFollowers(f32 dt) {
 
 Vec3 NpcDirector::NavigateTo(const Vec3& from, const Vec3& goal) {
   if (!physics_.initialized()) return goal;
-  constexpr int kN = 15;       // odd so the NPC sits at the centre cell
-  constexpr f32 kCell = 0.7f;  // meters per cell (~10 m grid span)
+  constexpr int kN = 21;       // odd so the NPC sits at the centre cell
+  constexpr f32 kCell = 0.8f;  // meters per cell (~17 m grid span, routes a keep room)
   const int c = kN / 2;
   const Vec3 origin{from.x - static_cast<f32>(c) * kCell, from.y,
                     from.z - static_cast<f32>(c) * kCell};  // grid (0,0) world
@@ -227,11 +227,14 @@ Vec3 NpcDirector::NavigateTo(const Vec3& from, const Vec3& goal) {
   std::vector<world::PathNode> path;
   if (!world::FindPath(kN, kN, blocked, start, {ggx, ggy}, &path, kN * kN) || path.size() < 2)
     return goal;  // no route: head straight and let local avoidance cope
-  // Aim a few cells ahead along the path for smooth motion, not the next cell.
+  // Aim a few cells ahead along the path for smooth motion, not the next cell;
+  // drop the waypoint onto the floor so it is reachable on stairs / ramps.
   const world::PathNode& step = path[std::min<size_t>(3, path.size() - 1)];
   const Vec3 w = cell_world(step.x, step.y);
-  return Vec3{w.x, goal.y, w.z};
+  return Vec3{w.x, GroundY(w.x, w.z, from.y), w.z};
 }
+
+Vec3 NpcDirector::PathToward(const Vec3& from, const Vec3& goal) { return NavigateTo(from, goal); }
 
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.

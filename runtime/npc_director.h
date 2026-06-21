@@ -39,6 +39,10 @@ class NpcDirector {
 
   void UpdateFollowers(f32 dt);
   void UpdateGuides(f32 dt);
+  // A reachable waypoint from `from` toward `goal` that rounds interior walls
+  // (grid A* over a downward-ray floor map). Lets the engine route the walking
+  // player through the keep instead of pressing it straight into geometry.
+  Vec3 PathToward(const Vec3& from, const Vec3& goal);
   void Mq101DemoTick(f32 dt);
   void Mq101SceneTick(f32 dt);
 
