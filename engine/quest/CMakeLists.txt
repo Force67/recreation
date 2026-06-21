@@ -9,6 +9,7 @@ recreation_add_module(quest
   scene.cc
   scene_record.cc
   scene_compile.cc
+  scene_player.cc
 )
 
 # State is core-only; the definition parser reads QUST records via bethesda.
