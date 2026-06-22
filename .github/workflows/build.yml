@@ -57,6 +57,82 @@ jobs:
             build/runtime/recreation
             build/tools/esminfo/esminfo
 
+  linux-arm:
+    runs-on: ubuntu-24.04-arm
+    env:
+      # Microsoft ships no aarch64 Linux dxc, so it is built from this pinned
+      # source tag below and cached. DLSS is x86_64-only and stays off.
+      DXC_TAG: v1.9.2602.24
+    steps:
+      - uses: actions/checkout@v4
+      - name: zetanet
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/zetanet
+          ref: develop
+          path: zetanet
+          submodules: recursive
+      - name: libultragui
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/libultragui
+          path: libultragui
+          submodules: recursive
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zlib1g-dev glslang-tools \
+            libfreetype-dev libharfbuzz-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
+      - name: dxc cache
+        id: dxc-cache
+        uses: actions/cache@v4
+        with:
+          path: dxc-install
+          key: dxc-${{ env.DXC_TAG }}-arm64
+      - name: build dxc
+        if: steps.dxc-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$DXC_TAG" --recurse-submodules --shallow-submodules \
+            https://github.com/microsoft/DirectXShaderCompiler dxc-src
+          cmake -B dxc-build -G Ninja dxc-src \
+            -C dxc-src/cmake/caches/PredefinedParams.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SPIRV_CODEGEN=ON \
+            -DSPIRV_BUILD_TESTS=OFF \
+            -DLLVM_ENABLE_ASSERTIONS=OFF
+          cmake --build dxc-build --target dxc
+          mkdir -p dxc-install/bin dxc-install/lib
+          cp dxc-build/bin/dxc dxc-install/bin/
+          cp dxc-build/lib/libdxcompiler.so* dxc-install/lib/
+      - name: install dxc
+        run: |
+          sudo cp dxc-install/bin/dxc /usr/local/bin/
+          sudo cp -a dxc-install/lib/libdxcompiler.so* /usr/local/lib/
+          sudo chmod +x /usr/local/bin/dxc
+          sudo ldconfig
+      - name: third-party deps
+        run: |
+          bash tools/get_fidelityfx.sh
+          bash tools/get_nrd.sh
+          bash tools/get_jolt.sh
+      - name: configure
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON
+          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
+          -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+          -DRECREATION_DLSS=OFF
+      - name: build
+        run: cmake --build build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recreation-linux-arm64
+          path: |
+            build/runtime/recreation
+            build/tools/esminfo/esminfo
+
   windows:
     runs-on: windows-2022
     steps:
