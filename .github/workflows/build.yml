@@ -27,6 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build zlib1g-dev glslang-tools \
+            libfreetype-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
             libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
@@ -80,7 +81,7 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\dxc\bin\x64"
       - name: glslang
         run: |
-          curl.exe -fsSL -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-x64-Release.zip
+          curl.exe -fsSL -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
           Expand-Archive glslang.zip -DestinationPath $env:GITHUB_WORKSPACE\glslang
           Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\glslang\bin"
       - name: third-party deps
