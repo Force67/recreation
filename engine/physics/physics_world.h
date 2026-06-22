@@ -12,6 +12,8 @@ namespace rec::physics {
 
 // Opaque body handle; 0 is invalid.
 using BodyId = u64;
+// Opaque character-controller handle; 0 is invalid.
+using CharacterId = u64;
 
 // Jolt-backed rigid body world. Fixed-step simulation driven from the sim
 // stage; dynamic bodies report their transforms back for ECS sync. Bodies
@@ -55,6 +57,24 @@ class PhysicsWorld {
                           const Vec3& initial_velocity);
 
   void RemoveBody(BodyId id);
+
+  // Kinematic character controller (Jolt CharacterVirtual): a capsule that
+  // walks slopes/stairs. `position` is the capsule centre. 0 is invalid.
+  CharacterId CreateCharacter(const Vec3& position, f32 radius, f32 half_height);
+  // Steps the controller: `horizontal_velocity` is the desired ground-plane
+  // velocity (m/s); gravity and jumping are handled internally. Returns the new
+  // capsule-centre position and whether it is on the ground.
+  void MoveCharacter(CharacterId id, const Vec3& horizontal_velocity, bool jump, f32 dt,
+                     Vec3* out_position, bool* out_grounded);
+  void SetCharacterPosition(CharacterId id, const Vec3& position);
+
+  // Closest hit of a ray; used by foot IK to find the ground under a foot.
+  struct RayHit {
+    Vec3 position;
+    Vec3 normal{0, 1, 0};
+    f32 distance = 0;
+  };
+  bool Raycast(const Vec3& origin, const Vec3& direction, f32 max_distance, RayHit* out) const;
 
   // Pose of a (dynamic) body for ECS sync.
   bool GetBodyTransform(BodyId id, Vec3* position, f32 rotation[4]) const;

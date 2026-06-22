@@ -10,6 +10,12 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLockInterface.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
@@ -89,6 +95,11 @@ struct PhysicsWorld::Impl {
   std::unique_ptr<JPH::PhysicsSystem> system;
   base::Vector<JPH::BodyID> dynamic_bodies;
   base::UnorderedMap<u64, JPH::RefConst<JPH::Shape>> mesh_shapes;
+  struct CharacterEntry {
+    JPH::Ref<JPH::CharacterVirtual> character;
+    f32 vy = 0;  // tracked vertical velocity (gravity + jump)
+  };
+  base::Vector<CharacterEntry> characters;
 };
 
 PhysicsWorld::PhysicsWorld() = default;
@@ -293,6 +304,50 @@ BodyId PhysicsWorld::AddDynamicSphere(const Vec3& position, f32 radius, f32 dens
   return id.GetIndexAndSequenceNumber() + 1;
 }
 
+CharacterId PhysicsWorld::CreateCharacter(const Vec3& position, f32 radius, f32 half_height) {
+  if (!impl_) return 0;
+  JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
+  settings->mShape = new JPH::CapsuleShape(half_height, radius);
+  // Accept ground contacts on the lower hemisphere so slopes register.
+  settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius);
+  JPH::Ref<JPH::CharacterVirtual> character = new JPH::CharacterVirtual(
+      settings, ToJolt(position), JPH::Quat::sIdentity(), 0, impl_->system.get());
+  impl_->characters.push_back({character, 0.0f});
+  return impl_->characters.size();  // id = index + 1
+}
+
+void PhysicsWorld::MoveCharacter(CharacterId id, const Vec3& horizontal_velocity, bool jump,
+                                 f32 dt, Vec3* out_position, bool* out_grounded) {
+  if (!impl_ || id == 0 || id > impl_->characters.size()) return;
+  Impl::CharacterEntry& entry = impl_->characters[id - 1];
+  JPH::CharacterVirtual* character = entry.character;
+
+  bool grounded = character->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround;
+  if (grounded && entry.vy < 0) entry.vy = 0;
+  if (grounded && jump) entry.vy = 4.5f;
+  entry.vy += impl_->system->GetGravity().GetY() * dt;
+
+  character->SetLinearVelocity({horizontal_velocity.x, entry.vy, horizontal_velocity.z});
+  JPH::CharacterVirtual::ExtendedUpdateSettings update;
+  character->ExtendedUpdate(dt, impl_->system->GetGravity(), update,
+                            impl_->system->GetDefaultBroadPhaseLayerFilter(layers::kDynamic),
+                            impl_->system->GetDefaultLayerFilter(layers::kDynamic), {}, {},
+                            *impl_->temp_allocator);
+  JPH::RVec3 p = character->GetPosition();
+  if (out_position) {
+    *out_position = {static_cast<f32>(p.GetX()), static_cast<f32>(p.GetY()),
+                     static_cast<f32>(p.GetZ())};
+  }
+  if (out_grounded) {
+    *out_grounded = character->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround;
+  }
+}
+
+void PhysicsWorld::SetCharacterPosition(CharacterId id, const Vec3& position) {
+  if (!impl_ || id == 0 || id > impl_->characters.size()) return;
+  impl_->characters[id - 1].character->SetPosition(ToJolt(position));
+}
+
 void PhysicsWorld::RemoveBody(BodyId id) {
   if (!impl_ || id == 0) return;
   JPH::BodyID body(static_cast<JPH::uint32>(id - 1));
@@ -307,6 +362,26 @@ void PhysicsWorld::RemoveBody(BodyId id) {
       break;
     }
   }
+}
+
+bool PhysicsWorld::Raycast(const Vec3& origin, const Vec3& direction, f32 max_distance,
+                           RayHit* out) const {
+  if (!impl_) return false;
+  Vec3 dir = Normalize(direction);
+  JPH::RRayCast ray{ToJolt(origin), ToJolt(dir) * max_distance};
+  JPH::RayCastResult result;
+  if (!impl_->system->GetNarrowPhaseQuery().CastRay(ray, result)) return false;
+  JPH::RVec3 hit = ray.GetPointOnRay(result.mFraction);
+  out->position = {static_cast<f32>(hit.GetX()), static_cast<f32>(hit.GetY()),
+                   static_cast<f32>(hit.GetZ())};
+  out->distance = result.mFraction * max_distance;
+  out->normal = {0, 1, 0};
+  JPH::BodyLockRead lock(impl_->system->GetBodyLockInterface(), result.mBodyID);
+  if (lock.Succeeded()) {
+    JPH::Vec3 n = lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, hit);
+    out->normal = {n.GetX(), n.GetY(), n.GetZ()};
+  }
+  return true;
 }
 
 bool PhysicsWorld::GetBodyTransform(BodyId id, Vec3* position, f32 rotation[4]) const {
