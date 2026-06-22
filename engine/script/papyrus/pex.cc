@@ -141,14 +141,38 @@ Function ReadFunction(Reader& r) {
   return f;
 }
 
-Object ReadObject(Reader& r) {
+// `fallout` selects the Fallout 4/76 object layout, which adds three fields the
+// Skyrim layout lacks (verified against shipped FO4 .pex via the per-object size
+// field): an object const-flag byte, a struct-definition section after the auto
+// state, and a const-flag byte on each member variable. Getting any of these
+// wrong shifts the function-code offset and desyncs the instruction decoder.
+Object ReadObject(Reader& r, bool fallout) {
   Object o;
   o.name = r.U16();
   r.U32();  // object data size in bytes; we parse sequentially and ignore it
   o.parent_class = r.U16();
   o.doc_string = r.U16();
+  if (fallout) r.U8();  // object const flag (unused by the VM)
   o.user_flags = r.U32();
   o.auto_state_name = r.U16();
+
+  if (fallout) {
+    // Struct definitions, between the auto state and the variables. The VM does
+    // not model struct types yet, so they are skipped to keep the cursor aligned.
+    u16 struct_count = r.U16();
+    for (u16 i = 0; i < struct_count; ++i) {
+      r.U16();  // struct name
+      u16 member_count = r.U16();
+      for (u16 j = 0; j < member_count; ++j) {
+        r.U16();         // member name
+        r.U16();         // member type
+        r.U32();         // member user flags
+        ReadVarData(r);  // member default value
+        r.U8();          // member const flag
+        r.U16();         // member doc string
+      }
+    }
+  }
 
   u16 var_count = r.U16();
   o.variables.reserve(var_count);
@@ -158,6 +182,7 @@ Object ReadObject(Reader& r) {
     v.type = r.U16();
     v.user_flags = r.U32();
     v.initial_value = ReadVarData(r);
+    if (fallout) r.U8();  // member variable const flag
     o.variables.push_back(std::move(v));
   }
 
@@ -294,7 +319,9 @@ bool ParsePex(ByteSpan data, PexFile* out) {
 
   u16 object_count = r.U16();
   out->objects.reserve(object_count);
-  for (u16 i = 0; i < object_count && r.ok(); ++i) out->objects.push_back(ReadObject(r));
+  const bool fallout = out->game_id != 1;  // Skyrim is 1; FO4/76 add object fields
+  for (u16 i = 0; i < object_count && r.ok(); ++i)
+    out->objects.push_back(ReadObject(r, fallout));
 
   if (!r.ok()) {
     REC_WARN("pex: truncated or malformed near byte {}", r.pos());
