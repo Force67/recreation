@@ -175,7 +175,19 @@ std::string ReadBgsmString(ByteSpan data, size_t* cursor) {
 // normal map (BGEM slot 1 is a greyscale mask, not a normal, so it is ignored).
 constexpr size_t kBgsmV2TextureOffset = 63;
 
-bool ParseBgsmTextures(ByteSpan data, std::string* diffuse, std::string* normal) {
+// BGSM lays ten texture slots, then a fixed block (flags, a scalar, the
+// specular colour and strength), then the smoothness float. Verified against
+// shipped FO4 materials: the smoothness sits this far past the slots and reads
+// in [0,1] for ~99% of them (the rest are clamped).
+constexpr size_t kBgsmV2TextureSlots = 10;
+constexpr size_t kBgsmV2SmoothnessGap = 28;
+
+// Parses a BGSM/BGEM v2 material. *roughness is set from BGSM smoothness
+// (roughness = 1 - smoothness); it is left negative (unknown) for BGEM or on a
+// short read, so the caller keeps its own default.
+bool ParseBgsmTextures(ByteSpan data, std::string* diffuse, std::string* normal,
+                       f32* roughness) {
+  *roughness = -1.0f;
   if (data.size() < kBgsmV2TextureOffset + 8) return false;
   const bool bgsm = std::memcmp(data.data(), "BGSM", 4) == 0;
   const bool bgem = std::memcmp(data.data(), "BGEM", 4) == 0;
@@ -189,6 +201,16 @@ bool ParseBgsmTextures(ByteSpan data, std::string* diffuse, std::string* normal)
   std::string second = ReadBgsmString(data, &cursor);
   *diffuse = NormalizeTexturePathLocal(base);
   *normal = bgsm ? NormalizeTexturePathLocal(second) : std::string();
+
+  if (bgsm) {
+    for (size_t i = 2; i < kBgsmV2TextureSlots; ++i) ReadBgsmString(data, &cursor);
+    cursor += kBgsmV2SmoothnessGap;
+    if (cursor + 4 <= data.size()) {
+      f32 smoothness;
+      std::memcpy(&smoothness, data.data() + cursor, 4);
+      *roughness = 1.0f - std::clamp(smoothness, 0.0f, 1.0f);
+    }
+  }
   return !diffuse->empty();
 }
 
@@ -197,9 +219,11 @@ base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan data, asset::AssetId i
   auto material = base::MakeUnique<asset::Material>();
   material->id = id;
   std::string diffuse, normal;
-  if (ParseBgsmTextures(data, &diffuse, &normal)) {
+  f32 roughness = -1.0f;
+  if (ParseBgsmTextures(data, &diffuse, &normal, &roughness)) {
     if (!diffuse.empty()) material->base_color = asset::MakeAssetId(diffuse);
     if (!normal.empty()) material->normal = asset::MakeAssetId(normal);
+    if (roughness >= 0.0f) material->roughness_factor = roughness;
   }
   return material;
 }
@@ -228,7 +252,9 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
           auto bytes = database.vfs().Read(material_file);
           if (!bytes) continue;
           std::string diffuse, normal;
-          if (!ParseBgsmTextures(ByteSpan(bytes->data(), bytes->size()), &diffuse, &normal)) {
+          f32 roughness = -1.0f;
+          if (!ParseBgsmTextures(ByteSpan(bytes->data(), bytes->size()), &diffuse, &normal,
+                                 &roughness)) {
             continue;
           }
           if (!diffuse.empty()) {
@@ -239,6 +265,7 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
             material.normal = asset::MakeAssetId(normal);
             database.LoadTexture(normal);
           }
+          if (roughness >= 0.0f) material.roughness_factor = roughness;
         }
         for (const asset::Material& material : conversion.materials) {
           database.AddMaterial(material);
