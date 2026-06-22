@@ -98,10 +98,10 @@ bool NpcDirector::StepNpcSteering(ecs::Entity actor, const float goal[3], float 
   if (!out.arrived) {
     // Deflect the straight-line steer around nearby obstacles, then move along
     // the chosen direction at the arrival-adjusted speed.
-    const float spd = __builtin_sqrtf(out.velocity[0] * out.velocity[0] +
+    const float spd = std::sqrt(out.velocity[0] * out.velocity[0] +
                                        out.velocity[2] * out.velocity[2]);
     const float gx = goal[0] - self_pos[0], gz = goal[2] - self_pos[2];
-    const float gl = __builtin_sqrtf(gx * gx + gz * gz);
+    const float gl = std::sqrt(gx * gx + gz * gz);
     const float goal_dir[3] = {gl > 1e-4f ? gx / gl : 0.0f, 0.0f, gl > 1e-4f ? gz / gl : 0.0f};
     float steer_dir[3];
     AvoidObstacles(self_pos, goal_dir, steer_dir);

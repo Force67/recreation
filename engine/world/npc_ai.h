@@ -29,7 +29,7 @@ inline SteerOutput SteerToward(const float pos[3], const float goal[3], const St
   SteerOutput out;
   const float dx = goal[0] - pos[0];
   const float dz = goal[2] - pos[2];
-  const float dist = __builtin_sqrtf(dx * dx + dz * dz);
+  const float dist = std::sqrt(dx * dx + dz * dz);
   if (dist <= p.stop_radius) {
     out.arrived = true;
     return out;
@@ -75,7 +75,7 @@ inline void SeparationOffset(const float self_pos[3], const float* others, int o
   for (int i = 0; i < other_count; ++i) {
     const float dx = self_pos[0] - others[i * 3 + 0];
     const float dz = self_pos[2] - others[i * 3 + 2];
-    const float dist = __builtin_sqrtf(dx * dx + dz * dz);
+    const float dist = std::sqrt(dx * dx + dz * dz);
     if (dist >= radius) continue;
     if (dist <= 0.0f) {
       out_offset[0] += 1.0f;  // exact overlap: agree on a fixed direction

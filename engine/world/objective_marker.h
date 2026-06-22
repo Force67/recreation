@@ -26,8 +26,8 @@ inline bool MarkerReached(const float player[3], const float marker[3], float ra
 inline float MarkerCompassBearingDeg(const float view_fwd[3], const float to_marker[3]) {
   float fx = view_fwd[0], fz = view_fwd[2];
   float tx = to_marker[0], tz = to_marker[2];
-  const float fl = __builtin_sqrtf(fx * fx + fz * fz);
-  const float tl = __builtin_sqrtf(tx * tx + tz * tz);
+  const float fl = std::sqrt(fx * fx + fz * fz);
+  const float tl = std::sqrt(tx * tx + tz * tz);
   if (fl < 1e-6f || tl < 1e-6f) return 0.0f;
   fx /= fl;
   fz /= fl;

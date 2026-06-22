@@ -1,6 +1,7 @@
 #ifndef RECREATION_WORLD_INTERACTION_H_
 #define RECREATION_WORLD_INTERACTION_H_
 
+#include <cmath>
 #include <cstdint>
 
 namespace rec::world {
@@ -33,7 +34,7 @@ inline int PickActivationTarget(const float player_pos[3], const float player_fw
     const float dz = candidates[i].pos[2] - player_pos[2];
     const float dist_sq = dx * dx + dy * dy + dz * dz;
     if (dist_sq > max_range_sq || dist_sq <= 0.0f) continue;
-    const float inv = 1.0f / __builtin_sqrtf(dist_sq);
+    const float inv = 1.0f / std::sqrt(dist_sq);
     const float dot = (dx * player_fwd[0] + dy * player_fwd[1] + dz * player_fwd[2]) * inv;
     if (dot >= best_dot) {
       best_dot = dot;
@@ -59,7 +60,7 @@ inline bool ShoveOutOfRadius(const float pusher[3], const float target[3], float
   const float dist_sq = dx * dx + dz * dz;
   if (dist_sq >= radius * radius) return false;
   out[1] = target[1];
-  const float dist = __builtin_sqrtf(dist_sq);
+  const float dist = std::sqrt(dist_sq);
   if (dist < 1e-4f) {  // exactly on top of the pusher: pick a fixed direction
     out[0] = pusher[0] + radius;
     out[2] = pusher[2];
