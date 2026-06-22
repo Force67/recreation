@@ -782,6 +782,9 @@ const char* FindFont() {
     resolved = env;
     return resolved.c_str();
   }
+#if !defined(_WIN32)
+  // fontconfig's fc-match is the Linux/BSD source of truth; Windows has no such
+  // tool, so it falls straight through to the candidate list below.
   if (FILE* p = popen("fc-match -f '%{file}' 'sans:style=Regular' 2>/dev/null", "r")) {
     char buf[1024];
     size_t n = std::fread(buf, 1, sizeof(buf) - 1, p);
@@ -796,11 +799,17 @@ const char* FindFont() {
       }
     }
   }
+#endif
   static const char* candidates[] = {
+#if defined(_WIN32)
+      "C:/Windows/Fonts/segoeui.ttf",
+      "C:/Windows/Fonts/arial.ttf",
+#else
       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
       "/usr/share/fonts/TTF/DejaVuSans.ttf",
       "/usr/share/fonts/noto/NotoSans-Regular.ttf",
       "/run/current-system/sw/share/X11/fonts/DejaVuSans.ttf",
+#endif
   };
   for (const char* c : candidates) {
     if (fs::exists(c)) {

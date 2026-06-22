@@ -14,8 +14,11 @@
 namespace rec {
 
 // printf into a std::string. Attributed so the compiler still type-checks the
-// format at each call site.
-__attribute__((format(printf, 1, 2))) inline std::string Fmt(const char* fmt, ...) {
+// format at each call site (GCC/Clang only; MSVC has no equivalent here).
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 1, 2)))
+#endif
+inline std::string Fmt(const char* fmt, ...) {
   char buf[600];
   va_list ap;
   va_start(ap, fmt);
