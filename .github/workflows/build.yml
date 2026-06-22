@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build zlib1g-dev glslang-tools \
-            libfreetype-dev \
+            libfreetype-dev libharfbuzz-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
             libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
@@ -84,6 +84,13 @@ jobs:
           curl.exe -fsSL -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
           Expand-Archive glslang.zip -DestinationPath $env:GITHUB_WORKSPACE\glslang
           Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\glslang\bin"
+      - name: ui deps (freetype, harfbuzz, pkg-config)
+        run: |
+          choco install pkgconfiglite -y --no-progress
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install freetype:x64-windows harfbuzz:x64-windows
+          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+          Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$vcpkg\lib\pkgconfig"
+          Add-Content -Path $env:GITHUB_PATH -Value "$vcpkg\bin"
       - name: third-party deps
         shell: bash
         run: |
