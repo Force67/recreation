@@ -102,7 +102,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_SPIRV_CODEGEN=ON \
             -DSPIRV_BUILD_TESTS=OFF \
-            -DLLVM_ENABLE_ASSERTIONS=OFF
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DHLSL_DISABLE_SOURCE_GENERATION=ON
           cmake --build dxc-build --target dxc
           mkdir -p dxc-install/bin dxc-install/lib
           cp dxc-build/bin/dxc dxc-install/bin/
