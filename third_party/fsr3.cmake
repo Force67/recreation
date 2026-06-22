@@ -144,7 +144,6 @@ add_library(recreation::ffx_fsr3 ALIAS recreation_ffx_fsr3)
 add_dependencies(recreation_ffx_fsr3 ffx_fsr3_shaders)
 target_include_directories(recreation_ffx_fsr3
   PUBLIC
-    ${FFX_SHIM}/include  # interposed ffx_types.h, must precede the SDK
     ${FFX_SDK}/include
   PRIVATE
     ${FFX_SDK}/src
@@ -153,6 +152,12 @@ target_include_directories(recreation_ffx_fsr3
     ${FFX_SDK}/src/backends/shared
     ${FFX_FSR3_SHADER_DIR}
 )
+if(NOT WIN32)
+  # The interposed ffx_types.h bumps the SDK's default context size to cover the
+  # 4-byte-wchar_t bloat, using #include_next (which MSVC lacks). Windows keeps
+  # the 2-byte wchar_t the SDK sizes for, so the real header is used directly.
+  target_include_directories(recreation_ffx_fsr3 BEFORE PUBLIC ${FFX_SHIM}/include)
+endif()
 target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_FSR3UPSCALER)
 if(MSVC)
   # /FI force-includes ffx_compat.h (volk routing); FFX_GCC stays undefined so
