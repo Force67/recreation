@@ -124,7 +124,11 @@ bool NpcDirector::StepNpcSteering(ecs::Entity actor, const float goal[3], float 
 
 void NpcDirector::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
+#if RECREATION_HAS_NET
   if (followers_.empty() || !actors_->HasPlayer() || ctx_.client_session) return;
+#else
+  if (followers_.empty() || !actors_->HasPlayer()) return;
+#endif
   Vec3 ppos;
   if (!actors_->PlayerWorldPos(&ppos)) return;
   const float leader_pos[3] = {ppos.x, ppos.y, ppos.z};
@@ -216,7 +220,11 @@ Vec3 NpcDirector::PathToward(const Vec3& from, const Vec3& goal) { return Naviga
 
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
+#if RECREATION_HAS_NET
   if (guides_.empty() || ctx_.client_session) return;
+#else
+  if (guides_.empty()) return;
+#endif
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
         const Vec3* target = guides_.find(link.form.packed());

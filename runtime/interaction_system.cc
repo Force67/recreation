@@ -162,8 +162,10 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
       // Entered a load door (teleport / cell transition).
     } else if (TryOpenContainer(handle)) {
       // Opened a container's loot view.
+#if RECREATION_HAS_NET
     } else if (ctx_.client_session && ctx_.client_session->joined()) {
       ctx_.client_session->SendActivate(handle);
+#endif
     } else {
       RaiseActivate(handle);
     }
@@ -236,9 +238,11 @@ void InteractionSystem::SelectDialogueOption(int index) {
   dialogue_session_.npc_line = opt.npc_line;  // show the reply
   // Firing the INFO fragment (which advances the quest) is server-authoritative:
   // a client asks the server, the host / single-player runs it directly.
+#if RECREATION_HAS_NET
   if (ctx_.client_session && ctx_.client_session->joined())
     ctx_.client_session->SendDialogueSelect(opt.info);
   else
+#endif
     RunInfoFragment(opt.info);
 }
 
