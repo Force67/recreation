@@ -143,6 +143,7 @@ set(RECREATION_MODULES
   asset
   render
   physics
+  anim
   bethesda
   world
   net
