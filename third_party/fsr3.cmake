@@ -46,6 +46,14 @@ target_compile_options(ffx_sc PRIVATE -w)
 set_target_properties(ffx_sc PROPERTIES
   C_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie"
   CXX_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie")
+# Outside the nix dev shell (e.g. the Ubuntu CI image) NIX_HARDENING_ENABLE is
+# inert, but those toolchains still default _FORTIFY_SOURCE on at -O2+, so the
+# same MD5 snprintf overflow aborts the tool. Turn fortify off on the command
+# line too; the two switches are complementary (each is a no-op on the other's
+# toolchain).
+if(NOT MSVC)
+  target_compile_options(ffx_sc PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
+endif()
 target_link_libraries(ffx_sc PRIVATE Threads::Threads)
 
 # ---------------------------------------------------------------------------
