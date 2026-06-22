@@ -75,6 +75,16 @@ public sealed class StarfieldMod : IMod
             JumpRangeLy = config.GetFloat("shipJumpRangeLy", 18f),
             CargoCapacity = config.GetFloat("shipCargoCapacity", 600f),
         });
+        // The cross-game NPC reaction layer (Modding): a wanted/heat meter, the
+        // guard confrontation it drives, NPC daily schedules, and bystander alarm.
+        // Shared with the other primaries (see SkyrimMod); NpcDisposition/NpcMorale
+        // are static resolvers and need no registration.
+        var wanted = new WantedLevel();
+        ModHost.Register(wanted);
+        ModHost.Register(new GuardResponse(wanted));
+        ModHost.Register(new NpcRoutine());
+        ModHost.Register(new BystanderReaction());
+
         // Surfaces the systems above to the player as corner notifications.
         ModHost.Register(new StarfieldNotifications());
 

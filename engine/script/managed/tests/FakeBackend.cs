@@ -193,6 +193,14 @@ public sealed class FakeBackend : IEngineBackend
         else _inCombat.Remove(actor);
     }
 
+    // Marks an actor dead, for IsDead (the social layer skips corpses).
+    private readonly HashSet<ulong> _dead = new();
+    public void SetActorDead(ulong actor, bool value)
+    {
+        if (value) _dead.Add(actor);
+        else _dead.Remove(actor);
+    }
+
     // The last global call seen, for asserting the thin API wrappers dispatch to
     // the right native with the right arguments.
     public string LastGlobalType { get; private set; } = "";
@@ -304,6 +312,8 @@ public sealed class FakeBackend : IEngineBackend
             }
             case "IsInCombat":
                 return Value.Bool(_inCombat.Contains(self));
+            case "IsDead":
+                return Value.Bool(_dead.Contains(self));
             case "GetBaseObject":
                 return Value.Object(_baseObject.TryGetValue(self, out ulong b2) ? b2 : self);
             case "IsEssential":

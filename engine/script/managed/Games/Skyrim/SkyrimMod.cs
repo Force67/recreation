@@ -50,6 +50,16 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new BeastForm());
         ModHost.Register(new ShoutCooldown());
 
+        // The cross-game NPC reaction layer (Modding): a wanted/heat meter, the
+        // guard confrontation it drives, NPC daily schedules, and bystander alarm.
+        // Installs under every primary game; NpcDisposition/NpcMorale are static
+        // resolvers and need no registration.
+        var wanted = new WantedLevel();
+        ModHost.Register(wanted);
+        ModHost.Register(new GuardResponse(wanted));
+        ModHost.Register(new NpcRoutine());
+        ModHost.Register(new BystanderReaction());
+
         // Survival hunger is opt-in (it is not vanilla behaviour); enable it with
         // "survivalNeeds": true in Skyrim.json.
         if (config.GetBool("survivalNeeds", false))

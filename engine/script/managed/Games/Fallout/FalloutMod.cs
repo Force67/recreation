@@ -65,6 +65,16 @@ public sealed class FalloutMod : IMod
             RegenDelay = config.GetFloat("apRegenDelay", 1.0f),
             BaseMax = config.GetFloat("apBaseMax", 60f),
         });
+        // The cross-game NPC reaction layer (Modding): a wanted/heat meter, the
+        // guard confrontation it drives, NPC daily schedules, and bystander alarm.
+        // Shared with the other primaries (see SkyrimMod); NpcDisposition/NpcMorale
+        // are static resolvers and need no registration.
+        var wanted = new WantedLevel();
+        ModHost.Register(wanted);
+        ModHost.Register(new GuardResponse(wanted));
+        ModHost.Register(new NpcRoutine());
+        ModHost.Register(new BystanderReaction());
+
         // Surfaces the systems above to the player as corner notifications.
         ModHost.Register(new CommonwealthNotifications());
 

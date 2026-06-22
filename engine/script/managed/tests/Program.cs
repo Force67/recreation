@@ -26,6 +26,10 @@ internal static class Program
         FalloutActionPointsTests.Run(check);
         FalloutNotificationsTests.Run(check);
         FalloutGameplayDebugTests.Run(check);
+        FalloutDamageResistanceTests.Run(check);
+        FalloutWeaponDamageTests.Run(check);
+        FalloutSneakAttackTests.Run(check);
+        FalloutLegendaryEffectsTests.Run(check);
         StarfieldOxygenTests.Run(check);
         StarfieldAfflictionsTests.Run(check);
         StarfieldHazardsTests.Run(check);
@@ -45,6 +49,15 @@ internal static class Program
         StarfieldPersuasionTests.Run(check);
         StarfieldShipSystemsTests.Run(check);
         StarfieldEquipmentTests.Run(check);
+        StarfieldDamageMitigationTests.Run(check);
+        StarfieldWeaponSystemsTests.Run(check);
+        StarfieldCombatStatusTests.Run(check);
+        WantedLevelTests.Run(check);
+        NpcDispositionTests.Run(check);
+        GuardResponseTests.Run(check);
+        NpcRoutineTests.Run(check);
+        BystanderReactionTests.Run(check);
+        NpcMoraleTests.Run(check);
         InventoryTests.Run(check);
         ActorDataTests.Run(check);
         WrapperDispatchTests.Run(check);
