@@ -137,6 +137,16 @@ std::unique_ptr<Device> Device::Create(const DeviceDesc& desc, Window& window) {
   bool debug_utils = HasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   if (debug_utils) instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
+  // MoltenVK exposes its GPU only as a portability-subset device, which the
+  // loader hides unless the instance opts in via this extension and flag.
+  VkInstanceCreateFlags instance_flags = 0;
+#if defined(__APPLE__)
+  if (HasInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
+    instance_extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+  }
+#endif
+
 #if defined(RECREATION_HAS_DLSS)
   // DLSS/NGX must have its instance and device extensions enabled at creation
   // time. The list is static (no init needed); the device half is stashed for
@@ -168,6 +178,7 @@ std::unique_ptr<Device> Device::Create(const DeviceDesc& desc, Window& window) {
   app_info.apiVersion = VK_API_VERSION_1_3;
 
   VkInstanceCreateInfo instance_info{.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  instance_info.flags = instance_flags;
   instance_info.pApplicationInfo = &app_info;
   instance_info.enabledLayerCount = static_cast<u32>(layers.size());
   instance_info.ppEnabledLayerNames = layers.data();
@@ -221,6 +232,14 @@ std::unique_ptr<Device> Device::Create(const DeviceDesc& desc, Window& window) {
 
   auto available = DeviceExtensions(device->physical_device_);
   base::Vector<const char*> device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+  // A portability-subset device (MoltenVK) must have this extension enabled when
+  // it advertises it, otherwise vkCreateDevice fails.
+#if defined(__APPLE__)
+  if (HasExtension(available, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)) {
+    device_extensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+  }
+#endif
 
   bool want_raytracing = desc.request_raytracing &&
                          HasExtension(available, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&

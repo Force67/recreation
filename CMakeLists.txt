@@ -31,6 +31,19 @@ if(ANDROID)
   set(RECREATION_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 endif()
 
+# macOS runs Vulkan through MoltenVK (Vulkan-on-Metal). The three GPU-vendor
+# backends do not apply: DLSS ships an x86_64 NVIDIA-only host library, and the
+# FSR3/NRD shader-permutation toolchains have no validated MoltenVK path (their
+# vk backends target native AMD/NVIDIA Vulkan). The raster path is the real path
+# here, so force them off for a clean Apple configure; windowing (SDL3/Metal),
+# physics (Jolt), networking and the tools all stay on. The portability bits the
+# loader needs are handled in the renderer (see engine/render/vulkan).
+if(APPLE)
+  set(RECREATION_DLSS OFF CACHE BOOL "" FORCE)
+  set(RECREATION_FSR3 OFF CACHE BOOL "" FORCE)
+  set(RECREATION_NRD OFF CACHE BOOL "" FORCE)
+endif()
+
 # Sanitizer build for the regression suite: the papyrus vm (parser, interpreter,
 # native dispatch, threaded guest) is validated memory-safe, leak-free and
 # UB-free over the whole shipped corpus under these. Applied globally so the

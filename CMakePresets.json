@@ -14,6 +14,13 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
+      "name": "macos",
+      "binaryDir": "${sourceDir}/build/macos",
+      "generator": "Ninja",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "RECREATION_FETCH_SDL3": "ON" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
       "name": "android",
       "binaryDir": "${sourceDir}/build/android",
       "generator": "Ninja",
