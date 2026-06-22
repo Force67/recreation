@@ -47,6 +47,13 @@ struct EngineConfig {
   base::Vector<ExtraDomainConfig> extra_domains;
   std::string gltf_path;  // standalone gltf/glb scene (e.g. sponza)
   std::string demo_scene;  // "water" = empty map with a water sheet
+  // Open the NEXUS main menu instead of loading content directly; the player
+  // picks a universe there and the engine loads it on demand (EnterUniverse).
+  // Defaults on for a bare windowed launch with no content source.
+  bool main_menu = false;
+  // Spawn a walkable player and enter walk mode after the world loads (set when
+  // entering a universe from the main menu, alongside the REC_PLAYER env gate).
+  bool spawn_player = false;
   bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect
   // Exterior cell the camera starts in. When the user does not pass --cell the
   // engine substitutes a content-dense cell for the detected game (Whiterun for

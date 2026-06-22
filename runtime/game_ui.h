@@ -279,6 +279,8 @@ class GameUi {
   void SetMainMenuBackdrop(int universe, u64 texture);
   void SetMainMenuStats(const MainMenuStats& stats);
   void SetMainMenuMods(const std::vector<std::string>& mods);
+  // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
+  int selected_universe() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.
   MainMenuRequest PollMainMenuRequest();
 

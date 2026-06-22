@@ -133,6 +133,24 @@ class Engine {
 
  private:
   bool LoadGameData();
+  // NEXUS main menu. ResolveUniverses fills menu_universes_ (the three games'
+  // data dirs from args / env / a Steam scan); SetupMainMenu opens the menu
+  // without loading a game; EnterUniverse loads the chosen game on demand so its
+  // C# gameplay module boots (the module gates on being the primary domain).
+  // UpdateMainMenu drives nav + dispatch each frame; RefreshMenuData feeds it
+  // the live player / network / mods data.
+  void ResolveUniverses();
+  void SetupMainMenu();
+  void EnterUniverse(int idx, bool multiplayer, bool host, const std::string& join_address);
+  void UpdateMainMenu(f32 dt);
+  void RefreshMenuData();
+  // Loads any cached game-scene frames (thumbs/menu_<slug>.png, captured by a
+  // previous playthrough) as the menu's column backdrops, so the columns show
+  // real worlds instead of the themed gradients once a game has been played.
+  void LoadMenuBackdrops();
+  // Per-frame: a few seconds after entering a universe, grabs one clean frame of
+  // its world (HUD/overlays hidden) into the backdrop cache for next time.
+  void TickMenuCapture();
   // Loads each --add-game as a live secondary content domain: its own data,
   // records and Papyrus microvm, run alongside the primary (rendered) game.
   void LoadExtraDomains();
@@ -175,6 +193,26 @@ class Engine {
 
   EngineConfig config_;
   bethesda::Game game_ = bethesda::Game::kUnknown;
+
+  // The three universes the NEXUS main menu offers, in column order (Skyrim,
+  // Fallout 4, Starfield); resolved at menu setup from --data-dir/--add-game,
+  // env overrides (REC_SKYRIM_DATA/REC_FALLOUT4_DATA/REC_STARFIELD_DATA) or a
+  // scan of the Steam libraries. main_menu_active_ is true while the menu owns
+  // the screen, before a universe has been entered.
+  struct MenuUniverse {
+    bethesda::Game game = bethesda::Game::kUnknown;
+    std::string name;
+    std::string data_dir;
+    std::string plugins_txt;
+    bool available = false;
+  };
+  std::array<MenuUniverse, 3> menu_universes_;
+  bool main_menu_active_ = false;
+  // Deferred capture of the entered world into the backdrop cache: counts down
+  // after EnterUniverse, hiding the HUD for the grab frame so the cached scene
+  // is clean. Idle at 0.
+  int menu_capture_countdown_ = 0;
+  std::string menu_capture_path_;
 
   std::unique_ptr<Window> window_;
   std::unique_ptr<JobSystem> jobs_;

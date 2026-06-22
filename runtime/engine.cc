@@ -24,6 +24,10 @@
 #include "world/components.h"
 #include "world/interaction.h"
 
+#if defined(RECREATION_HAS_UGUI)
+#include <stb_image.h>  // load cached menu backdrops (windowed client only)
+#endif
+
 namespace rec {
 
 // A stable per-game slug stored in the editor's layout file (defined below).
@@ -113,7 +117,17 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
     });
   }
 
-  if (!config_.gltf_path.empty()) {
+  // A bare windowed launch (no content source, no networking role) opens the
+  // NEXUS main menu as the front door.
+  if (!config_.main_menu && config_.data_dir.empty() && config_.gltf_path.empty() &&
+      config_.demo_scene.empty() && !config_.headless && !config_.host_server &&
+      config_.connect_address.empty()) {
+    config_.main_menu = true;
+  }
+
+  if (config_.main_menu && !config_.headless) {
+    SetupMainMenu();  // pick a universe; the game loads on demand (EnterUniverse)
+  } else if (!config_.gltf_path.empty()) {
     if (!LoadGltfScene()) return false;
   } else if (!config_.data_dir.empty()) {
     if (!LoadGameData()) return false;
@@ -122,7 +136,8 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   }
 
 #if RECREATION_HAS_NET
-  if (!StartNetworking()) return false;
+  // In menu mode the session is opened later, when a universe is entered.
+  if (!config_.main_menu && !StartNetworking()) return false;
 #endif
 
   scheduler_.AddSystem(ecs::Stage::kPostSim, "cell_streaming", [this](ecs::World& world, f32) {
@@ -445,6 +460,7 @@ bool Engine::RunFrame() {
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());
+      TickMenuCapture();  // grab a clean backdrop frame after entering a universe
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
       actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
@@ -605,6 +621,248 @@ void Engine::BootManagedScripting() {
     host->QueueEvent({rec::script::host::ManagedEventId::kFormUnloaded, form, 0, 0, 0.0f});
   });
   ctx_.managed = host;  // let subsystems (interaction, ...) raise managed events
+}
+
+// The C# gameplay modules each universe installs once it is the primary domain,
+// previewed on the menu's Mods screen before the game loads. Skyrim and
+// Starfield ship a full layer (SkyrimMod / StarfieldMod); Fallout 4 runs the
+// shared SDK for now.
+static std::vector<std::string> MenuModulesFor(int universe) {
+  switch (universe) {
+    case 0:
+      return {"Attribute Regeneration", "Quest Progress",     "Combat Tracker",
+              "Essential Protection",    "Injury Slowdown",    "Time of Day",
+              "Encumbrance",             "Location Discovery", "Harvesting",
+              "Book Learning",           "Racial Abilities",   "Blessing Upkeep",
+              "Vampirism",               "Lycanthropy",        "Shout Cooldown"};
+    case 2:
+      return {"Oxygen / CO2", "Environmental Hazards", "Mass Encumbrance", "Well Rested",
+              "Quest Rewards", "Combat Rewards",       "Discovery XP",     "Notifications"};
+    default:
+      return {"Recreation SDK", "Event Bus", "Fallout 4 content domain"};
+  }
+}
+
+void Engine::ResolveUniverses() {
+  namespace fs = std::filesystem;
+  struct Spec {
+    bethesda::Game game;
+    const char* name;
+    const char* env;
+    const char* subdir;
+  };
+  const Spec specs[3] = {
+      {bethesda::Game::kSkyrimSe, "Skyrim", "REC_SKYRIM_DATA", "Skyrim Special Edition/Data"},
+      {bethesda::Game::kFallout4, "Fallout 4", "REC_FALLOUT4_DATA", "Fallout 4/Data"},
+      {bethesda::Game::kStarfield, "Starfield", "REC_STARFIELD_DATA", "Starfield/Data"},
+  };
+  // Steam "common" roots to scan when no explicit path is configured.
+  const char* roots[] = {
+      "/speed/SteamLibrary/steamapps/common",
+      "/home/vince/.local/share/Steam/steamapps/common",
+      "/home/vince/.steam/steam/steamapps/common",
+  };
+  auto from_config = [&](bethesda::Game g) -> std::pair<std::string, std::string> {
+    if (config_.game == g && !config_.data_dir.empty())
+      return {config_.data_dir, config_.plugins_txt};
+    for (const auto& d : config_.extra_domains)
+      if (d.game == g && !d.data_dir.empty()) return {d.data_dir, d.plugins_txt};
+    return {"", ""};
+  };
+  for (int i = 0; i < 3; ++i) {
+    MenuUniverse& u = menu_universes_[i];
+    u.game = specs[i].game;
+    u.name = specs[i].name;
+    u.data_dir.clear();
+    u.plugins_txt.clear();
+    auto [cd, cp] = from_config(specs[i].game);  // explicit --data-dir / --add-game wins
+    if (!cd.empty()) {
+      u.data_dir = cd;
+      u.plugins_txt = cp;
+    }
+    if (u.data_dir.empty())
+      if (const char* e = std::getenv(specs[i].env)) u.data_dir = e;  // env override
+    if (u.data_dir.empty()) {                                         // Steam scan
+      for (const char* root : roots) {
+        std::error_code ec;
+        fs::path p = fs::path(root) / specs[i].subdir;
+        if (fs::exists(p, ec)) {
+          u.data_dir = p.string();
+          break;
+        }
+      }
+    }
+    if (u.plugins_txt.empty() && !u.data_dir.empty()) u.plugins_txt = u.data_dir + "/../plugins.txt";
+    std::error_code ec;
+    u.available = !u.data_dir.empty() && fs::exists(u.data_dir, ec);
+    REC_INFO("menu universe {}: {} -> {}", i, u.name,
+             u.available ? u.data_dir : std::string("(unavailable)"));
+  }
+}
+
+void Engine::SetupMainMenu() {
+  main_menu_active_ = true;
+  ResolveUniverses();
+  std::vector<std::string> names;
+  std::vector<bool> avail;
+  for (const MenuUniverse& u : menu_universes_) {
+    names.push_back(u.name);
+    avail.push_back(u.available);
+  }
+  game_ui_.SetMainMenuUniverses(names, avail);
+  game_ui_.OpenMainMenu();
+  LoadMenuBackdrops();          // real scenes from past playthroughs, if cached
+  debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
+  REC_INFO("nexus main menu open");
+}
+
+void Engine::EnterUniverse(int idx, bool multiplayer, bool host, const std::string& join_address) {
+  if (idx < 0 || idx >= static_cast<int>(menu_universes_.size())) return;
+  const MenuUniverse& u = menu_universes_[idx];
+  if (!u.available) {
+    REC_WARN("universe {} has no data; cannot enter", u.name);
+    return;
+  }
+  REC_INFO("entering universe {}{}", u.name,
+           multiplayer ? (host ? " (hosting)" : " (joining)") : "");
+  config_.game = u.game;
+  config_.data_dir = u.data_dir;
+  config_.plugins_txt = u.plugins_txt;
+  config_.spawn_player = true;
+  if (multiplayer) {
+    if (host)
+      config_.host_server = true;
+    else
+      config_.connect_address = join_address;
+  }
+  game_ui_.CloseMainMenu();
+  main_menu_active_ = false;
+  debug_ui_.SetVisible(std::getenv("REC_HIDE_DEBUG_UI") == nullptr);
+  if (!LoadGameData()) {  // boots the managed world, so the game's C# module installs
+    REC_ERROR("failed to load universe {}", u.name);
+    return;
+  }
+  // Opt-in (REC_MENU_CAPTURE): grab a clean frame of this world for the menu
+  // backdrop cache once it has streamed in, so a later menu shows the real scene.
+  // Off by default, since a mid-stream grab can catch an unsettled frame.
+  if (!config_.headless && std::getenv("REC_MENU_CAPTURE")) {
+    menu_capture_path_ = "thumbs/menu_" + GameSlug(config_.game) + ".png";
+    menu_capture_countdown_ = 600;  // ~10s at 60fps to let streaming + RT settle
+  }
+#if RECREATION_HAS_NET
+  if (config_.host_server || !config_.connect_address.empty()) {
+    if (!StartNetworking()) REC_WARN("networking failed to start");
+  }
+#endif
+}
+
+void Engine::UpdateMainMenu(f32 dt) {
+  (void)dt;
+  const InputState& in = window_->input();
+  window_->SetRelativeMouseMode(false);  // free cursor so the menu can be clicked
+
+  // Test hook: REC_MENU_AUTOPLAY=<0|1|2> drives the same select-then-PLAY path a
+  // mouse/keyboard would, so the menu->request->boot chain runs without input.
+  if (const char* ap = std::getenv("REC_MENU_AUTOPLAY")) {
+    static int beat = 0;
+    if (++beat == 45) {
+      game_ui_.MainMenuMove(std::atoi(ap) - game_ui_.selected_universe(), 0);  // pick the column
+      game_ui_.MainMenuActivate();  // PLAY -> kEnterUniverse, dispatched by the poll below
+    }
+  }
+
+  if (in.key_pressed(Key::kW)) game_ui_.MainMenuMove(0, -1);
+  if (in.key_pressed(Key::kS)) game_ui_.MainMenuMove(0, +1);
+  if (in.key_pressed(Key::kA)) game_ui_.MainMenuMove(-1, 0);
+  if (in.key_pressed(Key::kD)) game_ui_.MainMenuMove(+1, 0);
+  if (in.key_pressed(Key::kReturn) || in.key_pressed(Key::kSpace)) game_ui_.MainMenuActivate();
+  if (in.key_pressed(Key::kEscape)) game_ui_.MainMenuBack();
+
+  RefreshMenuData();
+
+  const MainMenuRequest req = game_ui_.PollMainMenuRequest();
+  switch (req.kind) {
+    case MainMenuRequest::Kind::kEnterUniverse:
+      EnterUniverse(req.universe, false, false, "");
+      break;
+    case MainMenuRequest::Kind::kHostServer:
+      EnterUniverse(req.universe, true, true, "");
+      break;
+    case MainMenuRequest::Kind::kJoinServer:
+      EnterUniverse(req.universe, true, false,
+                    req.address.empty() ? std::string("127.0.0.1") : req.address);
+      break;
+    case MainMenuRequest::Kind::kQuit:
+      RequestQuit();
+      break;
+    case MainMenuRequest::Kind::kNone:
+      break;
+  }
+}
+
+void Engine::RefreshMenuData() {
+  MainMenuStats stats;
+  stats.player_name = "Wanderer";
+  stats.level = 42;
+  stats.net_status = "Offline";
+#if RECREATION_HAS_NET
+  if (server_session_) {
+    stats.players_online = static_cast<int>(server_session_->client_count());
+    stats.net_status = "Hosting :" + std::to_string(config_.port);
+  } else if (client_session_) {
+    stats.net_status = client_session_->joined() ? "Connected" : "Connecting";
+  }
+#endif
+  game_ui_.SetMainMenuStats(stats);
+  game_ui_.SetMainMenuMods(MenuModulesFor(game_ui_.selected_universe()));
+}
+
+void Engine::LoadMenuBackdrops() {
+#if defined(RECREATION_HAS_UGUI)
+  namespace fs = std::filesystem;
+  for (int i = 0; i < 3; ++i) {
+    const std::string slug = GameSlug(menu_universes_[i].game);
+    const std::string cands[] = {"thumbs/menu_" + slug + ".png", "assets/menu/" + slug + ".png",
+                                 "assets/menu/" + slug + ".jpg"};
+    for (const std::string& path : cands) {
+      std::error_code ec;
+      if (!fs::exists(path, ec)) continue;
+      int w = 0, h = 0, n = 0;
+      unsigned char* px = stbi_load(path.c_str(), &w, &h, &n, 4);
+      if (!px) continue;
+      // A captured frame is full-screen (16:9); the column is a portrait third,
+      // so centre-crop to the column's aspect instead of squishing the scene.
+      const int cw = std::min(w, static_cast<int>(h * 640.0f / 1080.0f + 0.5f));
+      const int cx = (w - cw) / 2;
+      std::vector<unsigned char> crop(static_cast<size_t>(cw) * h * 4);
+      for (int y = 0; y < h; ++y)
+        std::memcpy(crop.data() + static_cast<size_t>(y) * cw * 4,
+                    px + (static_cast<size_t>(y) * w + cx) * 4, static_cast<size_t>(cw) * 4);
+      stbi_image_free(px);
+      const u64 tex = game_ui_.CreateUiTexture(cw, h, crop.data());
+      if (tex) {
+        game_ui_.SetMainMenuBackdrop(i, tex);
+        REC_INFO("menu backdrop {}: {} ({}x{} crop {}x{})", slug, path, w, h, cw, h);
+      }
+      break;
+    }
+  }
+#endif
+}
+
+void Engine::TickMenuCapture() {
+  if (menu_capture_countdown_ <= 0) return;
+  const int c = menu_capture_countdown_--;  // value before this frame's decrement
+  if (c == 5) {                             // hide all overlays a few frames ahead of the grab
+    game_ui_.SetHudVisible(false);
+    debug_ui_.SetAllVisible(false);
+  } else if (c == 2) {  // arm: this frame's RenderFrame writes the clean backbuffer
+    renderer_.CaptureScreenshot(menu_capture_path_);
+  } else if (c == 1) {  // restore the overlays for play
+    game_ui_.SetHudVisible(true);
+    debug_ui_.SetAllVisible(std::getenv("REC_HIDE_DEBUG_UI") == nullptr);
+    REC_INFO("menu backdrop captured: {}", menu_capture_path_);
+  }
 }
 
 bool Engine::LoadGameData() {
@@ -1027,6 +1285,12 @@ bool Engine::LoadGltfScene() {
 
 void Engine::UpdateCamera(f32 frame_delta) {
   if (!window_) return;
+  // The NEXUS main menu owns all input while it is up; gameplay/camera stays
+  // frozen until a universe is entered (which clears main_menu_active_).
+  if (main_menu_active_ && game_ui_.main_menu_open()) {
+    UpdateMainMenu(frame_delta);
+    return;
+  }
   const InputState& input = window_->input();
 
   // The pause menu freezes the camera and frees the cursor so it can click.

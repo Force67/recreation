@@ -443,7 +443,7 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
 
 void ActorSystem::MaybeSpawnWorldPlayer(const Vec3& ground_pos) {
   if (config_.headless) return;
-  if (!std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO") &&
+  if (!config_.spawn_player && !std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO") &&
       !std::getenv("REC_MQ101_SCENE"))
     return;
   // Lift the spawn slightly so the capsule settles onto the floor instead of

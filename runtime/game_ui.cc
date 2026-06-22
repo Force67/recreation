@@ -1964,6 +1964,8 @@ void GameUi::SetMainMenuMods(const std::vector<std::string>& mods) {
   if (impl_->initialized) impl_->mm_mods = mods;
 }
 
+int GameUi::selected_universe() const { return impl_->initialized ? impl_->mm_universe : 0; }
+
 MainMenuRequest GameUi::PollMainMenuRequest() {
   MainMenuRequest r;
   if (impl_->initialized) {
@@ -2263,6 +2265,7 @@ void GameUi::SetMainMenuUniverses(const std::vector<std::string>&, const std::ve
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
 void GameUi::SetMainMenuMods(const std::vector<std::string>&) {}
+int GameUi::selected_universe() const { return 0; }
 MainMenuRequest GameUi::PollMainMenuRequest() { return {}; }
 
 }  // namespace rec

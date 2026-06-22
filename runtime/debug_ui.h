@@ -110,6 +110,10 @@ class DebugUi {
              NativeTracePanel* trace = nullptr);
 
   void ToggleVisible() { visible_ = !visible_; }
+  void SetVisible(bool v) { visible_ = v; }
+  // Hide/show every overlay window at once (renderer, trace, quests), for clean
+  // captures.
+  void SetAllVisible(bool v) { visible_ = trace_visible_ = quests_visible_ = v; }
   void ToggleTrace() { trace_visible_ = !trace_visible_; }
   void ToggleQuests() { quests_visible_ = !quests_visible_; }
   bool trace_visible() const { return trace_visible_; }

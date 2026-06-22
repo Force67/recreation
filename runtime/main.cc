@@ -11,6 +11,7 @@ void PrintUsage() {
   REC_INFO("  --data-dir <path>     game Data directory");
   REC_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
   REC_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
+  REC_INFO("  --menu                open the NEXUS main menu (pick a universe to play)");
   REC_INFO("  --demo <id>           builtin scene: water | materials | gaussian");
   REC_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
   REC_INFO("  --add-game <spec>     load another game's content live alongside the");
@@ -88,6 +89,7 @@ int main(int argc, char** argv) {
       }
       config.extra_domains.push_back(domain);
     }
+    else if (arg == "--menu") config.main_menu = true;
     else if (arg == "--headless") config.headless = true;
     else if (arg == "--server") config.host_server = true;
     else if (arg == "--connect") config.connect_address = next();
