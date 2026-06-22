@@ -32,8 +32,9 @@ public static class StarfieldNotificationsTests
         EventBus.Publish(new SkillRankUp(fake.Player, "Ballistics", 2));
         EventBus.Publish(new ResearchCompleted(fake.Player, "WeaponEngineering"));
         EventBus.Publish(new ItemCrafted(fake.Player, 0x200, 1));
+        EventBus.Publish(new LocationDiscovered(0x300));
 
-        check.Equal("only the non-quiet events prompt", 9, fake.Notifications.Count);
+        check.Equal("only the non-quiet events prompt", 10, fake.Notifications.Count);
         check.That("out of oxygen prompted", fake.Notifications.Contains("Out of oxygen"));
         check.That("oxygen recovery stayed quiet", !fake.Notifications.Contains("Oxygen low"));
         check.That("CO2 critical prompted", fake.Notifications.Contains("CO2 critical"));
@@ -46,11 +47,12 @@ public static class StarfieldNotificationsTests
         check.That("skill rank prompted", fake.Notifications.Contains("Ballistics rank 2"));
         check.That("research prompted", fake.Notifications.Contains("Research complete: WeaponEngineering"));
         check.That("craft prompted", fake.Notifications.Contains("Item crafted"));
+        check.That("discovery prompted", fake.Notifications.Contains("Location discovered"));
 
         // Removing the behaviour disposes its subscriptions, so later events go quiet.
         ModHost.Unregister(notifications);
         EventBus.Publish(new CharacterLeveledUp(fake.Player, 6));
-        check.Equal("no prompts after the behaviour is removed", 9, fake.Notifications.Count);
+        check.Equal("no prompts after the behaviour is removed", 10, fake.Notifications.Count);
 
         ModHost.Shutdown();
         EventBus.Clear();

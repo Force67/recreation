@@ -33,6 +33,7 @@ public sealed class StarfieldNotifications : GameBehaviour
         On<OverMassChanged>(e => e.OverMass ? "Over-encumbered" : "Mass nominal");
         On<CharacterLeveledUp>(e => $"Level {e.Level}");
         On<SkillRankUp>(e => $"{e.Skill} rank {e.Rank}");
+        On<LocationDiscovered>(_ => "Location discovered");
         On<ResearchCompleted>(e => $"Research complete: {e.ProjectId}");
         On<ItemCrafted>(e => "Item crafted");
     }

@@ -60,6 +60,11 @@ public sealed class StarfieldMod : IMod
         {
             XpPerKill = config.GetFloat("combatXpPerKill", 15f),
         });
+        // Finding a new location pays XP as well, the exploration source.
+        ModHost.Register(new StarfieldDiscovery
+        {
+            XpPerDiscovery = config.GetFloat("discoveryXp", 25f),
+        });
         // Surfaces the systems above to the player as corner notifications.
         ModHost.Register(new StarfieldNotifications());
 

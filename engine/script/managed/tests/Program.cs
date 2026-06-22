@@ -26,6 +26,7 @@ internal static class Program
         StarfieldGameplayDebugTests.Run(check);
         WellRestedTests.Run(check);
         StarfieldEconomyTests.Run(check);
+        StarfieldDiscoveryTests.Run(check);
         InventoryTests.Run(check);
         ActorDataTests.Run(check);
         WrapperDispatchTests.Run(check);
