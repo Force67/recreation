@@ -36,4 +36,18 @@ public static class StarfieldForms
     public const uint ApparelHelmet = 0x0000A312;
     public const uint ApparelPack = 0x0000A313;
     public const uint AmmoKeyword = 0x0000A321;
+
+    // Damage-channel keywords on a weapon's record: Starfield splits a hit across
+    // Physical / Energy / Electromagnetic, each met by the suit's matching
+    // resistance. WeaponSystems and DamageMitigation read the channel from these.
+    // PLACEHOLDER.
+    public const uint DamageTypePhysical = 0x0000A331;
+    public const uint DamageTypeEnergy = 0x0000A332;
+    public const uint DamageTypeElectromagnetic = 0x0000A333;
+    // Weapon firing-class keywords (distinct from the WeaponType* skill keywords
+    // above): the class sets a weapon's falloff feel and damage channel. PLACEHOLDER.
+    public const uint WeaponClassBallistic = 0x0000A341;
+    public const uint WeaponClassLaser = 0x0000A342;
+    public const uint WeaponClassParticle = 0x0000A343;
+    public const uint WeaponClassEm = 0x0000A344;
 }

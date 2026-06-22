@@ -18,4 +18,11 @@ public static class FalloutForms
     // so the addiction system knows which consumables can hook the player.
     // PLACEHOLDER.
     public const uint ChemKeyword = 0x0000B102;
+
+    // Damage-type keywords on a weapon's record (Physical / Energy / Radiation).
+    // Fallout 4 splits a hit across these channels, each met by its own resistance,
+    // so DamageResistance reads the type from these. PLACEHOLDER.
+    public const uint DamageTypePhysical = 0x0004A0A1;
+    public const uint DamageTypeEnergy = 0x0004A0A2;
+    public const uint DamageTypeRadiation = 0x0004A0A3;
 }
