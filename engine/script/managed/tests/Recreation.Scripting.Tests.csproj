@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A dependency-free test runner for the managed scripting layer. A plain
+       console app (no xunit, so it restores and runs offline) that exercises the
+       pure-managed framework: the event bus, behaviour lifecycle, mod discovery
+       and the value/marshalling types. Run with `dotnet run`; it exits with the
+       failure count. The native-boundary code (Native, the bridge) is covered
+       end to end by the pexrun hosttest instead. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Recreation.Scripting.Tests</AssemblyName>
+    <RootNamespace>Recreation.Tests</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Recreation.Scripting.csproj" />
+  </ItemGroup>
+
+</Project>
