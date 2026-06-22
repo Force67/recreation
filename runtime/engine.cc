@@ -244,7 +244,10 @@ bool Engine::StartNetworking() {
         }
         if (!scripts || !binds) return;
         scripts->guest().Submit([binds, status](script::papyrus::VirtualMachine&) {
-          binds->quest_system().ApplyStatus(status);
+          // Apply via the binding (not quest_system directly) so a replicated stage
+          // advance also fires the managed QuestStageChanged event, driving the C#
+          // questing gameplay (XP, journal) on the client as on the host.
+          binds->ApplyReplicatedStatus(status);
         });
         if (std::getenv("REC_NET_QUEST_LOG"))
           REC_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain,

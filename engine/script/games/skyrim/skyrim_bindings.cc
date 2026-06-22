@@ -786,6 +786,17 @@ void RecordBackedSkyrimBindings::RunScriptFragment(u64 quest, i32 node, const st
   RunStageFragment(ObjectRef{quest}, node);
 }
 
+void RecordBackedSkyrimBindings::ApplyReplicatedStatus(const quest::QuestStatus& status) {
+  // The host owns quest progression; a client mirrors its journal here. Detect a
+  // genuinely new stage before applying (ApplyStatus marks it done) so a periodic
+  // re-send of the same journal does not re-fire. A fresh advance emits the managed
+  // event the local SetStage path would, wiring replicated questing into the C#
+  // gameplay (XP rewards and the rest) the same as single-player.
+  const bool fresh = !quest_system_.GetStageDone(status.handle, status.stage);
+  quest_system_.ApplyStatus(status);
+  if (fresh) EmitManagedEvent(host::ManagedEventId::kQuestStageChanged, status.handle, 0, status.stage);
+}
+
 void RecordBackedSkyrimBindings::SetStage(ObjectRef quest, i32 stage) {
   if (replica_mode_) return;  // server-authoritative: stage arrives via ApplyStatus
   // The quest system owns the state and tells us whether this is a fresh stage;

@@ -109,6 +109,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   quest::QuestSystem& quest_system() { return quest_system_; }
   const quest::QuestSystem& quest_system() const { return quest_system_; }
 
+  // Applies a server-replicated quest status on a multiplayer client and, when it
+  // carries a fresh stage, fires the managed QuestStageChanged event so C# mods
+  // (XP rewards, the journal) react to the host's progress exactly as a local
+  // SetStage would. SetStage itself short-circuits in replica mode, so without
+  // this a replicated advance would never reach the managed layer.
+  void ApplyReplicatedStatus(const quest::QuestStatus& status);
+
   papyrus::ObjectRef GetPlayer() override { return player_; }
   papyrus::ObjectRef GetForm(u32 form_id) override;
 

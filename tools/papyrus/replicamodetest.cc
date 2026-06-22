@@ -7,8 +7,11 @@
 
 #include "quest/quest_system.h"
 #include "script/games/skyrim/skyrim_bindings.h"
+#include "script/host/bridge.h"
 
 using rec::quest::QuestStatus;
+using rec::script::host::ManagedEvent;
+using rec::script::host::ManagedEventId;
 using rec::script::papyrus::ObjectRef;
 using rec::script::skyrim::RecordBackedSkyrimBindings;
 
@@ -54,6 +57,41 @@ int main() {
     b.quest_system().ApplyStatus(status);
     Check("replica mirrors server stage via ApplyStatus", b.GetStage(quest) == 20);
     Check("replica mirrors server running via ApplyStatus", b.IsRunning(quest));
+  }
+
+  // A replicated stage advance must also reach the managed layer, so C# questing
+  // gameplay (XP rewards, the journal) fires on a client. ApplyReplicatedStatus
+  // emits the managed event a local SetStage would; plain ApplyStatus does not.
+  {
+    RecordBackedSkyrimBindings b;
+    b.set_replica_mode(true);
+    int quest_events = 0;
+    int last_stage = -1;
+    b.set_event_sink([&](const ManagedEvent& e) {
+      if (e.id == ManagedEventId::kQuestStageChanged) {
+        ++quest_events;
+        last_stage = e.i;
+      }
+    });
+
+    QuestStatus status;
+    status.handle = quest.handle;
+    status.running = true;
+    status.stage = 30;
+    b.ApplyReplicatedStatus(status);
+    Check("replicated apply mirrors the stage", b.GetStage(quest) == 30);
+    Check("replicated apply emits the managed quest event", quest_events == 1);
+    Check("the managed event carries the stage", last_stage == 30);
+
+    // A periodic re-send of the same journal entry is not a new stage.
+    b.ApplyReplicatedStatus(status);
+    Check("re-applying the same stage does not re-fire", quest_events == 1);
+
+    // A further advance fires again.
+    status.stage = 40;
+    b.ApplyReplicatedStatus(status);
+    Check("a new replicated stage fires again", quest_events == 2);
+    Check("the new stage is carried", last_stage == 40);
   }
 
   if (g_failures) {
