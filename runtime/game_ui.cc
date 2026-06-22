@@ -55,6 +55,11 @@ constexpr int kJournalObjRows = 6;      // objectives shown for the selected jou
 constexpr int kContainerRows = 14;      // item rows in the container loot panel
 constexpr float kToastSeconds = 4.0f;
 
+// NEXUS main menu.
+constexpr int kMenuUniverses = 3;  // Skyrim, Fallout 4, Starfield
+constexpr int kMenuNavItems = 6;   // PLAY MULTIPLAYER MODS SETTINGS PROFILE QUIT
+constexpr int kMenuModRows = 16;   // pooled rows on the Mods sub-screen
+
 // The quest tracker (top-right objective list), the "quest updated" banner, and
 // the centered activation prompt. Their text and visibility are driven each
 // frame from engine state; declared empty so they start hidden.
@@ -589,6 +594,418 @@ std::string BuildEditorSection() {
   return s;
 }
 
+// Menu emblems, composed from primitives inside a relative box of `sz` px (the
+// UI font has no symbol set, so the NEXUS marks are built from filled and
+// outlined rects, like the editor glyphs but scalable). `c` is the mark colour.
+std::string MenuGlyph(const std::string& k, const char* c, float sz) {
+  std::string body;
+  char b[256];
+  const float u = sz / 18.0f;  // authored on an 18-unit grid, scaled to sz
+  // Sub-pixel panels confuse the layout (a near-zero height blows up to fill the
+  // parent), so every mark is clamped to at least 1px on each side.
+  auto R = [&](float x, float y, float w, float h, const char* cc, float r = 0) {
+    std::snprintf(b, sizeof(b),
+                  "panel { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                  " background: %s; corner-radius: %g; }\n",
+                  x * u, y * u, std::max(w * u, 1.0f), std::max(h * u, 1.0f), cc, r * u);
+    body += b;
+  };
+  auto O = [&](float x, float y, float w, float h, const char* cc, float bw, float r) {
+    std::snprintf(b, sizeof(b),
+                  "panel { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                  " border-color: %s; border-width: %g; corner-radius: %g; }\n",
+                  x * u, y * u, std::max(w * u, 1.0f), std::max(h * u, 1.0f), cc, bw, r * u);
+    body += b;
+  };
+  // A filled triangle (pyramid of rows) pointing up, base at y+h.
+  auto Tri = [&](float cx, float y, float baseHalf, float h, const char* cc) {
+    const int rows = 7;
+    for (int i = 0; i < rows; ++i) {
+      float t = static_cast<float>(i) / (rows - 1);
+      float w = baseHalf * 2.0f * t;
+      if (w < 1.0f) w = 1.0f;
+      R(cx - w / 2.0f, y + h * t, w, h / rows + 0.7f, cc);
+    }
+  };
+  // A vertical diamond/lozenge centred at (cx,cy); halfH tall, halfW wide.
+  auto Loz = [&](float cx, float cy, float halfW, float halfH, const char* cc) {
+    const int rows = 9;
+    for (int i = 0; i < rows; ++i) {
+      float t = static_cast<float>(i) / (rows - 1);
+      float taper = 1.0f - std::fabs(t - 0.5f) * 2.0f;
+      float w = halfW * 2.0f * taper;
+      if (w < 0.8f) w = 0.8f;
+      R(cx - w / 2.0f, cy - halfH + 2.0f * halfH * t, w, 2.0f * halfH / rows + 0.6f, cc);
+    }
+  };
+
+  if (k == "mountain") {  // top-left logo: twin snow peaks
+    Tri(7, 4, 5.5f, 11, c);
+    Tri(12, 7, 4, 8, c);
+  } else if (k == "skyrim") {  // a tall vertical diamond, dragon-mark shorthand
+    Loz(9, 9, 3.0f, 8.0f, c);
+    R(8, 7, 2, 6, "#00000055");
+  } else if (k == "vault") {  // Fallout: cog ring with ticks
+    O(2, 2, 14, 14, c, 1.8f, 7);
+    R(8, 0, 2, 3, c);
+    R(8, 15, 2, 3, c);
+    R(0, 8, 3, 2, c);
+    R(15, 8, 3, 2, c);
+    R(7, 7, 4, 4, c, 2);
+  } else if (k == "constellation") {  // Starfield: ringed dot with orbit ticks
+    O(3, 3, 12, 12, c, 1.6f, 6);
+    R(7, 7, 4, 4, c, 2);
+    R(14, 2, 2, 2, c, 1);
+    R(2, 13, 2, 2, c, 1);
+  } else if (k == "knot") {  // profile: concentric celtic rings
+    O(1, 1, 16, 16, c, 1.5f, 8);
+    O(4, 4, 10, 10, c, 1.3f, 5);
+    R(8, 1, 2, 16, c);
+    R(1, 8, 16, 2, c);
+    R(7, 7, 4, 4, c, 2);
+  } else if (k == "people") {  // players-online
+    R(2, 8, 6, 7, c, 3);
+    R(3, 4, 4, 4, c, 2);
+    R(10, 8, 6, 7, c, 3);
+    R(11, 4, 4, 4, c, 2);
+  } else if (k == "globe") {
+    O(2, 2, 14, 14, c, 1.4f, 7);
+    R(8, 2, 1.4f, 14, c);
+    R(2, 8, 14, 1.4f, c);
+    O(5, 2, 8, 14, c, 1.1f, 6);
+  } else if (k == "discord") {
+    R(3, 5, 12, 8, c, 4);
+    R(4, 12, 3, 3, c, 1);
+    R(11, 12, 3, 3, c, 1);
+    R(6, 8, 2, 2, "#00000088", 1);
+    R(10, 8, 2, 2, "#00000088", 1);
+  } else if (k == "news") {
+    O(2, 3, 14, 12, c, 1.3f, 2);
+    R(4, 6, 7, 1.6f, c);
+    R(4, 9, 10, 1.4f, c);
+    R(4, 11, 10, 1.4f, c);
+  } else if (k == "gear") {
+    O(4, 4, 10, 10, c, 1.8f, 5);
+    R(8, 1, 2, 3, c);
+    R(8, 14, 2, 3, c);
+    R(1, 8, 3, 2, c);
+    R(14, 8, 3, 2, c);
+    R(2, 3, 2, 2, c, 1);
+    R(14, 3, 2, 2, c, 1);
+  } else if (k == "caret") {  // PLAY's active ► (points right)
+    R(5, 4, 2, 10, c);
+    R(7, 6, 2, 6, c);
+    R(9, 8, 2, 2, c);
+  } else if (k == "triup") {  // bottom-centre up-caret
+    Tri(9, 6, 6, 7, c);
+  } else if (k == "diamond") {
+    Loz(9, 9, 4, 4, c);
+  } else if (k == "sparkle") {  // the NEXUS centre mark: a 4-point star
+    Loz(9, 9, 1.4f, 9, c);
+    Loz(9, 9, 9, 1.4f, c);
+    R(7, 7, 4, 4, c, 2);
+  }
+  std::snprintf(b, sizeof(b), "panel { position: relative; width: %g; height: %g; ", sz, sz);
+  return std::string(b) + body + " }\n";
+}
+
+// The main menu sub-screens (multiplayer / mods / settings / profile): one
+// dimmed overlay with a centred card whose title and body swap by which nav
+// item opened it. Collapsed until a nav item is picked; ApplyMainMenu shows the
+// matching body. Built as a helper so BuildMainMenuSection stays readable.
+std::string BuildMainMenuScreens() {
+  char buf[512];
+  std::string s = R"(
+    panel mm_screen { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
+      layout: column; justify: center; align: center; background: #04060bee; visibility: collapsed;
+      panel mm_card { layout: column; align: start; padding: 34 44; width: 640;
+        background: #0b0e16fa; corner-radius: 16; border-color: #ffffff1c; border-width: 1;
+        shadow-color: #000000aa; shadow-blur: 52; shadow-y: 20;
+        panel { layout: row; align: center; justify: space-between; width: 100%; margin: 0 0 16 0;
+          text mm_screen_title { text: "MULTIPLAYER"; font-size: 25; color: #f2f4fb;
+            letter-spacing: 8; text-transform: uppercase; }
+          panel mm_back { cursor: pointer; padding: 7 14; corner-radius: 8; background: #ffffff12;
+            border-color: #ffffff1c; border-width: 1; :hover { background: #ffffff22; }
+            text { text: "Back"; font-size: 14; color: #cfd6e6; } }
+        }
+        panel { width: 100%; height: 1; background: #ffffff18; margin: 0 0 18 0; }
+)";
+
+  // --- Multiplayer ---
+  s += R"(        panel mm_body_mp { layout: column; gap: 12; width: 100%;
+          text { text: "SELECTED UNIVERSE"; font-size: 11; color: #8a93a8; letter-spacing: 3; }
+          text mm_mp_universe { text: "Skyrim"; font-size: 19; color: #ffcc55; letter-spacing: 1; }
+          panel { layout: row; gap: 12; width: 100%; margin: 6 0 0 0;
+            panel mm_mp_host { flex-grow: 1; cursor: pointer; layout: column; gap: 4; padding: 15 16;
+              corner-radius: 10; background: #ffcc5522; border-color: #ffcc5544; border-width: 1;
+              :hover { background: #ffcc5538; }
+              text { text: "HOST SERVER"; font-size: 15; color: #ffe6a0; letter-spacing: 2; }
+              text { text: "Start a session others can join"; font-size: 12; color: #c9b894; }
+            }
+            panel mm_mp_join { flex-grow: 1; cursor: pointer; layout: column; gap: 4; padding: 15 16;
+              corner-radius: 10; background: #ffffff0c; border-color: #ffffff1c; border-width: 1;
+              :hover { background: #ffffff18; }
+              text { text: "JOIN SERVER"; font-size: 15; color: #e8ecf6; letter-spacing: 2; }
+              text mm_mp_addr { text: "127.0.0.1:29700"; font-size: 12; color: #9aa3b6; }
+            }
+          }
+          text mm_mp_status { text: "Offline"; font-size: 12; color: #8a93a8; margin: 6 0 0 0; }
+          text { text: "The session opens as you enter the world."; font-size: 11; color: #6b7488; }
+        }
+)";
+
+  // --- Mods ---
+  s += R"(        panel mm_body_mods { layout: column; gap: 9; width: 100%;
+          text mm_mods_head { text: "C# GAMEPLAY MODULES"; font-size: 11; color: #8a93a8; letter-spacing: 3; }
+          panel mm_mods_list { layout: column; gap: 5; width: 100%;
+)";
+  for (int i = 0; i < kMenuModRows; ++i) {
+    const std::string id = std::to_string(i);
+    s += "            panel mm_mod" + id +
+         " { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7;"
+         " background: #ffffff06;\n"
+         "              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }\n"
+         "              text mm_modt" + id +
+         " { text: \"\"; font-size: 13; color: #d6dbe7; flex-grow: 1; }\n            }\n";
+  }
+  s += R"(          }
+          text mm_mods_empty { text: "Enter a universe to load its gameplay modules."; font-size: 12; color: #6b7488; }
+        }
+)";
+
+  // --- Settings (controls reference) ---
+  s += R"(        panel mm_body_settings { layout: column; gap: 5; width: 100%;
+          text { text: "CONTROLS"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 0 0 4 0; }
+)";
+  const char* keybinds[][2] = {
+      {"WASD", "Move"},        {"Mouse", "Look"},          {"Shift", "Sprint"},
+      {"E", "Activate / talk"}, {"T", "Toggle walk / fly"}, {"J", "Journal"},
+      {"F3", "Quest debugger"}, {"F4", "Map editor"},       {"Esc", "Pause menu"},
+  };
+  for (const auto& kb : keybinds) {
+    s += "          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;\n"
+         "            text { text: \"" + std::string(kb[1]) +
+         "\"; font-size: 14; color: #d8def0; }\n"
+         "            text { text: \"" + std::string(kb[0]) +
+         "\"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }\n          }\n";
+  }
+  s += "        }\n";
+
+  // --- Profile (live stats) ---
+  s += "        panel mm_body_profile { layout: column; gap: 14; width: 100%;\n"
+       "          panel { layout: row; align: center; gap: 16; width: 100%;\n            " +
+       MenuGlyph("knot", "#cdb98f", 40) +
+       R"(            panel { layout: column; gap: 2;
+              text mm_pf_name { text: "Wanderer"; font-size: 20; color: #eef1f8; }
+              text mm_pf_sub { text: "Level 42"; font-size: 12; color: #9aa3b6; }
+            }
+          }
+          panel { layout: column; gap: 9; width: 100%;
+)";
+  struct Bar {
+    const char* label;
+    const char* track;
+    const char* fill;
+    const char* a;
+    const char* b;
+  };
+  const Bar bars[3] = {
+      {"Health", "mm_pf_htrack", "mm_pf_health", "#b23a3a", "#e8645d"},
+      {"Magicka", "mm_pf_mtrack", "mm_pf_magicka", "#3a63b2", "#5d92e8"},
+      {"Stamina", "mm_pf_strack", "mm_pf_stamina", "#3aa05a", "#5de88a"},
+  };
+  for (const Bar& bar : bars) {
+    std::snprintf(buf, sizeof(buf),
+                  "            panel { layout: row; align: center; gap: 12; width: 100%%;\n"
+                  "              text { text: \"%s\"; font-size: 12; color: #9aa3b6; width: 66; }\n"
+                  "              panel %s { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc;"
+                  " corner-radius: 6; border-color: #00000066; border-width: 1;\n"
+                  "                panel %s { width: 100%%; height: 100%%; corner-radius: 6;"
+                  " background: %s; background-end: %s; }\n              }\n            }\n",
+                  bar.label, bar.track, bar.fill, bar.a, bar.b);
+    s += buf;
+  }
+  s += R"(          }
+          panel { layout: row; gap: 10; width: 100%; margin: 4 0 0 0;
+)";
+  const char* chips[3][2] = {{"GOLD", "mm_pf_gold"}, {"QUESTS", "mm_pf_quests"}, {"LOCATION", "mm_pf_loc"}};
+  for (auto& chip : chips) {
+    s += "            panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9;"
+         " background: #ffffff0a; border-color: #ffffff14; border-width: 1;\n"
+         "              text { text: \"" + std::string(chip[0]) +
+         "\"; font-size: 10; color: #8a93a8; letter-spacing: 2; }\n"
+         "              text " + std::string(chip[1]) +
+         " { text: \"-\"; font-size: 15; color: #eef1f8; }\n            }\n";
+  }
+  s += R"(          }
+          text mm_pf_hint { text: "Enter a universe to begin your story."; font-size: 11; color: #6b7488; }
+        }
+      }
+    }
+)";
+  return s;
+}
+
+// The NEXUS main menu: the startup "choose your universe" screen. Three column
+// backdrops (each a live/captured game scene over a themed gradient), the brand
+// wordmark, the left navigation, a news block, the player banner and the social
+// row, plus the sub-screens for multiplayer / mods / settings / profile. Every
+// stateful element is driven each frame from ApplyMainMenu; starts collapsed.
+std::string BuildMainMenuSection() {
+  std::string s;
+
+  // Per-universe theme: backdrop gradient stops + accent + label + emblem.
+  struct Col {
+    const char* stops;
+    const char* accent;
+    const char* label;
+    const char* emblem;
+  };
+  const Col cols[kMenuUniverses] = {
+      {"#28323f 0%, #38485c 38%, #141b26 78%, #0a0e16 100%", "#9fb4d6", "SKYRIM", "skyrim"},
+      {"#2c2516 0%, #5a4a2c 34%, #2a2014 72%, #0f0b07 100%", "#d8b173", "FALLOUT 4", "vault"},
+      {"#0c1530 0%, #241f48 36%, #11132c 74%, #05060f 100%", "#8ea2e8", "STARFIELD", "constellation"},
+  };
+
+  s += R"(
+  panel mainmenu {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #04060b;
+    panel mm_cols { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; layout: row;
+)";
+  for (int i = 0; i < kMenuUniverses; ++i) {
+    const Col& c = cols[i];
+    const std::string id = std::to_string(i);
+    // Column: themed gradient base, the live backdrop image over it, a soft top
+    // and a strong bottom vignette for legibility, a top selection accent, and
+    // the universe label + emblem near the foot. Built by concatenation (not a
+    // fixed snprintf buffer) so the multi-line emblem glyph never truncates.
+    s += "      panel mm_col" + id +
+         " { flex-grow: 1; height: 100%; position: relative; overflow: hidden; cursor: pointer;\n"
+         "        panel mm_grad" + id +
+         " { position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: #000000;"
+         " gradient-stops: " + c.stops + "; gradient-angle: 180; }\n"
+         "        image mm_bg" + id +
+         " { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }\n"
+         "        panel mm_vtop" + id +
+         " { position: absolute; left: 0; top: 0; width: 100%; height: 200;"
+         " background: #05070ecc; background-end: #05070e00; gradient-angle: 180; }\n"
+         "        panel mm_vbot" + id +
+         " { position: absolute; left: 0; bottom: 0; width: 100%; height: 360;"
+         " background: #04060b00; background-end: #04060bf2; gradient-angle: 180; }\n"
+         "        panel mm_sel" + id +
+         " { position: absolute; left: 0; top: 0; width: 100%; height: 3; background: " + c.accent +
+         "; visibility: collapsed; }\n"
+         "        panel mm_lab" + id +
+         " { position: absolute; left: 0; bottom: 150; width: 100%; layout: column; align: center;"
+         " gap: 14;\n          text mm_labt" + id + " { text: \"" + c.label +
+         "\"; font-size: 17; color: #dfe4ef; letter-spacing: 7; text-transform: uppercase;"
+         " text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }\n          " +
+         MenuGlyph(c.emblem, "#cfd6e6", 26) + "        }\n      }\n";
+  }
+  s += "    }\n";  // close mm_cols
+
+  // Thin seams between the thirds.
+  s += "    panel mm_seaml { position: absolute; left: 33.333%; top: 0; width: 1; height: 100vh;"
+       " background: #00000066; }\n";
+  s += "    panel mm_seamr { position: absolute; left: 66.666%; top: 0; width: 1; height: 100vh;"
+       " background: #00000066; }\n";
+
+  // Top-left brand lockup.
+  s += "    panel mm_logo { position: absolute; left: 40; top: 34; layout: row; align: center; gap: 12;\n      " +
+       MenuGlyph("mountain", "#dfe4ef", 22) +
+       "      text { text: \"NEXUS\"; font-size: 15; color: #e8ecf6; letter-spacing: 6; }\n    }\n";
+
+  // Centre wordmark: N E + star + U S, tagline, ornament.
+  s += R"(    panel mm_word { position: absolute; left: 0; top: 70; width: 100vw;
+      layout: column; align: center; gap: 9;
+      panel { layout: row; align: center; gap: 0;
+        text { text: "NE"; font-size: 60; color: #f4f6fb; letter-spacing: 20;
+          text-shadow-color: #000000aa; text-shadow-x: 0; text-shadow-y: 2; }
+)";
+  s += "        " + MenuGlyph("sparkle", "#eaf0ff", 60) +
+       R"(        text { text: "XUS"; font-size: 60; color: #f4f6fb; letter-spacing: 20;
+          text-shadow-color: #000000aa; text-shadow-x: 0; text-shadow-y: 2; }
+      }
+      text { text: "ONE UNIVERSE. INFINITE STORIES."; font-size: 13; color: #aeb6c8;
+        letter-spacing: 6; text-transform: uppercase; }
+)";
+  s += "      " + MenuGlyph("diamond", "#8a93a8", 14) + "    }\n";
+
+  // Left navigation.
+  const char* nav[kMenuNavItems][2] = {
+      {"PLAY", "Choose your universe"},     {"MULTIPLAYER", "Join or host a server"},
+      {"MODS", "Browse and manage mods"},   {"SETTINGS", "Configure your experience"},
+      {"PROFILE", "View stats and progress"}, {"QUIT", "Exit to desktop"},
+  };
+  s += "    panel mm_nav { position: absolute; left: 44; top: 188; width: 360; layout: column; gap: 24;\n";
+  for (int i = 0; i < kMenuNavItems; ++i) {
+    const std::string id = std::to_string(i);
+    s += "      panel mm_nav" + id +
+         " { layout: row; align: center; gap: 14; padding: 4 8 4 0; cursor: pointer;\n"
+         "        panel mm_caret" + id + " { width: 12; height: 16; visibility: collapsed; " +
+         MenuGlyph("caret", "#ffcc55", 16) +
+         "        }\n"
+         "        panel { layout: column; gap: 2;\n"
+         "          text mm_navt" + id + " { text: \"" + nav[i][0] +
+         "\"; font-size: 23; color: #9aa3b6; letter-spacing: 4;"
+         " text-shadow-color: #000000b0; text-shadow-x: 1; text-shadow-y: 1; }\n"
+         "          text mm_navs" + id + " { text: \"" + nav[i][1] +
+         "\"; font-size: 12; color: #6b7488;"
+         " text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }\n"
+         "        }\n      }\n";
+  }
+  s += "    }\n";
+
+  // Right-hand news block.
+  s += R"(    panel mm_news { position: absolute; right: 48; top: 150; width: 188; layout: column; align: start; gap: 10;
+      text { text: "NEWS"; font-size: 12; color: #aeb6c8; letter-spacing: 5; }
+      panel { layout: row; align: start; gap: 9;
+        panel { width: 4; height: 4; corner-radius: 2; background: #ffcc55; margin: 6 0 0 0; }
+        panel { layout: column; gap: 3;
+          text { text: "CREATION KIT 2 IS LIVE"; font-size: 13; color: #eef1f8; letter-spacing: 1; }
+          text { text: "Build, share, play."; font-size: 13; color: #aeb6c8; }
+          text { text: "Together."; font-size: 13; color: #aeb6c8; }
+        }
+      }
+      panel mm_news_view { layout: column; gap: 4; cursor: pointer; margin: 6 0 0 0;
+        text { text: "VIEW"; font-size: 11; color: #cfd6e6; letter-spacing: 3; }
+        panel { width: 26; height: 1; background: #cfd6e6; }
+      }
+    }
+)";
+
+  // Bottom-left player banner.
+  s += "    panel mm_profilebar { position: absolute; left: 40; bottom: 40; layout: row; align: center; gap: 16;\n";
+  s += "      " + MenuGlyph("knot", "#cdb98f", 46);
+  s += R"(      panel { layout: column; gap: 1;
+        text mm_pname { text: "Wanderer"; font-size: 18; color: #eef1f8; letter-spacing: 1; }
+        text mm_plevel { text: "Level 42"; font-size: 12; color: #9aa3b6; letter-spacing: 1; }
+      }
+      panel { width: 1; height: 34; background: #ffffff24; margin: 0 4; }
+      panel { layout: row; align: center; gap: 8;
+)";
+  s += "        " + MenuGlyph("people", "#9aa3b6", 20) +
+       "        text mm_pcount { text: \"3\"; font-size: 15; color: #cfd6e6; }\n      }\n    }\n";
+
+  // Bottom-centre tagline.
+  s += "    panel mm_foot { position: absolute; left: 0; bottom: 30; width: 100vw; layout: column; align: center; gap: 8;\n      " +
+       MenuGlyph("triup", "#8a93a8", 12) +
+       "      text { text: \"EXPLORE. SURVIVE. BUILD. TOGETHER.\"; font-size: 11; color: #8a93a8;"
+       " letter-spacing: 5; }\n    }\n";
+
+  // Bottom-right social row.
+  s += "    panel mm_icons { position: absolute; right: 40; bottom: 38; layout: row; align: center; gap: 22;\n";
+  const char* icons[4] = {"globe", "discord", "news", "gear"};
+  for (int i = 0; i < 4; ++i)
+    s += "      panel mm_icon" + std::to_string(i) +
+         " { cursor: pointer; " + MenuGlyph(icons[i], "#9aa3b6", 22) + "      }\n";
+  s += "    }\n";
+
+  s += BuildMainMenuScreens();
+  s += "  }\n";  // close mainmenu
+  return s;
+}
+
 std::string BuildUi() {
   std::string s;
   s += R"(
@@ -771,8 +1188,11 @@ panel root {
       }
     }
   }
-}
 )";
+  // The NEXUS startup menu draws last, on top of everything (it is the front
+  // screen). It is a sibling of the pause menu inside root.
+  s += BuildMainMenuSection();
+  s += "}\n";
   return s;
 }
 
@@ -857,6 +1277,29 @@ struct GameUi::Impl {
   EditorView editor;
   std::function<void(const EditorUiEvent&)> editor_sink;
   bool editor_prev_active = false;  // edge-detect to hide/restore the gameplay HUD
+
+  // NEXUS main menu state, driven by the engine and the click router. The
+  // request is raised here (click / keyboard) and consumed by PollMainMenuRequest.
+  bool main_menu_open = false;
+  int mm_universe = 1;  // selected column: 0 Skyrim, 1 Fallout 4, 2 Starfield (centre)
+  int mm_nav = 0;       // highlighted left-nav row (0 PLAY .. 5 QUIT)
+  int mm_screen = 0;    // 0 root, 1 multiplayer, 2 mods, 3 settings, 4 profile
+  int mm_mp_mode = 0;   // last multiplayer choice: 0 host, 1 join
+  MainMenuRequest mm_request;
+  MainMenuStats mm_stats;
+  std::vector<std::string> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
+  std::vector<bool> mm_available{true, true, true};
+  std::vector<std::string> mm_mods;
+  u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};
+  bool mm_prev_open = false;  // edge-detect to hide the gameplay HUD while open
+
+  // Drives every main-menu widget from the state above each frame; collapses the
+  // whole overlay when closed. Activate runs the highlighted nav item.
+  void ApplyMainMenu();
+  void ActivateNav();
+  // Climbs from a clicked widget to the nearest menu-handled name and acts on it.
+  // Returns true if it consumed the click.
+  bool RouteMainMenuClick(ugui::wid target);
 
   void SetStyleField(const char* name, void (*mutate)(ugui::Style&, float), float arg) {
     ugui::wid w = ui.FindWidget(name);
@@ -1211,6 +1654,158 @@ bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
   return false;
 }
 
+void GameUi::Impl::ApplyMainMenu() {
+  SetVisible("mainmenu", main_menu_open);
+  if (!main_menu_open) {
+    mm_prev_open = false;
+    return;
+  }
+  mm_prev_open = true;
+  auto setText = [&](const std::string& n, const std::string& t) {
+    ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
+  };
+
+  // Columns: live backdrop image (only when a texture is set), selection accent,
+  // label text + availability dimming.
+  for (int i = 0; i < kMenuUniverses; ++i) {
+    const std::string id = std::to_string(i);
+    const bool has_bg = mm_backdrop[i] != 0;
+    if (has_bg)
+      ugui::SetImageTexture(ui.FindWidget(("mm_bg" + id).c_str()), mm_backdrop[i], 1.0f, 1.0f);
+    SetVisible(("mm_bg" + id).c_str(), has_bg);
+    SetVisible(("mm_sel" + id).c_str(), i == mm_universe);
+    if (i < static_cast<int>(mm_universe_names.size())) setText("mm_labt" + id, mm_universe_names[i]);
+    const bool avail = i >= static_cast<int>(mm_available.size()) || mm_available[i];
+    SetTextColor(("mm_labt" + id).c_str(), i == mm_universe ? Rgba(0xffffffffu)
+                                           : avail            ? Rgba(0xdfe4efffu)
+                                                              : Rgba(0x596071ffu));
+  }
+
+  // Left nav: caret + highlight on the selected row (QUIT reads red).
+  for (int i = 0; i < kMenuNavItems; ++i) {
+    const std::string id = std::to_string(i);
+    const bool on = i == mm_nav;
+    SetVisible(("mm_caret" + id).c_str(), on);
+    const bool quit = i == kMenuNavItems - 1;
+    SetTextColor(("mm_navt" + id).c_str(), on ? (quit ? Rgba(0xff9a8affu) : Rgba(0xffcc55ffu))
+                                              : Rgba(0x9aa3b6ffu));
+    SetTextColor(("mm_navs" + id).c_str(), on ? Rgba(0xaeb6c8ffu) : Rgba(0x6b7488ffu));
+  }
+
+  // Player banner.
+  setText("mm_pname", mm_stats.player_name);
+  setText("mm_plevel", "Level " + std::to_string(mm_stats.level));
+  setText("mm_pcount", std::to_string(mm_stats.players_online > 0 ? mm_stats.players_online : 3));
+
+  // Sub-screen overlay: title + which body is shown. Body visibility is set
+  // unconditionally (not only when the screen is open) so a body never lingers
+  // visible while its screen is collapsed.
+  SetVisible("mm_screen", mm_screen != 0);
+  SetVisible("mm_body_mp", mm_screen == 1);
+  SetVisible("mm_body_mods", mm_screen == 2);
+  SetVisible("mm_body_settings", mm_screen == 3);
+  SetVisible("mm_body_profile", mm_screen == 4);
+  if (mm_screen != 0) {
+    const char* titles[5] = {"", "MULTIPLAYER", "MODS", "SETTINGS", "PROFILE"};
+    setText("mm_screen_title", titles[mm_screen]);
+  }
+  if (mm_screen == 1) {
+    setText("mm_mp_universe", mm_universe < static_cast<int>(mm_universe_names.size())
+                                  ? mm_universe_names[mm_universe]
+                                  : "");
+    setText("mm_mp_status", mm_stats.net_status.empty() ? "Offline" : mm_stats.net_status);
+  }
+  if (mm_screen == 2) {
+    for (int i = 0; i < kMenuModRows; ++i) {
+      const std::string id = std::to_string(i);
+      const bool row = i < static_cast<int>(mm_mods.size());
+      SetVisible(("mm_mod" + id).c_str(), row);
+      if (row) setText("mm_modt" + id, mm_mods[i]);
+    }
+    SetVisible("mm_mods_empty", mm_mods.empty());
+  }
+  if (mm_screen == 4) {
+    setText("mm_pf_name", mm_stats.player_name);
+    std::string sub = "Level " + std::to_string(mm_stats.level);
+    if (!mm_stats.universe.empty()) sub += "   •   " + mm_stats.universe;
+    setText("mm_pf_sub", sub);
+    auto bar = [&](const char* fill, float v) {
+      SetStyleField(
+          fill, [](ugui::Style& s, float x) { s.width = ugui::Length::Pct(x); },
+          std::clamp(v, 0.0f, 1.0f) * 100.0f);
+    };
+    bar("mm_pf_health", mm_stats.health);
+    bar("mm_pf_magicka", mm_stats.magicka);
+    bar("mm_pf_stamina", mm_stats.stamina);
+    setText("mm_pf_gold", mm_stats.in_game ? std::to_string(mm_stats.gold) : "-");
+    setText("mm_pf_quests", mm_stats.in_game ? std::to_string(mm_stats.active_quests) : "-");
+    setText("mm_pf_loc", mm_stats.location.empty() ? "-" : mm_stats.location);
+    SetVisible("mm_pf_hint", !mm_stats.in_game);
+  }
+}
+
+void GameUi::Impl::ActivateNav() {
+  switch (mm_nav) {
+    case 0:  // PLAY: enter the selected universe (skip if its data is missing)
+      if (mm_universe < static_cast<int>(mm_available.size()) && !mm_available[mm_universe]) return;
+      mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      mm_request.universe = mm_universe;
+      mm_request.multiplayer = false;
+      break;
+    case 1: mm_screen = 1; break;  // MULTIPLAYER
+    case 2: mm_screen = 2; break;  // MODS
+    case 3: mm_screen = 3; break;  // SETTINGS
+    case 4: mm_screen = 4; break;  // PROFILE
+    case 5: mm_request.kind = MainMenuRequest::Kind::kQuit; break;  // QUIT
+  }
+}
+
+bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
+  if (!main_menu_open) return false;
+  ugui::wid w = target;
+  for (int depth = 0; depth < 10 && w.valid(); ++depth) {
+    const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+    if (n) {
+      const std::string name = n->name.c_str();
+      // Match "<prefix><digit>" so labels like mm_navt2 don't alias mm_nav.
+      auto pref = [&](const char* p) -> int {
+        const size_t pl = std::strlen(p);
+        if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
+          return std::atoi(name.c_str() + pl);
+        return -1;
+      };
+      using K = MainMenuRequest::Kind;
+      if (name == "mm_back") { mm_screen = 0; return true; }
+      if (name == "mm_mp_host") {
+        mm_mp_mode = 0;
+        mm_request.kind = K::kHostServer;
+        mm_request.universe = mm_universe;
+        return true;
+      }
+      if (name == "mm_mp_join") {
+        mm_mp_mode = 1;
+        mm_request.kind = K::kJoinServer;
+        mm_request.universe = mm_universe;
+        return true;
+      }
+      if (int i = pref("mm_nav"); i >= 0) { mm_nav = i; ActivateNav(); return true; }
+      if (int i = pref("mm_col"); i >= 0) {
+        if (mm_universe == i && mm_screen == 0) { mm_nav = 0; ActivateNav(); }  // re-click = play
+        else mm_universe = i;
+        return true;
+      }
+      if (int i = pref("mm_icon"); i >= 0) {
+        if (i == 0) { mm_nav = 1; ActivateNav(); }       // globe -> multiplayer
+        else if (i == 3) { mm_nav = 3; ActivateNav(); }  // gear -> settings
+        return true;                                     // discord/news consume the click
+      }
+    }
+    const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
+    w = h ? h->parent : ugui::wid{};
+  }
+  return false;
+}
+
 GameUi::GameUi() : impl_(std::make_unique<Impl>()) {}
 GameUi::~GameUi() { Shutdown(); }
 
@@ -1260,7 +1855,8 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   Impl* impl = impl_.get();
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft) return;
-    if (impl->RouteEditorClick(w)) return;  // editor overlay owns this click
+    if (impl->RouteMainMenuClick(w)) return;  // the front menu owns this click
+    if (impl->RouteEditorClick(w)) return;    // editor overlay owns this click
     ugui::WidgetNode* n = impl->ui.world().Get<ugui::WidgetNode>(w);
     if (!n) return;
     if (n->name == "btn_resume") {
@@ -1284,6 +1880,9 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
   if (std::getenv("RECREATION_UI_MENU")) impl_->menu_open = true;
   impl_->ApplyMenuVisibility();  // menu starts hidden unless forced open
+  // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
+  if (std::getenv("RECREATION_MAIN_MENU")) impl_->main_menu_open = true;
+  impl_->ApplyMainMenu();
   impl_->initialized = true;
   REC_INFO("ultragui hud initialized (draw-data mode)");
   return true;
@@ -1305,6 +1904,74 @@ void GameUi::ToggleMenu() {
 
 bool GameUi::menu_open() const { return impl_->initialized && impl_->menu_open; }
 bool GameUi::quit_requested() const { return impl_->initialized && impl_->quit_requested; }
+
+void GameUi::OpenMainMenu() {
+  if (!impl_->initialized) return;
+  impl_->main_menu_open = true;
+  impl_->mm_screen = 0;
+  impl_->ApplyMainMenu();
+}
+
+void GameUi::CloseMainMenu() {
+  if (!impl_->initialized) return;
+  impl_->main_menu_open = false;
+  impl_->ApplyMainMenu();
+}
+
+bool GameUi::main_menu_open() const { return impl_->initialized && impl_->main_menu_open; }
+
+void GameUi::MainMenuMove(int dx, int dy) {
+  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0) return;
+  if (dy) impl_->mm_nav = (impl_->mm_nav + dy + kMenuNavItems) % kMenuNavItems;
+  if (dx) impl_->mm_universe = std::clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
+}
+
+void GameUi::MainMenuActivate() {
+  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0) return;
+  impl_->ActivateNav();
+}
+
+bool GameUi::MainMenuBack() {
+  if (!impl_->initialized || !impl_->main_menu_open) return false;
+  if (impl_->mm_screen != 0) {
+    impl_->mm_screen = 0;
+    return true;
+  }
+  return false;
+}
+
+bool GameUi::MainMenuAtRoot() const {
+  return impl_->initialized && impl_->main_menu_open && impl_->mm_screen == 0;
+}
+
+void GameUi::SetMainMenuUniverses(const std::vector<std::string>& names,
+                                  const std::vector<bool>& available) {
+  if (!impl_->initialized) return;
+  if (!names.empty()) impl_->mm_universe_names = names;
+  if (!available.empty()) impl_->mm_available = available;
+}
+
+void GameUi::SetMainMenuBackdrop(int universe, u64 texture) {
+  if (!impl_->initialized || universe < 0 || universe >= kMenuUniverses) return;
+  impl_->mm_backdrop[universe] = texture;
+}
+
+void GameUi::SetMainMenuStats(const MainMenuStats& stats) {
+  if (impl_->initialized) impl_->mm_stats = stats;
+}
+
+void GameUi::SetMainMenuMods(const std::vector<std::string>& mods) {
+  if (impl_->initialized) impl_->mm_mods = mods;
+}
+
+MainMenuRequest GameUi::PollMainMenuRequest() {
+  MainMenuRequest r;
+  if (impl_->initialized) {
+    r = impl_->mm_request;
+    impl_->mm_request = MainMenuRequest{};  // consume
+  }
+  return r;
+}
 
 void GameUi::SetQuest(const HudQuest& quest) {
   if (impl_->initialized) impl_->quest = quest;
@@ -1538,6 +2205,9 @@ void GameUi::Build(Window& window, render::Renderer&, FlyCamera& camera, f32 fra
   // Map editor overlay (asset browser, toolbar, inspector, status, reticle).
   impl->ApplyEditorView();
 
+  // NEXUS main menu (the startup front screen, on top of everything).
+  impl->ApplyMainMenu();
+
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
@@ -1582,6 +2252,18 @@ u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
 void GameUi::ToggleMenu() {}
 bool GameUi::menu_open() const { return false; }
 bool GameUi::quit_requested() const { return false; }
+void GameUi::OpenMainMenu() {}
+void GameUi::CloseMainMenu() {}
+bool GameUi::main_menu_open() const { return false; }
+void GameUi::MainMenuMove(int, int) {}
+void GameUi::MainMenuActivate() {}
+bool GameUi::MainMenuBack() { return false; }
+bool GameUi::MainMenuAtRoot() const { return false; }
+void GameUi::SetMainMenuUniverses(const std::vector<std::string>&, const std::vector<bool>&) {}
+void GameUi::SetMainMenuBackdrop(int, u64) {}
+void GameUi::SetMainMenuStats(const MainMenuStats&) {}
+void GameUi::SetMainMenuMods(const std::vector<std::string>&) {}
+MainMenuRequest GameUi::PollMainMenuRequest() { return {}; }
 
 }  // namespace rec
 

@@ -142,6 +142,34 @@ struct EditorView {
   int object_count = 0;        // editor-placed objects so far
 };
 
+// Live data the engine feeds the NEXUS main menu each frame: the player banner,
+// the network status line, and the per-column "available" flags. Read by the
+// menu's profile/multiplayer/status widgets; all optional, sensible defaults.
+struct MainMenuStats {
+  std::string player_name = "Wanderer";
+  int level = 42;
+  bool in_game = false;        // a universe is loaded and being played
+  std::string universe;        // loaded game's display name (empty = none yet)
+  std::string location;        // current cell/region, when in game
+  float health = 1, magicka = 1, stamina = 1;  // 0..1 vitals, when in game
+  int gold = 0;
+  int active_quests = 0;
+  int players_online = 0;      // connected peers (host or client), 0 = offline
+  std::string net_status;      // "Offline" / "Hosting :29700" / "Connected ..."
+};
+
+// A request the main menu raises for the engine to act on. The engine polls it
+// once per frame (PollMainMenuRequest) and clears it by consuming. Loading a
+// universe makes that game the primary content domain, which boots its C#
+// gameplay module (SkyrimMod / Fallout / StarfieldMod gate on the primary).
+struct MainMenuRequest {
+  enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit };
+  Kind kind = Kind::kNone;
+  int universe = 0;         // 0 Skyrim, 1 Fallout 4, 2 Starfield
+  std::string address;      // join target ("ip[:port]"), for kJoinServer
+  bool multiplayer = false; // kEnterUniverse also opened a session
+};
+
 // A click (or scroll) inside the editor overlay, forwarded from the UI to
 // MapEditor which owns all the logic. `index` meaning depends on the kind.
 struct EditorUiEvent {
@@ -227,6 +255,32 @@ class GameUi {
   void ToggleMenu();
   bool menu_open() const;
   bool quit_requested() const;
+
+  // NEXUS main menu (the startup "choose your universe" screen). Distinct from
+  // the in-game pause menu above. The engine opens it at boot, drives it with
+  // mouse + the keyboard helpers below, feeds it live data, and polls the
+  // request it raises (enter a universe, host/join, quit).
+  void OpenMainMenu();
+  void CloseMainMenu();
+  bool main_menu_open() const;
+  // Keyboard navigation: dy moves the left-nav selection (-1 up / +1 down), dx
+  // moves the universe selection (-1 left / +1 right). Activate triggers the
+  // current nav item (PLAY enters the selected universe); Back closes a
+  // sub-screen (returns true if it consumed the press, false at the root).
+  void MainMenuMove(int dx, int dy);
+  void MainMenuActivate();
+  bool MainMenuBack();
+  bool MainMenuAtRoot() const;
+  // The names/availability of the three universes (greyed out if data is
+  // missing), the per-column live backdrop texture, the player/network banner,
+  // and the loaded C# mod list shown on the Mods screen. All optional.
+  void SetMainMenuUniverses(const std::vector<std::string>& names,
+                            const std::vector<bool>& available);
+  void SetMainMenuBackdrop(int universe, u64 texture);
+  void SetMainMenuStats(const MainMenuStats& stats);
+  void SetMainMenuMods(const std::vector<std::string>& mods);
+  // Consume the pending request (kNone if none). Called by the engine each frame.
+  MainMenuRequest PollMainMenuRequest();
 
  private:
   struct Impl;
