@@ -189,6 +189,77 @@ jobs:
             build/runtime/Release/recreation.exe
             build/tools/esminfo/Release/esminfo.exe
 
+  macos:
+    runs-on: macos-latest
+    env:
+      # Microsoft ships no macOS dxc, so it is built from this pinned source tag
+      # and cached. DLSS/FSR3/NRD are off on Apple (MoltenVK), so only Jolt is
+      # fetched and no glslang is needed.
+      DXC_TAG: v1.9.2602.24
+    steps:
+      - uses: actions/checkout@v4
+      - name: zetanet
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/zetanet
+          ref: develop
+          path: zetanet
+          submodules: recursive
+      - name: libultragui
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/libultragui
+          path: libultragui
+          submodules: recursive
+      - name: deps
+        run: |
+          brew install ninja freetype harfbuzz pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix freetype)/lib/pkgconfig:$(brew --prefix harfbuzz)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> "$GITHUB_ENV"
+      - name: dxc cache
+        id: dxc-cache
+        uses: actions/cache@v4
+        with:
+          path: dxc-install
+          key: dxc-${{ env.DXC_TAG }}-macos-arm64
+      - name: build dxc
+        if: steps.dxc-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$DXC_TAG" --recurse-submodules --shallow-submodules \
+            https://github.com/microsoft/DirectXShaderCompiler dxc-src
+          cmake -B dxc-build -G Ninja dxc-src \
+            -C dxc-src/cmake/caches/PredefinedParams.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_SPIRV_CODEGEN=ON \
+            -DSPIRV_BUILD_TESTS=OFF \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DHLSL_DISABLE_SOURCE_GENERATION=ON
+          cmake --build dxc-build --target dxc
+          mkdir -p dxc-install/bin dxc-install/lib
+          cp dxc-build/bin/dxc dxc-install/bin/
+          cp dxc-build/lib/libdxcompiler.dylib dxc-install/lib/
+      - name: install dxc
+        run: |
+          chmod +x dxc-install/bin/dxc
+          echo "$GITHUB_WORKSPACE/dxc-install/bin" >> "$GITHUB_PATH"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$GITHUB_WORKSPACE/dxc-install/lib:$DYLD_FALLBACK_LIBRARY_PATH" >> "$GITHUB_ENV"
+      - name: third-party deps
+        run: |
+          bash tools/get_jolt.sh
+      - name: configure
+        run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON
+          -DCMAKE_PREFIX_PATH=$(brew --prefix)
+          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
+          -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+      - name: build
+        run: cmake --build build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recreation-macos-arm64
+          path: |
+            build/runtime/recreation
+            build/tools/esminfo/esminfo
+
   android:
     runs-on: ubuntu-24.04
     steps:
