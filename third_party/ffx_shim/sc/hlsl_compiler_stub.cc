@@ -1,7 +1,7 @@
-// Link-level stub for the Windows-only HLSL (DXC/FXC) compiler classes.
-// This build only ever drives glslang; selecting an HLSL compiler fails.
-#ifndef _WIN32
-
+// Link-level stub for the HLSL (DXC/FXC) compiler classes. Both the Linux and
+// the native-Windows ffx_sc builds only ever drive glslang; selecting an HLSL
+// compiler fails at runtime. (Compiled on every platform so the GLSL build
+// never needs a real DXC/FXC toolchain.)
 #include "hlsl_compiler.h"
 
 #include <stdexcept>
@@ -16,7 +16,7 @@ HLSLCompiler::HLSLCompiler(Backend backend, const std::string&, const std::strin
       m_FxcD3DGetBlobPart(nullptr),
       m_FxcD3DReflect(nullptr),
       m_DllHandle(nullptr) {
-  throw std::runtime_error("HLSL compilation is not supported in the Linux ffx_sc build");
+  throw std::runtime_error("HLSL compilation is not supported in this ffx_sc build (glslang/GLSL only)");
 }
 
 HLSLCompiler::~HLSLCompiler() = default;
@@ -37,5 +37,3 @@ uint8_t* HLSLDxcShaderBinary::BufferPointer() { return nullptr; }
 size_t HLSLDxcShaderBinary::BufferSize() { return 0; }
 uint8_t* HLSLFxcShaderBinary::BufferPointer() { return nullptr; }
 size_t HLSLFxcShaderBinary::BufferSize() { return 0; }
-
-#endif  // !_WIN32

@@ -1,13 +1,16 @@
-// Force-included (-include) into every FidelityFX SDK source compiled on
-// Linux. Supplies the MSVC CRT extensions the SDK uses unguarded, and pulls
-// in volk before the SDK's <vulkan/vulkan.h> so the backend resolves Vulkan
-// entry points through the engine's loader (volk defines VK_NO_PROTOTYPES
-// and declares the vk* symbols as loader-populated function pointers).
+// Force-included (-include / /FI) into every FidelityFX SDK source. On every
+// platform it pulls in volk before the SDK's <vulkan/vulkan.h> so the backend
+// resolves Vulkan entry points through the engine's loader (volk defines
+// VK_NO_PROTOTYPES and declares the vk* symbols as loader-populated function
+// pointers). On non-Windows it also supplies the MSVC CRT extensions the SDK
+// uses unguarded (MSVC provides those natively).
 #ifndef RECREATION_FFX_COMPAT_H_
 #define RECREATION_FFX_COMPAT_H_
-#if !defined(_WIN32) && defined(__cplusplus)
+#if defined(__cplusplus)
 
 #include <volk.h>
+
+#if !defined(_WIN32)
 
 #include <cmath>    // ffx_vk.cpp uses floor/log2 without including it
 #include <cstdarg>
@@ -65,5 +68,6 @@ inline int sprintf_s(char* dst, size_t dst_size, const char* fmt, ...) {
   return written;
 }
 
-#endif  // !_WIN32 && __cplusplus
+#endif  // !_WIN32
+#endif  // __cplusplus
 #endif  // RECREATION_FFX_COMPAT_H_

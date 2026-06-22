@@ -27,31 +27,43 @@ add_executable(ffx_sc
   ${FFX_SC_DIR}/libs/MD5/md5.cpp
   ${FFX_SC_DIR}/libs/SPIRV-Reflect/spirv_reflect.c
   ${FFX_SC_DIR}/libs/tiny-process-library/process.cpp
-  ${FFX_SC_DIR}/libs/tiny-process-library/process_unix.cpp
-  ${FFX_SHIM}/sc/win_shim.cc
   ${FFX_SHIM}/sc/hlsl_compiler_stub.cc
 )
 target_include_directories(ffx_sc PRIVATE
-  ${FFX_SHIM}/sc
   ${FFX_SC_DIR}/src
   ${FFX_SC_DIR}/libs/MD5
   ${FFX_SC_DIR}/libs/SPIRV-Reflect
   ${FFX_SC_DIR}/libs/tiny-process-library
 )
-target_compile_options(ffx_sc PRIVATE -w)
-# The tool's MD5 hex printer calls snprintf with an overstated buffer size,
-# which the nix toolchain's default _FORTIFY_SOURCE=3 turns into an abort at
-# runtime. The wrapper appends its hardening flags after ours, so the only
-# reliable off switch is the environment; keep pic/pie so linking still works.
-set_target_properties(ffx_sc PROPERTIES
-  C_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie"
-  CXX_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie")
-# Outside the nix dev shell (e.g. the Ubuntu CI image) NIX_HARDENING_ENABLE is
-# inert, but those toolchains still default _FORTIFY_SOURCE on at -O2+, so the
-# same MD5 snprintf overflow aborts the tool. Turn fortify off on the command
-# line too; the two switches are complementary (each is a no-op on the other's
-# toolchain).
+if(WIN32)
+  # Native Windows build: the real SDK supplies <Windows.h>, <d3dcompiler.h>,
+  # <d3d12shader.h> and <pathcch.h>; sc_win only adds the two headers it lacks
+  # (a forward-declared DXC type set and a trivial CComPtr) so the stubbed HLSL
+  # path parses. Process spawning uses the Win32 backend; wmain() is native.
+  target_sources(ffx_sc PRIVATE ${FFX_SC_DIR}/libs/tiny-process-library/process_win.cpp)
+  target_include_directories(ffx_sc BEFORE PRIVATE ${FFX_SHIM}/sc_win)
+  target_link_libraries(ffx_sc PRIVATE Pathcch)
+else()
+  # Non-Windows: the Linux shim fakes the whole Win32 surface ffx_sc needs
+  # (Windows.h, pathcch, DXC headers, the main()->wmain() bridge) so the
+  # unmodified SDK sources build with glslang only.
+  target_sources(ffx_sc PRIVATE
+    ${FFX_SC_DIR}/libs/tiny-process-library/process_unix.cpp
+    ${FFX_SHIM}/sc/win_shim.cc)
+  target_include_directories(ffx_sc BEFORE PRIVATE ${FFX_SHIM}/sc)
+endif()
+target_compile_options(ffx_sc PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
 if(NOT MSVC)
+  # The tool's MD5 hex printer calls snprintf with an overstated buffer size,
+  # which a toolchain defaulting _FORTIFY_SOURCE on (nix at =3, the Ubuntu CI
+  # image at =2) turns into an abort at runtime. The nix wrapper appends its
+  # hardening flags after ours, so the env switch is the only reliable off knob
+  # there; the Ubuntu default yields to a command-line -D_FORTIFY_SOURCE=0. Both
+  # are set; each is a no-op on the other's toolchain. Keep pic/pie so linking
+  # still works under nix.
+  set_target_properties(ffx_sc PROPERTIES
+    C_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie"
+    CXX_COMPILER_LAUNCHER "${CMAKE_COMMAND};-E;env;NIX_HARDENING_ENABLE=pic pie")
   target_compile_options(ffx_sc PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
 endif()
 target_link_libraries(ffx_sc PRIVATE Threads::Threads)
@@ -141,8 +153,15 @@ target_include_directories(recreation_ffx_fsr3
     ${FFX_SDK}/src/backends/shared
     ${FFX_FSR3_SHADER_DIR}
 )
-target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_FSR3UPSCALER FFX_GCC)
-target_compile_options(recreation_ffx_fsr3 PRIVATE -w -include ${FFX_SHIM}/ffx_compat.h)
+target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_FSR3UPSCALER)
+if(MSVC)
+  # /FI force-includes ffx_compat.h (volk routing); FFX_GCC stays undefined so
+  # the SDK takes its native MSVC paths.
+  target_compile_options(recreation_ffx_fsr3 PRIVATE /w /FI${FFX_SHIM}/ffx_compat.h)
+else()
+  target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_GCC)
+  target_compile_options(recreation_ffx_fsr3 PRIVATE -w -include ${FFX_SHIM}/ffx_compat.h)
+endif()
 # The SDK is C++17-era code; newer standards lose std::wstring_convert which
 # its non-Windows string conversion path still uses.
 set_target_properties(recreation_ffx_fsr3 PROPERTIES CXX_STANDARD 17)
