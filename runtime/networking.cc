@@ -51,6 +51,10 @@ bool StartNetworking(Engine& engine) {
                self->config_.mods_dir);
       self->mod_catalog_ = std::make_unique<modstream::ModCatalog>(std::move(*catalog));
       net_config.mod_catalog = self->mod_catalog_.get();
+      // Mount the host's own mods so a listen server (and headless physics/nav)
+      // sees exactly what it streams to clients. Mounted after the base game, so
+      // mods win, just like loose files.
+      modstream::MountCatalog(self->vfs_, *self->mod_catalog_);
     }
   } else if (!self->config_.connect_address.empty()) {
     const std::string cache_dir = self->config_.asset_cache_dir.empty()

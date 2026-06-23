@@ -134,6 +134,18 @@ int main() {
   Check("PathForHash resolves a catalogued file", tex_path.has_value());
   Check("PathForHash rejects an unknown hash", !catalog->PathForHash(0xdeadbeef));
 
+  // The host mounts its own catalogued mods straight from the mods dir.
+  {
+    asset::Vfs host_vfs;
+    modstream::MountCatalog(host_vfs, *catalog);
+    auto host_mesh = host_vfs.Read("meshes/sword.nif");
+    Check("host mounts its catalogued mesh from disk",
+          host_mesh && host_mesh->size() == mesh.size() &&
+              std::equal(host_mesh->begin(), host_mesh->end(), mesh.begin()));
+    Check("host mount serves a sound", host_vfs.Read("sound/hit.wav").has_value());
+    Check("host mount misses an unknown path", !host_vfs.Read("meshes/nope.nif"));
+  }
+
   // --- stream filter (selective distribution: keep server-only files off clients) ---
   {
     const StreamFilter f = StreamFilter::Parse(
