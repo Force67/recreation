@@ -15,6 +15,8 @@ shows the most recent entries (the first bullet of each release is its headline)
   so mods can gate spawn or greet the player when their UGC has arrived
 - Mod realms ([Realm] Server/Client/Shared): connecting clients run client-side
   mods (RPC, UI, local effects) while authoritative gameplay stays server-side
+- Multiplayer lifecycle events for server-side scripts: ClientJoined,
+  ClientAssetsReady and ClientLeft
 
 ## [0.3.0] - 2026-06-23
 ### Added
