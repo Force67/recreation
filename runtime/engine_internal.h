@@ -8,10 +8,29 @@
 #include <cstdio>
 #include <string>
 
+#include "bethesda/game_profile.h"
 #include "core/math.h"
 #include "world/components.h"
 
 namespace rec {
+
+// A stable per-game slug stored in the editor's layout file, so a saved
+// placement reloads against the same game next run. Shared by the content-load
+// and main-menu Engine translation units.
+inline std::string GameSlug(bethesda::Game game) {
+  switch (game) {
+    case bethesda::Game::kSkyrimSe:
+      return "skyrimse";
+    case bethesda::Game::kFallout4:
+      return "fallout4";
+    case bethesda::Game::kFallout76:
+      return "fallout76";
+    case bethesda::Game::kStarfield:
+      return "starfield";
+    default:
+      return "game";
+  }
+}
 
 // printf into a std::string. Attributed so the compiler still type-checks the
 // format at each call site (GCC/Clang only; MSVC has no equivalent here).

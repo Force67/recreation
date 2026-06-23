@@ -132,16 +132,25 @@ class Engine {
   void RequestQuit() { quit_.store(true, std::memory_order_relaxed); }
 
  private:
-  bool LoadGameData();
-  // NEXUS main menu. ResolveUniverses fills menu_universes_ (the three games'
-  // data dirs from args / env / a Steam scan); SetupMainMenu opens the menu
-  // without loading a game; EnterUniverse loads the chosen game on demand so its
-  // C# gameplay module boots (the module gates on being the primary domain).
-  // UpdateMainMenu drives nav + dispatch each frame; RefreshMenuData feeds it
-  // the live player / network / mods data.
-  void ResolveUniverses();
-  void SetupMainMenu();
-  void EnterUniverse(int idx, bool multiplayer, bool host, const std::string& join_address);
+  // The bring-up steps are free functions over the engine (declared just below
+  // the class, defined in content_load.cc / networking.cc / managed_scripting.cc
+  // / main_menu.cc); they reach the engine's internals as friends.
+  friend bool LoadGameData(Engine&);
+  friend void MountArchives(Engine&);
+  friend bool LoadInterior(Engine&);
+  friend void LoadExtraDomains(Engine&);
+  friend void SetupExtraStreamers(Engine&);
+  friend void BootManagedScripting(Engine&);
+  friend void ResolveUniverses(Engine&);
+  friend void SetupMainMenu(Engine&);
+  friend void EnterUniverse(Engine&, int, bool, bool, const std::string&);
+#if RECREATION_HAS_NET
+  friend bool StartNetworking(Engine&);
+#endif
+
+  // NEXUS main menu, per frame: UpdateMainMenu drives nav + dispatch (it enters a
+  // universe through the free EnterUniverse); RefreshMenuData feeds it the live
+  // player / network / mods data.
   void UpdateMainMenu(f32 dt);
   void RefreshMenuData();
   // Loads any cached game-scene frames (thumbs/menu_<slug>.png, captured by a
@@ -151,22 +160,7 @@ class Engine {
   // Per-frame: a few seconds after entering a universe, grabs one clean frame of
   // its world (HUD/overlays hidden) into the backdrop cache for next time.
   void TickMenuCapture();
-  // Loads each --add-game as a live secondary content domain: its own data,
-  // records and Papyrus microvm, run alongside the primary (rendered) game.
-  void LoadExtraDomains();
-  // Builds a CellStreamer for each secondary domain so its worldspace renders
-  // into the shared scene, offset from the primary world. Exterior only.
-  void SetupExtraStreamers();
-  bool LoadInterior();
-  void MountArchives();
   bool LoadGltfScene();
-  // Boots the managed (C#) scripting world over the live guest, if a .NET runtime
-  // and the Recreation.Scripting assembly are available (RECREATION_SCRIPTING_DIR).
-  // A no-op on a replica client, where scripts run server-authoritative.
-  void BootManagedScripting();
-#if RECREATION_HAS_NET
-  bool StartNetworking();
-#endif
   // Resolves the configured quality tier from the gpu (or a forced preset) and
   // applies it to the renderer's live settings.
   void ApplyRenderPreset();
@@ -326,6 +320,35 @@ class Engine {
   std::atomic<bool> quit_ = false;
   bool shut_down_ = false;
 };
+
+// Engine bring-up steps, written as free functions over the engine (each a
+// friend of Engine; see content_load.cc / networking.cc / managed_scripting.cc /
+// main_menu.cc). LoadGameData mounts archives, loads the record/string/dialogue
+// data, stands up the Papyrus guest + bindings and the cell streamer(s);
+// MountArchives, LoadInterior, LoadExtraDomains and SetupExtraStreamers are its
+// steps.
+bool LoadGameData(Engine& engine);
+void MountArchives(Engine& engine);
+bool LoadInterior(Engine& engine);
+void LoadExtraDomains(Engine& engine);
+void SetupExtraStreamers(Engine& engine);
+// Boots the managed (C#) scripting world over the live guest, if a .NET runtime
+// and the Recreation.Scripting assembly are available (RECREATION_SCRIPTING_DIR).
+// A no-op on a replica client, where scripts run server-authoritative.
+void BootManagedScripting(Engine& engine);
+// NEXUS main menu. ResolveUniverses fills menu_universes_ (the three games' data
+// dirs from args / env / a Steam scan); SetupMainMenu opens the menu without
+// loading a game; EnterUniverse loads the chosen game on demand so its C#
+// gameplay module boots (the module gates on being the primary domain).
+void ResolveUniverses(Engine& engine);
+void SetupMainMenu(Engine& engine);
+void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
+                   const std::string& join_address);
+#if RECREATION_HAS_NET
+// Opens the authoritative server or replica client session and wires the
+// replication sinks between the net layer and the script/quest systems.
+bool StartNetworking(Engine& engine);
+#endif
 
 }  // namespace rec
 

@@ -1,0 +1,213 @@
+#include "engine.h"
+
+#include <chrono>
+#include <thread>
+#include <utility>
+
+#include "engine_internal.h"
+#include "script/papyrus/value.h"
+#include "world/components.h"
+#include "world/interaction.h"
+
+// The Engine's per-frame heartbeat: the fixed-step simulation loop, the
+// quest-driven world mutation flush, and host-authoritative NPC shove-out, plus
+// the render path that builds the FrameView and submits it. Split out of the
+// core lifecycle unit so the hot loop reads on its own.
+namespace rec {
+
+void Engine::ApplyQuestWorld() {
+  std::vector<world::WorldCommand> commands = quest_world_queue_.Drain();
+  if (commands.empty()) return;
+  quest_world_.Apply(commands);  // host/single-player: apply locally + record provenance
+#if RECREATION_HAS_NET
+  if (server_session_) server_session_->SendWorldCommands(commands);  // mirror to clients
+#endif
+}
+
+void Engine::ServerSimulateActors(f32 /*dt*/) {
+  // Pushers: the local player (listen server / single-player) plus every
+  // networked player. A player that is both contributes twice, which is
+  // harmless (the second shove is a no-op once the first cleared the radius).
+  base::Vector<Vec3> pushers;
+  const ecs::Entity local = actors_->PlayerEntity();
+  if (world_.IsAlive(local))
+    if (const world::Transform* t = world_.Get<world::Transform>(local))
+      pushers.push_back({t->position[0], t->position[1], t->position[2]});
+#if RECREATION_HAS_NET
+  world_.Each<net::NetworkId, world::Transform>(
+      [&](ecs::Entity, net::NetworkId&, world::Transform& t) {
+        pushers.push_back({t.position[0], t.position[1], t.position[2]});
+      });
+#endif
+  if (pushers.empty()) return;
+
+  constexpr f32 kPushRadius = 0.6f;  // ~capsule radius in meters
+  world_.Each<world::Npc, world::Transform>([&](ecs::Entity, world::Npc&, world::Transform& nt) {
+    for (const Vec3& p : pushers) {
+      const float pusher[3] = {p.x, p.y, p.z};
+      float out[3];
+      if (world::ShoveOutOfRadius(pusher, nt.position, kPushRadius, out)) {
+        nt.position[0] = out[0];
+        nt.position[1] = out[1];
+        nt.position[2] = out[2];
+      }
+    }
+  });
+}
+
+bool Engine::RunFrame() {
+  if (quit_.load(std::memory_order_relaxed)) return false;
+  if (window_ && !window_->PumpEvents()) return false;
+  // Forward key presses to the managed world (KeyPressed) so mods can bind
+  // hotkeys, unless the debug console is capturing the keyboard. Queued here and
+  // drained into managed below, in the same frame.
+  if (window_ && managed_ && !debug_ui_.wants_keyboard()) {
+    const InputState& keys = window_->input();
+    for (u8 k = 0; k < static_cast<u8>(Key::kCount); ++k)
+      if (keys.key_pressed(static_cast<Key>(k)))
+        managed_->QueueEvent({rec::script::host::ManagedEventId::kKeyPressed, k, 0, 0, 0.0f});
+  }
+  {
+    int steps = timer_.Tick();
+    f32 dt = static_cast<f32>(timer_.fixed_step());
+    // Place NPC / other-player collision capsules at their current transforms
+    // before the sim step, so the player's character controller collides with
+    // them where they are this frame.
+    actors_->SyncSolidBodies();
+    for (int i = 0; i < steps; ++i) {
+      scheduler_.RunStage(ecs::Stage::kPreSim, world_, dt);
+      scheduler_.RunStage(ecs::Stage::kSim, world_, dt);
+      scheduler_.RunStage(ecs::Stage::kPostSim, world_, dt);
+    }
+
+    // The guest advances on the main loop's clock; it does its work on its own
+    // thread, so this only posts a tick.
+    if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Secondary game domains tick their own isolated microvms in lockstep.
+    for (auto& domain : extra_domains_) domain->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Refresh the world-space position snapshot the managed proximity query reads
+    // (registered refs plus the player), so mods see this frame's positions.
+    if (managed_ && ctx_.bindings) {
+      quest_world_.SnapshotPositions(position_snapshot_);
+      Vec3 pp;
+      if (actors_->PlayerWorldPos(&pp)) position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
+      ctx_.bindings->UpdatePositionSnapshot(position_snapshot_);
+    }
+    // Advance the managed world: deliver any queued engine events to mod hooks,
+    // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
+    // into the engine through the bridge.
+    if (managed_) {
+      managed_->DrainEvents();
+      managed_->Tick(static_cast<f32>(timer_.frame_delta()));
+    }
+    // Advance any scenes a quest fragment Started; the ScenePlayer fires their
+    // phase fragments over time (host-authoritative; runs on the guest thread).
+#if RECREATION_HAS_NET
+    if (scripts_ && ctx_.bindings && !client_session_) {
+#else
+    if (scripts_ && ctx_.bindings) {
+#endif
+      auto* binds = ctx_.bindings;
+      const f32 sdt = static_cast<f32>(timer_.frame_delta());
+      scripts_->guest().Submit(
+          [binds, sdt](rec::script::papyrus::VirtualMachine&) { binds->TickScenes(sdt); });
+    }
+
+    // Apply (and, when hosting, replicate) the world mutations quests requested
+    // on the guest thread. Main-thread only, so it owns the ECS exclusively here.
+    ApplyQuestWorld();
+
+    // Authoritative NPC simulation runs on the host / single-player only; a
+    // client receives the results via actor sync instead of simulating.
+#if RECREATION_HAS_NET
+    if (!client_session_) ServerSimulateActors(static_cast<f32>(timer_.frame_delta()));
+#else
+    ServerSimulateActors(static_cast<f32>(timer_.frame_delta()));
+#endif
+    // Steer follower NPCs toward the player and scene guides toward their
+    // targets (host authoritative; streams to clients via actor sync).
+    npc_->UpdateFollowers(static_cast<f32>(timer_.frame_delta()));
+    npc_->UpdateGuides(static_cast<f32>(timer_.frame_delta()));
+    npc_->UpdateAmbient(static_cast<f32>(timer_.frame_delta()));  // idle sandbox for streamed NPCs
+    npc_->Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
+    npc_->Mq101SceneTick(static_cast<f32>(timer_.frame_delta()));
+    // World-driven progression: the player walking into a scripted trigger box
+    // fires its OnTriggerEnter, the native way Skyrim advances a quest.
+    interaction_->UpdateTriggers();
+
+    if (!config_.headless) {
+      f32 frame_delta = static_cast<f32>(timer_.frame_delta());
+      TickMenuCapture();  // grab a clean backdrop frame after entering a universe
+      debug_ui_.BeginFrame();
+      UpdateCamera(frame_delta);
+      actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
+      actors_->Update(frame_delta);
+      scheduler_.RunStage(ecs::Stage::kPreRender, world_, frame_delta);
+
+      render::FrameView view;
+      if (ctx_.walk_mode && actors_->HasPlayer()) {
+        view.camera.eye = ctx_.walk_eye;
+        view.camera.target = ctx_.walk_target;
+      } else {
+        view.camera.eye = camera_.position();
+        view.camera.target = camera_.target();
+      }
+      view.frame_delta_seconds = frame_delta;
+      // Rebuilt every frame so destroyed entities drop out on their own.
+      base::UnorderedMap<u64, Mat4> transforms;
+      world_.Each<world::Transform, world::Renderable>(
+          [&](ecs::Entity entity, world::Transform& transform, world::Renderable& renderable) {
+            if (world_.Has<world::Hidden>(entity)) return;  // Disable()d by a quest
+            u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
+            Mat4 current = TransformMatrix(transform);
+            const Mat4* prev = prev_transforms_.find(key);
+            view.draws.push_back({renderable.mesh.hash, current, prev ? *prev : current});
+            transforms.insert(key, current);
+          });
+      prev_transforms_ = std::move(transforms);
+      actors_->EmitDraws(view);
+      demos_->EmitToView(frame_delta, view);
+      if (editor_) editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
+      quest_->RefreshQuestPanel(frame_delta);
+      quest_->RefreshNativeTrace(frame_delta);
+      // Outside a scripted playthrough, the auto-walk test player heads for the
+      // tracked quest's current objective, so it walks the real route (and trips
+      // the world triggers along it) rather than wandering forward.
+      if (ctx_.auto_walk && !npc_->guiding()) {
+        Vec3 goal;
+        ctx_.auto_walk_has_goal = quest_->CurrentObjectiveTarget(&goal);
+        if (ctx_.auto_walk_has_goal) ctx_.auto_walk_goal = goal;
+      }
+      debug_ui_.Build(renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
+                      quest_->native_trace_panel());
+      // Drain queued Debug.Notification messages onto the HUD toast.
+      {
+        std::vector<std::string> notifications;
+        {
+          std::lock_guard<std::mutex> lock(notification_mutex_);
+          notifications.swap(pending_notifications_);
+        }
+        for (const std::string& message : notifications) game_ui_.FlashQuestUpdate(message);
+      }
+      // Surface managed HUD gauges (oxygen, radiation, ...) pushed via Hud.Gauge
+      // by the primary game's gameplay systems.
+      if (script_bindings_) {
+        std::vector<script::skyrim::RecordBackedSkyrimBindings::HudGauge> gauges;
+        script_bindings_->SnapshotHudGauges(gauges);
+        std::vector<HudGauge> hud;
+        hud.reserve(gauges.size());
+        for (const auto& g : gauges) hud.push_back({g.id, g.label, g.fraction, g.color});
+        game_ui_.SetHudGauges(hud);
+      }
+      game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
+      renderer_.RenderFrame(view);
+    } else {
+      // No vsync to pace the loop; yield between fixed steps instead of
+      // spinning a core.
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+  return !quit_.load(std::memory_order_relaxed);
+}
+
+}  // namespace rec
