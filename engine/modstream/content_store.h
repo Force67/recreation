@@ -38,6 +38,13 @@ class ContentStore {
   std::optional<std::filesystem::path> Adopt(ContentHash expected,
                                              const std::filesystem::path& source);
 
+  // Takes ownership of a file whose hash is not yet known: hashes it from disk,
+  // moves it into the cache under that content hash, and returns the hash. Use
+  // this for streamed-in content where identity comes from the bytes themselves,
+  // not from a promised id. Returns nullopt on I/O failure; the source file is
+  // consumed on success.
+  std::optional<ContentHash> Ingest(const std::filesystem::path& source);
+
   const std::filesystem::path& root() const { return root_; }
 
  private:

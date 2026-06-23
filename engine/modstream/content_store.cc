@@ -107,4 +107,27 @@ std::optional<fs::path> ContentStore::Adopt(ContentHash expected,
   return final_path;
 }
 
+std::optional<ContentHash> ContentStore::Ingest(const fs::path& source) {
+  const std::optional<ContentHash> hash = HashFile(source);
+  if (!hash) return std::nullopt;
+
+  std::error_code ec;
+  if (Has(*hash)) {
+    // Identical content already cached; drop the redundant copy.
+    fs::remove(source, ec);
+    return hash;
+  }
+  if (!EnsureShard(*hash)) return std::nullopt;
+
+  const fs::path final_path = PathOf(*hash);
+  fs::rename(source, final_path, ec);
+  if (ec) {
+    fs::copy_file(source, final_path, fs::copy_options::overwrite_existing, ec);
+    std::error_code rm_ec;
+    fs::remove(source, rm_ec);
+    if (ec) return std::nullopt;
+  }
+  return hash;
+}
+
 }  // namespace rec::modstream
