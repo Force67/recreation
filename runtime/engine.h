@@ -14,6 +14,7 @@
 #include "core/frame_timer.h"
 #include "core/job_system.h"
 #include "core/window.h"
+#include "script/host/managed_host.h"
 
 #include "actor_system.h"
 #include "demo_scenes.h"
@@ -129,6 +130,10 @@ class Engine {
   bool LoadInterior();
   void MountArchives();
   bool LoadGltfScene();
+  // Boots the managed (C#) scripting world over the live guest, if a .NET runtime
+  // and the Recreation.Scripting assembly are available (RECREATION_SCRIPTING_DIR).
+  // A no-op on a replica client, where scripts run server-authoritative.
+  void BootManagedScripting();
 #if RECREATION_HAS_NET
   bool StartNetworking();
 #endif
@@ -181,6 +186,10 @@ class Engine {
   // is joined in ScriptSystem's destructor before the bindings are torn down.
   std::unique_ptr<rec::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
   std::unique_ptr<rec::script::ScriptSystem> scripts_;
+  // The managed (C#) scripting world, where user mods and Skyrim soft logic run.
+  // Declared after scripts_ so it tears down before the guest thread it drives.
+  // Null when .NET or the assembly is unavailable, leaving the engine unaffected.
+  std::unique_ptr<rec::script::host::ManagedHost> managed_;
 
   render::Renderer renderer_;
   FlyCamera camera_;

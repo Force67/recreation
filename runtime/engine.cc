@@ -19,6 +19,7 @@
 #include "core/log.h"
 #include "core/math.h"
 #include "quest/quest_def.h"
+#include "script/host/managed_host.h"
 #include "script/papyrus/value.h"
 #include "world/components.h"
 #include "world/interaction.h"
@@ -347,6 +348,9 @@ bool Engine::RunFrame() {
     // The guest advances on the main loop's clock; it does its work on its own
     // thread, so this only posts a tick.
     if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Advance the managed world: mods and Skyrim soft logic run their per-frame
+    // behaviours, dispatching back into the engine through the bridge.
+    if (managed_) managed_->Tick(static_cast<f32>(timer_.frame_delta()));
     // Advance any scenes a quest fragment Started; the ScenePlayer fires their
     // phase fragments over time (host-authoritative; runs on the guest thread).
     if (scripts_ && ctx_.bindings && !client_session_) {
@@ -445,6 +449,9 @@ Engine::~Engine() { Shutdown(); }
 void Engine::Shutdown() {
   if (shut_down_) return;  // idempotent: explicit Shutdown then destructor
   shut_down_ = true;
+  // Tear the managed world down first: it drives the guest, which must still be
+  // alive while its shutdown callbacks run.
+  managed_.reset();
   // Stop the guest thread before tearing down the systems its bindings touch.
   scripts_.reset();
   if (!config_.headless) {
@@ -454,6 +461,35 @@ void Engine::Shutdown() {
     renderer_.Shutdown();
   }
   if (jobs_) jobs_->WaitIdle();
+}
+
+void Engine::BootManagedScripting() {
+  // A replica client mirrors the server; its scripts must not mutate
+  // authoritative state, so the managed world stays off here.
+  if (script_bindings_ && script_bindings_->replica_mode()) {
+    REC_INFO("managed: skipped on a replica client (server-authoritative)");
+    return;
+  }
+  const char* dir = std::getenv("RECREATION_SCRIPTING_DIR");
+  if (!dir || !*dir) {
+    REC_INFO("managed: RECREATION_SCRIPTING_DIR unset, C# scripting disabled");
+    return;
+  }
+  namespace fs = std::filesystem;
+  const fs::path base(dir);
+  const std::string assembly = (base / "Recreation.Scripting.dll").string();
+  const std::string runtime_config = (base / "Recreation.Scripting.runtimeconfig.json").string();
+  std::error_code ec;
+  if (!fs::exists(assembly, ec) || !fs::exists(runtime_config, ec)) {
+    REC_WARN("managed: Recreation.Scripting not found under {}", dir);
+    return;
+  }
+  managed_ = std::make_unique<rec::script::host::ManagedHost>();
+  auto loader = [this](const std::string& name) {
+    return !scripts_->EnsureScriptLoaded(name).empty();
+  };
+  if (!managed_->Boot(scripts_->guest(), loader, /*dotnet_root=*/"", runtime_config, assembly))
+    managed_.reset();  // unavailable: run without it
 }
 
 bool Engine::LoadGameData() {
@@ -538,6 +574,10 @@ bool Engine::LoadGameData() {
         [binds](rec::script::papyrus::VirtualMachine& vm) { binds->set_vm(&vm); });
   }
   quest_->AttachQuestScripts();
+
+  // Bring up the managed (C#) scripting world over the same guest, so user mods
+  // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
+  BootManagedScripting();
 
   // REC_QUEST_REPORT=<EDID> drives a quest through its stages to completion and
   // prints the journey, then quits; REC_DIALOGUE_REPORT dumps its dialogue.
