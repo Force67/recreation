@@ -69,10 +69,11 @@ clients by listing them in a `.streamignore` at the resource root, gitignore
 style (`server/`, an exact path, or `*.ext`); excluded files never enter the
 catalog, so the server cannot even be asked for them.
 
-A connecting client diffs the manifest against its local cache, pulls only the
-content it is missing over the reliable file transporter, verifies it, and mounts
-the resources into its asset Vfs so the host's custom meshes, textures and
-scripts resolve like loose files:
+The host mounts its own catalogued mods too, so a listen server sees exactly the
+content it streams to clients. A connecting client diffs the manifest against its
+local cache, pulls only the content it is missing over the reliable file
+transporter, verifies it, and mounts the resources into its asset Vfs so the
+host's custom meshes, textures and scripts resolve like loose files:
 
 ```sh
 recreation --connect <host> --asset-cache ./cache
