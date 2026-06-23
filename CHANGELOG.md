@@ -9,7 +9,8 @@ shows the most recent entries (the first bullet of each release is its headline)
 - The host catalogs a mods directory (--mods-dir); clients pull only the content
   they are missing into a content-addressed cache, then mount it into the asset Vfs
 - Scripting RPC channel woven into multiplayer: C# mods emit and receive calls
-  (Rpc.Emit / Rpc.ToClient / Rpc.Broadcast / Rpc.On) over the session
+  (Rpc.Emit / Rpc.ToClient / Rpc.Broadcast / Rpc.On) over the session, plus
+  ask-and-answer request/response (Rpc.Request / Rpc.OnRequest / req.Reply)
 - A ClientAssetsReady event fires server-side once a player finished downloading,
   so mods can gate spawn or greet the player when their UGC has arrived
 
