@@ -52,10 +52,20 @@ ApiValue ToApi(const rpc::RpcValue& v) {
       a.kind = ApiKind::kBool;
       a.i = v.as_bool() ? 1 : 0;
       break;
-    case rpc::RpcValue::Type::kInt:
-      a.kind = ApiKind::kInt;
-      a.i = static_cast<std::int32_t>(v.as_int());
+    case rpc::RpcValue::Type::kInt: {
+      // Form/object handles are 64-bit, so a value that does not fit the 32-bit
+      // int payload travels in the handle field instead of truncating; managed
+      // code reads it back as an object handle, which is what such values are.
+      const i64 n = v.as_int();
+      if (n >= INT32_MIN && n <= INT32_MAX) {
+        a.kind = ApiKind::kInt;
+        a.i = static_cast<std::int32_t>(n);
+      } else {
+        a.kind = ApiKind::kObject;
+        a.h = static_cast<std::uint64_t>(n);
+      }
       break;
+    }
     case rpc::RpcValue::Type::kFloat:
       a.kind = ApiKind::kFloat;
       a.f = static_cast<float>(v.as_float());

@@ -248,6 +248,7 @@ void AssetStreamClient::HandleChunk(
     if (!transporter_.StreamChunkToFile(it->second, temp_dir, &completed)) {
       REC_WARN("net: asset stream write failed for transfer {}", transfer_id);
       failed_ = true;
+      transporter_.AbortStreamedFile(transfer_id);  // drop the half-written temp file
       transfers_.erase(transfer_id);
       return;
     }
@@ -260,6 +261,7 @@ void AssetStreamClient::HandleChunk(
     } else {
       REC_WARN("net: asset stream finalize failed for transfer {}", transfer_id);
       failed_ = true;
+      transporter_.AbortStreamedFile(transfer_id);  // finalize already failed; clean up
     }
     transfers_.erase(transfer_id);
     return;

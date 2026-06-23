@@ -20,10 +20,17 @@ std::optional<ModResource> ScanResource(
   resource.name = name;
 
   std::error_code ec;
-  fs::recursive_directory_iterator it(root, fs::directory_options::none, ec);
-  if (ec) return std::nullopt;
-  for (const fs::directory_entry& entry : it) {
-    if (!entry.is_regular_file()) continue;
+  const fs::recursive_directory_iterator end;
+  // Drive the walk with the error-code overloads so a mid-traversal failure
+  // (a permission change, a race) returns nullopt like every other error here,
+  // rather than throwing out of Build.
+  for (fs::recursive_directory_iterator it(root, fs::directory_options::none, ec);
+       !ec && it != end; it.increment(ec)) {
+    const fs::directory_entry& entry = *it;
+    if (!entry.is_regular_file(ec) || ec) {
+      if (ec) return std::nullopt;
+      continue;
+    }
     const std::optional<ContentHash> hash = HashFile(entry.path());
     if (!hash) return std::nullopt;
 
@@ -40,6 +47,7 @@ std::optional<ModResource> ScanResource(
     by_hash.emplace(*hash, entry.path());
     resource.files.push_back(std::move(file));
   }
+  if (ec) return std::nullopt;
 
   std::sort(resource.files.begin(), resource.files.end(),
             [](const ResourceFile& a, const ResourceFile& b) {
