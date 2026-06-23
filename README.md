@@ -94,3 +94,10 @@ their UGC has arrived:
 EventBus.Subscribe<ClientAssetsReady>(e =>
     Rpc.ToClient(e.Peer, "welcome", Value.String("Mods loaded, have fun!")));
 ```
+
+A mod declares which side it runs on with `[Realm(ModRealm.Server|Client|Shared)]`
+(no tag means Server). A host starts its Server and Shared mods, a connecting
+client starts Client and Shared mods, and single-player runs everything, so
+authoritative gameplay stays on the server while client mods handle UI, local
+effects and `Rpc.Emit` requests. Authoritative mutations a client mod attempts
+are gated, so it cannot diverge from the server.

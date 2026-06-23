@@ -13,6 +13,8 @@ shows the most recent entries (the first bullet of each release is its headline)
   ask-and-answer request/response (Rpc.Request / Rpc.OnRequest / req.Reply)
 - A ClientAssetsReady event fires server-side once a player finished downloading,
   so mods can gate spawn or greet the player when their UGC has arrived
+- Mod realms ([Realm] Server/Client/Shared): connecting clients run client-side
+  mods (RPC, UI, local effects) while authoritative gameplay stays server-side
 
 ## [0.3.0] - 2026-06-23
 ### Added
