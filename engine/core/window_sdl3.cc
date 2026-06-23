@@ -18,6 +18,8 @@ Key TranslateKey(SDL_Scancode code) {
     case SDL_SCANCODE_Q: return Key::kQ;
     case SDL_SCANCODE_E: return Key::kE;
     case SDL_SCANCODE_F: return Key::kF;
+    case SDL_SCANCODE_T: return Key::kT;
+    case SDL_SCANCODE_C: return Key::kC;
     case SDL_SCANCODE_SPACE: return Key::kSpace;
     case SDL_SCANCODE_LSHIFT: return Key::kLeftShift;
     case SDL_SCANCODE_LCTRL: return Key::kLeftCtrl;

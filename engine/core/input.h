@@ -15,6 +15,8 @@ enum class Key : u8 {
   kQ,
   kE,
   kF,
+  kT,
+  kC,
   kSpace,
   kLeftShift,
   kLeftCtrl,
