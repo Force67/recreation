@@ -24,6 +24,21 @@ public static class RpcTests
         public void Subscribe(string name) => Subscriptions.Add(name);
     }
 
+    // Loops every emit straight back into Dispatch, simulating the peer on the
+    // other end so request/response can be exercised end to end in one process: a
+    // client send arrives as from-a-client, a server push as from-the-server.
+    private sealed class LoopbackBackend : IRpcBackend
+    {
+        public void Emit(RpcTarget target, uint peer, string name, ReadOnlySpan<Value> args)
+        {
+            bool fromServer = target != RpcTarget.ToServer;
+            uint sender = target == RpcTarget.ToServer ? 7u : 0u;
+            Rpc.Dispatch(name, sender, fromServer, args);
+        }
+
+        public void Subscribe(string name) { }
+    }
+
     public static void Run(Check check)
     {
         var backend = new RecordingBackend();
@@ -91,5 +106,41 @@ public static class RpcTests
         Rpc.Clear();
         Rpc.Dispatch("rt_clear", 0, false, ReadOnlySpan<Value>.Empty);
         check.Equal("Clear removes handlers", 0, firedAfterClear);
+
+        // --- request / response over the loopback ---
+        Rpc.Clear();
+        Rpc.Bind(new LoopbackBackend());
+
+        string serverGot = "";
+        Rpc.OnRequest("rt_buy", req =>
+        {
+            serverGot = req.Args[0].AsString();
+            req.Reply(Value.Bool(true), Value.Int(99));
+        });
+        bool replied = false;
+        bool allowed = false;
+        int change = 0;
+        Rpc.Request("rt_buy", new[] { Value.String("sword") }, reply =>
+        {
+            replied = true;
+            allowed = reply[0].AsBool();
+            change = reply[1].AsInt();
+        });
+        check.That("request reached the handler", serverGot == "sword");
+        check.That("reply delivered to the caller", replied);
+        check.That("reply payload arrives", allowed);
+        check.Equal("reply second value", 99, change);
+
+        // A request with no matching handler simply never replies (no throw).
+        bool orphanReplied = false;
+        Rpc.Request("rt_nohandler", Array.Empty<Value>(), _ => orphanReplied = true);
+        check.That("unhandled request does not reply", !orphanReplied);
+
+        // Clear wipes pending requests and request handlers too.
+        Rpc.Clear();
+        Rpc.Bind(new LoopbackBackend());
+        bool afterClear = false;
+        Rpc.Request("rt_buy", Array.Empty<Value>(), _ => afterClear = true);
+        check.That("cleared request handler does not answer", !afterClear);
     }
 }

@@ -30,7 +30,7 @@ public readonly struct RpcEvent
 //
 // Single-threaded: the engine calls Dispatch on the main thread, the same one
 // mods send from, so the handler table needs no locking.
-public static class Rpc
+public static partial class Rpc
 {
     private static IRpcBackend? _backend;
     private static readonly Dictionary<string, Action<RpcEvent>> Handlers = new();
@@ -61,7 +61,14 @@ public static class Rpc
 
     // Drop every handler. ModHost.Shutdown calls this so subscriptions do not leak
     // across sessions.
-    public static void Clear() => Handlers.Clear();
+    public static void Clear()
+    {
+        Handlers.Clear();
+        ClearRequests();  // request/response state lives in the partial below
+    }
+
+    // Implemented in RpcRequest.cs; clears the pending request/response tables.
+    static partial void ClearRequests();
 
     internal static void Bind(IRpcBackend backend) => _backend = backend;
 
