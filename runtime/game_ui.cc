@@ -819,16 +819,41 @@ std::string BuildMainMenuScreens() {
   }
   s += "        }\n";
 
-  // --- Profile (live stats) ---
-  s += "        panel mm_body_profile { layout: column; gap: 14; width: 100%;\n"
+  // --- Profile: the real local account / system identity, plus the loaded
+  // character's vitals only when a universe is actually being played. ---
+  s += "        panel mm_body_profile { layout: column; gap: 16; width: 100%;\n"
        "          panel { layout: row; align: center; gap: 16; width: 100%;\n            " +
-       MenuGlyph("knot", "#cdb98f", 40) +
-       R"(            panel { layout: column; gap: 2;
-              text mm_pf_name { text: "Wanderer"; font-size: 20; color: #eef1f8; }
-              text mm_pf_sub { text: "Level 42"; font-size: 12; color: #9aa3b6; }
+       MenuGlyph("knot", "#cdb98f", 44) +
+       R"(            panel { layout: column; gap: 3;
+              text mm_pf_name { text: "local"; font-size: 22; color: #eef1f8; letter-spacing: 1; }
+              text mm_pf_sub { text: ""; font-size: 12; color: #9aa3b6; letter-spacing: 1; }
             }
           }
-          panel { layout: column; gap: 9; width: 100%;
+)";
+
+  // Real account / system chips, two per row (always shown).
+  const char* acct[4][2] = {
+      {"ACCOUNT", "mm_pf_account"}, {"MACHINE", "mm_pf_machine"},
+      {"SESSION", "mm_pf_session"}, {"BUILD", "mm_pf_build"},
+  };
+  for (int r = 0; r < 2; ++r) {
+    s += "          panel { layout: row; gap: 10; width: 100%;\n";
+    for (int c = 0; c < 2; ++c) {
+      const char* const* chip = acct[r * 2 + c];
+      s += "            panel { flex-grow: 1; layout: column; gap: 3; padding: 11 13; corner-radius: 9;"
+           " background: #ffffff0a; border-color: #ffffff14; border-width: 1;\n"
+           "              text { text: \"" + std::string(chip[0]) +
+           "\"; font-size: 10; color: #8a93a8; letter-spacing: 2; }\n"
+           "              text " + std::string(chip[1]) +
+           " { text: \"-\"; font-size: 15; color: #eef1f8; }\n            }\n";
+    }
+    s += "          }\n";
+  }
+
+  // Character vitals + holdings: collapsed until a universe is loaded.
+  s += R"(          panel mm_pf_char { layout: column; gap: 12; width: 100%; visibility: collapsed;
+            panel { width: 100%; height: 1; background: #ffffff14; }
+            panel { layout: column; gap: 9; width: 100%;
 )";
   struct Bar {
     const char* label;
@@ -844,29 +869,30 @@ std::string BuildMainMenuScreens() {
   };
   for (const Bar& bar : bars) {
     std::snprintf(buf, sizeof(buf),
-                  "            panel { layout: row; align: center; gap: 12; width: 100%%;\n"
-                  "              text { text: \"%s\"; font-size: 12; color: #9aa3b6; width: 66; }\n"
-                  "              panel %s { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc;"
+                  "              panel { layout: row; align: center; gap: 12; width: 100%%;\n"
+                  "                text { text: \"%s\"; font-size: 12; color: #9aa3b6; width: 66; }\n"
+                  "                panel %s { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc;"
                   " corner-radius: 6; border-color: #00000066; border-width: 1;\n"
-                  "                panel %s { width: 100%%; height: 100%%; corner-radius: 6;"
-                  " background: %s; background-end: %s; }\n              }\n            }\n",
+                  "                  panel %s { width: 100%%; height: 100%%; corner-radius: 6;"
+                  " background: %s; background-end: %s; }\n                }\n              }\n",
                   bar.label, bar.track, bar.fill, bar.a, bar.b);
     s += buf;
   }
-  s += R"(          }
-          panel { layout: row; gap: 10; width: 100%; margin: 4 0 0 0;
+  s += R"(            }
+            panel { layout: row; gap: 10; width: 100%;
 )";
   const char* chips[3][2] = {{"GOLD", "mm_pf_gold"}, {"QUESTS", "mm_pf_quests"}, {"LOCATION", "mm_pf_loc"}};
   for (auto& chip : chips) {
-    s += "            panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9;"
+    s += "              panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9;"
          " background: #ffffff0a; border-color: #ffffff14; border-width: 1;\n"
-         "              text { text: \"" + std::string(chip[0]) +
+         "                text { text: \"" + std::string(chip[0]) +
          "\"; font-size: 10; color: #8a93a8; letter-spacing: 2; }\n"
-         "              text " + std::string(chip[1]) +
-         " { text: \"-\"; font-size: 15; color: #eef1f8; }\n            }\n";
+         "                text " + std::string(chip[1]) +
+         " { text: \"-\"; font-size: 15; color: #eef1f8; }\n              }\n";
   }
-  s += R"(          }
-          text mm_pf_hint { text: "Enter a universe to begin your story."; font-size: 11; color: #6b7488; }
+  s += R"(            }
+          }
+          text mm_pf_hint { text: "Enter a universe to load a character."; font-size: 11; color: #6b7488; }
         }
       }
     }
@@ -926,8 +952,8 @@ std::string BuildMainMenuSection() {
          "        panel mm_lab" + id +
          " { position: absolute; left: 0; bottom: 150; width: 100%; layout: column; align: center;"
          " gap: 14;\n          text mm_labt" + id + " { text: \"" + c.label +
-         "\"; font-size: 17; color: #dfe4ef; letter-spacing: 7; text-transform: uppercase;"
-         " text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }\n          " +
+         "\"; font-size: 17; color: #dfe4ef; letter-spacing: 8; text-transform: uppercase;"
+         " text-shadow-color: #000000aa; text-shadow-x: 0; text-shadow-y: 1; }\n          " +
          MenuGlyph(c.emblem, "#cfd6e6", 26) + "        }\n"
          // Top-most transparent overlay spanning the column: gives the whole
          // third a single, eased hover wash (the label/emblem show through it).
@@ -941,32 +967,37 @@ std::string BuildMainMenuSection() {
   }
   s += "    }\n";  // close mm_cols
 
-  // Thin seams between the thirds.
+  // Cinematic edge scrims: darken the left flank behind the nav and the right
+  // behind the news so the chrome reads cleanly over any backdrop (lets the per-
+  // glyph text shadows stay light instead of muddy). Drawn over the columns but
+  // under all the UI text below.
+  s += "    panel mm_scriml { position: absolute; left: 0; top: 0; width: 40vw; height: 100vh;"
+       " background: #04060bf4; background-end: #04060b00; gradient-angle: 90; }\n";
+  s += "    panel mm_scrimr { position: absolute; right: 0; top: 0; width: 27vw; height: 100vh;"
+       " background: #04060b00; background-end: #04060bcc; gradient-angle: 90; }\n";
+
+  // Hairline seams between the thirds: a soft light edge reads more premium than
+  // a hard black line.
   s += "    panel mm_seaml { position: absolute; left: 33.333%; top: 0; width: 1; height: 100vh;"
-       " background: #00000066; }\n";
+       " background: #ffffff12; }\n";
   s += "    panel mm_seamr { position: absolute; left: 66.666%; top: 0; width: 1; height: 100vh;"
-       " background: #00000066; }\n";
+       " background: #ffffff12; }\n";
 
   // Top-left brand lockup.
   s += "    panel mm_logo { position: absolute; left: 40; top: 34; layout: row; align: center; gap: 12;\n      " +
        MenuGlyph("mountain", "#dfe4ef", 22) +
-       "      text { text: \"NEXUS\"; font-size: 15; color: #e8ecf6; letter-spacing: 6; }\n    }\n";
+       "      text { text: \"RECREATION\"; font-size: 15; color: #e8ecf6; letter-spacing: 5; }\n    }\n";
 
-  // Centre wordmark: N E + star + U S, tagline, ornament.
-  s += R"(    panel mm_word { position: absolute; left: 0; top: 70; width: 100vw;
-      layout: column; align: center; gap: 9;
-      panel { layout: row; align: center; gap: 0;
-        text { text: "NE"; font-size: 60; color: #f4f6fb; letter-spacing: 20;
-          text-shadow-color: #000000aa; text-shadow-x: 0; text-shadow-y: 2; }
+  // Centre wordmark: emblem mark over the RECREATION wordmark, finished with a
+  // short hairline rule. No marketing strapline — just the title lockup.
+  s += "    panel mm_word { position: absolute; left: 0; top: 64; width: 100vw;"
+       " layout: column; align: center; gap: 16;\n      " +
+       MenuGlyph("sparkle", "#eaf0ff", 32) +
+       R"(      text { text: "RECREATION"; font-size: 58; color: #f6f8fc; letter-spacing: 14;
+        text-shadow-color: #000000cc; text-shadow-x: 0; text-shadow-y: 2; }
+      panel { width: 116; height: 1; background: #ffffff2b; }
+    }
 )";
-  s += "        " + MenuGlyph("sparkle", "#eaf0ff", 60) +
-       R"(        text { text: "XUS"; font-size: 60; color: #f4f6fb; letter-spacing: 20;
-          text-shadow-color: #000000aa; text-shadow-x: 0; text-shadow-y: 2; }
-      }
-      text { text: "ONE UNIVERSE. INFINITE STORIES."; font-size: 13; color: #aeb6c8;
-        letter-spacing: 6; text-transform: uppercase; }
-)";
-  s += "      " + MenuGlyph("diamond", "#8a93a8", 14) + "    }\n";
 
   // Left navigation.
   const char* nav[kMenuNavItems][2] = {
@@ -991,63 +1022,34 @@ std::string BuildMainMenuSection() {
          "        }\n"
          "        panel { layout: column; gap: 2;\n"
          "          text mm_navt" + id + " { text: \"" + nav[i][0] +
-         "\"; font-size: 23; color: #9aa3b6; letter-spacing: 4;"
-         " text-shadow-color: #000000b0; text-shadow-x: 1; text-shadow-y: 1; }\n"
+         "\"; font-size: 22; color: #9aa3b6; letter-spacing: 4;"
+         " text-shadow-color: #00000066; text-shadow-x: 0; text-shadow-y: 1; }\n"
          "          text mm_navs" + id + " { text: \"" + nav[i][1] +
-         "\"; font-size: 12; color: #6b7488;"
-         " text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }\n"
+         "\"; font-size: 12; color: #717a8e; letter-spacing: 1; }\n"
          "        }\n      }\n";
   }
   s += "    }\n";
 
-  // Right-hand news block.
-  s += R"(    panel mm_news { position: absolute; right: 48; top: 150; width: 188; layout: column; align: start; gap: 10;
-      text { text: "NEWS"; font-size: 12; color: #aeb6c8; letter-spacing: 5; }
-      panel { layout: row; align: start; gap: 9;
-        panel { width: 4; height: 4; corner-radius: 2; background: #ffcc55; margin: 6 0 0 0; }
-        panel { layout: column; gap: 3;
-          text { text: "CREATION KIT 2 IS LIVE"; font-size: 13; color: #eef1f8; letter-spacing: 1; }
-          text { text: "Build, share, play."; font-size: 13; color: #aeb6c8; }
-          text { text: "Together."; font-size: 13; color: #aeb6c8; }
-        }
+  // Bottom-left profile banner: the local account/handle and machine, plus the
+  // live peer count when a session is up. Real identity, driven from C++.
+  s += "    panel mm_profilebar { position: absolute; left: 40; bottom: 36; layout: row; align: center; gap: 14;\n";
+  s += "      " + MenuGlyph("knot", "#cdb98f", 44);
+  s += R"(      panel { layout: column; gap: 2;
+        text mm_pname { text: "local"; font-size: 18; color: #eef1f8; letter-spacing: 1; }
+        text mm_psys { text: ""; font-size: 12; color: #8a93a8; letter-spacing: 1; }
       }
-      panel mm_news_view { layout: column; align: start; gap: 4; cursor: pointer; margin: 8 0 0 0;
-        padding: 6 10 6 0; corner-radius: 7; background: #ffffff00;
-        :hover { background: #ffffff10; transition: 0.16s ease-out; }
-        text { text: "VIEW"; font-size: 11; color: #cfd6e6; letter-spacing: 3; }
-        panel { width: 26; height: 1; background: #cfd6e6; }
-      }
-    }
-)";
-
-  // Bottom-left player banner.
-  s += "    panel mm_profilebar { position: absolute; left: 40; bottom: 40; layout: row; align: center; gap: 16;\n";
-  s += "      " + MenuGlyph("knot", "#cdb98f", 46);
-  s += R"(      panel { layout: column; gap: 1;
-        text mm_pname { text: "Wanderer"; font-size: 18; color: #eef1f8; letter-spacing: 1; }
-        text mm_plevel { text: "Level 42"; font-size: 12; color: #9aa3b6; letter-spacing: 1; }
-      }
-      panel { width: 1; height: 34; background: #ffffff24; margin: 0 4; }
-      panel { layout: row; align: center; gap: 8;
+      panel mm_pnet { layout: row; align: center; gap: 10; visibility: collapsed;
+        panel { width: 1; height: 32; background: #ffffff24; }
 )";
   s += "        " + MenuGlyph("people", "#9aa3b6", 20) +
-       "        text mm_pcount { text: \"3\"; font-size: 15; color: #cfd6e6; }\n      }\n    }\n";
+       "        text mm_pcount { text: \"0\"; font-size: 15; color: #cfd6e6; }\n      }\n    }\n";
 
-  // Bottom-centre tagline.
-  s += "    panel mm_foot { position: absolute; left: 0; bottom: 30; width: 100vw; layout: column; align: center; gap: 8;\n      " +
-       MenuGlyph("triup", "#8a93a8", 12) +
-       "      text { text: \"EXPLORE. SURVIVE. BUILD. TOGETHER.\"; font-size: 11; color: #8a93a8;"
-       " letter-spacing: 5; }\n    }\n";
-
-  // Bottom-right social row.
-  s += "    panel mm_icons { position: absolute; right: 34; bottom: 32; layout: row; align: center; gap: 6;\n";
-  const char* icons[4] = {"globe", "discord", "news", "gear"};
-  for (int i = 0; i < 4; ++i)
-    s += "      panel mm_icon" + std::to_string(i) +
-         " { cursor: pointer; padding: 8; corner-radius: 9; background: #ffffff00;\n"
-         "        :hover { background: #ffffff14; transition: 0.16s ease-out; }\n        " +
-         MenuGlyph(icons[i], "#9aa3b6", 22) + "      }\n";
-  s += "    }\n";
+  // Bottom-right build/version stamp (the conventional spot for it).
+  s += R"(    panel mm_ver { position: absolute; right: 40; bottom: 34; layout: row; align: center; gap: 8;
+      text { text: "RECREATION"; font-size: 11; color: #5b6478; letter-spacing: 3; }
+      text mm_build { text: ""; font-size: 11; color: #818aa0; letter-spacing: 1; }
+    }
+)";
 
   s += BuildMainMenuScreens();
   s += "  }\n";  // close mainmenu
@@ -1745,10 +1747,18 @@ void GameUi::Impl::ApplyMainMenu() {
     SetTextColor(("mm_navs" + id).c_str(), on ? Rgba(0xaeb6c8ffu) : Rgba(0x6b7488ffu));
   }
 
-  // Player banner.
-  setText("mm_pname", mm_stats.player_name);
-  setText("mm_plevel", "Level " + std::to_string(mm_stats.level));
-  setText("mm_pcount", std::to_string(mm_stats.players_online > 0 ? mm_stats.players_online : 3));
+  // Profile banner: real handle + system line; peer count only when in session.
+  const std::string sysline =
+      mm_stats.in_game && !mm_stats.universe.empty()
+          ? ("Level " + std::to_string(mm_stats.level) + "  ·  " + mm_stats.universe)
+          : (mm_stats.account + (mm_stats.machine.empty() ? "" : "@" + mm_stats.machine));
+  setText("mm_pname", mm_stats.player_name.empty() ? mm_stats.account : mm_stats.player_name);
+  setText("mm_psys", sysline);
+  SetVisible("mm_pnet", mm_stats.players_online > 0);
+  setText("mm_pcount", std::to_string(mm_stats.players_online));
+
+  // Build/version stamp.
+  setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
   // Sub-screen overlay: title + which body is shown. Body visibility is set
   // unconditionally (not only when the screen is open) so a body never lingers
@@ -1778,22 +1788,36 @@ void GameUi::Impl::ApplyMainMenu() {
     SetVisible("mm_mods_empty", mm_mods.empty());
   }
   if (mm_screen == 4) {
-    setText("mm_pf_name", mm_stats.player_name);
-    std::string sub = "Level " + std::to_string(mm_stats.level);
-    if (!mm_stats.universe.empty()) sub += "   •   " + mm_stats.universe;
-    setText("mm_pf_sub", sub);
-    auto bar = [&](const char* fill, float v) {
-      SetStyleField(
-          fill, [](ugui::Style& s, float x) { s.width = ugui::Length::Pct(x); },
-          std::clamp(v, 0.0f, 1.0f) * 100.0f);
-    };
-    bar("mm_pf_health", mm_stats.health);
-    bar("mm_pf_magicka", mm_stats.magicka);
-    bar("mm_pf_stamina", mm_stats.stamina);
-    setText("mm_pf_gold", mm_stats.in_game ? std::to_string(mm_stats.gold) : "-");
-    setText("mm_pf_quests", mm_stats.in_game ? std::to_string(mm_stats.active_quests) : "-");
-    setText("mm_pf_loc", mm_stats.location.empty() ? "-" : mm_stats.location);
+    // Header + real account/system identity (always shown).
+    setText("mm_pf_name", mm_stats.player_name.empty() ? mm_stats.account : mm_stats.player_name);
+    setText("mm_pf_sub", mm_stats.in_game && !mm_stats.universe.empty()
+                             ? ("Playing  ·  " + mm_stats.universe)
+                             : "Local profile");
+    setText("mm_pf_account", mm_stats.account.empty() ? "-" : mm_stats.account);
+    setText("mm_pf_machine", mm_stats.machine.empty() ? "-" : mm_stats.machine);
+    const std::string session =
+        mm_stats.players_online > 0
+            ? (std::to_string(mm_stats.players_online) + " online")
+            : (mm_stats.net_status.empty() ? "Single-player" : mm_stats.net_status);
+    setText("mm_pf_session", session);
+    setText("mm_pf_build", mm_stats.build.empty() ? "-" : ("v" + mm_stats.build));
+
+    // Character vitals/holdings only when a universe is actually loaded.
+    SetVisible("mm_pf_char", mm_stats.in_game);
     SetVisible("mm_pf_hint", !mm_stats.in_game);
+    if (mm_stats.in_game) {
+      auto bar = [&](const char* fill, float v) {
+        SetStyleField(
+            fill, [](ugui::Style& s, float x) { s.width = ugui::Length::Pct(x); },
+            std::clamp(v, 0.0f, 1.0f) * 100.0f);
+      };
+      bar("mm_pf_health", mm_stats.health);
+      bar("mm_pf_magicka", mm_stats.magicka);
+      bar("mm_pf_stamina", mm_stats.stamina);
+      setText("mm_pf_gold", std::to_string(mm_stats.gold));
+      setText("mm_pf_quests", std::to_string(mm_stats.active_quests));
+      setText("mm_pf_loc", mm_stats.location.empty() ? "-" : mm_stats.location);
+    }
   }
 }
 
@@ -1846,11 +1870,6 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         if (mm_universe == i && mm_screen == 0) { mm_nav = 0; ActivateNav(); }  // re-click = play
         else mm_universe = i;
         return true;
-      }
-      if (int i = pref("mm_icon"); i >= 0) {
-        if (i == 0) { mm_nav = 1; ActivateNav(); }       // globe -> multiplayer
-        else if (i == 3) { mm_nav = 3; ActivateNav(); }  // gear -> settings
-        return true;                                     // discord/news consume the click
       }
     }
     const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);

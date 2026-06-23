@@ -10,6 +10,15 @@
 #include <thread>
 #include <utility>
 
+#if !defined(_WIN32)
+#include <pwd.h>      // getpwuid for the local profile name
+#include <unistd.h>   // gethostname / getuid
+#endif
+
+#ifndef RECREATION_VERSION
+#define RECREATION_VERSION "0.1.0"
+#endif
+
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
 #include "bethesda/archive.h"
@@ -813,9 +822,37 @@ void Engine::UpdateMainMenu(f32 dt) {
 
 void Engine::RefreshMenuData() {
   MainMenuStats stats;
-  stats.player_name = "Wanderer";
-  stats.level = 42;
+
+  // Real local-profile identity for the front screen: the OS account and host,
+  // plus the configured multiplayer handle (falls back to the login name).
+  std::string login;
+  char host[256] = {0};
+#if !defined(_WIN32)
+  if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name) login = pw->pw_name;
+  if (gethostname(host, sizeof(host) - 1) != 0) host[0] = '\0';
+#endif
+  if (login.empty()) {
+    if (const char* u = std::getenv("USER")) login = u;
+    else if (const char* u2 = std::getenv("USERNAME")) login = u2;
+  }
+  if (!host[0]) {
+    if (const char* h = std::getenv("HOSTNAME")) std::snprintf(host, sizeof(host), "%s", h);
+    else if (const char* h2 = std::getenv("COMPUTERNAME")) std::snprintf(host, sizeof(host), "%s", h2);
+  }
+
+  const std::string handle(config_.player_name.c_str());
+  stats.account = login.empty() ? "local" : login;
+  stats.machine = host[0] ? host : "this machine";
+  stats.build = RECREATION_VERSION;
+  stats.player_name = (handle.empty() || handle == "player") ? stats.account : handle;
+  stats.level = 0;
   stats.net_status = "Offline";
+
+  int avail = 0;
+  for (const auto& u : menu_universes_)
+    if (u.available) ++avail;
+  stats.universes_available = avail;
+
 #if RECREATION_HAS_NET
   if (server_session_) {
     stats.players_online = static_cast<int>(server_session_->client_count());

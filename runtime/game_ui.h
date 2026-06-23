@@ -156,8 +156,8 @@ struct EditorView {
 // the network status line, and the per-column "available" flags. Read by the
 // menu's profile/multiplayer/status widgets; all optional, sensible defaults.
 struct MainMenuStats {
-  std::string player_name = "Wanderer";
-  int level = 42;
+  std::string player_name;     // the local profile handle (account or --name)
+  int level = 0;
   bool in_game = false;        // a universe is loaded and being played
   std::string universe;        // loaded game's display name (empty = none yet)
   std::string location;        // current cell/region, when in game
@@ -166,6 +166,13 @@ struct MainMenuStats {
   int active_quests = 0;
   int players_online = 0;      // connected peers (host or client), 0 = offline
   std::string net_status;      // "Offline" / "Hosting :29700" / "Connected ..."
+
+  // Real local-profile / system identity, shown on the front screen before any
+  // universe is loaded (the profile is the machine account, not an RPG hero).
+  std::string account;         // OS login name
+  std::string machine;         // hostname
+  std::string build;           // engine version string
+  int universes_available = 0; // detected, playable universes
 };
 
 // A request the main menu raises for the engine to act on. The engine polls it

@@ -61,6 +61,7 @@ endif()
 
 add_executable(recreation main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation PRIVATE ${RECREATION_RUNTIME_MODULES})
+target_compile_definitions(recreation PRIVATE RECREATION_VERSION="${PROJECT_VERSION}")
 recreation_set_warnings(recreation)
 
 if(RECREATION_NET)
