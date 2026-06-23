@@ -5,6 +5,7 @@ recreation_add_module(modstream
   manifest_codec.cc
   content_store.cc
   content_provider.cc
+  stream_filter.cc
   transfer_plan.cc
 )
 

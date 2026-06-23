@@ -17,6 +17,7 @@
 #include "modstream/content_store.h"
 #include "modstream/manifest_codec.h"
 #include "modstream/mod_catalog.h"
+#include "modstream/stream_filter.h"
 #include "modstream/transfer_plan.h"
 
 namespace fs = std::filesystem;
@@ -132,6 +133,42 @@ int main() {
   const auto tex_path = catalog->PathForHash(tex_hash);
   Check("PathForHash resolves a catalogued file", tex_path.has_value());
   Check("PathForHash rejects an unknown hash", !catalog->PathForHash(0xdeadbeef));
+
+  // --- stream filter (selective distribution: keep server-only files off clients) ---
+  {
+    const StreamFilter f = StreamFilter::Parse(
+        "# keep server bits off clients\nserver/\nsecrets.cfg\n*.bak\n\n");
+    Check("filter excludes a directory prefix", f.Excludes("server/logic.lua"));
+    Check("filter excludes an exact path", f.Excludes("secrets.cfg"));
+    Check("filter excludes an extension", f.Excludes("data/save.bak"));
+    Check("filter passes a normal file", !f.Excludes("meshes/sword.nif"));
+    Check("filter is case/slash normalized",
+          StreamFilter::Parse("Server\\\n").Excludes("server/x.txt"));
+    Check("empty filter excludes nothing",
+          StreamFilter::Parse("# only comments\n").empty() &&
+              !StreamFilter::Parse("").Excludes("anything"));
+  }
+
+  // A resource whose .streamignore hides a server dir, a config and the ignore
+  // file itself: none of those reach the catalogued manifest.
+  {
+    const fs::path filtered = mods_dir / "world";
+    WriteFile(filtered / ".streamignore", "server/\nadmin.cfg\n");
+    WriteFile(filtered / "meshes" / "rock.nif", "ROCK");
+    WriteFile(filtered / "server" / "rules.lua", "secret server logic");
+    WriteFile(filtered / "admin.cfg", "password=hunter2");
+    std::optional<ModCatalog> c2 = ModCatalog::Build(mods_dir);
+    Check("rebuild with a filtered resource succeeds", c2.has_value());
+    const ModResource* world = c2 ? FindResource(c2->manifest(), "world") : nullptr;
+    Check("filtered resource catalogues only the client file",
+          world && world->files.size() == 1 && world->files[0].path == "meshes/rock.nif");
+    if (c2) {
+      Check("server-only file is not servable",
+            !c2->PathForHash(HashBytes("secret server logic", 19)) &&
+                !c2->PathForHash(HashBytes("password=hunter2", 16)));
+    }
+    fs::remove_all(filtered, ec);
+  }
 
   // --- manifest codec round-trip and rejection ---
   std::vector<u8> encoded = EncodeManifest(manifest);

@@ -5,6 +5,7 @@
 
 #include "asset/asset_id.h"
 #include "modstream/content_hash.h"
+#include "modstream/stream_filter.h"
 
 namespace rec::modstream {
 namespace {
@@ -19,6 +20,10 @@ std::optional<ModResource> ScanResource(
   ModResource resource;
   resource.name = name;
 
+  // Files the resource keeps off clients (server configs, source, secrets). The
+  // .streamignore itself never streams. Absent file means everything streams.
+  const StreamFilter filter = StreamFilter::FromFile(root / ".streamignore");
+
   std::error_code ec;
   const fs::recursive_directory_iterator end;
   // Drive the walk with the error-code overloads so a mid-traversal failure
@@ -31,17 +36,22 @@ std::optional<ModResource> ScanResource(
       if (ec) return std::nullopt;
       continue;
     }
+    const fs::path rel = fs::relative(entry.path(), root, ec);
+    if (ec) return std::nullopt;
+    const std::string norm = asset::NormalizePath(rel.generic_string());
+
+    // Excluded and server-only files never enter the catalog, so the server
+    // cannot serve them and clients never learn they exist.
+    if (norm == ".streamignore" || filter.Excludes(norm)) continue;
+
     const std::optional<ContentHash> hash = HashFile(entry.path());
     if (!hash) return std::nullopt;
 
     const u64 file_size = entry.file_size(ec);
     if (ec) return std::nullopt;
 
-    const fs::path rel = fs::relative(entry.path(), root, ec);
-    if (ec) return std::nullopt;
-
     ResourceFile file;
-    file.path = asset::NormalizePath(rel.generic_string());
+    file.path = norm;
     file.size = file_size;
     file.hash = *hash;
     by_hash.emplace(*hash, entry.path());

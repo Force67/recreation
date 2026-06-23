@@ -64,10 +64,15 @@ recreation-server --mods-dir ./server_mods --port 29700
 ```
 
 The host catalogs every file (content hashed) and offers the manifest on join.
-A connecting client diffs it against its local cache, pulls only the content it
-is missing over the reliable file transporter, verifies it, and mounts the
-resources into its asset Vfs so the host's custom meshes, textures and scripts
-resolve like loose files:
+Files a resource should keep server-side (configs, source data, secrets) stay off
+clients by listing them in a `.streamignore` at the resource root, gitignore
+style (`server/`, an exact path, or `*.ext`); excluded files never enter the
+catalog, so the server cannot even be asked for them.
+
+A connecting client diffs the manifest against its local cache, pulls only the
+content it is missing over the reliable file transporter, verifies it, and mounts
+the resources into its asset Vfs so the host's custom meshes, textures and
+scripts resolve like loose files:
 
 ```sh
 recreation --connect <host> --asset-cache ./cache
