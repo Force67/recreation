@@ -1,34 +1,50 @@
 using System;
 using System.Runtime.InteropServices;
 using Recreation.Interop;
+using Recreation.Modding;
 
 namespace Recreation;
 
-// The native entry into the managed world. The engine's ClrHost resolves one of
-// these [UnmanagedCallersOnly] methods and calls it with the ScriptBridge, the
-// single channel between the two worlds. Both entrypoints first bind the bridge
-// so the rest of the SDK (Game, Form, mods, ...) can reach the engine.
+// The native entry into the managed world. The engine's ManagedHost resolves one
+// of these [UnmanagedCallersOnly] methods and calls it across the boundary. Both
+// first bind the bridge so the rest of the SDK (Game, Form, mods, ...) can reach
+// the engine.
 public static unsafe class ScriptHost
 {
-    // Production boot: binds the bridge and starts the modding host, which
-    // discovers and initialises user mods. Returns 0 on success.
+    // Production boot. Binds the inbound bridge, starts the mod host, then hands
+    // the engine the outbound callbacks it drives the managed world through.
+    // Returns 0 on success.
     [UnmanagedCallersOnly]
-    public static int Main(void* bridge)
+    public static int Main(void* handshakePtr)
     {
-        Native.Bind((ScriptBridge*)bridge);
+        var handshake = (HostHandshake*)handshakePtr;
+        Native.Bind(handshake->Bridge);
         Console.WriteLine("[managed] Recreation scripting host online");
-        Modding.ModHost.Boot();
+        ModHost.Boot();
+
+        handshake->Callbacks.Tick = &OnTick;
+        handshake->Callbacks.PublishEvent = &OnPublishEvent;
+        handshake->Callbacks.Shutdown = &OnShutdown;
         return 0;
     }
 
     // Self-test: binds the bridge and exercises the SDK against the engine,
     // returning the number of failed checks (0 = all passed). The native
-    // hosttest harness asserts on this. Kept separate from Main so the
-    // production boot never assumes a test fixture.
+    // hosttest harness asserts on this. Separate from Main so the production
+    // boot never assumes a test fixture.
     [UnmanagedCallersOnly]
     public static int SelfTest(void* bridge)
     {
         Native.Bind((ScriptBridge*)bridge);
         return SdkSelfTest.Run();
     }
+
+    [UnmanagedCallersOnly]
+    private static void OnTick(float deltaTime) => ModHost.Tick(deltaTime);
+
+    [UnmanagedCallersOnly]
+    private static void OnPublishEvent(ManagedEvent* e) => EngineEvents.Dispatch(*e);
+
+    [UnmanagedCallersOnly]
+    private static void OnShutdown() => ModHost.Shutdown();
 }
