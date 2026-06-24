@@ -26,18 +26,8 @@ jobs:
           submodules: recursive
       - name: deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build zlib1g-dev glslang-tools \
-            libfreetype-dev libharfbuzz-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
-            libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
-      - name: dxc
-        run: |
-          curl -fsSL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/linux_dxc_2026_05_26.x86_64.tar.gz \
-            | sudo tar -xz -C /usr/local
-          sudo chmod +x /usr/local/bin/dxc
-          sudo ldconfig
+          scripts/setup-linux.sh --system
+          scripts/setup-linux.sh --dxc
       - name: third-party deps
         run: |
           bash tools/get_nanobuf.sh
@@ -81,13 +71,7 @@ jobs:
           path: libultragui
           submodules: recursive
       - name: deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build zlib1g-dev glslang-tools \
-            libfreetype-dev libharfbuzz-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev libdecor-0-dev \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
-            libxfixes-dev libgl-dev libegl-dev libdrm-dev libgbm-dev
+        run: scripts/setup-linux.sh --system
       - name: dxc cache
         id: dxc-cache
         uses: actions/cache@v4
@@ -154,23 +138,11 @@ jobs:
           repository: Force67/libultragui
           path: libultragui
           submodules: recursive
-      - name: dxc
+      - name: deps (dxc, glslang, freetype, harfbuzz, pkg-config)
+        shell: pwsh
         run: |
-          curl.exe -fsSL -o dxc.zip https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/dxc_2026_05_27.zip
-          Expand-Archive dxc.zip -DestinationPath $env:GITHUB_WORKSPACE\dxc
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\dxc\bin\x64"
-      - name: glslang
-        run: |
-          curl.exe -fsSL -o glslang.zip https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip
-          Expand-Archive glslang.zip -DestinationPath $env:GITHUB_WORKSPACE\glslang
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\glslang\bin"
-      - name: ui deps (freetype, harfbuzz, pkg-config)
-        run: |
-          choco install pkgconfiglite -y --no-progress
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install freetype:x64-windows harfbuzz:x64-windows
-          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
-          Add-Content -Path $env:GITHUB_ENV -Value "PKG_CONFIG_PATH=$vcpkg\lib\pkgconfig"
-          Add-Content -Path $env:GITHUB_PATH -Value "$vcpkg\bin"
+          ./scripts/setup-windows.ps1 -Dxc
+          ./scripts/setup-windows.ps1 -System
       - name: third-party deps
         shell: bash
         run: |
@@ -216,9 +188,7 @@ jobs:
           path: libultragui
           submodules: recursive
       - name: deps
-        run: |
-          brew install ninja freetype harfbuzz pkg-config
-          echo "PKG_CONFIG_PATH=$(brew --prefix freetype)/lib/pkgconfig:$(brew --prefix harfbuzz)/lib/pkgconfig:$(brew --prefix)/lib/pkgconfig" >> "$GITHUB_ENV"
+        run: scripts/setup-macos.sh --system
       - name: dxc cache restore
         id: dxc-cache
         uses: actions/cache/restore@v4
@@ -286,14 +256,8 @@ jobs:
           submodules: recursive
       - name: deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-      - name: dxc
-        run: |
-          curl -fsSL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/linux_dxc_2026_05_26.x86_64.tar.gz \
-            | sudo tar -xz -C /usr/local
-          sudo chmod +x /usr/local/bin/dxc
-          sudo ldconfig
+          scripts/setup-linux.sh --system --minimal
+          scripts/setup-linux.sh --dxc
       - name: nanobuf
         run: bash tools/get_nanobuf.sh
       - name: configure
