@@ -102,3 +102,6 @@ client starts Client and Shared mods, and single-player runs everything, so
 authoritative gameplay stays on the server while client mods handle UI, local
 effects and `Rpc.Emit` requests. Authoritative mutations a client mod attempts
 are gated, so it cannot diverge from the server.
+
+See [MODDING.md](MODDING.md) for a complete worked example: a streamed resource, a
+server mod and a client mod, wired together.
