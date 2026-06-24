@@ -112,7 +112,8 @@ the authoritative simulation.
 ## 5. Iterating live
 
 After editing files in the mods directory, reload them without restarting the
-server (newly joining players get the updated content):
+server. Already-connected players receive the change live: each re-diffs against
+its cache, streams only the files that changed, and re-mounts, no rejoin needed.
 
 ```sh
 kill -HUP <server-pid>
