@@ -118,6 +118,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/copy.cs.hlsl
   shaders/hdr_capture.cs.hlsl
   shaders/pathtrace.cs.hlsl
+  shaders/pathtrace_gbuffer.cs.hlsl
+  shaders/pathtrace_composite.cs.hlsl
   shaders/fog.cs.hlsl
   shaders/ui_blur.ps.hlsl
 )
