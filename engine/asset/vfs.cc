@@ -23,6 +23,22 @@ void Vfs::Mount(base::UniquePointer<FileProvider> provider) {
   providers_.push_back(std::move(provider));
 }
 
+size_t Vfs::UnmountByPrefix(std::string_view prefix) {
+  base::Vector<base::UniquePointer<FileProvider>> kept;
+  size_t removed = 0;
+  for (size_t i = 0; i < providers_.size(); ++i) {
+    const std::string name = providers_[i]->name();
+    if (name.size() >= prefix.size() &&
+        name.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0) {
+      ++removed;
+    } else {
+      kept.push_back(std::move(providers_[i]));
+    }
+  }
+  providers_ = std::move(kept);
+  return removed;
+}
+
 std::optional<base::Vector<u8>> Vfs::Read(std::string_view path) const {
   std::string normalized = NormalizePath(path);
   for (size_t i = providers_.size(); i-- > 0;) {

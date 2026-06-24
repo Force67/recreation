@@ -136,6 +136,13 @@ class Engine {
   // frame.
   void RequestQuit() { quit_.store(true, std::memory_order_relaxed); }
 
+#if RECREATION_HAS_NET
+  // Requests a live reload of the streamed mods (rebuild the catalog, re-offer to
+  // joining clients, re-mount on the host). Safe from a signal handler; applied on
+  // the main thread next frame. A no-op when not hosting a mods directory.
+  void RequestModReload() { mod_reload_requested_.store(true, std::memory_order_relaxed); }
+#endif
+
  private:
   // The bring-up steps are free functions over the engine (declared just below
   // the class, defined in content_load.cc / networking.cc / managed_scripting.cc
@@ -151,6 +158,7 @@ class Engine {
   friend void EnterUniverse(Engine&, int, bool, bool, const std::string&);
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
+  friend void ReloadMods(Engine&);
   friend void EngineRpcEmitImpl(Engine&, std::int32_t, std::uint64_t, const char*,
                                 const script::host::ApiValue*, std::int32_t);
   friend void EngineRpcSubscribeImpl(Engine&, const char*);
@@ -322,6 +330,9 @@ class Engine {
   // exists, since managed boots first). StartNetworking forwards each of these
   // from the session into managed code.
   std::vector<std::string> managed_rpc_names_;
+  // Set from a signal handler to ask for a live mod reload; drained on the main
+  // thread at the top of the frame, where the Vfs is not being read.
+  std::atomic<bool> mod_reload_requested_{false};
 #endif
 
   // Shared service bundle handed to the subsystems, plus the subsystems
@@ -374,6 +385,11 @@ script::host::RpcBridge MakeManagedRpcBridge(Engine& engine);
 // name the managed world subscribed to, so inbound calls reach C#. Called once
 // the session is up.
 void RegisterManagedRpcForwarding(Engine& engine);
+// Live-reloads the streamed mods: rebuilds the catalog from the mods directory,
+// re-offers it to joining clients, and re-mounts it on the host Vfs. Keeps the
+// current set if the rebuild fails (a misconfigured edit must not break the live
+// server). Main thread only.
+void ReloadMods(Engine& engine);
 #endif
 
 }  // namespace rec

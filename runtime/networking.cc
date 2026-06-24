@@ -229,6 +229,33 @@ bool StartNetworking(Engine& engine) {
   if (self->managed_) RegisterManagedRpcForwarding(*self);
   return true;
 }
+
+void ReloadMods(Engine& engine) {
+  Engine* const self = &engine;
+  if (self->config_.mods_dir.empty() || !self->server_session_ || !self->mod_catalog_) {
+    return;  // not hosting a mods directory; nothing to reload
+  }
+  std::optional<modstream::ModCatalog> fresh =
+      modstream::ModCatalog::Build(self->config_.mods_dir);
+  if (!fresh) {
+    REC_ERROR("net: mod reload failed to catalog '{}', keeping the current set",
+              self->config_.mods_dir);
+    return;  // a broken edit must not take down the running server
+  }
+  REC_INFO("net: reloaded mods, now offering {} files ({} bytes)",
+           fresh->manifest().TotalFiles(), fresh->manifest().TotalBytes());
+
+  // Point the session at the new catalog before the old one is destroyed, then
+  // swap ownership: the new catalog object's address is stable across the move.
+  auto next = std::make_unique<modstream::ModCatalog>(std::move(*fresh));
+  self->server_session_->ReloadCatalog(*next);
+  self->mod_catalog_ = std::move(next);
+
+  // Re-mount on the host: drop the old mod providers and mount the new catalog,
+  // on the main thread where nothing is reading the Vfs.
+  self->vfs_.UnmountByPrefix("modstream:");
+  modstream::MountCatalog(self->vfs_, *self->mod_catalog_);
+}
 #endif  // RECREATION_HAS_NET
 
 }  // namespace rec

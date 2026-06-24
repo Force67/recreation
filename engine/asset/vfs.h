@@ -32,6 +32,12 @@ class Vfs {
  public:
   void Mount(base::UniquePointer<FileProvider> provider);
 
+  // Removes every mounted provider whose name starts with `prefix`, returning how
+  // many were dropped. Lets a caller swap one set of providers (reloaded mods)
+  // for another without disturbing the rest of the stack. Single-threaded with
+  // Read, like Mount.
+  size_t UnmountByPrefix(std::string_view prefix);
+
   std::optional<base::Vector<u8>> Read(std::string_view path) const;
   bool Contains(std::string_view path) const;
 

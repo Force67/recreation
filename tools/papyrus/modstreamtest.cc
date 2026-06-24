@@ -146,6 +146,13 @@ int main() {
               std::equal(host_mesh->begin(), host_mesh->end(), mesh.begin()));
     Check("host mount serves a sound", host_vfs.Read("sound/hit.wav").has_value());
     Check("host mount misses an unknown path", !host_vfs.Read("meshes/nope.nif"));
+
+    // Live reload swaps the mod providers: unmount them, and the content is gone.
+    const size_t removed = host_vfs.UnmountByPrefix("modstream:");
+    Check("unmount drops one provider per resource", removed == catalog->manifest().resources.size());
+    Check("unmounted content no longer resolves", !host_vfs.Read("meshes/sword.nif"));
+    modstream::MountCatalog(host_vfs, *catalog);  // re-mount, as a reload would
+    Check("re-mounted content resolves again", host_vfs.Read("meshes/sword.nif").has_value());
   }
 
   // --- stream filter (selective distribution: keep server-only files off clients) ---

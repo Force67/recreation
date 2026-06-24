@@ -57,6 +57,10 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 
 bool Engine::RunFrame() {
   if (quit_.load(std::memory_order_relaxed)) return false;
+#if RECREATION_HAS_NET
+  // Apply a requested live mod reload here, before any stage reads the Vfs.
+  if (mod_reload_requested_.exchange(false, std::memory_order_relaxed)) ReloadMods(*this);
+#endif
   if (window_ && !window_->PumpEvents()) return false;
   // Forward key presses to the managed world (KeyPressed) so mods can bind
   // hotkeys, unless the debug console is capturing the keyboard. Queued here and

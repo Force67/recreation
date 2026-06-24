@@ -214,6 +214,10 @@ void ServerSession::HandleJoin(ecs::World& world, u32 peer,
   if (is_new_client && client_joined_sink_) client_joined_sink_(peer);
 }
 
+void ServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
+  if (asset_stream_) asset_stream_->SetCatalog(catalog);
+}
+
 void ServerSession::DropClient(ecs::World& world, u32 peer) {
   RemoteClient* client = clients_.find(peer);
   if (!client) return;

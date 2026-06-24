@@ -131,6 +131,11 @@ class ServerSession final : public Session {
   // engine registers handlers and emits client-bound calls through it.
   RpcServerChannel* rpc() { return rpc_.get(); }
 
+  // Swaps the mod catalog offered to clients (live reload). New joiners get the
+  // new manifest; in-flight transfers, which captured their paths, are unaffected.
+  // Call on the session thread.
+  void ReloadCatalog(const modstream::ModCatalog& catalog);
+
   u32 client_count() const { return static_cast<u32>(clients_.size()); }
   u64 tick() const { return tick_; }
 

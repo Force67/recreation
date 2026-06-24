@@ -53,6 +53,11 @@ class AssetStreamServer {
   // so a client can never make the server read a path outside the mods dir.
   void HandleRequest(u32 peer, const u8* data, size_t size);
 
+  // Swaps the catalog offered to clients (live mod reload). Call on the session
+  // thread, where HandleRequest and SendManifest run, so the read does not race.
+  // The new catalog must outlive this server.
+  void SetCatalog(const modstream::ModCatalog& catalog) { catalog_ = &catalog; }
+
  private:
   struct SendJob {
     u32 peer = 0;
@@ -62,7 +67,7 @@ class AssetStreamServer {
   void Worker();
 
   tx::network::ZServer& server_;
-  const modstream::ModCatalog& catalog_;
+  const modstream::ModCatalog* catalog_;
   tx::network::ZFileTransporter transporter_;
 
   std::mutex mutex_;

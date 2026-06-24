@@ -17,6 +17,14 @@ void HandleSignal(int) {
   if (g_engine) g_engine->RequestQuit();
 }
 
+#ifndef _WIN32
+// SIGHUP asks the running server to re-scan its mods directory and re-offer the
+// updated set to joining clients, so an author can iterate without a restart.
+void HandleReload(int) {
+  if (g_engine) g_engine->RequestModReload();
+}
+#endif
+
 void PrintUsage() {
   REC_INFO("usage: recreation-server [options]");
   REC_INFO("  --data-dir <path>     game Data directory (omit for demo scene)");
@@ -71,6 +79,9 @@ int main(int argc, char** argv) {
   g_engine = &engine;
   std::signal(SIGINT, HandleSignal);
   std::signal(SIGTERM, HandleSignal);
+#ifndef _WIN32
+  std::signal(SIGHUP, HandleReload);  // kill -HUP <pid> to reload mods live
+#endif
 
   REC_INFO("dedicated server up on port {}, ctrl-c to stop", config.port);
   int rc = engine.Run();

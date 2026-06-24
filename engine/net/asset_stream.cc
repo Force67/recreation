@@ -32,7 +32,7 @@ base::Path ToBasePath(const fs::path& path) {
 AssetStreamServer::AssetStreamServer(tx::network::ZServer& server,
                                      const modstream::ModCatalog& catalog,
                                      unsigned sender_threads)
-    : server_(server), catalog_(catalog), transporter_(server) {
+    : server_(server), catalog_(&catalog), transporter_(server) {
   const unsigned count = sender_threads > 0 ? sender_threads : 1;
   workers_.reserve(count);
   for (unsigned i = 0; i < count; ++i)
@@ -54,7 +54,7 @@ AssetStreamServer::~AssetStreamServer() {
 }
 
 void AssetStreamServer::SendManifest(u32 peer) {
-  const std::vector<u8> bytes = modstream::EncodeManifest(catalog_.manifest());
+  const std::vector<u8> bytes = modstream::EncodeManifest(catalog_->manifest());
   const u32 total = static_cast<u32>(bytes.size());
   const u32 chunks = modstream::ManifestChunkCount(total);
   for (u32 i = 0; i < chunks; ++i) {
@@ -65,7 +65,7 @@ void AssetStreamServer::SendManifest(u32 peer) {
                             /*reliable=*/true, tx::network::PacketPriority::High));
   }
   REC_INFO("net: sent manifest ({} files, {} bytes) to peer {}",
-           catalog_.manifest().TotalFiles(), catalog_.manifest().TotalBytes(), peer);
+           catalog_->manifest().TotalFiles(), catalog_->manifest().TotalBytes(), peer);
 }
 
 void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
@@ -77,7 +77,7 @@ void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     for (modstream::ContentHash hash : *hashes) {
-      std::optional<fs::path> path = catalog_.PathForHash(hash);
+      std::optional<fs::path> path = catalog_->PathForHash(hash);
       if (!path) continue;  // not catalogued: never read outside the mods dir
       jobs_.push_back({peer, std::move(*path)});
       ++queued;
