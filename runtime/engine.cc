@@ -443,8 +443,9 @@ bool Engine::CreateSkyrimActor() {
   actor.skeleton = std::move(skeleton);
   actor.pose.ResetToBind(actor.skeleton);
   actor.animate = true;
-  actor.speed = 1.4f;  // walk in place to show the gait on the real skeleton
-  actor.foot_ik = false;
+  actor.speed = 0.0f;  // idle while tuning foot ik
+  actor.foot_ik = true;
+  actor.ankle_height = 6.0f;  // game units: the ankle sits ~6u above the sole
   // Bethesda game space (Z-up, ~70 units/m) -> engine space (Y-up, metres).
   constexpr f32 s = 0.01428f;
   Mat4 basis{};
@@ -485,21 +486,30 @@ bool Engine::CreateSkyrimActor() {
   actor.capsule_offset = 0.85f;
   actor.character = physics_.CreateCharacter({0.0f, 0.85f, 0.0f}, 0.3f, 0.55f);
 
-  // A ground slab to stand on (top at y = 0, where the skeleton's feet sit).
+  // A ground slab to stand on (top at y = 0, where the skeleton's feet sit),
+  // plus a step under one foot so the foot IK has something to adapt to.
   asset::Mesh slab = asset::MakeCube(10.0f, asset::MakeAssetId("builtin/actor_ground"));
+  asset::Mesh step = asset::MakeCube(0.45f, asset::MakeAssetId("builtin/actor_step"));
   renderer_.UploadMesh(slab);
+  renderer_.UploadMesh(step);
   ecs::Entity ground = world_.Create();
   world_.Add(ground, world::Transform{.position = {0, -10.0f, 0}});
   world_.Add(ground, world::Renderable{slab.id});
-  if (physics_.initialized()) physics_.AddStaticBox({0, -10.0f, 0}, {10, 10, 10});
+  ecs::Entity step_e = world_.Create();
+  world_.Add(step_e, world::Transform{.position = {0.5f, -0.33f, 0}});
+  world_.Add(step_e, world::Renderable{step.id});
+  if (physics_.initialized()) {
+    physics_.AddStaticBox({0, -10.0f, 0}, {10, 10, 10});
+    physics_.AddStaticBox({0.5f, -0.33f, 0}, {0.45f, 0.45f, 0.45f});
+  }
 
   size_t part_count = actor.parts.size();
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(std::move(actor));
 
   // The skeleton faces -Z in engine space, so frame it from the front.
-  camera_.set_position({0.0f, 1.0f, -3.4f});
-  camera_.set_yaw_pitch(3.14159f, -0.05f);
+  camera_.set_position({0.0f, 0.95f, -3.0f});
+  camera_.set_yaw_pitch(3.14159f, -0.08f);
   REC_INFO("skyrim actor ready ({} body parts); press T to walk it", part_count);
   if (std::getenv("REC_AUTOWALK")) {
     auto_walk_ = true;
