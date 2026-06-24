@@ -27,6 +27,22 @@ networking) only knows engine formats.
 
 ## Building
 
+New box? The setup scripts take an unknown machine to a buildable state:
+install the toolchain and shader compilers, fetch the third-party deps, clone
+the sibling repos (zetanet, libultragui) and report anything still missing.
+
+```sh
+scripts/setup.sh                 # Linux/macOS: do everything
+scripts/setup.sh --check         # report only, change nothing
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
+```
+
+These are the same scripts CI uses, so the dependency set never drifts from
+what the build actually needs. Then configure and build:
+
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
