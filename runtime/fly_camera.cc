@@ -9,34 +9,39 @@ Vec3 FlyCamera::forward() const {
   return {std::cos(pitch_) * std::sin(yaw_), std::sin(pitch_), -std::cos(pitch_) * std::cos(yaw_)};
 }
 
-void FlyCamera::Update(const InputState& input, bool allow_mouse, bool allow_keyboard, f32 dt) {
+void FlyCamera::Update(const InputState& input, const ActionState& actions, bool allow_mouse,
+                       bool allow_keyboard, f32 dt) {
   looking_ = allow_mouse && input.button(MouseButton::kRight);
 
   if (looking_) {
     yaw_ += input.mouse_dx * sensitivity;
     pitch_ -= input.mouse_dy * sensitivity;
-    pitch_ = std::clamp(pitch_, -1.55f, 1.55f);
     if (input.wheel != 0) {
       speed *= std::pow(1.2f, input.wheel);
       speed = std::clamp(speed, 0.1f, 200.0f);
     }
   }
+  // Right-stick look (rate based), no button needed.
+  if (allow_keyboard) {
+    yaw_ += actions.axis(Axis::kLookX) * pad_sensitivity * dt;
+    pitch_ -= actions.axis(Axis::kLookY) * pad_sensitivity * dt * (invert_y ? -1.0f : 1.0f);
+  }
+  pitch_ = std::clamp(pitch_, -1.55f, 1.55f);
 
   if (!allow_keyboard) return;
 
   Vec3 fwd = forward();
   Vec3 right = Normalize(Cross(fwd, {0, 1, 0}));
   Vec3 move{};
-  if (input.key(Key::kW)) move += fwd;
-  if (input.key(Key::kS)) move += fwd * -1.0f;
-  if (input.key(Key::kD)) move += right;
-  if (input.key(Key::kA)) move += right * -1.0f;
-  if (input.key(Key::kE) || input.key(Key::kSpace)) move += Vec3{0, 1, 0};
-  if (input.key(Key::kQ) || input.key(Key::kLeftCtrl)) move += Vec3{0, -1, 0};
+  // Combined keyboard + left-stick planar movement.
+  move += fwd * -actions.axis(Axis::kMoveY);  // stick-up / W = forward
+  move += right * actions.axis(Axis::kMoveX);
+  if (actions.down(Action::kCamUp) || actions.down(Action::kJump)) move += Vec3{0, 1, 0};
+  if (actions.down(Action::kCamDown) || actions.down(Action::kSneak)) move += Vec3{0, -1, 0};
 
   f32 length = std::sqrt(Dot(move, move));
   if (length > 0) {
-    f32 boost = input.key(Key::kLeftShift) ? 4.0f : 1.0f;
+    f32 boost = actions.down(Action::kSprint) ? 4.0f : 1.0f;
     position_ += move * (speed * boost * dt / length);
   }
 }

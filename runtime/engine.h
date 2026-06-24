@@ -15,6 +15,7 @@
 #include <base/containers/vector.h>
 
 #include "core/frame_timer.h"
+#include "core/input_bindings.h"
 #include "core/job_system.h"
 #include "core/window.h"
 #include "script/host/managed_host.h"
@@ -271,6 +272,20 @@ class Engine {
 
   render::Renderer renderer_;
   FlyCamera camera_;
+  // Device-agnostic input: bindings + the per-frame resolved action snapshot.
+  // Raw window_->input() / gamepad() stay available for text fields and the C#
+  // key bridge; gameplay reads actions_ instead of hardcoded keys.
+  InputMap input_map_;
+  ActionState actions_;
+  // Controls config persistence + in-game rebinding (controls_settings.cc).
+  void LoadControls();   // read controls.ini into input_map_, then ApplyControls
+  void SaveControls();   // write input_map_ back to controls.ini
+  void ApplyControls();  // push sensitivity/invert to the camera, LED to the pad
+  void UpdateSettings(); // drive the settings panel: rebind capture + sliders
+  std::string controls_path_;
+  int capturing_row_ = -1;          // settings: row awaiting an input (-1 = idle)
+  bool capture_prev_mouse_[3] = {}; // mouse-button edge tracking during capture
+  bool weapon_trigger_ = false;     // DualSense adaptive-trigger weapon state
 
   // Camera record/replay state, lazily armed from env on the first frame.
   struct CamKey {

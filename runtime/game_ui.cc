@@ -680,7 +680,9 @@ struct GameUi::Impl {
   bool menu_open = false;
   bool settings_open = false;  // settings sub-view of the pause menu
   bool quit_requested = false;
+  SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   bool prev_mouse[3] = {};
+  bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking
   float stamina = 1.0f;
   int last_fps = 0;  // last computed fps, shown in the editor status bar
 
@@ -1406,6 +1408,23 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
       impl->ApplyMenuVisibility();
     } else if (n->name == "btn_quit") {
       impl->quit_requested = true;
+    } else if (n->name.rfind("rebind_", 0) == 0 && n->name.find('_', 7) == std::string::npos) {
+      // A rebind row (rebind_<N>): ask the engine to capture the next input.
+      impl->settings_request = {SettingsRequest::Kind::kRebind, std::atoi(n->name.c_str() + 7), 0};
+    } else if (n->name == "btn_skbm_dec") {
+      impl->settings_request = {SettingsRequest::Kind::kSensKbm, 0, -1};
+    } else if (n->name == "btn_skbm_inc") {
+      impl->settings_request = {SettingsRequest::Kind::kSensKbm, 0, +1};
+    } else if (n->name == "btn_spad_dec") {
+      impl->settings_request = {SettingsRequest::Kind::kSensPad, 0, -1};
+    } else if (n->name == "btn_spad_inc") {
+      impl->settings_request = {SettingsRequest::Kind::kSensPad, 0, +1};
+    } else if (n->name == "btn_invert") {
+      impl->settings_request = {SettingsRequest::Kind::kInvertToggle, 0, 0};
+    } else if (n->name == "btn_reset") {
+      impl->settings_request = {SettingsRequest::Kind::kReset, 0, 0};
+    } else if (n->name == "btn_rumble") {
+      impl->settings_request = {SettingsRequest::Kind::kTestRumble, 0, 0};
     }
   });
 
@@ -1526,6 +1545,32 @@ MainMenuRequest GameUi::PollMainMenuRequest() {
   return r;
 }
 
+bool GameUi::settings_open() const { return impl_->initialized && impl_->settings_open; }
+
+void GameUi::SetControlsView(const ControlsView& view) {
+  if (!impl_->initialized) return;
+  Impl* impl = impl_.get();
+  for (size_t i = 0; i < view.rows.size(); ++i) {
+    const std::string base = "rebind_" + std::to_string(i);
+    ugui::SetText(impl->ui.FindWidget((base + "_lbl").c_str()), view.rows[i].label.c_str());
+    ugui::SetText(impl->ui.FindWidget((base + "_key").c_str()), view.rows[i].binding.c_str());
+  }
+  ugui::SetText(impl->ui.FindWidget("sens_kbm_val"), view.sens_kbm.c_str());
+  ugui::SetText(impl->ui.FindWidget("sens_pad_val"), view.sens_pad.c_str());
+  ugui::SetText(impl->ui.FindWidget("btn_invert"),
+                view.invert_y ? "Invert Y: On" : "Invert Y: Off");
+  impl->SetVisible("btn_rumble", view.gamepad);  // rumble test only with a pad
+}
+
+SettingsRequest GameUi::PollSettingsRequest() {
+  SettingsRequest r;
+  if (impl_->initialized) {
+    r = impl_->settings_request;
+    impl_->settings_request = SettingsRequest{};  // consume
+  }
+  return r;
+}
+
 void GameUi::SetQuest(const HudQuest& quest) {
   if (impl_->initialized) impl_->quest = quest;
 }
@@ -1629,6 +1674,50 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     impl->prev_mouse[i] = down;
   }
   if (in.wheel != 0.0f) q.PushScroll({0.0f, in.wheel});
+
+  // Feed gamepad + keyboard navigation into ugui's focus ring so menus with
+  // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.
+  // ugui drives nav/activation internally from these queued events.
+  const GamepadState& pad = window.gamepad();
+  if (pad.connected) {
+    // Map our buttons to ugui's (the enums differ in order); skip unmapped ones.
+    static constexpr int kNoUgui = -1;
+    auto to_ugui = [](GamepadButton b) -> int {
+      switch (b) {
+        case GamepadButton::kSouth: return static_cast<int>(ugui::GamepadButton::kA);
+        case GamepadButton::kEast: return static_cast<int>(ugui::GamepadButton::kB);
+        case GamepadButton::kWest: return static_cast<int>(ugui::GamepadButton::kX);
+        case GamepadButton::kNorth: return static_cast<int>(ugui::GamepadButton::kY);
+        case GamepadButton::kBack: return static_cast<int>(ugui::GamepadButton::kBack);
+        case GamepadButton::kGuide: return static_cast<int>(ugui::GamepadButton::kGuide);
+        case GamepadButton::kStart: return static_cast<int>(ugui::GamepadButton::kStart);
+        case GamepadButton::kLeftStick: return static_cast<int>(ugui::GamepadButton::kLeftThumb);
+        case GamepadButton::kRightStick: return static_cast<int>(ugui::GamepadButton::kRightThumb);
+        case GamepadButton::kLeftShoulder: return static_cast<int>(ugui::GamepadButton::kLeftBumper);
+        case GamepadButton::kRightShoulder:
+          return static_cast<int>(ugui::GamepadButton::kRightBumper);
+        case GamepadButton::kDpadUp: return static_cast<int>(ugui::GamepadButton::kDPadUp);
+        case GamepadButton::kDpadDown: return static_cast<int>(ugui::GamepadButton::kDPadDown);
+        case GamepadButton::kDpadLeft: return static_cast<int>(ugui::GamepadButton::kDPadLeft);
+        case GamepadButton::kDpadRight: return static_cast<int>(ugui::GamepadButton::kDPadRight);
+        default: return kNoUgui;
+      }
+    };
+    for (int b = 0; b < static_cast<int>(GamepadButton::kCount); ++b) {
+      bool down = pad.buttons[b];
+      if (down == impl->prev_pad[b]) continue;
+      impl->prev_pad[b] = down;
+      int u = to_ugui(static_cast<GamepadButton>(b));
+      if (u != kNoUgui) q.PushGamepadButton(static_cast<ugui::GamepadButton>(u), down);
+    }
+    // The stick axes drive repeat navigation; our GamepadAxis order matches ugui's.
+    q.PushGamepadAxis(ugui::GamepadAxis::kLeftX, pad.axis(GamepadAxis::kLeftX));
+    q.PushGamepadAxis(ugui::GamepadAxis::kLeftY, pad.axis(GamepadAxis::kLeftY));
+  }
+  // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
+  const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
+  if (in.key_pressed(Key::kTab)) q.PushKey(258, 0, true, false, shift_mod);
+  if (in.key_pressed(Key::kReturn)) q.PushKey(257, 0, true, false, 0);
 
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
@@ -1858,6 +1947,9 @@ void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
 u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
 void GameUi::ToggleMenu() {}
 bool GameUi::menu_open() const { return false; }
+bool GameUi::settings_open() const { return false; }
+void GameUi::SetControlsView(const ControlsView&) {}
+SettingsRequest GameUi::PollSettingsRequest() { return {}; }
 bool GameUi::quit_requested() const { return false; }
 void GameUi::OpenMainMenu() {}
 void GameUi::CloseMainMenu() {}

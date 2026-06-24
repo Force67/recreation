@@ -8,6 +8,7 @@
 #include <base/containers/vector.h>
 
 #include "bethesda/record.h"
+#include "core/input_actions.h"
 #include "core/types.h"
 #include "core/window.h"
 #include "engine_context.h"
@@ -35,13 +36,13 @@ class InteractionSystem {
   void OpenDialogue(u64 npc);
   void SelectDialogueOption(int index);
   void CloseDialogue();
-  void UpdateDialogueInput(const InputState& input);
+  void UpdateDialogueInput(const InputState& input, const ActionState& actions);
 
   bool TryActivateDoor(u64 handle);
   void EnterThroughDoor(bethesda::GlobalFormId dest_door, const f32 pos[3], const f32 rot[3]);
   bool TryOpenContainer(u64 handle);
   void CloseContainer();
-  void UpdateContainerInput(const InputState& input);
+  void UpdateContainerInput(const InputState& input, const ActionState& actions);
 
   // Authoritative entry points the server / single-player run directly (a client
   // routes the request to the server, which calls these).
@@ -72,6 +73,7 @@ class InteractionSystem {
     std::string speaker;
     std::string npc_line;
     std::vector<DialogueOption> options;
+    int selected = 0;  // highlighted option for keyboard/gamepad navigation
   };
   struct ContainerItem {
     std::string name;

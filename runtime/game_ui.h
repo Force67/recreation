@@ -195,6 +195,33 @@ struct MainMenuRequest {
   bool multiplayer = false; // kEnterUniverse also opened a session
 };
 
+// The rebindable controls shown in the pause menu's Settings sub-view. The
+// engine rebuilds this from its InputMap each frame; the rows are a fixed,
+// curated set of gameplay actions. A row marked `capturing` is awaiting an input
+// to bind ("Press any key / button...").
+struct ControlsRow {
+  std::string label;    // action display name, e.g. "Jump"
+  std::string binding;  // current binding label, or the capture prompt
+  bool capturing = false;
+};
+struct ControlsView {
+  std::vector<ControlsRow> rows;
+  std::string sens_kbm;     // formatted mouse look sensitivity
+  std::string sens_pad;     // formatted gamepad look sensitivity
+  bool invert_y = false;
+  bool gamepad = false;     // a pad is connected (drives glyph hints)
+};
+
+// A request the Settings sub-view raises for the engine (which owns the
+// InputMap) to act on. Polled once per frame and cleared on consume, mirroring
+// MainMenuRequest.
+struct SettingsRequest {
+  enum class Kind { kNone, kRebind, kSensKbm, kSensPad, kInvertToggle, kReset, kTestRumble };
+  Kind kind = Kind::kNone;
+  int row = 0;    // kRebind: index into ControlsView.rows
+  int delta = 0;  // kSensKbm / kSensPad: -1 or +1
+};
+
 // A click (or scroll) inside the editor overlay, forwarded from the UI to
 // MapEditor which owns all the logic. `index` meaning depends on the kind.
 struct EditorUiEvent {
@@ -282,7 +309,14 @@ class GameUi {
 
   void ToggleMenu();
   bool menu_open() const;
+  bool settings_open() const;  // pause menu's Settings sub-view is showing
   bool quit_requested() const;
+
+  // Pause-menu Settings sub-view: the engine pushes the current controls each
+  // frame and polls the request the panel raises (rebind a row, nudge a
+  // sensitivity, toggle invert, reset, test rumble).
+  void SetControlsView(const ControlsView& view);
+  SettingsRequest PollSettingsRequest();
 
   // NEXUS main menu (the startup "choose your universe" screen). Distinct from
   // the in-game pause menu above. The engine opens it at boot, drives it with

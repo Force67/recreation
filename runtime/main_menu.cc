@@ -223,12 +223,16 @@ void Engine::UpdateMainMenu(f32 dt) {
     }
   }
 
-  if (in.key_pressed(Key::kW)) game_ui_.MainMenuMove(0, -1);
-  if (in.key_pressed(Key::kS)) game_ui_.MainMenuMove(0, +1);
-  if (in.key_pressed(Key::kA)) game_ui_.MainMenuMove(-1, 0);
-  if (in.key_pressed(Key::kD)) game_ui_.MainMenuMove(+1, 0);
-  if (in.key_pressed(Key::kReturn) || in.key_pressed(Key::kSpace)) game_ui_.MainMenuActivate();
-  if (in.key_pressed(Key::kEscape)) game_ui_.MainMenuBack();
+  // Menu actions (keyboard arrows + gamepad dpad/stick + South/East) drive the
+  // NEXUS menu; WASD and Space are kept as extra keyboard conveniences. Routed
+  // through the same helpers so mouse, keyboard, and pad share one selection.
+  if (actions_.pressed(Action::kMenuUp) || in.key_pressed(Key::kW)) game_ui_.MainMenuMove(0, -1);
+  if (actions_.pressed(Action::kMenuDown) || in.key_pressed(Key::kS)) game_ui_.MainMenuMove(0, +1);
+  if (actions_.pressed(Action::kMenuLeft) || in.key_pressed(Key::kA)) game_ui_.MainMenuMove(-1, 0);
+  if (actions_.pressed(Action::kMenuRight) || in.key_pressed(Key::kD)) game_ui_.MainMenuMove(+1, 0);
+  if (actions_.pressed(Action::kMenuAccept) || in.key_pressed(Key::kSpace))
+    game_ui_.MainMenuActivate();
+  if (actions_.pressed(Action::kMenuCancel)) game_ui_.MainMenuBack();
 
   RefreshMenuData();
 

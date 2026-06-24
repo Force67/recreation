@@ -10,6 +10,7 @@ set(RECREATION_RUNTIME_SOURCES
   managed_scripting.cc
   main_menu.cc
   camera_input.cc
+  controls_settings.cc
   content_domain.cc
   actor_system.cc
   demo_scenes.cc

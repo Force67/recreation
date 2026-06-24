@@ -40,6 +40,10 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
     }
   }
 
+  // Load the user's controls config (key/pad bindings, look sensitivity, invert,
+  // lightbar) and apply it; falls back to built-in defaults when absent.
+  LoadControls();
+
   // Wire the shared service bundle and build the gameplay subsystems. The
   // late-built services (assets/streamer/scripts/bindings/net) are filled into
   // the context as they come up in LoadGameData / StartNetworking.
@@ -203,6 +207,7 @@ Engine::~Engine() { Shutdown(); }
 void Engine::Shutdown() {
   if (shut_down_) return;  // idempotent: explicit Shutdown then destructor
   shut_down_ = true;
+  SaveControls();  // persist any in-session rebinds / sensitivity changes
   // Run managed teardown while the guest is still alive (its shutdown callbacks
   // dispatch through the bridge), then stop the guest so no more events reach the
   // host, then destroy the host. This exact order keeps the event sink, which

@@ -33,7 +33,13 @@ void InteractionSystem::SyncHud() {
   dv.open = dialogue_session_.open;
   dv.speaker = dialogue_session_.speaker;
   dv.npc_line = dialogue_session_.npc_line;
-  for (const DialogueOption& o : dialogue_session_.options) dv.options.push_back(o.player_line);
+  // Mark the highlighted option with a caret so the pad/keyboard selection is
+  // visible (matches the journal's tracked-quest caret convention).
+  for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
+    const std::string& line = dialogue_session_.options[i].player_line;
+    dv.options.push_back(static_cast<int>(i) == dialogue_session_.selected ? "▶ " + line
+                                                                           : line);
+  }
   game_ui_.SetDialogue(dv);
 
   // Mirror the open container's contents into the HUD loot panel.
@@ -270,12 +276,22 @@ void InteractionSystem::RunInfoFragment(u64 info) {
 
 void InteractionSystem::CloseDialogue() { dialogue_session_ = DialogueSession{}; }
 
-void InteractionSystem::UpdateDialogueInput(const InputState& input) {
+void InteractionSystem::UpdateDialogueInput(const InputState& input, const ActionState& actions) {
   if (!dialogue_session_.open) return;
-  if (input.key_pressed(Key::kEscape)) {
+  if (actions.pressed(Action::kMenuCancel)) {  // Esc / pad B
     CloseDialogue();
     return;
   }
+  const int count = static_cast<int>(dialogue_session_.options.size());
+  if (count > 0) {
+    // Move the highlight (keyboard arrows / pad dpad / left stick), wrapping.
+    if (actions.pressed(Action::kMenuDown))
+      dialogue_session_.selected = (dialogue_session_.selected + 1) % count;
+    if (actions.pressed(Action::kMenuUp))
+      dialogue_session_.selected = (dialogue_session_.selected + count - 1) % count;
+    if (actions.pressed(Action::kMenuAccept)) SelectDialogueOption(dialogue_session_.selected);
+  }
+  // Direct number-key selection still works (1-4).
   if (input.key_pressed(Key::k1)) SelectDialogueOption(0);
   else if (input.key_pressed(Key::k2)) SelectDialogueOption(1);
   else if (input.key_pressed(Key::k3)) SelectDialogueOption(2);
@@ -472,9 +488,9 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
 
 void InteractionSystem::CloseContainer() { container_session_ = ContainerSession{}; }
 
-void InteractionSystem::UpdateContainerInput(const InputState& input) {
+void InteractionSystem::UpdateContainerInput(const InputState& input, const ActionState& actions) {
   if (!container_session_.open) return;
-  if (input.key_pressed(Key::kEscape)) CloseContainer();
+  if (actions.pressed(Action::kMenuCancel)) CloseContainer();  // Esc / pad B
 }
 
 }  // namespace rec

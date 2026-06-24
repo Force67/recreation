@@ -2,16 +2,18 @@
 #define RECREATION_RUNTIME_FLY_CAMERA_H_
 
 #include "core/input.h"
+#include "core/input_actions.h"
 #include "core/math.h"
 
 namespace rec {
 
-// Free flight debug camera. Hold the right mouse button to look around,
-// WASD to move, Q/E down/up, shift to go fast. The scroll wheel scales the
-// base speed.
+// Free flight debug camera. Hold the right mouse button (or push the right
+// stick) to look around, move actions to fly, cam up/down for vertical, sprint
+// to go fast. The scroll wheel scales the base speed.
 class FlyCamera {
  public:
-  void Update(const InputState& input, bool allow_mouse, bool allow_keyboard, f32 dt);
+  void Update(const InputState& input, const ActionState& actions, bool allow_mouse,
+              bool allow_keyboard, f32 dt);
 
   Vec3 position() const { return position_; }
   Vec3 forward() const;
@@ -25,7 +27,9 @@ class FlyCamera {
   }
 
   f32 speed = 3.0f;
-  f32 sensitivity = 0.0025f;  // radians per pixel
+  f32 sensitivity = 0.0025f;      // radians per mouse pixel
+  f32 pad_sensitivity = 2.6f;     // radians per second at full stick deflection
+  bool invert_y = false;
 
  private:
   Vec3 position_{2.4f, 1.8f, 2.4f};

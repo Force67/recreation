@@ -30,62 +30,120 @@
         button btn_resume {
           text: "Resume"; font-size: 19; color: #e8ecf6; text-align: center;
           background: #ffcc5522; corner-radius: 9; padding: 14 0; cursor: pointer;
-          border-color: #ffcc5544; border-width: 1;
+          border-color: #ffcc5544; border-width: 1; tab-index: 0;
           :hover { background: #ffcc5538; color: #ffffff; }
           :pressed { background: #ffcc5555; }
+          :focused { background: #ffcc5544; color: #ffffff; border-color: #ffcc55cc; }
         }
         button btn_settings {
           text: "Settings"; font-size: 19; color: #9aa2b6; text-align: center;
           background: #ffffff08; corner-radius: 9; padding: 14 0; cursor: pointer;
+          tab-index: 1;
           :hover { background: #ffffff14; color: #d8def0; }
           :pressed { background: #ffffff20; }
+          :focused { background: #ffffff1c; color: #ffffff; border-color: #ffcc55cc; border-width: 1; }
         }
         button btn_quit {
           text: "Quit to Desktop"; font-size: 19; color: #d88a8a; text-align: center;
           background: #ffffff08; corner-radius: 9; padding: 14 0; cursor: pointer;
+          tab-index: 2;
           :hover { background: #b23a3a33; color: #ffd0d0; }
           :pressed { background: #b23a3a55; }
+          :focused { background: #b23a3a33; color: #ffd0d0; border-color: #ffcc55cc; border-width: 1; }
         }
       }
       panel menu_settings {
-        layout: column; gap: 6; width: 340;
-        text settings_head { text: "Controls"; font-size: 14; color: #ffcc55;
-          letter-spacing: 3; text-transform: uppercase; margin: 0 0 6 0; }
-        panel kb_F1 { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Renderer overlay"; font-size: 14; color: #d8def0; }
-          text { text: "F1"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        layout: column; gap: 5; width: 360;
+        text settings_head { text: "Controls — click a row, then press a key or button"; font-size: 12;
+          color: #ffcc55; letter-spacing: 2; text-transform: uppercase; margin: 0 0 6 0; }
+        // Rebindable action rows. The engine fills the label/binding text each
+        // frame (SetControlsView) and rebinds on click (rebind_<N> -> capture).
+        button rebind_0 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 1;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_0_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_0_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_F2 { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Papyrus natives"; font-size: 14; color: #d8def0; }
-          text { text: "F2"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_1 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 2;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_1_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_1_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_F3 { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Quest debugger"; font-size: 14; color: #d8def0; }
-          text { text: "F3"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_2 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 3;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_2_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_2_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_T { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Toggle walk / fly"; font-size: 14; color: #d8def0; }
-          text { text: "T"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_3 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 4;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_3_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_3_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_E { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Activate / talk"; font-size: 14; color: #d8def0; }
-          text { text: "E"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_4 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 5;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_4_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_4_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_J { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Journal"; font-size: 14; color: #d8def0; }
-          text { text: "J"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_5 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 6;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_5_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_5_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel kb_Esc { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-          text { text: "Pause menu"; font-size: 14; color: #d8def0; }
-          text { text: "Esc"; font-size: 14; color: #9aa2b6; letter-spacing: 1; }
+        button rebind_6 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 7;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_6_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_6_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
         }
-        panel settings_rule { width: 340; height: 1; background: #ffffff1f; margin: 16 0 6 0; }
+        button rebind_7 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 10; corner-radius: 7; cursor: pointer; background: #ffffff06; tab-index: 8;
+          :hover { background: #ffffff14; } :focused { background: #ffcc5530; }
+          text rebind_7_lbl { text: "—"; font-size: 14; color: #d8def0; }
+          text rebind_7_key { text: ""; font-size: 14; color: #ffcc55; letter-spacing: 1; }
+        }
+        panel ctl_rule { width: 360; height: 1; background: #ffffff1f; margin: 10 0 6 0; }
+        // Look sensitivity (mouse + gamepad) with -/+ nudges, invert toggle.
+        panel sens_kbm_row { layout: row; justify: space-between; align: center; width: 100%; padding: 4 10;
+          text { text: "Mouse look"; font-size: 14; color: #d8def0; }
+          panel { layout: row; gap: 10; align: center;
+            button btn_skbm_dec { text: "−"; font-size: 16; color: #e8ecf6; background: #ffffff10;
+              corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
+            text sens_kbm_val { text: "0.0025"; font-size: 13; color: #ffcc55; }
+            button btn_skbm_inc { text: "+"; font-size: 16; color: #e8ecf6; background: #ffffff10;
+              corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
+          }
+        }
+        panel sens_pad_row { layout: row; justify: space-between; align: center; width: 100%; padding: 4 10;
+          text { text: "Gamepad look"; font-size: 14; color: #d8def0; }
+          panel { layout: row; gap: 10; align: center;
+            button btn_spad_dec { text: "−"; font-size: 16; color: #e8ecf6; background: #ffffff10;
+              corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
+            text sens_pad_val { text: "2.6"; font-size: 13; color: #ffcc55; }
+            button btn_spad_inc { text: "+"; font-size: 16; color: #e8ecf6; background: #ffffff10;
+              corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
+          }
+        }
+        panel ctl_actions { layout: row; gap: 8; width: 100%; margin: 8 0 0 0;
+          button btn_invert { text: "Invert Y: Off"; font-size: 13; color: #d8def0; background: #ffffff10;
+            corner-radius: 7; padding: 8 12; cursor: pointer; :hover { background: #ffffff20; } }
+          button btn_rumble { text: "Test Rumble"; font-size: 13; color: #d8def0; background: #ffffff10;
+            corner-radius: 7; padding: 8 12; cursor: pointer; :hover { background: #ffffff20; } }
+          button btn_reset { text: "Reset Defaults"; font-size: 13; color: #d88a8a; background: #ffffff10;
+            corner-radius: 7; padding: 8 12; cursor: pointer; :hover { background: #b23a3a33; } }
+        }
+        panel settings_rule { width: 360; height: 1; background: #ffffff1f; margin: 14 0 6 0; }
         button btn_settings_back {
           text: "Back"; font-size: 19; color: #e8ecf6; text-align: center;
           background: #ffcc5522; corner-radius: 9; padding: 14 0; cursor: pointer;
-          border-color: #ffcc5544; border-width: 1;
+          border-color: #ffcc5544; border-width: 1; tab-index: 0;
           :hover { background: #ffcc5538; color: #ffffff; }
           :pressed { background: #ffcc5555; }
+          :focused { background: #ffcc5544; color: #ffffff; border-color: #ffcc55cc; }
         }
       }
     }

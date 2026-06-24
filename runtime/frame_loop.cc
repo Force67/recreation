@@ -62,6 +62,9 @@ bool Engine::RunFrame() {
   if (mod_reload_requested_.exchange(false, std::memory_order_relaxed)) ReloadMods(*this);
 #endif
   if (window_ && !window_->PumpEvents()) return false;
+  // Resolve this pump's raw keyboard/mouse + gamepad state into semantic
+  // actions for the gameplay/camera/menu code to read.
+  if (window_) input_map_.Resolve(window_->input(), window_->gamepad(), &actions_);
   // Forward key presses to the managed world (KeyPressed) so mods can bind
   // hotkeys, unless the debug console is capturing the keyboard. Queued here and
   // drained into managed below, in the same frame.
@@ -144,6 +147,7 @@ bool Engine::RunFrame() {
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
+      UpdateSettings();  // pause-menu controls: rebind capture + sensitivity
       actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
       actors_->Update(frame_delta);
       scheduler_.RunStage(ecs::Stage::kPreRender, world_, frame_delta);
