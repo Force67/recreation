@@ -179,6 +179,12 @@ if(RECREATION_NET)
   add_executable(asset_streamtest asset_streamtest.cc)
   target_link_libraries(asset_streamtest PRIVATE recreation::net recreation::modstream recreation::asset)
   recreation_set_warnings(asset_streamtest)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC mis-fires -Warray-bounds inside the fortified memcpy when it cannot
+    # range-track std::string growth at -O2. Known compiler bug, not our code
+    # (the test is ASan/UBSan clean); silence it on this TU.
+    set_source_files_properties(asset_streamtest.cc PROPERTIES COMPILE_OPTIONS -Wno-array-bounds)
+  endif()
 
   add_executable(objective_marker_nettest objective_marker_nettest.cc)
   target_link_libraries(objective_marker_nettest PRIVATE recreation::net)
