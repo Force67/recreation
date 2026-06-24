@@ -37,7 +37,10 @@ class BindlessRegistry {
     f32 base_color_factor[4] = {1, 1, 1, 1};
     f32 emissive[3] = {0, 0, 0};
     u32 base_color_texture = kInvalidIndex;
+    u32 flags = 0;  // bit0: alpha mask (cutout)
+    f32 alpha_cutoff = 0.5f;
   };
+  static constexpr u32 kMaterialAlphaMask = 1u << 0;
 
   static std::unique_ptr<BindlessRegistry> Create(Device& device);
   ~BindlessRegistry();

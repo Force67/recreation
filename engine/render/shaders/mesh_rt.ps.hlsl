@@ -102,6 +102,8 @@ struct MaterialRecord {
   float4 base_color_factor;
   float3 emissive;
   uint base_color_texture;
+  uint flags;
+  float alpha_cutoff;
 };
 [[vk::binding(0, 3)]] StructuredBuffer<MeshRecord> mesh_records;
 [[vk::binding(1, 3)]] StructuredBuffer<GeometryRecord> geometry_records;
