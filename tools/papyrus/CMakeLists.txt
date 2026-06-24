@@ -61,6 +61,10 @@ recreation_set_warnings(modstreamtest)
 add_executable(rpctest rpctest.cc)
 target_link_libraries(rpctest PRIVATE recreation::rpc)
 recreation_set_warnings(rpctest)
+
+add_executable(codec_fuzztest codec_fuzztest.cc)
+target_link_libraries(codec_fuzztest PRIVATE recreation::modstream recreation::rpc)
+recreation_set_warnings(codec_fuzztest)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # GCC 15 mis-fires -Wfree-nonheap-object when it inlines std::variant's
   # copy-assignment (the string/blob alternatives) at -O2. Known compiler bug,
@@ -211,6 +215,7 @@ add_test(NAME conditiontest COMMAND conditiontest)
 add_test(NAME ba2test COMMAND ba2test)
 add_test(NAME modstreamtest COMMAND modstreamtest)
 add_test(NAME rpctest COMMAND rpctest)
+add_test(NAME codec_fuzztest COMMAND codec_fuzztest)
 add_test(NAME pexfo4test COMMAND pexfo4test)
 add_test(NAME vmad_fo4test COMMAND vmad_fo4test)
 add_test(NAME nif_fo4test COMMAND nif_fo4test)
