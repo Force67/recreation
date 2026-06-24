@@ -40,6 +40,14 @@ class Window {
 
   // Input collected by the last PumpEvents.
   const InputState& input() const { return input_; }
+  const GamepadState& gamepad() const { return gamepad_; }
+
+  // Gamepad haptics. No-ops unless a pad is connected; the DualSense-only
+  // effects (trigger resistance, lightbar) silently do nothing on other pads,
+  // so callers can issue them unconditionally.
+  virtual void SetRumble(f32 low_freq, f32 high_freq, u32 duration_ms) {}
+  virtual void SetTriggerEffect(bool left, bool right, const TriggerEffect& effect) {}
+  virtual void SetLedColor(u8 r, u8 g, u8 b) {}
 
   // While enabled the cursor is hidden and mouse_dx/dy keep accumulating
   // without hitting the screen edge. Mouse look uses this.
@@ -63,6 +71,7 @@ class Window {
 
  protected:
   InputState input_;
+  GamepadState gamepad_;
   std::function<void(const void*)> event_hook_;
 };
 

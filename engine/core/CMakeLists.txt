@@ -3,6 +3,7 @@ recreation_add_module(core
   job_system.cc
   frame_timer.cc
   window.cc
+  input_bindings.cc
 )
 
 # equilibrium's base library; linking it here makes base:: containers and

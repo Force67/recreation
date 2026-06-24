@@ -40,10 +40,75 @@ enum class Key : u8 {
   k3,
   k4,
   kJ,  // toggle the quest journal
+  // Menu navigation keys. Appended after the original set so the numeric codes
+  // of the keys above stay stable for the C# KeyPressed bridge.
+  kArrowUp,
+  kArrowDown,
+  kArrowLeft,
+  kArrowRight,
+  kTab,
   kCount,
 };
 
 enum class MouseButton : u8 { kLeft, kRight, kMiddle, kCount };
+
+// Gamepad buttons, named by position (SDL's modern convention) so PS5 and Xbox
+// pads map the same way: kSouth is Cross/A, kEast is Circle/B, etc. Backends
+// translate their native codes; unknown buttons drop.
+enum class GamepadButton : u8 {
+  kSouth,   // A / Cross
+  kEast,    // B / Circle
+  kWest,    // X / Square
+  kNorth,   // Y / Triangle
+  kBack,    // View / Share
+  kGuide,   // Xbox / PS button
+  kStart,   // Menu / Options
+  kLeftStick,
+  kRightStick,
+  kLeftShoulder,
+  kRightShoulder,
+  kDpadUp,
+  kDpadDown,
+  kDpadLeft,
+  kDpadRight,
+  kTouchpad,  // DualSense touchpad click (absent on Xbox)
+  kCount,
+};
+
+enum class GamepadAxis : u8 {
+  kLeftX,
+  kLeftY,
+  kRightX,
+  kRightY,
+  kLeftTrigger,
+  kRightTrigger,
+  kCount,
+};
+
+// Polled gamepad state, filled alongside InputState during PumpEvents. Sticks
+// are [-1,1] (down/right positive); triggers are [0,1]. Kept separate from
+// InputState so the keyboard/mouse path and the C# key bridge stay untouched.
+struct GamepadState {
+  enum class Kind : u8 { kUnknown, kXbox, kDualSense };
+  bool connected = false;
+  Kind kind = Kind::kUnknown;
+  bool buttons[static_cast<u8>(GamepadButton::kCount)] = {};
+  bool pressed[static_cast<u8>(GamepadButton::kCount)] = {};  // went down this pump
+  f32 axes[static_cast<u8>(GamepadAxis::kCount)] = {};
+
+  bool button(GamepadButton b) const { return buttons[static_cast<u8>(b)]; }
+  bool button_pressed(GamepadButton b) const { return pressed[static_cast<u8>(b)]; }
+  f32 axis(GamepadAxis a) const { return axes[static_cast<u8>(a)]; }
+};
+
+// DualSense adaptive-trigger request. A no-op on pads that lack the feature
+// (Xbox), so callers can issue it unconditionally.
+struct TriggerEffect {
+  enum class Type : u8 { kOff, kResistance, kWeapon, kVibration };
+  Type type = Type::kOff;
+  u8 start = 0;     // 0-255: position along the pull where the effect begins
+  u8 strength = 0;  // 0-255: resistance / vibration amplitude
+};
 
 // Polled state the window backend fills during PumpEvents. Deltas cover one
 // pump and reset on the next.
