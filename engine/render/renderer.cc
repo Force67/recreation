@@ -253,6 +253,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     }
   }
   if (const char* pt = std::getenv("REC_PATHTRACE")) settings_.path_trace = std::atoi(pt) != 0;
+  if (const char* ptr = std::getenv("REC_PATHTRACE_REFERENCE"))
+    settings_.path_trace_reference = std::atoi(ptr) != 0;
   if (const char* fg = std::getenv("REC_FOG")) settings_.fog = std::atoi(fg) != 0;
 
   return true;
@@ -528,7 +530,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   auto build_submeshes = [&](const asset::MeshLod& l, u32 index_base,
                              base::Vector<GpuSubmesh>& out) {
     if (l.submeshes.empty()) {
-      out.push_back({index_base, static_cast<u32>(l.indices.size()), 0, false, false});
+      out.push_back({index_base, static_cast<u32>(l.indices.size()), 0, false, false, false});
       return;
     }
     for (const asset::Submesh& submesh : l.submeshes) {
@@ -537,8 +539,9 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       u64 material = submesh.material.hash ^ id_salt;
       bool water = material_system_ && material_system_->is_water(material);
       bool blend = water || (material_system_ && material_system_->is_blend(material));
+      bool mask = !blend && material_system_ && material_system_->is_mask(material);
       out.push_back({index_base + submesh.index_offset, submesh.index_count, material,
-                     blend, water});
+                     blend, water, mask});
     }
   };
   build_submeshes(mesh.lods[0], index_bases[0], gpu.submeshes);
@@ -555,7 +558,10 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   std::memcpy(gpu.bounds_center, mesh.bounds_center, sizeof(f32) * 3);
   gpu.bounds_radius = mesh.bounds_radius;
   gpu.no_rt = mesh.exclude_from_rt;
-  if (bindless_ && !gpu.all_blend && !gpu.no_rt) {
+  // Grass-like fill geometry stays out of the realtime tlas (bloat + noise), but
+  // the reference path tracer wants it, so include it whenever path tracing.
+  bool include_rt = !gpu.no_rt || settings_.path_trace;
+  if (bindless_ && !gpu.all_blend && include_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
     for (const GpuSubmesh& submesh : gpu.submeshes) {
       if (submesh.blend || submesh.index_count == 0) continue;
@@ -570,7 +576,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   meshes_[mesh_key] = gpu;
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
-  if (raytracing_ && !gpu.all_blend && !gpu.no_rt) raytracing_->BuildBlas(mesh_key, gpu);
+  if (raytracing_ && !gpu.all_blend && include_rt) raytracing_->BuildBlas(mesh_key, gpu);
   return true;
 }
 
@@ -864,7 +870,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
       const GpuMesh* mesh = meshes_.find(item.mesh);
-      if (!mesh || mesh->all_blend || mesh->no_rt) continue;
+      if (!mesh || mesh->all_blend || (mesh->no_rt && !settings_.path_trace)) continue;
       instances.push_back({.mesh_key = item.mesh,
                            .custom_index = mesh->bindless_index,
                            .transform = item.transform});
@@ -886,6 +892,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (path_trace) {
     PathTracer::Frame pt;
     pt.inv_view_proj = globals.inv_view_proj;
+    pt.view_proj = view_proj;
+    pt.prev_view_proj = globals.prev_view_proj;  // last frame's, set before the overwrite below
     pt.camera_pos = view.camera.eye;
     pt.sun_direction = settings_.sun_direction;
     pt.sun_intensity = settings_.sun_intensity;
@@ -895,12 +903,55 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     f32 sig = settings_.sun_intensity + settings_.sun_color.x * 3.0f +
               settings_.sun_color.y * 5.0f + settings_.sun_color.z * 7.0f;
     bool moved = std::memcmp(&view_proj, &pt_prev_view_proj_, sizeof(Mat4)) != 0;
-    pt.reset = !pt_was_active_ || moved || sig != pt_prev_sig_;
+    bool lit_changed = sig != pt_prev_sig_;
+    if (nrd_.available() && !settings_.path_trace_reference) {
+      // Playable: one sample, then NRD's REBLUR_DIFFUSE reprojects history across
+      // camera motion (no full reset), so the view stays clean while moving.
+      PathTracer::GbufferTargets t;
+      auto guide = [&](const char* name, VkFormat format) {
+        return graph_.CreateTexture({.name = name, .format = format, .width = render_width_,
+                                     .height = render_height_});
+      };
+      t.radiance_hitdist = guide("pt_radiance", NrdDenoiser::kDiffuseRadianceFormat);
+      t.normal_roughness = guide("pt_normal_roughness", NrdDenoiser::kNormalRoughnessFormat);
+      t.viewz = guide("pt_viewz", NrdDenoiser::kViewZFormat);
+      t.motion = guide("pt_motion", kMotionFormat);
+      t.albedo = guide("pt_albedo", kSceneColorFormat);
+      t.background = guide("pt_background", kSceneColorFormat);
+      path_tracer_.AddGbufferPass(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                  environment_->sky_view(), environment_->sampler(), t, pt);
+
+      NrdDenoiser::FrameSettings fs;
+      fs.view_to_clip = proj;
+      fs.view_to_clip_prev = prev_proj_;
+      fs.world_to_view = view_mat;
+      fs.world_to_view_prev = prev_view_;
+      fs.jitter[0] = fs.jitter[1] = 0.0f;  // the path tracer shoots un-jittered rays
+      fs.jitter_prev[0] = fs.jitter_prev[1] = 0.0f;
+      fs.sun_direction = sun;
+      fs.frame_index = frame_index_;
+      // Restart only on activation / first frame / a lighting change, never on
+      // camera motion: motion is what NRD reprojects through.
+      fs.reset = first_frame || !pt_was_active_ || lit_changed;
+      nrd_.SetFrame(fs);
+      ResourceHandle denoised = nrd_.DenoiseDiffuse(graph_, t.normal_roughness, t.viewz, t.motion,
+                                                    t.radiance_hitdist);
+      path_tracer_.AddCompositePass(graph_, denoised, t.albedo, t.background, scene_color);
+
+      // The raster path stores these for NRD only when it runs; keep them current
+      // for the next path-traced frame's motion vectors and reprojection.
+      prev_proj_ = proj;
+      prev_view_ = view_mat;
+      prev_jitter_[0] = prev_jitter_[1] = 0.0f;
+    } else {
+      // Reference: brute-force accumulation, hard reset on any motion = ground truth.
+      pt.reset = !pt_was_active_ || moved || lit_changed;
+      path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                              environment_->sky_view(), environment_->sampler(), scene_color, pt);
+    }
     pt_prev_view_proj_ = view_proj;
     pt_prev_sig_ = sig;
     pt_was_active_ = true;
-    path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
-                            environment_->sky_view(), environment_->sampler(), scene_color, pt);
   } else {
     pt_was_active_ = false;
 

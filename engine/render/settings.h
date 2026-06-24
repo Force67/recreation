@@ -107,7 +107,8 @@ struct RenderSettings {
   // bounce of indirect color.
   bool ssgi = true;
 
-  bool path_trace = false;  // reference progressive path tracer (needs ray query)
+  bool path_trace = false;  // path tracer (needs ray query); NRD-denoised + playable by default
+  bool path_trace_reference = false;  // force brute-force accumulation (ground truth, no denoise)
 
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)
   f32 fog_density = 0.03f;

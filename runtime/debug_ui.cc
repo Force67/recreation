@@ -286,9 +286,12 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
         ImGui::Checkbox("Screen-space reflections", &settings.ssr);
         ImGui::Checkbox("Screen-space GI", &settings.ssgi);
-        ImGui::Checkbox("Path traced reference", &settings.path_trace);
+        ImGui::Checkbox("Path tracing", &settings.path_trace);
         if (settings.path_trace) {
-          ImGui::Text("accumulated %u spp", renderer.path_trace_samples());
+          ImGui::Checkbox("  Ground truth (no denoise)", &settings.path_trace_reference);
+          if (settings.path_trace_reference) {
+            ImGui::Text("  accumulated %u spp", renderer.path_trace_samples());
+          }
         }
         ImGui::Checkbox("Volumetric fog", &settings.fog);
         if (settings.fog) {
