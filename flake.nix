@@ -25,9 +25,19 @@
       url = "path:/home/captainspark/Documents/Projects/zetanet";
       flake = false;
     };
+
+    # nanobuf: the wire-message toolchain. Provides nanoc (the schema
+    # compiler) and the header-only C++ runtime. Same co-developed-sibling
+    # treatment as zetanet: a path input so local schema/runtime edits reach
+    # the sandbox without a commit. Upstream is github:Force67/nanobuf; swap
+    # the url for a github ref + rev to pin to upstream instead.
+    nanobuf-src = {
+      url = "path:/home/captainspark/Documents/Projects/nanobuf";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src }:
+  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src, nanobuf-src }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems
@@ -39,9 +49,25 @@
         "-DFETCHCONTENT_SOURCE_DIR_VOLK=${volk-src}"
         "-DFETCHCONTENT_SOURCE_DIR_VULKANMEMORYALLOCATOR=${vma-src}"
       ];
+
+      # nanoc, built reproducibly from the pinned nanobuf source. The lockfile
+      # drives dependency resolution (no manual cargoHash); the workspace has
+      # no git deps and only the `nanoc` binary is built. This goes on PATH in
+      # the dev shell so `nanobuf_regen` always has a compiler.
+      nanocFor = pkgs: pkgs.rustPlatform.buildRustPackage {
+        pname = "nanoc";
+        version = "0.1.0";
+        src = nanobuf-src;
+        cargoLock.lockFile = "${nanobuf-src}/Cargo.lock";
+        cargoBuildFlags = [ "-p" "nanoc" ];
+        doCheck = false;
+        meta.mainProgram = "nanoc";
+      };
     in
     {
       packages = forAllSystems (pkgs: {
+        nanoc = nanocFor pkgs;
+
         default = pkgs.stdenv.mkDerivation {
           pname = "recreation";
           version = "0.1.0";
@@ -52,6 +78,7 @@
 
           cmakeFlags = fetchContentFlags ++ [
             "-DRECREATION_ZETANET_DIR=${zetanet-src}"
+            "-DRECREATION_NANOBUF_DIR=${nanobuf-src}"
           ];
 
           # No install rules yet, the binaries are the product.
@@ -158,6 +185,7 @@
               vulkan-loader
               vulkan-validation-layers
               vulkan-tools
+              (nanocFor pkgs)         # nanobuf schema compiler, for nanobuf_regen
               vkrun
               swrun
             ];

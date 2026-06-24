@@ -158,22 +158,76 @@ else()
   add_subdirectory(${RECREATION_ZETANET_DIR}/vendor/equilibrium equilibrium EXCLUDE_FROM_ALL)
 endif()
 
-# Nanobuf carries every message that crosses the wire. Schemas live in nbuf/,
-# generated bindings in nbuf/gen/ (checked in, so builds don't need rust), and
-# nbuf/runtime/ vendors the header-only C++ runtime.
-add_library(recreation_nanobuf INTERFACE)
-add_library(recreation::nanobuf ALIAS recreation_nanobuf)
-target_include_directories(recreation_nanobuf INTERFACE
-  ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/gen
-  ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/runtime)
+# Nanobuf carries every message that crosses the wire. Recreation's schemas
+# live in nbuf/; the wire bindings are regenerated from them at configure time
+# by nanoc (the nanobuf schema compiler), so the protocol always matches both
+# the schema and the released compiler in use.
+#
+# nanoc and its matching C++ runtime header are taken, in order of preference:
+#   1. third_party/nanobuf/ -- the released toolchain fetched by
+#      tools/get_nanobuf.sh. This is how CI and release builds get it: a single
+#      prebuilt binary, no Rust and no nanobuf checkout.
+#   2. a nanoc on PATH -- the nix dev shell builds one from the local checkout.
+#   3. RECREATION_NANOBUF_DIR -- a sibling nanobuf source / cargo tree.
+# With none of these, the bindings checked into nbuf/gen and the runtime in
+# nbuf/runtime are used unchanged, so a bare checkout still builds offline.
+set(RECREATION_NANOBUF_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../nanobuf" CACHE PATH
+  "Path to a nanobuf checkout (supplies nanoc and the C++ runtime header)")
+set(_nanobuf_fetched "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobuf")
+set(_nanobuf_schema "${CMAKE_CURRENT_SOURCE_DIR}/nbuf/protocol.nb")
 
 find_program(RECREATION_NANOC nanoc
-  HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../nanobuf/target/release)
-if(RECREATION_NANOC)
+  HINTS ${_nanobuf_fetched}/bin
+        ${RECREATION_NANOBUF_DIR}/target/release
+        ${RECREATION_NANOBUF_DIR}/target/debug)
+
+# The runtime header must pair with whichever nanoc was found.
+if(EXISTS ${_nanobuf_fetched}/include/nanobuf.h)
+  set(_nanobuf_runtime_dir ${_nanobuf_fetched}/include)
+elseif(EXISTS ${RECREATION_NANOBUF_DIR}/runtimes/cpp/nanobuf.h)
+  set(_nanobuf_runtime_dir ${RECREATION_NANOBUF_DIR}/runtimes/cpp)
+else()
+  set(_nanobuf_runtime_dir ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/runtime)
+endif()
+
+add_library(recreation_nanobuf INTERFACE)
+add_library(recreation::nanobuf ALIAS recreation_nanobuf)
+
+option(RECREATION_NANOBUF_REGEN
+  "Regenerate the wire protocol from nbuf/*.nb with nanoc" ON)
+
+if(RECREATION_NANOC AND RECREATION_NANOBUF_REGEN)
+  set(_nanobuf_gen ${CMAKE_BINARY_DIR}/nbuf-gen)
+  file(MAKE_DIRECTORY ${_nanobuf_gen})
+  execute_process(
+    COMMAND ${RECREATION_NANOC} build ${_nanobuf_schema} --lang cpp --out ${_nanobuf_gen}
+    RESULT_VARIABLE _nanobuf_rc
+    OUTPUT_VARIABLE _nanobuf_log
+    ERROR_VARIABLE _nanobuf_log)
+  if(NOT _nanobuf_rc EQUAL 0)
+    message(FATAL_ERROR "nanoc failed to regenerate the protocol:\n${_nanobuf_log}")
+  endif()
+  target_include_directories(recreation_nanobuf INTERFACE
+    ${_nanobuf_gen} ${_nanobuf_runtime_dir})
+  message(STATUS "nanobuf: protocol regenerated with ${RECREATION_NANOC}")
+
+  # Refresh the checked-in copy (the offline fallback) so it can be committed.
   add_custom_target(nanobuf_regen
-    COMMAND ${RECREATION_NANOC} build ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/protocol.nb
+    COMMAND ${RECREATION_NANOC} build ${_nanobuf_schema}
             --lang cpp --out ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/gen
-    COMMENT "regenerating nanobuf bindings from nbuf/*.nb")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${_nanobuf_runtime_dir}/nanobuf.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/runtime/nanobuf.h
+    COMMENT "refreshing checked-in nbuf/gen + nbuf/runtime"
+    VERBATIM)
+else()
+  target_include_directories(recreation_nanobuf INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/gen
+    ${CMAKE_CURRENT_SOURCE_DIR}/nbuf/runtime)
+  if(NOT RECREATION_NANOC)
+    message(STATUS "nanobuf: nanoc not found, using checked-in bindings in nbuf/gen "
+                   "(run tools/get_nanobuf.sh to fetch the released compiler)")
+  endif()
 endif()
 
 add_subdirectory(third_party)

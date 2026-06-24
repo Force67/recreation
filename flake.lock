@@ -1,5 +1,18 @@
 {
   "nodes": {
+    "nanobuf-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782284556,
+        "narHash": "sha256-fSmTFYFx1nCVoe6WQHwSs9CjK0pohSdX0rYE/QH68DI=",
+        "path": "/home/captainspark/Documents/Projects/nanobuf",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/captainspark/Documents/Projects/nanobuf",
+        "type": "path"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1780749050,
@@ -18,6 +31,7 @@
     },
     "root": {
       "inputs": {
+        "nanobuf-src": "nanobuf-src",
         "nixpkgs": "nixpkgs",
         "vma-src": "vma-src",
         "volk-src": "volk-src",

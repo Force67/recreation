@@ -40,6 +40,7 @@ jobs:
           sudo ldconfig
       - name: third-party deps
         run: |
+          bash tools/get_nanobuf.sh
           bash tools/get_fidelityfx.sh
           bash tools/get_dlss.sh
           bash tools/get_nrd.sh
@@ -117,6 +118,7 @@ jobs:
           sudo ldconfig
       - name: third-party deps
         run: |
+          bash tools/get_nanobuf.sh
           bash tools/get_fidelityfx.sh
           bash tools/get_nrd.sh
           bash tools/get_jolt.sh
@@ -172,6 +174,7 @@ jobs:
       - name: third-party deps
         shell: bash
         run: |
+          bash tools/get_nanobuf.sh
           bash tools/get_fidelityfx.sh
           bash tools/get_nrd.sh
           bash tools/get_jolt.sh
@@ -253,6 +256,7 @@ jobs:
           echo "DYLD_FALLBACK_LIBRARY_PATH=$GITHUB_WORKSPACE/dxc-install/lib:$DYLD_FALLBACK_LIBRARY_PATH" >> "$GITHUB_ENV"
       - name: third-party deps
         run: |
+          bash tools/get_nanobuf.sh
           bash tools/get_jolt.sh
       - name: configure
         run: >
@@ -290,6 +294,8 @@ jobs:
             | sudo tar -xz -C /usr/local
           sudo chmod +x /usr/local/bin/dxc
           sudo ldconfig
+      - name: nanobuf
+        run: bash tools/get_nanobuf.sh
       - name: configure
         run: >
           cmake -B build-android -G Ninja
