@@ -14,6 +14,7 @@ internal static class Program
         EventBusTests.Run(check);
         ModHostTests.Run(check);
         SkyrimRegenTests.Run(check);
+        SkyrimEventTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

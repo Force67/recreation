@@ -348,9 +348,13 @@ bool Engine::RunFrame() {
     // The guest advances on the main loop's clock; it does its work on its own
     // thread, so this only posts a tick.
     if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
-    // Advance the managed world: mods and Skyrim soft logic run their per-frame
-    // behaviours, dispatching back into the engine through the bridge.
-    if (managed_) managed_->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Advance the managed world: deliver any queued engine events to mod hooks,
+    // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
+    // into the engine through the bridge.
+    if (managed_) {
+      managed_->DrainEvents();
+      managed_->Tick(static_cast<f32>(timer_.frame_delta()));
+    }
     // Advance any scenes a quest fragment Started; the ScenePlayer fires their
     // phase fragments over time (host-authoritative; runs on the guest thread).
     if (scripts_ && ctx_.bindings && !client_session_) {
@@ -449,11 +453,13 @@ Engine::~Engine() { Shutdown(); }
 void Engine::Shutdown() {
   if (shut_down_) return;  // idempotent: explicit Shutdown then destructor
   shut_down_ = true;
-  // Tear the managed world down first: it drives the guest, which must still be
-  // alive while its shutdown callbacks run.
-  managed_.reset();
-  // Stop the guest thread before tearing down the systems its bindings touch.
+  // Run managed teardown while the guest is still alive (its shutdown callbacks
+  // dispatch through the bridge), then stop the guest so no more events reach the
+  // host, then destroy the host. This exact order keeps the event sink, which
+  // the guest thread holds, valid until the guest is joined.
+  if (managed_) managed_->Shutdown();
   scripts_.reset();
+  managed_.reset();
   if (!config_.headless) {
     renderer_.WaitIdle();
     game_ui_.Shutdown();
@@ -488,8 +494,20 @@ void Engine::BootManagedScripting() {
   auto loader = [this](const std::string& name) {
     return !scripts_->EnsureScriptLoaded(name).empty();
   };
-  if (!managed_->Boot(scripts_->guest(), loader, /*dotnet_root=*/"", runtime_config, assembly))
+  if (!managed_->Boot(scripts_->guest(), loader, /*dotnet_root=*/"", runtime_config, assembly)) {
     managed_.reset();  // unavailable: run without it
+    return;
+  }
+  // Route gameplay events (death, item added, quest stage) from the bindings to
+  // the managed event bus. The sink runs on the guest thread, so set it there to
+  // avoid racing the guest, and have it only enqueue: the main loop drains the
+  // queue into managed code (DrainEvents).
+  auto* host = managed_.get();
+  auto* binds = script_bindings_.get();
+  scripts_->guest().Submit([binds, host](rec::script::papyrus::VirtualMachine&) {
+    binds->set_event_sink(
+        [host](const rec::script::host::ManagedEvent& e) { host->QueueEvent(e); });
+  });
 }
 
 bool Engine::LoadGameData() {
@@ -601,6 +619,9 @@ bool Engine::LoadGameData() {
     quest_->ReportSceneLive(want);
     quit_.store(true, std::memory_order_relaxed);
   }
+  // Headless reports drive quests during init and quit before the main loop, so
+  // deliver any events they queued to managed hooks here too.
+  if (managed_) managed_->DrainEvents();
 
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
   if (config_.demo_scene == "actor") return actors_->CreateSkyrimActor();
