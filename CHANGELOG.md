@@ -8,6 +8,8 @@ shows the most recent entries (the first bullet of each release is its headline)
 - FiveM-style asset streaming: a server distributes its mods to players on join
 - The host catalogs a mods directory (--mods-dir); clients pull only the content
   they are missing into a content-addressed cache, then mount it into the asset Vfs
+- Authors iterate live: SIGHUP reloads the server's mods without a restart, and
+  modtool inspects what a mods directory will stream
 - Scripting RPC channel woven into multiplayer: C# mods emit and receive calls
   (Rpc.Emit / Rpc.ToClient / Rpc.Broadcast / Rpc.On) over the session, plus
   ask-and-answer request/response (Rpc.Request / Rpc.OnRequest / req.Reply)
