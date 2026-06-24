@@ -16,6 +16,7 @@ third_party/DLSS/
 third_party/NRD/
 third_party/NRD-MathLib/
 third_party/NRD-ShaderMake/
+third_party/nanobuf/
 
 # Android build outputs
 android/app/src/main/jniLibs/
