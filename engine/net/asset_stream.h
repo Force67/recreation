@@ -135,10 +135,13 @@ class AssetStreamClient {
   // can react (gate spawn, greet, ...). Sent once, when the cache is complete.
   void SendReady();
 
-  // Registered with the ZClient as its file-transfer sink. Update() invokes it
-  // for every incoming FileTransfer control packet, on the session thread.
-  static void SinkThunk(void* context, const tx::network::IncomingPacket& packet);
+ public:
+  // Feeds one incoming FileTransfer control packet. The session drains the
+  // control channel and routes file-transfer packets here (zetanet delivers
+  // them as system packets on the control channel). Runs on the session thread.
+  void OnFilePacket(const tx::network::IncomingPacket& packet);
 
+ private:
   tx::network::ZClient& client_;
   modstream::ContentStore& store_;
   std::filesystem::path incoming_dir_;

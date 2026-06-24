@@ -44,9 +44,9 @@ AssetStreamServer::~AssetStreamServer() {
     std::lock_guard<std::mutex> lock(mutex_);
     stop_ = true;
   }
-  // Abort in-flight transfers so the workers do not wait out the backpressure
-  // timeout, which would hang server shutdown behind a slow client.
-  transporter_.RequestStopSending();
+  // Wake idle workers so they observe stop_ and exit. A worker mid-SendFile
+  // finishes (or hits the per-transfer backpressure timeout) before joining;
+  // zetanet's transporter has no send-abort, so shutdown waits that out.
   cv_.notify_all();
   for (std::thread& worker : workers_) {
     if (worker.joinable()) worker.join();
@@ -115,20 +115,17 @@ AssetStreamClient::AssetStreamClient(tx::network::ZClient& client,
       transporter_(client) {
   std::error_code ec;
   fs::create_directories(incoming_dir_, ec);
-  // ZClient::Update drains the control channel; without this sink the incoming
-  // file chunks would be discarded there. The sink runs on the session thread.
-  client_.SetFileTransferSink(&AssetStreamClient::SinkThunk, this);
+  // File-transfer chunks arrive as system packets on zetanet's control channel.
+  // The client session drains that channel each tick and routes them to
+  // OnFilePacket (see ClientSession::Tick), since ZClient::Update would
+  // otherwise drain and discard them.
 }
 
-AssetStreamClient::~AssetStreamClient() {
-  client_.SetFileTransferSink(nullptr, nullptr);
-}
+AssetStreamClient::~AssetStreamClient() = default;
 
-void AssetStreamClient::SinkThunk(void* context,
-                                  const tx::network::IncomingPacket& packet) {
-  auto* self = static_cast<AssetStreamClient*>(context);
+void AssetStreamClient::OnFilePacket(const tx::network::IncomingPacket& packet) {
   tx::network::ZFileTransporter::TransferChunk chunk;
-  if (self->transporter_.ParseTransferChunkPacket(packet, chunk)) self->HandleChunk(chunk);
+  if (transporter_.ParseTransferChunkPacket(packet, chunk)) HandleChunk(chunk);
 }
 
 u64 AssetStreamClient::bytes_remaining() const {

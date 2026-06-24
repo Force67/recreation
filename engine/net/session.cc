@@ -357,6 +357,17 @@ bool ClientSession::Start() {
 }
 
 void ClientSession::Tick(ecs::World& world, f32 dt) {
+  // Drain the control channel ourselves first: zetanet delivers file-transfer
+  // chunks as system packets there, and ZClient::Update() would otherwise drain
+  // and discard them. Poll() still runs ProcessSystemMessage for handshake/clock
+  // packets, so the connection logic below is unaffected.
+  if (asset_stream_) {
+    tx::network::IncomingPacket fpacket;
+    while (client_.Poll(tx::network::PacketChannelType::Control, fpacket)) {
+      if (fpacket.type == tx::network::PacketType::FileTransfer)
+        asset_stream_->OnFilePacket(fpacket);
+    }
+  }
   client_.Update();
 
   using Phase = tx::network::ZClient::HandshakePhase;
