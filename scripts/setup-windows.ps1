@@ -55,7 +55,10 @@ function Install-Pkg($winget, $choco) {
 function Do-System {
   if (-not (Have cmake)) { Log "installing cmake"; Install-Pkg 'Kitware.CMake' 'cmake' }
   # The Windows build uses the Visual Studio generator, so ninja is not required.
-  if (-not (Have pkg-config)) { Log "installing pkg-config"; if (Have choco) { choco install pkgconfiglite -y --no-progress } else { Warn 'install pkg-config (choco install pkgconfiglite)' } }
+  # Install pkgconfiglite via choco so CMake's FindPkgConfig has a pkg-config it
+  # recognises (a stray pkg-config elsewhere on PATH is not always usable).
+  if (Have choco) { Log "ensuring pkg-config (pkgconfiglite)"; choco install pkgconfiglite -y --no-progress }
+  elseif (-not (Have pkg-config)) { Block "pkg-config missing and no choco - install pkgconfiglite or provide pkg-config" }
 
   # freetype + harfbuzz via vcpkg (matches CI).
   $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
