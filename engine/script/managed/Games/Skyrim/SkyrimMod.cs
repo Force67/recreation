@@ -19,5 +19,6 @@ public sealed class SkyrimMod : IMod
         Console.WriteLine("[skyrim] installing gameplay systems");
         ModHost.Register(new AttributeRegeneration());
         ModHost.Register(new QuestProgressTracker());
+        ModHost.Register(new CombatTracker());
     }
 }
