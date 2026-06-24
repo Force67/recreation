@@ -68,6 +68,9 @@ AssetStreamServer::~AssetStreamServer() {
     std::lock_guard<std::mutex> lock(mutex_);
     stop_ = true;
   }
+  // Abort any in-flight transfer so the worker does not wait out the backpressure
+  // timeout, which would hang server shutdown behind a slow client.
+  transporter_.RequestStopSending();
   cv_.notify_all();
   if (worker_.joinable()) worker_.join();
 }
