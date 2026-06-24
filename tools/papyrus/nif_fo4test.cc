@@ -62,18 +62,18 @@ void PutAvObject(std::vector<rec::u8>& b) {
   PutI32(b, -1);    // collision object
 }
 
-}  // namespace
+// Builds a minimal FO4 NIF (a root NiNode over one geometry block of
+// `shape_type`) and converts it, checking the three vertices and one triangle
+// come back. shape_type is one of the FO4 geometry block types the reader
+// dispatches to the same packed-vertex path.
+void RunCase(const char* shape_type) {
+  std::printf("  -- %s --\n", shape_type);
 
-int main() {
-  std::puts("fallout 4 nif geometry:");
-
-  // Block 0: the root NiNode with one child (the shape, block 1).
   std::vector<rec::u8> node;
   PutAvObject(node);
   PutU32(node, 1);   // child count
   PutI32(node, 1);   // child -> block 1
 
-  // Block 1: a BSTriShape with three vertices and one triangle.
   std::vector<rec::u8> shape;
   PutAvObject(shape);
   for (int i = 0; i < 4; ++i) PutF32(shape, 0.0f);  // bounding sphere (center+radius)
@@ -100,7 +100,6 @@ int main() {
   Check("node block is 80 bytes", node.size() == 80);
   Check("shape block is 172 bytes", shape.size() == 172);
 
-  // Assemble: magic line, header, the two blocks, footer.
   std::vector<rec::u8> b;
   const char* magic = "Gamebryo File Format, Version 20.2.0.7\n";
   for (const char* p = magic; *p; ++p) b.push_back(static_cast<rec::u8>(*p));
@@ -112,7 +111,7 @@ int main() {
   for (int i = 0; i < 4; ++i) PutU8(b, 0);  // 4 empty export strings (bs >= 130)
   PutU16(b, 2);           // block type count
   PutSizedStr(b, "NiNode");
-  PutSizedStr(b, "BSTriShape");
+  PutSizedStr(b, shape_type);
   PutU16(b, 0);  // block 0 type index
   PutU16(b, 1);  // block 1 type index
   PutU32(b, static_cast<rec::u32>(node.size()));
@@ -137,7 +136,16 @@ int main() {
   } else {
     Check("mesh has a lod", false);
   }
+}
 
+}  // namespace
+
+int main() {
+  std::puts("fallout 4 nif geometry:");
+  // All three FO4 geometry block types share the packed-vertex path.
+  RunCase("BSTriShape");
+  RunCase("BSSubIndexTriShape");
+  RunCase("BSMeshLODTriShape");
   if (g_failures == 0) {
     std::puts("fallout 4 nif: all checks passed");
     return 0;
