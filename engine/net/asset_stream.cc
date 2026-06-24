@@ -185,6 +185,7 @@ void AssetStreamClient::OnManifestComplete() {
 
   remaining_.reserve(plan.size());
   for (const modstream::NeededFile& need : plan) remaining_[need.hash] = need.size;
+  planned_files_ = plan.size();
   downloading_ = true;
   REC_INFO("net: streaming {} mod files ({} bytes) from the server", plan.size(),
            modstream::PlannedBytes(plan));
@@ -247,6 +248,18 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
     return;
   }
   remaining_.erase(*hash);
+
+  // Progress, throttled so a many-file download does not flood the log: every
+  // file for a small set, otherwise at roughly ten-percent steps.
+  if (downloading_ && !remaining_.empty() && planned_files_ > 0) {
+    const size_t done = planned_files_ - remaining_.size();
+    const size_t step = planned_files_ <= 20 ? 1 : planned_files_ / 10;
+    if (done % step == 0) {
+      REC_INFO("net: streamed {}/{} mod files ({} bytes left)", done, planned_files_,
+               bytes_remaining());
+    }
+  }
+
   if (downloading_ && remaining_.empty()) {
     downloading_ = false;
     ready_ = true;

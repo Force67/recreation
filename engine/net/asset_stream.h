@@ -140,6 +140,7 @@ class AssetStreamClient {
   modstream::ModManifest manifest_;
   std::unordered_map<modstream::ContentHash, u64> remaining_;  // hash -> size
   std::unordered_map<u64, Transfer> transfers_;                // transfer_id -> state
+  size_t planned_files_ = 0;  // files to fetch this session, for progress logging
   bool downloading_ = false;
   bool ready_ = false;
   bool failed_ = false;
