@@ -14,6 +14,7 @@ internal static class Program
         SdkApiTests.Run(check);
         EventBusTests.Run(check);
         ModHostTests.Run(check);
+        FormScriptsTests.Run(check);
         SkyrimRegenTests.Run(check);
         SkyrimEventTests.Run(check);
 
