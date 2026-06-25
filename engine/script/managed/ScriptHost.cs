@@ -22,6 +22,10 @@ public static unsafe class ScriptHost
         Console.WriteLine("[managed] Recreation scripting host online");
         ModHost.Boot();
 
+        // Load drop-in user mods from RECREATION_MODS_DIR, if set.
+        string? modsDir = Environment.GetEnvironmentVariable("RECREATION_MODS_DIR");
+        if (!string.IsNullOrEmpty(modsDir)) ModLoader.LoadDirectory(modsDir);
+
         handshake->Callbacks.Tick = &OnTick;
         handshake->Callbacks.PublishEvent = &OnPublishEvent;
         handshake->Callbacks.Shutdown = &OnShutdown;
