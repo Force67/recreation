@@ -157,6 +157,8 @@ class Engine {
   friend void ResolveUniverses(Engine&);
   friend void SetupMainMenu(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const std::string&);
+  friend void SetupFirstRun(Engine&);
+  friend void LoadSetupConfig(Engine&);
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
@@ -171,6 +173,10 @@ class Engine {
   // player / network / mods data.
   void UpdateMainMenu(f32 dt);
   void RefreshMenuData();
+  // First-run setup wizard, per frame: drives Next/Back and dispatches the
+  // wizard's requests (open a folder picker, launch into the main menu, cancel).
+  // Active only on a fresh install, before SetupMainMenu takes over.
+  void UpdateFirstRun(f32 dt);
   // Paints the three universe panes (Skyrim / Fallout 4 / Starfield) as original,
   // per-pixel procedural concept art — atmospheric sky, silhouettes, grain — and
   // uploads them as the menu's pane backdrop textures. No external image assets:
@@ -221,6 +227,11 @@ class Engine {
   };
   std::array<MenuUniverse, 3> menu_universes_;
   bool main_menu_active_ = false;
+  // First-run out-of-box wizard: owns the screen on a fresh install until the
+  // player finishes setup, at which point it hands off to the main menu. The
+  // mods directory the wizard collects is held here until it is persisted.
+  bool first_run_active_ = false;
+  std::string first_run_mods_dir_;
   // Deferred capture of the entered world into the backdrop cache: counts down
   // after EnterUniverse, hiding the HUD for the grab frame so the cached scene
   // is clean. Idle at 0.
@@ -388,6 +399,15 @@ void ResolveUniverses(Engine& engine);
 void SetupMainMenu(Engine& engine);
 void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
                    const std::string& join_address);
+// First-run out-of-box setup. LoadSetupConfig pulls any persisted game paths /
+// mods dir into the EngineConfig before universes are resolved. FirstRunComplete
+// reports whether setup has already been finished (a marker file exists).
+// SetupFirstRun opens the wizard with the games pre-resolved, so found ones show
+// as located. On launch the wizard persists its choices and hands off to
+// SetupMainMenu.
+void LoadSetupConfig(Engine& engine);
+bool FirstRunComplete();
+void SetupFirstRun(Engine& engine);
 #if RECREATION_HAS_NET
 // Opens the authoritative server or replica client session and wires the
 // replication sinks between the net layer and the script/quest systems.

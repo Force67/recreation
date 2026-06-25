@@ -1,0 +1,325 @@
+// RECREATION first-run setup: a full-bleed, five-page wizard shown on a fresh
+// install before the NEXUS main menu. One page is visible at a time
+// (fr_step0..4); the gold diamond thread on the left (fr_node0..4, fr_seg0..3)
+// tracks progress. Tokens match main_menu.ugui so the wizard reads as the same
+// product. Drives the widgets GameUi expects:
+//   fr_step0..4, fr_node0..4, fr_seg0..3,
+//   fr_row0..2 (fr_name/fr_path/fr_stat/fr_browse), fr_next1,
+//   fr_modesel/fr_modeval/fr_modemenu/fr_modeopt0..3/fr_modetick0..3 (+diff),
+//   fr_chk0..2 (fr_chkbox/fr_chkmk), fr_modspath_t/fr_browse_mods,
+//   fr_seal0..2 (fr_sealbadge0..2), fr_begin/fr_back1..4/fr_next1..3/fr_launch.
+
+  panel firstrun {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #05070b;
+    visibility: collapsed;
+
+    // cinematic backdrop
+    panel { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+      background: #0a1018; background-end: #05070b; gradient-angle: 165; }
+    // cool glow toward the top-right (echoes the menu's cosmos)
+    panel { position: absolute; right: 0; top: 0; width: 60%; height: 64%;
+      background: #16213a00; background-end: #16213a55; gradient-angle: 300; }
+    // horizon band along the bottom
+    panel { position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
+      background: #05070b00; background-end: #04060b; gradient-angle: 180; }
+    // left legibility scrim so the column text stays crisp over the scene
+    panel { position: absolute; left: 0; top: 0; bottom: 0; width: 62%;
+      background: #05070bf2; background-end: #05070b00; gradient-angle: 90; }
+
+    // wordmark (top-left)
+    panel { position: absolute; left: 54; top: 38; layout: row; align: center; gap: 13;
+      panel { width: 14; height: 14; corner-radius: 3; background: #ffcc55; }
+      text { text: "RECREATION"; font-size: 13; color: #c9d0de; letter-spacing: 7; }
+    }
+    text { position: absolute; left: 54; bottom: 30; text: "Press ESC to cancel setup";
+      font-size: 11; color: #6b7488; letter-spacing: 2; }
+
+    // progress rail (left)
+    panel { position: absolute; left: 48; top: 0; bottom: 0; width: 30;
+      layout: column; justify: center; align: center;
+      panel fr_node0 { width: 11; height: 11; corner-radius: 2; background: #ffcc55;
+        border-color: #ffcc55; border-width: 1; rotation: 45; }
+      panel fr_seg0 { width: 2; height: 46; background: #ffffff14; }
+      panel fr_node1 { width: 11; height: 11; corner-radius: 2; background: #00000000;
+        border-color: #ffffff22; border-width: 1; rotation: 45; }
+      panel fr_seg1 { width: 2; height: 46; background: #ffffff14; }
+      panel fr_node2 { width: 11; height: 11; corner-radius: 2; background: #00000000;
+        border-color: #ffffff22; border-width: 1; rotation: 45; }
+      panel fr_seg2 { width: 2; height: 46; background: #ffffff14; }
+      panel fr_node3 { width: 11; height: 11; corner-radius: 2; background: #00000000;
+        border-color: #ffffff22; border-width: 1; rotation: 45; }
+      panel fr_seg3 { width: 2; height: 46; background: #ffffff14; }
+      panel fr_node4 { width: 11; height: 11; corner-radius: 2; background: #00000000;
+        border-color: #ffffff22; border-width: 1; rotation: 45; }
+    }
+
+    // page column (vertically centred)
+    panel { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+      layout: column; justify: center; align: start; padding: 0 0 0 150;
+
+      // page 01 / 05: welcome
+      panel fr_step0 { layout: column; align: start; width: 600;
+        text { text: "01  /  05"; font-size: 12; color: #6b7488; letter-spacing: 5; margin: 0 0 22 0; }
+        text { text: "WELCOME TO RECREATION"; font-size: 33; color: #eef2fb;
+          letter-spacing: 7; text-transform: uppercase; margin: 0 0 20 0; }
+        text { text: "Recreation brings the worlds of Skyrim, Fallout 4 and Starfield together into a single moddable, multiplayer engine.";
+          font-size: 15; color: #c9d0de; width: 440; margin: 0 0 14 0; }
+        text { text: "A few quick steps and you'll be ready to cross between them. You can change anything later in Settings.";
+          font-size: 15; color: #8a93a8; width: 440; }
+        panel { layout: row; align: center; gap: 14; margin: 40 0 0 0;
+          panel fr_begin { cursor: pointer; padding: 14 30; corner-radius: 8;
+            background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
+            :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
+            text { text: "BEGIN"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
+        }
+      }
+
+      // page 02 / 05: locate game files
+      panel fr_step1 { layout: column; align: start; width: 600; visibility: collapsed;
+        text { text: "02  /  05"; font-size: 12; color: #6b7488; letter-spacing: 5; margin: 0 0 22 0; }
+        text { text: "LOCATE YOUR GAME FILES"; font-size: 33; color: #eef2fb;
+          letter-spacing: 7; text-transform: uppercase; margin: 0 0 20 0; }
+        text { text: "Recreation reads the original game data. Point us to each installation you own, and found ones are detected automatically.";
+          font-size: 15; color: #c9d0de; width: 470; }
+
+        panel { layout: column; gap: 10; width: 560; margin: 30 0 0 0;
+          panel fr_row0 { layout: row; align: center; gap: 16; width: 100%; padding: 15 16;
+            corner-radius: 11; background: #ffffff06; border-color: #ffffff0c; border-width: 1;
+            panel { width: 12; height: 12; corner-radius: 3; background: #9fb4d6; }
+            panel { flex-grow: 1; layout: column; gap: 4;
+              text fr_name0 { text: "Skyrim Special Edition"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
+              text fr_path0 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
+            text fr_stat0 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
+            panel fr_browse0 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+              border-color: #ffffff22; border-width: 1;
+              :hover { background: #ffffff18; transition: 0.14s ease-out; }
+              text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
+          }
+          panel fr_row1 { layout: row; align: center; gap: 16; width: 100%; padding: 15 16;
+            corner-radius: 11; background: #ffffff06; border-color: #ffffff0c; border-width: 1;
+            panel { width: 12; height: 12; corner-radius: 3; background: #ffce66; }
+            panel { flex-grow: 1; layout: column; gap: 4;
+              text fr_name1 { text: "Fallout 4"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
+              text fr_path1 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
+            text fr_stat1 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
+            panel fr_browse1 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+              border-color: #ffffff22; border-width: 1;
+              :hover { background: #ffffff18; transition: 0.14s ease-out; }
+              text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
+          }
+          panel fr_row2 { layout: row; align: center; gap: 16; width: 100%; padding: 15 16;
+            corner-radius: 11; background: #ffffff06; border-color: #ffffff0c; border-width: 1;
+            panel { width: 12; height: 12; corner-radius: 3; background: #8ea2e8; }
+            panel { flex-grow: 1; layout: column; gap: 4;
+              text fr_name2 { text: "Starfield"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
+              text fr_path2 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
+            text fr_stat2 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
+            panel fr_browse2 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+              border-color: #ffffff22; border-width: 1;
+              :hover { background: #ffffff18; transition: 0.14s ease-out; }
+              text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
+          }
+        }
+        text { text: "Locate at least one game to continue."; font-size: 12; color: #6b7488; margin: 18 0 0 0; }
+
+        panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
+          panel fr_back1 { cursor: pointer; padding: 14 22; corner-radius: 8;
+            :hover { background: #ffffff0c; transition: 0.14s ease-out; }
+            text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
+          panel fr_next1 { cursor: pointer; padding: 14 30; corner-radius: 8;
+            background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
+            :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
+            text fr_next1_t { text: "NEXT"; font-size: 13; color: #6b6149; letter-spacing: 3; } }
+        }
+      }
+
+      // page 03 / 05: preferences
+      panel fr_step2 { layout: column; align: start; width: 600; visibility: collapsed;
+        text { text: "03  /  05"; font-size: 12; color: #6b7488; letter-spacing: 5; margin: 0 0 22 0; }
+        text { text: "SET YOUR PREFERENCES"; font-size: 33; color: #eef2fb;
+          letter-spacing: 7; text-transform: uppercase; margin: 0 0 20 0; }
+        text { text: "How you'd like to play by default. None of this is permanent.";
+          font-size: 15; color: #c9d0de; width: 440; }
+
+        // default mode
+        text { text: "DEFAULT MODE"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 30 0 9 0; }
+        panel fr_modesel { position: relative; width: 420; cursor: pointer;
+          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 13 16;
+            corner-radius: 8; background: #070a10; border-color: #ffffff12; border-width: 1;
+            :hover { border-color: #ffcc5566; transition: 0.14s ease-out; }
+            text fr_modeval { text: "Exploration"; font-size: 14; color: #eef2fb; }
+            text { text: "v"; font-size: 12; color: #8a93a8; } }
+          panel fr_modemenu { position: absolute; left: 0; right: 0; top: 52; visibility: collapsed;
+            layout: column; gap: 2; padding: 5; corner-radius: 8;
+            background: #0d1018; border-color: #ffffff22; border-width: 1;
+            shadow-color: #000000b0; shadow-blur: 40; shadow-y: 16;
+            panel fr_modeopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Exploration"; font-size: 14; color: #c9d0de; }
+              panel fr_modetick0 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; } }
+            panel fr_modeopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Story"; font-size: 14; color: #c9d0de; }
+              panel fr_modetick1 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+            panel fr_modeopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Survival"; font-size: 14; color: #c9d0de; }
+              panel fr_modetick2 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+            panel fr_modeopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Sandbox"; font-size: 14; color: #c9d0de; }
+              panel fr_modetick3 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+          }
+        }
+
+        // difficulty
+        text { text: "DIFFICULTY"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 22 0 9 0; }
+        panel fr_diffsel { position: relative; width: 420; cursor: pointer;
+          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 13 16;
+            corner-radius: 8; background: #070a10; border-color: #ffffff12; border-width: 1;
+            :hover { border-color: #ffcc5566; transition: 0.14s ease-out; }
+            text fr_diffval { text: "Normal"; font-size: 14; color: #eef2fb; }
+            text { text: "v"; font-size: 12; color: #8a93a8; } }
+          panel fr_diffmenu { position: absolute; left: 0; right: 0; top: 52; visibility: collapsed;
+            layout: column; gap: 2; padding: 5; corner-radius: 8;
+            background: #0d1018; border-color: #ffffff22; border-width: 1;
+            shadow-color: #000000b0; shadow-blur: 40; shadow-y: 16;
+            panel fr_diffopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Novice"; font-size: 14; color: #c9d0de; }
+              panel fr_difftick0 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+            panel fr_diffopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Normal"; font-size: 14; color: #c9d0de; }
+              panel fr_difftick1 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; } }
+            panel fr_diffopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Hard"; font-size: 14; color: #c9d0de; }
+              panel fr_difftick2 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+            panel fr_diffopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+              :hover { background: #ffffff0c; transition: 0.12s ease-out; }
+              text { text: "Legendary"; font-size: 14; color: #c9d0de; }
+              panel fr_difftick3 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
+          }
+        }
+
+        // toggles
+        panel { layout: column; gap: 16; margin: 30 0 0 0;
+          panel fr_chk0 { layout: row; align: start; gap: 13; cursor: pointer;
+            panel fr_chkbox0 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
+              border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
+              panel fr_chkmk0 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
+            panel { layout: column; gap: 3;
+              text { text: "Enable mods by default"; font-size: 14; color: #eef2fb; }
+              text { text: "Load installed gameplay modules when a world starts"; font-size: 12; color: #6b7488; } } }
+          panel fr_chk1 { layout: row; align: start; gap: 13; cursor: pointer;
+            panel fr_chkbox1 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
+              border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
+              panel fr_chkmk1 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
+            panel { layout: column; gap: 3;
+              text { text: "Share anonymous diagnostics"; font-size: 14; color: #eef2fb; }
+              text { text: "Help improve Recreation. No personal data leaves your machine"; font-size: 12; color: #6b7488; } } }
+          panel fr_chk2 { layout: row; align: start; gap: 13; cursor: pointer;
+            panel fr_chkbox2 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
+              border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
+              panel fr_chkmk2 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
+            panel { layout: column; gap: 3;
+              text { text: "Check for updates on launch"; font-size: 14; color: #eef2fb; }
+              text { text: "Stay current with engine and protocol releases"; font-size: 12; color: #6b7488; } } }
+        }
+
+        panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
+          panel fr_back2 { cursor: pointer; padding: 14 22; corner-radius: 8;
+            :hover { background: #ffffff0c; transition: 0.14s ease-out; }
+            text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
+          panel fr_next2 { cursor: pointer; padding: 14 30; corner-radius: 8;
+            background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
+            :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
+            text { text: "NEXT"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
+        }
+      }
+
+      // page 04 / 05: mods directory
+      panel fr_step3 { layout: column; align: start; width: 600; visibility: collapsed;
+        text { text: "04  /  05"; font-size: 12; color: #6b7488; letter-spacing: 5; margin: 0 0 22 0; }
+        text { text: "CONFIGURE THE MODS DIRECTORY"; font-size: 33; color: #eef2fb;
+          letter-spacing: 7; text-transform: uppercase; margin: 0 0 20 0; }
+        text { text: "Where Recreation stores downloaded modules and streamed assets. Each world is kept in its own folder.";
+          font-size: 15; color: #c9d0de; width: 470; }
+
+        text { text: "MODS DIRECTORY"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 30 0 9 0; }
+        panel { layout: row; gap: 10; width: 470;
+          panel { flex-grow: 1; padding: 13 16; corner-radius: 8; background: #070a10;
+            border-color: #ffffff12; border-width: 1;
+            text fr_modspath_t { text: "~/.recreation/mods"; font: mono; font-size: 13; color: #eef2fb; } }
+          panel fr_browse_mods { cursor: pointer; padding: 13 20; corner-radius: 8; background: #ffffff0a;
+            border-color: #ffffff22; border-width: 1;
+            :hover { background: #ffffff18; transition: 0.14s ease-out; }
+            text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
+        }
+
+        panel { layout: row; align: center; justify: space-between; width: 470; margin: 22 0 0 0;
+          padding: 14 16; corner-radius: 11; background: #ffffff06; border-color: #ffffff0c; border-width: 1;
+          text { text: "RECOMMENDED FREE SPACE"; font-size: 11; color: #8a93a8; letter-spacing: 3; }
+          panel { layout: row; align: center; gap: 9;
+            text fr_space { text: "50 GB"; font-size: 14; color: #eef2fb; }
+            panel { width: 7; height: 7; corner-radius: 4; background: #5fcf80; } } }
+
+        panel { layout: row; align: start; gap: 12; width: 470; margin: 18 0 0 0;
+          padding: 14 16; corner-radius: 11; background: #ffcc550d; border-color: #ffcc5529; border-width: 1;
+          text { text: "i"; font-size: 12; color: #ffcc55; }
+          text { text: "Your mods are organised per world and kept separate, so a Skyrim module never collides with a Starfield one.";
+            font-size: 12; color: #c9d0de; width: 410; } }
+
+        panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
+          panel fr_back3 { cursor: pointer; padding: 14 22; corner-radius: 8;
+            :hover { background: #ffffff0c; transition: 0.14s ease-out; }
+            text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
+          panel fr_next3 { cursor: pointer; padding: 14 30; corner-radius: 8;
+            background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
+            :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
+            text { text: "NEXT"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
+        }
+      }
+
+      // page 05 / 05: all set
+      panel fr_step4 { layout: column; align: start; width: 600; visibility: collapsed;
+        text { text: "05  /  05"; font-size: 12; color: #6b7488; letter-spacing: 5; margin: 0 0 22 0; }
+        text { text: "YOU'RE ALL SET"; font-size: 33; color: #eef2fb;
+          letter-spacing: 7; text-transform: uppercase; margin: 0 0 20 0; }
+        text { text: "Everything checks out. Your universes are linked and the engine is ready to open.";
+          font-size: 15; color: #c9d0de; width: 440; }
+
+        panel { layout: row; gap: 16; margin: 30 0 6 0;
+          panel fr_seal0 { position: relative; width: 64; height: 64; corner-radius: 11;
+            background: #ffffff06; border-color: #ffffff14; border-width: 1; layout: column; justify: center; align: center;
+            panel { width: 26; height: 26; corner-radius: 5; background: #9fb4d6; }
+            panel fr_sealbadge0 { position: absolute; right: -6; bottom: -6; width: 20; height: 20; corner-radius: 10;
+              background: #5fcf80; border-color: #05070b; border-width: 3; } }
+          panel fr_seal1 { position: relative; width: 64; height: 64; corner-radius: 11;
+            background: #ffffff06; border-color: #ffffff14; border-width: 1; layout: column; justify: center; align: center;
+            panel { width: 26; height: 26; corner-radius: 13; background: #ffce66; }
+            panel fr_sealbadge1 { position: absolute; right: -6; bottom: -6; width: 20; height: 20; corner-radius: 10;
+              background: #5fcf80; border-color: #05070b; border-width: 3; } }
+          panel fr_seal2 { position: relative; width: 64; height: 64; corner-radius: 11;
+            background: #ffffff06; border-color: #ffffff14; border-width: 1; layout: column; justify: center; align: center;
+            panel { width: 26; height: 26; corner-radius: 13; background: #8ea2e8; }
+            panel fr_sealbadge2 { position: absolute; right: -6; bottom: -6; width: 20; height: 20; corner-radius: 10;
+              background: #5fcf80; border-color: #05070b; border-width: 3; } }
+        }
+
+        text { text: "You can revisit any of these from the Settings menu at any time.";
+          font-size: 12; color: #6b7488; margin: 10 0 0 0; }
+
+        panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
+          panel fr_back4 { cursor: pointer; padding: 14 22; corner-radius: 8;
+            :hover { background: #ffffff0c; transition: 0.14s ease-out; }
+            text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
+          panel fr_launch { cursor: pointer; padding: 16 46; corner-radius: 8;
+            background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
+            :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
+            text { text: "LAUNCH RECREATION"; font-size: 14; color: #ffe6a0; letter-spacing: 3; } }
+        }
+      }
+    }
+  }

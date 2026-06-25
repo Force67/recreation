@@ -17,6 +17,12 @@ namespace rec {
 
 void Engine::UpdateCamera(f32 frame_delta) {
   if (!window_) return;
+  // The first-run setup wizard owns all input while it is up, ahead of the menu
+  // it hands off to once the player finishes (which clears first_run_active_).
+  if (first_run_active_ && game_ui_.first_run_open()) {
+    UpdateFirstRun(frame_delta);
+    return;
+  }
   // The NEXUS main menu owns all input while it is up; gameplay/camera stays
   // frozen until a universe is entered (which clears main_menu_active_).
   if (main_menu_active_ && game_ui_.main_menu_open()) {

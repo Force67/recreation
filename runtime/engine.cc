@@ -118,7 +118,11 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   }
 
   if (config_.main_menu && !config_.headless) {
-    SetupMainMenu(*this);  // pick a universe; the game loads on demand (EnterUniverse)
+    LoadSetupConfig(*this);  // fold any persisted game paths / mods dir into config
+    if (FirstRunComplete())
+      SetupMainMenu(*this);  // pick a universe; the game loads on demand (EnterUniverse)
+    else
+      SetupFirstRun(*this);  // fresh install: run the out-of-box setup wizard first
   } else if (!config_.gltf_path.empty()) {
     if (!LoadGltfScene()) return false;
   } else if (!config_.data_dir.empty()) {

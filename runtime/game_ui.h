@@ -195,6 +195,37 @@ struct MainMenuRequest {
   bool multiplayer = false; // kEnterUniverse also opened a session
 };
 
+// Live data the engine feeds the first-run setup wizard each frame: the three
+// games' display names, whether each has been located (and where), the chosen
+// mods directory, and the recommended free-space label. The wizard owns its own
+// step and selection state. This only mirrors what the engine resolved or browsed.
+struct FirstRunView {
+  struct Game {
+    std::string name;     // display name (e.g. "Skyrim Special Edition")
+    std::string path;     // located data dir, empty if not found
+    bool located = false;
+  };
+  std::vector<Game> games;        // up to three, column order
+  std::string mods_dir;           // current mods directory
+  std::string space_label = "50 GB";
+};
+
+// A request the first-run wizard raises for the engine to act on, mirroring
+// MainMenuRequest: open a native folder picker for a game or the mods dir, or
+// finish (kLaunch, persisting the choices snapshot below) / cancel the setup.
+struct FirstRunRequest {
+  enum class Kind { kNone, kBrowseGame, kBrowseMods, kLaunch, kCancel };
+  Kind kind = Kind::kNone;
+  int index = 0;                  // game column, for kBrowseGame
+  // Snapshot of the wizard's selections, filled on kLaunch so the engine can
+  // persist them (these have no effect on the other request kinds).
+  int mode = 0;                   // 0 Exploration, 1 Story, 2 Survival, 3 Sandbox
+  int difficulty = 1;             // 0 Novice, 1 Normal, 2 Hard, 3 Legendary
+  bool enable_mods = true;
+  bool share_diagnostics = true;
+  bool check_updates = true;
+};
+
 // The rebindable controls shown in the pause menu's Settings sub-view. The
 // engine rebuilds this from its InputMap each frame; the rows are a fixed,
 // curated set of gameplay actions. A row marked `capturing` is awaiting an input
@@ -351,6 +382,22 @@ class GameUi {
   int selected_universe() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.
   MainMenuRequest PollMainMenuRequest();
+
+  // First-run setup wizard (the out-of-box experience shown once on a fresh
+  // install, before the main menu). The engine opens it at boot when setup has
+  // not completed, drives it with mouse + the Next/Back helpers below, feeds it
+  // the located games / mods dir each frame, and polls the request it raises
+  // (browse for a folder, launch, cancel).
+  void OpenFirstRun();
+  void CloseFirstRun();
+  bool first_run_open() const;
+  // Keyboard helpers: Next advances the current page (the primary button, which
+  // is gated on locating a game on page 2); Back returns to the previous page,
+  // or raises kCancel at the first page.
+  void FirstRunNext();
+  void FirstRunBack();
+  void SetFirstRunView(const FirstRunView& view);
+  FirstRunRequest PollFirstRunRequest();
 
  private:
   struct Impl;

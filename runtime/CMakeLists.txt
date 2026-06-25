@@ -9,6 +9,7 @@ set(RECREATION_RUNTIME_SOURCES
   content_load.cc
   managed_scripting.cc
   main_menu.cc
+  first_run.cc
   camera_input.cc
   controls_settings.cc
   content_domain.cc

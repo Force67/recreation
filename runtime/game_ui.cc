@@ -64,6 +64,8 @@ constexpr int kMenuUniverses = 3;  // Skyrim, Fallout 4, Starfield
 constexpr int kMenuNavItems = 6;   // PLAY MULTIPLAYER MODS SETTINGS PROFILE QUIT
 constexpr int kMenuModRows = 16;   // pooled rows on the Mods sub-screen
 constexpr int kMenuNewsRows = 3;   // pooled rows on the NEWS rail
+constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
+constexpr int kFirstRunGames = 3;  // game rows on the locate page
 
 // Editor icon glyphs, composed from panels: the UI font (Noto Sans) has no
 // symbol set, so toolbar / tree / inspector icons are drawn as little stacks of
@@ -490,7 +492,7 @@ std::string BuildEditorSection() {
 const char* const kUiFragments[] = {
     "hud.ugui",       "vitals.ugui",    "readout.ugui",     "quest.ugui",
     "hud_gauge.ugui", "journal.ugui",   "dialogue.ugui",    "container.ugui",
-    "csharp_demo.ugui", "pause_menu.ugui", "main_menu.ugui",
+    "csharp_demo.ugui", "pause_menu.ugui", "main_menu.ugui", "first_run.ugui",
 };
 
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
@@ -577,6 +579,7 @@ std::string BuildUi() {
   s += LoadUiFragment("csharp_demo.ugui");
   s += LoadUiFragment("pause_menu.ugui");
   s += LoadUiFragment("main_menu.ugui");
+  s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
   s += "}\n";
   return s;
 }
@@ -731,6 +734,18 @@ struct GameUi::Impl {
   std::vector<std::pair<std::string, u64>> mm_glyphs;  // emblem widget -> texture
   bool mm_prev_open = false;  // edge-detect to hide the gameplay HUD while open
 
+  // First-run setup wizard state. The wizard owns its page (fr_step) and its
+  // interactive selections (dropdowns, toggles); the engine pushes the located
+  // games / mods dir into fr_view and consumes the request raised below.
+  bool first_run_open = false;
+  int fr_step = 0;            // 0 welcome .. 4 ready
+  int fr_mode = 0;           // default-mode dropdown selection
+  int fr_diff = 1;           // difficulty dropdown selection
+  int fr_dropdown = -1;      // open popover: -1 none, 0 mode, 1 difficulty
+  bool fr_check[3] = {true, true, true};  // enable mods / diagnostics / updates
+  FirstRunView fr_view;
+  FirstRunRequest fr_request;
+
   // Drives every main-menu widget from the state above each frame; collapses the
   // whole overlay when closed. Activate runs the highlighted nav item.
   void ApplyMainMenu();
@@ -738,6 +753,20 @@ struct GameUi::Impl {
   // Climbs from a clicked widget to the nearest menu-handled name and acts on it.
   // Returns true if it consumed the click.
   bool RouteMainMenuClick(ugui::wid target);
+
+  // First-run wizard: drive every widget from the state above; route a click to
+  // the page it belongs to; advance/retreat the page (the keyboard helpers and
+  // the primary button share AdvanceFirstRun). fr_located() counts found games.
+  void ApplyFirstRun();
+  bool RouteFirstRunClick(ugui::wid target);
+  void AdvanceFirstRun();
+  void RetreatFirstRun();
+  int fr_located() const {
+    int n = 0;
+    for (const auto& g : fr_view.games)
+      if (g.located) ++n;
+    return n;
+  }
 
   void SetStyleField(const char* name, void (*mutate)(ugui::Style&, float), float arg) {
     ugui::wid w = ui.FindWidget(name);
@@ -836,6 +865,7 @@ struct GameUi::Impl {
     if (std::getenv("RECREATION_UI_CSHARP_DEMO")) SetVisible("csdemo_root", true);
     ApplyMenuVisibility();
     ApplyMainMenu();
+    ApplyFirstRun();
     REC_INFO("ui: hot-reloaded {} .ugui fragment(s)", sizeof(kUiFragments) / sizeof(*kUiFragments));
   }
 };
@@ -1322,6 +1352,145 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
   return false;
 }
 
+// First-run setup wizard, a parallel overlay to the main menu. It owns its page
+// and selections, the engine feeds it the located games and mods dir, and it
+// raises a request the engine consumes (browse, launch, cancel).
+void GameUi::Impl::ApplyFirstRun() {
+  SetVisible("firstrun", first_run_open);
+  if (!first_run_open) return;
+  auto setText = [&](const std::string& n, const std::string& t) {
+    ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
+  };
+
+  // Pages: exactly one visible.
+  for (int i = 0; i < kFirstRunSteps; ++i)
+    SetVisible(("fr_step" + std::to_string(i)).c_str(), i == fr_step);
+
+  // Progress rail: nodes filled up to (and including) the current page; the
+  // segments between filled nodes glow gold.
+  for (int i = 0; i < kFirstRunSteps; ++i) {
+    const bool done = i < fr_step, active = i == fr_step;
+    SetBackground(("fr_node" + std::to_string(i)).c_str(),
+                  active ? Rgba(0xffcc55ffu) : (done ? Rgba(0xffcc55ccu) : Rgba(0x00000000u)));
+  }
+  for (int i = 0; i < kFirstRunSteps - 1; ++i)
+    SetBackground(("fr_seg" + std::to_string(i)).c_str(),
+                  i < fr_step ? Rgba(0xffcc55ffu) : Rgba(0xffffff14u));
+
+  // Page 2: located games.
+  for (int i = 0; i < kFirstRunGames; ++i) {
+    const std::string id = std::to_string(i);
+    const bool found = i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located;
+    if (i < static_cast<int>(fr_view.games.size()) && !fr_view.games[i].name.empty())
+      setText("fr_name" + id, fr_view.games[i].name);
+    setText("fr_path" + id, found ? fr_view.games[i].path : std::string("Not located"));
+    SetTextColor(("fr_path" + id).c_str(), found ? Rgba(0x8a93a8ffu) : Rgba(0x6b7488ffu));
+    setText("fr_stat" + id, found ? "Located" : "Not found");
+    SetTextColor(("fr_stat" + id).c_str(), found ? Rgba(0x5fcf80ffu) : Rgba(0x6b7488ffu));
+  }
+  // NEXT is gated until at least one game is located (gold when ready).
+  SetTextColor("fr_next1_t", fr_located() > 0 ? Rgba(0xffe6a0ffu) : Rgba(0x6b6149ffu));
+
+  // Page 3: dropdowns + toggles.
+  static const char* const kModes[4] = {"Exploration", "Story", "Survival", "Sandbox"};
+  static const char* const kDiffs[4] = {"Novice", "Normal", "Hard", "Legendary"};
+  setText("fr_modeval", kModes[std::clamp(fr_mode, 0, 3)]);
+  setText("fr_diffval", kDiffs[std::clamp(fr_diff, 0, 3)]);
+  SetVisible("fr_modemenu", fr_dropdown == 0);
+  SetVisible("fr_diffmenu", fr_dropdown == 1);
+  for (int k = 0; k < 4; ++k) {
+    SetVisible(("fr_modetick" + std::to_string(k)).c_str(), k == fr_mode);
+    SetVisible(("fr_difftick" + std::to_string(k)).c_str(), k == fr_diff);
+  }
+  for (int i = 0; i < 3; ++i) {
+    SetBackground(("fr_chkbox" + std::to_string(i)).c_str(),
+                  fr_check[i] ? Rgba(0xffcc55ffu) : Rgba(0x070a10ffu));
+    SetVisible(("fr_chkmk" + std::to_string(i)).c_str(), fr_check[i]);
+  }
+
+  // Page 4: mods dir + recommended space.
+  setText("fr_modspath_t", fr_view.mods_dir.empty() ? std::string("~/.recreation/mods")
+                                                     : fr_view.mods_dir);
+  if (!fr_view.space_label.empty()) setText("fr_space", fr_view.space_label);
+
+  // Page 5: a check badge on each located universe.
+  for (int i = 0; i < kFirstRunGames; ++i)
+    SetVisible(("fr_sealbadge" + std::to_string(i)).c_str(),
+               i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located);
+}
+
+void GameUi::Impl::AdvanceFirstRun() {
+  fr_dropdown = -1;
+  if (fr_step == 1 && fr_located() == 0) return;  // locate page: need one game
+  if (fr_step < kFirstRunSteps - 1) {
+    ++fr_step;
+    return;
+  }
+  // Last page: advancing launches.
+  fr_request.kind = FirstRunRequest::Kind::kLaunch;
+  fr_request.mode = fr_mode;
+  fr_request.difficulty = fr_diff;
+  fr_request.enable_mods = fr_check[0];
+  fr_request.share_diagnostics = fr_check[1];
+  fr_request.check_updates = fr_check[2];
+}
+
+void GameUi::Impl::RetreatFirstRun() {
+  fr_dropdown = -1;
+  if (fr_step > 0)
+    --fr_step;
+  else
+    fr_request.kind = FirstRunRequest::Kind::kCancel;
+}
+
+bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
+  if (!first_run_open) return false;
+  ugui::wid w = target;
+  for (int depth = 0; depth < 10 && w.valid(); ++depth) {
+    const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+    if (n) {
+      const std::string name = n->name.c_str();
+      auto pref = [&](const char* p) -> int {
+        const size_t pl = std::strlen(p);
+        if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
+          return std::atoi(name.c_str() + pl);
+        return -1;
+      };
+      using K = FirstRunRequest::Kind;
+      if (name == "fr_begin") { AdvanceFirstRun(); return true; }
+      if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4") {
+        RetreatFirstRun();
+        return true;
+      }
+      if (name == "fr_next1" || name == "fr_next2" || name == "fr_next3") {
+        AdvanceFirstRun();
+        return true;
+      }
+      if (name == "fr_launch") {
+        AdvanceFirstRun();  // shares the launch path (already on the last page)
+        return true;
+      }
+      if (name == "fr_browse_mods") { fr_request.kind = K::kBrowseMods; return true; }
+      if (int i = pref("fr_browse"); i >= 0) {
+        fr_request.kind = K::kBrowseGame;
+        fr_request.index = i;
+        return true;
+      }
+      if (name == "fr_modesel") { fr_dropdown = fr_dropdown == 0 ? -1 : 0; return true; }
+      if (name == "fr_diffsel") { fr_dropdown = fr_dropdown == 1 ? -1 : 1; return true; }
+      if (int k = pref("fr_modeopt"); k >= 0) { fr_mode = k; fr_dropdown = -1; return true; }
+      if (int k = pref("fr_diffopt"); k >= 0) { fr_diff = k; fr_dropdown = -1; return true; }
+      if (int i = pref("fr_chk"); i >= 0 && i < 3) { fr_check[i] = !fr_check[i]; return true; }
+    }
+    const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
+    w = h ? h->parent : ugui::wid{};
+  }
+  // A click anywhere else inside the wizard dismisses an open dropdown. Either
+  // way the wizard owns every click while it is up (nothing is behind it).
+  fr_dropdown = -1;
+  return true;
+}
+
 GameUi::GameUi() : impl_(std::make_unique<Impl>()) {}
 GameUi::~GameUi() { Shutdown(); }
 
@@ -1385,6 +1554,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   Impl* impl = impl_.get();
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft) return;
+    if (impl->RouteFirstRunClick(w)) return;  // the setup wizard owns this click
     if (impl->RouteMainMenuClick(w)) return;  // the front menu owns this click
     if (impl->RouteEditorClick(w)) return;    // editor overlay owns this click
     ugui::WidgetNode* n = impl->ui.world().Get<ugui::WidgetNode>(w);
@@ -1439,6 +1609,9 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
   if (std::getenv("RECREATION_MAIN_MENU")) impl_->main_menu_open = true;
   impl_->ApplyMainMenu();
+  // Debug aid: RECREATION_FIRST_RUN opens the setup wizard at startup.
+  if (std::getenv("RECREATION_FIRST_RUN")) impl_->first_run_open = true;
+  impl_->ApplyFirstRun();
   impl_->initialized = true;
   REC_INFO("ultragui hud initialized (draw-data mode)");
   return true;
@@ -1541,6 +1714,49 @@ MainMenuRequest GameUi::PollMainMenuRequest() {
   if (impl_->initialized) {
     r = impl_->mm_request;
     impl_->mm_request = MainMenuRequest{};  // consume
+  }
+  return r;
+}
+
+void GameUi::OpenFirstRun() {
+  if (!impl_->initialized) return;
+  impl_->first_run_open = true;
+  impl_->fr_step = 0;
+  impl_->fr_dropdown = -1;
+  // Debug aid: RECREATION_FIRST_RUN_STEP=<0..4> opens the wizard on that page
+  // (so a headless capture can grab any page, not just the welcome screen).
+  if (const char* s = std::getenv("RECREATION_FIRST_RUN_STEP")) {
+    const int v = std::atoi(s);
+    if (v >= 0 && v < kFirstRunSteps) impl_->fr_step = v;
+  }
+  impl_->ApplyFirstRun();
+}
+
+void GameUi::CloseFirstRun() {
+  if (!impl_->initialized) return;
+  impl_->first_run_open = false;
+  impl_->ApplyFirstRun();
+}
+
+bool GameUi::first_run_open() const { return impl_->initialized && impl_->first_run_open; }
+
+void GameUi::FirstRunNext() {
+  if (impl_->initialized && impl_->first_run_open) impl_->AdvanceFirstRun();
+}
+
+void GameUi::FirstRunBack() {
+  if (impl_->initialized && impl_->first_run_open) impl_->RetreatFirstRun();
+}
+
+void GameUi::SetFirstRunView(const FirstRunView& view) {
+  if (impl_->initialized) impl_->fr_view = view;
+}
+
+FirstRunRequest GameUi::PollFirstRunRequest() {
+  FirstRunRequest r;
+  if (impl_->initialized) {
+    r = impl_->fr_request;
+    impl_->fr_request = FirstRunRequest{};  // consume
   }
   return r;
 }
@@ -1890,6 +2106,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // NEXUS main menu (the startup front screen, on top of everything).
   impl->ApplyMainMenu();
 
+  // First-run setup wizard (the out-of-box experience, above even the menu).
+  impl->ApplyFirstRun();
+
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
@@ -1966,6 +2185,13 @@ void GameUi::SetMainMenuNews(const std::vector<MenuNewsItem>&) {}
 void GameUi::SetMainMenuGlyph(const std::string&, u64) {}
 int GameUi::selected_universe() const { return 0; }
 MainMenuRequest GameUi::PollMainMenuRequest() { return {}; }
+void GameUi::OpenFirstRun() {}
+void GameUi::CloseFirstRun() {}
+bool GameUi::first_run_open() const { return false; }
+void GameUi::FirstRunNext() {}
+void GameUi::FirstRunBack() {}
+void GameUi::SetFirstRunView(const FirstRunView&) {}
+FirstRunRequest GameUi::PollFirstRunRequest() { return {}; }
 
 }  // namespace rec
 
