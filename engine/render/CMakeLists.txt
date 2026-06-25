@@ -40,7 +40,10 @@ endif()
 
 if(RECREATION_NRD)
   target_sources(recreation_render PRIVATE denoiser_nrd.cc)
-  target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_NRD)
+  # PUBLIC: renderer.h embeds an NrdDenoiser member under this macro, so every
+  # translation unit that includes it must agree on the layout or the Renderer
+  # ctor writes past a shorter allocation.
+  target_compile_definitions(recreation_render PUBLIC RECREATION_HAS_NRD)
   target_link_libraries(recreation_render PRIVATE recreation::nrd)
 endif()
 
