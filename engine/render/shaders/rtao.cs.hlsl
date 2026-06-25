@@ -1,30 +1,25 @@
-// Ray traced ambient occlusion with temporal accumulation. Cosine
-// distributed hemisphere rays through the scene TLAS; history reprojects
-// through the motion target and accumulates a running mean.
+// Ray traced ambient occlusion: cosine hemisphere rays through the scene TLAS,
+// producing a raw normalized hit distance for NRD's REBLUR_DIFFUSE_OCCLUSION
+// denoiser (no temporal/spatial filtering here, NRD owns that).
+#include "NRD.hlsli"
 
-[[vk::image_format("rg16f")]] [[vk::binding(0, 0)]] RWTexture2D<float2> accum_out;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D depth_map;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState depth_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2D normal_map;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState normal_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D motion_map;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState motion_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D history_map;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState history_sampler;
-[[vk::binding(5, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::image_format("r8")]] [[vk::binding(0, 0)]] RWTexture2D<float> hitdist_out;
+[[vk::binding(1, 0)]] Texture2D<float> depth_map;
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map;
+[[vk::binding(3, 0)]] RaytracingAccelerationStructure tlas;
 
 struct PushData {
   column_major float4x4 inv_view_proj;  // unjittered
   float2 inv_size;
   float radius;
+  float near_plane;
+  float hit_a;  // REBLUR A, B, C (must match ReblurSettings), kept as scalars
+  float hit_b;  // to avoid float3 push-constant alignment surprises
+  float hit_c;
   float frame_index;
   uint ray_count;
-  uint reset_history;
-  float2 pad;
 };
 [[vk::push_constant]] PushData push;
-
-static const float kMaxHistory = 32.0;
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);
@@ -43,13 +38,13 @@ float Ign(float2 pixel, float offset) {
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
   uint width, height;
-  accum_out.GetDimensions(width, height);
+  hitdist_out.GetDimensions(width, height);
   if (id.x >= width || id.y >= height) return;
   int3 p = int3(id.xy, 0);
 
-  float depth = depth_map.Load(p).r;
-  if (depth <= 0.0) {  // reversed z far plane: sky
-    accum_out[id.xy] = float2(1.0, kMaxHistory);
+  float depth = depth_map.Load(p);
+  if (depth <= 0.0) {  // sky: fully unoccluded
+    hitdist_out[id.xy] = 1.0;
     return;
   }
 
@@ -59,12 +54,11 @@ void main(uint3 id : SV_DispatchThreadID) {
   float3 world_pos = world.xyz / world.w;
   float3 n = OctDecode(normal_map.Load(p).rg);
 
-  // Cosine hemisphere around the normal, rotated per pixel and per frame.
   float3 up = abs(n.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0);
   float3 t = normalize(cross(up, n));
   float3 b = cross(n, t);
 
-  float occlusion = 0.0;
+  float hit_sum = 0.0;
   for (uint ray_index = 0; ray_index < push.ray_count; ++ray_index) {
     float u1 = Ign(float2(id.xy), push.frame_index + ray_index * 13.0);
     float u2 = Ign(float2(id.yx) + 31.0, push.frame_index * 1.7 + ray_index * 7.0);
@@ -81,22 +75,13 @@ void main(uint3 id : SV_DispatchThreadID) {
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE> rq;
     rq.TraceRayInline(tlas, RAY_FLAG_NONE, 0xff, ray);
     rq.Proceed();
-    if (rq.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
-      // Distant blockers occlude less.
-      float falloff = saturate(rq.CommittedRayT() / push.radius);
-      occlusion += 1.0 - falloff * falloff;
-    }
+    // Misses contribute the full radius (no occluder), so the average tracks
+    // how close blockers are.
+    hit_sum += rq.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? rq.CommittedRayT() : push.radius;
   }
-  float ao = 1.0 - occlusion / push.ray_count;
+  float avg_hit = hit_sum / push.ray_count;
 
-  float count = 1.0;
-  if (push.reset_history == 0u) {
-    float2 history_uv = uv + motion_map.Load(p).rg;
-    if (all(history_uv >= 0.0) && all(history_uv <= 1.0)) {
-      float2 history = history_map.SampleLevel(history_sampler, history_uv, 0).rg;
-      count = min(history.y + 1.0, kMaxHistory);
-      ao = lerp(history.x, ao, 1.0 / count);
-    }
-  }
-  accum_out[id.xy] = float2(ao, count);
+  float viewz = push.near_plane / depth;
+  float3 hit_dist_params = float3(push.hit_a, push.hit_b, push.hit_c);
+  hitdist_out[id.xy] = REBLUR_FrontEnd_GetNormHitDist(avg_hit, viewz, hit_dist_params, 1.0);
 }

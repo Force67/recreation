@@ -16,6 +16,7 @@
 #include "render/bindless.h"
 #include "render/bloom.h"
 #include "render/ddgi.h"
+#include "render/denoiser_nrd.h"
 #include "render/exposure.h"
 #include "render/environment.h"
 #include "render/material_system.h"
@@ -161,6 +162,9 @@ class Renderer {
   RenderGraph graph_;
   TaaPass taa_;
   RtaoPass rtao_;
+#if defined(RECREATION_HAS_NRD)
+  NrdDenoiser nrd_;
+#endif
   BloomPass bloom_;
   ExposurePass exposure_;
 
@@ -180,6 +184,9 @@ class Renderer {
   std::string screenshot_path_;
   f64 screenshot_at_ = -1;  // seconds; <0 means immediately when armed
   Mat4 prev_view_proj_ = Mat4::Identity();
+  Mat4 prev_view_ = Mat4::Identity();
+  Mat4 prev_proj_ = Mat4::Identity();
+  f32 prev_jitter_[2] = {0, 0};
   f64 time_seconds_ = 0;
   bool has_prev_frame_ = false;
   bool rt_available_ = false;

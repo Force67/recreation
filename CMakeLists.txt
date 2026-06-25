@@ -12,6 +12,7 @@ option(RECREATION_ENABLE_VALIDATION "Enable vulkan validation layers in debug" O
 option(RECREATION_FETCH_SDL3 "Download SDL3 when not found on the system" OFF)
 option(RECREATION_FSR3 "Enable the AMD FSR 3.1 upscaler backend" ON)
 option(RECREATION_DLSS "Enable the NVIDIA DLSS upscaler backend" ON)
+option(RECREATION_NRD "Enable the NVIDIA NRD ray tracing denoiser" ON)
 option(RECREATION_JOLT "Enable Jolt physics" ON)
 
 if(RECREATION_FSR3 AND NOT EXISTS
@@ -24,6 +25,12 @@ if(RECREATION_DLSS AND NOT EXISTS
    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/DLSS/lib/Linux_x86_64/libnvsdk_ngx.a)
   message(STATUS "DLSS SDK not found, dlss disabled (run tools/get_dlss.sh)")
   set(RECREATION_DLSS OFF)
+endif()
+
+if(RECREATION_NRD AND NOT EXISTS
+   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/NRD/Include/NRD.h)
+  message(STATUS "NRD not found, denoiser disabled (run tools/get_nrd.sh)")
+  set(RECREATION_NRD OFF)
 endif()
 
 if(RECREATION_JOLT AND NOT EXISTS

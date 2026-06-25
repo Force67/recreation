@@ -86,6 +86,11 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
+#if defined(RECREATION_HAS_NRD)
+  if (rt_available_ && !nrd_.Initialize(*device_, {render_width_, render_height_})) {
+    REC_WARN("nrd denoiser unavailable, rtao/shadow denoising disabled");
+  }
+#endif
 
   // Debug captures without window manager screenshots:
   // REC_SCREENSHOT=/tmp/frame.png:12 saves the frame at t=12s.
@@ -223,6 +228,9 @@ void Renderer::ApplySettings() {
     transient_pool_->Clear();
     taa_.Resize(*device_, {render_width_, render_height_});
     if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
+#if defined(RECREATION_HAS_NRD)
+    if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
+#endif
     taa_.Reset();
     has_prev_frame_ = false;
   }
@@ -237,6 +245,9 @@ void Renderer::ApplySettings() {
       transient_pool_->Clear();
       taa_.Resize(*device_, {render_width_, render_height_});
       if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
+#if defined(RECREATION_HAS_NRD)
+      if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
+#endif
     }
     taa_.Reset();
     has_prev_frame_ = false;
@@ -245,7 +256,6 @@ void Renderer::ApplySettings() {
   taa_.Configure({.history_blend = settings_.taa_history_blend,
                   .jitter_sample_count = taa_.settings().jitter_sample_count});
   rtao_.Configure({.radius = settings_.ao_radius,
-                   .intensity = settings_.ao_intensity,
                    .ray_count = settings_.ao_rays == 0 ? 1 : settings_.ao_rays});
   exposure_.Configure({.automatic = settings_.auto_exposure,
                        .compensation = settings_.exposure,
@@ -454,7 +464,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // projection, not the matrices used for motion vectors.
   f32 aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
   Mat4 proj = PerspectiveReversedZ(view.camera.fov_y, aspect, 0.1f);
-  Mat4 view_proj = proj * LookAt(view.camera.eye, view.camera.target, {0, 1, 0});
+  Mat4 view_mat = LookAt(view.camera.eye, view.camera.target, {0, 1, 0});
+  Mat4 view_proj = proj * view_mat;
 
   bool temporal =
       settings_.aa_mode == AntiAliasingMode::kTaa ||
@@ -654,10 +665,34 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   ResourceHandle ao = kInvalidResource;
-  if (rtao_active) {
-    ao = rtao_.AddToGraph(graph_, *raytracing_, tlas_slot, depth_export, normals, motion,
-                          globals.inv_view_proj, frame_index_);
+#if defined(RECREATION_HAS_NRD)
+  if (rtao_active && nrd_.available()) {
+    // RTAO traces a raw hit distance; NRD's REBLUR denoises it. The normal +
+    // viewZ guides are shared with the (later) shadow denoiser.
+    NrdDenoiser::Inputs nrd_inputs = nrd_.PrepareInputs(graph_, depth_export, normals, 0.1f);
+    ResourceHandle hitdist =
+        rtao_.AddToGraph(graph_, *raytracing_, tlas_slot, depth_export, normals,
+                         globals.inv_view_proj, frame_index_, 0.1f, NrdDenoiser::kHitDistParams);
+    NrdDenoiser::FrameSettings fs;
+    fs.view_to_clip = proj;
+    fs.view_to_clip_prev = prev_proj_;
+    fs.world_to_view = view_mat;
+    fs.world_to_view_prev = prev_view_;
+    fs.jitter[0] = jitter_x;
+    fs.jitter[1] = jitter_y;
+    fs.jitter_prev[0] = prev_jitter_[0];
+    fs.jitter_prev[1] = prev_jitter_[1];
+    fs.sun_direction = sun;
+    fs.frame_index = frame_index_;
+    fs.reset = first_frame;
+    nrd_.SetFrame(fs);
+    ao = nrd_.DenoiseAo(graph_, nrd_inputs.normal_roughness, nrd_inputs.view_z, motion, hitdist);
+    prev_proj_ = proj;
+    prev_view_ = view_mat;
+    prev_jitter_[0] = jitter_x;
+    prev_jitter_[1] = jitter_y;
   }
+#endif
 
   graph_.AddPass(
       "scene",
@@ -1035,19 +1070,25 @@ bool Renderer::CreateFrameResources() {
       return false;
     }
 
+    // SAMPLED_IMAGE / SAMPLER / UNIFORM_BUFFER_DYNAMIC are for NRD's many per
+    // frame dispatch sets; harmless reservations otherwise. The acceleration
+    // structure size must stay last so it can be dropped without the extension.
     VkDescriptorPoolSize sizes[] = {
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 32},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 16},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16},
         {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 4},
     };
     VkDescriptorPoolCreateInfo descriptor_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    descriptor_info.maxSets = 64;
+    descriptor_info.maxSets = 256;
     // The acceleration structure pool size is only legal with the extension
     // enabled, drop it otherwise.
-    descriptor_info.poolSizeCount = device_->caps().raytracing ? 5 : 4;
+    descriptor_info.poolSizeCount = device_->caps().raytracing ? 8 : 7;
     descriptor_info.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(device_->device(), &descriptor_info, nullptr,
                                &frame.descriptor_pool) != VK_SUCCESS) {
@@ -1149,6 +1190,9 @@ void Renderer::Shutdown() {
     meshes_.clear();
     taa_.Destroy(*device_);
     if (rt_available_) rtao_.Destroy(*device_);
+#if defined(RECREATION_HAS_NRD)
+    if (rt_available_) nrd_.Destroy(*device_);
+#endif
     bloom_.Destroy(*device_);
     exposure_.Destroy(*device_);
     water_.reset();

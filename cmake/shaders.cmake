@@ -3,6 +3,12 @@
 # <name>.cs.hlsl. Symbols follow MAKE_C_IDENTIFIER, e.g. mesh.vs.hlsl embeds
 # as k_mesh_vs_hlsl in generated/shaders/mesh_vs_hlsl.h.
 function(recreation_embed_shaders target)
+  # Optional -I include dirs for shaders that pull in vendored headers (e.g.
+  # NRD.hlsli), passed via the RECREATION_SHADER_INCLUDE_DIRS list variable.
+  set(include_flags)
+  foreach(dir ${RECREATION_SHADER_INCLUDE_DIRS})
+    list(APPEND include_flags -I ${dir})
+  endforeach()
   set(headers)
   foreach(shader ${ARGN})
     get_filename_component(name ${shader} NAME)
@@ -21,7 +27,7 @@ function(recreation_embed_shaders target)
     add_custom_command(OUTPUT ${spv}
       COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/shaders
       COMMAND ${RECREATION_DXC} -spirv -fspv-target-env=vulkan1.3 -T ${profile} -E main
-              -Fo ${spv} ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
+              ${include_flags} -Fo ${spv} ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
       DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
       COMMENT "hlsl ${name}")
     add_custom_command(OUTPUT ${header}

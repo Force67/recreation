@@ -10,3 +10,6 @@ assets/
 third_party/FidelityFX-SDK/
 third_party/JoltPhysics/
 third_party/DLSS/
+third_party/NRD/
+third_party/NRD-MathLib/
+third_party/NRD-ShaderMake/

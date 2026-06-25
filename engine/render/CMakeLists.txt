@@ -38,11 +38,17 @@ if(RECREATION_DLSS)
   target_link_libraries(recreation_render PRIVATE recreation::dlss)
 endif()
 
+if(RECREATION_NRD)
+  target_sources(recreation_render PRIVATE denoiser_nrd.cc)
+  target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_NRD)
+  target_link_libraries(recreation_render PRIVATE recreation::nrd)
+endif()
+
 if(NOT MSVC)
   set_source_files_properties(vulkan/vma_impl.cc stb_impl.cc PROPERTIES COMPILE_OPTIONS -w)
 endif()
 
-recreation_embed_shaders(recreation_render
+set(RECREATION_RENDER_SHADERS
   shaders/mesh.vs.hlsl
   shaders/mesh_skin.vs.hlsl
   shaders/mesh.ps.hlsl
@@ -57,7 +63,6 @@ recreation_embed_shaders(recreation_render
   shaders/brdf_lut.cs.hlsl
   shaders/prepass.ps.hlsl
   shaders/rtao.cs.hlsl
-  shaders/rtao_blur.cs.hlsl
   shaders/bloom_down.cs.hlsl
   shaders/bloom_up.cs.hlsl
   shaders/histogram.cs.hlsl
@@ -68,3 +73,16 @@ recreation_embed_shaders(recreation_render
   shaders/water.ps.hlsl
   shaders/copy.cs.hlsl
 )
+
+# rtao.cs.hlsl and the nrd_* shaders pull in NRD.hlsli. The include dir is added
+# whenever NRD is vendored (independent of RECREATION_NRD, so an NRD-off build of
+# a vendored tree still compiles rtao). The denoiser-only inputs are embedded
+# only when the denoiser is built.
+if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders/NRD.hlsli)
+  set(RECREATION_SHADER_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders)
+endif()
+if(RECREATION_NRD)
+  list(APPEND RECREATION_RENDER_SHADERS shaders/nrd_pack.cs.hlsl shaders/shadow_trace.cs.hlsl)
+endif()
+
+recreation_embed_shaders(recreation_render ${RECREATION_RENDER_SHADERS})

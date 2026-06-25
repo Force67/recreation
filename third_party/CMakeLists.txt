@@ -42,6 +42,11 @@ if(RECREATION_DLSS)
   include(dlss.cmake)
 endif()
 
+# NVIDIA NRD ray tracing denoiser, downloaded via tools/get_nrd.sh.
+if(RECREATION_NRD)
+  include(nrd.cmake)
+endif()
+
 # Jolt physics, downloaded via tools/get_jolt.sh. Builds its own static lib;
 # samples/tests/viewer stay off.
 if(RECREATION_JOLT)
