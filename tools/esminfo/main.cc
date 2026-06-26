@@ -177,6 +177,41 @@ int DumpGrass(const std::string& data_dir) {
   return 0;
 }
 
+// Dumps each WTHR record's subrecords (type + size), and decodes the NAM0
+// weather-colour block as RGBA quads, for wiring authored weather colours into
+// the physical sky. Run on a data dir: esminfo <data-dir> wthr [limit].
+int DumpWeather(const std::string& data_dir, int limit) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  constexpr rec::u32 kNam0 = rec::FourCc('N', 'A', 'M', '0');
+  int shown = 0;
+  records.EachOfType(rec::FourCc('W', 'T', 'H', 'R'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+    if (limit > 0 && shown >= limit) return;
+    Record w;
+    if (!records.Parse(id, &w)) return;
+    ++shown;
+    std::printf("WTHR %04x:%06x %s\n", id.plugin, id.local_id, w.GetString(kEdid).c_str());
+    for (const Subrecord& sub : w.subrecords) {
+      char t[5] = {};
+      std::memcpy(t, &sub.type, 4);
+      std::printf("  %s  %zu\n", t, static_cast<size_t>(sub.data.size()));
+    }
+    if (const Subrecord* nam0 = w.Find(kNam0); nam0 && nam0->data.size() % 16 == 0) {
+      const rec::u8* d = nam0->data.data();
+      size_t quads = nam0->data.size() / 4;  // RGBA bytes; 4 times-of-day per type
+      std::printf("  NAM0 decoded (%zu colours, 4 per type = dawn/day/dusk/night):\n", quads);
+      for (size_t i = 0; i < quads; ++i)
+        std::printf("    [%2zu] %3u %3u %3u %3u%s", i, d[i * 4 + 0], d[i * 4 + 1], d[i * 4 + 2],
+                    d[i * 4 + 3], (i % 4 == 3) ? "\n" : "  ");
+    }
+  });
+  return 0;
+}
+
 }  // namespace
 
 // Dumps header info and record counts of a plugin. Handy for checking the
@@ -191,6 +226,9 @@ int main(int argc, char** argv) {
   }
 
   if (argc >= 3 && std::string(argv[2]) == "gras") return DumpGrass(argv[1]);
+
+  if (argc >= 3 && std::string(argv[2]) == "wthr")
+    return DumpWeather(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
   if (argc >= 4 && std::string(argv[2]) == "land") {
     std::string coords = argv[3];

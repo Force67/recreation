@@ -1,5 +1,6 @@
 #include "weather/weather_loader.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -10,6 +11,7 @@ namespace rec::weather {
 namespace {
 
 constexpr u32 kWthr = FourCc('W', 'T', 'H', 'R');
+constexpr u32 kNam0 = FourCc('N', 'A', 'M', '0');
 constexpr u32 kClmt = FourCc('C', 'L', 'M', 'T');
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
@@ -56,6 +58,27 @@ bool ApplyRadstorm(WeatherDef* def) {
   def->precipitation = 0.0f;      // dust/radiation, not rain (no wet surfaces)
   def->snow = false;
   def->thunder = true;            // frequent green-tinted strikes
+  return true;
+}
+
+// Refines the light tint from the weather's authored colours. Skyrim's NAM0 is
+// a fixed 17-component colour block, each component holding 4 times-of-day
+// (sunrise/day/dusk/night) as RGBA. Component 4 is the directional Sunlight
+// colour; we take its day variant and normalise it to a pure colour cast, so
+// each weather lights the scene with its authored mood while our physical sun
+// keeps its intensity. Guarded to the 272-byte Skyrim-era layout (FO4's is 608
+// bytes / 38 components with a different order, and resolves a real climate
+// anyway). Skipped if the colour is unset. Returns true when applied.
+bool ApplyColorGrade(const bethesda::Record& rec, WeatherDef* def) {
+  const bethesda::Subrecord* nam0 = rec.Find(kNam0);
+  if (!nam0 || nam0->data.size() != 272) return false;
+  const u8* c = nam0->data.data() + (4 * 4 + 1) * 4;  // component 4 (Sunlight), day
+  f32 r = c[0], g = c[1], b = c[2];
+  f32 m = std::max(r, std::max(g, b));
+  if (m < 1.0f) return false;  // black/unset -> keep the classification tint
+  // Pure cast (max channel = 1), with a floor so a saturated authored colour
+  // never darkens a channel to near-black.
+  def->light_tint = {std::max(0.45f, r / m), std::max(0.45f, g / m), std::max(0.45f, b / m)};
   return true;
 }
 
@@ -129,7 +152,7 @@ std::vector<std::pair<WeatherDef, u32>> Synthetic(
 }  // namespace
 
 int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, WeatherDef>* out) {
-  int n = 0, rad = 0;
+  int n = 0, rad = 0, graded = 0;
   records.EachOfType(
       kWthr, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         bethesda::Record rec;
@@ -139,13 +162,17 @@ int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, W
         def.editor_id = rec.GetString(kEdid);
         def.kind = Classify(rec, def.editor_id);
         def.DeriveFromKind();
-        if (ApplyRadstorm(&def)) ++rad;
+        if (ApplyRadstorm(&def))
+          ++rad;  // radstorm's deliberate green cast wins over the authored grade
+        else if (ApplyColorGrade(rec, &def))
+          ++graded;
         if (const bethesda::Subrecord* d = rec.Find(kData); d && d->data.size() >= 1)
           def.wind = static_cast<f32>(d->data[0]) / 255.0f * 30.0f;  // byte -> m/s
         (*out)[def.form] = std::move(def);
         ++n;
       });
   if (rad > 0) REC_INFO("weather: {} radiation storms", rad);
+  if (graded > 0) REC_INFO("weather: {} weathers colour-graded from authored sunlight", graded);
   return n;
 }
 
