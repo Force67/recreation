@@ -14,7 +14,7 @@
 struct PushData {
   column_major float4x4 inv_view_proj;
   float4 camera_pos;  // xyz eye
-  float4 params;      // x wetness 0..1, y snow (0 rain / 1 snow), zw unused
+  float4 params;      // x wetness 0..1, y snow (0 rain / 1 snow), z time s, w unused
   uint2 size;
   uint2 pad;
 };
@@ -27,6 +27,37 @@ float3 OctDecode(float2 o) {
     d.xz = (1.0 - abs(d.zx)) * sign_xz;
   }
   return normalize(d);
+}
+
+float Hash21(float2 p) {
+  p = frac(p * float2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return frac(p.x * p.y);
+}
+
+// Expanding-ring raindrop ripples on a horizontal water film, anchored to world
+// XZ so they sit on the ground instead of swimming with the camera. A 3x3 grid
+// of drop cells, each spawning a ring that grows and fades over its lifetime.
+float Ripples(float2 wpos, float time) {
+  float2 grid = wpos * 3.0;  // cells per metre -> ripple density
+  float2 cell = floor(grid);
+  float2 f = frac(grid);
+  float acc = 0.0;
+  [unroll]
+  for (int j = -1; j <= 1; ++j) {
+    [unroll]
+    for (int i = -1; i <= 1; ++i) {
+      float2 o = float2(i, j);
+      float2 c = cell + o;
+      float h = Hash21(c);
+      float2 dpos = o + float2(Hash21(c + 3.1), Hash21(c + 7.7));  // jitter in cell
+      float life = frac(time * 0.9 + h);                          // 0..1 ring age
+      float d = length(f - dpos);
+      float ring = exp(-pow((d - life * 0.7) * 14.0, 2.0));       // thin ring at radius
+      acc += ring * (1.0 - life);                                 // fade as it ages
+    }
+  }
+  return saturate(acc);
 }
 
 [numthreads(8, 8, 1)]
@@ -60,6 +91,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     float3 env = sky.SampleLevel(sky_sampler, refl, 0).rgb;
     float fresnel = pow(saturate(1.0 - dot(-view, n)), 4.0);
     result += env * (0.05 + 0.55 * fresnel) * wet * up;
+    // Raindrops dimpling the puddle: ripple rings flash the reflected sky on
+    // flat wet surfaces, fading out beyond a few metres where they'd alias.
+    float dist = length(world - pc.camera_pos.xyz);
+    float rip = Ripples(world.xz, pc.params.z) * up * wet * saturate(1.0 - dist / 25.0);
+    result += env * rip * 0.5;
   } else {
     // Snow: settles white on up-facing surfaces.
     float cover = amount * smoothstep(0.35, 0.85, up);

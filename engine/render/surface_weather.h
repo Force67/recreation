@@ -20,6 +20,7 @@ class SurfaceWeather {
     Vec3 camera_pos;
     f32 wetness = 0.0f;  // 0 dry .. 1 soaked
     bool snow = false;   // snow accumulation vs rain wetness
+    f32 time = 0.0f;     // seconds, animates the puddle ripples
   };
 
   bool Initialize(Device& device);

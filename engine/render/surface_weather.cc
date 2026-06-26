@@ -130,6 +130,7 @@ ResourceHandle SurfaceWeather::AddToGraph(RenderGraph& graph, ResourceHandle col
         push.camera_pos[2] = frame.camera_pos.z;
         push.params[0] = frame.wetness;
         push.params[1] = frame.snow ? 1.0f : 0.0f;
+        push.params[2] = frame.time;
         push.size[0] = extent.width;
         push.size[1] = extent.height;
 

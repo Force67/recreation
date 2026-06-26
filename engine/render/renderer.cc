@@ -1535,6 +1535,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     sf.camera_pos = view.camera.eye;
     sf.wetness = settings_.precipitation;
     sf.snow = settings_.precip_snow;
+    sf.time = static_cast<f32>(time_seconds_);
     lit = surface_weather_.AddToGraph(graph_, lit, normals, depth_export, environment_->sky_view(),
                                       environment_->sampler(), {render_width_, render_height_}, sf);
   }
