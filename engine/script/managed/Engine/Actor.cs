@@ -33,6 +33,12 @@ public class Actor : ObjectReference
     public float Magicka => GetValue(ActorValue.Magicka);
     public float Stamina => GetValue(ActorValue.Stamina);
 
+    // --- actor base (NPC_) flags ---------------------------------------------
+    // Read through this actor's base object: essentials cannot be killed, unique
+    // actors are one of a kind.
+    public bool IsEssential => Native.CallMethod(BaseObject.Handle, "IsEssential", default).AsBool();
+    public bool IsUnique => Native.CallMethod(BaseObject.Handle, "IsUnique", default).AsBool();
+
     // --- state ----------------------------------------------------------------
     public int Level => Call("GetLevel").AsInt();
     public bool IsDead => Call("IsDead").AsBool();
