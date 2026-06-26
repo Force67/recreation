@@ -1573,16 +1573,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     lit = clouds_.AddToGraph(graph_, lit, depth_export, {render_width_, render_height_}, cf);
   }
 
-  // Screen-space precipitation (rain/snow) over the lit scene, driven by weather.
-  if (settings_.precipitation > 0.0f && !path_trace) {
-    Precipitation::Frame pf;
-    pf.inv_view_proj = globals.inv_view_proj;
-    pf.camera_pos = view.camera.eye;
-    pf.time = static_cast<f32>(time_seconds_);
-    pf.intensity = settings_.precipitation;
-    pf.snow = settings_.precip_snow;
-    lit = precipitation_.AddToGraph(graph_, lit, {render_width_, render_height_}, pf);
-  }
+  // Note: screen-space precipitation (rain/snow streaks) is composited after the
+  // temporal/upscale resolve below, so TAA's history accumulation does not smear
+  // the high-frequency streaks. Surface wetness (above) stays pre-resolve since
+  // it shades real surfaces that should be anti-aliased.
 
   // Volumetric fog marches the lit scene against depth before the temporal
   // pass, so the marched noise resolves into stable shafts.
@@ -1744,6 +1738,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                   post_input != lit;
   u32 post_width = upscaled ? output_width_ : render_width_;
   u32 post_height = upscaled ? output_height_ : render_height_;
+
+  // Screen-space precipitation streaks, composited at output resolution after the
+  // AA resolve so they stay crisp (TAA would otherwise smear them) and tonemap
+  // with the scene. Driven by weather; surface wetness was applied pre-resolve.
+  if (settings_.precipitation > 0.0f && !path_trace) {
+    Precipitation::Frame pf;
+    pf.inv_view_proj = globals.inv_view_proj;
+    pf.camera_pos = view.camera.eye;
+    pf.time = static_cast<f32>(time_seconds_);
+    pf.intensity = settings_.precipitation;
+    pf.snow = settings_.precip_snow;
+    post_input = precipitation_.AddToGraph(graph_, post_input, {post_width, post_height}, pf);
+  }
 
   // Linear-hdr export: copy the resolved scene (pre-tonemap) into a host buffer.
   hdr_pending_ = false;
