@@ -12,6 +12,7 @@ public static class SkyrimEventTests
     {
         QuestTracker(check);
         Combat(check);
+        Essential(check);
     }
 
     private static void QuestTracker(Check check)
@@ -75,6 +76,34 @@ public static class SkyrimEventTests
         // The player's own death is not a kill.
         EventBus.Publish(new ActorDied(fake.Player));
         check.Equal("player death is not a kill", 2, tracker.Kills);
+
+        ModHost.Shutdown();
+        EventBus.Clear();
+        Native.Backend = null;
+    }
+
+    private static void Essential(Check check)
+    {
+        var fake = new FakeBackend();
+        Native.Backend = fake;
+        ModHost.Shutdown();
+        EventBus.Clear();
+
+        ModHost.Register(new EssentialProtection { ReviveFraction = 0.25f });
+
+        // An essential actor down at zero health recovers a slice of its base.
+        const ulong essential = 0x300;
+        fake.SetValue(essential, ActorValue.Health, current: 0, baseValue: 100);
+        fake.SetBase(essential, essential, essential: true);
+        EventBus.Publish(new ActorDied(essential));
+        check.Equal("essential actor revived", 25f, fake.GetCurrent(essential, ActorValue.Health));
+
+        // A non-essential actor stays down.
+        const ulong mortal = 0x400;
+        fake.SetValue(mortal, ActorValue.Health, current: 0, baseValue: 100);
+        fake.SetBase(mortal, mortal, essential: false);
+        EventBus.Publish(new ActorDied(mortal));
+        check.Equal("mortal actor stays dead", 0f, fake.GetCurrent(mortal, ActorValue.Health));
 
         ModHost.Shutdown();
         EventBus.Clear();

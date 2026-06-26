@@ -15,11 +15,21 @@ public sealed class FakeBackend : IEngineBackend
     private readonly Dictionary<(ulong, string), float> _current = new();
     private readonly Dictionary<(ulong, string), float> _base = new();
     private readonly HashSet<ulong> _inCombat = new();
+    private readonly Dictionary<ulong, ulong> _baseObject = new();
+    private readonly HashSet<ulong> _essential = new();
 
     public void SetValue(ulong actor, string av, float current, float baseValue)
     {
         _current[(actor, Norm(av))] = current;
         _base[(actor, Norm(av))] = baseValue;
+    }
+
+    // Sets an actor's base object handle and whether that base is essential.
+    public void SetBase(ulong actor, ulong baseObject, bool essential)
+    {
+        _baseObject[actor] = baseObject;
+        if (essential) _essential.Add(baseObject);
+        else _essential.Remove(baseObject);
     }
 
     public float GetCurrent(ulong actor, string av) =>
@@ -72,6 +82,10 @@ public sealed class FakeBackend : IEngineBackend
             }
             case "IsInCombat":
                 return Value.Bool(_inCombat.Contains(self));
+            case "GetBaseObject":
+                return Value.Object(_baseObject.TryGetValue(self, out ulong b2) ? b2 : self);
+            case "IsEssential":
+                return Value.Bool(_essential.Contains(self));
             default:
                 return Value.None;
         }
