@@ -2091,6 +2091,7 @@ void Renderer::Shutdown() {
   }
   graph_.Reset();
   post_.reset();
+  ui_blur_.reset();  // holds a Device& + Vk handles; destroy before device_/instance
   mesh_pipeline_.reset();
   swapchain_.reset();
   upscaler_.reset();
