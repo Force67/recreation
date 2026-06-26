@@ -300,6 +300,13 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         ImGui::BeginDisabled(!caps || !caps->fill_mode_non_solid);
         ImGui::Checkbox("Wireframe", &settings.wireframe);
         ImGui::EndDisabled();
+        ImGui::BeginDisabled(!caps || !caps->mesh_shaders);
+        ImGui::Checkbox("Mesh-shader LOD path", &settings.mesh_shader_lod);
+        ImGui::EndDisabled();
+        if (caps && !caps->mesh_shaders) {
+          ImGui::SameLine();
+          ImGui::TextDisabled("(no VK_EXT_mesh_shader)");
+        }
         ImGui::Checkbox("VSync", &settings.vsync);
         int debug_view = static_cast<int>(settings.debug_view);
         if (ImGui::Combo("Debug view", &debug_view, kDebugViews, IM_ARRAYSIZE(kDebugViews))) {

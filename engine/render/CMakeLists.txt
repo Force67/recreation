@@ -115,6 +115,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/pipeline/hiz_reduce.cs.hlsl
   shaders/pipeline/meshlet.ms.hlsl
   shaders/pipeline/meshlet.ps.hlsl
+  shaders/pipeline/mesh_scene.as.hlsl
+  shaders/pipeline/mesh_scene.ms.hlsl
   shaders/pipeline/bounds.vs.hlsl
   shaders/pipeline/bounds.ps.hlsl
   shaders/post/bloom_down.cs.hlsl

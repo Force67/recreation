@@ -34,6 +34,9 @@ struct GpuSubmesh {
   u64 material = 0;  // material asset hash, 0 = default material
   bool blend = false;  // alpha blended: drawn sorted after opaque
   bool water = false;  // routed to the water pipeline
+  // lod 0 meshlet range in GpuMesh's meshlet buffers, for the mesh-shader path.
+  u32 meshlet_offset = 0;
+  u32 meshlet_count = 0;  // 0 = no meshlets built (skinned / mesh shaders off)
 };
 
 // An extra level of detail (lods 1+) inside the mesh's concatenated vertex and
@@ -59,6 +62,19 @@ struct GpuMesh {
   f32 bounds_radius = 0;             // 0 = unknown, treated as never-culled
   base::Vector<GpuSubmesh> submeshes;  // lod 0
   base::Vector<GpuLod> lods;           // extra lods (1+), selected by distance
+
+  // Mesh-shader path (VK_EXT_mesh_shader): lod 0 split into meshlets. Read in the
+  // mesh shader via buffer device address, so the *_address fields are what the
+  // push constants carry. Empty when mesh shaders are unavailable or the mesh is
+  // skinned. meshlets/meshlet_vertices/meshlet_triangles mirror MeshletPass.
+  GpuBuffer meshlets;
+  GpuBuffer meshlet_vertices;
+  GpuBuffer meshlet_triangles;
+  u64 meshlets_address = 0;
+  u64 meshlet_vertices_address = 0;
+  u64 meshlet_triangles_address = 0;
+  u64 vertices_address = 0;  // device address of the lod-concatenated vertex buffer
+  bool has_meshlets = false;
 };
 
 }  // namespace rec::render

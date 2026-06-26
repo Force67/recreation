@@ -273,6 +273,7 @@ class Renderer {
   OverdrawPass overdraw_;
   GpuCull gpu_cull_;
   MeshletPass meshlet_;
+  GpuImage ms_dummy_hiz_;  // 1x1 fallback bound to the mesh-shader cull when occlusion is off
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;

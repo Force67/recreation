@@ -25,6 +25,7 @@ enum class ResourceUsage : u8 {
   kDepthAttachment,
   kSampledFragment,
   kSampledCompute,
+  kSampledTaskMesh,  // sampled in the task/mesh stages (mesh-shader cull)
   kStorageWrite,
 };
 

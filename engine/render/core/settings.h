@@ -72,6 +72,8 @@ struct RenderSettings {
   bool vsync = false;
   bool gpu_culling = true;  // gpu compute frustum culling of the opaque indirect draws
   bool gpu_occlusion = true;  // hi-z occlusion culling against last frame's depth
+  bool distance_lod = false;  // pick coarser mesh lods by distance; off = always finest (it's 2026)
+  bool mesh_shader_lod = false;  // optional VK_EXT_mesh_shader opaque path (per-meshlet gpu cull)
   DebugView debug_view = DebugView::kOff;  // isolate a shading channel
 
   bool sky = true;  // procedural atmosphere as the background

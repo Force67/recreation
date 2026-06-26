@@ -79,6 +79,10 @@ class GpuCull {
   // Visible draw count written by the previous frame's cull (one frame stale).
   u32 last_visible(u32 slot) const;
 
+  // Dimensions of the coarse hi-z built by BuildHiZ, for shaders that sample it.
+  u32 hiz_width() const { return hiz_w_; }
+  u32 hiz_height() const { return hiz_h_; }
+
  private:
   static constexpr u32 kFramesInFlight = 2;
   bool CreateBoundsPipeline(Device& device, VkFormat color_format);

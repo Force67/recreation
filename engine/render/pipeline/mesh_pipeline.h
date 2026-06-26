@@ -57,6 +57,21 @@ struct MeshPushConstants {
   u32 pad = 0;
 };
 
+// Push constants for the optional mesh-shader opaque path. The geometry buffers
+// are read in the mesh shader by device address; layout matches mesh_scene.ms.
+struct MeshShaderPush {
+  Mat4 model;
+  Mat4 prev_model;
+  f32 bounds[4] = {0, 0, 0, 0};  // xyz model-space center, w radius (task-stage cull)
+  f32 occlusion[4] = {0, 0, 0, 0};  // proj.m00, proj.m11, hiz w, hiz h (w==0 disables)
+  u64 meshlets_address = 0;
+  u64 meshlet_vertices_address = 0;
+  u64 meshlet_triangles_address = 0;
+  u64 vertices_address = 0;
+  u32 meshlet_offset = 0;
+  u32 meshlet_count = 0;
+};
+
 // Forward pbr pipeline: classic vertex buffer, metallic roughness shading,
 // reversed z depth. Outputs hdr color and motion vectors. Set 0 is the frame
 // globals (plus the TLAS when raytracing is available), set 1 the material.
@@ -93,6 +108,19 @@ class MeshPipeline {
   void Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push);
   void DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh);
 
+  // Optional mesh-shader opaque path (VK_EXT_mesh_shader). Built only when the
+  // device supports it; the scene/prepass variants reuse the same descriptor
+  // sets and fragment shaders as the raster path. BindMeshMaterial binds set 1
+  // with the mesh-shader layout; DrawMeshlets issues one workgroup per meshlet.
+  bool has_mesh_shader() const {
+    return ms_scene_[0] != VK_NULL_HANDLE && ms_prepass_ != VK_NULL_HANDLE;
+  }
+  void BindMeshScene(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
+                     VkDescriptorSet bindless, bool use_rt);
+  void BindMeshPrepass(VkCommandBuffer cmd, VkDescriptorSet globals);
+  void BindMeshMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
+  void DrawMeshlets(VkCommandBuffer cmd, const MeshShaderPush& push);
+
   // Swap the bound pipeline between the static and GPU-skinned vertex paths
   // mid-pass without rebinding descriptor sets (the layout is shared). The draw
   // loop calls these when it crosses a skinned/non-skinned mesh boundary.
@@ -117,6 +145,10 @@ class MeshPipeline {
   // Skinned vertex path: same fragment variants, extra vertex stream + VS.
   VkPipeline skinned_pipelines_[2] = {};  // [rt]
   VkPipeline skinned_prepass_pipeline_ = VK_NULL_HANDLE;
+  // Optional mesh-shader opaque variants (own layout, larger push range).
+  VkPipelineLayout ms_layout_ = VK_NULL_HANDLE;
+  VkPipeline ms_scene_[2] = {};  // [rt]
+  VkPipeline ms_prepass_ = VK_NULL_HANDLE;
 };
 
 }  // namespace rec::render

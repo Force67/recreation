@@ -8,6 +8,7 @@
 
 #include <stb_image_write.h>
 
+#include "asset/primitives.h"
 #include "core/log.h"
 #include "render/util/exr_write.h"
 #include "render/util/shader_util.h"
@@ -43,6 +44,18 @@ void ExtractFrustumPlanes(const Mat4& vp, f32 out[5][4]) {
     if (len < 1e-8f) len = 1.0f;
     for (int c = 0; c < 4; ++c) out[i][c] = p[i][c] / len;
   }
+}
+
+// World-space sphere vs the normalized frustum planes; outside if it falls beyond
+// any plane. Lets the cpu skip a draw entirely (no dispatch) for off-screen
+// instances, so cpu cost tracks visible instances rather than streamed ones.
+bool SphereOutsideFrustum(const f32 planes[5][4], const Vec3& c, f32 r) {
+  for (int i = 0; i < 5; ++i) {
+    if (planes[i][0] * c.x + planes[i][1] * c.y + planes[i][2] * c.z + planes[i][3] < -r) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -146,6 +159,26 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!overdraw_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gpu_cull_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!meshlet_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
+  if (device_->caps().mesh_shaders) {
+    // 1x1 fallback hi-z so the mesh-shader cull descriptor is always valid; bound
+    // (with occlusion disabled) on frames where no real hi-z was built.
+    ms_dummy_hiz_ = device_->CreateImage2D(VK_FORMAT_R32_SFLOAT, {1, 1},
+                                           VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+    device_->ImmediateSubmit([&](VkCommandBuffer cmd) {
+      VkImageMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      b.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+      b.dstStageMask = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT;
+      b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+      b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      b.image = ms_dummy_hiz_.image;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 1;
+      dep.pImageMemoryBarriers = &b;
+      vkCmdPipelineBarrier2(cmd, &dep);
+    });
+  }
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
   if (rt_available_) {
     ddgi_ = DdgiSystem::Create(*device_, environment_->sky_view(), environment_->sampler(),
@@ -229,6 +262,27 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   }
   if (const char* s = std::getenv("REC_SSGI")) {
     settings_.ssgi = std::atoi(s) != 0;
+  }
+  // REC_DISTANCE_LOD=1 re-enables distance-based lod downgrade (off by default;
+  // the engine otherwise always renders the finest authored detail).
+  if (const char* dl = std::getenv("REC_DISTANCE_LOD")) {
+    settings_.distance_lod = std::atoi(dl) != 0;
+  }
+  // REC_MESH_SHADER_LOD=1 opts into the optional VK_EXT_mesh_shader opaque path.
+  if (const char* msl = std::getenv("REC_MESH_SHADER_LOD")) {
+    settings_.mesh_shader_lod = std::atoi(msl) != 0;
+  }
+  // Hardware gate: the path needs VK_EXT_mesh_shader and its pipelines to have
+  // built. Disable + warn rather than silently doing nothing if it was requested.
+  bool mesh_shader_ok = device_->caps().mesh_shaders && mesh_pipeline_ &&
+                        mesh_pipeline_->has_mesh_shader();
+  if (mesh_shader_ok) {
+    REC_INFO("mesh-shader lod path available (default {})", settings_.mesh_shader_lod ? "on" : "off");
+  } else {
+    if (settings_.mesh_shader_lod) {
+      REC_WARN("mesh-shader lod requested but unavailable on this gpu, disabling");
+    }
+    settings_.mesh_shader_lod = false;
   }
 
   // REC_DEBUG_VIEW=<n> pins a debug channel at startup for headless capture;
@@ -503,11 +557,33 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) return false;
   const u64 mesh_key = mesh.id.hash ^ id_salt;
 
-  const asset::MeshLod& lod = mesh.lods[0];
   VkBufferUsageFlags rt_usage =
       raytracing_ ? VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
                   : 0;
+  // The mesh-shader path reads vertices/meshlets by device address.
+  const bool build_meshlets = device_->caps().mesh_shaders && !mesh.skinned;
+  VkBufferUsageFlags ms_usage = build_meshlets ? VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT : 0;
+  auto buffer_address = [&](const GpuBuffer& b) -> u64 {
+    VkBufferDeviceAddressInfo ai{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+    ai.buffer = b.buffer;
+    return vkGetBufferDeviceAddress(device_->device(), &ai);
+  };
+
+  // On the mesh-shader path, synthesize coarse lods for eligible single-material
+  // statics so the task stage can drop detail with distance (GenerateLods is a
+  // no-op for skinned / multi-submesh / already-multi-lod / tiny meshes). The
+  // copy only happens for meshes that will actually get lods.
+  asset::Mesh lodded;
+  const asset::Mesh* src = &mesh;
+  if (build_meshlets && mesh.lods.size() == 1 && mesh.lods[0].submeshes.size() <= 1 &&
+      mesh.lods[0].indices.size() >= 3000) {
+    lodded = mesh;
+    asset::GenerateLods(&lodded);
+    if (lodded.lods.size() > 1) src = &lodded;
+  }
+
+  const asset::MeshLod& lod = src->lods[0];
   GpuMesh gpu;
 
   // Concatenate every lod into shared vertex/index buffers; each lod keeps its
@@ -515,7 +591,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   base::Vector<asset::Vertex> all_verts;
   base::Vector<u32> all_indices;
   base::Vector<u32> vertex_bases, index_bases;
-  for (const asset::MeshLod& l : mesh.lods) {
+  for (const asset::MeshLod& l : src->lods) {
     vertex_bases.push_back(static_cast<u32>(all_verts.size()));
     index_bases.push_back(static_cast<u32>(all_indices.size()));
     for (const asset::Vertex& v : l.vertices) all_verts.push_back(v);
@@ -524,7 +600,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   gpu.vertices = device_->CreateBufferWithData(
       ByteSpan(reinterpret_cast<const u8*>(all_verts.data()),
                all_verts.size() * sizeof(asset::Vertex)),
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rt_usage);
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rt_usage | ms_usage);
   gpu.indices = device_->CreateBufferWithData(
       ByteSpan(reinterpret_cast<const u8*>(all_indices.data()), all_indices.size() * sizeof(u32)),
       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rt_usage);
@@ -555,11 +631,11 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
                      blend, water});
     }
   };
-  build_submeshes(mesh.lods[0], index_bases[0], gpu.submeshes);
-  for (size_t i = 1; i < mesh.lods.size(); ++i) {
+  build_submeshes(src->lods[0], index_bases[0], gpu.submeshes);
+  for (size_t i = 1; i < src->lods.size(); ++i) {
     GpuLod glod;
     glod.vertex_offset = vertex_bases[i];
-    build_submeshes(mesh.lods[i], index_bases[i], glod.submeshes);
+    build_submeshes(src->lods[i], index_bases[i], glod.submeshes);
     gpu.lods.push_back(std::move(glod));
   }
   gpu.all_blend = true;
@@ -569,6 +645,59 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   std::memcpy(gpu.bounds_center, mesh.bounds_center, sizeof(f32) * 3);
   gpu.bounds_radius = mesh.bounds_radius;
   gpu.no_rt = mesh.exclude_from_rt;
+
+  // Mesh-shader path: split every opaque submesh of every lod into meshlets,
+  // concatenated into shared buffers. Each (lod, submesh) records its meshlet
+  // range; the task stage picks a lod by distance and dispatches that range.
+  // Meshlet vertex indices are rebased to absolute indices into the shared
+  // (lod-concatenated) vertex buffer so the mesh shader pulls the right lod.
+  if (build_meshlets) {
+    base::Vector<Meshlet> all_meshlets;
+    base::Vector<u32> all_mv;
+    base::Vector<u32> all_mt;
+    auto build_lod = [&](base::Vector<GpuSubmesh>& subs, u32 vertex_base, u32 vertex_count) {
+      for (GpuSubmesh& submesh : subs) {
+        if (submesh.blend || submesh.index_count == 0) continue;
+        MeshletGeometry geo = BuildMeshletGeometry(all_verts.data() + vertex_base, vertex_count,
+                                                   all_indices.data() + submesh.index_offset,
+                                                   submesh.index_count);
+        if (geo.meshlets.empty()) continue;
+        u32 vtx_base = static_cast<u32>(all_mv.size());
+        u32 tri_base = static_cast<u32>(all_mt.size());
+        submesh.meshlet_offset = static_cast<u32>(all_meshlets.size());
+        submesh.meshlet_count = static_cast<u32>(geo.meshlets.size());
+        for (Meshlet m : geo.meshlets) {
+          m.vertex_offset += vtx_base;
+          m.triangle_offset += tri_base;
+          all_meshlets.push_back(m);
+        }
+        for (u32 v : geo.vertex_indices) all_mv.push_back(v + vertex_base);  // -> global index
+        for (u32 t : geo.triangles) all_mt.push_back(t);
+      }
+    };
+    build_lod(gpu.submeshes, vertex_bases[0], static_cast<u32>(src->lods[0].vertices.size()));
+    for (size_t i = 1; i < src->lods.size(); ++i) {
+      build_lod(gpu.lods[i - 1].submeshes, vertex_bases[i],
+                static_cast<u32>(src->lods[i].vertices.size()));
+    }
+    if (!all_meshlets.empty()) {
+      gpu.meshlets = device_->CreateBufferWithData(
+          ByteSpan(reinterpret_cast<const u8*>(all_meshlets.data()),
+                   all_meshlets.size() * sizeof(Meshlet)),
+          ms_usage);
+      gpu.meshlet_vertices = device_->CreateBufferWithData(
+          ByteSpan(reinterpret_cast<const u8*>(all_mv.data()), all_mv.size() * sizeof(u32)),
+          ms_usage);
+      gpu.meshlet_triangles = device_->CreateBufferWithData(
+          ByteSpan(reinterpret_cast<const u8*>(all_mt.data()), all_mt.size() * sizeof(u32)),
+          ms_usage);
+      gpu.meshlets_address = buffer_address(gpu.meshlets);
+      gpu.meshlet_vertices_address = buffer_address(gpu.meshlet_vertices);
+      gpu.meshlet_triangles_address = buffer_address(gpu.meshlet_triangles);
+      gpu.vertices_address = buffer_address(gpu.vertices);
+      gpu.has_meshlets = true;
+    }
+  }
   if (bindless_ && !gpu.all_blend && !gpu.no_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
     for (const GpuSubmesh& submesh : gpu.submeshes) {
@@ -1013,14 +1142,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       inst.cull_disabled = (mesh->skinned || mesh->bounds_radius <= 0.0f) ? 1u : 0u;
       inst.pad = 0;
 
-      // Pick the lod by camera distance; emit that lod's index ranges. Skinned
-      // meshes stay on lod 0 (their bounds deform). The submesh count matches
-      // lod 0 so the prepass/scene draw loops issue one indirect per submesh.
-      Vec3 wc = TransformPoint(item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
-                                                mesh->bounds_center[2]});
-      Vec3 d = view.camera.eye - wc;
-      bool fixed_lod = mesh->skinned || (tlas_shaded && !mesh->no_rt);
-      u32 lod = fixed_lod ? 0 : SelectLod(*mesh, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
+      // Default to lod 0 (finest): we stream and render the highest detail the
+      // game ships. Distance-based downgrade is opt-in (settings_.distance_lod).
+      // Skinned meshes and rt-shaded meshes always stay on lod 0 (their bounds
+      // deform / the tlas is built from lod 0). The submesh count matches lod 0
+      // so the prepass/scene draw loops issue one indirect per submesh.
+      bool fixed_lod = !settings_.distance_lod || mesh->skinned || (tlas_shaded && !mesh->no_rt);
+      u32 lod = 0;
+      if (!fixed_lod) {
+        Vec3 wc = TransformPoint(item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
+                                                  mesh->bounds_center[2]});
+        Vec3 d = view.camera.eye - wc;
+        lod = SelectLod(*mesh, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
+      }
       const base::Vector<GpuSubmesh>& src =
           lod == 0 ? mesh->submeshes : mesh->lods[lod - 1].submeshes;
       i32 vtx_off = lod == 0 ? 0 : static_cast<i32>(mesh->lods[lod - 1].vertex_offset);
@@ -1053,6 +1187,22 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                        cull_instance_count, settings_.gpu_culling, cull_occlusion, cull_hiz,
                        cull_slot);
 
+  // Mesh-shader opaque path: drawn this frame if enabled and supported. The task
+  // stage reuses the same hi-z the raster cull built (last frame's) for instance
+  // occlusion; ms_occ carries the projection scale + hi-z size (z=0 disables it).
+  const bool ms_active = settings_.mesh_shader_lod && mesh_pipeline_->has_mesh_shader();
+  const bool ms_occlude = ms_active && cull_occlusion;
+  f32 ms_occ[4] = {0, 0, 0, 0};
+  if (ms_occlude) {
+    ms_occ[0] = proj.m[0];
+    ms_occ[1] = proj.m[5];
+    ms_occ[2] = static_cast<f32>(gpu_cull_.hiz_width());
+    ms_occ[3] = static_cast<f32>(gpu_cull_.hiz_height());
+  }
+  // Frustum planes for the cpu-side skip of off-screen mesh-shader draws.
+  f32 ms_planes[5][4];
+  ExtractFrustumPlanes(view_proj, ms_planes);
+
   graph_.AddPass(
       "prepass",
       [&](RenderGraph::PassBuilder& builder) {
@@ -1060,8 +1210,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Write(depth_export, ResourceUsage::kColorAttachment);
         builder.Write(depth, ResourceUsage::kDepthAttachment);
+        if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
-      [this, normals, motion, depth_export, depth, cull_commands, &frame, &view](PassContext& ctx) {
+      [this, normals, motion, depth_export, depth, cull_commands, &frame, &view, ms_active,
+       ms_occlude, cull_hiz, &ms_occ, &ms_planes](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[3];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(normals).view;
@@ -1103,14 +1255,84 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
         VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-        VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = globals_set;
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.pBufferInfo = &buffer_info;
-        vkUpdateDescriptorSets(device_->device(), 1, &write, 0, nullptr);
+        VkWriteDescriptorSet writes[2];
+        u32 nwrites = 1;
+        writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[0].dstSet = globals_set;
+        writes[0].dstBinding = 0;
+        writes[0].descriptorCount = 1;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].pBufferInfo = &buffer_info;
+        VkDescriptorImageInfo hiz_info{};
+        if (ms_active) {  // hi-z for the task-stage occlusion cull (real or fallback)
+          hiz_info.imageView = ms_occlude ? ctx.graph->image(cull_hiz).view : ms_dummy_hiz_.view;
+          hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+          writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          writes[1].dstSet = globals_set;
+          writes[1].dstBinding = 2;
+          writes[1].descriptorCount = 1;
+          writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+          writes[1].pImageInfo = &hiz_info;
+          nwrites = 2;
+        }
+        vkUpdateDescriptorSets(device_->device(), nwrites, writes, 0, nullptr);
 
+        // Mesh-shader sub-pass: static opaque meshes, cluster-culled on the gpu.
+        if (ms_active) {
+          mesh_pipeline_->BindMeshPrepass(ctx.cmd, globals_set);
+          VkDescriptorSet bound = VK_NULL_HANDLE;
+          for (const DrawItem& item : view.draws) {
+            const GpuMesh* mesh = meshes_.find(item.mesh);
+            if (!mesh || mesh->all_blend || !mesh->has_meshlets) continue;
+            MeshShaderPush push{};
+            push.model = item.transform;
+            push.prev_model = item.prev_transform;
+            push.meshlets_address = mesh->meshlets_address;
+            push.meshlet_vertices_address = mesh->meshlet_vertices_address;
+            push.meshlet_triangles_address = mesh->meshlet_triangles_address;
+            push.vertices_address = mesh->vertices_address;
+            push.bounds[0] = mesh->bounds_center[0];
+            push.bounds[1] = mesh->bounds_center[1];
+            push.bounds[2] = mesh->bounds_center[2];
+            push.bounds[3] = mesh->bounds_radius;
+            push.occlusion[0] = ms_occ[0];
+            push.occlusion[1] = ms_occ[1];
+            push.occlusion[2] = ms_occ[2];
+            push.occlusion[3] = ms_occ[3];
+            // Distance lod pick; the task stage dispatches the chosen lod range.
+            Vec3 ms_wc = TransformPoint(
+                item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
+                                 mesh->bounds_center[2]});
+            Vec3 ms_d = view.camera.eye - ms_wc;
+            // Cpu frustum skip: a conservative world radius (bounds scaled by the
+            // largest transform axis) lets off-screen instances cost no dispatch.
+            const f32* m = item.transform.m;
+            f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+            f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+            f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+            f32 ms_radius = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
+            if (ms_radius > 0.0f && SphereOutsideFrustum(ms_planes, ms_wc, ms_radius)) continue;
+            u32 ms_lod =
+                SelectLod(*mesh, std::sqrt(ms_d.x * ms_d.x + ms_d.y * ms_d.y + ms_d.z * ms_d.z));
+            const base::Vector<GpuSubmesh>& ms_subs =
+                ms_lod == 0 ? mesh->submeshes : mesh->lods[ms_lod - 1].submeshes;
+            for (const GpuSubmesh& submesh : ms_subs) {
+              if (submesh.blend || submesh.meshlet_count == 0) continue;
+              VkDescriptorSet material = material_system_->set(submesh.material);
+              if (material != bound) {
+                mesh_pipeline_->BindMeshMaterial(ctx.cmd, material);
+                bound = material;
+              }
+              push.meshlet_offset = submesh.meshlet_offset;
+              push.meshlet_count = submesh.meshlet_count;
+              mesh_pipeline_->DrawMeshlets(ctx.cmd, push);
+            }
+          }
+        }
+
+        // Raster sub-pass: skinned / non-meshlet meshes via gpu-culled indirect
+        // draws. Meshes already drawn by the mesh shader are skipped but still
+        // advance the cull index so it stays aligned with the cull build order.
         mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
         bool skinned_bound = false;
@@ -1121,28 +1343,33 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           // Stay within the commands the cull build wrote; past that the indirect
           // buffer holds no valid command and reading it renders as garbage.
           if (cull_cmd_index >= cull_total_commands_) break;
+          bool ms_handled = ms_active && mesh->has_meshlets;
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
-          if (draw_skinned != skinned_bound) {
-            mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
-            skinned_bound = draw_skinned;
+          if (!ms_handled) {
+            if (draw_skinned != skinned_bound) {
+              mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
+              skinned_bound = draw_skinned;
+            }
+            MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (draw_skinned && item.skin_offset >= 0) {
+              push.bone_address = frame.bone_palette_address;
+              push.skin_offset = static_cast<u32>(item.skin_offset);
+            }
+            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           }
-          MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
-          if (draw_skinned && item.skin_offset >= 0) {
-            push.bone_address = frame.bone_palette_address;
-            push.skin_offset = static_cast<u32>(item.skin_offset);
-          }
-          mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;  // transparency owns its own depth
             if (cull_cmd_index >= cull_total_commands_) break;  // partial-mesh boundary
-            VkDescriptorSet material = material_system_->set(submesh.material);
-            if (material != bound_material) {
-              mesh_pipeline_->BindMaterial(ctx.cmd, material);
-              bound_material = material;
+            if (!ms_handled) {
+              VkDescriptorSet material = material_system_->set(submesh.material);
+              if (material != bound_material) {
+                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+                bound_material = material;
+              }
+              vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
+                                       cull_cmd_index * GpuCull::kCommandStride, 1,
+                                       GpuCull::kCommandStride);
             }
-            vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
-                                     cull_cmd_index * GpuCull::kCommandStride, 1,
-                                     GpuCull::kCommandStride);
             ++cull_cmd_index;
           }
         }
@@ -1219,10 +1446,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (ao != kInvalidResource) builder.Read(ao, ResourceUsage::kSampledFragment);
         if (sun_shadow != kInvalidResource) builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
         if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
+        if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
       [this, scene_color, motion, depth, ao, sun_shadow, tlas_slot, rt_shadows, use_rt_frag,
-       ddgi_active, csm_active, shadow_slot, shadow_atlas, cull_commands, &frame,
-       &view](PassContext& ctx) {
+       ddgi_active, csm_active, shadow_slot, shadow_atlas, cull_commands, ms_active, ms_occlude,
+       cull_hiz, &ms_occ, &ms_planes, &frame, &view](PassContext& ctx) {
         VkRenderingAttachmentInfo colors[2];
         colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         colors[0].imageView = ctx.graph->image(scene_color).view;
@@ -1259,7 +1487,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
         VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
         VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-        VkWriteDescriptorSet writes[2];
+        VkWriteDescriptorSet writes[3];
         writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[0].dstSet = globals_set;
         writes[0].dstBinding = 0;
@@ -1275,13 +1503,25 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           tlas = raytracing_->tlas(tlas_slot);
           tlas_info.accelerationStructureCount = 1;
           tlas_info.pAccelerationStructures = &tlas;
-          writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[1].pNext = &tlas_info;
-          writes[1].dstSet = globals_set;
-          writes[1].dstBinding = 1;
-          writes[1].descriptorCount = 1;
-          writes[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-          write_count = 2;
+          writes[write_count] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          writes[write_count].pNext = &tlas_info;
+          writes[write_count].dstSet = globals_set;
+          writes[write_count].dstBinding = 1;
+          writes[write_count].descriptorCount = 1;
+          writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+          ++write_count;
+        }
+        VkDescriptorImageInfo hiz_info{};
+        if (ms_active) {  // hi-z for the task-stage occlusion cull (real or fallback)
+          hiz_info.imageView = ms_occlude ? ctx.graph->image(cull_hiz).view : ms_dummy_hiz_.view;
+          hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+          writes[write_count] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          writes[write_count].dstSet = globals_set;
+          writes[write_count].dstBinding = 2;
+          writes[write_count].descriptorCount = 1;
+          writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+          writes[write_count].pImageInfo = &hiz_info;
+          ++write_count;
         }
         vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
 
@@ -1300,6 +1540,60 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             frame.lights.size);
 
         VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
+
+        // Mesh-shader sub-pass: static opaque meshes, finest lod, cluster-culled.
+        if (ms_active) {
+          mesh_pipeline_->BindMeshScene(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag);
+          VkDescriptorSet bound = VK_NULL_HANDLE;
+          for (const DrawItem& item : view.draws) {
+            const GpuMesh* mesh = meshes_.find(item.mesh);
+            if (!mesh || mesh->all_blend || !mesh->has_meshlets) continue;
+            MeshShaderPush push{};
+            push.model = item.transform;
+            push.prev_model = item.prev_transform;
+            push.meshlets_address = mesh->meshlets_address;
+            push.meshlet_vertices_address = mesh->meshlet_vertices_address;
+            push.meshlet_triangles_address = mesh->meshlet_triangles_address;
+            push.vertices_address = mesh->vertices_address;
+            push.bounds[0] = mesh->bounds_center[0];
+            push.bounds[1] = mesh->bounds_center[1];
+            push.bounds[2] = mesh->bounds_center[2];
+            push.bounds[3] = mesh->bounds_radius;
+            push.occlusion[0] = ms_occ[0];
+            push.occlusion[1] = ms_occ[1];
+            push.occlusion[2] = ms_occ[2];
+            push.occlusion[3] = ms_occ[3];
+            // Distance lod pick; the task stage dispatches the chosen lod range.
+            Vec3 ms_wc = TransformPoint(
+                item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
+                                 mesh->bounds_center[2]});
+            Vec3 ms_d = view.camera.eye - ms_wc;
+            // Cpu frustum skip: a conservative world radius (bounds scaled by the
+            // largest transform axis) lets off-screen instances cost no dispatch.
+            const f32* m = item.transform.m;
+            f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+            f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+            f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+            f32 ms_radius = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
+            if (ms_radius > 0.0f && SphereOutsideFrustum(ms_planes, ms_wc, ms_radius)) continue;
+            u32 ms_lod =
+                SelectLod(*mesh, std::sqrt(ms_d.x * ms_d.x + ms_d.y * ms_d.y + ms_d.z * ms_d.z));
+            const base::Vector<GpuSubmesh>& ms_subs =
+                ms_lod == 0 ? mesh->submeshes : mesh->lods[ms_lod - 1].submeshes;
+            for (const GpuSubmesh& submesh : ms_subs) {
+              if (submesh.blend || submesh.meshlet_count == 0) continue;
+              VkDescriptorSet material = material_system_->set(submesh.material);
+              if (material != bound) {
+                mesh_pipeline_->BindMeshMaterial(ctx.cmd, material);
+                bound = material;
+              }
+              push.meshlet_offset = submesh.meshlet_offset;
+              push.meshlet_count = submesh.meshlet_count;
+              mesh_pipeline_->DrawMeshlets(ctx.cmd, push);
+            }
+          }
+        }
+
         mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
                              settings_.wireframe);
         VkDescriptorSet bound_material = VK_NULL_HANDLE;
@@ -1309,28 +1603,33 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           const GpuMesh* mesh = meshes_.find(item.mesh);
           if (!mesh || mesh->all_blend) continue;
           if (cull_cmd_index >= cull_total_commands_) break;  // clamp to the built commands
+          bool ms_handled = ms_active && mesh->has_meshlets;
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
-          if (draw_skinned != skinned_bound) {
-            mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, use_rt_frag, settings_.wireframe);
-            skinned_bound = draw_skinned;
+          if (!ms_handled) {
+            if (draw_skinned != skinned_bound) {
+              mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, use_rt_frag, settings_.wireframe);
+              skinned_bound = draw_skinned;
+            }
+            MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (draw_skinned && item.skin_offset >= 0) {
+              push.bone_address = frame.bone_palette_address;
+              push.skin_offset = static_cast<u32>(item.skin_offset);
+            }
+            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           }
-          MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
-          if (draw_skinned && item.skin_offset >= 0) {
-            push.bone_address = frame.bone_palette_address;
-            push.skin_offset = static_cast<u32>(item.skin_offset);
-          }
-          mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;
             if (cull_cmd_index >= cull_total_commands_) break;  // partial-mesh boundary
-            VkDescriptorSet material = material_system_->set(submesh.material);
-            if (material != bound_material) {
-              mesh_pipeline_->BindMaterial(ctx.cmd, material);
-              bound_material = material;
+            if (!ms_handled) {
+              VkDescriptorSet material = material_system_->set(submesh.material);
+              if (material != bound_material) {
+                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+                bound_material = material;
+              }
+              vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
+                                       cull_cmd_index * GpuCull::kCommandStride, 1,
+                                       GpuCull::kCommandStride);
             }
-            vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
-                                     cull_cmd_index * GpuCull::kCommandStride, 1,
-                                     GpuCull::kCommandStride);
             ++cull_cmd_index;
           }
         }
@@ -2050,6 +2349,9 @@ void Renderer::Shutdown() {
       device_->DestroyBuffer(kv.value.vertices);
       device_->DestroyBuffer(kv.value.indices);
       if (kv.value.skinning.buffer) device_->DestroyBuffer(kv.value.skinning);
+      if (kv.value.meshlets.buffer) device_->DestroyBuffer(kv.value.meshlets);
+      if (kv.value.meshlet_vertices.buffer) device_->DestroyBuffer(kv.value.meshlet_vertices);
+      if (kv.value.meshlet_triangles.buffer) device_->DestroyBuffer(kv.value.meshlet_triangles);
     }
     meshes_.clear();
     taa_.Destroy(*device_);
@@ -2068,6 +2370,7 @@ void Renderer::Shutdown() {
     overdraw_.Destroy(*device_);
     gpu_cull_.Destroy(*device_);
     meshlet_.Destroy(*device_);
+    if (ms_dummy_hiz_.image) device_->DestroyImage(ms_dummy_hiz_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);

@@ -10,6 +10,28 @@ namespace rec::render {
 
 class Device;
 
+// Mirrors the Meshlet struct in meshlet.ms / mesh_scene.ms (std430, 48 bytes).
+struct Meshlet {
+  f32 center_radius[4];  // xyz center, w radius (model space)
+  f32 cone[4];           // xyz axis, w cutoff (>=2 disables cone cull)
+  u32 vertex_offset = 0;
+  u32 triangle_offset = 0;
+  u32 vertex_count = 0;
+  u32 triangle_count = 0;
+};
+
+struct MeshletGeometry {
+  base::Vector<Meshlet> meshlets;
+  base::Vector<u32> vertex_indices;  // index into the source vertex array
+  base::Vector<u32> triangles;       // 3 local indices packed per u32
+};
+
+// Greedy spatial clustering of a triangle range into meshlets (<=64 verts /
+// <=124 tris), with a bounding sphere and backface normal cone per cluster for
+// gpu cluster culling. vertex_indices are absolute indices into `vertices`.
+MeshletGeometry BuildMeshletGeometry(const asset::Vertex* vertices, u32 vertex_count,
+                                     const u32* indices, u32 index_count);
+
 // Mesh-shader meshlet path (VK_EXT_mesh_shader). A mesh is split into meshlets
 // (clusters of <=64 verts / <=124 tris) at upload; a mesh shader dispatches one
 // workgroup per meshlet, frustum- and backface-cone-culls the cluster on the
@@ -18,15 +40,6 @@ class Device;
 // culling are directly visible. Used by the --demo meshlet scene.
 class MeshletPass {
  public:
-  // Mirrors the Meshlet struct in meshlet.ms (std430).
-  struct Meshlet {
-    f32 center_radius[4];  // xyz center, w radius
-    f32 cone[4];           // xyz axis, w cutoff (>=2 disables cone cull)
-    u32 vertex_offset = 0;
-    u32 triangle_offset = 0;
-    u32 vertex_count = 0;
-    u32 triangle_count = 0;
-  };
   struct Vertex {
     f32 px, py, pz;
     f32 nx, ny, nz;

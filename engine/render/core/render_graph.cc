@@ -22,7 +22,8 @@ u32 FormatBytes(VkFormat format) {
 }
 
 bool IsReadUsage(ResourceUsage usage) {
-  return usage == ResourceUsage::kSampledFragment || usage == ResourceUsage::kSampledCompute;
+  return usage == ResourceUsage::kSampledFragment || usage == ResourceUsage::kSampledCompute ||
+         usage == ResourceUsage::kSampledTaskMesh;
 }
 
 struct UsageState {
@@ -53,6 +54,10 @@ UsageState StateFor(ResourceUsage usage) {
     case ResourceUsage::kSampledCompute:
       return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, false};
+    case ResourceUsage::kSampledTaskMesh:
+      return {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+              VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT,
+              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, false};
     case ResourceUsage::kStorageWrite:
       return {VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
               VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, true};
@@ -69,6 +74,7 @@ VkImageUsageFlags ImageUsageFor(ResourceUsage usage) {
       return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     case ResourceUsage::kSampledFragment:
     case ResourceUsage::kSampledCompute:
+    case ResourceUsage::kSampledTaskMesh:
       return VK_IMAGE_USAGE_SAMPLED_BIT;
     case ResourceUsage::kStorageWrite:
       return VK_IMAGE_USAGE_STORAGE_BIT;

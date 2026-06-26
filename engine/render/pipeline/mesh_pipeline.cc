@@ -5,6 +5,8 @@
 #include "render/util/shader_util.h"
 #include "shaders/mesh_ps_hlsl.h"
 #include "shaders/mesh_rt_ps_hlsl.h"
+#include "shaders/mesh_scene_as_hlsl.h"
+#include "shaders/mesh_scene_ms_hlsl.h"
 #include "shaders/mesh_skin_vs_hlsl.h"
 #include "shaders/mesh_vs_hlsl.h"
 #include "shaders/prepass_ps_hlsl.h"
@@ -19,21 +21,38 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
                                                    VkDescriptorSetLayout bindless_layout) {
   auto pipeline = std::unique_ptr<MeshPipeline>(new MeshPipeline(device));
   bool rt = device.caps().ray_query;
+  bool mesh_caps = device.caps().mesh_shaders;
   pipeline->has_bindless_ = bindless_layout != VK_NULL_HANDLE;
 
-  VkDescriptorSetLayoutBinding bindings[2]{};
-  bindings[0].binding = 0;
-  bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  bindings[0].descriptorCount = 1;
-  bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  bindings[1].binding = 1;
-  bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-  bindings[1].descriptorCount = 1;
-  bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  VkDescriptorSetLayoutBinding bindings[3]{};
+  u32 binding_count = 0;
+  bindings[binding_count].binding = 0;
+  bindings[binding_count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  bindings[binding_count].descriptorCount = 1;
+  // The mesh-shader path reads frame globals from the task and mesh stages too.
+  bindings[binding_count].stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+      (mesh_caps ? (VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT) : 0);
+  ++binding_count;
+  if (rt) {
+    bindings[binding_count].binding = 1;
+    bindings[binding_count].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    bindings[binding_count].descriptorCount = 1;
+    bindings[binding_count].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    ++binding_count;
+  }
+  if (mesh_caps) {
+    // Last frame's hi-z, sampled by the task stage for instance occlusion cull.
+    bindings[binding_count].binding = 2;
+    bindings[binding_count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[binding_count].descriptorCount = 1;
+    bindings[binding_count].stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
+    ++binding_count;
+  }
 
   VkDescriptorSetLayoutCreateInfo set_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = rt ? 2 : 1;
+  set_info.bindingCount = binding_count;
   set_info.pBindings = bindings;
   if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &pipeline->set_layout_) !=
       VK_SUCCESS) {
@@ -273,6 +292,120 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, VkFormat colo
     }
   }
 
+  // Optional mesh-shader opaque variants: the vertex stage is replaced by a
+  // meshlet mesh shader (geometry fed by device address), sharing the same
+  // descriptor set layouts and fragment shaders. A separate pipeline layout
+  // carries the larger mesh-stage push range.
+  VkShaderModule ms = mesh_caps ? CreateShaderModule(device.device(), k_mesh_scene_ms_hlsl,
+                                                     sizeof(k_mesh_scene_ms_hlsl))
+                                : VK_NULL_HANDLE;
+  VkShaderModule task = mesh_caps ? CreateShaderModule(device.device(), k_mesh_scene_as_hlsl,
+                                                      sizeof(k_mesh_scene_as_hlsl))
+                                  : VK_NULL_HANDLE;
+  if (mesh_caps && ms != VK_NULL_HANDLE && task != VK_NULL_HANDLE) {
+    VkPushConstantRange ms_push{VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0,
+                                sizeof(MeshShaderPush)};
+    VkPipelineLayoutCreateInfo ms_li{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    ms_li.setLayoutCount = pipeline->has_bindless_ ? 4 : 3;
+    ms_li.pSetLayouts = set_layouts;
+    ms_li.pushConstantRangeCount = 1;
+    ms_li.pPushConstantRanges = &ms_push;
+    if (vkCreatePipelineLayout(device.device(), &ms_li, nullptr, &pipeline->ms_layout_) ==
+        VK_SUCCESS) {
+      VkPipelineShaderStageCreateInfo ms_stages[3];
+      ms_stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      ms_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+      ms_stages[0].module = task;
+      ms_stages[0].pName = "main";
+      ms_stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      ms_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+      ms_stages[1].module = ms;
+      ms_stages[1].pName = "main";
+      ms_stages[2] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      ms_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+      ms_stages[2].pName = "main";
+
+      VkPipelineRasterizationStateCreateInfo ms_raster{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+      ms_raster.polygonMode = VK_POLYGON_MODE_FILL;
+      ms_raster.cullMode = VK_CULL_MODE_NONE;  // matches the raster path's winding policy
+      ms_raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+      ms_raster.lineWidth = 1.0f;
+
+      VkGraphicsPipelineCreateInfo ms_info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+      ms_info.stageCount = 3;
+      ms_info.pStages = ms_stages;
+      ms_info.pViewportState = &viewport;       // dynamic
+      ms_info.pRasterizationState = &ms_raster;
+      ms_info.pMultisampleState = &multisample;
+      ms_info.pDynamicState = &dynamic;
+      ms_info.layout = pipeline->ms_layout_;
+      // Mesh pipelines ignore vertex input / input assembly.
+
+      // Scene variants: depth EQUAL against the prepass, lit color + masked
+      // motion target, like the raster main variants.
+      VkPipelineDepthStencilStateCreateInfo ms_scene_depth{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+      ms_scene_depth.depthTestEnable = VK_TRUE;
+      ms_scene_depth.depthWriteEnable = VK_FALSE;
+      ms_scene_depth.depthCompareOp = VK_COMPARE_OP_EQUAL;
+      VkPipelineColorBlendAttachmentState ms_scene_blend[2]{};
+      ms_scene_blend[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+      ms_scene_blend[1].colorWriteMask = 0;  // motion comes from the prepass
+      VkPipelineColorBlendStateCreateInfo ms_scene_blend_state{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+      ms_scene_blend_state.attachmentCount = 2;
+      ms_scene_blend_state.pAttachments = ms_scene_blend;
+      VkPipelineRenderingCreateInfo ms_scene_rendering{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+      ms_scene_rendering.colorAttachmentCount = 2;
+      ms_scene_rendering.pColorAttachmentFormats = color_formats;
+      ms_scene_rendering.depthAttachmentFormat = depth_format;
+      ms_info.pNext = &ms_scene_rendering;
+      ms_info.pDepthStencilState = &ms_scene_depth;
+      ms_info.pColorBlendState = &ms_scene_blend_state;
+      for (u32 variant = 0; variant < 2; ++variant) {
+        if (variant == kRt && !rt) continue;
+        ms_stages[2].module = variant == kRt ? frag_rt : frag;
+        if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &ms_info, nullptr,
+                                      &pipeline->ms_scene_[variant]) != VK_SUCCESS) {
+          REC_ERROR("mesh-shader scene pipeline creation failed (variant {})", variant);
+          pipeline->ms_scene_[variant] = VK_NULL_HANDLE;
+        }
+      }
+
+      // Prepass variant: depth write + normal/motion/depth-export targets.
+      VkPipelineDepthStencilStateCreateInfo ms_pre_depth = ms_scene_depth;
+      ms_pre_depth.depthWriteEnable = VK_TRUE;
+      ms_pre_depth.depthCompareOp = VK_COMPARE_OP_GREATER;  // reversed z
+      VkPipelineColorBlendAttachmentState ms_pre_blend[3]{};
+      ms_pre_blend[0].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+      ms_pre_blend[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+      ms_pre_blend[2].colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+      VkPipelineColorBlendStateCreateInfo ms_pre_blend_state{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+      ms_pre_blend_state.attachmentCount = 3;
+      ms_pre_blend_state.pAttachments = ms_pre_blend;
+      VkPipelineRenderingCreateInfo ms_pre_rendering{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+      ms_pre_rendering.colorAttachmentCount = 3;
+      ms_pre_rendering.pColorAttachmentFormats = prepass_formats;
+      ms_pre_rendering.depthAttachmentFormat = depth_format;
+      ms_info.pNext = &ms_pre_rendering;
+      ms_info.pDepthStencilState = &ms_pre_depth;
+      ms_info.pColorBlendState = &ms_pre_blend_state;
+      ms_stages[2].module = frag_prepass;
+      if (vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &ms_info, nullptr,
+                                    &pipeline->ms_prepass_) != VK_SUCCESS) {
+        REC_ERROR("mesh-shader prepass pipeline creation failed");
+        pipeline->ms_prepass_ = VK_NULL_HANDLE;
+      }
+    }
+  }
+  if (ms) vkDestroyShaderModule(device.device(), ms, nullptr);
+  if (task) vkDestroyShaderModule(device.device(), task, nullptr);
+
   vkDestroyShaderModule(device.device(), vert, nullptr);
   if (vert_skin) vkDestroyShaderModule(device.device(), vert_skin, nullptr);
   vkDestroyShaderModule(device.device(), frag, nullptr);
@@ -299,6 +432,11 @@ MeshPipeline::~MeshPipeline() {
     vkDestroyPipeline(device_.device(), skinned_prepass_pipeline_, nullptr);
   }
   if (prepass_pipeline_) vkDestroyPipeline(device_.device(), prepass_pipeline_, nullptr);
+  for (VkPipeline pipeline : ms_scene_) {
+    if (pipeline) vkDestroyPipeline(device_.device(), pipeline, nullptr);
+  }
+  if (ms_prepass_) vkDestroyPipeline(device_.device(), ms_prepass_, nullptr);
+  if (ms_layout_) vkDestroyPipelineLayout(device_.device(), ms_layout_, nullptr);
   if (layout_) vkDestroyPipelineLayout(device_.device(), layout_, nullptr);
   if (set_layout_) vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
 }
@@ -375,6 +513,40 @@ void MeshPipeline::Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPush
 
 void MeshPipeline::DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh) {
   vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
+}
+
+void MeshPipeline::BindMeshScene(VkCommandBuffer cmd, VkDescriptorSet globals,
+                                 VkDescriptorSet environment, VkDescriptorSet bindless,
+                                 bool use_rt) {
+  VkPipeline p = (use_rt && ms_scene_[kRt] != VK_NULL_HANDLE) ? ms_scene_[kRt] : ms_scene_[0];
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_layout_, 0, 1, &globals, 0,
+                          nullptr);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_layout_, 2, 1, &environment, 0,
+                          nullptr);
+  if (has_bindless_ && bindless != VK_NULL_HANDLE) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_layout_, 3, 1, &bindless, 0,
+                            nullptr);
+  }
+}
+
+void MeshPipeline::BindMeshPrepass(VkCommandBuffer cmd, VkDescriptorSet globals) {
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_prepass_);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_layout_, 0, 1, &globals, 0,
+                          nullptr);
+}
+
+void MeshPipeline::BindMeshMaterial(VkCommandBuffer cmd, VkDescriptorSet material) {
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ms_layout_, 1, 1, &material, 0,
+                          nullptr);
+}
+
+void MeshPipeline::DrawMeshlets(VkCommandBuffer cmd, const MeshShaderPush& push) {
+  vkCmdPushConstants(cmd, ms_layout_, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0,
+                     sizeof(push), &push);
+  // One task workgroup (32 threads) per 32 meshlets; the task stage culls and
+  // compacts, then dispatches the surviving mesh workgroups.
+  vkCmdDrawMeshTasksEXT(cmd, (push.meshlet_count + 31u) / 32u, 1, 1);
 }
 
 }  // namespace rec::render

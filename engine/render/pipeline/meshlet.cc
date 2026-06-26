@@ -24,13 +24,6 @@ struct MeshletPush {
   f32 camera[4];
 };
 
-struct Built {
-  std::vector<MeshletPass::Meshlet> meshlets;
-  std::vector<u32> vertex_indices;  // index into vertices
-  std::vector<u32> triangles;       // 3 local indices packed per u32
-  std::vector<MeshletPass::Vertex> vertices;
-};
-
 u32 Part1By2(u32 x) {
   x &= 0x3ff;
   x = (x | (x << 16)) & 0x30000ff;
@@ -44,13 +37,12 @@ u32 Morton3(u32 x, u32 y, u32 z) { return Part1By2(x) | (Part1By2(y) << 1) | (Pa
 // Greedy clustering: append triangles to the current meshlet until it would
 // exceed the vertex or triangle budget, then start a new one. Per meshlet a
 // bounding sphere and a backface normal cone are computed for cluster culling.
-Built BuildMeshlets(const asset::MeshLod& lod) {
-  Built out;
-  out.vertices.reserve(lod.vertices.size());
-  for (const asset::Vertex& v : lod.vertices) {
-    out.vertices.push_back({v.position[0], v.position[1], v.position[2], v.normal[0], v.normal[1],
-                            v.normal[2]});
-  }
+MeshletGeometry BuildImpl(const asset::Vertex* verts, u32 vertex_count, const u32* indices,
+                          u32 index_count) {
+  MeshletGeometry out;
+  auto P = [&](u32 gi) {
+    return Vec3{verts[gi].position[0], verts[gi].position[1], verts[gi].position[2]};
+  };
 
   u32 local_global[kMaxVerts];  // local index -> global vertex index
   u8 local_count = 0;
@@ -59,7 +51,7 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
 
   auto finalize = [&]() {
     if (local_count == 0) return;
-    MeshletPass::Meshlet m{};
+    Meshlet m{};
     m.vertex_offset = cur_vert_offset;
     m.triangle_offset = cur_tri_offset;
     m.vertex_count = local_count;
@@ -67,15 +59,11 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
 
     // Bounding sphere from the meshlet's unique vertices.
     Vec3 center{0, 0, 0};
-    for (u32 i = 0; i < local_count; ++i) {
-      const MeshletPass::Vertex& v = out.vertices[local_global[i]];
-      center = center + Vec3{v.px, v.py, v.pz};
-    }
+    for (u32 i = 0; i < local_count; ++i) center = center + P(local_global[i]);
     center = center * (1.0f / static_cast<f32>(local_count));
     f32 radius = 0.0f;
     for (u32 i = 0; i < local_count; ++i) {
-      const MeshletPass::Vertex& v = out.vertices[local_global[i]];
-      Vec3 d = Vec3{v.px, v.py, v.pz} - center;
+      Vec3 d = P(local_global[i]) - center;
       radius = std::max(radius, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
     }
     m.center_radius[0] = center.x;
@@ -88,12 +76,8 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
     Vec3 axis{0, 0, 0};
     for (u32 t = m.triangle_offset; t < m.triangle_offset + m.triangle_count; ++t) {
       u32 packed = out.triangles[t];
-      const MeshletPass::Vertex& a = out.vertices[local_global[packed & 0xff]];
-      const MeshletPass::Vertex& b = out.vertices[local_global[(packed >> 8) & 0xff]];
-      const MeshletPass::Vertex& c = out.vertices[local_global[(packed >> 16) & 0xff]];
-      Vec3 e1 = Vec3{b.px, b.py, b.pz} - Vec3{a.px, a.py, a.pz};
-      Vec3 e2 = Vec3{c.px, c.py, c.pz} - Vec3{a.px, a.py, a.pz};
-      Vec3 n = Cross(e1, e2);
+      Vec3 n = Cross(P(local_global[(packed >> 8) & 0xff]) - P(local_global[packed & 0xff]),
+                     P(local_global[(packed >> 16) & 0xff]) - P(local_global[packed & 0xff]));
       f32 len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
       if (len > 1e-8f) axis = axis + n * (1.0f / len);
     }
@@ -103,12 +87,8 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
       f32 min_c = 1.0f;
       for (u32 t = m.triangle_offset; t < m.triangle_offset + m.triangle_count; ++t) {
         u32 packed = out.triangles[t];
-        const MeshletPass::Vertex& a = out.vertices[local_global[packed & 0xff]];
-        const MeshletPass::Vertex& b = out.vertices[local_global[(packed >> 8) & 0xff]];
-        const MeshletPass::Vertex& c = out.vertices[local_global[(packed >> 16) & 0xff]];
-        Vec3 e1 = Vec3{b.px, b.py, b.pz} - Vec3{a.px, a.py, a.pz};
-        Vec3 e2 = Vec3{c.px, c.py, c.pz} - Vec3{a.px, a.py, a.pz};
-        Vec3 n = Cross(e1, e2);
+        Vec3 n = Cross(P(local_global[(packed >> 8) & 0xff]) - P(local_global[packed & 0xff]),
+                       P(local_global[(packed >> 16) & 0xff]) - P(local_global[packed & 0xff]));
         f32 len = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
         if (len > 1e-8f) min_c = std::min(min_c, (n.x * axis.x + n.y * axis.y + n.z * axis.z) / len);
       }
@@ -130,21 +110,17 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
   // Order triangles along a Morton curve over their centroids so the greedy
   // clusters become compact spatial patches (tight normal cones -> effective
   // backface cone culling), not index-order bands that wrap the whole surface.
-  const size_t tri_total = lod.indices.size() / 3;
+  const size_t tri_total = index_count / 3;
   Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-  for (const asset::Vertex& v : lod.vertices) {
-    lo = {std::min(lo.x, v.position[0]), std::min(lo.y, v.position[1]), std::min(lo.z, v.position[2])};
-    hi = {std::max(hi.x, v.position[0]), std::max(hi.y, v.position[1]), std::max(hi.z, v.position[2])};
+  for (u32 i = 0; i < vertex_count; ++i) {
+    Vec3 p = P(i);
+    lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
+    hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
   }
   Vec3 ext{std::max(hi.x - lo.x, 1e-6f), std::max(hi.y - lo.y, 1e-6f), std::max(hi.z - lo.z, 1e-6f)};
   std::vector<std::pair<u32, u32>> order(tri_total);  // (morton, triangle index)
   for (size_t t = 0; t < tri_total; ++t) {
-    Vec3 c{0, 0, 0};
-    for (u32 k = 0; k < 3; ++k) {
-      const asset::Vertex& v = lod.vertices[lod.indices[t * 3 + k]];
-      c = c + Vec3{v.position[0], v.position[1], v.position[2]};
-    }
-    c = c * (1.0f / 3.0f);
+    Vec3 c = (P(indices[t * 3]) + P(indices[t * 3 + 1]) + P(indices[t * 3 + 2])) * (1.0f / 3.0f);
     u32 qx = static_cast<u32>(std::clamp((c.x - lo.x) / ext.x, 0.0f, 1.0f) * 1023.0f);
     u32 qy = static_cast<u32>(std::clamp((c.y - lo.y) / ext.y, 0.0f, 1.0f) * 1023.0f);
     u32 qz = static_cast<u32>(std::clamp((c.z - lo.z) / ext.z, 0.0f, 1.0f) * 1023.0f);
@@ -154,7 +130,7 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
 
   for (const auto& ord : order) {
     size_t i = static_cast<size_t>(ord.second) * 3;
-    u32 g[3] = {lod.indices[i], lod.indices[i + 1], lod.indices[i + 2]};
+    u32 g[3] = {indices[i], indices[i + 1], indices[i + 2]};
     u8 local[3];
     // Count how many of this triangle's vertices are not already in the meshlet.
     u32 added = 0;
@@ -169,12 +145,8 @@ Built BuildMeshlets(const asset::MeshLod& lod) {
       if (!found) ++added;
     }
     // This triangle's unit normal, to keep the meshlet's normal cone tight.
-    const asset::Vertex& va = lod.vertices[g[0]];
-    const asset::Vertex& vb = lod.vertices[g[1]];
-    const asset::Vertex& vc = lod.vertices[g[2]];
-    Vec3 pa{va.position[0], va.position[1], va.position[2]};
-    Vec3 n = Cross(Vec3{vb.position[0], vb.position[1], vb.position[2]} - pa,
-                   Vec3{vc.position[0], vc.position[1], vc.position[2]} - pa);
+    Vec3 pa = P(g[0]);
+    Vec3 n = Cross(P(g[1]) - pa, P(g[2]) - pa);
     f32 nlen = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
     if (nlen > 1e-8f) n = n * (1.0f / nlen);
     // Bound the cone half-angle (~45deg from the running mean) so backface cone
@@ -216,6 +188,11 @@ ByteSpan Span(const void* data, size_t bytes) {
 }
 
 }  // namespace
+
+MeshletGeometry BuildMeshletGeometry(const asset::Vertex* vertices, u32 vertex_count,
+                                     const u32* indices, u32 index_count) {
+  return BuildImpl(vertices, vertex_count, indices, index_count);
+}
 
 bool MeshletPass::Initialize(Device& device, VkFormat color_format, VkFormat depth_format) {
   available_ = device.caps().mesh_shaders;
@@ -327,9 +304,21 @@ void MeshletPass::Upload(Device& device, const asset::Mesh& mesh) {
   device.DestroyBuffer(meshlet_triangles_);
   device.DestroyBuffer(vertices_);
 
-  Built built = BuildMeshlets(mesh.lods[0]);
+  const asset::MeshLod& lod = mesh.lods[0];
+  MeshletGeometry built = BuildMeshletGeometry(lod.vertices.data(),
+                                               static_cast<u32>(lod.vertices.size()),
+                                               lod.indices.data(),
+                                               static_cast<u32>(lod.indices.size()));
   meshlet_count_ = static_cast<u32>(built.meshlets.size());
   if (meshlet_count_ == 0) return;
+
+  // The demo shader pulls a compact position+normal vertex (24 bytes).
+  std::vector<Vertex> verts;
+  verts.reserve(lod.vertices.size());
+  for (const asset::Vertex& v : lod.vertices) {
+    verts.push_back({v.position[0], v.position[1], v.position[2], v.normal[0], v.normal[1],
+                     v.normal[2]});
+  }
 
   const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   meshlets_ = device.CreateBufferWithData(
@@ -338,8 +327,7 @@ void MeshletPass::Upload(Device& device, const asset::Mesh& mesh) {
       Span(built.vertex_indices.data(), built.vertex_indices.size() * sizeof(u32)), storage);
   meshlet_triangles_ = device.CreateBufferWithData(
       Span(built.triangles.data(), built.triangles.size() * sizeof(u32)), storage);
-  vertices_ = device.CreateBufferWithData(
-      Span(built.vertices.data(), built.vertices.size() * sizeof(Vertex)), storage);
+  vertices_ = device.CreateBufferWithData(Span(verts.data(), verts.size() * sizeof(Vertex)), storage);
   REC_INFO("meshlet: {} meshlets from {} tris ({} verts)", meshlet_count_,
            mesh.lods[0].indices.size() / 3, mesh.lods[0].vertices.size());
 }
