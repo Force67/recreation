@@ -78,6 +78,7 @@ public static class ModHost
     // per frame by the engine.
     public static void Tick(float deltaTime)
     {
+        Scheduler.Advance(deltaTime);
         // Iterate a snapshot so a behaviour may register or unregister mid-frame.
         var snapshot = Behaviours.ToArray();
         foreach (GameBehaviour b in snapshot)
@@ -94,6 +95,7 @@ public static class ModHost
         Behaviours.Clear();
         Mods.Clear();
         FormScripts.Clear();
+        Scheduler.Clear();
         EventBus.Clear();
         _booted = false;
     }

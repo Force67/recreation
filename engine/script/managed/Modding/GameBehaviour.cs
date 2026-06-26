@@ -23,6 +23,14 @@ public abstract class GameBehaviour
     protected virtual void OnUpdate(float deltaTime) { }
     protected virtual void OnDestroy() { }
 
+    // Schedules an action to run later, the Unity-style Invoke. Returns a handle
+    // the caller can cancel; the scheduler runs it on the host thread.
+    protected ScheduledTask Invoke(System.Action action, float delaySeconds) =>
+        Scheduler.After(delaySeconds, action);
+
+    protected ScheduledTask InvokeRepeating(System.Action action, float intervalSeconds) =>
+        Scheduler.Every(intervalSeconds, action);
+
     // Lifecycle entry points the mod host calls. Kept internal so only the host
     // drives the order; mod code overrides the protected hooks above.
     internal void DispatchStart()
