@@ -333,6 +333,18 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
       }
 
       if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Day/night cycle: scrub the time of day (drives the sun, sky and
+        // ambient) and the rate game time passes. While the cycle runs it owns
+        // the sun, so the manual sun controls below only stick when time is
+        // frozen (Time scale 0) or REC_SUN_DIR pinned a fixed sun.
+        if (clock_) {
+          f32 hour = clock_->hour();
+          if (ImGui::SliderFloat("Time of day", &hour, 0.0f, 24.0f, "%.2f h"))
+            clock_->set_hour(hour);
+          f32 timescale = clock_->timescale();
+          if (ImGui::SliderFloat("Time scale", &timescale, 0.0f, 1200.0f, "%.0fx"))
+            clock_->set_timescale(timescale);
+        }
         ImGui::Checkbox("Procedural sky", &settings.sky);
         f32 direction[3] = {settings.sun_direction.x, settings.sun_direction.y,
                             settings.sun_direction.z};

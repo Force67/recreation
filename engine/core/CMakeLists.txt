@@ -2,6 +2,7 @@ recreation_add_module(core
   log.cc
   job_system.cc
   frame_timer.cc
+  world_clock.cc
   window.cc
   input_bindings.cc
 )

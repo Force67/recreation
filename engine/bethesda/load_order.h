@@ -90,6 +90,10 @@ class RecordStore {
   // every CELL record, so this is a one-time startup cost.
   GlobalFormId FindInteriorCell(std::string_view editor_id) const;
 
+  // Finds a global variable (GLOB) by editor id, e.g. "GameHour". Invalid
+  // plugin 0xffff when not found. Used to map the time globals onto the clock.
+  GlobalFormId FindGlobal(std::string_view editor_id) const;
+
   // All REFR children (persistent and temporary) of an interior cell.
   const base::Vector<u64>* InteriorRefs(GlobalFormId cell) const;
 

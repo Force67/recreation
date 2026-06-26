@@ -228,6 +228,19 @@ GlobalFormId RecordStore::FindInteriorCell(std::string_view editor_id) const {
   return found;
 }
 
+GlobalFormId RecordStore::FindGlobal(std::string_view editor_id) const {
+  constexpr u32 kGlob = FourCc('G', 'L', 'O', 'B');
+  constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
+  GlobalFormId found;
+  EachOfType(kGlob, [&](GlobalFormId id, const StoredRecord& stored) {
+    if (found.plugin != 0xffff) return;
+    Record record;
+    if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
+    if (record.GetString(kEdid) == editor_id) found = id;
+  });
+  return found;
+}
+
 const base::Vector<u64>* RecordStore::InteriorRefs(GlobalFormId cell) const {
   return interior_.find(cell.packed());
 }

@@ -19,6 +19,12 @@ namespace rec {
 bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> window) {
   config_ = config;
   jobs_ = std::make_unique<JobSystem>();
+  // REC_SUN_DIR pins a fixed sun for headless lighting/shadow tests; otherwise
+  // the world clock drives the day/night cycle. Seed the clock now so the demo
+  // and glTF scenes (which never load game data) still get a lit time of day;
+  // LoadGameData reseeds it with the game's authored timescale.
+  drive_sun_from_clock_ = std::getenv("REC_SUN_DIR") == nullptr;
+  ConfigureClock(20.0f);
 
   if (!config_.headless) {
     // REC_WIN_W/REC_WIN_H shrink the window for fast headless capture (e.g. the
@@ -35,6 +41,7 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
     if (!debug_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("debug ui unavailable");
     }
+    debug_ui_.set_clock(&clock_);  // Lighting panel scrubs the day/night cycle
     if (!game_ui_.Initialize(*window_, renderer_)) {
       REC_WARN("game ui unavailable");
     }
@@ -186,6 +193,20 @@ void Engine::ApplyRenderPreset() {
   renderer_.settings() = tuned;
   REC_INFO("render preset: {} ({})", render::PresetName(resolved),
            config_.preset == render::QualityPreset::kAuto ? "auto" : "forced");
+}
+
+void Engine::ConfigureClock(f32 base_timescale) {
+  // REC_TIMESCALE (0 freezes time) overrides the game's timescale; REC_GAME_HOUR
+  // overrides the mid-morning start the world boots lit at.
+  f32 timescale = base_timescale > 0 ? base_timescale : 20.0f;
+  if (const char* e = std::getenv("REC_TIMESCALE")) {
+    const f32 v = static_cast<f32>(std::atof(e));
+    if (v >= 0) timescale = v;
+  }
+  f32 start_hour = 11.0f;
+  if (const char* e = std::getenv("REC_GAME_HOUR")) start_hour = static_cast<f32>(std::atof(e));
+  clock_.Configure(start_hour, timescale);
+  REC_INFO("day/night clock: start hour {:.1f}, timescale {:.0f}", start_hour, timescale);
 }
 
 int Engine::Run() {

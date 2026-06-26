@@ -1,6 +1,7 @@
 #include "engine.h"
 
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <utility>
 
@@ -77,6 +78,10 @@ bool Engine::RunFrame() {
   {
     int steps = timer_.Tick();
     f32 dt = static_cast<f32>(timer_.fixed_step());
+    // Advance the in-world clock (day/night cycle) by the real frame time. The
+    // Papyrus time natives read it through the bindings; the render path below
+    // derives the sun and sky tint from it.
+    clock_.Advance(timer_.frame_delta());
     // Place NPC / other-player collision capsules at their current transforms
     // before the sim step, so the player's character controller collides with
     // them where they are this frame.
@@ -144,6 +149,22 @@ bool Engine::RunFrame() {
 
     if (!config_.headless) {
       f32 frame_delta = static_cast<f32>(timer_.frame_delta());
+      // Day/night: derive the sun direction, intensity, color and ambient from
+      // the clock's time of day, unless REC_SUN_DIR pinned a fixed sun. Throttled
+      // to ~0.02-hour steps (sub-degree sun motion) so the IBL environment is not
+      // rebuilt every frame.
+      if (drive_sun_from_clock_) {
+        const f32 hour = clock_.hour();
+        if (last_sky_hour_ < -100.0f || std::abs(hour - last_sky_hour_) >= 0.02f) {
+          last_sky_hour_ = hour;
+          const SkyLighting sky = ComputeSkyLighting(hour);
+          auto& s = renderer_.settings();
+          s.sun_direction = sky.sun_direction;
+          s.sun_intensity = sky.sun_intensity;
+          s.sun_color = sky.sun_color;
+          s.ambient = sky.ambient;
+        }
+      }
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);

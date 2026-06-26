@@ -18,6 +18,7 @@
 #include "core/input_bindings.h"
 #include "core/job_system.h"
 #include "core/window.h"
+#include "core/world_clock.h"
 #include "script/host/managed_host.h"
 
 #include "actor_system.h"
@@ -183,6 +184,11 @@ class Engine {
   // Resolves the configured quality tier from the gpu (or a forced preset) and
   // applies it to the renderer's live settings.
   void ApplyRenderPreset();
+  // (Re)seeds the day/night clock. base_timescale is the game's authored
+  // TimeScale (or 20 before a game loads); REC_TIMESCALE / REC_GAME_HOUR
+  // override the timescale and start hour. Called once at boot and again when a
+  // game loads with its real timescale.
+  void ConfigureClock(f32 base_timescale);
 
   void ThrowPhysicsCube();
   void UpdateCamera(f32 frame_delta);
@@ -230,6 +236,15 @@ class Engine {
   std::unique_ptr<Window> window_;
   std::unique_ptr<JobSystem> jobs_;
   FrameTimer timer_;
+  // The in-world clock driving the day/night cycle. Advanced each frame from the
+  // real frame delta; the Papyrus time natives read it through the bindings, and
+  // the render loop derives the sun/sky from it. drive_sun_from_clock_ is false
+  // when REC_SUN_DIR pins a fixed sun (headless lighting tests), leaving the sun
+  // static. last_sky_hour_ throttles the sun update so the IBL environment is
+  // not rebuilt every frame for sub-degree motion.
+  WorldClock clock_;
+  bool drive_sun_from_clock_ = true;
+  f32 last_sky_hour_ = -1000.0f;
 
   ecs::World world_;
   ecs::Scheduler scheduler_;

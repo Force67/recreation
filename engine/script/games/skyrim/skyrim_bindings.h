@@ -15,6 +15,7 @@
 #include "bethesda/script_attachment.h"
 #include "bethesda/strings.h"
 #include "core/types.h"
+#include "core/world_clock.h"
 #include "quest/quest_graph.h"
 #include "quest/scene_player.h"
 #include "quest/quest_system.h"
@@ -50,6 +51,20 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void set_records(const bethesda::RecordStore* records) { records_ = records; }
   void set_strings(const bethesda::StringTable* strings) { strings_ = strings; }
   void set_player(papyrus::ObjectRef player) { player_ = player; }
+  // The in-world clock backing the time natives (Utility.GetCurrentGameTime and
+  // the GameHour/GameDaysPassed/TimeScale globals). Owned by the runtime, which
+  // advances it on the main thread; reads/writes here happen on the guest
+  // thread, so the clock keeps its shared fields atomic. Null leaves the time
+  // natives at their neutral defaults.
+  void set_clock(WorldClock* clock) { clock_ = clock; }
+  // The packed form handles of the time globals, resolved by editor id at load.
+  // 0 means the game has no such global; that global then keeps record-authored
+  // behaviour instead of routing to the clock.
+  void set_time_globals(u64 game_hour, u64 game_days_passed, u64 timescale) {
+    game_hour_global_ = game_hour;
+    game_days_global_ = game_days_passed;
+    timescale_global_ = timescale;
+  }
   // Sink for quest-driven world mutations (spawn/move/enable/delete + cleanup).
   // Set by the runtime; when null, those bindings only update logical state.
   void set_world_sink(WorldEffectSink* sink) { world_sink_ = sink; }
@@ -245,9 +260,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void SetPlayerControl(i32 category, bool enabled) override;
   bool IsPlayerControlEnabled(i32 category) override;
 
-  // Global variables: seeded from the GLOB record, overridable.
+  // Global variables: seeded from the GLOB record, overridable. The time
+  // globals (GameHour/GameDaysPassed/TimeScale) read and write the world clock.
   f32 GetGlobalValue(papyrus::ObjectRef global) override;
   void SetGlobalValue(papyrus::ObjectRef global, f32 value) override;
+
+  // Time, backed by the world clock (neutral defaults without one).
+  f32 GetCurrentGameTime() override;  // days since start (GameDaysPassed)
+  f32 GetRealHoursPassed() override;  // real wall-clock hours since load
 
   // Actor values (new system): permanent base + damageable current.
   f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) override;
@@ -424,6 +444,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::array<bool, SkyrimBindings::kControlCount> player_controls_{};   // true = enabled
   bool player_controls_init_ = false;
   std::unordered_map<u64, f32> global_values_;  // GlobalVariable overrides
+  // The day/night clock and the packed handles of the globals that proxy it.
+  // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).
+  WorldClock* clock_ = nullptr;
+  u64 game_hour_global_ = 0;
+  u64 game_days_global_ = 0;
+  u64 timescale_global_ = 0;
 
   // Proximity query state. live_positions_ is a world-space snapshot the runtime
   // refreshes each frame (main thread); the natives read it on the guest thread,

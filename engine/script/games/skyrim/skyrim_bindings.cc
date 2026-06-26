@@ -388,7 +388,21 @@ bool RecordBackedSkyrimBindings::IsPlayerControlEnabled(i32 category) {
   return category >= 0 && category < kControlCount ? player_controls_[category] : true;
 }
 
+f32 RecordBackedSkyrimBindings::GetCurrentGameTime() {
+  return clock_ ? static_cast<f32>(clock_->game_days()) : 0.0f;
+}
+
+f32 RecordBackedSkyrimBindings::GetRealHoursPassed() {
+  return clock_ ? clock_->real_hours() : 0.0f;
+}
+
 f32 RecordBackedSkyrimBindings::GetGlobalValue(ObjectRef global) {
+  // The time globals proxy the live clock rather than a stored/authored value.
+  if (clock_ && global.handle != 0) {
+    if (global.handle == game_hour_global_) return clock_->hour();
+    if (global.handle == game_days_global_) return static_cast<f32>(clock_->game_days());
+    if (global.handle == timescale_global_) return clock_->timescale();
+  }
   auto it = global_values_.find(global.handle);
   if (it != global_values_.end()) return it->second;
   // Fall back to the GLOB record's authored value (FLTV).
@@ -407,6 +421,12 @@ f32 RecordBackedSkyrimBindings::GetGlobalValue(ObjectRef global) {
 }
 
 void RecordBackedSkyrimBindings::SetGlobalValue(ObjectRef global, f32 value) {
+  // Writing a time global moves the clock (e.g. a script setting GameHour).
+  if (clock_ && global.handle != 0) {
+    if (global.handle == game_hour_global_) return clock_->set_hour(value);
+    if (global.handle == game_days_global_) return clock_->set_game_days(value);
+    if (global.handle == timescale_global_) return clock_->set_timescale(value);
+  }
   global_values_[global.handle] = value;
 }
 

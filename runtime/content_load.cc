@@ -72,6 +72,25 @@ bool LoadGameData(Engine& engine) {
   // through the provenance layer; the player teleports through a host hook since
   // it is an actor/capsule, not a registry entity.
   self->script_bindings_->set_world_sink(&self->runtime_world_sink_);
+  // Day/night clock: map the time globals (resolved by editor id, so it works
+  // across Skyrim/Fallout/Starfield) onto the clock, then reseed it with the
+  // game's authored TimeScale (Bethesda default 20), honouring the env overrides.
+  self->script_bindings_->set_clock(&self->clock_);
+  const auto game_hour = self->records_.FindGlobal("GameHour");
+  const auto days_passed = self->records_.FindGlobal("GameDaysPassed");
+  auto timescale_glob = self->records_.FindGlobal("TimeScale");
+  if (timescale_glob.plugin == 0xffff) timescale_glob = self->records_.FindGlobal("Timescale");
+  f32 authored_timescale = 20.0f;
+  if (timescale_glob.plugin != 0xffff) {
+    // Read before set_time_globals so it returns the authored FLTV, not the clock.
+    authored_timescale = self->script_bindings_->GetGlobalValue(
+        rec::script::papyrus::ObjectRef{timescale_glob.packed()});
+  }
+  self->ConfigureClock(authored_timescale);
+  self->script_bindings_->set_time_globals(game_hour.plugin == 0xffff ? 0 : game_hour.packed(),
+                                           days_passed.plugin == 0xffff ? 0 : days_passed.packed(),
+                                           timescale_glob.plugin == 0xffff ? 0
+                                                                           : timescale_glob.packed());
   self->quest_world_.set_on_move_player([self](u64 dest_ref, f32 x, f32 y, f32 z) {
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded

@@ -8,6 +8,7 @@
 
 #include "core/types.h"
 #include "core/window.h"
+#include "core/world_clock.h"
 #include "render/renderer.h"
 
 namespace rec {
@@ -109,6 +110,10 @@ class DebugUi {
              render::FrameView* view, QuestPanel* quests = nullptr,
              NativeTracePanel* trace = nullptr);
 
+  // The day/night clock, so the Lighting panel can scrub the time of day and the
+  // timescale. Null leaves those controls out.
+  void set_clock(WorldClock* clock) { clock_ = clock; }
+
   void ToggleVisible() { visible_ = !visible_; }
   void SetVisible(bool v) { visible_ = v; }
   // Hide/show every overlay window at once (renderer, trace, quests), for clean
@@ -130,6 +135,7 @@ class DebugUi {
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
   bool show_demo_ = false;
+  WorldClock* clock_ = nullptr;  // day/night cycle, for the Lighting time controls
   int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row
   // The set-stage InputInt tracks the selected quest: switching selection resets
   // it instead of carrying a stale stage from the previously expanded quest.
