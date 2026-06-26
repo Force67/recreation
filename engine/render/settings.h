@@ -113,6 +113,10 @@ struct RenderSettings {
   // sky, from a camera->surface raymarch of the atmosphere LUTs. 0 disables.
   f32 aerial_perspective = 1.0f;
 
+  // Raymarched volumetric clouds over the sky (procedural, depth-composited).
+  bool clouds = true;
+  f32 cloud_coverage = 0.46f;  // 0 clear .. 1 overcast
+
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)
   f32 fog_density = 0.03f;
   f32 fog_height_falloff = 0.15f;

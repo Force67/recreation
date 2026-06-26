@@ -177,6 +177,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   }
   if (rt_available_) volumetric_fog_.Initialize(*device_);
   aerial_perspective_.Initialize(*device_);  // atmospheric distance haze (no ray tracing)
+  clouds_.Initialize(*device_);              // volumetric clouds (no ray tracing)
 
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
@@ -257,6 +258,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (const char* fg = std::getenv("REC_FOG")) settings_.fog = std::atoi(fg) != 0;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (const char* ap = std::getenv("REC_AERIAL")) settings_.aerial_perspective = std::atof(ap);
+  if (const char* cl = std::getenv("REC_CLOUDS")) settings_.clouds = std::atoi(cl) != 0;
+  if (const char* cc = std::getenv("REC_CLOUD_COVERAGE"))
+    settings_.cloud_coverage = std::atof(cc);
 
   return true;
 }
@@ -1527,6 +1531,20 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                                          {render_width_, render_height_}, af);
   }
 
+  // Volumetric clouds raymarched over the sky, composited against depth so
+  // terrain occludes them. Skipped when path tracing.
+  if (settings_.clouds && !path_trace) {
+    Clouds::Frame cf;
+    cf.inv_view_proj = globals.inv_view_proj;
+    cf.camera_pos = view.camera.eye;
+    cf.time = static_cast<f32>(time_seconds_);
+    cf.sun_direction = settings_.sun_direction;
+    cf.sun_intensity = settings_.sun_intensity;
+    cf.sun_color = settings_.sun_color;
+    cf.coverage = settings_.cloud_coverage;
+    lit = clouds_.AddToGraph(graph_, lit, depth_export, {render_width_, render_height_}, cf);
+  }
+
   // Volumetric fog marches the lit scene against depth before the temporal
   // pass, so the marched noise resolves into stable shafts.
   if (fog_active) {
@@ -2015,6 +2033,7 @@ void Renderer::Shutdown() {
     path_tracer_.Destroy(*device_);
     volumetric_fog_.Destroy(*device_);
   aerial_perspective_.Destroy(*device_);
+  clouds_.Destroy(*device_);
     water_.reset();
     ddgi_.reset();
     environment_.reset();

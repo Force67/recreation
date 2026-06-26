@@ -24,6 +24,7 @@
 #include "render/gpu_profiler.h"
 #include "render/meshlet.h"
 #include "render/aerial_perspective.h"
+#include "render/clouds.h"
 #include "render/path_tracer.h"
 #include "render/volumetric_fog.h"
 #include "render/material_system.h"
@@ -260,6 +261,7 @@ class Renderer {
   PathTracer path_tracer_;
   VolumetricFog volumetric_fog_;
   AerialPerspective aerial_perspective_;
+  Clouds clouds_;
   ParticleSystem particles_;
   GaussianSplat gaussians_;
   FurPass fur_;
