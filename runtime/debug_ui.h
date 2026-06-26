@@ -9,7 +9,7 @@
 #include "core/types.h"
 #include "core/window.h"
 #include "core/world_clock.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 #include "weather/weather.h"
 
 namespace rec {

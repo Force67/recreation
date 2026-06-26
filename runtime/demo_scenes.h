@@ -5,7 +5,7 @@
 
 #include "core/math.h"
 #include "engine_context.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 
 namespace rec {
 

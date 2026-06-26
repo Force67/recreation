@@ -15,7 +15,7 @@
 #include "ecs/world.h"
 #include "engine_context.h"
 #include "physics/physics_world.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 
 namespace rec {
 

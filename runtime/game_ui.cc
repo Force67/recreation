@@ -25,7 +25,7 @@
 #include "core/log.h"
 #include "core/window.h"
 #include "gui_backend.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 #include "ugui_platform.h"
 
 namespace rec {

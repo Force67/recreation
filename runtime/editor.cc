@@ -17,7 +17,7 @@
 #include "core/log.h"
 #include "ecs/world.h"
 #include "engine_context.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 #include "thumbnailer.h"
 #include "world/cell_streaming.h"
 

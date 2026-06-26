@@ -1,43 +1,43 @@
 recreation_add_module(render
-  renderer.cc
-  presets.cc
-  render_graph.cc
-  mesh_pipeline.cc
-  material_system.cc
-  bindless.cc
-  water.cc
-  stb_impl.cc
-  environment.cc
-  ambient_occlusion.cc
-  ssao.cc
-  ssr.cc
-  ssgi.cc
-  gpu_cull.cc
-  shadow.cc
-  shadow_trace.cc
-  exr_write.cc
-  meshlet.cc
-  particles.cc
-  fur.cc
-  wboit.cc
-  gaussian.cc
-  overdraw.cc
-  bloom.cc
-  ddgi.cc
-  exposure.cc
-  post.cc
-  ui_blur.cc
-  shader_util.cc
-  taa.cc
-  raytracing.cc
-  gpu_profiler.cc
-  path_tracer.cc
-  volumetric_fog.cc
-  aerial_perspective.cc
-  clouds.cc
-  precipitation.cc
-  surface_weather.cc
-  upscaler.cc
+  core/renderer.cc
+  core/presets.cc
+  core/render_graph.cc
+  core/bindless.cc
+  pipeline/mesh_pipeline.cc
+  pipeline/material_system.cc
+  pipeline/meshlet.cc
+  pipeline/gpu_cull.cc
+  gi/shadow.cc
+  gi/shadow_trace.cc
+  gi/ddgi.cc
+  gi/raytracing.cc
+  gi/path_tracer.cc
+  screenspace/ambient_occlusion.cc
+  screenspace/ssao.cc
+  screenspace/ssr.cc
+  screenspace/ssgi.cc
+  atmosphere/environment.cc
+  atmosphere/volumetric_fog.cc
+  atmosphere/aerial_perspective.cc
+  atmosphere/clouds.cc
+  atmosphere/precipitation.cc
+  atmosphere/surface_weather.cc
+  post/post.cc
+  post/bloom.cc
+  post/exposure.cc
+  post/taa.cc
+  post/overdraw.cc
+  post/ui_blur.cc
+  post/upscaler.cc
+  geometry/water.cc
+  geometry/particles.cc
+  geometry/fur.cc
+  geometry/wboit.cc
+  geometry/gaussian.cc
+  util/shader_util.cc
+  util/exr_write.cc
+  util/gpu_profiler.cc
+  util/stb_impl.cc
   vulkan/vk_device.cc
   vulkan/vk_swapchain.cc
   vulkan/vk_resources.cc
@@ -49,19 +49,19 @@ target_link_libraries(recreation_render
 target_link_libraries(recreation_render PRIVATE recreation::stb)
 
 if(RECREATION_FSR3)
-  target_sources(recreation_render PRIVATE upscaler_fsr3.cc)
+  target_sources(recreation_render PRIVATE post/upscaler_fsr3.cc)
   target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_FSR3)
   target_link_libraries(recreation_render PRIVATE recreation::ffx_fsr3)
 endif()
 
 if(RECREATION_DLSS)
-  target_sources(recreation_render PRIVATE upscaler_dlss.cc)
+  target_sources(recreation_render PRIVATE post/upscaler_dlss.cc)
   target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_DLSS)
   target_link_libraries(recreation_render PRIVATE recreation::dlss)
 endif()
 
 if(RECREATION_NRD)
-  target_sources(recreation_render PRIVATE denoiser_nrd.cc)
+  target_sources(recreation_render PRIVATE gi/denoiser_nrd.cc)
   # PUBLIC: renderer.h embeds an NrdDenoiser member under this macro, so every
   # translation unit that includes it must agree on the layout or the Renderer
   # ctor writes past a shorter allocation.
@@ -70,66 +70,66 @@ if(RECREATION_NRD)
 endif()
 
 if(NOT MSVC)
-  set_source_files_properties(vulkan/vma_impl.cc stb_impl.cc PROPERTIES COMPILE_OPTIONS -w)
+  set_source_files_properties(vulkan/vma_impl.cc util/stb_impl.cc PROPERTIES COMPILE_OPTIONS -w)
 endif()
 
 set(RECREATION_RENDER_SHADERS
-  shaders/mesh.vs.hlsl
-  shaders/mesh_skin.vs.hlsl
-  shaders/shadow.vs.hlsl
-  shaders/shadow_skin.vs.hlsl
-  shaders/shadow.ps.hlsl
-  shaders/particle.vs.hlsl
-  shaders/particle.ps.hlsl
-  shaders/particle_sim.cs.hlsl
-  shaders/fur.vs.hlsl
-  shaders/fur.ps.hlsl
-  shaders/wboit.vs.hlsl
-  shaders/wboit.ps.hlsl
-  shaders/wboit_resolve.ps.hlsl
-  shaders/gsplat.vs.hlsl
-  shaders/gsplat.ps.hlsl
-  shaders/overdraw.ps.hlsl
-  shaders/mesh.ps.hlsl
-  shaders/mesh_rt.ps.hlsl
-  shaders/fullscreen.vs.hlsl
-  shaders/tonemap.ps.hlsl
-  shaders/taa.cs.hlsl
-  shaders/transmittance_lut.cs.hlsl
-  shaders/multiscatter_lut.cs.hlsl
-  shaders/aerial_perspective.cs.hlsl
-  shaders/clouds.cs.hlsl
-  shaders/precipitation.cs.hlsl
-  shaders/surface_weather.cs.hlsl
-  shaders/sky.cs.hlsl
-  shaders/sky.ps.hlsl
-  shaders/irradiance.cs.hlsl
-  shaders/prefilter.cs.hlsl
-  shaders/brdf_lut.cs.hlsl
-  shaders/prepass.ps.hlsl
-  shaders/rtao.cs.hlsl
-  shaders/ssao.cs.hlsl
-  shaders/ssr.cs.hlsl
-  shaders/ssgi.cs.hlsl
-  shaders/cull.cs.hlsl
-  shaders/hiz_reduce.cs.hlsl
-  shaders/meshlet.ms.hlsl
-  shaders/meshlet.ps.hlsl
-  shaders/bounds.vs.hlsl
-  shaders/bounds.ps.hlsl
-  shaders/bloom_down.cs.hlsl
-  shaders/bloom_up.cs.hlsl
-  shaders/histogram.cs.hlsl
-  shaders/exposure_resolve.cs.hlsl
-  shaders/ddgi_rays.cs.hlsl
-  shaders/ddgi_blend.cs.hlsl
-  shaders/ddgi_border.cs.hlsl
-  shaders/water.ps.hlsl
-  shaders/copy.cs.hlsl
-  shaders/hdr_capture.cs.hlsl
-  shaders/pathtrace.cs.hlsl
-  shaders/fog.cs.hlsl
-  shaders/ui_blur.ps.hlsl
+  shaders/pipeline/mesh.vs.hlsl
+  shaders/pipeline/mesh_skin.vs.hlsl
+  shaders/gi/shadow.vs.hlsl
+  shaders/gi/shadow_skin.vs.hlsl
+  shaders/gi/shadow.ps.hlsl
+  shaders/geometry/particle.vs.hlsl
+  shaders/geometry/particle.ps.hlsl
+  shaders/geometry/particle_sim.cs.hlsl
+  shaders/geometry/fur.vs.hlsl
+  shaders/geometry/fur.ps.hlsl
+  shaders/geometry/wboit.vs.hlsl
+  shaders/geometry/wboit.ps.hlsl
+  shaders/geometry/wboit_resolve.ps.hlsl
+  shaders/geometry/gsplat.vs.hlsl
+  shaders/geometry/gsplat.ps.hlsl
+  shaders/post/overdraw.ps.hlsl
+  shaders/pipeline/mesh.ps.hlsl
+  shaders/pipeline/mesh_rt.ps.hlsl
+  shaders/util/fullscreen.vs.hlsl
+  shaders/post/tonemap.ps.hlsl
+  shaders/post/taa.cs.hlsl
+  shaders/atmosphere/transmittance_lut.cs.hlsl
+  shaders/atmosphere/multiscatter_lut.cs.hlsl
+  shaders/atmosphere/aerial_perspective.cs.hlsl
+  shaders/atmosphere/clouds.cs.hlsl
+  shaders/atmosphere/precipitation.cs.hlsl
+  shaders/atmosphere/surface_weather.cs.hlsl
+  shaders/atmosphere/sky.cs.hlsl
+  shaders/atmosphere/sky.ps.hlsl
+  shaders/atmosphere/irradiance.cs.hlsl
+  shaders/atmosphere/prefilter.cs.hlsl
+  shaders/atmosphere/brdf_lut.cs.hlsl
+  shaders/pipeline/prepass.ps.hlsl
+  shaders/screenspace/rtao.cs.hlsl
+  shaders/screenspace/ssao.cs.hlsl
+  shaders/screenspace/ssr.cs.hlsl
+  shaders/screenspace/ssgi.cs.hlsl
+  shaders/pipeline/cull.cs.hlsl
+  shaders/pipeline/hiz_reduce.cs.hlsl
+  shaders/pipeline/meshlet.ms.hlsl
+  shaders/pipeline/meshlet.ps.hlsl
+  shaders/pipeline/bounds.vs.hlsl
+  shaders/pipeline/bounds.ps.hlsl
+  shaders/post/bloom_down.cs.hlsl
+  shaders/post/bloom_up.cs.hlsl
+  shaders/post/histogram.cs.hlsl
+  shaders/post/exposure_resolve.cs.hlsl
+  shaders/gi/ddgi_rays.cs.hlsl
+  shaders/gi/ddgi_blend.cs.hlsl
+  shaders/gi/ddgi_border.cs.hlsl
+  shaders/geometry/water.ps.hlsl
+  shaders/geometry/copy.cs.hlsl
+  shaders/util/hdr_capture.cs.hlsl
+  shaders/gi/pathtrace.cs.hlsl
+  shaders/atmosphere/fog.cs.hlsl
+  shaders/post/ui_blur.ps.hlsl
 )
 
 # rtao.cs.hlsl and the nrd_* shaders pull in NRD.hlsli. The include dir is added
@@ -139,10 +139,16 @@ set(RECREATION_RENDER_SHADERS
 if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders/NRD.hlsli)
   set(RECREATION_SHADER_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders)
 endif()
-# The atmosphere LUT/sky shaders share atmosphere.hlsli from the shaders dir.
-list(APPEND RECREATION_SHADER_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
+# Shaders include siblings from their own subfolder (atmosphere.hlsli; the
+# mesh/shadow base vertex shaders reused by the *_skin variants). Add those dirs
+# so dxc resolves the quoted includes regardless of the including file's path.
+list(APPEND RECREATION_SHADER_INCLUDE_DIRS
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/pipeline
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi)
 if(RECREATION_NRD)
-  list(APPEND RECREATION_RENDER_SHADERS shaders/nrd_pack.cs.hlsl shaders/shadow_trace.cs.hlsl)
+  list(APPEND RECREATION_RENDER_SHADERS shaders/gi/nrd_pack.cs.hlsl shaders/gi/shadow_trace.cs.hlsl)
 endif()
 
 recreation_embed_shaders(recreation_render ${RECREATION_RENDER_SHADERS})

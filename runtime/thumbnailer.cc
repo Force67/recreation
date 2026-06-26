@@ -13,9 +13,9 @@
 #include "asset/mesh.h"
 #include "core/log.h"
 #include "core/math.h"
-#include "render/renderer.h"
+#include "render/core/renderer.h"
 #include "render/rhi/device.h"
-#include "render/shader_util.h"
+#include "render/util/shader_util.h"
 #include "shaders/thumb_ps_hlsl.h"
 #include "shaders/thumb_vs_hlsl.h"
 

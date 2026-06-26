@@ -5,7 +5,7 @@
 
 #include <ugui/render/vertex.h>
 
-#include "render/shader_util.h"
+#include "render/util/shader_util.h"
 #include "shaders/ugui_frost_ps_hlsl.h"
 #include "shaders/ugui_frost_vs_hlsl.h"
 #include "shaders/ugui_quad_ps_hlsl.h"
