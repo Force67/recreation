@@ -7,9 +7,11 @@
 #include "shaders/brdf_lut_cs_hlsl.h"
 #include "shaders/fullscreen_vs_hlsl.h"
 #include "shaders/irradiance_cs_hlsl.h"
+#include "shaders/multiscatter_lut_cs_hlsl.h"
 #include "shaders/prefilter_cs_hlsl.h"
 #include "shaders/sky_cs_hlsl.h"
 #include "shaders/sky_ps_hlsl.h"
+#include "shaders/transmittance_lut_cs_hlsl.h"
 
 namespace rec::render {
 namespace {
@@ -28,6 +30,10 @@ struct SizePush {
 struct PrefilterPush {
   f32 face_size;
   f32 roughness;
+};
+
+struct LutPush {
+  f32 size[2];  // (width, height) in texels
 };
 
 void CubeBarrier(VkCommandBuffer cmd, VkImage image, u32 mip_count, VkImageLayout old_layout,
@@ -95,6 +101,7 @@ std::unique_ptr<EnvironmentSystem> EnvironmentSystem::Create(Device& device) {
 
   if (!env->CreateImages() || !env->CreateDummies()) return nullptr;
   if (!env->CreatePipelines()) return nullptr;
+  if (!env->BakeLuts()) return nullptr;  // transmittance + multiscatter, before any sky update
   if (!env->BakeBrdfLut()) return nullptr;
   return env;
 }
@@ -107,7 +114,17 @@ bool EnvironmentSystem::CreateImages() {
                                          kPrefilterMips);
   brdf_lut_ = device_.CreateImage2D(VK_FORMAT_R16G16_SFLOAT, {kBrdfLutSize, kBrdfLutSize}, usage,
                                     VK_IMAGE_ASPECT_COLOR_BIT);
-  if (!sky_.image || !irradiance_.image || !prefiltered_.image || !brdf_lut_.image) return false;
+  // Atmosphere LUTs: a single 2d view serves both the storage write (GENERAL)
+  // and the later sampled reads, like the brdf lut.
+  transmittance_lut_ = device_.CreateImage2D(VK_FORMAT_R16G16B16A16_SFLOAT,
+                                             {kTransmittanceW, kTransmittanceH}, usage,
+                                             VK_IMAGE_ASPECT_COLOR_BIT);
+  multiscatter_lut_ = device_.CreateImage2D(VK_FORMAT_R16G16B16A16_SFLOAT,
+                                            {kMultiScatterSize, kMultiScatterSize}, usage,
+                                            VK_IMAGE_ASPECT_COLOR_BIT);
+  if (!sky_.image || !irradiance_.image || !prefiltered_.image || !brdf_lut_.image ||
+      !transmittance_lut_.image || !multiscatter_lut_.image)
+    return false;
 
   auto make_array_view = [&](VkImage image, u32 mip, VkImageView* out) {
     VkImageViewCreateInfo info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -211,21 +228,26 @@ bool EnvironmentSystem::CreateDummies() {
 }
 
 bool EnvironmentSystem::CreatePipelines() {
+  // sampled_count: number of combined-image-sampler inputs after the storage
+  // image at binding 0 (the sky pass takes two: the transmittance + multi-
+  // scattering LUTs).
   auto make_compute = [&](ComputePass* pass, const unsigned char* spv, size_t spv_size,
-                          bool sampled_input, u32 push_size) {
-    VkDescriptorSetLayoutBinding bindings[2]{};
+                          u32 sampled_count, u32 push_size) {
+    VkDescriptorSetLayoutBinding bindings[3]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    for (u32 i = 1; i <= sampled_count; ++i) {
+      bindings[i].binding = i;
+      bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      bindings[i].descriptorCount = 1;
+      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
 
     VkDescriptorSetLayoutCreateInfo set_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    set_info.bindingCount = sampled_input ? 2 : 1;
+    set_info.bindingCount = 1 + sampled_count;
     set_info.pBindings = bindings;
     if (vkCreateDescriptorSetLayout(device_.device(), &set_info, nullptr, &pass->set_layout) !=
         VK_SUCCESS) {
@@ -257,13 +279,17 @@ bool EnvironmentSystem::CreatePipelines() {
     return result == VK_SUCCESS;
   };
 
-  if (!make_compute(&sky_gen_, k_sky_cs_hlsl, sizeof(k_sky_cs_hlsl), false, sizeof(SkyPush)) ||
-      !make_compute(&irradiance_gen_, k_irradiance_cs_hlsl, sizeof(k_irradiance_cs_hlsl), true,
+  if (!make_compute(&sky_gen_, k_sky_cs_hlsl, sizeof(k_sky_cs_hlsl), 2, sizeof(SkyPush)) ||
+      !make_compute(&irradiance_gen_, k_irradiance_cs_hlsl, sizeof(k_irradiance_cs_hlsl), 1,
                     sizeof(SizePush)) ||
-      !make_compute(&prefilter_gen_, k_prefilter_cs_hlsl, sizeof(k_prefilter_cs_hlsl), true,
+      !make_compute(&prefilter_gen_, k_prefilter_cs_hlsl, sizeof(k_prefilter_cs_hlsl), 1,
                     sizeof(PrefilterPush)) ||
-      !make_compute(&brdf_gen_, k_brdf_lut_cs_hlsl, sizeof(k_brdf_lut_cs_hlsl), false,
-                    sizeof(SizePush))) {
+      !make_compute(&brdf_gen_, k_brdf_lut_cs_hlsl, sizeof(k_brdf_lut_cs_hlsl), 0,
+                    sizeof(SizePush)) ||
+      !make_compute(&transmittance_gen_, k_transmittance_lut_cs_hlsl,
+                    sizeof(k_transmittance_lut_cs_hlsl), 0, sizeof(LutPush)) ||
+      !make_compute(&multiscatter_gen_, k_multiscatter_lut_cs_hlsl,
+                    sizeof(k_multiscatter_lut_cs_hlsl), 1, sizeof(LutPush))) {
     REC_ERROR("environment compute pipeline creation failed");
     return false;
   }
@@ -277,13 +303,16 @@ bool EnvironmentSystem::CreatePipelines() {
     vkAllocateDescriptorSets(device_.device(), &info, &set);
     return set;
   };
-  auto write_set = [&](VkDescriptorSet set, VkImageView storage, VkImageView sampled) {
-    VkDescriptorImageInfo images[2]{};
+  auto write_set = [&](VkDescriptorSet set, VkImageView storage, VkImageView sampled0,
+                       VkImageView sampled1) {
+    VkDescriptorImageInfo images[3]{};
     images[0] = {.imageView = storage, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-    images[1] = {.sampler = sampler_, .imageView = sampled,
+    images[1] = {.sampler = sampler_, .imageView = sampled0,
                  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet writes[2];
-    u32 count = sampled ? 2 : 1;
+    images[2] = {.sampler = sampler_, .imageView = sampled1,
+                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet writes[3];
+    u32 count = 1 + (sampled0 ? 1 : 0) + (sampled1 ? 1 : 0);
     for (u32 i = 0; i < count; ++i) {
       writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
       writes[i].dstSet = set;
@@ -297,15 +326,20 @@ bool EnvironmentSystem::CreatePipelines() {
   };
 
   sky_gen_.set = allocate(sky_gen_.set_layout);
-  write_set(sky_gen_.set, sky_storage_view_, VK_NULL_HANDLE);
+  write_set(sky_gen_.set, sky_storage_view_, transmittance_lut_.view, multiscatter_lut_.view);
   irradiance_gen_.set = allocate(irradiance_gen_.set_layout);
-  write_set(irradiance_gen_.set, irradiance_storage_view_, sky_.view);
+  write_set(irradiance_gen_.set, irradiance_storage_view_, sky_.view, VK_NULL_HANDLE);
   for (u32 mip = 0; mip < kPrefilterMips; ++mip) {
     prefilter_sets_[mip] = allocate(prefilter_gen_.set_layout);
-    write_set(prefilter_sets_[mip], prefilter_storage_views_[mip], sky_.view);
+    write_set(prefilter_sets_[mip], prefilter_storage_views_[mip], sky_.view, VK_NULL_HANDLE);
   }
   brdf_gen_.set = allocate(brdf_gen_.set_layout);
-  write_set(brdf_gen_.set, brdf_lut_.view, VK_NULL_HANDLE);
+  write_set(brdf_gen_.set, brdf_lut_.view, VK_NULL_HANDLE, VK_NULL_HANDLE);
+  transmittance_gen_.set = allocate(transmittance_gen_.set_layout);
+  write_set(transmittance_gen_.set, transmittance_lut_.view, VK_NULL_HANDLE, VK_NULL_HANDLE);
+  multiscatter_gen_.set = allocate(multiscatter_gen_.set_layout);
+  write_set(multiscatter_gen_.set, multiscatter_lut_.view, transmittance_lut_.view,
+            VK_NULL_HANDLE);
 
   // Set 2 of the mesh pipeline: ibl inputs, per frame ao, ddgi atlases, the
   // cascade shadow atlas (7) + cascade ubo (8), the opaque scene color (9,
@@ -514,6 +548,64 @@ bool EnvironmentSystem::BakeBrdfLut() {
   return true;
 }
 
+bool EnvironmentSystem::BakeLuts() {
+  device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
+    auto barrier = [&](VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
+                       VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                       VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
+      VkImageMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      b.srcStageMask = src_stage;
+      b.srcAccessMask = src_access;
+      b.dstStageMask = dst_stage;
+      b.dstAccessMask = dst_access;
+      b.oldLayout = old_layout;
+      b.newLayout = new_layout;
+      b.image = image;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 1;
+      dep.pImageMemoryBarriers = &b;
+      vkCmdPipelineBarrier2(cmd, &dep);
+    };
+
+    // Transmittance LUT (no inputs).
+    barrier(transmittance_lut_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    LutPush tpush{{static_cast<f32>(kTransmittanceW), static_cast<f32>(kTransmittanceH)}};
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, transmittance_gen_.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, transmittance_gen_.layout, 0, 1,
+                            &transmittance_gen_.set, 0, nullptr);
+    vkCmdPushConstants(cmd, transmittance_gen_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                       sizeof(tpush), &tpush);
+    vkCmdDispatch(cmd, (kTransmittanceW + 7) / 8, (kTransmittanceH + 7) / 8, 1);
+
+    // Make it sampleable for the multiscatter pass (and the sky pass thereafter).
+    barrier(transmittance_lut_.image, VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+    // Multiple-scattering LUT (samples the transmittance LUT).
+    barrier(multiscatter_lut_.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    LutPush mpush{{static_cast<f32>(kMultiScatterSize), static_cast<f32>(kMultiScatterSize)}};
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, multiscatter_gen_.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, multiscatter_gen_.layout, 0, 1,
+                            &multiscatter_gen_.set, 0, nullptr);
+    vkCmdPushConstants(cmd, multiscatter_gen_.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(mpush),
+                       &mpush);
+    vkCmdDispatch(cmd, (kMultiScatterSize + 7) / 8, (kMultiScatterSize + 7) / 8, 1);
+
+    barrier(multiscatter_lut_.image, VK_IMAGE_LAYOUT_GENERAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+  });
+  return true;
+}
+
 void EnvironmentSystem::RecordUpdate(VkCommandBuffer cmd, const Vec3& sun_direction,
                                      f32 sun_intensity, const Vec3& sun_color) {
   VkImageLayout old_layout =
@@ -690,6 +782,8 @@ EnvironmentSystem::~EnvironmentSystem() {
   DestroyComputePass(irradiance_gen_);
   DestroyComputePass(prefilter_gen_);
   DestroyComputePass(brdf_gen_);
+  DestroyComputePass(transmittance_gen_);
+  DestroyComputePass(multiscatter_gen_);
   if (sky_storage_view_) vkDestroyImageView(device, sky_storage_view_, nullptr);
   if (irradiance_storage_view_) vkDestroyImageView(device, irradiance_storage_view_, nullptr);
   for (VkImageView view : prefilter_storage_views_) {
@@ -700,6 +794,8 @@ EnvironmentSystem::~EnvironmentSystem() {
   device_.DestroyImage(irradiance_);
   device_.DestroyImage(prefiltered_);
   device_.DestroyImage(brdf_lut_);
+  device_.DestroyImage(transmittance_lut_);
+  device_.DestroyImage(multiscatter_lut_);
   device_.DestroyImage(white_);
   device_.DestroyImage(black_array_);
   device_.DestroyImage(shadow_dummy_);

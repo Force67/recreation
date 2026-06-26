@@ -23,6 +23,10 @@ class EnvironmentSystem {
   static constexpr u32 kPrefilterSize = 128;
   static constexpr u32 kPrefilterMips = 6;  // matches kPrefilterMips in mesh.ps
   static constexpr u32 kBrdfLutSize = 512;
+  // Hillaire 2020 atmosphere LUTs (sun-independent, baked once).
+  static constexpr u32 kTransmittanceW = 256;
+  static constexpr u32 kTransmittanceH = 64;
+  static constexpr u32 kMultiScatterSize = 32;
 
   static std::unique_ptr<EnvironmentSystem> Create(Device& device);
   ~EnvironmentSystem();
@@ -80,6 +84,7 @@ class EnvironmentSystem {
   bool CreateImages();
   bool CreateDummies();
   bool BakeBrdfLut();
+  bool BakeLuts();  // transmittance + multiple-scattering, baked once
   void DestroyComputePass(ComputePass& pass);
 
   Device& device_;
@@ -91,6 +96,8 @@ class EnvironmentSystem {
   GpuImage irradiance_;  // rgba16f cube
   GpuImage prefiltered_; // rgba16f cube, kPrefilterMips
   GpuImage brdf_lut_;    // rg16f
+  GpuImage transmittance_lut_;  // rgba16f 2d, Hillaire transmittance
+  GpuImage multiscatter_lut_;   // rgba16f 2d, Hillaire multiple scattering
   VkImageView sky_storage_view_ = VK_NULL_HANDLE;          // 2d array, mip 0
   VkImageView irradiance_storage_view_ = VK_NULL_HANDLE;   // 2d array, mip 0
   VkImageView prefilter_storage_views_[kPrefilterMips] = {};
@@ -107,6 +114,8 @@ class EnvironmentSystem {
   ComputePass prefilter_gen_;
   VkDescriptorSet prefilter_sets_[kPrefilterMips] = {};
   ComputePass brdf_gen_;
+  ComputePass transmittance_gen_;
+  ComputePass multiscatter_gen_;
 
   VkDescriptorSetLayout env_set_layout_ = VK_NULL_HANDLE;
   VkDescriptorSetLayout sky_draw_set_layout_ = VK_NULL_HANDLE;

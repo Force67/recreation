@@ -91,6 +91,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/fullscreen.vs.hlsl
   shaders/tonemap.ps.hlsl
   shaders/taa.cs.hlsl
+  shaders/transmittance_lut.cs.hlsl
+  shaders/multiscatter_lut.cs.hlsl
   shaders/sky.cs.hlsl
   shaders/sky.ps.hlsl
   shaders/irradiance.cs.hlsl
@@ -129,6 +131,8 @@ set(RECREATION_RENDER_SHADERS
 if(EXISTS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders/NRD.hlsli)
   set(RECREATION_SHADER_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/third_party/NRD/Shaders)
 endif()
+# The atmosphere LUT/sky shaders share atmosphere.hlsli from the shaders dir.
+list(APPEND RECREATION_SHADER_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 if(RECREATION_NRD)
   list(APPEND RECREATION_RENDER_SHADERS shaders/nrd_pack.cs.hlsl shaders/shadow_trace.cs.hlsl)
 endif()
