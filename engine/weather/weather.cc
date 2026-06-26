@@ -52,6 +52,7 @@ void WeatherDef::DeriveFromKind() {
       light_tint = {0.80f, 0.85f, 0.95f};
       precipitation = 0.85f;
       snow = false;
+      thunder = true;
       break;
     case Kind::kSnow:
       cloud_coverage = 0.85f;
@@ -75,6 +76,7 @@ WeatherState ToState(const WeatherDef& d) {
   s.light_tint = d.light_tint;
   s.precipitation = d.precipitation;
   s.snow = d.snow;
+  s.thunder = d.thunder;
   return s;
 }
 
@@ -90,6 +92,7 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t) {
                   LerpF(a.light_tint.z, b.light_tint.z, t)};
   s.precipitation = LerpF(a.precipitation, b.precipitation, t);
   s.snow = t < 0.5f ? a.snow : b.snow;
+  s.thunder = t < 0.5f ? a.thunder : b.thunder;
   return s;
 }
 

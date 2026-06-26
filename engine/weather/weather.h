@@ -28,6 +28,7 @@ struct WeatherDef {
   Vec3 light_tint{1, 1, 1};  // multiplies sun colour (overcast greys it)
   f32 precipitation = 0.0f;  // 0 none .. 1 heavy
   bool snow = false;         // precipitation is snow vs rain
+  bool thunder = false;      // lightning strikes (heavy rain, FO4 radstorms)
 
   // Fills the physical knobs from the classification. A record loader can refine
   // these afterwards from the weather's authored fog / colour data.
@@ -44,6 +45,7 @@ struct WeatherState {
   Vec3 light_tint{1, 1, 1};
   f32 precipitation = 0.0f;
   bool snow = false;
+  bool thunder = false;
 };
 
 WeatherState ToState(const WeatherDef& def);

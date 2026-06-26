@@ -40,6 +40,25 @@ WeatherDef::Kind Classify(const bethesda::Record& rec, const std::string& edid) 
   return WeatherDef::Kind::kPleasant;
 }
 
+// FO4's radiation storms: a sickly-green irradiated haze with frequent
+// lightning, not rain. Recognised by editor id (RadStorm / *Radiation*) and
+// tuned onto our physical knobs. Returns true when applied.
+bool ApplyRadstorm(WeatherDef* def) {
+  std::string l;
+  for (char c : def->editor_id) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (l.find("radstorm") == std::string::npos && l.find("radiation") == std::string::npos)
+    return false;
+  def->cloud_coverage = 0.88f;
+  def->cloud_density = 1.3f;
+  def->aerosol = 0.9f;            // thick green murk -> heavy aerial perspective
+  def->light_scale = 0.5f;        // dim, oppressive
+  def->light_tint = {0.66f, 0.85f, 0.45f};  // irradiated green cast
+  def->precipitation = 0.0f;      // dust/radiation, not rain (no wet surfaces)
+  def->snow = false;
+  def->thunder = true;            // frequent green-tinted strikes
+  return true;
+}
+
 bool ReadFormRef(const bethesda::RecordStore& records, const bethesda::Record& rec, u32 sub,
                  u16 plugin, bethesda::GlobalFormId* out) {
   const bethesda::Subrecord* s = rec.Find(sub);
@@ -110,7 +129,7 @@ std::vector<std::pair<WeatherDef, u32>> Synthetic(
 }  // namespace
 
 int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, WeatherDef>* out) {
-  int n = 0;
+  int n = 0, rad = 0;
   records.EachOfType(
       kWthr, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         bethesda::Record rec;
@@ -120,11 +139,13 @@ int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, W
         def.editor_id = rec.GetString(kEdid);
         def.kind = Classify(rec, def.editor_id);
         def.DeriveFromKind();
+        if (ApplyRadstorm(&def)) ++rad;
         if (const bethesda::Subrecord* d = rec.Find(kData); d && d->data.size() >= 1)
           def.wind = static_cast<f32>(d->data[0]) / 255.0f * 30.0f;  // byte -> m/s
         (*out)[def.form] = std::move(def);
         ++n;
       });
+  if (rad > 0) REC_INFO("weather: {} radiation storms", rad);
   return n;
 }
 

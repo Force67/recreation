@@ -200,10 +200,11 @@ bool Engine::RunFrame() {
         renderer_.settings().precip_snow = w.snow;
       }
       // Thunderstorm lightning: a decaying flash (with a flicker) scheduled at
-      // random intervals while heavy rain falls.
+      // random intervals while a thundery weather is active (heavy rain, FO4
+      // radstorms). The weather sets w.thunder; rain isn't required (dust storms).
       {
         const bool indoors = streamer_ && streamer_->in_interior();
-        const bool storm = has_weather && !indoors && w.precipitation > 0.5f && !w.snow;
+        const bool storm = has_weather && !indoors && w.thunder;
         const f32 now = clock_.real_hours() * 3600.0f;
         if (!storm) {
           lightning_ = 0.0f;
