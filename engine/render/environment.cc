@@ -391,16 +391,20 @@ bool EnvironmentSystem::CreatePipelines() {
 bool EnvironmentSystem::CreateSkyPipeline(VkDescriptorSetLayout globals_layout,
                                           VkFormat color_format, VkFormat motion_format,
                                           VkFormat depth_format) {
-  // Sky background pipeline.
-  VkDescriptorSetLayoutBinding sky_binding{};
-  sky_binding.binding = 0;
-  sky_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  sky_binding.descriptorCount = 1;
-  sky_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  // Sky background pipeline. Binding 0 is the sky cubemap; binding 1 is the
+  // transmittance LUT, so the screen-space sun disc reddens/dims with the same
+  // physical extinction as the sky rather than an air-mass approximation.
+  VkDescriptorSetLayoutBinding sky_bindings[2]{};
+  for (u32 i = 0; i < 2; ++i) {
+    sky_bindings[i].binding = i;
+    sky_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sky_bindings[i].descriptorCount = 1;
+    sky_bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  }
   VkDescriptorSetLayoutCreateInfo sky_set_info{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  sky_set_info.bindingCount = 1;
-  sky_set_info.pBindings = &sky_binding;
+  sky_set_info.bindingCount = 2;
+  sky_set_info.pBindings = sky_bindings;
   if (vkCreateDescriptorSetLayout(device_.device(), &sky_set_info, nullptr,
                                   &sky_draw_set_layout_) != VK_SUCCESS) {
     return false;
@@ -505,14 +509,19 @@ bool EnvironmentSystem::CreateSkyPipeline(VkDescriptorSetLayout globals_layout,
   set_alloc.descriptorSetCount = 1;
   set_alloc.pSetLayouts = &sky_draw_set_layout_;
   vkAllocateDescriptorSets(device_.device(), &set_alloc, &sky_draw_set_);
-  VkDescriptorImageInfo sky_image{sampler_, sky_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  VkWriteDescriptorSet sky_write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  sky_write.dstSet = sky_draw_set_;
-  sky_write.dstBinding = 0;
-  sky_write.descriptorCount = 1;
-  sky_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  sky_write.pImageInfo = &sky_image;
-  vkUpdateDescriptorSets(device_.device(), 1, &sky_write, 0, nullptr);
+  VkDescriptorImageInfo sky_images[2] = {
+      {sampler_, sky_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+      {sampler_, transmittance_lut_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+  VkWriteDescriptorSet sky_writes[2];
+  for (u32 i = 0; i < 2; ++i) {
+    sky_writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    sky_writes[i].dstSet = sky_draw_set_;
+    sky_writes[i].dstBinding = i;
+    sky_writes[i].descriptorCount = 1;
+    sky_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sky_writes[i].pImageInfo = &sky_images[i];
+  }
+  vkUpdateDescriptorSets(device_.device(), 2, sky_writes, 0, nullptr);
   return true;
 }
 

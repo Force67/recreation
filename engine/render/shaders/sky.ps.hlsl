@@ -2,6 +2,8 @@
 // untouched pixels shade. Writes camera-rotation motion vectors so temporal
 // passes track the horizon.
 
+#include "atmosphere.hlsli"
+
 struct FrameGlobals {
   column_major float4x4 view_proj;
   column_major float4x4 prev_view_proj;
@@ -19,21 +21,20 @@ struct FrameGlobals {
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 1)]] TextureCube sky;
 [[vk::combinedImageSampler]] [[vk::binding(0, 1)]] SamplerState sky_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D<float4> transmittance_lut;
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState transmittance_sampler;
 
 struct PsOut {
   float4 color : SV_Target0;
   float2 motion : SV_Target1;
 };
 
-// Atmospheric extinction toward the sun, by elevation. An air-mass approximation
-// (1 at the zenith, growing toward the horizon) drives a per-channel optical
-// depth (blue thickest), so the disk warms to orange and dims at sunset the same
-// way the scattered sky does. Returns ~0 once the sun is below the horizon.
+// Physical extinction toward the sun: the ground->sun transmittance straight
+// from the Hillaire transmittance LUT, so the disc reddens and dims with the
+// exact same optical depth as the scattered sky (no more air-mass fudge).
 float3 SunExtinction(float sun_up) {
-  float airmass = 1.0 / max(sun_up + 0.05, 0.05);  // ~1 zenith, large near horizon
-  airmass = max(airmass, 1.0);
-  const float3 optical_depth = float3(0.50, 0.90, 1.70);  // R,G,B at unit air mass
-  return exp(-optical_depth * (airmass - 1.0) * 0.4);
+  float2 uv = TransmittanceUv(kGroundRadius + 500.0, sun_up);
+  return transmittance_lut.SampleLevel(transmittance_sampler, uv, 0).rgb;
 }
 
 // A physically motivated sun: a limb-darkened disk (a 1 - u(1 - mu) law, redder
