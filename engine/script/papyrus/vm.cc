@@ -192,7 +192,7 @@ Value VirtualMachine::Call(ObjectRef self, const std::string& method, std::vecto
     // on a bare ref instead of silently returning None.
     if (self.handle != 0 && natives_) {
       static constexpr const char* kBaseTypes[] = {"Actor", "ReferenceAlias", "ObjectReference",
-                                                   "Form"};
+                                                   "Form", "ActorBase"};
       for (const char* type : kBaseTypes) {
         if (const NativeFunction* nf = natives_->Find(type, method)) {
           RecordNative(type, method);
