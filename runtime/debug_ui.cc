@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -29,6 +31,11 @@ const char* kDebugViews[] = {"Off",         "Base color",   "World normal",
                              "Indirect GI", "Direct light", "Emissive", "Reflection",
                              "Overdraw",    "Bounds (BVH)", "Temporal history",
                              "Motion vectors", "Ray count", "Light complexity"};
+
+// FPS readout colour bands: green above smooth, amber in the warning band, red
+// once it slips below playable.
+constexpr f32 kFpsGood = 60.0f;
+constexpr f32 kFpsWarn = 30.0f;
 
 // Row 0 is "Custom" (hand-tuned); the rest map to QualityPreset below.
 const char* kPresets[] = {"Custom",  "Auto-detect", "Android", "Steam Deck", "Low end",
@@ -134,8 +141,14 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
       if (caps) ImGui::TextWrapped("%s", caps->adapter_name.c_str());
       ImGui::Text("output %ux%u  render %ux%u", renderer.output_width(),
                   renderer.output_height(), renderer.render_width(), renderer.render_height());
-      ImGui::Text("%.2f ms (%.0f fps)", frame_delta * 1000.0f,
-                  frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
+      // The fps figure turns amber then red as it drops past the thresholds.
+      const f32 fps = frame_delta > 0 ? 1.0f / frame_delta : 0.0f;
+      const ImVec4 fps_col = fps >= kFpsGood   ? ImVec4{0.45f, 0.92f, 0.45f, 1.0f}
+                             : fps >= kFpsWarn ? ImVec4{0.97f, 0.80f, 0.30f, 1.0f}
+                                               : ImVec4{0.97f, 0.33f, 0.28f, 1.0f};
+      ImGui::Text("%.2f ms", frame_delta * 1000.0f);
+      ImGui::SameLine();
+      ImGui::TextColored(fps_col, "(%.0f fps)", fps);
       ImGui::PlotLines("##frametimes", frame_times_, IM_ARRAYSIZE(frame_times_),
                        static_cast<int>(frame_time_cursor_), nullptr, 0.0f, 33.3f,
                        {ImGui::GetContentRegionAvail().x, 48});
@@ -441,6 +454,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     }
     ImGui::End();
 
+    DrawStageChart(renderer);
+
     if (show_demo_) ImGui::ShowDemoWindow(&show_demo_);
   }
 
@@ -499,6 +514,98 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     view->ui_draw = [](VkCommandBuffer cmd) {
       ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
     };
+  }
+}
+
+void DebugUi::DrawStageChart(render::Renderer& renderer) {
+  const auto& timings = renderer.pass_timings();
+  if (timings.empty()) return;
+
+  // Heaviest stages first; fold the long tail into a single "other" bar so the
+  // chart stays legible.
+  struct Bar {
+    const char* name;
+    f32 ms;
+  };
+  std::vector<Bar> bars;
+  bars.reserve(timings.size());
+  for (const auto& t : timings) bars.push_back({t.name.c_str(), t.ms});
+  std::sort(bars.begin(), bars.end(), [](const Bar& a, const Bar& b) { return a.ms > b.ms; });
+
+  constexpr int kMaxBars = 6;
+  f32 other_ms = 0.0f;
+  if (static_cast<int>(bars.size()) > kMaxBars) {
+    for (size_t i = kMaxBars; i < bars.size(); ++i) other_ms += bars[i].ms;
+    bars.resize(kMaxBars);
+  }
+  if (other_ms > 0.0f) bars.push_back({"other", other_ms});
+  if (bars.empty()) return;
+
+  const f32 max_ms = bars.front().ms > 0.0f ? bars.front().ms : 1.0f;
+
+  // Geometry, in screen space: this is a HUD pinned to the bottom-left, not a
+  // movable window.
+  const ImVec2 screen = ImGui::GetIO().DisplaySize;
+  const f32 margin = 16.0f;
+  const f32 pad = 12.0f;
+  const f32 row_h = 16.0f;
+  const f32 row_gap = 5.0f;
+  const f32 header_h = 24.0f;
+  const f32 panel_w = 326.0f;
+  const int rows = static_cast<int>(bars.size());
+  const f32 panel_h = pad + header_h + rows * row_h + (rows - 1) * row_gap + pad;
+
+  const ImVec2 p0 = {margin, screen.y - margin - panel_h};
+  const ImVec2 p1 = {p0.x + panel_w, screen.y - margin};
+  ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+  // Dark glass panel with a hairline border.
+  dl->AddRectFilled(p0, p1, IM_COL32(14, 16, 22, 214), 9.0f);
+  dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 26), 9.0f, 0, 1.0f);
+
+  const f32 content_x = p0.x + pad;
+  const f32 content_w = panel_w - 2.0f * pad;
+  const f32 text_h = ImGui::GetTextLineHeight();
+
+  // Header: title on the left, total GPU frame time on the right.
+  ImFont* font = ImGui::GetFont();
+  const f32 font_size = ImGui::GetFontSize();
+  const f32 head_y = p0.y + pad;
+  dl->AddText(font, font_size, {content_x, head_y}, IM_COL32(206, 214, 232, 255), "GPU STAGES");
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.2f ms", renderer.gpu_frame_ms());
+  const ImVec2 total_sz = ImGui::CalcTextSize(buf);
+  dl->AddText(font, font_size, {p1.x - pad - total_sz.x, head_y}, IM_COL32(170, 182, 205, 255),
+              buf);
+
+  auto lerp8 = [](int a, int b, f32 t) { return static_cast<int>(a + (b - a) * t + 0.5f); };
+
+  f32 y = p0.y + pad + header_h;
+  for (const Bar& bar : bars) {
+    const f32 frac = bar.ms / max_ms;
+    const f32 fclamp = frac < 0.0f ? 0.0f : (frac > 1.0f ? 1.0f : frac);
+
+    // Track, then a cost-graded fill (teal when cheap, coral when it dominates).
+    dl->AddRectFilled({content_x, y}, {content_x + content_w, y + row_h},
+                      IM_COL32(255, 255, 255, 16), 3.5f);
+    const f32 fill_w = content_w * fclamp;
+    if (fill_w > 1.0f) {
+      const ImU32 col = IM_COL32(lerp8(78, 240, fclamp), lerp8(201, 104, fclamp),
+                                 lerp8(176, 82, fclamp), 235);
+      dl->AddRectFilled({content_x, y}, {content_x + fill_w, y + row_h}, col, 3.5f);
+    }
+
+    const f32 ty = y + (row_h - text_h) * 0.5f;
+    std::snprintf(buf, sizeof(buf), "%.2f", bar.ms);
+    const ImVec2 vsz = ImGui::CalcTextSize(buf);
+    const f32 val_x = content_x + content_w - 6.0f - vsz.x;
+    // Clip the label so a long pass name never runs into the ms value.
+    const ImVec4 clip = {content_x + 6.0f, y, val_x - 4.0f, y + row_h};
+    dl->AddText(font, font_size, {content_x + 6.0f, ty}, IM_COL32(236, 240, 248, 255), bar.name,
+                nullptr, 0.0f, &clip);
+    dl->AddText(font, font_size, {val_x, ty}, IM_COL32(232, 237, 245, 255), buf);
+
+    y += row_h + row_gap;
   }
 }
 

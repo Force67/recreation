@@ -137,6 +137,10 @@ class DebugUi {
   // controls) into the current window.
   void RenderQuestPanel(QuestPanel* quests);
 
+  // Window-less GPU-stage bar chart pinned to the bottom-left, drawn straight
+  // onto the foreground draw list from the renderer's per-pass timings.
+  void DrawStageChart(render::Renderer& renderer);
+
   bool initialized_ = false;
   bool visible_ = true;
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
