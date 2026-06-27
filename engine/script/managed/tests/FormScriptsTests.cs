@@ -60,5 +60,32 @@ public static class FormScriptsTests
         ModHost.Shutdown();
         check.Equal("shutdown clears the registry", 0, FormScripts.Count);
         EventBus.Clear();
+
+        AutoAttachOnFormLoaded(check);
+    }
+
+    // The gmod-style pattern: a mod subscribes to FormLoaded and attaches its own
+    // behaviour to each matching form as it streams in.
+    private static void AutoAttachOnFormLoaded(Check check)
+    {
+        ModHost.Shutdown();
+        EventBus.Clear();
+
+        using var sub = EventBus.Subscribe<FormLoaded>(e => FormScripts.Attach<GuardScript>(e.Form));
+
+        EngineEvents.Dispatch(new Interop.ManagedEvent
+        {
+            Id = Interop.ManagedEventId.FormLoaded,
+            A = 0x500,
+        });
+        check.Equal("behaviour auto-attached on form load", 1, FormScripts.Count);
+
+        // The attached behaviour now receives that form's events.
+        var attached = (GuardScript)FormScripts.For(Form.From(0x500))[0];
+        EventBus.Publish(new ActorDied(0x500));
+        check.Equal("auto-attached behaviour gets its form's events", 1, attached.Deaths);
+
+        ModHost.Shutdown();
+        EventBus.Clear();
     }
 }
