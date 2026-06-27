@@ -508,6 +508,12 @@ void Engine::BootManagedScripting() {
     binds->set_event_sink(
         [host](const rec::script::host::ManagedEvent& e) { host->QueueEvent(e); });
   });
+  // Notify the managed world when a form's scripts attach (it goes live), so
+  // mods can attach C# behaviours to it. Fires on the main thread; QueueEvent is
+  // drained next frame.
+  scripts_->set_on_scripts_attached([host](u64 form) {
+    host->QueueEvent({rec::script::host::ManagedEventId::kFormLoaded, form, 0, 0, 0.0f});
+  });
 }
 
 bool Engine::LoadGameData() {

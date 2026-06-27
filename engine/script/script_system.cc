@@ -140,6 +140,8 @@ std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
     guest_.RaiseEvent(inst, "OnInit");
     instances.push_back(inst);
   }
+  // Signal the form went live so the managed world can react (FormLoaded).
+  if (on_attach_ && !instances.empty()) on_attach_(form_id);
   return instances;
 }
 

@@ -1,6 +1,7 @@
 #ifndef RECREATION_SCRIPT_SCRIPT_SYSTEM_H_
 #define RECREATION_SCRIPT_SCRIPT_SYSTEM_H_
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -41,12 +42,19 @@ class ScriptSystem {
   // Advances guest time, firing any due update events.
   void Tick(f32 dt);
 
+  // Invoked (main thread) with a form id each time that form's scripts attach,
+  // i.e. the form goes live in the world. The runtime uses it to notify the
+  // managed scripting world (a FormLoaded event). Only fires when at least one
+  // script instance was created.
+  void set_on_scripts_attached(std::function<void(u64)> cb) { on_attach_ = std::move(cb); }
+
   PapyrusGuest& guest() { return guest_; }
   size_t loaded_script_count();
 
  private:
   asset::Vfs* vfs_;
   PapyrusGuest guest_;
+  std::function<void(u64)> on_attach_;
 };
 
 }  // namespace rec::script
