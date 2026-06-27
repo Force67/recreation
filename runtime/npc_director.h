@@ -61,6 +61,10 @@ class NpcDirector {
   // The side the player fights on (a world::CombatTeam id), so hostile soldiers
   // target the player; 0 (default) leaves the player out of the auto-aggression.
   void set_player_team(i32 team) { player_team_ = team; }
+  // A player melee swing from `pos` facing `yaw`: the nearest living NPC in the
+  // forward arc and reach takes a heavy hit (damage applied on the guest thread,
+  // so it flows through the normal OnDeath path). Returns true if it connected.
+  bool PlayerMeleeStrike(const Vec3& pos, f32 yaw);
   // A reachable waypoint from `from` toward `goal` that rounds interior walls
   // (grid A* over a downward-ray floor map). Lets the engine route the walking
   // player through the keep instead of pressing it straight into geometry.

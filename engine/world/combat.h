@@ -1,6 +1,7 @@
 #ifndef RECREATION_WORLD_COMBAT_H_
 #define RECREATION_WORLD_COMBAT_H_
 
+#include <cmath>
 #include <mutex>
 #include <vector>
 
@@ -49,6 +50,19 @@ inline int NearestWithin(const f32 self[3], const f32* pts, int n, f32 radius) {
     }
   }
   return best;
+}
+
+// True when target is within `reach` of self AND inside the forward swing arc:
+// the cosine of the angle between the facing dir (fwd, a planar unit vector) and
+// the direction to the target is at least `arc_cos`. Drives the player's melee
+// target pick (it strikes what it faces, not what is behind it).
+inline bool InMeleeArc(const f32 self[3], const f32 target[3], const f32 fwd[3], f32 reach,
+                       f32 arc_cos) {
+  const f32 dx = target[0] - self[0], dz = target[2] - self[2];
+  const f32 d2 = dx * dx + dz * dz;
+  if (d2 > reach * reach || d2 < 1e-4f) return false;
+  const f32 inv = 1.0f / std::sqrt(d2);
+  return (dx * fwd[0] + dz * fwd[2]) * inv >= arc_cos;
 }
 
 // Damage for one connected swing: base scaled by a deterministic +/- variance

@@ -390,6 +390,38 @@ void NpcDirector::UpdateCombat(f32 dt) {
   }
 }
 
+bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
+  if (!ctx_.scripts || !ctx_.bindings) return false;
+  // Swing in the facing direction: the nearest living NPC inside the reach and a
+  // forward arc takes the hit. The player aims, so any actor in front is fair
+  // game (it is how you cut down the fort's bandits).
+  const float self[3] = {pos.x, pos.y, pos.z};
+  const float fwd[3] = {std::sin(yaw), 0.0f, -std::cos(yaw)};
+  constexpr f32 kReach = 3.0f;    // a touch longer than the NPC reach
+  constexpr f32 kArcCos = 0.35f;  // ~70 degrees to each side
+  u64 best = 0;
+  f32 best_d2 = kReach * kReach;
+  world_.Each<world::Npc, world::FormLink, world::Transform>(
+      [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+        if (world_.Has<world::Dead>(e)) return;
+        if (!world::InMeleeArc(self, t.position, fwd, kReach, kArcCos)) return;
+        const f32 dx = t.position[0] - self[0], dz = t.position[2] - self[2];
+        const f32 d2 = dx * dx + dz * dz;
+        if (d2 >= best_d2) return;
+        best_d2 = d2;
+        best = link.form.packed();
+      });
+  if (!best) return false;
+  auto* binds = ctx_.bindings;
+  ctx_.scripts->guest().Submit([binds, best](rec::script::papyrus::VirtualMachine&) {
+    // A heavier blow than a common soldier's: the player is the dragonborn.
+    binds->ApplyMeleeHit(script::papyrus::ObjectRef{kPlayerHandle},
+                         script::papyrus::ObjectRef{best}, 42.0f);
+  });
+  REC_DEBUG("player struck 0x{:x}", best);
+  return true;
+}
+
 bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
   if (!cw_battle_active_) return false;
   int a = 0, b = 0, d = 0;
@@ -418,6 +450,8 @@ void NpcDirector::CwBattleTick(f32 dt) {
     // Enlist the streamed NPCs around the player into two armies, split across the
     // player's position so they form opposing lines and charge.
     base::Vector<u64> enlisted;
+    Vec3 foe_sum{};
+    int foes = 0;
     world_.Each<world::Npc, world::FormLink, world::Transform>(
         [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
           const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
@@ -426,8 +460,18 @@ void NpcDirector::CwBattleTick(f32 dt) {
           const i32 team = t.position[0] < ppos.x ? 1 : 2;
           world_.Add(e, world::CombatTeam{team});
           enlisted.push_back(link.form.packed());
+          if (team == 2) {  // the player fights team 1, so team 2 is the enemy line
+            foe_sum = foe_sum + Vec3{t.position[0], t.position[1], t.position[2]};
+            ++foes;
+          }
         });
     if (enlisted.size() < 2) return;  // wait for the cell's NPCs to stream in
+    // Turn the player (hence the follow camera) to face the enemy line, so the
+    // melee plays out in view and a forward swing connects.
+    if (foes > 0) {
+      const Vec3 c = foe_sum * (1.0f / static_cast<f32>(foes));
+      ctx_.cam_yaw = std::atan2(c.x - ppos.x, -(c.z - ppos.z));
+    }
     // Give every soldier a battle health pool on the guest thread, so the melee
     // resolves in seconds rather than the default 100 hp grind.
     std::vector<u64> handles(enlisted.begin(), enlisted.end());
@@ -436,6 +480,7 @@ void NpcDirector::CwBattleTick(f32 dt) {
       for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
     });
     cw_battle_active_ = true;
+    player_team_ = 1;  // the player fights on team 1; team-2 soldiers will target it
     REC_INFO("cw battle: enlisted {} soldiers into two armies", enlisted.size());
   }
 

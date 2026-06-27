@@ -338,6 +338,20 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   Vec3 body{};
   actors_->MovePlayer(velocity, jump, yaw, moving, speed, dt, &body);
 
+  // Melee: a left-click / right-trigger swing strikes the NPC the player faces,
+  // so the player can fight (clear a fort, join a battle). Aim is the camera yaw.
+  // REC_AUTO_ATTACK swings on a timer for headless playthrough verification.
+  static const bool auto_attack = std::getenv("REC_AUTO_ATTACK") != nullptr;
+  bool swing = allow && actions_.pressed(Action::kAttack);
+  if (auto_attack) {
+    auto_attack_timer_ -= dt;
+    if (auto_attack_timer_ <= 0.0f) {
+      auto_attack_timer_ = 0.7f;
+      swing = true;
+    }
+  }
+  if (swing) npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
+
   Vec3 cam_fwd{std::cos(cam_pitch_) * std::sin(ctx_.cam_yaw), std::sin(cam_pitch_),
                -std::cos(cam_pitch_) * std::cos(ctx_.cam_yaw)};
   if (ctx_.third_person) {

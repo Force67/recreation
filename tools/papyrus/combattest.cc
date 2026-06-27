@@ -56,6 +56,17 @@ void TestPureHelpers() {
   Check("nearest within radius picks closest", NearestWithin(a, pts, 3, 20.0f) == 1);
   Check("nearest beyond radius -> none", NearestWithin(a, pts, 3, 1.0f) == -1);
 
+  // Melee arc: a forward swing (facing -Z) hits what is ahead, not behind/beside.
+  const float face[3] = {0, 0, -1};  // unit forward, -Z
+  const float ahead[3] = {0, 0, -2};
+  const float behind[3] = {0, 0, 2};
+  const float beside[3] = {2, 0, 0};
+  const float far_ahead[3] = {0, 0, -9};
+  Check("strikes a target dead ahead", InMeleeArc(a, ahead, face, 3.0f, 0.35f));
+  Check("misses a target behind", !InMeleeArc(a, behind, face, 3.0f, 0.35f));
+  Check("misses a target to the side (outside arc)", !InMeleeArc(a, beside, face, 3.0f, 0.35f));
+  Check("misses a target out of reach", !InMeleeArc(a, far_ahead, face, 3.0f, 0.35f));
+
   CombatParams p;
   Check("swing damage at mid roll == base", Near(SwingDamage(p, 0.5f), p.base_damage, 0.5f));
   Check("swing damage min roll < base", SwingDamage(p, 0.0f) < p.base_damage);
