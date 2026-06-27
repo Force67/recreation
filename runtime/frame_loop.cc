@@ -12,6 +12,7 @@
 #include "script/papyrus/value.h"
 #include "world/components.h"
 #include "world/interaction.h"
+#include "world/objective_marker.h"
 
 // The Engine's per-frame heartbeat: the fixed-step simulation loop, the
 // quest-driven world mutation flush, and host-authoritative NPC shove-out, plus
@@ -375,6 +376,22 @@ bool Engine::RunFrame() {
           prompts.push_back(line);
         }
         game_ui_.SetPrompts(prompts);
+      }
+      // Map blips on the compass: turn each blip's world position into a bearing
+      // from where the player looks, dropping ones behind or off the strip.
+      {
+        const Vec3 eye = camera_.position();
+        const Vec3 tgt = camera_.target();
+        const float fwd[3] = {tgt.x - eye.x, 0.0f, tgt.z - eye.z};
+        std::vector<GameUi::CompassBlip> cblips;
+        for (const PlatformBlip& b : platform_hud_.Blips()) {
+          const float to[3] = {b.x - eye.x, 0.0f, b.z - eye.z};
+          const float bearing = world::MarkerCompassBearingDeg(fwd, to);
+          if (std::fabs(bearing) > 105.0f) continue;  // behind the player / off the strip
+          cblips.push_back({bearing, b.color ? b.color : 0xffffffffu});
+          if (cblips.size() >= 8) break;
+        }
+        game_ui_.SetCompassBlips(cblips);
       }
       if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
         REC_INFO("[platform] connect requested: {}", *addr);

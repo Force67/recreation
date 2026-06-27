@@ -75,6 +75,7 @@ constexpr int kHudGaugeRows = 6;        // pooled managed-gameplay gauge bars (o
 constexpr int kChatRows = 8;            // visible lines in the multiplayer chat box
 constexpr int kScoreRows = 12;          // player rows in the multiplayer scoreboard
 constexpr int kPromptRows = 3;          // stacked multiplayer interaction prompts
+constexpr int kCompassBlips = 8;        // map-blip pips drawn on the compass
 constexpr float kToastSeconds = 4.0f;
 
 // NEXUS main menu.
@@ -573,6 +574,14 @@ std::string BuildTopbarSection() {
         position: absolute; top: 10; left: 0; width: 9; height: 9; corner-radius: 5;
         background: #ffd24a; border-color: #000000aa; border-width: 1; visibility: collapsed;
       }
+)";
+  // A pool of map-blip pips, positioned and coloured each frame from SetCompassBlips.
+  for (int i = 0; i < kCompassBlips; ++i) {
+    s += "      panel blip_pip" + std::to_string(i) +
+         " { position: absolute; top: 11; left: 0; width: 7; height: 7; corner-radius: 4;"
+         " background: #ffffff; border-color: #000000aa; border-width: 1; visibility: collapsed; }\n";
+  }
+  s += R"(
     }
   }
 )";
@@ -726,6 +735,7 @@ struct GameUi::Impl {
   std::string scoreboard_header;
   std::vector<std::string> scoreboard_rows;
   std::vector<std::string> mp_prompts;  // multiplayer interaction prompts
+  std::vector<GameUi::CompassBlip> compass_blips;  // map blips on the compass
   std::string toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
   std::string activate_prompt;
@@ -1831,6 +1841,10 @@ void GameUi::SetPrompts(const std::vector<std::string>& prompts) {
   if (impl_->initialized) impl_->mp_prompts = prompts;
 }
 
+void GameUi::SetCompassBlips(const std::vector<CompassBlip>& blips) {
+  if (impl_->initialized) impl_->compass_blips = blips;
+}
+
 void GameUi::SetHudGauges(const std::vector<HudGauge>& gauges) {
   if (impl_->initialized) impl_->hud_gauges = gauges;
 }
@@ -2006,6 +2020,24 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     char mbuf[48];
     std::snprintf(mbuf, sizeof(mbuf), "%.0f m", impl->marker_distance);
     ugui::SetText(impl->ui.FindWidget("quest_marker_text"), mbuf);
+  }
+
+  // Map blips on the compass: one pip per blip at its bearing, in its colour. The
+  // pool caps how many show at once; the caller already dropped off-screen ones.
+  for (int i = 0; i < kCompassBlips; ++i) {
+    const std::string pip = "blip_pip" + std::to_string(i);
+    if (static_cast<size_t>(i) < impl->compass_blips.size()) {
+      const GameUi::CompassBlip& b = impl->compass_blips[i];
+      float off = b.bearing_deg / 45.0f * kCompassLabel;
+      off = std::clamp(off, -(kCompassCenter - 8.0f), kCompassCenter - 8.0f);
+      impl->SetStyleField(
+          pip.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
+          kCompassCenter + off - 3.5f);
+      impl->SetBackground(pip.c_str(), Rgba(b.color ? b.color : 0xffffffffu));
+      impl->SetVisible(pip.c_str(), true);
+    } else {
+      impl->SetVisible(pip.c_str(), false);
+    }
   }
 
   // Stamina drains while sprinting (shift + movement), regenerates otherwise.
@@ -2291,6 +2323,7 @@ void GameUi::SetChatLines(const std::vector<std::string>&) {}
 void GameUi::SetScoreboard(bool, const std::string&, const std::string&,
                            const std::vector<std::string>&) {}
 void GameUi::SetPrompts(const std::vector<std::string>&) {}
+void GameUi::SetCompassBlips(const std::vector<CompassBlip>&) {}
 void GameUi::SetHudGauges(const std::vector<HudGauge>&) {}
 void GameUi::FlashQuestUpdate(const std::string&) {}
 void GameUi::SetActivatePrompt(const std::string&) {}

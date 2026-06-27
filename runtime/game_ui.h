@@ -318,6 +318,14 @@ class GameUi {
   // Multiplayer interaction prompts (already formatted, e.g. "[E]  Open"), shown
   // as a bottom-centre stack. Fed from the platform prompt channel each frame.
   void SetPrompts(const std::vector<std::string>& prompts);
+  // Map blips placed on the compass: each is a bearing (0 ahead, + to the right of
+  // where the player looks) and a packed rgba8 colour. Off-screen ones are dropped
+  // by the caller. Fed from the platform map channel each frame.
+  struct CompassBlip {
+    float bearing_deg = 0;
+    u32 color = 0xffffffffu;
+  };
+  void SetCompassBlips(const std::vector<CompassBlip>& blips);
   void FlashQuestUpdate(const std::string& message);
   void SetActivatePrompt(const std::string& prompt);
   // Objective compass waypoint. active shows a pip on the compass at
