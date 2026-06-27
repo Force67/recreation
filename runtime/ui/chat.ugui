@@ -1,0 +1,14 @@
+// Multiplayer chat box (bottom-left, above the gauges). A fixed pool of text
+// rows fed each frame from SetChatLines; the whole box collapses when empty. The
+// newest line sits at the bottom, oldest at the top, mirroring every chat UI.
+
+  panel chat_box { position: absolute; left: 30; bottom: 300; width: 430; layout: column; align: start; gap: 2; visibility: collapsed; padding: 8; background: #0a0c14a0; corner-radius: 6; border-color: #00000066; border-width: 1; shadow-color: #00000066; shadow-blur: 12; shadow-y: 2;
+    text chat_line0 { text: ""; font-size: 12; color: #d7deec; letter-spacing: 0; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line1 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line2 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line3 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line4 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line5 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line6 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    text chat_line7 { text: ""; font-size: 12; color: #e7edf7; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+  }

@@ -333,13 +333,19 @@ bool Engine::RunFrame() {
         }
         for (const std::string& message : notifications) game_ui_.FlashQuestUpdate(message);
       }
-      // Drain the multiplayer platform HUD (chat, notifications, connect intent).
-      // Notices and chat surface on the toast for now; the dedicated chat box and
-      // scoreboard panel read platform_hud_ snapshots once their fragments land.
+      // Drain the multiplayer platform HUD: notices flash on the toast, chat
+      // accumulates into the chat box (kept to a bounded tail), and a Net.Connect
+      // intent is logged for the front-end to act on.
       for (const PlatformNotice& n : platform_hud_.DrainNotices())
         game_ui_.FlashQuestUpdate(n.text);
       for (const PlatformChatLine& c : platform_hud_.DrainChat())
-        game_ui_.FlashQuestUpdate(c.name.empty() ? c.text : c.name + ": " + c.text);
+        platform_chat_display_.push_back(c.name.empty() ? c.text : c.name + ": " + c.text);
+      constexpr size_t kChatDisplayCap = 64;
+      if (platform_chat_display_.size() > kChatDisplayCap)
+        platform_chat_display_.erase(
+            platform_chat_display_.begin(),
+            platform_chat_display_.end() - static_cast<std::ptrdiff_t>(kChatDisplayCap));
+      game_ui_.SetChatLines(platform_chat_display_);
       if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
         REC_INFO("[platform] connect requested: {}", *addr);
       // Surface managed HUD gauges (oxygen, radiation, ...) pushed via Hud.Gauge

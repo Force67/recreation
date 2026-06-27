@@ -400,6 +400,8 @@ class Engine {
   // Multiplayer platform HUD/Net calls (chat, notifications, prompts, scoreboard,
   // blips) pushed from the guest thread, drained onto the HUD on the main loop.
   PlatformHud platform_hud_;
+  // Accumulated chat lines shown in the chat box (bounded tail of the channel).
+  std::vector<std::string> platform_chat_display_;
   physics::PhysicsWorld physics_;
   // Dynamic bodies mirrored into ECS transforms after each step.
   base::Vector<PhysicsEntity> physics_entities_;

@@ -307,6 +307,9 @@ class GameUi {
   // Persistent managed gameplay gauges (oxygen, radiation, ...), shown as a
   // labeled bar stack above the vitals. Replaces the whole set each frame.
   void SetHudGauges(const std::vector<HudGauge>& gauges);
+  // The multiplayer chat box lines (newest last); the box shows the last several
+  // and collapses when empty. Fed from the platform chat channel each frame.
+  void SetChatLines(const std::vector<std::string>& lines);
   void FlashQuestUpdate(const std::string& message);
   void SetActivatePrompt(const std::string& prompt);
   // Objective compass waypoint. active shows a pip on the compass at

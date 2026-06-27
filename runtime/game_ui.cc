@@ -72,6 +72,7 @@ constexpr int kJournalObjRows = 6;      // objectives shown for the selected jou
 constexpr int kWarHoldRows = 9;         // Skyrim's nine holds on the war-map panel
 constexpr int kContainerRows = 14;      // item rows in the container loot panel
 constexpr int kHudGaugeRows = 6;        // pooled managed-gameplay gauge bars (oxygen, rads, ...)
+constexpr int kChatRows = 8;            // visible lines in the multiplayer chat box
 constexpr float kToastSeconds = 4.0f;
 
 // NEXUS main menu.
@@ -506,7 +507,7 @@ std::string BuildEditorSection() {
 // watch list.
 const char* const kUiFragments[] = {
     "hud.ugui",       "vitals.ugui",  "readout.ugui",  "quest.ugui",
-    "hud_gauge.ugui", "journal.ugui", "war_map.ugui", "dialogue.ugui", "container.ugui",
+    "hud_gauge.ugui", "chat.ugui", "journal.ugui", "war_map.ugui", "dialogue.ugui", "container.ugui",
     "pause_menu.ugui", "main_menu.ugui", "first_run.ugui",
 };
 
@@ -587,6 +588,7 @@ std::string BuildUi() {
   s += LoadUiFragment("readout.ugui");
   s += LoadUiFragment("quest.ugui");
   s += LoadUiFragment("hud_gauge.ugui");
+  s += LoadUiFragment("chat.ugui");
   s += LoadUiFragment("journal.ugui");
   s += LoadUiFragment("war_map.ugui");
   s += LoadUiFragment("dialogue.ugui");
@@ -713,6 +715,7 @@ struct GameUi::Impl {
   // Quest HUD state, set by the engine and applied each frame.
   HudQuest quest;
   std::vector<HudGauge> hud_gauges;  // managed gameplay bars (oxygen, rads, ...)
+  std::vector<std::string> chat_lines;  // multiplayer chat box, newest last
   std::string toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
   std::string activate_prompt;
@@ -1801,6 +1804,10 @@ void GameUi::SetQuest(const HudQuest& quest) {
   if (impl_->initialized) impl_->quest = quest;
 }
 
+void GameUi::SetChatLines(const std::vector<std::string>& lines) {
+  if (impl_->initialized) impl_->chat_lines = lines;
+}
+
 void GameUi::SetHudGauges(const std::vector<HudGauge>& gauges) {
   if (impl_->initialized) impl_->hud_gauges = gauges;
 }
@@ -2016,6 +2023,25 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     }
   }
 
+  // Multiplayer chat box: the last kChatRows lines, newest at the bottom. The
+  // whole box collapses when there is nothing to show.
+  const bool chat_on = !impl->chat_lines.empty();
+  impl->SetVisible("chat_box", chat_on);
+  if (chat_on) {
+    const int count = static_cast<int>(impl->chat_lines.size());
+    const int first = std::max(0, count - kChatRows);  // tail window
+    for (int i = 0; i < kChatRows; ++i) {
+      const std::string row = "chat_line" + std::to_string(i);
+      const int src = first + i;
+      if (src < count) {
+        ugui::SetText(impl->ui.FindWidget(row.c_str()), impl->chat_lines[src].c_str());
+        impl->SetVisible(row.c_str(), true);
+      } else {
+        impl->SetVisible(row.c_str(), false);
+      }
+    }
+  }
+
   // --- Quest HUD ---
   const bool has_quest = !impl->quest.title.empty();
   impl->SetVisible("questtracker", has_quest);
@@ -2205,6 +2231,7 @@ bool GameUi::Initialize(Window&, render::Renderer&) { return false; }
 void GameUi::Shutdown() {}
 void GameUi::Build(Window&, render::Renderer&, FlyCamera&, f32, render::FrameView*) {}
 void GameUi::SetQuest(const HudQuest&) {}
+void GameUi::SetChatLines(const std::vector<std::string>&) {}
 void GameUi::SetHudGauges(const std::vector<HudGauge>&) {}
 void GameUi::FlashQuestUpdate(const std::string&) {}
 void GameUi::SetActivatePrompt(const std::string&) {}
