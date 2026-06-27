@@ -315,6 +315,9 @@ class GameUi {
   // rows. Fed from the platform scoreboard channel each frame.
   void SetScoreboard(bool open, const std::string& title, const std::string& header,
                      const std::vector<std::string>& rows);
+  // Multiplayer interaction prompts (already formatted, e.g. "[E]  Open"), shown
+  // as a bottom-centre stack. Fed from the platform prompt channel each frame.
+  void SetPrompts(const std::vector<std::string>& prompts);
   void FlashQuestUpdate(const std::string& message);
   void SetActivatePrompt(const std::string& prompt);
   // Objective compass waypoint. active shows a pip on the compass at

@@ -1,0 +1,10 @@
+// Multiplayer interaction prompts ("[E]  Open the gate"), bottom-centre above the
+// gameplay activation prompt. A small pool of rows fed each frame from SetPrompts;
+// the box collapses when no prompt is active. Distinct from the engine's own
+// activate_box so a mod's prompts and the world's interaction prompt can coexist.
+
+  panel mp_prompt_box { position: absolute; left: 710; bottom: 150; width: 500; layout: column; align: center; gap: 5; visibility: collapsed;
+    text mp_prompt0 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    text mp_prompt1 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    text mp_prompt2 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+  }

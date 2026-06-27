@@ -365,6 +365,17 @@ bool Engine::RunFrame() {
         for (const PlatformScoreRow& r : sb.rows) rows.push_back(format_cells(r.cells));
         game_ui_.SetScoreboard(sb.open, sb.title, format_cells(sb.headers), rows);
       }
+      // Interaction prompts: format each as "[KEY]  label" for the bottom stack.
+      {
+        std::vector<std::string> prompts;
+        for (const PlatformPrompt& p : platform_hud_.Prompts()) {
+          std::string line;
+          if (!p.key.empty()) line += "[" + p.key + "]  ";
+          line += p.label;
+          prompts.push_back(line);
+        }
+        game_ui_.SetPrompts(prompts);
+      }
       if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
         REC_INFO("[platform] connect requested: {}", *addr);
       // Surface managed HUD gauges (oxygen, radiation, ...) pushed via Hud.Gauge

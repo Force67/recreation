@@ -74,6 +74,7 @@ constexpr int kContainerRows = 14;      // item rows in the container loot panel
 constexpr int kHudGaugeRows = 6;        // pooled managed-gameplay gauge bars (oxygen, rads, ...)
 constexpr int kChatRows = 8;            // visible lines in the multiplayer chat box
 constexpr int kScoreRows = 12;          // player rows in the multiplayer scoreboard
+constexpr int kPromptRows = 3;          // stacked multiplayer interaction prompts
 constexpr float kToastSeconds = 4.0f;
 
 // NEXUS main menu.
@@ -508,8 +509,8 @@ std::string BuildEditorSection() {
 // watch list.
 const char* const kUiFragments[] = {
     "hud.ugui",       "vitals.ugui",  "readout.ugui",  "quest.ugui",
-    "hud_gauge.ugui", "chat.ugui", "scoreboard.ugui", "journal.ugui", "war_map.ugui",
-    "dialogue.ugui", "container.ugui",
+    "hud_gauge.ugui", "chat.ugui", "scoreboard.ugui", "mp_prompt.ugui", "journal.ugui",
+    "war_map.ugui", "dialogue.ugui", "container.ugui",
     "pause_menu.ugui", "main_menu.ugui", "first_run.ugui",
 };
 
@@ -592,6 +593,7 @@ std::string BuildUi() {
   s += LoadUiFragment("hud_gauge.ugui");
   s += LoadUiFragment("chat.ugui");
   s += LoadUiFragment("scoreboard.ugui");
+  s += LoadUiFragment("mp_prompt.ugui");
   s += LoadUiFragment("journal.ugui");
   s += LoadUiFragment("war_map.ugui");
   s += LoadUiFragment("dialogue.ugui");
@@ -723,6 +725,7 @@ struct GameUi::Impl {
   std::string scoreboard_title;
   std::string scoreboard_header;
   std::vector<std::string> scoreboard_rows;
+  std::vector<std::string> mp_prompts;  // multiplayer interaction prompts
   std::string toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
   std::string activate_prompt;
@@ -1824,6 +1827,10 @@ void GameUi::SetScoreboard(bool open, const std::string& title, const std::strin
   impl_->scoreboard_rows = rows;
 }
 
+void GameUi::SetPrompts(const std::vector<std::string>& prompts) {
+  if (impl_->initialized) impl_->mp_prompts = prompts;
+}
+
 void GameUi::SetHudGauges(const std::vector<HudGauge>& gauges) {
   if (impl_->initialized) impl_->hud_gauges = gauges;
 }
@@ -2075,6 +2082,22 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     }
   }
 
+  // Multiplayer interaction prompts: a small bottom-centre stack, shown while any
+  // are active.
+  const bool prompts_on = !impl->mp_prompts.empty();
+  impl->SetVisible("mp_prompt_box", prompts_on);
+  if (prompts_on) {
+    for (int i = 0; i < kPromptRows; ++i) {
+      const std::string row = "mp_prompt" + std::to_string(i);
+      if (static_cast<size_t>(i) < impl->mp_prompts.size()) {
+        ugui::SetText(impl->ui.FindWidget(row.c_str()), impl->mp_prompts[i].c_str());
+        impl->SetVisible(row.c_str(), true);
+      } else {
+        impl->SetVisible(row.c_str(), false);
+      }
+    }
+  }
+
   // --- Quest HUD ---
   const bool has_quest = !impl->quest.title.empty();
   impl->SetVisible("questtracker", has_quest);
@@ -2267,6 +2290,7 @@ void GameUi::SetQuest(const HudQuest&) {}
 void GameUi::SetChatLines(const std::vector<std::string>&) {}
 void GameUi::SetScoreboard(bool, const std::string&, const std::string&,
                            const std::vector<std::string>&) {}
+void GameUi::SetPrompts(const std::vector<std::string>&) {}
 void GameUi::SetHudGauges(const std::vector<HudGauge>&) {}
 void GameUi::FlashQuestUpdate(const std::string&) {}
 void GameUi::SetActivatePrompt(const std::string&) {}

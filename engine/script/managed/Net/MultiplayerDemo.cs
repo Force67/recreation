@@ -32,6 +32,10 @@ public sealed class MultiplayerDemo : IMod
         AddPlayer(3, "Aela the Huntress", 760, 22);
         Scoreboard.Title = "Recreation RP   |   whiterun-rp.example:29700";
         Scoreboard.Open();
+
+        // A couple of interaction prompts, the bread and butter of a roleplay server.
+        Prompts.Show("trade", "Trade with Belethor", "E");
+        Prompts.Show("rob", "Rob the till", "G");
     }
 
     private static void Say(uint id, string name, string text) =>
