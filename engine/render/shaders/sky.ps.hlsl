@@ -15,9 +15,11 @@ struct FrameGlobals {
   float4 camera_position;
   float4 misc;  // x,y render size, z sun angular radius, w frame index
   uint flags;
-  float3 pad;
+  float time;  // seconds
+  float2 pad;
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+static const uint kFrameFlagAurora = 256u;  // 1 << 8, mirrors mesh_pipeline.h
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 1)]] TextureCube sky;
 [[vk::combinedImageSampler]] [[vk::binding(0, 1)]] SamplerState sky_sampler;
@@ -166,6 +168,36 @@ float3 Moon(float3 dir, float3 to_sun, float3 sun_color, float intensity) {
   return result;
 }
 
+// Procedural aurora borealis (Skyrim's northern lights): undulating vertical
+// curtains in a band of the night sky, green at the base fading to magenta tips,
+// animated. Gated to night (fade) and to Skyrim (the aurora frame flag).
+float3 Aurora(float3 dir, float fade, float time) {
+  if (dir.y < 0.03 || fade <= 0.0) return 0.0.xxx;
+  float alt = asin(saturate(dir.y));   // 0 horizon .. ~1.57 zenith
+  float az = atan2(dir.x, dir.z);
+  // The aurora lives in a mid-sky band (not the horizon, not the zenith).
+  float band = smoothstep(0.05, 0.30, alt) * smoothstep(1.25, 0.5, alt);
+  if (band <= 0.0) return 0.0.xxx;
+  float t = time * 0.04;
+
+  float glow = 0.0;
+  for (int i = 0; i < 3; ++i) {
+    float fi = float(i);
+    // Low-frequency horizontal wave warps the curtain; high-frequency rays. A
+    // coverage mask carves dark gaps between curtains so it isn't a solid wash.
+    float warp = (Fbm(float2(az * (1.2 + fi * 0.5) + t * (0.6 + fi * 0.2), alt + fi)) - 0.5) * 2.5;
+    float cover = smoothstep(0.45, 0.75, Fbm(float2(az * (2.5 + fi) + t * 0.5, fi * 7.0)));
+    float ray = ValueNoise(
+        float2(az * (26.0 + fi * 18.0) + warp + t * (1.4 + fi), alt * 3.0 + fi * 5.0));
+    ray = pow(saturate(ray * 1.1 - 0.08), 5.0);   // thin, separated rays
+    float vgrad = smoothstep(1.2, 0.12, alt);     // brighter lower in the curtain
+    glow += ray * cover * vgrad * (0.5 - fi * 0.12);
+  }
+  glow *= band;
+  float3 col = lerp(float3(0.15, 1.0, 0.45), float3(0.55, 0.25, 0.95), saturate((alt - 0.35) * 1.4));
+  return col * glow * fade * 0.35;
+}
+
 PsOut main(float4 sv_position : SV_Position,
            [[vk::location(0)]] float2 uv : TEXCOORD0) {
   // Match the geometry jitter so temporal passes see a consistent frame.
@@ -176,8 +208,11 @@ PsOut main(float4 sv_position : SV_Position,
   PsOut output;
   float3 col = sky.SampleLevel(sky_sampler, dir, 0).rgb;
   float3 to_sun = normalize(-frame.sun_direction.xyz);
+  float night = smoothstep(0.04, -0.10, to_sun.y);  // 1 at night, 0 by day
   // Stars first (behind everything), fading out as the sun climbs.
-  col += Stars(dir, smoothstep(0.04, -0.10, to_sun.y));
+  col += Stars(dir, night);
+  // Aurora (Skyrim only, via the frame flag), behind the sun/moon.
+  if ((frame.flags & kFrameFlagAurora) != 0u) col += Aurora(dir, night, frame.time);
   // Crisp limb-darkened sun disk on top of the cubemap's scattered glow.
   col += SunDisk(dir, to_sun, frame.misc.z, frame.sun_color.rgb, frame.sun_direction.w);
   // Phased moon, anti-solar so it rides high at night.

@@ -200,6 +200,7 @@ void Engine::ApplyRenderPreset() {
   tuned.cloud_coverage = env.cloud_coverage;
   tuned.precipitation = env.precipitation;
   tuned.precip_snow = env.precip_snow;
+  tuned.aurora = env.aurora;
   if (std::getenv("REC_NO_OCCLUSION")) tuned.gpu_occlusion = false;  // a/b baseline
 
   renderer_.settings() = tuned;

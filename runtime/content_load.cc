@@ -124,6 +124,8 @@ bool LoadGameData(Engine& engine) {
     self->ap_base_ = self->renderer_.settings().aerial_perspective;
     REC_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
   }
+  // Skyrim's northern lights: the night-sky aurora (other games don't have it).
+  self->renderer_.settings().aurora = self->game_ == bethesda::Game::kSkyrimSe;
 
   self->quest_world_.set_on_move_player([self](u64 dest_ref, f32 x, f32 y, f32 z) {
     // When a quest warps the player to a reference inside an interior cell (the

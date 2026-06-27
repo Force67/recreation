@@ -121,6 +121,9 @@ struct RenderSettings {
   f32 precipitation = 0.0f;  // 0 none .. 1 heavy
   bool precip_snow = false;  // snow flakes vs rain streaks
 
+  // Procedural night-sky aurora (Skyrim's northern lights). On for Skyrim.
+  bool aurora = false;
+
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)
   f32 fog_density = 0.03f;
   f32 fog_height_falloff = 0.15f;

@@ -267,6 +267,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   // effect is testable without a loaded game's weather.
   if (const char* pr = std::getenv("REC_PRECIP")) settings_.precipitation = std::atof(pr);
   if (const char* sn = std::getenv("REC_SNOW")) settings_.precip_snow = std::atoi(sn) != 0;
+  if (const char* au = std::getenv("REC_AURORA")) settings_.aurora = std::atoi(au) != 0;
 
   return true;
 }
@@ -802,6 +803,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (ddgi_active) globals.flags |= kFrameFlagDdgi;
   if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
   if (rt_shadows) globals.flags |= kFrameFlagRtShadows;
+  if (settings_.aurora) globals.flags |= kFrameFlagAurora;
   if (nrd_shadow) globals.flags |= kFrameFlagSigmaShadow;
   if (reflections_active) globals.flags |= kFrameFlagReflections;
   globals.time = static_cast<f32>(time_seconds_);

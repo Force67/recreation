@@ -44,6 +44,7 @@ inline constexpr u32 kFrameFlagReflections = 1u << 4;  // opaque rt specular ref
 inline constexpr u32 kFrameFlagRtShadows = 1u << 5;    // trace sun shadow in the rt variant
 inline constexpr u32 kFrameFlagShadowMap = 1u << 6;    // sample cascaded shadow maps (raster path)
 inline constexpr u32 kFrameFlagSigmaShadow = 1u << 7;  // sample the SIGMA-denoised sun shadow
+inline constexpr u32 kFrameFlagAurora = 1u << 8;       // draw the night-sky aurora (sky.ps)
 
 // model + prev_model are 128 bytes; skinned draws append the bone palette's
 // buffer device address and this mesh's offset into it (needs a 144 byte push
