@@ -35,11 +35,20 @@ public static class Platform
         Social.Bind(role);
         Admin.Bind(role);
         Persistence.Bind(role);
+        // Client-facing UI surfaces (no-op-safe rendering until the HUD is wired).
+        HudKit.Bind(role);
+        Map.Bind(role);
+        Scoreboard.Bind(role);
+        ServerBrowser.Bind(role);
     }
 
     // Tear every subsystem down, in reverse of Boot. Called by ModHost.Shutdown.
     public static void Reset()
     {
+        ServerBrowser.Reset();
+        Scoreboard.Reset();
+        Map.Reset();
+        HudKit.Reset();
         Persistence.Reset();
         Admin.Reset();
         Social.Reset();
