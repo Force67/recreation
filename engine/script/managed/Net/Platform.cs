@@ -28,13 +28,22 @@ public static class Platform
     public static void Boot(NetRole role)
     {
         Role = role;
+        // Foundation first (state + roster), then the systems that build on them.
         StateBags.Bind(role);
         Players.Bind(role);
+        Chat.Bind(role);
+        Social.Bind(role);
+        Admin.Bind(role);
+        Persistence.Bind(role);
     }
 
-    // Tear every subsystem down. Called by ModHost.Shutdown.
+    // Tear every subsystem down, in reverse of Boot. Called by ModHost.Shutdown.
     public static void Reset()
     {
+        Persistence.Reset();
+        Admin.Reset();
+        Social.Reset();
+        Chat.Reset();
         Players.Reset();
         StateBags.Reset();
         Role = NetRole.Standalone;
