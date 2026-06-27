@@ -390,6 +390,64 @@ void NpcDirector::UpdateCombat(f32 dt) {
   }
 }
 
+bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
+  if (!cw_battle_active_) return false;
+  int a = 0, b = 0, d = 0;
+  world_.Each<world::CombatTeam>([&](ecs::Entity e, world::CombatTeam& ct) {
+    if (world_.Has<world::Dead>(e)) {
+      ++d;
+      return;
+    }
+    if (ct.team == 1)
+      ++a;
+    else if (ct.team == 2)
+      ++b;
+  });
+  *team_a = a;
+  *team_b = b;
+  *fallen = d;
+  return true;
+}
+
+void NpcDirector::CwBattleTick(f32 dt) {
+  if (!cw_battle_pending_ || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings) return;
+
+  if (!cw_battle_active_) {
+    Vec3 ppos;
+    if (!actors_->PlayerWorldPos(&ppos)) return;
+    // Enlist the streamed NPCs around the player into two armies, split across the
+    // player's position so they form opposing lines and charge.
+    base::Vector<u64> enlisted;
+    world_.Each<world::Npc, world::FormLink, world::Transform>(
+        [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+          const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
+          if (dx * dx + dz * dz > 200.0f * 200.0f) return;  // grab the whole garrison
+          if (world_.Has<world::Dead>(e)) return;
+          const i32 team = t.position[0] < ppos.x ? 1 : 2;
+          world_.Add(e, world::CombatTeam{team});
+          enlisted.push_back(link.form.packed());
+        });
+    if (enlisted.size() < 2) return;  // wait for the cell's NPCs to stream in
+    // Give every soldier a battle health pool on the guest thread, so the melee
+    // resolves in seconds rather than the default 100 hp grind.
+    std::vector<u64> handles(enlisted.begin(), enlisted.end());
+    auto* binds = ctx_.bindings;
+    ctx_.scripts->guest().Submit([binds, handles](rec::script::papyrus::VirtualMachine&) {
+      for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
+    });
+    cw_battle_active_ = true;
+    REC_INFO("cw battle: enlisted {} soldiers into two armies", enlisted.size());
+  }
+
+  cw_battle_log_timer_ -= dt;
+  if (cw_battle_log_timer_ <= 0.0f) {
+    cw_battle_log_timer_ = 1.0f;
+    int a = 0, b = 0, d = 0;
+    BattleStrength(&a, &b, &d);
+    REC_INFO("cw battle: team1={} team2={} fallen={} engaged={}", a, b, d, combatant_count());
+  }
+}
+
 void NpcDirector::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
 #if RECREATION_HAS_NET

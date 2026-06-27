@@ -217,6 +217,14 @@ void QuestDirector::AttachQuestScripts() {
     }
   }
 
+  // REC_CW_BATTLE enlists the streamed NPCs around the player into two armies and
+  // lets the combat driver fight it out, a live check that the melee path works
+  // end to end on real rendered actors. Pairs well with --interior HelgenKeep01.
+  if (host && std::getenv("REC_CW_BATTLE")) {
+    npc_->ArmCwBattle();
+    REC_INFO("debug: CW battle harness armed (nearby NPCs split into two armies)");
+  }
+
   // REC_JOURNAL opens the quest journal at load (it is normally toggled with J),
   // for screenshots (cf. RECREATION_UI_MENU / REC_HIDE_DEBUG_UI).
   if (std::getenv("REC_JOURNAL")) journal_open_ = true;

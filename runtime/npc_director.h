@@ -72,6 +72,16 @@ class NpcDirector {
   void ArmMq101Demo(u64 quest_handle);
   void ArmMq101Scene(u64 quest_handle);
 
+  // REC_CW_BATTLE verification harness: enlist the streamed NPCs near the player
+  // into two armies (CombatTeam) and let the combat driver fight it out. Exercises
+  // the combat path (closing, swinging, dying) on real actors, independent of the
+  // Civil War Papyrus. Not the quest itself.
+  void ArmCwBattle() { cw_battle_pending_ = true; }
+  void CwBattleTick(f32 dt);
+  // Live army strength for the battle HUD: alive count per team and fallen total.
+  // Returns false until a battle is running.
+  bool BattleStrength(int* team_a, int* team_b, int* fallen) const;
+
  private:
   // SceneSink over the running engine: a scene guides NPCs, runs INFO fragments,
   // advances quest stages, and answers proximity queries.
@@ -132,6 +142,9 @@ class NpcDirector {
   world::CombatParams combat_params_;
   f32 combat_acquire_timer_ = 0;  // throttles the auto-aggression target scan
   i32 player_team_ = 0;           // 0 = player not in the auto-aggression
+  bool cw_battle_pending_ = false;
+  bool cw_battle_active_ = false;
+  f32 cw_battle_log_timer_ = 0;
   u64 ambient_rng_ = 0x243f6a8885a308d3ull;
   f32 AmbientRand(f32 lo, f32 hi);
   bool mq101_demo_pending_ = false;
