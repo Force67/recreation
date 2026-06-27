@@ -165,6 +165,9 @@ void NpcDirector::UpdateAmbient(f32 dt) {
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
         const u64 handle = link.form.packed();
         if (followers_.find(handle) || guides_.find(handle)) return;  // driven elsewhere
+        if (combat_.find(handle) || world_.Has<world::Dead>(e)) return;  // fighting / downed
+        if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
+          if (ct->team != 0) return;  // a soldier awaiting orders, not an idler
         const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
         const f32 d2 = dx * dx + dz * dz;
         if (d2 <= kActiveRadius * kActiveRadius) nearby.push_back({e, handle, &t, d2});
@@ -241,6 +244,54 @@ void NpcDirector::OnActorDied(u64 actor) {
     if (cs.target == actor) idle.push_back(attacker);
   });
   for (u64 a : idle) combat_.erase(a);
+  // Tag the body so auto-aggression skips it and it stops moving.
+  ecs::Entity e;
+  world::Transform* t;
+  if (ResolveCombatant(actor, &e, &t) && !world_.Has<world::Dead>(e)) {
+    world_.Add(e, world::Dead{});
+    actors_->SetNpcGait(e, 0.0f, false, 0.0f);
+  }
+}
+
+void NpcDirector::AcquireTargets() {
+  // Teamed, living actors that are not already fighting pick the nearest hostile
+  // (different non-zero team) within engage range. This drives the opening clash
+  // and re-acquisition after a kill, so a battle sustains itself. Bounded scan;
+  // teams are assigned by the spawner (it knows each soldier's side).
+  struct Cand {
+    u64 handle;
+    i32 team;
+    float pos[3];
+  };
+  base::Vector<Cand> cands;
+  world_.Each<world::Npc, world::CombatTeam, world::FormLink, world::Transform>(
+      [&](ecs::Entity e, world::Npc&, world::CombatTeam& ct, world::FormLink& link,
+          world::Transform& t) {
+        if (ct.team == 0 || world_.Has<world::Dead>(e)) return;
+        cands.push_back({link.form.packed(), ct.team, {t.position[0], t.position[1], t.position[2]}});
+      });
+  // The player can fight on a side (so NPCs target it); it is a target only, never
+  // an auto-attacker (EnterCombat ignores the player handle).
+  Vec3 ppos;
+  if (player_team_ != 0 && actors_->HasPlayer() && actors_->PlayerWorldPos(&ppos))
+    cands.push_back({kPlayerHandle, player_team_, {ppos.x, ppos.y, ppos.z}});
+
+  const f32 r2 = combat_params_.engage_radius * combat_params_.engage_radius;
+  for (const Cand& self : cands) {
+    if (self.handle == kPlayerHandle) continue;        // player picks targets by input
+    if (combat_.find(self.handle)) continue;           // already engaged
+    u64 best = 0;
+    f32 best_d2 = r2;
+    for (const Cand& other : cands) {
+      if (other.team == self.team || other.handle == self.handle) continue;
+      const f32 d2 = world::PlanarDist2(self.pos, other.pos);
+      if (d2 < best_d2) {
+        best_d2 = d2;
+        best = other.handle;
+      }
+    }
+    if (best) EnterCombat(self.handle, best);
+  }
 }
 
 bool NpcDirector::ResolveCombatant(u64 handle, ecs::Entity* entity, world::Transform** transform) {
@@ -265,6 +316,13 @@ void NpcDirector::UpdateCombat(f32 dt) {
 #if RECREATION_HAS_NET
   if (ctx_.client_session) return;
 #endif
+  // Re-acquire targets a few times a second (cheaper than every frame and the
+  // clash cadence does not need frame precision).
+  combat_acquire_timer_ -= dt;
+  if (combat_acquire_timer_ <= 0.0f) {
+    combat_acquire_timer_ = 0.3f;
+    AcquireTargets();
+  }
   if (combat_.empty()) return;
   const world::CombatParams& p = combat_params_;
 

@@ -58,6 +58,9 @@ class NpcDirector {
   void OnActorDied(u64 actor);
   void UpdateCombat(f32 dt);
   int combatant_count() const { return static_cast<int>(combat_.size()); }
+  // The side the player fights on (a world::CombatTeam id), so hostile soldiers
+  // target the player; 0 (default) leaves the player out of the auto-aggression.
+  void set_player_team(i32 team) { player_team_ = team; }
   // A reachable waypoint from `from` toward `goal` that rounds interior walls
   // (grid A* over a downward-ray floor map). Lets the engine route the walking
   // player through the keep instead of pressing it straight into geometry.
@@ -90,6 +93,8 @@ class NpcDirector {
   // yet (e.g. an actor in an unstreamed cell), in which case the combatant stays
   // enrolled and engages once it streams in.
   bool ResolveCombatant(u64 handle, ecs::Entity* entity, world::Transform** transform);
+  // Auto-aggression: enrolls idle teamed actors against the nearest hostile.
+  void AcquireTargets();
   // Floor height under (x, z), found by a short downward ray; returns y_hint when
   // nothing is beneath (a ledge / unloaded collision) so the caller holds height.
   f32 GroundY(f32 x, f32 z, f32 y_hint) const;
@@ -125,6 +130,8 @@ class NpcDirector {
   };
   base::UnorderedMap<u64, CombatState> combat_;
   world::CombatParams combat_params_;
+  f32 combat_acquire_timer_ = 0;  // throttles the auto-aggression target scan
+  i32 player_team_ = 0;           // 0 = player not in the auto-aggression
   u64 ambient_rng_ = 0x243f6a8885a308d3ull;
   f32 AmbientRand(f32 lo, f32 hi);
   bool mq101_demo_pending_ = false;

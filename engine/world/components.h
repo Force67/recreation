@@ -41,6 +41,18 @@ struct Npc {
 // A tag carries no data, its presence is the state.
 struct Hidden {};
 
+// A combatant's allegiance for the melee combat driver. Actors with different
+// non-zero teams auto-engage when they come within range; team 0 is a
+// non-combatant (the default, so the world is not at war by accident). Set by
+// whatever knows an actor's side: a battle spawner, or faction resolution.
+struct CombatTeam {
+  i32 team = 0;
+};
+
+// Tag marking an actor whose health reached zero, so the combat driver skips it
+// as a target and the render path can hold a downed pose. Presence is the state.
+struct Dead {};
+
 // Tag marking an entity created by a quest (PlaceAtMe), with the issuing quest,
 // so quest-spawned content can be found by an ECS sweep as well as via the
 // QuestWorld provenance ledger.
