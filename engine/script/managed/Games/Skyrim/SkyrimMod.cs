@@ -17,7 +17,16 @@ public sealed class SkyrimMod : IMod
     public void OnLoad()
     {
         Console.WriteLine("[skyrim] installing gameplay systems");
-        ModHost.Register(new AttributeRegeneration());
+
+        // Regen rates are tunable from config (Skyrim.json), defaulting to the
+        // built-in feel.
+        ModConfig config = ModConfig.Load("Skyrim");
+        ModHost.Register(new AttributeRegeneration
+        {
+            HealthRatePerSecond = config.GetFloat("healthRegenPerSecond", 0.007f),
+            MagickaRatePerSecond = config.GetFloat("magickaRegenPerSecond", 0.03f),
+            StaminaRatePerSecond = config.GetFloat("staminaRegenPerSecond", 0.05f),
+        });
         ModHost.Register(new QuestProgressTracker());
         ModHost.Register(new CombatTracker());
         ModHost.Register(new CombatFastTravelLock());
