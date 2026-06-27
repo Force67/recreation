@@ -6,10 +6,8 @@ using Recreation.Modding;
 
 namespace Recreation.Net;
 
-// Raised on every machine when a player enters the roster and when it leaves.
-// Unlike the engine's server-only ClientJoined/ClientLeft, these fire on clients
-// too: the roster is driven by replicated presence, so a mod reacts to players
-// uniformly everywhere it runs.
+// Raised on every machine when a player enters or leaves the roster. Unlike the
+// engine's server-only ClientJoined/ClientLeft, these fire on clients too.
 public readonly struct PlayerJoined(Player player) : IGameEvent
 {
     public Player Player { get; } = player;
@@ -20,11 +18,9 @@ public readonly struct PlayerLeft(Player player) : IGameEvent
     public Player Player { get; } = player;
 }
 
-// The session's player registry: who is connected, which player is local, and each
-// player's replicated state. The roster is built by watching player:* state bags,
-// so it is identical on the host and every client with no bespoke roster protocol.
-// The server marks a peer present on join (replicating it everywhere) and tells
-// that peer its own id over a reserved RPC.
+// The session's player registry. The roster is built by watching player:* state
+// bags. The server marks a peer present on join and tells that peer its own id
+// over a reserved RPC.
 public static class Players
 {
     private const string IdentityRpc = "net:you";  // server -> a client: your peer id
@@ -39,6 +35,13 @@ public static class Players
 
     // The local player, always addressable even before its presence has replicated.
     public static Player Local => Wrap(LocalId);
+
+    // The local player's world position in engine space. This is the space the platform
+    // uses (blips, spawned objects, voice), distinct from the script GetPosition space.
+    public static Vector3 LocalWorldPos => new(
+        Native.CallGlobal("Net", "LocalPosX", ReadOnlySpan<Value>.Empty).AsFloat(),
+        Native.CallGlobal("Net", "LocalPosY", ReadOnlySpan<Value>.Empty).AsFloat(),
+        Native.CallGlobal("Net", "LocalPosZ", ReadOnlySpan<Value>.Empty).AsFloat());
 
     // The present roster (a fresh snapshot, safe to enumerate while it mutates).
     public static IReadOnlyCollection<Player> All => Roster.Select(Wrap).ToList();

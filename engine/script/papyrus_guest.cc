@@ -178,6 +178,15 @@ void PapyrusGuest::BindEngineNatives() {
   for (const char* f : {"Connect", "SpawnObject", "MoveObject", "DeleteObject"}) {
     reg_platform("Net", f);
   }
+  // Net.LocalPos{X,Y,Z}(): the local player's world position (engine space) so a
+  // mod can place things relative to the player. These return a value, unlike the
+  // fire-and-forget calls above.
+  for (int axis = 0; axis < 3; ++axis) {
+    const char* name = axis == 0 ? "LocalPosX" : (axis == 1 ? "LocalPosY" : "LocalPosZ");
+    natives_.Register("Net", name, [this, axis](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+      return Value::Float(local_pos_provider_ ? local_pos_provider_()[axis] : 0.0f);
+    });
+  }
 }
 
 }  // namespace rec::script

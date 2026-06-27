@@ -37,16 +37,16 @@ public sealed class MultiplayerDemo : IMod
         Prompts.Show("trade", "Trade with Belethor", "E");
         Prompts.Show("rob", "Rob the till", "G");
 
-        // Drop a few map blips around the player so they show on the compass. Done
-        // after a beat, once the player has streamed in and has a world position.
-        Scheduler.After(2.0f, () =>
+        // Drop blips and spawn objects around the player. Done after a beat, once
+        // the player has streamed in and the engine reports its world position.
+        Scheduler.After(2.5f, () =>
         {
-            Vector3 p = Recreation.Game.Player.Position;
-            Blips.CreateShared("shop", new Vector3(p.X + 1800, p.Y, p.Z + 600), "General Store",
+            Vector3 p = Players.LocalWorldPos;  // engine-space platform position
+            Blips.CreateShared("shop", new Vector3(p.X + 26, p.Y, p.Z + 9), "General Store",
                                BlipSprite.Shop, 0x4fd87fffu);     // green
-            Blips.CreateShared("job", new Vector3(p.X - 400, p.Y, p.Z + 1900), "Job Centre",
+            Blips.CreateShared("job", new Vector3(p.X - 6, p.Y, p.Z + 27), "Job Centre",
                                BlipSprite.Quest, 0xffd24affu);    // gold
-            Blips.CreateShared("gang", new Vector3(p.X - 1600, p.Y, p.Z - 700), "Bandit Camp",
+            Blips.CreateShared("gang", new Vector3(p.X - 23, p.Y, p.Z - 10), "Bandit Camp",
                                BlipSprite.Enemy, 0xd84f4fffu);    // red
         });
     }

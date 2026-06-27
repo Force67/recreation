@@ -104,6 +104,13 @@ class PlatformHud {
   // Main thread: take the networked-entity ops queued since the previous drain.
   std::vector<PlatformEntityOp> DrainEntityOps();
 
+  // The local player's world position in engine space. The runtime publishes it
+  // each frame; the Net.LocalPos* natives read it so a mod can place things in the
+  // world (the script GetPosition space differs and is unresolved for the spawned
+  // player biped). Both sides are guarded since they cross the guest/main threads.
+  void SetLocalPos(f32 x, f32 y, f32 z);
+  std::array<f32, 3> LocalPos() const;
+
   // Net.Connect target a mod requested, consumed once by the runtime.
   std::optional<std::string> TakePendingConnect();
 
@@ -121,6 +128,7 @@ class PlatformHud {
   std::optional<std::array<f32, 3>> waypoint_;
   PlatformScoreboard scoreboard_;
   std::vector<PlatformEntityOp> entity_ops_;  // drained to the ECS world
+  std::array<f32, 3> local_pos_{0, 0, 0};     // local player world pos, engine space
   std::optional<std::string> pending_connect_;
 };
 

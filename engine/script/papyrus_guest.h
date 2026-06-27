@@ -1,6 +1,7 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 #define RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 
+#include <array>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -84,6 +85,13 @@ class PapyrusGuest {
     on_platform_hud_ = std::move(fn);
   }
 
+  // Supplies the local player's world position (engine space) to the Net.LocalPos*
+  // natives, so a mod can place blips and objects relative to the player. Set by
+  // the runtime; read on the guest thread.
+  void set_local_pos_provider(std::function<std::array<f32, 3>()> fn) {
+    local_pos_provider_ = std::move(fn);
+  }
+
  private:
   struct ScheduledUpdate {
     papyrus::ObjectRef target;
@@ -121,6 +129,10 @@ class PapyrusGuest {
   std::function<void(const std::string&, const std::string&,
                      const std::vector<papyrus::Value>&)>
       on_platform_hud_;
+
+  // Set once on the guest thread (see set_local_pos_provider); read by the
+  // Net.LocalPos* natives, also on the guest thread.
+  std::function<std::array<f32, 3>()> local_pos_provider_;
 };
 
 template <typename Fn>

@@ -130,6 +130,16 @@ std::vector<PlatformEntityOp> PlatformHud::DrainEntityOps() {
   return std::move(entity_ops_);
 }
 
+void PlatformHud::SetLocalPos(f32 x, f32 y, f32 z) {
+  std::lock_guard<std::mutex> lock(mu_);
+  local_pos_ = {x, y, z};
+}
+
+std::array<f32, 3> PlatformHud::LocalPos() const {
+  std::lock_guard<std::mutex> lock(mu_);
+  return local_pos_;
+}
+
 std::optional<std::string> PlatformHud::TakePendingConnect() {
   std::lock_guard<std::mutex> lock(mu_);
   std::optional<std::string> out = std::move(pending_connect_);

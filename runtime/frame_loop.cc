@@ -1,5 +1,6 @@
 #include "engine.h"
 
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -380,18 +381,22 @@ bool Engine::RunFrame() {
         }
         game_ui_.SetPrompts(prompts);
       }
+      // Publish the local player's world position (engine space) so mods can place
+      // things relative to the player through the Net.LocalPos* natives.
+      {
+        const Vec3 p = camera_.position();
+        platform_hud_.SetLocalPos(p.x, p.y, p.z);
+      }
       // Map blips on the compass: turn each blip's world position into a bearing
       // from where the player looks, dropping ones behind or off the strip. Blip
-      // positions arrive in game units (the script position space); the camera is
-      // engine space, so convert before differencing.
+      // positions are engine space (placed via Net.LocalPos), matching the camera.
       {
-        constexpr float kGameToEngine = 0.01428f;  // Bethesda ~70 units/m
         const Vec3 eye = camera_.position();
         const Vec3 tgt = camera_.target();
         const float fwd[3] = {tgt.x - eye.x, 0.0f, tgt.z - eye.z};
         std::vector<GameUi::CompassBlip> cblips;
         for (const PlatformBlip& b : platform_hud_.Blips()) {
-          const float to[3] = {b.x * kGameToEngine - eye.x, 0.0f, b.z * kGameToEngine - eye.z};
+          const float to[3] = {b.x - eye.x, 0.0f, b.z - eye.z};
           const float bearing = world::MarkerCompassBearingDeg(fwd, to);
           if (std::fabs(bearing) > 105.0f) continue;  // behind the player / off the strip
           cblips.push_back({bearing, b.color ? b.color : 0xffffffffu});
@@ -404,35 +409,48 @@ bool Engine::RunFrame() {
       // Networked entities: apply a mod's spawn/move/delete onto the ECS world so
       // its objects appear for the local player. A spawned object uses the
       // placeholder cube mesh until per-model meshes are wired through PlaceObject.
-      constexpr float kGameToEngine = 0.01428f;  // script positions -> engine space
       // Resolve a placeholder base form (the first static carrying a model) once.
       // A spawned net entity uses it as its visual until per-model meshes are wired.
       if (!net_entity_base_ready_) {
         net_entity_base_ready_ = true;
-        records_.EachOfType(FourCc('S', 'T', 'A', 'T'),
-                            [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-                              if (net_entity_base_.local_id != 0) return;  // first hit wins
-                              bethesda::Record record;
-                              if (records_.Parse(id, &record) && record.Find(FourCc('M', 'O', 'D', 'L')))
-                                net_entity_base_ = id;
-                            });
+        records_.EachOfType(
+            FourCc('S', 'T', 'A', 'T'),
+            [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+              if (net_entity_base_.local_id != 0) return;  // first good hit wins
+              bethesda::Record record;
+              if (!records_.Parse(id, &record)) return;
+              const bethesda::Subrecord* modl = record.Find(FourCc('M', 'O', 'D', 'L'));
+              if (!modl || modl->data.empty()) return;
+              std::string path(reinterpret_cast<const char*>(modl->data.data()), modl->data.size());
+              if (size_t z = path.find('\0'); z != std::string::npos) path.resize(z);
+              for (char& c : path) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+              // Need a real world mesh; skip markers, effects and the non-world art
+              // (load screens, UI) that carry a model but never render in the cell.
+              if (path.find(".nif") == std::string::npos) return;
+              for (const char* bad : {"marker", "fx\\", "loadscreen", "interface", "effects\\"}) {
+                if (path.find(bad) != std::string::npos) return;
+              }
+              net_entity_base_ = id;
+            });
       }
       for (const PlatformEntityOp& op : platform_hud_.DrainEntityOps()) {
         if (op.kind == PlatformEntityOp::Kind::kSpawn) {
           if (!streamer_) continue;
-          // Place through the cell streamer (raw ECS renderables are not drawn in
-          // the streamed world), at the entity's world position. A placeholder
-          // static stands in until per-model meshes are resolved from op.model.
-          const Vec3 pos{op.x * kGameToEngine, op.y * kGameToEngine, op.z * kGameToEngine};
+          // Place through the cell streamer at the entity's engine-space world
+          // position, with a placeholder static until per-model meshes resolve
+          // op.model. NOTE: PlaceObject registers the object and its transform, but
+          // standalone entities are only drawn in the editor view today; rendering
+          // them in the live gameplay path is a separate renderer integration.
+          const Vec3 pos{op.x, op.y, op.z};
           const f32 rot[4] = {0, 0, 0, 1};
           ecs::Entity e = streamer_->PlaceObject(world_, net_entity_base_, pos, rot, 1.0f);
           if (e != ecs::kInvalidEntity) net_entities_.insert(op.id, e);
         } else if (op.kind == PlatformEntityOp::Kind::kMove) {
           if (ecs::Entity* e = net_entities_.find(op.id)) {
             if (world::Transform* t = world_.Get<world::Transform>(*e)) {
-              t->position[0] = op.x * kGameToEngine;
-              t->position[1] = op.y * kGameToEngine;
-              t->position[2] = op.z * kGameToEngine;
+              t->position[0] = op.x;
+              t->position[1] = op.y;
+              t->position[2] = op.z;
             }
           }
         } else if (op.kind == PlatformEntityOp::Kind::kDelete) {

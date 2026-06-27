@@ -216,6 +216,7 @@ bool LoadGameData(Engine& engine) {
                  const std::vector<rec::script::papyrus::Value>& args) {
             self->platform_hud_.Submit(type, func, args);
           });
+      guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
   }
   self->quest_->AttachQuestScripts();
@@ -531,6 +532,7 @@ void LoadExtraDomains(Engine& engine) {
                  const std::vector<rec::script::papyrus::Value>& args) {
             self->platform_hud_.Submit(type, func, args);
           });
+      guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
     // Run that game's quests inside its own microvm (capped like the primary).
     domain->AttachQuestScripts(self->config_.max_quest_scripts);
