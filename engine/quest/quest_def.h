@@ -36,6 +36,7 @@ struct ObjectiveDef {
 // form ids are plugin-relative; resolve them against the quest's plugin.
 struct AliasDef {
   i32 id = 0;                  // ALST/ALLS alias id, matches an objective's QSTA
+  std::string name;            // ALID alias name (e.g. "City", "Fort"), for <Alias=> tokens
   u32 forced_ref_raw = 0;      // ALFR forced reference, 0 when none
   u32 unique_actor_raw = 0;    // ALUA unique-actor NPC_ base, 0 when none
 };

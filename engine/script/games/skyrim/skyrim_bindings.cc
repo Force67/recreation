@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+#include <string_view>
 
 #include "bethesda/record.h"
 #include "core/log.h"
@@ -624,6 +626,95 @@ void RecordBackedSkyrimBindings::ApplyMeleeHit(ObjectRef attacker, ObjectRef tar
   last_attacker_ = attacker;
   ModActorValue(target, "health", -damage);  // may trigger MaybeNotifyDeath
   last_attacker_ = ObjectRef{0};
+}
+
+namespace {
+// Resolves one quest-text token body (without the angle brackets), e.g.
+// "Alias=City", "Alias.ShortName=Fort", "Global=CWPercentPoolRemainingAttacker".
+// Returns false to leave an unrecognised token in place.
+bool ExpandToken(std::string_view token, std::string* out,
+                 const std::function<std::string(std::string_view)>& alias_name,
+                 const std::function<bool(std::string_view, f32*)>& global_value) {
+  const size_t eq = token.find('=');
+  if (eq == std::string_view::npos) return false;
+  std::string_view key = token.substr(0, eq);
+  std::string_view name = token.substr(eq + 1);
+  const size_t dot = key.find('.');  // strip a ".ShortName"/".GetName" qualifier
+  if (dot != std::string_view::npos) key = key.substr(0, dot);
+  std::string lower(key);
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  if (lower == "alias") {
+    *out = alias_name(name);
+    return true;
+  }
+  if (lower == "global") {
+    f32 v = 0;
+    if (!global_value(name, &v)) return false;
+    char buf[32];
+    if (v == std::floor(v))
+      std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(v));
+    else
+      std::snprintf(buf, sizeof(buf), "%.1f", v);
+    *out = buf;
+    return true;
+  }
+  return false;
+}
+}  // namespace
+
+std::string RecordBackedSkyrimBindings::ResolveQuestText(u64 quest, const std::string& raw) {
+  if (raw.find('<') == std::string::npos) return raw;
+  const quest::QuestDef* def = quest_system_.Definition(quest);
+
+  // <Alias=Name> -> the display name of the reference filling that named alias,
+  // falling back to the alias name itself when it is unfilled (better than a raw
+  // token). Names match case-insensitively.
+  auto alias_name = [&](std::string_view name) -> std::string {
+    std::string want(name);
+    std::transform(want.begin(), want.end(), want.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (def) {
+      for (const quest::AliasDef& a : def->aliases) {
+        std::string an = a.name;
+        std::transform(an.begin(), an.end(), an.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (an != want) continue;
+        const ObjectRef ref = AliasReference(ObjectRef{papyrus::EncodeAliasHandle(quest, a.id)});
+        std::string n = ref.handle ? GetName(ref) : "";
+        return n.empty() ? a.name : n;
+      }
+    }
+    return std::string(name);
+  };
+  // <Global=Name> -> the live value of the GLOB with that editor id.
+  auto global_value = [&](std::string_view name, f32* v) -> bool {
+    if (!records_) return false;
+    const bethesda::GlobalFormId g = records_->FindGlobal(std::string(name));
+    if (g.plugin == 0xffff) return false;
+    *v = GetGlobalValue(ObjectRef{g.packed()});
+    return true;
+  };
+
+  std::string out;
+  out.reserve(raw.size());
+  for (size_t i = 0; i < raw.size();) {
+    if (raw[i] != '<') {
+      out += raw[i++];
+      continue;
+    }
+    const size_t end = raw.find('>', i);
+    std::string repl;
+    if (end != std::string::npos &&
+        ExpandToken(std::string_view(raw).substr(i + 1, end - i - 1), &repl, alias_name,
+                    global_value)) {
+      out += repl;
+      i = end + 1;
+    } else {
+      out += raw[i++];
+    }
+  }
+  return out;
 }
 
 void RecordBackedSkyrimBindings::SetActorValue(ObjectRef actor, const std::string& av, f32 value) {

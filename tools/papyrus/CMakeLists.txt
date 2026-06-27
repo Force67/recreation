@@ -139,7 +139,7 @@ target_link_libraries(objective_markertest PRIVATE recreation::world)
 recreation_set_warnings(objective_markertest)
 
 add_executable(combattest combattest.cc)
-target_link_libraries(combattest PRIVATE recreation::script recreation::world)
+target_link_libraries(combattest PRIVATE recreation::script recreation::world recreation::quest)
 recreation_set_warnings(combattest)
 
 add_executable(alias_handletest alias_handletest.cc)

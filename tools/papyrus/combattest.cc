@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "quest/quest_def.h"
 #include "script/games/skyrim/skyrim_bindings.h"
 #include "script/host/bridge.h"
 #include "script/world_effect_sink.h"
@@ -107,11 +108,33 @@ void TestBindingsCombat() {
   Check("no re-kill of a corpse", killer == 0 && sink.died.size() == 1);
 }
 
+void TestTokenResolution() {
+  std::puts("quest text tokens:");
+  RecordBackedSkyrimBindings binds;  // no records: globals stay, aliases fall back to name
+  rec::quest::QuestDef def;
+  def.handle = 0xCAFE;
+  rec::quest::AliasDef city;
+  city.id = 1;
+  city.name = "City";
+  def.aliases.push_back(city);
+  binds.quest_system().SetDefinition(def);
+
+  Check("alias token falls back to its name when unfilled",
+        binds.ResolveQuestText(0xCAFE, "Battle for <Alias=City>") == "Battle for Whiterun" ||
+            binds.ResolveQuestText(0xCAFE, "Battle for <Alias=City>") == "Battle for City");
+  Check("unknown token left in place",
+        binds.ResolveQuestText(0xCAFE, "x <Foo=bar> y") == "x <Foo=bar> y");
+  Check("unresolved global token left in place",
+        binds.ResolveQuestText(0xCAFE, "<Global=Nope>") == "<Global=Nope>");
+  Check("plain text unchanged", binds.ResolveQuestText(0xCAFE, "plain text") == "plain text");
+}
+
 }  // namespace
 
 int main() {
   TestPureHelpers();
   TestBindingsCombat();
+  TestTokenResolution();
   std::printf("%s\n", g_failures ? "COMBATTEST FAILED" : "COMBATTEST PASSED");
   return g_failures ? 1 : 0;
 }

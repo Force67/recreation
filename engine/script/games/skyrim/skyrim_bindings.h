@@ -288,6 +288,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // values live. A no-op on an already-dead or invalid target.
   void ApplyMeleeHit(papyrus::ObjectRef attacker, papyrus::ObjectRef target, f32 damage);
 
+  // Expands the <Alias=Name> and <Global=Name> tokens in a quest's display text
+  // against live state, so an objective like "Battle for <Alias=City>" reads
+  // "Battle for Whiterun" and "<Global=CWPercentPoolRemainingAttacker>" shows the
+  // number. Unknown tokens are left in place. Guest-thread only (touches the
+  // quest system + records). Returns raw unchanged when it carries no token.
+  std::string ResolveQuestText(u64 quest, const std::string& raw);
+
   // Inventory (new system).
   i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) override;
   void AddItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) override;

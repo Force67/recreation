@@ -340,7 +340,8 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
               emit(Fmt("  stage %d%s %s", s.index, s.complete_quest ? " [completes]" : "",
                        s.log_entry.c_str()));
             for (const quest::ObjectiveDef& o : def->objectives)
-              emit(Fmt("  objective %d: %s", o.index, o.text.c_str()));
+              emit(Fmt("  objective %d: %s", o.index,
+                       binds->ResolveQuestText(handle, o.text).c_str()));
 
             emit("driving to completion:");
             binds->StartQuest(ref);
@@ -372,7 +373,7 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
                      st.stage, st.complete ? "YES" : "no"));
             for (const quest::ObjectiveStatus& o : st.objectives)
               emit(Fmt("  objective %d: displayed=%d completed=%d  %s", o.index, o.displayed,
-                       o.completed, o.text.c_str()));
+                       o.completed, binds->ResolveQuestText(handle, o.text).c_str()));
             return r;
           })
           .get();
@@ -721,10 +722,18 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
             for (const auto& [handle, edid] : src) {
               const quest::QuestDef* def = qs.Definition(handle);
               std::string name = (def && !def->name.empty()) ? def->name : edid;
-              out.panel.push_back({std::move(name), handle, qs.IsRunning(handle),
+              out.panel.push_back({binds->ResolveQuestText(handle, name), handle, qs.IsRunning(handle),
                                    qs.IsActive(handle), qs.IsComplete(handle), qs.GetStage(handle)});
             }
             out.running = qs.RunningStatuses();
+            // Expand <Alias=>/<Global=> tokens in the live HUD text against the
+            // filled aliases and global values (guest thread owns both).
+            for (quest::QuestStatus& q : out.running) {
+              q.name = binds->ResolveQuestText(q.handle, q.name);
+              q.log_entry = binds->ResolveQuestText(q.handle, q.log_entry);
+              for (quest::ObjectiveStatus& o : q.objectives)
+                o.text = binds->ResolveQuestText(q.handle, o.text);
+            }
             // Expand the selected quest into stages and objectives for the debugger.
             if (selected != 0) {
               out.detail.handle = selected;
@@ -736,7 +745,8 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
               }
               quest::QuestStatus st = qs.Status(selected);
               for (const quest::ObjectiveStatus& o : st.objectives)
-                out.detail.objectives.push_back({o.index, o.text, o.displayed, o.completed});
+                out.detail.objectives.push_back(
+                    {o.index, binds->ResolveQuestText(selected, o.text), o.displayed, o.completed});
             }
             return out;
           })
