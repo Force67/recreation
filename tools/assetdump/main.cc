@@ -32,6 +32,19 @@ int main(int argc, char** argv) {
   bethesda::RegisterConverters(database, profile);
 
   std::string path = argv[2];
+  if (path == "--list") {
+    // Enumerate vfs entries containing the optional substring filter (argv[3]).
+    std::string filter = argc > 3 ? argv[3] : "";
+    u32 count = 0;
+    vfs.Enumerate([&](std::string_view p) {
+      if (filter.empty() || p.find(filter) != std::string_view::npos) {
+        std::printf("%.*s\n", static_cast<int>(p.size()), p.data());
+        ++count;
+      }
+    });
+    std::printf("# %u entries\n", count);
+    return 0;
+  }
   if (argc > 3) {
     auto bytes = vfs.Read(path);
     if (!bytes) {
@@ -45,33 +58,43 @@ int main(int argc, char** argv) {
     std::printf("wrote %zu bytes to %s\n", static_cast<size_t>(bytes->size()), argv[3]);
     return 0;
   }
-  if (path.ends_with(".nif")) {
-    // Convert directly too so material texture ids resolve back to paths.
+  if (path.ends_with(".nif") || path.ends_with(".btr") || path.ends_with(".bto") ||
+      path.ends_with(".btt")) {
+    // Convert directly (LoadMesh dispatches by .nif extension; .btr/.bto won't
+    // route there, so use the conversion result for geometry).
     base::UnorderedMap<rec::u64, std::string> paths_by_id;
-    if (auto bytes = vfs.Read(path)) {
-      bethesda::NifConversion conversion = bethesda::ConvertNifScene(
-          rec::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(path), path);
-      for (const std::string& texture : conversion.texture_paths) {
-        paths_by_id.emplace(asset::MakeAssetId(texture).hash, texture);
-      }
-      if (conversion.skipped_shapes > 0) {
-        std::printf("skipped shapes: %u\n", conversion.skipped_shapes);
-      }
+    auto bytes = vfs.Read(path);
+    if (!bytes) {
+      std::printf("not in vfs: %s\n", path.c_str());
+      return 1;
     }
+    bethesda::NifConversion conversion = bethesda::ConvertNifScene(
+        rec::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(path), path);
+    for (const std::string& texture : conversion.texture_paths) {
+      paths_by_id.emplace(asset::MakeAssetId(texture).hash, texture);
+    }
+    if (conversion.skipped_shapes > 0) std::printf("skipped shapes: %u\n", conversion.skipped_shapes);
     auto path_of = [&](asset::AssetId id) -> const char* {
       const std::string* found = paths_by_id.find(id.hash);
       return found ? found->c_str() : "";
     };
 
-    const asset::Mesh* mesh = database.LoadMesh(path);
-    if (!mesh) {
+    if (!conversion.mesh || conversion.mesh->lods.empty()) {
       std::printf("mesh conversion failed\n");
       return 1;
     }
+    const asset::Mesh* mesh = &*conversion.mesh;
     const asset::MeshLod& lod = mesh->lods[0];
-    std::printf("mesh: %zu vertices, %zu indices, %zu submeshes, bounds r=%.1f\n",
+    std::printf("mesh: %zu vertices, %zu indices, %zu submeshes, bounds r=%.1f center=%.1f,%.1f,%.1f\n",
                 lod.vertices.size(), lod.indices.size(), lod.submeshes.size(),
-                mesh->bounds_radius);
+                mesh->bounds_radius, mesh->bounds_center[0], mesh->bounds_center[1],
+                mesh->bounds_center[2]);
+    if (!lod.vertices.empty()) {
+      const asset::Vertex& v0 = lod.vertices.front();
+      const asset::Vertex& vn = lod.vertices.back();
+      std::printf("  v[0]=%.1f,%.1f,%.1f  v[last]=%.1f,%.1f,%.1f\n", v0.position[0], v0.position[1],
+                  v0.position[2], vn.position[0], vn.position[1], vn.position[2]);
+    }
     for (const asset::Submesh& submesh : lod.submeshes) {
       std::printf("  submesh +%u x%u material=%016llx\n", submesh.index_offset,
                   submesh.index_count,
