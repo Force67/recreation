@@ -40,11 +40,13 @@ public static class Platform
         Map.Bind(role);
         Scoreboard.Bind(role);
         ServerBrowser.Bind(role);
+        NetEntities.Bind(role);
     }
 
     // Tear every subsystem down, in reverse of Boot. Called by ModHost.Shutdown.
     public static void Reset()
     {
+        NetEntities.Reset();
         ServerBrowser.Reset();
         Scoreboard.Reset();
         Map.Reset();
