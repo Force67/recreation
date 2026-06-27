@@ -29,6 +29,7 @@
 #include "engine_context.h"
 #include "interaction_system.h"
 #include "npc_director.h"
+#include "platform_hud.h"
 #include "quest_director.h"
 #include "showcase_camera.h"
 #include "world/combat.h"
@@ -396,6 +397,9 @@ class Engine {
   // drained to the HUD toast on the main loop.
   std::mutex notification_mutex_;
   std::vector<std::string> pending_notifications_;
+  // Multiplayer platform HUD/Net calls (chat, notifications, prompts, scoreboard,
+  // blips) pushed from the guest thread, drained onto the HUD on the main loop.
+  PlatformHud platform_hud_;
   physics::PhysicsWorld physics_;
   // Dynamic bodies mirrored into ECS transforms after each step.
   base::Vector<PhysicsEntity> physics_entities_;

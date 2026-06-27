@@ -211,6 +211,11 @@ bool LoadGameData(Engine& engine) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
       });
+      guest->set_on_platform_hud(
+          [self](const std::string& type, const std::string& func,
+                 const std::vector<rec::script::papyrus::Value>& args) {
+            self->platform_hud_.Submit(type, func, args);
+          });
     });
   }
   self->quest_->AttachQuestScripts();
@@ -521,6 +526,11 @@ void LoadExtraDomains(Engine& engine) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
       });
+      guest->set_on_platform_hud(
+          [self](const std::string& type, const std::string& func,
+                 const std::vector<rec::script::papyrus::Value>& args) {
+            self->platform_hud_.Submit(type, func, args);
+          });
     });
     // Run that game's quests inside its own microvm (capped like the primary).
     domain->AttachQuestScripts(self->config_.max_quest_scripts);

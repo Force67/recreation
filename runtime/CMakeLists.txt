@@ -17,6 +17,7 @@ set(RECREATION_RUNTIME_SOURCES
   demo_scenes.cc
   interaction_system.cc
   npc_director.cc
+  platform_hud.cc
   quest_director.cc
   fly_camera.cc
   showcase_camera.cc

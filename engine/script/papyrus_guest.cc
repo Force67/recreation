@@ -155,6 +155,27 @@ void PapyrusGuest::BindEngineNatives() {
                       if (on_notification_) on_notification_(message);
                       return Value();
                     });
+
+  // Multiplayer platform HUD/Net surface. The C# platform (chat, notifications,
+  // prompts, scoreboard, blips, server browser) reaches the engine through these
+  // game-agnostic globals; each forwards to the runtime's PlatformHud sink, which
+  // the main loop drains onto the on-screen HUD. Registering them here means a
+  // server's UI works the same in every game's guest.
+  auto reg_platform = [this](const char* type, const char* func) {
+    std::string t = type;
+    std::string f = func;
+    natives_.Register(type, func,
+                      [this, t, f](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                        if (on_platform_hud_) on_platform_hud_(t, f, args);
+                        return Value();
+                      });
+  };
+  for (const char* f :
+       {"Notify", "ChatLine", "Prompt", "ClearPrompt", "Blip", "ClearBlip", "Waypoint",
+        "ClearWaypoint", "Scoreboard", "ScoreboardRow", "HideScoreboard", "Menu"}) {
+    reg_platform("Hud", f);
+  }
+  reg_platform("Net", "Connect");
 }
 
 }  // namespace rec::script
