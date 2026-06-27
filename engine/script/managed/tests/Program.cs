@@ -1,136 +1,45 @@
 using System;
+using System.Linq;
+using System.Reflection;
 
 namespace Recreation.Tests;
 
-// The managed test runner: executes each suite against a shared Check, prints a
-// summary and exits with the failure count so CI (and `dotnet run`) gate on it.
+// The managed test runner: discovers every suite in the assembly and runs it
+// against a shared Check, prints a summary and exits with the failure count so
+// CI (and `dotnet run`) gate on it.
+//
+// A suite is any type named `*Tests` exposing `public static void Run(Check)`.
+// Discovery is by reflection (sorted by name for stable output) so a new suite
+// drops in by adding a file, with no central list to edit and conflict on.
 internal static class Program
 {
     private static int Main()
     {
         var check = new Check();
 
-        ValueTests.Run(check);
-        SdkApiTests.Run(check);
-        DomainsTests.Run(check);
-        FalloutTests.Run(check);
-        FalloutRadiationTests.Run(check);
-        FalloutProgressionTests.Run(check);
-        FalloutQuestRewardsTests.Run(check);
-        FalloutCombatRewardsTests.Run(check);
-        FalloutSpecialTests.Run(check);
-        FalloutEncumbranceTests.Run(check);
-        FalloutFactionReputationTests.Run(check);
-        FalloutChemAddictionTests.Run(check);
-        FalloutAdrenalineTests.Run(check);
-        FalloutActionPointsTests.Run(check);
-        FalloutNotificationsTests.Run(check);
-        FalloutGameplayDebugTests.Run(check);
-        FalloutDamageResistanceTests.Run(check);
-        FalloutWeaponDamageTests.Run(check);
-        FalloutSneakAttackTests.Run(check);
-        FalloutLegendaryEffectsTests.Run(check);
-        StarfieldOxygenTests.Run(check);
-        StarfieldAfflictionsTests.Run(check);
-        StarfieldHazardsTests.Run(check);
-        StarfieldMassTests.Run(check);
-        StarfieldProgressionTests.Run(check);
-        StarfieldCraftingTests.Run(check);
-        StarfieldNotificationsTests.Run(check);
-        StarfieldQuestRewardsTests.Run(check);
-        StarfieldCombatRewardsTests.Run(check);
-        StarfieldGameplayDebugTests.Run(check);
-        WellRestedTests.Run(check);
-        StarfieldEconomyTests.Run(check);
-        StarfieldDiscoveryTests.Run(check);
-        StarfieldFactionReputationTests.Run(check);
-        StarfieldCrewAffinityTests.Run(check);
-        StarfieldBountiesTests.Run(check);
-        StarfieldPersuasionTests.Run(check);
-        StarfieldShipSystemsTests.Run(check);
-        StarfieldEquipmentTests.Run(check);
-        StarfieldDamageMitigationTests.Run(check);
-        StarfieldWeaponSystemsTests.Run(check);
-        StarfieldCombatStatusTests.Run(check);
-        WantedLevelTests.Run(check);
-        NpcDispositionTests.Run(check);
-        GuardResponseTests.Run(check);
-        NpcRoutineTests.Run(check);
-        BystanderReactionTests.Run(check);
-        NpcMoraleTests.Run(check);
-        InventoryTests.Run(check);
-        ActorDataTests.Run(check);
-        WrapperDispatchTests.Run(check);
-        ProximityTests.Run(check);
-        EventBusTests.Run(check);
-        EngineEventsTests.Run(check);
-        ModHostTests.Run(check);
-        ModLoaderTests.Run(check);
-        ModConfigTests.Run(check);
-        SchedulerTests.Run(check);
-        TimeTests.Run(check);
-        CoroutineTests.Run(check);
-        GateTests.Run(check);
-        EffectsTests.Run(check);
-        CooldownsTests.Run(check);
-        FormScriptsTests.Run(check);
-        SkyrimRegenTests.Run(check);
-        SkyrimEventTests.Run(check);
-        TimeOfDayTests.Run(check);
-        SurvivalNeedsTests.Run(check);
-        EncumbranceTests.Run(check);
-        FastTravelTests.Run(check);
-        LocationDiscoveryTests.Run(check);
-        HarvestingTests.Run(check);
-        MeditationPowerTests.Run(check);
-        BarteringTests.Run(check);
-        AlchemyTests.Run(check);
-        IngredientDiscoveryTests.Run(check);
-        CraftingTests.Run(check);
-        LeveledListTests.Run(check);
-        LeveledSpawnTests.Run(check);
-        BookTests.Run(check);
-        PotionTests.Run(check);
-        EnchantingTests.Run(check);
-        ZoneTests.Run(check);
-        SpellTests.Run(check);
-        PowersTests.Run(check);
-        AbilitiesTests.Run(check);
-        StandingStonesTests.Run(check);
-        CivilWarCampaignTests.Run(check);
-        CivilWarRankTests.Run(check);
-        CivilWarEnlistmentTests.Run(check);
-        DiseasesTests.Run(check);
-        ShrinesTests.Run(check);
-        VampirismTests.Run(check);
-        LycanthropyTests.Run(check);
-        PickpocketingTests.Run(check);
-        DamageMitigationTests.Run(check);
-        SoulTrapTests.Run(check);
-        ThuumTests.Run(check);
-        CharacterLevelTests.Run(check);
-        SkillProgressionTests.Run(check);
-        TrainingTests.Run(check);
-        KeywordsTests.Run(check);
-        FormDataTests.Run(check);
-        RelationshipsTests.Run(check);
-        FactionsTests.Run(check);
-        FactionRelationsTests.Run(check);
-        CrimeTests.Run(check);
-        LootTests.Run(check);
-        CarryWeightTests.Run(check);
-        RaceTests.Run(check);
-        RaceTraitsTests.Run(check);
-        RacialAbilitiesTests.Run(check);
-        EquipmentTests.Run(check);
-        SmithingTests.Run(check);
-        EnchantingPowerTests.Run(check);
-        SoulGemTests.Run(check);
-        UiTests.Run(check);
-        RpcTests.Run(check);
-        RealmTests.Run(check);
+        MethodInfo[] suites = typeof(Program).Assembly.GetTypes()
+            .Where(t => t is { IsClass: true, IsAbstract: true, IsSealed: true } && t.Name.EndsWith("Tests"))
+            .Select(t => t.GetMethod("Run", BindingFlags.Public | BindingFlags.Static,
+                                     new[] { typeof(Check) }))
+            .Where(m => m != null)
+            .OrderBy(m => m!.DeclaringType!.Name, StringComparer.Ordinal)
+            .ToArray()!;
 
-        Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
+        foreach (MethodInfo suite in suites)
+        {
+            try
+            {
+                suite.Invoke(null, new object[] { check });
+            }
+            catch (Exception e)
+            {
+                // A suite that throws is one failure, not an aborted run; unwrap the
+                // reflection wrapper so the real exception shows.
+                check.That($"{suite.DeclaringType!.Name}.Run threw: {(e.InnerException ?? e).Message}", false);
+            }
+        }
+
+        Console.WriteLine($"[tests] {suites.Length} suites, {check.Passed} passed, {check.Failed} failed");
         return check.Failed;
     }
 }
