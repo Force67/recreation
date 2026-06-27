@@ -278,6 +278,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) override;
   void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
+  bool IsInCombat(papyrus::ObjectRef actor) override;
+  papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) override;
+  void StartCombat(papyrus::ObjectRef actor, papyrus::ObjectRef target) override;
+  void StopCombat(papyrus::ObjectRef actor) override;
+  // Applies one connected melee swing: removes `damage` health from `target` and
+  // attributes the death to `attacker` if it falls. Called by the engine's
+  // combat driver (main thread) via the guest queue, so it runs where the actor
+  // values live. A no-op on an already-dead or invalid target.
+  void ApplyMeleeHit(papyrus::ObjectRef attacker, papyrus::ObjectRef target, f32 damage);
 
   // Inventory (new system).
   i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) override;
@@ -435,6 +444,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // re-arms if it is healed back above zero.
   void MaybeNotifyDeath(papyrus::ObjectRef actor);
   std::unordered_set<u64> dead_;  // actors that have already announced OnDeath
+  std::unordered_map<u64, u64> combat_target_;  // attacker -> target it is fighting
+  // The actor whose swing is currently being resolved, so MaybeNotifyDeath can
+  // attribute the kill (OnDeath's killer arg, the kActorDied event's b field).
+  papyrus::ObjectRef last_attacker_{0};
   std::unordered_map<u64, std::unordered_map<u64, i32>> faction_ranks_;  // actor -> faction -> rank
   // Last GetFactionCount result (authored faction handle + rank), read by the
   // GetNthFaction* accessors.

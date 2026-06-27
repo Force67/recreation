@@ -8,6 +8,8 @@
 #include "ecs/world.h"
 #include "engine_context.h"
 #include "quest/scene.h"
+#include "world/combat.h"
+#include "world/components.h"
 #include "world/navgrid.h"
 
 namespace rec {
@@ -46,6 +48,16 @@ class NpcDirector {
   // motion streams to clients via actor sync, like followers. Cheap: only NPCs
   // near the player are simulated and the per-frame steering work is capped.
   void UpdateAmbient(f32 dt);
+  // Melee combat: enrolled attackers close on their target and swing on a
+  // cooldown; connecting hits remove the target's health (applied on the guest
+  // thread, where actor values + the OnDeath path live). EnterCombat/LeaveCombat
+  // and OnActorDied are fed from the guest-thread combat queue each frame.
+  // Host/single-player authoritative, like the other NPC motion.
+  void EnterCombat(u64 attacker, u64 target);
+  void LeaveCombat(u64 attacker);
+  void OnActorDied(u64 actor);
+  void UpdateCombat(f32 dt);
+  int combatant_count() const { return static_cast<int>(combat_.size()); }
   // A reachable waypoint from `from` toward `goal` that rounds interior walls
   // (grid A* over a downward-ray floor map). Lets the engine route the walking
   // player through the keep instead of pressing it straight into geometry.
@@ -73,6 +85,11 @@ class NpcDirector {
   bool StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3], float rot[4],
                        float speed, float arrive_radius, float stop_radius, f32 dt);
   Vec3 NavigateTo(const Vec3& from, const Vec3& goal);
+  // Resolves a form handle to its live world entity and transform (the player,
+  // streamed NPCs, and quest-spawned refs). False if it has no body in the world
+  // yet (e.g. an actor in an unstreamed cell), in which case the combatant stays
+  // enrolled and engages once it streams in.
+  bool ResolveCombatant(u64 handle, ecs::Entity* entity, world::Transform** transform);
   // Floor height under (x, z), found by a short downward ray; returns y_hint when
   // nothing is beneath (a ledge / unloaded collision) so the caller holds height.
   f32 GroundY(f32 x, f32 z, f32 y_hint) const;
@@ -98,6 +115,16 @@ class NpcDirector {
     bool walking = false;
   };
   base::UnorderedMap<u64, AmbientState> ambient_;
+  // Per-attacker melee state: the target it fights and its swing cooldown. Fed by
+  // the guest combat queue (StartCombat/StopCombat/death). The player can be a
+  // target (NPCs swing at it) but is never an auto-attacker (it fights by input).
+  struct CombatState {
+    u64 target = 0;
+    f32 swing_timer = 0;
+    u32 rng = 0x9e3779b9u;
+  };
+  base::UnorderedMap<u64, CombatState> combat_;
+  world::CombatParams combat_params_;
   u64 ambient_rng_ = 0x243f6a8885a308d3ull;
   f32 AmbientRand(f32 lo, f32 hi);
   bool mq101_demo_pending_ = false;

@@ -580,11 +580,50 @@ void RecordBackedSkyrimBindings::MaybeNotifyDeath(ObjectRef actor) {
     return;
   }
   if (!dead_.insert(actor.handle).second) return;  // already announced
-  // No combat system yet, so the killer is unknown (None).
-  const papyrus::Value none = papyrus::Value::Object(ObjectRef{0});
-  RaiseFormEvent(actor.handle, "OnDying", {none});
-  RaiseFormEvent(actor.handle, "OnDeath", {none});
-  EmitManagedEvent(host::ManagedEventId::kActorDied, actor.handle, 0, 0);
+  // Attribute the kill to the swinging attacker when the death came from a melee
+  // hit; None for scripted Kill()/environmental deaths.
+  const papyrus::Value killer = papyrus::Value::Object(last_attacker_);
+  RaiseFormEvent(actor.handle, "OnDying", {killer});
+  RaiseFormEvent(actor.handle, "OnDeath", {killer});
+  EmitManagedEvent(host::ManagedEventId::kActorDied, actor.handle, last_attacker_.handle, 0);
+  // Drop the dead actor from combat (its own target, and anyone fighting it) and
+  // tell the main-thread driver, so soldiers stop swinging at a corpse.
+  combat_target_.erase(actor.handle);
+  for (auto it = combat_target_.begin(); it != combat_target_.end();) {
+    if (it->second == actor.handle)
+      it = combat_target_.erase(it);
+    else
+      ++it;
+  }
+  if (world_sink_) world_sink_->ActorDied(active_quest_, actor.handle);
+}
+
+bool RecordBackedSkyrimBindings::IsInCombat(ObjectRef actor) {
+  return combat_target_.count(actor.handle) != 0;
+}
+
+ObjectRef RecordBackedSkyrimBindings::GetCombatTarget(ObjectRef actor) {
+  auto it = combat_target_.find(actor.handle);
+  return it == combat_target_.end() ? ObjectRef{0} : ObjectRef{it->second};
+}
+
+void RecordBackedSkyrimBindings::StartCombat(ObjectRef actor, ObjectRef target) {
+  if (actor.handle == 0 || target.handle == 0 || actor.handle == target.handle) return;
+  if (IsDead(actor) || IsDead(target)) return;
+  combat_target_[actor.handle] = target.handle;
+  if (world_sink_) world_sink_->StartCombat(active_quest_, actor.handle, target.handle);
+}
+
+void RecordBackedSkyrimBindings::StopCombat(ObjectRef actor) {
+  combat_target_.erase(actor.handle);
+  if (world_sink_) world_sink_->StopCombat(active_quest_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::ApplyMeleeHit(ObjectRef attacker, ObjectRef target, f32 damage) {
+  if (target.handle == 0 || IsDead(target)) return;
+  last_attacker_ = attacker;
+  ModActorValue(target, "health", -damage);  // may trigger MaybeNotifyDeath
+  last_attacker_ = ObjectRef{0};
 }
 
 void RecordBackedSkyrimBindings::SetActorValue(ObjectRef actor, const std::string& av, f32 value) {

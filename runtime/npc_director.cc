@@ -208,6 +208,130 @@ void NpcDirector::UpdateAmbient(f32 dt) {
   ambient_ = std::move(kept);
 }
 
+namespace {
+constexpr u64 kPlayerHandle = 0x14;  // Skyrim's PlayerRef form id
+}  // namespace
+
+void NpcDirector::EnterCombat(u64 attacker, u64 target) {
+  if (attacker == 0 || target == 0 || attacker == target) return;
+  // The player fights through its own input, never the auto-attacker driver; it
+  // can still be a target (NPCs close on and swing at it).
+  if (attacker == kPlayerHandle) return;
+  CombatState* cs = combat_.find(attacker);
+  if (cs) {
+    cs->target = target;
+  } else {
+    CombatState fresh;
+    fresh.target = target;
+    // Stagger swing phases so a spawned squad does not strike in lockstep.
+    fresh.rng = static_cast<u32>(0x9e3779b9u ^ (attacker * 2654435761u));
+    fresh.swing_timer = combat_params_.swing_seconds *
+                        (static_cast<f32>(fresh.rng >> 24) / 256.0f);
+    combat_.insert(attacker, fresh);
+  }
+}
+
+void NpcDirector::LeaveCombat(u64 attacker) { combat_.erase(attacker); }
+
+void NpcDirector::OnActorDied(u64 actor) {
+  combat_.erase(actor);  // the dead actor stops fighting
+  // Anyone fighting the dead actor disengages (their target is now a corpse).
+  base::Vector<u64> idle;
+  combat_.ForEach([&](u64 attacker, CombatState& cs) {
+    if (cs.target == actor) idle.push_back(attacker);
+  });
+  for (u64 a : idle) combat_.erase(a);
+}
+
+bool NpcDirector::ResolveCombatant(u64 handle, ecs::Entity* entity, world::Transform** transform) {
+  ecs::Entity e;
+  if (handle == kPlayerHandle) {
+    if (!actors_->HasPlayer()) return false;
+    e = actors_->PlayerEntity();
+  } else {
+    e = ctx_.quest_world ? ctx_.quest_world->Find(handle) : ecs::Entity{};
+  }
+  if (!world_.IsAlive(e)) return false;
+  world::Transform* t = world_.Get<world::Transform>(e);
+  if (!t) return false;
+  *entity = e;
+  *transform = t;
+  return true;
+}
+
+void NpcDirector::UpdateCombat(f32 dt) {
+  // Host / single-player authoritative; a client receives soldier motion via
+  // actor sync and deaths via quest/actor replication, so it must not simulate.
+#if RECREATION_HAS_NET
+  if (ctx_.client_session) return;
+#endif
+  if (combat_.empty()) return;
+  const world::CombatParams& p = combat_params_;
+
+  struct Hit {
+    u64 attacker;
+    u64 target;
+    f32 damage;
+  };
+  std::vector<Hit> hits;
+  base::Vector<u64> drop;  // attackers whose target vanished or fled
+
+  combat_.ForEach([&](u64 attacker, CombatState& cs) {
+    ecs::Entity ae;
+    world::Transform* at;
+    if (!ResolveCombatant(attacker, &ae, &at)) return;  // not streamed yet: keep enrolled
+    ecs::Entity te;
+    world::Transform* tt;
+    if (cs.target == 0 || !ResolveCombatant(cs.target, &te, &tt)) {
+      drop.push_back(attacker);
+      return;
+    }
+    if (world::PlanarDist2(at->position, tt->position) >
+        p.give_up_radius * p.give_up_radius) {
+      drop.push_back(attacker);
+      return;
+    }
+    cs.swing_timer -= dt;
+    if (world::WithinPlanar(at->position, tt->position, p.melee_reach)) {
+      // In reach: face the target, hold position, and swing on the cooldown.
+      const f32 yaw = std::atan2(tt->position[0] - at->position[0],
+                                 tt->position[2] - at->position[2]);
+      const f32 h = yaw * 0.5f;
+      at->rotation[0] = 0;
+      at->rotation[1] = std::sin(h);
+      at->rotation[2] = 0;
+      at->rotation[3] = std::cos(h);
+      actors_->SetNpcGait(ae, 0.0f, true, yaw);
+      if (cs.swing_timer <= 0.0f) {
+        cs.swing_timer = p.swing_seconds;
+        cs.rng = cs.rng * 1664525u + 1013904223u;
+        const f32 roll = static_cast<f32>((cs.rng >> 8) & 0xffffff) / 16777216.0f;
+        hits.push_back({attacker, cs.target, world::SwingDamage(p, roll)});
+      }
+    } else {
+      // Out of reach: run at the target.
+      const float goal[3] = {tt->position[0], tt->position[1], tt->position[2]};
+      StepNpcSteering(ae, goal, at->position, at->rotation, p.approach_speed,
+                      p.melee_reach * 0.9f, p.melee_reach * 0.8f, dt);
+    }
+  });
+
+  for (u64 a : drop) combat_.erase(a);
+
+  // Apply the swings on the guest thread, where actor values and the OnDeath ->
+  // quest/managed path live. Throttled by the per-attacker swing cooldown, so
+  // this stays a small batch even in a large battle.
+  if (!hits.empty() && ctx_.scripts && ctx_.bindings) {
+    auto* binds = ctx_.bindings;
+    ctx_.scripts->guest().Submit(
+        [binds, hits = std::move(hits)](rec::script::papyrus::VirtualMachine&) {
+          for (const Hit& h : hits)
+            binds->ApplyMeleeHit(script::papyrus::ObjectRef{h.attacker},
+                                 script::papyrus::ObjectRef{h.target}, h.damage);
+        });
+  }
+}
+
 void NpcDirector::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
 #if RECREATION_HAS_NET

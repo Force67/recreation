@@ -31,6 +31,7 @@
 #include "npc_director.h"
 #include "quest_director.h"
 #include "showcase_camera.h"
+#include "world/combat.h"
 
 #if RECREATION_HAS_NET
 #include "modstream/content_store.h"
@@ -45,7 +46,8 @@ namespace rec {
 // header-only so the script module need not know about the ECS.
 class RuntimeWorldSink : public script::WorldEffectSink {
  public:
-  explicit RuntimeWorldSink(world::WorldCommandQueue* queue) : queue_(queue) {}
+  RuntimeWorldSink(world::WorldCommandQueue* queue, world::CombatEventQueue* combat)
+      : queue_(queue), combat_(combat) {}
 
   u64 SpawnReference(u64 quest, u64 base, f32 x, f32 y, f32 z) override {
     // Synthetic runtime handle in the reserved 0xFFFF plugin slot, so it never
@@ -83,6 +85,15 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     c.quest = quest;
     queue_->Push(c);
   }
+  void StartCombat(u64 /*quest*/, u64 attacker, u64 target) override {
+    combat_->Push({world::CombatOp::kEngage, attacker, target});
+  }
+  void StopCombat(u64 /*quest*/, u64 attacker) override {
+    combat_->Push({world::CombatOp::kDisengage, attacker, 0});
+  }
+  void ActorDied(u64 /*quest*/, u64 actor) override {
+    combat_->Push({world::CombatOp::kDied, actor, 0});
+  }
 
  private:
   void Emit(world::WorldOp op, u64 quest, u64 handle, f32 x, f32 y, f32 z) {
@@ -104,6 +115,7 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   }
 
   world::WorldCommandQueue* queue_;
+  world::CombatEventQueue* combat_;
   std::atomic<u32> next_handle_{1};
 };
 
@@ -292,7 +304,10 @@ class Engine {
   // entities and records per-quest provenance so a quest can be rolled back.
   world::WorldCommandQueue quest_world_queue_;
   world::QuestWorld quest_world_{world_};
-  RuntimeWorldSink runtime_world_sink_{&quest_world_queue_};
+  // Guest -> main combat enrollment (StartCombat/StopCombat/death), drained each
+  // frame into the npc director's combat driver.
+  world::CombatEventQueue combat_event_queue_;
+  RuntimeWorldSink runtime_world_sink_{&quest_world_queue_, &combat_event_queue_};
 
   asset::Vfs vfs_;
   std::unique_ptr<asset::AssetDatabase> assets_;

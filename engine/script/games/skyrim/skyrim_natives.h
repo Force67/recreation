@@ -209,6 +209,11 @@ class SkyrimBindings {
   virtual bool IsInCombat(papyrus::ObjectRef actor) { return false; }
   virtual bool IsSneaking(papyrus::ObjectRef actor) { return false; }
   virtual papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) { return {}; }
+  // Enters/leaves melee combat. StartCombat makes `actor` fight `target` (the
+  // engine's combat driver then closes the distance and swings); StopCombat
+  // withdraws it. Quest and AI scripts drive battles through these.
+  virtual void StartCombat(papyrus::ObjectRef actor, papyrus::ObjectRef target) {}
+  virtual void StopCombat(papyrus::ObjectRef actor) {}
   virtual void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) {}
   virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
 

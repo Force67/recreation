@@ -681,6 +681,14 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetCombatTarget", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetCombatTarget(self));
   });
+  reg.Register("Actor", "StartCombat", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).StartCombat(self, ArgO(a, 0));
+    return Value();
+  });
+  reg.Register("Actor", "StopCombat", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).StopCombat(self);
+    return Value();
+  });
   reg.Register("Actor", "EquipItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).EquipItem(self, ArgO(a, 0));
     return Value();

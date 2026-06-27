@@ -26,6 +26,14 @@ class WorldEffectSink {
   virtual void SetEnabled(u64 quest, u64 handle, bool enabled) = 0;
   virtual void DeleteReference(u64 quest, u64 handle) = 0;
   virtual void CleanupQuest(u64 quest) = 0;
+
+  // Combat enrollment, marshaled to the main-thread combat driver. StartCombat
+  // makes `attacker` fight `target`; StopCombat withdraws it; ActorDied drops a
+  // dead actor and anyone targeting it. Default no-ops so a sink that does not
+  // simulate combat (tests, headless tools) need not implement them.
+  virtual void StartCombat(u64 quest, u64 attacker, u64 target) {}
+  virtual void StopCombat(u64 quest, u64 attacker) {}
+  virtual void ActorDied(u64 quest, u64 actor) {}
 };
 
 }  // namespace rec::script

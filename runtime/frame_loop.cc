@@ -142,6 +142,16 @@ bool Engine::RunFrame() {
     npc_->UpdateFollowers(static_cast<f32>(timer_.frame_delta()));
     npc_->UpdateGuides(static_cast<f32>(timer_.frame_delta()));
     npc_->UpdateAmbient(static_cast<f32>(timer_.frame_delta()));  // idle sandbox for streamed NPCs
+    // Combat enrollment from the guest thread (StartCombat/StopCombat/death),
+    // then drive the melee simulation (host/single-player authoritative).
+    for (const world::CombatEvent& e : combat_event_queue_.Drain()) {
+      switch (e.op) {
+        case world::CombatOp::kEngage: npc_->EnterCombat(e.actor, e.target); break;
+        case world::CombatOp::kDisengage: npc_->LeaveCombat(e.actor); break;
+        case world::CombatOp::kDied: npc_->OnActorDied(e.actor); break;
+      }
+    }
+    npc_->UpdateCombat(static_cast<f32>(timer_.frame_delta()));
     npc_->Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
     npc_->Mq101SceneTick(static_cast<f32>(timer_.frame_delta()));
     // World-driven progression: the player walking into a scripted trigger box
