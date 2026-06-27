@@ -2,7 +2,7 @@ using System;
 
 namespace Recreation.Modding;
 
-// Which side of a multiplayer session a mod runs on, FiveM style. Authoritative
+// Which side of a multiplayer session a mod runs on. Authoritative
 // gameplay belongs on the Server; UI, local effects and "ask the server" RPC
 // belong on the Client; Shared runs on both. A mod with no [Realm] is Server, so
 // existing gameplay mods stay host-only and never double-simulate on a client.

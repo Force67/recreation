@@ -30,5 +30,5 @@ export DOTNET_CLI_HOME="${DOTNET_CLI_HOME:-$REPO/build/dotnet-home}"
 export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 mkdir -p "$DOTNET_CLI_HOME"
 
-exec "$DOTNET" build "$REPO/engine/script/managed/Recreation.Scripting.csproj" \
+exec "$DOTNET" build "$REPO/sdk/Recreation.Scripting.csproj" \
   -c Release -o "$OUT" -v minimal

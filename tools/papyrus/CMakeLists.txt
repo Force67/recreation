@@ -296,7 +296,7 @@ endif()
 # .NET runtime at test time).
 find_program(DOTNET_EXE dotnet)
 if(DOTNET_EXE)
-  set(MANAGED_DIR ${CMAKE_SOURCE_DIR}/engine/script/managed)
+  set(MANAGED_DIR ${CMAKE_SOURCE_DIR}/sdk)
   set(MANAGED_OUT ${CMAKE_CURRENT_BINARY_DIR}/managed)
   set(MANAGED_DLL ${MANAGED_OUT}/Recreation.Scripting.dll)
   set(MANAGED_CFG ${MANAGED_OUT}/Recreation.Scripting.runtimeconfig.json)

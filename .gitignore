@@ -3,8 +3,8 @@ out/
 .cache/
 compile_commands.json
 # .NET managed build artifacts (library and test project, any depth)
-engine/script/managed/**/obj/
-engine/script/managed/**/bin/
+sdk/**/obj/
+sdk/**/bin/
 .vs/
 .idea/
 .direnv/

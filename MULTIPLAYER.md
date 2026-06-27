@@ -15,7 +15,7 @@ and how its pieces fit so contributors extend it without stepping on each other.
   plus request/response. Realm-aware (`Server`/`Client`/`Shared`).
 - **Server-authoritative replication** (`engine/net`): ECS snapshots, NPC actor
   sync, quests, world commands. The host simulates; clients render the truth.
-- **Managed gameplay SDK** (`engine/script/managed`): Game/Form/Actor/Quest and a
+- **Managed gameplay SDK** (`sdk/`): Game/Form/Actor/Quest and a
   deep per-game ruleset (Skyrim/Fallout/Starfield), EventBus, behaviours.
 
 ## The platform layer (`Recreation.Net`)
@@ -38,7 +38,7 @@ new wire protocol**. One boot/reset seam (`Platform.Boot`/`Reset`, wired in
 
 ### Conventions for new subsystems
 
-- A subsystem is its own folder under `engine/script/managed/` and a test file
+- A subsystem is its own folder under `sdk/` and a test file
   under `tests/` (auto-discovered, no runner edits).
 - Replicate over RPC with a **namespaced name** (`chat:*`, `social:*`, `admin:*`,
   `map:*`) or, better, hang state off a **state bag** so it replicates automatically.
@@ -89,7 +89,7 @@ The managed tests are self-contained and gate on the failure count:
 nix develop \
   --override-input zetanet-src path:/path/to/zetanet \
   --override-input nanobuf-src path:/path/to/nanobuf \
-  --command bash -c 'cd engine/script/managed/tests && dotnet run -c Release'
+  --command bash -c 'cd sdk/tests && dotnet run -c Release'
 ```
 
 (On this box, `./run-local.sh '...'` wraps the same overrides.)
