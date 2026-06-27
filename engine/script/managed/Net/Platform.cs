@@ -41,11 +41,18 @@ public static class Platform
         Scoreboard.Bind(role);
         ServerBrowser.Bind(role);
         NetEntities.Bind(role);
+        // Roleplay primitives layered on the foundation.
+        Teams.Bind(role);
+        Economy.Bind(role);
+        Voice.Bind(role);
     }
 
     // Tear every subsystem down, in reverse of Boot. Called by ModHost.Shutdown.
     public static void Reset()
     {
+        Voice.Reset();
+        Economy.Reset();
+        Teams.Reset();
         NetEntities.Reset();
         ServerBrowser.Reset();
         Scoreboard.Reset();
