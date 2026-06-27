@@ -5,6 +5,7 @@
 #include <thread>
 #include <utility>
 
+#include "core/log.h"
 #include "engine_internal.h"
 #include "script/papyrus/value.h"
 #include "world/components.h"
@@ -153,6 +154,24 @@ bool Engine::RunFrame() {
       // (never its baked skydome). Cloud coverage + aerial-perspective haze update
       // every frame (cheap, no IBL rebuild); the sun tint/dimming folds into the
       // throttled day/night update below.
+      // Region weather: the REGN area the player stands in overrides the
+      // worldspace climate (Skyrim's per-region weather). Swapped only when the
+      // active region changes; skipped while the debug panel overrides weather.
+      if (!weather_override_ && !regions_.empty()) {
+        Vec3 anchor = camera_.position();
+        Vec3 ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+        constexpr f32 kEngineToGame = 1.0f / 0.01428f;  // metres -> Bethesda units
+        u64 region = 0;
+        const auto* climate =
+            regions_.ClimateAt(anchor.x * kEngineToGame, -anchor.z * kEngineToGame, &region);
+        if (region != active_region_) {
+          active_region_ = region;
+          weather_.SetClimate(climate ? *climate : default_climate_);
+          REC_INFO("weather: region {:x} ({} weathers)", region,
+                   climate ? climate->size() : default_climate_.size());
+        }
+      }
       // The debug Weather panel can override the climate live; otherwise the
       // loaded game's weather drives the sky.
       const bool has_weather = weather_override_ || !weather_.empty();

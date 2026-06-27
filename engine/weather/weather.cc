@@ -142,4 +142,31 @@ WeatherState WeatherSystem::At(f64 game_days) const {
   return Lerp(ToState(Current(game_days)), ToState(Target(game_days)), t);
 }
 
+namespace {
+// Ray-casting point-in-polygon test.
+bool PointInPoly(const std::vector<std::pair<f32, f32>>& poly, f32 x, f32 y) {
+  bool inside = false;
+  const size_t n = poly.size();
+  if (n < 3) return false;
+  for (size_t i = 0, j = n - 1; i < n; j = i++) {
+    f32 xi = poly[i].first, yi = poly[i].second;
+    f32 xj = poly[j].first, yj = poly[j].second;
+    if (((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+}  // namespace
+
+const std::vector<std::pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x, f32 y,
+                                                                        u64* out_region) const {
+  const Region* best = nullptr;
+  for (const Region& r : regions_) {
+    if (r.climate.empty()) continue;
+    if (!PointInPoly(r.polygon, x, y)) continue;
+    if (!best || r.priority > best->priority) best = &r;
+  }
+  if (out_region) *out_region = best ? best->form : 0;
+  return best ? &best->climate : nullptr;
+}
+
 }  // namespace rec::weather

@@ -25,6 +25,13 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
     const bethesda::RecordStore& records, const std::unordered_map<u64, WeatherDef>& weathers,
     const char* worldspace_edid);
 
+// Parses the REGN weather regions of `worldspace` (their area polygons + weather
+// lists) into `out`. Returns the count. The active region's climate overrides
+// the worldspace default where the player stands.
+int LoadRegions(const bethesda::RecordStore& records,
+                const std::unordered_map<u64, WeatherDef>& weathers,
+                bethesda::GlobalFormId worldspace, RegionWeather* out);
+
 }  // namespace rec::weather
 
 #endif  // RECREATION_WEATHER_WEATHER_LOADER_H_

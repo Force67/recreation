@@ -49,6 +49,32 @@ struct WeatherState {
 WeatherState ToState(const WeatherDef& def);
 WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t);
 
+// A Bethesda REGN region's weather: a worldspace area (a polygon in game units)
+// with its own weighted weather list, overriding the worldspace climate inside
+// it. This is how Skyrim gives the Reach rain, Winterhold snow, the tundra clear.
+struct Region {
+  u64 form = 0;
+  i32 priority = 0;  // higher wins where regions overlap (REGN RDAT priority)
+  std::vector<std::pair<f32, f32>> polygon;        // worldspace XY (game units)
+  std::vector<std::pair<WeatherDef, u32>> climate;  // (weather, chance)
+};
+
+// The set of weather regions in a worldspace; resolves which one's climate
+// applies at a point. Pure geometry, so it is unit-testable without game data.
+class RegionWeather {
+ public:
+  void Add(Region region) { regions_.push_back(std::move(region)); }
+  bool empty() const { return regions_.empty(); }
+  size_t size() const { return regions_.size(); }
+  // The highest-priority region's climate containing (x, y), or null when no
+  // weather region covers the point. *out_region gets that region's form (0 if
+  // none), so the caller can detect transitions.
+  const std::vector<std::pair<WeatherDef, u32>>* ClimateAt(f32 x, f32 y, u64* out_region) const;
+
+ private:
+  std::vector<Region> regions_;
+};
+
 // Selects the active weather from a climate (a weighted weather list, like a
 // Bethesda CLMT) and cross-fades between weathers over time. Stateless and
 // deterministic given the seed and the world clock's game time, so it needs no

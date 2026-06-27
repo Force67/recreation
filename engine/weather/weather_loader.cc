@@ -15,6 +15,11 @@ constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
 constexpr u32 kWlst = FourCc('W', 'L', 'S', 'T');
 constexpr u32 kCnam = FourCc('C', 'N', 'A', 'M');
+constexpr u32 kRegn = FourCc('R', 'E', 'G', 'N');
+constexpr u32 kWnam = FourCc('W', 'N', 'A', 'M');
+constexpr u32 kRpld = FourCc('R', 'P', 'L', 'D');
+constexpr u32 kRdat = FourCc('R', 'D', 'A', 'T');
+constexpr u32 kRdwt = FourCc('R', 'D', 'W', 'T');
 
 // WTHR DATA classification flags byte (offset 11 in the Skyrim/FO4 layout).
 WeatherDef::Kind Classify(const bethesda::Record& rec, const std::string& edid) {
@@ -63,8 +68,20 @@ std::vector<std::pair<WeatherDef, u32>> ParseWlst(
   return out;
 }
 
-// A climate's WLST weather list. The entry stride differs across games, so try
-// the known sizes and keep whichever resolves the most weathers.
+// A weighted weather list (CLMT WLST or REGN RDWT) parsed at whichever entry
+// stride resolves the most weathers (the trailing fields differ across games).
+std::vector<std::pair<WeatherDef, u32>> BestWlst(
+    const bethesda::RecordStore& records, const u8* p, size_t sz, u16 plugin,
+    const std::unordered_map<u64, WeatherDef>& weathers) {
+  std::vector<std::pair<WeatherDef, u32>> best;
+  for (size_t stride : {8u, 12u, 16u}) {
+    auto list = ParseWlst(records, p, sz, plugin, stride, weathers);
+    if (list.size() > best.size()) best = std::move(list);
+  }
+  return best;
+}
+
+// A climate's WLST weather list.
 std::vector<std::pair<WeatherDef, u32>> FromClimate(
     const bethesda::RecordStore& records, bethesda::GlobalFormId climate,
     const std::unordered_map<u64, WeatherDef>& weathers) {
@@ -73,14 +90,7 @@ std::vector<std::pair<WeatherDef, u32>> FromClimate(
   if (!stored || !records.Parse(climate, &rec)) return {};
   const bethesda::Subrecord* wlst = rec.Find(kWlst);
   if (!wlst) return {};
-  const u8* p = wlst->data.data();
-  size_t sz = wlst->data.size();
-  std::vector<std::pair<WeatherDef, u32>> best;
-  for (size_t stride : {8u, 12u, 16u}) {
-    auto list = ParseWlst(records, p, sz, stored->winning_plugin, stride, weathers);
-    if (list.size() > best.size()) best = std::move(list);
-  }
-  return best;
+  return BestWlst(records, wlst->data.data(), wlst->data.size(), stored->winning_plugin, weathers);
 }
 
 std::vector<std::pair<WeatherDef, u32>> Synthetic(
@@ -160,6 +170,54 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
   auto syn = Synthetic(weathers);
   REC_INFO("weather: synthetic climate ({} kinds)", syn.size());
   return syn;
+}
+
+int LoadRegions(const bethesda::RecordStore& records,
+                const std::unordered_map<u64, WeatherDef>& weathers,
+                bethesda::GlobalFormId worldspace, RegionWeather* out) {
+  if (weathers.empty() || worldspace.plugin == 0xffff) return 0;
+  int n = 0;
+  records.EachOfType(
+      kRegn, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
+        bethesda::Record rec;
+        if (!records.Parse(id, &rec)) return;
+        // Only regions in this worldspace.
+        bethesda::GlobalFormId ws;
+        if (!ReadFormRef(records, rec, kWnam, stored.winning_plugin, &ws) || !(ws == worldspace))
+          return;
+
+        Region region;
+        region.form = id.packed();
+        // Subrecords are ordered: the area polygon (RPLD) precedes the data
+        // sections, each an RDAT header followed by its payload. The weather
+        // section is RDAT type 3, whose RDWT lists are the region's weathers.
+        bool in_weather = false;
+        for (const bethesda::Subrecord& sub : rec.subrecords) {
+          if (sub.type == kRpld) {
+            const u8* p = sub.data.data();
+            for (size_t k = 0; k + 8 <= sub.data.size(); k += 8) {
+              f32 x, y;
+              std::memcpy(&x, p + k, 4);
+              std::memcpy(&y, p + k + 4, 4);
+              region.polygon.push_back({x, y});
+            }
+          } else if (sub.type == kRdat) {
+            u32 type = 0;
+            if (sub.data.size() >= 4) std::memcpy(&type, sub.data.data(), 4);
+            in_weather = (type == 3);
+            if (in_weather && sub.data.size() >= 6) region.priority = sub.data.data()[5];
+          } else if (in_weather && sub.type == kRdwt) {
+            auto list =
+                BestWlst(records, sub.data.data(), sub.data.size(), stored.winning_plugin, weathers);
+            for (auto& e : list) region.climate.push_back(std::move(e));
+          }
+        }
+        if (!region.climate.empty() && region.polygon.size() >= 3) {
+          out->Add(std::move(region));
+          ++n;
+        }
+      });
+  return n;
 }
 
 }  // namespace rec::weather

@@ -119,10 +119,19 @@ bool LoadGameData(Engine& engine) {
       climate = {{forced, 1}};
       REC_INFO("weather: forced to '{}' via REC_WEATHER", forced_kind);
     }
+    self->default_climate_ = climate;  // restored when the player leaves all regions
     self->weather_.SetClimate(std::move(climate));
     self->weather_.set_seed(0xBEE71Eull ^ static_cast<u64>(self->game_));
     self->ap_base_ = self->renderer_.settings().aerial_perspective;
     REC_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
+
+    // Per-region weather: the REGN areas override the worldspace climate where
+    // the player stands (skipped when REC_WEATHER pins a single weather).
+    if (!std::getenv("REC_WEATHER") && *worldspace) {
+      const bethesda::GlobalFormId ws = self->records_.FindWorldspace(worldspace);
+      const int rn = rec::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
+      REC_INFO("weather: {} weather regions in {}", rn, worldspace);
+    }
   }
   // Skyrim's northern lights: the night-sky aurora (other games don't have it).
   self->renderer_.settings().aurora = self->game_ == bethesda::Game::kSkyrimSe;

@@ -81,6 +81,25 @@ int main() {
   WeatherSystem none;
   check("empty climate is neutral default", none.empty() && none.At(5.0).cloud_coverage < 0.3f);
 
+  // Region weather: point-in-polygon climate selection, priority on overlap.
+  rec::weather::RegionWeather rw;
+  rec::weather::Region r1;
+  r1.form = 1;
+  r1.priority = 0;
+  r1.polygon = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};  // square [0,10]^2
+  r1.climate = {{Make(WeatherDef::Kind::kRainy), 1}};
+  rw.Add(r1);
+  rec::weather::Region r2;
+  r2.form = 2;
+  r2.priority = 5;  // higher priority, overlaps r1's upper-right
+  r2.polygon = {{5, 5}, {15, 5}, {15, 15}, {5, 15}};
+  r2.climate = {{Make(WeatherDef::Kind::kSnow), 1}};
+  rw.Add(r2);
+  rec::u64 reg = 0;
+  check("point inside region 1", rw.ClimateAt(2.0f, 2.0f, &reg) != nullptr && reg == 1);
+  check("point outside all regions", rw.ClimateAt(20.0f, 20.0f, &reg) == nullptr && reg == 0);
+  check("overlap picks higher priority", rw.ClimateAt(7.0f, 7.0f, &reg) != nullptr && reg == 2);
+
   std::printf("\n%s (%d failures)\n", failures ? "FAILED" : "PASSED", failures);
   return failures ? 1 : 0;
 }

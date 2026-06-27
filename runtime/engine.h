@@ -265,6 +265,11 @@ class Engine {
   f32 ap_base_ = 1.0f;
   f32 last_weather_scale_ = 1.0f;
   Vec3 last_weather_tint_{1, 1, 1};
+  // Per-region weather (Skyrim REGN): the region the player stands in overrides
+  // the worldspace default climate. default_climate_ is restored outside regions.
+  weather::RegionWeather regions_;
+  std::vector<std::pair<weather::WeatherDef, u32>> default_climate_;
+  u64 active_region_ = 0;
   // Debug-UI weather playground: when set, the loop uses weather_override_state_
   // instead of the climate, so the Weather panel can drive the sky live.
   bool weather_override_ = false;
