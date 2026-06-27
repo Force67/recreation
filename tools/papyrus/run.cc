@@ -298,6 +298,63 @@ int SelfTest() {
     check("TryCall on missing instance -> false", !ev_vm.TryCall(ObjectRef{0xDEAD}, "OnSignal", {}));
   }
 
+  // Multiple scripts on one form (handle): a quest carries its main script plus
+  // the Creation-Kit QF_ stage-fragment script. Both must be live and any of
+  // their functions dispatchable, regardless of attach order, the stage
+  // fragments that display objectives and chain quests live on QF_, which is
+  // often not the first-listed script.
+  {
+    NativeRegistry ms_natives;
+    VirtualMachine ms_vm(&ms_natives);
+    // Main script: defines OnInit only (stands in for the quest's own script).
+    Builder mainb;
+    mainb.obj.name = mainb.S("CWMainScript");
+    mainb.obj.parent_class = mainb.S("Quest");
+    {
+      Function on_init;
+      on_init.return_type = mainb.S("");
+      on_init.code = {Make(Op::kReturn, {})};
+      State def;
+      def.name = mainb.S("");
+      def.functions.push_back({mainb.S("OnInit"), std::move(on_init)});
+      mainb.obj.states.push_back(std::move(def));
+    }
+    mainb.pex.objects.push_back(mainb.obj);
+    ms_vm.AddScript(std::move(mainb.pex));
+    // QF_ fragment script: a Fragment_3 that returns a sentinel int.
+    Builder qfb;
+    qfb.obj.name = qfb.S("QF_CWTest");
+    qfb.obj.parent_class = qfb.S("Quest");
+    {
+      Function frag;
+      frag.return_type = qfb.S("Int");
+      frag.locals.push_back({qfb.S("r"), qfb.S("Int")});
+      frag.code = {Make(Op::kAssign, {qfb.Id("r"), qfb.IntV(77)}), Make(Op::kReturn, {qfb.Id("r")})};
+      State def;
+      def.name = qfb.S("");
+      def.functions.push_back({qfb.S("Fragment_3"), std::move(frag)});
+      qfb.obj.states.push_back(std::move(def));
+    }
+    qfb.pex.objects.push_back(qfb.obj);
+    ms_vm.AddScript(std::move(qfb.pex));
+
+    const unsigned long long kHandle = 0x3372b;
+    ObjectRef a = ms_vm.CreateInstanceWithHandle("CWMainScript", kHandle);
+    ObjectRef b2 = ms_vm.CreateInstanceWithHandle("QF_CWTest", kHandle);  // second attach
+    ObjectRef dup = ms_vm.CreateInstanceWithHandle("QF_CWTest", kHandle);  // duplicate
+    check("first script attaches", a.handle == kHandle);
+    check("second script attaches to same handle", b2.handle == kHandle);
+    check("duplicate attach is a no-op (returns None)", dup.handle == 0);
+    check("primary type is the first-attached script",
+          ms_vm.TypeOf(ObjectRef{kHandle}) == "CWMainScript");
+    check("fragment on the non-primary script dispatches",
+          ms_vm.Call(ObjectRef{kHandle}, "Fragment_3", {}).ToInt() == 77);
+    check("is-of-type spans every attached script",
+          ms_vm.IsObjectOfType(ObjectRef{kHandle}, "QF_CWTest") &&
+              ms_vm.IsObjectOfType(ObjectRef{kHandle}, "CWMainScript") &&
+              ms_vm.IsObjectOfType(ObjectRef{kHandle}, "Quest"));
+  }
+
   // End-to-end form event: the Skyrim bindings' AddItem must fire OnItemAdded on
   // the container's script instance, delivering the item count. This is the path
   // a real "acquire item" objective relies on.

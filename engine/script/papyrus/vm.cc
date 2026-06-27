@@ -104,12 +104,18 @@ ObjectRef VirtualMachine::CreateInstance(const std::string& type) {
 
 ObjectRef VirtualMachine::CreateInstanceWithHandle(const std::string& type, u64 handle) {
   LoadedScript* s = FindScript(type);
-  if (!s || handle == 0 || instances_.count(handle)) return ObjectRef{0};
+  if (!s || handle == 0) return ObjectRef{0};
+  // A handle may already carry other attached scripts. Add this one to the same
+  // instance rather than failing, so every script on a form (quest main script
+  // AND its QF_ stage-fragment script, etc.) is live and dispatchable. Attaching
+  // the same script twice is a no-op: return 0 so the caller skips re-seeding and
+  // re-raising OnInit.
+  Instance& inst = instances_[handle];
+  for (const std::string& t : inst.types)
+    if (Lower(t) == Lower(s->name)) return ObjectRef{0};
   if (handle >= next_handle_) next_handle_ = handle + 1;
-  Instance inst;
-  inst.type = s->name;
+  inst.types.push_back(s->name);
   SeedMembers(inst, s->name);
-  instances_[handle] = std::move(inst);
   return ObjectRef{handle};
 }
 
@@ -126,7 +132,13 @@ bool VirtualMachine::IsAlive(ObjectRef instance) const {
 
 std::string VirtualMachine::TypeOf(ObjectRef instance) {
   Instance* inst = FindInstance(instance);
-  return inst ? inst->type : "";
+  return inst ? inst->primary_type() : "";
+}
+
+bool VirtualMachine::ResolveMethodAny(Instance& inst, const std::string& method, Resolved* out) {
+  for (const std::string& type : inst.types)
+    if (ResolveMethod(inst, method, type, out)) return true;
+  return false;
 }
 
 bool VirtualMachine::ResolveMethod(Instance& inst, const std::string& method,
@@ -149,13 +161,13 @@ bool VirtualMachine::ResolveMethod(Instance& inst, const std::string& method,
 const Property* VirtualMachine::ResolveProperty(Instance& inst, const std::string& name,
                                                 LoadedScript** owner_script) {
   std::string want = Lower(name);
-  for (LoadedScript* s = FindScript(inst.type); s; s = FindScript(s->parent)) {
-    for (const Property& p : s->object->properties)
-      if (Lower(s->pex.Str(p.name)) == want) {
-        *owner_script = s;
-        return &p;
-      }
-  }
+  for (const std::string& type : inst.types)
+    for (LoadedScript* s = FindScript(type); s; s = FindScript(s->parent))
+      for (const Property& p : s->object->properties)
+        if (Lower(s->pex.Str(p.name)) == want) {
+          *owner_script = s;
+          return &p;
+        }
   return nullptr;
 }
 
@@ -203,8 +215,8 @@ Value VirtualMachine::Call(ObjectRef self, const std::string& method, std::vecto
     return Value();
   }
   Resolved r;
-  if (!ResolveMethod(*inst, method, inst->type, &r)) {
-    WarnUnbound(inst->type, method);
+  if (!ResolveMethodAny(*inst, method, &r)) {
+    WarnUnbound(inst->primary_type(), method);
     return Value();
   }
   return Invoke(r, self, std::move(args), method);
@@ -214,7 +226,7 @@ bool VirtualMachine::TryCall(ObjectRef self, const std::string& method, std::vec
   Instance* inst = FindInstance(self);
   if (!inst) return false;
   Resolved r;
-  if (!ResolveMethod(*inst, method, inst->type, &r)) return false;  // no handler: silent
+  if (!ResolveMethodAny(*inst, method, &r)) return false;  // no handler: silent
   Invoke(r, self, std::move(args), method);
   return true;
 }
@@ -258,7 +270,7 @@ Value VirtualMachine::CallParent(ObjectRef self, const std::string& method,
                                  std::vector<Value> args) {
   Instance* inst = FindInstance(self);
   if (!inst) return Value();
-  std::string current = call_stack_.empty() ? inst->type : call_stack_.back();
+  std::string current = call_stack_.empty() ? inst->primary_type() : call_stack_.back();
   LoadedScript* cs = FindScript(current);
   if (!cs || cs->parent.empty()) return Value();
   Resolved r;
@@ -324,12 +336,14 @@ bool VirtualMachine::IsObjectOfType(ObjectRef obj, const std::string& type_name)
   Instance* inst = FindInstance(obj);
   if (!inst) return false;
   std::string want = Lower(type_name);
-  std::string t = inst->type;
-  while (!t.empty()) {
-    if (Lower(t) == want) return true;
-    LoadedScript* s = FindScript(t);
-    if (!s) break;
-    t = s->parent;
+  for (const std::string& type : inst->types) {
+    std::string t = type;
+    while (!t.empty()) {
+      if (Lower(t) == want) return true;
+      LoadedScript* s = FindScript(t);
+      if (!s) break;
+      t = s->parent;
+    }
   }
   return false;
 }

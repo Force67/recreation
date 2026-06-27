@@ -121,9 +121,17 @@ class VirtualMachine : public VmInterface {
     const Object* object = nullptr;
   };
   struct Instance {
-    std::string type;
+    // A form can carry several attached scripts (e.g. a quest's main script plus
+    // its QF_ stage-fragment script). They share one handle and member store, in
+    // attach order; types[0] is the primary (drives TypeOf and the default
+    // state). Method/property resolution walks every attached script's chain.
+    std::vector<std::string> types;
     std::unordered_map<std::string, Value> members;
     std::string state;  // "" = default/empty state
+    const std::string& primary_type() const {
+      static const std::string kEmpty;
+      return types.empty() ? kEmpty : types.front();
+    }
   };
   struct Resolved {
     LoadedScript* script = nullptr;
@@ -138,6 +146,11 @@ class VirtualMachine : public VmInterface {
   // instance type for normal calls, the parent type for parent calls).
   bool ResolveMethod(Instance& inst, const std::string& method, const std::string& start_type,
                      Resolved* out);
+  // Resolves method across every script attached to inst (each script's own
+  // inheritance chain, in attach order); the first match wins. This is how a
+  // stage fragment finds its function regardless of which attached script the
+  // function lives on.
+  bool ResolveMethodAny(Instance& inst, const std::string& method, Resolved* out);
   const Property* ResolveProperty(Instance& inst, const std::string& name,
                                   LoadedScript** owner_script);
   Value Invoke(const Resolved& target, ObjectRef self, std::vector<Value> args,
