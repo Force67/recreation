@@ -14,10 +14,22 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
-  <!-- The test runner is a separate project under tests/; keep its sources out
-       of the library build. -->
+  <!-- Packaged as the SDK mods compile against: `dotnet pack -c Release` emits
+       Recreation.Scripting.<version>.nupkg (version from Directory.Build.props).
+       Mods reference it COMPILE-TIME ONLY (see templates/mod) so the DLL is never
+       copied beside the mod, which would split assembly identity from the engine's
+       in-memory SDK and the mod would fail to bind. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Recreation.Scripting</PackageId>
+    <Description>Recreation modding SDK: the API C# mods are built against.</Description>
+  </PropertyGroup>
+
+  <!-- The test runner (tests/) and the mod starter (templates/) are separate
+       projects; keep their sources out of the library build. -->
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="templates/**/*.cs" />
   </ItemGroup>
 
   <!-- The test runner exercises internal seams (GameWorld, the Domains registry). -->

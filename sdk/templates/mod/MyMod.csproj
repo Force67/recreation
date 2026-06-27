@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A drop-in Recreation mod. Build with `dotnet build -c Release`, then put the
+       resulting MyMod.dll in your RECREATION_MODS_DIR (or a server resource).
+
+       The SDK is a COMPILE-TIME-ONLY reference: ExcludeAssets=runtime keeps
+       Recreation.Scripting.dll from being copied next to the mod, so the mod binds
+       to the engine's in-memory SDK instead of a private duplicate (a duplicate
+       splits assembly identity and the mod fails to load). PrivateAssets=all keeps
+       the reference from flowing to anything that depends on this mod. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>MyMod</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pin the SDK version your mod is built against. The mod runs on any engine
+         shipping the same major version (see sdk/README.md). Floating the patch
+         (0.1.*) is fine; do not float the major. -->
+    <PackageReference Include="Recreation.Scripting" Version="0.1.*">
+      <ExcludeAssets>runtime</ExcludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

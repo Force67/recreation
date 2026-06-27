@@ -30,7 +30,7 @@ public static unsafe class ScriptHost
         // Bring the multiplayer platform (state bags, player registry, ...) online
         // for this process role, before mods load so an OnLoad can use it.
         Recreation.Net.Platform.Boot(handshake->Realm);
-        Console.WriteLine($"[managed] Recreation scripting host online, {Domains.Count} game(s)");
+        Console.WriteLine($"[managed] Recreation scripting host online (SDK {SdkInfo.Version}), {Domains.Count} game(s)");
         if (Environment.GetEnvironmentVariable("REC_DOMAINS_REPORT") != null) ReportDomains();
         // Filter which mods start by the process role: server + shared on a host,
         // client + shared on a client, everything in single-player.
