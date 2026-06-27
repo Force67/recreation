@@ -48,7 +48,20 @@ public sealed class MultiplayerDemo : IMod
                                BlipSprite.Quest, 0xffd24affu);    // gold
             Blips.CreateShared("gang", new Vector3(p.X - 23, p.Y, p.Z - 10), "Bandit Camp",
                                BlipSprite.Enemy, 0xd84f4fffu);    // red
+
+            // Place the other players ahead of us (the camera looks down -Z in the
+            // demo cell) so their floating nametags project into view.
+            SetPos(1, p.X + 3f, p.Y, p.Z - 11f);
+            SetPos(2, p.X - 3f, p.Y, p.Z - 13f);
+            SetPos(3, p.X + 0.5f, p.Y, p.Z - 16f);
         });
+    }
+
+    private static void SetPos(uint id, float x, float y, float z)
+    {
+        StateBags.Player(id).Set(Nametags.PosX, x);
+        StateBags.Player(id).Set(Nametags.PosY, y);
+        StateBags.Player(id).Set(Nametags.PosZ, z);
     }
 
     private static void Say(uint id, string name, string text) =>

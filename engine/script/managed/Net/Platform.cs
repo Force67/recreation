@@ -1,19 +1,13 @@
 namespace Recreation.Net;
 
-// The single entry point that brings the multiplayer platform online and tears it
-// down. The script host boots it once the RPC channel and host realm are known
-// (before mods load, so a mod's OnLoad can already touch platform state); the mod
-// host resets it on shutdown so a session reload starts clean.
-//
-// Every platform subsystem (state bags today; player registry, chat, social and
-// the rest as they land) is wired from here, so the host integration stays a
-// single call on each side no matter how the platform grows.
+// The single entry point that brings the platform online and tears it down. Booted
+// before mods load, so a mod's OnLoad can already touch platform state; reset on
+// shutdown.
 public static class Platform
 {
     public static NetRole Role { get; private set; } = NetRole.Standalone;
 
-    // True where this process is authoritative: the host, or single-player. The
-    // everyday guard for "should I run authoritative logic here".
+    // True where this process is authoritative: the host, or single-player.
     public static bool IsServer => Role != NetRole.Client;
     public static bool IsClient => Role == NetRole.Client;
     public static bool IsStandalone => Role == NetRole.Standalone;
@@ -23,8 +17,7 @@ public static class Platform
     // 0 server, 1 client, anything else standalone). Called by ScriptHost.Main.
     internal static void Boot(int realm) => Boot(RoleFromRealm(realm));
 
-    // Bring the platform up for a known role. Public so tests (and tooling) can
-    // drive a specific side without a handshake.
+    // Bring the platform up for a known role. Public so tests can drive a side without a handshake.
     public static void Boot(NetRole role)
     {
         Role = role;
@@ -35,12 +28,13 @@ public static class Platform
         Social.Bind(role);
         Admin.Bind(role);
         Persistence.Bind(role);
-        // Client-facing UI surfaces (no-op-safe rendering until the HUD is wired).
+        // Client-facing UI surfaces.
         HudKit.Bind(role);
         Map.Bind(role);
         Scoreboard.Bind(role);
         ServerBrowser.Bind(role);
         NetEntities.Bind(role);
+        Nametags.Bind(role);
         // Roleplay primitives layered on the foundation.
         Teams.Bind(role);
         Economy.Bind(role);
@@ -53,6 +47,7 @@ public static class Platform
         Voice.Reset();
         Economy.Reset();
         Teams.Reset();
+        Nametags.Reset();
         NetEntities.Reset();
         ServerBrowser.Reset();
         Scoreboard.Reset();

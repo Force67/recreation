@@ -1,0 +1,54 @@
+// Floating world-space player nametags. A pool of absolutely-positioned labels,
+// placed at the screen projection of each player each frame from SetNametags;
+// unused ones collapse. Centered pill with the player name.
+
+  panel nametags { position: absolute; left: 0; top: 0; width: 0; height: 0;
+    panel nametag0 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag0_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag1 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag1_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag2 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag2_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag3 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag3_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag4 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag4_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag5 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag5_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag6 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag6_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag7 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag7_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag8 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag8_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag9 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag9_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag10 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag10_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag11 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag11_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag12 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag12_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag13 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag13_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag14 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag14_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    panel nametag15 { position: absolute; left: 0; top: 0; layout: row; align: center; padding: 2 7; background: #0a0c14b4; corner-radius: 7; border-color: #ffffff22; border-width: 1; visibility: collapsed;
+      text nametag15_txt { text: ""; font-size: 13; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+  }

@@ -326,6 +326,14 @@ class GameUi {
     u32 color = 0xffffffffu;
   };
   void SetCompassBlips(const std::vector<CompassBlip>& blips);
+  // Floating world-space labels (player nametags) already projected to screen
+  // pixels by the engine. Fed from the platform nametag channel each frame.
+  struct Nametag {
+    std::string label;
+    float sx = 0, sy = 0;  // screen position (pixels)
+    u32 color = 0xffffffffu;
+  };
+  void SetNametags(const std::vector<Nametag>& nametags);
   void FlashQuestUpdate(const std::string& message);
   void SetActivatePrompt(const std::string& prompt);
   // Objective compass waypoint. active shows a pip on the compass at

@@ -49,6 +49,10 @@ void PlatformHud::Submit(const std::string& type, const std::string& func,
       waypoint_ = std::array<f32, 3>{ArgF(args, 0), ArgF(args, 1), ArgF(args, 2)};
     } else if (func == "ClearWaypoint") {
       waypoint_.reset();
+    } else if (func == "Nametag") {
+      // (label, x, y, z, color)
+      nametags_.push_back({ArgStr(args, 0), ArgF(args, 1), ArgF(args, 2), ArgF(args, 3),
+                           static_cast<u32>(ArgInt(args, 4))});
     } else if (func == "Scoreboard") {
       // Header: title, columnCount, then one label per column. Resets the rows so
       // the per-frame rebuild starts clean.
@@ -130,6 +134,11 @@ std::vector<PlatformEntityOp> PlatformHud::DrainEntityOps() {
   return std::move(entity_ops_);
 }
 
+std::vector<PlatformNametag> PlatformHud::DrainNametags() {
+  std::lock_guard<std::mutex> lock(mu_);
+  return std::move(nametags_);
+}
+
 void PlatformHud::SetLocalPos(f32 x, f32 y, f32 z) {
   std::lock_guard<std::mutex> lock(mu_);
   local_pos_ = {x, y, z};
@@ -157,6 +166,7 @@ void PlatformHud::Clear() {
   waypoint_.reset();
   scoreboard_ = {};
   entity_ops_.clear();
+  nametags_.clear();
   pending_connect_.reset();
 }
 

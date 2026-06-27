@@ -10,6 +10,7 @@
 
 #include "bethesda/record.h"
 #include "core/log.h"
+#include "core/math.h"
 #include "core/types.h"
 #include "engine_internal.h"
 #include "script/papyrus/value.h"
@@ -381,8 +382,9 @@ bool Engine::RunFrame() {
         }
         game_ui_.SetPrompts(prompts);
       }
-      // Publish the local player's world position (engine space) so mods can place
-      // things relative to the player through the Net.LocalPos* natives.
+      // Publish the local viewer's world position (engine space) so mods can place
+      // things relative to the player through the Net.LocalPos* natives. The camera
+      // is the render-space viewpoint the player rides, which is what projects.
       {
         const Vec3 p = camera_.position();
         platform_hud_.SetLocalPos(p.x, p.y, p.z);
@@ -406,6 +408,32 @@ bool Engine::RunFrame() {
       }
       if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
         REC_INFO("[platform] connect requested: {}", *addr);
+      // Floating player nametags: project each world-space label to screen pixels
+      // for the 2D HUD, dropping ones behind the camera or off-screen.
+      {
+        const std::vector<PlatformNametag> tags = platform_hud_.DrainNametags();
+        std::vector<GameUi::Nametag> screen_tags;
+        const Vec3 eye = camera_.position();
+        const Vec3 cf = camera_.forward();
+        const Vec3 cr = Normalize(Cross(cf, Vec3{0, 1, 0}));
+        const Vec3 cu = Cross(cr, cf);
+        const f32 w = static_cast<f32>(renderer_.output_width());
+        const f32 h = static_cast<f32>(renderer_.output_height());
+        const f32 aspect = h > 0 ? w / h : 1.0f;
+        const f32 tan_half = std::tan(1.0472f * 0.5f);  // kFovY 60deg
+        for (const PlatformNametag& n : tags) {
+          const Vec3 to{n.x - eye.x, n.y - eye.y, n.z - eye.z};
+          const f32 zc = Dot(to, cf);
+          if (zc <= 0.1f) continue;  // behind the camera
+          const f32 ndc_x = (Dot(to, cr) / zc) / (tan_half * aspect);
+          const f32 ndc_y = (Dot(to, cu) / zc) / tan_half;
+          if (std::fabs(ndc_x) > 1.2f || std::fabs(ndc_y) > 1.2f) continue;  // off screen
+          screen_tags.push_back({n.label, (ndc_x * 0.5f + 0.5f) * w, (0.5f - ndc_y * 0.5f) * h,
+                                 n.color ? n.color : 0xffffffffu});
+          if (screen_tags.size() >= 16) break;
+        }
+        game_ui_.SetNametags(screen_tags);
+      }
       // Networked entities: apply a mod's spawn/move/delete onto the ECS world so
       // its objects appear for the local player. A spawned object uses the
       // placeholder cube mesh until per-model meshes are wired through PlaceObject.

@@ -64,6 +64,15 @@ struct PlatformScoreboard {
   std::vector<PlatformScoreRow> rows;
 };
 
+// A floating world-space label (a player nametag) pushed each frame through
+// Hud.Nametag. The runtime projects the world position to screen and draws the
+// label there (the 2D HUD path), so labels track players in the world.
+struct PlatformNametag {
+  std::string label;
+  f32 x = 0, y = 0, z = 0;  // world position, engine space
+  u32 color = 0;
+};
+
 // One networked-object change from the entity layer: spawn a renderable, move an
 // existing one, or remove it. The runtime applies these to the ECS world each
 // frame so a mod's spawned props appear for the local player. Net.SpawnObject /
@@ -104,6 +113,10 @@ class PlatformHud {
   // Main thread: take the networked-entity ops queued since the previous drain.
   std::vector<PlatformEntityOp> DrainEntityOps();
 
+  // Main thread: take the world-space nametags pushed since the previous drain
+  // (the managed layer re-pushes the full set each frame).
+  std::vector<PlatformNametag> DrainNametags();
+
   // The local player's world position in engine space. The runtime publishes it
   // each frame; the Net.LocalPos* natives read it so a mod can place things in the
   // world (the script GetPosition space differs and is unresolved for the spawned
@@ -128,6 +141,7 @@ class PlatformHud {
   std::optional<std::array<f32, 3>> waypoint_;
   PlatformScoreboard scoreboard_;
   std::vector<PlatformEntityOp> entity_ops_;  // drained to the ECS world
+  std::vector<PlatformNametag> nametags_;     // drained to the HUD each frame
   std::array<f32, 3> local_pos_{0, 0, 0};     // local player world pos, engine space
   std::optional<std::string> pending_connect_;
 };

@@ -76,6 +76,7 @@ constexpr int kChatRows = 8;            // visible lines in the multiplayer chat
 constexpr int kScoreRows = 12;          // player rows in the multiplayer scoreboard
 constexpr int kPromptRows = 3;          // stacked multiplayer interaction prompts
 constexpr int kCompassBlips = 8;        // map-blip pips drawn on the compass
+constexpr int kNametags = 16;           // floating world-space player nametags
 constexpr float kToastSeconds = 4.0f;
 
 // NEXUS main menu.
@@ -510,8 +511,8 @@ std::string BuildEditorSection() {
 // watch list.
 const char* const kUiFragments[] = {
     "hud.ugui",       "vitals.ugui",  "readout.ugui",  "quest.ugui",
-    "hud_gauge.ugui", "chat.ugui", "scoreboard.ugui", "mp_prompt.ugui", "journal.ugui",
-    "war_map.ugui", "dialogue.ugui", "container.ugui",
+    "hud_gauge.ugui", "chat.ugui", "scoreboard.ugui", "mp_prompt.ugui", "nametag.ugui",
+    "journal.ugui", "war_map.ugui", "dialogue.ugui", "container.ugui",
     "pause_menu.ugui", "main_menu.ugui", "first_run.ugui",
 };
 
@@ -603,6 +604,7 @@ std::string BuildUi() {
   s += LoadUiFragment("chat.ugui");
   s += LoadUiFragment("scoreboard.ugui");
   s += LoadUiFragment("mp_prompt.ugui");
+  s += LoadUiFragment("nametag.ugui");
   s += LoadUiFragment("journal.ugui");
   s += LoadUiFragment("war_map.ugui");
   s += LoadUiFragment("dialogue.ugui");
@@ -736,6 +738,7 @@ struct GameUi::Impl {
   std::vector<std::string> scoreboard_rows;
   std::vector<std::string> mp_prompts;  // multiplayer interaction prompts
   std::vector<GameUi::CompassBlip> compass_blips;  // map blips on the compass
+  std::vector<GameUi::Nametag> nametags;           // floating world-space labels
   std::string toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
   std::string activate_prompt;
@@ -1845,6 +1848,10 @@ void GameUi::SetCompassBlips(const std::vector<CompassBlip>& blips) {
   if (impl_->initialized) impl_->compass_blips = blips;
 }
 
+void GameUi::SetNametags(const std::vector<Nametag>& nametags) {
+  if (impl_->initialized) impl_->nametags = nametags;
+}
+
 void GameUi::SetHudGauges(const std::vector<HudGauge>& gauges) {
   if (impl_->initialized) impl_->hud_gauges = gauges;
 }
@@ -2130,6 +2137,26 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     }
   }
 
+  // Floating world-space nametags: place each label at its screen position. The
+  // engine projects the world position; we centre the pill on it (a rough half
+  // width per character) and bias it up so it floats above the player.
+  for (int i = 0; i < kNametags; ++i) {
+    const std::string tag = "nametag" + std::to_string(i);
+    if (static_cast<size_t>(i) < impl->nametags.size()) {
+      const GameUi::Nametag& n = impl->nametags[i];
+      ugui::SetText(impl->ui.FindWidget((tag + "_txt").c_str()), n.label.c_str());
+      const float half_w = 7.0f + n.label.size() * 3.7f;  // approx half the pill width
+      impl->SetStyleField(
+          tag.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
+          n.sx - half_w);
+      impl->SetStyleField(
+          tag.c_str(), [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); }, n.sy);
+      impl->SetVisible(tag.c_str(), true);
+    } else {
+      impl->SetVisible(tag.c_str(), false);
+    }
+  }
+
   // --- Quest HUD ---
   const bool has_quest = !impl->quest.title.empty();
   impl->SetVisible("questtracker", has_quest);
@@ -2324,6 +2351,7 @@ void GameUi::SetScoreboard(bool, const std::string&, const std::string&,
                            const std::vector<std::string>&) {}
 void GameUi::SetPrompts(const std::vector<std::string>&) {}
 void GameUi::SetCompassBlips(const std::vector<CompassBlip>&) {}
+void GameUi::SetNametags(const std::vector<Nametag>&) {}
 void GameUi::SetHudGauges(const std::vector<HudGauge>&) {}
 void GameUi::FlashQuestUpdate(const std::string&) {}
 void GameUi::SetActivatePrompt(const std::string&) {}

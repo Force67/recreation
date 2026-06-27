@@ -172,7 +172,7 @@ void PapyrusGuest::BindEngineNatives() {
   };
   for (const char* f :
        {"Notify", "ChatLine", "Prompt", "ClearPrompt", "Blip", "ClearBlip", "Waypoint",
-        "ClearWaypoint", "Scoreboard", "ScoreboardRow", "HideScoreboard", "Menu"}) {
+        "ClearWaypoint", "Nametag", "Scoreboard", "ScoreboardRow", "HideScoreboard", "Menu"}) {
     reg_platform("Hud", f);
   }
   for (const char* f : {"Connect", "SpawnObject", "MoveObject", "DeleteObject"}) {
