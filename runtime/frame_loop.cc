@@ -169,6 +169,31 @@ bool Engine::RunFrame() {
         renderer_.settings().precipitation = indoors ? 0.0f : w.precipitation;
         renderer_.settings().precip_snow = w.snow;
       }
+      // Thunderstorm lightning: a decaying flash (with a flicker) scheduled at
+      // random intervals while heavy rain falls.
+      {
+        const bool indoors = streamer_ && streamer_->in_interior();
+        const bool storm = has_weather && !indoors && w.precipitation > 0.5f && !w.snow;
+        const f32 now = clock_.real_hours() * 3600.0f;
+        if (!storm) {
+          lightning_ = 0.0f;
+          next_strike_ = now + 3.0f;  // first possible strike once a storm begins
+        } else {
+          if (now >= next_strike_) {
+            strike_time_ = now;
+            lightning_seed_ = lightning_seed_ * 1664525u + 1013904223u;
+            const f32 r = static_cast<f32>(lightning_seed_ >> 8) / 16777216.0f;
+            next_strike_ = now + 4.0f + r * 13.0f;  // 4-17 s apart
+          }
+          const f32 e = now - strike_time_;
+          const f32 a = std::exp(-e * 9.0f);                                       // main flash
+          const f32 b = e > 0.12f ? 0.65f * std::exp(-(e - 0.12f) * 12.0f) : 0.0f;  // flicker
+          lightning_ = std::min(1.0f, a + b);
+        }
+        // REC_LIGHTNING holds the flash at a fixed level (testing the brief, random strike).
+        if (const char* fl = std::getenv("REC_LIGHTNING")) lightning_ = static_cast<f32>(std::atof(fl));
+        renderer_.settings().lightning = lightning_;
+      }
       // Day/night: derive the sun direction/intensity/color/ambient from the
       // clock's time of day (unless REC_SUN_DIR pinned a fixed sun), tinted and
       // dimmed by the weather. Throttled to ~0.02-hour steps so the IBL

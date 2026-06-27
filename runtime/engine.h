@@ -269,6 +269,12 @@ class Engine {
   // instead of the climate, so the Weather panel can drive the sky live.
   bool weather_override_ = false;
   weather::WeatherState weather_override_state_;
+  // Thunderstorm lightning: a decaying flash scheduled at random intervals while
+  // heavy rain falls. lightning_ is this frame's flash; the rest is the schedule.
+  f32 lightning_ = 0.0f;
+  f32 next_strike_ = 0.0f;
+  f32 strike_time_ = -100.0f;
+  u32 lightning_seed_ = 0x1234567u;
 
   ecs::World world_;
   ecs::Scheduler scheduler_;

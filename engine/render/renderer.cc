@@ -784,11 +784,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.sun_direction[0] = sun.x;
   globals.sun_direction[1] = sun.y;
   globals.sun_direction[2] = sun.z;
-  globals.sun_direction[3] = settings_.sun_intensity;
-  globals.sun_color[0] = settings_.sun_color.x;
-  globals.sun_color[1] = settings_.sun_color.y;
-  globals.sun_color[2] = settings_.sun_color.z;
-  globals.sun_color[3] = settings_.ambient;
+  // Lightning flashes the PER-FRAME direct light only (not settings_, so the
+  // sun-change check never rebuilds the IBL cubemap): a brief bright blue-white
+  // boost to the directional intensity, colour and ambient fill.
+  const f32 flash = settings_.lightning;
+  globals.sun_direction[3] = settings_.sun_intensity + flash * 9.0f;
+  globals.sun_color[0] = settings_.sun_color.x + flash * (0.90f - settings_.sun_color.x);
+  globals.sun_color[1] = settings_.sun_color.y + flash * (0.95f - settings_.sun_color.y);
+  globals.sun_color[2] = settings_.sun_color.z + flash * (1.10f - settings_.sun_color.z);
+  globals.sun_color[3] = settings_.ambient + flash * 0.5f;
   globals.camera_position[0] = view.camera.eye.x;
   globals.camera_position[1] = view.camera.eye.y;
   globals.camera_position[2] = view.camera.eye.z;
@@ -1560,7 +1564,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     cf.camera_pos = view.camera.eye;
     cf.time = static_cast<f32>(time_seconds_);
     cf.sun_direction = settings_.sun_direction;
-    cf.sun_intensity = settings_.sun_intensity;
+    // Lightning brightens the cloud (its ambient + sun terms scale with intensity),
+    // so the storm clouds flash from within.
+    cf.sun_intensity = settings_.sun_intensity + settings_.lightning * 7.0f;
     cf.sun_color = settings_.sun_color;
     cf.coverage = settings_.cloud_coverage;
     lit = clouds_.AddToGraph(graph_, lit, depth_export, {render_width_, render_height_}, cf);
