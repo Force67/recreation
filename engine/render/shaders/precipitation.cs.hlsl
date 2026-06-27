@@ -45,27 +45,38 @@ void main(uint3 id : SV_DispatchThreadID) {
   float3 add = 0.0.xxx;
   const int kLayers = 4;
   if (snow < 0.5) {
-    // Rain: sparse thin streaks in tall cells (dense across, sparse down) so each
-    // reads as a falling, wind-sheared streak rather than a dot.
-    const float tilt = 0.14;  // wind lean (couples x into y)
-    float total = 0.0;
-    for (int l = 0; l < kLayers; ++l) {
-      float fl = float(l);
-      float scale_x = 120.0 + fl * 55.0;  // dense across
-      float scale_y = 24.0 + fl * 10.0;   // sparse down -> tall cells = long streaks
-      float speed = 14.0 + fl * 7.0;      // fall speed
+    // Rain: parallax layers (near = long, fast, sparse; far = short, dense) of
+    // soft motion-blurred streaks with heavy per-streak variation (length,
+    // brightness, jitter) so it never reads as a regular grid.
+    const float tilt = 0.16;  // wind lean (couples x into y)
+    const int kRainLayers = 5;
+    float wet = 0.0;
+    for (int l = 0; l < kRainLayers; ++l) {
+      float fl = float(l) / float(kRainLayers - 1);  // 0 near .. 1 far
+      float scale_x = lerp(85.0, 240.0, fl);         // far = denser across
+      float scale_y = lerp(14.0, 50.0, fl);          // near = taller cells = longer streaks
+      float speed = lerp(24.0, 10.0, fl);            // near = faster
       float2 p;
       p.x = az * scale_x;
       p.y = -alt * scale_y + time * speed + p.x * tilt;
       float2 cell = floor(p);
       float2 f = frac(p);
-      float h = Hash21(cell + fl * 19.7);
-      float present = step(0.80, h);
-      float thin = smoothstep(0.10, 0.0, abs(f.x - 0.5));                  // narrow streak
-      float along = smoothstep(0.0, 0.06, f.y) * smoothstep(0.95, 0.55, f.y);  // long
-      total += present * thin * along * (0.5 + 0.5 * fl / float(kLayers));
+      float r1 = Hash21(cell + fl * 31.7 + 1.0);  // presence
+      float r2 = Hash21(cell + fl * 13.3 + 5.0);  // x jitter
+      float r3 = Hash21(cell + fl * 7.7 + 9.0);   // brightness
+      float r4 = Hash21(cell + fl * 23.9 + 3.0);  // length
+      if (r1 < 0.80) continue;                     // sparse
+      float dx = f.x - 0.5 - (r2 - 0.5) * 0.55;    // jittered, soft gaussian width
+      float core = exp(-dx * dx * 70.0);
+      float len = lerp(0.4, 0.92, r4);             // varied streak length
+      float along = smoothstep(0.0, 0.04, f.y) * smoothstep(len, len - 0.3, f.y);
+      wet += core * along * (0.35 + 0.65 * r3) * lerp(1.0, 0.55, fl);
     }
-    add = float3(0.62, 0.70, 0.82) * total * intensity * 0.9;
+    wet = saturate(wet * intensity);
+    // Translucent + scene-aware: rain catches light, so it reads bright against
+    // dark surfaces and stays subtle against the bright sky, like the real thing.
+    float scene_luma = dot(scene, float3(0.299, 0.587, 0.114));
+    add = lerp(float3(0.85, 0.92, 1.05), float3(0.32, 0.38, 0.50), saturate(scene_luma)) * wet;
   } else {
     // Snow: slow drifting soft round flakes with a gentle sway.
     float total = 0.0;
