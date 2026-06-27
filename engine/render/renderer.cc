@@ -179,6 +179,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   aerial_perspective_.Initialize(*device_);  // atmospheric distance haze (no ray tracing)
   clouds_.Initialize(*device_);              // volumetric clouds (no ray tracing)
   precipitation_.Initialize(*device_);       // screen-space rain/snow
+  surface_weather_.Initialize(*device_);     // rain wetness / snow accumulation
 
   UpdateRenderResolution();
   taa_.Resize(*device_, {render_width_, render_height_});
@@ -1519,6 +1520,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         });
   }
 
+  // Surface weather: wet/darken (rain) or whiten (snow) the lit surfaces before
+  // the atmosphere/clouds/rain layer over them. Uses the G-buffer normals + the
+  // sky cubemap for the puddle reflection.
+  if (settings_.precipitation > 0.0f && !path_trace && normals != kInvalidResource) {
+    SurfaceWeather::Frame sf;
+    sf.inv_view_proj = globals.inv_view_proj;
+    sf.camera_pos = view.camera.eye;
+    sf.wetness = settings_.precipitation;
+    sf.snow = settings_.precip_snow;
+    lit = surface_weather_.AddToGraph(graph_, lit, normals, depth_export, environment_->sky_view(),
+                                      environment_->sampler(), {render_width_, render_height_}, sf);
+  }
+
   // Aerial perspective: composite the atmosphere between the camera and each
   // surface so distant geometry hazes/blue-shifts like the sky. Cheap; skipped
   // when path tracing (the path tracer scatters its own sky).
@@ -2051,6 +2065,7 @@ void Renderer::Shutdown() {
   aerial_perspective_.Destroy(*device_);
   clouds_.Destroy(*device_);
   precipitation_.Destroy(*device_);
+  surface_weather_.Destroy(*device_);
     water_.reset();
     ddgi_.reset();
     environment_.reset();

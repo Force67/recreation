@@ -158,7 +158,9 @@ bool Engine::RunFrame() {
       if (has_weather) {
         renderer_.settings().cloud_coverage = w.cloud_coverage;
         renderer_.settings().aerial_perspective = ap_base_ * (1.0f + w.aerosol * 2.0f);
-        renderer_.settings().precipitation = w.precipitation;
+        // No rain/snow (or wetness) indoors: interior cells have no sky overhead.
+        const bool indoors = streamer_ && streamer_->in_interior();
+        renderer_.settings().precipitation = indoors ? 0.0f : w.precipitation;
         renderer_.settings().precip_snow = w.snow;
       }
       // Day/night: derive the sun direction/intensity/color/ambient from the

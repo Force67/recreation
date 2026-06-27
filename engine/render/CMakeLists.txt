@@ -36,6 +36,7 @@ recreation_add_module(render
   aerial_perspective.cc
   clouds.cc
   precipitation.cc
+  surface_weather.cc
   upscaler.cc
   vulkan/vk_device.cc
   vulkan/vk_swapchain.cc
@@ -99,6 +100,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/aerial_perspective.cs.hlsl
   shaders/clouds.cs.hlsl
   shaders/precipitation.cs.hlsl
+  shaders/surface_weather.cs.hlsl
   shaders/sky.cs.hlsl
   shaders/sky.ps.hlsl
   shaders/irradiance.cs.hlsl
