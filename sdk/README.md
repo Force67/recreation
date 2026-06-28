@@ -1,105 +1,78 @@
-# Recreation SDK (`sdk/`)
+# Recreation SDK
 
-The C# world the engine hosts: the API mods are written against, the multiplayer
-platform, the per-game rulesets, and the host entrypoint the native engine calls.
-This used to live at `engine/script/managed/`; it now sits at the top level
-because it is a public-facing artifact (mod authors build against it), not an
-engine internal. The native bridge (`engine/script/host/`) stays engine-side.
+The C# side of the engine, and what mods are written against: the gameplay API,
+the multiplayer platform they build on, the host entrypoint, and the default
+gamemodes that ship in the box. It lives at the top level instead of under
+`engine/` because it's meant to be read and built against, not just compiled. (The
+native bridge it talks to stays engine-side, in `engine/script/host/`.)
 
-## Layout
+## What's in here
 
-| Path | What it is | Audience |
-|------|------------|----------|
-| `Engine/`, `Modding/`, `Interop/` | the SDK surface: `Game`/`Form`/`Actor`/`Quest`, the modding framework (`IMod`, `EventBus`, `GameBehaviour`, `ModHost`), the native marshalling types | mod authors |
-| `Net/`, `Teams/`, `Economy/`, `Admin/`, `Persistence/`, `Voice/`, `Map/`, `Hud/`, `Chat/`, `Social/`, `Scoreboard/`, `Browser/`, `Entities/`, `Ui/` | the multiplayer platform (`Recreation.Net`) | mixed: API + impl |
-| `default_gamemodes/{Skyrim,Fallout,Starfield}` | per-game soft-logic, optional pre-provided content (still namespaced `Recreation.Games.*`) | examples |
-| `Samples/` | example gamemodes (wire-sync, roleplay) | examples |
-| `ScriptHost.cs`, `SdkInfo.cs` | the managed `Main` entrypoint + version accessor | engine glue |
-| `tests/` | the dependency-free test runner (`dotnet run`) | contributors |
-| `templates/mod/` | copy-out starter for a drop-in mod | mod authors |
+| Path | What |
+|------|------|
+| `Engine/`, `Modding/`, `Interop/` | the API you write mods against: `Game`/`Form`/`Actor`/`Quest`, `IMod`, `EventBus`, `GameBehaviour`, and the native marshalling |
+| `Net/` and friends (`Teams/`, `Economy/`, `Chat/`, `Admin/`, ...) | the multiplayer platform (`Recreation.Net`) |
+| `default_gamemodes/` | the Skyrim/Fallout/Starfield rulesets, shipped as optional content (see below) |
+| `Samples/`, `templates/mod/` | example gamemodes, and a starter to copy out |
+| `tests/` | the test runner (`dotnet run`, no test framework needed) |
 
-The SDK proper compiles into one assembly, `Recreation.Scripting`. The default
-gamemodes build as their own assemblies loaded at runtime (see below). Splitting
-the stable contract into its own `Recreation.Sdk` assembly is the remaining step
-(Roadmap).
+It all compiles to one assembly, `Recreation.Scripting`, except the gamemodes,
+which build on their own.
 
-## Building
+## Build and test
 
 ```sh
-# from the nix dev shell (dotnet is only on PATH there)
-./tools/build_managed.sh            # -> build/managed/Recreation.Scripting.dll
-                                    #    + build/managed/gamemodes/Recreation.{Skyrim,Fallout,Starfield}.dll
-RECREATION_SCRIPTING_DIR=build/managed ./run-local.sh ...
+# dotnet only lives in the nix dev shell
+./tools/build_managed.sh        # -> build/managed/Recreation.Scripting.dll
+                                #  + build/managed/gamemodes/Recreation.{Skyrim,Fallout,Starfield}.dll
+cd sdk/tests && dotnet run -c Release   # the test suite
 ```
 
-Tests: `cd sdk/tests && dotnet run -c Release` (also wired into `ctest` as
-`managed_scripting_tests` when a .NET SDK is on the configure PATH).
+## Writing a mod
 
-## Default gamemodes
-
-The per-game rulesets in `default_gamemodes/` build as **separate assemblies**
-(`Recreation.Skyrim/Fallout/Starfield`), not part of the core SDK. At boot the
-host preloads the `gamemodes/` directory beside `Recreation.Scripting.dll`, so
-each ruleset loads and registers exactly like a built-in mod did — but it is now
-optional content:
-
-- Delete a DLL from `gamemodes/` to drop that game.
-- `RECREATION_NO_GAMEMODES=1` skips them all (a barebones session).
-- `RECREATION_GAMEMODES_DIR=<dir>` loads them from elsewhere.
-
-Each game references the SDK compile-time-only, so the DLLs carry no SDK copy and
-bind to the engine's loaded one (same rule as any mod). A ruleset only activates
-when its game is the primary domain, so loading all three is harmless.
-
-## Versioning
-
-The SDK is versioned with **SemVer**, set once in `Directory.Build.props`
-(`<Version>`) and surfaced at runtime via `SdkInfo.Version` (logged at boot).
-
-- **Additive** change (new API, no break) -> bump **minor** (`1.2` -> `1.3`).
-- **Breaking** change (removed/changed public API) -> bump **major** (`1.x` -> `2.0`).
-
-A mod built against SDK **X.Y runs on any engine shipping SDK X.>=Y**. A major
-bump is the only thing that breaks an existing mod. This promise is only as
-trustworthy as the contract is clean, which is the motivation for Stage 2: while
-game logic shares the assembly, every `public` change there is technically an API
-change. Keep game-internal types `internal`.
-
-### The two boundaries
-
-- **C# API** (mod ↔ SDK): the SemVer contract above. This is what a mod author
-  cares about.
-- **Native ABI** (SDK ↔ engine): `engine/script/host/bridge.h`, a fixed-layout
-  POD struct mirrored byte-for-byte in `Interop/`. Mods never touch it; only the
-  SDK does, and the SDK + engine are always built and shipped together, so they
-  are always matched. Bump it independently when the struct layout changes.
-
-## Building a stable mod
-
-Copy `templates/mod/` out of the repo and build it. The key detail: the SDK is a
-**compile-time-only** reference (`ExcludeAssets=runtime`, `PrivateAssets=all`), so
-`Recreation.Scripting.dll` is **not** copied next to your mod. At runtime the mod
-binds to the engine's in-memory SDK; shipping your own copy would split assembly
-identity and the mod would silently fail to load.
+Copy `templates/mod/` somewhere and build it. One rule matters: reference the SDK
+**compile-time only** (the template already does, via `ExcludeAssets=runtime`).
+That keeps `Recreation.Scripting.dll` out of your mod's output, so at runtime it
+binds to the engine's copy instead of a private duplicate. Ship a duplicate and
+the mod quietly fails to load.
 
 ```sh
 dotnet pack -c Release sdk/Recreation.Scripting.csproj   # -> Recreation.Scripting.<ver>.nupkg
-# point a local nuget source at it, then build the mod against the pinned version
-dotnet build -c Release            # in your mod folder
-cp bin/Release/net9.0/MyMod.dll  $RECREATION_MODS_DIR/
+dotnet build -c Release                                  # in your mod folder
+cp bin/Release/net9.0/MyMod.dll "$RECREATION_MODS_DIR/"
 ```
 
-Pin the SDK version in the mod's csproj; the mod keeps working across engine
-updates until the next major SDK bump. See `MODDING.md` for the streaming and
-multiplayer workflow.
+Pin a version and your mod keeps working until the next major SDK bump. The
+streaming and multiplayer side of modding lives in `MODDING.md`.
 
-## Roadmap
+## Default gamemodes
 
-- **Stage 1 (done):** relocated to `sdk/`, single versioned assembly, packable as
-  a NuGet (`dotnet pack`), `SdkInfo.Version` at boot, mod template.
-- **Stage 2 (done):** the default gamemodes build as separate, droppable
-  assemblies loaded from `gamemodes/` at boot, out of the core SDK.
-- **Stage 3 (when contract churn bites):** carve `Recreation.Sdk` (the
-  `Engine/ Modding/ Interop/` contract + platform public API) out of
-  `Recreation.Scripting`, leaving the platform impl and samples behind it. This
-  makes the version number trustworthy: the changelog stops being game-logic noise.
+The Skyrim/Fallout/Starfield rulesets each build as their own assembly and load at
+boot from the `gamemodes/` folder beside `Recreation.Scripting.dll`. They behave
+like built-in mods, but they're optional:
+
+- drop a DLL from `gamemodes/` to remove that game,
+- `RECREATION_NO_GAMEMODES=1` to skip them all,
+- `RECREATION_GAMEMODES_DIR=<dir>` to load from elsewhere.
+
+A ruleset only wakes up when its game is the one being played, so having all three
+present costs nothing.
+
+## Versioning
+
+One SemVer number in `Directory.Build.props`, surfaced as `SdkInfo.Version` and
+logged at boot. New API is a minor bump; anything that breaks callers is a major
+bump. A mod built against X.Y runs on any engine with SDK X.>=Y, and a major bump
+is the only thing that breaks it.
+
+(Two contracts hide in here: the C# API above, which mods care about, and the
+native ABI in `engine/script/host/bridge.h`, which they never touch. The SDK and
+engine ship together, so that one is always matched.)
+
+## What's next
+
+A version number is only as honest as the contract is clean, and right now
+game-logic churn shares an assembly with the API. The open step is to split the
+real contract (`Engine/`, `Modding/`, `Interop/`, plus the platform's public
+surface) into its own `Recreation.Sdk` assembly, leaving the implementation behind
+it.
