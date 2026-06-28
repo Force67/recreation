@@ -215,6 +215,16 @@ void Engine::ApplyRenderPreset() {
     tuned.exposure = 1.0f;
   }
   if (env.path_trace) tuned.path_trace = true;
+  // Carry the path-tracer mode + tunables (REC_PATHTRACE_RECON / _REFERENCE / _SPP
+  // / _ACCUM ...) through the preset, or env-selected recon/reference silently
+  // falls back to the NRD path.
+  tuned.path_trace_reference = env.path_trace_reference;
+  tuned.path_trace_recon = env.path_trace_recon;
+  tuned.path_trace_spp = env.path_trace_spp;
+  tuned.path_trace_accum = env.path_trace_accum;
+  tuned.path_trace_recon_weight = env.path_trace_recon_weight;
+  tuned.path_trace_recon_atrous = env.path_trace_recon_atrous;
+  tuned.path_trace_recon_debug = env.path_trace_recon_debug;
   if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
   tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
   tuned.ssgi = env.ssgi;                      // honor REC_SSGI over the preset
