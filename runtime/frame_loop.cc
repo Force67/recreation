@@ -322,6 +322,15 @@ bool Engine::RunFrame() {
         std::vector<HudGauge> hud;
         hud.reserve(gauges.size());
         for (const auto& g : gauges) hud.push_back({g.id, g.label, g.fraction, g.color});
+        // A staged battle adds two reinforcement bars (the modern read-out of who
+        // is winning). The real Civil War siege drives its own bars from the pool
+        // globals via the managed BattleReinforcementHud; this covers the engine's
+        // own staged battles.
+        f32 f1, f2;
+        if (npc_->BattleGauges(&f1, &f2)) {
+          hud.push_back({"cw_team1", "Imperial line", f1, 0x4f7fd8ffu});      // blue
+          hud.push_back({"cw_team2", "Stormcloak line", f2, 0xd84f4fffu});    // red
+        }
         game_ui_.SetHudGauges(hud);
       }
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);

@@ -423,7 +423,7 @@ bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
 }
 
 bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
-  if (!cw_battle_active_) return false;
+  if (!cw_battle_active_ && !cw_field_active_) return false;
   int a = 0, b = 0, d = 0;
   world_.Each<world::CombatTeam>([&](ecs::Entity e, world::CombatTeam& ct) {
     if (world_.Has<world::Dead>(e)) {
@@ -438,6 +438,14 @@ bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
   *team_a = a;
   *team_b = b;
   *fallen = d;
+  return true;
+}
+
+bool NpcDirector::BattleGauges(f32* team1_frac, f32* team2_frac) const {
+  int a, b, d;
+  if (!BattleStrength(&a, &b, &d)) return false;
+  *team1_frac = cw_start1_ > 0 ? static_cast<f32>(a) / static_cast<f32>(cw_start1_) : 0.0f;
+  *team2_frac = cw_start2_ > 0 ? static_cast<f32>(b) / static_cast<f32>(cw_start2_) : 0.0f;
   return true;
 }
 
@@ -480,6 +488,8 @@ void NpcDirector::CwBattleTick(f32 dt) {
       for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
     });
     cw_battle_active_ = true;
+    cw_start2_ = foes;
+    cw_start1_ = static_cast<int>(enlisted.size()) - foes;  // for the reinforcement bars
     player_team_ = 1;  // the player fights on team 1; team-2 soldiers will target it
     REC_INFO("cw battle: enlisted {} soldiers into two armies", enlisted.size());
   }
@@ -569,6 +579,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
         for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 140.0f);
       });
     cw_field_active_ = true;
+    cw_start1_ = cw_start2_ = kPerSide;  // for the reinforcement bars
     player_team_ = 1;  // the player fights on the near line; team 2 targets it too
     REC_INFO("cw field battle: spawned {} soldiers in two lines", cw_field_soldiers_.size());
   }

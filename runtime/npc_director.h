@@ -109,6 +109,9 @@ class NpcDirector {
   // Live army strength for the battle HUD: alive count per team and fallen total.
   // Returns false until a battle is running.
   bool BattleStrength(int* team_a, int* team_b, int* fallen) const;
+  // Each team's surviving fraction of its starting strength (0..1) for the
+  // reinforcement bars. False when no battle is running.
+  bool BattleGauges(f32* team1_frac, f32* team2_frac) const;
 
  private:
   // SceneSink over the running engine: a scene guides NPCs, runs INFO fragments,
@@ -173,6 +176,7 @@ class NpcDirector {
   bool cw_battle_pending_ = false;
   bool cw_battle_active_ = false;
   f32 cw_battle_log_timer_ = 0;
+  int cw_start1_ = 0, cw_start2_ = 0;  // each side's starting strength, for the bars
   bool cw_field_pending_ = false;
   bool cw_field_active_ = false;
   f32 cw_field_warmup_ = 0;     // let terrain stream before placing soldiers
