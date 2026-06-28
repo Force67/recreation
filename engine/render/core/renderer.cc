@@ -1082,6 +1082,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // while moving. More spp = lower input variance = less shimmer.
       denoised_path = true;
       pt.spp = settings_.path_trace_spp;
+      // Ray-cone spread for texture lod: vertical fov radians per pixel.
+      pt.pixel_spread = 2.0f * std::tan(view.camera.fov_y * 0.5f) / static_cast<f32>(render_height_);
       PathTracer::GbufferTargets t;
       auto guide = [&](const char* name, VkFormat format) {
         return graph_.CreateTexture({.name = name, .format = format, .width = render_width_,

@@ -18,7 +18,7 @@ struct PathGbufferPush {
   float4 sun_direction;  // xyz travel direction, w intensity
   float4 sun_color;      // rgb, w sun angular radius (radians)
   uint spp;              // lighting samples per pixel (variance down -> NRD stays cleaner)
-  uint pad0;
+  float pixel_spread;    // ray-cone spread angle (radians/pixel) for texture mip lod
   uint frame_index;
   uint bounces;
 };
@@ -96,7 +96,22 @@ struct Hit {
 // Alpha-test a candidate hit on a non-opaque (cutout) triangle: foliage and
 // grass cards are masked materials, so the ray samples the base color alpha and
 // rejects below the cutoff instead of treating the quad as solid.
-bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary) {
+// Ray-cone texture mip (Akenine-Moller, RT Gems "Texture LOD"). The triangle's
+// uv-area / world-area is the texel density; cone_width is the ray footprint
+// radius at the hit (spread angle * hit distance). Replaces the mip-0 sampling
+// that aliased and crawled under motion. uv0..2 / e1,e2 are the triangle's uvs
+// and two world-space edges; ndotd accounts for grazing angles.
+float ConeLod(uint tex, float2 uv0, float2 uv1, float2 uv2, float3 e1, float3 e2,
+              float cone_width, float ndotd) {
+  uint tw, th;
+  bindless_textures[NonUniformResourceIndex(tex)].GetDimensions(tw, th);
+  float uv_area = abs((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y));
+  float world_area = length(cross(e1, e2));
+  float density = 0.5 * log2(max(uv_area, 1e-12) * float(tw) * float(th) / max(world_area, 1e-12));
+  return density + log2(max(cone_width / max(ndotd, 0.1), 1e-7));
+}
+
+bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary, float cone_width) {
   MeshRecord mesh = mesh_records[NonUniformResourceIndex(inst)];
   GeometryRecord geometry = geometry_records[mesh.geometry_offset + geom];
   MaterialRecord m = material_records[NonUniformResourceIndex(geometry.material_index)];
@@ -107,20 +122,27 @@ bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary) {
   tri.y = vk::RawBufferLoad<uint>(index_base + 4);
   tri.z = vk::RawBufferLoad<uint>(index_base + 8);
   float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
-  float2 uv = 0.0.xx;
+  float2 uvv[3];
+  float3 pos[3];
   [unroll]
   for (uint c = 0; c < 3; ++c) {
     uint64_t vertex = mesh.vertex_address + tri[c] * kVertexStride;
-    uv += vk::RawBufferLoad<float2>(vertex + kUvOffset, 4) * w[c];
+    pos[c] = vk::RawBufferLoad<float3>(vertex, 4);
+    uvv[c] = vk::RawBufferLoad<float2>(vertex + kUvOffset, 4);
   }
+  float2 uv = uvv[0] * w[0] + uvv[1] * w[1] + uvv[2] * w[2];
+  // Object-space area (foliage instances are ~unit scale); mips the cutout so
+  // distant grass/leaves stop aliasing into shimmer.
+  float lod = ConeLod(m.base_color_texture, uvv[0], uvv[1], uvv[2], pos[1] - pos[0], pos[2] - pos[0],
+                      cone_width, 1.0);
   float a = m.base_color_factor.a *
             bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
-                .SampleLevel(bindless_sampler, uv, 0.0)
+                .SampleLevel(bindless_sampler, uv, clamp(lod, 0.0, 16.0))
                 .a;
   return a >= m.alpha_cutoff;
 }
 
-Hit TraceClosest(float3 origin, float3 dir) {
+Hit TraceClosest(float3 origin, float3 dir, float cone_spread) {
   Hit h;
   h.hit = false;
   RayDesc ray;
@@ -133,14 +155,16 @@ Hit TraceClosest(float3 origin, float3 dir) {
   while (rq.Proceed()) {
     if (rq.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
         PassesAlpha(rq.CandidateInstanceID(), rq.CandidateGeometryIndex(),
-                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics())) {
+                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics(),
+                    cone_spread * rq.CandidateTriangleRayT())) {
       rq.CommitNonOpaqueTriangleHit();
     }
   }
   if (rq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return h;
 
+  float hit_t = rq.CommittedRayT();
   h.hit = true;
-  h.position = origin + dir * rq.CommittedRayT();
+  h.position = origin + dir * hit_t;
   MeshRecord mesh = mesh_records[NonUniformResourceIndex(rq.CommittedInstanceID())];
   GeometryRecord geometry = geometry_records[mesh.geometry_offset + rq.CommittedGeometryIndex()];
   uint64_t index_base =
@@ -151,14 +175,18 @@ Hit TraceClosest(float3 origin, float3 dir) {
   tri.z = vk::RawBufferLoad<uint>(index_base + 8);
   float2 bary = rq.CommittedTriangleBarycentrics();
   float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
-  float3 n_local = 0.0.xxx;
-  float2 uv = 0.0.xx;
+  float3 pos[3];
+  float3 nrm[3];
+  float2 uvv[3];
   [unroll]
   for (uint c = 0; c < 3; ++c) {
     uint64_t vertex = mesh.vertex_address + tri[c] * kVertexStride;
-    n_local += vk::RawBufferLoad<float3>(vertex + kNormalOffset, 4) * w[c];
-    uv += vk::RawBufferLoad<float2>(vertex + kUvOffset, 4) * w[c];
+    pos[c] = vk::RawBufferLoad<float3>(vertex, 4);
+    nrm[c] = vk::RawBufferLoad<float3>(vertex + kNormalOffset, 4);
+    uvv[c] = vk::RawBufferLoad<float2>(vertex + kUvOffset, 4);
   }
+  float3 n_local = nrm[0] * w[0] + nrm[1] * w[1] + nrm[2] * w[2];
+  float2 uv = uvv[0] * w[0] + uvv[1] * w[1] + uvv[2] * w[2];
   float3x4 to_world = rq.CommittedObjectToWorld3x4();
   float3 n = normalize(mul((float3x3)to_world, n_local));
   if (dot(n, dir) > 0.0) n = -n;
@@ -167,15 +195,20 @@ Hit TraceClosest(float3 origin, float3 dir) {
   MaterialRecord m = material_records[NonUniformResourceIndex(geometry.material_index)];
   float3 albedo = m.base_color_factor.rgb;
   if (m.base_color_texture != 0xffffffffu) {
+    // Ray-cone mip so textures stop minification-aliasing into shimmer at range.
+    float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
+    float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
+    float lod = ConeLod(m.base_color_texture, uvv[0], uvv[1], uvv[2], e1, e2,
+                        cone_spread * hit_t, abs(dot(n, dir)));
     albedo *= bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
-                  .SampleLevel(bindless_sampler, uv, 0.0).rgb;
+                  .SampleLevel(bindless_sampler, uv, clamp(lod, 0.0, 16.0)).rgb;
   }
   h.albedo = albedo;
   h.emissive = m.emissive;
   return h;
 }
 
-bool Occluded(float3 origin, float3 dir, float dist) {
+bool Occluded(float3 origin, float3 dir, float dist, float cone_spread) {
   RayDesc ray;
   ray.Origin = origin;
   ray.TMin = 0.001;
@@ -186,7 +219,8 @@ bool Occluded(float3 origin, float3 dir, float dist) {
   while (rq.Proceed()) {
     if (rq.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
         PassesAlpha(rq.CandidateInstanceID(), rq.CandidateGeometryIndex(),
-                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics())) {
+                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics(),
+                    cone_spread * rq.CandidateTriangleRayT())) {
       rq.CommitNonOpaqueTriangleHit();
     }
   }
@@ -214,6 +248,11 @@ float3 SunDirection(float3 sun_travel, float radius, inout uint rng) {
 static const float kDenoisingRange = 1.0e6;
 static const float kNearPlane = 0.1;
 static const float3 kHitDistParams = float3(3.0, 0.1, 20.0);
+// Diffuse bounce rays spread to a near-hemisphere; a coarse cone is fine for the
+// indirect texture/foliage lod. Firefly clamp keeps rare bright samples from
+// poisoning NRD's temporal history (its anti-firefly is a second line of defense).
+static const float kSecondarySpread = 0.03;
+static const float kFireflyClamp = 8.0;
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
@@ -237,7 +276,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Primary visibility is deterministic, so trace it once; only the lighting
   // (random bounces + sun NEE) is sampled spp times and averaged. More samples
   // = lower input variance = NRD has to invent less under motion = less shimmer.
-  Hit prim = TraceClosest(ro, primary_dir);
+  Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread);
   bool primary_hit = prim.hit;
   if (primary_hit) {
     prim_pos = prim.position;
@@ -253,6 +292,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   float first_hit_dist = 0.0;
   if (primary_hit) {
     for (uint s = 0; s < spp; ++s) {
+      float3 sr = 0.0.xxx;  // this sample's radiance, clamped before accumulation
       float3 throughput = 1.0.xxx;
       float3 normal = prim_normal;
       float3 pos = prim_pos;
@@ -261,23 +301,27 @@ void main(uint3 id : SV_DispatchThreadID) {
       for (uint b = 0; b < pc.bounces; ++b) {
         float3 ldir = SunDirection(pc.sun_direction.xyz, pc.sun_color.w, rng);
         float ndl = dot(normal, ldir);
-        if (ndl > 0.0 && !Occluded(pos + normal * 0.002, ldir, 1000.0)) {
-          radiance += throughput * albedo / kPi * sun * ndl;
+        if (ndl > 0.0 && !Occluded(pos + normal * 0.002, ldir, 1000.0, kSecondarySpread)) {
+          sr += throughput * albedo / kPi * sun * ndl;
         }
         float3 dir = CosineHemisphere(normal, rng);
         throughput *= albedo;
         if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
-        Hit h = TraceClosest(pos + normal * 0.002, dir);
+        Hit h = TraceClosest(pos + normal * 0.002, dir, kSecondarySpread);
         if (b == 0) first_hit_dist += h.hit ? distance(h.position, prim_pos) : 1000.0;
         if (!h.hit) {
-          radiance += throughput * SampleSky(dir);
+          sr += throughput * SampleSky(dir);
           break;
         }
-        radiance += throughput * h.emissive;
+        sr += throughput * h.emissive;
         normal = h.normal;
         pos = h.position;
         albedo = h.albedo;
       }
+      // Firefly clamp: rare bright paths otherwise stick in NRD's history as blobs.
+      float lum = dot(sr, float3(0.2126, 0.7152, 0.0722));
+      if (lum > kFireflyClamp) sr *= kFireflyClamp / lum;
+      radiance += sr;
     }
     radiance /= float(spp);
     first_hit_dist /= float(spp);

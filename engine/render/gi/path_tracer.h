@@ -31,6 +31,7 @@ class PathTracer {
     Vec3 sun_color{1, 1, 1};
     f32 sun_radius = 0.0f;  // radians, soft sun disk
     u32 spp = 1;  // denoised: lighting samples per pixel in the gbuffer pass
+    f32 pixel_spread = 0.0f;  // denoised: ray-cone spread (radians/pixel) for texture lod
     u32 frame_index = 0;
     bool reset = false;  // reference: restart accumulation this frame
   };

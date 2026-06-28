@@ -39,7 +39,7 @@ struct PathGbufferPush {
   f32 sun_direction[4];
   f32 sun_color[4];
   u32 spp;  // lighting samples per pixel (size derived from GetDimensions)
-  u32 pad0;
+  f32 pixel_spread;  // ray-cone spread angle (radians/pixel) for texture mip lod
   u32 frame_index;
   u32 bounces;
 };
@@ -388,7 +388,7 @@ void PathTracer::AddGbufferPass(RenderGraph& graph, RayTracingContext& raytracin
         push.sun_color[2] = frame.sun_color.z;
         push.sun_color[3] = frame.sun_radius;
         push.spp = frame.spp < 1 ? 1u : frame.spp;
-        push.pad0 = 0;
+        push.pixel_spread = frame.pixel_spread;
         push.frame_index = frame.frame_index;
         push.bounces = bounces_;
 
