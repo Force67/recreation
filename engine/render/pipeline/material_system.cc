@@ -382,8 +382,23 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt
     BindlessRegistry::MaterialRecord record;
     std::memcpy(record.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
     std::memcpy(record.emissive, material.emissive_factor, sizeof(f32) * 3);
+    record.roughness = material.roughness_factor;
+    record.metallic = material.metallic_factor;
     if (const u32* texture = bindless_textures_.find(material.base_color.hash ^ id_salt)) {
       record.base_color_texture = *texture;
+    }
+    // The metallic-roughness map is linear, so UploadTexture skipped the bindless
+    // table (it only registers sRGB color maps). Register it on demand here so the
+    // path tracer can read per-texel gloss for its specular lobe.
+    u64 mr_key = material.metallic_roughness.hash ^ id_salt;
+    if (const u32* mr = bindless_textures_.find(mr_key)) {
+      record.metallic_roughness_texture = *mr;
+    } else if (const GpuImage* mr_img = textures_.find(mr_key)) {
+      u32 idx = registry_->RegisterTexture(mr_img->view);
+      if (idx != BindlessRegistry::kInvalidIndex) {
+        bindless_textures_.insert(mr_key, idx);
+        record.metallic_roughness_texture = idx;
+      }
     }
     if (mode == asset::AlphaMode::kMask) {
       record.flags |= BindlessRegistry::kMaterialAlphaMask;

@@ -52,8 +52,12 @@ struct MaterialRecord {
   uint base_color_texture;
   uint flags;  // bit0: alpha mask (cutout)
   float alpha_cutoff;
+  float roughness;
+  float metallic;
+  uint metallic_roughness_texture;
   uint pad0;
   uint pad1;
+  uint pad2;
 };
 static const uint kMaterialAlphaMask = 1u;
 [[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;

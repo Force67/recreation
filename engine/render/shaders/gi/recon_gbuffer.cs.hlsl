@@ -49,8 +49,12 @@ struct MaterialRecord {
   uint base_color_texture;
   uint flags;
   float alpha_cutoff;
+  float roughness;
+  float metallic;
+  uint metallic_roughness_texture;
   uint pad0;
   uint pad1;
+  uint pad2;
 };
 static const uint kMaterialAlphaMask = 1u;
 [[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
@@ -93,6 +97,8 @@ struct Hit {
   float3 normal;
   float3 albedo;
   float3 emissive;
+  float roughness;
+  float metallic;
   uint inst;
 };
 
@@ -134,7 +140,7 @@ bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary, float cone_width)
   return a >= m.alpha_cutoff;
 }
 
-Hit TraceClosest(float3 origin, float3 dir, float cone_spread) {
+Hit TraceClosest(float3 origin, float3 dir, float cone_spread, bool sample_mr) {
   Hit h;
   h.hit = false;
   h.inst = 0xffffffffu;
@@ -187,17 +193,33 @@ Hit TraceClosest(float3 origin, float3 dir, float cone_spread) {
   h.normal = n;
 
   MaterialRecord m = material_records[NonUniformResourceIndex(geometry.material_index)];
+  float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
+  float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
+  float ndotd = abs(dot(n, dir));
   float3 albedo = m.base_color_factor.rgb;
   if (m.base_color_texture != 0xffffffffu) {
-    float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
-    float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
     float lod = ConeLod(m.base_color_texture, uvv[0], uvv[1], uvv[2], e1, e2,
-                        cone_spread * hit_t, abs(dot(n, dir)));
+                        cone_spread * hit_t, ndotd);
     albedo *= bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
                   .SampleLevel(bindless_sampler, uv, clamp(lod, 0.0, 16.0)).rgb;
   }
   h.albedo = albedo;
   h.emissive = m.emissive;
+  // Metallic-roughness map (glTF: .g roughness, .b metallic) scaled by the
+  // factors, matching the rasterizer. Only the primary hit needs it (the diffuse
+  // bounces don't shade specular), so secondary rays skip the fetch.
+  float rough = m.roughness;
+  float metal = m.metallic;
+  if (sample_mr && m.metallic_roughness_texture != 0xffffffffu) {
+    float lod = ConeLod(m.metallic_roughness_texture, uvv[0], uvv[1], uvv[2], e1, e2,
+                        cone_spread * hit_t, ndotd);
+    float2 mr = bindless_textures[NonUniformResourceIndex(m.metallic_roughness_texture)]
+                    .SampleLevel(bindless_sampler, uv, clamp(lod, 0.0, 16.0)).gb;
+    rough *= mr.x;
+    metal *= mr.y;
+  }
+  h.roughness = clamp(rough, 0.045, 1.0);
+  h.metallic = saturate(metal);
   return h;
 }
 
@@ -244,6 +266,39 @@ float3 DirectIrradiance(float3 pos, float3 normal, inout uint rng) {
   return sun * ndl;
 }
 
+// Analytic GGX specular from the sun (a directional light): noise-free, so it
+// goes in the un-denoised emissive channel and stays a sharp highlight. The
+// roughness lobe self-attenuates, so matte terrain barely glints while smooth
+// surfaces (metal trim, ice, polished wood) get a bright spot.
+float D_GGX(float NoH, float a) {
+  float a2 = a * a;
+  float d = NoH * NoH * (a2 - 1.0) + 1.0;
+  return a2 / (kPi * d * d + 1e-7);
+}
+float V_SmithGGX(float NoV, float NoL, float a) {
+  float a2 = a * a;
+  float gv = NoL * sqrt(NoV * NoV * (1.0 - a2) + a2);
+  float gl = NoV * sqrt(NoL * NoL * (1.0 - a2) + a2);
+  return 0.5 / max(gv + gl, 1e-5);
+}
+float3 F_Schlick(float u, float3 f0) {
+  return f0 + (1.0 - f0) * pow(saturate(1.0 - u), 5.0);
+}
+float3 SunSpecular(float3 pos, float3 N, float3 V, float3 albedo, float rough, float metal) {
+  float3 L = normalize(-pc.sun_direction.xyz);
+  float NoL = dot(N, L);
+  if (NoL <= 0.0) return 0.0.xxx;
+  if (Occluded(pos + N * 0.002, L, 1000.0, kSecondarySpread)) return 0.0.xxx;
+  float NoV = saturate(dot(N, V)) + 1e-4;
+  float3 H = normalize(V + L);
+  float NoH = saturate(dot(N, H));
+  float VoH = saturate(dot(V, H));
+  float a = max(rough * rough, 1e-3);
+  float3 f0 = lerp(0.04.xxx, albedo, metal);
+  float3 spec = D_GGX(NoH, a) * V_SmithGGX(NoV, saturate(NoL), a) * F_Schlick(VoH, f0);
+  return spec * pc.sun_color.rgb * pc.sun_direction.w * saturate(NoL);
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
   uint sw, sh;
@@ -258,7 +313,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   float3 ro = pc.camera_pos.xyz;
   float3 primary_dir = normalize(near_h.xyz / near_h.w - ro);
 
-  Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread);
+  Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread, true);
 
   if (!prim.hit) {
     // Sky: irradiance 0, sky goes to emissive (composite adds it). Far reprojection
@@ -288,7 +343,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     float3 normal = prim.normal;
     for (uint b = 0; b < bounces; ++b) {
       float3 wi = CosineHemisphere(normal, rng);
-      Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread);
+      Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread, false);
       if (!h.hit) {
         e += throughput * SampleSky(wi);
         break;
@@ -324,11 +379,18 @@ void main(uint3 id : SV_DispatchThreadID) {
   float2 prev_ndc = prev_clip.xy / prev_clip.w;
   float2 motion = (prev_ndc - ndc) * 0.5;  // engine convention, no y-flip
 
+  // Analytic sun specular: noise-free, added to the un-denoised emissive channel
+  // so the highlight stays sharp (the diffuse denoiser never touches it).
+  float3 V = -primary_dir;
+  float3 specular = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
+
   irradiance_out[id.xy] = float4(irradiance, 1.0);
-  normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, 1.0);  // roughness=1 (diffuse)
+  normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, prim.roughness);
   viewz_out[id.xy] = viewz;
   motion_out[id.xy] = motion;
   materialid_out[id.xy] = prim.inst;
-  albedo_out[id.xy] = float4(prim.albedo, 1.0);
-  emissive_out[id.xy] = float4(prim.emissive, 1.0);
+  // Metallic-workflow energy split: metals have no diffuse albedo (their response
+  // is all in the specular lobe), dielectrics keep theirs.
+  albedo_out[id.xy] = float4(prim.albedo * (1.0 - prim.metallic), 1.0);
+  emissive_out[id.xy] = float4(prim.emissive + specular, 1.0);
 }

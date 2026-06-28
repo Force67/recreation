@@ -39,8 +39,12 @@ class BindlessRegistry {
     u32 base_color_texture = kInvalidIndex;
     u32 flags = 0;  // bit0: alpha mask (cutout)
     f32 alpha_cutoff = 0.5f;
-    u32 pad0 = 0;  // pad to 48B: the std430 array stride rounds up to a multiple
-    u32 pad1 = 0;  // of 16 (float4 alignment), so the shader struct must match.
+    f32 roughness = 1.0f;  // scalar factors; the path tracer multiplies these by
+    f32 metallic = 0.0f;   // the metallic-roughness map (.g rough, .b metal).
+    u32 metallic_roughness_texture = kInvalidIndex;  // bindless index, or invalid
+    u32 pad0 = 0;  // pad to 64B: the std430 array stride rounds up to a multiple
+    u32 pad1 = 0;  // of 16 (float4 alignment), so every shader struct must match.
+    u32 pad2 = 0;
   };
   static_assert(sizeof(MaterialRecord) % 16 == 0, "bindless material stride must be 16-aligned");
   static constexpr u32 kMaterialAlphaMask = 1u << 0;

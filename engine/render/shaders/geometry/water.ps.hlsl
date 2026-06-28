@@ -69,8 +69,12 @@ struct MaterialRecord {
   uint base_color_texture;
   uint flags;
   float alpha_cutoff;
+  float roughness;
+  float metallic;
+  uint metallic_roughness_texture;
   uint pad0;
   uint pad1;
+  uint pad2;
 };
 [[vk::binding(0, 3)]] StructuredBuffer<MeshRecord> mesh_records;
 [[vk::binding(1, 3)]] StructuredBuffer<GeometryRecord> geometry_records;
