@@ -34,6 +34,7 @@ struct GpuSubmesh {
   u64 material = 0;  // material asset hash, 0 = default material
   bool blend = false;  // alpha blended: drawn sorted after opaque
   bool water = false;  // routed to the water pipeline
+  bool alpha_mask = false;  // cutout: non-opaque blas geometry for ray alpha tests
   // lod 0 meshlet range in GpuMesh's meshlet buffers, for the mesh-shader path.
   u32 meshlet_offset = 0;
   u32 meshlet_count = 0;  // 0 = no meshlets built (skinned / mesh shaders off)

@@ -385,6 +385,10 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt
     if (const u32* texture = bindless_textures_.find(material.base_color.hash ^ id_salt)) {
       record.base_color_texture = *texture;
     }
+    if (mode == asset::AlphaMode::kMask) {
+      record.flags |= BindlessRegistry::kMaterialAlphaMask;
+      record.alpha_cutoff = material.alpha_cutoff;
+    }
     u32 index = registry_->RegisterMaterial(record);
     if (index != BindlessRegistry::kInvalidIndex) {
       bindless_materials_.insert(key, index);
@@ -405,6 +409,13 @@ u32 MaterialSystem::bindless_material(u64 material_hash) const {
 bool MaterialSystem::is_blend(u64 material_hash) const {
   if (const u8* mode = blend_modes_.find(material_hash)) {
     return static_cast<asset::AlphaMode>(*mode) == asset::AlphaMode::kBlend;
+  }
+  return false;
+}
+
+bool MaterialSystem::is_mask(u64 material_hash) const {
+  if (const u8* mode = blend_modes_.find(material_hash)) {
+    return static_cast<asset::AlphaMode>(*mode) == asset::AlphaMode::kMask;
   }
   return false;
 }

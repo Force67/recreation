@@ -642,8 +642,9 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       u64 material = submesh.material.hash ^ id_salt;
       bool water = material_system_ && material_system_->is_water(material);
       bool blend = water || (material_system_ && material_system_->is_blend(material));
+      bool mask = material_system_ && material_system_->is_mask(material);
       out.push_back({index_base + submesh.index_offset, submesh.index_count, material,
-                     blend, water});
+                     blend, water, mask});
     }
   };
   build_submeshes(src->lods[0], index_bases[0], gpu.submeshes);

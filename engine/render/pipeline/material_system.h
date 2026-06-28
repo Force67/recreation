@@ -78,6 +78,9 @@ class MaterialSystem {
   // opaque one. Unknown hashes are opaque.
   bool is_blend(u64 material_hash) const;
   bool is_water(u64 material_hash) const;
+  // Alpha-masked (cutout) materials: kept in the tlas but flagged non-opaque so
+  // ray traces can alpha-test them. Unknown hashes are opaque.
+  bool is_mask(u64 material_hash) const;
 
   // Bindless material record index for ray hit shading; 0 (the default
   // material) for unknown hashes.

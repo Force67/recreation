@@ -77,7 +77,9 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
 
   // One geometry per opaque submesh: hit shaders resolve the material from
   // CommittedGeometryIndex through the bindless geometry table, which is
-  // written in the same order. Blend submeshes stay out entirely.
+  // written in the same order. Blend submeshes stay out entirely. Alpha-masked
+  // (cutout) submeshes go in non-opaque so a ray query can alpha-test them; the
+  // realtime paths trace RAY_FLAG_FORCE_OPAQUE which overrides that to opaque.
   VkAccelerationStructureGeometryKHR geometry_template{
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
   geometry_template.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
@@ -97,6 +99,7 @@ bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
   for (const GpuSubmesh& submesh : mesh.submeshes) {
     if (submesh.blend || submesh.index_count == 0) continue;
     geometries.push_back(geometry_template);
+    geometries.back().flags = submesh.alpha_mask ? 0 : VK_GEOMETRY_OPAQUE_BIT_KHR;
     VkAccelerationStructureBuildRangeInfoKHR range{};
     range.primitiveCount = submesh.index_count / 3;
     range.primitiveOffset = submesh.index_offset * sizeof(u32);
