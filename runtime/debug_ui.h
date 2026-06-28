@@ -10,7 +10,12 @@
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "render/core/renderer.h"
+#include "trailer.h"
 #include "weather/weather.h"
+
+// Dear ImGui's font handle, forward-declared so this header stays free of imgui
+// (it compiles to a stub when imgui is absent).
+struct ImFont;
 
 namespace rec {
 
@@ -120,6 +125,9 @@ class DebugUi {
     weather_enable_ = enable;
     weather_state_ = state;
   }
+  // The trailer's per-frame chrome (letterbox, fades, title cards, render-mode
+  // badge), drawn onto the foreground draw list. Null disables it.
+  void SetTrailerOverlay(const TrailerOverlay* overlay) { trailer_ = overlay; }
 
   void ToggleVisible() { visible_ = !visible_; }
   void SetVisible(bool v) { visible_ = v; }
@@ -141,6 +149,11 @@ class DebugUi {
   // onto the foreground draw list from the renderer's per-pass timings.
   void DrawStageChart(render::Renderer& renderer);
 
+  // Cinematic trailer chrome (REC_TRAILER) onto the foreground draw list:
+  // letterbox bars, the intro/outro black wash, the lower-third location title
+  // and the render-mode badge. A no-op unless an overlay is set and active.
+  void DrawTrailerOverlay();
+
   bool initialized_ = false;
   bool visible_ = true;
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
@@ -149,6 +162,8 @@ class DebugUi {
   WorldClock* clock_ = nullptr;  // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel
   weather::WeatherState* weather_state_ = nullptr;
+  const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
+  ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row
   // The set-stage InputInt tracks the selected quest: switching selection resets
   // it instead of carrying a stale stage from the previously expanded quest.

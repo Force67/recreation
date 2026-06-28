@@ -172,6 +172,14 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
     Vec3 anchor = camera_.position();
     Vec3 ppos;
     if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+    // Multi-game trailer: only the active game streams (around the shared center),
+    // so the maps never all sit resident at once. SwitchTrailerDomain unloads the
+    // others as the trailer cuts between them.
+    if (trailer_sequential_) {
+      if (world::CellStreamer* active = TrailerStreamer(trailer_active_domain_))
+        active->Update(world, anchor);
+      return;
+    }
     streamer_->Update(world, anchor);
     // Secondary worldspaces follow the same anchor; each applies its own offset
     // internally so it streams the region that lands beside the primary world.

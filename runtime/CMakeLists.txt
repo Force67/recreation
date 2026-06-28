@@ -21,6 +21,7 @@ set(RECREATION_RUNTIME_SOURCES
   quest_director.cc
   fly_camera.cc
   showcase_camera.cc
+  trailer.cc
   editor.cc
   editor_catalog.cc
   editor_io.cc

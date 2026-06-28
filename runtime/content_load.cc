@@ -348,7 +348,8 @@ bool LoadGameData(Engine& engine) {
   REC_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
            self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
-  self->showcase_regions_.push_back({{start.x, ground, start.z}, std::string(profile.name)});
+  self->showcase_regions_.push_back(
+      {{start.x, ground, start.z}, std::string(profile.name), self->streamer_.get()});
   // REC_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
   // ground is within a 14 m ring and whether any of it is under water. A good
   // showcase venue has a small max-drop and zero submerged samples. Headless +
@@ -471,7 +472,7 @@ void SetupExtraStreamers(Engine& engine) {
       // The showcase flies over each rendered region; its ground baseline sits the
       // same 10m below the placed camera-height anchor as the primary's does.
       self->showcase_regions_.push_back(
-          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name)});
+          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name), streamer.get()});
     } else {
       REC_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
                domain.profile().name, domain.profile().exterior_worldspace);

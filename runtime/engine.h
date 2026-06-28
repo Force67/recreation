@@ -33,6 +33,7 @@
 #include "platform_hud.h"
 #include "quest_director.h"
 #include "showcase_camera.h"
+#include "trailer.h"
 #include "world/combat.h"
 
 #if RECREATION_HAS_NET
@@ -224,6 +225,25 @@ class Engine {
   // Builds the cinematic showcase path (REC_SHOWCASE): a smooth drone pass over
   // each loaded worldspace in turn, from the region centers gathered at load.
   void BuildShowcase();
+  // Builds the trailer timeline (REC_TRAILER) over the showcase path: a location
+  // title per region, plus the weather + render-mode cycles.
+  void BuildTrailer();
+  // Maps a trailer render mode onto the renderer's feature flags (raster vs
+  // ray-traced vs the reference path tracer).
+  void ApplyTrailerRenderMode(TrailerRenderMode mode);
+  // Multi-game trailer: collapse every region onto one shared center and stream
+  // them around the camera one at a time (so the maps do not all sit resident in
+  // the shared scene). Only does anything when extra games are loaded.
+  void SetupTrailerStreaming();
+  // Switches which game is resident: unloads the outgoing one's cells, leaving
+  // the incoming to stream in (the fade-cut hides the swap).
+  void SwitchTrailerDomain(int region_index);
+  // The streamer owning showcase region `index` (the primary streamer_ for the
+  // first region / a null region streamer); null if out of range.
+  world::CellStreamer* TrailerStreamer(int region_index);
+  // True when the active trailer domain has streamed in (or there is none), so
+  // the camera can stop holding on the loading screen and reveal it.
+  bool TrailerActiveLoaded();
   // Walk mode step: input -> character move (via the actor system) -> follow
   // camera. The player capsule lives in the actor system; this computes intent.
   void WalkUpdate(f32 dt, bool allow_input);
@@ -380,6 +400,9 @@ class Engine {
   struct ShowcaseRegion {
     Vec3 center{};     // ground-level center of the worldspace to fly over
     std::string name;  // game/profile name, used in capture filenames
+    // The streamer that owns this region's content (null = the primary streamer_).
+    // The trailer uses it to keep only the active game resident.
+    world::CellStreamer* streamer = nullptr;
   };
   base::Vector<ShowcaseRegion> showcase_regions_;
   ShowcaseCamera showcase_;
@@ -391,6 +414,27 @@ class Engine {
   f32 showcase_dt_max_ = 0;
   f32 showcase_bench_time_ = 0;  // summed dt of benchmarked frames (excludes load hitches)
   u32 showcase_frames_ = 0;
+  // Flythrough time the camera starts gliding toward each region, parallel to
+  // showcase_regions_; used to fade the trailer location titles in on cue.
+  base::Vector<f32> showcase_region_start_;
+
+  // Trailer overlay (REC_TRAILER): layered over the showcase, it cycles weather
+  // and the render mode and titles each map. current_trailer_overlay_ is the
+  // chrome the debug overlay draws; the render mode is only re-applied on change.
+  TrailerDirector trailer_;
+  bool cam_trailer_ = false;
+  TrailerOverlay current_trailer_overlay_;
+  TrailerRenderMode applied_trailer_mode_ = TrailerRenderMode::kRayTracing;
+  bool trailer_mode_applied_ = false;
+  // Multi-game trailer: when set, the showcase flies over one shared center and
+  // only trailer_active_domain_ (a showcase region index) streams at a time.
+  bool trailer_sequential_ = false;
+  int trailer_active_domain_ = 0;
+  // Loading hold: while true the trailer clock is frozen and the screen shows a
+  // loading card, so a freshly cut-to game streams in before the camera reveals
+  // it. trailer_load_elapsed_ is wall-clock since the hold began (a safety cap).
+  bool trailer_loading_ = false;
+  f32 trailer_load_elapsed_ = 0.0f;
 
   DebugUi debug_ui_;
   GameUi game_ui_;
