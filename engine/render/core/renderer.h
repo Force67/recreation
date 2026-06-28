@@ -26,6 +26,7 @@
 #include "render/atmosphere/aerial_perspective.h"
 #include "render/atmosphere/clouds.h"
 #include "render/gi/path_tracer.h"
+#include "render/gi/recon_path_tracer.h"
 #include "render/atmosphere/precipitation.h"
 #include "render/atmosphere/surface_weather.h"
 #include "render/atmosphere/volumetric_fog.h"
@@ -264,6 +265,7 @@ class Renderer {
   ExposurePass exposure_;
   GpuProfiler profiler_;
   PathTracer path_tracer_;
+  ReconPathTracer recon_path_tracer_;
   VolumetricFog volumetric_fog_;
   AerialPerspective aerial_perspective_;
   Clouds clouds_;

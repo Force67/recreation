@@ -38,6 +38,8 @@ base::Option<bool> Pathtrace{"pathtrace", false, "REC_PATHTRACE"};
 base::Option<bool> PathtraceReference{"pathtrace.reference", false, "REC_PATHTRACE_REFERENCE"};
 base::Option<int> PathtraceSpp{"pathtrace.spp", 2, "REC_PATHTRACE_SPP"};
 base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
+base::Option<bool> PathtraceRecon{"pathtrace.recon", false, "REC_PATHTRACE_RECON"};
+base::Option<int> PathtraceReconDebug{"pathtrace.recon.debug", 0, "REC_PATHTRACE_RECON_DEBUG"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
 base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
@@ -236,6 +238,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   profiler_.Initialize(*device_, kFramesInFlight);
   if (rt_available_ && bindless_) {
     path_tracer_.Initialize(*device_, bindless_->set_layout());
+    recon_path_tracer_.Initialize(*device_, bindless_->set_layout());
   }
   if (rt_available_) volumetric_fog_.Initialize(*device_);
   aerial_perspective_.Initialize(*device_);  // atmospheric distance haze (no ray tracing)
@@ -249,6 +252,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
   if (rt_available_ && !nrd_.Initialize(*device_, {render_width_, render_height_})) {
@@ -333,6 +337,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (PathtraceReference.overridden()) settings_.path_trace_reference = PathtraceReference;
   if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
+  if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
+  if (PathtraceReconDebug.overridden()) settings_.path_trace_recon_debug = static_cast<u32>(std::max(0, int(PathtraceReconDebug)));
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
@@ -500,6 +506,7 @@ void Renderer::ApplySettings() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
     path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
     if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
@@ -522,6 +529,7 @@ void Renderer::ApplySettings() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
       path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
       if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
       if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
@@ -1075,8 +1083,35 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     bool moved = std::memcmp(&view_proj, &pt_prev_view_proj_, sizeof(Mat4)) != 0;
     bool lit_changed = sig != pt_prev_sig_;
     bool denoised_path = false;
+
+    // Gameplay reconstruction renderer: own 1-spp gbuffer + temporal accumulation
+    // + a-trous denoise + composite. Separate from the brute-force reference and
+    // the NRD path. Reference always wins (screenshots); else recon if selected.
+    bool recon_path = settings_.path_trace_recon && !settings_.path_trace_reference;
+    if (recon_path) {
+      ReconPathTracer::Frame rf;
+      rf.inv_view_proj = globals.inv_view_proj;
+      rf.view_proj = view_proj;
+      rf.prev_view_proj = globals.prev_view_proj;
+      rf.camera_pos = view.camera.eye;
+      rf.sun_direction = settings_.sun_direction;
+      rf.sun_intensity = settings_.sun_intensity;
+      rf.sun_color = settings_.sun_color;
+      rf.sun_radius = settings_.sun_angular_radius;
+      rf.pixel_spread = 2.0f * std::tan(view.camera.fov_y * 0.5f) / static_cast<f32>(render_height_);
+      rf.spp = settings_.path_trace_spp;
+      rf.frame_index = frame_index_;
+      rf.reset = first_frame || !pt_was_active_;  // never on the day/night drift
+      rf.current_weight_min = settings_.path_trace_recon_weight;
+      rf.max_history = settings_.path_trace_accum;
+      rf.atrous_passes = settings_.path_trace_recon_atrous;
+      rf.debug_mode = settings_.path_trace_recon_debug;
+      recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                    environment_->sky_view(), environment_->sampler(), scene_color,
+                                    rf);
+    }
 #if defined(RECREATION_HAS_NRD)
-    if (nrd_.available() && !settings_.path_trace_reference) {
+    if (!recon_path && nrd_.available() && !settings_.path_trace_reference) {
       // Playable: spp lighting samples, then NRD's REBLUR_DIFFUSE reprojects
       // history across camera motion (no full reset), so the view stays clean
       // while moving. More spp = lower input variance = less shimmer.
@@ -1126,7 +1161,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       prev_jitter_[0] = prev_jitter_[1] = 0.0f;
     }
 #endif
-    if (!denoised_path) {
+    if (!denoised_path && !recon_path) {
       // Reference: brute-force accumulation, hard reset on any motion = ground truth.
       pt.reset = !pt_was_active_ || moved || lit_changed;
       path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
@@ -2403,6 +2438,7 @@ void Renderer::RecreateSwapchain() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
   if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
@@ -2467,6 +2503,7 @@ void Renderer::Shutdown() {
     exposure_.Destroy(*device_);
     profiler_.Shutdown();
     path_tracer_.Destroy(*device_);
+    recon_path_tracer_.Destroy(*device_);
     volumetric_fog_.Destroy(*device_);
   aerial_perspective_.Destroy(*device_);
   clouds_.Destroy(*device_);

@@ -344,8 +344,23 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         ImGui::Checkbox("Path tracing", &settings.path_trace);
         if (settings.path_trace) {
           ImGui::Checkbox("  Ground truth (no denoise)", &settings.path_trace_reference);
+          if (!settings.path_trace_reference)
+            ImGui::Checkbox("  Reconstruction renderer (SVGF)", &settings.path_trace_recon);
           if (settings.path_trace_reference) {
             ImGui::Text("  accumulated %u spp", renderer.path_trace_samples());
+          } else if (settings.path_trace_recon) {
+            const char* dbg[] = {"Final", "Lighting", "History len", "Variance",
+                                 "Motion", "Normal", "Albedo"};
+            int d = static_cast<int>(settings.path_trace_recon_debug);
+            if (ImGui::Combo("  Debug view", &d, dbg, IM_ARRAYSIZE(dbg)))
+              settings.path_trace_recon_debug = static_cast<u32>(d);
+            int ap = static_cast<int>(settings.path_trace_recon_atrous);
+            if (ImGui::SliderInt("  A-trous passes", &ap, 0, 6))
+              settings.path_trace_recon_atrous = static_cast<u32>(ap);
+            ImGui::SliderFloat("  Responsiveness", &settings.path_trace_recon_weight, 0.01f, 0.5f);
+            int spp = static_cast<int>(settings.path_trace_spp);
+            if (ImGui::SliderInt("  Samples/pixel ", &spp, 1, 8))
+              settings.path_trace_spp = static_cast<u32>(spp);
           } else {
             // More samples = lower input noise = less motion shimmer, at linear cost.
             int spp = static_cast<int>(settings.path_trace_spp);

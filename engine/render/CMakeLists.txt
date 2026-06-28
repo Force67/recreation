@@ -12,6 +12,7 @@ recreation_add_module(render
   gi/ddgi.cc
   gi/raytracing.cc
   gi/path_tracer.cc
+  gi/recon_path_tracer.cc
   screenspace/ambient_occlusion.cc
   screenspace/ssao.cc
   screenspace/ssr.cc
@@ -130,6 +131,10 @@ set(RECREATION_RENDER_SHADERS
   shaders/geometry/copy.cs.hlsl
   shaders/util/hdr_capture.cs.hlsl
   shaders/gi/pathtrace.cs.hlsl
+  shaders/gi/recon_gbuffer.cs.hlsl
+  shaders/gi/recon_temporal.cs.hlsl
+  shaders/gi/recon_atrous.cs.hlsl
+  shaders/gi/recon_composite.cs.hlsl
   shaders/atmosphere/fog.cs.hlsl
   shaders/post/ui_blur.ps.hlsl
 )
