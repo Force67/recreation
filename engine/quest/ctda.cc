@@ -24,8 +24,10 @@ Func MapFunction(u16 id) {
       return Func::kGetItemCount;
     case 58:
       return Func::kGetStage;
-    case 228:
-      return Func::kGetIsId;
+    case 59:
+      return Func::kGetStageDone;  // stage param2 of quest param1 has run
+    case 72:
+      return Func::kGetIsId;  // checks an actor's base form: the dialogue speaker gate
     default:
       return Func::kRaw;
   }
@@ -94,6 +96,7 @@ void ResolveConditionForms(ConditionList& conditions, const bethesda::RecordStor
     if (c.global) c.global = remap(c.global);
     switch (c.func) {
       case Func::kGetStage:
+      case Func::kGetStageDone:
       case Func::kGetItemCount:
       case Func::kGetDistance:
       case Func::kGetIsId:

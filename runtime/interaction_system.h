@@ -35,6 +35,10 @@ class InteractionSystem {
 
   void OpenDialogue(u64 npc);
   void SelectDialogueOption(int index);
+  // Headless diagnostic (REC_DIALOGUE_PROBE): opens dialogue with `npc` and logs
+  // the topics it would offer, then closes it. Verifies speaker gating + topic
+  // selection without the UI.
+  void ReportDialogueWith(u64 npc);
   void CloseDialogue();
   void UpdateDialogueInput(const InputState& input, const ActionState& actions);
 

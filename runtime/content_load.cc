@@ -213,6 +213,12 @@ bool LoadGameData(Engine& engine) {
     self->quest_->ReportDialogue(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
+  // REC_DIALOGUE_PROBE=<0xNpcOrAchrForm> logs the topics an NPC would offer (the
+  // speaker-gated, priority-ordered set), to verify dialogue without the UI.
+  if (const char* want = std::getenv("REC_DIALOGUE_PROBE")) {
+    self->interaction_->ReportDialogueWith(std::strtoull(want, nullptr, 0));
+    self->quit_.store(true, std::memory_order_relaxed);
+  }
   if (const char* want = std::getenv("REC_SCENE_REPORT")) {
     self->quest_->ReportSceneFragments(want);
     self->quit_.store(true, std::memory_order_relaxed);

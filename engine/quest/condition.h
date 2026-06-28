@@ -49,7 +49,8 @@ enum class Func : u16 {
   kGetActorValue, // CK 14: actor value param1 of the run-on ref
   kGetItemCount,  // CK 47: count of item param1 held by the run-on ref
   kGetStage,      // CK 58: current journal stage of quest param1
-  kGetIsId,       // CK 228: the run-on ref's base form equals param1
+  kGetStageDone,  // CK 59: whether stage param2 of quest param1 has been set
+  kGetIsId,       // CK 72: the run-on ref's base form equals param1
 };
 
 // One CTDA comparison: function(params...) <op> value.
@@ -96,6 +97,8 @@ class ConditionContext {
   virtual float GetActorValue(RunOn run_on, u64 reference, u64 actor_value) const { return 0.0f; }
   virtual float GetItemCount(RunOn run_on, u64 reference, u64 item) const { return 0.0f; }
   virtual float GetStage(u64 quest) const { return 0.0f; }
+  // 1 if stage `stage` of `quest` has been set (run), else 0.
+  virtual float GetStageDone(u64 quest, u64 stage) const { return 0.0f; }
 
   // Runtime value of a GLOB form, for CTDA "use global" comparisons.
   virtual float GetGlobal(u64 global) const { return 0.0f; }

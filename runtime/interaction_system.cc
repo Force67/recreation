@@ -1,5 +1,6 @@
 #include "interaction_system.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -192,19 +193,30 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             s.speaker = binds->GetName(script::papyrus::ObjectRef{npc});
             // The actor's base form, to gate lines keyed to a speaker by GetIsID.
             const u64 speaker_base = binds->GetBaseObject(script::papyrus::ObjectRef{npc}).handle;
-            // A response is offered to this NPC when it carries no GetIsID
-            // speaker condition (a line anyone may say) or one that names this
-            // actor's base; otherwise it belongs to a different speaker.
-            auto for_speaker = [&](const dialogue::Response& r) {
+            // Classify a response against this speaker: kForeign belongs to a
+            // different actor (a GetIsID naming someone else) and is dropped;
+            // kKeyed names THIS actor's base (a line written for them); kGeneric
+            // carries no speaker check (anyone may say it). Keyed lines outrank
+            // generic ones so an actor's own topics (the Civil War join) surface
+            // ahead of the generic forcegreet/combat chatter that other running
+            // quests leak (their gating conditions are ones we cannot yet judge).
+            enum class SpeakerFit { kForeign, kGeneric, kKeyed };
+            auto classify = [&](const dialogue::Response& r) {
               bool keyed = false;
               for (const quest::Comparison& c : r.conditions.comparisons) {
                 if (c.func != quest::Func::kGetIsId) continue;
                 keyed = true;
-                if (c.param1 == speaker_base) return true;
+                if (c.param1 == speaker_base) return SpeakerFit::kKeyed;
               }
-              return !keyed;
+              return keyed ? SpeakerFit::kForeign : SpeakerFit::kGeneric;
             };
             script::skyrim::SkyrimConditionContext ctx(binds);
+            struct Scored {
+              DialogueOption opt;
+              i32 priority;
+              bool keyed;
+            };
+            std::vector<Scored> candidates;
             for (const quest::QuestStatus& q : binds->quest_system().AllStatuses()) {
               if (!q.running) continue;
               for (dialogue::Handle dial : dialogue_.TopicsForQuest(q.handle)) {
@@ -213,27 +225,49 @@ void InteractionSystem::OpenDialogue(u64 npc) {
                 dialogue::Topic t = dialogue::ParseTopic(records_, id, &strings_);
                 if (t.dial == 0) continue;
                 for (const dialogue::Response& r : t.responses) {
-                  if (s.options.size() >= 4) break;
-                  // Gate by speaker, then by the conditions we can judge
-                  // (Allows shows the line unless an understood check fails).
-                  if (!for_speaker(r) || !ctx.Allows(r.conditions)) continue;
+                  const SpeakerFit fit = classify(r);
+                  // Drop another actor's lines and any condition we understand and
+                  // that fails (Allows passes lines whose checks we cannot judge).
+                  if (fit == SpeakerFit::kForeign || !ctx.Allows(r.conditions)) continue;
                   DialogueOption opt;
                   opt.player_line = r.player_line;
                   opt.npc_line = r.npc_line;
                   opt.info = r.info;
                   opt.quest = q.handle;
                   opt.fragment_function = r.fragment_function;
-                  s.options.push_back(std::move(opt));
+                  candidates.push_back({std::move(opt), t.priority, fit == SpeakerFit::kKeyed});
                 }
-                if (s.options.size() >= 4) break;
               }
-              if (s.options.size() >= 4) break;
+            }
+            // Keyed-to-this-actor lines first, then by topic priority.
+            std::stable_sort(candidates.begin(), candidates.end(),
+                             [](const Scored& a, const Scored& b) {
+                               if (a.keyed != b.keyed) return a.keyed;
+                               return a.priority > b.priority;
+                             });
+            constexpr size_t kMaxOptions = 4;  // the dialogue panel shows four rows
+            for (Scored& c : candidates) {
+              if (s.options.size() >= kMaxOptions) break;
+              s.options.push_back(std::move(c.opt));
             }
             return s;
           })
           .get();
   REC_INFO("dialogue: opened with '{}' ({} topics)", dialogue_session_.speaker,
            dialogue_session_.options.size());
+}
+
+void InteractionSystem::ReportDialogueWith(u64 npc) {
+  OpenDialogue(npc);
+  REC_INFO("dialogue probe: '{}' offers {} topic(s):", dialogue_session_.speaker,
+           dialogue_session_.options.size());
+  for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
+    const DialogueOption& o = dialogue_session_.options[i];
+    REC_INFO("  [{}] \"{}\" -> info 0x{:x}{}", i,
+             o.player_line.empty() ? "(forcegreet/silent)" : o.player_line, o.info,
+             o.fragment_function.empty() ? "" : " [has fragment]");
+  }
+  CloseDialogue();
 }
 
 void InteractionSystem::SelectDialogueOption(int index) {
