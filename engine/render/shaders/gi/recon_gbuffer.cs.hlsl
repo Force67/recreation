@@ -16,7 +16,7 @@ struct PathGbufferPush {
   uint spp;
   float pixel_spread;    // ray-cone spread (radians/pixel) for texture lod
   uint frame_index;
-  uint bounces;          // unused here (fixed 1 indirect bounce), kept for layout
+  uint bounces;          // indirect diffuse bounces (>=1)
 };
 [[vk::push_constant]] PathGbufferPush pc;
 
@@ -275,23 +275,31 @@ void main(uint3 id : SV_DispatchThreadID) {
     return;
   }
 
-  // Average spp samples of (direct + 1-bounce indirect) irradiance, no albedo.
+  // Average spp samples of (primary direct + multi-bounce indirect) irradiance,
+  // no primary albedo. Cosine sampling cancels the pdf, leaving throughput that
+  // starts at pi and gathers albedo each bounce.
   uint spp = max(pc.spp, 1u);
+  uint bounces = max(pc.bounces, 1u);
   float3 irradiance = 0.0.xxx;
   for (uint s = 0; s < spp; ++s) {
     float3 e = DirectIrradiance(prim.position, prim.normal, rng);
-    // One cosine-weighted diffuse bounce.
-    float3 wi = CosineHemisphere(prim.normal, rng);
-    Hit h = TraceClosest(prim.position + prim.normal * 0.002, wi, kSecondarySpread);
-    float3 indirect_lo;
-    if (!h.hit) {
-      indirect_lo = SampleSky(wi);
-    } else {
-      float3 e2 = DirectIrradiance(h.position, h.normal, rng);
-      indirect_lo = h.emissive + h.albedo * kInvPi * e2;
+    float3 throughput = kPi.xxx;
+    float3 pos = prim.position;
+    float3 normal = prim.normal;
+    for (uint b = 0; b < bounces; ++b) {
+      float3 wi = CosineHemisphere(normal, rng);
+      Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread);
+      if (!h.hit) {
+        e += throughput * SampleSky(wi);
+        break;
+      }
+      // L_o(h) without its own indirect (carried by the next bounce).
+      e += throughput * (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng));
+      throughput *= h.albedo;
+      pos = h.position;
+      normal = h.normal;
+      if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
     }
-    // Cosine pdf cancels: E_indirect = Lo * pi.
-    e += indirect_lo * kPi;
     float lum = dot(e, float3(0.2126, 0.7152, 0.0722));
     if (lum > kFireflyClamp) e *= kFireflyClamp / lum;
     irradiance += e;
