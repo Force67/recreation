@@ -14,6 +14,7 @@ namespace {
 
 constexpr u32 kAoIdentifier = 0;
 constexpr u32 kShadowIdentifier = 1;
+constexpr u32 kDiffuseIdentifier = 2;
 // Sky / invalid pixels report a viewZ beyond this so NRD ignores them.
 constexpr f32 kDenoisingRange = 1.0e6f;
 
@@ -64,10 +65,11 @@ bool NrdDenoiser::Initialize(Device& device, VkExtent2D extent) {
   const nrd::DenoiserDesc denoiser_descs[] = {
       {kAoIdentifier, nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION},
       {kShadowIdentifier, nrd::Denoiser::SIGMA_SHADOW},
+      {kDiffuseIdentifier, nrd::Denoiser::REBLUR_DIFFUSE},
   };
   nrd::InstanceCreationDesc creation{};
   creation.denoisers = denoiser_descs;
-  creation.denoisersNum = 2;
+  creation.denoisersNum = 3;
   if (nrd::CreateInstance(creation, instance_) != nrd::Result::SUCCESS || !instance_) {
     REC_ERROR("nrd: instance creation failed");
     instance_ = nullptr;
@@ -334,8 +336,10 @@ void NrdDenoiser::CreatePools(Device& device, VkExtent2D extent) {
   };
   out_ao_ = make_output(kHitDistFormat);
   out_shadow_ = make_output(kShadowFormat);
+  out_diffuse_ = make_output(kDiffuseRadianceFormat);
   out_ao_layout_ = VK_IMAGE_LAYOUT_GENERAL;
   out_shadow_layout_ = VK_IMAGE_LAYOUT_GENERAL;
+  out_diffuse_layout_ = VK_IMAGE_LAYOUT_GENERAL;
 
   // Prime every owned texture into GENERAL so the first dispatch barrier has a
   // defined source layout.
@@ -356,7 +360,8 @@ void NrdDenoiser::CreatePools(Device& device, VkExtent2D extent) {
     for (auto& t : transient_) { add(t.image.image); t.layout = VK_IMAGE_LAYOUT_GENERAL; }
     add(out_ao_.image.image);
     add(out_shadow_.image.image);
-    out_ao_.layout = out_shadow_.layout = VK_IMAGE_LAYOUT_GENERAL;
+    add(out_diffuse_.image.image);
+    out_ao_.layout = out_shadow_.layout = out_diffuse_.layout = VK_IMAGE_LAYOUT_GENERAL;
     VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
     dep.pImageMemoryBarriers = barriers.data();
@@ -371,6 +376,7 @@ void NrdDenoiser::DestroyPools(Device& device) {
   transient_.clear();
   if (out_ao_.image.image) device.DestroyImage(out_ao_.image);
   if (out_shadow_.image.image) device.DestroyImage(out_shadow_.image);
+  if (out_diffuse_.image.image) device.DestroyImage(out_diffuse_.image);
 }
 
 void NrdDenoiser::Resize(Device& device, VkExtent2D extent) {
@@ -443,6 +449,21 @@ void NrdDenoiser::SetFrame(const FrameSettings& settings) {
   reblur.hitDistanceParameters.C = kHitDistParams[2];
   nrd::SetDenoiserSettings(*instance_, kAoIdentifier, &reblur);
 
+  // The path-traced diffuse is a low-spp probabilistic signal over a scene with a
+  // constantly-moving sun (day/night cycle) and a moving camera, so a long history
+  // ghosts and lags badly. Make it responsive: shorten the main accumulation, and
+  // most importantly cut the temporal-stabilization pass (an internal TAA that
+  // defaults to a ~30-frame window and is the main source of the motion ghosting),
+  // and make anti-lag more sensitive so it drops history faster on change. Grain
+  // is handled by the multi-sampled input, not by over-accumulating.
+  nrd::ReblurSettings diffuse = reblur;
+  diffuse.maxAccumulatedFrameNum = settings.diffuse_accumulated_frames;  // tunable; default 16
+  diffuse.maxStabilizedFrameNum = 4;                         // light stabilization, low ghost
+  diffuse.antilagSettings.luminanceSensitivity = 2.0f;       // react faster to lighting change
+  diffuse.historyFixFrameNum = 4;
+  diffuse.enableAntiFirefly = true;
+  nrd::SetDenoiserSettings(*instance_, kDiffuseIdentifier, &diffuse);
+
   nrd::SigmaSettings sigma{};
   sigma.lightDirection[0] = -settings.sun_direction.x;
   sigma.lightDirection[1] = -settings.sun_direction.y;
@@ -468,6 +489,16 @@ ResourceHandle NrdDenoiser::DenoiseShadow(RenderGraph& graph, ResourceHandle nor
                         in_penumbra, static_cast<int>(nrd::ResourceType::IN_PENUMBRA), out_shadow_,
                         static_cast<int>(nrd::ResourceType::OUT_SHADOW_TRANSLUCENCY),
                         "nrd_shadow_out", &out_shadow_layout_);
+}
+
+ResourceHandle NrdDenoiser::DenoiseDiffuse(RenderGraph& graph, ResourceHandle normal_roughness,
+                                           ResourceHandle view_z, ResourceHandle motion,
+                                           ResourceHandle in_radiance_hitdist) {
+  return AddDenoisePass(graph, kDiffuseIdentifier, "nrd_diffuse", normal_roughness, view_z, motion,
+                        in_radiance_hitdist,
+                        static_cast<int>(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST), out_diffuse_,
+                        static_cast<int>(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST),
+                        "nrd_diffuse_out", &out_diffuse_layout_);
 }
 
 ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, const char* pass_name,

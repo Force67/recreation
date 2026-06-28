@@ -341,9 +341,21 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
         ImGui::Checkbox("Screen-space reflections", &settings.ssr);
         ImGui::Checkbox("Screen-space GI", &settings.ssgi);
-        ImGui::Checkbox("Path traced reference", &settings.path_trace);
+        ImGui::Checkbox("Path tracing", &settings.path_trace);
         if (settings.path_trace) {
-          ImGui::Text("accumulated %u spp", renderer.path_trace_samples());
+          ImGui::Checkbox("  Ground truth (no denoise)", &settings.path_trace_reference);
+          if (settings.path_trace_reference) {
+            ImGui::Text("  accumulated %u spp", renderer.path_trace_samples());
+          } else {
+            // More samples = lower input noise = less motion shimmer, at linear cost.
+            int spp = static_cast<int>(settings.path_trace_spp);
+            if (ImGui::SliderInt("  Samples/pixel", &spp, 1, 8))
+              settings.path_trace_spp = static_cast<u32>(spp);
+            // Lower accum = less ghosting/shadow lag but grainier (raise spp to compensate).
+            int accum = static_cast<int>(settings.path_trace_accum);
+            if (ImGui::SliderInt("  Denoiser history", &accum, 2, 48))
+              settings.path_trace_accum = static_cast<u32>(accum);
+          }
         }
         ImGui::Checkbox("Volumetric fog", &settings.fog);
         if (settings.fog) {

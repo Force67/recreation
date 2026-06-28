@@ -35,6 +35,9 @@ base::Option<int> ColorGradeOpt{"color.grade", 0, "REC_COLOR_GRADE"};
 base::Option<const char*> Lut{"lut", nullptr, "REC_LUT"};
 base::Option<const char*> SunDir{"sun.dir", nullptr, "REC_SUN_DIR"};
 base::Option<bool> Pathtrace{"pathtrace", false, "REC_PATHTRACE"};
+base::Option<bool> PathtraceReference{"pathtrace.reference", false, "REC_PATHTRACE_REFERENCE"};
+base::Option<int> PathtraceSpp{"pathtrace.spp", 2, "REC_PATHTRACE_SPP"};
+base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
 base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
@@ -327,6 +330,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     }
   }
   if (Pathtrace.overridden()) settings_.path_trace = Pathtrace;
+  if (PathtraceReference.overridden()) settings_.path_trace_reference = PathtraceReference;
+  if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
+  if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
@@ -714,7 +720,11 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       gpu.has_meshlets = true;
     }
   }
-  if (bindless_ && !gpu.all_blend && !gpu.no_rt) {
+  // Grass-like fill geometry stays out of the realtime tlas (bloat + noise), but
+  // the path tracer wants it (alpha-tested foliage), so include it when path
+  // tracing is enabled.
+  bool include_rt = !gpu.no_rt || settings_.path_trace;
+  if (bindless_ && !gpu.all_blend && include_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
     for (const GpuSubmesh& submesh : gpu.submeshes) {
       if (submesh.blend || submesh.index_count == 0) continue;
@@ -729,7 +739,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   meshes_[mesh_key] = gpu;
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
-  if (raytracing_ && !gpu.all_blend && !gpu.no_rt) raytracing_->BuildBlas(mesh_key, gpu);
+  if (raytracing_ && !gpu.all_blend && include_rt) raytracing_->BuildBlas(mesh_key, gpu);
   return true;
 }
 
@@ -1028,7 +1038,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     instances.reserve(view.draws.size());
     for (const DrawItem& item : view.draws) {
       const GpuMesh* mesh = meshes_.find(item.mesh);
-      if (!mesh || mesh->all_blend || mesh->no_rt) continue;
+      // no_rt grass-like fill is excluded from the realtime tlas, but the path
+      // tracer wants it (it built a blas for it; see UploadMesh include_rt).
+      if (!mesh || mesh->all_blend || (mesh->no_rt && !path_trace)) continue;
       instances.push_back({.mesh_key = item.mesh,
                            .custom_index = mesh->bindless_index,
                            .transform = item.transform});
@@ -1044,12 +1056,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         });
   }
 
-  // Reference path tracer takes over the whole frame: it writes scene_color
-  // directly and skips the entire raster path (g-buffer, gi, transparency, aa).
+  // The path tracer takes over the whole frame: it writes scene_color directly
+  // and skips the entire raster path (g-buffer, gi, transparency, aa).
   ResourceHandle lit = scene_color;
   if (path_trace) {
     PathTracer::Frame pt;
     pt.inv_view_proj = globals.inv_view_proj;
+    pt.view_proj = view_proj;
+    pt.prev_view_proj = globals.prev_view_proj;  // last frame's, set before the overwrite below
     pt.camera_pos = view.camera.eye;
     pt.sun_direction = settings_.sun_direction;
     pt.sun_intensity = settings_.sun_intensity;
@@ -1059,12 +1073,66 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     f32 sig = settings_.sun_intensity + settings_.sun_color.x * 3.0f +
               settings_.sun_color.y * 5.0f + settings_.sun_color.z * 7.0f;
     bool moved = std::memcmp(&view_proj, &pt_prev_view_proj_, sizeof(Mat4)) != 0;
-    pt.reset = !pt_was_active_ || moved || sig != pt_prev_sig_;
+    bool lit_changed = sig != pt_prev_sig_;
+    bool denoised_path = false;
+#if defined(RECREATION_HAS_NRD)
+    if (nrd_.available() && !settings_.path_trace_reference) {
+      // Playable: spp lighting samples, then NRD's REBLUR_DIFFUSE reprojects
+      // history across camera motion (no full reset), so the view stays clean
+      // while moving. More spp = lower input variance = less shimmer.
+      denoised_path = true;
+      pt.spp = settings_.path_trace_spp;
+      PathTracer::GbufferTargets t;
+      auto guide = [&](const char* name, VkFormat format) {
+        return graph_.CreateTexture({.name = name, .format = format, .width = render_width_,
+                                     .height = render_height_});
+      };
+      t.radiance_hitdist = guide("pt_radiance", NrdDenoiser::kDiffuseRadianceFormat);
+      t.normal_roughness = guide("pt_normal_roughness", NrdDenoiser::kNormalRoughnessFormat);
+      t.viewz = guide("pt_viewz", NrdDenoiser::kViewZFormat);
+      t.motion = guide("pt_motion", kMotionFormat);
+      t.albedo = guide("pt_albedo", kSceneColorFormat);
+      t.background = guide("pt_background", kSceneColorFormat);
+      path_tracer_.AddGbufferPass(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                  environment_->sky_view(), environment_->sampler(), t, pt);
+
+      NrdDenoiser::FrameSettings fs;
+      fs.view_to_clip = proj;
+      fs.view_to_clip_prev = prev_proj_;
+      fs.world_to_view = view_mat;
+      fs.world_to_view_prev = prev_view_;
+      fs.jitter[0] = fs.jitter[1] = 0.0f;  // the path tracer shoots un-jittered rays
+      fs.jitter_prev[0] = fs.jitter_prev[1] = 0.0f;
+      fs.sun_direction = sun;
+      fs.frame_index = frame_index_;
+      fs.diffuse_accumulated_frames = settings_.path_trace_accum;
+      // Restart ONLY on activation / first frame. NOT on lighting change: the
+      // day/night cycle nudges the sun every frame, so resetting on that would
+      // restart accumulation every frame and the image would never denoise (it
+      // would stay 1-spp grainy forever). NRD tracks gradual lighting changes
+      // through its own temporal accumulation + antilag instead.
+      fs.reset = first_frame || !pt_was_active_;
+      nrd_.SetFrame(fs);
+      ResourceHandle denoised = nrd_.DenoiseDiffuse(graph_, t.normal_roughness, t.viewz, t.motion,
+                                                    t.radiance_hitdist);
+      path_tracer_.AddCompositePass(graph_, denoised, t.albedo, t.background, scene_color);
+
+      // The raster path stores these for NRD only when it runs; keep them current
+      // for the next path-traced frame's motion vectors and reprojection.
+      prev_proj_ = proj;
+      prev_view_ = view_mat;
+      prev_jitter_[0] = prev_jitter_[1] = 0.0f;
+    }
+#endif
+    if (!denoised_path) {
+      // Reference: brute-force accumulation, hard reset on any motion = ground truth.
+      pt.reset = !pt_was_active_ || moved || lit_changed;
+      path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                              environment_->sky_view(), environment_->sampler(), scene_color, pt);
+    }
     pt_prev_view_proj_ = view_proj;
     pt_prev_sig_ = sig;
     pt_was_active_ = true;
-    path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
-                            environment_->sky_view(), environment_->sampler(), scene_color, pt);
   } else {
     pt_was_active_ = false;
 

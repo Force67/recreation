@@ -150,7 +150,8 @@ list(APPEND RECREATION_SHADER_INCLUDE_DIRS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/pipeline
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi)
 if(RECREATION_NRD)
-  list(APPEND RECREATION_RENDER_SHADERS shaders/gi/nrd_pack.cs.hlsl shaders/gi/shadow_trace.cs.hlsl)
+  list(APPEND RECREATION_RENDER_SHADERS shaders/gi/nrd_pack.cs.hlsl shaders/gi/shadow_trace.cs.hlsl
+       shaders/gi/pathtrace_gbuffer.cs.hlsl shaders/gi/pathtrace_composite.cs.hlsl)
 endif()
 
 recreation_embed_shaders(recreation_render ${RECREATION_RENDER_SHADERS})

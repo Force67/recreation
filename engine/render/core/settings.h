@@ -109,7 +109,15 @@ struct RenderSettings {
   // bounce of indirect color.
   bool ssgi = true;
 
-  bool path_trace = false;  // reference progressive path tracer (needs ray query)
+  bool path_trace = false;  // path tracer (needs ray query); NRD-denoised + playable by default
+  bool path_trace_reference = false;  // force brute-force accumulation (ground truth, no denoise)
+  // Lighting samples per pixel in the denoised gbuffer pass. Higher = lower input
+  // variance = NRD has to invent less under motion (less shimmer), at a linear
+  // cost. Reference mode ignores this (it accumulates over frames instead).
+  u32 path_trace_spp = 2;
+  // NRD diffuse history length (frames) for the denoised path. Lower = more
+  // responsive (less ghosting + shadow lag) but grainier; raise spp to compensate.
+  u32 path_trace_accum = 16;
 
   // Atmospheric aerial perspective: distant geometry hazes/blue-shifts like the
   // sky, from a camera->surface raymarch of the atmosphere LUTs. 0 disables.
