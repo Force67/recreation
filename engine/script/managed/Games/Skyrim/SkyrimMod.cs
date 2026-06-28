@@ -51,12 +51,14 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new ShoutCooldown());
 
         // Civil War: allegiance derived from the questline, a war-journal toast for
-        // Civil War stages, the live reinforcement HUD during city sieges, and the
-        // hold-ownership campaign board with its capture toasts and war-progress bar.
+        // Civil War stages, the live reinforcement HUD during city sieges, the
+        // hold-ownership campaign board with its capture toasts and war-progress bar,
+        // and the player's rank progression that climbs as the campaign advances.
         ModHost.Register(new CivilWarAllegianceTracker());
         ModHost.Register(new CivilWarJournal());
         ModHost.Register(new BattleReinforcementHud());
         ModHost.Register(new CivilWarCampaignTracker());
+        ModHost.Register(new CivilWarRankTracker());
 
         // The cross-game NPC reaction layer (Modding): a wanted/heat meter, the
         // guard confrontation it drives, NPC daily schedules, and bystander alarm.

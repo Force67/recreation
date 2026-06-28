@@ -98,6 +98,7 @@ internal static class Program
         AbilitiesTests.Run(check);
         StandingStonesTests.Run(check);
         CivilWarCampaignTests.Run(check);
+        CivilWarRankTests.Run(check);
         DiseasesTests.Run(check);
         ShrinesTests.Run(check);
         VampirismTests.Run(check);
