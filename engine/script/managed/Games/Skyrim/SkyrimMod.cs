@@ -31,5 +31,6 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new CombatTracker());
         ModHost.Register(new CombatFastTravelLock());
         ModHost.Register(new EssentialProtection());
+        ModHost.Register(new InjurySlowdown());
     }
 }
