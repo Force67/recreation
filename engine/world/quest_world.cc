@@ -1,6 +1,7 @@
 #include "world/quest_world.h"
 
 #include "bethesda/form_id.h"
+#include "core/log.h"
 #include "ecs/world.h"
 #include "world/components.h"
 
@@ -41,6 +42,9 @@ void QuestWorld::Apply(const std::vector<WorldCommand>& commands) {
 void QuestWorld::ApplyOne(const WorldCommand& cmd) {
   switch (cmd.op) {
     case WorldOp::kSpawn: {
+      // Idempotent: a re-sent spawn (e.g. a battle resync to a late-joining
+      // client) must not duplicate an entity that already exists for this handle.
+      if (cmd.handle != 0 && registry_.find(cmd.handle) != registry_.end()) break;
       ecs::Entity entity = world_.Create();
       Transform t;
       for (int i = 0; i < 3; ++i) t.position[i] = cmd.pos[i];
@@ -51,6 +55,14 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
                                                          static_cast<u32>(cmd.handle)}});
       world_.Add(entity, QuestSpawned{cmd.quest});
       if (cmd.has_mesh) world_.Add(entity, Renderable{cmd.mesh});
+      // A replicated actor spawn (battle soldier): tag it Npc so the actor system
+      // renders a biped and the actor sync recognises it (host and client agree
+      // on the entity by its form handle).
+      if (cmd.is_actor) {
+        world_.Add(entity, Npc{bethesda::GlobalFormId{static_cast<u16>(cmd.base >> 32),
+                                                      static_cast<u32>(cmd.base)}});
+        REC_INFO("quest_world: spawned replicated actor 0x{:x}", cmd.handle);
+      }
       registry_[cmd.handle] = entity;
       RecordEffect(cmd.quest, {EffectKind::kSpawned, cmd.handle, {}, false});
       break;

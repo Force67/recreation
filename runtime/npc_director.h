@@ -4,6 +4,8 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <vector>
+
 #include "core/math.h"
 #include "ecs/world.h"
 #include "engine_context.h"
@@ -11,6 +13,7 @@
 #include "world/combat.h"
 #include "world/components.h"
 #include "world/navgrid.h"
+#include "world/quest_world.h"
 
 namespace rec {
 
@@ -88,6 +91,11 @@ class NpcDirector {
   // by handle. Returns its synthetic form handle. The general primitive behind the
   // staged field battle and, later, the Civil War siege's aliased soldiers.
   u64 SpawnSoldier(const Vec3& pos, i32 team);
+  // Spawn commands the host must replicate to clients so they build the same
+  // soldier bipeds (drained + sent each frame by the engine; empty otherwise).
+  std::vector<world::WorldCommand> DrainReplicatedSpawns() {
+    return std::move(replicated_spawns_);
+  }
   // REC_CW_FIELD_BATTLE: spawns two lines of soldiers in the open in front of the
   // player and lets them charge and clash, framed for the camera (spawning,
   // combat and rendering together).
@@ -184,6 +192,8 @@ class NpcDirector {
   base::Vector<u64> cw_field_soldiers_;
   Vec3 cw_field_center_{};      // battle midpoint, for the spectator camera
   Vec3 cw_field_fwd_{};         // clash axis (team 1 -> team 2)
+  std::vector<world::WorldCommand> replicated_spawns_;  // soldier spawns to mirror to clients
+  f32 cw_field_resync_ = 0;  // periodic re-broadcast so a late client gets the soldiers
   u64 cw_battle_quest_ = 0;     // quest the battle outcome advances (0 = none)
   i32 cw_battle_win_stage_ = -1;
   bool cw_battle_resolved_ = false;

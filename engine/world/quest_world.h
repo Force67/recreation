@@ -37,6 +37,8 @@ struct WorldCommand {
   u64 base = 0;    // base form for kSpawn
   asset::AssetId mesh;     // resolved mesh for kSpawn
   bool has_mesh = false;   // whether `mesh` is valid (spawn is drawn)
+  bool is_actor = false;   // kSpawn: tag the entity Npc so it renders as a biped
+                           // and the actor sync streams its movement (battle soldiers)
   std::array<f32, 3> pos{0, 0, 0};
   std::array<f32, 4> rot{0, 0, 0, 1};
   f32 scale = 1.0f;

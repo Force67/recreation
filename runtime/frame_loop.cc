@@ -154,6 +154,15 @@ bool Engine::RunFrame() {
     npc_->CwBattleTick(static_cast<f32>(timer_.frame_delta()));
     npc_->CwFieldBattleTick(static_cast<f32>(timer_.frame_delta()));
     npc_->UpdateCombat(static_cast<f32>(timer_.frame_delta()));
+    // Mirror any soldiers the battle spawned to clients (so they render the same
+    // bipeds); the actor sync then streams their movement. Drained every frame so
+    // single-player simply discards them.
+    {
+      std::vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
+#if RECREATION_HAS_NET
+      if (server_session_ && !spawns.empty()) server_session_->SendWorldCommands(spawns);
+#endif
+    }
     npc_->Mq101DemoTick(static_cast<f32>(timer_.frame_delta()));
     npc_->Mq101SceneTick(static_cast<f32>(timer_.frame_delta()));
     // World-driven progression: the player walking into a scripted trigger box

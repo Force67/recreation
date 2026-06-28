@@ -527,6 +527,15 @@ u64 NpcDirector::SpawnSoldier(const Vec3& pos, i32 team) {
   world_.Add(e, world::FormLink{bethesda::GlobalFormId{0xFFFF, static_cast<u32>(id)}});
   world_.Add(e, world::CombatTeam{team});
   if (ctx_.quest_world) ctx_.quest_world->Register(handle, e);
+  // Replicate the spawn so a client builds the same biped, registered under the
+  // same form handle; the actor sync then streams the host's movement to it. The
+  // client does not simulate combat, so it needs no CombatTeam.
+  world::WorldCommand c;
+  c.op = world::WorldOp::kSpawn;
+  c.handle = handle;
+  c.is_actor = true;
+  c.pos = {t.position[0], t.position[1], t.position[2]};
+  replicated_spawns_.push_back(c);
   return handle;
 }
 
@@ -534,7 +543,11 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
   if (!cw_field_pending_ || !actors_->HasPlayer()) return;
   if (!cw_field_active_) {
     cw_field_warmup_ += dt;
-    if (cw_field_warmup_ < 2.0f) return;  // let the terrain stream and the player settle
+    // Let the terrain stream and the player settle (and, in MP, a client finish
+    // joining so it receives the live spawn broadcast). REC_CW_BATTLE_DELAY tunes it.
+    f32 warmup = 2.0f;
+    if (const char* d = std::getenv("REC_CW_BATTLE_DELAY")) warmup = static_cast<f32>(std::atof(d));
+    if (cw_field_warmup_ < warmup) return;
     Vec3 ppos;
     if (!actors_->PlayerWorldPos(&ppos)) return;
     // The player may have spawned facing a wall; pick the most open direction so
@@ -600,6 +613,26 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
   if (cw_battle_log_timer_ <= 0.0f) {
     cw_battle_log_timer_ = 1.0f;
     REC_INFO("cw field battle: team1={} team2={} fallen={} engaged={}", a, b, d, combatant_count());
+  }
+
+  // Periodically re-queue the living soldiers' spawns so a client that joined
+  // after the opening broadcast still builds them (the client apply is idempotent
+  // by handle, so already-synced clients ignore the repeat).
+  cw_field_resync_ -= dt;
+  if (cw_field_resync_ <= 0.0f) {
+    cw_field_resync_ = 3.0f;
+    for (u64 h : cw_field_soldiers_) {
+      ecs::Entity e = ctx_.quest_world ? ctx_.quest_world->Find(h) : ecs::kInvalidEntity;
+      if (!world_.IsAlive(e)) continue;
+      const world::Transform* t = world_.Get<world::Transform>(e);
+      if (!t) continue;
+      world::WorldCommand c;
+      c.op = world::WorldOp::kSpawn;
+      c.handle = h;
+      c.is_actor = true;
+      c.pos = {t->position[0], t->position[1], t->position[2]};
+      replicated_spawns_.push_back(c);
+    }
   }
 
   // Resolve the battle into the quest: the enemy line is broken, or a grace
