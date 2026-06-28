@@ -21,6 +21,7 @@
 #include "render/presets.h"
 #include "render/renderer.h"
 #include "script/games/skyrim/skyrim_bindings.h"
+#include "script/host/managed_host.h"
 #include "script/script_system.h"
 #include "world/cell_streaming.h"
 #include "world/quest_world.h"
@@ -93,6 +94,7 @@ struct EngineContext {
   world::CellStreamer* streamer = nullptr;
   script::ScriptSystem* scripts = nullptr;
   rec::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
+  script::host::ManagedHost* managed = nullptr;  // null when C# scripting is off
 #if RECREATION_HAS_NET
   net::ServerSession* server_session = nullptr;
   net::ClientSession* client_session = nullptr;

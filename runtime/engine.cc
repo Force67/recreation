@@ -514,6 +514,7 @@ void Engine::BootManagedScripting() {
   scripts_->set_on_scripts_attached([host](u64 form) {
     host->QueueEvent({rec::script::host::ManagedEventId::kFormLoaded, form, 0, 0, 0.0f});
   });
+  ctx_.managed = host;  // let subsystems (interaction, ...) raise managed events
 }
 
 bool Engine::LoadGameData() {

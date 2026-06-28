@@ -147,6 +147,10 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
 
   if (activate_pressed) {
     REC_INFO("activate: {} (0x{:x})", activate_label_, handle);
+    // Raise the player-use hook for mods (gmod-style) before the built-in
+    // affordances. Fires on the main thread; drained into managed next frame.
+    if (ctx_.managed)
+      ctx_.managed->QueueEvent({script::host::ManagedEventId::kPlayerActivated, handle, 0, 0, 0.0f});
     // Local-view affordances first: talking to an NPC, walking through a load
     // door, and opening a container are each the activating player's own view.
     // Anything else raises OnActivate, which a multiplayer client is not
