@@ -123,7 +123,7 @@ struct RenderSettings {
   bool path_trace_recon = false;
   f32 path_trace_recon_weight = 0.05f;  // temporal: floor on current-frame weight
   u32 path_trace_recon_atrous = 4;      // a-trous wavelet passes
-  u32 path_trace_recon_debug = 0;       // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo
+  u32 path_trace_recon_debug = 0;  // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
 
   // Atmospheric aerial perspective: distant geometry hazes/blue-shifts like the
   // sky, from a camera->surface raymarch of the atmosphere LUTs. 0 disables.

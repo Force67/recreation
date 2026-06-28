@@ -117,11 +117,11 @@ bool ReconPathTracer::Initialize(Device& device, VkDescriptorSetLayout bindless_
 bool ReconPathTracer::CreatePipelines(Device& device, VkDescriptorSetLayout bindless_layout) {
   VkDevice dev = device.device();
 
-  // gbuffer: 7 storage outputs, tlas (7), sky (8), prefiltered ggx cube (9); set 1 bindless.
-  VkDescriptorSetLayoutBinding gb[10] = {Bind(0, kStorage),  Bind(1, kStorage), Bind(2, kStorage),
-                                         Bind(3, kStorage),  Bind(4, kStorage), Bind(5, kStorage),
-                                         Bind(6, kStorage),  Bind(7, kAccel),   Bind(8, kCombined),
-                                         Bind(9, kCombined)};
+  // gbuffer: 7 storage outputs, tlas (7), sky (8), noisy specular out (9); set 1 bindless.
+  VkDescriptorSetLayoutBinding gb[10] = {Bind(0, kStorage), Bind(1, kStorage), Bind(2, kStorage),
+                                         Bind(3, kStorage), Bind(4, kStorage), Bind(5, kStorage),
+                                         Bind(6, kStorage), Bind(7, kAccel),   Bind(8, kCombined),
+                                         Bind(9, kStorage)};
   gbuffer_set_ = MakeSetLayout(dev, gb, 10);
   VkDescriptorSetLayout gb_sets[2] = {gbuffer_set_, bindless_layout};
   gbuffer_layout_ = MakePipeLayout(dev, gb_sets, 2, sizeof(GbufferPush));
@@ -138,10 +138,10 @@ bool ReconPathTracer::CreatePipelines(Device& device, VkDescriptorSetLayout bind
   atrous_set_ = MakeSetLayout(dev, ab, 5);
   atrous_layout_ = MakePipeLayout(dev, &atrous_set_, 1, sizeof(AtrousPush));
 
-  VkDescriptorSetLayoutBinding cb[7] = {Bind(0, kStorage), Bind(1, kSampled), Bind(2, kSampled),
+  VkDescriptorSetLayoutBinding cb[8] = {Bind(0, kStorage), Bind(1, kSampled), Bind(2, kSampled),
                                         Bind(3, kSampled), Bind(4, kSampled), Bind(5, kSampled),
-                                        Bind(6, kSampled)};
-  composite_set_ = MakeSetLayout(dev, cb, 7);
+                                        Bind(6, kSampled), Bind(7, kSampled)};
+  composite_set_ = MakeSetLayout(dev, cb, 8);
   composite_layout_ = MakePipeLayout(dev, &composite_set_, 1, sizeof(CompositePush));
 
   if (!gbuffer_set_ || !temporal_set_ || !atrous_set_ || !composite_set_) return false;
@@ -172,6 +172,8 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
   };
   make(accum_, kIrradiance);
   make(moments_, kMoments);
+  make(spec_accum_, kIrradiance);
+  make(spec_moments_, kMoments);
   make(normal_rough_, kNormalRough);
   make(viewz_, kViewZ);
   make(matid_, kMatId);
@@ -191,7 +193,8 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
       b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       barriers.push_back(b);
     };
-    for (PingPong* pp : {&accum_, &moments_, &normal_rough_, &viewz_, &matid_})
+    for (PingPong* pp :
+         {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_, &matid_})
       for (u32 i = 0; i < 2; ++i) {
         add(pp->image[i].image);
         pp->layout[i] = VK_IMAGE_LAYOUT_GENERAL;
@@ -204,7 +207,8 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
 }
 
 void ReconPathTracer::DestroyBuffers(Device& device) {
-  for (PingPong* pp : {&accum_, &moments_, &normal_rough_, &viewz_, &matid_})
+  for (PingPong* pp :
+       {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_, &matid_})
     for (u32 i = 0; i < 2; ++i)
       if (pp->image[i].image) device.DestroyImage(pp->image[i]);
 }
@@ -229,94 +233,11 @@ void ReconPathTracer::Destroy(Device& device) {
   gbuffer_pipeline_ = temporal_pipeline_ = atrous_pipeline_ = composite_pipeline_ = VK_NULL_HANDLE;
 }
 
-void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                                 VkDescriptorSet bindless_set, VkImageView sky_view,
-                                 VkImageView prefiltered_view, VkSampler sky_sampler,
-                                 ResourceHandle output, const Frame& frame) {
-  u32 cur = frame.frame_index & 1u;
-  u32 prv = 1u - cur;
-
-  ResourceHandle nr_c = graph.ImportImage("recon_nr_c", normal_rough_.image[cur], &normal_rough_.layout[cur]);
-  ResourceHandle nr_p = graph.ImportImage("recon_nr_p", normal_rough_.image[prv], &normal_rough_.layout[prv]);
-  ResourceHandle vz_c = graph.ImportImage("recon_vz_c", viewz_.image[cur], &viewz_.layout[cur]);
-  ResourceHandle vz_p = graph.ImportImage("recon_vz_p", viewz_.image[prv], &viewz_.layout[prv]);
-  ResourceHandle id_c = graph.ImportImage("recon_id_c", matid_.image[cur], &matid_.layout[cur]);
-  ResourceHandle id_p = graph.ImportImage("recon_id_p", matid_.image[prv], &matid_.layout[prv]);
-  ResourceHandle ac_c = graph.ImportImage("recon_ac_c", accum_.image[cur], &accum_.layout[cur]);
-  ResourceHandle ac_p = graph.ImportImage("recon_ac_p", accum_.image[prv], &accum_.layout[prv]);
-  ResourceHandle mo_c = graph.ImportImage("recon_mo_c", moments_.image[cur], &moments_.layout[cur]);
-  ResourceHandle mo_p = graph.ImportImage("recon_mo_p", moments_.image[prv], &moments_.layout[prv]);
-
-  auto tex = [&](const char* name, VkFormat fmt) {
-    return graph.CreateTexture({.name = name, .format = fmt, .width = extent_.width,
-                                .height = extent_.height});
-  };
-  ResourceHandle noisy = tex("recon_noisy", kIrradiance);
-  ResourceHandle motion = tex("recon_motion", kMotion);
-  ResourceHandle albedo = tex("recon_albedo", kIrradiance);
-  ResourceHandle emissive = tex("recon_emissive", kIrradiance);
-  ResourceHandle ping = tex("recon_ping", kIrradiance);
-  ResourceHandle pong = tex("recon_pong", kIrradiance);
-
-  // --- 1. gbuffer ---
-  graph.AddPass(
-      "recon_gbuffer",
-      [&](RenderGraph::PassBuilder& b) {
-        for (ResourceHandle h : {noisy, nr_c, vz_c, motion, id_c, albedo, emissive})
-          b.Write(h, ResourceUsage::kStorageWrite);
-      },
-      [this, &raytracing, tlas_slot, bindless_set, sky_view, prefiltered_view, sky_sampler, noisy,
-       nr_c, vz_c, motion, id_c, albedo, emissive, frame](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(gbuffer_set_);
-        ResourceHandle outs[7] = {noisy, nr_c, vz_c, motion, id_c, albedo, emissive};
-        VkDescriptorImageInfo si[7];
-        VkWriteDescriptorSet w[10];
-        for (u32 i = 0; i < 7; ++i) {
-          si[i] = Storage(ctx.graph->image(outs[i]).view);
-          w[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = i,
-                  .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &si[i]};
-        }
-        VkAccelerationStructureKHR tlas = raytracing.tlas(tlas_slot);
-        VkWriteDescriptorSetAccelerationStructureKHR ai{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-        ai.accelerationStructureCount = 1;
-        ai.pAccelerationStructures = &tlas;
-        w[7] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = &ai, .dstSet = set,
-                .dstBinding = 7, .descriptorCount = 1, .descriptorType = kAccel};
-        VkDescriptorImageInfo sky{.sampler = sky_sampler, .imageView = sky_view,
-                                  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        w[8] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 8,
-                .descriptorCount = 1, .descriptorType = kCombined, .pImageInfo = &sky};
-        VkDescriptorImageInfo prefiltered{.sampler = sky_sampler, .imageView = prefiltered_view,
-                                          .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        w[9] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 9,
-                .descriptorCount = 1, .descriptorType = kCombined, .pImageInfo = &prefiltered};
-        vkUpdateDescriptorSets(ctx.device->device(), 10, w, 0, nullptr);
-
-        GbufferPush p{};
-        p.inv_view_proj = frame.inv_view_proj;
-        p.view_proj = frame.view_proj;
-        p.prev_view_proj = frame.prev_view_proj;
-        p.camera_pos[0] = frame.camera_pos.x; p.camera_pos[1] = frame.camera_pos.y;
-        p.camera_pos[2] = frame.camera_pos.z;
-        Vec3 sun = Normalize(frame.sun_direction);
-        p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
-        p.sun_direction[3] = frame.sun_intensity;
-        p.sun_color[0] = frame.sun_color.x; p.sun_color[1] = frame.sun_color.y;
-        p.sun_color[2] = frame.sun_color.z; p.sun_color[3] = frame.sun_radius;
-        p.spp = frame.spp < 1 ? 1u : frame.spp;
-        p.pixel_spread = frame.pixel_spread;
-        p.frame_index = frame.frame_index;
-        p.bounces = bounces_;
-        VkDescriptorSet sets[2] = {set, bindless_set};
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gbuffer_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gbuffer_layout_, 0, 2, sets,
-                                0, nullptr);
-        vkCmdPushConstants(ctx.cmd, gbuffer_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(p), &p);
-        vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
-      });
-
-  // --- 2. temporal accumulation ---
+void ReconPathTracer::RunTemporal(RenderGraph& graph, ResourceHandle noisy, ResourceHandle ac_c,
+                                  ResourceHandle ac_p, ResourceHandle mo_c, ResourceHandle mo_p,
+                                  ResourceHandle nr_c, ResourceHandle nr_p, ResourceHandle vz_c,
+                                  ResourceHandle vz_p, ResourceHandle id_c, ResourceHandle id_p,
+                                  ResourceHandle motion, const Frame& frame) {
   graph.AddPass(
       "recon_temporal",
       [&](RenderGraph::PassBuilder& b) {
@@ -357,11 +278,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         vkCmdPushConstants(ctx.cmd, temporal_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(p), &p);
         vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
       });
+}
 
-  // --- 3. a-trous (N passes, ping-pong) ---
-  u32 passes = frame.atrous_passes == 0 ? 1u : frame.atrous_passes;
-  ResourceHandle in = ac_c;
-  ResourceHandle denoised = ac_c;
+ResourceHandle ReconPathTracer::RunAtrous(RenderGraph& graph, ResourceHandle in, ResourceHandle ping,
+                                          ResourceHandle pong, ResourceHandle nr_c,
+                                          ResourceHandle vz_c, ResourceHandle mo_c, u32 passes) {
+  ResourceHandle denoised = in;
   for (u32 i = 0; i < passes; ++i) {
     ResourceHandle out = (i & 1u) ? pong : ping;
     graph.AddPass(
@@ -403,30 +325,142 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
     in = out;
     denoised = out;
   }
+  return denoised;
+}
+
+void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
+                                 VkDescriptorSet bindless_set, VkImageView sky_view,
+                                 VkSampler sky_sampler, ResourceHandle output, const Frame& frame) {
+  u32 cur = frame.frame_index & 1u;
+  u32 prv = 1u - cur;
+  auto imp = [&](const char* name, PingPong& pp, u32 i) {
+    return graph.ImportImage(name, pp.image[i], &pp.layout[i]);
+  };
+
+  // Shared gbuffer history (both signals reproject/reject against the same surface).
+  ResourceHandle nr_c = imp("recon_nr_c", normal_rough_, cur);
+  ResourceHandle nr_p = imp("recon_nr_p", normal_rough_, prv);
+  ResourceHandle vz_c = imp("recon_vz_c", viewz_, cur);
+  ResourceHandle vz_p = imp("recon_vz_p", viewz_, prv);
+  ResourceHandle id_c = imp("recon_id_c", matid_, cur);
+  ResourceHandle id_p = imp("recon_id_p", matid_, prv);
+  // Diffuse + specular history.
+  ResourceHandle ac_c = imp("recon_ac_c", accum_, cur);
+  ResourceHandle ac_p = imp("recon_ac_p", accum_, prv);
+  ResourceHandle mo_c = imp("recon_mo_c", moments_, cur);
+  ResourceHandle mo_p = imp("recon_mo_p", moments_, prv);
+  ResourceHandle sac_c = imp("recon_sac_c", spec_accum_, cur);
+  ResourceHandle sac_p = imp("recon_sac_p", spec_accum_, prv);
+  ResourceHandle smo_c = imp("recon_smo_c", spec_moments_, cur);
+  ResourceHandle smo_p = imp("recon_smo_p", spec_moments_, prv);
+
+  auto tex = [&](const char* name, VkFormat fmt) {
+    return graph.CreateTexture({.name = name, .format = fmt, .width = extent_.width,
+                                .height = extent_.height});
+  };
+  ResourceHandle noisy = tex("recon_noisy", kIrradiance);
+  ResourceHandle spec_noisy = tex("recon_spec_noisy", kIrradiance);
+  ResourceHandle motion = tex("recon_motion", kMotion);
+  ResourceHandle albedo = tex("recon_albedo", kIrradiance);
+  ResourceHandle emissive = tex("recon_emissive", kIrradiance);
+  ResourceHandle ping = tex("recon_ping", kIrradiance);
+  ResourceHandle pong = tex("recon_pong", kIrradiance);
+  ResourceHandle spec_ping = tex("recon_spec_ping", kIrradiance);
+  ResourceHandle spec_pong = tex("recon_spec_pong", kIrradiance);
+
+  // --- 1. gbuffer ---
+  graph.AddPass(
+      "recon_gbuffer",
+      [&](RenderGraph::PassBuilder& b) {
+        for (ResourceHandle h : {noisy, nr_c, vz_c, motion, id_c, albedo, emissive, spec_noisy})
+          b.Write(h, ResourceUsage::kStorageWrite);
+      },
+      [this, &raytracing, tlas_slot, bindless_set, sky_view, sky_sampler, noisy, nr_c, vz_c, motion,
+       id_c, albedo, emissive, spec_noisy, frame](PassContext& ctx) {
+        VkDescriptorSet set = ctx.allocate_set(gbuffer_set_);
+        ResourceHandle outs[7] = {noisy, nr_c, vz_c, motion, id_c, albedo, emissive};
+        VkDescriptorImageInfo si[8];
+        VkWriteDescriptorSet w[10];
+        for (u32 i = 0; i < 7; ++i) {
+          si[i] = Storage(ctx.graph->image(outs[i]).view);
+          w[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = i,
+                  .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &si[i]};
+        }
+        VkAccelerationStructureKHR tlas = raytracing.tlas(tlas_slot);
+        VkWriteDescriptorSetAccelerationStructureKHR ai{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+        ai.accelerationStructureCount = 1;
+        ai.pAccelerationStructures = &tlas;
+        w[7] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .pNext = &ai, .dstSet = set,
+                .dstBinding = 7, .descriptorCount = 1, .descriptorType = kAccel};
+        VkDescriptorImageInfo sky{.sampler = sky_sampler, .imageView = sky_view,
+                                  .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        w[8] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 8,
+                .descriptorCount = 1, .descriptorType = kCombined, .pImageInfo = &sky};
+        si[7] = Storage(ctx.graph->image(spec_noisy).view);
+        w[9] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 9,
+                .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &si[7]};
+        vkUpdateDescriptorSets(ctx.device->device(), 10, w, 0, nullptr);
+
+        GbufferPush p{};
+        p.inv_view_proj = frame.inv_view_proj;
+        p.view_proj = frame.view_proj;
+        p.prev_view_proj = frame.prev_view_proj;
+        p.camera_pos[0] = frame.camera_pos.x; p.camera_pos[1] = frame.camera_pos.y;
+        p.camera_pos[2] = frame.camera_pos.z;
+        Vec3 sun = Normalize(frame.sun_direction);
+        p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
+        p.sun_direction[3] = frame.sun_intensity;
+        p.sun_color[0] = frame.sun_color.x; p.sun_color[1] = frame.sun_color.y;
+        p.sun_color[2] = frame.sun_color.z; p.sun_color[3] = frame.sun_radius;
+        p.spp = frame.spp < 1 ? 1u : frame.spp;
+        p.pixel_spread = frame.pixel_spread;
+        p.frame_index = frame.frame_index;
+        p.bounces = bounces_;
+        VkDescriptorSet sets[2] = {set, bindless_set};
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gbuffer_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gbuffer_layout_, 0, 2, sets,
+                                0, nullptr);
+        vkCmdPushConstants(ctx.cmd, gbuffer_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(p), &p);
+        vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
+      });
+
+  // --- 2. temporal accumulation (diffuse + specular share the gbuffer history) ---
+  RunTemporal(graph, noisy, ac_c, ac_p, mo_c, mo_p, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion,
+              frame);
+  RunTemporal(graph, spec_noisy, sac_c, sac_p, smo_c, smo_p, nr_c, nr_p, vz_c, vz_p, id_c, id_p,
+              motion, frame);
+
+  // --- 3. a-trous (N passes, ping-pong) for each signal ---
+  u32 passes = frame.atrous_passes == 0 ? 1u : frame.atrous_passes;
+  ResourceHandle denoised = RunAtrous(graph, ac_c, ping, pong, nr_c, vz_c, mo_c, passes);
+  ResourceHandle spec_denoised =
+      RunAtrous(graph, sac_c, spec_ping, spec_pong, nr_c, vz_c, smo_c, passes);
 
   // --- 4. composite ---
   graph.AddPass(
       "recon_composite",
       [&](RenderGraph::PassBuilder& b) {
         b.Write(output, ResourceUsage::kStorageWrite);
-        for (ResourceHandle h : {albedo, denoised, emissive, mo_c, nr_c, motion})
+        for (ResourceHandle h : {albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised})
           b.Read(h, ResourceUsage::kSampledCompute);
       },
-      [this, output, albedo, denoised, emissive, mo_c, nr_c, motion, frame](PassContext& ctx) {
+      [this, output, albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised,
+       frame](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(composite_set_);
         VkDescriptorImageInfo o = Storage(ctx.graph->image(output).view);
-        ResourceHandle reads[6] = {albedo, denoised, emissive, mo_c, nr_c, motion};
-        VkDescriptorImageInfo ri[6];
-        VkWriteDescriptorSet w[7];
+        ResourceHandle reads[7] = {albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised};
+        VkDescriptorImageInfo ri[7];
+        VkWriteDescriptorSet w[8];
         w[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 0,
                 .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &o};
-        for (u32 i = 0; i < 6; ++i) {
+        for (u32 i = 0; i < 7; ++i) {
           ri[i] = Read(ctx.graph->image(reads[i]).view);
           w[i + 1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set,
                       .dstBinding = i + 1, .descriptorCount = 1, .descriptorType = kSampled,
                       .pImageInfo = &ri[i]};
         }
-        vkUpdateDescriptorSets(ctx.device->device(), 7, w, 0, nullptr);
+        vkUpdateDescriptorSets(ctx.device->device(), 8, w, 0, nullptr);
 
         CompositePush p{};
         p.size[0] = extent_.width; p.size[1] = extent_.height;

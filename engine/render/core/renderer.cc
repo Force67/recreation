@@ -1107,8 +1107,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.atrous_passes = settings_.path_trace_recon_atrous;
       rf.debug_mode = settings_.path_trace_recon_debug;
       recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
-                                    environment_->sky_view(), environment_->prefiltered_view(),
-                                    environment_->sampler(), scene_color, rf);
+                                    environment_->sky_view(), environment_->sampler(), scene_color,
+                                    rf);
     }
 #if defined(RECREATION_HAS_NRD)
     if (!recon_path && nrd_.available() && !settings_.path_trace_reference) {

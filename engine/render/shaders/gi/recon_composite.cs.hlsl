@@ -4,7 +4,7 @@
 // the pipeline can be tuned by sight, not blind.
 struct ReconCompositePush {
   uint2 size;
-  uint debug_mode;  // 0 final, 1 denoised irradiance, 2 history len, 3 variance, 4 motion, 5 normal, 6 albedo
+  uint debug_mode;  // 0 final,1 irradiance,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
   float max_history;
 };
 [[vk::push_constant]] ReconCompositePush pc;
@@ -16,6 +16,7 @@ struct ReconCompositePush {
 [[vk::binding(4, 0)]] Texture2D<float4> moments;
 [[vk::binding(5, 0)]] Texture2D<float4> normal_rough;
 [[vk::binding(6, 0)]] Texture2D<float2> motion;
+[[vk::binding(7, 0)]] Texture2D<float4> specular;  // denoised reflection
 
 static const float kInvPi = 0.31830988618;
 
@@ -27,7 +28,8 @@ void main(uint3 tid : SV_DispatchThreadID) {
   float3 alb = albedo.Load(int3(p, 0)).rgb;
   float3 e = irradiance.Load(int3(p, 0)).rgb;
   float3 em = emissive.Load(int3(p, 0)).rgb;
-  float3 color = alb * kInvPi * e + em;
+  float3 spec = specular.Load(int3(p, 0)).rgb;  // already F*weight*radiance, just add
+  float3 color = alb * kInvPi * e + em + spec;
 
   if (pc.debug_mode == 1u) {
     color = e * kInvPi;  // denoised lighting (albedo-free)
@@ -43,6 +45,8 @@ void main(uint3 tid : SV_DispatchThreadID) {
     color = normal_rough.Load(int3(p, 0)).xyz;  // encoded 0..1
   } else if (pc.debug_mode == 6u) {
     color = alb;
+  } else if (pc.debug_mode == 7u) {
+    color = spec;  // denoised specular reflection only
   }
 
   out_color[p] = float4(color, 1.0);

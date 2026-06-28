@@ -350,7 +350,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             ImGui::Text("  accumulated %u spp", renderer.path_trace_samples());
           } else if (settings.path_trace_recon) {
             const char* dbg[] = {"Final", "Lighting", "History len", "Variance",
-                                 "Motion", "Normal", "Albedo"};
+                                 "Motion", "Normal", "Albedo", "Specular"};
             int d = static_cast<int>(settings.path_trace_recon_debug);
             if (ImGui::Combo("  Debug view", &d, dbg, IM_ARRAYSIZE(dbg)))
               settings.path_trace_recon_debug = static_cast<u32>(d);

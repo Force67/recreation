@@ -30,8 +30,7 @@ struct PathGbufferPush {
 [[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas;
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube;
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(9, 0)]] TextureCube prefiltered_cube;  // ggx, 6 mips
-[[vk::combinedImageSampler]] [[vk::binding(9, 0)]] SamplerState prefiltered_sampler;
+[[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out;  // noisy
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -301,17 +300,44 @@ float3 SunSpecular(float3 pos, float3 N, float3 V, float3 albedo, float rough, f
   return spec * pc.sun_color.rgb * pc.sun_direction.w * saturate(NoL);
 }
 
-// Environment specular: the ggx-prefiltered sky reflected off the surface. Also
-// noise-free (a single cube fetch), so it joins the un-denoised channel. The
-// roughness-aware Fresnel keeps rough terrain to a faint sky tint while smooth
-// surfaces get a real reflection. Lifts the flat-matte look everywhere.
-float3 EnvSpecular(float3 N, float3 V, float3 albedo, float rough, float metal) {
+// Traced specular reflection: one GGX-importance-sampled reflection ray, shaded
+// (geometry: emissive + direct; miss: sky), weighted by the NDF-sampling estimator
+// F*G*VoH/(NoH*NoV). NOISY (1 spp), so it goes to the separately-denoised specular
+// channel. Smooth surfaces have a tight lobe (near-deterministic -> low variance ->
+// the denoiser barely blurs it -> sharp reflection); rough surfaces spread out and
+// get smoothed. Replaces the prefiltered-sky approximation.
+float3 SpecularReflection(float3 pos, float3 N, float3 V, float3 base_color, float rough,
+                          float metal, inout uint rng) {
   float NoV = saturate(dot(N, V));
-  float3 R = reflect(-V, N);
-  float3 env = prefiltered_cube.SampleLevel(prefiltered_sampler, R, rough * 5.0).rgb;  // 6 mips
-  float3 f0 = lerp(0.04.xxx, albedo, metal);
-  float3 fr = f0 + (max((1.0 - rough).xxx, f0) - f0) * pow(saturate(1.0 - NoV), 5.0);
-  return min(env, 8.0.xxx) * fr;
+  if (NoV <= 0.0) return 0.0.xxx;
+  float a = max(rough * rough, 1e-3);
+  // Sample a half-vector from the GGX NDF (Walter 2007).
+  float u1 = Rand(rng), u2 = Rand(rng);
+  float phi = 2.0 * kPi * u1;
+  float ct = sqrt((1.0 - u2) / (1.0 + (a * a - 1.0) * u2));
+  float st = sqrt(max(0.0, 1.0 - ct * ct));
+  float3 up = abs(N.z) < 0.999 ? float3(0, 0, 1) : float3(1, 0, 0);
+  float3 t = normalize(cross(up, N));
+  float3 b = cross(N, t);
+  float3 H = normalize(t * (st * cos(phi)) + b * (st * sin(phi)) + N * ct);
+  float3 L = reflect(-V, H);
+  float NoL = dot(N, L);
+  if (NoL <= 0.0) return 0.0.xxx;
+
+  Hit h = TraceClosest(pos + N * 0.002, L, kSecondarySpread, false);
+  float3 Li = h.hit ? (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng))
+                    : SampleSky(L);
+
+  float VoH = saturate(dot(V, H));
+  float NoH = saturate(dot(N, H));
+  float3 f0 = lerp(0.04.xxx, base_color, metal);
+  float3 F = F_Schlick(VoH, f0);
+  // weight = G*VoH/(NoH*NoV); with V=G/(4 NoL NoV) this is 4*NoL*V*VoH/NoH.
+  float w = 4.0 * saturate(NoL) * V_SmithGGX(NoV, saturate(NoL), a) * VoH / (NoH + 1e-4);
+  float3 spec = F * w * Li;
+  float lum = dot(spec, float3(0.2126, 0.7152, 0.0722));
+  if (lum > kFireflyClamp) spec *= kFireflyClamp / lum;
+  return spec;
 }
 
 [numthreads(8, 8, 1)]
@@ -342,6 +368,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     materialid_out[id.xy] = 0xffffffffu;
     albedo_out[id.xy] = 0.0.xxxx;
     emissive_out[id.xy] = float4(SampleSky(primary_dir), 1.0);
+    specular_out[id.xy] = 0.0.xxxx;
     return;
   }
 
@@ -394,11 +421,19 @@ void main(uint3 id : SV_DispatchThreadID) {
   float2 prev_ndc = prev_clip.xy / prev_clip.w;
   float2 motion = (prev_ndc - ndc) * 0.5;  // engine convention, no y-flip
 
-  // Analytic sun specular: noise-free, added to the un-denoised emissive channel
-  // so the highlight stays sharp (the diffuse denoiser never touches it).
+  // Two specular contributions, kept apart by noise level:
+  //  - analytic sun glint: noise-free direct highlight of the sun -> un-denoised
+  //    emissive (a GGX ray rarely hits the tiny sun, so handle it analytically).
+  //  - traced reflection of the environment/geometry: noisy -> its own denoised
+  //    channel (specular_out).
   float3 V = -primary_dir;
-  float3 specular = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic) +
-                    EnvSpecular(prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
+  float3 sun_glint = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
+  float3 reflection = SpecularReflection(prim.position, prim.normal, V, prim.albedo, prim.roughness,
+                                         prim.metallic, rng);
+  reflection.x = reflection.x >= 0.0 ? reflection.x : 0.0;
+  reflection.y = reflection.y >= 0.0 ? reflection.y : 0.0;
+  reflection.z = reflection.z >= 0.0 ? reflection.z : 0.0;
+  reflection = min(reflection, 1.0e4.xxx);
 
   irradiance_out[id.xy] = float4(irradiance, 1.0);
   normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, prim.roughness);
@@ -408,5 +443,6 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Metallic-workflow energy split: metals have no diffuse albedo (their response
   // is all in the specular lobe), dielectrics keep theirs.
   albedo_out[id.xy] = float4(prim.albedo * (1.0 - prim.metallic), 1.0);
-  emissive_out[id.xy] = float4(prim.emissive + specular, 1.0);
+  emissive_out[id.xy] = float4(prim.emissive + sun_glint, 1.0);
+  specular_out[id.xy] = float4(reflection, 1.0);
 }

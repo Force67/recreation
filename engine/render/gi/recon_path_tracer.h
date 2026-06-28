@@ -45,8 +45,8 @@ class ReconPathTracer {
   // Reconstructs the path-traced image into output (scene_color, an hdr storage
   // image), in place of the raster path.
   void AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                  VkDescriptorSet bindless_set, VkImageView sky_view, VkImageView prefiltered_view,
-                  VkSampler sky_sampler, ResourceHandle output, const Frame& frame);
+                  VkDescriptorSet bindless_set, VkImageView sky_view, VkSampler sky_sampler,
+                  ResourceHandle output, const Frame& frame);
 
  private:
   struct PingPong {
@@ -57,6 +57,16 @@ class ReconPathTracer {
   bool CreatePipelines(Device& device, VkDescriptorSetLayout bindless_layout);
   void CreateBuffers(Device& device, VkExtent2D extent);
   void DestroyBuffers(Device& device);
+
+  // Reusable per-signal reconstruction (diffuse irradiance and specular both run
+  // through these; they share the gbuffer history nr/viewz/matid + motion).
+  void RunTemporal(RenderGraph& graph, ResourceHandle noisy, ResourceHandle ac_c,
+                   ResourceHandle ac_p, ResourceHandle mo_c, ResourceHandle mo_p, ResourceHandle nr_c,
+                   ResourceHandle nr_p, ResourceHandle vz_c, ResourceHandle vz_p, ResourceHandle id_c,
+                   ResourceHandle id_p, ResourceHandle motion, const Frame& frame);
+  ResourceHandle RunAtrous(RenderGraph& graph, ResourceHandle in, ResourceHandle ping,
+                           ResourceHandle pong, ResourceHandle nr_c, ResourceHandle vz_c,
+                           ResourceHandle mo_c, u32 passes);
 
   Device* device_ = nullptr;
   VkExtent2D extent_{};
@@ -81,8 +91,10 @@ class ReconPathTracer {
   VkPipeline composite_pipeline_ = VK_NULL_HANDLE;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
-  PingPong accum_;        // rgba16f accumulated irradiance
+  PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
   PingPong moments_;      // rgba16f mean, meanSq, variance, historyLen
+  PingPong spec_accum_;   // rgba16f accumulated specular + variance
+  PingPong spec_moments_; // rgba16f specular moments
   PingPong normal_rough_; // rgba16f normal*0.5+0.5, roughness
   PingPong viewz_;        // r32f
   PingPong matid_;        // r32ui
