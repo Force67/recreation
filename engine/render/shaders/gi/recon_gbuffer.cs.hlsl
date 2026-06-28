@@ -30,6 +30,8 @@ struct PathGbufferPush {
 [[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas;
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube;
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(9, 0)]] TextureCube prefiltered_cube;  // ggx, 6 mips
+[[vk::combinedImageSampler]] [[vk::binding(9, 0)]] SamplerState prefiltered_sampler;
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -299,6 +301,19 @@ float3 SunSpecular(float3 pos, float3 N, float3 V, float3 albedo, float rough, f
   return spec * pc.sun_color.rgb * pc.sun_direction.w * saturate(NoL);
 }
 
+// Environment specular: the ggx-prefiltered sky reflected off the surface. Also
+// noise-free (a single cube fetch), so it joins the un-denoised channel. The
+// roughness-aware Fresnel keeps rough terrain to a faint sky tint while smooth
+// surfaces get a real reflection. Lifts the flat-matte look everywhere.
+float3 EnvSpecular(float3 N, float3 V, float3 albedo, float rough, float metal) {
+  float NoV = saturate(dot(N, V));
+  float3 R = reflect(-V, N);
+  float3 env = prefiltered_cube.SampleLevel(prefiltered_sampler, R, rough * 5.0).rgb;  // 6 mips
+  float3 f0 = lerp(0.04.xxx, albedo, metal);
+  float3 fr = f0 + (max((1.0 - rough).xxx, f0) - f0) * pow(saturate(1.0 - NoV), 5.0);
+  return min(env, 8.0.xxx) * fr;
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
   uint sw, sh;
@@ -382,7 +397,8 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Analytic sun specular: noise-free, added to the un-denoised emissive channel
   // so the highlight stays sharp (the diffuse denoiser never touches it).
   float3 V = -primary_dir;
-  float3 specular = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
+  float3 specular = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic) +
+                    EnvSpecular(prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
 
   irradiance_out[id.xy] = float4(irradiance, 1.0);
   normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, prim.roughness);

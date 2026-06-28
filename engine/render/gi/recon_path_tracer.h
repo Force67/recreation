@@ -45,8 +45,8 @@ class ReconPathTracer {
   // Reconstructs the path-traced image into output (scene_color, an hdr storage
   // image), in place of the raster path.
   void AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                  VkDescriptorSet bindless_set, VkImageView sky_view, VkSampler sky_sampler,
-                  ResourceHandle output, const Frame& frame);
+                  VkDescriptorSet bindless_set, VkImageView sky_view, VkImageView prefiltered_view,
+                  VkSampler sky_sampler, ResourceHandle output, const Frame& frame);
 
  private:
   struct PingPong {

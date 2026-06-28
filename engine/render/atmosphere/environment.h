@@ -50,6 +50,7 @@ class EnvironmentSystem {
 
   VkDescriptorSetLayout env_set_layout() const { return env_set_layout_; }
   VkImageView sky_view() const { return sky_.view; }
+  VkImageView prefiltered_view() const { return prefiltered_.view; }  // ggx, kPrefilterMips
   VkImageView transmittance_view() const { return transmittance_lut_.view; }
   VkImageView multiscatter_view() const { return multiscatter_lut_.view; }
   VkSampler sampler() const { return sampler_; }

@@ -117,11 +117,12 @@ bool ReconPathTracer::Initialize(Device& device, VkDescriptorSetLayout bindless_
 bool ReconPathTracer::CreatePipelines(Device& device, VkDescriptorSetLayout bindless_layout) {
   VkDevice dev = device.device();
 
-  // gbuffer: 7 storage outputs, tlas (7), sky (8); set 1 bindless.
-  VkDescriptorSetLayoutBinding gb[9] = {Bind(0, kStorage), Bind(1, kStorage), Bind(2, kStorage),
-                                        Bind(3, kStorage), Bind(4, kStorage), Bind(5, kStorage),
-                                        Bind(6, kStorage), Bind(7, kAccel),   Bind(8, kCombined)};
-  gbuffer_set_ = MakeSetLayout(dev, gb, 9);
+  // gbuffer: 7 storage outputs, tlas (7), sky (8), prefiltered ggx cube (9); set 1 bindless.
+  VkDescriptorSetLayoutBinding gb[10] = {Bind(0, kStorage),  Bind(1, kStorage), Bind(2, kStorage),
+                                         Bind(3, kStorage),  Bind(4, kStorage), Bind(5, kStorage),
+                                         Bind(6, kStorage),  Bind(7, kAccel),   Bind(8, kCombined),
+                                         Bind(9, kCombined)};
+  gbuffer_set_ = MakeSetLayout(dev, gb, 10);
   VkDescriptorSetLayout gb_sets[2] = {gbuffer_set_, bindless_layout};
   gbuffer_layout_ = MakePipeLayout(dev, gb_sets, 2, sizeof(GbufferPush));
 
@@ -230,7 +231,8 @@ void ReconPathTracer::Destroy(Device& device) {
 
 void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
                                  VkDescriptorSet bindless_set, VkImageView sky_view,
-                                 VkSampler sky_sampler, ResourceHandle output, const Frame& frame) {
+                                 VkImageView prefiltered_view, VkSampler sky_sampler,
+                                 ResourceHandle output, const Frame& frame) {
   u32 cur = frame.frame_index & 1u;
   u32 prv = 1u - cur;
 
@@ -263,12 +265,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         for (ResourceHandle h : {noisy, nr_c, vz_c, motion, id_c, albedo, emissive})
           b.Write(h, ResourceUsage::kStorageWrite);
       },
-      [this, &raytracing, tlas_slot, bindless_set, sky_view, sky_sampler, noisy, nr_c, vz_c, motion,
-       id_c, albedo, emissive, frame](PassContext& ctx) {
+      [this, &raytracing, tlas_slot, bindless_set, sky_view, prefiltered_view, sky_sampler, noisy,
+       nr_c, vz_c, motion, id_c, albedo, emissive, frame](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(gbuffer_set_);
         ResourceHandle outs[7] = {noisy, nr_c, vz_c, motion, id_c, albedo, emissive};
         VkDescriptorImageInfo si[7];
-        VkWriteDescriptorSet w[9];
+        VkWriteDescriptorSet w[10];
         for (u32 i = 0; i < 7; ++i) {
           si[i] = Storage(ctx.graph->image(outs[i]).view);
           w[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = i,
@@ -285,7 +287,11 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
                                   .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         w[8] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 8,
                 .descriptorCount = 1, .descriptorType = kCombined, .pImageInfo = &sky};
-        vkUpdateDescriptorSets(ctx.device->device(), 9, w, 0, nullptr);
+        VkDescriptorImageInfo prefiltered{.sampler = sky_sampler, .imageView = prefiltered_view,
+                                          .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        w[9] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 9,
+                .descriptorCount = 1, .descriptorType = kCombined, .pImageInfo = &prefiltered};
+        vkUpdateDescriptorSets(ctx.device->device(), 10, w, 0, nullptr);
 
         GbufferPush p{};
         p.inv_view_proj = frame.inv_view_proj;
