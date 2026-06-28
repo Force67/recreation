@@ -266,6 +266,25 @@ void QuestDirector::AttachQuestScripts() {
       REC_INFO("debug: CW01A demo armed (clear the fort, then report to Rikke)");
     }
   }
+  // REC_CW_SIEGE_DEMO: start the real fort-siege quest at its
+  // battle stage (journal "assist in taking the fort"), stage a two-line clash the
+  // player fights in, and on victory advance to its completion stage 9000 ("We
+  // have succeeded in taking the fort"): a real Civil War siege quest's journal
+  // driven by a battle.
+  if (host && std::getenv("REC_CW_SIEGE_DEMO")) {
+    const u64 siege = FindQuestHandle("CWFortSiegeFort");
+    if (siege != 0) {
+      quest_panel_.selected = siege;
+      auto* binds = ctx_.bindings;
+      ctx_.scripts->guest().Submit([binds, siege](rec::script::papyrus::VirtualMachine&) {
+        binds->StartQuest(rec::script::papyrus::ObjectRef{siege});
+        binds->SetStage(rec::script::papyrus::ObjectRef{siege}, 10);  // "assist in taking the fort"
+      });
+      npc_->ArmCwFieldBattle();
+      npc_->set_battle_quest(siege, 9000);  // victory -> "succeeded in taking the fort"
+      REC_INFO("debug: CW fort siege demo armed (win the battle to take the fort)");
+    }
+  }
 
   // REC_JOURNAL opens the quest journal at load (it is normally toggled with J),
   // for screenshots (cf. RECREATION_UI_MENU / REC_HIDE_DEBUG_UI).
