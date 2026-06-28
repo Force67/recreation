@@ -52,11 +52,14 @@ struct MaterialRecord {
 [[vk::binding(3, 1)]] Texture2D bindless_textures[];
 [[vk::binding(4, 1)]] SamplerState bindless_sampler;
 
+// Pristine reference: this brute-force ground-truth accumulator deliberately
+// traces RAY_FLAG_FORCE_OPAQUE (no alpha-tested foliage), exactly as it did
+// before the playable/denoised work. The denoised gbuffer pass owns the
+// alpha-test + texture-lod improvements.
 static const float kPi = 3.14159265359;
 static const uint kVertexStride = 52;
 static const uint kNormalOffset = 12;
 static const uint kUvOffset = 40;
-static const uint kMaterialAlphaMask = 1u;  // MaterialRecord.flags bit0
 
 // pcg hash based rng in [0,1).
 uint Pcg(inout uint state) {
@@ -85,33 +88,6 @@ struct Hit {
   float3 emissive;
 };
 
-// Alpha-test a candidate hit on a non-opaque (cutout) triangle: foliage and
-// grass cards are masked materials, so the ray samples the base color alpha and
-// rejects below the cutoff instead of treating the quad as solid.
-bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary) {
-  MeshRecord mesh = mesh_records[NonUniformResourceIndex(inst)];
-  GeometryRecord geometry = geometry_records[mesh.geometry_offset + geom];
-  MaterialRecord m = material_records[NonUniformResourceIndex(geometry.material_index)];
-  if ((m.flags & kMaterialAlphaMask) == 0u || m.base_color_texture == 0xffffffffu) return true;
-  uint64_t index_base = mesh.index_address + (geometry.index_offset + prim * 3) * 4;
-  uint3 tri;
-  tri.x = vk::RawBufferLoad<uint>(index_base);
-  tri.y = vk::RawBufferLoad<uint>(index_base + 4);
-  tri.z = vk::RawBufferLoad<uint>(index_base + 8);
-  float3 w = float3(1.0 - bary.x - bary.y, bary.x, bary.y);
-  float2 uv = 0.0.xx;
-  [unroll]
-  for (uint c = 0; c < 3; ++c) {
-    uint64_t vertex = mesh.vertex_address + tri[c] * kVertexStride;
-    uv += vk::RawBufferLoad<float2>(vertex + kUvOffset, 4) * w[c];
-  }
-  float a = m.base_color_factor.a *
-            bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
-                .SampleLevel(bindless_sampler, uv, 0.0)
-                .a;
-  return a >= m.alpha_cutoff;
-}
-
 Hit TraceClosest(float3 origin, float3 dir) {
   Hit h;
   h.hit = false;
@@ -120,15 +96,9 @@ Hit TraceClosest(float3 origin, float3 dir) {
   ray.TMin = 0.001;
   ray.Direction = dir;
   ray.TMax = 1000.0;
-  RayQuery<RAY_FLAG_NONE> rq;
+  RayQuery<RAY_FLAG_FORCE_OPAQUE> rq;
   rq.TraceRayInline(tlas, RAY_FLAG_NONE, 0xff, ray);
-  while (rq.Proceed()) {
-    if (rq.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-        PassesAlpha(rq.CandidateInstanceID(), rq.CandidateGeometryIndex(),
-                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics())) {
-      rq.CommitNonOpaqueTriangleHit();
-    }
-  }
+  rq.Proceed();
   if (rq.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return h;
 
   h.hit = true;
@@ -173,15 +143,9 @@ bool Occluded(float3 origin, float3 dir, float dist) {
   ray.TMin = 0.001;
   ray.Direction = dir;
   ray.TMax = dist;
-  RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> rq;
+  RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_OPAQUE> rq;
   rq.TraceRayInline(tlas, RAY_FLAG_NONE, 0xff, ray);
-  while (rq.Proceed()) {
-    if (rq.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
-        PassesAlpha(rq.CandidateInstanceID(), rq.CandidateGeometryIndex(),
-                    rq.CandidatePrimitiveIndex(), rq.CandidateTriangleBarycentrics())) {
-      rq.CommitNonOpaqueTriangleHit();
-    }
-  }
+  rq.Proceed();
   return rq.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
 }
 
