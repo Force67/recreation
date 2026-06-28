@@ -54,3 +54,12 @@ public readonly struct FormLoaded(ulong formHandle) : IGameEvent
     public ObjectReference Reference => ObjectReference.From(FormHandle);
     public Actor Actor => Actor.From(FormHandle);
 }
+
+// Raised when the player activates (uses) a reference, the analog of gmod's
+// PlayerUse. Mods react to the player interacting with the world.
+public readonly struct PlayerActivated(ulong targetHandle) : IGameEvent
+{
+    public ulong TargetHandle { get; } = targetHandle;
+
+    public ObjectReference Target => ObjectReference.From(TargetHandle);
+}

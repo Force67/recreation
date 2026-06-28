@@ -11,6 +11,7 @@ public enum ManagedEventId : int
     ItemAdded = 2,           // A = container handle, B = item handle, I = count
     QuestStageChanged = 3,   // A = quest form id, I = stage
     FormLoaded = 4,          // A = form handle (its scripts attached / it went live)
+    PlayerActivated = 5,     // A = activated target handle
 }
 
 // An engine event payload. Byte-for-byte mirror of host/bridge.h ManagedEvent;
