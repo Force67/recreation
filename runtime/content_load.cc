@@ -169,7 +169,11 @@ bool LoadGameData(Engine& engine) {
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded
     // world rather than at interior-local coordinates floating in the exterior.
-    if (dest_ref != 0 && self->streamer_) {
+    // Only when the streamer actually follows the player (walk mode): in the
+    // default fly-camera mode the camera, not the player, anchors streaming, so a
+    // background start-game quest moving the (unfollowed) player must not unload
+    // the exterior and strand the camera in an interior.
+    if (self->ctx_.walk_mode && dest_ref != 0 && self->streamer_) {
       const bethesda::GlobalFormId ref{static_cast<u16>(dest_ref >> 32),
                                        static_cast<u32>(dest_ref & 0xffffffffu)};
       const bethesda::GlobalFormId interior = self->records_.InteriorCellOfRef(ref);
