@@ -168,7 +168,15 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   // fixed region (a chosen Commonwealth cell) regardless of the shared camera,
   // so its content stays put as a diorama beside the primary world. Engine ->
   // Bethesda: x = ex / s, y = -ez / s (height ey is irrelevant).
-  const Vec3& anchor = has_fixed_anchor_ ? fixed_anchor_ : camera_position;
+  // When streaming around the live camera, undo this domain's world offset first
+  // so the anchor lands in the domain's own cell coordinates: zero for the primary
+  // game, but a trailer domain recentered onto the shared camera maps its region
+  // back to its real cells here.
+  const Vec3 anchor = has_fixed_anchor_
+                          ? fixed_anchor_
+                          : Vec3{camera_position.x - world_offset_.x,
+                                 camera_position.y - world_offset_.y,
+                                 camera_position.z - world_offset_.z};
   f32 beth_x = anchor.x / kUnitsToMeters;
   f32 beth_y = -anchor.z / kUnitsToMeters;
   i16 center_x = static_cast<i16>(std::floor(beth_x / kCellSize));
@@ -1113,6 +1121,24 @@ void CellStreamer::EnterExterior(ecs::World& world) {
   if (on_location_change_) on_location_change_(0, false);
   // The exterior cells were unloaded on the way in; Update re-streams them
   // around the camera on the next tick.
+}
+
+void CellStreamer::UnloadAllCells(ecs::World& world) {
+  // Everything this streamer spawned: exterior cells, any active interior, and
+  // the distant LOD proxies. Collect keys first (UnloadCell erases as it goes).
+  base::Vector<u32> keys;
+  for (auto kv : loaded_) keys.push_back(kv.key);
+  for (u32 key : keys) UnloadCell(world, key);
+  if (interior_active_) {
+    UnloadInterior(world);
+    interior_active_ = false;
+  }
+  for (ecs::Entity entity : distant_entities_) world.Destroy(entity);
+  distant_entities_.clear();
+  distant_quads_.clear();
+  distant_next_ = 0;
+  distant_discovered_ = false;  // re-discovered if this domain becomes active again
+  announced_idle_ = false;
 }
 
 }  // namespace rec::world
