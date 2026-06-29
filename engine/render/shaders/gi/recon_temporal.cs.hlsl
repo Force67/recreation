@@ -52,18 +52,42 @@ void main(uint3 tid : SV_DispatchThreadID) {
 
   float2 uv = (float2(p) + 0.5) * pc.inv_size;
   float2 prev_uv = uv + motion.Load(int3(p, 0));
-  int2 pp = int2(prev_uv * float2(pc.size));
 
-  bool valid = pc.reset == 0.0 && ValidateHistory(p, pp);
+  // Bilinear reprojection: gather the 2x2 prev texels around the (sub-pixel)
+  // history sample, weighting by the bilinear fraction AND per-tap validity, so
+  // sub-pixel camera pans track smoothly instead of snapping to integer texels.
+  // floor()+per-tap InBounds also drops off-screen taps cleanly (no truncate-to-0
+  // aliasing for slightly-negative coords).
+  float2 prev_pix = prev_uv * float2(pc.size) - 0.5;
+  int2 base = int2(floor(prev_pix));
+  float2 fr = prev_pix - float2(base);
+  float bw[4] = {(1.0 - fr.x) * (1.0 - fr.y), fr.x * (1.0 - fr.y), (1.0 - fr.x) * fr.y,
+                 fr.x * fr.y};
+  const int2 off[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
 
   float3 prev_c = 0.0.xxx;
   float2 prev_m = 0.0.xx;
   float prev_len = 0.0;
+  float wsum = 0.0;
+  if (pc.reset == 0.0) {
+    [unroll]
+    for (uint k = 0; k < 4; ++k) {
+      int2 pp = base + off[k];
+      if (bw[k] <= 0.0 || !ValidateHistory(p, pp)) continue;
+      float w = bw[k];
+      prev_c += w * prev_accum.Load(int3(pp, 0)).rgb;
+      float4 pm = prev_moments.Load(int3(pp, 0));
+      prev_m += w * pm.xy;
+      prev_len += w * pm.w;
+      wsum += w;
+    }
+  }
+  bool valid = wsum > 0.0;
   if (valid) {
-    prev_c = prev_accum.Load(int3(pp, 0)).rgb;
-    float4 pm = prev_moments.Load(int3(pp, 0));
-    prev_m = pm.xy;
-    prev_len = pm.w;
+    float inv = 1.0 / wsum;
+    prev_c *= inv;
+    prev_m *= inv;
+    prev_len *= inv;
   }
 
   // Neighborhood clamp of the reprojected history to the current 3x3 range
