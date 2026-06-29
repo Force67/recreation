@@ -224,14 +224,19 @@ bool Engine::RunFrame() {
                    climate ? climate->size() : default_climate_.size());
         }
       }
-      // Ambient audio bed: follow the region the player stands in (the same REGN
-      // the weather resolution tracks) and whether they are indoors. The director
-      // cross-fades to the region's authored ambience, and to silence inside, only
-      // when the chosen bed changes.
-      if (audio_) {
+      // Ambient audio bed: resolve the REGN region the player stands in (its own
+      // point-in-polygon test, independent of the weather system which may be
+      // pinned off) and whether they are indoors. The director cross-fades to the
+      // region's authored ambience, and to silence inside, when the bed changes.
+      if (audio_ && !region_ambience_.empty()) {
+        Vec3 anchor = camera_.position();
+        Vec3 ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+        constexpr f32 kEngineToGame = 1.0f / 0.01428f;  // metres -> Bethesda units
         audio::AmbientContext ambient;
         ambient.interior = streamer_ && streamer_->in_interior();
-        ambient.region = active_region_;
+        ambient.region =
+            region_ambience_.RegionAt(anchor.x * kEngineToGame, -anchor.z * kEngineToGame);
         ambient_director_.Update(ambient);
       }
 

@@ -54,12 +54,13 @@ struct MaterialRecord {
   float alpha_cutoff;
   float roughness;
   float metallic;
-  uint metallic_roughness_texture;
-  uint pad0;
-  uint pad1;
+  uint metallic_roughness_texture;  // terrain: land layer 2
+  uint terrain_layer1_texture;      // terrain: land layer 1
+  uint terrain_weight_texture;      // terrain: per-cell weight map
   uint pad2;
 };
 static const uint kMaterialAlphaMask = 1u;
+static const uint kMaterialTerrain = 2u;
 [[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
 [[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
 [[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
@@ -113,6 +114,28 @@ float ConeLod(uint tex, float2 uv0, float2 uv1, float2 uv2, float3 e1, float3 e2
   float world_area = length(cross(e1, e2));
   float density = 0.5 * log2(max(uv_area, 1e-12) * float(tw) * float(th) / max(world_area, 1e-12));
   return density + log2(max(cone_width / max(ndotd, 0.1), 1e-7));
+}
+
+// Runtime terrain splat (mirrors mesh_rt.ps TerrainAlbedo): three land layers
+// tiled at the native 8x repeat, blended by the per-cell weight map. The land
+// layers live in the base-color / layer1 / metallic-roughness bindless slots;
+// the weight map in the terrain_weight slot.
+float3 TerrainAlbedo(MaterialRecord m, float2 uvv0, float2 uvv1, float2 uvv2, float2 uv,
+                     float3 e1, float3 e2, float cone_width, float ndotd) {
+  float3 w = bindless_textures[NonUniformResourceIndex(m.terrain_weight_texture)]
+                 .SampleLevel(bindless_sampler, uv, 0.0).rgb;
+  float wsum = w.r + w.g + w.b;
+  w = wsum > 1e-4 ? w / wsum : float3(1.0, 0.0, 0.0);
+  float2 t0 = uvv0 * 8.0, t1 = uvv1 * 8.0, t2 = uvv2 * 8.0, tuv = uv * 8.0;
+  uint layers[3] = {m.base_color_texture, m.terrain_layer1_texture, m.metallic_roughness_texture};
+  float3 albedo = 0.0.xxx;
+  [unroll]
+  for (uint i = 0; i < 3; ++i) {
+    float lod = ConeLod(layers[i], t0, t1, t2, e1, e2, cone_width, ndotd);
+    albedo += w[i] * bindless_textures[NonUniformResourceIndex(layers[i])]
+                         .SampleLevel(bindless_sampler, tuv, clamp(lod, 0.0, 16.0)).rgb;
+  }
+  return albedo;
 }
 
 bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary, float cone_width) {
@@ -197,13 +220,16 @@ Hit TraceClosest(float3 origin, float3 dir, float cone_spread) {
   h.normal = n;
 
   MaterialRecord m = material_records[NonUniformResourceIndex(geometry.material_index)];
+  // Ray-cone mip so textures stop minification-aliasing into shimmer at range.
+  float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
+  float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
+  float ndotd = abs(dot(n, dir));
   float3 albedo = m.base_color_factor.rgb;
-  if (m.base_color_texture != 0xffffffffu) {
-    // Ray-cone mip so textures stop minification-aliasing into shimmer at range.
-    float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
-    float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
+  if ((m.flags & kMaterialTerrain) != 0u) {
+    albedo *= TerrainAlbedo(m, uvv[0], uvv[1], uvv[2], uv, e1, e2, cone_spread * hit_t, ndotd);
+  } else if (m.base_color_texture != 0xffffffffu) {
     float lod = ConeLod(m.base_color_texture, uvv[0], uvv[1], uvv[2], e1, e2,
-                        cone_spread * hit_t, abs(dot(n, dir)));
+                        cone_spread * hit_t, ndotd);
     albedo *= bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
                   .SampleLevel(bindless_sampler, uv, clamp(lod, 0.0, 16.0)).rgb;
   }

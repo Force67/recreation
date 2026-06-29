@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "audio/sound_catalog.h"
@@ -17,24 +18,37 @@ namespace rec::audio {
 
 class AudioSystem;
 
-// REGN region -> its authored ambient sounds. A Skyrim region carries a weighted
-// list of looping ambiences (the wind on the tundra, the gulls at the coast); we
-// parse the sound entries out of the region records and, given a region, return
-// the sound forms it should play. Pure data, like weather's RegionWeather.
+// REGN region -> its authored ambient sounds, with the region's worldspace
+// polygon. A Skyrim region carries a weighted list of looping ambiences (the wind
+// on the tundra, the gulls at the coast) and the area it covers; we parse both so
+// the director can resolve, on its own, which region the player stands in. This
+// is independent of the weather system's regions, which the engine may pin off.
 class RegionAmbience {
  public:
-  // Parses every REGN's sound section into the region -> sound-forms map.
-  void Build(const bethesda::RecordStore& records);
+  // Parses every REGN that belongs to `worldspace` (pass a 0xffff-plugin id to
+  // accept all) and has both an area polygon and ambient sounds.
+  void Build(const bethesda::RecordStore& records, bethesda::GlobalFormId worldspace);
+
+  // The region (its REGN form, packed) whose polygon contains the worldspace
+  // point (game units, x/y), or 0 when the point is in no ambient region. Higher
+  // priority wins where regions overlap.
+  u64 RegionAt(f32 x, f32 y) const;
 
   // The ambient sound forms for a region (resolve them through a SoundCatalog),
   // or an empty list when the region has none.
   const std::vector<bethesda::GlobalFormId>& SoundsFor(u64 region) const;
 
-  bool empty() const { return region_sounds_.empty(); }
-  size_t size() const { return region_sounds_.size(); }
+  bool empty() const { return regions_.empty(); }
+  size_t size() const { return regions_.size(); }
 
  private:
-  std::unordered_map<u64, std::vector<bethesda::GlobalFormId>> region_sounds_;
+  struct Region {
+    u64 form = 0;
+    i32 priority = 0;
+    std::vector<std::pair<f32, f32>> polygon;  // worldspace XY, game units
+    std::vector<bethesda::GlobalFormId> sounds;
+  };
+  std::vector<Region> regions_;
   std::vector<bethesda::GlobalFormId> empty_;
 };
 
