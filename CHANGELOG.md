@@ -3,6 +3,21 @@
 All notable changes to Recreation are documented here. The main menu's NEWS rail
 shows the most recent entries (the first bullet of each release is its headline).
 
+## [0.5.0] - 2026-06-29
+### Added
+- Game audio is live: an SDL3-backed mixer plays the worlds' sound
+- Software mixer with 3D positional voices (distance attenuation + constant-power
+  panning around the player), streaming sources, looping, and click-free fades
+- Native decoder for the games' WAV assets (PCM 8/16/24/32-bit, IEEE float, and
+  the MS and IMA ADPCM codecs), with no external dependencies
+- Compressed formats decode through an optional FFmpeg backend, off by default and
+  shipped as separate shared libraries: xWMA (Skyrim/Fallout 4 music and ambience),
+  the WMA inside FUZ voice files, and Starfield's Wwise .wem
+- Region ambience: walking into an area cross-fades to the bed its REGN record
+  authors, resolved through the game's SOUN/SNDR sound files; indoors falls silent
+- Suppression and level controls: REC_AUDIO_MUTE (base::Option "audio.mute") opens
+  no device and runs silent, REC_AUDIO_VOLUME ("audio.volume") sets the master level
+
 ## [0.4.0] - 2026-06-23
 ### Added
 - FiveM-style asset streaming: a server distributes its mods to players on join

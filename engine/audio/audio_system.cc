@@ -79,7 +79,7 @@ const AudioClip* AudioSystem::GetClip(std::string_view path) {
   if (ReadAsset(path, &bytes))
     clip = DecodeClip(ByteSpan{bytes.data(), bytes.size()}, ExtensionOf(path));
   if (!clip.valid()) REC_WARN("audio: could not decode '{}'", key);
-  auto [inserted, _] = clip_cache_.emplace(key, std::move(clip));
+  auto inserted = clip_cache_.emplace(key, std::move(clip)).first;
   return inserted->second.valid() ? &inserted->second : nullptr;
 }
 
