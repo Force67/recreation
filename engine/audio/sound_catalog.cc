@@ -18,7 +18,10 @@ constexpr u32 kSdsc = FourCc('S', 'D', 'S', 'C');
 
 // Lowercases, turns backslashes into forward slashes, and roots the path under
 // "sound/" (Bethesda's sound file references are relative to Data\Sound\). Empty
-// in, empty out.
+// in, empty out. The ANAM/FNAM references are inconsistent across records: some
+// store the bare "fx\..." path, some "sound\fx\...", and some the full
+// "data\sound\fx\..."; strip a leading "data/" and prepend "sound/" only when it
+// is not already rooted there, so every form resolves to the one Vfs path.
 std::string NormalizeSoundPath(std::string_view raw) {
   std::string out;
   out.reserve(raw.size() + 6);
@@ -28,6 +31,7 @@ std::string NormalizeSoundPath(std::string_view raw) {
     out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
   }
   if (out.empty()) return out;
+  if (out.rfind("data/", 0) == 0) out.erase(0, 5);
   if (out.rfind("sound/", 0) != 0) out = "sound/" + out;
   return out;
 }
