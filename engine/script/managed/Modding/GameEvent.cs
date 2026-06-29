@@ -63,3 +63,13 @@ public readonly struct PlayerActivated(ulong targetHandle) : IGameEvent
 
     public ObjectReference Target => ObjectReference.From(TargetHandle);
 }
+
+// Raised by the time service when a new in-game hour begins. Mods drive NPC
+// schedules, shop hours and day/night mechanics off it.
+public readonly struct GameHourStarted(int hour, int day) : IGameEvent
+{
+    public int Hour { get; } = hour;
+    public int Day { get; } = day;
+
+    public bool IsNight => GameClock.IsNightHour(Hour);
+}
