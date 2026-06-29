@@ -408,6 +408,28 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt
       record.flags |= BindlessRegistry::kMaterialAlphaMask;
       record.alpha_cutoff = material.alpha_cutoff;
     }
+    // Terrain splat: the rasterizer reuses the normal/emissive slots as land
+    // layer 1 and the per-cell weight map. Mirror that into the bindless record
+    // so the path tracer can reproduce the blend (base_color = layer 0,
+    // metallic_roughness = layer 2 are already registered above).
+    if (material.is_terrain) {
+      record.flags |= BindlessRegistry::kMaterialTerrain;
+      if (const u32* l1 = bindless_textures_.find(material.normal.hash ^ id_salt)) {
+        record.terrain_layer1_texture = *l1;
+      }
+      // The weight map is linear, so UploadTexture skipped the bindless table;
+      // register it on demand like the metallic-roughness map above.
+      u64 ctrl_key = material.emissive.hash ^ id_salt;
+      if (const u32* ctrl = bindless_textures_.find(ctrl_key)) {
+        record.terrain_weight_texture = *ctrl;
+      } else if (const GpuImage* ctrl_img = textures_.find(ctrl_key)) {
+        u32 idx = registry_->RegisterTexture(ctrl_img->view);
+        if (idx != BindlessRegistry::kInvalidIndex) {
+          bindless_textures_.insert(ctrl_key, idx);
+          record.terrain_weight_texture = idx;
+        }
+      }
+    }
     u32 index = registry_->RegisterMaterial(record);
     if (index != BindlessRegistry::kInvalidIndex) {
       bindless_materials_.insert(key, index);
