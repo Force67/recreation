@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include "audio/audio_clip.h"
@@ -63,7 +65,40 @@ double Rms(const std::vector<float>& buf) {
 
 }  // namespace
 
-int main() {
+// Manual decode probe (not part of the ctest gate): `audiotest <file>` decodes
+// any supported audio file and prints what came out. Used to spot-check the
+// FFmpeg backend against real xWMA/Wwise assets, which the unit gate cannot ship.
+int ProbeFile(const char* path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    std::printf("audiotest: cannot open %s\n", path);
+    return 1;
+  }
+  std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                  std::istreambuf_iterator<char>());
+  std::string p(path);
+  const auto dot = p.find_last_of('.');
+  std::string ext = dot == std::string::npos ? "" : p.substr(dot);
+  auto decoder = OpenDecoder(ByteSpan{bytes.data(), bytes.size()}, ext);
+  if (!decoder) {
+    std::printf("audiotest: no decoder produced output for %s\n", path);
+    return 1;
+  }
+  std::vector<float> buf(4096 * (decoder->channels() ? decoder->channels() : 1));
+  std::uint64_t frames = 0;
+  for (;;) {
+    std::uint32_t got = decoder->Read(buf.data(), 4096);
+    if (got == 0) break;
+    frames += got;
+  }
+  std::printf("audiotest: decoded %s -> %llu frames, %u ch, %u Hz\n", path,
+              static_cast<unsigned long long>(frames), decoder->channels(),
+              decoder->sample_rate());
+  return frames > 0 ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+  if (argc > 1) return ProbeFile(argv[1]);
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-56s %s\n", what, ok ? "ok" : "FAIL");

@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "audio/wav.h"
+#include "audio/xwma.h"
 #include "core/log.h"
 
 namespace rec::audio {
@@ -82,24 +83,44 @@ class ClipDecoder final : public Decoder {
   u64 cursor_ = 0;
 };
 
+CompressedKind ToCompressedKind(Container container) {
+  switch (container) {
+    case Container::kFuz: return CompressedKind::kFuz;
+    case Container::kWem: return CompressedKind::kWem;
+    default: return CompressedKind::kXwma;
+  }
+}
+
+// Pulls a whole streaming decoder into one clip, for caching a short compressed
+// sound (so xWMA/Wwise sound effects play through the same cache as WAV ones).
+AudioClip DrainToClip(Decoder* decoder) {
+  AudioClip clip;
+  if (!decoder) return clip;
+  clip.channels = decoder->channels();
+  clip.sample_rate = decoder->sample_rate();
+  constexpr u32 kChunk = 4096;
+  std::vector<float> buffer(static_cast<size_t>(kChunk) * std::max(1u, clip.channels));
+  for (;;) {
+    const u32 got = decoder->Read(buffer.data(), kChunk);
+    if (got == 0) break;
+    clip.samples.insert(clip.samples.end(), buffer.begin(),
+                        buffer.begin() + static_cast<size_t>(got) * clip.channels);
+  }
+  return clip;
+}
+
 }  // namespace
 
 AudioClip DecodeClip(ByteSpan bytes, std::string_view extension) {
-  AudioClip clip;
-  switch (Classify(bytes, extension)) {
-    case Container::kWav:
-      DecodeWav(bytes, &clip);
-      break;
-    case Container::kXwma:
-    case Container::kFuz:
-    case Container::kWem:
-      // Compressed containers stream through the codec backend (see xwma.cc),
-      // which DecodeClip drains in OpenDecoder; nothing to do up front here.
-      break;
-    case Container::kUnknown:
-      break;
+  const Container container = Classify(bytes, extension);
+  if (container == Container::kWav) {
+    AudioClip clip;
+    DecodeWav(bytes, &clip);
+    return clip;
   }
-  return clip;
+  if (container == Container::kUnknown) return {};
+  // Compressed: decode through the codec backend, then collapse to a clip.
+  return DrainToClip(OpenCompressed(bytes, ToCompressedKind(container)).get());
 }
 
 std::unique_ptr<Decoder> MakeClipDecoder(AudioClip clip) {
@@ -108,7 +129,21 @@ std::unique_ptr<Decoder> MakeClipDecoder(AudioClip clip) {
 }
 
 std::unique_ptr<Decoder> OpenDecoder(ByteSpan bytes, std::string_view extension) {
-  return MakeClipDecoder(DecodeClip(bytes, extension));
+  const Container container = Classify(bytes, extension);
+  switch (container) {
+    case Container::kWav: {
+      AudioClip clip;
+      DecodeWav(bytes, &clip);
+      return MakeClipDecoder(std::move(clip));
+    }
+    case Container::kXwma:
+    case Container::kFuz:
+    case Container::kWem:
+      return OpenCompressed(bytes, ToCompressedKind(container));
+    case Container::kUnknown:
+      return nullptr;
+  }
+  return nullptr;
 }
 
 }  // namespace rec::audio

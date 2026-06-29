@@ -15,6 +15,12 @@ option(RECREATION_DLSS "Enable the NVIDIA DLSS upscaler backend" ON)
 option(RECREATION_NRD "Enable the NVIDIA NRD ray tracing denoiser" ON)
 option(RECREATION_JOLT "Enable Jolt physics" ON)
 option(RECREATION_NET "Enable networking (zetanet transport + replication)" ON)
+# FFmpeg (libav*) decodes the games' compressed audio: xWMA (Skyrim/Fallout 4
+# music + ambience), the WMA inside FUZ voice files, and the Wwise codecs in
+# Starfield .wem. Off by default so the CI matrix carries no heavyweight system
+# dependency; on, the audio module dynamically links libav* (shipped as shared
+# libraries beside the executable). Without it those formats are skipped cleanly.
+option(RECREATION_AUDIO_FFMPEG "Decode xWMA/Wwise/FUZ audio via FFmpeg (libav*)" OFF)
 option(RECREATION_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 
 # Android is a first-class target, but several desktop backends do not apply:

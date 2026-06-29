@@ -74,11 +74,14 @@
           src = self;
 
           nativeBuildInputs = with pkgs; [ cmake ninja directx-shader-compiler pkg-config ];
-          buildInputs = with pkgs; [ sdl3 openssl freetype harfbuzz ];
+          # ffmpeg supplies libav* for the compressed game audio codecs (xWMA,
+          # Wwise, the WMA inside FUZ voice files), enabled below.
+          buildInputs = with pkgs; [ sdl3 openssl freetype harfbuzz ffmpeg ];
 
           cmakeFlags = fetchContentFlags ++ [
             "-DRECREATION_ZETANET_DIR=${zetanet-src}"
             "-DRECREATION_NANOBUF_DIR=${nanobuf-src}"
+            "-DRECREATION_AUDIO_FFMPEG=ON"
           ];
 
           # No install rules yet, the binaries are the product.
@@ -179,6 +182,7 @@
               glib                     # harfbuzz.pc requires glib-2.0
               fontconfig               # fc-match for the hud font
               sdl3
+              ffmpeg                   # libav* for compressed audio (xWMA/Wwise/FUZ)
               openssl  # zetanet crypto backend
               dotnet-sdk_9             # .net core clr host + managed build
               vulkan-headers
