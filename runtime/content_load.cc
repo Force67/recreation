@@ -158,6 +158,17 @@ bool LoadGameData(Engine& engine) {
       REC_INFO("weather: {} weather regions in {}", rn, worldspace);
     }
   }
+
+  // Ambient audio: catalogue the game's sound files (SOUN/SNDR) and the regions'
+  // ambient sound lists (REGN), then point the director at them. Built only when
+  // an audio device is live, so a muted run or a dedicated server skips the scan.
+  if (self->audio_ && self->audio_->active()) {
+    self->sound_catalog_.Build(self->records_);
+    self->region_ambience_.Build(self->records_);
+    self->ambient_director_.Configure(self->audio_.get(), &self->sound_catalog_,
+                                      &self->region_ambience_);
+  }
+
   // Skyrim's northern lights: the night-sky aurora (other games don't have it).
   self->renderer_.settings().aurora = self->game_ == bethesda::Game::kSkyrimSe;
 

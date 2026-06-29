@@ -224,6 +224,17 @@ bool Engine::RunFrame() {
                    climate ? climate->size() : default_climate_.size());
         }
       }
+      // Ambient audio bed: follow the region the player stands in (the same REGN
+      // the weather resolution tracks) and whether they are indoors. The director
+      // cross-fades to the region's authored ambience, and to silence inside, only
+      // when the chosen bed changes.
+      if (audio_) {
+        audio::AmbientContext ambient;
+        ambient.interior = streamer_ && streamer_->in_interior();
+        ambient.region = active_region_;
+        ambient_director_.Update(ambient);
+      }
+
       // The debug Weather panel can override the climate live; otherwise the
       // loaded game's weather drives the sky.
       const bool has_weather = weather_override_ || !weather_.empty();

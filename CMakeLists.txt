@@ -292,11 +292,11 @@ set(RECREATION_MODULES
   core
   ecs
   asset
-  audio
   render
   physics
   anim
   bethesda
+  audio
   world
   quest
   weather

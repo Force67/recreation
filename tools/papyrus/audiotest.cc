@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "audio/ambient.h"
 #include "audio/audio_clip.h"
 #include "audio/mixer.h"
 #include "audio/spatial.h"
@@ -171,6 +172,17 @@ int main(int argc, char** argv) {
   check("source on the left is louder in the left ear", left.left > left.right);
   StereoGains centre = PanForSource(listener, Vec3{0, 0, -8}, atten);
   check("centred source is balanced", std::fabs(centre.left - centre.right) < 0.05f);
+
+  // --- ambient bed transitions -------------------------------------------------
+  auto decide = [](const char* a, const char* b) { return DecideAmbient(a, b); };
+  check("same bed is left alone", !decide("amb/a", "amb/a").stop_current &&
+                                      !decide("amb/a", "amb/a").start_target);
+  check("entering a bed from silence only starts",
+        !decide("", "amb/a").stop_current && decide("", "amb/a").start_target);
+  check("leaving to silence only stops",
+        decide("amb/a", "").stop_current && !decide("amb/a", "").start_target);
+  check("changing bed cross-fades (stop + start)",
+        decide("amb/a", "amb/b").stop_current && decide("amb/a", "amb/b").start_target);
 
   std::printf("audiotest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;

@@ -23,6 +23,8 @@
 #include "script/host/managed_host.h"
 #include "weather/weather.h"
 
+#include "audio/ambient.h"
+
 #include "actor_system.h"
 #include "content_domain.h"
 #include "demo_scenes.h"
@@ -336,8 +338,14 @@ class Engine {
 
   asset::Vfs vfs_;
   // Audio: SDL-backed mixer + decoders, fed sound bytes through the Vfs. Reads
-  // assets lazily, so it is brought up here before any archives are mounted.
+  // assets lazily, so it is brought up here before any archives are mounted. The
+  // sound catalog (SOUN/SNDR -> file) and region ambience (REGN -> sounds) are
+  // built once game data loads; the director cross-fades the ambient bed as the
+  // player's region changes.
   std::unique_ptr<audio::AudioSystem> audio_;
+  audio::SoundCatalog sound_catalog_;
+  audio::RegionAmbience region_ambience_;
+  audio::AmbientDirector ambient_director_;
   std::unique_ptr<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   // Localized FULL/log/objective text for records (quest names, journal text).

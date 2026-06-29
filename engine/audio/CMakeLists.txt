@@ -5,13 +5,17 @@ recreation_add_module(audio
   mixer.cc
   audio_device.cc
   audio_system.cc
+  sound_catalog.cc
+  ambient.cc
 )
 
 # Sound bytes come from the game Vfs (loose files + BSA/BA2); the mixer math and
-# decoders only need core. The SDL output backend is optional: without it (the
+# decoders only need core. The ambient layer reads sound records (SOUN/SNDR/REGN),
+# so it also links bethesda. The SDL output backend is optional: without it (the
 # Android native backend, a headless server) audio_device.cc compiles to a silent
 # stub and the rest of the module is unchanged.
-target_link_libraries(recreation_audio PUBLIC recreation::core recreation::asset)
+target_link_libraries(recreation_audio PUBLIC
+  recreation::core recreation::asset recreation::bethesda)
 
 if(SDL3_FOUND)
   target_link_libraries(recreation_audio PUBLIC SDL3::SDL3)
