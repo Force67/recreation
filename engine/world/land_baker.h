@@ -1,6 +1,8 @@
 #ifndef RECREATION_WORLD_LAND_BAKER_H_
 #define RECREATION_WORLD_LAND_BAKER_H_
 
+#include <string>
+
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
@@ -27,6 +29,18 @@ class LandBaker {
   asset::AssetId BakeAlbedo(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
                             i16 grid_y);
 
+  // Runtime-splat inputs for a cell: up to three full-resolution land textures
+  // (the most-covered LTEX) plus a small weight map blending them. The shader
+  // tiles the layers at the native land repeat, so detail is bounded by the
+  // source textures, not a per-cell bake. layers[] always point at a valid
+  // texture (slots collapse to the dominant one when the cell has fewer).
+  struct SplatBake {
+    asset::AssetId layers[3];
+    asset::AssetId control;
+    bool ok = false;
+  };
+  SplatBake BakeSplat(const bethesda::Record& land, u16 land_plugin, i16 grid_x, i16 grid_y);
+
   size_t baked_count() const { return baked_; }
 
  private:
@@ -39,6 +53,9 @@ class LandBaker {
   const Layer* LayerFor(u64 ltex_packed);
   const Layer* DefaultLayer();
   bool DecodeTexture(const asset::Texture& texture, Layer* out) const;
+  // Resolves an LTEX (0 = default) to its diffuse texture path / loaded asset.
+  std::string LayerDiffusePath(u64 ltex_packed) const;
+  asset::AssetId LayerAsset(u64 ltex_packed);
   // Resolves the bake/layer resolution from REC_LAND_BAKE_TEXELS on first use.
   void EnsureBakeSize();
 

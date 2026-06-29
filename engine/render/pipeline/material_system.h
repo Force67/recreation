@@ -50,6 +50,7 @@ class MaterialSystem {
   };
   static constexpr u32 kFlagAlphaMask = 1u << 0;
   static constexpr u32 kFlagHasNormalMap = 1u << 1;
+  static constexpr u32 kFlagTerrain = 1u << 2;  // splat: slots are 3 layers + weight map
 
   // registry may be null (no raytracing); hit-shading tables are skipped.
   static std::unique_ptr<MaterialSystem> Create(Device& device, BindlessRegistry* registry);

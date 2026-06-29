@@ -301,6 +301,9 @@ bool LoadGameData(Engine& engine) {
   }
   world::CellStreamer::Settings settings;
   settings.grass_density = self->config_.grass_density;
+  // Runtime terrain splatting is the high-detail path; the low-end preset (no
+  // ray tracing) falls back to the cheaper per-cell albedo bake.
+  settings.terrain_splat = self->config_.preset != render::QualityPreset::kLowEnd;
   self->streamer_->Configure(settings);
   if (!self->config_.headless) {
     world::CellStreamer::Uploads uploads;

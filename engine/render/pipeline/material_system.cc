@@ -329,7 +329,11 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   params.transmission = material.transmission;
   // Blend materials draw without the cutout test; mask materials cut.
   if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
-  if (material.normal && textures_.find(material.normal.hash ^ id_salt)) {
+  // Terrain reuses the normal slot as a land layer, so the normal-map path must
+  // stay off; the shader branches on kFlagTerrain instead.
+  if (material.is_terrain) {
+    params.flags |= kFlagTerrain;
+  } else if (material.normal && textures_.find(material.normal.hash ^ id_salt)) {
     params.flags |= kFlagHasNormalMap;
   }
 

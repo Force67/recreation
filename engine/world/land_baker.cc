@@ -146,6 +146,45 @@ struct QuadLayer {
   f32 opacity[kQuadGrid * kQuadGrid] = {};
 };
 
+// Walks the LAND subrecord stream: BTXT sets a quadrant base LTEX, ATXT opens
+// an additive layer whose VTXT opacities follow. Returns true if any texture
+// layer was present. Shared by the albedo bake and the splat bake.
+bool ParseLandLayers(const bethesda::RecordStore& records, const bethesda::Record& land,
+                     u16 land_plugin, u64 base[4], base::Vector<QuadLayer>& layers) {
+  bool any = false;
+  QuadLayer* open = nullptr;
+  for (const bethesda::Subrecord& sub : land.subrecords) {
+    if ((sub.type == kBtxt || sub.type == kAtxt) && sub.data.size() >= 8) {
+      u32 raw;
+      u8 quadrant = sub.data[4];
+      std::memcpy(&raw, sub.data.data(), 4);
+      if (quadrant > 3) continue;
+      u64 ltex = raw == 0 ? 0 : records.ResolveFrom(bethesda::RawFormId{raw}, land_plugin).packed();
+      any = true;
+      if (sub.type == kBtxt) {
+        base[quadrant] = ltex;
+        open = nullptr;
+      } else {
+        layers.emplace_back();
+        open = &layers.back();
+        open->ltex = ltex;
+        open->quadrant = quadrant;
+      }
+    } else if (sub.type == kVtxt && open) {
+      for (size_t i = 0; i + 8 <= sub.data.size(); i += 8) {
+        u16 position;
+        f32 opacity;
+        std::memcpy(&position, sub.data.data() + i, 2);
+        std::memcpy(&opacity, sub.data.data() + i + 4, 4);
+        if (position < kQuadGrid * kQuadGrid) {
+          open->opacity[position] = std::clamp(opacity, 0.0f, 1.0f);
+        }
+      }
+    }
+  }
+  return any;
+}
+
 }  // namespace
 
 bool LandBaker::DecodeTexture(const asset::Texture& texture, Layer* out) const {
@@ -236,13 +275,8 @@ const LandBaker::Layer* LandBaker::DefaultLayer() {
   return &default_layer_;
 }
 
-const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
-  if (ltex_packed == 0) return DefaultLayer();
-  if (const Layer* known = layers_.find(ltex_packed)) {
-    return known->size != 0 ? known : DefaultLayer();
-  }
-  Layer* layer = layers_.emplace(ltex_packed).first;
-
+std::string LandBaker::LayerDiffusePath(u64 ltex_packed) const {
+  if (ltex_packed == 0) return "textures/landscape/tundra01.dds";
   // LTEX -> TNAM -> TXST -> TX00 diffuse path.
   bethesda::GlobalFormId ltex_id{static_cast<u16>(ltex_packed >> 32),
                                  static_cast<u32>(ltex_packed)};
@@ -252,21 +286,41 @@ const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
     if (const bethesda::Subrecord* tnam = ltex.Find(kTnam); tnam && tnam->data.size() >= 4) {
       u32 raw;
       std::memcpy(&raw, tnam->data.data(), 4);
-      bethesda::GlobalFormId txst_id = records_.ResolveFrom(
-          bethesda::RawFormId{raw}, records_.Find(ltex_id)->winning_plugin);
-      bethesda::Record txst;
-      if (records_.Parse(txst_id, &txst)) path = txst.GetString(kTx00);
+      if (const auto* found = records_.Find(ltex_id)) {
+        bethesda::GlobalFormId txst_id =
+            records_.ResolveFrom(bethesda::RawFormId{raw}, found->winning_plugin);
+        bethesda::Record txst;
+        if (records_.Parse(txst_id, &txst)) path = txst.GetString(kTx00);
+      }
     }
   }
+  if (path.empty()) return {};
+  path = asset::NormalizePath(path);
+  if (!path.starts_with("textures/")) path = "textures/" + path;
+  return path;
+}
+
+asset::AssetId LandBaker::LayerAsset(u64 ltex_packed) {
+  std::string path = LayerDiffusePath(ltex_packed);
+  if (path.empty()) path = "textures/landscape/tundra01.dds";
+  if (const asset::Texture* texture = assets_.LoadTexture(path)) return texture->id;
+  return {};
+}
+
+const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
+  if (ltex_packed == 0) return DefaultLayer();
+  if (const Layer* known = layers_.find(ltex_packed)) {
+    return known->size != 0 ? known : DefaultLayer();
+  }
+  Layer* layer = layers_.emplace(ltex_packed).first;
+  std::string path = LayerDiffusePath(ltex_packed);
   if (!path.empty()) {
-    path = asset::NormalizePath(path);
-    if (!path.starts_with("textures/")) path = "textures/" + path;
     if (const asset::Texture* texture = assets_.LoadTexture(path)) {
       DecodeTexture(*texture, layer);
     }
   }
   if (layer->size == 0) {
-    REC_WARN("land texture missing for ltex {:x} path '{}', using default", ltex_packed, path);
+    REC_WARN("land texture missing for ltex {:x}, using default", ltex_packed);
     return DefaultLayer();
   }
   return layer;
@@ -275,41 +329,9 @@ const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
 asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
                                      i16 grid_y) {
   EnsureBakeSize();
-  // Layer setup straight from the subrecord stream: BTXT sets a quadrant
-  // base, ATXT opens an additive layer whose VTXT opacities follow.
   u64 base[4] = {};
-  bool any = false;
   base::Vector<QuadLayer> layers;
-  QuadLayer* open = nullptr;
-  for (const bethesda::Subrecord& sub : land.subrecords) {
-    if ((sub.type == kBtxt || sub.type == kAtxt) && sub.data.size() >= 8) {
-      u32 raw;
-      u8 quadrant = sub.data[4];
-      std::memcpy(&raw, sub.data.data(), 4);
-      if (quadrant > 3) continue;
-      u64 ltex = raw == 0 ? 0 : records_.ResolveFrom(bethesda::RawFormId{raw}, land_plugin).packed();
-      any = true;
-      if (sub.type == kBtxt) {
-        base[quadrant] = ltex;
-        open = nullptr;
-      } else {
-        layers.emplace_back();
-        open = &layers.back();
-        open->ltex = ltex;
-        open->quadrant = quadrant;
-      }
-    } else if (sub.type == kVtxt && open) {
-      for (size_t i = 0; i + 8 <= sub.data.size(); i += 8) {
-        u16 position;
-        f32 opacity;
-        std::memcpy(&position, sub.data.data() + i, 2);
-        std::memcpy(&opacity, sub.data.data() + i + 4, 4);
-        if (position < kQuadGrid * kQuadGrid) {
-          open->opacity[position] = std::clamp(opacity, 0.0f, 1.0f);
-        }
-      }
-    }
-  }
+  bool any = ParseLandLayers(records_, land, land_plugin, base, layers);
   // Cells without texture layers share one default bake; the cell size is
   // an exact multiple of the repeat so it tiles world-consistently.
   if (!any) {
@@ -409,6 +431,113 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
   ++baked_;
   if (!any) default_albedo_ = id;
   return id;
+}
+
+LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land_plugin,
+                                          i16 grid_x, i16 grid_y) {
+  u64 base[4] = {};
+  base::Vector<QuadLayer> layers;
+  ParseLandLayers(records_, land, land_plugin, base, layers);
+
+  // Coverage per LTEX (0 = the default tundra) to pick a 3-texture palette: the
+  // four quadrant bases count fully, layers by their mean opacity.
+  struct Cov {
+    u64 ltex;
+    f32 weight;
+  };
+  base::Vector<Cov> cov;
+  auto add_cov = [&](u64 ltex, f32 w) {
+    for (Cov& c : cov)
+      if (c.ltex == ltex) {
+        c.weight += w;
+        return;
+      }
+    cov.push_back({ltex, w});
+  };
+  for (u32 q = 0; q < 4; ++q) add_cov(base[q], 1.0f);
+  for (const QuadLayer& l : layers) {
+    f32 sum = 0;
+    for (f32 o : l.opacity) sum += o;
+    add_cov(l.ltex, sum / (kQuadGrid * kQuadGrid));
+  }
+  u64 palette[3] = {0, 0, 0};
+  f32 best[3] = {-1.0f, -1.0f, -1.0f};
+  for (const Cov& c : cov) {
+    for (u32 s = 0; s < 3; ++s) {
+      if (c.weight > best[s]) {
+        for (u32 t = 2; t > s; --t) {
+          best[t] = best[t - 1];
+          palette[t] = palette[t - 1];
+        }
+        best[s] = c.weight;
+        palette[s] = c.ltex;
+        break;
+      }
+    }
+  }
+  auto slot_of = [&](u64 ltex) -> u32 {
+    for (u32 s = 0; s < 3; ++s)
+      if (best[s] >= 0.0f && palette[s] == ltex) return s;
+    return 0;  // minor layers fold into the dominant texture
+  };
+
+  SplatBake out;
+  for (u32 s = 0; s < 3; ++s) out.layers[s] = best[s] >= 0.0f ? LayerAsset(palette[s]) : asset::AssetId{};
+  if (!out.layers[0]) return out;  // ok stays false; caller keeps the bake path
+  for (u32 s = 1; s < 3; ++s)
+    if (!out.layers[s]) out.layers[s] = out.layers[0];
+
+  // Weight map: same BTXT base + ATXT/VTXT compositing as the albedo bake, but
+  // accumulating per-palette-slot weights instead of color. Low frequency (the
+  // VTXT grid is 17x17 per quadrant), so a small map suffices; the shader tiles
+  // the full-resolution layers at the native repeat on top of it.
+  constexpr u32 kCtrl = 64;
+  constexpr u32 kHalf = kCtrl / 2;
+  asset::Texture control;
+  control.id = asset::MakeAssetId("land/splat/" + std::to_string(grid_x) + "_" +
+                                  std::to_string(grid_y));
+  control.format = asset::TextureFormat::kRgba8;
+  control.width = kCtrl;
+  control.height = kCtrl;
+  control.is_srgb = false;  // raw weights, not color
+  control.data.resize(static_cast<size_t>(kCtrl) * kCtrl * 4);
+  for (u32 ty = 0; ty < kCtrl; ++ty) {
+    u32 qy = ty >= kHalf ? ty - kHalf : ty;
+    f32 gy = (static_cast<f32>(qy) + 0.5f) / kHalf * (kQuadGrid - 1);
+    u32 cy = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+    f32 fy = gy - static_cast<f32>(cy);
+    for (u32 tx = 0; tx < kCtrl; ++tx) {
+      u32 quadrant = (tx >= kHalf ? 1u : 0u) | (ty >= kHalf ? 2u : 0u);
+      u32 qx = tx >= kHalf ? tx - kHalf : tx;
+      f32 gx = (static_cast<f32>(qx) + 0.5f) / kHalf * (kQuadGrid - 1);
+      u32 cx = std::min(static_cast<u32>(gx), kQuadGrid - 2);
+      f32 fx = gx - static_cast<f32>(cx);
+
+      f32 w[3] = {0, 0, 0};
+      w[slot_of(base[quadrant])] = 1.0f;
+      for (const QuadLayer& l : layers) {
+        if (l.quadrant != quadrant) continue;
+        const f32* o = l.opacity;
+        f32 o00 = o[cy * kQuadGrid + cx], o10 = o[cy * kQuadGrid + cx + 1];
+        f32 o01 = o[(cy + 1) * kQuadGrid + cx], o11 = o[(cy + 1) * kQuadGrid + cx + 1];
+        f32 op = (o00 * (1 - fx) + o10 * fx) * (1 - fy) + (o01 * (1 - fx) + o11 * fx) * fy;
+        if (op <= 0.001f) continue;
+        u32 s = slot_of(l.ltex);
+        for (u32 k = 0; k < 3; ++k) w[k] *= (1 - op);
+        w[s] += op;
+      }
+      u8* dst = control.data.data() + (static_cast<size_t>(ty) * kCtrl + tx) * 4;
+      dst[0] = static_cast<u8>(std::clamp(w[0], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[1] = static_cast<u8>(std::clamp(w[1], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[2] = static_cast<u8>(std::clamp(w[2], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[3] = 0xff;
+    }
+  }
+  out.control = control.id;
+  assets_.AddTexture(std::move(control));
+  ++baked_;
+  out.ok = true;
+  return out;
 }
 
 }  // namespace rec::world
