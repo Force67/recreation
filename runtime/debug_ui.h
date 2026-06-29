@@ -181,6 +181,7 @@ class DebugUi {
   u64 quest_stage_input_handle_ = 0;
   int quest_stage_input_ = 0;
   VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;  // outlives imgui init info
+  f32 render_scale_ui_ = 1.0f;  // in-progress render-scale slider; committed on release
   f32 frame_times_[150] = {};
   u32 frame_time_cursor_ = 0;
 };

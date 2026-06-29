@@ -59,6 +59,10 @@ struct RenderSettings {
   UpscalerQuality upscaler_quality = UpscalerQuality::kQuality;
   f32 sharpness = 0.0f;  // 0..1, used by upscalers that sharpen
   f32 taa_history_blend = 0.9f;
+  // Internal render resolution as a fraction of output, when no upscaler is
+  // active. >1 supersamples (renders above the window, the post pass downscales);
+  // <1 renders cheaper. Ignored while an upscaler drives the resolution.
+  f32 render_scale = 1.0f;
 
   bool rt_shadows = true;  // masked by device caps and the renderer desc
   f32 sun_angular_radius = 0.005f;  // radians; 0 reverts to hard shadows

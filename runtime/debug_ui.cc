@@ -371,6 +371,21 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         if (settings.aa_mode == render::AntiAliasingMode::kTaa) {
           ImGui::SliderFloat("History blend", &settings.taa_history_blend, 0.5f, 0.98f);
         }
+        // Render scale (internal resolution). Only meaningful without an upscaler
+        // driving the resolution; >1 supersamples and the post pass downscales to
+        // the window. Committed on release so dragging does not resize every frame.
+        if (settings.aa_mode != render::AntiAliasingMode::kUpscaler) {
+          ImGui::SliderFloat("Render scale", &render_scale_ui_, 0.5f, 2.0f, "%.2fx");
+          if (ImGui::IsItemDeactivatedAfterEdit()) {
+            settings.render_scale = render_scale_ui_;
+          } else if (!ImGui::IsItemActive()) {
+            render_scale_ui_ = settings.render_scale;  // mirror preset/external changes
+          }
+          if (settings.render_scale > 1.001f) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("SSAA");
+          }
+        }
       }
 
       if (ImGui::CollapsingHeader("Features", ImGuiTreeNodeFlags_DefaultOpen)) {

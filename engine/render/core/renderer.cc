@@ -469,8 +469,11 @@ void Renderer::UpdateRenderResolution() {
     render_width_ = static_cast<u32>(static_cast<f32>(output_width_) / scale);
     render_height_ = static_cast<u32>(static_cast<f32>(output_height_) / scale);
   } else {
-    render_width_ = output_width_;
-    render_height_ = output_height_;
+    // No upscaler: render at output * render_scale. >1 supersamples (the post
+    // pass samples this image into the swapchain, so it downscales for free).
+    f32 rs = std::clamp(settings_.render_scale, 0.25f, 2.0f);
+    render_width_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_width_) * rs));
+    render_height_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_height_) * rs));
   }
 }
 
@@ -486,7 +489,8 @@ void Renderer::ApplySettings() {
   }
 
   bool upscaler_changed = settings_.upscaler != applied_upscaler_ ||
-                          settings_.upscaler_quality != applied_quality_;
+                          settings_.upscaler_quality != applied_quality_ ||
+                          settings_.render_scale != applied_render_scale_;
   if (upscaler_changed) {
     device_->WaitIdle();
     upscaler_.reset();
@@ -501,6 +505,7 @@ void Renderer::ApplySettings() {
     }
     applied_upscaler_ = settings_.upscaler;
     applied_quality_ = settings_.upscaler_quality;
+    applied_render_scale_ = settings_.render_scale;
     UpdateRenderResolution();
     transient_pool_->Clear();
     taa_.Resize(*device_, {render_width_, render_height_});
