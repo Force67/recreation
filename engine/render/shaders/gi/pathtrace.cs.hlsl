@@ -41,6 +41,14 @@ struct MaterialRecord {
   float4 base_color_factor;
   float3 emissive;
   uint base_color_texture;
+  uint flags;
+  float alpha_cutoff;
+  float roughness;
+  float metallic;
+  uint metallic_roughness_texture;
+  uint pad0;
+  uint pad1;
+  uint pad2;
 };
 [[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
 [[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
@@ -48,6 +56,10 @@ struct MaterialRecord {
 [[vk::binding(3, 1)]] Texture2D bindless_textures[];
 [[vk::binding(4, 1)]] SamplerState bindless_sampler;
 
+// Pristine reference: this brute-force ground-truth accumulator deliberately
+// traces RAY_FLAG_FORCE_OPAQUE (no alpha-tested foliage), exactly as it did
+// before the playable/denoised work. The denoised gbuffer pass owns the
+// alpha-test + texture-lod improvements.
 static const float kPi = 3.14159265359;
 static const uint kVertexStride = 52;
 static const uint kNormalOffset = 12;

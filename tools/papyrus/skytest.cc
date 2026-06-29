@@ -7,6 +7,7 @@
 // plus prints a reference sky-colour table for eyeballed A/B. No GPU, no data, so
 // it runs in the default ctest gate and catches model regressions.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>

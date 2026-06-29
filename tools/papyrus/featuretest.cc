@@ -8,6 +8,14 @@
 
 #include "core/feature_registry.h"
 
+#ifdef _WIN32
+// MSVC has no POSIX setenv/unsetenv; map to the CRT equivalents.
+static int setenv(const char* name, const char* value, int /*overwrite*/) {
+  return _putenv_s(name, value);
+}
+static int unsetenv(const char* name) { return _putenv_s(name, ""); }
+#endif
+
 using rec::FeatureEnabled;
 using rec::FeatureId;
 using rec::Features;

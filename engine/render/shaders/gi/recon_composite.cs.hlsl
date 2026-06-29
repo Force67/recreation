@@ -1,0 +1,53 @@
+// SVGF reconstruction, stage 4: composite. final = albedo/pi * denoisedIrradiance
+// + emissive (the irradiance was demodulated, so re-modulating here keeps texture
+// detail crisp). debug_mode swaps the output for one of the guide's debug views so
+// the pipeline can be tuned by sight, not blind.
+struct ReconCompositePush {
+  uint2 size;
+  uint debug_mode;  // 0 final,1 irradiance,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
+  float max_history;
+};
+[[vk::push_constant]] ReconCompositePush pc;
+
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_color;
+[[vk::binding(1, 0)]] Texture2D<float4> albedo;
+[[vk::binding(2, 0)]] Texture2D<float4> irradiance;
+[[vk::binding(3, 0)]] Texture2D<float4> emissive;
+[[vk::binding(4, 0)]] Texture2D<float4> moments;
+[[vk::binding(5, 0)]] Texture2D<float4> normal_rough;
+[[vk::binding(6, 0)]] Texture2D<float2> motion;
+[[vk::binding(7, 0)]] Texture2D<float4> specular;  // denoised reflection
+
+static const float kInvPi = 0.31830988618;
+
+[numthreads(8, 8, 1)]
+void main(uint3 tid : SV_DispatchThreadID) {
+  int2 p = int2(tid.xy);
+  if (any(p >= int2(pc.size))) return;
+
+  float3 alb = albedo.Load(int3(p, 0)).rgb;
+  float3 e = irradiance.Load(int3(p, 0)).rgb;
+  float3 em = emissive.Load(int3(p, 0)).rgb;
+  float3 spec = specular.Load(int3(p, 0)).rgb;  // already F*weight*radiance, just add
+  float3 color = alb * kInvPi * e + em + spec;
+
+  if (pc.debug_mode == 1u) {
+    color = e * kInvPi;  // denoised lighting (albedo-free)
+  } else if (pc.debug_mode == 2u) {
+    float h = moments.Load(int3(p, 0)).w / max(pc.max_history, 1.0);
+    color = lerp(float3(1, 0, 0), float3(0, 1, 0), saturate(h));  // red=fresh, green=full
+  } else if (pc.debug_mode == 3u) {
+    color = sqrt(max(moments.Load(int3(p, 0)).z, 0.0)).xxx;  // stddev
+  } else if (pc.debug_mode == 4u) {
+    float2 mv = motion.Load(int3(p, 0));
+    color = float3(0.5 + mv.x * 50.0, 0.5 + mv.y * 50.0, 0.5);
+  } else if (pc.debug_mode == 5u) {
+    color = normal_rough.Load(int3(p, 0)).xyz;  // encoded 0..1
+  } else if (pc.debug_mode == 6u) {
+    color = alb;
+  } else if (pc.debug_mode == 7u) {
+    color = spec;  // denoised specular reflection only
+  }
+
+  out_color[p] = float4(color, 1.0);
+}

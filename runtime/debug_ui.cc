@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cfloat>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 #include <base/option.h>
@@ -25,6 +28,34 @@ namespace {
 
 // Config toggle formerly read from getenv (populated by base::InitOptionsFromEnv).
 base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
+
+// A bold sans face for the trailer title cards, rasterized once at a large size
+// and drawn downscaled so the giant captions stay crisp. Bold first, then the
+// regular weight; null if the system has none (titles fall back to the default).
+const char* FindTitleFont() {
+  static std::string resolved;
+  if (!resolved.empty()) return resolved.c_str();
+  static const char* candidates[] = {
+#if defined(_WIN32)
+      "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
+      "C:/Windows/Fonts/segoeui.ttf",  "C:/Windows/Fonts/arial.ttf",
+#else
+      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+      "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+      "/run/current-system/sw/share/X11/fonts/DejaVuSans-Bold.ttf",
+      "/usr/share/fonts/noto/NotoSans-Bold.ttf",
+      "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+      "/usr/share/fonts/TTF/DejaVuSans.ttf",
+      "/run/current-system/sw/share/X11/fonts/DejaVuSans.ttf",
+#endif
+  };
+  for (const char* c : candidates)
+    if (std::filesystem::exists(c)) {
+      resolved = c;
+      return resolved.c_str();
+    }
+  return nullptr;
+}
 
 const char* kAaModes[] = {"None", "TAA", "FSR3 Upscaler", "DLSS Upscaler"};
 const char* kQualities[] = {"Native AA (1.0x)", "Quality (1.5x)", "Balanced (1.7x)",
@@ -68,6 +99,12 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
   io.IniFilename = nullptr;  // no imgui.ini litter next to the binary
   ImGui::StyleColorsDark();
+
+  // Font 0 stays the small default UI face; font 1 (if a system TTF is found) is
+  // the large face the trailer titles render with, downscaled for crispness.
+  io.Fonts->AddFontDefault();
+  if (const char* title_path = FindTitleFont())
+    title_font_ = io.Fonts->AddFontFromFileTTF(title_path, 116.0f);
 
   if (!ImGui_ImplSDL3_InitForVulkan(sdl_window)) return false;
 
@@ -304,9 +341,36 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
         ImGui::Checkbox("Screen-space reflections", &settings.ssr);
         ImGui::Checkbox("Screen-space GI", &settings.ssgi);
-        ImGui::Checkbox("Path traced reference", &settings.path_trace);
+        ImGui::Checkbox("Path tracing", &settings.path_trace);
         if (settings.path_trace) {
-          ImGui::Text("accumulated %u spp", renderer.path_trace_samples());
+          ImGui::Checkbox("  Ground truth (no denoise)", &settings.path_trace_reference);
+          if (!settings.path_trace_reference)
+            ImGui::Checkbox("  Reconstruction renderer (SVGF)", &settings.path_trace_recon);
+          if (settings.path_trace_reference) {
+            ImGui::Text("  accumulated %u spp", renderer.path_trace_samples());
+          } else if (settings.path_trace_recon) {
+            const char* dbg[] = {"Final", "Lighting", "History len", "Variance",
+                                 "Motion", "Normal", "Albedo", "Specular"};
+            int d = static_cast<int>(settings.path_trace_recon_debug);
+            if (ImGui::Combo("  Debug view", &d, dbg, IM_ARRAYSIZE(dbg)))
+              settings.path_trace_recon_debug = static_cast<u32>(d);
+            int ap = static_cast<int>(settings.path_trace_recon_atrous);
+            if (ImGui::SliderInt("  A-trous passes", &ap, 0, 6))
+              settings.path_trace_recon_atrous = static_cast<u32>(ap);
+            ImGui::SliderFloat("  Responsiveness", &settings.path_trace_recon_weight, 0.01f, 0.5f);
+            int spp = static_cast<int>(settings.path_trace_spp);
+            if (ImGui::SliderInt("  Samples/pixel ", &spp, 1, 8))
+              settings.path_trace_spp = static_cast<u32>(spp);
+          } else {
+            // More samples = lower input noise = less motion shimmer, at linear cost.
+            int spp = static_cast<int>(settings.path_trace_spp);
+            if (ImGui::SliderInt("  Samples/pixel", &spp, 1, 8))
+              settings.path_trace_spp = static_cast<u32>(spp);
+            // Lower accum = less ghosting/shadow lag but grainier (raise spp to compensate).
+            int accum = static_cast<int>(settings.path_trace_accum);
+            if (ImGui::SliderInt("  Denoiser history", &accum, 2, 48))
+              settings.path_trace_accum = static_cast<u32>(accum);
+          }
         }
         ImGui::Checkbox("Volumetric fog", &settings.fog);
         if (settings.fog) {
@@ -514,6 +578,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     ImGui::End();
   }
 
+  DrawTrailerOverlay();  // cinematic chrome on the foreground list, panels or not
+
   ImGui::Render();
   if (visible_ || ImGui::GetDrawData()->TotalVtxCount > 0) {
     view->ui_draw = [](VkCommandBuffer cmd) {
@@ -611,6 +677,97 @@ void DebugUi::DrawStageChart(render::Renderer& renderer) {
     dl->AddText(font, font_size, {val_x, ty}, IM_COL32(232, 237, 245, 255), buf);
 
     y += row_h + row_gap;
+  }
+}
+
+void DebugUi::DrawTrailerOverlay() {
+  if (!trailer_ || !trailer_->active) return;
+  const TrailerOverlay& t = *trailer_;
+  ImDrawList* dl = ImGui::GetForegroundDrawList();
+  const ImVec2 screen = ImGui::GetIO().DisplaySize;
+  const f32 W = screen.x, H = screen.y;
+  ImFont* font = title_font_ ? title_font_ : ImGui::GetFont();
+
+  // Text with a soft drop shadow; sizes measured in the title font so layout is
+  // exact. All sizes are fractions of screen height so it scales to any output.
+  auto draw_text = [&](f32 size, ImVec2 pos, ImU32 rgb, f32 alpha, const char* s) {
+    if (alpha <= 0.003f || !s || !*s) return;
+    const int a = static_cast<int>(alpha * 255.0f + 0.5f);
+    const ImU32 fg = (rgb & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
+    const ImU32 sh = IM_COL32(0, 0, 0, static_cast<int>(alpha * 170.0f));
+    const f32 o = std::max(1.0f, size * 0.045f);
+    dl->AddText(font, size, {pos.x + o, pos.y + o}, sh, s);
+    dl->AddText(font, size, pos, fg, s);
+  };
+  auto measure = [&](f32 size, const char* s) {
+    return font->CalcTextSizeA(size, FLT_MAX, 0.0f, s);
+  };
+
+  const ImU32 kWhite = IM_COL32(245, 247, 255, 255);
+  const ImU32 kGold = IM_COL32(255, 203, 107, 255);
+
+  // Cinematic letterbox bars (under everything).
+  const f32 bar = H * 0.115f * t.letterbox;
+  if (bar > 0.5f) {
+    dl->AddRectFilled({0, 0}, {W, bar}, IM_COL32(0, 0, 0, 255));
+    dl->AddRectFilled({0, H - bar}, {W, H}, IM_COL32(0, 0, 0, 255));
+  }
+  // Intro / outro black wash over the 3D scene (under the text).
+  if (t.fade > 0.003f)
+    dl->AddRectFilled({0, 0}, {W, H}, IM_COL32(0, 0, 0, static_cast<int>(t.fade * 255.0f)));
+
+  // Opening title card, centered.
+  if (t.intro_alpha > 0.003f) {
+    const f32 ts = H * 0.085f;
+    const f32 ss = H * 0.026f;
+    const ImVec2 tz = measure(ts, t.intro_title.c_str());
+    draw_text(ts, {(W - tz.x) * 0.5f, H * 0.40f}, kWhite, t.intro_alpha, t.intro_title.c_str());
+    if (!t.intro_subtitle.empty()) {
+      const ImVec2 sz = measure(ss, t.intro_subtitle.c_str());
+      draw_text(ss, {(W - sz.x) * 0.5f, H * 0.40f + tz.y + H * 0.012f}, kGold, t.intro_alpha,
+                t.intro_subtitle.c_str());
+    }
+  }
+
+  // Lower-third location title, left-aligned just above the bottom bar, with a
+  // gold accent rule and the worldspace tagline above it.
+  if (t.title_alpha > 0.003f && !t.title.empty()) {
+    const f32 ts = H * 0.062f;
+    const f32 ss = H * 0.024f;
+    const f32 x = W * 0.055f;
+    const f32 y = H - bar - H * 0.05f - ts;
+    const int a = static_cast<int>(t.title_alpha * 255.0f);
+    dl->AddRectFilled({x, y + ts * 0.10f}, {x + W * 0.006f, y + ts * 1.02f},
+                      (kGold & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24));
+    const f32 tx = x + W * 0.018f;
+    if (!t.subtitle.empty())
+      draw_text(ss, {tx, y - ss * 1.15f}, kGold, t.title_alpha, t.subtitle.c_str());
+    draw_text(ts, {tx, y}, kWhite, t.title_alpha, t.title.c_str());
+  }
+
+  // Render-mode badge, top-left below the top bar, with the live weather under it.
+  if (t.badge_alpha > 0.003f && !t.badge.empty()) {
+    const f32 bs = H * 0.024f;
+    const f32 ws = H * 0.018f;
+    const f32 x = W * 0.055f;
+    const f32 y = bar + H * 0.045f;
+    draw_text(bs, {x, y}, kGold, t.badge_alpha, t.badge.c_str());
+    if (!t.weather_tag.empty())
+      draw_text(ws, {x, y + bs * 1.3f}, kWhite, t.badge_alpha * 0.85f, t.weather_tag.c_str());
+  }
+
+  // Loading screen: while a game streams in, a centered "LOADING <game>" over the
+  // black wash, with animated trailing dots so it never looks frozen.
+  if (t.loading) {
+    const f32 ls = H * 0.030f;
+    const std::string base =
+        t.loading_label.empty() ? std::string("LOADING") : ("LOADING   " + t.loading_label);
+    const ImVec2 bsz = measure(ls, base.c_str());
+    const f32 lx = (W - bsz.x) * 0.5f;
+    const f32 ly = H * 0.5f - ls * 0.5f;
+    draw_text(ls, {lx, ly}, kWhite, 1.0f, base.c_str());
+    const int n = static_cast<int>(ImGui::GetTime() * 2.0) % 4;
+    if (n > 0) draw_text(ls, {lx + bsz.x, ly}, kGold, 1.0f, std::string(static_cast<size_t>(n), '.').c_str());
   }
 }
 

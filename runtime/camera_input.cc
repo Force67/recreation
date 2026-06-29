@@ -1,9 +1,11 @@
 #include "engine.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 
 #include <base/option.h>
 
@@ -27,6 +29,14 @@ static base::Option<const char*> Replay{"replay", nullptr, "REC_REPLAY"};
 static base::Option<bool> Showcase{"showcase", false, "REC_SHOWCASE"};
 static base::Option<const char*> ShowcaseShots{"showcase.shots", nullptr, "REC_SHOWCASE_SHOTS"};
 static base::Option<bool> ShowcaseQuit{"showcase.quit", false, "REC_SHOWCASE_QUIT"};
+// REC_TRAILER layers the cinematic trailer (cycling weather + render mode, with
+// title cards) over the showcase flythrough; it implies REC_SHOWCASE.
+static base::Option<bool> Trailer{"trailer", false, "REC_TRAILER"};
+static base::Option<const char*> TrailerTitle{"trailer.title", "RECREATION", "REC_TRAILER_TITLE"};
+// Safety cap on the per-game loading hold: if a map never reports caught-up
+// (huge worldspace, missing assets), reveal it anyway after this many seconds.
+// Generous, because the wide preload diorama (radius 4) is a lot of cells.
+static constexpr f32 kTrailerMaxLoadHold = 25.0f;
 static base::Option<bool> AutoAttack{"auto.attack", false, "REC_AUTO_ATTACK"};
 
 void Engine::UpdateCamera(f32 frame_delta) {
@@ -171,7 +181,11 @@ void Engine::DriveCamera(f32 dt) {
     // REC_SHOWCASE flies a smooth cinematic pass over every loaded worldspace in
     // one take. REC_SHOWCASE_SHOTS=<dir> writes a regression PNG at each marked
     // beat; REC_SHOWCASE_QUIT exits when the pass ends (headless benchmark).
-    if (Showcase) {
+    if (Showcase || Trailer) {
+      // Multi-game trailer: collapse the side-by-side regions onto one shared
+      // center and stream the games one at a time. Must run before BuildShowcase
+      // so the camera path is built over the collapsed regions.
+      if (Trailer) SetupTrailerStreaming();
       BuildShowcase();
       cam_showcase_ = !showcase_.empty();
       if (const char* d = ShowcaseShots.get()) showcase_shot_dir_ = d;
@@ -182,17 +196,77 @@ void Engine::DriveCamera(f32 dt) {
         REC_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
                  showcase_regions_.size(), showcase_.duration(),
                  showcase_shot_dir_.empty() ? "" : " (capturing)");
+        // The trailer rides the same path, adding the weather/render-mode cycle
+        // and the title cards. It owns the weather and the render settings while
+        // it runs, so the debug panels step aside for clean frames.
+        if (Trailer) {
+          BuildTrailer();
+          cam_trailer_ = !trailer_.empty();
+          if (cam_trailer_) {
+            debug_ui_.SetAllVisible(false);
+            debug_ui_.SetTrailerOverlay(&current_trailer_overlay_);
+            REC_INFO("trailer: {} title card(s) over {:.1f}s", showcase_regions_.size(),
+                     trailer_.duration());
+          }
+        }
       } else {
-        REC_WARN("REC_SHOWCASE set but no worldspaces to fly over");
+        REC_WARN("REC_SHOWCASE/REC_TRAILER set but no worldspaces to fly over");
       }
     }
   }
-  cam_time_ += dt;
+  // Freeze the trailer clock while a freshly cut-to game streams in, so the camera
+  // never glides over a half-loaded map; trailer_load_elapsed_ caps the wait.
+  if (cam_trailer_ && trailer_loading_)
+    trailer_load_elapsed_ += dt;
+  else
+    cam_time_ += dt;
 
   if (cam_showcase_) {
     f32 prev = cam_time_ - dt;
     ShowcasePose p = showcase_.Sample(cam_time_);
     LookCameraAt(p.eye, p.target);
+    // Trailer: drive the weather, render mode and on-screen chrome off the same
+    // clock. Weather is pushed through the live override the frame loop already
+    // applies; the render mode is only re-applied when it actually changes so the
+    // path tracer is not needlessly reset.
+    if (cam_trailer_) {
+      // Multi-game: at a beat boundary, cut to the next game (unloading the prior)
+      // and hold on a loading screen until it has streamed in.
+      if (trailer_sequential_) {
+        int want = trailer_.ActiveBeatIndex(cam_time_);
+        if (want != trailer_active_domain_) {
+          SwitchTrailerDomain(want);
+          trailer_loading_ = true;
+          trailer_load_elapsed_ = 0.0f;
+        }
+        if (trailer_loading_ &&
+            (TrailerActiveLoaded() || trailer_load_elapsed_ >= kTrailerMaxLoadHold)) {
+          trailer_loading_ = false;
+          REC_INFO("trailer: {} ready ({:.1f}s){}",
+                   showcase_regions_[trailer_active_domain_].name, trailer_load_elapsed_,
+                   TrailerActiveLoaded() ? "" : " [timeout]");
+        }
+      }
+      TrailerState ts = trailer_.At(cam_time_);
+      weather_override_ = true;
+      weather_override_state_ = ts.weather;
+      if (!trailer_mode_applied_ || ts.mode != applied_trailer_mode_) {
+        ApplyTrailerRenderMode(ts.mode);
+        applied_trailer_mode_ = ts.mode;
+        trailer_mode_applied_ = true;
+      }
+      // While holding, black out the scene and show the loading card for the game
+      // that is streaming in.
+      if (trailer_loading_) {
+        ts.overlay.loading_label = ts.overlay.title;  // incoming game (may be empty)
+        ts.overlay.fade = 1.0f;
+        ts.overlay.title_alpha = 0.0f;
+        ts.overlay.intro_alpha = 0.0f;
+        ts.overlay.badge_alpha = 0.0f;
+        ts.overlay.loading = true;
+      }
+      current_trailer_overlay_ = std::move(ts.overlay);
+    }
     if (!showcase_shot_dir_.empty()) {
       std::string label;
       int idx = showcase_.CaptureCrossed(prev, cam_time_, &label);
@@ -213,7 +287,7 @@ void Engine::DriveCamera(f32 dt) {
       // Benchmark steady-state render: skip the first second of warmup and any
       // half-second-plus frame (cold streaming/IO hitches, not GPU time). Real
       // mid-flight stutter (down to ~2 fps) is still counted, so it shows up.
-      if (dt > 0 && dt < 0.5f && cam_time_ >= 1.0f) {
+      if (dt > 0 && dt < 0.5f && cam_time_ >= 1.0f && !trailer_loading_) {
         showcase_dt_min_ = std::min(showcase_dt_min_, dt);
         showcase_dt_max_ = std::max(showcase_dt_max_, dt);
         showcase_bench_time_ += dt;
@@ -280,6 +354,9 @@ void Engine::BuildShowcase() {
   for (size_t k = 0; k < showcase_regions_.size(); ++k) {
     const Vec3 c = showcase_regions_[k].center;
     const std::string& n = showcase_regions_[k].name;
+    // Flythrough time this region's block starts (the camera leaving the prior
+    // region's last beat), so the trailer can fade its location title in here.
+    showcase_region_start_.push_back(showcase_.duration());
     if (k > 0) {
       // High traveling glide over the seam: both worldspaces are in frame here,
       // which makes it both a strong showcase beat and a regression mark.
@@ -297,6 +374,149 @@ void Engine::BuildShowcase() {
     // Crane up and east, revealing the vista and setting up the exit.
     showcase_.Add(wp(c + Vec3{120, 92, 70}, c + Vec3{30, 15, 0}, 5.0f, true, n + "_reveal"));
   }
+}
+
+namespace {
+// A clean trailer caption for a loaded game: a short title plus a tagline,
+// derived from the content domain's profile name (uppercased as a fallback).
+struct TrailerCaption {
+  std::string title;
+  std::string subtitle;
+};
+std::string Upper(std::string s) {
+  for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return s;
+}
+TrailerCaption CaptionFor(const std::string& name) {
+  if (name.rfind("Skyrim", 0) == 0) return {"SKYRIM", "THE ELDER SCROLLS V"};
+  if (name.rfind("Fallout 4", 0) == 0) return {"FALLOUT 4", "THE COMMONWEALTH"};
+  if (name.rfind("Fallout 76", 0) == 0) return {"FALLOUT 76", "APPALACHIA"};
+  if (name.rfind("Starfield", 0) == 0) return {"STARFIELD", "THE SETTLED SYSTEMS"};
+  return {Upper(name), ""};
+}
+}  // namespace
+
+void Engine::BuildTrailer() {
+  trailer_ = TrailerDirector{};  // fresh, in case of a rebuild
+  if (showcase_regions_.empty()) return;
+  if (const char* title = TrailerTitle.get())
+    trailer_.set_intro(title, "A BETHESDA ENGINE, REIMAGINED");
+  const f32 total = showcase_.duration();
+  for (size_t k = 0; k < showcase_regions_.size(); ++k) {
+    const f32 start = k < showcase_region_start_.size() ? showcase_region_start_[k] : 0.0f;
+    const f32 end = (k + 1 < showcase_region_start_.size()) ? showcase_region_start_[k + 1] : total;
+    TrailerCaption cap = CaptionFor(showcase_regions_[k].name);
+    trailer_.AddBeat({start, end, std::move(cap.title), std::move(cap.subtitle)});
+  }
+  trailer_.set_duration(total);
+}
+
+void Engine::ApplyTrailerRenderMode(TrailerRenderMode mode) {
+  render::RenderSettings& s = renderer_.settings();
+  switch (mode) {
+    case TrailerRenderMode::kRaster:
+      // Pure raster fallbacks: cascaded shadows, screen-space AO/reflections/GI.
+      s.path_trace = false;
+      s.rt_shadows = false;
+      s.shadow_maps = true;
+      s.rtao = false;
+      s.ssao = true;
+      s.rt_reflections = false;
+      s.water_reflections = false;
+      s.ssr = true;
+      s.ddgi = false;
+      s.ssgi = true;
+      break;
+    case TrailerRenderMode::kRayTracing:
+      // Full ray-traced hybrid: rt shadows, AO, reflections and probe GI.
+      s.path_trace = false;
+      s.rt_shadows = true;
+      s.shadow_maps = false;
+      s.rtao = true;
+      s.ssao = false;
+      s.rt_reflections = true;
+      s.water_reflections = true;
+      s.ssr = false;
+      s.ddgi = true;
+      s.ssgi = false;
+      break;
+    case TrailerRenderMode::kPathTracing:
+      // Reference progressive path tracer, over the rt feature set. (Noisy on a
+      // moving camera and grass/distant LOD are excluded from rays on this branch;
+      // the denoised, grass-aware PT lives on feat/pathtrace-denoise-vegetation.)
+      s.rt_shadows = true;
+      s.rtao = true;
+      s.rt_reflections = true;
+      s.water_reflections = true;
+      s.ddgi = true;
+      s.path_trace = true;
+      break;
+  }
+}
+
+world::CellStreamer* Engine::TrailerStreamer(int region_index) {
+  if (region_index < 0 || static_cast<size_t>(region_index) >= showcase_regions_.size())
+    return nullptr;
+  world::CellStreamer* s = showcase_regions_[region_index].streamer;
+  return s ? s : streamer_.get();  // null region streamer means the primary game
+}
+
+void Engine::SetupTrailerStreaming() {
+  // Only sequence when more than the primary game renders; a single map keeps the
+  // simple in-place trailer (all regions already share one center).
+  if (extra_streamers_.empty() || showcase_regions_.size() < 2) return;
+  trailer_sequential_ = true;
+  const Vec3 center = showcase_regions_[0].center;  // the primary start-cell center
+
+  // Preload each region as a wide, fixed diorama anchored at the shared center
+  // rather than streaming around the moving camera. This fixes three things:
+  //  - the hero area is real near-cell geometry, which ray tracing / path tracing
+  //    can see (distant LOD proxies are excluded from the TLAS, so a camera-chased
+  //    half-loaded region showed holes in those modes);
+  //  - nothing streams while the camera flies, so no mid-shot stutter or pop-in;
+  //  - the region's ground is aligned to the camera's height, so the drone never
+  //    clips below the terrain (secondary worlds sit at their own LAND height).
+  world::CellStreamer::Settings preload;
+  preload.load_radius = 3;     // ~120 m of resident near cells around the subject
+  preload.mesh_budget = 48;    // load fast (hidden behind the black loading hold)
+  preload.ref_budget = 768;
+  preload.distant_lod = true;  // horizon fill (REC_DISTANT_LOD also forces this on)
+  preload.distant_budget = 12;
+  preload.grass_density = config_.grass_density;
+
+  for (size_t k = 0; k < showcase_regions_.size(); ++k) {
+    world::CellStreamer* s = TrailerStreamer(static_cast<int>(k));
+    if (!s) continue;
+    // The region center in this domain's own (pre-offset) coordinates: the primary
+    // is the start cell under the shared center; a secondary uses its anchor.
+    const Vec3 anchor = (k == 0) ? Vec3{center.x, 0.0f, center.z} : s->fixed_anchor();
+    f32 ground = 0.0f;
+    s->GroundHeight(anchor.x, anchor.z, &ground);  // own-coords ground (0 if none)
+    s->set_fixed_anchor(anchor);
+    s->set_world_offset({center.x - anchor.x, center.y - ground, center.z - anchor.z});
+    s->Configure(preload);
+    if (k != 0) s->UnloadAllCells(world_);  // only the active game stays resident
+  }
+  // Collapse all regions onto the shared center: the drone repeats its hero move
+  // in place for each game while the active domain switches under the fade-cut.
+  for (auto& r : showcase_regions_) r.center = center;
+  trailer_active_domain_ = 0;  // the primary streams first
+  trailer_loading_ = true;     // hold on the loading screen until it has streamed in
+  trailer_load_elapsed_ = 0.0f;
+}
+
+bool Engine::TrailerActiveLoaded() {
+  world::CellStreamer* s = TrailerStreamer(trailer_active_domain_);
+  return !s || s->caught_up();
+}
+
+void Engine::SwitchTrailerDomain(int region_index) {
+  if (region_index == trailer_active_domain_) return;
+  if (world::CellStreamer* prev = TrailerStreamer(trailer_active_domain_))
+    prev->UnloadAllCells(world_);  // drop the outgoing map; the incoming streams in
+  trailer_active_domain_ = region_index;
+  if (region_index >= 0 && static_cast<size_t>(region_index) < showcase_regions_.size())
+    REC_INFO("trailer: cut to {} (loading)", showcase_regions_[region_index].name);
 }
 
 void Engine::WalkUpdate(f32 dt, bool allow) {

@@ -37,6 +37,7 @@ editor_layout.reclayout
 /run-skyrim.sh
 /run-fallout.sh
 /run-starfield.sh
+/run-trailer.sh
 /run-all.sh
 /bench.sh
 run-local.sh

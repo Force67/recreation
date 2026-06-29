@@ -47,6 +47,9 @@ class NrdDenoiser {
     f32 jitter_prev[2] = {0, 0};
     Vec3 sun_direction{0, -1, 0};  // travel direction of the light
     u32 frame_index = 0;
+    // Path-tracer diffuse history length (frames). Lower = more responsive (less
+    // ghosting/lag) but noisier; the ao/shadow denoisers ignore this.
+    u32 diffuse_accumulated_frames = 16;
     bool reset = false;
   };
   void SetFrame(const FrameSettings& settings);
@@ -72,12 +75,22 @@ class NrdDenoiser {
                                ResourceHandle view_z, ResourceHandle motion,
                                ResourceHandle in_penumbra);
 
+  // REBLUR diffuse radiance, for the path tracer. in_radiance_hitdist holds the
+  // (albedo-demodulated) radiance + normalized hit distance, packed by
+  // REBLUR_FrontEnd_PackRadianceAndNormHitDist (RGBA16f). Returns the denoised
+  // radiance handle; unpack with REBLUR_BackEnd_UnpackRadianceAndNormHitDist.
+  ResourceHandle DenoiseDiffuse(RenderGraph& graph, ResourceHandle normal_roughness,
+                                ResourceHandle view_z, ResourceHandle motion,
+                                ResourceHandle in_radiance_hitdist);
+
   // NRD encodings the engine shaders must match.
   static constexpr VkFormat kNormalRoughnessFormat = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
   static constexpr VkFormat kViewZFormat = VK_FORMAT_R16_SFLOAT;
   static constexpr VkFormat kHitDistFormat = VK_FORMAT_R8_UNORM;
   static constexpr VkFormat kPenumbraFormat = VK_FORMAT_R16_SFLOAT;
   static constexpr VkFormat kShadowFormat = VK_FORMAT_R8_UNORM;
+  // Diffuse radiance + normalized hit distance, in and out (RGBA16f).
+  static constexpr VkFormat kDiffuseRadianceFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
   // REBLUR hit distance normalization params (A, B, C), shared with the shader.
   static constexpr f32 kHitDistParams[3] = {3.0f, 0.1f, 20.0f};
 
@@ -125,8 +138,10 @@ class NrdDenoiser {
   base::Vector<PoolTexture> transient_;
   PoolTexture out_ao_;
   PoolTexture out_shadow_;
+  PoolTexture out_diffuse_;
   VkImageLayout out_ao_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
   VkImageLayout out_shadow_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+  VkImageLayout out_diffuse_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
 
   // Engine-side input packing (g-buffer -> NRD guides), not part of NRD itself.
   VkPipeline pack_pipeline_ = VK_NULL_HANDLE;

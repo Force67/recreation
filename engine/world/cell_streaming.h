@@ -65,7 +65,14 @@ class CellStreamer {
         baker_(records, assets),
         grass_baker_(records, assets) {}
 
-  void Configure(const Settings& settings) { settings_ = settings; }
+  void Configure(const Settings& settings) {
+    settings_ = settings;
+    // Reconfiguring (e.g. the trailer widening the primary's radius + distant LOD)
+    // invalidates the caught-up state: a smaller-radius idle must not read as ready
+    // under the new params, and the distant catalog must rebuild for the new radius.
+    announced_idle_ = false;
+    distant_discovered_ = false;
+  }
   void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
 
   // Translates all spawned content (and the camera anchor) by a fixed engine
@@ -82,6 +89,7 @@ class CellStreamer {
     fixed_anchor_ = anchor;
     has_fixed_anchor_ = true;
   }
+  const Vec3& fixed_anchor() const { return fixed_anchor_; }
 
   // Namespaces this streamer's mesh ids in the shared renderer. Asset paths
   // collide across games (Skyrim and Fallout 4 both ship "meshes/..."), so two
@@ -118,6 +126,12 @@ class CellStreamer {
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
 
+  // Drops everything this streamer has spawned (all exterior cells, any active
+  // interior, and the distant LOD proxies). The trailer uses it to unload the
+  // previous game before cutting to the next; a later Update re-streams from the
+  // anchor.
+  void UnloadAllCells(ecs::World& world);
+
   // Editor placement: converts a base form's world model, uploads it to the
   // shared renderer (salted for this domain), and spawns a standalone
   // renderable entity at an engine-space transform. Unlike a streamed ref the
@@ -131,6 +145,12 @@ class CellStreamer {
 
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
+
+  // True once streaming has caught up: every in-range cell is loaded and its
+  // incremental conversion is done, no budget was left pending, and (when on) the
+  // distant LOD is fully drained. The trailer waits on this before revealing a
+  // freshly cut-to game. Resets on UnloadAllCells / interior transitions.
+  bool caught_up() const { return announced_idle_; }
 
   size_t loaded_cell_count() const { return loaded_.size(); }
   size_t spawned_entity_count() const { return spawned_entities_; }

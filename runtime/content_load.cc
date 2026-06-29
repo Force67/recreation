@@ -169,7 +169,11 @@ bool LoadGameData(Engine& engine) {
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded
     // world rather than at interior-local coordinates floating in the exterior.
-    if (dest_ref != 0 && self->streamer_) {
+    // Only when the streamer actually follows the player (walk mode): in the
+    // default fly-camera mode the camera, not the player, anchors streaming, so a
+    // background start-game quest moving the (unfollowed) player must not unload
+    // the exterior and strand the camera in an interior.
+    if (self->ctx_.walk_mode && dest_ref != 0 && self->streamer_) {
       const bethesda::GlobalFormId ref{static_cast<u16>(dest_ref >> 32),
                                        static_cast<u32>(dest_ref & 0xffffffffu)};
       const bethesda::GlobalFormId interior = self->records_.InteriorCellOfRef(ref);
@@ -348,7 +352,8 @@ bool LoadGameData(Engine& engine) {
   REC_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
            self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
-  self->showcase_regions_.push_back({{start.x, ground, start.z}, std::string(profile.name)});
+  self->showcase_regions_.push_back(
+      {{start.x, ground, start.z}, std::string(profile.name), self->streamer_.get()});
   // REC_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
   // ground is within a 14 m ring and whether any of it is under water. A good
   // showcase venue has a small max-drop and zero submerged samples. Headless +
@@ -471,7 +476,7 @@ void SetupExtraStreamers(Engine& engine) {
       // The showcase flies over each rendered region; its ground baseline sits the
       // same 10m below the placed camera-height anchor as the primary's does.
       self->showcase_regions_.push_back(
-          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name)});
+          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name), streamer.get()});
     } else {
       REC_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
                domain.profile().name, domain.profile().exterior_worldspace);
