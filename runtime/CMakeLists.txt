@@ -34,6 +34,7 @@ set(RECREATION_RUNTIME_MODULES
   recreation::core
   recreation::ecs
   recreation::asset
+  recreation::audio
   recreation::render
   recreation::physics
   recreation::anim
