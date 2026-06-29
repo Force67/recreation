@@ -513,18 +513,21 @@ void QuestDirector::ReportReinforcementTest() {
   const u64 pool_atk = glob("CWReinforcementPoolAttacker");
 
   auto* binds = ctx_.bindings;
+  // The controller writes the pool globals through its CWs cross-reference (the
+  // CW master quest, whose script carries the CWReinforcementPoolAttacker
+  // GlobalVariable property). In a live game the master quest's setup fills that
+  // link; headless we wire it so the propget -> SetValue global write resolves.
+  const u64 cw_master = FindQuestHandle("CW");
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, siege, pct_atk, pool_atk](rec::script::papyrus::VirtualMachine& vm) {
+          .SubmitFor([binds, siege, pct_atk, pool_atk, cw_master](rec::script::papyrus::VirtualMachine& vm) {
             using rec::script::papyrus::ObjectRef;
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
 
             // Find an alias that actually carries the reinforcement script (its
             // OnDeath is what drives the pool), scanning the encoded handles.
-            const quest::QuestDef* def = binds->quest_system().Definition(siege);
             i32 alias_id = -1;
-            std::string alias_name = "(reinforcement alias)";
             for (i32 id = 0; id < 60; ++id) {
               const ObjectRef ah{rec::script::papyrus::EncodeAliasHandle(siege, id)};
               if (vm.TypeOf(ah).find("Reinforcement") != std::string::npos) {
@@ -534,19 +537,9 @@ void QuestDirector::ReportReinforcementTest() {
             }
             emit(Fmt("=== reinforcement test: CWFortSiegeFort (0x%llx) ===",
                      static_cast<unsigned long long>(siege)));
-            emit(Fmt("soldier alias: %s (id %d); pool globals: pct=0x%llx pool=0x%llx",
-                     alias_name.empty() ? "(none found)" : alias_name.c_str(), alias_id,
+            emit(Fmt("reinforcement alias id=%d; pool globals: pct=0x%llx pool=0x%llx", alias_id,
                      static_cast<unsigned long long>(pct_atk),
                      static_cast<unsigned long long>(pool_atk)));
-            // Survey which alias ids actually carry a script (so we fill one that
-            // has the CWReinforcementAliasScript, and learn the id numbering).
-            std::string with_scripts;
-            for (i32 id = 0; id < 60; ++id) {
-              const ObjectRef ah{rec::script::papyrus::EncodeAliasHandle(siege, id)};
-              const std::string t = vm.TypeOf(ah);
-              if (!t.empty()) with_scripts += Fmt(" %d=%s", id, t.c_str());
-            }
-            emit(Fmt("aliases with scripts:%s", with_scripts.empty() ? " (none)" : with_scripts.c_str()));
 
             // Start the siege and run its battle-stage setup (seeds the pools,
             // registers/enables the soldier aliases).
@@ -556,37 +549,62 @@ void QuestDirector::ReportReinforcementTest() {
             emit(Fmt("after setup: stage=%d running=%d", binds->GetStage(ObjectRef{siege}),
                      binds->IsRunning(ObjectRef{siege})));
 
+            using rec::script::papyrus::Value;
             auto gv = [&](u64 h) { return h ? binds->GetGlobalValue(ObjectRef{h}) : -1.0f; };
-            const f32 pool_before = gv(pool_atk), pct_before = gv(pct_atk);
-            emit(Fmt("before kill: CWReinforcementPoolAttacker=%.1f CWPercentPoolRemainingAttacker=%.1f",
-                     pool_before, pct_before));
+            auto memf = [&](const char* var) -> f32 {
+              Value* p = vm.MemberVar(ObjectRef{siege}, var);
+              return p ? p->as_float() : -1.0f;
+            };
 
+            // Seed the controller's reinforcement pool and wire its CWs
+            // cross-reference to the CW master quest (whose script carries the
+            // CWReinforcementPoolAttacker GlobalVariable property). In a live siege
+            // the stage-0 setup does this off the fort's placed refs, which a
+            // headless run has no cell for; seeding it here isolates the
+            // death-driven pool Papyrus so we can prove it runs end to end.
+            auto seed = [&](const char* var) {
+              if (Value* p = vm.MemberVar(ObjectRef{siege}, var)) *p = Value::Float(40.0f);
+            };
+            seed("::PoolAttacker_var");
+            seed("::StartingPoolAttacker_var");
+            if (cw_master)
+              if (Value* p = vm.MemberVar(ObjectRef{siege}, "::CWs_var"))
+                *p = Value::Object(ObjectRef{cw_master});
+
+            const f32 member_before = memf("::PoolAttacker_var");
+            emit(Fmt("before: PoolAttacker_var=%.1f global=%.1f CWs=0x%llx", member_before,
+                     gv(pool_atk), static_cast<unsigned long long>(cw_master)));
+
+            // Fill a reinforcement-script alias with a soldier and kill it: proves
+            // the death dispatches to CWReinforcementAliasScript.OnDeath ->
+            // GetOwningQuest().registerDeath, the engine half of the chain (the
+            // event trace shows 'OnDeath -> 0x4000... (handler ran)').
             if (alias_id >= 0) {
-              // Fill the soldier alias with an actor and kill it; the death should
-              // dispatch to the alias OnDeath and run registerDeath.
               const u64 alias_h = rec::script::papyrus::EncodeAliasHandle(siege, alias_id);
-              emit(Fmt("alias 0x%llx: script type='%s' state='%s'",
-                       static_cast<unsigned long long>(alias_h), vm.TypeOf(ObjectRef{alias_h}).c_str(),
-                       vm.CurrentState(ObjectRef{alias_h}).c_str()));
               const ObjectRef soldier{(0xFFFFull << 32) | 0x5050};
               binds->SetActorValue(soldier, "health", 80.0f);
               binds->AliasForceRefTo(ObjectRef{alias_h}, soldier);
               binds->SetActorValue(soldier, "health", 0.0f);  // dies -> reverse dispatch
+              emit(Fmt("killed soldier filling alias 0x%llx (%s)",
+                       static_cast<unsigned long long>(alias_h), vm.TypeOf(ObjectRef{alias_h}).c_str()));
             }
 
-            const f32 pool_after = gv(pool_atk), pct_after = gv(pct_atk);
-            emit(Fmt("after kill:  CWReinforcementPoolAttacker=%.1f CWPercentPoolRemainingAttacker=%.1f",
-                     pool_after, pct_after));
-            if (pool_after < pool_before || pct_after < pct_before) {
-              emit("=> reinforcement pool DECREMENTED -- the real reinforcement Papyrus ran end to end");
+            // Drive the real pool-write Papyrus: ModifyPool decrements PoolAttacker
+            // _var and writes it to CWReinforcementPoolAttacker through the CWs ->
+            // property chain. Assert the global updates (a bare global form had no
+            // resolvable SetValue before the GlobalVariable dispatch fix, so every
+            // script pool-write silently no-opped).
+            vm.Call(ObjectRef{siege}, "ModifyPool",
+                    {Value::Int(-1), Value::Bool(true), Value::Bool(false)});
+            const f32 g = gv(pool_atk), m = memf("::PoolAttacker_var");
+            emit(Fmt("after ModifyPool: PoolAttacker_var=%.1f global=%.1f", m, g));
+            if (g == m && g != member_before) {
+              emit("=> the real reinforcement ModifyPool Papyrus writes CWReinforcementPoolAttacker");
+              emit("   end to end (controller member -> CWs property -> GlobalVariable.SetValue).");
+              emit("   The full kill-driven respawn loop additionally needs the loaded fort's");
+              emit("   factions / attack-points / spawn-markers, which a headless run has no cell for.");
             } else {
-              emit("=> the alias's CWReinforcementAliasScript.OnDeath RAN (see the '[info] event");
-              emit("   OnDeath -> 0x4000... (handler ran)' line) -- the death-dispatch chain works.");
-              emit("   The pool global is still 0 because the controller's pool was not seeded and");
-              emit("   the alias is in the empty state: the siege's stage-0 setup (SetPool* +");
-              emit("   GoToState Respawning, in Fragment_0) did not run via this manual stage drive");
-              emit("   (SetStage(0) after StartQuest is not a fresh transition). Driving stage 0 from");
-              emit("   the story-manager start would seed the pool; the alias->OnDeath engine path is done.");
+              emit("=> ModifyPool did not write the global (regression!).");
             }
             return r;
           })
