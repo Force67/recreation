@@ -165,11 +165,21 @@ bool LoadGameData(Engine& engine) {
   }
 
   // Ambient audio: catalogue the game's sound files (SOUN/SNDR) and the regions'
-  // ambient sound lists (REGN), then point the director at them. Built only when
-  // an audio device is live, so a muted run or a dedicated server skips the scan.
+  // ambient sound lists + areas (REGN), then point the director at them. The
+  // ambient regions are resolved independently of the weather system (which the
+  // engine may pin off), so this scopes them to the primary worldspace itself.
+  // Built only when an audio device is live, so a muted run or a dedicated server
+  // skips the scan.
   if (self->audio_ && self->audio_->active()) {
+    const char* ambient_worldspace = self->game_ == bethesda::Game::kSkyrimSe  ? "Tamriel"
+                                     : self->game_ == bethesda::Game::kFallout4 ? "Commonwealth"
+                                     : self->game_ == bethesda::Game::kStarfield ? "NewAtlantis"
+                                                                                 : "";
+    const bethesda::GlobalFormId ws =
+        *ambient_worldspace ? self->records_.FindWorldspace(ambient_worldspace)
+                            : bethesda::GlobalFormId{};
     self->sound_catalog_.Build(self->records_);
-    self->region_ambience_.Build(self->records_);
+    self->region_ambience_.Build(self->records_, ws);
     self->ambient_director_.Configure(self->audio_.get(), &self->sound_catalog_,
                                       &self->region_ambience_);
   }
