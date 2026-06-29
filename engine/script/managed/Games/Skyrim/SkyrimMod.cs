@@ -33,5 +33,10 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new EssentialProtection());
         ModHost.Register(new InjurySlowdown());
         ModHost.Register(new TimeOfDayService());
+
+        // Survival hunger is opt-in (it is not vanilla behaviour); enable it with
+        // "survivalNeeds": true in Skyrim.json.
+        if (config.GetBool("survivalNeeds", false))
+            ModHost.Register(new SurvivalNeeds());
     }
 }
