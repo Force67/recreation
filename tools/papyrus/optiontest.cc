@@ -8,6 +8,14 @@
 
 #include <base/option.h>
 
+#ifdef _WIN32
+// MSVC has no POSIX setenv/unsetenv; map to the CRT equivalents.
+static int setenv(const char* name, const char* value, int /*overwrite*/) {
+  return _putenv_s(name, value);
+}
+static int unsetenv(const char* name) { return _putenv_s(name, ""); }
+#endif
+
 // Declared at namespace scope, the way a real subsystem would: a default, plus
 // the env var that overrides it. These replace scattered std::getenv checks.
 static base::Option<bool> kFlag{"opt.flag", false, "REC_OPT_FLAG"};

@@ -13,6 +13,13 @@
 #include "core/log.h"
 #include "engine_internal.h"
 
+#ifdef _WIN32
+// MSVC names the pipe helpers _popen/_pclose; the folder picker shells out the
+// same way on every platform (PowerShell on Windows).
+static FILE* popen(const char* cmd, const char* mode) { return _popen(cmd, mode); }
+static int pclose(FILE* stream) { return _pclose(stream); }
+#endif
+
 // The first-run / out-of-box setup wizard: the front door a fresh install opens
 // before the NEXUS main menu. Pre-resolves the installed universes, lets the
 // player point Recreation at any it could not find, pick a mods directory and a
