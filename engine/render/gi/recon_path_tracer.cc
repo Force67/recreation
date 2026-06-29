@@ -232,6 +232,10 @@ void ReconPathTracer::Destroy(Device& device) {
   for (VkDescriptorSetLayout s : {gbuffer_set_, temporal_set_, atrous_set_, composite_set_})
     if (s) vkDestroyDescriptorSetLayout(dev, s, nullptr);
   gbuffer_pipeline_ = temporal_pipeline_ = atrous_pipeline_ = composite_pipeline_ = VK_NULL_HANDLE;
+  // Null every handle, not just the pipelines, so a second Destroy() (double
+  // shutdown / device-lost reinit) does not re-free already-freed layouts.
+  gbuffer_layout_ = temporal_layout_ = atrous_layout_ = composite_layout_ = VK_NULL_HANDLE;
+  gbuffer_set_ = temporal_set_ = atrous_set_ = composite_set_ = VK_NULL_HANDLE;
 }
 
 void ReconPathTracer::RunTemporal(RenderGraph& graph, ResourceHandle noisy, ResourceHandle ac_c,
