@@ -65,7 +65,14 @@ class CellStreamer {
         baker_(records, assets),
         grass_baker_(records, assets) {}
 
-  void Configure(const Settings& settings) { settings_ = settings; }
+  void Configure(const Settings& settings) {
+    settings_ = settings;
+    // Reconfiguring (e.g. the trailer widening the primary's radius + distant LOD)
+    // invalidates the caught-up state: a smaller-radius idle must not read as ready
+    // under the new params, and the distant catalog must rebuild for the new radius.
+    announced_idle_ = false;
+    distant_discovered_ = false;
+  }
   void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
 
   // Translates all spawned content (and the camera anchor) by a fixed engine
