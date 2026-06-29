@@ -133,8 +133,13 @@ bool LoadGameData(Engine& engine) {
     // single-weather CLMT is the real answer (don't fall through to synthetic).
     auto climate =
         rec::weather::BuildClimate(self->records_, weathers, worldspace, starfield ? 1 : 4);
-    if (const char* forced_kind = Weather.get()) {
-      std::string s = forced_kind;
+    // For now, always spawn under clear weather: pin a single weather kind (clear
+    // by default; REC_WEATHER overrides) and suppress the dynamic per-region
+    // cycle. Set kPinClearWeather to false to restore BuildClimate's dynamic
+    // weather + regions (REC_WEATHER then only pins when explicitly set).
+    constexpr bool kPinClearWeather = true;
+    if (kPinClearWeather || Weather.get()) {
+      std::string s = Weather.get() ? Weather.get() : "clear";
       rec::weather::WeatherDef forced;
       forced.kind = (s == "rain" || s == "rainy")    ? rec::weather::WeatherDef::Kind::kRainy
                     : (s == "snow")                  ? rec::weather::WeatherDef::Kind::kSnow
@@ -142,7 +147,7 @@ bool LoadGameData(Engine& engine) {
                                                       : rec::weather::WeatherDef::Kind::kPleasant;
       forced.DeriveFromKind();
       climate = {{forced, 1}};
-      REC_INFO("weather: forced to '{}' via REC_WEATHER", forced_kind);
+      REC_INFO("weather: pinned to '{}' (clear by default; REC_WEATHER overrides)", s);
     }
     self->default_climate_ = climate;  // restored when the player leaves all regions
     self->weather_.SetClimate(std::move(climate));
@@ -151,8 +156,8 @@ bool LoadGameData(Engine& engine) {
     REC_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
 
     // Per-region weather: the REGN areas override the worldspace climate where
-    // the player stands (skipped when REC_WEATHER pins a single weather).
-    if (!Weather && *worldspace) {
+    // the player stands (skipped while a single weather is pinned).
+    if (!kPinClearWeather && !Weather && *worldspace) {
       const bethesda::GlobalFormId ws = self->records_.FindWorldspace(worldspace);
       const int rn = rec::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
       REC_INFO("weather: {} weather regions in {}", rn, worldspace);
@@ -312,6 +317,9 @@ bool LoadGameData(Engine& engine) {
   }
   world::CellStreamer::Settings settings;
   settings.grass_density = self->config_.grass_density;
+  // Runtime terrain splatting is the high-detail path; the low-end preset (no
+  // ray tracing) falls back to the cheaper per-cell albedo bake.
+  settings.terrain_splat = self->config_.preset != render::QualityPreset::kLowEnd;
   self->streamer_->Configure(settings);
   if (!self->config_.headless) {
     world::CellStreamer::Uploads uploads;

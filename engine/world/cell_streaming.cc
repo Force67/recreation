@@ -20,6 +20,10 @@ namespace {
 // base::InitOptionsFromEnv() at startup.
 base::Option<int> LoadRadius{"load.radius", -1, "REC_LOAD_RADIUS"};
 base::Option<bool> DistantLod{"distant.lod", false, "REC_DISTANT_LOD"};
+// Runtime terrain splatting: tile the real land textures at native resolution
+// and blend by a small weight map, instead of the lower-res per-cell albedo
+// bake. On for the higher presets; REC_LAND_SPLAT forces it either way.
+base::Option<bool> LandSplat{"land.splat", true, "REC_LAND_SPLAT"};
 
 constexpr f32 kUnitsToMeters = 0.01428f;
 constexpr f32 kCellSize = 4096.0f;
@@ -317,12 +321,29 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
 
   const asset::Mesh* mesh = assets_.FindMesh(mesh_id);
   if (!mesh) {
-    // Bake the cell's blended albedo; cells without texture layers keep the
+    // Either splat the real land textures at native resolution (preferred) or
+    // fall back to the lower-res per-cell albedo bake. Layerless cells keep the
     // shared default material.
     asset::AssetId material_id = land_material_;
-    asset::AssetId albedo =
-        baker_.BakeAlbedo(land, records_.Find(land_id)->winning_plugin, grid_x, grid_y);
-    if (albedo) {
+    u16 plugin = records_.Find(land_id)->winning_plugin;
+    bool splat = LandSplat.overridden() ? LandSplat.get() : settings_.terrain_splat;
+    if (splat) {
+      LandBaker::SplatBake splat = baker_.BakeSplat(land, plugin, grid_x, grid_y);
+      if (splat.ok) {
+        asset::Material material;
+        material.id = asset::MakeAssetId(mesh_name + "/material");
+        // The four texture slots carry three land layers plus the weight map;
+        // the shader (kFlagTerrain) tiles and blends them.
+        material.base_color = splat.layers[0];
+        material.normal = splat.layers[1];
+        material.metallic_roughness = splat.layers[2];
+        material.emissive = splat.control;
+        material.roughness_factor = 1.0f;
+        material.is_terrain = true;
+        assets_.AddMaterial(material);
+        material_id = material.id;
+      }
+    } else if (asset::AssetId albedo = baker_.BakeAlbedo(land, plugin, grid_x, grid_y)) {
       asset::Material material;
       material.id = asset::MakeAssetId(mesh_name + "/material");
       material.base_color = albedo;
@@ -396,7 +417,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     }
     asset::Submesh submesh;
     submesh.index_count = static_cast<u32>(lod.indices.size());
-    submesh.material = land_material_;
+    submesh.material = material_id;
     lod.submeshes.push_back(submesh);
     built.bounds_center[0] = kCellSize * 0.5f;
     built.bounds_center[1] = kCellSize * 0.5f;

@@ -1,6 +1,7 @@
 recreation_add_module(render
   core/renderer.cc
   core/presets.cc
+  core/settings_ini.cc
   core/render_graph.cc
   core/bindless.cc
   pipeline/mesh_pipeline.cc

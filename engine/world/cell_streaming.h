@@ -57,6 +57,7 @@ class CellStreamer {
     f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
     bool distant_lod = false;  // load Bethesda .btr/.bto distant LOD for the horizon
     u32 distant_budget = 2;    // distant LOD quads loaded per update
+    bool terrain_splat = true; // splat real land textures (off -> per-cell albedo bake)
   };
 
   CellStreamer(const bethesda::RecordStore& records, asset::AssetDatabase& assets)

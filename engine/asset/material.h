@@ -45,6 +45,11 @@ struct Material {
   // reflections, refraction with absorption. base_color acts as the
   // absorption tint, roughness scales the wave choppiness.
   bool is_water = false;
+  // Runtime terrain splat: the four texture slots are reused as three land
+  // layers (base_color/normal/metallic_roughness) plus a per-cell weight map
+  // (emissive). The shader tiles the layers at the native land repeat and
+  // blends them by the weight map instead of the usual base-color sample.
+  bool is_terrain = false;
 };
 
 }  // namespace rec::asset

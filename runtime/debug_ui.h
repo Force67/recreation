@@ -145,6 +145,9 @@ class DebugUi {
   // controls) into the current window.
   void RenderQuestPanel(QuestPanel* quests);
 
+  // Refreshes preset_files_ from the .ini files in the presets directory.
+  void ScanPresetFiles();
+
   // Window-less GPU-stage bar chart pinned to the bottom-left, drawn straight
   // onto the foreground draw list from the renderer's per-pass timings.
   void DrawStageChart(render::Renderer& renderer);
@@ -165,11 +168,20 @@ class DebugUi {
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row
+  // Editable .ini render presets (engine/render/presets): the discovered file
+  // list (lazy-scanned, rescannable), the combo selection, the save-as name
+  // buffer and the last load/save status line.
+  std::vector<std::string> preset_files_;
+  bool preset_files_scanned_ = false;
+  int preset_file_choice_ = 0;
+  char preset_save_name_[64] = "custom";
+  std::string preset_status_;
   // The set-stage InputInt tracks the selected quest: switching selection resets
   // it instead of carrying a stale stage from the previously expanded quest.
   u64 quest_stage_input_handle_ = 0;
   int quest_stage_input_ = 0;
   VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;  // outlives imgui init info
+  f32 render_scale_ui_ = 1.0f;  // in-progress render-scale slider; committed on release
   f32 frame_times_[150] = {};
   u32 frame_time_cursor_ = 0;
 };

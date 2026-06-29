@@ -37,17 +37,20 @@ class BindlessRegistry {
     f32 base_color_factor[4] = {1, 1, 1, 1};
     f32 emissive[3] = {0, 0, 0};
     u32 base_color_texture = kInvalidIndex;
-    u32 flags = 0;  // bit0: alpha mask (cutout)
+    u32 flags = 0;  // bit0: alpha mask (cutout); bit1: terrain splat
     f32 alpha_cutoff = 0.5f;
     f32 roughness = 1.0f;  // scalar factors; the path tracer multiplies these by
     f32 metallic = 0.0f;   // the metallic-roughness map (.g rough, .b metal).
-    u32 metallic_roughness_texture = kInvalidIndex;  // bindless index, or invalid
-    u32 pad0 = 0;  // pad to 64B: the std430 array stride rounds up to a multiple
-    u32 pad1 = 0;  // of 16 (float4 alignment), so every shader struct must match.
-    u32 pad2 = 0;
+    u32 metallic_roughness_texture = kInvalidIndex;  // bindless index, or invalid;
+                                                     // terrain reuses it for land layer 2
+    u32 terrain_layer1_texture = kInvalidIndex;  // terrain land layer 1
+    u32 terrain_weight_texture = kInvalidIndex;  // terrain per-cell weight/control map
+    u32 pad2 = 0;  // pad to 64B: the std430 array stride rounds up to a multiple
+                   // of 16 (float4 alignment), so every shader struct must match.
   };
   static_assert(sizeof(MaterialRecord) % 16 == 0, "bindless material stride must be 16-aligned");
   static constexpr u32 kMaterialAlphaMask = 1u << 0;
+  static constexpr u32 kMaterialTerrain = 1u << 1;
 
   static std::unique_ptr<BindlessRegistry> Create(Device& device);
   ~BindlessRegistry();

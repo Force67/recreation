@@ -297,6 +297,7 @@ class Renderer {
   // Settings already in effect, diffed against settings_ each frame.
   UpscalerKind applied_upscaler_ = UpscalerKind::kNone;
   UpscalerQuality applied_quality_ = UpscalerQuality::kQuality;
+  f32 applied_render_scale_ = 1.0f;
   AntiAliasingMode applied_aa_ = AntiAliasingMode::kTaa;
   bool applied_vsync_ = false;
   // Sun state baked into the environment maps; differing means regenerate.

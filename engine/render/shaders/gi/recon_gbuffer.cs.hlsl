@@ -52,12 +52,13 @@ struct MaterialRecord {
   float alpha_cutoff;
   float roughness;
   float metallic;
-  uint metallic_roughness_texture;
-  uint pad0;
-  uint pad1;
+  uint metallic_roughness_texture;  // terrain: land layer 2
+  uint terrain_layer1_texture;      // terrain: land layer 1
+  uint terrain_weight_texture;      // terrain: per-cell weight map
   uint pad2;
 };
 static const uint kMaterialAlphaMask = 1u;
+static const uint kMaterialTerrain = 2u;
 [[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
 [[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
 [[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
@@ -111,6 +112,28 @@ float ConeLod(uint tex, float2 uv0, float2 uv1, float2 uv2, float3 e1, float3 e2
   float world_area = length(cross(e1, e2));
   float density = 0.5 * log2(max(uv_area, 1e-12) * float(tw) * float(th) / max(world_area, 1e-12));
   return density + log2(max(cone_width / max(ndotd, 0.1), 1e-7));
+}
+
+// Runtime terrain splat (mirrors mesh_rt.ps TerrainAlbedo): three land layers
+// tiled at the native 8x repeat, blended by the per-cell weight map. The land
+// layers live in the base-color / layer1 / metallic-roughness bindless slots;
+// the weight map in the terrain_weight slot.
+float3 TerrainAlbedo(MaterialRecord m, float2 uvv0, float2 uvv1, float2 uvv2, float2 uv,
+                     float3 e1, float3 e2, float cone_width, float ndotd) {
+  float3 w = bindless_textures[NonUniformResourceIndex(m.terrain_weight_texture)]
+                 .SampleLevel(bindless_sampler, uv, 0.0).rgb;
+  float wsum = w.r + w.g + w.b;
+  w = wsum > 1e-4 ? w / wsum : float3(1.0, 0.0, 0.0);
+  float2 t0 = uvv0 * 8.0, t1 = uvv1 * 8.0, t2 = uvv2 * 8.0, tuv = uv * 8.0;
+  uint layers[3] = {m.base_color_texture, m.terrain_layer1_texture, m.metallic_roughness_texture};
+  float3 albedo = 0.0.xxx;
+  [unroll]
+  for (uint i = 0; i < 3; ++i) {
+    float lod = ConeLod(layers[i], t0, t1, t2, e1, e2, cone_width, ndotd);
+    albedo += w[i] * bindless_textures[NonUniformResourceIndex(layers[i])]
+                         .SampleLevel(bindless_sampler, tuv, clamp(lod, 0.0, 16.0)).rgb;
+  }
+  return albedo;
 }
 
 bool PassesAlpha(uint inst, uint geom, uint prim, float2 bary, float cone_width) {
@@ -201,8 +224,11 @@ Hit TraceClosest(float3 origin, float3 dir, float cone_spread, bool sample_mr) {
   float3 e1 = mul((float3x3)to_world, pos[1] - pos[0]);
   float3 e2 = mul((float3x3)to_world, pos[2] - pos[0]);
   float ndotd = abs(dot(n, dir));
+  bool is_terrain = (m.flags & kMaterialTerrain) != 0u;
   float3 albedo = m.base_color_factor.rgb;
-  if (m.base_color_texture != 0xffffffffu) {
+  if (is_terrain) {
+    albedo *= TerrainAlbedo(m, uvv[0], uvv[1], uvv[2], uv, e1, e2, cone_spread * hit_t, ndotd);
+  } else if (m.base_color_texture != 0xffffffffu) {
     float lod = ConeLod(m.base_color_texture, uvv[0], uvv[1], uvv[2], e1, e2,
                         cone_spread * hit_t, ndotd);
     albedo *= bindless_textures[NonUniformResourceIndex(m.base_color_texture)]
@@ -215,7 +241,9 @@ Hit TraceClosest(float3 origin, float3 dir, float cone_spread, bool sample_mr) {
   // bounces don't shade specular), so secondary rays skip the fetch.
   float rough = m.roughness;
   float metal = m.metallic;
-  if (sample_mr && m.metallic_roughness_texture != 0xffffffffu) {
+  // Terrain reuses the mr slot for land layer 2 (an albedo), so skip the mr
+  // fetch and take the neutral rough dielectric path, matching the rasterizer.
+  if (sample_mr && !is_terrain && m.metallic_roughness_texture != 0xffffffffu) {
     float lod = ConeLod(m.metallic_roughness_texture, uvv[0], uvv[1], uvv[2], e1, e2,
                         cone_spread * hit_t, ndotd);
     float2 mr = bindless_textures[NonUniformResourceIndex(m.metallic_roughness_texture)]
@@ -432,8 +460,15 @@ void main(uint3 id : SV_DispatchThreadID) {
   //    channel (specular_out).
   float3 V = -primary_dir;
   float3 sun_glint = SunSpecular(prim.position, prim.normal, V, prim.albedo, prim.roughness, prim.metallic);
-  float3 reflection = SpecularReflection(prim.position, prim.normal, V, prim.albedo, prim.roughness,
-                                         prim.metallic, rng);
+  // Fade the traced environment reflection out as roughness climbs, matching the
+  // rasterizer's reflection_cutoff (mesh_pipeline.h, 0.6). Matte surfaces (grass
+  // at ~0.4-0.6 roughness, terrain at 1.0) otherwise pick up a bright denoised sky
+  // reflection and read as glossy; their sky lighting is already in the diffuse GI.
+  float refl_gate = 1.0 - smoothstep(0.3, 0.6, prim.roughness);
+  float3 reflection = refl_gate > 0.0
+      ? SpecularReflection(prim.position, prim.normal, V, prim.albedo, prim.roughness,
+                           prim.metallic, rng) * refl_gate
+      : 0.0.xxx;
   reflection.x = reflection.x >= 0.0 ? reflection.x : 0.0;
   reflection.y = reflection.y >= 0.0 ? reflection.y : 0.0;
   reflection.z = reflection.z >= 0.0 ? reflection.z : 0.0;

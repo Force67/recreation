@@ -119,6 +119,7 @@ struct MaterialRecord {
 
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;
+static const uint kFlagTerrain = 4u;
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
@@ -350,8 +351,11 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float3 v = normalize(frame.camera_position.xyz - input.world_pos);
   if (dot(n, v) < 0.0) n = -n;  // shade double sided geometry from both sides
 
-  // glTF metallic roughness packing: g roughness, b metallic.
-  float2 mr = metallic_roughness_map.Sample(metallic_roughness_sampler, input.uv).gb;
+  // glTF metallic roughness packing: g roughness, b metallic. Terrain reuses
+  // this slot as a land layer, so it takes the neutral rough dielectric path.
+  float2 mr = (material.flags & kFlagTerrain) != 0u
+                  ? float2(1.0, 0.0)
+                  : metallic_roughness_map.Sample(metallic_roughness_sampler, input.uv).gb;
   float roughness = clamp(mr.x * material.roughness_factor, 0.045, 1.0);
   float metallic = clamp(mr.y * material.metallic_factor, 0.0, 1.0);
 
@@ -602,9 +606,27 @@ float3 ApplyTransmission(float3 shaded, PsIn input, float3 n, float3 base_color)
   return lerp(shaded, lerp(transmitted, refl, fres), material.transmission);
 }
 
+// Runtime terrain splat: three land textures tiled at the native land repeat
+// (8 tiles per cell), blended by the per-cell weight map in the emissive slot.
+float3 TerrainAlbedo(float2 uv) {
+  float3 w = emissive_map.Sample(emissive_sampler, uv).rgb;
+  float wsum = w.r + w.g + w.b;
+  w = wsum > 1e-4 ? w / wsum : float3(1.0, 0.0, 0.0);
+  float2 t = uv * 8.0;
+  float3 l0 = base_color_map.Sample(base_color_sampler, t).rgb;
+  float3 l1 = normal_map.Sample(normal_sampler, t).rgb;
+  float3 l2 = metallic_roughness_map.Sample(metallic_roughness_sampler, t).rgb;
+  return l0 * w.r + l1 * w.g + l2 * w.b;
+}
+
 PsOut main(PsIn input) {
-  float4 base = base_color_map.Sample(base_color_sampler, input.uv) *
-                material.base_color_factor * input.color;
+  float4 base;
+  if ((material.flags & kFlagTerrain) != 0u) {
+    base = float4(TerrainAlbedo(input.uv), 1.0) * material.base_color_factor * input.color;
+  } else {
+    base = base_color_map.Sample(base_color_sampler, input.uv) * material.base_color_factor *
+           input.color;
+  }
   if ((material.flags & kFlagAlphaMask) != 0u && base.a < material.alpha_cutoff) discard;
 
   float3 n = SurfaceNormal(input);

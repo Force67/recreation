@@ -22,12 +22,28 @@
 
 #include "core/log.h"
 #include "render/core/presets.h"
+#include "render/core/settings_ini.h"
 
 namespace rec {
 namespace {
 
 // Config toggle formerly read from getenv (populated by base::InitOptionsFromEnv).
 base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
+
+// Override for the editable .ini render presets directory; defaults to the
+// compiled-in engine/render/presets source path.
+base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "REC_PRESETS_DIR"};
+
+// Directory holding the .ini render presets: REC_PRESETS_DIR, else the
+// compiled-in source path, else a cwd-relative fallback.
+std::filesystem::path PresetDir() {
+  if (const char* env = PresetsDirOpt.get(); env && *env) return env;
+#ifdef RECREATION_PRESETS_DIR_DEFAULT
+  return std::filesystem::path(RECREATION_PRESETS_DIR_DEFAULT);
+#else
+  return std::filesystem::path("engine/render/presets");
+#endif
+}
 
 // A bold sans face for the trailer title cards, rasterized once at a large size
 // and drawn downscaled so the giant captions stay crisp. Bold first, then the
@@ -206,6 +222,49 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
       }
 
+      // Editable per-platform .ini presets (engine/render/presets). Loaded
+      // straight onto the live settings; "for now" the debug ui is the only way
+      // in. Save writes the current settings back out so users can author more.
+      if (ImGui::CollapsingHeader("Platform preset (.ini)")) {
+        if (!preset_files_scanned_) ScanPresetFiles();
+        if (preset_files_.empty()) {
+          ImGui::TextDisabled("no .ini in %s", PresetDir().string().c_str());
+        } else {
+          std::vector<const char*> names;
+          names.reserve(preset_files_.size());
+          for (const auto& f : preset_files_) names.push_back(f.c_str());
+          ImGui::Combo("File", &preset_file_choice_, names.data(), static_cast<int>(names.size()));
+          if (ImGui::Button("Load")) {
+            const auto path = PresetDir() / preset_files_[preset_file_choice_];
+            if (render::LoadSettingsIni(path, settings)) {
+              preset_choice_ = 0;  // settings are file-tuned now, not a hardware tier
+              preset_status_ = "loaded " + preset_files_[preset_file_choice_];
+              REC_INFO("render preset: loaded {}", path.string());
+            } else {
+              preset_status_ = "could not open " + preset_files_[preset_file_choice_];
+            }
+          }
+          ImGui::SameLine();
+        }
+        if (ImGui::Button("Rescan")) ScanPresetFiles();
+        ImGui::SetNextItemWidth(150);
+        ImGui::InputText("##presetname", preset_save_name_, sizeof(preset_save_name_));
+        ImGui::SameLine();
+        if (ImGui::Button("Save")) {
+          std::string fn = preset_save_name_[0] ? preset_save_name_ : "custom";
+          if (fn.size() < 4 || fn.compare(fn.size() - 4, 4, ".ini") != 0) fn += ".ini";
+          const auto path = PresetDir() / fn;
+          if (render::SaveSettingsIni(path, settings)) {
+            preset_status_ = "saved " + fn;
+            REC_INFO("render preset: saved {}", path.string());
+            ScanPresetFiles();
+          } else {
+            preset_status_ = "could not write " + fn;
+          }
+        }
+        if (!preset_status_.empty()) ImGui::TextDisabled("%s", preset_status_.c_str());
+      }
+
       const auto& timings = renderer.pass_timings();
       if (!timings.empty()) {
         if (ImGui::CollapsingHeader("GPU passes", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -311,6 +370,21 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         }
         if (settings.aa_mode == render::AntiAliasingMode::kTaa) {
           ImGui::SliderFloat("History blend", &settings.taa_history_blend, 0.5f, 0.98f);
+        }
+        // Render scale (internal resolution). Only meaningful without an upscaler
+        // driving the resolution; >1 supersamples and the post pass downscales to
+        // the window. Committed on release so dragging does not resize every frame.
+        if (settings.aa_mode != render::AntiAliasingMode::kUpscaler) {
+          ImGui::SliderFloat("Render scale", &render_scale_ui_, 0.5f, 2.0f, "%.2fx");
+          if (ImGui::IsItemDeactivatedAfterEdit()) {
+            settings.render_scale = render_scale_ui_;
+          } else if (!ImGui::IsItemActive()) {
+            render_scale_ui_ = settings.render_scale;  // mirror preset/external changes
+          }
+          if (settings.render_scale > 1.001f) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("SSAA");
+          }
         }
       }
 
@@ -769,6 +843,18 @@ void DebugUi::DrawTrailerOverlay() {
     const int n = static_cast<int>(ImGui::GetTime() * 2.0) % 4;
     if (n > 0) draw_text(ls, {lx + bsz.x, ly}, kGold, 1.0f, std::string(static_cast<size_t>(n), '.').c_str());
   }
+}
+
+void DebugUi::ScanPresetFiles() {
+  preset_files_.clear();
+  preset_files_scanned_ = true;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(PresetDir(), ec)) {
+    if (entry.is_regular_file(ec) && entry.path().extension() == ".ini")
+      preset_files_.push_back(entry.path().filename().string());
+  }
+  std::sort(preset_files_.begin(), preset_files_.end());
+  if (preset_file_choice_ >= static_cast<int>(preset_files_.size())) preset_file_choice_ = 0;
 }
 
 void DebugUi::RenderQuestPanel(QuestPanel* quests) {

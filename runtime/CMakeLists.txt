@@ -85,6 +85,11 @@ endif()
 if(TARGET recreation_imgui)
   target_link_libraries(recreation PRIVATE recreation::imgui)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_IMGUI=1)
+  # Default location of the editable .ini render presets (engine/render/presets).
+  # The debug ui lists and loads them; override with the env var REC_PRESETS_DIR.
+  # Absolute so the dev build finds the source files.
+  target_compile_definitions(recreation PRIVATE
+    RECREATION_PRESETS_DIR_DEFAULT="${CMAKE_SOURCE_DIR}/engine/render/presets")
 endif()
 
 # libultragui HUD: only the windowed client builds it; the dedicated server

@@ -469,8 +469,11 @@ void Renderer::UpdateRenderResolution() {
     render_width_ = static_cast<u32>(static_cast<f32>(output_width_) / scale);
     render_height_ = static_cast<u32>(static_cast<f32>(output_height_) / scale);
   } else {
-    render_width_ = output_width_;
-    render_height_ = output_height_;
+    // No upscaler: render at output * render_scale. >1 supersamples (the post
+    // pass samples this image into the swapchain, so it downscales for free).
+    f32 rs = std::clamp(settings_.render_scale, 0.25f, 2.0f);
+    render_width_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_width_) * rs));
+    render_height_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_height_) * rs));
   }
 }
 
@@ -486,7 +489,8 @@ void Renderer::ApplySettings() {
   }
 
   bool upscaler_changed = settings_.upscaler != applied_upscaler_ ||
-                          settings_.upscaler_quality != applied_quality_;
+                          settings_.upscaler_quality != applied_quality_ ||
+                          settings_.render_scale != applied_render_scale_;
   if (upscaler_changed) {
     device_->WaitIdle();
     upscaler_.reset();
@@ -501,6 +505,7 @@ void Renderer::ApplySettings() {
     }
     applied_upscaler_ = settings_.upscaler;
     applied_quality_ = settings_.upscaler_quality;
+    applied_render_scale_ = settings_.render_scale;
     UpdateRenderResolution();
     transient_pool_->Clear();
     taa_.Resize(*device_, {render_width_, render_height_});
@@ -952,6 +957,177 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     }
   }
   bool water_pipeline_active = any_water && water_ != nullptr;
+
+  // Water + transparency over an opaque base. A lambda (rather than inline) so the
+  // path tracer, which otherwise skips the whole raster transparency path, can
+  // composite water over its result too. Consumes `transparent` (moved into the
+  // pass), so it runs at most once per frame. Returns the composited colour.
+  auto add_water = [&](ResourceHandle scene_color, ResourceHandle depth,
+                       ResourceHandle depth_export, ResourceHandle motion,
+                       ResourceHandle sun_shadow, ResourceHandle shadow_atlas, bool csm_active,
+                       u32 shadow_slot, u32 tlas_slot) -> ResourceHandle {
+    std::sort(transparent.begin(), transparent.end(),
+              [](const TransparentDraw& a, const TransparentDraw& b) {
+                return a.distance_sq > b.distance_sq;
+              });
+
+    // Transparency renders into a copy of the opaque result and refracts by
+    // sampling the original, which never returns to attachment layout
+    // afterwards: re-attaching a sampled image corrupts its compression
+    // metadata on nvidia (the depth export exists for the same reason).
+    ResourceHandle composite = graph_.CreateTexture(
+        {.name = "composite", .format = kSceneColorFormat, .width = render_width_,
+         .height = render_height_});
+    graph_.AddPass(
+        "opaque_copy",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Read(scene_color, ResourceUsage::kSampledCompute);
+          builder.Write(composite, ResourceUsage::kStorageWrite);
+        },
+        [this, scene_color, composite](PassContext& ctx) {
+          water_->RecordCopy(ctx, scene_color, composite, render_width_, render_height_);
+        });
+
+    ResourceHandle opaque_color = scene_color;
+    ResourceHandle opaque_depth = depth_export;
+    graph_.AddPass(
+        "transparent",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(composite, ResourceUsage::kColorAttachment);
+          builder.Write(motion, ResourceUsage::kColorAttachment);
+          builder.Write(depth, ResourceUsage::kDepthAttachment);
+          builder.Read(opaque_color, ResourceUsage::kSampledFragment);
+          builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
+          if (sun_shadow != kInvalidResource)
+            builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
+          if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
+        },
+        [this, composite, motion, depth, opaque_color, opaque_depth, sun_shadow, tlas_slot,
+         rt_shadows, use_rt_frag, ddgi_active, water_pipeline_active, csm_active, shadow_slot,
+         shadow_atlas, transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
+          VkRenderingAttachmentInfo colors[2];
+          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          colors[0].imageView = ctx.graph->image(composite).view;
+          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+          colors[1] = colors[0];
+          colors[1].imageView = ctx.graph->image(motion).view;
+
+          VkRenderingAttachmentInfo depth_attachment{
+              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          depth_attachment.imageView = ctx.graph->image(depth).view;
+          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
+          rendering.layerCount = 1;
+          rendering.colorAttachmentCount = 2;
+          rendering.pColorAttachments = colors;
+          rendering.pDepthAttachment = &depth_attachment;
+          vkCmdBeginRendering(ctx.cmd, &rendering);
+
+          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
+                              static_cast<f32>(render_height_), 0.0f, 1.0f};
+          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
+          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
+
+          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
+          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
+          VkWriteDescriptorSet writes[2];
+          writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          writes[0].dstSet = globals_set;
+          writes[0].dstBinding = 0;
+          writes[0].descriptorCount = 1;
+          writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+          writes[0].pBufferInfo = &buffer_info;
+          u32 write_count = 1;
+          VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
+          VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
+              .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+          if (rt_available_ && raytracing_) {
+            tlas = raytracing_->tlas(tlas_slot);
+            if (tlas != VK_NULL_HANDLE) {
+              tlas_info.accelerationStructureCount = 1;
+              tlas_info.pAccelerationStructures = &tlas;
+              writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+              writes[1].pNext = &tlas_info;
+              writes[1].dstSet = globals_set;
+              writes[1].dstBinding = 1;
+              writes[1].descriptorCount = 1;
+              writes[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+              write_count = 2;
+            }
+          }
+          vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
+
+          VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
+          EnvironmentSystem::DdgiBinding ddgi_binding;
+          if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
+          VkImageView sun_shadow_view =
+              sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : VK_NULL_HANDLE;
+          environment_->WriteEnvSet(
+              env_set, VK_NULL_HANDLE, ddgi_active ? &ddgi_binding : nullptr,
+              csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
+              csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
+              shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
+              frame.lights.buffer, frame.lights.size);
+
+          enum class Mode { kNone, kWater, kBlend };
+          Mode mode = Mode::kNone;
+          VkDescriptorSet bound_material = VK_NULL_HANDLE;
+          const DrawItem* bound_item = nullptr;
+          for (const TransparentDraw& draw : transparent) {
+            const GpuMesh* mesh = meshes_.find(draw.item->mesh);
+            if (!mesh) continue;
+            bool as_water = draw.submesh->water && water_pipeline_active;
+
+            Mode wanted = as_water ? Mode::kWater : Mode::kBlend;
+            if (mode != wanted) {
+              if (as_water) {
+                water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
+                             opaque_depth);
+              } else {
+                VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
+                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, bindless_set,
+                                          use_rt_frag);
+              }
+              mode = wanted;
+              bound_material = VK_NULL_HANDLE;
+              bound_item = nullptr;
+            }
+            if (draw.item != bound_item) {
+              MeshPushConstants push{.model = draw.item->transform,
+                                     .prev_model = draw.item->prev_transform};
+              if (as_water) {
+                vkCmdPushConstants(ctx.cmd, water_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                                   sizeof(push), &push);
+                VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &mesh->vertices.buffer, &offset);
+                vkCmdBindIndexBuffer(ctx.cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+              } else {
+                mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+              }
+              bound_item = draw.item;
+            }
+            VkDescriptorSet material = material_system_->set(draw.submesh->material);
+            if (material != bound_material) {
+              if (as_water) {
+                water_->BindMaterial(ctx.cmd, material);
+              } else {
+                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              }
+              bound_material = material;
+            }
+            mesh_pipeline_->DrawSubmesh(ctx.cmd, *draw.submesh);
+          }
+          vkCmdEndRendering(ctx.cmd);
+        });
+    return composite;
+  };
 
   // Camera state for both this frame and reprojection. Jitter lives in the
   // projection, not the matrices used for motion vectors.
@@ -1833,167 +2009,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
 
   if (!transparent.empty() && water_) {
-    std::sort(transparent.begin(), transparent.end(),
-              [](const TransparentDraw& a, const TransparentDraw& b) {
-                return a.distance_sq > b.distance_sq;
-              });
-
-    // Transparency renders into a copy of the opaque result and refracts by
-    // sampling the original, which never returns to attachment layout
-    // afterwards: re-attaching a sampled image corrupts its compression
-    // metadata on nvidia (the depth export exists for the same reason).
-    ResourceHandle composite = graph_.CreateTexture(
-        {.name = "composite", .format = kSceneColorFormat, .width = render_width_,
-         .height = render_height_});
-    lit = composite;
-    graph_.AddPass(
-        "opaque_copy",
-        [&](RenderGraph::PassBuilder& builder) {
-          builder.Read(scene_color, ResourceUsage::kSampledCompute);
-          builder.Write(composite, ResourceUsage::kStorageWrite);
-        },
-        [this, scene_color, composite](PassContext& ctx) {
-          water_->RecordCopy(ctx, scene_color, composite, render_width_, render_height_);
-        });
-
-    ResourceHandle opaque_color = scene_color;
-    ResourceHandle opaque_depth = depth_export;
-    graph_.AddPass(
-        "transparent",
-        [&](RenderGraph::PassBuilder& builder) {
-          builder.Write(composite, ResourceUsage::kColorAttachment);
-          builder.Write(motion, ResourceUsage::kColorAttachment);
-          builder.Write(depth, ResourceUsage::kDepthAttachment);
-          builder.Read(opaque_color, ResourceUsage::kSampledFragment);
-          builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
-          if (sun_shadow != kInvalidResource)
-            builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
-          if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
-        },
-        [this, composite, motion, depth, opaque_color, opaque_depth, sun_shadow, tlas_slot,
-         rt_shadows, use_rt_frag, ddgi_active, water_pipeline_active, csm_active, shadow_slot,
-         shadow_atlas, transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
-          VkRenderingAttachmentInfo colors[2];
-          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          colors[0].imageView = ctx.graph->image(composite).view;
-          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-          colors[1] = colors[0];
-          colors[1].imageView = ctx.graph->image(motion).view;
-
-          VkRenderingAttachmentInfo depth_attachment{
-              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          depth_attachment.imageView = ctx.graph->image(depth).view;
-          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
-          rendering.layerCount = 1;
-          rendering.colorAttachmentCount = 2;
-          rendering.pColorAttachments = colors;
-          rendering.pDepthAttachment = &depth_attachment;
-          vkCmdBeginRendering(ctx.cmd, &rendering);
-
-          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
-                              static_cast<f32>(render_height_), 0.0f, 1.0f};
-          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
-          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
-          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-          VkWriteDescriptorSet writes[2];
-          writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[0].dstSet = globals_set;
-          writes[0].dstBinding = 0;
-          writes[0].descriptorCount = 1;
-          writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-          writes[0].pBufferInfo = &buffer_info;
-          u32 write_count = 1;
-          VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
-          VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
-              .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-          if (rt_available_ && raytracing_) {
-            tlas = raytracing_->tlas(tlas_slot);
-            if (tlas != VK_NULL_HANDLE) {
-              tlas_info.accelerationStructureCount = 1;
-              tlas_info.pAccelerationStructures = &tlas;
-              writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-              writes[1].pNext = &tlas_info;
-              writes[1].dstSet = globals_set;
-              writes[1].dstBinding = 1;
-              writes[1].descriptorCount = 1;
-              writes[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-              write_count = 2;
-            }
-          }
-          vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
-
-          VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
-          EnvironmentSystem::DdgiBinding ddgi_binding;
-          if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
-          VkImageView sun_shadow_view =
-              sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : VK_NULL_HANDLE;
-          environment_->WriteEnvSet(
-              env_set, VK_NULL_HANDLE, ddgi_active ? &ddgi_binding : nullptr,
-              csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
-              csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
-              shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
-              frame.lights.buffer, frame.lights.size);
-
-          enum class Mode { kNone, kWater, kBlend };
-          Mode mode = Mode::kNone;
-          VkDescriptorSet bound_material = VK_NULL_HANDLE;
-          const DrawItem* bound_item = nullptr;
-          for (const TransparentDraw& draw : transparent) {
-            const GpuMesh* mesh = meshes_.find(draw.item->mesh);
-            if (!mesh) continue;
-            bool as_water = draw.submesh->water && water_pipeline_active;
-  
-            Mode wanted = as_water ? Mode::kWater : Mode::kBlend;
-            if (mode != wanted) {
-              if (as_water) {
-                water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
-                             opaque_depth);
-              } else {
-                VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
-                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, bindless_set,
-                                          use_rt_frag);
-              }
-              mode = wanted;
-              bound_material = VK_NULL_HANDLE;
-              bound_item = nullptr;
-            }
-            if (draw.item != bound_item) {
-              MeshPushConstants push{.model = draw.item->transform,
-                                     .prev_model = draw.item->prev_transform};
-              if (as_water) {
-                vkCmdPushConstants(ctx.cmd, water_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                   sizeof(push), &push);
-                VkDeviceSize offset = 0;
-                vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &mesh->vertices.buffer, &offset);
-                vkCmdBindIndexBuffer(ctx.cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-              } else {
-                mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
-              }
-              bound_item = draw.item;
-            }
-            VkDescriptorSet material = material_system_->set(draw.submesh->material);
-            if (material != bound_material) {
-              if (as_water) {
-                water_->BindMaterial(ctx.cmd, material);
-              } else {
-                mesh_pipeline_->BindMaterial(ctx.cmd, material);
-              }
-              bound_material = material;
-            }
-            mesh_pipeline_->DrawSubmesh(ctx.cmd, *draw.submesh);
-          }
-          vkCmdEndRendering(ctx.cmd);
-        });
+    lit = add_water(scene_color, depth, depth_export, motion, sun_shadow, shadow_atlas, csm_active,
+                    shadow_slot, tlas_slot);
   }
 
   // Surface weather: wet/darken (rain) or whiten (snow) the lit surfaces before
@@ -2171,6 +2188,110 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         });
   }
   }  // end raster path
+
+  // Water has no place in the path tracer (blend geometry never enters the tlas),
+  // so composite the raster water pass over the path-traced image. A small opaque
+  // depth prepass (direct draws, no gpu cull) gives water correct occlusion and
+  // soft shorelines; reflections/shadows trace inline against the path tracer's
+  // tlas. The atmosphere/cloud passes that normally precede water are skipped
+  // under path tracing, so water is simply the last thing composited.
+  if (path_trace && water_pipeline_active && !transparent.empty()) {
+    ResourceHandle pt_normals = graph_.CreateTexture(
+        {.name = "pt_water_normals", .format = kNormalFormat, .width = render_width_,
+         .height = render_height_});
+    ResourceHandle pt_motion = graph_.CreateTexture(
+        {.name = "pt_water_motion", .format = kMotionFormat, .width = render_width_,
+         .height = render_height_});
+    ResourceHandle pt_depth = graph_.CreateTexture(
+        {.name = "pt_water_depth", .format = kDepthFormat, .width = render_width_,
+         .height = render_height_});
+    ResourceHandle pt_depth_export = graph_.CreateTexture(
+        {.name = "pt_water_depth_export", .format = VK_FORMAT_R32_SFLOAT,
+         .width = render_width_, .height = render_height_});
+    graph_.AddPass(
+        "pt_water_prepass",
+        [&](RenderGraph::PassBuilder& builder) {
+          builder.Write(pt_normals, ResourceUsage::kColorAttachment);
+          builder.Write(pt_motion, ResourceUsage::kColorAttachment);
+          builder.Write(pt_depth_export, ResourceUsage::kColorAttachment);
+          builder.Write(pt_depth, ResourceUsage::kDepthAttachment);
+        },
+        [this, pt_normals, pt_motion, pt_depth_export, pt_depth, &frame, &view](PassContext& ctx) {
+          VkRenderingAttachmentInfo colors[3];
+          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          colors[0].imageView = ctx.graph->image(pt_normals).view;
+          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+          colors[1] = colors[0];
+          colors[1].imageView = ctx.graph->image(pt_motion).view;
+          colors[2] = colors[0];
+          colors[2].imageView = ctx.graph->image(pt_depth_export).view;
+
+          VkRenderingAttachmentInfo depth_attachment{
+              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          depth_attachment.imageView = ctx.graph->image(pt_depth).view;
+          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+          depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
+
+          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
+          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
+          rendering.layerCount = 1;
+          rendering.colorAttachmentCount = 3;
+          rendering.pColorAttachments = colors;
+          rendering.pDepthAttachment = &depth_attachment;
+          vkCmdBeginRendering(ctx.cmd, &rendering);
+
+          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
+                              static_cast<f32>(render_height_), 0.0f, 1.0f};
+          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
+          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
+
+          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
+          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
+          VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          write.dstSet = globals_set;
+          write.dstBinding = 0;
+          write.descriptorCount = 1;
+          write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+          write.pBufferInfo = &buffer_info;
+          vkUpdateDescriptorSets(device_->device(), 1, &write, 0, nullptr);
+
+          mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
+          VkDescriptorSet bound_material = VK_NULL_HANDLE;
+          bool skinned_bound = false;
+          for (const DrawItem& item : view.draws) {
+            const GpuMesh* mesh = meshes_.find(item.mesh);
+            if (!mesh || mesh->all_blend) continue;
+            bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
+            if (draw_skinned != skinned_bound) {
+              mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
+              skinned_bound = draw_skinned;
+            }
+            MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (draw_skinned && item.skin_offset >= 0) {
+              push.bone_address = frame.bone_palette_address;
+              push.skin_offset = static_cast<u32>(item.skin_offset);
+            }
+            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+            for (const GpuSubmesh& submesh : mesh->submeshes) {
+              if (submesh.blend) continue;  // transparency owns its own depth
+              VkDescriptorSet material = material_system_->set(submesh.material);
+              if (material != bound_material) {
+                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+                bound_material = material;
+              }
+              mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+            }
+          }
+          vkCmdEndRendering(ctx.cmd);
+        });
+    lit = add_water(scene_color, pt_depth, pt_depth_export, pt_motion, kInvalidResource,
+                    kInvalidResource, false, 0u, tlas_slot);
+  }
 
   // The path tracer already resolved antialiasing through accumulation; the
   // raster path runs its temporal/upscale resolve here.
