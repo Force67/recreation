@@ -32,6 +32,12 @@ struct PathGbufferPush {
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
 [[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out;  // noisy
 
+struct PointLight {
+  float4 pos_radius;       // xyz position (world), w influence radius
+  float4 color_intensity;  // rgb color, w intensity
+};
+[[vk::binding(10, 0)]] StructuredBuffer<PointLight> point_lights;  // count in pc.camera_pos.w
+
 struct MeshRecord {
   uint64_t vertex_address;
   uint64_t index_address;
@@ -299,6 +305,32 @@ float3 DirectIrradiance(float3 pos, float3 normal, inout uint rng) {
   return sun * ndl;
 }
 
+// Dynamic point lights as IRRADIANCE (sum of Li*NoL over visible lights), no
+// albedo / no /pi to match DirectIrradiance; the composite closes the BRDF with
+// albedo/pi. The influence-radius and NoL early-outs keep the shadow-ray count to
+// the lights that actually reach the point (brute-force NEE; RTXDI/ReSTIR is the
+// scale-up to hundreds of lights). Count is packed into camera_pos.w.
+float3 PointLightsIrradiance(float3 pos, float3 normal) {
+  uint count = (uint)pc.camera_pos.w;
+  float3 sum = 0.0.xxx;
+  for (uint i = 0; i < count; ++i) {
+    PointLight pl = point_lights[i];
+    float3 to_l = pl.pos_radius.xyz - pos;
+    float dist2 = dot(to_l, to_l);
+    float lr = pl.pos_radius.w;
+    if (lr <= 0.0 || dist2 >= lr * lr) continue;
+    float dist = sqrt(max(dist2, 1e-8));
+    float3 l = to_l / dist;
+    float ndl = dot(normal, l);
+    if (ndl <= 0.0) continue;
+    if (Occluded(pos + normal * 0.002, l, dist - 0.04, kSecondarySpread)) continue;
+    float falloff = saturate(1.0 - dist2 / (lr * lr));
+    falloff *= falloff;
+    sum += pl.color_intensity.rgb * pl.color_intensity.w * falloff * ndl;
+  }
+  return sum;
+}
+
 // Analytic GGX specular from the sun (a directional light): noise-free, so it
 // goes in the un-denoised emissive channel and stays a sharp highlight. The
 // roughness lobe self-attenuates, so matte terrain barely glints while smooth
@@ -434,6 +466,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     irradiance += e;
   }
   irradiance /= float(spp);
+  // Direct lighting from dynamic point lights (torches, lanterns, spells). Added
+  // once (deterministic NEE over all reaching lights), not part of the stochastic
+  // spp average. Primary hit only for now; indirect bounces stay sun+sky lit.
+  irradiance += PointLightsIrradiance(prim.position, prim.normal);
 
   // Sanitize: a single NaN/Inf pixel (degenerate normal, bad bounce) would be
   // spread into a big black rectangle by the a-trous filter. (x >= 0) is false

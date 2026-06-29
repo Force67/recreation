@@ -34,6 +34,12 @@ struct PathGbufferPush {
 [[vk::combinedImageSampler]] [[vk::binding(7, 0)]] TextureCube sky_cube;
 [[vk::combinedImageSampler]] [[vk::binding(7, 0)]] SamplerState sky_sampler;
 
+struct PointLight {
+  float4 pos_radius;       // xyz position (world), w influence radius
+  float4 color_intensity;  // rgb color, w intensity
+};
+[[vk::binding(8, 0)]] StructuredBuffer<PointLight> point_lights;  // count in pc.camera_pos.w
+
 struct MeshRecord {
   uint64_t vertex_address;
   uint64_t index_address;
@@ -261,6 +267,32 @@ float3 SampleSky(float3 dir) {
   return min(sky_cube.SampleLevel(sky_sampler, dir, 0.0).rgb, 6.0.xxx);
 }
 
+// Point-light NEE for the primary hit, in the same un-demodulated radiance space
+// as the sun NEE (throughput=1, albedo=primary albedo), so it is divided out with
+// the rest of `radiance` and re-modulated by the composite. Brute-force over the
+// lights that reach the point (influence-radius + NoL early-outs before the shadow
+// ray); RTXDI/ReSTIR is the scale-up to hundreds of lights. Count in camera_pos.w.
+float3 PointLightsRadiance(float3 pos, float3 normal, float3 albedo) {
+  uint count = (uint)pc.camera_pos.w;
+  float3 sum = 0.0.xxx;
+  for (uint i = 0; i < count; ++i) {
+    PointLight pl = point_lights[i];
+    float3 to_l = pl.pos_radius.xyz - pos;
+    float dist2 = dot(to_l, to_l);
+    float lr = pl.pos_radius.w;
+    if (lr <= 0.0 || dist2 >= lr * lr) continue;
+    float dist = sqrt(max(dist2, 1e-8));
+    float3 l = to_l / dist;
+    float ndl = dot(normal, l);
+    if (ndl <= 0.0) continue;
+    if (Occluded(pos + normal * 0.002, l, dist - 0.04, 0.03)) continue;  // 0.03 = kSecondarySpread
+    float falloff = saturate(1.0 - dist2 / (lr * lr));
+    falloff *= falloff;
+    sum += pl.color_intensity.rgb * pl.color_intensity.w * falloff * ndl;
+  }
+  return albedo / kPi * sum;
+}
+
 float3 SunDirection(float3 sun_travel, float radius, inout uint rng) {
   float3 l = normalize(-sun_travel);
   if (radius <= 0.0) return l;
@@ -355,6 +387,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     radiance /= float(spp);
     first_hit_dist /= float(spp);
+    // Direct lighting from dynamic point lights (torches/lanterns/spells), in the
+    // same albedo-modulated space as the sun NEE so it survives demodulation.
+    // Primary hit only for now (indirect bounces stay sun+sky lit).
+    radiance += PointLightsRadiance(prim_pos, prim_normal, prim_albedo);
   }
 
   float3 demod = radiance / max(prim_albedo, (1e-3).xxx);

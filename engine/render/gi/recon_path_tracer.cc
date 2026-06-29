@@ -118,12 +118,13 @@ bool ReconPathTracer::Initialize(Device& device, VkDescriptorSetLayout bindless_
 bool ReconPathTracer::CreatePipelines(Device& device, VkDescriptorSetLayout bindless_layout) {
   VkDevice dev = device.device();
 
-  // gbuffer: 7 storage outputs, tlas (7), sky (8), noisy specular out (9); set 1 bindless.
-  VkDescriptorSetLayoutBinding gb[10] = {Bind(0, kStorage), Bind(1, kStorage), Bind(2, kStorage),
-                                         Bind(3, kStorage), Bind(4, kStorage), Bind(5, kStorage),
-                                         Bind(6, kStorage), Bind(7, kAccel),   Bind(8, kCombined),
-                                         Bind(9, kStorage)};
-  gbuffer_set_ = MakeSetLayout(dev, gb, 10);
+  // gbuffer: 7 storage outputs, tlas (7), sky (8), noisy specular out (9), point
+  // lights (10); set 1 bindless.
+  VkDescriptorSetLayoutBinding gb[11] = {
+      Bind(0, kStorage), Bind(1, kStorage), Bind(2, kStorage), Bind(3, kStorage),
+      Bind(4, kStorage), Bind(5, kStorage), Bind(6, kStorage), Bind(7, kAccel),
+      Bind(8, kCombined), Bind(9, kStorage), Bind(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)};
+  gbuffer_set_ = MakeSetLayout(dev, gb, 11);
   VkDescriptorSetLayout gb_sets[2] = {gbuffer_set_, bindless_layout};
   gbuffer_layout_ = MakePipeLayout(dev, gb_sets, 2, sizeof(GbufferPush));
 
@@ -388,7 +389,7 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         VkDescriptorSet set = ctx.allocate_set(gbuffer_set_);
         ResourceHandle outs[7] = {noisy, nr_c, vz_c, motion, id_c, albedo, emissive};
         VkDescriptorImageInfo si[8];
-        VkWriteDescriptorSet w[10];
+        VkWriteDescriptorSet w[11];
         for (u32 i = 0; i < 7; ++i) {
           si[i] = Storage(ctx.graph->image(outs[i]).view);
           w[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = i,
@@ -408,7 +409,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         si[7] = Storage(ctx.graph->image(spec_noisy).view);
         w[9] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 9,
                 .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &si[7]};
-        vkUpdateDescriptorSets(ctx.device->device(), 10, w, 0, nullptr);
+        VkDescriptorBufferInfo lbi{frame.lights, 0,
+                                   frame.lights_size ? frame.lights_size : VK_WHOLE_SIZE};
+        w[10] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 10,
+                 .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                 .pBufferInfo = &lbi};
+        vkUpdateDescriptorSets(ctx.device->device(), 11, w, 0, nullptr);
 
         GbufferPush p{};
         p.inv_view_proj = frame.inv_view_proj;
@@ -416,6 +422,7 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         p.prev_view_proj = frame.prev_view_proj;
         p.camera_pos[0] = frame.camera_pos.x; p.camera_pos[1] = frame.camera_pos.y;
         p.camera_pos[2] = frame.camera_pos.z;
+        p.camera_pos[3] = static_cast<f32>(frame.light_count);  // point-light count
         Vec3 sun = Normalize(frame.sun_direction);
         p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
         p.sun_direction[3] = frame.sun_intensity;

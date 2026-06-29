@@ -31,6 +31,11 @@ class ReconPathTracer {
     u32 spp = 1;
     u32 frame_index = 0;
     bool reset = false;
+    // Dynamic point lights (torches/lanterns/spells), sampled by NEE in the
+    // gbuffer pass. The buffer is the renderer's frame.lights; count is capped.
+    VkBuffer lights = VK_NULL_HANDLE;
+    VkDeviceSize lights_size = 0;
+    u32 light_count = 0;
     // Tunables.
     f32 current_weight_min = 0.05f;  // floor on current-frame weight (responsiveness)
     u32 max_history = 32;            // history length cap (frames)

@@ -64,6 +64,10 @@ VkDescriptorSetLayoutBinding CombinedSampler(u32 binding) {
   return {.binding = binding, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
           .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
 }
+VkDescriptorSetLayoutBinding StorageBuffer(u32 binding) {
+  return {.binding = binding, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
+}
 
 VkDescriptorSetLayout CreateSetLayout(VkDevice device, const VkDescriptorSetLayoutBinding* bindings,
                                       u32 count) {
@@ -159,11 +163,13 @@ bool PathTracer::Initialize(Device& device, VkDescriptorSetLayout bindless_layou
 
 #if defined(RECREATION_HAS_NRD)
   VkDevice dev = device.device();
-  // Denoised gbuffer: 6 NRD-input storage images (0..5), tlas (6), sky (7).
+  // Denoised gbuffer: 6 NRD-input storage images (0..5), tlas (6), sky (7),
+  // point lights (8).
   VkDescriptorSetLayoutBinding gbuf_bindings[] = {
       StorageImage(0), StorageImage(1), StorageImage(2), StorageImage(3),
-      StorageImage(4), StorageImage(5), AccelStructure(6), CombinedSampler(7)};
-  gbuffer_set_layout_ = CreateSetLayout(dev, gbuf_bindings, 8);
+      StorageImage(4), StorageImage(5), AccelStructure(6), CombinedSampler(7),
+      StorageBuffer(8)};
+  gbuffer_set_layout_ = CreateSetLayout(dev, gbuf_bindings, 9);
   VkDescriptorSetLayout gbuf_sets[2] = {gbuffer_set_layout_, bindless_layout};
   gbuffer_layout_ = CreatePipelineLayout(dev, gbuf_sets, 2, sizeof(PathGbufferPush));
   if (gbuffer_set_layout_ == VK_NULL_HANDLE || gbuffer_layout_ == VK_NULL_HANDLE) return false;
@@ -339,7 +345,7 @@ void PathTracer::AddGbufferPass(RenderGraph& graph, RayTracingContext& raytracin
         ResourceHandle handles[6] = {t.radiance_hitdist, t.normal_roughness, t.viewz,
                                      t.motion, t.albedo, t.background};
         VkDescriptorImageInfo storage_info[6];
-        VkWriteDescriptorSet writes[8];
+        VkWriteDescriptorSet writes[9];
         for (u32 i = 0; i < 6; ++i) {
           storage_info[i] = {.imageView = ctx.graph->image(handles[i]).view,
                              .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
@@ -369,7 +375,15 @@ void PathTracer::AddGbufferPass(RenderGraph& graph, RayTracingContext& raytracin
         writes[7].descriptorCount = 1;
         writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[7].pImageInfo = &sky_info;
-        vkUpdateDescriptorSets(ctx.device->device(), 8, writes, 0, nullptr);
+        VkDescriptorBufferInfo light_info{frame.lights, 0,
+                                          frame.lights_size ? frame.lights_size : VK_WHOLE_SIZE};
+        writes[8] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[8].dstSet = set;
+        writes[8].dstBinding = 8;
+        writes[8].descriptorCount = 1;
+        writes[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[8].pBufferInfo = &light_info;
+        vkUpdateDescriptorSets(ctx.device->device(), 9, writes, 0, nullptr);
 
         PathGbufferPush push{};
         push.inv_view_proj = frame.inv_view_proj;
@@ -378,6 +392,7 @@ void PathTracer::AddGbufferPass(RenderGraph& graph, RayTracingContext& raytracin
         push.camera_pos[0] = frame.camera_pos.x;
         push.camera_pos[1] = frame.camera_pos.y;
         push.camera_pos[2] = frame.camera_pos.z;
+        push.camera_pos[3] = static_cast<f32>(frame.light_count);  // point-light count
         Vec3 sun = Normalize(frame.sun_direction);
         push.sun_direction[0] = sun.x;
         push.sun_direction[1] = sun.y;

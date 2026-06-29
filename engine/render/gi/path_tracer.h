@@ -34,6 +34,11 @@ class PathTracer {
     f32 pixel_spread = 0.0f;  // denoised: ray-cone spread (radians/pixel) for texture lod
     u32 frame_index = 0;
     bool reset = false;  // reference: restart accumulation this frame
+    // Dynamic point lights, NEE-sampled in the denoised gbuffer pass (reference
+    // mode ignores them). Buffer is the renderer's frame.lights; count is capped.
+    VkBuffer lights = VK_NULL_HANDLE;
+    VkDeviceSize lights_size = 0;
+    u32 light_count = 0;
   };
 
   // NRD guide targets the denoised gbuffer pass writes (renderer-created

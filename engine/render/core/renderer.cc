@@ -1293,6 +1293,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     pt.sun_color = settings_.sun_color;
     pt.sun_radius = settings_.sun_angular_radius;
     pt.frame_index = frame_index_;
+    pt.lights = frame.lights.buffer;
+    pt.lights_size = frame.lights.size;
+    pt.light_count = light_count;
     f32 sig = settings_.sun_intensity + settings_.sun_color.x * 3.0f +
               settings_.sun_color.y * 5.0f + settings_.sun_color.z * 7.0f;
     bool moved = std::memcmp(&view_proj, &pt_prev_view_proj_, sizeof(Mat4)) != 0;
@@ -1327,6 +1330,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.max_history = settings_.path_trace_accum;
       rf.atrous_passes = settings_.path_trace_recon_atrous;
       rf.debug_mode = settings_.path_trace_recon_debug;
+      rf.lights = frame.lights.buffer;
+      rf.lights_size = frame.lights.size;
+      rf.light_count = light_count;
       recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
                                     environment_->sky_view(), environment_->sampler(), scene_color,
                                     rf);
