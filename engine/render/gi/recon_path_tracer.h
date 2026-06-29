@@ -36,6 +36,7 @@ class ReconPathTracer {
     VkBuffer lights = VK_NULL_HANDLE;
     VkDeviceSize lights_size = 0;
     u32 light_count = 0;
+    bool restir = false;  // ReSTIR DI for the point lights (else brute-force NEE)
     // Tunables.
     f32 current_weight_min = 0.05f;  // floor on current-frame weight (responsiveness)
     u32 max_history = 32;            // history length cap (frames)
@@ -103,6 +104,7 @@ class ReconPathTracer {
   PingPong normal_rough_; // rgba16f normal*0.5+0.5, roughness
   PingPong viewz_;        // r32f
   PingPong matid_;        // r32ui
+  PingPong reservoir_;    // rgba32f ReSTIR DI reservoir (light, W, M)
 };
 
 }  // namespace rec::render

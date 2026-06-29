@@ -1333,6 +1333,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.lights = frame.lights.buffer;
       rf.lights_size = frame.lights.size;
       rf.light_count = light_count;
+      rf.restir = settings_.path_trace_restir;
       recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
                                     environment_->sky_view(), environment_->sampler(), scene_color,
                                     rf);

@@ -125,6 +125,9 @@ struct RenderSettings {
   // Gameplay reconstruction renderer (own SVGF-style temporal + a-trous denoise),
   // a separate mode from reference / NRD.
   bool path_trace_recon = false;
+  // ReSTIR DI for the recon path tracer's dynamic point lights (resampled many-light
+  // sampling, one shadow ray/pixel); off falls back to brute-force NEE over all lights.
+  bool path_trace_restir = true;
   f32 path_trace_recon_weight = 0.05f;  // temporal: floor on current-frame weight
   u32 path_trace_recon_atrous = 4;      // a-trous wavelet passes
   u32 path_trace_recon_debug = 0;  // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular

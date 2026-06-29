@@ -37,6 +37,12 @@ struct PointLight {
   float4 color_intensity;  // rgb color, w intensity
 };
 [[vk::binding(10, 0)]] StructuredBuffer<PointLight> point_lights;  // count in pc.camera_pos.w
+// ReSTIR DI reservoirs (this frame writes _out; next frame reads it as _prev) and the
+// previous frame's normal/viewZ for the spatial neighbours' geometric similarity test.
+[[vk::binding(11, 0)]] Texture2D<float4> reservoir_prev;     // read via .Load
+[[vk::binding(12, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> reservoir_out;
+[[vk::binding(13, 0)]] Texture2D<float4> prev_normal_rough;  // read via .Load
+[[vk::binding(14, 0)]] Texture2D<float> prev_viewz;          // read via .Load
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -311,7 +317,7 @@ float3 DirectIrradiance(float3 pos, float3 normal, inout uint rng) {
 // the lights that actually reach the point (brute-force NEE; RTXDI/ReSTIR is the
 // scale-up to hundreds of lights). Count is packed into camera_pos.w.
 float3 PointLightsIrradiance(float3 pos, float3 normal) {
-  uint count = (uint)pc.camera_pos.w;
+  uint count = asuint(pc.camera_pos.w) & 0x7fffffffu;  // high bit = ReSTIR enable
   float3 sum = 0.0.xxx;
   for (uint i = 0; i < count; ++i) {
     PointLight pl = point_lights[i];
@@ -329,6 +335,132 @@ float3 PointLightsIrradiance(float3 pos, float3 normal) {
     sum += pl.color_intensity.rgb * pl.color_intensity.w * falloff * ndl;
   }
   return sum;
+}
+
+// ---- ReSTIR DI (Bitterli et al. 2020) over the point lights ----
+// One reservoir per pixel resamples a stream of candidate lights (RIS), then reuses
+// the previous frame's reservoir (temporal) and a few neighbours (spatial) so the
+// shading cost is ONE shadow ray per pixel regardless of light count, with the
+// quality of having sampled many. Biased combiner (1/M normalisation), the common
+// real-time variant. This is the in-tree stand-in for NVIDIA RTXDI ([[rtxdi-restir]]).
+struct Reservoir {
+  uint light;  // selected light index (0xffffffff = empty)
+  float wsum;  // running RIS weight sum
+  float M;     // confidence (candidate count)
+  float W;     // unbiased contribution weight = wsum / (M * pHat(selected))
+};
+Reservoir NewReservoir() { Reservoir r; r.light = 0xffffffffu; r.wsum = 0; r.M = 0; r.W = 0; return r; }
+
+// Unshadowed target function: luminance of Li * NoL * falloff at the surface.
+float TargetPdf(float3 pos, float3 normal, uint idx, uint count) {
+  if (idx >= count) return 0.0;
+  PointLight pl = point_lights[idx];
+  float3 to_l = pl.pos_radius.xyz - pos;
+  float dist2 = dot(to_l, to_l);
+  float lr = pl.pos_radius.w;
+  if (lr <= 0.0 || dist2 >= lr * lr) return 0.0;
+  float dist = sqrt(max(dist2, 1e-8));
+  float ndl = dot(normal, to_l / dist);
+  if (ndl <= 0.0) return 0.0;
+  float falloff = saturate(1.0 - dist2 / (lr * lr));
+  falloff *= falloff;
+  float3 c = pl.color_intensity.rgb * pl.color_intensity.w * falloff * ndl;
+  return dot(c, float3(0.2126, 0.7152, 0.0722));
+}
+
+void ResUpdate(inout Reservoir r, uint idx, float weight, inout uint rng) {
+  r.wsum += weight;
+  r.M += 1.0;
+  if (r.wsum > 0.0 && Rand(rng) * r.wsum < weight) r.light = idx;
+}
+// Merge reservoir b (its target pdf re-evaluated at this surface) into a.
+void ResCombine(inout Reservoir a, Reservoir b, float pHat_b, inout uint rng) {
+  float weight = pHat_b * b.W * b.M;
+  a.wsum += weight;
+  a.M += b.M;
+  if (a.wsum > 0.0 && Rand(rng) * a.wsum < weight) a.light = b.light;
+}
+Reservoir LoadReservoir(int2 p, uint count) {
+  float4 d = reservoir_prev.Load(int3(p, 0));
+  Reservoir r;
+  r.light = asuint(d.x);
+  r.wsum = 0.0;
+  r.W = d.y;
+  r.M = d.z;
+  // Reject garbage / stale-out-of-range so we never index lights[] OOB.
+  if (r.light >= count || !(r.W > 0.0) || !(r.M > 0.0)) r = NewReservoir();
+  return r;
+}
+
+static const uint kRestirCandidates = 16;     // initial RIS candidates
+static const uint kRestirSpatial = 3;         // spatial neighbours
+static const float kRestirSpatialRadius = 16.0;
+static const float kRestirMaxHistory = 30.0;  // temporal confidence cap (responsiveness)
+
+// ReSTIR-resolved point-light irradiance (Li*NoL, no albedo), and writes this
+// frame's reservoir. `reset` skips temporal/spatial (history is stale/undefined).
+float3 ReSTIRPointLights(float3 pos, float3 normal, int2 pixel, int2 size, uint count,
+                         bool reset, inout uint rng) {
+  // 1. Initial candidates: uniform light selection, resampled by the target pdf.
+  Reservoir res = NewReservoir();
+  uint M = min(count, kRestirCandidates);
+  for (uint i = 0; i < M; ++i) {
+    uint idx = Pcg(rng) % count;
+    float pHat = TargetPdf(pos, normal, idx, count);
+    ResUpdate(res, idx, pHat * float(count), rng);  // /srcPdf, srcPdf = 1/count
+  }
+  res.W = res.M > 0.0 ? res.wsum / (res.M * max(TargetPdf(pos, normal, res.light, count), 1e-9)) : 0.0;
+
+  // 2/3. Combine current + temporal + spatial into one reservoir.
+  Reservoir comb = NewReservoir();
+  ResCombine(comb, res, TargetPdf(pos, normal, res.light, count), rng);
+  float cur_viewz = kNearPlane;
+  {
+    float4 cclip = mul(pc.view_proj, float4(pos, 1.0));
+    float cd = cclip.z / cclip.w;
+    cur_viewz = cd > 0.0 ? kNearPlane / cd : kDenoisingRange;
+  }
+
+  if (!reset) {
+    // Temporal: reproject by last frame's matrix (camera-only motion).
+    float4 pclip = mul(pc.prev_view_proj, float4(pos, 1.0));
+    float2 pndc = pclip.xy / pclip.w;
+    int2 tp = int2((pndc * 0.5 + 0.5) * float2(size));
+    if (all(tp >= 0) && all(tp < size)) {
+      Reservoir t = LoadReservoir(tp, count);
+      t.M = min(t.M, kRestirMaxHistory);
+      ResCombine(comb, t, TargetPdf(pos, normal, t.light, count), rng);
+    }
+    // Spatial: a few neighbours whose prev surface matches (normal + viewZ).
+    for (uint s = 0; s < kRestirSpatial; ++s) {
+      float2 off = (float2(Rand(rng), Rand(rng)) * 2.0 - 1.0) * kRestirSpatialRadius;
+      int2 np = pixel + int2(off);
+      if (any(np < 0) || any(np >= size) || all(np == pixel)) continue;
+      float3 nn = prev_normal_rough.Load(int3(np, 0)).xyz * 2.0 - 1.0;
+      float nvz = prev_viewz.Load(int3(np, 0)).x;
+      if (dot(nn, normal) < 0.9 || abs(nvz - cur_viewz) > 0.1 * max(cur_viewz, 1e-3)) continue;
+      Reservoir sp = LoadReservoir(np, count);
+      sp.M = min(sp.M, kRestirMaxHistory);
+      ResCombine(comb, sp, TargetPdf(pos, normal, sp.light, count), rng);
+    }
+  }
+
+  float pHatFinal = TargetPdf(pos, normal, comb.light, count);
+  comb.W = (comb.M > 0.0 && pHatFinal > 0.0) ? comb.wsum / (comb.M * pHatFinal) : 0.0;
+  reservoir_out[pixel] = float4(asfloat(comb.light), comb.W, comb.M, 0.0);
+
+  // Shade the selected light with one shadow ray; estimator = f(y) * W.
+  if (comb.light >= count || comb.W <= 0.0) return 0.0.xxx;
+  PointLight pl = point_lights[comb.light];
+  float3 to_l = pl.pos_radius.xyz - pos;
+  float dist = length(to_l);
+  float3 l = to_l / max(dist, 1e-4);
+  float ndl = max(dot(normal, l), 0.0);
+  float falloff = saturate(1.0 - (dist * dist) / (pl.pos_radius.w * pl.pos_radius.w));
+  falloff *= falloff;
+  float3 contrib = pl.color_intensity.rgb * pl.color_intensity.w * falloff * ndl;
+  if (Occluded(pos + normal * 0.002, l, dist - 0.04, kSecondarySpread)) return 0.0.xxx;
+  return contrib * comb.W;
 }
 
 // Analytic GGX specular from the sun (a directional light): noise-free, so it
@@ -466,10 +598,19 @@ void main(uint3 id : SV_DispatchThreadID) {
     irradiance += e;
   }
   irradiance /= float(spp);
-  // Direct lighting from dynamic point lights (torches, lanterns, spells). Added
-  // once (deterministic NEE over all reaching lights), not part of the stochastic
-  // spp average. Primary hit only for now; indirect bounces stay sun+sky lit.
-  irradiance += PointLightsIrradiance(prim.position, prim.normal);
+  // Direct lighting from dynamic point lights (torches, lanterns, spells), once
+  // (not part of the stochastic spp average), primary hit only. ReSTIR DI when the
+  // high bit of camera_pos.w is set (bit 30 = reset), else brute-force NEE.
+  uint cw = asuint(pc.camera_pos.w);
+  uint light_count = cw & 0x3fffffffu;
+  if (light_count > 0u) {
+    if ((cw & 0x80000000u) != 0u) {
+      irradiance += ReSTIRPointLights(prim.position, prim.normal, int2(id.xy), int2(size),
+                                      light_count, (cw & 0x40000000u) != 0u, rng);
+    } else {
+      irradiance += PointLightsIrradiance(prim.position, prim.normal);
+    }
+  }
 
   // Sanitize: a single NaN/Inf pixel (degenerate normal, bad bounce) would be
   // spread into a big black rectangle by the a-trous filter. (x >= 0) is false

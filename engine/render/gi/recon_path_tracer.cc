@@ -1,6 +1,7 @@
 #include "render/gi/recon_path_tracer.h"
 
 #include <array>
+#include <cstring>
 
 #include "core/log.h"
 #include "render/gi/raytracing.h"
@@ -20,6 +21,7 @@ constexpr VkFormat kMoments = VK_FORMAT_R16G16B16A16_SFLOAT;
 constexpr VkFormat kViewZ = VK_FORMAT_R32_SFLOAT;
 constexpr VkFormat kMotion = VK_FORMAT_R16G16_SFLOAT;
 constexpr VkFormat kMatId = VK_FORMAT_R32_UINT;
+constexpr VkFormat kReservoir = VK_FORMAT_R32G32B32A32_SFLOAT;
 
 struct GbufferPush {
   Mat4 inv_view_proj;
@@ -119,12 +121,14 @@ bool ReconPathTracer::CreatePipelines(Device& device, VkDescriptorSetLayout bind
   VkDevice dev = device.device();
 
   // gbuffer: 7 storage outputs, tlas (7), sky (8), noisy specular out (9), point
-  // lights (10); set 1 bindless.
-  VkDescriptorSetLayoutBinding gb[11] = {
+  // lights (10), ReSTIR reservoir prev/out (11/12), prev normal/viewZ (13/14);
+  // set 1 bindless.
+  VkDescriptorSetLayoutBinding gb[15] = {
       Bind(0, kStorage), Bind(1, kStorage), Bind(2, kStorage), Bind(3, kStorage),
       Bind(4, kStorage), Bind(5, kStorage), Bind(6, kStorage), Bind(7, kAccel),
-      Bind(8, kCombined), Bind(9, kStorage), Bind(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)};
-  gbuffer_set_ = MakeSetLayout(dev, gb, 11);
+      Bind(8, kCombined), Bind(9, kStorage), Bind(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER),
+      Bind(11, kSampled), Bind(12, kStorage), Bind(13, kSampled), Bind(14, kSampled)};
+  gbuffer_set_ = MakeSetLayout(dev, gb, 15);
   VkDescriptorSetLayout gb_sets[2] = {gbuffer_set_, bindless_layout};
   gbuffer_layout_ = MakePipeLayout(dev, gb_sets, 2, sizeof(GbufferPush));
 
@@ -179,9 +183,12 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
   make(normal_rough_, kNormalRough);
   make(viewz_, kViewZ);
   make(matid_, kMatId);
+  make(reservoir_, kReservoir);
 
   // Prime every owned image to GENERAL so the first frame's barriers have a
   // defined source layout (and reads of the not-yet-written prev slot are legal).
+  // The reservoir is also zero-cleared so the first temporal read is a clean empty
+  // (LoadReservoir rejects W<=0), not undefined garbage.
   device.ImmediateSubmit([&](VkCommandBuffer cmd) {
     base::Vector<VkImageMemoryBarrier2> barriers;
     auto add = [&](VkImage image) {
@@ -195,8 +202,8 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
       b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       barriers.push_back(b);
     };
-    for (PingPong* pp :
-         {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_, &matid_})
+    for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_,
+                         &matid_, &reservoir_})
       for (u32 i = 0; i < 2; ++i) {
         add(pp->image[i].image);
         pp->layout[i] = VK_IMAGE_LAYOUT_GENERAL;
@@ -205,12 +212,16 @@ void ReconPathTracer::CreateBuffers(Device& device, VkExtent2D extent) {
     dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
     dep.pImageMemoryBarriers = barriers.data();
     vkCmdPipelineBarrier2(cmd, &dep);
+    VkClearColorValue zero{};
+    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    for (u32 i = 0; i < 2; ++i)
+      vkCmdClearColorImage(cmd, reservoir_.image[i].image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
   });
 }
 
 void ReconPathTracer::DestroyBuffers(Device& device) {
-  for (PingPong* pp :
-       {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_, &matid_})
+  for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_, &viewz_,
+                       &matid_, &reservoir_})
     for (u32 i = 0; i < 2; ++i)
       if (pp->image[i].image) device.DestroyImage(pp->image[i]);
 }
@@ -362,6 +373,9 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   ResourceHandle sac_p = imp("recon_sac_p", spec_accum_, prv);
   ResourceHandle smo_c = imp("recon_smo_c", spec_moments_, cur);
   ResourceHandle smo_p = imp("recon_smo_p", spec_moments_, prv);
+  // ReSTIR DI reservoir (write current, read previous).
+  ResourceHandle rev_c = imp("recon_rev_c", reservoir_, cur);
+  ResourceHandle rev_p = imp("recon_rev_p", reservoir_, prv);
 
   auto tex = [&](const char* name, VkFormat fmt) {
     return graph.CreateTexture({.name = name, .format = fmt, .width = extent_.width,
@@ -381,15 +395,18 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   graph.AddPass(
       "recon_gbuffer",
       [&](RenderGraph::PassBuilder& b) {
-        for (ResourceHandle h : {noisy, nr_c, vz_c, motion, id_c, albedo, emissive, spec_noisy})
+        for (ResourceHandle h :
+             {noisy, nr_c, vz_c, motion, id_c, albedo, emissive, spec_noisy, rev_c})
           b.Write(h, ResourceUsage::kStorageWrite);
+        for (ResourceHandle h : {rev_p, nr_p, vz_p})
+          b.Read(h, ResourceUsage::kSampledCompute);  // ReSTIR temporal/spatial reuse
       },
       [this, &raytracing, tlas_slot, bindless_set, sky_view, sky_sampler, noisy, nr_c, vz_c, motion,
-       id_c, albedo, emissive, spec_noisy, frame](PassContext& ctx) {
+       id_c, albedo, emissive, spec_noisy, rev_c, rev_p, nr_p, vz_p, frame](PassContext& ctx) {
         VkDescriptorSet set = ctx.allocate_set(gbuffer_set_);
         ResourceHandle outs[7] = {noisy, nr_c, vz_c, motion, id_c, albedo, emissive};
         VkDescriptorImageInfo si[8];
-        VkWriteDescriptorSet w[11];
+        VkWriteDescriptorSet w[15];
         for (u32 i = 0; i < 7; ++i) {
           si[i] = Storage(ctx.graph->image(outs[i]).view);
           w[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = i,
@@ -414,7 +431,20 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         w[10] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 10,
                  .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                  .pBufferInfo = &lbi};
-        vkUpdateDescriptorSets(ctx.device->device(), 11, w, 0, nullptr);
+        // ReSTIR: prev reservoir (read), current reservoir (write), prev normal/viewZ (read).
+        VkDescriptorImageInfo rev_in = Read(ctx.graph->image(rev_p).view);
+        VkDescriptorImageInfo rev_out = Storage(ctx.graph->image(rev_c).view);
+        VkDescriptorImageInfo nrp = Read(ctx.graph->image(nr_p).view);
+        VkDescriptorImageInfo vzp = Read(ctx.graph->image(vz_p).view);
+        w[11] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 11,
+                 .descriptorCount = 1, .descriptorType = kSampled, .pImageInfo = &rev_in};
+        w[12] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 12,
+                 .descriptorCount = 1, .descriptorType = kStorage, .pImageInfo = &rev_out};
+        w[13] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 13,
+                 .descriptorCount = 1, .descriptorType = kSampled, .pImageInfo = &nrp};
+        w[14] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = set, .dstBinding = 14,
+                 .descriptorCount = 1, .descriptorType = kSampled, .pImageInfo = &vzp};
+        vkUpdateDescriptorSets(ctx.device->device(), 15, w, 0, nullptr);
 
         GbufferPush p{};
         p.inv_view_proj = frame.inv_view_proj;
@@ -422,7 +452,11 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         p.prev_view_proj = frame.prev_view_proj;
         p.camera_pos[0] = frame.camera_pos.x; p.camera_pos[1] = frame.camera_pos.y;
         p.camera_pos[2] = frame.camera_pos.z;
-        p.camera_pos[3] = static_cast<f32>(frame.light_count);  // point-light count
+        // Bits 0-29 point-light count, 30 reset, 31 ReSTIR-enable (packed into the
+        // otherwise-unused camera_pos.w; the push constant is already at 256B).
+        u32 light_packed = (frame.light_count & 0x3fffffffu) |
+                           (frame.restir ? 0x80000000u : 0u) | (frame.reset ? 0x40000000u : 0u);
+        std::memcpy(&p.camera_pos[3], &light_packed, sizeof(u32));
         Vec3 sun = Normalize(frame.sun_direction);
         p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
         p.sun_direction[3] = frame.sun_intensity;

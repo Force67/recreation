@@ -435,6 +435,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             int spp = static_cast<int>(settings.path_trace_spp);
             if (ImGui::SliderInt("  Samples/pixel ", &spp, 1, 8))
               settings.path_trace_spp = static_cast<u32>(spp);
+            ImGui::Checkbox("  ReSTIR DI (point lights)", &settings.path_trace_restir);
           } else {
             // More samples = lower input noise = less motion shimmer, at linear cost.
             int spp = static_cast<int>(settings.path_trace_spp);
