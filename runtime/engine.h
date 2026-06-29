@@ -335,6 +335,9 @@ class Engine {
   RuntimeWorldSink runtime_world_sink_{&quest_world_queue_, &combat_event_queue_};
 
   asset::Vfs vfs_;
+  // Audio: SDL-backed mixer + decoders, fed sound bytes through the Vfs. Reads
+  // assets lazily, so it is brought up here before any archives are mounted.
+  std::unique_ptr<audio::AudioSystem> audio_;
   std::unique_ptr<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   // Localized FULL/log/objective text for records (quest names, journal text).

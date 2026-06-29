@@ -314,6 +314,13 @@ bool Engine::RunFrame() {
         view.camera.target = camera_.target();
       }
       view.frame_delta_seconds = frame_delta;
+      // Move the audio listener to this frame's viewpoint (the walk-mode player or
+      // the fly camera), so positional voices pan and attenuate around the player.
+      if (audio_) {
+        const Vec3 eye = view.camera.eye;
+        const Vec3 forward = Normalize(view.camera.target - eye);
+        audio_->SetListener(eye, forward, Vec3{0, 1, 0});
+      }
       // Rebuilt every frame so destroyed entities drop out on their own.
       base::UnorderedMap<u64, Mat4> transforms;
       world_.Each<world::Transform, world::Renderable>(

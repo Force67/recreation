@@ -88,6 +88,12 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   ctx_.debug_ui = &debug_ui_;
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
+  // Audio comes up before content loads (it reads sound bytes lazily through the
+  // Vfs). Headless servers and mute (REC_AUDIO_MUTE) open no device and run
+  // silent; the rest of the engine is unaffected either way.
+  audio_ = std::make_unique<audio::AudioSystem>();
+  audio_->Initialize(&vfs_);
+  ctx_.audio = audio_.get();
   actors_ = std::make_unique<ActorSystem>(ctx_);
   interaction_ = std::make_unique<InteractionSystem>(ctx_, actors_.get());
   npc_ = std::make_unique<NpcDirector>(ctx_, actors_.get());
@@ -274,6 +280,9 @@ void Engine::Shutdown() {
   if (shut_down_) return;  // idempotent: explicit Shutdown then destructor
   shut_down_ = true;
   SaveControls();  // persist any in-session rebinds / sensitivity changes
+  // Stop the audio device thread early, before the systems whose sounds it might
+  // still be streaming go away.
+  if (audio_) audio_->Shutdown();
   // Run managed teardown while the guest is still alive (its shutdown callbacks
   // dispatch through the bridge), then stop the guest so no more events reach the
   // host, then destroy the host. This exact order keeps the event sink, which

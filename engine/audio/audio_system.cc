@@ -50,7 +50,9 @@ void AudioSystem::Shutdown() {
 }
 
 void AudioSystem::SetListener(const Vec3& position, const Vec3& forward, const Vec3& up) {
-  if (muted_) return;
+  // No device means nothing drains the mixer command queue, so skip enqueuing
+  // (a headless server would otherwise grow the queue every frame).
+  if (!active()) return;
   Listener listener;
   listener.position = position;
   listener.forward = forward;
@@ -88,7 +90,7 @@ std::unique_ptr<Decoder> AudioSystem::OpenStream(std::string_view path) {
 }
 
 u32 AudioSystem::PlayUi(std::string_view path, f32 gain) {
-  if (muted_) return 0;
+  if (!active()) return 0;
   const AudioClip* clip = GetClip(path);
   if (!clip) return 0;
   PlayParams params;
@@ -98,7 +100,7 @@ u32 AudioSystem::PlayUi(std::string_view path, f32 gain) {
 }
 
 u32 AudioSystem::PlayAt(std::string_view path, const Vec3& position, PlayParams params) {
-  if (muted_) return 0;
+  if (!active()) return 0;
   const AudioClip* clip = GetClip(path);
   if (!clip) return 0;
   params.positional = true;
@@ -107,7 +109,7 @@ u32 AudioSystem::PlayAt(std::string_view path, const Vec3& position, PlayParams 
 }
 
 u32 AudioSystem::PlayLoop(std::string_view path, PlayParams params) {
-  if (muted_) return 0;
+  if (!active()) return 0;
   std::unique_ptr<Decoder> decoder = OpenStream(path);
   if (!decoder) return 0;
   params.loop = true;

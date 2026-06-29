@@ -7,6 +7,7 @@
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
+#include "audio/audio_system.h"
 #include "bethesda/game_profile.h"
 #include "bethesda/record.h"
 #include "bethesda/strings.h"
@@ -113,6 +114,7 @@ struct EngineContext {
   FlyCamera* camera = nullptr;
   physics::PhysicsWorld* physics = nullptr;
   asset::Vfs* vfs = nullptr;
+  audio::AudioSystem* audio = nullptr;
   bethesda::RecordStore* records = nullptr;
   bethesda::StringTable* strings = nullptr;
   dialogue::DialogueDb* dialogue = nullptr;
