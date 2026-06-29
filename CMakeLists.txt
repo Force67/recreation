@@ -142,6 +142,12 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/equilibrium/CMakeLists.tx
 endif()
 set(EQ_USE_STD_ATOMIC ON CACHE BOOL "" FORCE)
 set(EQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# equilibrium's Windows base formats with fmtlib (which it does not vendor) and
+# errors out unless EQ_FMTLIB_DIR points at an fmt checkout. Reuse the one
+# zetanet already vendors; other platforms don't need it.
+if(WIN32 AND NOT EQ_FMTLIB_DIR)
+  set(EQ_FMTLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/zetanet/vendor/fmtlib" CACHE PATH "" FORCE)
+endif()
 add_subdirectory(third_party/equilibrium equilibrium EXCLUDE_FROM_ALL)
 
 # Zetanet (devel branch checkout) supplies the UDP transport and reliability
