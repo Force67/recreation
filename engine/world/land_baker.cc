@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <thread>
 
 #include <base/option.h>
 
@@ -13,17 +14,44 @@ namespace rec::world {
 namespace {
 
 // LTEX texels decoded per 512-unit repeat; the per-cell bake follows at 8x this
-// (one repeat = kCellSize / kRepeatUnits). 128 -> 1024x1024 per cell, ~28 ms to
-// bake and 4 MB resident: a clear step up from a single land texture stretched
-// across the whole cell. 64 halves the bake cost (and detail) for hitch-free
-// streaming; 256 -> 2048x2048 is sharper but ~110 ms/cell. Clamped to [16,256].
-base::Option<int> LandBakeTexels{"land.bake.texels", 128, "REC_LAND_BAKE_TEXELS"};
+// (one repeat = kCellSize / kRepeatUnits). 192 -> 1536x1536 per cell (~12 MB),
+// the sweet spot now that the bake is threaded (ParallelRows). 128 -> 1024x1024
+// is lighter on VRAM; 256 -> 2048x2048 (~21 MB/cell, ~1 GB over the 49-cell
+// radius) is the sharpest the bake reaches. The bake can't match the original
+// game's full per-repeat detail (that needs runtime splatting); this just lifts
+// the ceiling as far as a per-cell texture sensibly goes. Clamped to [16,256].
+base::Option<int> LandBakeTexels{"land.bake.texels", 192, "REC_LAND_BAKE_TEXELS"};
 
 constexpr f32 kCellSize = 4096.0f;
 // Land textures repeat every 512 game units (~7.3 m), the same scale the
 // terrain mesh UVs used before baking.
 constexpr f32 kRepeatUnits = 512.0f;
 constexpr u32 kQuadGrid = 17;  // VTXT opacity grid per quadrant
+
+// Runs body(i) for i in [0,count) split across a few threads. The bake's rows
+// are independent (each writes a disjoint texel range and only reads the decoded
+// layers), so this just divides the work; it keeps high-resolution bakes off the
+// streaming thread's critical path.
+template <class F>
+void ParallelRows(u32 count, F&& body) {
+  unsigned hw = std::thread::hardware_concurrency();
+  unsigned threads = std::clamp<unsigned>(hw, 1u, 8u);
+  if (threads <= 1 || count < 64) {
+    for (u32 i = 0; i < count; ++i) body(i);
+    return;
+  }
+  base::Vector<std::thread> pool;
+  u32 chunk = (count + threads - 1) / threads;
+  for (unsigned t = 0; t < threads; ++t) {
+    u32 lo = t * chunk;
+    if (lo >= count) break;
+    u32 hi = std::min(count, lo + chunk);
+    pool.emplace_back([lo, hi, &body] {
+      for (u32 i = lo; i < hi; ++i) body(i);
+    });
+  }
+  for (std::thread& th : pool) th.join();
+}
 
 constexpr u32 kBtxt = FourCc('B', 'T', 'X', 'T');
 constexpr u32 kAtxt = FourCc('A', 'T', 'X', 'T');
@@ -329,6 +357,7 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
 
   // Per quadrant so the inner loop only visits the layers that apply there.
   const u32 kQuadTexels = bake_size_ / 2;
+  (void)LinearToSrgb(0.0f);  // warm the LUT before the threads touch it
   for (u32 quadrant = 0; quadrant < 4; ++quadrant) {
     base::Vector<u32> quad_layers;
     for (u32 i = 0; i < layers.size(); ++i) {
@@ -336,7 +365,7 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
     }
     u32 tx0 = (quadrant & 1) ? kQuadTexels : 0;
     u32 ty0 = (quadrant & 2) ? kQuadTexels : 0;
-    for (u32 qy = 0; qy < kQuadTexels; ++qy) {
+    ParallelRows(kQuadTexels, [&](u32 qy) {
       u32 ty = ty0 + qy;
       // Texel rows run south to north, matching the terrain mesh V = y/cell.
       f32 ly = (static_cast<f32>(ty) + 0.5f) / bake_size_ * kCellSize;
@@ -372,7 +401,7 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
         dst[2] = LinearToSrgb(color[2]);
         dst[3] = 0xff;
       }
-    }
+    });
   }
 
   asset::AssetId id = texture.id;
