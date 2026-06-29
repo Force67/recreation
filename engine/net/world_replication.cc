@@ -7,11 +7,11 @@
 namespace rec::net {
 namespace {
 
-// One command is encoded as a fixed 39-byte little-endian record, carried as an
+// One command is encoded as a fixed 40-byte little-endian record, carried as an
 // opaque bytes entry in the outer message:
 //   u8 op | u64 quest | u64 handle | u64 base | f32 x | f32 y | f32 z | u8 enabled
-//   | u8 is_actor
-constexpr size_t kRecordSize = 1 + 8 + 8 + 8 + 4 + 4 + 4 + 1 + 1;
+//   | u8 is_actor | u8 team
+constexpr size_t kRecordSize = 1 + 8 + 8 + 8 + 4 + 4 + 4 + 1 + 1 + 1;
 
 void AppendU8(std::vector<u8>& out, u8 v) { out.push_back(v); }
 void AppendU32(std::vector<u8>& out, u32 v) {
@@ -42,6 +42,7 @@ std::vector<u8> EncodeRecord(const world::WorldCommand& c) {
   AppendF32(rec, c.pos[2]);
   AppendU8(rec, c.enabled ? 1 : 0);
   AppendU8(rec, c.is_actor ? 1 : 0);
+  AppendU8(rec, static_cast<u8>(c.team));
   return rec;
 }
 
@@ -75,6 +76,7 @@ bool DecodeRecord(const u8* data, size_t size, world::WorldCommand* out) {
   out->pos = {f32at(), f32at(), f32at()};
   out->enabled = u8at() != 0;
   out->is_actor = u8at() != 0;
+  out->team = static_cast<i32>(u8at());
   out->has_mesh = false;  // clients resolve the mesh from `base` locally
   return true;
 }

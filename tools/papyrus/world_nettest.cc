@@ -33,6 +33,7 @@ int main() {
   spawn.base = 0x0001A2B3;
   spawn.pos = {12.5f, -3.0f, 100.25f};
   spawn.is_actor = true;  // a replicated battle-soldier spawn
+  spawn.team = 2;         // stormcloak side, so the client renders its armour
   cmds.push_back(spawn);
 
   WorldCommand move;
@@ -69,6 +70,7 @@ int main() {
       Check("spawn position preserved",
             d[0].pos[0] == 12.5f && d[0].pos[1] == -3.0f && d[0].pos[2] == 100.25f);
       Check("spawn is_actor flag preserved", d[0].is_actor == true && d[1].is_actor == false);
+      Check("spawn team preserved", d[0].team == 2 && d[1].team == 0);
       Check("move quest+handle preserved", d[1].op == WorldOp::kMove && d[1].handle == 0x00012345);
       Check("disable flag preserved", d[2].op == WorldOp::kSetEnabled && d[2].enabled == false);
       Check("cleanup op+quest preserved",

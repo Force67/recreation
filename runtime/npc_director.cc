@@ -592,11 +592,13 @@ u64 NpcDirector::SpawnSoldier(const Vec3& pos, i32 team) {
   if (ctx_.quest_world) ctx_.quest_world->Register(handle, e);
   // Replicate the spawn so a client builds the same biped, registered under the
   // same form handle; the actor sync then streams the host's movement to it. The
-  // client does not simulate combat, so it needs no CombatTeam.
+  // client does not simulate combat, but it carries the team so it renders the
+  // matching faction armour/tint instead of the bare civilian body.
   world::WorldCommand c;
   c.op = world::WorldOp::kSpawn;
   c.handle = handle;
   c.is_actor = true;
+  c.team = team;
   c.pos = {t.position[0], t.position[1], t.position[2]};
   replicated_spawns_.push_back(c);
   return handle;
@@ -707,6 +709,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
       c.op = world::WorldOp::kSpawn;
       c.handle = h;
       c.is_actor = true;
+      if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e)) c.team = ct->team;
       c.pos = {t->position[0], t->position[1], t->position[2]};
       replicated_spawns_.push_back(c);
     }
