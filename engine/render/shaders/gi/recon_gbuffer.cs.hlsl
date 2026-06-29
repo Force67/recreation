@@ -165,7 +165,11 @@ Hit TraceClosest(float3 origin, float3 dir, float cone_spread, bool sample_mr) {
   float hit_t = rq.CommittedRayT();
   h.hit = true;
   h.position = origin + dir * hit_t;
-  h.inst = rq.CommittedInstanceID();
+  // History id for temporal disocclusion: the auto instance INDEX is unique per
+  // TLAS instance, unlike InstanceID (== per-mesh bindless index, shared by every
+  // instance of the same mesh), so two distinct objects built from one mesh no
+  // longer alias each other's lighting history. (Mesh lookup still uses the ID.)
+  h.inst = rq.CommittedInstanceIndex();
   MeshRecord mesh = mesh_records[NonUniformResourceIndex(rq.CommittedInstanceID())];
   GeometryRecord geometry = geometry_records[mesh.geometry_offset + rq.CommittedGeometryIndex()];
   uint64_t index_base =
