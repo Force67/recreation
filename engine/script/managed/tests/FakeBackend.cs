@@ -17,6 +17,10 @@ public sealed class FakeBackend : IEngineBackend
     private readonly HashSet<ulong> _inCombat = new();
     private readonly Dictionary<ulong, ulong> _baseObject = new();
     private readonly HashSet<ulong> _essential = new();
+    private readonly HashSet<(ulong, ulong)> _keywords = new();
+
+    // Marks `item` as carrying `keyword`, for HasKeyword.
+    public void SetHasKeyword(ulong item, ulong keyword) => _keywords.Add((item, keyword));
 
     public void SetValue(ulong actor, string av, float current, float baseValue)
     {
@@ -61,6 +65,7 @@ public sealed class FakeBackend : IEngineBackend
         LastStringArg = args.Length > 0 && args[0].Kind == ValueKind.String ? args[0].AsString() : "";
         LastBoolArg = args.Length > 0 && args[0].AsBool();
         if (type == "Game" && function == "GetPlayer") return Value.Object(Player);
+        if (type == "Game" && function == "GetForm") return Value.Object((ulong)args[0].AsInt() & 0xFFFFFFFF);
         if (type == "Game" && function == "EnableFastTravel") FastTravelEnabled = LastBoolArg;
         if (type == "Utility" && function == "GetCurrentGameTime") return Value.Float(GameTime);
         if (type == "Utility" && function == "RandomInt")
@@ -104,6 +109,8 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Object(_baseObject.TryGetValue(self, out ulong b2) ? b2 : self);
             case "IsEssential":
                 return Value.Bool(_essential.Contains(self));
+            case "HasKeyword":
+                return Value.Bool(_keywords.Contains((self, args[0].AsHandle())));
             default:
                 return Value.None;
         }
