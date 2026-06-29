@@ -47,7 +47,8 @@ struct AtrousPush {
   f32 normal_phi;
   f32 depth_phi;
   f32 luma_phi;
-  f32 pad[2];
+  u32 spec_mode;
+  f32 spec_lobe;
 };
 struct CompositePush {
   u32 size[2];
@@ -282,7 +283,8 @@ void ReconPathTracer::RunTemporal(RenderGraph& graph, ResourceHandle noisy, Reso
 
 ResourceHandle ReconPathTracer::RunAtrous(RenderGraph& graph, ResourceHandle in, ResourceHandle ping,
                                           ResourceHandle pong, ResourceHandle nr_c,
-                                          ResourceHandle vz_c, ResourceHandle mo_c, u32 passes) {
+                                          ResourceHandle vz_c, ResourceHandle mo_c, u32 passes,
+                                          bool spec) {
   ResourceHandle denoised = in;
   for (u32 i = 0; i < passes; ++i) {
     ResourceHandle out = (i & 1u) ? pong : ping;
@@ -295,7 +297,7 @@ ResourceHandle ReconPathTracer::RunAtrous(RenderGraph& graph, ResourceHandle in,
           b.Read(vz_c, ResourceUsage::kSampledCompute);
           b.Read(mo_c, ResourceUsage::kSampledCompute);
         },
-        [this, in, out, nr_c, vz_c, mo_c, i](PassContext& ctx) {
+        [this, in, out, nr_c, vz_c, mo_c, i, spec](PassContext& ctx) {
           VkDescriptorSet set = ctx.allocate_set(atrous_set_);
           VkDescriptorImageInfo o = Storage(ctx.graph->image(out).view);
           VkDescriptorImageInfo ci = Read(ctx.graph->image(in).view);
@@ -316,6 +318,8 @@ ResourceHandle ReconPathTracer::RunAtrous(RenderGraph& graph, ResourceHandle in,
           p.normal_phi = 64.0f;
           p.depth_phi = 80.0f;
           p.luma_phi = 4.0f;
+          p.spec_mode = spec ? 1u : 0u;
+          p.spec_lobe = 8.0f;  // smooth reflectors keep tight lobes, rough ones filter normally
           vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, atrous_pipeline_);
           vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, atrous_layout_, 0, 1,
                                   &set, 0, nullptr);
@@ -433,9 +437,9 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
 
   // --- 3. a-trous (N passes, ping-pong) for each signal ---
   u32 passes = frame.atrous_passes == 0 ? 1u : frame.atrous_passes;
-  ResourceHandle denoised = RunAtrous(graph, ac_c, ping, pong, nr_c, vz_c, mo_c, passes);
+  ResourceHandle denoised = RunAtrous(graph, ac_c, ping, pong, nr_c, vz_c, mo_c, passes, false);
   ResourceHandle spec_denoised =
-      RunAtrous(graph, sac_c, spec_ping, spec_pong, nr_c, vz_c, smo_c, passes);
+      RunAtrous(graph, sac_c, spec_ping, spec_pong, nr_c, vz_c, smo_c, passes, true);
 
   // --- 4. composite ---
   graph.AddPass(

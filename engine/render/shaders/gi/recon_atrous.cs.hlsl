@@ -8,7 +8,8 @@ struct ReconAtrousPush {
   float normal_phi;
   float depth_phi;
   float luma_phi;
-  float2 pad;
+  uint spec_mode;   // 1 = specular signal: tighten the kernel for smooth reflectors
+  float spec_lobe;  // strength of the roughness-driven lobe tightening
 };
 [[vk::push_constant]] ReconAtrousPush pc;
 
@@ -36,11 +37,36 @@ void main(uint3 tid : SV_DispatchThreadID) {
   // rectangle. dot(c,c) < 1e30 is false for NaN and Inf.
   if (!(dot(center_c, center_c) < 1.0e30)) center_c = 0.0.xxx;
   if (!(center_var < 1.0e30)) center_var = 0.0;
-  float3 center_n = DecodeN(in_nr.Load(int3(p, 0)));
+  float4 center_nr = in_nr.Load(int3(p, 0));
+  float3 center_n = DecodeN(center_nr);
+  float center_rough = center_nr.a;
   float center_z = in_viewz.Load(int3(p, 0));
   float center_l = Luma(center_c);
+
+  // SVGF: drive the luminance tolerance with a 3x3-prefiltered variance, not the
+  // raw per-pixel value. At low history the per-pixel variance is itself noisy, so
+  // using it directly makes the luma edge-stop randomly reject valid neighbors and
+  // leaves blotches in freshly disoccluded regions. The prefilter step is always
+  // 1px (independent of the a-trous step) so it estimates local noise, not extent.
+  float gvar = center_var * 4.0;  // gaussian {1,2,1}/16 -> center weight 4
+  float gwsum = 4.0;
+  [unroll]
+  for (int gy = -1; gy <= 1; ++gy) {
+    [unroll]
+    for (int gx = -1; gx <= 1; ++gx) {
+      if (gx == 0 && gy == 0) continue;
+      int2 gq = p + int2(gx, gy);
+      if (!InBounds(gq)) continue;
+      float gv = in_color.Load(int3(gq, 0)).a;
+      if (!(gv < 1.0e30)) continue;
+      float gk = (gx == 0 || gy == 0) ? 2.0 : 1.0;  // edge=2, corner=1
+      gvar += gv * gk;
+      gwsum += gk;
+    }
+  }
+  gvar /= max(gwsum, 1e-6);
   // Variance-driven luminance tolerance: noisy pixels blur, clean ones stay sharp.
-  float luma_denom = pc.luma_phi * sqrt(center_var) + 1e-4;
+  float luma_denom = pc.luma_phi * sqrt(max(gvar, 0.0)) + 1e-4;
 
   // Sky / invalid pixels (viewZ at the denoising range) keep their value.
   if (center_z >= 1.0e6) {
@@ -73,6 +99,16 @@ void main(uint3 tid : SV_DispatchThreadID) {
       float wz = exp(-abs(center_z - qz) / max(center_z, 1.0) * pc.depth_phi);
       float wl = exp(-abs(center_l - Luma(c)) / luma_denom);
       float w = kernel[abs(x)] * kernel[abs(y)] * wn * wz * wl;
+
+      // Specular: a sharp (low-roughness) reflection has a tight lobe and must not
+      // be blurred into its neighbors. Attenuate far taps by the reflector's
+      // roughness so mirrors stay crisp while rough surfaces filter normally
+      // (roughness 1 -> factor 1, no change to the diffuse-equivalent behavior).
+      if (pc.spec_mode != 0u) {
+        float dist2 = float(x * x + y * y) * float(pc.step_size * pc.step_size);
+        float smooth = 1.0 - center_rough;
+        w *= exp(-dist2 * smooth * smooth * pc.spec_lobe);
+      }
 
       sum += c * w;
       sum_w += w;

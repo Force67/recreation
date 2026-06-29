@@ -66,7 +66,7 @@ class ReconPathTracer {
                    ResourceHandle id_p, ResourceHandle motion, const Frame& frame);
   ResourceHandle RunAtrous(RenderGraph& graph, ResourceHandle in, ResourceHandle ping,
                            ResourceHandle pong, ResourceHandle nr_c, ResourceHandle vz_c,
-                           ResourceHandle mo_c, u32 passes);
+                           ResourceHandle mo_c, u32 passes, bool spec);
 
   Device* device_ = nullptr;
   VkExtent2D extent_{};
