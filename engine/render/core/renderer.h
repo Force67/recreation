@@ -228,6 +228,10 @@ class Renderer {
   void ApplySettings();
   bool CreateUpscalerForSettings();
   void BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view);
+  // Builds the blas + bindless geometry for grass-like (no_rt) meshes uploaded
+  // while path tracing was off, so enabling it later still gets the alpha-tested
+  // foliage into the tlas. Idempotent (skips already-built meshes).
+  void EnsureRayTracingGeometry();
 
   RendererDesc desc_;
   RenderSettings settings_;
@@ -282,6 +286,13 @@ class Renderer {
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
   bool pt_was_active_ = false;
+  // Which path-trace mode ran last frame (0 reference, 1 nrd-denoised, 2 recon,
+  // -1 none). Switching mode must reset accumulation: each mode reprojects its
+  // own history buffers, which the other modes never wrote.
+  int pt_prev_mode_ = -1;
+  // A no_rt (foliage) mesh was uploaded while path tracing was off, so it has no
+  // blas yet; EnsureRayTracingGeometry catches it up when path tracing turns on.
+  bool rt_foliage_dirty_ = false;
 
   // Settings already in effect, diffed against settings_ each frame.
   UpscalerKind applied_upscaler_ = UpscalerKind::kNone;

@@ -252,7 +252,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_ && settings_.path_trace_recon) {
+    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  }
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
   if (rt_available_ && !nrd_.Initialize(*device_, {render_width_, render_height_})) {
@@ -506,7 +508,9 @@ void Renderer::ApplySettings() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
     path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_ && settings_.path_trace_recon) {
+    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  }
     if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
@@ -529,7 +533,9 @@ void Renderer::ApplySettings() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
       path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_ && settings_.path_trace_recon) {
+    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  }
       if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
       if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
@@ -748,7 +754,33 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
   if (raytracing_ && !gpu.all_blend && include_rt) raytracing_->BuildBlas(mesh_key, gpu);
+  // Foliage uploaded while path tracing was off got no blas/geometry above; flag a
+  // catch-up so toggling path tracing on later still pulls it into the tlas
+  // (BuildFrameGraph runs EnsureRayTracingGeometry on the next path-traced frame).
+  if (raytracing_ && !gpu.all_blend && gpu.no_rt && !include_rt) rt_foliage_dirty_ = true;
   return true;
+}
+
+void Renderer::EnsureRayTracingGeometry() {
+  if (!bindless_ || !raytracing_ || !material_system_) return;
+  for (auto entry : meshes_) {
+    GpuMesh& gpu = entry.value;
+    // Only the grass-like fill UploadMesh kept out of the tlas; opaque geometry
+    // already registered its blas + bindless records at upload time.
+    if (gpu.all_blend || !gpu.no_rt) continue;
+    if (raytracing_->HasBlas(entry.key)) continue;  // already built
+    base::Vector<BindlessRegistry::GeometryRecord> geometries;
+    for (const GpuSubmesh& submesh : gpu.submeshes) {
+      if (submesh.blend || submesh.index_count == 0) continue;
+      geometries.push_back({submesh.index_offset,
+                            material_system_->bindless_material(submesh.material)});
+    }
+    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices.buffer, gpu.indices.buffer,
+                                                 geometries.data(),
+                                                 static_cast<u32>(geometries.size()));
+    if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
+    raytracing_->BuildBlas(entry.key, gpu);
+  }
 }
 
 bool Renderer::UploadTexture(const asset::Texture& texture, u64 id_salt) {
@@ -867,6 +899,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // The ray-query fragment variant serves both shadows and reflections.
   bool use_rt_frag = rt_shadows || reflections_active;
   bool path_trace = rt_available_ && bindless_ != nullptr && settings_.path_trace;
+  // Foliage uploaded before path tracing was enabled has no blas (it was excluded
+  // from the realtime tlas). Build it now so alpha-tested vegetation appears when
+  // path tracing is toggled on at runtime, not only when set before content load.
+  if (path_trace && rt_foliage_dirty_) {
+    EnsureRayTracingGeometry();
+    rt_foliage_dirty_ = false;
+  }
   bool fog_active = rt_available_ && settings_.fog && !path_trace;
   // Ambient occlusion technique: ray-traced + NRD-denoised when available, else
   // the screen-space fallback so non-rt tiers (and forced low presets) keep ao.
@@ -1089,6 +1128,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     // the NRD path. Reference always wins (screenshots); else recon if selected.
     bool recon_path = settings_.path_trace_recon && !settings_.path_trace_reference;
     if (recon_path) {
+      // Lazily allocate the recon history targets on first use: the mode is off by
+      // default and the buffers are large, so they are not created up front.
+      recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
       ReconPathTracer::Frame rf;
       rf.inv_view_proj = globals.inv_view_proj;
       rf.view_proj = view_proj;
@@ -1101,7 +1143,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.pixel_spread = 2.0f * std::tan(view.camera.fov_y * 0.5f) / static_cast<f32>(render_height_);
       rf.spp = settings_.path_trace_spp;
       rf.frame_index = frame_index_;
-      rf.reset = first_frame || !pt_was_active_;  // never on the day/night drift
+      // Reset on first frame, on (re)activation, AND when switching into recon
+      // from another path-trace mode (its ping-pong history was never written by
+      // the reference/NRD paths). Never on the day/night drift.
+      rf.reset = first_frame || !pt_was_active_ || pt_prev_mode_ != 2;
       rf.current_weight_min = settings_.path_trace_recon_weight;
       rf.max_history = settings_.path_trace_accum;
       rf.atrous_passes = settings_.path_trace_recon_atrous;
@@ -1147,8 +1192,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // day/night cycle nudges the sun every frame, so resetting on that would
       // restart accumulation every frame and the image would never denoise (it
       // would stay 1-spp grainy forever). NRD tracks gradual lighting changes
-      // through its own temporal accumulation + antilag instead.
-      fs.reset = first_frame || !pt_was_active_;
+      // through its own temporal accumulation + antilag instead. Also reset when
+      // switching into the NRD path from another mode (stale reprojection history).
+      fs.reset = first_frame || !pt_was_active_ || pt_prev_mode_ != 1;
       nrd_.SetFrame(fs);
       ResourceHandle denoised = nrd_.DenoiseDiffuse(graph_, t.normal_roughness, t.viewz, t.motion,
                                                     t.radiance_hitdist);
@@ -1162,16 +1208,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     }
 #endif
     if (!denoised_path && !recon_path) {
-      // Reference: brute-force accumulation, hard reset on any motion = ground truth.
-      pt.reset = !pt_was_active_ || moved || lit_changed;
+      // Reference: brute-force accumulation, hard reset on any motion = ground
+      // truth. Also reset when switching into reference from another mode.
+      pt.reset = !pt_was_active_ || moved || lit_changed || pt_prev_mode_ != 0;
       path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
                               environment_->sky_view(), environment_->sampler(), scene_color, pt);
     }
     pt_prev_view_proj_ = view_proj;
     pt_prev_sig_ = sig;
     pt_was_active_ = true;
+    pt_prev_mode_ = recon_path ? 2 : (denoised_path ? 1 : 0);
   } else {
     pt_was_active_ = false;
+    pt_prev_mode_ = -1;
 
   u32 shadow_slot = frame_index_ % 2;
   if (csm_active) {
@@ -2438,7 +2487,9 @@ void Renderer::RecreateSwapchain() {
   ssr_.Resize(*device_, {render_width_, render_height_});
   ssgi_.Resize(*device_, {render_width_, render_height_});
   path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_) recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_ && settings_.path_trace_recon) {
+    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  }
   if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
 #if defined(RECREATION_HAS_NRD)
   if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});

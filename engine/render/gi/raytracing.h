@@ -49,6 +49,10 @@ class RayTracingContext {
   // build input usage.
   bool BuildBlas(u64 mesh_key, const GpuMesh& mesh);
 
+  // Whether a blas already exists for this mesh (BuildBlas is idempotent, but
+  // callers re-registering bindless geometry need to skip already-built meshes).
+  bool HasBlas(u64 mesh_key) const { return blas_.contains(mesh_key); }
+
   // Grows the slot's TLAS to hold at least instance_count instances. This can
   // stall (device idle) and reallocate, so it MUST be called during the CPU
   // frame-build phase, never while a command buffer is recording. Doing the
