@@ -738,6 +738,15 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
       ctx_.scripts->guest().Submit([binds, quest, stage](rec::script::papyrus::VirtualMachine&) {
         binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
       });
+    // Modern battle summary: close the clash with an outcome banner and the toll
+    // on each side, the way a strategy game does (the OG quest just flips a stage).
+    if (ctx_.game_ui) {
+      const int your_fell = std::max(0, cw_start1_ - a);
+      const int enemy_fell = std::max(0, cw_start2_ - b);
+      ctx_.game_ui->FlashQuestUpdate("Victory! The fort is taken  (your losses " +
+                                     std::to_string(your_fell) + ", enemy losses " +
+                                     std::to_string(enemy_fell) + ")");
+    }
     REC_INFO("cw field battle: enemy line broken ({} left) -> quest 0x{:x} stage {}", b, quest,
              stage);
   }
