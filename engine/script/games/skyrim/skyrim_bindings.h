@@ -293,6 +293,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   bool IsInCombat(papyrus::ObjectRef actor) override;
   void SetRelationshipRank(papyrus::ObjectRef a, papyrus::ObjectRef b, i32 rank) override;
   i32 GetRelationshipRank(papyrus::ObjectRef a, papyrus::ObjectRef b) override;
+  int FillFindMatchingAliases(papyrus::ObjectRef quest, papyrus::ObjectRef location) override;
   papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) override;
   void StartCombat(papyrus::ObjectRef actor, papyrus::ObjectRef target) override;
   void StopCombat(papyrus::ObjectRef actor) override;

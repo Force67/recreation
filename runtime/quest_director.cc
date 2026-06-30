@@ -583,6 +583,24 @@ void QuestDirector::ReportReinforcementTest() {
               }
               emit(Fmt("find-matching aliases: %d / %zu total;%s", fm, qd->aliases.size(),
                        sample.c_str()));
+              // Fill them from a real fort's LCSR (FortNeugradLocation 0x019183)
+              // and confirm an attacker slot now resolves to a placed soldier ref.
+              const int nfilled =
+                  binds->FillFindMatchingAliases(ObjectRef{siege}, ObjectRef{0x019183});
+              i32 atk_alias = -1;
+              for (const quest::AliasDef& al : qd->aliases)
+                if (al.find_matching && al.ref_type_raw == 0x87a19) {
+                  atk_alias = al.id;
+                  break;
+                }
+              const u64 atk_ref =
+                  atk_alias < 0 ? 0
+                                : binds
+                                      ->AliasReference(ObjectRef{
+                                          rec::script::papyrus::EncodeAliasHandle(siege, atk_alias)})
+                                      .handle;
+              emit(Fmt("FillFindMatchingAliases: %d filled; attacker alias %d -> ref 0x%llx",
+                       nfilled, atk_alias, static_cast<unsigned long long>(atk_ref)));
             }
 
             // Start the siege and run its battle-stage setup (seeds the pools,

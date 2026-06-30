@@ -164,6 +164,14 @@ class SkyrimBindings {
   // that takes precedence over the authored fill rule until cleared.
   virtual void AliasForceRefTo(papyrus::ObjectRef alias, papyrus::ObjectRef ref) {}
   virtual void AliasClear(papyrus::ObjectRef alias) {}
+  // Fills the quest's "Find Matching Reference" aliases (ALFA/ALRT) from a
+  // location's LCSR table: each alias binds to a distinct placed reference whose
+  // LocationRefType matches the alias's. This is how the Civil War siege binds
+  // its Attacker*/Defender*/Marker* slots to a fort's placed soldiers and markers.
+  // Returns the number of aliases filled.
+  virtual int FillFindMatchingAliases(papyrus::ObjectRef quest, papyrus::ObjectRef location) {
+    return 0;
+  }
 
   // Cell data (CELL record).
   virtual bool IsInterior(papyrus::ObjectRef cell) { return false; }
