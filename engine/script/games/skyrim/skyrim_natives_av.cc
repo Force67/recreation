@@ -1,7 +1,8 @@
 #include "script/games/skyrim/skyrim_native_state.h"
 #include "script/games/skyrim/skyrim_natives_ext.h"
 
-// These wrap audio, visual, and weather systems not yet built, so most are no-ops.
+// Sound routes to the engine audio system. The visual and weather wrappers track
+// what a script sets, awaiting their renderers.
 
 namespace rec::script::skyrim {
 
@@ -9,8 +10,10 @@ using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
 using ext::Args;
+using ext::ArgF;
 using ext::ArgI;
 using ext::ArgO;
+using ext::Resolve;
 namespace st = state;
 
 void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -48,21 +51,50 @@ void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bind
   reg.Register("ShaderParticleGeometry", "Apply", noop);
   reg.Register("ShaderParticleGeometry", "Remove", noop);
 
-  // SoundCategory: mixer-channel control.
-  reg.Register("SoundCategory", "Mute", noop);
-  reg.Register("SoundCategory", "Pause", noop);
-  reg.Register("SoundCategory", "SetFrequency", noop);
-  reg.Register("SoundCategory", "SetVolume", noop);
-  reg.Register("SoundCategory", "UnMute", noop);
-  reg.Register("SoundCategory", "UnPause", noop);
+  // SoundCategory: a change scales the master bus through the audio system, and
+  // the mute and pause states are tracked on the category for the engine to read.
+  reg.Register("SoundCategory", "Mute", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).SetSoundCategoryVolume(self, 0.0f);
+    st::SetFlag(self, "muted", true);
+    return Value();
+  });
+  reg.Register("SoundCategory", "UnMute", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).SetSoundCategoryVolume(self, 1.0f);
+    st::SetFlag(self, "muted", false);
+    return Value();
+  });
+  reg.Register("SoundCategory", "SetVolume", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetSoundCategoryVolume(self, ext::ArgF(a, 0));
+    return Value();
+  });
+  reg.Register("SoundCategory", "SetFrequency", [](VirtualMachine&, ObjectRef self, Args& a) {
+    st::SetFloat(self, "frequency", ext::ArgF(a, 0));
+    return Value();
+  });
+  reg.Register("SoundCategory", "Pause", [](VirtualMachine&, ObjectRef self, Args&) {
+    st::SetFlag(self, "paused", true);
+    return Value();
+  });
+  reg.Register("SoundCategory", "UnPause", [](VirtualMachine&, ObjectRef self, Args&) {
+    st::SetFlag(self, "paused", false);
+    return Value();
+  });
 
-  // Sound: Play/PlayAndWait return a sound instance id (0).
-  reg.Register("Sound", "Play",
-               [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
-  reg.Register("Sound", "PlayAndWait",
-               [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
-  reg.Register("Sound", "SetInstanceVolume", noop);
-  reg.Register("Sound", "StopInstance", noop);
+  // Sound: play the resolved asset through the audio system and return its voice
+  // id, which StopInstance and SetInstanceVolume then act on.
+  auto play = [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Int(Resolve(bindings).PlaySound(self, ext::ArgO(a, 0)));
+  };
+  reg.Register("Sound", "Play", play);
+  reg.Register("Sound", "PlayAndWait", play);
+  reg.Register("Sound", "StopInstance", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    Resolve(bindings).StopSoundInstance(ArgI(a, 0));
+    return Value();
+  });
+  reg.Register("Sound", "SetInstanceVolume", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    Resolve(bindings).SetSoundInstanceVolume(ArgI(a, 0), ext::ArgF(a, 1));
+    return Value();
+  });
 
   // VisualEffect: a model-attached visual effect.
   reg.Register("VisualEffect", "Play", noop);

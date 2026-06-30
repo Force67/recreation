@@ -12,12 +12,17 @@
 #include <utility>
 #include <vector>
 
+#include "audio/sound_catalog.h"
 #include "bethesda/load_order.h"
 #include "bethesda/script_attachment.h"
 #include "bethesda/strings.h"
 #include "core/types.h"
 #include "core/world_clock.h"
 #include "quest/quest_graph.h"
+
+namespace rec::audio {
+class AudioSystem;
+}
 #include "quest/scene_player.h"
 #include "quest/quest_system.h"
 #include "script/games/skyrim/skyrim_natives.h"
@@ -52,6 +57,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void set_records(const bethesda::RecordStore* records) { records_ = records; }
   void set_strings(const bethesda::StringTable* strings) { strings_ = strings; }
   void set_player(papyrus::ObjectRef player) { player_ = player; }
+  void set_audio(audio::AudioSystem* audio) { audio_ = audio; }
   // The in-world clock backing the time natives (Utility.GetCurrentGameTime and
   // the GameHour/GameDaysPassed/TimeScale globals). Owned by the runtime, which
   // advances it on the main thread; reads/writes here happen on the guest
@@ -215,6 +221,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetNthLeveledCount(i32 index) override;
   i32 GetFormListSize(papyrus::ObjectRef list) override;
   papyrus::ObjectRef GetNthListForm(i32 index) override;
+  i32 PlaySound(papyrus::ObjectRef sound, papyrus::ObjectRef source) override;
+  void StopSoundInstance(i32 instance) override;
+  void SetSoundInstanceVolume(i32 instance, f32 volume) override;
+  void SetSoundCategoryVolume(papyrus::ObjectRef category, f32 volume) override;
   i32 GetSex(papyrus::ObjectRef actor_base) override;
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
@@ -542,6 +552,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   LeveledList leveled_cache_;
   // Last form list parsed by GetFormListSize; GetNthListForm reads it.
   std::vector<papyrus::ObjectRef> form_list_cache_;
+  // The audio system the sound natives play through, and the SOUN/SNDR lookup
+  // built lazily on first use. Both null/empty until the runtime wires audio.
+  audio::AudioSystem* audio_ = nullptr;
+  audio::SoundCatalog sound_catalog_;
+  bool sound_catalog_built_ = false;
 };
 
 }  // namespace rec::script::skyrim

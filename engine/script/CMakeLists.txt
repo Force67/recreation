@@ -30,6 +30,7 @@ recreation_add_module(script
   games/skyrim/skyrim_natives_items.cc
   games/skyrim/skyrim_natives_utility2.cc
   games/skyrim/skyrim_bindings.cc
+  games/skyrim/skyrim_bindings_audio.cc
   games/skyrim/skyrim_bindings_item_data.cc
   games/skyrim/skyrim_bindings_crafting.cc
   games/skyrim/skyrim_bindings_leveled.cc
@@ -40,4 +41,5 @@ recreation_add_module(script
 # The CoreCLR host dlopens libhostfxr at runtime (no build-time .NET needed),
 # so it only requires the dynamic loader.
 target_link_libraries(recreation_script PUBLIC
-  recreation::core recreation::ecs recreation::bethesda recreation::quest ${CMAKE_DL_LIBS})
+  recreation::core recreation::ecs recreation::bethesda recreation::quest recreation::audio
+  ${CMAKE_DL_LIBS})

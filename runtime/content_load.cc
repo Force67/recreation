@@ -93,6 +93,7 @@ bool LoadGameData(Engine& engine) {
   self->ctx_.bindings = self->script_bindings_.get();
   self->script_bindings_->set_strings(&self->strings_);
   self->script_bindings_->set_player(rec::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
+  self->script_bindings_->set_audio(self->audio_.get());  // Sound.Play routes here
   // Route quest-driven world mutations (PlaceAtMe/MoveTo/Enable/Delete + cleanup)
   // through the provenance layer; the player teleports through a host hook since
   // it is an actor/capsule, not a registry entity.

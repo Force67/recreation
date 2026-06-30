@@ -33,6 +33,8 @@ class MockBindings : public SkyrimBindings {
   std::vector<ObjectRef> list_forms;  // base FLST entries
   i32 crime_gold = 0;
   std::vector<std::pair<ObjectRef, bool>> effects;  // (effect, detrimental) for the item under test
+  ObjectRef last_played;
+  i32 voice_id = 7;
 
   f32 GetCurrentGameTime() override { return game_time; }
   f32 GetGameSettingFloat(const std::string&) override { return 42.7f; }
@@ -47,6 +49,10 @@ class MockBindings : public SkyrimBindings {
     for (const auto& [e, det] : effects)
       if (e.handle == effect.handle) return det;
     return false;
+  }
+  i32 PlaySound(ObjectRef sound, ObjectRef) override {
+    last_played = sound;
+    return voice_id;
   }
   i32 GetFormListSize(ObjectRef) override { return static_cast<i32>(list_forms.size()); }
   ObjectRef GetNthListForm(i32 index) override {
@@ -167,6 +173,12 @@ int main() {
   bindings.effects = {{ObjectRef{0x601}, false}, {ObjectRef{0x602}, true}};
   check("spell with a detrimental effect is hostile",
         callOn(spell, "Spell", "IsHostile", {}).ToBool());
+
+  // Sound.Play forwards the sound form to the audio binding and returns the voice.
+  ObjectRef soundForm{0x700};
+  Value played = callOn(soundForm, "Sound", "Play", {Value::Object(ObjectRef{0x701})});
+  check("Sound.Play returns the voice id", played.ToInt() == 7);
+  check("Sound.Play forwards the sound form", bindings.last_played.handle == soundForm.handle);
 
   std::printf("%s (%d failures)\n", failures ? "NATIVESEXTTEST FAILED" : "NATIVESEXTTEST PASSED",
               failures);

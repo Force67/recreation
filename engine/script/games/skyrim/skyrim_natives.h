@@ -125,6 +125,15 @@ class SkyrimBindings {
   virtual i32 GetNthLeveledLevel(i32 index) { return 0; }
   virtual i32 GetNthLeveledCount(i32 index) { return 0; }
 
+  // Sound playback, routed to the engine audio system when one is wired. PlaySound
+  // resolves a SOUN/SNDR form to its asset and plays it, returning a voice id (0 on
+  // failure); StopSoundInstance and SetSoundInstanceVolume act on that voice.
+  // SetSoundCategoryVolume scales a category (the master bus stands in for now).
+  virtual i32 PlaySound(papyrus::ObjectRef sound, papyrus::ObjectRef source) { return 0; }
+  virtual void StopSoundInstance(i32 instance) {}
+  virtual void SetSoundInstanceVolume(i32 instance, f32 volume) {}
+  virtual void SetSoundCategoryVolume(papyrus::ObjectRef category, f32 volume) {}
+
   // A form list (FLST record): its authored entries (LNAM), in order. Call
   // GetFormListSize first to parse the list into a cache and return its count,
   // then GetNthListForm reads that cache by index. FormList.GetAt/Find/HasForm
