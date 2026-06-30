@@ -5,16 +5,19 @@ shows the most recent entries (the first bullet of each release is its headline)
 
 ## [Unreleased]
 ### Added
-- More of the Skyrim native surface the base-game scripts call. This batch
-  covers the natives that compute a real value from data the engine already has:
-  Game.GetSunPosition X/Y/Z from the game clock, Game.GetGameSettingInt, the
-  Utility.GameTimeToString clock formatter, the Utility frame-rate getters, and
-  Actor.GetActorValueMax plus the ObjectReference container queries
-  (IsContainerEmpty, GetAllItemsCount, RemoveAllItems) composed from the existing
-  inventory bindings. New batches live in their own `skyrim_natives_*.cc` files
-  and are covered by `nativesexttest`. `tools/papyrus/nativescan` reports the
-  coverage, now 169 of 686 declared natives; the remainder drive engine systems
-  (animation, movement, combat, equipment) that are still to come.
+- Registered every Skyrim native the base-game scripts call, all 686 of the 686
+  that `tools/papyrus/nativescan` finds. Each one is implemented as faithfully as
+  the engine allows. Functions that read record data return the real value:
+  FormList.GetSize/GetAt/Find/HasForm read the FLST list, item hostility comes
+  from a detrimental magic effect, and the spell, weapon, and actor-value getters
+  route to the record bindings. Functions that carry runtime state round-trip
+  through a shared keyed store, so SetGhost then IsGhost, the angle setters and
+  getters, owner and faction-owner, perks, and the crime-gold split all report
+  what a script set. The remaining functions drive engine systems that are not
+  built yet (animation, movement, combat, weather, audio); they are wired so the
+  scripts run, and they become real as those systems land. The batches live in
+  their own `skyrim_natives_*.cc` files behind a shared keyed state store, with
+  the computed and stateful paths covered by `nativesexttest`.
 
 ### Experimental
 - Papyrus to C# decompiler (`tools/papyrus/pex2cs`). It pulls a shipped quest
