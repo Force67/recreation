@@ -4,6 +4,8 @@ recreation_add_module(script
   papyrus/value.cc
   papyrus/interpreter.cc
   papyrus/native.cc
+  papyrus/decompiler.cc
+  papyrus/transpile.cc
   papyrus/vm.cc
   papyrus_guest.cc
   script_system.cc

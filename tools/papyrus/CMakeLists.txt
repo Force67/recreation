@@ -18,6 +18,15 @@ add_executable(nativescan nativescan.cc)
 target_link_libraries(nativescan PRIVATE recreation::script recreation::bethesda recreation::asset)
 recreation_set_warnings(nativescan)
 
+# EXPERIMENTAL Papyrus -> C# decompiler and its self-contained unit test.
+add_executable(pex2cs pex2cs.cc)
+target_link_libraries(pex2cs PRIVATE recreation::script recreation::bethesda recreation::asset)
+recreation_set_warnings(pex2cs)
+
+add_executable(transpiletest transpiletest.cc)
+target_link_libraries(transpiletest PRIVATE recreation::script)
+recreation_set_warnings(transpiletest)
+
 add_executable(bindingstest bindingstest.cc)
 target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda recreation::asset)
 recreation_set_warnings(bindingstest)
@@ -248,6 +257,7 @@ recreation_set_warnings(pexfuzz)
 # Deterministic VM regression suite (no game data needed), so `ctest` is the
 # one-command gate. The corpus checks (pexsoak/pexfuzz/nativescan) take the
 # Skyrim data dir and run separately.
+add_test(NAME transpiletest COMMAND transpiletest)
 add_test(NAME papyrus_selftest COMMAND pexrun selftest)
 add_test(NAME papyrus_skyrimtest COMMAND pexrun skyrimtest)
 add_test(NAME papyrus_guesttest COMMAND pexrun guesttest)
