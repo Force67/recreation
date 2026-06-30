@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/types.h"
+#include "script/papyrus/fiber.h"
 #include "script/papyrus/interpreter.h"
 #include "script/papyrus/native.h"
 #include "script/papyrus/pex.h"
@@ -103,6 +104,16 @@ class VirtualMachine : public VmInterface {
   // hook latent natives (Utility.Wait) use to yield without unwinding.
   bool SuspendCurrent();
 
+  // Records how long the current activation wants to wait, then suspends it (see
+  // SuspendCurrent). The scheduler reads the request with TakeLatentRequest after
+  // the fiber yields to decide when to resume it. Pass a real-time delay in
+  // seconds, or a game-time delay in days (the other argument negative).
+  bool SuspendCurrentFor(f64 real_seconds, f64 game_days);
+
+  // Returns and clears the pending latent request set by SuspendCurrentFor. The
+  // fiber scheduler calls this immediately after a fiber yields.
+  LatentRequest TakeLatentRequest();
+
   // Debug-only: the member-variable names currently held by an instance, used
   // to inspect live script state when bringing up a quest's fragments.
   std::vector<std::string> MemberNames(ObjectRef self);
@@ -196,6 +207,7 @@ class VirtualMachine : public VmInterface {
   std::vector<std::unordered_map<std::string, Value>> structs_;  // 1-based; Fallout structs
   std::vector<std::string> call_stack_;     // executing script type, for parent calls
   std::unordered_set<std::string> warned_;  // unbound natives warned once
+  LatentRequest latent_;                    // pending Wait, set just before a fiber yields
 };
 
 }  // namespace rec::script::papyrus

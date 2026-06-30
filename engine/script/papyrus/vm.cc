@@ -212,6 +212,17 @@ Value VirtualMachine::Invoke(const Resolved& target, ObjectRef self, std::vector
 
 bool VirtualMachine::SuspendCurrent() { return Fiber::YieldCurrent(); }
 
+bool VirtualMachine::SuspendCurrentFor(f64 real_seconds, f64 game_days) {
+  latent_ = {real_seconds, game_days};
+  return Fiber::YieldCurrent();
+}
+
+LatentRequest VirtualMachine::TakeLatentRequest() {
+  LatentRequest r = latent_;
+  latent_ = {};
+  return r;
+}
+
 Value VirtualMachine::Call(ObjectRef self, const std::string& method, std::vector<Value> args) {
   Instance* inst = FindInstance(self);
   if (!inst) {

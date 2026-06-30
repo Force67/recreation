@@ -15,6 +15,7 @@
 #include "bethesda/game_profile.h"
 #include "core/move_only_function.h"
 #include "core/types.h"
+#include "script/papyrus/fiber_scheduler.h"
 #include "script/papyrus/native.h"
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
@@ -143,6 +144,11 @@ class PapyrusGuest {
   void RemoveLosWatch(papyrus::ObjectRef registrant, papyrus::ObjectRef viewer,
                       papyrus::ObjectRef target);
   void AdvanceLosWatches();  // guest thread only
+  // Runs one script activation on a fiber, so a latent native (Utility.Wait) can
+  // suspend it; it parks until its wait elapses. The current game time backs
+  // game-time waits.
+  void RunScript(std::function<void()> body);
+  f64 GameNow() const { return game_time_provider_ ? game_time_provider_() : 0.0; }
 
   bethesda::Game game_;
   papyrus::NativeRegistry natives_;
@@ -160,6 +166,9 @@ class PapyrusGuest {
   std::vector<ScheduledUpdate> updates_;
   std::vector<ScheduledUpdate> game_updates_;
   std::vector<LosWatch> los_watches_;
+  // Runs activations on fibers and parks the ones that hit a latent Wait. Pulls
+  // each suspending activation's delay from the VM's latent request.
+  papyrus::FiberScheduler fiber_sched_{[this] { return vm_.TakeLatentRequest(); }};
 
   // Set once on the guest thread (see set_game_time_provider); read on the guest
   // thread when scheduling and firing game-time timers.

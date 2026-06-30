@@ -6,10 +6,12 @@
 #include <cstdio>
 
 #include "script/papyrus/fiber.h"
+#include "script/papyrus/fiber_scheduler.h"
 #include "script/papyrus/native.h"
 #include "script/papyrus/vm.h"
 
 using rec::script::papyrus::Fiber;
+using rec::script::papyrus::FiberScheduler;
 using rec::script::papyrus::NativeRegistry;
 using rec::script::papyrus::VirtualMachine;
 
@@ -87,6 +89,73 @@ int main() {
     NativeRegistry reg;
     VirtualMachine vm(&reg);
     check("SuspendCurrent off a fiber is a no-op", !vm.SuspendCurrent());
+  }
+
+  // 5. The scheduler parks a real-time Wait and resumes it after the deadline,
+  //    driven end to end through the VM's SuspendCurrentFor / TakeLatentRequest.
+  {
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    int step = 0;
+    bool parked = sched.Run(
+        [&] {
+          step = 1;
+          vm.SuspendCurrentFor(0.5, -1.0);  // wait 0.5 real seconds
+          step = 2;
+        },
+        /*real_now=*/0.0, /*game_now=*/0.0);
+    check("activation parks at the Wait", parked && step == 1 && sched.parked() == 1);
+    sched.Advance(0.4, 0.0);
+    check("not resumed before the deadline", step == 1 && sched.parked() == 1);
+    sched.Advance(0.6, 0.0);
+    check("resumed after the deadline", step == 2 && sched.parked() == 0);
+  }
+
+  // 6. A game-time Wait resumes off game days, ignoring real seconds.
+  {
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    bool done = false;
+    sched.Run([&] { vm.SuspendCurrentFor(-1.0, 0.25); done = true; }, /*real=*/0.0, /*game=*/10.0);
+    check("game-time wait parks", !done && sched.parked() == 1);
+    sched.Advance(1e6, 10.2);  // huge real time, but game day < deadline
+    check("real time does not wake a game-time wait", !done && sched.parked() == 1);
+    sched.Advance(1e6, 10.3);  // game day 10.3 >= 10.0 + 0.25
+    check("game-time wait resumes at its game deadline", done && sched.parked() == 0);
+  }
+
+  // 7. Two waits in a row: the activation re-parks and resumes again.
+  {
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    int step = 0;
+    sched.Run(
+        [&] {
+          step = 1;
+          vm.SuspendCurrentFor(1.0, -1.0);
+          step = 2;
+          vm.SuspendCurrentFor(1.0, -1.0);
+          step = 3;
+        },
+        0.0, 0.0);
+    check("first wait parks", step == 1 && sched.parked() == 1);
+    sched.Advance(1.5, 0.0);
+    check("resumes to the second wait and re-parks", step == 2 && sched.parked() == 1);
+    sched.Advance(3.0, 0.0);
+    check("second wait resumes to completion", step == 3 && sched.parked() == 0);
+  }
+
+  // 8. A non-waiting activation runs to completion now and is never parked.
+  {
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    bool ran = false;
+    bool parked = sched.Run([&] { ran = true; }, 0.0, 0.0);
+    check("non-waiting activation completes immediately", ran && !parked && sched.parked() == 0);
   }
 
   std::printf("%s (%d failures)\n", failures ? "FIBERTEST FAILED" : "FIBERTEST PASSED", failures);

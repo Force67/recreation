@@ -5,7 +5,18 @@
 #include <functional>
 #include <vector>
 
+#include "core/types.h"
+
 namespace rec::script::papyrus {
+
+// A latent native's request to suspend its activation: how long until it resumes.
+// real_seconds >= 0 is a real-time wait (Utility.Wait); game_days >= 0 is an
+// in-game-time wait (Utility.WaitGameTime). A negative field means "not this
+// kind"; normally exactly one is set.
+struct LatentRequest {
+  f64 real_seconds = -1.0;
+  f64 game_days = -1.0;
+};
 
 // A cooperative execution context with its own stack. It runs `entry` when first
 // resumed and can suspend mid-call (YieldCurrent), switching back to its resumer

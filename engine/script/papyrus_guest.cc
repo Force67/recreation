@@ -75,8 +75,11 @@ std::future<ObjectRef> PapyrusGuest::CreateInstance(std::string type) {
 void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<Value> args) {
   // Events are optional handlers; TryCall dispatches only if the target defines
   // one and never warns otherwise, so broadcasting to every form is cheap.
-  Submit([target, event = std::move(event), args = std::move(args)](VirtualMachine& vm) mutable {
-    vm.TryCall(target, event, std::move(args));
+  Submit([this, target, event = std::move(event),
+          args = std::move(args)](VirtualMachine& vm) mutable {
+    RunScript([&vm, target, event = std::move(event), args = std::move(args)]() mutable {
+      vm.TryCall(target, event, std::move(args));
+    });
   });
 }
 
@@ -117,7 +120,7 @@ void PapyrusGuest::AdvanceGameUpdates(f64 now) {
       it->due += interval;
     else
       game_updates_.erase(it);
-    vm_.Call(target, "OnUpdateGameTime", {});
+    RunScript([this, target] { vm_.Call(target, "OnUpdateGameTime", {}); });
   }
 }
 
@@ -155,12 +158,20 @@ void PapyrusGuest::AdvanceLosWatches() {
   }
   for (auto it = drop.rbegin(); it != drop.rend(); ++it) los_watches_.erase(los_watches_.begin() + *it);
   for (const Fired& f : fired)
-    vm_.TryCall(f.registrant, f.gained ? "OnGainLOS" : "OnLostLOS",
-                {Value::Object(f.viewer), Value::Object(f.target)});
+    RunScript([this, f] {
+      vm_.TryCall(f.registrant, f.gained ? "OnGainLOS" : "OnLostLOS",
+                  {Value::Object(f.viewer), Value::Object(f.target)});
+    });
+}
+
+void PapyrusGuest::RunScript(std::function<void()> body) {
+  fiber_sched_.Run(std::move(body), clock_, GameNow());
 }
 
 void PapyrusGuest::AdvanceUpdates(f64 dt) {
   clock_ += dt;
+  // Resume any activations whose Wait has elapsed before firing this tick's work.
+  fiber_sched_.Advance(clock_, GameNow());
   if (game_time_provider_) AdvanceGameUpdates(game_time_provider_());
   AdvanceLosWatches();
   // Snapshot the due set first: an OnUpdate handler may reschedule itself, and
@@ -177,7 +188,7 @@ void PapyrusGuest::AdvanceUpdates(f64 dt) {
       it->due += interval;
     else
       updates_.erase(it);
-    vm_.Call(target, "OnUpdate", {});
+    RunScript([this, target] { vm_.Call(target, "OnUpdate", {}); });
   }
 }
 

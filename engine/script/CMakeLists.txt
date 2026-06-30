@@ -5,6 +5,7 @@ recreation_add_module(script
   papyrus/interpreter.cc
   papyrus/native.cc
   papyrus/fiber.cc
+  papyrus/fiber_scheduler.cc
   papyrus/decompiler.cc
   papyrus/transpile.cc
   papyrus/vm.cc
