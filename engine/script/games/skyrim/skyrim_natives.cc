@@ -428,6 +428,15 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   reg.Register("ObjectReference", "IsDisabled", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Bool(Resolve(bindings).IsDisabled(self));
   });
+  // Reset() re-initialises a reference. For a dead actor that means resurrecting
+  // it (full health, downed state cleared) so it can fight again, this is how
+  // the Civil War reinforcement controller recycles its spawned soldiers
+  // (TryToRespawnAlias -> GetActorReference().Reset(marker)). The optional centre
+  // ref is ignored: the engine keeps the actor where it stands.
+  reg.Register("ObjectReference", "Reset", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).Resurrect(self);
+    return Value();
+  });
   reg.Register("ObjectReference", "GetItemCount", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Int(Resolve(bindings).GetItemCount(self, ArgO(a, 0)));
   });
@@ -713,6 +722,18 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
     Resolve(bindings).StopCombat(self);
     return Value();
   });
+  // Kill drops health to zero; the binding turns that into the death notify that
+  // raises OnDeath on the actor and its filled quest aliases (the same path a
+  // melee kill takes). KillSilent differs only in the death cinematics we have
+  // none of. The optional killer arg is unused here, the engine already records
+  // the killer for the OnDeath it raises.
+  auto kill = [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    Resolve(bindings).SetActorValue(self, "health", 0.0f);
+    return Value();
+  };
+  reg.Register("Actor", "Kill", kill);
+  reg.Register("Actor", "KillSilent", kill);
+  reg.Register("Actor", "KillEssential", kill);
   reg.Register("Actor", "EquipItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).EquipItem(self, ArgO(a, 0));
     return Value();

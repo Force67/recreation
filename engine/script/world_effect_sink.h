@@ -34,6 +34,9 @@ class WorldEffectSink {
   virtual void StartCombat(u64 quest, u64 attacker, u64 target) {}
   virtual void StopCombat(u64 quest, u64 attacker) {}
   virtual void ActorDied(u64 quest, u64 actor) {}
+  // An actor was reset/resurrected by a script (Reset, ResurrectActor): clear the
+  // downed state so it renders and fights again. Mirrors ActorDied.
+  virtual void ActorResurrected(u64 quest, u64 actor) {}
 };
 
 }  // namespace rec::script

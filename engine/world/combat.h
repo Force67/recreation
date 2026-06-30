@@ -78,9 +78,10 @@ inline f32 SwingDamage(const CombatParams& p, f32 roll01) {
 // the guest thread; the engine drains it on the main thread into the combat
 // driver. Mirrors world::WorldCommandQueue.
 enum class CombatOp : u8 {
-  kEngage,     // actor begins fighting target
-  kDisengage,  // actor stops fighting (StopCombat)
-  kDied,       // actor died: drop it and anyone targeting it
+  kEngage,       // actor begins fighting target
+  kDisengage,    // actor stops fighting (StopCombat)
+  kDied,         // actor died: drop it and anyone targeting it
+  kResurrected,  // actor brought back (Reset/Resurrect): clear its downed state
 };
 
 struct CombatEvent {

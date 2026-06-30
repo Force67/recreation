@@ -59,6 +59,7 @@ class NpcDirector {
   void EnterCombat(u64 attacker, u64 target);
   void LeaveCombat(u64 attacker);
   void OnActorDied(u64 actor);
+  void OnActorResurrected(u64 actor);
   void UpdateCombat(f32 dt);
   int combatant_count() const { return static_cast<int>(combat_.size()); }
   // The side the player fights on (a world::CombatTeam id), so hostile soldiers

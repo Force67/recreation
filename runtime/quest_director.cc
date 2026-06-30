@@ -582,11 +582,18 @@ void QuestDirector::ReportReinforcementTest() {
             if (alias_id >= 0) {
               const u64 alias_h = rec::script::papyrus::EncodeAliasHandle(siege, alias_id);
               const ObjectRef soldier{(0xFFFFull << 32) | 0x5050};
-              binds->SetActorValue(soldier, "health", 80.0f);
+              binds->SetActorValue(soldier, "health", 80.0f);  // base+current full
               binds->AliasForceRefTo(ObjectRef{alias_h}, soldier);
-              binds->SetActorValue(soldier, "health", 0.0f);  // dies -> reverse dispatch
-              emit(Fmt("killed soldier filling alias 0x%llx (%s)",
-                       static_cast<unsigned long long>(alias_h), vm.TypeOf(ObjectRef{alias_h}).c_str()));
+              binds->ModActorValue(soldier, "health", -200.0f);  // damage to death (base intact)
+              const bool dead = binds->IsDead(soldier);
+              // The reinforcement controller recycles soldiers via
+              // GetActorReference().Reset(): exercise that real native and confirm
+              // it brings the dead soldier back (full health, no longer dead).
+              vm.Call(ObjectRef{soldier}, "Reset", {});
+              emit(Fmt("killed soldier filling alias 0x%llx (%s); dead=%d -> Reset -> dead=%d",
+                       static_cast<unsigned long long>(alias_h), vm.TypeOf(ObjectRef{alias_h}).c_str(),
+                       dead, binds->IsDead(soldier)));
+              binds->ModActorValue(soldier, "health", -200.0f);  // re-down for the pool check below
             }
 
             // Drive the real pool-write Papyrus: ModifyPool decrements PoolAttacker

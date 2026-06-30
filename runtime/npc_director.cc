@@ -260,6 +260,15 @@ void NpcDirector::OnActorDied(u64 actor) {
   }
 }
 
+void NpcDirector::OnActorResurrected(u64 actor) {
+  // Clear the downed tag so the actor renders upright and is eligible to fight
+  // again, the mirror of OnActorDied, driven by a script Reset/Resurrect.
+  ecs::Entity e;
+  world::Transform* t;
+  if (ResolveCombatant(actor, &e, &t) && world_.Has<world::Dead>(e))
+    world_.Remove<world::Dead>(e);
+}
+
 void NpcDirector::AcquireTargets() {
   // Teamed, living actors that are not already fighting pick the nearest hostile
   // (different non-zero team) within engage range. This drives the opening clash

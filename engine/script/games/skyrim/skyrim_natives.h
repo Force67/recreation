@@ -206,6 +206,10 @@ class SkyrimBindings {
   virtual void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) {}
   virtual i32 GetLevel(papyrus::ObjectRef actor) { return 1; }
   virtual bool IsDead(papyrus::ObjectRef actor) { return false; }
+  // Brings a dead actor back: restores its health and clears its downed state so
+  // it renders upright and can fight again (ObjectReference.Reset, the Civil War
+  // reinforcement respawn). A no-op on anything that did not die.
+  virtual void Resurrect(papyrus::ObjectRef actor) {}
   virtual bool IsInCombat(papyrus::ObjectRef actor) { return false; }
   virtual bool IsSneaking(papyrus::ObjectRef actor) { return false; }
   virtual papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) { return {}; }

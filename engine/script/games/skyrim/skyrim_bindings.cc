@@ -765,6 +765,15 @@ bool RecordBackedSkyrimBindings::IsDead(ObjectRef actor) {
   return GetActorValue(actor, "health") <= 0.0f;
 }
 
+void RecordBackedSkyrimBindings::Resurrect(ObjectRef actor) {
+  // Only bring back something that actually died: Reset() is also called on
+  // living/clutter refs, and reviving those (handing them health) would be wrong.
+  if (dead_.find(actor.handle) == dead_.end()) return;
+  RestoreActorValue(actor, "health", 1.0e9f);  // back to full (clamped to base)
+  dead_.erase(actor.handle);
+  if (world_sink_) world_sink_->ActorResurrected(active_quest_, actor.handle);
+}
+
 i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item) {
   auto it = inventory_.find(container.handle);
   if (it == inventory_.end()) return 0;

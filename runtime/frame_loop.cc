@@ -149,6 +149,7 @@ bool Engine::RunFrame() {
         case world::CombatOp::kEngage: npc_->EnterCombat(e.actor, e.target); break;
         case world::CombatOp::kDisengage: npc_->LeaveCombat(e.actor); break;
         case world::CombatOp::kDied: npc_->OnActorDied(e.actor); break;
+        case world::CombatOp::kResurrected: npc_->OnActorResurrected(e.actor); break;
       }
     }
     npc_->Cw00DemoTick(static_cast<f32>(timer_.frame_delta()));

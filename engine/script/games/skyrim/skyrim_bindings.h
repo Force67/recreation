@@ -288,6 +288,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) override;
   void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
+  void Resurrect(papyrus::ObjectRef actor) override;
   bool IsInCombat(papyrus::ObjectRef actor) override;
   papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) override;
   void StartCombat(papyrus::ObjectRef actor, papyrus::ObjectRef target) override;

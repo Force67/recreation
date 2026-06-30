@@ -94,6 +94,9 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   void ActorDied(u64 /*quest*/, u64 actor) override {
     combat_->Push({world::CombatOp::kDied, actor, 0});
   }
+  void ActorResurrected(u64 /*quest*/, u64 actor) override {
+    combat_->Push({world::CombatOp::kResurrected, actor, 0});
+  }
 
  private:
   void Emit(world::WorldOp op, u64 quest, u64 handle, f32 x, f32 y, f32 z) {
