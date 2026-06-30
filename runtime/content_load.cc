@@ -46,6 +46,8 @@ static base::Option<const char*> ScenePlay{"scene.play", nullptr, "REC_SCENE_PLA
 static base::Option<const char*> SceneLive{"scene.live", nullptr, "REC_SCENE_LIVE"};
 static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "REC_DOMAIN_OFFSET"};
 static base::Option<const char*> DomainCell{"domain.cell", nullptr, "REC_DOMAIN_CELL"};
+static base::Option<bool> AudioDump{"audio.dump", false, "REC_AUDIO_DUMP",
+                                    "resolve and decode each region's ambient bed at load and log it"};
 
 bool LoadGameData(Engine& engine) {
   Engine* const self = &engine;
@@ -183,10 +185,10 @@ bool LoadGameData(Engine& engine) {
     self->ambient_director_.Configure(self->audio_.get(), &self->sound_catalog_,
                                       &self->region_ambience_);
 
-    // REC_AUDIO_DUMP: resolve and decode each region's ambient bed up front and
-    // log the result. A no-GPU way to confirm the SOUN/SNDR/REGN parse, the Vfs
-    // path resolution and the decoder all line up against real game data.
-    if (std::getenv("REC_AUDIO_DUMP")) {
+    // audio.dump (REC_AUDIO_DUMP): resolve and decode each region's ambient bed
+    // up front and log the result. A no-GPU way to confirm the SOUN/SNDR/REGN
+    // parse, the Vfs path resolution and the decoder line up against real data.
+    if (AudioDump) {
       int ok = 0, missing = 0, undecodable = 0;
       for (u64 region : self->region_ambience_.RegionForms()) {
         for (const bethesda::GlobalFormId& snd : self->region_ambience_.SoundsFor(region)) {
