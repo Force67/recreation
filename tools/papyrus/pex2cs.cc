@@ -597,6 +597,95 @@ int DiffTest(const std::string& data_dir, const std::string& out_dir) {
 
 }  // namespace
 
+// A script belongs to the main quest if it is a QF_MQ* stage-fragment script or
+// an MQ<digit>* quest/alias/effect script. This is the MQ1xx-MQ3xx spine; dialogue
+// TIF__ fragments are keyed by form id and fall outside this name-based scope.
+bool IsMainQuestScript(const std::string& name) {
+  if (name.rfind("QF_MQ", 0) == 0) return true;
+  return name.size() >= 3 && name[0] == 'M' && name[1] == 'Q' &&
+         name[2] >= '0' && name[2] <= '9';
+}
+
+// Runs every main-quest script's parameterless default-state functions (stage
+// fragments and event handlers) through the VM and reports which engine natives
+// they actually dispatch, as a sorted Type.Function set.
+int MqTrace(const std::string& data_dir) {
+  using namespace rec::script::papyrus;
+  asset::Vfs vfs;
+  MountArchives(vfs, data_dir);
+
+  auto counter = std::make_shared<std::uint64_t>(1000000);
+  auto called = std::make_shared<std::set<std::pair<std::string, std::string>>>();
+
+  // Register a recorder for every native (type, func) the archives declare. Each
+  // records its own canonical identity, so the trace keys match the registry.
+  std::set<std::pair<std::string, std::string>> natives;
+  vfs.Enumerate([&](std::string_view p) {
+    if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
+      return;
+    auto data = vfs.Read(p);
+    if (!data) return;
+    PexFile pex;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) return;
+    for (const Object& o : pex.objects)
+      for (const State& s : o.states)
+        for (const NamedFunction& nf : s.functions)
+          if (nf.function.is_native) natives.insert({pex.Str(o.name), pex.Str(nf.name)});
+  });
+  NativeRegistry reg;
+  for (const auto& [type, func] : natives) {
+    std::pair<std::string, std::string> key{type, func};
+    reg.Register(type, func,
+                 [counter, called, key](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+                   called->insert(key);
+                   return Value::Object(ObjectRef{(*counter)++});
+                 });
+  }
+
+  // Drive each main-quest script's fragments and no-param handlers.
+  size_t scripts = 0;
+  std::vector<std::string> pending;
+  vfs.Enumerate([&](std::string_view p) {
+    if (p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
+      pending.emplace_back(p);
+  });
+  for (const std::string& path : pending) {
+    auto blob = vfs.Read(path);
+    if (!blob) continue;
+    PexFile pex;
+    if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex) || pex.objects.empty()) continue;
+    const Object& obj = pex.objects.front();
+    std::string type_name = pex.Str(obj.name);
+    if (!IsMainQuestScript(type_name)) continue;
+
+    VirtualMachine vm(&reg);
+    vm.LoadScript(ByteSpan(blob->data(), blob->size()));
+    for (std::string parent = vm.ParentClassOf(type_name); !parent.empty();) {
+      auto pb = vfs.Read("scripts/" + parent + ".pex");
+      if (!pb) break;
+      std::string loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
+      parent = loaded.empty() ? "" : vm.ParentClassOf(loaded);
+    }
+    ObjectRef inst = vm.CreateInstance(type_name);
+    for (const MemberVariable& v : obj.variables) {
+      if (IsPrimType(LowerStr(pex.Str(v.type)))) continue;
+      if (Value* slot = vm.MemberVar(inst, pex.Str(v.name)))
+        *slot = Value::Object(ObjectRef{(*counter)++});
+    }
+    for (const State& s : obj.states) {
+      if (s.name != kInvalidString && !pex.Str(s.name).empty()) continue;
+      for (const NamedFunction& nf : s.functions)
+        if (nf.function.params.empty()) vm.Call(inst, pex.Str(nf.name), {});
+    }
+    ++scripts;
+  }
+
+  for (const auto& [type, func] : *called) std::printf("%s.%s\n", type.c_str(), func.c_str());
+  std::fprintf(stderr, "mqtrace: %zu main-quest scripts, %zu distinct natives dispatched\n",
+               scripts, called->size());
+  return 0;
+}
+
 int main(int argc, char** argv) {
   std::vector<std::string> args(argv + 1, argv + argc);
   bool disasm = false;
@@ -614,6 +703,7 @@ int main(int argc, char** argv) {
   if (args.size() >= 3 && args[0] == "--compile-check") return CompileCheck(args[1], args[2]);
   if (args.size() >= 3 && args[0] == "--difftest") return DiffTest(args[1], args[2]);
   if (args.size() >= 4 && args[0] == "--runtest") return RunTest(args[1], args[2], args[3]);
+  if (args.size() >= 2 && args[0] == "--mqtrace") return MqTrace(args[1]);
 
   std::vector<u8> blob;
   std::string out_path;
