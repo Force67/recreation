@@ -3,6 +3,37 @@
 All notable changes to Recreation are documented here. The main menu's NEWS rail
 shows the most recent entries (the first bullet of each release is its headline).
 
+## [Unreleased]
+### Experimental
+- Papyrus to C# decompiler (`tools/papyrus/pex2cs`). It pulls a shipped quest
+  script out of the game archives and recompiles its bytecode into recreation-SDK
+  C#, so a quest can be re-edited as readable C# instead of hand-ported. The
+  reconstruction inlines the compiler's temporaries into expressions, hoists the
+  temps that span blocks, and rebuilds property, array, and call syntax. It
+  structures if, else-if, while, break, and continue control flow, dedups
+  auto-property backing fields, state-qualifies overrides, folds Papyrus's
+  case-insensitive identifiers onto one spelling, and emits the casts and
+  trailing returns Papyrus leaves implicit. Flow it cannot structure falls back
+  to a tagged labelled-goto rendering. The decompiler lives behind
+  `TranspileToCSharp` and the body reconstruction in `decompiler.cc`, with
+  `transpiletest` covering the cases above.
+
+  Validation ran over the full Skyrim SE script set, all 14,302 scripts. Every
+  script parses and reconstructs as structured C# with no goto fallback and no
+  unmodelled opcodes (`pex2cs --audit`). Parsed by Roslyn, the output has zero
+  syntax errors, and the whole corpus compiles as one assembly with a stock C#
+  compiler (`pex2cs --compile-check`, engine types collapsed to `dynamic`), which
+  checks scoping, definite returns, and break or continue placement. Beyond
+  compiling, `pex2cs --difftest` runs every pure function in both the Papyrus VM
+  and the compiled C# over identical inputs; all 21,856 trials match, which
+  surfaced and fixed a short-circuit bug where a reused temp slot has to share one
+  C# local across branches. `pex2cs --runtest` then runs a quest's stage
+  fragments in both, logging every engine call with its arguments. On the first
+  main quest, MQ101, all 159 fragments run to completion with no primitive
+  argument mismatch, for instance Fragment_32 calling SetOpen(false) then
+  SetLockLevel(5). That argument check is what surfaced and fixed dropped casts,
+  so an int argument to a float or bool parameter now keeps its converted type.
+
 ## [0.5.0] - 2026-06-29
 ### Added
 - Game audio is live: an SDL3-backed mixer plays the worlds' sound
