@@ -60,6 +60,10 @@ void AudioSystem::SetListener(const Vec3& position, const Vec3& forward, const V
   mixer_.SetListener(listener);
 }
 
+bool AudioSystem::HasAsset(std::string_view path) const {
+  return vfs_ && vfs_->Contains(path);
+}
+
 bool AudioSystem::ReadAsset(std::string_view path, std::vector<u8>* out) {
   out->clear();
   if (!vfs_) return false;

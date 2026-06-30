@@ -56,6 +56,10 @@ class AudioSystem {
   void SetMasterVolume(f32 volume);
   f32 master_volume() const { return master_; }
 
+  // Whether `path` exists in the mounted Vfs (loose files + archives). Lets a
+  // caller pick a sound it can actually load before committing to play it.
+  bool HasAsset(std::string_view path) const;
+
   Mixer& mixer() { return mixer_; }
 
  private:

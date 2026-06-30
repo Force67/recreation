@@ -124,7 +124,11 @@ std::string AmbientDirector::Resolve(const AmbientContext& context) const {
   if (context.interior || context.region == 0) return {};
   for (const bethesda::GlobalFormId& form : regions_->SoundsFor(context.region)) {
     std::string path = catalog_->PathFor(form);
-    if (!path.empty()) return path;
+    if (path.empty()) continue;
+    // Skip a sound whose file is not actually present, so a region with a missing
+    // first variation still falls through to one that plays instead of going mute.
+    if (audio_ && !audio_->HasAsset(path)) continue;
+    return path;
   }
   return {};
 }
