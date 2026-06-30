@@ -162,6 +162,17 @@ class Engine {
   // frame.
   void RequestQuit() { quit_.store(true, std::memory_order_relaxed); }
 
+  // Global debug toggles set by Debug.* console natives (tgm/tcl/tai/tm, foot IK).
+  // Tracked here so the state persists and any system can honour it.
+  struct DebugFlags {
+    bool god_mode = false;
+    bool ai_disabled = false;
+    bool collisions_disabled = false;
+    bool menus_hidden = false;
+    bool foot_ik = true;
+  };
+  const DebugFlags& debug_flags() const { return debug_flags_; }
+
 #if RECREATION_HAS_NET
   // Requests a live reload of the streamed mods (rebuild the catalog, re-offer to
   // joining clients, re-mount on the host). Safe from a signal handler; applied on
@@ -456,6 +467,13 @@ class Engine {
   // drained to the HUD toast on the main loop.
   std::mutex notification_mutex_;
   std::vector<std::string> pending_notifications_;
+  // Debug.* engine commands (quit, screenshot, toggles) pushed from the guest
+  // thread and applied on the main loop via ApplyDebugCommand.
+  std::mutex debug_cmd_mutex_;
+  std::vector<std::pair<std::string, std::string>> pending_debug_cmds_;
+  DebugFlags debug_flags_;
+  int screenshot_index_ = 0;
+  void ApplyDebugCommand(const std::string& verb, const std::string& arg);
   // Multiplayer platform HUD/Net calls (chat, notifications, prompts, scoreboard,
   // blips) pushed from the guest thread, drained onto the HUD on the main loop.
   PlatformHud platform_hud_;

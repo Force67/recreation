@@ -27,26 +27,18 @@ void RegisterDebugExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Debug", "DumpAliasData", cmd);
   reg.Register("Debug", "OpenUserLog", cmd);
   reg.Register("Debug", "PlayerMoveToAndWait", cmd);
-  reg.Register("Debug", "QuitGame", cmd);
   reg.Register("Debug", "SendAnimationEvent", cmd);
-  reg.Register("Debug", "SetFootIK", cmd);
   reg.Register("Debug", "ShowRefPosition", cmd);
   reg.Register("Debug", "StartScriptProfiling", cmd);
   reg.Register("Debug", "StartStackProfiling", cmd);
   reg.Register("Debug", "StopScriptProfiling", cmd);
   reg.Register("Debug", "StopStackProfiling", cmd);
-  reg.Register("Debug", "TakeScreenshot", cmd);
-  reg.Register("Debug", "ToggleAI", cmd);
-  reg.Register("Debug", "ToggleCollisions", cmd);
-  reg.Register("Debug", "ToggleMenus", cmd);
 
   reg.Register("Debug", "GetConfigName",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Str(""); });
-  // No getter pairs with SetGodMode, but store it so the toggle round-trips.
-  reg.Register("Debug", "SetGodMode", [](VirtualMachine&, ObjectRef, Args& a) {
-    st::SetFlag(ObjectRef{1}, "godMode", ArgB(a, 0, false));
-    return Value();
-  });
+  // QuitGame, TakeScreenshot, the global dev toggles (ToggleAI/Collisions/Menus,
+  // SetGodMode, SetFootIK) reach the engine and live in papyrus_guest.cc, which
+  // owns the runtime command hook. Registering them here would shadow that.
 }
 
 }  // namespace rec::script::skyrim

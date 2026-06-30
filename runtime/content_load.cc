@@ -274,6 +274,10 @@ bool LoadGameData(Engine& engine) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
       });
+      guest->set_on_debug_command([self](const std::string& verb, const std::string& arg) {
+        std::lock_guard<std::mutex> lock(self->debug_cmd_mutex_);
+        self->pending_debug_cmds_.emplace_back(verb, arg);
+      });
       guest->set_on_platform_hud(
           [self](const std::string& type, const std::string& func,
                  const std::vector<rec::script::papyrus::Value>& args) {
@@ -593,6 +597,10 @@ void LoadExtraDomains(Engine& engine) {
       guest->set_on_notification([self](const std::string& message) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
+      });
+      guest->set_on_debug_command([self](const std::string& verb, const std::string& arg) {
+        std::lock_guard<std::mutex> lock(self->debug_cmd_mutex_);
+        self->pending_debug_cmds_.emplace_back(verb, arg);
       });
       guest->set_on_platform_hud(
           [self](const std::string& type, const std::string& func,

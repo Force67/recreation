@@ -74,6 +74,14 @@ class PapyrusGuest {
     on_notification_ = std::move(fn);
   }
 
+  // Where engine-reaching Debug.* commands go (quit, screenshot, the global dev
+  // toggles): a verb plus a string argument. The runtime marshals these onto the
+  // main loop and performs the real action. Without a handler they are inert. Set
+  // on the guest thread; read by the natives, also on the guest thread.
+  void set_on_debug_command(std::function<void(const std::string&, const std::string&)> fn) {
+    on_debug_command_ = std::move(fn);
+  }
+
   // Where the multiplayer platform's Hud.* / Net.* calls go (the runtime's
   // PlatformHud, drained onto the on-screen HUD). Game-agnostic: these natives are
   // bound for every guest, so a server's UI works in any universe. Without a
@@ -123,6 +131,10 @@ class PapyrusGuest {
   // Set once on the guest thread (see set_on_notification); read by the
   // Debug.Notification native, also on the guest thread.
   std::function<void(const std::string&)> on_notification_;
+
+  // Set once on the guest thread (see set_on_debug_command); read by the Debug.*
+  // engine-command natives, also on the guest thread.
+  std::function<void(const std::string&, const std::string&)> on_debug_command_;
 
   // Set once on the guest thread (see set_on_platform_hud); read by the platform
   // HUD/Net natives, also on the guest thread.

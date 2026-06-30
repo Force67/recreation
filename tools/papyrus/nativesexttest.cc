@@ -12,6 +12,7 @@
 #include "script/papyrus/native.h"
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
+#include "script/papyrus_guest.h"
 
 namespace {
 
@@ -193,6 +194,29 @@ int main() {
         bindings.following && bindings.follow_actor.handle == follower.handle);
   callOn(follower, "Actor", "ClearKeepOffsetFromActor", {});
   check("ClearKeepOffsetFromActor stops following", !bindings.following);
+
+  // Debug.* engine commands route through the guest's command hook with a verb and
+  // a string argument. The guest binds these in its constructor.
+  {
+    rec::script::PapyrusGuest guest(rec::bethesda::Game::kSkyrimSe);
+    std::vector<std::pair<std::string, std::string>> cmds;
+    guest.set_on_debug_command(
+        [&](const std::string& verb, const std::string& arg) { cmds.emplace_back(verb, arg); });
+    VirtualMachine gvm(&guest.natives());
+    auto dbg = [&](const char* fn, std::vector<Value> a) {
+      const NativeFunction* f = guest.natives().Find("Debug", fn);
+      if (f) (*f)(gvm, ObjectRef{0x14}, a);
+    };
+    dbg("QuitGame", {});
+    dbg("TakeScreenshot", {});
+    dbg("ToggleMenus", {});
+    dbg("SetGodMode", {Value::Bool(true)});
+    check("QuitGame routes as a command", !cmds.empty() && cmds[0].first == "QuitGame");
+    check("TakeScreenshot routes as a command", cmds.size() > 1 && cmds[1].first == "TakeScreenshot");
+    check("ToggleMenus routes as a command", cmds.size() > 2 && cmds[2].first == "ToggleMenus");
+    check("SetGodMode forwards its bool argument",
+          cmds.size() > 3 && cmds[3].first == "SetGodMode" && cmds[3].second == "1");
+  }
 
   std::printf("%s (%d failures)\n", failures ? "NATIVESEXTTEST FAILED" : "NATIVESEXTTEST PASSED",
               failures);

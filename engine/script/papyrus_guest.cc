@@ -144,17 +144,51 @@ void PapyrusGuest::BindEngineNatives() {
     return Value();
   };
   natives_.Register("Debug", "Trace", trace);
-  natives_.Register("Debug", "TraceUser", trace);
-  natives_.Register("Debug", "MessageBox", trace);
-  // Notification reaches the HUD toast when the runtime wires a handler, and the
-  // trace log either way for diagnostics.
-  natives_.Register("Debug", "Notification",
-                    [this](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-                      const std::string message = args.empty() ? "" : args[0].ToString();
-                      REC_INFO("[papyrus] notification: {}", message);
-                      if (on_notification_) on_notification_(message);
+  // TraceUser writes to a named user log (arg 1); keep the channel in the line.
+  natives_.Register("Debug", "TraceUser",
+                    [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                      const std::string log = args.size() > 1 ? args[1].ToString() : "user";
+                      REC_INFO("[papyrus:{}] {}", log, args.empty() ? "" : args[0].ToString());
                       return Value();
                     });
+  // A message box and a notification both surface on the HUD when the runtime
+  // wires a handler, and the trace log either way for diagnostics.
+  auto surface = [this](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+    const std::string message = args.empty() ? "" : args[0].ToString();
+    REC_INFO("[papyrus] notification: {}", message);
+    if (on_notification_) on_notification_(message);
+    return Value();
+  };
+  natives_.Register("Debug", "MessageBox", surface);
+  natives_.Register("Debug", "Notification", surface);
+
+  // Engine-reaching Debug commands: quit, screenshot, and the global dev toggles.
+  // Each forwards a verb to the runtime, which applies the real action on the main
+  // loop. Registered here because Debug is shared across every game's guest.
+  auto cmd = [this](const char* verb) {
+    std::string v = verb;
+    natives_.Register("Debug", v.c_str(),
+                      [this, v](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+                        if (on_debug_command_) on_debug_command_(v, "");
+                        return Value();
+                      });
+  };
+  cmd("QuitGame");
+  cmd("TakeScreenshot");
+  cmd("ToggleCollisions");
+  cmd("ToggleAI");
+  cmd("ToggleMenus");
+  auto flag_cmd = [this](const char* verb) {
+    std::string v = verb;
+    natives_.Register("Debug", v.c_str(),
+                      [this, v](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                        const bool on = args.empty() ? false : args[0].ToBool();
+                        if (on_debug_command_) on_debug_command_(v, on ? "1" : "0");
+                        return Value();
+                      });
+  };
+  flag_cmd("SetGodMode");
+  flag_cmd("SetFootIK");
 
   // Multiplayer platform HUD/Net surface. The C# platform (chat, notifications,
   // prompts, scoreboard, blips, server browser) reaches the engine through these

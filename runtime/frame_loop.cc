@@ -42,6 +42,25 @@ static base::Option<float> Lightning{"lightning", 0.0f, "REC_LIGHTNING"};
 static base::Option<const char*> UiShot{"ui.shot", nullptr, "REC_UI_SHOT"};
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "REC_UI_SHOT_FRAMES"};
 
+void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) {
+  if (verb == "QuitGame") {
+    RequestQuit();
+  } else if (verb == "TakeScreenshot") {
+    renderer_.CaptureScreenshot("Screenshot" + std::to_string(screenshot_index_++) + ".png");
+  } else if (verb == "ToggleCollisions") {
+    debug_flags_.collisions_disabled = !debug_flags_.collisions_disabled;
+  } else if (verb == "ToggleAI") {
+    debug_flags_.ai_disabled = !debug_flags_.ai_disabled;
+  } else if (verb == "ToggleMenus") {
+    debug_flags_.menus_hidden = !debug_flags_.menus_hidden;
+  } else if (verb == "SetGodMode") {
+    debug_flags_.god_mode = arg == "1";
+  } else if (verb == "SetFootIK") {
+    debug_flags_.foot_ik = arg == "1";
+  }
+  REC_INFO("[debug] {} {}", verb, arg);
+}
+
 void Engine::ApplyQuestWorld() {
   std::vector<world::WorldCommand> commands = quest_world_queue_.Drain();
   if (commands.empty()) return;
@@ -374,6 +393,15 @@ bool Engine::RunFrame() {
           notifications.swap(pending_notifications_);
         }
         for (const std::string& message : notifications) game_ui_.FlashQuestUpdate(message);
+      }
+      // Drain Debug.* engine commands (quit, screenshot, dev toggles).
+      {
+        std::vector<std::pair<std::string, std::string>> cmds;
+        {
+          std::lock_guard<std::mutex> lock(debug_cmd_mutex_);
+          cmds.swap(pending_debug_cmds_);
+        }
+        for (const auto& [verb, arg] : cmds) ApplyDebugCommand(verb, arg);
       }
       // Drain the multiplayer platform HUD: notices flash on the toast, chat
       // accumulates into the chat box (kept to a bounded tail), and a Net.Connect
