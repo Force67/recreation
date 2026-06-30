@@ -4,6 +4,18 @@ All notable changes to Recreation are documented here. The main menu's NEWS rail
 shows the most recent entries (the first bullet of each release is its headline).
 
 ## [Unreleased]
+### Added
+- More of the Skyrim native surface the base-game scripts call. This batch
+  covers the natives that compute a real value from data the engine already has:
+  Game.GetSunPosition X/Y/Z from the game clock, Game.GetGameSettingInt, the
+  Utility.GameTimeToString clock formatter, the Utility frame-rate getters, and
+  Actor.GetActorValueMax plus the ObjectReference container queries
+  (IsContainerEmpty, GetAllItemsCount, RemoveAllItems) composed from the existing
+  inventory bindings. New batches live in their own `skyrim_natives_*.cc` files
+  and are covered by `nativesexttest`. `tools/papyrus/nativescan` reports the
+  coverage, now 169 of 686 declared natives; the remainder drive engine systems
+  (animation, movement, combat, equipment) that are still to come.
+
 ### Experimental
 - Papyrus to C# decompiler (`tools/papyrus/pex2cs`). It pulls a shipped quest
   script out of the game archives and recompiles its bytecode into recreation-SDK

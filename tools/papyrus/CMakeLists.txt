@@ -31,6 +31,10 @@ add_executable(bindingstest bindingstest.cc)
 target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda recreation::asset)
 recreation_set_warnings(bindingstest)
 
+add_executable(nativesexttest nativesexttest.cc)
+target_link_libraries(nativesexttest PRIVATE recreation::script)
+recreation_set_warnings(nativesexttest)
+
 add_executable(proximitytest proximitytest.cc)
 target_link_libraries(proximitytest PRIVATE recreation::script)
 recreation_set_warnings(proximitytest)
@@ -258,6 +262,7 @@ recreation_set_warnings(pexfuzz)
 # one-command gate. The corpus checks (pexsoak/pexfuzz/nativescan) take the
 # Skyrim data dir and run separately.
 add_test(NAME transpiletest COMMAND transpiletest)
+add_test(NAME nativesexttest COMMAND nativesexttest)
 add_test(NAME papyrus_selftest COMMAND pexrun selftest)
 add_test(NAME papyrus_skyrimtest COMMAND pexrun skyrimtest)
 add_test(NAME papyrus_guesttest COMMAND pexrun guesttest)

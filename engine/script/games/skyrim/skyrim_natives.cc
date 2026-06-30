@@ -4,6 +4,8 @@
 #include <numbers>
 #include <vector>
 
+#include "script/games/skyrim/skyrim_natives_ext.h"
+
 #include "core/log.h"
 #include "script/papyrus/alias_handle.h"
 
@@ -851,6 +853,9 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterFaction(reg, bindings);
   RegisterCell(reg, bindings);
   RegisterGlobalVariable(reg, bindings);
+  RegisterGameEnvironment(reg, bindings);
+  RegisterUtilityExtra(reg, bindings);
+  RegisterActorRefGetters(reg, bindings);
 }
 
 }  // namespace rec::script::skyrim
