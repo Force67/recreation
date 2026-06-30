@@ -509,6 +509,19 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
                  Resolve(bindings).ForceAliasLocation(self, ArgO(a, 0));
                  return Value();
                });
+  // Keyword data on a Location/ObjectReference (the Civil War campaign stores per
+  // hold ownership/threat counts this way).
+  auto get_kwd = [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Float(Resolve(bindings).GetKeywordData(self, ArgO(a, 0)));
+  };
+  auto set_kwd = [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).SetKeywordData(self, ArgO(a, 0), ArgF(a, 1));
+    return Value();
+  };
+  for (const char* type : {"Location", "ObjectReference"}) {
+    reg.Register(type, "GetKeywordData", get_kwd);
+    reg.Register(type, "SetKeywordData", set_kwd);
+  }
   // Lock(abLock=true,...): Lock(false) is the in-game way to unlock.
   reg.Register("ObjectReference", "Lock", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetLocked(self, ArgB(a, 0, true));

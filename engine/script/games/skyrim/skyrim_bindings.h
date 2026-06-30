@@ -296,6 +296,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   int FillFindMatchingAliases(papyrus::ObjectRef quest, papyrus::ObjectRef location) override;
   papyrus::ObjectRef GetAliasLocation(papyrus::ObjectRef alias) override;
   void ForceAliasLocation(papyrus::ObjectRef alias, papyrus::ObjectRef location) override;
+  f32 GetKeywordData(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
+  void SetKeywordData(papyrus::ObjectRef form, papyrus::ObjectRef keyword, f32 value) override;
   papyrus::ObjectRef GetCombatTarget(papyrus::ObjectRef actor) override;
   void StartCombat(papyrus::ObjectRef actor, papyrus::ObjectRef target) override;
   void StopCombat(papyrus::ObjectRef actor) override;
@@ -494,6 +496,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::unordered_map<u64, f32> global_values_;  // GlobalVariable overrides
   std::map<std::pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
   std::unordered_map<u64, u64> location_fills_;  // location-alias handle -> location handle
+  std::map<std::pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
   // The day/night clock and the packed handles of the globals that proxy it.
   // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).
   WorldClock* clock_ = nullptr;

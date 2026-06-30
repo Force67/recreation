@@ -149,6 +149,15 @@ void RecordBackedSkyrimBindings::ForceAliasLocation(ObjectRef alias, ObjectRef l
     location_fills_[alias.handle] = location.handle;
 }
 
+f32 RecordBackedSkyrimBindings::GetKeywordData(ObjectRef form, ObjectRef keyword) {
+  auto it = keyword_data_.find({form.handle, keyword.handle});
+  return it == keyword_data_.end() ? 0.0f : it->second;
+}
+
+void RecordBackedSkyrimBindings::SetKeywordData(ObjectRef form, ObjectRef keyword, f32 value) {
+  if (!replica_mode_) keyword_data_[{form.handle, keyword.handle}] = value;
+}
+
 int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectRef location) {
   if (!records_ || replica_mode_) return 0;
   const quest::QuestDef* def = quest_system_.Definition(quest.handle);

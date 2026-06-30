@@ -178,6 +178,12 @@ class SkyrimBindings {
   // being attacked, which scopes its find-matching reference aliases.
   virtual papyrus::ObjectRef GetAliasLocation(papyrus::ObjectRef alias) { return {}; }
   virtual void ForceAliasLocation(papyrus::ObjectRef alias, papyrus::ObjectRef location) {}
+  // Keyword data: a float associated with a keyword on a form. The Civil War
+  // campaign stores each hold's owning faction as keyword data on its Location
+  // (CWScript.GetOwner reads Location.GetKeywordData(CWOwner)), which gates the
+  // siege's attacker/defender classification.
+  virtual f32 GetKeywordData(papyrus::ObjectRef form, papyrus::ObjectRef keyword) { return 0; }
+  virtual void SetKeywordData(papyrus::ObjectRef form, papyrus::ObjectRef keyword, f32 value) {}
 
   // Cell data (CELL record).
   virtual bool IsInterior(papyrus::ObjectRef cell) { return false; }
