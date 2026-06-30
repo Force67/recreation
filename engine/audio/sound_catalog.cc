@@ -31,6 +31,13 @@ std::string NormalizeSoundPath(std::string_view raw) {
     out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
   }
   if (out.empty()) return out;
+  // Some references carry a leading separator ("\data\sound\..."), so trim any
+  // leading slashes before the data/ + sound/ rooting below, or they would slip
+  // past both checks and produce "sound//data/sound/...".
+  if (const size_t lead = out.find_first_not_of('/'); lead == std::string::npos)
+    return {};
+  else if (lead > 0)
+    out.erase(0, lead);
   if (out.rfind("data/", 0) == 0) out.erase(0, 5);
   if (out.rfind("sound/", 0) != 0) out = "sound/" + out;
   return out;
