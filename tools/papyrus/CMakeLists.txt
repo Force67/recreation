@@ -35,6 +35,11 @@ add_executable(nativesexttest nativesexttest.cc)
 target_link_libraries(nativesexttest PRIVATE recreation::script)
 recreation_set_warnings(nativesexttest)
 
+add_executable(fibertest fibertest.cc)
+target_link_libraries(fibertest PRIVATE recreation::script)
+recreation_set_warnings(fibertest)
+add_test(NAME fibertest COMMAND fibertest)
+
 add_executable(proximitytest proximitytest.cc)
 target_link_libraries(proximitytest PRIVATE recreation::script)
 recreation_set_warnings(proximitytest)

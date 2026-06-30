@@ -96,6 +96,13 @@ class VirtualMachine : public VmInterface {
   // them, without log spam.
   bool TryCall(ObjectRef self, const std::string& method, std::vector<Value> args);
 
+  // Suspends the script activation currently running, which must be on a Fiber:
+  // the whole interpreter call chain freezes and control returns to whoever
+  // resumed the fiber. The activation continues from here when the fiber is
+  // resumed again. Returns false (a no-op) if not running on a fiber. This is the
+  // hook latent natives (Utility.Wait) use to yield without unwinding.
+  bool SuspendCurrent();
+
   // Debug-only: the member-variable names currently held by an instance, used
   // to inspect live script state when bringing up a quest's fragments.
   std::vector<std::string> MemberNames(ObjectRef self);

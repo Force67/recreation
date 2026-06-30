@@ -1,5 +1,7 @@
 #include "script/papyrus/vm.h"
 
+#include "script/papyrus/fiber.h"
+
 #include <algorithm>
 #include <cctype>
 
@@ -207,6 +209,8 @@ Value VirtualMachine::Invoke(const Resolved& target, ObjectRef self, std::vector
   call_stack_.pop_back();
   return result;
 }
+
+bool VirtualMachine::SuspendCurrent() { return Fiber::YieldCurrent(); }
 
 Value VirtualMachine::Call(ObjectRef self, const std::string& method, std::vector<Value> args) {
   Instance* inst = FindInstance(self);
