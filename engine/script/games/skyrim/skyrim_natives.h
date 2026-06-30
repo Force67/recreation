@@ -216,6 +216,13 @@ class SkyrimBindings {
   // the inventory is unchanged, so a listing loop must not add or remove items.
   virtual i32 GetNumItems(papyrus::ObjectRef container) { return 0; }
   virtual papyrus::ObjectRef GetNthForm(papyrus::ObjectRef container, i32 index) { return {}; }
+
+  // A placed reference's linked ref (XLKR), optionally filtered by keyword, and the
+  // interior cell that contains it. Both read the REFR record; None when absent.
+  virtual papyrus::ObjectRef GetLinkedRef(papyrus::ObjectRef ref, papyrus::ObjectRef keyword) {
+    return {};
+  }
+  virtual papyrus::ObjectRef GetParentCell(papyrus::ObjectRef ref) { return {}; }
   virtual void Activate(papyrus::ObjectRef target, papyrus::ObjectRef activator) {}
   virtual void Delete(papyrus::ObjectRef ref) {}
   virtual papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where, papyrus::ObjectRef base,

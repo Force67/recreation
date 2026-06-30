@@ -66,6 +66,14 @@ class MockBindings : public SkyrimBindings {
     return index >= 0 && index < static_cast<i32>(list_forms.size()) ? list_forms[index]
                                                                      : ObjectRef{};
   }
+  ObjectRef linked_ref;
+  ObjectRef linked_keyword;
+  ObjectRef parent_cell;
+  ObjectRef GetLinkedRef(ObjectRef, ObjectRef keyword) override {
+    linked_keyword = keyword;
+    return linked_ref;
+  }
+  ObjectRef GetParentCell(ObjectRef) override { return parent_cell; }
   i32 GetNumItems(ObjectRef) override { return static_cast<i32>(inventory.size()); }
   ObjectRef GetNthForm(ObjectRef, i32 index) override {
     return index >= 0 && index < static_cast<i32>(inventory.size()) ? inventory[index].first
@@ -194,6 +202,17 @@ int main() {
         bindings.following && bindings.follow_actor.handle == follower.handle);
   callOn(follower, "Actor", "ClearKeepOffsetFromActor", {});
   check("ClearKeepOffsetFromActor stops following", !bindings.following);
+
+  // Linked ref and parent cell route through the binding, forwarding the keyword.
+  ObjectRef door{0x900}, lever{0x901}, hall{0x902}, openKw{0x903};
+  bindings.linked_ref = door;
+  bindings.parent_cell = hall;
+  check("GetLinkedRef returns the binding's linked ref",
+        callOn(lever, "ObjectReference", "GetLinkedRef", {Value::Object(openKw)}).as_object().handle ==
+            door.handle);
+  check("GetLinkedRef forwards the keyword", bindings.linked_keyword.handle == openKw.handle);
+  check("GetParentCell returns the binding's cell",
+        callOn(door, "ObjectReference", "GetParentCell", {}).as_object().handle == hall.handle);
 
   // Debug.* engine commands route through the guest's command hook with a verb and
   // a string argument. The guest binds these in its constructor.

@@ -110,6 +110,40 @@ u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) {
   return static_cast<u32>(form.handle);
 }
 
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, ObjectRef keyword) {
+  if (!records_ || ref.handle == 0) return {};
+  bethesda::GlobalFormId id = ToFormId(ref);
+  bethesda::Record rec;
+  if (!records_->Parse(id, &rec)) return {};
+  // XLKR is an optional keyword form id (4 bytes) followed by the linked ref form
+  // id (4); older entries carry only the ref. Match the keyword when one is asked.
+  for (const bethesda::Subrecord& sub : rec.subrecords) {
+    if (sub.type != FourCc('X', 'L', 'K', 'R')) continue;
+    u32 kw = 0, target = 0;
+    if (sub.data.size() >= 8) {
+      std::memcpy(&kw, sub.data.data(), 4);
+      std::memcpy(&target, sub.data.data() + 4, 4);
+    } else if (sub.data.size() >= 4) {
+      std::memcpy(&target, sub.data.data(), 4);
+    } else {
+      continue;
+    }
+    if (keyword.handle != 0) {
+      bethesda::GlobalFormId kw_id = records_->ResolveFrom(bethesda::RawFormId{kw}, id.plugin);
+      if (kw_id.packed() != keyword.handle) continue;
+    }
+    bethesda::GlobalFormId tgt = records_->ResolveFrom(bethesda::RawFormId{target}, id.plugin);
+    return tgt.packed() ? papyrus::ObjectRef{tgt.packed()} : papyrus::ObjectRef{};
+  }
+  return {};
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetParentCell(ObjectRef ref) {
+  if (!records_ || ref.handle == 0) return {};
+  bethesda::GlobalFormId cell = records_->InteriorCellOfRef(ToFormId(ref));
+  return cell.packed() ? papyrus::ObjectRef{cell.packed()} : papyrus::ObjectRef{};
+}
+
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetForm(u32 form_id) {
   if (!records_) return {};
   // Runtime form id: high byte is the load-order index, low 24 bits the local

@@ -37,13 +37,21 @@ void RegisterObjectRefExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindin
   reg.Register("ObjectReference", "PlaceActorAtMe",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Object(ObjectRef{}); });
 
-  // Cell/location/world/linked-ref getters with no data source yet resolve to
-  // None; these (and the fixed-value queries below) await their subsystems.
+  // Cell/location/world getters with no data source yet resolve to None; these
+  // (and the fixed-value queries below) await their subsystems.
   auto none_query = [](VirtualMachine&, ObjectRef, Args&) { return Value::Object(ObjectRef{}); };
   for (const char* fn : {"GetCurrentLocation", "GetCurrentScene", "GetEditorLocation", "GetKey",
-                         "GetLinkedRef", "GetNthLinkedRef", "GetParentCell", "GetVoiceType",
-                         "GetWorldSpace"})
+                         "GetNthLinkedRef", "GetVoiceType", "GetWorldSpace"})
     reg.Register("ObjectReference", fn, none_query);
+
+  // Linked ref and parent cell read the placed REFR record. GetLinkedRef takes an
+  // optional keyword to pick among several links.
+  reg.Register("ObjectReference", "GetLinkedRef", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Object(Resolve(bindings).GetLinkedRef(self, ArgO(a, 0)));
+  });
+  reg.Register("ObjectReference", "GetParentCell", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).GetParentCell(self));
+  });
 
   // Boolean queries with no backing state: the neutral false keeps script
   // branches that test them behaving.

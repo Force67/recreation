@@ -334,6 +334,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void RemoveItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) override;
   i32 GetNumItems(papyrus::ObjectRef container) override;
   papyrus::ObjectRef GetNthForm(papyrus::ObjectRef container, i32 index) override;
+  papyrus::ObjectRef GetLinkedRef(papyrus::ObjectRef ref, papyrus::ObjectRef keyword) override;
+  papyrus::ObjectRef GetParentCell(papyrus::ObjectRef ref) override;
 
   // Quests (new system): stage, running state, objectives.
   i32 GetStage(papyrus::ObjectRef quest) override;
