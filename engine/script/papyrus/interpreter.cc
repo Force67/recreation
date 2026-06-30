@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "core/log.h"
+#include "script/papyrus/fiber.h"
 
 namespace rec::script::papyrus {
 namespace {
@@ -307,7 +308,11 @@ Value Frame::Run() {
       case Op::kCallStatic: {
         const std::string object = OperandName(a[0]);
         const std::string method = OperandName(a[1]);
-        if (IsLatentWait(object, method) && ++latent_waits > kMaxLatentWaits) {
+        // On a fiber a latent Wait truly suspends and the loop makes real progress
+        // between resumes, so it needs no guard. Off a fiber the wait returns at
+        // once, so a poll loop would spin: keep bailing that case after a few spins.
+        if (IsLatentWait(object, method) && !Fiber::current() &&
+            ++latent_waits > kMaxLatentWaits) {
           REC_WARN("papyrus: {}.{} bailed a latent {}.{}() wait loop after {} waits",
                    pex_.Str(object_.name), fn_name_.empty() ? "?" : fn_name_, object, method,
                    kMaxLatentWaits);

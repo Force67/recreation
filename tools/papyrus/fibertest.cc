@@ -5,15 +5,23 @@
 
 #include <cstdio>
 
+#include <vector>
+
+#include "script/games/skyrim/skyrim_natives.h"
 #include "script/papyrus/fiber.h"
 #include "script/papyrus/fiber_scheduler.h"
 #include "script/papyrus/native.h"
+#include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
 
 using rec::script::papyrus::Fiber;
 using rec::script::papyrus::FiberScheduler;
+using rec::script::papyrus::NativeFunction;
 using rec::script::papyrus::NativeRegistry;
+using rec::script::papyrus::ObjectRef;
+using rec::script::papyrus::Value;
 using rec::script::papyrus::VirtualMachine;
+using rec::script::skyrim::SkyrimBindings;
 
 int main() {
   int failures = 0;
@@ -156,6 +164,54 @@ int main() {
     bool ran = false;
     bool parked = sched.Run([&] { ran = true; }, 0.0, 0.0);
     check("non-waiting activation completes immediately", ran && !parked && sched.parked() == 0);
+  }
+
+  // 9. The real Utility.Wait native (registered through RegisterSkyrimNatives)
+  //    suspends the activation and resumes it after its real-time delay.
+  {
+    SkyrimBindings binds;
+    NativeRegistry reg;
+    rec::script::skyrim::RegisterSkyrimNatives(reg, &binds);
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    const NativeFunction* wait = reg.Find("Utility", "Wait");
+    int step = 0;
+    sched.Run(
+        [&] {
+          step = 1;
+          std::vector<Value> args = {Value::Float(2.0f)};  // Utility.Wait(2.0)
+          (*wait)(vm, ObjectRef{}, args);
+          step = 2;
+        },
+        /*real_now=*/0.0, /*game_now=*/0.0);
+    check("real Utility.Wait parks the activation", step == 1 && sched.parked() == 1);
+    sched.Advance(1.0, 0.0);
+    check("Utility.Wait stays parked mid-delay", step == 1);
+    sched.Advance(2.5, 0.0);
+    check("Utility.Wait resumes after its delay", step == 2 && sched.parked() == 0);
+  }
+
+  // 10. Utility.WaitGameTime resumes off game days (its argument is game hours).
+  {
+    SkyrimBindings binds;
+    NativeRegistry reg;
+    rec::script::skyrim::RegisterSkyrimNatives(reg, &binds);
+    VirtualMachine vm(&reg);
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    const NativeFunction* wait_gt = reg.Find("Utility", "WaitGameTime");
+    bool done = false;
+    sched.Run(
+        [&] {
+          std::vector<Value> args = {Value::Float(12.0f)};  // 12 game hours = 0.5 days
+          (*wait_gt)(vm, ObjectRef{}, args);
+          done = true;
+        },
+        /*real_now=*/0.0, /*game_now=*/100.0);
+    check("WaitGameTime parks", !done && sched.parked() == 1);
+    sched.Advance(1e9, 100.4);  // 0.4 game days < 0.5
+    check("WaitGameTime ignores real time and waits the game delay", !done);
+    sched.Advance(1e9, 100.5);  // 0.5 game days reached
+    check("WaitGameTime resumes at its game deadline", done && sched.parked() == 0);
   }
 
   std::printf("%s (%d failures)\n", failures ? "FIBERTEST FAILED" : "FIBERTEST PASSED", failures);

@@ -8,6 +8,7 @@
 
 #include "core/log.h"
 #include "script/papyrus/alias_handle.h"
+#include "script/papyrus/vm.h"
 
 namespace rec::script::skyrim {
 namespace {
@@ -190,12 +191,21 @@ void RegisterUtility(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Utility", "GetCurrentRealTime", [bindings](VirtualMachine&, ObjectRef, Args&) {
     return Value::Float(Resolve(bindings).GetRealHoursPassed() * 3600.0f);
   });
-  // Suspension is not modeled yet: Wait variants return immediately. Scripts
-  // keep running; only their pacing differs.
-  auto wait = [](VirtualMachine&, ObjectRef, Args&) { return Value(); };
-  reg.Register("Utility", "Wait", wait);
-  reg.Register("Utility", "WaitMenuMode", wait);
-  reg.Register("Utility", "WaitGameTime", wait);
+  // Latent waits suspend the calling activation on its fiber and resume it once the
+  // delay elapses (see VirtualMachine::SuspendCurrentFor). Wait and WaitMenuMode
+  // count real seconds; WaitGameTime counts in-game hours. Off a fiber (a path the
+  // scheduler does not drive) SuspendCurrentFor is a no-op and the call returns at
+  // once, as before.
+  auto wait_real = [](VirtualMachine& vm, ObjectRef, Args& a) {
+    vm.SuspendCurrentFor(ArgF(a, 0), -1.0);
+    return Value();
+  };
+  reg.Register("Utility", "Wait", wait_real);
+  reg.Register("Utility", "WaitMenuMode", wait_real);
+  reg.Register("Utility", "WaitGameTime", [](VirtualMachine& vm, ObjectRef, Args& a) {
+    vm.SuspendCurrentFor(-1.0, ArgF(a, 0) / 24.0);  // game hours -> game days
+    return Value();
+  });
   reg.Register("Utility", "GetCurrentGameTime", [bindings](VirtualMachine&, ObjectRef, Args&) {
     return Value::Float(Resolve(bindings).GetCurrentGameTime());
   });
