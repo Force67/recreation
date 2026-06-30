@@ -222,6 +222,19 @@ int main() {
   check("GetParentCell returns the binding's cell",
         callOn(door, "ObjectReference", "GetParentCell", {}).as_object().handle == hall.handle);
 
+  // Words of power: unlocked state round-trips through TeachWord/UnlockWord, keyed
+  // per word, and IsWordUnlocked reads only the unlocked flag (not the taught one).
+  ObjectRef shoutWord{0x710}, taughtOnly{0x711};
+  check("word starts locked", !call("Game", "IsWordUnlocked", {Value::Object(shoutWord)}).ToBool());
+  call("Game", "TeachWord", {Value::Object(taughtOnly)});
+  check("teaching a word does not unlock it",
+        !call("Game", "IsWordUnlocked", {Value::Object(taughtOnly)}).ToBool());
+  call("Game", "UnlockWord", {Value::Object(shoutWord)});
+  check("unlocking a word sets it unlocked",
+        call("Game", "IsWordUnlocked", {Value::Object(shoutWord)}).ToBool());
+  check("unlock is per word",
+        !call("Game", "IsWordUnlocked", {Value::Object(taughtOnly)}).ToBool());
+
   // Actor.HasLOS routes to the binding, forwarding the target.
   ObjectRef guard{0xA00}, intruder{0xA01};
   bindings.has_los = true;

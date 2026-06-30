@@ -51,8 +51,9 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Str(""); });
   reg.Register("Game", "CalculateFavorCost",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
-  reg.Register("Game", "IsWordUnlocked",
-               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
+  reg.Register("Game", "IsWordUnlocked", [](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Bool(st::GetFlag(ArgO(a, 0), "wordUnlocked", false));
+  });
   reg.Register("Game", "IsPlayerSungazing",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 
@@ -104,8 +105,16 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Game", "RemoveHavokConstraints", cmd);
   reg.Register("Game", "SetSittingRotation", cmd);
   reg.Register("Game", "SetSunGazeImageSpaceModifier", cmd);
-  reg.Register("Game", "TeachWord", cmd);
-  reg.Register("Game", "UnlockWord", cmd);
+  // A word of power is first taught (it appears in the shout list) and later
+  // unlocked (usable). IsWordUnlocked reads the unlocked flag, so track both.
+  reg.Register("Game", "TeachWord", [](VirtualMachine&, ObjectRef, Args& a) {
+    st::SetFlag(ArgO(a, 0), "wordTaught", true);
+    return Value();
+  });
+  reg.Register("Game", "UnlockWord", [](VirtualMachine&, ObjectRef, Args& a) {
+    st::SetFlag(ArgO(a, 0), "wordUnlocked", true);
+    return Value();
+  });
 }
 
 }  // namespace rec::script::skyrim
