@@ -97,6 +97,12 @@ class PapyrusGuest {
   // Supplies the local player's world position (engine space) to the Net.LocalPos*
   // natives, so a mod can place blips and objects relative to the player. Set by
   // the runtime; read on the guest thread.
+  // Runs one script activation on a fiber, so a latent native (Utility.Wait) can
+  // suspend it; it parks until its wait elapses. Call on the guest thread. Used by
+  // the firing sites here and by the bindings' fiber runner (engine-triggered
+  // stage fragments).
+  void RunScript(std::function<void()> body);
+
   void set_local_pos_provider(std::function<std::array<f32, 3>()> fn) {
     local_pos_provider_ = std::move(fn);
   }
@@ -144,10 +150,6 @@ class PapyrusGuest {
   void RemoveLosWatch(papyrus::ObjectRef registrant, papyrus::ObjectRef viewer,
                       papyrus::ObjectRef target);
   void AdvanceLosWatches();  // guest thread only
-  // Runs one script activation on a fiber, so a latent native (Utility.Wait) can
-  // suspend it; it parks until its wait elapses. The current game time backs
-  // game-time waits.
-  void RunScript(std::function<void()> body);
   f64 GameNow() const { return game_time_provider_ ? game_time_provider_() : 0.0; }
 
   bethesda::Game game_;

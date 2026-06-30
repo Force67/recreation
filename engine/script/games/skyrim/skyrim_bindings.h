@@ -76,6 +76,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Set by the runtime; when null, those bindings only update logical state.
   void set_world_sink(WorldEffectSink* sink) { world_sink_ = sink; }
 
+  // Routes an engine-triggered stage fragment onto a fiber so a latent Wait inside
+  // it suspends instead of returning at once. Set by the runtime to the guest's
+  // RunScript; called only on the guest thread. Unset leaves fragments inline.
+  void set_fiber_runner(std::function<void(std::function<void()>)> run) {
+    fiber_runner_ = std::move(run);
+  }
+
   // Sink for gameplay events the managed (C#) world subscribes to (actor death,
   // item added, quest stage). Set by the runtime once the managed host is up;
   // when null, no events are emitted. Called on the guest thread, so the sink
@@ -452,6 +459,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
+  std::function<void(std::function<void()>)> fiber_runner_;  // engine-triggered fragments onto a fiber
   std::function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above
   // Emits a gameplay event to the managed world, if a sink is set.
   void EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i);
@@ -477,8 +485,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   QuestRuntime& Runtime(u64 quest);
   papyrus::VirtualMachine* vm_ = nullptr;
   int fragment_depth_ = 0;  // guards stage->fragment->SetStage recursion
-  // Runs the fragment for a freshly-set stage, if one is registered.
+  // Runs the fragment for a freshly-set stage, if one is registered. When the
+  // runtime has set a fiber runner and this is the outermost script execution, the
+  // whole fragment runs on a fiber so a latent Wait inside it can suspend; a
+  // fragment reached from an already-running activation just runs inline (it rides
+  // the caller's fiber).
   void RunStageFragment(papyrus::ObjectRef quest, i32 stage);
+  void RunStageFragmentBody(papyrus::ObjectRef quest, i32 stage);
 
   // A scene's registered fragments plus the quest they advance. Keyed by scene
   // form handle (the SF_ script's instance), built at scene attach.

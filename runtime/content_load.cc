@@ -257,6 +257,12 @@ bool LoadGameData(Engine& engine) {
     REC_INFO("multiplayer client: quests run server-authoritative (replica mode)");
   self->scripts_ = std::make_unique<rec::script::ScriptSystem>(self->game_, &self->vfs_, self->script_bindings_.get());
   self->ctx_.scripts = self->scripts_.get();
+  // Run engine-triggered stage fragments on a fiber, so a latent Wait inside one
+  // suspends like a script-triggered fragment instead of returning at once.
+  self->script_bindings_->set_fiber_runner(
+      [guest = &self->scripts_->guest()](std::function<void()> body) {
+        guest->RunScript(std::move(body));
+      });
   // Hand the bindings the guest VM so quest stage fragments can execute (run on
   // the guest thread, where the bindings live).
   {

@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "script/games/skyrim/skyrim_bindings.h"
 #include "script/games/skyrim/skyrim_natives.h"
 #include "script/papyrus/fiber.h"
 #include "script/papyrus/fiber_scheduler.h"
@@ -212,6 +213,27 @@ int main() {
     check("WaitGameTime ignores real time and waits the game delay", !done);
     sched.Advance(1e9, 100.5);  // 0.5 game days reached
     check("WaitGameTime resumes at its game deadline", done && sched.parked() == 0);
+  }
+
+  // 11. The run-on-fiber seam: an engine-triggered stage fragment goes through the
+  //     fiber runner, but one reached while already on a fiber runs inline (it
+  //     rides the caller's fiber).
+  {
+    rec::script::skyrim::RecordBackedSkyrimBindings binds(nullptr);
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    binds.set_vm(&vm);
+    binds.SetStageFragment(0x123, 10, "Fragment_10");
+    int runner_calls = 0;
+    binds.set_fiber_runner([&](std::function<void()> body) {
+      ++runner_calls;
+      body();
+    });
+    binds.RunScriptFragment(0x123, 10, "");  // engine-triggered, off a fiber
+    check("engine-triggered fragment runs through the fiber runner", runner_calls == 1);
+    Fiber f([&] { binds.RunScriptFragment(0x123, 10, ""); });
+    f.Resume();
+    check("a fragment reached on a fiber runs inline", runner_calls == 1);
   }
 
   std::printf("%s (%d failures)\n", failures ? "FIBERTEST FAILED" : "FIBERTEST PASSED", failures);

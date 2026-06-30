@@ -15,6 +15,7 @@
 #include "quest/quest_def.h"
 #include "quest/quest_import.h"
 #include "script/papyrus/alias_handle.h"
+#include "script/papyrus/fiber.h"
 #include "script/papyrus/vm.h"
 
 namespace rec::script::skyrim {
@@ -1106,6 +1107,17 @@ void RecordBackedSkyrimBindings::RunScenePhase(u64 scene, u32 phase, bool on_beg
 }
 
 void RecordBackedSkyrimBindings::RunStageFragment(ObjectRef quest, i32 stage) {
+  // A fragment reached from a running activation rides that activation's fiber, so
+  // run it inline; the outermost engine-triggered fragment starts its own fiber so
+  // a Wait inside suspends the whole thing (provenance and recursion guard with it).
+  if (fiber_runner_ && !papyrus::Fiber::current()) {
+    fiber_runner_([this, quest, stage] { RunStageFragmentBody(quest, stage); });
+  } else {
+    RunStageFragmentBody(quest, stage);
+  }
+}
+
+void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage) {
   if (!vm_) return;
   auto qit = stage_fragments_.find(quest.handle);
   if (qit == stage_fragments_.end()) return;
