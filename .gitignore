@@ -41,3 +41,6 @@ editor_layout.reclayout
 /run-all.sh
 /bench.sh
 run-local.sh
+
+# Generated native-coverage report (pex2cs/nativescan --list-missing)
+missing_natives.txt
