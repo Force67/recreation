@@ -61,21 +61,22 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Spell", "RemoteCast", noop);
   reg.Register("Spell", "Preload", noop);
   reg.Register("Spell", "Unload", noop);
-  // Hostility is not derivable from the available SPIT fields, so report false.
-  reg.Register("Spell", "IsHostile", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
   reg.Register("Scroll", "Cast", noop);
   reg.Register("Weapon", "Fire", noop);
-  reg.Register("Enchantment", "IsHostile", [](VirtualMachine&, ObjectRef, Args&) {
+
+  // A spell, enchantment, or consumable is hostile when any of its magic effects
+  // is detrimental, the same test the game uses to pick friend-or-foe magic. The
+  // effects come from the item's record through the existing binding.
+  auto hostile = [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    auto& b = Resolve(bindings);
+    for (i32 i = 0, n = b.GetMagicEffectCount(self); i < n; ++i)
+      if (b.GetMagicEffectDetrimental(b.GetNthMagicEffectId(i))) return Value::Bool(true);
     return Value::Bool(false);
-  });
-  reg.Register("Ingredient", "IsHostile", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
-  reg.Register("Potion", "IsHostile", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
+  };
+  reg.Register("Spell", "IsHostile", hostile);
+  reg.Register("Enchantment", "IsHostile", hostile);
+  reg.Register("Ingredient", "IsHostile", hostile);
+  reg.Register("Potion", "IsHostile", hostile);
 
   // Ingredient effect-knowledge is not tracked, so these report learned.
   auto learned = [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); };

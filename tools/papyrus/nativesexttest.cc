@@ -32,11 +32,22 @@ class MockBindings : public SkyrimBindings {
   std::vector<std::pair<ObjectRef, i32>> inventory;
   std::vector<ObjectRef> list_forms;  // base FLST entries
   i32 crime_gold = 0;
+  std::vector<std::pair<ObjectRef, bool>> effects;  // (effect, detrimental) for the item under test
 
   f32 GetCurrentGameTime() override { return game_time; }
   f32 GetGameSettingFloat(const std::string&) override { return 42.7f; }
   f32 GetBaseActorValue(ObjectRef, const std::string&) override { return base_health; }
   i32 GetCrimeGold(ObjectRef) override { return crime_gold; }
+  i32 GetMagicEffectCount(ObjectRef) override { return static_cast<i32>(effects.size()); }
+  ObjectRef GetNthMagicEffectId(i32 index) override {
+    return index >= 0 && index < static_cast<i32>(effects.size()) ? effects[index].first
+                                                                   : ObjectRef{};
+  }
+  bool GetMagicEffectDetrimental(ObjectRef effect) override {
+    for (const auto& [e, det] : effects)
+      if (e.handle == effect.handle) return det;
+    return false;
+  }
   i32 GetFormListSize(ObjectRef) override { return static_cast<i32>(list_forms.size()); }
   ObjectRef GetNthListForm(i32 index) override {
     return index >= 0 && index < static_cast<i32>(list_forms.size()) ? list_forms[index]
@@ -148,6 +159,14 @@ int main() {
         callOn(faction, "Faction", "GetCrimeGoldViolent", {}).ToInt() == 30);
   check("crime gold non-violent is total minus violent",
         callOn(faction, "Faction", "GetCrimeGoldNonViolent", {}).ToInt() == 70);
+
+  // Spell hostility derives from a detrimental magic effect on the record.
+  ObjectRef spell{0x600};
+  bindings.effects = {{ObjectRef{0x601}, false}};
+  check("restorative spell is not hostile", !callOn(spell, "Spell", "IsHostile", {}).ToBool());
+  bindings.effects = {{ObjectRef{0x601}, false}, {ObjectRef{0x602}, true}};
+  check("spell with a detrimental effect is hostile",
+        callOn(spell, "Spell", "IsHostile", {}).ToBool());
 
   std::printf("%s (%d failures)\n", failures ? "NATIVESEXTTEST FAILED" : "NATIVESEXTTEST PASSED",
               failures);
