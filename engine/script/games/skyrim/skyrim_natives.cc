@@ -856,6 +856,14 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterGameEnvironment(reg, bindings);
   RegisterUtilityExtra(reg, bindings);
   RegisterActorRefGetters(reg, bindings);
+  RegisterActorExtra(reg, bindings);
+  RegisterObjectRefExtra(reg, bindings);
+  RegisterGameExtra(reg, bindings);
+  RegisterDebugExtra(reg, bindings);
+  RegisterActiveMagicEffectExtra(reg, bindings);
+  RegisterFactionExtra(reg, bindings);
+  RegisterAliasExtra(reg, bindings);
+  RegisterFormExtra(reg, bindings);
 }
 
 }  // namespace rec::script::skyrim

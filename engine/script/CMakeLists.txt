@@ -13,9 +13,18 @@ recreation_add_module(script
   host/guest_bridge.cc
   host/managed_host.cc
   games/skyrim/skyrim_natives.cc
+  games/skyrim/skyrim_native_state.cc
   games/skyrim/skyrim_natives_game_env.cc
   games/skyrim/skyrim_natives_utility.cc
   games/skyrim/skyrim_natives_actorref.cc
+  games/skyrim/skyrim_natives_actor.cc
+  games/skyrim/skyrim_natives_objectref.cc
+  games/skyrim/skyrim_natives_game.cc
+  games/skyrim/skyrim_natives_debug.cc
+  games/skyrim/skyrim_natives_magiceffect.cc
+  games/skyrim/skyrim_natives_faction.cc
+  games/skyrim/skyrim_natives_alias.cc
+  games/skyrim/skyrim_natives_form.cc
   games/skyrim/skyrim_bindings.cc
   games/skyrim/skyrim_bindings_item_data.cc
   games/skyrim/skyrim_bindings_crafting.cc

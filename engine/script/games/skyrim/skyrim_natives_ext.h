@@ -44,6 +44,19 @@ void RegisterUtilityExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
 // Actor and ObjectReference getters composed from the existing binding surface.
 void RegisterActorRefGetters(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 
+// One registration function per type, each in its own .cc. They cover the rest
+// of the declared native surface: stateful set/get pairs round-trip through the
+// shared state store, getters route to bindings or compute, and pure engine
+// commands are wired no-ops until their subsystem exists.
+void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterObjectRefExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterDebugExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterActiveMagicEffectExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterFactionExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterAliasExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterFormExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+
 }  // namespace rec::script::skyrim
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_EXT_H_
