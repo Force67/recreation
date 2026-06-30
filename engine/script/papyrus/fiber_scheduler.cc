@@ -17,6 +17,7 @@ void FiberScheduler::Park(std::unique_ptr<Fiber> fiber, f64 real_now, f64 game_n
   Parked p;
   p.real_due = req.real_seconds >= 0 ? real_now + req.real_seconds : -1.0;
   p.game_due = req.game_days >= 0 ? game_now + req.game_days : -1.0;
+  p.context = capture_context_ ? capture_context_() : 0;
   p.fiber = std::move(fiber);
   parked_.push_back(std::move(p));
 }
@@ -36,6 +37,7 @@ void FiberScheduler::Advance(f64 real_now, f64 game_now) {
     }
   }
   for (Parked& p : due) {
+    if (restore_context_) restore_context_(p.context);
     p.fiber->Resume();
     if (!p.fiber->done()) Park(std::move(p.fiber), real_now, game_now);
   }

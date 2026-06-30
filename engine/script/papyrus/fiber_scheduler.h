@@ -23,6 +23,15 @@ class FiberScheduler {
   explicit FiberScheduler(std::function<LatentRequest()> take_request)
       : take_request_(std::move(take_request)) {}
 
+  // Optional per-activation context that must survive a suspend. `capture` reads it
+  // when a fiber yields; `restore` writes it back just before that fiber resumes,
+  // so a value clobbered by another fiber running in between (the bindings' quest
+  // provenance) is correct again on resume. Without hooks, no context is tracked.
+  void set_context_hooks(std::function<u64()> capture, std::function<void(u64)> restore) {
+    capture_context_ = std::move(capture);
+    restore_context_ = std::move(restore);
+  }
+
   // Runs `body` on a fresh fiber at the given clock. Returns true if it suspended
   // and was parked, false if it ran to completion.
   bool Run(std::function<void()> body, f64 real_now, f64 game_now);
@@ -38,12 +47,15 @@ class FiberScheduler {
     std::unique_ptr<Fiber> fiber;
     f64 real_due;  // resume when real_now >= this; <0 if not a real-time wait
     f64 game_due;  // resume when game_now >= this; <0 if not a game-time wait
+    u64 context;   // captured at suspend, restored before resume
   };
 
   // Reads the just-yielded fiber's wait request and stores it as a deadline.
   void Park(std::unique_ptr<Fiber> fiber, f64 real_now, f64 game_now);
 
   std::function<LatentRequest()> take_request_;
+  std::function<u64()> capture_context_;
+  std::function<void(u64)> restore_context_;
   std::vector<Parked> parked_;
 };
 

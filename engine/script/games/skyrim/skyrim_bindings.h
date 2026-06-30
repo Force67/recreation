@@ -83,6 +83,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     fiber_runner_ = std::move(run);
   }
 
+  // The quest a stage fragment's world mutations are attributed to. The fiber
+  // scheduler reads it when a fragment suspends and writes it back before resuming,
+  // so a Wait that lets another fragment run keeps its own provenance. Guest thread.
+  u64 active_quest() const { return active_quest_; }
+  void set_active_quest(u64 quest) { active_quest_ = quest; }
+
   // Sink for gameplay events the managed (C#) world subscribes to (actor death,
   // item added, quest stage). Set by the runtime once the managed host is up;
   // when null, no events are emitted. Called on the guest thread, so the sink

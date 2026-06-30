@@ -103,6 +103,12 @@ class PapyrusGuest {
   // stage fragments).
   void RunScript(std::function<void()> body);
 
+  // Wires the per-activation context the scheduler preserves across a suspend (the
+  // bindings' quest provenance). Set by the runtime; see FiberScheduler.
+  void set_fiber_context_hooks(std::function<u64()> capture, std::function<void(u64)> restore) {
+    fiber_sched_.set_context_hooks(std::move(capture), std::move(restore));
+  }
+
   void set_local_pos_provider(std::function<std::array<f32, 3>()> fn) {
     local_pos_provider_ = std::move(fn);
   }

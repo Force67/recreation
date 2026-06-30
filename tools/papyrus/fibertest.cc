@@ -236,6 +236,37 @@ int main() {
     check("a fragment reached on a fiber runs inline", runner_calls == 1);
   }
 
+  // 12. Fiber-local provenance: two activations parked at the same time each see
+  //     their own context on resume, even though the other ran (and clobbered the
+  //     shared value) in between. ctx stands in for the bindings' active_quest_.
+  {
+    NativeRegistry reg;
+    VirtualMachine vm(&reg);
+    u64 ctx = 0;
+    FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
+    sched.set_context_hooks([&] { return ctx; }, [&](u64 c) { ctx = c; });
+    u64 a_saw = 0, b_saw = 0;
+    sched.Run(
+        [&] {
+          ctx = 100;
+          vm.SuspendCurrentFor(2.0, -1.0);
+          a_saw = ctx;  // must still be 100
+        },
+        0.0, 0.0);
+    sched.Run(
+        [&] {
+          ctx = 200;
+          vm.SuspendCurrentFor(1.0, -1.0);
+          b_saw = ctx;  // must still be 200
+        },
+        0.0, 0.0);
+    check("two activations parked together", sched.parked() == 2);
+    sched.Advance(1.5, 0.0);  // B's deadline only
+    check("B resumes with its own context", b_saw == 200 && sched.parked() == 1);
+    sched.Advance(2.5, 0.0);  // A's deadline
+    check("A resumes with its own context, not B's", a_saw == 100 && sched.parked() == 0);
+  }
+
   std::printf("%s (%d failures)\n", failures ? "FIBERTEST FAILED" : "FIBERTEST PASSED", failures);
   return failures ? 1 : 0;
 }
