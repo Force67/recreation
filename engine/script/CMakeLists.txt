@@ -25,6 +25,10 @@ recreation_add_module(script
   games/skyrim/skyrim_natives_faction.cc
   games/skyrim/skyrim_natives_alias.cc
   games/skyrim/skyrim_natives_form.cc
+  games/skyrim/skyrim_natives_world.cc
+  games/skyrim/skyrim_natives_av.cc
+  games/skyrim/skyrim_natives_items.cc
+  games/skyrim/skyrim_natives_utility2.cc
   games/skyrim/skyrim_bindings.cc
   games/skyrim/skyrim_bindings_item_data.cc
   games/skyrim/skyrim_bindings_crafting.cc

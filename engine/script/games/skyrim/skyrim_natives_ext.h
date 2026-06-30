@@ -56,6 +56,10 @@ void RegisterActiveMagicEffectExtra(papyrus::NativeRegistry& reg, SkyrimBindings
 void RegisterFactionExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterAliasExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterFormExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterWorldExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterUtilityRest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 
 }  // namespace rec::script::skyrim
 
