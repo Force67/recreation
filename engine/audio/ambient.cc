@@ -108,6 +108,13 @@ const std::vector<bethesda::GlobalFormId>& RegionAmbience::SoundsFor(u64 region)
   return empty_;
 }
 
+std::vector<u64> RegionAmbience::RegionForms() const {
+  std::vector<u64> forms;
+  forms.reserve(regions_.size());
+  for (const Region& r : regions_) forms.push_back(r.form);
+  return forms;
+}
+
 AmbientDecision DecideAmbient(const std::string& current, const std::string& target) {
   if (current == target) return {};  // already on the right bed (or both silent)
   AmbientDecision decision;

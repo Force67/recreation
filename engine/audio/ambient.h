@@ -38,6 +38,9 @@ class RegionAmbience {
   // or an empty list when the region has none.
   const std::vector<bethesda::GlobalFormId>& SoundsFor(u64 region) const;
 
+  // The packed form id of every region carrying ambient sounds (for diagnostics).
+  std::vector<u64> RegionForms() const;
+
   bool empty() const { return regions_.empty(); }
   size_t size() const { return regions_.size(); }
 
