@@ -30,10 +30,18 @@ class MockBindings : public SkyrimBindings {
   f32 game_time = 0.0f;
   f32 base_health = 0.0f;
   std::vector<std::pair<ObjectRef, i32>> inventory;
+  std::vector<ObjectRef> list_forms;  // base FLST entries
+  i32 crime_gold = 0;
 
   f32 GetCurrentGameTime() override { return game_time; }
   f32 GetGameSettingFloat(const std::string&) override { return 42.7f; }
   f32 GetBaseActorValue(ObjectRef, const std::string&) override { return base_health; }
+  i32 GetCrimeGold(ObjectRef) override { return crime_gold; }
+  i32 GetFormListSize(ObjectRef) override { return static_cast<i32>(list_forms.size()); }
+  ObjectRef GetNthListForm(i32 index) override {
+    return index >= 0 && index < static_cast<i32>(list_forms.size()) ? list_forms[index]
+                                                                     : ObjectRef{};
+  }
   i32 GetNumItems(ObjectRef) override { return static_cast<i32>(inventory.size()); }
   ObjectRef GetNthForm(ObjectRef, i32 index) override {
     return index >= 0 && index < static_cast<i32>(inventory.size()) ? inventory[index].first
@@ -66,9 +74,12 @@ int main() {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
     if (!ok) ++failures;
   };
-  auto call = [&](const char* type, const char* fn, std::vector<Value> args) {
+  auto callOn = [&](ObjectRef self, const char* type, const char* fn, std::vector<Value> args) {
     const NativeFunction* f = reg.Find(type, fn);
-    return f ? (*f)(vm, ObjectRef{0x14}, args) : Value();
+    return f ? (*f)(vm, self, args) : Value();
+  };
+  auto call = [&](const char* type, const char* fn, std::vector<Value> args) {
+    return callOn(ObjectRef{0x14}, type, fn, args);
   };
   auto near = [](f32 a, f32 b) { return std::fabs(a - b) < 0.001f; };
 
@@ -107,6 +118,36 @@ int main() {
         call("ObjectReference", "GetAllItemsCount", {}).ToInt() == 8);
   call("ObjectReference", "RemoveAllItems", {});
   check("RemoveAllItems empties inventory", bindings.inventory.empty());
+
+  // FormList: base record entries plus a runtime addition.
+  ObjectRef list{0x300}, formA{0x301}, formB{0x302}, runtime{0x303};
+  bindings.list_forms = {formA, formB};
+  auto on = [&](const char* fn, std::vector<Value> args) { return callOn(list, "FormList", fn, args); };
+  check("FormList base size", on("GetSize", {}).ToInt() == 2);
+  check("FormList base HasForm", on("HasForm", {Value::Object(formA)}).ToBool());
+  check("FormList GetAt reads record", on("GetAt", {Value::Int(1)}).as_object().handle == formB.handle);
+  check("FormList Find returns index", on("Find", {Value::Object(formB)}).ToInt() == 1);
+  on("AddForm", {Value::Object(runtime)});
+  check("FormList size includes runtime add", on("GetSize", {}).ToInt() == 3);
+  check("FormList HasForm sees runtime add", on("HasForm", {Value::Object(runtime)}).ToBool());
+
+  // State round-trips for the new stateful natives.
+  ObjectRef npc{0x400};
+  callOn(npc, "Actor", "SetGhost", {Value::Bool(true)});
+  check("Actor ghost flag round-trips", callOn(npc, "Actor", "IsGhost", {}).ToBool());
+  callOn(npc, "ObjectReference", "SetAngle",
+         {Value::Float(10.0f), Value::Float(20.0f), Value::Float(30.0f)});
+  check("ObjectReference angle round-trips",
+        near(callOn(npc, "ObjectReference", "GetAngleY", {}).ToFloat(), 20.0f));
+
+  // Faction crime-gold split: non-violent is the total minus the violent share.
+  ObjectRef faction{0x500};
+  bindings.crime_gold = 100;
+  callOn(faction, "Faction", "SetCrimeGoldViolent", {Value::Int(30)});
+  check("crime gold violent round-trips",
+        callOn(faction, "Faction", "GetCrimeGoldViolent", {}).ToInt() == 30);
+  check("crime gold non-violent is total minus violent",
+        callOn(faction, "Faction", "GetCrimeGoldNonViolent", {}).ToInt() == 70);
 
   std::printf("%s (%d failures)\n", failures ? "NATIVESEXTTEST FAILED" : "NATIVESEXTTEST PASSED",
               failures);

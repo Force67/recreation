@@ -213,6 +213,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetNthLeveledForm(i32 index) override;
   i32 GetNthLeveledLevel(i32 index) override;
   i32 GetNthLeveledCount(i32 index) override;
+  i32 GetFormListSize(papyrus::ObjectRef list) override;
+  papyrus::ObjectRef GetNthListForm(i32 index) override;
   i32 GetSex(papyrus::ObjectRef actor_base) override;
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
@@ -538,6 +540,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Last leveled list parsed by GetLeveledListCount; the other LVLI accessors
   // read it. Guest-thread only, like the other record caches.
   LeveledList leveled_cache_;
+  // Last form list parsed by GetFormListSize; GetNthListForm reads it.
+  std::vector<papyrus::ObjectRef> form_list_cache_;
 };
 
 }  // namespace rec::script::skyrim

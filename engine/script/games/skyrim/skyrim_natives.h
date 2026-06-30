@@ -125,6 +125,13 @@ class SkyrimBindings {
   virtual i32 GetNthLeveledLevel(i32 index) { return 0; }
   virtual i32 GetNthLeveledCount(i32 index) { return 0; }
 
+  // A form list (FLST record): its authored entries (LNAM), in order. Call
+  // GetFormListSize first to parse the list into a cache and return its count,
+  // then GetNthListForm reads that cache by index. FormList.GetAt/Find/HasForm
+  // read the base list this way, on top of any runtime-added forms.
+  virtual i32 GetFormListSize(papyrus::ObjectRef list) { return 0; }
+  virtual papyrus::ObjectRef GetNthListForm(i32 index) { return {}; }
+
   // ActorBase (NPC_ record data).
   virtual i32 GetSex(papyrus::ObjectRef actor_base) { return 0; }  // 0 male, 1 female
   virtual bool IsUnique(papyrus::ObjectRef actor_base) { return false; }

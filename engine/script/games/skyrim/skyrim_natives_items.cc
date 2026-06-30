@@ -14,7 +14,8 @@ namespace st = state;
 void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   auto noop = [](VirtualMachine&, ObjectRef, Args&) { return Value(); };
 
-  // FormList runtime additions live in the shared member store, keyed by the list.
+  // A form list is its authored FLST entries (read through the binding) plus any
+  // forms a script added at runtime (kept in the shared member store, key "list").
   reg.Register("FormList", "AddForm", [](VirtualMachine&, ObjectRef self, Args& a) {
     st::AddMember(self, "list", ArgO(a, 0));
     return Value();
@@ -23,22 +24,31 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
     st::RemoveMember(self, "list", ArgO(a, 0));
     return Value();
   });
-  reg.Register("FormList", "HasForm", [](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(st::HasMember(self, "list", ArgO(a, 0)));
+  reg.Register("FormList", "GetSize", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetFormListSize(self) + st::MemberCount(self, "list"));
   });
-  reg.Register("FormList", "GetSize", [](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(st::MemberCount(self, "list"));
+  reg.Register("FormList", "HasForm", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    ObjectRef form = ArgO(a, 0);
+    if (st::HasMember(self, "list", form)) return Value::Bool(true);
+    auto& b = Resolve(bindings);
+    for (i32 i = 0, n = b.GetFormListSize(self); i < n; ++i)
+      if (b.GetNthListForm(i).handle == form.handle) return Value::Bool(true);
+    return Value::Bool(false);
   });
-  // No wipe API on the member store, so Revert keeps the runtime additions.
-  reg.Register("FormList", "Revert", noop);
-  // GetAt/Find need the base FLST record read through a binding to be added later,
-  // so they are placeholders until that ordered source exists.
-  reg.Register("FormList", "GetAt", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Object(ObjectRef{});
+  reg.Register("FormList", "GetAt", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    i32 index = ArgI(a, 0);
+    i32 base = Resolve(bindings).GetFormListSize(self);
+    if (index >= 0 && index < base) return Value::Object(Resolve(bindings).GetNthListForm(index));
+    return Value::Object(ObjectRef{});  // a runtime-added form, which the set store cannot order
   });
-  reg.Register("FormList", "Find", [](VirtualMachine&, ObjectRef, Args&) {
+  reg.Register("FormList", "Find", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    ObjectRef form = ArgO(a, 0);
+    auto& b = Resolve(bindings);
+    for (i32 i = 0, n = b.GetFormListSize(self); i < n; ++i)
+      if (b.GetNthListForm(i).handle == form.handle) return Value::Int(i);
     return Value::Int(-1);
   });
+  reg.Register("FormList", "Revert", noop);  // no wipe API, runtime additions stay
 
   // Leveled-list editing has no runtime store here, so these are no-ops.
   for (const char* type : {"LeveledActor", "LeveledItem", "LeveledSpell"}) {
