@@ -310,6 +310,29 @@ bool LoadGameData(Engine& engine) {
            self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
   self->showcase_regions_.push_back({{start.x, ground, start.z}, std::string(profile.name)});
+  // REC_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
+  // ground is within a 14 m ring and whether any of it is under water. A good
+  // showcase venue has a small max-drop and zero submerged samples. Headless +
+  // fast, so a range of --cell values can be screened to pick a dry, flat one.
+  if (std::getenv("REC_VENUE_PROBE") && self->streamer_) {
+    f32 max_drop = 0;
+    int submerged = 0, sampled = 0;
+    for (int i = 0; i < 12; ++i) {
+      const f32 a = static_cast<f32>(i) * 30.0f * 0.0174533f;
+      const f32 px = start.x + std::sin(a) * 14.0f, pz = start.z - std::cos(a) * 14.0f;
+      f32 h = ground;
+      if (self->streamer_->GroundHeight(px, pz, &h)) {
+        max_drop = std::max(max_drop, std::abs(h - ground));
+        ++sampled;
+      }
+      f32 wh;
+      Vec3 flow;
+      if (self->streamer_->WaterHeightAt({px, h, pz}, &wh, &flow) && h < wh - 0.5f) ++submerged;
+    }
+    REC_INFO("venue probe cell {},{}: base_y={:.1f} max_drop={:.1f}m submerged={}/12 sampled={}",
+             self->config_.start_cell_x, self->config_.start_cell_y, ground, max_drop, submerged,
+             sampled);
+  }
   SetupExtraStreamers(engine);
 
   // Tell the editor which games' assets it can place: the primary, then each
