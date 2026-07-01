@@ -1,8 +1,8 @@
 #include "script/papyrus/fiber.h"
 
-#include <ucontext.h>
-
 #include <cassert>
+
+#include "minicoro.h"  // API only; the implementation is in minicoro_impl.cc
 
 namespace rec::script::papyrus {
 namespace {
@@ -13,17 +13,24 @@ thread_local Fiber* t_current = nullptr;
 // Thrown at the suspend point when a still-suspended fiber is destroyed, so its
 // frozen C++ call chain unwinds (running every local's destructor) instead of
 // being abandoned with the stack. Not a std::exception, so ordinary handlers do
-// not swallow it; any catch(...) on the latent path must rethrow it.
+// not swallow it; any catch(...) on the latent path must rethrow it. It is thrown
+// and caught entirely within the coroutine's own stack, so it never crosses the
+// context switch.
 struct FiberUnwind {};
 }  // namespace
 
 struct Fiber::Context {
-  ucontext_t fiber{};
-  ucontext_t resumer{};
+  mco_coro* co = nullptr;
 };
 
 Fiber::Fiber(std::function<void()> entry, std::size_t stack_bytes)
-    : entry_(std::move(entry)), stack_(stack_bytes), ctx_(new Context) {}
+    : entry_(std::move(entry)), stack_bytes_(stack_bytes), ctx_(new Context) {
+  mco_desc desc = mco_desc_init(&Fiber::Trampoline, stack_bytes_);
+  desc.user_data = this;
+  const mco_result r = mco_create(&ctx_->co, &desc);
+  assert(r == MCO_SUCCESS && "mco_create failed");
+  (void)r;
+}
 
 Fiber::~Fiber() {
   // A fiber abandoned mid-suspend would leak everything its frozen stack owns, so
@@ -33,40 +40,37 @@ Fiber::~Fiber() {
     aborting_ = true;
     Resume();
   }
+  if (ctx_->co) mco_destroy(ctx_->co);  // now dead (ran to end) or never started
   delete ctx_;
 }
 
-void Fiber::Trampoline() {
-  Fiber* self = t_current;
+void Fiber::Trampoline(mco_coro* co) {
+  auto* self = static_cast<Fiber*>(mco_get_user_data(co));
   try {
     self->entry_();
   } catch (const FiberUnwind&) {
     // Torn down while suspended: the stack has unwound cleanly, nothing more to do.
   }
   self->done_ = true;
-  // Returning falls through to uc_link (the resumer set in Resume), so control
-  // lands back after the swapcontext that started this fiber.
+  // Returning ends the coroutine (mco marks it dead) and switches back to the
+  // resumer, so control lands after the mco_resume that started this fiber.
 }
 
 void Fiber::Resume() {
   assert(!done_ && "Resume called on a finished fiber");
   Fiber* prev = t_current;
   t_current = this;
-  if (!started_) {
-    started_ = true;
-    getcontext(&ctx_->fiber);
-    ctx_->fiber.uc_stack.ss_sp = stack_.data();
-    ctx_->fiber.uc_stack.ss_size = stack_.size();
-    ctx_->fiber.uc_link = &ctx_->resumer;
-    makecontext(&ctx_->fiber, &Fiber::Trampoline, 0);
-  }
-  // Save the resumer and switch in; returns here when the fiber yields or ends.
-  swapcontext(&ctx_->resumer, &ctx_->fiber);
+  started_ = true;
+  // Starts the coroutine on first call, resumes it thereafter; returns here when
+  // the fiber yields or its entry returns.
+  const mco_result r = mco_resume(ctx_->co);
+  assert(r == MCO_SUCCESS && "mco_resume failed");
+  (void)r;
   t_current = prev;
 }
 
 void Fiber::Yield() {
-  swapcontext(&ctx_->fiber, &ctx_->resumer);
+  mco_yield(ctx_->co);
   if (aborting_) throw FiberUnwind{};  // resumed only to tear down: unwind the stack
 }
 

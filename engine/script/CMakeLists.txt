@@ -5,6 +5,7 @@ recreation_add_module(script
   papyrus/interpreter.cc
   papyrus/native.cc
   papyrus/fiber.cc
+  papyrus/minicoro_impl.cc
   papyrus/fiber_scheduler.cc
   papyrus/decompiler.cc
   papyrus/transpile.cc
@@ -46,3 +47,9 @@ recreation_add_module(script
 target_link_libraries(recreation_script PUBLIC
   recreation::core recreation::ecs recreation::bethesda recreation::quest recreation::audio
   ${CMAKE_DL_LIBS})
+
+# minicoro backs the Papyrus fiber (latent Wait). Header-only; its implementation
+# is compiled once in minicoro_impl.cc with warnings off (third-party code).
+target_include_directories(recreation_script PRIVATE ${CMAKE_SOURCE_DIR}/third_party/minicoro)
+set_source_files_properties(papyrus/minicoro_impl.cc PROPERTIES
+  COMPILE_OPTIONS $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)

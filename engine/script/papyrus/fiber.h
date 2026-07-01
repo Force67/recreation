@@ -3,9 +3,11 @@
 
 #include <cstddef>
 #include <functional>
-#include <vector>
 
 #include "core/types.h"
+
+// The coroutine backend (minicoro) type, kept out of this header.
+struct mco_coro;
 
 namespace rec::script::papyrus {
 
@@ -25,9 +27,10 @@ struct LatentRequest {
 //
 // This is the primitive behind latent Papyrus natives (Utility.Wait): a script
 // activation runs on a fiber, so Wait can yield without unwinding the interpreter.
-// POSIX ucontext backs it (Linux/macOS/Android); a Windows fiber backend would
-// slot in behind the same interface.
-// TODO: add a Windows CreateFiber/SwitchToFiber backend before shipping on Windows.
+// Backed by minicoro, which switches stacks on the same OS thread (asm backend,
+// or Win32 fibers / ucontext fallback) across Linux/macOS/Windows/Android. Same
+// thread matters: the Papyrus VM is confined to its guest thread, so the
+// activation must not migrate to another thread while suspended.
 class Fiber {
  public:
   explicit Fiber(std::function<void()> entry, std::size_t stack_bytes = 256 * 1024);
@@ -52,11 +55,11 @@ class Fiber {
  private:
   struct Context;  // holds the two ucontext_t, kept out of the header
 
-  static void Trampoline();
+  static void Trampoline(mco_coro* co);
   void Yield();
 
   std::function<void()> entry_;
-  std::vector<char> stack_;
+  std::size_t stack_bytes_;
   bool done_ = false;
   bool started_ = false;
   bool aborting_ = false;  // tearing down a still-suspended fiber: unwind on resume
