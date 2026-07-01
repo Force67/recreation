@@ -345,6 +345,16 @@ if(DOTNET_EXE)
             -c Release -o ${MANAGED_OUT} --nologo)
   set_tests_properties(managed_build PROPERTIES FIXTURES_SETUP managed_fx)
 
+  # The default gamemodes build as their own assemblies; the SDK loads them from a
+  # gamemodes/ subdir beside itself (like the real runtime). The build lays every
+  # assembly flat, so stage the gamemode DLLs into gamemodes/ before the host tests
+  # run, else the Skyrim ruleset (AttributeRegeneration) never loads.
+  add_test(NAME managed_stage_gamemodes
+    COMMAND ${CMAKE_COMMAND} -DDIR=${MANAGED_OUT}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/stage_gamemodes.cmake)
+  set_tests_properties(managed_stage_gamemodes PROPERTIES
+    FIXTURES_SETUP managed_fx DEPENDS managed_build)
+
   add_test(NAME managed_scripting_tests COMMAND ${DOTNET_EXE} ${MANAGED_TESTS})
   set_tests_properties(managed_scripting_tests PROPERTIES FIXTURES_REQUIRED managed_fx)
 

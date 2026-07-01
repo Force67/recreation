@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 
 namespace Recreation.Modding;
 
@@ -91,11 +92,20 @@ public static class ModLoader
         return Path.Combine(baseDir, "gamemodes");
     }
 
+    // The load context the SDK itself lives in. The engine's CLR host loads the
+    // SDK through hostfxr's load_assembly_and_get_function_pointer, which places it
+    // in an isolated component context, NOT AssemblyLoadContext.Default. A mod must
+    // load into that same context so its Recreation.Scripting reference binds to the
+    // SDK already in memory (its IMod, Game and ModHost are the engine's) instead of
+    // failing to resolve or pulling in a duplicate that splits type identity.
+    private static readonly AssemblyLoadContext HostContext =
+        AssemblyLoadContext.GetLoadContext(typeof(ModLoader).Assembly) ?? AssemblyLoadContext.Default;
+
     private static Assembly? TryLoad(string path)
     {
         try
         {
-            return Assembly.LoadFrom(path);
+            return HostContext.LoadFromAssemblyPath(Path.GetFullPath(path));
         }
         catch (Exception ex)
         {
