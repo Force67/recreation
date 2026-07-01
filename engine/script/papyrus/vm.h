@@ -87,6 +87,10 @@ class VirtualMachine : public VmInterface {
   // them, without log spam.
   bool TryCall(ObjectRef self, const std::string& method, std::vector<Value> args);
 
+  // Debug-only: the member-variable names currently held by an instance, used
+  // to inspect live script state when bringing up a quest's fragments.
+  std::vector<std::string> MemberNames(ObjectRef self);
+
   // VmInterface, used by the interpreter.
   Value CallMethod(ObjectRef self, const std::string& method, std::vector<Value> args) override;
   Value CallStatic(const std::string& script_type, const std::string& function,

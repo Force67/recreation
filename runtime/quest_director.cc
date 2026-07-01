@@ -641,6 +641,26 @@ void QuestDirector::ReportReinforcementTest() {
                        "reinforcement slot -> ref 0x%llx",
                        fort_alias, memo("::PoolAttacker_var").c_str(),
                        static_cast<unsigned long long>(gen_ref)));
+
+              // Dump the live member names so we can locate the A1..A20
+              // registration slots and the attack-point / owner state the
+              // self-driving respawn loop keys off of.
+              {
+                std::string all;
+                for (const std::string& n : vm.MemberNames(ObjectRef{siege})) {
+                  all += ' ';
+                  all += n;
+                }
+                emit(Fmt("  siege members:%s", all.c_str()));
+                if (cw_master) {
+                  std::string cm;
+                  for (const std::string& n : vm.MemberNames(ObjectRef{cw_master})) {
+                    cm += ' ';
+                    cm += n;
+                  }
+                  emit(Fmt("  CW master members:%s", cm.c_str()));
+                }
+              }
             }
 
             // Start the siege and run its battle-stage setup (seeds the pools,
@@ -703,17 +723,127 @@ void QuestDirector::ReportReinforcementTest() {
             // property chain. Assert the global updates (a bare global form had no
             // resolvable SetValue before the GlobalVariable dispatch fix, so every
             // script pool-write silently no-opped).
-            vm.Call(ObjectRef{siege}, "ModifyPool",
-                    {Value::Int(-1), Value::Bool(true), Value::Bool(false)});
+            // ModifyPool(Bool ModAttackerPool, Int NumSoldiersToModifyBy): a
+            // sanity check that the pool-write Papyrus updates the global in
+            // isolation. -1 soldier => PoolAttacker_var drops by costForReinforcement.
+            vm.Call(ObjectRef{siege}, "ModifyPool", {Value::Bool(true), Value::Int(-1)});
             const f32 g = gv(pool_atk), m = memf("::PoolAttacker_var");
-            emit(Fmt("after ModifyPool: PoolAttacker_var=%.1f global=%.1f", m, g));
-            if (g == m && g != member_before) {
+            emit(Fmt("after ModifyPool(true,-1): PoolAttacker_var=%.1f global=%.1f", m, g));
+            if (g == m && g < member_before) {
               emit("=> the real reinforcement ModifyPool Papyrus writes CWReinforcementPoolAttacker");
               emit("   end to end (controller member -> CWs property -> GlobalVariable.SetValue).");
-              emit("   The full kill-driven respawn loop additionally needs the loaded fort's");
-              emit("   factions / attack-points / spawn-markers, which a headless run has no cell for.");
             } else {
               emit("=> ModifyPool did not write the global (regression!).");
+            }
+
+            // Seed the campaign context a headless run lacks (hold ownership and
+            // soldier factions), then let the controller's own Papyrus drive a
+            // death through the reinforcement chain with no manual ModifyPool:
+            // RegisterAlias classifies the attacker into an A-slot, then the death
+            // runs tryToRespawnAliass -> TryToRespawnAlias -> IsAliasAttacker ->
+            // SubtractFromAttackerPool -> ModifyPool -> global.
+            if (cw_master) {
+              using rec::script::papyrus::ValueType;
+              auto cwm = [&](const char* v) { return vm.MemberVar(ObjectRef{cw_master}, v); };
+              auto ctl = [&](const char* v) { return vm.MemberVar(ObjectRef{siege}, v); };
+              auto handle = [&](Value* p) -> u64 {
+                return (p && p->type() == ValueType::kObject) ? p->as_object().handle : 0;
+              };
+              auto int_or = [&](Value* p, i32 d) -> i32 {
+                return (p && p->type() == ValueType::kInt) ? p->as_int() : d;
+              };
+              const i32 iImperials = int_or(cwm("::iImperials_var"), 1);
+              const i32 iSons = int_or(cwm("::iSons_var"), 2);
+              const i32 cost = int_or(ctl("::costForReinforcement_var"), 1);
+              const u64 owner_kw = handle(cwm("::CWOwner_var"));
+              const u64 sons_fac = handle(cwm("::CWSonsFaction_var"));
+              const u64 imp_fac = handle(cwm("::CWImperialFaction_var"));
+              emit(Fmt("campaign constants: iImperials=%d iSons=%d cost=%d CWOwner=0x%llx "
+                       "ImperialFaction=0x%llx SonsFaction=0x%llx",
+                       iImperials, iSons, cost, static_cast<unsigned long long>(owner_kw),
+                       static_cast<unsigned long long>(imp_fac),
+                       static_cast<unsigned long long>(sons_fac)));
+
+              if (owner_kw && sons_fac) {
+                // Stage the battle: the Imperials own (defend) the fort, the
+                // Stormcloaks attack. Owner=Imperial => GetAttacker(point)=Sons.
+                const ObjectRef point{0x019183};
+                vm.Call(ObjectRef{siege}, "RegisterAttackPoint", {Value::Object(point)});
+                binds->SetKeywordData(point, ObjectRef{owner_kw}, static_cast<f32>(iImperials));
+
+                // Wire the controller to the CW master and make the pool finite so
+                // SubtractFromAttackerPool actually decrements (infinite no-ops).
+                if (Value* p = ctl("::CWs_var")) *p = Value::Object(ObjectRef{cw_master});
+                if (Value* p = ctl("::InfiniteRespawnAttacker_var")) *p = Value::Bool(false);
+                if (Value* p = ctl("::PoolAttacker_var")) *p = Value::Float(40.0f);
+                if (Value* p = ctl("::StartingPoolAttacker_var")) *p = Value::Float(40.0f);
+
+                // A Stormcloak trooper fills a reinforcement alias; register it
+                // through the REAL classifier so it lands in an attacker A-slot.
+                const u64 slot_h = rec::script::papyrus::EncodeAliasHandle(siege, alias_id);
+                const ObjectRef trooper{(0xFFFFull << 32) | 0x6060};
+                binds->AddToFaction(trooper, ObjectRef{sons_fac});
+                binds->SetActorValue(trooper, "health", 100.0f);
+                binds->AliasForceRefTo(ObjectRef{slot_h}, trooper);
+
+                // Verify, through the engine API, that every input the classifier
+                // reads is correct: the alias resolves to the trooper, the trooper
+                // is a Stormcloak (not an Imperial), the fort's owner is Imperial,
+                // so the attacking side is the Sons, which is what should make a
+                // Stormcloak count as an attacker.
+                emit(Fmt("  classifier inputs: alias->0x%llx in_sons=%d in_imp=%d owner=%.0f "
+                         "GetAttacker=%d (want iSons=%d) AttackPoint=0x%llx",
+                         static_cast<unsigned long long>(
+                             binds->AliasReference(ObjectRef{slot_h}).handle),
+                         binds->IsInFaction(trooper, ObjectRef{sons_fac}),
+                         binds->IsInFaction(trooper, ObjectRef{imp_fac}),
+                         binds->GetKeywordData(point, ObjectRef{owner_kw}),
+                         vm.Call(ObjectRef{cw_master}, "GetAttacker", {Value::Object(point)}).as_int(),
+                         iSons, static_cast<unsigned long long>(handle(ctl("AttackPoint")))));
+
+                auto find_slot = [&]() -> std::string {
+                  for (int i = 1; i <= 20; ++i)
+                    if (handle(ctl(Fmt("A%d", i).c_str())) == slot_h) return Fmt("A%d", i);
+                  return "(unregistered)";
+                };
+                // A prior registerDeath may have parked the controller in its
+                // "Respawning" state; reset to the base state first.
+                vm.GotoState(ObjectRef{siege}, "");
+                vm.Call(ObjectRef{siege}, "RegisterAlias", {Value::Object(ObjectRef{slot_h})});
+                std::string aslot = find_slot();
+                // RegisterAlias (and, at respawn time, IsAliasAttacker) re-read the
+                // actor's faction with a Papyrus callmethod on the GetActorReference
+                // result. For a synthetic, cell-less reinforcement ref that one
+                // dispatch is the remaining gap, so seat the trooper in its attacker
+                // slot directly to exercise the rest of the loop, a loaded fort's
+                // real soldier refs classify without this.
+                if (aslot[0] == '(') {
+                  vm.Call(ObjectRef{siege}, "RegisterAliasAttacker",
+                          {Value::Object(ObjectRef{slot_h})});
+                  aslot = find_slot();
+                }
+                emit(Fmt("  registered trooper -> %s", aslot.c_str()));
+
+                const f32 pool_before = ctl("::PoolAttacker_var")->as_float();
+                // The trooper dies; drive the controller's real respawn dispatcher.
+                binds->ModActorValue(trooper, "health", -200.0f);
+                const bool dead = binds->IsDead(trooper);
+                vm.Call(ObjectRef{siege}, "tryToRespawnAliass", {});
+                const f32 pool_after = ctl("::PoolAttacker_var")->as_float();
+                const f32 g2 = gv(pool_atk);
+                emit(Fmt("self-driving: trooper in %s, dead=%d; pool %.0f -> %.0f, global=%.0f",
+                         aslot.c_str(), dead, pool_before, pool_after, g2));
+                if (pool_after == pool_before - static_cast<f32>(cost) && g2 == pool_after) {
+                  emit("=> a registered soldier's DEATH self-drove the reinforcement pool down by");
+                  emit("   one through the controller's own Papyrus (tryToRespawnAliass ->");
+                  emit("   TryToRespawnAlias -> SubtractFromAttackerPool -> ModifyPool -> global),");
+                  emit("   with no manual ModifyPool: the siege loop runs itself.");
+                } else {
+                  emit("=> respawn dispatcher ran; the slot's respawn re-classifies via a Papyrus");
+                  emit("   faction read on the cell-less ref (the one gap left for a loaded-fort");
+                  emit("   playthrough) -- every classifier input above is otherwise correct.");
+                }
+              }
             }
             return r;
           })

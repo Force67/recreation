@@ -338,6 +338,15 @@ Value* VirtualMachine::MemberVar(ObjectRef self, const std::string& name) {
   return it == inst->members.end() ? nullptr : &it->second;
 }
 
+std::vector<std::string> VirtualMachine::MemberNames(ObjectRef self) {
+  std::vector<std::string> names;
+  if (Instance* inst = FindInstance(self)) {
+    names.reserve(inst->members.size());
+    for (const auto& entry : inst->members) names.push_back(entry.first);
+  }
+  return names;
+}
+
 std::string VirtualMachine::CurrentState(ObjectRef self) {
   Instance* inst = FindInstance(self);
   return inst ? inst->state : "";
