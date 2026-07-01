@@ -22,6 +22,12 @@ option(RECREATION_NET "Enable networking (zetanet transport + replication)" ON)
 # libraries beside the executable). Without it those formats are skipped cleanly.
 option(RECREATION_AUDIO_FFMPEG "Decode xWMA/Wwise/FUZ audio via FFmpeg (libav*)" OFF)
 option(RECREATION_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+# Route the engine's allocations (and, on platforms with symbol interposition,
+# raw C malloc from third-party libs and the hosted CLR's native calls) through
+# mimalloc for faster, lower-fragmentation heap use. Off by default: opt-in per
+# build, measured before it becomes a default. Incompatible with the sanitizer
+# build (ASan owns the allocator), so it is forced off under RECREATION_SANITIZE.
+option(RECREATION_MIMALLOC "Route allocations through mimalloc" OFF)
 
 # Android is a first-class target, but several desktop backends do not apply:
 # DLSS/FSR3/NRD ship x86_64 host libraries (and Adreno has no HW ray tracing or
@@ -137,6 +143,15 @@ if(SDL3_FOUND)
 else()
   message(STATUS "sdl3 not found, runtime is headless")
 endif()
+
+# Optional mimalloc allocator (defines recreation_enable_mimalloc(); no-op when
+# the option is off). Included here so the helper exists before the runtime
+# executables are declared.
+if(RECREATION_MIMALLOC AND RECREATION_SANITIZE)
+  message(STATUS "mimalloc disabled: RECREATION_SANITIZE owns the allocator")
+  set(RECREATION_MIMALLOC OFF CACHE BOOL "" FORCE)
+endif()
+include(mimalloc)
 
 # equilibrium::base is vendored directly here (third_party/equilibrium, a
 # submodule) and is its single source of truth, so base:: containers, strings

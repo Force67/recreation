@@ -66,6 +66,7 @@ if(ANDROID)
     android
     log)
   recreation_set_warnings(recreation)
+  recreation_enable_mimalloc(recreation)
   # ANativeActivity_onCreate is only referenced by the Java runtime, so force
   # the linker to keep it (and pull in the glue object that defines it).
   target_link_options(recreation PRIVATE -u ANativeActivity_onCreate)
@@ -76,6 +77,7 @@ add_executable(recreation main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation PRIVATE ${RECREATION_RUNTIME_MODULES})
 target_compile_definitions(recreation PRIVATE RECREATION_VERSION="${PROJECT_VERSION}")
 recreation_set_warnings(recreation)
+recreation_enable_mimalloc(recreation)
 
 if(RECREATION_NET)
   target_link_libraries(recreation PRIVATE recreation::net)
@@ -121,6 +123,7 @@ endif()
 add_executable(recreation-server server_main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation-server PRIVATE ${RECREATION_RUNTIME_MODULES})
 recreation_set_warnings(recreation-server)
+recreation_enable_mimalloc(recreation-server)
 
 if(RECREATION_NET)
   target_link_libraries(recreation-server PRIVATE recreation::net)
