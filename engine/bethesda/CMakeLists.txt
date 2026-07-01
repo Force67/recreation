@@ -1,8 +1,12 @@
 recreation_add_module(bethesda
   game_profile.cc
   plugin.cc
+  writer.cc
+  edit_session.cc
+  raw_rewriter.cc
   load_order.cc
   compression.cc
+  string_writer.cc
   bsa.cc
   ba2.cc
   nif.cc
