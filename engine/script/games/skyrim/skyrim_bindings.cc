@@ -754,6 +754,16 @@ void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target, const char* event,
     REC_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
 }
 
+void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* event,
+                                                        std::vector<papyrus::Value> args) {
+  RaiseFormEvent(target, event, args);
+  // Also dispatch to every alias the ref fills. Copy the list: a handler may
+  // refill/clear the alias and mutate ref_to_aliases_ mid-iteration.
+  if (auto it = ref_to_aliases_.find(target); it != ref_to_aliases_.end())
+    for (u64 alias_handle : std::vector<u64>(it->second))
+      RaiseFormEvent(alias_handle, event, args);
+}
+
 void RecordBackedSkyrimBindings::EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i) {
   if (event_sink_) event_sink_(host::ManagedEvent{id, a, b, i, 0.0f});
 }
@@ -768,12 +778,9 @@ void RecordBackedSkyrimBindings::MaybeNotifyDeath(ObjectRef actor) {
   // hit; None for scripted Kill()/environmental deaths.
   const papyrus::Value killer = papyrus::Value::Object(last_attacker_);
   RaiseFormEvent(actor.handle, "OnDying", {killer});
-  RaiseFormEvent(actor.handle, "OnDeath", {killer});
-  // Dispatch the death to any alias the actor fills, so the alias's OnDeath script
-  // runs, the Civil War reinforcement soldiers decrement their pool this way.
-  if (auto it = ref_to_aliases_.find(actor.handle); it != ref_to_aliases_.end())
-    for (u64 alias_handle : std::vector<u64>(it->second))  // copy: the handler may refill
-      RaiseFormEvent(alias_handle, "OnDeath", {killer});
+  // OnDeath reaches the actor and any alias it fills, so the alias's OnDeath
+  // script runs, the Civil War reinforcement soldiers decrement their pool this way.
+  RaiseFormAndAliasEvent(actor.handle, "OnDeath", {killer});
   EmitManagedEvent(host::ManagedEventId::kActorDied, actor.handle, last_attacker_.handle, 0);
   // Drop the dead actor from combat (its own target, and anyone fighting it) and
   // tell the main-thread driver, so soldiers stop swinging at a corpse.
@@ -808,13 +815,26 @@ ObjectRef RecordBackedSkyrimBindings::GetCombatTarget(ObjectRef actor) {
 void RecordBackedSkyrimBindings::StartCombat(ObjectRef actor, ObjectRef target) {
   if (actor.handle == 0 || target.handle == 0 || actor.handle == target.handle) return;
   if (IsDead(actor) || IsDead(target)) return;
+  const bool was_in_combat = combat_target_.count(actor.handle) != 0;
   combat_target_[actor.handle] = target.handle;
   if (world_sink_) world_sink_->StartCombat(active_quest_, actor.handle, target.handle);
+  // OnCombatStateChanged(akTarget, aeCombatState): 1 = in combat. Only on the
+  // leading edge, so re-targeting a foe mid-combat stays quiet (matches Skyrim,
+  // which fires the transition once per combat entry, not per target switch).
+  if (!was_in_combat)
+    RaiseFormAndAliasEvent(actor.handle, "OnCombatStateChanged",
+                           {papyrus::Value::Object(target), papyrus::Value::Int(1)});
 }
 
 void RecordBackedSkyrimBindings::StopCombat(ObjectRef actor) {
+  const bool was_in_combat = combat_target_.count(actor.handle) != 0;
   combat_target_.erase(actor.handle);
   if (world_sink_) world_sink_->StopCombat(active_quest_, actor.handle);
+  // 0 = no longer in combat, with a None target. Only when actually leaving
+  // combat, so a redundant StopCombat is silent.
+  if (was_in_combat)
+    RaiseFormAndAliasEvent(actor.handle, "OnCombatStateChanged",
+                           {papyrus::Value::Object(ObjectRef{0}), papyrus::Value::Int(0)});
 }
 
 void RecordBackedSkyrimBindings::SetActorFollowing(ObjectRef actor, bool follow) {
@@ -824,6 +844,15 @@ void RecordBackedSkyrimBindings::SetActorFollowing(ObjectRef actor, bool follow)
 void RecordBackedSkyrimBindings::ApplyMeleeHit(ObjectRef attacker, ObjectRef target, f32 damage) {
   if (target.handle == 0 || IsDead(target)) return;
   last_attacker_ = attacker;
+  // OnHit(akAggressor, akSource, akProjectile, abPowerAttack, abSneakAttack,
+  // abBashAttack, abHitBlocked). A plain melee swing carries no weapon/spell
+  // source or projectile form yet, and none of the attack-kind flags. Raised
+  // before the damage lands so OnHit precedes any lethal OnDeath (fired from
+  // inside ModActorValue) and a handler sees pre-hit health.
+  const papyrus::Value none = papyrus::Value::Object(ObjectRef{0});
+  const papyrus::Value no = papyrus::Value::Bool(false);
+  RaiseFormAndAliasEvent(target.handle, "OnHit",
+                         {papyrus::Value::Object(attacker), none, none, no, no, no, no});
   ModActorValue(target, "health", -damage);  // may trigger MaybeNotifyDeath
   last_attacker_ = ObjectRef{0};
 }

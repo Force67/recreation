@@ -522,6 +522,12 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // handler. Runs synchronously on the guest thread (the bindings' only caller),
   // so a handler that mutates state is visible immediately to the caller.
   void RaiseFormEvent(u64 target, const char* event, std::vector<papyrus::Value> args);
+  // Raises the event on the target form and on every quest alias it currently
+  // fills, so both the ref's own script and its alias scripts handle it. This is
+  // the routing OnDeath uses (a soldier's death reaches its reinforcement alias);
+  // OnHit and OnCombatStateChanged share it.
+  void RaiseFormAndAliasEvent(u64 target, const char* event,
+                              std::vector<papyrus::Value> args);
   // Fires OnDying/OnDeath once when an actor's health first reaches zero, and
   // re-arms if it is healed back above zero.
   void MaybeNotifyDeath(papyrus::ObjectRef actor);

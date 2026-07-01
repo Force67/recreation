@@ -395,6 +395,113 @@ int SelfTest() {
     check("AddItem fires OnItemAdded (count delivered)", got_m && got_m->ToInt() == 5);
   }
 
+  // End-to-end combat event: ApplyMeleeHit must fire OnHit on the victim's script
+  // instance, delivering the aggressor. A "kill N with the player's help" or
+  // trap-damage objective relies on this handler running.
+  {
+    NativeRegistry hit_natives;
+    VirtualMachine hit_vm(&hit_natives);
+    Builder hb;
+    hb.obj.name = hb.S("ObjectReference");
+    hb.obj.parent_class = hb.S("");
+    MemberVariable hitter;
+    hitter.name = hb.S("::Hitter_var");
+    hitter.type = hb.S("ObjectReference");
+    hitter.initial_value = hb.IntV(0);
+    hb.obj.variables.push_back(hitter);
+    Function on_hit;
+    on_hit.return_type = hb.S("");
+    on_hit.params.push_back({hb.S("akAggressor"), hb.S("ObjectReference")});
+    on_hit.params.push_back({hb.S("akSource"), hb.S("Form")});
+    on_hit.params.push_back({hb.S("akProjectile"), hb.S("Projectile")});
+    on_hit.params.push_back({hb.S("abPowerAttack"), hb.S("Bool")});
+    on_hit.params.push_back({hb.S("abSneakAttack"), hb.S("Bool")});
+    on_hit.params.push_back({hb.S("abBashAttack"), hb.S("Bool")});
+    on_hit.params.push_back({hb.S("abHitBlocked"), hb.S("Bool")});
+    on_hit.code = {
+        Make(Op::kAssign, {hb.Id("::Hitter_var"), hb.Id("akAggressor")}),
+        Make(Op::kReturn, {}),
+    };
+    State hdef;
+    hdef.name = hb.S("");
+    hdef.functions.push_back({hb.S("OnHit"), std::move(on_hit)});
+    hb.obj.states.push_back(std::move(hdef));
+    hb.pex.objects.push_back(hb.obj);
+    hit_vm.AddScript(std::move(hb.pex));
+    ObjectRef victim = hit_vm.CreateInstance("ObjectReference");
+
+    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    bindings.set_vm(&hit_vm);
+    bindings.SetActorValue(victim, "health", 100.0f);
+    const ObjectRef aggressor{0xA66E5};
+    bindings.ApplyMeleeHit(aggressor, victim, 10.0f);
+    Value* hit_m = hit_vm.MemberVar(victim, "::Hitter_var");
+    check("ApplyMeleeHit fires OnHit (aggressor delivered)",
+          hit_m && hit_m->as_object().handle == aggressor.handle);
+  }
+
+  // End-to-end combat state event: StartCombat/StopCombat must fire
+  // OnCombatStateChanged on the actor, delivering the state int (1 entering, 0
+  // leaving). "aggro triggers an alarm" / "peace ends the scene" logic hangs off
+  // this transition.
+  {
+    NativeRegistry cs_natives;
+    VirtualMachine cs_vm(&cs_natives);
+    Builder cb;
+    cb.obj.name = cb.S("Actor");
+    cb.obj.parent_class = cb.S("");
+    MemberVariable state;
+    state.name = cb.S("::State_var");
+    state.type = cb.S("Int");
+    state.initial_value = cb.IntV(-1);
+    cb.obj.variables.push_back(state);
+    MemberVariable calls;
+    calls.name = cb.S("::Calls_var");
+    calls.type = cb.S("Int");
+    calls.initial_value = cb.IntV(0);
+    cb.obj.variables.push_back(calls);
+    Function on_combat;
+    on_combat.return_type = cb.S("");
+    on_combat.params.push_back({cb.S("akTarget"), cb.S("Actor")});
+    on_combat.params.push_back({cb.S("aeCombatState"), cb.S("Int")});
+    on_combat.code = {
+        Make(Op::kAssign, {cb.Id("::State_var"), cb.Id("aeCombatState")}),
+        Make(Op::kIAdd, {cb.Id("::Calls_var"), cb.Id("::Calls_var"), cb.IntV(1)}),
+        Make(Op::kReturn, {}),
+    };
+    State cdef;
+    cdef.name = cb.S("");
+    cdef.functions.push_back({cb.S("OnCombatStateChanged"), std::move(on_combat)});
+    cb.obj.states.push_back(std::move(cdef));
+    cb.pex.objects.push_back(cb.obj);
+    cs_vm.AddScript(std::move(cb.pex));
+    ObjectRef fighter = cs_vm.CreateInstance("Actor");
+
+    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    bindings.set_vm(&cs_vm);
+    bindings.SetActorValue(fighter, "health", 100.0f);
+    const ObjectRef foe{0xF0E01};
+    bindings.SetActorValue(foe, "health", 100.0f);
+
+    bindings.StartCombat(fighter, foe);
+    Value* st = cs_vm.MemberVar(fighter, "::State_var");
+    check("StartCombat fires OnCombatStateChanged (in combat = 1)", st && st->ToInt() == 1);
+
+    // Re-targeting mid-combat is quiet: no second entering-combat call.
+    bindings.StartCombat(fighter, ObjectRef{0xF0E02});
+    Value* cl = cs_vm.MemberVar(fighter, "::Calls_var");
+    check("re-target mid-combat does not re-fire", cl && cl->ToInt() == 1);
+
+    bindings.StopCombat(fighter);
+    st = cs_vm.MemberVar(fighter, "::State_var");
+    check("StopCombat fires OnCombatStateChanged (out of combat = 0)", st && st->ToInt() == 0);
+
+    // A redundant StopCombat is silent (call count stays at 2).
+    bindings.StopCombat(fighter);
+    cl = cs_vm.MemberVar(fighter, "::Calls_var");
+    check("redundant StopCombat does not re-fire", cl && cl->ToInt() == 2);
+  }
+
   // Alias death dispatch: an actor that fills a quest alias should deliver its
   // death to the alias's OnDeath script. This is the Civil War reinforcement
   // path, a soldier dies and its CWReinforcementAliasScript.OnDeath runs.
