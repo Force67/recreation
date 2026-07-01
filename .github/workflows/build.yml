@@ -7,10 +7,12 @@ on:
   workflow_dispatch:
 
 env:
-  # Route compiles through sccache, backed by the GitHub Actions cache, so object
-  # files persist across runs (see the per-job sccache steps + the
-  # CMAKE_*_COMPILER_LAUNCHER flags on each configure).
-  SCCACHE_GHA_ENABLED: "true"
+  # Route compiles through sccache (see the per-job sccache steps + the
+  # CMAKE_*_COMPILER_LAUNCHER flags on each configure). The object cache lives in a
+  # local dir persisted with actions/cache, NOT sccache's GHA backend: an
+  # actions/cache miss/outage is non-fatal (uncached compile), whereas sccache's
+  # GHA backend hard-fails every compile if the cache service is unreachable.
+  SCCACHE_DIR: ${{ github.workspace }}/.sccache
 
 jobs:
   linux:
@@ -34,6 +36,12 @@ jobs:
           submodules: recursive
       - name: sccache
         uses: mozilla/sccache-action@v0.0.6
+      - name: sccache cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
       - name: deps
         run: |
           scripts/setup-linux.sh --system
@@ -85,6 +93,12 @@ jobs:
           submodules: recursive
       - name: sccache
         uses: mozilla/sccache-action@v0.0.6
+      - name: sccache cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
       - name: deps
         run: scripts/setup-linux.sh --system
       - name: dxc cache
@@ -158,6 +172,12 @@ jobs:
           submodules: recursive
       - name: sccache
         uses: mozilla/sccache-action@v0.0.6
+      - name: sccache cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
       # Real-time scanning of every .obj/.lib/.exe dominates Windows build time on
       # the hosted runner; exclude the workspace for the duration of the job.
       - name: exclude workspace from Defender
@@ -245,6 +265,12 @@ jobs:
           submodules: recursive
       - name: sccache
         uses: mozilla/sccache-action@v0.0.6
+      - name: sccache cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
       - name: deps
         run: scripts/setup-macos.sh --system
       - name: dxc cache restore
@@ -317,6 +343,12 @@ jobs:
           submodules: recursive
       - name: sccache
         uses: mozilla/sccache-action@v0.0.6
+      - name: sccache cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
       - name: deps
         run: |
           scripts/setup-linux.sh --system --minimal
