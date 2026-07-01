@@ -809,19 +809,12 @@ void QuestDirector::ReportReinforcementTest() {
                 // A prior registerDeath may have parked the controller in its
                 // "Respawning" state; reset to the base state first.
                 vm.GotoState(ObjectRef{siege}, "");
+                // The REAL classifier registers the trooper: RegisterAlias reads
+                // its faction through GetActorReference() (now a resolvable
+                // `... as Actor` cast on the cell-less ref) and compares the side
+                // to GetAttacker(AttackPoint).
                 vm.Call(ObjectRef{siege}, "RegisterAlias", {Value::Object(ObjectRef{slot_h})});
-                std::string aslot = find_slot();
-                // RegisterAlias (and, at respawn time, IsAliasAttacker) re-read the
-                // actor's faction with a Papyrus callmethod on the GetActorReference
-                // result. For a synthetic, cell-less reinforcement ref that one
-                // dispatch is the remaining gap, so seat the trooper in its attacker
-                // slot directly to exercise the rest of the loop, a loaded fort's
-                // real soldier refs classify without this.
-                if (aslot[0] == '(') {
-                  vm.Call(ObjectRef{siege}, "RegisterAliasAttacker",
-                          {Value::Object(ObjectRef{slot_h})});
-                  aslot = find_slot();
-                }
+                const std::string aslot = find_slot();
                 emit(Fmt("  registered trooper -> %s", aslot.c_str()));
 
                 const f32 pool_before = ctl("::PoolAttacker_var")->as_float();
@@ -839,9 +832,8 @@ void QuestDirector::ReportReinforcementTest() {
                   emit("   TryToRespawnAlias -> SubtractFromAttackerPool -> ModifyPool -> global),");
                   emit("   with no manual ModifyPool: the siege loop runs itself.");
                 } else {
-                  emit("=> respawn dispatcher ran; the slot's respawn re-classifies via a Papyrus");
-                  emit("   faction read on the cell-less ref (the one gap left for a loaded-fort");
-                  emit("   playthrough) -- every classifier input above is otherwise correct.");
+                  emit("=> respawn dispatcher ran but the pool held (regression: check the staged");
+                  emit("   constants and the bare-ref type resolver).");
                 }
               }
             }

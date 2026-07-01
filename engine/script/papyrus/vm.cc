@@ -358,7 +358,11 @@ void VirtualMachine::GotoState(ObjectRef self, const std::string& state) {
 
 bool VirtualMachine::IsObjectOfType(ObjectRef obj, const std::string& type_name) {
   Instance* inst = FindInstance(obj);
-  if (!inst) return false;
+  if (!inst) {
+    // A bare reference (no scripted instance): the game resolves its kind from
+    // records / runtime actor state so `placedRef as Actor` and the like work.
+    return obj.handle != 0 && type_resolver_ && type_resolver_(obj, type_name);
+  }
   std::string want = Lower(type_name);
   for (const std::string& type : inst->types) {
     std::string t = type;

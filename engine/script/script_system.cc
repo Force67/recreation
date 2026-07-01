@@ -19,6 +19,12 @@ ScriptSystem::ScriptSystem(bethesda::Game game, asset::Vfs* vfs, skyrim::SkyrimB
   if (bindings && (game == bethesda::Game::kSkyrimSe || game == bethesda::Game::kFallout4 ||
                    game == bethesda::Game::kFallout76 || game == bethesda::Game::kStarfield)) {
     skyrim::RegisterSkyrimNatives(guest_.natives(), bindings);
+    // Let the VM resolve a bare reference's type (placed/alias/spawned refs with
+    // no script) so `GetReference() as Actor` and similar casts work; without it
+    // the Civil War reinforcement classifiers fail on every cell-less soldier.
+    guest_.set_type_resolver([bindings](ObjectRef ref, const std::string& type) {
+      return bindings->RefIsType(ref, type);
+    });
   }
   guest_.Start();
 }

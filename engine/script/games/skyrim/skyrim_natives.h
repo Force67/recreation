@@ -27,6 +27,9 @@ class SkyrimBindings {
   // Form
   virtual u32 GetFormId(papyrus::ObjectRef form) { return 0; }
   virtual i32 GetFormType(papyrus::ObjectRef form) { return 0; }
+  // Whether a bare reference is of `type_name` ("Actor", "ObjectReference", ...),
+  // used by the VM to resolve `obj as Type` casts for refs with no script.
+  virtual bool RefIsType(papyrus::ObjectRef ref, const std::string& type_name) { return false; }
   virtual std::string GetName(papyrus::ObjectRef form) { return ""; }
   virtual bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) { return false; }
   // Enumerates a form's keywords (KWDA), so mods can categorise items by every

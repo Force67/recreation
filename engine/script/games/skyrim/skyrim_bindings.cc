@@ -253,6 +253,32 @@ i32 RecordBackedSkyrimBindings::GetFormType(ObjectRef form) {
   return stored ? FormTypeFromSignature(stored->header.type) : 0;
 }
 
+bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const std::string& type_name) {
+  if (ref.handle == 0) return false;
+  // Every reference is, at root, a Form and an ObjectReference.
+  if (type_name == "ObjectReference" || type_name == "Form" || type_name == "ScriptObject")
+    return true;
+  const bool want_actor = type_name == "Actor";
+  if (!want_actor && type_name != "ActorBase") return false;
+  // A reference we already hold live actor state for (a spawned combatant, an
+  // alias the quest handed health/factions) is an Actor even with no record.
+  if (want_actor && (actor_values_.count(ref.handle) || faction_ranks_.count(ref.handle)))
+    return true;
+  if (!records_) return false;
+  if (const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(ref))) {
+    if (!want_actor) return stored->header.type == FourCc('N', 'P', 'C', '_');  // ActorBase
+    if (stored->header.type == FourCc('A', 'C', 'H', 'R')) return true;  // placed actor ref
+  }
+  // A placed REFR whose base object is an NPC is an actor as well.
+  if (want_actor) {
+    const ObjectRef base = GetBaseObject(ref);
+    if (base.handle != 0 && base.handle != ref.handle)
+      if (const bethesda::RecordStore::StoredRecord* bs = records_->Find(ToFormId(base)))
+        return bs->header.type == FourCc('N', 'P', 'C', '_');
+  }
+  return false;
+}
+
 // Item record-data accessors (GetWeight, GetGoldValue, GetWeaponDamage,
 // GetArmorRating) live in skyrim_bindings_item_data.cc.
 

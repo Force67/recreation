@@ -170,6 +170,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Form data, from records.
   u32 GetFormId(papyrus::ObjectRef form) override;
   i32 GetFormType(papyrus::ObjectRef form) override;
+  bool RefIsType(papyrus::ObjectRef ref, const std::string& type_name) override;
   std::string GetName(papyrus::ObjectRef form) override;
   bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
   i32 GetKeywordCount(papyrus::ObjectRef form) override;

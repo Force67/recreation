@@ -1,6 +1,7 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_VM_H_
 #define RECREATION_SCRIPT_PAPYRUS_VM_H_
 
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -51,6 +52,14 @@ class VirtualMachine : public VmInterface {
   // strings per native call); the engine turns it on only while the trace
   // window is open. The ring keeps the most recent calls, newest last.
   void set_native_trace(bool on) { native_trace_enabled_ = on; }
+  // Resolves the type of a bare reference (one with no scripted VM instance) for
+  // `obj as Type` casts and Is-checks. Without it a cell-less ref, a quest
+  // alias pointing at a placed actor, a freshly spawned actor, fails every
+  // `GetReference() as Actor`, which silently breaks faction/owner classifiers.
+  // The game supplies it (records + runtime actor state know the real kind).
+  void set_type_resolver(std::function<bool(ObjectRef, const std::string&)> r) {
+    type_resolver_ = std::move(r);
+  }
   bool native_trace() const { return native_trace_enabled_; }
   u64 native_call_count() const { return native_call_count_; }
   const std::vector<NativeCall>& native_trace_log() const { return native_trace_; }
@@ -172,6 +181,7 @@ class VirtualMachine : public VmInterface {
   std::vector<NativeCall> native_trace_;  // ring, oldest at front
 
   const NativeRegistry* natives_;
+  std::function<bool(ObjectRef, const std::string&)> type_resolver_;
   std::unordered_map<std::string, LoadedScript> scripts_;  // key: lowercased type
   std::unordered_map<u64, Instance> instances_;
   u64 next_handle_ = 1;

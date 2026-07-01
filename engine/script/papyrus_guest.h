@@ -60,6 +60,12 @@ class PapyrusGuest {
   // Start(). After Start() the table must not be mutated from outside.
   papyrus::NativeRegistry& natives() { return natives_; }
 
+  // Resolves a bare reference's type for `obj as Type` casts. Set before Start()
+  // alongside the native table (see VirtualMachine::set_type_resolver).
+  void set_type_resolver(std::function<bool(papyrus::ObjectRef, const std::string&)> r) {
+    vm_.set_type_resolver(std::move(r));
+  }
+
   // Where Debug.Notification messages go (a HUD toast in the runtime). Without a
   // handler they fall back to the trace log. Set it on the guest thread (Submit)
   // so the native, which also runs there, never races the assignment.
