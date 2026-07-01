@@ -28,8 +28,9 @@ class InteractionSystem {
   void UpdateInteraction(bool activate_pressed);
   // Host-authoritative trigger volumes: a placed reference with a script and a
   // primitive bound is a trigger box; when the player enters it, its
-  // OnTriggerEnter runs (which can advance a quest, the way Skyrim drives
-  // progression from the world). Registers triggers lazily as cells stream in.
+  // OnTriggerEnter runs, and OnTriggerLeave when the player steps back out (the
+  // way Skyrim drives progression from the world). Registers triggers lazily as
+  // cells stream in.
   void UpdateTriggers();
   void SyncHud();  // mirror the open conversation / loot view into the HUD
 

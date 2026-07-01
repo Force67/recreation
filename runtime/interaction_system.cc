@@ -405,6 +405,11 @@ void InteractionSystem::UpdateTriggers() {
       ctx_.scripts->guest().RaiseEvent(
           script::papyrus::ObjectRef{entry.key}, "OnTriggerEnter",
           {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
+    } else if (!inside && entry.value.inside) {
+      REC_INFO("trigger: player left 0x{:x}, raising OnTriggerLeave", entry.key);
+      ctx_.scripts->guest().RaiseEvent(
+          script::papyrus::ObjectRef{entry.key}, "OnTriggerLeave",
+          {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
     }
     entry.value.inside = inside;
   }
