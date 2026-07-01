@@ -20,6 +20,12 @@ public class ObjectReference : Form
 
     public float DistanceTo(ObjectReference other) => Call("GetDistance", other).AsFloat();
 
+    // The unit direction from this reference to another, in world space.
+    public Vector3 DirectionTo(ObjectReference other) => (other.Position - Position).Normalized;
+
+    // Shifts this reference by a world-space offset.
+    public void Translate(Vector3 offset) => Position += offset;
+
     // The base form this reference is an instance of (its BaseObject).
     public Form BaseObject => Form.From(Call("GetBaseObject").AsHandle());
 
