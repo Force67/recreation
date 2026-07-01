@@ -144,12 +144,6 @@ jobs:
           repository: Force67/libultragui
           path: libultragui
           submodules: recursive
-      # Put cl/link on PATH so the Ninja generator (used below instead of the
-      # slower MSBuild generator) can find the compiler.
-      - name: msvc dev environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
       # Real-time scanning of every .obj/.lib/.exe dominates Windows build time on
       # the hosted runner; exclude the workspace for the duration of the job.
       - name: exclude workspace from Defender
@@ -167,6 +161,20 @@ jobs:
           bash tools/get_fidelityfx.sh
           bash tools/get_nrd.sh
           bash tools/get_jolt.sh
+      # cl/link for the Ninja generator (the VS generator found MSVC itself; Ninja
+      # does not). Runs AFTER the dxc setup: msvc-dev-cmd puts the Windows SDK's
+      # DXIL-only dxc on PATH, and setup-windows.ps1 skips its SPIRV dxc download
+      # when any dxc is already found.
+      - name: msvc dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      # Put the DirectXShaderCompiler (SPIRV-capable) that setup-windows.ps1
+      # installed back ahead of the SDK's dxc, so the engine + NRD shader builds
+      # pick the right compiler.
+      - name: prefer the SPIRV dxc over the SDK dxc
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "${{ github.workspace }}\third_party\winbin\dxc\bin\x64"
       - name: configure
         run: >
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON
