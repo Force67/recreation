@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "script/papyrus/value.h"
 #if defined(RECREATION_HAS_UGUI)
@@ -14,6 +16,11 @@
 // routes engine gameplay events (death, item added, form load/unload, location
 // change) into the managed event bus. Optional and gracefully absent.
 namespace rec {
+
+// RECREATION_SCRIPTING_DIR points at the built managed assemblies; was read
+// straight from the environment.
+static base::Option<const char*> ScriptingDir{"scripting.dir", nullptr,
+                                              "RECREATION_SCRIPTING_DIR"};
 
 #if defined(RECREATION_HAS_UGUI)
 // Bridges ultragui's handler dispatch to the managed world. Installed as the C#
@@ -34,7 +41,7 @@ void BootManagedScripting(Engine& engine) {
       self->script_bindings_ && self->script_bindings_->replica_mode();
   const std::int32_t realm = self->config_.host_server ? 0 : (replica ? 1 : 2);
 
-  const char* dir = std::getenv("RECREATION_SCRIPTING_DIR");
+  const char* dir = ScriptingDir.get();
   if (!dir || !*dir) {
     REC_INFO("managed: RECREATION_SCRIPTING_DIR unset, C# scripting disabled");
     return;

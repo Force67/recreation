@@ -23,6 +23,7 @@
 #include <utility>    // std::move for the procedural meshes
 
 #include <array>
+#include <base/option.h>
 
 #include "asset/mesh.h"
 #include "thumbnailer.h"  // off-screen clay render of the hero centerpiece
@@ -32,6 +33,11 @@
 // select-then-PLAY request flow, loads a universe on demand, and refreshes the
 // front-screen identity/stats plus the cached scene backdrops.
 namespace rec {
+
+// Config toggles formerly read from getenv (populated by base::InitOptionsFromEnv).
+static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
+static base::Option<bool> MenuCapture{"menu.capture", false, "REC_MENU_CAPTURE"};
+static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "REC_MENU_AUTOPLAY"};
 
 // The C# gameplay modules each universe installs once it is the primary domain,
 // previewed on the menu's Mods screen before the game loads. Skyrim and
@@ -189,7 +195,7 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const s
   }
   self->game_ui_.CloseMainMenu();
   self->main_menu_active_ = false;
-  self->debug_ui_.SetVisible(std::getenv("REC_HIDE_DEBUG_UI") == nullptr);
+  self->debug_ui_.SetVisible(!HideDebugUi);
   if (!LoadGameData(engine)) {  // boots the managed world, so the game's C# module installs
     REC_ERROR("failed to load universe {}", u.name);
     return;
@@ -197,7 +203,7 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const s
   // Opt-in (REC_MENU_CAPTURE): grab a clean frame of this world for the menu
   // backdrop cache once it has streamed in, so a later menu shows the real scene.
   // Off by default, since a mid-stream grab can catch an unsettled frame.
-  if (!self->config_.headless && std::getenv("REC_MENU_CAPTURE")) {
+  if (!self->config_.headless && MenuCapture) {
     self->menu_capture_path_ = "thumbs/menu_" + GameSlug(self->config_.game) + ".png";
     self->menu_capture_countdown_ = 600;  // ~10s at 60fps to let streaming + RT settle
   }
@@ -215,7 +221,7 @@ void Engine::UpdateMainMenu(f32 dt) {
 
   // Test hook: REC_MENU_AUTOPLAY=<0|1|2> drives the same select-then-PLAY path a
   // mouse/keyboard would, so the menu->request->boot chain runs without input.
-  if (const char* ap = std::getenv("REC_MENU_AUTOPLAY")) {
+  if (const char* ap = MenuAutoplay.get()) {
     static int beat = 0;
     if (++beat == 45) {
       game_ui_.MainMenuMove(std::atoi(ap) - game_ui_.selected_universe(), 0);  // pick the column
@@ -776,7 +782,7 @@ void Engine::TickMenuCapture() {
     renderer_.CaptureScreenshot(menu_capture_path_);
   } else if (c == 1) {  // restore the overlays for play
     game_ui_.SetHudVisible(true);
-    debug_ui_.SetAllVisible(std::getenv("REC_HIDE_DEBUG_UI") == nullptr);
+    debug_ui_.SetAllVisible(!HideDebugUi);
     REC_INFO("menu backdrop captured: {}", menu_capture_path_);
   }
 }

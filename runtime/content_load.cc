@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <base/option.h>
+
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
 #include "bethesda/archive.h"
@@ -26,6 +28,24 @@
 // streamer(s) for the primary worldspace and every secondary content domain.
 // Also the standalone interior and glTF scene load paths.
 namespace rec {
+
+// Load-time env overrides, declared at file scope so they register before
+// InitOptionsFromEnv() populates them; see each use site for behaviour.
+static base::Option<const char*> Weather{"weather", nullptr, "REC_WEATHER"};
+static base::Option<bool> CwFieldBattle{"cw.field.battle", false, "REC_CW_FIELD_BATTLE"};
+static base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "REC_CW_SIEGE_DEMO"};
+static base::Option<bool> CwReinfTest{"cw.reinf.test", false, "REC_CW_REINF_TEST"};
+static base::Option<bool> WarMap{"war.map", false, "REC_WAR_MAP"};
+static base::Option<bool> VenueProbe{"venue.probe", false, "REC_VENUE_PROBE"};
+static base::Option<const char*> QuestList{"quest.list", nullptr, "REC_QUEST_LIST"};
+static base::Option<const char*> QuestReport{"quest.report", nullptr, "REC_QUEST_REPORT"};
+static base::Option<const char*> DialogueReport{"dialogue.report", nullptr, "REC_DIALOGUE_REPORT"};
+static base::Option<const char*> DialogueProbe{"dialogue.probe", nullptr, "REC_DIALOGUE_PROBE"};
+static base::Option<const char*> SceneReport{"scene.report", nullptr, "REC_SCENE_REPORT"};
+static base::Option<const char*> ScenePlay{"scene.play", nullptr, "REC_SCENE_PLAY"};
+static base::Option<const char*> SceneLive{"scene.live", nullptr, "REC_SCENE_LIVE"};
+static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "REC_DOMAIN_OFFSET"};
+static base::Option<const char*> DomainCell{"domain.cell", nullptr, "REC_DOMAIN_CELL"};
 
 bool LoadGameData(Engine& engine) {
   Engine* const self = &engine;
@@ -113,7 +133,7 @@ bool LoadGameData(Engine& engine) {
     // single-weather CLMT is the real answer (don't fall through to synthetic).
     auto climate =
         rec::weather::BuildClimate(self->records_, weathers, worldspace, starfield ? 1 : 4);
-    if (const char* forced_kind = std::getenv("REC_WEATHER")) {
+    if (const char* forced_kind = Weather.get()) {
       std::string s = forced_kind;
       rec::weather::WeatherDef forced;
       forced.kind = (s == "rain" || s == "rainy")    ? rec::weather::WeatherDef::Kind::kRainy
@@ -132,7 +152,7 @@ bool LoadGameData(Engine& engine) {
 
     // Per-region weather: the REGN areas override the worldspace climate where
     // the player stands (skipped when REC_WEATHER pins a single weather).
-    if (!std::getenv("REC_WEATHER") && *worldspace) {
+    if (!Weather && *worldspace) {
       const bethesda::GlobalFormId ws = self->records_.FindWorldspace(worldspace);
       const int rn = rec::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
       REC_INFO("weather: {} weather regions in {}", rn, worldspace);
@@ -145,7 +165,7 @@ bool LoadGameData(Engine& engine) {
     // The open-field battle demo anchors the player on its staged dry venue, so a
     // background quest (a follower/pet setup, an auto-started scene) must not warp
     // the player off it mid-demo.
-    if (std::getenv("REC_CW_FIELD_BATTLE") || std::getenv("REC_CW_SIEGE_DEMO")) return;
+    if (CwFieldBattle || CwSiegeDemo) return;
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded
     // world rather than at interior-local coordinates floating in the exterior.
@@ -207,38 +227,38 @@ bool LoadGameData(Engine& engine) {
   // prints the journey, then quits; REC_DIALOGUE_REPORT dumps its dialogue.
   // REC_WAR_MAP opens the Civil War war-map overlay at load (normally toggled
   // with M), for screenshots.
-  if (std::getenv("REC_WAR_MAP")) self->war_map_open_ = true;
-  if (const char* want = std::getenv("REC_QUEST_LIST")) {
+  if (WarMap) self->war_map_open_ = true;
+  if (const char* want = QuestList.get()) {
     self->quest_->ReportQuestList(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (const char* want = std::getenv("REC_QUEST_REPORT")) {
+  if (const char* want = QuestReport.get()) {
     self->quest_->ReportQuestToCompletion(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (std::getenv("REC_CW_REINF_TEST")) {
+  if (CwReinfTest) {
     self->quest_->ReportReinforcementTest();
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (const char* want = std::getenv("REC_DIALOGUE_REPORT")) {
+  if (const char* want = DialogueReport.get()) {
     self->quest_->ReportDialogue(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
   // REC_DIALOGUE_PROBE=<0xNpcOrAchrForm> logs the topics an NPC would offer (the
   // speaker-gated, priority-ordered set), to verify dialogue without the UI.
-  if (const char* want = std::getenv("REC_DIALOGUE_PROBE")) {
+  if (const char* want = DialogueProbe.get()) {
     self->interaction_->ReportDialogueWith(std::strtoull(want, nullptr, 0));
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (const char* want = std::getenv("REC_SCENE_REPORT")) {
+  if (const char* want = SceneReport.get()) {
     self->quest_->ReportSceneFragments(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (const char* want = std::getenv("REC_SCENE_PLAY")) {
+  if (const char* want = ScenePlay.get()) {
     self->quest_->ReportScenePlay(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  if (const char* want = std::getenv("REC_SCENE_LIVE")) {
+  if (const char* want = SceneLive.get()) {
     self->quest_->ReportSceneLive(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
@@ -299,7 +319,7 @@ bool LoadGameData(Engine& engine) {
   // (cell 4,1 probed at 1.4 m max-drop, fully dry) rather than the default 5,-3
   // clifftop where the fight slides 48 m down onto the lake below.
   if (!self->config_.start_cell_explicit && self->game_ == bethesda::Game::kSkyrimSe &&
-      (std::getenv("REC_CW_SIEGE_DEMO") || std::getenv("REC_CW_FIELD_BATTLE"))) {
+      (CwSiegeDemo || CwFieldBattle)) {
     self->config_.start_cell_x = 4;
     self->config_.start_cell_y = 1;
   }
@@ -327,7 +347,7 @@ bool LoadGameData(Engine& engine) {
   // ground is within a 14 m ring and whether any of it is under water. A good
   // showcase venue has a small max-drop and zero submerged samples. Headless +
   // fast, so a range of --cell values can be screened to pick a dry, flat one.
-  if (std::getenv("REC_VENUE_PROBE") && self->streamer_) {
+  if (VenueProbe && self->streamer_) {
     f32 max_drop = 0;
     int submerged = 0, sampled = 0;
     for (int i = 0; i < 12; ++i) {
@@ -376,7 +396,7 @@ void SetupExtraStreamers(Engine& engine) {
   // world to show (its default is a content-dense cell, not the empty ocean the
   // primary camera's own coordinates would land on).
   Vec3 step{450.0f, 0.0f, 0.0f};
-  if (const char* env = std::getenv("REC_DOMAIN_OFFSET")) {
+  if (const char* env = DomainOffset.get()) {
     std::sscanf(env, "%f,%f,%f", &step.x, &step.y, &step.z);
   }
   // REC_DOMAIN_CELL forces the region for every secondary; otherwise each game
@@ -384,8 +404,8 @@ void SetupExtraStreamers(Engine& engine) {
   // coordinates usually land in empty ocean in the secondary world).
   i32 forced_x = 0, forced_y = 0;
   const bool forced =
-      std::getenv("REC_DOMAIN_CELL") &&
-      std::sscanf(std::getenv("REC_DOMAIN_CELL"), "%d,%d", &forced_x, &forced_y) == 2;
+      DomainCell.get() &&
+      std::sscanf(DomainCell.get(), "%d,%d", &forced_x, &forced_y) == 2;
   const Vec3 cam = self->camera_.position();
 
   for (size_t i = 0; i < self->extra_domains_.size(); ++i) {

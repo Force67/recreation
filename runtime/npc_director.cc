@@ -4,6 +4,8 @@
 #include <cmath>
 #include <vector>
 
+#include <base/option.h>
+
 #include "actor_system.h"
 #include "core/log.h"
 #include "core/math.h"
@@ -16,6 +18,8 @@
 #include "world/steering_avoidance.h"
 
 namespace rec {
+
+static base::Option<float> CwBattleDelay{"cw.battle.delay", 0.f, "REC_CW_BATTLE_DELAY"};
 
 NpcDirector::NpcDirector(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx), actors_(actors), world_(*ctx.world), physics_(*ctx.physics) {}
@@ -715,7 +719,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     // Let the terrain stream and the player settle (and, in MP, a client finish
     // joining so it receives the live spawn broadcast). REC_CW_BATTLE_DELAY tunes it.
     f32 warmup = 2.0f;
-    if (const char* d = std::getenv("REC_CW_BATTLE_DELAY")) warmup = static_cast<f32>(std::atof(d));
+    if (CwBattleDelay.overridden()) warmup = CwBattleDelay.get();
     if (cw_field_warmup_ < warmup) return;
     Vec3 ppos;
     if (!actors_->PlayerWorldPos(&ppos)) return;

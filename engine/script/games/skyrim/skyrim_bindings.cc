@@ -8,6 +8,8 @@
 #include <functional>
 #include <string_view>
 
+#include <base/option.h>
+
 #include "bethesda/record.h"
 #include "core/log.h"
 #include "quest/quest_def.h"
@@ -19,6 +21,9 @@ namespace rec::script::skyrim {
 namespace {
 
 using papyrus::ObjectRef;
+
+// REC_EVENT_TRACE logs every raised form event; was a function-local static.
+base::Option<bool> EventTrace{"event.trace", false, "REC_EVENT_TRACE"};
 
 // Seconds the ScenePlayer dwells in each scene phase before advancing. Scenes
 // really pace on dialogue length / completion conditions; a fixed cadence keeps
@@ -678,7 +683,7 @@ void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target, const char* event,
   const bool dispatched = vm_ && vm_->TryCall(ObjectRef{target}, event, std::move(args));
   // REC_EVENT_TRACE logs every raised form event and whether a handler ran, so a
   // headless quest run shows which events the stage fragments actually produce.
-  static const bool trace = std::getenv("REC_EVENT_TRACE") != nullptr;
+  const bool trace = bool(EventTrace);
   if (trace)
     REC_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
 }

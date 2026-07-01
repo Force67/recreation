@@ -2,6 +2,8 @@
 #include <fstream>
 #include <string>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "ecs/world.h"
 #include "editor.h"
@@ -14,9 +16,13 @@ namespace {
 
 constexpr f32 kUnitsToMeters = 0.01428f;  // mirrors CellStreamer (unit -> metre)
 
+// Config override, populated from the environment by
+// base::InitOptionsFromEnv() at startup.
+base::Option<const char*> EditorLayout{"editor.layout", nullptr, "REC_EDITOR_LAYOUT"};
+
 // Where the layout lives: REC_EDITOR_LAYOUT, else a file in the working dir.
 std::string DefaultLayoutPath() {
-  if (const char* env = std::getenv("REC_EDITOR_LAYOUT")) return env;
+  if (const char* env = EditorLayout.get()) return env;
   return "editor_layout.reclayout";
 }
 

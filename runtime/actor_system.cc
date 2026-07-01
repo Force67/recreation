@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 
+#include <base/option.h>
+
 #include "anim/foot_ik.h"
 #include "asset/primitives.h"
 #include "bethesda/converters.h"
@@ -20,6 +22,11 @@
 #endif
 
 namespace rec {
+
+static base::Option<bool> Autowalk{"autowalk", false, "REC_AUTOWALK"};
+static base::Option<bool> Player{"player", false, "REC_PLAYER"};
+static base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
+static base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
 
 ActorSystem::ActorSystem(EngineContext& ctx)
     : ctx_(ctx),
@@ -143,7 +150,7 @@ void ActorSystem::CreateTestCharacter() {
   actors_.push_back(std::move(actor));
   REC_INFO("spawned test biped ({} bones); press T to walk it", bone_count);
 
-  if (std::getenv("REC_AUTOWALK")) {
+  if (Autowalk) {
     ctx_.auto_walk = true;
     ctx_.walk_mode = true;
   }
@@ -450,15 +457,14 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
 
 void ActorSystem::MaybeSpawnWorldPlayer(const Vec3& ground_pos) {
   if (config_.headless) return;
-  if (!config_.spawn_player && !std::getenv("REC_PLAYER") && !std::getenv("REC_MQ101_DEMO") &&
-      !std::getenv("REC_MQ101_SCENE"))
+  if (!config_.spawn_player && !Player && !Mq101Demo && !Mq101Scene)
     return;
   // Lift the spawn slightly so the capsule settles onto the floor instead of
   // starting embedded in the collision.
   if (!SpawnPlayerActor({ground_pos.x, ground_pos.y + 0.2f, ground_pos.z})) return;
   ctx_.walk_mode = true;
   ctx_.third_person = true;
-  if (std::getenv("REC_AUTOWALK")) ctx_.auto_walk = true;
+  if (Autowalk) ctx_.auto_walk = true;
   REC_INFO("player: walkable avatar spawned at ({:.1f}, {:.1f}, {:.1f}); walk mode on", ground_pos.x,
            ground_pos.y, ground_pos.z);
 }
@@ -489,7 +495,7 @@ bool ActorSystem::CreateSkyrimActor() {
   camera_.set_yaw_pitch(3.14159f, -0.08f);
   REC_INFO("skyrim actor ready ({} body parts); press T to walk it",
            actors_[player_actor_].parts.size());
-  if (std::getenv("REC_AUTOWALK")) {
+  if (Autowalk) {
     ctx_.auto_walk = true;
     ctx_.walk_mode = true;
   }

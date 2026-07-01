@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <string>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "render/rhi/device.h"  // pulls volk (VK_NO_PROTOTYPES) before the ngx vk header
 
@@ -17,6 +19,10 @@ namespace {
 // Arbitrary application id for the CUSTOM engine path; NGX validates it is a
 // well formed UUID (8-4-4-4-12 hex), it does not need to be registered.
 constexpr const char* kProjectId = "8d4a1f60-3c2e-4b8a-9f17-c4035c19df04";
+
+// RECREATION_DLSS_LIB_DIR overrides the baked-in snippet dir; was read straight
+// from the environment.
+base::Option<const char*> DlssLibDir{"dlss.lib.dir", nullptr, "RECREATION_DLSS_LIB_DIR"};
 
 void NgxLog(const char* message, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature) {
   std::string line(message ? message : "");
@@ -52,7 +58,7 @@ class DlssUpscaler final : public Upscaler {
     // SDK lib dir is baked in at build time by third_party/dlss.cmake, with an
     // env override so a driver-bundled or dev snippet can be pointed at without
     // a rebuild.
-    const char* lib_dir = std::getenv("RECREATION_DLSS_LIB_DIR");
+    const char* lib_dir = DlssLibDir.get();
     snippet_dir_ = ToWide(lib_dir && *lib_dir ? lib_dir : RECREATION_DLSS_LIB_DIR);
     snippet_path_ = snippet_dir_.c_str();
     NVSDK_NGX_FeatureCommonInfo common{};

@@ -5,6 +5,8 @@
 #include <thread>
 #include <utility>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "engine_internal.h"
 #include "script/papyrus/value.h"
@@ -16,6 +18,12 @@
 // the render path that builds the FrameView and submits it. Split out of the
 // core lifecycle unit so the hot loop reads on its own.
 namespace rec {
+
+// Config overrides, populated from the environment by
+// base::InitOptionsFromEnv() at startup.
+static base::Option<float> Lightning{"lightning", 0.0f, "REC_LIGHTNING"};
+static base::Option<const char*> UiShot{"ui.shot", nullptr, "REC_UI_SHOT"};
+static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "REC_UI_SHOT_FRAMES"};
 
 void Engine::ApplyQuestWorld() {
   std::vector<world::WorldCommand> commands = quest_world_queue_.Drain();
@@ -245,7 +253,7 @@ bool Engine::RunFrame() {
           lightning_ = std::min(1.0f, a + b);
         }
         // REC_LIGHTNING holds the flash at a fixed level (testing the brief, random strike).
-        if (const char* fl = std::getenv("REC_LIGHTNING")) lightning_ = static_cast<f32>(std::atof(fl));
+        if (Lightning.overridden()) lightning_ = Lightning.get();
         renderer_.settings().lightning = lightning_;
       }
       // Day/night: derive the sun direction/intensity/color/ambient from the
@@ -359,11 +367,10 @@ bool Engine::RunFrame() {
       // Test/CI hook: REC_UI_SHOT=<path> grabs the frame after REC_UI_SHOT_FRAMES
       // (default 30) and quits. Lets a headless GPU run capture the UI without
       // loading a universe (the NEXUS menu renders at boot).
-      if (const char* shot = std::getenv("REC_UI_SHOT")) {
+      if (const char* shot = UiShot.get()) {
         static int ui_shot_frames = 0;
         static const int ui_shot_target = [] {
-          const char* f = std::getenv("REC_UI_SHOT_FRAMES");
-          return f && std::atoi(f) > 0 ? std::atoi(f) : 30;
+          return UiShotFrames.get() > 0 ? UiShotFrames.get() : 30;
         }();
         ++ui_shot_frames;
         // CaptureScreenshot is deferred: it is written by the NEXT RenderFrame.

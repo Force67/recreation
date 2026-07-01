@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include <base/option.h>
+
 #include "actor_system.h"
 #include "bethesda/script_attachment.h"
 #include "core/log.h"
@@ -27,6 +29,19 @@
 namespace rec {
 
 namespace {
+
+// Config options (formerly REC_* env vars; populated by InitOptionsFromEnv()).
+base::Option<bool> NoAutostart{"no.autostart", false, "REC_NO_AUTOSTART"};
+base::Option<const char*> StartQuest{"start.quest", nullptr, "REC_START_QUEST"};
+base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
+base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
+base::Option<bool> CwBattle{"cw.battle", false, "REC_CW_BATTLE"};
+base::Option<bool> CwFieldBattle{"cw.field.battle", false, "REC_CW_FIELD_BATTLE"};
+base::Option<bool> Cw00Demo{"cw00.demo", false, "REC_CW00_DEMO"};
+base::Option<bool> CwDemo{"cw.demo", false, "REC_CW_DEMO"};
+base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "REC_CW_SIEGE_DEMO"};
+base::Option<const char*> CwSide{"cw.side", nullptr, "REC_CW_SIDE"};
+base::Option<bool> Journal{"journal", false, "REC_JOURNAL"};
 
 // One of a quest's scenes: its handle, editor id, and parsed Papyrus fragments.
 struct SceneJob {
@@ -106,7 +121,7 @@ void QuestDirector::AttachQuestScripts() {
   int quests = 0;
   int instances = 0;
   // Start-Game-Enabled quests come online at load (REC_NO_AUTOSTART disables it).
-  const bool no_autostart_ = std::getenv("REC_NO_AUTOSTART") != nullptr;
+  const bool no_autostart_ = bool(NoAutostart);
   int autostarted = 0;
   records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
                       [&](bethesda::GlobalFormId id,
@@ -185,7 +200,7 @@ void QuestDirector::AttachQuestScripts() {
   // stage fragment) so quest logic can be exercised without the UI. The optional
   // :stage drives it to that stage, e.g. REC_START_QUEST=MQ101:160 to surface an
   // objective on the HUD.
-  if (const char* want = std::getenv("REC_START_QUEST")) {
+  if (const char* want = StartQuest.get()) {
     std::string spec = want;
     std::string edid = spec;
     i32 start_stage = -1;
@@ -220,7 +235,7 @@ void QuestDirector::AttachQuestScripts() {
   // (its opening fragment surfaces the first objective), then the npc director
   // drops a waypoint and recruits followers once the player and that objective
   // exist. Walk to the marker to complete the quest.
-  if (host && std::getenv("REC_MQ101_DEMO")) {
+  if (host && Mq101Demo) {
     const u64 handle = FindQuestHandle("MQ101");
     if (handle != 0) {
       quest_panel_.selected = handle;
@@ -231,7 +246,7 @@ void QuestDirector::AttachQuestScripts() {
 
   // REC_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
   // a guide NPC leads the player along a path while MQ101 advances to completion.
-  if (host && std::getenv("REC_MQ101_SCENE")) {
+  if (host && Mq101Scene) {
     const u64 handle = FindQuestHandle("MQ101");
     if (handle != 0) {
       quest_panel_.selected = handle;
@@ -243,19 +258,19 @@ void QuestDirector::AttachQuestScripts() {
   // REC_CW_BATTLE enlists the streamed NPCs around the player into two armies and
   // lets the combat driver fight it out, a live check that the melee path works
   // end to end on real rendered actors. Pairs well with --interior HelgenKeep01.
-  if (host && std::getenv("REC_CW_BATTLE")) {
+  if (host && CwBattle) {
     npc_->ArmCwBattle();
     REC_INFO("debug: CW battle harness armed (nearby NPCs split into two armies)");
   }
   // REC_CW_FIELD_BATTLE stages a fresh two-army clash in the open in front of the
   // player, framed for the camera.
-  if (host && std::getenv("REC_CW_FIELD_BATTLE")) {
+  if (host && CwFieldBattle) {
     npc_->ArmCwFieldBattle();
     REC_INFO("debug: CW field battle armed (two lines of soldiers will charge)");
   }
   // REC_CW00_DEMO: the live join beat, walk to General Tullius in Castle Dour
   // and enlist (pair with --interior SolitudeCastleDour REC_PLAYER).
-  if (host && std::getenv("REC_CW00_DEMO")) {
+  if (host && Cw00Demo) {
     npc_->ArmCw00Demo();
     REC_INFO("debug: CW00 join demo armed (walk to Tullius to enlist)");
   }
@@ -264,7 +279,7 @@ void QuestDirector::AttachQuestScripts() {
   // stage a fort skirmish the player fights in, and on victory advance to stage
   // 100 (its fragment completes objective 1 and surfaces "Report to Legate
   // Rikke"): combat driving the quest forward.
-  if (host && std::getenv("REC_CW_DEMO")) {
+  if (host && CwDemo) {
     const u64 cw01a = FindQuestHandle("CW01A");
     if (cw01a != 0) {
       quest_panel_.selected = cw01a;
@@ -283,7 +298,7 @@ void QuestDirector::AttachQuestScripts() {
   // player fights in, and on victory advance to its completion stage 9000 ("We
   // have succeeded in taking the fort"): a real Civil War siege quest's journal
   // driven by a battle.
-  if (host && std::getenv("REC_CW_SIEGE_DEMO")) {
+  if (host && CwSiegeDemo) {
     const u64 siege = FindQuestHandle("CWFortSiegeFort");
     if (siege != 0) {
       quest_panel_.selected = siege;
@@ -294,7 +309,7 @@ void QuestDirector::AttachQuestScripts() {
       // engine-side mirror of the in-game F1/F2 enlistment prompt, both just
       // commit the join quest. Unset leaves the player unaligned (the campaign
       // treats that as the Legion).
-      if (const char* side = std::getenv("REC_CW_SIDE")) {
+      if (const char* side = CwSide.get()) {
         const bool stormcloak = std::string(side) == "stormcloak";
         npc_->set_enlist_quest(FindQuestHandle(stormcloak ? "CW00B" : "CW00A"));
       }
@@ -314,7 +329,7 @@ void QuestDirector::AttachQuestScripts() {
 
   // REC_JOURNAL opens the quest journal at load (it is normally toggled with J),
   // for screenshots (cf. RECREATION_UI_MENU / REC_HIDE_DEBUG_UI).
-  if (std::getenv("REC_JOURNAL")) journal_open_ = true;
+  if (Journal) journal_open_ = true;
 
 }
 

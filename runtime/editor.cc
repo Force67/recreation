@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <utility>
 
+#include <base/option.h>
+
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
 #include "asset/mesh.h"
@@ -23,6 +25,11 @@
 
 namespace rec {
 namespace {
+
+// Config overrides, populated from the environment by
+// base::InitOptionsFromEnv() at startup.
+base::Option<bool> EditorDemo{"editor.demo", false, "REC_EDITOR_DEMO"};
+base::Option<bool> Cam{"cam", false, "REC_CAM"};
 
 constexpr f32 kFovY = 1.0472f;           // matches CameraPose::fov_y (60 degrees)
 constexpr f32 kStatusSeconds = 3.5f;     // how long a status message lingers
@@ -64,7 +71,7 @@ void MapEditor::Toggle() {
     if (!layout_loaded_) {
       layout_loaded_ = true;
       LoadLayout();
-      if (std::getenv("REC_EDITOR_DEMO")) PlaceDemoBuild();
+      if (EditorDemo) PlaceDemoBuild();
     }
   } else {
     selected_.clear();
@@ -474,7 +481,7 @@ void MapEditor::PlaceDemoBuild() {
 
   // Frame the rows for a clean capture (unless REC_CAM already pinned a vantage):
   // a near-top-down vantage so dense start cells never occlude them.
-  if (!std::getenv("REC_CAM")) {
+  if (!Cam) {
     Vec3 row_center = base_center + fwd_h * 2.0f;
     f32 cg = 0;
     if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg)) row_center.y = cg;

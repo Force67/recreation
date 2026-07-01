@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include <base/option.h>
+
 #include "asset/primitives.h"
 #include "core/log.h"
 #include "quest/quest_def.h"
@@ -26,6 +28,8 @@
 namespace rec {
 
 #if RECREATION_HAS_NET
+static base::Option<bool> NetQuestLog{"net.quest.log", false, "REC_NET_QUEST_LOG"};
+
 bool StartNetworking(Engine& engine) {
   Engine* const self = &engine;
   net::SessionConfig net_config;
@@ -206,7 +210,7 @@ bool StartNetworking(Engine& engine) {
           // questing gameplay (XP, journal) on the client as on the host.
           binds->ApplyReplicatedStatus(status);
         });
-        if (std::getenv("REC_NET_QUEST_LOG"))
+        if (NetQuestLog)
           REC_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain,
                    status.handle, status.stage, status.complete ? 1 : 0);
       });

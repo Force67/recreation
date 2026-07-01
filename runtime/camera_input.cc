@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "core/math.h"
 #include "world/components.h"
@@ -14,6 +16,18 @@
 // camera), the walk-mode character controller, the scripted camera drivers
 // (orbit / replay / cinematic showcase / record), and the debug physics toss.
 namespace rec {
+
+// Camera / capture overrides, populated from the environment by
+// base::InitOptionsFromEnv() at startup.
+static base::Option<const char*> Cam{"cam", nullptr, "REC_CAM"};
+static base::Option<bool> Orbit{"orbit", false, "REC_ORBIT"};
+static base::Option<bool> Editor{"editor", false, "REC_EDITOR"};
+static base::Option<const char*> Record{"record", nullptr, "REC_RECORD"};
+static base::Option<const char*> Replay{"replay", nullptr, "REC_REPLAY"};
+static base::Option<bool> Showcase{"showcase", false, "REC_SHOWCASE"};
+static base::Option<const char*> ShowcaseShots{"showcase.shots", nullptr, "REC_SHOWCASE_SHOTS"};
+static base::Option<bool> ShowcaseQuit{"showcase.quit", false, "REC_SHOWCASE_QUIT"};
+static base::Option<bool> AutoAttack{"auto.attack", false, "REC_AUTO_ATTACK"};
 
 void Engine::UpdateCamera(f32 frame_delta) {
   if (!window_) return;
@@ -131,7 +145,7 @@ void Engine::DriveCamera(f32 dt) {
     cam_init_ = true;
     // REC_CAM="x,y,z,yaw,pitch" pins the camera for a framed capture (handy for
     // screenshots that must show a specific vantage, e.g. two worlds side by side).
-    if (const char* c = std::getenv("REC_CAM")) {
+    if (const char* c = Cam.get()) {
       Vec3 p{};
       f32 yaw = 0, pitch = 0;
       if (std::sscanf(c, "%f,%f,%f,%f,%f", &p.x, &p.y, &p.z, &yaw, &pitch) >= 3) {
@@ -139,12 +153,12 @@ void Engine::DriveCamera(f32 dt) {
         camera_.set_yaw_pitch(yaw, pitch);
       }
     }
-    cam_orbit_ = std::getenv("REC_ORBIT") != nullptr;
+    cam_orbit_ = bool(Orbit);
     // REC_EDITOR boots straight into the map editor (the catalog is ready once
     // the records are loaded), so a capture or a builder session can skip F4.
-    if (std::getenv("REC_EDITOR") && editor_ && !editor_->active()) editor_->Toggle();
-    if (const char* r = std::getenv("REC_RECORD")) cam_record_ = std::fopen(r, "wb");
-    if (const char* p = std::getenv("REC_REPLAY")) {
+    if (Editor && editor_ && !editor_->active()) editor_->Toggle();
+    if (const char* r = Record.get()) cam_record_ = std::fopen(r, "wb");
+    if (const char* p = Replay.get()) {
       if (std::FILE* f = std::fopen(p, "rb")) {
         f32 rec[7];
         while (std::fread(rec, sizeof(f32), 7, f) == 7) {
@@ -157,11 +171,11 @@ void Engine::DriveCamera(f32 dt) {
     // REC_SHOWCASE flies a smooth cinematic pass over every loaded worldspace in
     // one take. REC_SHOWCASE_SHOTS=<dir> writes a regression PNG at each marked
     // beat; REC_SHOWCASE_QUIT exits when the pass ends (headless benchmark).
-    if (std::getenv("REC_SHOWCASE")) {
+    if (Showcase) {
       BuildShowcase();
       cam_showcase_ = !showcase_.empty();
-      if (const char* d = std::getenv("REC_SHOWCASE_SHOTS")) showcase_shot_dir_ = d;
-      showcase_quit_ = std::getenv("REC_SHOWCASE_QUIT") != nullptr;
+      if (const char* d = ShowcaseShots.get()) showcase_shot_dir_ = d;
+      showcase_quit_ = bool(ShowcaseQuit);
       if (cam_showcase_) {
         ctx_.walk_mode = false;         // the cinematic owns the camera
         game_ui_.SetHudVisible(false);  // clean frames: no crosshair / compass / bars
@@ -345,7 +359,7 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   // Melee: a left-click / right-trigger swing strikes the NPC the player faces,
   // so the player can fight (clear a fort, join a battle). Aim is the camera yaw.
   // REC_AUTO_ATTACK swings on a timer for headless playthrough verification.
-  static const bool auto_attack = std::getenv("REC_AUTO_ATTACK") != nullptr;
+  const bool auto_attack = bool(AutoAttack);
   bool swing = allow && actions_.pressed(Action::kAttack);
   if (auto_attack) {
     auto_attack_timer_ -= dt;

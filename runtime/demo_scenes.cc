@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <string>
 
+#include <base/option.h>
+
 #include "actor_system.h"
 #include "asset/materialx.h"
 #include "asset/primitives.h"
@@ -13,6 +15,12 @@
 #include "world/components.h"
 
 namespace rec {
+
+// Config overrides, populated from the environment by
+// base::InitOptionsFromEnv() at startup.
+static base::Option<const char*> Ply{"ply", nullptr, "REC_PLY"};
+static base::Option<bool> OitReverse{"oit.reverse", false, "REC_OIT_REVERSE"};
+static base::Option<const char*> Mtlx{"mtlx", nullptr, "REC_MTLX"};
 
 DemoScenes::DemoScenes(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx),
@@ -303,7 +311,7 @@ void DemoScenes::CreateGaussianDemoScene() {
 
   // REC_PLY=<path> loads a real captured splat scene instead of the procedural
   // sphere. The renderer sorts and projects them exactly the same way.
-  if (const char* ply = std::getenv("REC_PLY")) {
+  if (const char* ply = Ply.get()) {
     if (render::LoadGaussianPly(ply, &demo_gaussians_)) {
       camera_.set_position({0.0f, 1.0f, 4.0f});
       camera_.set_yaw_pitch(0.0f, 0.0f);
@@ -552,7 +560,7 @@ void DemoScenes::CreateOitDemoScene() {
                         {{0.0f, 1.65f, 0.0f}, {1.0f, 0.95f, 0.15f}, 0.5f},
                         {{0.0f, 0.75f, 0.1f}, {0.15f, 1.0f, 1.0f}, 0.5f}};
   const f32 radius = 0.6f;
-  bool reverse = std::getenv("REC_OIT_REVERSE") != nullptr;  // verify order independence
+  bool reverse = bool(OitReverse);  // verify order independence
   for (int j = 0; j < 5; ++j) {
     const S& s = spheres[reverse ? 4 - j : j];
     render::WboitInstance inst;
@@ -717,7 +725,7 @@ void DemoScenes::CreateMaterialXDemoScene() {
   world_.Add(floor, world::Renderable{ground.id});
 
   base::Vector<std::string> paths;
-  if (const char* env = std::getenv("REC_MTLX")) {
+  if (const char* env = Mtlx.get()) {
     std::string s = env, cur;
     for (char c : s) {
       if (c == ',') {

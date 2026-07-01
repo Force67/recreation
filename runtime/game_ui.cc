@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "core/window.h"
 #include "gui_backend.h"
@@ -32,6 +34,18 @@ namespace rec {
 namespace {
 
 namespace fs = std::filesystem;
+
+// Config options, populated from the environment once at startup (see
+// base::InitOptionsFromEnv). Namespace scope so they register before that runs
+// and stay visible to every use below. UiDirOpt avoids colliding with UiDir().
+base::Option<const char*> UiDirOpt{"ui.dir", nullptr, "RECREATION_UI_DIR"};
+base::Option<const char*> UiFont{"ui.font", nullptr, "RECREATION_UI_FONT"};
+base::Option<const char*> UiFontMono{"ui.font.mono", nullptr, "RECREATION_UI_FONT_MONO"};
+base::Option<bool> UiHotReload{"ui.hot.reload", false, "RECREATION_UI_HOT_RELOAD"};
+base::Option<bool> UiMenu{"ui.menu", false, "RECREATION_UI_MENU"};
+base::Option<bool> MainMenu{"main.menu", false, "RECREATION_MAIN_MENU"};
+base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
+base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
 // always covers the window whatever the heading; the engine slides it by
@@ -499,7 +513,7 @@ const char* const kUiFragments[] = {
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
 // source path, else a cwd-relative fallback.
 fs::path UiDir() {
-  if (const char* env = std::getenv("RECREATION_UI_DIR"); env && *env) return env;
+  if (const char* env = UiDirOpt.get(); env && *env) return env;
 #ifdef RECREATION_UI_DIR_DEFAULT
   return fs::path(RECREATION_UI_DIR_DEFAULT);
 #else
@@ -587,7 +601,7 @@ std::string BuildUi() {
 
 const char* FindFont() {
   static std::string resolved;
-  if (const char* env = std::getenv("RECREATION_UI_FONT"); env && fs::exists(env)) {
+  if (const char* env = UiFont.get(); env && fs::exists(env)) {
     resolved = env;
     return resolved.c_str();
   }
@@ -633,7 +647,7 @@ const char* FindFont() {
 // fontconfig first, then the usual DejaVu Sans Mono locations. Null if none.
 const char* FindMonoFont() {
   static std::string resolved;
-  if (const char* env = std::getenv("RECREATION_UI_FONT_MONO"); env && fs::exists(env)) {
+  if (const char* env = UiFontMono.get(); env && fs::exists(env)) {
     resolved = env;
     return resolved.c_str();
   }
@@ -1552,7 +1566,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->ui.LoadUiString(doc.c_str(), "hud");
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
-  impl_->hot_reload = std::getenv("RECREATION_UI_HOT_RELOAD") != nullptr;
+  impl_->hot_reload = bool(UiHotReload);
   impl_->CaptureFragmentMtimes();
   if (impl_->hot_reload) REC_INFO("ui: hot reload on, watching {}", UiDir().string());
 
@@ -1600,13 +1614,13 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->SetVisible("editor_root", false);
 
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
-  if (std::getenv("RECREATION_UI_MENU")) impl_->menu_open = true;
+  if (UiMenu) impl_->menu_open = true;
   impl_->ApplyMenuVisibility();  // menu starts hidden unless forced open
   // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
-  if (std::getenv("RECREATION_MAIN_MENU")) impl_->main_menu_open = true;
+  if (MainMenu) impl_->main_menu_open = true;
   impl_->ApplyMainMenu();
   // Debug aid: RECREATION_FIRST_RUN opens the setup wizard at startup.
-  if (std::getenv("RECREATION_FIRST_RUN")) impl_->first_run_open = true;
+  if (FirstRun) impl_->first_run_open = true;
   impl_->ApplyFirstRun();
   impl_->initialized = true;
   REC_INFO("ultragui hud initialized (draw-data mode)");
@@ -1721,7 +1735,7 @@ void GameUi::OpenFirstRun() {
   impl_->fr_dropdown = -1;
   // Debug aid: RECREATION_FIRST_RUN_STEP=<0..4> opens the wizard on that page
   // (so a headless capture can grab any page, not just the welcome screen).
-  if (const char* s = std::getenv("RECREATION_FIRST_RUN_STEP")) {
+  if (const char* s = FirstRunStep.get()) {
     const int v = std::atoi(s);
     if (v >= 0 && v < kFirstRunSteps) impl_->fr_step = v;
   }

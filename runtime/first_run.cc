@@ -7,6 +7,8 @@
 #include <map>
 #include <string>
 
+#include <base/option.h>
+
 #include "bethesda/game_profile.h"
 #include "core/log.h"
 #include "engine_internal.h"
@@ -21,6 +23,14 @@ namespace rec {
 namespace fs = std::filesystem;
 
 namespace {
+
+// Test/CI hooks, formerly read straight from the environment. Namespace scope so
+// they register before InitOptionsFromEnv() runs at startup.
+base::Option<const char*> PickOverride{"pick.override", nullptr, "REC_PICK_OVERRIDE"};
+base::Option<bool> ForceFirstRun{"force.first.run", false, "REC_FORCE_FIRST_RUN"};
+base::Option<const char*> FirstrunAutobrowse{"firstrun.autobrowse", nullptr,
+                                             "REC_FIRSTRUN_AUTOBROWSE"};
+base::Option<bool> FirstrunAutolaunch{"firstrun.autolaunch", false, "REC_FIRSTRUN_AUTOLAUNCH"};
 
 // Per-platform user config directory holding setup.ini and the default mods
 // folder: %APPDATA%\Recreation, ~/Library/Application Support/Recreation, or
@@ -91,7 +101,7 @@ std::string RunPicker(const std::string& cmd) {
 std::string PickFolder(const std::string& title) {
   // Test hook: skip the GUI dialog and return a fixed path. Lets the browse flow
   // run without a display (headless capture, CI).
-  if (const char* o = std::getenv("REC_PICK_OVERRIDE")) return o;
+  if (const char* o = PickOverride.get()) return o;
 #if defined(_WIN32)
   const std::string cmd =
       "powershell -NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
@@ -152,7 +162,7 @@ void LoadSetupConfig(Engine& engine) {
 // True once the wizard has been completed (setup.ini exists with done=1).
 // REC_FORCE_FIRST_RUN forces the wizard back on for testing.
 bool FirstRunComplete() {
-  if (std::getenv("REC_FORCE_FIRST_RUN")) return false;
+  if (ForceFirstRun) return false;
   const auto kv = ReadIni();
   const auto it = kv.find("done");
   return it != kv.end() && it->second == "1";
@@ -219,7 +229,7 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Test hook: REC_FIRSTRUN_AUTOBROWSE=<0..2> browses that column once on the
   // first frame (mirrors REC_MENU_AUTOPLAY), so the picker, validation and
   // locate path run without a mouse. Pair with REC_PICK_OVERRIDE for the folder.
-  if (const char* ab = std::getenv("REC_FIRSTRUN_AUTOBROWSE")) {
+  if (const char* ab = FirstrunAutobrowse.get()) {
     static bool fired = false;
     if (!fired) {
       fired = true;
@@ -247,7 +257,7 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Test hook: REC_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
   // launches, so the setup->main-menu handoff can be verified headlessly. Runs
   // after the view push so the locate-page gate sees any auto-browsed game.
-  if (std::getenv("REC_FIRSTRUN_AUTOLAUNCH")) game_ui_.FirstRunNext();
+  if (FirstrunAutolaunch) game_ui_.FirstRunNext();
 
   const FirstRunRequest req = game_ui_.PollFirstRunRequest();
   switch (req.kind) {

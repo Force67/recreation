@@ -8,11 +8,18 @@
 #include <limits>
 #include <string>
 
+#include <base/option.h>
+
 #include "core/log.h"
 #include "world/components.h"
 
 namespace rec::world {
 namespace {
+
+// Streaming overrides formerly read straight from the environment; populated by
+// base::InitOptionsFromEnv() at startup.
+base::Option<int> LoadRadius{"load.radius", -1, "REC_LOAD_RADIUS"};
+base::Option<bool> DistantLod{"distant.lod", false, "REC_DISTANT_LOD"};
 
 constexpr f32 kUnitsToMeters = 0.01428f;
 constexpr f32 kCellSize = 4096.0f;
@@ -168,11 +175,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   i16 center_y = static_cast<i16>(std::floor(beth_y / kCellSize));
   // REC_LOAD_RADIUS extends the streamed cell ring for greater draw distance;
   // affordable on the mesh-shader lod path (gpu cluster cull + distance lods).
-  static const i32 kRadiusOverride = [] {
-    const char* r = std::getenv("REC_LOAD_RADIUS");
-    return r ? std::atoi(r) : -1;
-  }();
-  i32 radius = kRadiusOverride > 0 ? kRadiusOverride : settings_.load_radius;
+  i32 radius = LoadRadius > 0 ? LoadRadius.get() : settings_.load_radius;
 
   base::Vector<u32> to_unload;
   for (auto kv : loaded_) {
@@ -212,11 +215,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   // Distant LOD: build the catalog once, then drain a few quads per tick. These
   // are persistent proxies covering the whole worldspace; the mesh-shader cull
   // (frustum + occlusion) keeps the off-screen / hidden ones free.
-  static const int kDistantEnv = [] {
-    const char* e = std::getenv("REC_DISTANT_LOD");
-    return e ? std::atoi(e) : -1;
-  }();
-  const bool distant_on = kDistantEnv >= 0 ? kDistantEnv != 0 : settings_.distant_lod;
+  const bool distant_on = DistantLod.overridden() ? DistantLod.get() : settings_.distant_lod;
   if (distant_on) {
     if (!distant_discovered_) DiscoverDistantQuads();
     u32 distant_budget = settings_.distant_budget;

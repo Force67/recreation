@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <vector>
 
+#include <base/option.h>
+
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -20,6 +22,9 @@
 
 namespace rec {
 namespace {
+
+// Config toggle formerly read from getenv (populated by base::InitOptionsFromEnv).
+base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
 
 const char* kAaModes[] = {"None", "TAA", "FSR3 Upscaler", "DLSS Upscaler"};
 const char* kQualities[] = {"Native AA (1.0x)", "Quality (1.5x)", "Balanced (1.7x)",
@@ -94,7 +99,7 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
 
   // REC_HIDE_DEBUG_UI starts with the imgui overlays hidden, so the libultragui
   // HUD has the screen to itself for clean screenshots (cf. RECREATION_UI_MENU).
-  if (std::getenv("REC_HIDE_DEBUG_UI"))
+  if (HideDebugUi)
     visible_ = trace_visible_ = quests_visible_ = false;
   initialized_ = true;
   REC_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);

@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <base/option.h>
+
 #include <stb_image_write.h>
 
 #include "asset/primitives.h"
@@ -16,6 +18,30 @@
 
 namespace rec::render {
 namespace {
+
+// Renderer config overrides, populated from the environment by
+// base::InitOptionsFromEnv() at startup (see Engine::Initialize). DebugView and
+// ColorGrade options take an Opt suffix to avoid shadowing the enums of the same
+// name used in the casts below.
+base::Option<const char*> Screenshot{"screenshot", nullptr, "REC_SCREENSHOT"};
+base::Option<const char*> Hdr{"hdr", nullptr, "REC_HDR"};
+base::Option<bool> Wireframe{"wireframe", false, "REC_WIREFRAME"};
+base::Option<bool> Ssr{"ssr", false, "REC_SSR"};
+base::Option<bool> Ssgi{"ssgi", false, "REC_SSGI"};
+base::Option<bool> DistanceLod{"distance.lod", false, "REC_DISTANCE_LOD"};
+base::Option<bool> MeshShaderLod{"mesh.shader.lod", false, "REC_MESH_SHADER_LOD"};
+base::Option<int> DebugViewOpt{"debug.view", 0, "REC_DEBUG_VIEW"};
+base::Option<int> ColorGradeOpt{"color.grade", 0, "REC_COLOR_GRADE"};
+base::Option<const char*> Lut{"lut", nullptr, "REC_LUT"};
+base::Option<const char*> SunDir{"sun.dir", nullptr, "REC_SUN_DIR"};
+base::Option<bool> Pathtrace{"pathtrace", false, "REC_PATHTRACE"};
+base::Option<bool> Fog{"fog", false, "REC_FOG"};
+base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
+base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
+base::Option<float> CloudCoverage{"cloud.coverage", 0.46f, "REC_CLOUD_COVERAGE"};
+base::Option<float> Precip{"precip", 0.0f, "REC_PRECIP"};
+base::Option<bool> Snow{"snow", false, "REC_SNOW"};
+base::Option<bool> Aurora{"aurora", false, "REC_AURORA"};
 
 // Distance-based hierarchical lod: coarser geometry the further a mesh is from
 // the camera. Switches roughly every few bounding radii; clamps to the coarsest.
@@ -233,7 +259,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   // Debug captures without window manager screenshots:
   // REC_SCREENSHOT=/tmp/frame.png:12 saves the frame at t=12s.
-  if (const char* spec = std::getenv("REC_SCREENSHOT")) {
+  if (const char* spec = Screenshot.get()) {
     std::string value = spec;
     size_t colon = value.find_last_of(':');
     if (colon != std::string::npos) {
@@ -244,7 +270,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   }
 
   // REC_HDR=/tmp/frame.hdr:12 exports the linear-hdr frame (radiance rgbe) at t=12s.
-  if (const char* spec = std::getenv("REC_HDR")) {
+  if (const char* spec = Hdr.get()) {
     std::string value = spec;
     size_t colon = value.find_last_of(':');
     if (colon != std::string::npos) {
@@ -254,24 +280,14 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     hdr_path_ = value;
   }
 
-  if (const char* wf = std::getenv("REC_WIREFRAME")) {
-    settings_.wireframe = std::atoi(wf) != 0;
-  }
-  if (const char* s = std::getenv("REC_SSR")) {
-    settings_.ssr = std::atoi(s) != 0;
-  }
-  if (const char* s = std::getenv("REC_SSGI")) {
-    settings_.ssgi = std::atoi(s) != 0;
-  }
+  if (Wireframe.overridden()) settings_.wireframe = Wireframe;
+  if (Ssr.overridden()) settings_.ssr = Ssr;
+  if (Ssgi.overridden()) settings_.ssgi = Ssgi;
   // REC_DISTANCE_LOD=1 re-enables distance-based lod downgrade (off by default;
   // the engine otherwise always renders the finest authored detail).
-  if (const char* dl = std::getenv("REC_DISTANCE_LOD")) {
-    settings_.distance_lod = std::atoi(dl) != 0;
-  }
+  if (DistanceLod.overridden()) settings_.distance_lod = DistanceLod;
   // REC_MESH_SHADER_LOD=1 opts into the optional VK_EXT_mesh_shader opaque path.
-  if (const char* msl = std::getenv("REC_MESH_SHADER_LOD")) {
-    settings_.mesh_shader_lod = std::atoi(msl) != 0;
-  }
+  if (MeshShaderLod.overridden()) settings_.mesh_shader_lod = MeshShaderLod;
   // Hardware gate: the path needs VK_EXT_mesh_shader and its pipelines to have
   // built. Disable + warn rather than silently doing nothing if it was requested.
   bool mesh_shader_ok = device_->caps().mesh_shaders && mesh_pipeline_ &&
@@ -287,41 +303,40 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   // REC_DEBUG_VIEW=<n> pins a debug channel at startup for headless capture;
   // exposure is fixed so the channel reads at its true magnitude.
-  if (const char* dv = std::getenv("REC_DEBUG_VIEW")) {
-    settings_.debug_view = static_cast<DebugView>(std::atoi(dv));
+  if (DebugViewOpt.overridden()) {
+    settings_.debug_view = static_cast<DebugView>(DebugViewOpt.get());
     if (settings_.debug_view != DebugView::kOff) {
       settings_.auto_exposure = false;
       settings_.exposure = 1.0f;
     }
   }
-  if (const char* cg = std::getenv("REC_COLOR_GRADE")) {
-    settings_.color_grade = static_cast<ColorGrade>(std::atoi(cg));
+  if (ColorGradeOpt.overridden()) {
+    settings_.color_grade = static_cast<ColorGrade>(ColorGradeOpt.get());
   }
   // REC_LUT=<path> loads an external .cube 3D lut as the active color grade.
-  if (const char* lut = std::getenv("REC_LUT")) {
+  if (const char* lut = Lut.get()) {
     if (post_ && post_->LoadCubeLut(lut)) settings_.color_grade = ColorGrade::kCustom;
   }
   // REC_SUN_DIR="x,y,z" overrides the sun travel direction, for headless
   // lighting/shadow tests (normalized; y clamped below the horizon).
-  if (const char* sd = std::getenv("REC_SUN_DIR")) {
+  if (const char* sd = SunDir.get()) {
     Vec3 d{};
     if (std::sscanf(sd, "%f,%f,%f", &d.x, &d.y, &d.z) == 3) {
       f32 len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
       if (len > 1e-4f) settings_.sun_direction = {d.x / len, d.y / len, d.z / len};
     }
   }
-  if (const char* pt = std::getenv("REC_PATHTRACE")) settings_.path_trace = std::atoi(pt) != 0;
-  if (const char* fg = std::getenv("REC_FOG")) settings_.fog = std::atoi(fg) != 0;
+  if (Pathtrace.overridden()) settings_.path_trace = Pathtrace;
+  if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
-  if (const char* ap = std::getenv("REC_AERIAL")) settings_.aerial_perspective = std::atof(ap);
-  if (const char* cl = std::getenv("REC_CLOUDS")) settings_.clouds = std::atoi(cl) != 0;
-  if (const char* cc = std::getenv("REC_CLOUD_COVERAGE"))
-    settings_.cloud_coverage = std::atof(cc);
+  if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
+  if (CloudsOpt.overridden()) settings_.clouds = CloudsOpt;
+  if (CloudCoverage.overridden()) settings_.cloud_coverage = CloudCoverage.get();
   // REC_PRECIP forces precipitation (0..1) and REC_SNOW=1 makes it snow, so the
   // effect is testable without a loaded game's weather.
-  if (const char* pr = std::getenv("REC_PRECIP")) settings_.precipitation = std::atof(pr);
-  if (const char* sn = std::getenv("REC_SNOW")) settings_.precip_snow = std::atoi(sn) != 0;
-  if (const char* au = std::getenv("REC_AURORA")) settings_.aurora = std::atoi(au) != 0;
+  if (Precip.overridden()) settings_.precipitation = Precip.get();
+  if (Snow.overridden()) settings_.precip_snow = Snow;
+  if (Aurora.overridden()) settings_.aurora = Aurora;
 
   return true;
 }
