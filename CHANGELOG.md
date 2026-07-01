@@ -5,6 +5,18 @@ shows the most recent entries (the first bullet of each release is its headline)
 
 ## [Unreleased]
 ### Added
+- Quest scripts now react to more of the world through engine-raised Papyrus
+  events. Combat drives `OnHit` (with the aggressor) and `OnCombatStateChanged` as
+  an actor enters and leaves combat, including when its target dies. Stepping out
+  of a scripted trigger box raises `OnTriggerLeave`, matching `OnTriggerEnter`.
+  Equipping or removing gear raises `OnObjectEquipped`/`OnObjectUnequipped` on the
+  actor and `OnEquipped`/`OnUnequipped` on the item; `IsEquipped` and
+  `GetEquippedWeapon`/`GetEquippedShield` report what an actor is wearing,
+  classified from the record. Every engine-raised event (activation, triggers,
+  equip) also reaches the scripts on the quest aliases a reference fills, the way a
+  filled actor's death already did, so alias-driven objectives fire. Covered by
+  `pexrun selftest`/`guesttest` and the record-backed equip getters by
+  `bindingstest`.
 - Registered every Skyrim native the base-game scripts call, all 686 of the 686
   that `tools/papyrus/nativescan` finds. Each one is implemented as faithfully as
   the engine allows. Functions that read record data return the real value:
