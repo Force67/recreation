@@ -265,6 +265,12 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
     Resolve(bindings).RemoveItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
     return Value();
   });
+  reg.Register("ObjectReference", "GetNumItems", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetNumItems(self));
+  });
+  reg.Register("ObjectReference", "GetNthForm", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthForm(self, ArgI(a, 0)));
+  });
   reg.Register("ObjectReference", "Activate", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).Activate(self, ArgO(a, 0));
     return Value();

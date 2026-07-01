@@ -538,6 +538,21 @@ i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item
   return item_it == it->second.end() ? 0 : item_it->second;
 }
 
+i32 RecordBackedSkyrimBindings::GetNumItems(ObjectRef container) {
+  auto it = inventory_.find(container.handle);
+  return it == inventory_.end() ? 0 : static_cast<i32>(it->second.size());
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthForm(ObjectRef container, i32 index) {
+  auto it = inventory_.find(container.handle);
+  if (it == inventory_.end() || index < 0) return {};
+  // Every entry has a positive count (RemoveItem erases zeroed ones), so the
+  // index maps directly onto the map's entries.
+  for (const auto& [item, count] : it->second)
+    if (index-- == 0) return ObjectRef{item};
+  return {};
+}
+
 void RecordBackedSkyrimBindings::AddItem(ObjectRef container, ObjectRef item, i32 count) {
   if (count <= 0) return;
   inventory_[container.handle][item.handle] += count;

@@ -59,6 +59,11 @@ class SkyrimBindings {
   virtual i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) { return 0; }
   virtual void AddItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) {}
   virtual void RemoveItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) {}
+  // Inventory enumeration: the number of distinct item forms a container holds,
+  // and the form at an index in [0, GetNumItems). The order is stable only while
+  // the inventory is unchanged, so a listing loop must not add or remove items.
+  virtual i32 GetNumItems(papyrus::ObjectRef container) { return 0; }
+  virtual papyrus::ObjectRef GetNthForm(papyrus::ObjectRef container, i32 index) { return {}; }
   virtual void Activate(papyrus::ObjectRef target, papyrus::ObjectRef activator) {}
   virtual void Delete(papyrus::ObjectRef ref) {}
   virtual papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where, papyrus::ObjectRef base,
