@@ -18,9 +18,16 @@ public sealed class FakeBackend : IEngineBackend
     private readonly Dictionary<ulong, ulong> _baseObject = new();
     private readonly HashSet<ulong> _essential = new();
     private readonly HashSet<(ulong, ulong)> _keywords = new();
+    private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
 
     // Marks `item` as carrying `keyword`, for HasKeyword.
     public void SetHasKeyword(ulong item, ulong keyword) => _keywords.Add((item, keyword));
+
+    public void SetPosition(ulong reference, float x, float y, float z) =>
+        _positions[reference] = (x, y, z);
+
+    public (float X, float Y, float Z) GetPosition(ulong reference) =>
+        _positions.TryGetValue(reference, out var p) ? p : (0f, 0f, 0f);
 
     public void SetValue(ulong actor, string av, float current, float baseValue)
     {
@@ -70,6 +77,8 @@ public sealed class FakeBackend : IEngineBackend
         if (type == "Utility" && function == "GetCurrentGameTime") return Value.Float(GameTime);
         if (type == "Utility" && function == "RandomInt")
             return Value.Int(args.Length > 0 ? args[0].AsInt() : 0);  // deterministic: the min
+        if (type == "Utility" && function == "RandomFloat")
+            return Value.Float(args.Length > 0 ? args[0].AsFloat() : 0f);  // deterministic: the min
         return Value.None;
     }
 
@@ -111,6 +120,15 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Bool(_essential.Contains(self));
             case "HasKeyword":
                 return Value.Bool(_keywords.Contains((self, args[0].AsHandle())));
+            case "GetPositionX":
+                return Value.Float(GetPosition(self).X);
+            case "GetPositionY":
+                return Value.Float(GetPosition(self).Y);
+            case "GetPositionZ":
+                return Value.Float(GetPosition(self).Z);
+            case "SetPosition":
+                _positions[self] = (args[0].AsFloat(), args[1].AsFloat(), args[2].AsFloat());
+                return Value.None;
             default:
                 return Value.None;
         }

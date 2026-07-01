@@ -24,6 +24,22 @@ public static class SdkApiTests
         check.Equal("Utility.RandomInt type", "Utility", fake.LastGlobalType);
         check.Equal("Utility.RandomInt returns engine value", 7, r);
 
+        // Rand routes through the engine PRNG (the fake returns the minimum).
+        check.Equal("Rand.Range int", 3, Rand.Range(3, 8));
+        check.Equal("Rand.Range float", 1.5f, Rand.Range(1.5f, 4f));
+        check.That("Rand.Chance uses Value", Rand.Chance(0.5f));  // Value == 0 < 0.5
+
+        // Spatial helpers compose the position natives and Vector3 math.
+        const ulong from = 0x10;
+        const ulong to = 0x20;
+        fake.SetPosition(from, 0, 0, 0);
+        fake.SetPosition(to, 0, 10, 0);
+        Vector3 dir = ObjectReference.From(from).DirectionTo(ObjectReference.From(to));
+        check.Equal("direction is a unit vector toward target", new Vector3(0, 1, 0), dir);
+
+        ObjectReference.From(from).Translate(new Vector3(5, 0, 0));
+        check.That("translate shifts the reference", fake.GetPosition(from).X == 5f);
+
         Native.Backend = null;
     }
 }
