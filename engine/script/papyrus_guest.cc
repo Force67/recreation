@@ -77,8 +77,13 @@ void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<V
   // one and never warns otherwise, so broadcasting to every form is cheap.
   Submit([this, target, event = std::move(event),
           args = std::move(args)](VirtualMachine& vm) mutable {
-    RunScript([&vm, target, event = std::move(event), args = std::move(args)]() mutable {
-      vm.TryCall(target, event, std::move(args));
+    RunScript([this, &vm, target, event = std::move(event), args = std::move(args)]() mutable {
+      vm.TryCall(target, event, args);
+      // Also reach the scripts on any quest alias the target fills, so an alias's
+      // OnActivate/OnTriggerEnter handler runs (native-raised events already route
+      // this way through the bindings). Copy args: TryCall consumes its vector.
+      if (alias_resolver_)
+        for (ObjectRef alias : alias_resolver_(target)) vm.TryCall(alias, event, args);
     });
   });
 }

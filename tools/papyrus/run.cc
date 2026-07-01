@@ -945,6 +945,73 @@ int GuestTest() {
   guest.Tick(1.0f);  // single-shot does not refire
   check("single update does not repeat", read_count() == 1);
 
+  // Alias event routing: with an alias resolver set, RaiseEvent reaches both the
+  // target ref's script and the scripts on the aliases it fills, the path an
+  // engine-raised OnActivate/OnTriggerEnter takes to a quest/alias listener.
+  {
+    auto ping_script = [](const char* type_name) {
+      Builder b;
+      b.obj.name = b.S(type_name);
+      b.obj.parent_class = b.S("");
+      MemberVariable pinged;
+      pinged.name = b.S("::Pinged_var");
+      pinged.type = b.S("Int");
+      pinged.initial_value = b.IntV(0);
+      b.obj.variables.push_back(pinged);
+      Function on_ping;
+      on_ping.return_type = b.S("");
+      on_ping.code = {
+          Make(Op::kIAdd, {b.Id("::Pinged_var"), b.Id("::Pinged_var"), b.IntV(1)}),
+          Make(Op::kReturn, {}),
+      };
+      State def;
+      def.name = b.S("");
+      def.functions.push_back({b.S("OnPing"), std::move(on_ping)});
+      b.obj.states.push_back(std::move(def));
+      b.pex.objects.push_back(b.obj);
+      return std::move(b.pex);
+    };
+    guest.SubmitFor([f = ping_script("PingRef")](VirtualMachine& vm) mutable {
+           return vm.AddScript(std::move(f));
+         }).get();
+    guest.SubmitFor([f = ping_script("PingAlias")](VirtualMachine& vm) mutable {
+           return vm.AddScript(std::move(f));
+         }).get();
+
+    const ObjectRef ref{0x9001};
+    const unsigned long long alias_handle =
+        rec::script::papyrus::EncodeAliasHandle(/*quest=*/0x9002, /*alias_id=*/2);
+    guest.SubmitFor([ref](VirtualMachine& vm) {
+           return vm.CreateInstanceWithHandle("PingRef", ref.handle);
+         }).get();
+    guest.SubmitFor([alias_handle](VirtualMachine& vm) {
+           return vm.CreateInstanceWithHandle("PingAlias", alias_handle);
+         }).get();
+    // Set the resolver on the guest thread (its only safe writer), mapping the ref
+    // to the one alias it fills.
+    guest.SubmitFor([&guest, ref, alias_handle](VirtualMachine&) {
+           guest.set_alias_resolver([ref, alias_handle](ObjectRef r) {
+             std::vector<ObjectRef> out;
+             if (r.handle == ref.handle) out.push_back(ObjectRef{alias_handle});
+             return out;
+           });
+           return 0;
+         }).get();
+
+    guest.RaiseEvent(ref, "OnPing");
+    guest.SubmitFor([](VirtualMachine&) { return 0; }).get();  // flush the async RaiseEvent
+    auto pinged = [&](ObjectRef o) {
+      return guest
+          .SubmitFor([o](VirtualMachine& vm) {
+            Value* m = vm.MemberVar(o, "::Pinged_var");
+            return m ? m->ToInt() : -1;
+          })
+          .get();
+    };
+    check("RaiseEvent reaches the target ref", pinged(ref) == 1);
+    check("RaiseEvent routes to the filled alias", pinged(ObjectRef{alias_handle}) == 1);
+  }
+
   guest.Stop();
   std::printf("%s (%d failures)\n", failures ? "GUESTTEST FAILED" : "GUESTTEST PASSED", failures);
   return failures ? 1 : 0;

@@ -121,6 +121,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // The guest VM, so SetStage can run the quest's stage fragment. Set once on
   // the guest thread (the only caller of these bindings).
   void set_vm(papyrus::VirtualMachine* vm) { vm_ = vm; }
+
+  // The quest aliases the reference currently fills (empty if none). Exposes the
+  // ref->alias index so the guest's RaiseEvent can route engine-raised events
+  // (OnActivate, OnTrigger*) to alias scripts, matching how the bindings route
+  // their own native-raised events. Guest thread only.
+  std::vector<papyrus::ObjectRef> AliasesFilledBy(papyrus::ObjectRef ref) const;
+
   // Registers the Papyrus function a quest runs when it reaches `stage` (from
   // the QUST VMAD fragments). Populated at quest attach.
   void SetStageFragment(u64 quest, i32 stage, std::string function);

@@ -68,6 +68,16 @@ class PapyrusGuest {
     vm_.set_type_resolver(std::move(r));
   }
 
+  // Expands a form reference into the quest aliases it currently fills, so an
+  // event RaiseEvent dispatches (OnActivate, OnTriggerEnter/Leave, OnInit) also
+  // reaches the alias scripts, the way the bindings' native-raised events
+  // (OnDeath, OnHit) already do via RaiseFormAndAliasEvent. The runtime wires
+  // this to the bindings' alias index; unset means no alias routing. Set on and
+  // called from the guest thread.
+  void set_alias_resolver(std::function<std::vector<papyrus::ObjectRef>(papyrus::ObjectRef)> fn) {
+    alias_resolver_ = std::move(fn);
+  }
+
   // Where Debug.Notification messages go (a HUD toast in the runtime). Without a
   // handler they fall back to the trace log. Set it on the guest thread (Submit)
   // so the native, which also runs there, never races the assignment.
@@ -190,6 +200,10 @@ class PapyrusGuest {
   // Set once on the guest thread (see set_los_provider); read on the guest thread
   // when evaluating line-of-sight watches.
   std::function<bool(u64, u64)> los_provider_;
+
+  // Set once on the guest thread (see set_alias_resolver); consulted by RaiseEvent
+  // to also dispatch an event to the aliases the target ref fills.
+  std::function<std::vector<papyrus::ObjectRef>(papyrus::ObjectRef)> alias_resolver_;
 
   // Set once on the guest thread (see set_on_notification); read by the
   // Debug.Notification native, also on the guest thread.

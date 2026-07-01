@@ -283,11 +283,17 @@ bool LoadGameData(Engine& engine) {
         });
   }
   // Hand the bindings the guest VM so quest stage fragments can execute (run on
-  // the guest thread, where the bindings live).
+  // the guest thread, where the bindings live). Also route the guest's engine-
+  // raised events (OnActivate, OnTrigger*) through the bindings' ref->alias index,
+  // so alias scripts hear them like the bindings' own native-raised events do.
   {
     auto* binds = self->script_bindings_.get();
-    self->scripts_->guest().Submit(
-        [binds](rec::script::papyrus::VirtualMachine& vm) { binds->set_vm(&vm); });
+    auto* guest = &self->scripts_->guest();
+    guest->Submit([binds, guest](rec::script::papyrus::VirtualMachine& vm) {
+      binds->set_vm(&vm);
+      guest->set_alias_resolver(
+          [binds](rec::script::papyrus::ObjectRef ref) { return binds->AliasesFilledBy(ref); });
+    });
   }
   // Route Debug.Notification (from Papyrus quests or C# mods) to the HUD toast.
   // Set on the guest thread so it never races the native; the handler only queues,

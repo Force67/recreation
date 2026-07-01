@@ -764,6 +764,16 @@ void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* 
       RaiseFormEvent(alias_handle, event, args);
 }
 
+std::vector<papyrus::ObjectRef> RecordBackedSkyrimBindings::AliasesFilledBy(
+    papyrus::ObjectRef ref) const {
+  std::vector<papyrus::ObjectRef> out;
+  if (auto it = ref_to_aliases_.find(ref.handle); it != ref_to_aliases_.end()) {
+    out.reserve(it->second.size());
+    for (u64 alias_handle : it->second) out.push_back(papyrus::ObjectRef{alias_handle});
+  }
+  return out;
+}
+
 void RecordBackedSkyrimBindings::EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i) {
   if (event_sink_) event_sink_(host::ManagedEvent{id, a, b, i, 0.0f});
 }
