@@ -221,10 +221,13 @@ jobs:
       - name: prefer the SPIRV dxc over the SDK dxc
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value "${{ github.workspace }}\third_party\winbin\dxc\bin\x64"
+      # No sccache launcher on Windows: NRD forces /Zi (a separate PDB) even in
+      # Release, which sccache cannot cache and which collides under Ninja's
+      # parallel cl.exe (fatal error C1041). Windows still gets the Ninja build
+      # (~34% faster than MSBuild) and the vcpkg binary cache for its deps.
       - name: configure
         run: >
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON
-          -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
           -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
           -DRECREATION_DLSS=OFF
