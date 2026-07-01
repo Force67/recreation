@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <thread>
@@ -1492,9 +1494,147 @@ int TraceTest() {
   return failures ? 1 : 0;
 }
 
+// Correctness gate for the two boundary tunings: the guest's same-thread
+// Dispatch fast path and the NativeBackend arena marshalling. Registers a few
+// pure natives (echo a value, add two ints, join string args), then runs the
+// managed BridgeCheck battery through the real bridge BOTH from the host thread
+// (so each call round-trips to the guest) and from the guest thread (so Dispatch
+// hits the VM directly). Both must report zero failures: identical, correct
+// results from either thread is what proves the fast path preserves behaviour,
+// and the string/growth cases prove the arena marshals correctly. Skips cleanly
+// (rc 0) when no .NET runtime is present.
+int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
+  using rec::script::PapyrusGuest;
+
+  TestBindings bindings;
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  guest.natives().Register(
+      "Bench", "Echo", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
+        return a.empty() ? Value() : a[0];
+      });
+  guest.natives().Register(
+      "Bench", "AddInts", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
+        return Value::Int((a.size() > 0 ? a[0].ToInt() : 0) + (a.size() > 1 ? a[1].ToInt() : 0));
+      });
+  guest.natives().Register(
+      "Bench", "Join", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
+        std::string s;
+        for (const Value& v : a) s += v.ToString();
+        return Value::Str(s);
+      });
+  guest.Start();
+
+  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
+  rec::script::host::ClrHost host;
+  if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
+                       "Recreation.ScriptHost, Recreation.Scripting", "BridgeCheck")) {
+    std::printf("BRIDGETEST SKIPPED (no .NET runtime / entrypoint)\n");
+    guest.Stop();
+    return 0;
+  }
+
+  const int cross = host.Invoke(&bridge);  // host thread -> guest hop
+  const int same =
+      guest.SubmitFor([&](VirtualMachine&) { return host.Invoke(&bridge); }).get();  // Dispatch
+
+  host.Shutdown();
+  guest.Stop();
+
+  std::printf("  cross-thread bridge checks : %d failure(s)\n", cross);
+  std::printf("  same-thread  bridge checks : %d failure(s)\n", same);
+  const int failures = cross + same;
+  std::printf("%s\n", failures ? "BRIDGETEST FAILED" : "BRIDGETEST PASSED");
+  return failures ? 1 : 0;
+}
+
+// Measures the C#->engine call throughput through the real bridge, both
+// cross-thread (managed loop on the host thread, so every call round-trips to
+// the guest via SubmitFor().get()) and same-thread (managed loop run on the
+// guest thread, so Dispatch hits the VM directly). Reports ns per bridge call
+// and managed bytes allocated per call for each mode. This is what validates
+// the two tunings: same-thread vs cross-thread ns isolates the hop cost (#1),
+// and bytes/call before vs after the NativeBackend change isolates the
+// per-call allocations (#2). Skips cleanly (rc 0) without a .NET runtime.
+int BenchBridge(const std::string& runtime_config, const std::string& assembly) {
+  using rec::script::PapyrusGuest;
+
+  TestBindings bindings;
+  PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  // A silent global native that echoes its first argument back, so a call can
+  // exercise the string-argument marshalling path without any log spam.
+  guest.natives().Register(
+      "Bench", "Echo", [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+        return args.empty() ? Value() : args[0];
+      });
+  guest.Start();
+
+  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
+  rec::script::host::ClrHost host;
+  if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
+                       "Recreation.ScriptHost, Recreation.Scripting", "Bench")) {
+    std::printf("BENCHBRIDGE SKIPPED (no .NET runtime / entrypoint)\n");
+    guest.Stop();
+    return 0;
+  }
+
+  // Mirrors ScriptHost.BenchArgs (sequential layout).
+  struct BenchArgs {
+    rec::script::host::ScriptBridge* bridge;
+    std::int64_t iters;
+    std::int64_t alloc_bytes;
+  };
+  constexpr std::int64_t kIters = 200000;    // loop passes
+  constexpr std::int64_t kCallsPerIter = 2;  // bridge calls per pass
+  constexpr int kTrials = 5;
+
+  auto run = [&](bool on_guest, double* ns_per_call, double* bytes_per_call) {
+    double best_ns = 1e300;
+    std::int64_t alloc = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      BenchArgs a{&bridge, kIters, 0};
+      auto t0 = std::chrono::steady_clock::now();
+      if (on_guest)
+        guest.SubmitFor([&](VirtualMachine&) { return host.Invoke(&a); }).get();
+      else
+        host.Invoke(&a);
+      auto t1 = std::chrono::steady_clock::now();
+      double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
+      best_ns = std::min(best_ns, ns);
+      alloc = a.alloc_bytes;
+    }
+    const double calls = static_cast<double>(kIters * kCallsPerIter);
+    *ns_per_call = best_ns / calls;
+    *bytes_per_call = static_cast<double>(alloc) / calls;
+  };
+
+  double cross_ns = 0, cross_bytes = 0, same_ns = 0, same_bytes = 0;
+  run(/*on_guest=*/false, &cross_ns, &cross_bytes);
+  run(/*on_guest=*/true, &same_ns, &same_bytes);
+
+  std::printf("BENCHBRIDGE (%lld iters x %lld calls, best of %d trials)\n",
+              static_cast<long long>(kIters), static_cast<long long>(kCallsPerIter), kTrials);
+  std::printf("  cross-thread (host thread -> guest hop) : %8.1f ns/call  %6.1f bytes/call\n",
+              cross_ns, cross_bytes);
+  std::printf("  same-thread  (guest thread, Dispatch)   : %8.1f ns/call  %6.1f bytes/call\n",
+              same_ns, same_bytes);
+  if (same_ns > 0)
+    std::printf("  #1 same-thread speedup                  : %6.2fx (%.1f -> %.1f ns/call)\n",
+                cross_ns / same_ns, cross_ns, same_ns);
+
+  host.Shutdown();
+  guest.Stop();
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 4 && std::string(argv[1]) == "bridgetest") return BridgeTest(argv[2], argv[3]);
+  if (argc == 4 && std::string(argv[1]) == "benchbridge") return BenchBridge(argv[2], argv[3]);
   if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
   if (argc == 2 && std::string(argv[1]) == "skyrimtest") return SkyrimTest();
   if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();

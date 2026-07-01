@@ -364,6 +364,13 @@ if(DOTNET_EXE)
   add_test(NAME papyrus_managed_hosttest
     COMMAND pexrun managedhosttest ${MANAGED_CFG} ${MANAGED_DLL})
   set_tests_properties(papyrus_managed_hosttest PROPERTIES FIXTURES_REQUIRED managed_fx)
+
+  # Guards the two boundary tunings: the guest's same-thread Dispatch fast path
+  # and the NativeBackend arena marshalling. Runs the managed BridgeCheck battery
+  # through the real bridge from both the host thread and the guest thread; both
+  # must report identical, correct results (correctness only, no timing).
+  add_test(NAME papyrus_bridgetest COMMAND pexrun bridgetest ${MANAGED_CFG} ${MANAGED_DLL})
+  set_tests_properties(papyrus_bridgetest PROPERTIES FIXTURES_REQUIRED managed_fx)
 else()
   message(STATUS "dotnet not found: managed scripting tests disabled")
 endif()

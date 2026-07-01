@@ -69,8 +69,9 @@ class ManagedHost {
   // filters mods by. Call before Boot; passed through the handshake.
   void SetRealm(std::int32_t realm) { realm_ = realm; }
 
-  // Delivers an inbound session RPC to the managed world. Must run on the host
-  // (main) thread; no-op when unavailable or the managed side declined RPC.
+  // Delivers an inbound session RPC to the managed world. Safe to call from any
+  // engine thread; the callback runs on the guest thread. No-op when unavailable
+  // or the managed side declined RPC.
   void DispatchRpc(const char* name, std::int32_t sender, std::int32_t from_server,
                    const ApiValue* args, std::int32_t argc);
 
@@ -78,8 +79,8 @@ class ManagedHost {
 
   // Advances the managed world one frame. No-op when unavailable.
   void Tick(float dt);
-  // Delivers an engine event to the managed event bus. Must run on the host
-  // (main) thread; no-op when unavailable.
+  // Delivers an engine event to the managed event bus. Safe to call from any
+  // engine thread; the callback runs on the guest thread. No-op when unavailable.
   void PublishEvent(const ManagedEvent& event);
 
   // Enqueues an event from any thread (the guest thread raises most of them).
@@ -101,7 +102,17 @@ class ManagedHost {
     ScriptBridge bridge{};
   };
 
+  // Runs a managed callback on the guest thread and blocks until it returns, so
+  // every call it makes back through the bridge takes the guest's same-thread
+  // fast path (PapyrusGuest::Dispatch) instead of a per-call cross-thread hop.
+  // This is what keeps the whole managed world on one thread (the SDK assumes
+  // single-threaded execution): tick, events, UI, RPC and shutdown all funnel
+  // through here onto the guest thread. Falls back to running inline when there
+  // is no guest yet or it is not running (early init / teardown).
+  void RunManaged(const std::function<void()>& fn);
+
   ClrHost clr_;
+  PapyrusGuest* primary_guest_ = nullptr;  // domains_[0]'s guest; the managed thread
   std::vector<std::unique_ptr<Domain>> domains_;
   std::vector<DomainBridge> domain_table_;  // handshake view: borrows name/bridge
   HostHandshake handshake_{};

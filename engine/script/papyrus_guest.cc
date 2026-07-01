@@ -10,6 +10,14 @@ using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
 
+// Set once, on the guest thread, to the guest whose loop is running there. A
+// bridge call can then tell whether it is already on the guest thread (so it
+// can touch the VM directly) without any shared state or locking: every other
+// thread sees its own thread-local, which is null (or a different guest).
+namespace {
+thread_local PapyrusGuest* t_current_guest = nullptr;
+}  // namespace
+
 PapyrusGuest::PapyrusGuest(bethesda::Game game) : game_(game), vm_(&natives_) {
   BindEngineNatives();
 }
@@ -37,7 +45,10 @@ void PapyrusGuest::Stop() {
   running_ = false;
 }
 
+bool PapyrusGuest::OnGuestThread() const { return t_current_guest == this; }
+
 void PapyrusGuest::ThreadMain() {
+  t_current_guest = this;
   for (;;) {
     MoveOnlyFunction<void(VirtualMachine&)> job;
     {

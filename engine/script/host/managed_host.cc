@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "core/log.h"
+#include "script/papyrus_guest.h"
 
 namespace rec::script::host {
 
@@ -28,6 +29,7 @@ bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtim
   domain_table_.reserve(domains_.size());
   for (const auto& domain : domains_)
     domain_table_.push_back({domain->name.c_str(), &domain->bridge});
+  primary_guest_ = domains_[0]->ctx.guest;    // the thread the managed world runs on
   handshake_.bridge = &domains_[0]->bridge;  // primary, back-compatible
   handshake_.callbacks = {};
   handshake_.domain_count = static_cast<std::int32_t>(domain_table_.size());
@@ -53,25 +55,44 @@ bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtim
   return true;
 }
 
+void ManagedHost::RunManaged(const std::function<void()>& fn) {
+  if (primary_guest_ && primary_guest_->running())
+    // Dispatch runs fn inline if we are already on the guest thread (so a managed
+    // callback that reaches back here cannot deadlock), else posts and blocks.
+    primary_guest_->Dispatch([&fn](rec::script::papyrus::VirtualMachine&) {
+      fn();
+      return 0;
+    });
+  else
+    fn();
+}
+
 void ManagedHost::Tick(float dt) {
-  if (available_ && handshake_.callbacks.tick) handshake_.callbacks.tick(dt);
+  if (!available_ || !handshake_.callbacks.tick) return;
+  auto tick = handshake_.callbacks.tick;
+  RunManaged([tick, dt] { tick(dt); });
 }
 
 std::int32_t ManagedHost::DispatchUi(const char* func_name, std::uint64_t widget) {
-  if (available_ && handshake_.callbacks.dispatch_ui)
-    return handshake_.callbacks.dispatch_ui(func_name, widget);
-  return 0;
+  if (!available_ || !handshake_.callbacks.dispatch_ui) return 0;
+  auto dispatch = handshake_.callbacks.dispatch_ui;
+  std::int32_t result = 0;
+  RunManaged([&] { result = dispatch(func_name, widget); });
+  return result;
 }
 
 void ManagedHost::DispatchRpc(const char* name, std::int32_t sender,
                               std::int32_t from_server, const ApiValue* args,
                               std::int32_t argc) {
-  if (available_ && handshake_.callbacks.dispatch_rpc)
-    handshake_.callbacks.dispatch_rpc(name, sender, from_server, args, argc);
+  if (!available_ || !handshake_.callbacks.dispatch_rpc) return;
+  auto dispatch = handshake_.callbacks.dispatch_rpc;
+  RunManaged([&] { dispatch(name, sender, from_server, args, argc); });
 }
 
 void ManagedHost::PublishEvent(const ManagedEvent& event) {
-  if (available_ && handshake_.callbacks.publish_event) handshake_.callbacks.publish_event(&event);
+  if (!available_ || !handshake_.callbacks.publish_event) return;
+  auto publish = handshake_.callbacks.publish_event;
+  RunManaged([&] { publish(&event); });
 }
 
 void ManagedHost::QueueEvent(const ManagedEvent& event) {
@@ -80,19 +101,29 @@ void ManagedHost::QueueEvent(const ManagedEvent& event) {
 }
 
 void ManagedHost::DrainEvents() {
-  if (!available_) return;
+  if (!available_ || !handshake_.callbacks.publish_event) return;
   std::vector<ManagedEvent> events;
   {
     std::lock_guard<std::mutex> lock(event_mutex_);
     events.swap(pending_events_);
   }
-  for (const ManagedEvent& e : events) PublishEvent(e);
+  if (events.empty()) return;
+  // Publish the whole batch under a single hop onto the guest thread, so N queued
+  // events cost one round-trip, not N.
+  auto publish = handshake_.callbacks.publish_event;
+  RunManaged([&] {
+    for (const ManagedEvent& e : events) publish(&e);
+  });
 }
 
 void ManagedHost::Shutdown() {
-  if (available_ && handshake_.callbacks.shutdown) handshake_.callbacks.shutdown();
+  if (available_ && handshake_.callbacks.shutdown) {
+    auto shutdown = handshake_.callbacks.shutdown;
+    RunManaged([shutdown] { shutdown(); });
+  }
   available_ = false;
   handshake_.callbacks = {};
+  primary_guest_ = nullptr;
   clr_.Shutdown();
 }
 

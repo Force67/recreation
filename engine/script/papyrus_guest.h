@@ -50,6 +50,23 @@ class PapyrusGuest {
   template <typename Fn>
   auto SubmitFor(Fn fn) -> std::future<decltype(fn(std::declval<papyrus::VirtualMachine&>()))>;
 
+  // True while called from the guest thread itself (i.e. from inside a job the
+  // guest is running). Lets a re-entrant caller skip the cross-thread hop.
+  bool OnGuestThread() const;
+
+  // Runs fn against the VM and returns its result synchronously. When the caller
+  // is already on the guest thread this invokes fn directly (no queue, no future,
+  // no context switch); otherwise it posts to the guest thread and blocks on the
+  // result, exactly like SubmitFor(fn).get(). This is the boundary the .NET host
+  // calls through: with the managed tick driven on the guest thread, every
+  // C#->VM call takes the direct path instead of a per-call round-trip. Calling
+  // SubmitFor().get() from the guest thread would self-deadlock; Dispatch cannot.
+  template <typename Fn>
+  auto Dispatch(Fn fn) -> decltype(fn(std::declval<papyrus::VirtualMachine&>())) {
+    if (OnGuestThread()) return fn(vm_);
+    return SubmitFor(std::move(fn)).get();
+  }
+
   // Thread-safe convenience wrappers over Submit/SubmitFor.
   std::future<std::string> LoadScript(std::vector<u8> pex);
   std::future<papyrus::ObjectRef> CreateInstance(std::string type);

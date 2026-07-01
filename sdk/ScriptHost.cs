@@ -92,6 +92,94 @@ public static unsafe class ScriptHost
         return SdkSelfTest.Run();
     }
 
+    // Correctness check for the engine boundary, driven by the native bridgetest
+    // harness both cross-thread (host thread -> guest hop) and on the guest thread
+    // (Dispatch fast path). Runs a battery of calls through NativeBackend and
+    // returns the number of failed checks (0 = all passed). Exercises the arena
+    // marshalling: no-arg calls, integer args, single and multiple string args,
+    // unicode, an empty string, a string larger than the arena's initial block
+    // (forcing growth), and a reuse loop. Both invocations must return the same
+    // correct results, which is what proves the fast path did not change behaviour.
+    [UnmanagedCallersOnly]
+    public static int BridgeCheck(void* bridge)
+    {
+        var backend = new NativeBackend((ScriptBridge*)bridge);
+        int failures = 0;
+        void Check(bool ok, string what)
+        {
+            if (ok) return;
+            failures++;
+            Console.Error.WriteLine($"[bridgecheck] FAIL: {what}");
+        }
+
+        Check(backend.CallGlobal("Game", "GetPlayer", default).AsHandle() == 0x14, "GetPlayer == 0x14");
+        Check(backend.CallGlobal("Bench", "Echo", new[] { Value.String("Health") }).AsString() == "Health",
+              "Echo(\"Health\")");
+        const string unicode = "naïve—Скайрим—日本語";
+        Check(backend.CallGlobal("Bench", "Echo", new[] { Value.String(unicode) }).AsString() == unicode,
+              "Echo(unicode)");
+        Check(backend.CallGlobal("Bench", "AddInts", new[] { Value.Int(3), Value.Int(4) }).AsInt() == 7,
+              "AddInts(3,4) == 7");
+        Check(backend.CallGlobal("Bench", "Join",
+                  new[] { Value.String("a"), Value.String("b"), Value.String("c") }).AsString() == "abc",
+              "Join(a,b,c) == abc");
+        string big = new string('x', 4096);  // larger than the arena's initial block
+        Check(backend.CallGlobal("Bench", "Echo", new[] { Value.String(big) }).AsString() == big,
+              "Echo(4096 chars)");
+        Check(backend.CallGlobal("Bench", "Echo", new[] { Value.String(string.Empty) }).AsString() == string.Empty,
+              "Echo(empty)");
+
+        // Repeated calls must reuse the same arena without corrupting results.
+        bool reuseOk = true;
+        for (int i = 0; i < 2000 && reuseOk; i++)
+            reuseOk = backend.CallGlobal("Bench", "Echo", new[] { Value.String("Health") }).AsString() == "Health";
+        Check(reuseOk, "2000x Echo reuse");
+
+        return failures;
+    }
+
+    // Throughput benchmark. Binds the given bridge and runs a fixed sequence of
+    // engine calls `Iters` times, recording the managed bytes allocated over the
+    // loop into the args struct. The native benchbridge harness invokes this both
+    // cross-thread (from the host thread, so each call round-trips to the guest)
+    // and on the guest thread (so Dispatch takes the direct path), and times each.
+    // Purely a measurement entrypoint; the production boot never touches it.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BenchArgs
+    {
+        public ScriptBridge* Bridge;
+        public long Iters;
+        public long AllocBytes;  // out: managed bytes allocated during the timed loop
+    }
+
+    [UnmanagedCallersOnly]
+    public static int Bench(void* argsPtr)
+    {
+        var a = (BenchArgs*)argsPtr;
+        var backend = new NativeBackend(a->Bridge);
+        // Allocated once, before the measured loop, so it never counts toward the
+        // per-call allocation figure (Value holds a string, so it cannot be stack
+        // allocated anyway).
+        var echoArg = new Value[] { Value.String("Health") };
+
+        // Warm up: let the JIT tier up the call path and take any one-time hits
+        // before the measured loop, so the numbers reflect steady state.
+        for (int i = 0; i < 2000; i++)
+        {
+            backend.CallGlobal("Game", "GetPlayer", default);
+            backend.CallGlobal("Bench", "Echo", echoArg);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (long i = 0; i < a->Iters; i++)
+        {
+            backend.CallGlobal("Game", "GetPlayer", default);
+            backend.CallGlobal("Bench", "Echo", echoArg);
+        }
+        a->AllocBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        return 0;
+    }
+
     [UnmanagedCallersOnly]
     private static void OnTick(float deltaTime)
     {
