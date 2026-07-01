@@ -66,6 +66,13 @@ class RecordStore {
   // the plugin that body came from.
   GlobalFormId ResolveFrom(RawFormId raw, u16 plugin) const;
 
+  // The loaded plugin at a load order index, or null if it was missing. The
+  // writer needs a plugin's master list to preserve the mod-index prefix when
+  // it re-emits that plugin's records into an override plugin.
+  const PluginFile* PluginAt(u16 plugin) const {
+    return plugin < by_order_.size() ? by_order_[plugin] : nullptr;
+  }
+
   // Exterior worldspace index built during load: per worldspace, the CELL,
   // LAND and REFR children at each grid coordinate. Persistent refs (which
   // hang off the worldspace dummy cell with no grid of their own) are binned
