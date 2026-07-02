@@ -1,7 +1,7 @@
 // mesh.ps.hlsl with ray queried sun shadows, cone-jittered for soft
 // penumbras that the temporal passes integrate.
 
-[[vk::binding(1, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::binding(1, 0)]] RaytracingAccelerationStructure tlas : register(t1, space0);
 
 struct FrameGlobals {
   column_major float4x4 view_proj;
@@ -20,13 +20,13 @@ struct FrameGlobals {
   uint ao_ray_count;        // rt ao rays/pixel this frame (0 when ao is screen-space)
   uint light_count;         // dynamic point lights in the light buffer
 };
-[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 
 struct PointLight {
   float4 pos_radius;       // xyz position, w influence radius
   float4 color_intensity;  // rgb color, w intensity
 };
-[[vk::binding(11, 2)]] StructuredBuffer<PointLight> point_lights;
+[[vk::binding(11, 2)]] StructuredBuffer<PointLight> point_lights : register(t11, space2);
 
 struct MaterialParams {
   float4 base_color_factor;
@@ -49,29 +49,29 @@ struct MaterialParams {
   float transmission;
   float irid_pad;
 };
-[[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material;
+[[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material : register(b0, space1);
 
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D base_color_map;
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState base_color_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] Texture2D normal_map;
-[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] SamplerState normal_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] Texture2D metallic_roughness_map;
-[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] SamplerState metallic_roughness_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(4, 1)]] Texture2D emissive_map;
-[[vk::combinedImageSampler]] [[vk::binding(4, 1)]] SamplerState emissive_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D base_color_map : register(t1, space1);
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState base_color_sampler : register(s1, space1);
+[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] Texture2D normal_map : register(t2, space1);
+[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] SamplerState normal_sampler : register(s2, space1);
+[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] Texture2D metallic_roughness_map : register(t3, space1);
+[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] SamplerState metallic_roughness_sampler : register(s3, space1);
+[[vk::combinedImageSampler]] [[vk::binding(4, 1)]] Texture2D emissive_map : register(t4, space1);
+[[vk::combinedImageSampler]] [[vk::binding(4, 1)]] SamplerState emissive_sampler : register(s4, space1);
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] TextureCube irradiance_cube;
-[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState irradiance_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(1, 2)]] TextureCube prefiltered_cube;
-[[vk::combinedImageSampler]] [[vk::binding(1, 2)]] SamplerState prefiltered_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D brdf_lut;
-[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState brdf_lut_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] Texture2D ao_map;
-[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] SamplerState ao_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(4, 2)]] Texture2DArray ddgi_irradiance;
-[[vk::combinedImageSampler]] [[vk::binding(4, 2)]] SamplerState ddgi_irradiance_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(5, 2)]] Texture2DArray ddgi_distance;
-[[vk::combinedImageSampler]] [[vk::binding(5, 2)]] SamplerState ddgi_distance_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] TextureCube irradiance_cube : register(t0, space2);
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState irradiance_sampler : register(s0, space2);
+[[vk::combinedImageSampler]] [[vk::binding(1, 2)]] TextureCube prefiltered_cube : register(t1, space2);
+[[vk::combinedImageSampler]] [[vk::binding(1, 2)]] SamplerState prefiltered_sampler : register(s1, space2);
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D brdf_lut : register(t2, space2);
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState brdf_lut_sampler : register(s2, space2);
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] Texture2D ao_map : register(t3, space2);
+[[vk::combinedImageSampler]] [[vk::binding(3, 2)]] SamplerState ao_sampler : register(s3, space2);
+[[vk::combinedImageSampler]] [[vk::binding(4, 2)]] Texture2DArray ddgi_irradiance : register(t4, space2);
+[[vk::combinedImageSampler]] [[vk::binding(4, 2)]] SamplerState ddgi_irradiance_sampler : register(s4, space2);
+[[vk::combinedImageSampler]] [[vk::binding(5, 2)]] Texture2DArray ddgi_distance : register(t5, space2);
+[[vk::combinedImageSampler]] [[vk::binding(5, 2)]] SamplerState ddgi_distance_sampler : register(s5, space2);
 
 struct DdgiVolume {
   float4 origin;          // xyz grid origin, w probe spacing
@@ -79,11 +79,11 @@ struct DdgiVolume {
   float4 params;          // x distance texel resolution, y hysteresis,
                           // z max ray distance, w energy scale
 };
-[[vk::binding(6, 2)]] ConstantBuffer<DdgiVolume> ddgi;
+[[vk::binding(6, 2)]] ConstantBuffer<DdgiVolume> ddgi : register(b6, space2);
 [[vk::combinedImageSampler]] [[vk::binding(9, 2)]] Texture2D opaque_scene;  // for transmission
-[[vk::combinedImageSampler]] [[vk::binding(9, 2)]] SamplerState opaque_scene_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(9, 2)]] SamplerState opaque_scene_sampler : register(s9, space2);
 [[vk::combinedImageSampler]] [[vk::binding(10, 2)]] Texture2D sun_shadow_map;  // SIGMA-denoised
-[[vk::combinedImageSampler]] [[vk::binding(10, 2)]] SamplerState sun_shadow_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(10, 2)]] SamplerState sun_shadow_sampler : register(s10, space2);
 
 // Scene tables for reflection hit shading (set 3), matching water.ps.hlsl.
 struct MeshRecord {
@@ -111,11 +111,11 @@ struct MaterialRecord {
   uint pad1;
   uint pad2;
 };
-[[vk::binding(0, 3)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 3)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 3)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 3)]] Texture2D bindless_textures[];
-[[vk::binding(4, 3)]] SamplerState bindless_sampler;
+[[vk::binding(0, 3)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space3);
+[[vk::binding(1, 3)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space3);
+[[vk::binding(2, 3)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space3);
+[[vk::binding(3, 3)]] Texture2D bindless_textures[] : register(t3, space3);
+[[vk::binding(4, 3)]] SamplerState bindless_sampler : register(s4, space3);
 
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;

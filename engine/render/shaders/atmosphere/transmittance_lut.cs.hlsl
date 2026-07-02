@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Hillaire 2020 transmittance LUT: optical depth from a point to the top of the
 // atmosphere, exp'd to a transmittance. Sun-independent, so it bakes once. The
 // multiple-scattering LUT and the sky raymarch both sample it for sun/view
@@ -5,12 +6,12 @@
 
 #include "atmosphere.hlsli"
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_lut;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_lut : register(u0, space0);
 
 struct PushData {
   float2 size;  // (width, height) in texels
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 static const int kSteps = 40;
 

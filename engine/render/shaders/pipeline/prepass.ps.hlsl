@@ -12,12 +12,12 @@ struct MaterialParams {
   uint flags;
   float pad;
 };
-[[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material;
+[[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material : register(b0, space1);
 
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D base_color_map;
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState base_color_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] Texture2D normal_map;
-[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] SamplerState normal_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D base_color_map : register(t1, space1);
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState base_color_sampler : register(s1, space1);
+[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] Texture2D normal_map : register(t2, space1);
+[[vk::combinedImageSampler]] [[vk::binding(2, 1)]] SamplerState normal_sampler : register(s2, space1);
 
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;

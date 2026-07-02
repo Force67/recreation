@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction, stage 2: temporal accumulation. Reproject last frame's
 // accumulated irradiance through the motion vector, reject stale history by
 // material id / viewZ / normal, clamp to the current 3x3 neighborhood, and blend.
@@ -10,20 +11,20 @@ struct ReconTemporalPush {
   float reset;               // 1 = drop all history this frame
   float pad;
 };
-[[vk::push_constant]] ReconTemporalPush pc;
+PUSH_CONSTANTS(ReconTemporalPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_accum;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_moments;
-[[vk::binding(2, 0)]] Texture2D<float4> curr_noisy;
-[[vk::binding(3, 0)]] Texture2D<float4> prev_accum;
-[[vk::binding(4, 0)]] Texture2D<float4> curr_nr;
-[[vk::binding(5, 0)]] Texture2D<float4> prev_nr;
-[[vk::binding(6, 0)]] Texture2D<float> curr_viewz;
-[[vk::binding(7, 0)]] Texture2D<float> prev_viewz;
-[[vk::binding(8, 0)]] Texture2D<float2> motion;
-[[vk::binding(9, 0)]] Texture2D<uint> curr_matid;
-[[vk::binding(10, 0)]] Texture2D<uint> prev_matid;
-[[vk::binding(11, 0)]] Texture2D<float4> prev_moments;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_accum : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_moments : register(u1, space0);
+[[vk::binding(2, 0)]] Texture2D<float4> curr_noisy : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float4> prev_accum : register(t3, space0);
+[[vk::binding(4, 0)]] Texture2D<float4> curr_nr : register(t4, space0);
+[[vk::binding(5, 0)]] Texture2D<float4> prev_nr : register(t5, space0);
+[[vk::binding(6, 0)]] Texture2D<float> curr_viewz : register(t6, space0);
+[[vk::binding(7, 0)]] Texture2D<float> prev_viewz : register(t7, space0);
+[[vk::binding(8, 0)]] Texture2D<float2> motion : register(t8, space0);
+[[vk::binding(9, 0)]] Texture2D<uint> curr_matid : register(t9, space0);
+[[vk::binding(10, 0)]] Texture2D<uint> prev_matid : register(t10, space0);
+[[vk::binding(11, 0)]] Texture2D<float4> prev_moments : register(t11, space0);
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 DecodeN(float4 nr) { return normalize(nr.xyz * 2.0 - 1.0); }

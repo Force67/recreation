@@ -1,15 +1,16 @@
+#include "rhi_bindings.hlsli"
 // 3x3 tent upsample, added on top of the matching downsample mip.
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> dst;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> dst : register(u0, space0);
 [[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D src;  // smaller mip
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState src_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState src_sampler : register(s1, space0);
 
 struct PushData {
   float2 src_inv_size;
   uint replace;  // first up into a fresh target overwrites instead of adding
   float pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Ray-marched volumetric fog: exponential height fog with single-scattering
 // from the sun, shadowed per step through the scene TLAS so it produces real
 // light shafts (god rays). Marches from the eye to the depth-buffer surface,
@@ -13,12 +14,12 @@ struct FogPush {
   uint steps;
   uint frame_index;
 };
-[[vk::push_constant]] FogPush pc;
+PUSH_CONSTANTS(FogPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> output_image;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> output_image : register(u0, space0);
 [[vk::binding(1, 0)]] Texture2D color_in;   // full res, fetched per texel
 [[vk::binding(2, 0)]] Texture2D depth_in;   // raw reversed-z depth export
-[[vk::binding(3, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::binding(3, 0)]] RaytracingAccelerationStructure tlas : register(t3, space0);
 
 static const float kPi = 3.14159265359;
 

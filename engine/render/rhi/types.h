@@ -203,24 +203,36 @@ enum ShaderStage : u32 {
 };
 using ShaderStageFlags = u32;
 
-// Bytecode container. The build embeds SPIR-V today; a DXIL sidecar drops in
-// for the d3d12 backend without touching pass code (the embed macro picks the
-// blob matching the active backend).
+// Bytecode container. The build always embeds SPIR-V; when the d3d12 backend
+// is compiled in (RECREATION_RHI_D3D12) every shader also carries a DXIL
+// sidecar and each backend picks its format. Pass code never looks inside.
 enum class ShaderFormat : u8 { kSpirv, kDxil };
 
 struct ShaderBlob {
-  const unsigned char* data = nullptr;
+  const unsigned char* data = nullptr;  // SPIR-V words (byte packed)
   size_t size = 0;
   ShaderFormat format = ShaderFormat::kSpirv;
+  // DXIL sidecar; null when the build has no d3d12 backend. The d3d12 device
+  // fails pipeline creation gracefully on an empty sidecar.
+  const unsigned char* dxil_data = nullptr;
+  size_t dxil_size = 0;
 
   bool valid() const { return data != nullptr && size > 0; }
+  bool dxil_valid() const { return dxil_data != nullptr && dxil_size > 0; }
 };
 
 // Wraps a build-embedded shader byte array (build/generated/shaders/*.h) as a
-// blob. The embed step emits SPIR-V today; when a backend needs DXIL the embed
-// gains a sidecar array and this macro picks per active backend.
+// blob. With RECREATION_RHI_D3D12 the embed step emits a k_<sym>_dxil sidecar
+// array alongside the SPIR-V and both ride in the same blob.
+#if defined(RECREATION_RHI_D3D12)
+#define REC_SHADER(sym)                                                       \
+  (::rec::render::ShaderBlob{sym, sizeof(sym),                                \
+                             ::rec::render::ShaderFormat::kSpirv, sym##_dxil, \
+                             sizeof(sym##_dxil)})
+#else
 #define REC_SHADER(sym) \
   (::rec::render::ShaderBlob{sym, sizeof(sym), ::rec::render::ShaderFormat::kSpirv})
+#endif
 
 // Type-safe opaque handles. The value is a backend-owned record pointer (or
 // packed handle); 0 is always "null". Handles are plain values: copying never

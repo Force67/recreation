@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Screen-space reflections: a world-space ray march over the prepass depth and
 // the lit scene color. The reflection ray reflects the eye vector about the
 // surface normal and steps until it crosses behind a depth sample; the hit
@@ -5,10 +6,10 @@
 // reflection fallback for low/mobile tiers (rt tiers trace the tlas instead).
 // There is no roughness g-buffer, so it leans on fresnel: grazing angles
 // reflect, head-on barely does, which reads as the classic wet-floor look.
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_color;
-[[vk::binding(1, 0)]] Texture2D<float> depth_map;
-[[vk::binding(2, 0)]] Texture2D<float2> normal_map;
-[[vk::binding(3, 0)]] Texture2D<float4> scene_color;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_color : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float> depth_map : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float4> scene_color : register(t3, space0);
 
 struct PushData {
   column_major float4x4 view_proj;      // world -> clip (unjittered)
@@ -22,7 +23,7 @@ struct PushData {
   uint step_count;
   uint pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);

@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction, stage 4: composite. final = albedo/pi * denoisedIrradiance
 // + emissive (the irradiance was demodulated, so re-modulating here keeps texture
 // detail crisp). debug_mode swaps the output for one of the guide's debug views so
@@ -7,15 +8,15 @@ struct ReconCompositePush {
   uint debug_mode;  // 0 final,1 irradiance,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
   float max_history;
 };
-[[vk::push_constant]] ReconCompositePush pc;
+PUSH_CONSTANTS(ReconCompositePush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_color;
-[[vk::binding(1, 0)]] Texture2D<float4> albedo;
-[[vk::binding(2, 0)]] Texture2D<float4> irradiance;
-[[vk::binding(3, 0)]] Texture2D<float4> emissive;
-[[vk::binding(4, 0)]] Texture2D<float4> moments;
-[[vk::binding(5, 0)]] Texture2D<float4> normal_rough;
-[[vk::binding(6, 0)]] Texture2D<float2> motion;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_color : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float4> albedo : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float4> irradiance : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float4> emissive : register(t3, space0);
+[[vk::binding(4, 0)]] Texture2D<float4> moments : register(t4, space0);
+[[vk::binding(5, 0)]] Texture2D<float4> normal_rough : register(t5, space0);
+[[vk::binding(6, 0)]] Texture2D<float2> motion : register(t6, space0);
 [[vk::binding(7, 0)]] Texture2D<float4> specular;  // denoised reflection
 
 static const float kInvPi = 0.31830988618;

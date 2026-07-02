@@ -1,10 +1,11 @@
+#include "rhi_bindings.hlsli"
 // Screen-space ambient occlusion. Hemisphere kernel over the prepass depth and
 // world normals: each tap reconstructs a neighbour's world position and adds
 // occlusion by how much it rises above the surface, weighted by N.dot and a
 // linear range falloff. No ray tracing, no denoiser; TAA smooths the noise.
-[[vk::image_format("r8")]] [[vk::binding(0, 0)]] RWTexture2D<float> ao_out;
-[[vk::binding(1, 0)]] Texture2D<float> depth_map;
-[[vk::binding(2, 0)]] Texture2D<float2> normal_map;
+[[vk::image_format("r8")]] [[vk::binding(0, 0)]] RWTexture2D<float> ao_out : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float> depth_map : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map : register(t2, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;  // unjittered
@@ -19,7 +20,7 @@ struct PushData {
   uint sample_count;
   uint pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);

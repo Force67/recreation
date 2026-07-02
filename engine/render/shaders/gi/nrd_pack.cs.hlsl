@@ -1,19 +1,20 @@
+#include "rhi_bindings.hlsli"
 // Packs the engine g-buffer into NRD's guide inputs: IN_NORMAL_ROUGHNESS (world
 // normal + roughness, NRD encoding) and IN_VIEWZ (linear view depth). Fed to
 // both the REBLUR ao and SIGMA shadow denoisers.
 #include "NRD.hlsli"
 
-[[vk::image_format("rgb10a2")]] [[vk::binding(0, 0)]] RWTexture2D<float4> normal_roughness_out;
-[[vk::image_format("r16f")]] [[vk::binding(1, 0)]] RWTexture2D<float> viewz_out;
-[[vk::binding(2, 0)]] Texture2D<float2> normal_map;
-[[vk::binding(3, 0)]] Texture2D<float> depth_map;
+[[vk::image_format("rgb10a2")]] [[vk::binding(0, 0)]] RWTexture2D<float4> normal_roughness_out : register(u0, space0);
+[[vk::image_format("r16f")]] [[vk::binding(1, 0)]] RWTexture2D<float> viewz_out : register(u1, space0);
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float> depth_map : register(t3, space0);
 
 struct PushData {
   float near_plane;
   float denoising_range;
   float2 pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);

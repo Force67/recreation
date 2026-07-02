@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // ReSTIR GI, stage 1: temporal reservoir resampling (Ouyang et al. 2021).
 // The gbuffer pass traced one cosine-sampled indirect path per pixel and
 // stored its SAMPLE POINT (position, normal, outgoing radiance toward the
@@ -18,29 +19,29 @@ struct ReconRestirTemporalPush {
   float pad1;
   float pad2;
 };
-[[vk::push_constant]] ReconRestirTemporalPush pc;
+PUSH_CONSTANTS(ReconRestirTemporalPush, pc);
 
 // Reservoir layout across three textures (r = this frame, p = previous):
 //   R0: xyz sample position, w reservoir weight W
 //   R1: xyz sample normal (encoded *0.5+0.5), w M
 //   R2: xyz sample radiance (outgoing, toward the visible point), w w_sum
-[[vk::binding(0, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r0_out;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> r1_out;
-[[vk::binding(2, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r2_out;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r0_out : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> r1_out : register(u1, space0);
+[[vk::binding(2, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r2_out : register(u2, space0);
 [[vk::binding(3, 0)]] Texture2D<float4> s_pos;     // initial sample position (.w hit distance)
 [[vk::binding(4, 0)]] Texture2D<float4> s_nrm;     // initial sample normal
 [[vk::binding(5, 0)]] Texture2D<float4> s_rad;     // initial sample radiance
 [[vk::binding(6, 0)]] Texture2D<float4> p_pos;     // primary hit world position (.w 0 = sky)
 [[vk::binding(7, 0)]] Texture2D<float4> curr_nr;   // primary normal + roughness
-[[vk::binding(8, 0)]] Texture2D<float4> prev_nr;
-[[vk::binding(9, 0)]] Texture2D<float> curr_viewz;
-[[vk::binding(10, 0)]] Texture2D<float> prev_viewz;
-[[vk::binding(11, 0)]] Texture2D<uint> curr_matid;
-[[vk::binding(12, 0)]] Texture2D<uint> prev_matid;
-[[vk::binding(13, 0)]] Texture2D<float2> motion;
-[[vk::binding(14, 0)]] Texture2D<float4> r0_prev;
-[[vk::binding(15, 0)]] Texture2D<float4> r1_prev;
-[[vk::binding(16, 0)]] Texture2D<float4> r2_prev;
+[[vk::binding(8, 0)]] Texture2D<float4> prev_nr : register(t8, space0);
+[[vk::binding(9, 0)]] Texture2D<float> curr_viewz : register(t9, space0);
+[[vk::binding(10, 0)]] Texture2D<float> prev_viewz : register(t10, space0);
+[[vk::binding(11, 0)]] Texture2D<uint> curr_matid : register(t11, space0);
+[[vk::binding(12, 0)]] Texture2D<uint> prev_matid : register(t12, space0);
+[[vk::binding(13, 0)]] Texture2D<float2> motion : register(t13, space0);
+[[vk::binding(14, 0)]] Texture2D<float4> r0_prev : register(t14, space0);
+[[vk::binding(15, 0)]] Texture2D<float4> r1_prev : register(t15, space0);
+[[vk::binding(16, 0)]] Texture2D<float4> r2_prev : register(t16, space0);
 
 static const float kPi = 3.14159265359;
 

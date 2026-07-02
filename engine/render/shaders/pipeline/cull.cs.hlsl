@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // GPU frustum + occlusion culling: one thread per draw instance tests its world
 // bounding sphere against the camera frustum and, when enabled, against last
 // frame's hi-z (a coarse farthest-depth pyramid), writing the instanceCount
@@ -13,7 +14,7 @@ struct Instance {
   uint cull_disabled;
   uint pad;
 };
-[[vk::binding(0, 0)]] StructuredBuffer<Instance> instances;
+[[vk::binding(0, 0)]] StructuredBuffer<Instance> instances : register(t0, space0);
 [[vk::binding(1, 0)]] RWStructuredBuffer<uint> commands;       // 5 u32 per draw command
 [[vk::binding(2, 0)]] RWStructuredBuffer<uint> visible_count;  // [0]
 [[vk::binding(3, 0)]] Texture2D<float> hiz;                    // last frame, farthest depth
@@ -25,7 +26,7 @@ struct PushData {
   float4 proj_hiz;  // proj.m00, proj.m11, hiz width, hiz height
   uint4 misc;       // instance_count, frustum_enabled, occlusion_enabled, pad
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 [numthreads(64, 1, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

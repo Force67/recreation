@@ -1,11 +1,12 @@
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_resolved;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D scene;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState scene_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2D history;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState history_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D motion;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState motion_sampler;
-[[vk::image_format("rgba16f")]] [[vk::binding(4, 0)]] RWTexture2D<float4> debug_out;
+#include "rhi_bindings.hlsli"
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_resolved : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D scene : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState scene_sampler : register(s1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2D history : register(t2, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState history_sampler : register(s2, space0);
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D motion : register(t3, space0);
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState motion_sampler : register(s3, space0);
+[[vk::image_format("rgba16f")]] [[vk::binding(4, 0)]] RWTexture2D<float4> debug_out : register(u4, space0);
 
 struct PushData {
   float2 inv_size;
@@ -13,7 +14,7 @@ struct PushData {
   uint reset_history;
   uint debug;  // 1 = output the disocclusion heatmap
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

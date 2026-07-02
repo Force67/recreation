@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction, stage 3: edge-stopping a-trous wavelet filter. Run a few
 // times with increasing step size (1,2,4,8). Each pass widens the spatial blur
 // while edge-stopping on normal / depth / luminance (the luminance tolerance is
@@ -11,13 +12,13 @@ struct ReconAtrousPush {
   uint spec_mode;   // 1 = specular signal: tighten the kernel for smooth reflectors
   float spec_lobe;  // strength of the roughness-driven lobe tightening
 };
-[[vk::push_constant]] ReconAtrousPush pc;
+PUSH_CONSTANTS(ReconAtrousPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_color;
-[[vk::binding(1, 0)]] Texture2D<float4> in_color;
-[[vk::binding(2, 0)]] Texture2D<float4> in_nr;
-[[vk::binding(3, 0)]] Texture2D<float> in_viewz;
-[[vk::binding(4, 0)]] Texture2D<float4> in_moments;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_color : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float4> in_color : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float4> in_nr : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float> in_viewz : register(t3, space0);
+[[vk::binding(4, 0)]] Texture2D<float4> in_moments : register(t4, space0);
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 DecodeN(float4 nr) { return normalize(nr.xyz * 2.0 - 1.0); }

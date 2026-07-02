@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Shell-based fur: the mesh is drawn as N concentric shells, each pushed out
 // along the surface normal. The instance index is the shell layer; the pixel
 // shader carves hair strands out of each shell with an alpha mask so the stack
@@ -12,7 +13,7 @@ struct PushData {
   float3 base_color;
   float ambient;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsIn {
   [[vk::location(0)]] float3 position : POSITION;

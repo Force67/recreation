@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Hillaire 2020 multiple-scattering LUT. The O(1) approximation: estimate the
 // second-order in-scattered (isotropic) luminance L2 and the transfer factor
 // f_ms by integrating 64 directions over the sphere, then sum the whole infinite
@@ -7,14 +8,14 @@
 
 #include "atmosphere.hlsli"
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_lut;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<float4> transmittance;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState transmittance_sampler;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_lut : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<float4> transmittance : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState transmittance_sampler : register(s1, space0);
 
 struct PushData {
   float2 size;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float3 SampleTransmittanceLut(float radius, float mu) {
   return transmittance.SampleLevel(transmittance_sampler, TransmittanceUv(radius, mu), 0).rgb;

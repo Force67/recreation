@@ -1,9 +1,10 @@
+#include "rhi_bindings.hlsli"
 // Log luminance histogram of the scene, 256 bins accumulated through
 // groupshared then atomically merged.
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D scene;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState scene_sampler;
-[[vk::binding(1, 0)]] RWStructuredBuffer<uint> histogram;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D scene : register(t0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState scene_sampler : register(s0, space0);
+[[vk::binding(1, 0)]] RWStructuredBuffer<uint> histogram : register(u1, space0);
 
 struct PushData {
   float min_log_luma;
@@ -11,7 +12,7 @@ struct PushData {
   uint width;
   uint height;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 groupshared uint bins[256];
 

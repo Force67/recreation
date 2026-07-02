@@ -1,15 +1,16 @@
+#include "rhi_bindings.hlsli"
 // Separable Gaussian blur for the UI frosted-glass backdrop. Run twice
 // (horizontal then vertical) over a downsampled copy of the post-tonemap
 // backbuffer to produce the small blurred texture frosted panels sample. Pairs
 // with fullscreen.vs (a single screen-covering triangle).
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D src;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState src_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D src : register(t0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState src_sampler : register(s0, space0);
 
 struct Push {
   float2 dir;  // per-tap UV step along one axis (the other component is 0)
 };
-[[vk::push_constant]] Push push;
+PUSH_CONSTANTS(Push, push);
 
 struct PsIn {
   float4 sv_position : SV_Position;

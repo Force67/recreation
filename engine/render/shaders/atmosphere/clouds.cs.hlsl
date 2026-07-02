@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Volumetric clouds: a raymarched cloud layer (spherical shell) with procedural
 // Perlin-ish density (coverage + erosion + a height gradient), Beer's-law
 // self-shadowing toward the sun, a dual-lobe Henyey-Greenstein phase (silver
@@ -6,9 +7,9 @@
 
 #include "atmosphere.hlsli"
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image;
-[[vk::binding(1, 0)]] Texture2D color_in;
-[[vk::binding(2, 0)]] Texture2D depth_in;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D color_in : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D depth_in : register(t2, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;
@@ -20,7 +21,7 @@ struct PushData {
   uint steps;
   uint light_steps;
 };
-[[vk::push_constant]] PushData pc;
+PUSH_CONSTANTS(PushData, pc);
 
 float Hash13(float3 p) {
   p = frac(p * 0.1031);

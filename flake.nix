@@ -50,6 +50,26 @@
         "-DFETCHCONTENT_SOURCE_DIR_VULKANMEMORYALLOCATOR=${vma-src}"
       ];
 
+      # WineHQ vkd3d (native Linux D3D12-on-Vulkan), built from the release
+      # tarball: the git tree needs wine's widl to generate the d3d12 headers,
+      # which nixpkgs cannot supply on aarch64, while the dist tarball ships
+      # them pregenerated. Provides libvkd3d (the D3D12 implementation),
+      # libvkd3d-utils (D3D12CreateDevice & friends) and libvkd3d-shader with
+      # the DXIL (SM6) frontend. Used to run the engine's d3d12 backend on
+      # this Linux box.
+      vkd3dFor = pkgs: pkgs.stdenv.mkDerivation rec {
+        pname = "vkd3d";
+        version = "2.0";
+        src = pkgs.fetchurl {
+          url = "https://dl.winehq.org/vkd3d/source/vkd3d-${version}.tar.xz";
+          hash = "sha256-mtKbsjaAgYakfsZuhTsh5vylm53GKpR0sF1ePtonEO8=";
+        };
+        nativeBuildInputs = with pkgs; [ pkg-config bison flex perl perlPackages.JSON ];
+        buildInputs = with pkgs; [ spirv-headers vulkan-headers vulkan-loader xorg.libxcb ];
+        configureFlags = [ "--disable-tests" "--disable-doxygen-doc" ];
+        enableParallelBuilding = true;
+      };
+
       # nanoc, built reproducibly from the pinned nanobuf source. The lockfile
       # drives dependency resolution (no manual cargoHash); the workspace has
       # no git deps and only the `nanoc` binary is built. This goes on PATH in
@@ -195,6 +215,7 @@
               vulkan-validation-layers
               vulkan-tools
               (nanocFor pkgs)         # nanobuf schema compiler, for nanobuf_regen
+              (vkd3dFor pkgs)         # native D3D12-on-Vulkan, for the d3d12 rhi backend
               vkrun
               swrun
             ];

@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Carves hair strands out of each fur shell. A high-frequency grid over the uv
 // seeds one strand per cell with a random length and a coverage gap; a fragment
 // survives only while its shell height is below the local strand length, so the
@@ -12,7 +13,7 @@ struct PushData {
   float3 base_color;
   float ambient;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct PsIn {
   float4 pos : SV_Position;

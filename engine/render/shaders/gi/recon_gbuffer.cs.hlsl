@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction path tracer, stage 1: trace one noisy sample per pixel and
 // emit the g-buffer + demodulated noisy DIFFUSE IRRADIANCE that the temporal /
 // atrous passes reconstruct. Irradiance carries no primary albedo (the composite
@@ -21,26 +22,26 @@ struct PathGbufferPush {
                          // integrating indirect inline). Packed because the
                          // push block already sits at the 256-byte limit.
 };
-[[vk::push_constant]] PathGbufferPush pc;
+PUSH_CONSTANTS(PathGbufferPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> normal_rough_out;
-[[vk::binding(2, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> viewz_out;
-[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out;
-[[vk::binding(4, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> materialid_out;
-[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out;
-[[vk::binding(6, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> emissive_out;
-[[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube;
-[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> normal_rough_out : register(u1, space0);
+[[vk::binding(2, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> viewz_out : register(u2, space0);
+[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out : register(u3, space0);
+[[vk::binding(4, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> materialid_out : register(u4, space0);
+[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out : register(u5, space0);
+[[vk::binding(6, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> emissive_out : register(u6, space0);
+[[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas : register(t7, space0);
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube : register(t8, space0);
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler : register(s8, space0);
 [[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out;  // noisy
 // ReSTIR GI initial sample (bit 8 of pc.bounces): the first indirect vertex's
 // position/normal and its outgoing radiance toward the primary hit, plus the
 // primary hit's world position (.w 0 marks sky) for reservoir reuse geometry.
-[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> sample_pos_out;
-[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_nrm_out;
-[[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_rad_out;
-[[vk::binding(13, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> primary_pos_out;
+[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> sample_pos_out : register(u10, space0);
+[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_nrm_out : register(u11, space0);
+[[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_rad_out : register(u12, space0);
+[[vk::binding(13, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> primary_pos_out : register(u13, space0);
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -69,11 +70,11 @@ struct MaterialRecord {
 };
 static const uint kMaterialAlphaMask = 1u;
 static const uint kMaterialTerrain = 2u;
-[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 1)]] Texture2D bindless_textures[];
-[[vk::binding(4, 1)]] SamplerState bindless_sampler;
+[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space1);
+[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space1);
+[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space1);
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
 
 static const float kPi = 3.14159265359;
 static const float kInvPi = 0.31830988618;

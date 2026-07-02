@@ -1,7 +1,8 @@
+#include "rhi_bindings.hlsli"
 // Mean of the log luminance histogram (bin 0, pure black, ignored) and
 // exponential adaptation toward the keyed exposure.
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<uint> histogram;
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> histogram : register(u0, space0);
 [[vk::binding(1, 0)]] RWStructuredBuffer<float> exposure;  // [0] exposure, [1] avg luma
 
 struct PushData {
@@ -14,7 +15,7 @@ struct PushData {
   float manual_exposure;
   float pixel_count;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 groupshared uint bins[256];
 

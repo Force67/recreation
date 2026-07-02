@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // ReSTIR GI, stage 2: spatial reservoir resampling + shading. Merges a few
 // disk-distributed neighbor reservoirs into the pixel's temporal reservoir
 // (geometry-gated, with the solid-angle Jacobian of Ouyang et al. 2021 Eq. 11
@@ -22,22 +23,22 @@ struct ReconRestirSpatialPush {
   float pad1;
   float pad2;
 };
-[[vk::push_constant]] ReconRestirSpatialPush pc;
+PUSH_CONSTANTS(ReconRestirSpatialPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out : register(u0, space0);
 [[vk::binding(1, 0)]] Texture2D<float4> r0_in;    // reservoir: pos + W
 [[vk::binding(2, 0)]] Texture2D<float4> r1_in;    // reservoir: normal + M
 [[vk::binding(3, 0)]] Texture2D<float4> r2_in;    // reservoir: radiance + w_sum
 [[vk::binding(4, 0)]] Texture2D<float4> p_pos;    // primary hit world position (.w 0 = sky)
 [[vk::binding(5, 0)]] Texture2D<float4> curr_nr;  // primary normal + roughness
-[[vk::binding(6, 0)]] Texture2D<float> curr_viewz;
-[[vk::binding(7, 0)]] Texture2D<uint> curr_matid;
+[[vk::binding(6, 0)]] Texture2D<float> curr_viewz : register(t6, space0);
+[[vk::binding(7, 0)]] Texture2D<uint> curr_matid : register(t7, space0);
 [[vk::binding(8, 0)]] Texture2D<float4> direct_irr;  // gbuffer's direct-only irradiance
-[[vk::binding(9, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::binding(9, 0)]] RaytracingAccelerationStructure tlas : register(t9, space0);
 // Persistent reservoir history for next frame's temporal stage.
-[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r0_out;
-[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> r1_out;
-[[vk::binding(12, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r2_out;
+[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r0_out : register(u10, space0);
+[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> r1_out : register(u11, space0);
+[[vk::binding(12, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r2_out : register(u12, space0);
 
 static const float kPi = 3.14159265359;
 static const float kFarSample = 1.0e4;  // beyond this the sample is sky-like

@@ -18,13 +18,13 @@ struct FrameGlobals {
   float time;  // seconds
   float2 pad;
 };
-[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 static const uint kFrameFlagAurora = 256u;  // 1 << 8, mirrors mesh_pipeline.h
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] TextureCube sky;
-[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] SamplerState sky_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D<float4> transmittance_lut;
-[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState transmittance_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] TextureCube sky : register(t0, space1);
+[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] SamplerState sky_sampler : register(s0, space1);
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] Texture2D<float4> transmittance_lut : register(t1, space1);
+[[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState transmittance_sampler : register(s1, space1);
 
 struct PsOut {
   float4 color : SV_Target0;

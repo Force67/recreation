@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Soft, sun-lit billboard particles. A sphere impostor normal gives volumetric
 // shading; the prepass depth fades the particle out as it nears geometry (soft
 // particles) and clips it where it is fully occluded.
@@ -15,7 +16,7 @@ struct PushData {
   float ambient;
   column_major float4x4 prev_view_proj;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct PsIn {
   float4 pos : SV_Position;

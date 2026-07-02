@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Progressive reference path tracer. Shares the scene's TLAS and bindless
 // material/geometry tables with the realtime path; diffuse bounces with
 // next-event estimation toward the sun and the procedural sky cube on miss.
@@ -17,13 +18,13 @@ struct PathPush {
   uint reset;
   uint pad;
 };
-[[vk::push_constant]] PathPush pc;
+PUSH_CONSTANTS(PathPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> output_image;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> accum_image;
-[[vk::binding(2, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] TextureCube sky_cube;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState sky_sampler;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> output_image : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> accum_image : register(u1, space0);
+[[vk::binding(2, 0)]] RaytracingAccelerationStructure tlas : register(t2, space0);
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] TextureCube sky_cube : register(t3, space0);
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState sky_sampler : register(s3, space0);
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -50,11 +51,11 @@ struct MaterialRecord {
   uint pad1;
   uint pad2;
 };
-[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 1)]] Texture2D bindless_textures[];
-[[vk::binding(4, 1)]] SamplerState bindless_sampler;
+[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space1);
+[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space1);
+[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space1);
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
 
 // Pristine reference: this brute-force ground-truth accumulator deliberately
 // traces RAY_FLAG_FORCE_OPAQUE (no alpha-tested foliage), exactly as it did

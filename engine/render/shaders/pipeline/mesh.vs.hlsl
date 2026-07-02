@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 struct FrameGlobals {
   column_major float4x4 view_proj;
   column_major float4x4 prev_view_proj;
@@ -11,7 +12,7 @@ struct FrameGlobals {
   uint flags;
   float3 pad;
 };
-[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 
 struct PushData {
   column_major float4x4 model;
@@ -22,7 +23,7 @@ struct PushData {
   uint tint_packed;       // rgb8 (0xRRGGBB) albedo tint, 0 = none (team colour)
 #endif
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsIn {
   [[vk::location(0)]] float3 position : POSITION;

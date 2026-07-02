@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Optional mesh-shader opaque path (VK_EXT_mesh_shader). The task stage
 // (mesh_scene.as) culls instances and meshlets and hands this stage a compacted
 // list of surviving meshlet indices; one mesh workgroup per survivor pulls its
@@ -19,7 +20,7 @@ struct FrameGlobals {
   uint flags;
   float3 pad;
 };
-[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame;
+[[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 
 struct PushData {
   column_major float4x4 model;
@@ -33,7 +34,7 @@ struct PushData {
   uint meshlet_offset;              // first meshlet of this (lod,submesh)
   uint meshlet_count;              // meshlet count of this (lod,submesh)
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct MeshPayload {
   uint meshlet[32];  // survivor meshlet indices from the task stage

@@ -1,10 +1,11 @@
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D scene;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState scene_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D bloom;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState bloom_sampler;
+#include "rhi_bindings.hlsli"
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D scene : register(t0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState scene_sampler : register(s0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D bloom : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState bloom_sampler : register(s1, space0);
 [[vk::binding(2, 0)]] StructuredBuffer<float> exposure_buffer;  // [0] resolved exposure
 [[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D color_lut;  // 1024x32 strip lut
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState color_lut_sampler;
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState color_lut_sampler : register(s3, space0);
 
 struct PushData {
   uint tonemap;  // 0 aces, 1 reinhard, 2 none
@@ -12,7 +13,7 @@ struct PushData {
   uint bloom_enabled;
   uint lut_enabled;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 // Strip color lut: 32 blue slices laid out horizontally (1024x32). Hardware
 // bilinear covers red/green within a slice; blue is a manual lerp across slices.

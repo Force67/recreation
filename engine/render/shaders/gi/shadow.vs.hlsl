@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Depth-only cascade shadow caster. Renders opaque geometry from the sun into
 // one sub-rect of the cascade atlas. The uv is passed through so the fragment
 // stage can alpha-test masked materials (perforated foliage shadows); fully
@@ -13,7 +14,7 @@ struct PushData {
   uint pad;
 #endif
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsIn {
   [[vk::location(0)]] float3 position : POSITION;

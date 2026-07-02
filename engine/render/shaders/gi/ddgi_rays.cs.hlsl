@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // DDGI probe rays: every probe shoots a rotated fibonacci sphere of rays
 // through the TLAS. Misses sample the sky; hits fetch their triangle's
 // normal, uv and material through the bindless scene tables and shade from
@@ -44,13 +45,13 @@ float3 ProbePosition(uint3 probe, DdgiVolume volume) {
   return volume.origin.xyz + float3(probe) * volume.origin.w;
 }
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> rays_out;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] TextureCube sky;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState sky_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2DArray prev_irradiance;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState prev_irradiance_sampler;
-[[vk::binding(3, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::binding(4, 0)]] ConstantBuffer<DdgiVolume> volume;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> rays_out : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] TextureCube sky : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState sky_sampler : register(s1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2DArray prev_irradiance : register(t2, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState prev_irradiance_sampler : register(s2, space0);
+[[vk::binding(3, 0)]] RaytracingAccelerationStructure tlas : register(t3, space0);
+[[vk::binding(4, 0)]] ConstantBuffer<DdgiVolume> volume : register(b4, space0);
 
 // Bindless scene tables (set 1), written by the renderer at upload time.
 struct MeshRecord {
@@ -78,11 +79,11 @@ struct MaterialRecord {
   uint pad1;
   uint pad2;
 };
-[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 1)]] Texture2D bindless_textures[];
-[[vk::binding(4, 1)]] SamplerState bindless_sampler;
+[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space1);
+[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space1);
+[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space1);
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
 
 static const uint kVertexStride = 52;  // asset::Vertex
 static const uint kNormalOffset = 12;
@@ -95,7 +96,7 @@ struct PushData {
   float4 sun_direction;  // xyz travel dir, w intensity
   float4 sun_color;      // rgb, w rays per probe
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 
 float2 ProbeAtlasUv(uint3 probe, float3 dir, float texels, float2 atlas_size) {
