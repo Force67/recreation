@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "core/log.h"
+#include "render/atmosphere/ltc_tables.h"
 #include "render/pipeline/mesh_pipeline.h"
 #include "shaders/brdf_lut_cs_hlsl.h"
 #include "shaders/fullscreen_vs_hlsl.h"
@@ -135,6 +136,34 @@ bool EnvironmentSystem::CreateDummies() {
     cmd.Barrier(Transition(shadow_dummy_, ResourceState::kCopyDst,
                            ResourceState::kShaderReadFragment));
   });
+
+  // LTC area-light fit tables: two 64x64 RGBA16F uploads, sampled by the rect
+  // light path in the mesh shaders (env slots 18/19).
+  constexpr u64 kLtcBytes = static_cast<u64>(kLtcLutSize) * kLtcLutSize * 4 * sizeof(u16);
+  ltc_matrix_ = device_.CreateImage2D(Format::kRGBA16Float, {kLtcLutSize, kLtcLutSize},
+                                      kTextureUsageSampled | kTextureUsageTransferDst);
+  ltc_amplitude_ = device_.CreateImage2D(Format::kRGBA16Float, {kLtcLutSize, kLtcLutSize},
+                                         kTextureUsageSampled | kTextureUsageTransferDst);
+  if (!ltc_matrix_ || !ltc_amplitude_) return false;
+  GpuBuffer ltc_staging = device_.CreateBuffer(kLtcBytes * 2, kBufferUsageTransferSrc, true);
+  if (!ltc_staging.mapped) return false;
+  std::memcpy(ltc_staging.mapped, kLtc1, kLtcBytes);
+  std::memcpy(static_cast<u8*>(ltc_staging.mapped) + kLtcBytes, kLtc2, kLtcBytes);
+  device_.ImmediateSubmit([&](CommandList& cmd) {
+    BufferTextureCopy region1{.buffer_offset = 0, .mip = 0,
+                              .extent = {kLtcLutSize, kLtcLutSize}};
+    BufferTextureCopy region2{.buffer_offset = kLtcBytes, .mip = 0,
+                              .extent = {kLtcLutSize, kLtcLutSize}};
+    cmd.Barrier(Transition(ltc_matrix_, ResourceState::kUndefined, ResourceState::kCopyDst));
+    cmd.Barrier(Transition(ltc_amplitude_, ResourceState::kUndefined, ResourceState::kCopyDst));
+    cmd.CopyBufferToTexture(ltc_staging, ltc_matrix_, {&region1, 1});
+    cmd.CopyBufferToTexture(ltc_staging, ltc_amplitude_, {&region2, 1});
+    cmd.Barrier(Transition(ltc_matrix_, ResourceState::kCopyDst,
+                           ResourceState::kShaderReadFragment));
+    cmd.Barrier(Transition(ltc_amplitude_, ResourceState::kCopyDst,
+                           ResourceState::kShaderReadFragment));
+  });
+  device_.DestroyBuffer(ltc_staging);
   return true;
 }
 
@@ -198,6 +227,9 @@ bool EnvironmentSystem::CreatePipelines() {
   env_desc.slots.push_back({15, BindingType::kStorageBuffer});
   env_desc.slots.push_back({16, BindingType::kStorageBuffer});
   env_desc.slots.push_back({17, BindingType::kCombinedTextureSampler});
+  // 18/19: LTC area-light fit tables (matrix + magnitude/fresnel/sphere).
+  env_desc.slots.push_back({18, BindingType::kCombinedTextureSampler});
+  env_desc.slots.push_back({19, BindingType::kCombinedTextureSampler});
   env_set_layout_ = device_.CreateBindingLayout(env_desc);
   if (!env_set_layout_) return false;
 
@@ -395,7 +427,9 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                            decal_buffer ? decal_buffer.size : 256),
        Bind::StorageBuffer(16, decal_indices ? decal_indices : dummy_storage_, 0,
                            decal_indices ? decal_indices.size : 256),
-       Bind::Combined(17, decal_atlas ? decal_atlas : white_.view, sampler_)});
+       Bind::Combined(17, decal_atlas ? decal_atlas : white_.view, sampler_),
+       Bind::Combined(18, ltc_matrix_.view, sampler_),
+       Bind::Combined(19, ltc_amplitude_.view, sampler_)});
 }
 
 EnvironmentSystem::~EnvironmentSystem() {
@@ -421,6 +455,8 @@ EnvironmentSystem::~EnvironmentSystem() {
   device_.DestroyImage(white_);
   device_.DestroyImage(black_array_);
   device_.DestroyImage(shadow_dummy_);
+  device_.DestroyImage(ltc_matrix_);
+  device_.DestroyImage(ltc_amplitude_);
   device_.DestroyBuffer(dummy_volume_);
   device_.DestroyBuffer(dummy_storage_);
   // Samplers are cached by the device and never destroyed by callers.

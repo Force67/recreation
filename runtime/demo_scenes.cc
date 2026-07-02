@@ -682,6 +682,7 @@ void DemoScenes::CreateBrickDemoScene() {
       make_decal({1.6f, 0.0f, 1.4f}, {0, 1, 0}, {0, 0, 1}, 1.3f, 1.3f, 0.3f, true));
 
   // Grazing warm sun to pop the relief.
+  ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.85f, -0.18f, -0.49f};
   renderer_.settings().sun_intensity = 3.0f;
   renderer_.settings().sun_color = {1.0f, 0.85f, 0.7f};
@@ -786,6 +787,7 @@ void DemoScenes::CreateSssDemoScene() {
 
   // Hard side sun so the terminator crosses both spheres mid-face. DoF off:
   // its near-field blur would mask the effect this demo exists to show.
+  ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.90f, -0.30f, -0.32f};
   renderer_.settings().sun_intensity = 4.5f;
   renderer_.settings().sun_color = {1.0f, 0.94f, 0.88f};
@@ -918,6 +920,7 @@ void DemoScenes::CreateFireDemoScene() {
 
   // Dusk: the sun barely up so the fire owns the scene. Auto exposure would
   // brighten the dim scene back to noon; bias it down for the mood.
+  ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {0.35f, -0.08f, -0.93f};
   renderer_.settings().sun_intensity = 0.25f;
   renderer_.settings().sun_color = {1.0f, 0.55f, 0.35f};
@@ -1198,11 +1201,20 @@ void DemoScenes::CreatePointLightDemoScene() {
     demo_lights_.push_back(panel);
   }
 
+  ctx_.scene_owns_sun = true;  // keep the day/night clock off the staged dusk
   renderer_.settings().sun_intensity = 0.25f;  // dim the sun + ibl so the point lights dominate
+  renderer_.settings().sun_direction = {0.2f, -0.25f, -0.95f};
   renderer_.settings().ibl = false;
   renderer_.settings().ambient = 0.02f;
-  camera_.set_position({0.0f, 2.4f, 5.5f});
-  camera_.set_yaw_pitch(0.0f, -0.32f);
+  // Fixed exposure: auto exposure would lift the deliberately dark scene back
+  // to daylight and wash the colored lights out.
+  renderer_.settings().auto_exposure = false;
+  renderer_.settings().exposure = 1.0f;
+  renderer_.settings().dof = false;
+  // Low grazing view toward the rect panel so its floor reflection streak
+  // (the LTC signature - elongating with roughness) is in frame.
+  camera_.set_position({0.0f, 1.1f, 4.8f});
+  camera_.set_yaw_pitch(0.0f, -0.16f);
   camera_.speed = 3.0f;
   REC_INFO("point-light demo: {} dynamic omni lights", demo_lights_.size());
 }

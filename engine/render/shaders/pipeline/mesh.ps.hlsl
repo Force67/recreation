@@ -61,6 +61,13 @@ struct Decal {
 [[vk::combinedImageSampler]] [[vk::binding(17, 2)]] SamplerState decal_atlas_sampler : register(s17, space2);
 static const uint kMaxDecalsPerCluster = 16;
 
+// LTC fit tables for rect area lights (Heitz et al. 2016): 18 = inverse
+// transform matrix entries, 19 = (magnitude, fresnel, -, sphere factor).
+[[vk::combinedImageSampler]] [[vk::binding(18, 2)]] Texture2D ltc_matrix_lut : register(t18, space2);
+[[vk::combinedImageSampler]] [[vk::binding(18, 2)]] SamplerState ltc_matrix_sampler : register(s18, space2);
+[[vk::combinedImageSampler]] [[vk::binding(19, 2)]] Texture2D ltc_amp_lut : register(t19, space2);
+[[vk::combinedImageSampler]] [[vk::binding(19, 2)]] SamplerState ltc_amp_sampler : register(s19, space2);
+
 // Blends clustered decal albedo over the surface. Runs after the base-color
 // fetch, before lighting, so decals shade like part of the material.
 float3 ApplyDecals(float3 albedo, float3 world_pos, float3 n, float2 sv_xy, float view_z) {
@@ -371,6 +378,38 @@ float ParallaxShadow(float2 uv, float3 light_ts, float scale, float2 dx, float2 
   return 1.0 - saturate(occlusion * 6.0) * 0.75;
 }
 
+// --- linearly transformed cosines (Heitz et al. 2016), rect area lights ----
+static const float kLtcLut = 64.0;
+float3 LtcIntegrateEdge(float3 v1, float3 v2) {
+  float x = dot(v1, v2);
+  float y = abs(x);
+  float a = 0.8543985 + (0.4965155 + 0.0145206 * y) * y;
+  float b = 3.4175940 + (4.1616724 + y) * y;
+  float v = a / b;
+  float theta_sintheta = (x > 0.0) ? v : 0.5 * rsqrt(max(1.0 - x * x, 1e-7)) - v;
+  return cross(v1, v2) * theta_sintheta;
+}
+// Polygon integral of the LTC-transformed clamped cosine; the sphere-factor
+// channel of the amplitude table approximates the horizon clipping.
+float LtcEvaluate(float3 n, float3 v, float3 pos, float3x3 minv, float3 p0, float3 p1,
+                  float3 p2, float3 p3) {
+  float3 t1 = normalize(v - n * dot(v, n));
+  float3 t2 = cross(n, t1);
+  float3x3 m = mul(minv, float3x3(t1, t2, n));
+  float3 l0 = normalize(mul(m, p0 - pos));
+  float3 l1 = normalize(mul(m, p1 - pos));
+  float3 l2 = normalize(mul(m, p2 - pos));
+  float3 l3 = normalize(mul(m, p3 - pos));
+  float3 vsum = LtcIntegrateEdge(l0, l1) + LtcIntegrateEdge(l1, l2) +
+                LtcIntegrateEdge(l2, l3) + LtcIntegrateEdge(l3, l0);
+  float len = length(vsum);
+  float z = vsum.z / max(len, 1e-7);
+  float2 uv = float2(z * 0.5 + 0.5, len);
+  uv = uv * ((kLtcLut - 1.0) / kLtcLut) + 0.5 / kLtcLut;
+  float scale = ltc_amp_lut.SampleLevel(ltc_amp_sampler, uv, 0.0).w;
+  return len * scale;
+}
+
 // --- hair strand lobes (Kajiya-Kay with dual shifted highlights) -----------
 float3 ShiftTangent(float3 t, float3 n, float shift) {
   return normalize(t + n * shift);
@@ -515,30 +554,55 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     float3 pl_l = to_l / dist;
     uint ltype = uint(pl.direction_type.w + 0.5);
     float area_norm = 1.0;
-    if (ltype == 2u || ltype == 3u) {
+    if (ltype == 3u) {
+      // Rect panel: exact-ish polygon integration via linearly transformed
+      // cosines (spec through the fitted GGX transform, diffuse through the
+      // identity), replacing the old representative-point approximation.
+      float3 ln = normalize(pl.direction_type.xyz);
+      if (dot(ln, input.world_pos - pl.pos_radius.xyz) < 0.0) continue;  // behind
+      float3 lt = normalize(cross(abs(ln.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0), ln));
+      float3 lb = cross(ln, lt);
+      float3 ex = lt * pl.params.x;
+      float3 ey = lb * pl.params.y;
+      // Wound so the edge integral's form-factor vector points toward the
+      // shaded hemisphere (lb = ln x lt makes the +ey,+ex cycle face away).
+      float3 c0 = pl.pos_radius.xyz - ex - ey;
+      float3 c1 = pl.pos_radius.xyz - ex + ey;
+      float3 c2 = pl.pos_radius.xyz + ex + ey;
+      float3 c3 = pl.pos_radius.xyz + ex - ey;
+      float2 ltc_uv = float2(roughness, sqrt(saturate(1.0 - ndv)));
+      ltc_uv = ltc_uv * ((kLtcLut - 1.0) / kLtcLut) + 0.5 / kLtcLut;
+      float4 lm = ltc_matrix_lut.SampleLevel(ltc_matrix_sampler, ltc_uv, 0.0);
+      float4 lamp = ltc_amp_lut.SampleLevel(ltc_amp_sampler, ltc_uv, 0.0);
+      float3x3 minv = float3x3(float3(lm.x, 0.0, lm.z), float3(0.0, 1.0, 0.0),
+                               float3(lm.y, 0.0, lm.w));
+      float spec_i = LtcEvaluate(n, v, input.world_pos, minv, c0, c1, c2, c3);
+      static const float3x3 kLtcIdentity = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+      float diff_i = LtcEvaluate(n, v, input.world_pos, kLtcIdentity, c0, c1, c2, c3);
+      float3 spec_col = f0 * lamp.x + (1.0 - f0) * lamp.y;
+      float panel_falloff = saturate(1.0 - dist2 / (lr * lr));
+      panel_falloff *= panel_falloff;
+      ++light_hits;
+      float3 panel_diff = diffuse_color * diff_i;
+      lit += (panel_diff + spec_col * spec_i) * pl.color_intensity.rgb *
+             pl.color_intensity.w * panel_falloff;
+      g_skin_diffuse +=
+          panel_diff * pl.color_intensity.rgb * pl.color_intensity.w * panel_falloff;
+      continue;
+    }
+    if (ltype == 2u) {
       // Representative point (Karis): move the sample toward the reflection
       // ray's closest point on the source so highlights stretch correctly.
       float3 rr = reflect(-v, n);
       float3 rep = pl.pos_radius.xyz;
-      if (ltype == 2u) {  // sphere
-        float3 center_to_ray = dot(to_l, rr) * rr - to_l;
-        rep += center_to_ray * saturate(pl.params.x / max(length(center_to_ray), 1e-4));
-      } else {  // rect: closest point on the plane rectangle
-        float3 ln = normalize(pl.direction_type.xyz);
-        float3 lt = normalize(cross(abs(ln.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0), ln));
-        float3 lb = cross(ln, lt);
-        float3 rel = input.world_pos - pl.pos_radius.xyz;
-        rep = pl.pos_radius.xyz + lt * clamp(dot(rel, lt), -pl.params.x, pl.params.x) +
-              lb * clamp(dot(rel, lb), -pl.params.y, pl.params.y);
-        if (dot(ln, input.world_pos - rep) < 0.0) continue;  // behind the panel
-      }
+      float3 center_to_ray = dot(to_l, rr) * rr - to_l;
+      rep += center_to_ray * saturate(pl.params.x / max(length(center_to_ray), 1e-4));
       float3 to_rep = rep - input.world_pos;
       float rep_d = max(length(to_rep), 1e-4);
       pl_l = to_rep / rep_d;
       // Energy normalization: widening the lobe by the source size keeps the
       // total output roughly constant as the highlight grows.
-      float source = ltype == 2u ? pl.params.x : max(pl.params.x, pl.params.y);
-      area_norm = a / saturate(a + source / (2.0 * rep_d));
+      area_norm = a / saturate(a + pl.params.x / (2.0 * rep_d));
       area_norm *= area_norm;
     }
     float pndl = max(dot(n, pl_l), 0.0);

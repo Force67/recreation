@@ -149,6 +149,11 @@ struct EngineContext {
   // blindly forward into whatever happens to be ahead.
   bool auto_walk_has_goal = false;
   Vec3 auto_walk_goal{};
+
+  // Demo scenes that stage their own lighting set this so the day/night clock
+  // stops re-driving sun direction/intensity/ambient every frame (REC_SUN_DIR
+  // has the same effect globally).
+  bool scene_owns_sun = false;
 };
 
 }  // namespace rec

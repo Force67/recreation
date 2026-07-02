@@ -111,6 +111,9 @@ class EnvironmentSystem {
   GpuImage white_;
   GpuImage black_array_;
   GpuImage shadow_dummy_;  // 1x1 depth cleared to 1.0 (fully lit)
+  // LTC fit tables for GGX area lights (64x64 RGBA16F, uploaded once).
+  GpuImage ltc_matrix_;
+  GpuImage ltc_amplitude_;
   TextureView black_array_view_;
   GpuBuffer dummy_volume_;
   GpuBuffer dummy_storage_;  // storage-usage fallback for the SB slots

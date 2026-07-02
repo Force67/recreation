@@ -333,7 +333,7 @@ bool Engine::RunFrame() {
       // dimmed by the weather. Throttled to ~0.02-hour steps so the IBL
       // environment is not rebuilt every frame, also re-firing when the weather
       // light changes.
-      if (drive_sun_from_clock_) {
+      if (drive_sun_from_clock_ && !ctx_.scene_owns_sun) {
         const f32 hour = clock_.hour();
         const bool weather_dirty = std::abs(w.light_scale - last_weather_scale_) > 0.01f ||
                                    std::abs(w.light_tint.x - last_weather_tint_.x) > 0.01f ||
