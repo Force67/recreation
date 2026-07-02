@@ -42,15 +42,30 @@ class ReconPathTracer {
     bool restir = true;
   };
 
+  // Filled instead of running the SVGF chain when an external denoiser (DLSS
+  // Ray Reconstruction) owns reconstruction: the composed noisy radiance plus
+  // the gbuffer guides it consumes. All render-resolution graph handles.
+  struct ExternalInputs {
+    ResourceHandle color = kInvalidResource;          // albedo/pi*irr + emissive + spec
+    ResourceHandle depth = kInvalidResource;          // reversed-inf-z device depth
+    ResourceHandle motion = kInvalidResource;         // uv-space current->previous
+    ResourceHandle normals_rough = kInvalidResource;  // world normal, roughness in .w
+    ResourceHandle diffuse_albedo = kInvalidResource;
+    ResourceHandle specular_albedo = kInvalidResource;
+  };
+
   bool Initialize(Device& device, BindingLayoutHandle bindless_layout);
   void Resize(Device& device, Extent2D extent);
   void Destroy(Device& device);
 
   // Reconstructs the path-traced image into output (scene_color, an hdr storage
   // image), in place of the raster path.
+  // With `external` null, reconstructs into output (SVGF). With it set, stops
+  // after the gbuffer/restir stages, composes the noisy radiance and fills
+  // `external` for the caller's denoiser; output is untouched.
   void AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
                   BindingSetHandle bindless_set, TextureView sky_view, SamplerHandle sky_sampler,
-                  ResourceHandle output, const Frame& frame);
+                  ResourceHandle output, const Frame& frame, ExternalInputs* external = nullptr);
 
  private:
   struct PingPong {

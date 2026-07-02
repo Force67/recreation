@@ -40,6 +40,7 @@ base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
 base::Option<bool> PathtraceRecon{"pathtrace.recon", false, "REC_PATHTRACE_RECON"};
 base::Option<int> PathtraceReconDebug{"pathtrace.recon.debug", 0, "REC_PATHTRACE_RECON_DEBUG"};
 base::Option<bool> PathtraceRestir{"pathtrace.restir", true, "REC_PATHTRACE_RESTIR"};
+base::Option<bool> PathtraceRr{"pathtrace.rr", true, "REC_PATHTRACE_RR"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
 base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
@@ -325,6 +326,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
   if (PathtraceReconDebug.overridden()) settings_.path_trace_recon_debug = static_cast<u32>(std::max(0, int(PathtraceReconDebug)));
   if (PathtraceRestir.overridden()) settings_.path_trace_restir = PathtraceRestir;
+  if (PathtraceRr.overridden()) settings_.path_trace_rr = PathtraceRr;
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
@@ -451,6 +453,9 @@ void Renderer::ResizeSizedPasses() {
 #if defined(RECREATION_HAS_NRD)
   if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
   if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
+#endif
+#if defined(RECREATION_HAS_DLSS)
+  rr_.Resize(*device_, {render_width_, render_height_});
 #endif
 }
 
@@ -1178,6 +1183,18 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // Lazily allocate the recon history targets on first use: the mode is off by
       // default and the buffers are large, so they are not created up front.
       recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+      bool rr_active = false;
+#if defined(RECREATION_HAS_DLSS)
+      // Ray reconstruction replaces the SVGF chain when its snippet loads;
+      // lazy-init mirrors the recon targets above.
+      if (settings_.path_trace_rr && !rr_init_attempted_) {
+        rr_init_attempted_ = true;
+        if (!rr_.Initialize(*device_, {render_width_, render_height_})) {
+          REC_INFO("dlss-rr unavailable, recon uses the in-tree svgf denoiser");
+        }
+      }
+      rr_active = settings_.path_trace_rr && rr_.available();
+#endif
       ReconPathTracer::Frame rf;
       rf.inv_view_proj = globals.inv_view_proj;
       rf.view_proj = view_proj;
@@ -1204,9 +1221,29 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         rf.restir = true;
       }
       rf.restir = settings_.path_trace_restir;
-      recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
-                                    environment_->sky_view(), environment_->sampler(), scene_color,
-                                    rf);
+#if defined(RECREATION_HAS_DLSS)
+      if (rr_active) {
+        ReconPathTracer::ExternalInputs ext;
+        recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                      environment_->sky_view(), environment_->sampler(),
+                                      scene_color, rf, &ext);
+        RrDenoiser::Frame rrf;
+        rrf.world_to_view = view_mat;
+        rrf.view_to_clip = proj;
+        rrf.frame_delta_ms = view.frame_delta_seconds * 1000.0f;
+        rrf.reset = rf.reset;
+        rr_.AddToGraph(graph_,
+                       {ext.color, ext.depth, ext.motion, ext.normals_rough, ext.diffuse_albedo,
+                        ext.specular_albedo},
+                       scene_color, rrf);
+      } else
+#endif
+      {
+        (void)rr_active;
+        recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                      environment_->sky_view(), environment_->sampler(),
+                                      scene_color, rf);
+      }
     }
 #if defined(RECREATION_HAS_NRD)
     if (!recon_path && nrd_.available() && !settings_.path_trace_reference) {
@@ -2251,6 +2288,9 @@ void Renderer::Shutdown() {
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);
     if (rt_available_) shadow_trace_.Destroy(*device_);
+#endif
+#if defined(RECREATION_HAS_DLSS)
+    rr_.Destroy(*device_);
 #endif
     bloom_.Destroy(*device_);
     exposure_.Destroy(*device_);

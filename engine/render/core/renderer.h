@@ -17,6 +17,7 @@
 #include "render/post/bloom.h"
 #include "render/gi/ddgi.h"
 #include "render/gi/denoiser_nrd.h"
+#include "render/gi/denoiser_rr.h"
 #include "render/post/exposure.h"
 #include "render/atmosphere/environment.h"
 #include "render/geometry/gaussian.h"
@@ -263,6 +264,13 @@ class Renderer {
 #if defined(RECREATION_HAS_NRD)
   NrdDenoiser nrd_;
   ShadowTracePass shadow_trace_;
+#endif
+#if defined(RECREATION_HAS_DLSS)
+  // DLSS Ray Reconstruction: learned denoiser replacing the SVGF chain in the
+  // recon path-traced mode when the dlssd snippet is available. Lazy-init on
+  // first use (its feature memory is not free).
+  RrDenoiser rr_;
+  bool rr_init_attempted_ = false;
 #endif
   BloomPass bloom_;
   ExposurePass exposure_;

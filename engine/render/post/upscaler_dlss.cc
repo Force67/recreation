@@ -6,6 +6,7 @@
 #include <base/option.h>
 
 #include "core/log.h"
+#include "render/post/ngx_context.h"
 #include "render/rhi/device.h"
 // Vulkan escape hatch: NGX speaks raw Vulkan. Also pulls volk
 // (VK_NO_PROTOTYPES) before the ngx vk header.
@@ -19,20 +20,6 @@
 namespace rec::render {
 namespace {
 
-// Arbitrary application id for the CUSTOM engine path; NGX validates it is a
-// well formed UUID (8-4-4-4-12 hex), it does not need to be registered.
-constexpr const char* kProjectId = "8d4a1f60-3c2e-4b8a-9f17-c4035c19df04";
-
-// RECREATION_DLSS_LIB_DIR overrides the baked-in snippet dir; was read straight
-// from the environment.
-base::Option<const char*> DlssLibDir{"dlss.lib.dir", nullptr, "RECREATION_DLSS_LIB_DIR"};
-
-void NgxLog(const char* message, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature) {
-  std::string line(message ? message : "");
-  while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
-  if (!line.empty()) REC_WARN("ngx: {}", line);
-}
-
 // The engine derives render resolution from a fixed per-axis ratio (see
 // UpscalerScale), so map that ratio back onto the closest DLSS preset.
 NVSDK_NGX_PerfQuality_Value QualityFromRatio(u32 render_width, u32 output_width) {
@@ -43,12 +30,6 @@ NVSDK_NGX_PerfQuality_Value QualityFromRatio(u32 render_width, u32 output_width)
   return NVSDK_NGX_PerfQuality_Value_MaxPerf;
 }
 
-std::wstring ToWide(const char* s) {
-  std::wstring w;
-  for (; s && *s; ++s) w.push_back(static_cast<wchar_t>(*s));
-  return w;
-}
-
 class DlssUpscaler final : public Upscaler {
  public:
   explicit DlssUpscaler(Device& device) : device_(device) {}
@@ -57,38 +38,14 @@ class DlssUpscaler final : public Upscaler {
   bool Initialize(const UpscalerDesc& desc) override {
     desc_ = desc;
 
-    VulkanHandles h = GetVulkanHandles(device_);
-    if (h.device == VK_NULL_HANDLE) {
-      REC_WARN("dlss: requires the vulkan backend, upscaler unavailable");
-      return false;
-    }
-    vk_device_ = h.device;
-
-    // PathListInfo tells NGX where the DLSS inference snippet (.so) lives; the
-    // SDK lib dir is baked in at build time by third_party/dlss.cmake, with an
-    // env override so a driver-bundled or dev snippet can be pointed at without
-    // a rebuild.
-    const char* lib_dir = DlssLibDir.get();
-    snippet_dir_ = ToWide(lib_dir && *lib_dir ? lib_dir : RECREATION_DLSS_LIB_DIR);
-    snippet_path_ = snippet_dir_.c_str();
-    NVSDK_NGX_FeatureCommonInfo common{};
-    common.PathListInfo.Path = &snippet_path_;
-    common.PathListInfo.Length = 1;
-    common.LoggingInfo.LoggingCallback = NgxLog;
-    common.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
-
-    NVSDK_NGX_Result r = NVSDK_NGX_VULKAN_Init_with_ProjectID(
-        kProjectId, NVSDK_NGX_ENGINE_TYPE_CUSTOM, "1.0", L"/tmp", h.instance,
-        h.physical_device, h.device, vkGetInstanceProcAddr, vkGetDeviceProcAddr,
-        &common, NVSDK_NGX_Version_API);
-    if (r != NVSDK_NGX_Result_Success) {
-      REC_ERROR("dlss: ngx init failed ({:#x})", static_cast<u32>(r));
+    // Shared NGX runtime (also used by the ray-reconstruction denoiser).
+    if (!ngx::Acquire(device_)) {
+      REC_WARN("dlss: ngx unavailable, upscaler disabled");
       return false;
     }
     ngx_initialized_ = true;
-
-    if (NVSDK_NGX_VULKAN_GetCapabilityParameters(&params_) != NVSDK_NGX_Result_Success || !params_) {
-      REC_ERROR("dlss: capability parameters unavailable");
+    if (NVSDK_NGX_VULKAN_AllocateParameters(&params_) != NVSDK_NGX_Result_Success || !params_) {
+      REC_ERROR("dlss: parameter allocation failed");
       return false;
     }
     // The availability flag is populated by NGX's updater/DRS probe, which is
@@ -96,15 +53,17 @@ class DlssUpscaler final : public Upscaler {
     // updater), so it reads 0 even when the snippet loads. Treat a stale driver
     // as the only hard stop and otherwise let feature creation be the real test.
     int supported = 0, needs_driver = 0;
-    NVSDK_NGX_Parameter_GetI(params_, NVSDK_NGX_Parameter_SuperSampling_Available, &supported);
-    NVSDK_NGX_Parameter_GetI(params_, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver,
+    NVSDK_NGX_Parameter_GetI(ngx::Capability(), NVSDK_NGX_Parameter_SuperSampling_Available,
+                             &supported);
+    NVSDK_NGX_Parameter_GetI(ngx::Capability(),
+                             NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver,
                              &needs_driver);
     if (needs_driver) {
       unsigned major = 0, minor = 0;
-      NVSDK_NGX_Parameter_GetUI(params_, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor,
-                                &major);
-      NVSDK_NGX_Parameter_GetUI(params_, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor,
-                                &minor);
+      NVSDK_NGX_Parameter_GetUI(ngx::Capability(),
+                                NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, &major);
+      NVSDK_NGX_Parameter_GetUI(ngx::Capability(),
+                                NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, &minor);
       REC_ERROR("dlss: driver too old, needs >= {}.{}", major, minor);
       return false;
     }
@@ -210,16 +169,13 @@ class DlssUpscaler final : public Upscaler {
       params_ = nullptr;
     }
     if (ngx_initialized_) {
-      NVSDK_NGX_VULKAN_Shutdown1(vk_device_);
+      ngx::Release();
       ngx_initialized_ = false;
     }
   }
 
   Device& device_;
-  VkDevice vk_device_ = VK_NULL_HANDLE;  // raw handle via GetVulkanHandles
   UpscalerDesc desc_;
-  std::wstring snippet_dir_;
-  const wchar_t* snippet_path_ = nullptr;
   NVSDK_NGX_Parameter* params_ = nullptr;
   NVSDK_NGX_Handle* handle_ = nullptr;
   bool ngx_initialized_ = false;

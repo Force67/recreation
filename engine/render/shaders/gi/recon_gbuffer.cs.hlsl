@@ -42,6 +42,11 @@ PUSH_CONSTANTS(PathGbufferPush, pc);
 [[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_nrm_out : register(u11, space0);
 [[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_rad_out : register(u12, space0);
 [[vk::binding(13, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> primary_pos_out : register(u13, space0);
+// DLSS-RR guides (bit 9 of pc.bounces): F0-style specular albedo, decoded
+// world normals with packed roughness, and reversed-inf-z device depth.
+[[vk::binding(14, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> spec_albedo_out : register(u14, space0);
+[[vk::binding(15, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> rr_normals_out : register(u15, space0);
+[[vk::binding(16, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> rr_depth_out : register(u16, space0);
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -407,6 +412,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread, true);
 
   bool restir = (pc.bounces & 0x100u) != 0u;
+  bool rr = (pc.bounces & 0x200u) != 0u;  // emit DLSS-RR guide outputs
 
   if (!prim.hit) {
     // Sky: irradiance 0, sky goes to emissive (composite adds it). Far reprojection
@@ -427,6 +433,11 @@ void main(uint3 id : SV_DispatchThreadID) {
       sample_rad_out[id.xy] = 0.0.xxxx;
     }
     primary_pos_out[id.xy] = 0.0.xxxx;  // .w 0 = no visible surface
+    if (rr) {
+      spec_albedo_out[id.xy] = 0.0.xxxx;
+      rr_normals_out[id.xy] = 0.0.xxxx;
+      rr_depth_out[id.xy] = 0.0;  // reversed-inf-z far plane
+    }
     return;
   }
 
@@ -552,6 +563,12 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Written in both modes: the temporal pass reprojects the specular signal
   // through the virtual reflected point, which needs the primary position.
   primary_pos_out[id.xy] = float4(prim.position, 1.0);
+
+  if (rr) {
+    spec_albedo_out[id.xy] = float4(lerp(0.04.xxx, prim.albedo, prim.metallic), 1.0);
+    rr_normals_out[id.xy] = float4(prim.normal, prim.roughness);  // roughness packed in .w
+    rr_depth_out[id.xy] = depth;  // clip z/w, reversed-inf-z
+  }
 
   irradiance_out[id.xy] = float4(irradiance, 1.0);
   normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, prim.roughness);

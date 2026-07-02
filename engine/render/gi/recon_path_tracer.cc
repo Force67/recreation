@@ -104,7 +104,10 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
                           {10, BindingType::kStorageImage},
                           {11, BindingType::kStorageImage},
                           {12, BindingType::kStorageImage},
-                          {13, BindingType::kStorageImage}}},
+                          {13, BindingType::kStorageImage},
+                          {14, BindingType::kStorageImage},
+                          {15, BindingType::kStorageImage},
+                          {16, BindingType::kStorageImage}}},
                {.shared = bindless_layout}},
       .push_constant_size = sizeof(GbufferPush),
       .debug_name = "recon_gbuffer",
@@ -350,7 +353,7 @@ ResourceHandle ReconPathTracer::RunAtrous(RenderGraph& graph, ResourceHandle in,
 void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
                                  BindingSetHandle bindless_set, TextureView sky_view,
                                  SamplerHandle sky_sampler, ResourceHandle output,
-                                 const Frame& original_frame) {
+                                 const Frame& original_frame, ExternalInputs* external) {
   // Freshly (re)created history images hold undefined data; force one reset
   // frame so the temporal pass never blends garbage into the moments EMA.
   Frame frame = original_frame;
@@ -403,6 +406,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   // temporal pass consumes. Without it the gbuffer output IS the noisy input.
   ResourceHandle gbuf_irr = tex(frame.restir ? "recon_direct" : "recon_noisy", kIrradiance);
   ResourceHandle noisy = frame.restir ? tex("recon_noisy", kIrradiance) : gbuf_irr;
+  // DLSS-RR guide outputs; when unused the (format-matching) existing targets
+  // alias the bindings so the shader's static references stay valid.
+  bool rr = external != nullptr;
+  ResourceHandle spec_albedo = rr ? tex("recon_rr_spec_albedo", kIrradiance) : albedo;
+  ResourceHandle rr_normals = rr ? tex("recon_rr_normals", kNormalRough) : nr_c;
+  ResourceHandle rr_depth = rr ? tex("recon_rr_depth", kViewZ) : vz_c;
 
   // --- 1. gbuffer ---
   graph.AddPass(
@@ -411,10 +420,14 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         for (ResourceHandle h : {gbuf_irr, nr_c, vz_c, motion, id_c, albedo, emissive, spec_noisy,
                                  s_pos, s_nrm, s_rad, p_pos})
           b.Write(h, ResourceUsage::kStorageWrite);
+        if (rr) {
+          for (ResourceHandle h : {spec_albedo, rr_normals, rr_depth})
+            b.Write(h, ResourceUsage::kStorageWrite);
+        }
       },
       [this, &raytracing, tlas_slot, bindless_set, sky_view, sky_sampler, gbuf_irr, nr_c, vz_c,
-       motion, id_c, albedo, emissive, spec_noisy, s_pos, s_nrm, s_rad, p_pos,
-       frame](PassContext& ctx) {
+       motion, id_c, albedo, emissive, spec_noisy, s_pos, s_nrm, s_rad, p_pos, spec_albedo,
+       rr_normals, rr_depth, rr, frame](PassContext& ctx) {
         ResourceHandle outs[7] = {gbuf_irr, nr_c, vz_c, motion, id_c, albedo, emissive};
         base::Vector<BindingItem> items;
         for (u32 i = 0; i < 7; ++i) items.push_back(Bind::Storage(i, ctx.graph->image(outs[i])));
@@ -425,6 +438,9 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         items.push_back(Bind::Storage(11, ctx.graph->image(s_nrm)));
         items.push_back(Bind::Storage(12, ctx.graph->image(s_rad)));
         items.push_back(Bind::Storage(13, ctx.graph->image(p_pos)));
+        items.push_back(Bind::Storage(14, ctx.graph->image(spec_albedo)));
+        items.push_back(Bind::Storage(15, ctx.graph->image(rr_normals)));
+        items.push_back(Bind::Storage(16, ctx.graph->image(rr_depth)));
 
         GbufferPush p{};
         p.inv_view_proj = frame.inv_view_proj;
@@ -440,8 +456,9 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         p.spp = frame.spp < 1 ? 1u : frame.spp;
         p.pixel_spread = frame.pixel_spread;
         p.frame_index = frame.frame_index;
-        // bits 0..7 bounce count, bit 8 restir (the block is at the 256 B cap).
-        p.bounces = (bounces_ & 0xffu) | (frame.restir ? 0x100u : 0u);
+        // bits 0..7 bounce count, bit 8 restir, bit 9 rr guides (the push
+        // block is at the 256 B cap).
+        p.bounces = (bounces_ & 0xffu) | (frame.restir ? 0x100u : 0u) | (rr ? 0x200u : 0u);
         ctx.cmd->BindPipeline(gbuffer_pipeline_);
         ctx.cmd->BindTransient(0, {items.data(), items.size()});
         ctx.cmd->BindSet(1, bindless_set);
@@ -532,6 +549,43 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
           ctx.cmd->Push(p);
           ctx.cmd->Dispatch2D(extent_);
         });
+  }
+
+  // --- external denoiser (DLSS-RR): compose the NOISY radiance with the
+  // regular composite pipeline (mode 0 is exactly albedo/pi*e + emissive +
+  // spec) and hand the guides back; SVGF stays out of the loop. ---
+  if (external) {
+    ResourceHandle rr_color = tex("recon_rr_color", kIrradiance);
+    graph.AddPass(
+        "recon_rr_compose",
+        [&](RenderGraph::PassBuilder& b) {
+          b.Write(rr_color, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy})
+            b.Read(h, ResourceUsage::kSampledCompute);
+        },
+        [this, rr_color, albedo, noisy, emissive, mo_c, nr_c, motion,
+         spec_noisy](PassContext& ctx) {
+          ResourceHandle reads[7] = {albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy};
+          base::Vector<BindingItem> items;
+          items.push_back(Bind::Storage(0, ctx.graph->image(rr_color)));
+          for (u32 i = 0; i < 7; ++i)
+            items.push_back(Bind::Sampled(i + 1, ctx.graph->image(reads[i])));
+          CompositePush p{};
+          p.size[0] = extent_.width; p.size[1] = extent_.height;
+          p.debug_mode = 0;
+          p.max_history = 1.0f;
+          ctx.cmd->BindPipeline(composite_pipeline_);
+          ctx.cmd->BindTransient(0, {items.data(), items.size()});
+          ctx.cmd->Push(p);
+          ctx.cmd->Dispatch2D(extent_);
+        });
+    external->color = rr_color;
+    external->depth = rr_depth;
+    external->motion = motion;
+    external->normals_rough = rr_normals;
+    external->diffuse_albedo = albedo;
+    external->specular_albedo = spec_albedo;
+    return;
   }
 
   // --- 2. temporal accumulation (diffuse + specular share the gbuffer history) ---

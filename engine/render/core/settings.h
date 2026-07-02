@@ -131,6 +131,9 @@ struct RenderSettings {
   // indirect diffuse samples. Big variance drop for one extra visibility ray;
   // off falls back to inline multi-bounce integration.
   bool path_trace_restir = true;
+  // DLSS Ray Reconstruction as the recon denoiser (needs the NGX dlssd
+  // snippet); silently falls back to the in-tree SVGF chain when unavailable.
+  bool path_trace_rr = true;
   u32 path_trace_recon_debug = 0;  // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
 
   // Atmospheric aerial perspective: distant geometry hazes/blue-shifts like the

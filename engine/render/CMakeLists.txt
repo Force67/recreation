@@ -108,8 +108,14 @@ if(RECREATION_FSR3)
 endif()
 
 if(RECREATION_DLSS)
-  target_sources(recreation_render PRIVATE post/upscaler_dlss.cc)
-  target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_DLSS)
+  target_sources(recreation_render PRIVATE
+    post/upscaler_dlss.cc
+    post/ngx_context.cc
+    gi/denoiser_rr.cc)
+  # PUBLIC: renderer.h embeds an RrDenoiser member under this macro, so every
+  # translation unit that includes it must agree on the layout (same rule as
+  # RECREATION_HAS_NRD below).
+  target_compile_definitions(recreation_render PUBLIC RECREATION_HAS_DLSS)
   target_link_libraries(recreation_render PRIVATE recreation::dlss)
 endif()
 
