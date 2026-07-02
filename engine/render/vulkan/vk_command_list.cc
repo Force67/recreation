@@ -124,6 +124,37 @@ void VulkanCommandList::DrawMeshTasks(u32 x, u32 y, u32 z) {
   vkCmdDrawMeshTasksEXT(cmd_, x, y, z);
 }
 
+VkPipelineStageFlags2 VulkanCommandList::FilterStages(VkPipelineStageFlags2 stages) const {
+  if (!compute_only_) return stages;
+  constexpr VkPipelineStageFlags2 kComputeLegal =
+      VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT |
+      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+      VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COPY_BIT |
+      VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_HOST_BIT |
+      VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+  VkPipelineStageFlags2 filtered = stages & kComputeLegal;
+  // Graphics-only stages (fragment reads of a resource this queue produced or
+  // consumed) collapse onto the compute stage: the cross-queue visibility is
+  // the fork/join semaphore's job, this barrier only orders within the queue.
+  return filtered ? filtered : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+}
+
+VkAccessFlags2 VulkanCommandList::FilterAccess(VkAccessFlags2 access) const {
+  if (!compute_only_) return access;
+  constexpr VkAccessFlags2 kComputeLegal =
+      VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+      VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+      VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_UNIFORM_READ_BIT |
+      VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT |
+      VK_ACCESS_2_HOST_READ_BIT | VK_ACCESS_2_HOST_WRITE_BIT |
+      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT |
+      VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+      VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+      VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+  return access & kComputeLegal;
+}
+
 void VulkanCommandList::TextureBarriers(std::span<const TextureBarrier> barriers) {
   VkImageMemoryBarrier2 image_barriers[16];
   size_t offset = 0;
@@ -136,10 +167,10 @@ void VulkanCommandList::TextureBarriers(std::span<const TextureBarrier> barriers
       StateInfo after = StateInfoOf(src.after, false);
       VkImageMemoryBarrier2& b = image_barriers[i];
       b = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      b.srcStageMask = before.stages;
-      b.srcAccessMask = before.access;
-      b.dstStageMask = after.stages;
-      b.dstAccessMask = after.access;
+      b.srcStageMask = FilterStages(before.stages);
+      b.srcAccessMask = FilterAccess(before.access);
+      b.dstStageMask = FilterStages(after.stages);
+      b.dstAccessMask = FilterAccess(after.access);
       b.oldLayout = before.layout;
       b.newLayout = after.layout;
       b.image = texture->image;
@@ -159,10 +190,10 @@ void VulkanCommandList::MemoryBarrier(BarrierScope src, BarrierScope dst) {
   ScopeInfo from = ScopeInfoOf(src, true);
   ScopeInfo to = ScopeInfoOf(dst, false);
   VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-  barrier.srcStageMask = from.stages;
-  barrier.srcAccessMask = from.access;
-  barrier.dstStageMask = to.stages;
-  barrier.dstAccessMask = to.access;
+  barrier.srcStageMask = FilterStages(from.stages);
+  barrier.srcAccessMask = FilterAccess(from.access);
+  barrier.dstStageMask = FilterStages(to.stages);
+  barrier.dstAccessMask = FilterAccess(to.access);
   VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dep.memoryBarrierCount = 1;
   dep.pMemoryBarriers = &barrier;

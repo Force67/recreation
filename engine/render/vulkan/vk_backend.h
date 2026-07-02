@@ -124,8 +124,10 @@ class VulkanDevice;
 
 class VulkanCommandList final : public CommandList {
  public:
-  VulkanCommandList(VulkanDevice& device, VkCommandBuffer cmd, VkDescriptorPool transient_pool)
-      : device_(device), cmd_(cmd), transient_pool_(transient_pool) {}
+  VulkanCommandList(VulkanDevice& device, VkCommandBuffer cmd, VkDescriptorPool transient_pool,
+                    bool compute_only = false)
+      : device_(device), cmd_(cmd), transient_pool_(transient_pool),
+        compute_only_(compute_only) {}
 
   void BindPipeline(PipelineHandle pipeline) override;
   void BindSet(u32 set_index, BindingSetHandle set) override;
@@ -170,9 +172,15 @@ class VulkanCommandList final : public CommandList {
   VkCommandBuffer cmd() const { return cmd_; }
 
  private:
+  // Compute-only queue families reject graphics pipeline stages in barriers;
+  // recorded stage/access masks are narrowed to compute-legal bits.
+  VkPipelineStageFlags2 FilterStages(VkPipelineStageFlags2 stages) const;
+  VkAccessFlags2 FilterAccess(VkAccessFlags2 access) const;
+
   VulkanDevice& device_;
   VkCommandBuffer cmd_ = VK_NULL_HANDLE;
   VkDescriptorPool transient_pool_ = VK_NULL_HANDLE;
+  bool compute_only_ = false;
   const PipelineRecord* bound_ = nullptr;
 };
 
@@ -288,6 +296,8 @@ class VulkanDevice final : public Device {
   void ShutdownResources();
   // Shared present-result handling (out-of-date / rotated-suboptimal folding).
   PresentResult TranslatePresent(VkResult presented, Swapchain& swapchain);
+  void ShareWithAsyncCompute(VkImageCreateInfo& info, TextureUsageFlags usage,
+                             const u32* families);
   GpuBuffer WrapBuffer(VkBuffer buffer, VmaAllocation allocation, u64 size, void* mapped,
                        u64 address);
 
@@ -308,6 +318,7 @@ class VulkanDevice final : public Device {
     static constexpr u32 kMaxSegments = 3;
     VkCommandBuffer seg_cmds[kMaxSegments - 1] = {};
     std::unique_ptr<VulkanCommandList> seg_lists[kMaxSegments - 1];
+    VkCommandPool async_pool = VK_NULL_HANDLE;  // compute-family pool when dedicated
     VkCommandBuffer async_cmd = VK_NULL_HANDLE;
     std::unique_ptr<VulkanCommandList> async_list;
     VkSemaphore fork_sem = VK_NULL_HANDLE;
@@ -325,8 +336,11 @@ class VulkanDevice final : public Device {
   VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
   std::string pipeline_cache_path_;
   VkQueue graphics_queue_ = VK_NULL_HANDLE;
-  VkQueue compute_queue_ = VK_NULL_HANDLE;  // second same-family queue, async compute
+  VkQueue compute_queue_ = VK_NULL_HANDLE;  // async compute (dedicated family when available)
   u32 graphics_family_ = 0;
+  // Dedicated compute-only family; graphics_family_ when none exists (then the
+  // async queue is a second queue of the graphics family).
+  u32 compute_family_ = VK_QUEUE_FAMILY_IGNORED;
   u32 current_slot_ = 0;  // frame ring slot set by BeginFrame
   VmaAllocator allocator_ = nullptr;
   VkCommandPool immediate_pool_ = VK_NULL_HANDLE;

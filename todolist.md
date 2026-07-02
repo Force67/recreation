@@ -37,10 +37,11 @@ streaming.
       luminance-detail scored per 16px block, motion-gated (static camera
       stays near-full-rate - coarse fragments stripe glossy surfaces under
       the temporal upscaler), 2x2 ceiling. REC_VRS / REC_VRS_THRESHOLD.
-- [ ] **Async compute, dedicated family.** The fork/join infra is in; on
-      NVIDIA the same-family second queue does not overlap. Move to the
-      compute-only family with queue-family ownership transfers (or
-      CONCURRENT sharing on crossed resources incl. bindless materials).
+- [x] **Async compute, dedicated family.** (landed) Async queue now picks a
+      compute-only family (GB10: family 2; REC_ASYNC_DEDICATED=0 falls back);
+      CONCURRENT sharing on buffers + non-attachment images (render targets
+      stay EXCLUSIVE for compression), compute-family command pool, and
+      compute-legal stage/access mask filtering on the async list's barriers.
 - [ ] **PSO hitch elimination.** The persistent pipeline cache fixes run 2;
       async pipeline compilation + ubershader fallback fixes run 1.
 - [x] **Golden-image regression CI.** (landed) tests/golden/golden.py:

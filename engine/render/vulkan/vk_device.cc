@@ -462,8 +462,10 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
         std::max<u32>(accel_props.minAccelerationStructureScratchOffsetAlignment, 1);
   }
 
-  // Second same-family queue for async compute when the family has one to
-  // spare: no queue-family ownership transfers, semaphore-only sync.
+  // Async compute queue: prefer a dedicated compute-only family (its own
+  // hardware scheduling on most desktop GPUs, so compute genuinely overlaps
+  // raster instead of round-robining one engine); fall back to a second
+  // queue of the graphics family when no such family exists.
   u32 family_queue_count = 0;
   {
     u32 count = 0;
@@ -471,20 +473,41 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
     base::Vector<VkQueueFamilyProperties> families(count);
     vkGetPhysicalDeviceQueueFamilyProperties(device->physical_device_, &count, families.data());
     family_queue_count = families[device->graphics_family_].queueCount;
+    // REC_ASYNC_DEDICATED=0 forces the same-family fallback (diagnostics;
+    // also the only way to exercise that path on hardware with a dedicated
+    // compute family).
+    const char* dedicated_env = std::getenv("REC_ASYNC_DEDICATED");
+    if (!dedicated_env || dedicated_env[0] != '0') {
+      for (u32 i = 0; i < count; ++i) {
+        const VkQueueFlags flags = families[i].queueFlags;
+        if ((flags & VK_QUEUE_COMPUTE_BIT) && !(flags & VK_QUEUE_GRAPHICS_BIT)) {
+          device->compute_family_ = i;
+          break;
+        }
+      }
+    }
   }
-  const u32 queue_count = std::min<u32>(family_queue_count, 2);
-  device->caps_.async_compute = queue_count >= 2;
+  const bool dedicated_compute = device->compute_family_ != VK_QUEUE_FAMILY_IGNORED;
+  const u32 queue_count =
+      dedicated_compute ? 1 : std::min<u32>(family_queue_count, 2);
+  device->caps_.async_compute = dedicated_compute || queue_count >= 2;
+  if (!dedicated_compute) device->compute_family_ = device->graphics_family_;
 
   const f32 priorities[2] = {1.0f, 1.0f};
-  VkDeviceQueueCreateInfo queue_info{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-  queue_info.queueFamilyIndex = device->graphics_family_;
-  queue_info.queueCount = queue_count;
-  queue_info.pQueuePriorities = priorities;
+  VkDeviceQueueCreateInfo queue_infos[2] = {};
+  queue_infos[0] = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+  queue_infos[0].queueFamilyIndex = device->graphics_family_;
+  queue_infos[0].queueCount = queue_count;
+  queue_infos[0].pQueuePriorities = priorities;
+  queue_infos[1] = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+  queue_infos[1].queueFamilyIndex = device->compute_family_;
+  queue_infos[1].queueCount = 1;
+  queue_infos[1].pQueuePriorities = priorities;
 
   VkDeviceCreateInfo device_info{.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
-  device_info.queueCreateInfoCount = 1;
-  device_info.pQueueCreateInfos = &queue_info;
+  device_info.queueCreateInfoCount = dedicated_compute ? 2u : 1u;
+  device_info.pQueueCreateInfos = queue_infos;
   device_info.enabledExtensionCount = static_cast<u32>(device_extensions.size());
   device_info.ppEnabledExtensionNames = device_extensions.data();
 
@@ -496,7 +519,12 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
   volkLoadDevice(device->device_);
   vkGetDeviceQueue(device->device_, device->graphics_family_, 0, &device->graphics_queue_);
   if (device->caps_.async_compute) {
-    vkGetDeviceQueue(device->device_, device->graphics_family_, 1, &device->compute_queue_);
+    if (dedicated_compute) {
+      vkGetDeviceQueue(device->device_, device->compute_family_, 0, &device->compute_queue_);
+      REC_INFO("async compute: dedicated queue family {}", device->compute_family_);
+    } else {
+      vkGetDeviceQueue(device->device_, device->graphics_family_, 1, &device->compute_queue_);
+    }
   }
 
   // Pipeline cache, persisted to disk so shader compilation hitches only ever
@@ -590,19 +618,33 @@ bool VulkanDevice::InitResources() {
     frame.list = std::make_unique<VulkanCommandList>(*this, frame.cmd, frame.descriptor_pool);
 
     if (caps_.async_compute) {
-      // Segment command buffers (graphics splits) + the compute list share the
-      // frame's pool (same family) and reset with it.
-      VkCommandBuffer extra[FrameRing::kMaxSegments] = {};  // segments-1 + async
-      alloc.commandBufferCount = FrameRing::kMaxSegments;
+      // Segment command buffers (graphics splits) share the frame's pool; the
+      // async list allocates from a pool of the compute family (which is its
+      // own pool even in the same-family fallback - pools are not thread- or
+      // reset-granular, but the family must match the queue it submits to).
+      VkCommandBuffer extra[FrameRing::kMaxSegments - 1] = {};
+      alloc.commandBufferCount = FrameRing::kMaxSegments - 1;
       vkAllocateCommandBuffers(device_, &alloc, extra);
       for (u32 i = 0; i + 1 < FrameRing::kMaxSegments; ++i) {
         frame.seg_cmds[i] = extra[i];
         frame.seg_lists[i] =
             std::make_unique<VulkanCommandList>(*this, extra[i], frame.descriptor_pool);
       }
-      frame.async_cmd = extra[FrameRing::kMaxSegments - 1];
-      frame.async_list =
-          std::make_unique<VulkanCommandList>(*this, frame.async_cmd, frame.descriptor_pool);
+      VkCommandPoolCreateInfo async_pool{.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+      async_pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+      async_pool.queueFamilyIndex = compute_family_;
+      if (vkCreateCommandPool(device_, &async_pool, nullptr, &frame.async_pool) != VK_SUCCESS) {
+        return false;
+      }
+      VkCommandBufferAllocateInfo async_alloc{
+          .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+      async_alloc.commandPool = frame.async_pool;
+      async_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+      async_alloc.commandBufferCount = 1;
+      vkAllocateCommandBuffers(device_, &async_alloc, &frame.async_cmd);
+      frame.async_list = std::make_unique<VulkanCommandList>(
+          *this, frame.async_cmd, frame.descriptor_pool,
+          /*compute_only=*/compute_family_ != graphics_family_);
       vkCreateSemaphore(device_, &semaphore_info, nullptr, &frame.fork_sem);
       vkCreateSemaphore(device_, &semaphore_info, nullptr, &frame.async_sem);
     }
@@ -619,6 +661,7 @@ void VulkanDevice::ShutdownResources() {
     if (frame.fork_sem) vkDestroySemaphore(device_, frame.fork_sem, nullptr);
     if (frame.async_sem) vkDestroySemaphore(device_, frame.async_sem, nullptr);
     if (frame.pool) vkDestroyCommandPool(device_, frame.pool, nullptr);
+    if (frame.async_pool) vkDestroyCommandPool(device_, frame.async_pool, nullptr);
     frame = {};
   }
   for (auto entry : sampler_cache_) vkDestroySampler(device_, entry.value, nullptr);
@@ -718,6 +761,15 @@ GpuBuffer VulkanDevice::CreateBuffer(u64 size, BufferUsageFlags usage, bool host
   VkBufferCreateInfo buffer_info{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.size = size;
   buffer_info.usage = ToVkBufferUsage(usage);
+  // With a dedicated compute family any buffer may be read by the async
+  // queue (bindless geometry, light/cluster buffers); CONCURRENT costs
+  // nothing measurable for buffers and removes ownership-transfer churn.
+  const u32 shared_families[2] = {graphics_family_, compute_family_};
+  if (compute_family_ != graphics_family_) {
+    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    buffer_info.queueFamilyIndexCount = 2;
+    buffer_info.pQueueFamilyIndices = shared_families;
+  }
 
   VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
@@ -770,6 +822,20 @@ void VulkanDevice::DestroyBuffer(GpuBuffer& buffer) {
   buffer = {};
 }
 
+
+// Non-attachment images (sampled textures, storage volumes, probe atlases)
+// may be read by the dedicated async compute family through bindless or
+// direct binds; CONCURRENT skips ownership transfers. Attachments never
+// cross and stay EXCLUSIVE so render targets keep framebuffer compression.
+void VulkanDevice::ShareWithAsyncCompute(VkImageCreateInfo& info, TextureUsageFlags usage,
+                                         const u32* families) {
+  if (compute_family_ == graphics_family_) return;
+  if (usage & (kTextureUsageColorTarget | kTextureUsageDepthTarget)) return;
+  info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+  info.queueFamilyIndexCount = 2;
+  info.pQueueFamilyIndices = families;
+}
+
 GpuImage VulkanDevice::CreateImage2D(Format format, Extent2D extent, TextureUsageFlags usage,
                                      u32 mip_levels) {
   VkFormat vk_format = ToVkFormat(format);
@@ -782,7 +848,10 @@ GpuImage VulkanDevice::CreateImage2D(Format format, Extent2D extent, TextureUsag
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.usage = ToVkImageUsage(usage, format);
 
-  VmaAllocationCreateInfo alloc_info{};
+    const u32 shared_families[2] = {graphics_family_, compute_family_};
+  ShareWithAsyncCompute(image_info, usage, shared_families);
+
+VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
   alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;  // attachments
 
@@ -826,7 +895,10 @@ GpuImage VulkanDevice::CreateImage3D(Format format, u32 width, u32 height, u32 d
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.usage = ToVkImageUsage(usage, format);
 
-  VmaAllocationCreateInfo alloc_info{};
+    const u32 shared_families[2] = {graphics_family_, compute_family_};
+  ShareWithAsyncCompute(image_info, usage, shared_families);
+
+VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
 
   VkImage image = VK_NULL_HANDLE;
@@ -868,7 +940,10 @@ GpuImage VulkanDevice::CreateImageCube(Format format, u32 size, TextureUsageFlag
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.usage = ToVkImageUsage(usage, format);
 
-  VmaAllocationCreateInfo alloc_info{};
+    const u32 shared_families[2] = {graphics_family_, compute_family_};
+  ShareWithAsyncCompute(image_info, usage, shared_families);
+
+VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
 
   VkImage image = VK_NULL_HANDLE;
@@ -1514,6 +1589,13 @@ AccelStructHandle VulkanDevice::CreateAccelStruct(AccelStructType type, u64 size
   buffer_info.size = size;
   buffer_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  const u32 shared_families[2] = {graphics_family_, compute_family_};
+  if (compute_family_ != graphics_family_) {
+    // Built on graphics, ray-queried by DDGI on the async compute queue.
+    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    buffer_info.queueFamilyIndexCount = 2;
+    buffer_info.pQueueFamilyIndices = shared_families;
+  }
   VmaAllocationCreateInfo alloc_info{};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
 
@@ -1612,6 +1694,7 @@ CommandList* VulkanDevice::BeginFrame(u32 slot) {
   FrameRing& frame = frames_[slot];
   vkWaitForFences(device_, 1, &frame.in_flight, VK_TRUE, UINT64_MAX);
   vkResetCommandPool(device_, frame.pool, 0);
+  if (frame.async_pool) vkResetCommandPool(device_, frame.async_pool, 0);
   vkResetDescriptorPool(device_, frame.descriptor_pool, 0);
   current_slot_ = slot;
   frame.active_segment = 0;
@@ -1688,6 +1771,11 @@ void VulkanDevice::SubmitAsync(CommandList*) {
   submit.pSignalSemaphoreInfos = &signal;
   vkQueueSubmit2(compute_queue_, 1, &submit, VK_NULL_HANDLE);
   frame.async_submitted = true;
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    REC_INFO("async compute: first submission (family {})", compute_family_);
+  }
 }
 
 PresentResult VulkanDevice::SubmitFrame(CommandList* cmd, Swapchain& swapchain, u32 image_index) {
