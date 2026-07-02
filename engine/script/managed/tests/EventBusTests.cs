@@ -41,6 +41,19 @@ public static class EventBusTests
 
         EventBus.Clear();
         check.Equal("clear removes all", 0, EventBus.ListenerCount<Ping>());
+
+        // Priority: higher runs first; equal priority keeps subscription order.
+        var order = new System.Collections.Generic.List<string>();
+        EventBus.Subscribe<Ping>(_ => order.Add("low"), priority: -10);
+        EventBus.Subscribe<Ping>(_ => order.Add("high"), priority: 10);
+        EventBus.Subscribe<Ping>(_ => order.Add("mid-a"));   // priority 0
+        EventBus.Subscribe<Ping>(_ => order.Add("mid-b"));   // priority 0
+        EventBus.Publish(new Ping(1));
+        check.That("priority order with FIFO ties",
+                   order.Count == 4 && order[0] == "high" && order[1] == "mid-a" &&
+                   order[2] == "mid-b" && order[3] == "low");
+
+        EventBus.Clear();
     }
 
     public readonly struct Pong : IGameEvent;
