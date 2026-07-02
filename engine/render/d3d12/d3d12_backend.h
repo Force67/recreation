@@ -278,11 +278,11 @@ class D3D12CommandList final : public CommandList {
   friend class D3D12Device;
 };
 
-// Offscreen swapchain: a ring of presentable-sized render targets. There is
-// no display path through vkd3d (no DXGI on Linux), so "present" is a no-op;
-// the frame graph still runs end to end and REC_UI_SHOT reads the images back
-// through the normal CopyTextureToBuffer path. On Windows this is replaced by
-// a DXGI flip-model swapchain (d3d12_swapchain.cc, compile-guarded).
+// Swapchain. On Windows: a DXGI flip-model swapchain over the SDL window's
+// HWND (compile-guarded, pending runtime validation on a Windows box). On
+// Linux there is no DXGI through vkd3d, so the baseline is an offscreen ring
+// of three presentable render targets: Acquire cycles them, "present" is a
+// no-op, and the whole frame graph plus REC_UI_SHOT readback runs unchanged.
 class D3D12Swapchain final : public Swapchain {
  public:
   static std::unique_ptr<D3D12Swapchain> Create(D3D12Device& device, u32 width, u32 height,
@@ -296,6 +296,10 @@ class D3D12Swapchain final : public Swapchain {
   const GpuImage& image(u32 index) const override { return images_[index]; }
   bool can_sample() const override { return true; }
 
+  // Called by Device::SubmitFrame after the frame's ExecuteCommandLists.
+  // DXGI Present on Windows; no-op offscreen.
+  PresentResult Present();
+
  private:
   explicit D3D12Swapchain(D3D12Device& device) : device_(device) {}
   bool Init(u32 width, u32 height, bool vsync);
@@ -305,6 +309,10 @@ class D3D12Swapchain final : public Swapchain {
   Extent2D extent_{};
   base::Vector<GpuImage> images_;
   u64 frame_counter_ = 0;
+#if defined(_WIN32)
+  IDXGISwapChain3* dxgi_ = nullptr;
+  bool vsync_ = true;
+#endif
 };
 
 class D3D12Device final : public Device {
@@ -358,6 +366,7 @@ class D3D12Device final : public Device {
 
   ID3D12Device* device() const { return device_; }
   ID3D12CommandQueue* queue() const { return queue_; }
+  void* native_window() const { return native_window_; }
 
   static constexpr u32 kRingCount = kMaxFramesInFlight + 1;  // frame slots + immediate
   static constexpr u32 kImmediateRing = kMaxFramesInFlight;
@@ -442,6 +451,7 @@ class D3D12Device final : public Device {
   ID3D12Device5* device5_ = nullptr;  // raytracing (may be null)
   ID3D12Device2* device2_ = nullptr;  // pipeline state streams (may be null)
   ID3D12CommandQueue* queue_ = nullptr;
+  void* native_window_ = nullptr;  // SDL_Window*, for the DXGI HWND on windows
 
   ID3D12DescriptorHeap* view_heap_ = nullptr;
   ID3D12DescriptorHeap* sampler_heap_ = nullptr;

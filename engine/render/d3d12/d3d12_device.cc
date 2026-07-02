@@ -245,8 +245,10 @@ void CpuDescriptorPool::Free(u32 index) { free_.push_back(index); }
 // --- device creation ---
 
 std::unique_ptr<Device> D3D12Device::Create(const DeviceDesc& desc, Window& window) {
-  (void)window;  // no display path on linux; DXGI wires the HWND on windows
   auto device = std::unique_ptr<D3D12Device>(new D3D12Device());
+  // Unused on linux (offscreen swapchain); the DXGI swapchain pulls the HWND
+  // out of the SDL window on windows.
+  device->native_window_ = window.native_handles().window;
 
 #if defined(_WIN32)
   if (desc.enable_validation) {
@@ -1710,12 +1712,12 @@ CommandList* D3D12Device::BeginFrame(u32 slot) {
 }
 
 PresentResult D3D12Device::SubmitFrame(CommandList* cmd, Swapchain& swapchain, u32 image_index) {
-  (void)swapchain;
-  (void)image_index;  // offscreen ring: present is a no-op (no DXGI on linux)
+  (void)image_index;  // the swapchain tracked it at Acquire
   for (u32 i = 0; i < kMaxFramesInFlight; ++i) {
     if (rings_[i].wrapper.get() == cmd) {
       CloseAndExecute(i);
-      return PresentResult::kOk;
+      // DXGI Present on windows; no-op against the offscreen ring on linux.
+      return static_cast<D3D12Swapchain&>(swapchain).Present();
     }
   }
   return PresentResult::kFailed;
