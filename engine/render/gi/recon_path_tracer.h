@@ -113,6 +113,7 @@ class ReconPathTracer {
   PipelineHandle restir_spatial_pipeline_;
   PipelineHandle restir_di_temporal_pipeline_;
   PipelineHandle restir_di_spatial_pipeline_;
+  PipelineHandle sky_cdf_pipeline_;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
   PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
@@ -127,9 +128,15 @@ class ReconPathTracer {
   PingPong restir_r0_;    // rgba32f sample position, W
   PingPong restir_r1_;    // rgba16f sample normal, M
   PingPong restir_r2_;    // rgba32f sample radiance, w_sum
-  // ReSTIR DI reservoirs (sun disk dir + light id / w_sum, M, W).
+  // ReSTIR DI reservoirs: r0/r1 sun + point lights, r2/r3 the sky (separate
+  // reservoir so both classes stay temporally stable; see the DI shaders).
   PingPong restir_di_r0_;  // rgba32f
   PingPong restir_di_r1_;  // rgba32f
+  PingPong restir_di_r2_;  // rgba32f
+  PingPong restir_di_r3_;  // rgba32f
+  // Sky importance-sampling tables (equirect luminance CDFs), rebuilt in
+  // frame by the sky_cdf pass; layout documented in recon_sky_cdf.cs.hlsl.
+  GpuBuffer sky_cdf_;
 };
 
 }  // namespace rec::render

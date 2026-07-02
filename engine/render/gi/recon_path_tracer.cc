@@ -9,6 +9,7 @@
 #include "shaders/recon_restir_di_spatial_cs_hlsl.h"
 #include "shaders/recon_restir_di_temporal_cs_hlsl.h"
 #include "shaders/recon_restir_spatial_cs_hlsl.h"
+#include "shaders/recon_sky_cdf_cs_hlsl.h"
 #include "shaders/recon_restir_temporal_cs_hlsl.h"
 #include "shaders/recon_temporal_cs_hlsl.h"
 
@@ -30,7 +31,14 @@ constexpr f32 kRestirSpatialRadius = 30.0f;  // neighbor disk radius, pixels
 // ReSTIR DI tuning (Bitterli et al. 2020): K uniform light candidates + the
 // sun each frame; the age cap scales with the per-frame candidate mass.
 constexpr u32 kRestirDiCandidates = 8;
+constexpr u32 kRestirDiSkyCandidates = 4;  // sky CDF draws per pixel
 constexpr f32 kRestirDiMMax = 20.0f * (kRestirDiCandidates + 1);
+constexpr f32 kRestirDiSkyMMax = 20.0f * kRestirDiSkyCandidates;
+// Equirect sky CDF grid (must match recon_sky_cdf.cs.hlsl and both DI
+// shaders): total + H marginal + W*H row cdf + W*H cell luminance floats.
+constexpr u32 kSkyCdfGridW = 128;
+constexpr u32 kSkyCdfGridH = 64;
+constexpr u64 kSkyCdfFloats = 1 + kSkyCdfGridH + 2 * kSkyCdfGridW * kSkyCdfGridH;
 constexpr u32 kRestirDiSpatialSamples = 5;
 constexpr f32 kRestirDiSpatialRadius = 30.0f;
 
@@ -92,9 +100,16 @@ struct RestirDiTemporalPush {
   u32 frame_index;
   u32 light_count;
   u32 candidates;
+  u32 sky_candidates;
   f32 m_max;
   f32 reset;
-  f32 pad0;
+  f32 m_max_sky;
+  f32 pad[3];
+};
+struct SkyCdfPush {
+  u32 grid[2];
+  u32 pad0;
+  u32 pad1;
 };
 struct RestirDiSpatialPush {
   f32 sun_direction[4];
@@ -198,9 +213,23 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
                           {9, BindingType::kSampledImage},
                           {10, BindingType::kSampledImage},
                           {11, BindingType::kSampledImage},
-                          {12, BindingType::kStorageBuffer}}}},
+                          {12, BindingType::kStorageBuffer},
+                          {13, BindingType::kCombinedTextureSampler},
+                          {14, BindingType::kStorageBuffer},
+                          {15, BindingType::kStorageImage},
+                          {16, BindingType::kStorageImage},
+                          {17, BindingType::kSampledImage},
+                          {18, BindingType::kSampledImage}}}},
       .push_constant_size = sizeof(RestirDiTemporalPush),
       .debug_name = "recon_restir_di_temporal",
+  });
+
+  sky_cdf_pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_recon_sky_cdf_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kCombinedTextureSampler},
+                          {1, BindingType::kStorageBuffer}}}},
+      .push_constant_size = sizeof(SkyCdfPush),
+      .debug_name = "recon_sky_cdf",
   });
 
   restir_di_spatial_pipeline_ = device.CreateComputePipeline({
@@ -215,7 +244,13 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
                           {7, BindingType::kStorageBuffer},
                           {8, BindingType::kAccelStruct},
                           {9, BindingType::kStorageImage},
-                          {10, BindingType::kStorageImage}}},
+                          {10, BindingType::kStorageImage},
+                          {11, BindingType::kCombinedTextureSampler},
+                          {12, BindingType::kStorageBuffer},
+                          {13, BindingType::kSampledImage},
+                          {14, BindingType::kSampledImage},
+                          {15, BindingType::kStorageImage},
+                          {16, BindingType::kStorageImage}}},
                {.shared = bindless_layout}},
       .push_constant_size = sizeof(RestirDiSpatialPush),
       .debug_name = "recon_restir_di_spatial",
@@ -267,7 +302,7 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
 
   if (!gbuffer_pipeline_ || !temporal_pipeline_ || !atrous_pipeline_ || !composite_pipeline_ ||
       !restir_temporal_pipeline_ || !restir_spatial_pipeline_ ||
-      !restir_di_temporal_pipeline_ || !restir_di_spatial_pipeline_) {
+      !restir_di_temporal_pipeline_ || !restir_di_spatial_pipeline_ || !sky_cdf_pipeline_) {
     REC_ERROR("recon path tracer pipeline creation failed");
     return false;
   }
@@ -295,6 +330,11 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
   make(restir_r2_, kWorldPos);
   make(restir_di_r0_, kWorldPos);
   make(restir_di_r1_, kWorldPos);
+  make(restir_di_r2_, kWorldPos);
+  make(restir_di_r3_, kWorldPos);
+  if (!sky_cdf_) {  // size is resolution-independent; survives Resize
+    sky_cdf_ = device.CreateBuffer(kSkyCdfFloats * sizeof(f32), kBufferUsageStorage);
+  }
   history_invalid_ = true;
 
   // Prime every owned image to kGeneral so the first frame's barriers have a
@@ -303,7 +343,7 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
     base::Vector<TextureBarrier> barriers;
     for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
                          &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
-                         &restir_di_r0_, &restir_di_r1_})
+                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_})
       for (u32 i = 0; i < 2; ++i) {
         barriers.push_back(Transition(pp->image[i], ResourceState::kUndefined,
                                       ResourceState::kGeneral));
@@ -316,7 +356,7 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
 void ReconPathTracer::DestroyBuffers(Device& device) {
   for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
                        &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
-                         &restir_di_r0_, &restir_di_r1_})
+                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_})
     for (u32 i = 0; i < 2; ++i)
       if (pp->image[i]) device.DestroyImage(pp->image[i]);
 }
@@ -329,10 +369,14 @@ void ReconPathTracer::Resize(Device& device, Extent2D extent) {
 
 void ReconPathTracer::Destroy(Device& device) {
   DestroyBuffers(device);
+  if (sky_cdf_) {
+    device.DestroyBuffer(sky_cdf_);
+    sky_cdf_ = {};
+  }
   for (PipelineHandle* p :
        {&gbuffer_pipeline_, &temporal_pipeline_, &atrous_pipeline_, &composite_pipeline_,
         &restir_temporal_pipeline_, &restir_spatial_pipeline_,
-        &restir_di_temporal_pipeline_, &restir_di_spatial_pipeline_}) {
+        &restir_di_temporal_pipeline_, &restir_di_spatial_pipeline_, &sky_cdf_pipeline_}) {
     device.DestroyPipeline(*p);
     *p = {};
   }
@@ -553,23 +597,50 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   ResourceHandle direct_irr = gbuf_irr;
   if (di) {
     direct_irr = tex("recon_di_direct", kIrradiance);
+
+    // Sky sampling tables: one 32-thread workgroup over the 64x32 equirect
+    // grid, every frame (sunrise-cheap, avoids sun-change tracking). The
+    // manual barrier covers the buffer hazard; graph pass order covers
+    // execution (same pattern as the exposure histogram).
+    graph.AddPass(
+        "recon_sky_cdf",
+        [](RenderGraph::PassBuilder&) {},
+        [this, sky_view, sky_sampler](PassContext& ctx) {
+          SkyCdfPush p{};
+          p.grid[0] = kSkyCdfGridW;
+          p.grid[1] = kSkyCdfGridH;
+          ctx.cmd->BindPipeline(sky_cdf_pipeline_);
+          ctx.cmd->BindTransient(
+              0, {Bind::Combined(0, sky_view, sky_sampler),
+                  Bind::StorageBuffer(1, sky_cdf_, 0, sky_cdf_.size)});
+          ctx.cmd->Push(p);
+          ctx.cmd->Dispatch(1, 1, 1);
+          ctx.cmd->MemoryBarrier(BarrierScope::kComputeWrite, BarrierScope::kComputeRead);
+        });
     ResourceHandle d0_t = tex("recon_di_rsv0_t", kWorldPos);
     ResourceHandle d1_t = tex("recon_di_rsv1_t", kWorldPos);
+    ResourceHandle d2_t = tex("recon_di_rsv2_t", kWorldPos);
+    ResourceHandle d3_t = tex("recon_di_rsv3_t", kWorldPos);
     ResourceHandle d0_c = imp("recon_di_rsv0_c", restir_di_r0_, cur);
     ResourceHandle d0_p = imp("recon_di_rsv0_p", restir_di_r0_, prv);
     ResourceHandle d1_c = imp("recon_di_rsv1_c", restir_di_r1_, cur);
     ResourceHandle d1_p = imp("recon_di_rsv1_p", restir_di_r1_, prv);
+    ResourceHandle d2_c = imp("recon_di_rsv2_c", restir_di_r2_, cur);
+    ResourceHandle d2_p = imp("recon_di_rsv2_p", restir_di_r2_, prv);
+    ResourceHandle d3_c = imp("recon_di_rsv3_c", restir_di_r3_, cur);
+    ResourceHandle d3_p = imp("recon_di_rsv3_p", restir_di_r3_, prv);
 
     graph.AddPass(
         "recon_restir_di_temporal",
         [&](RenderGraph::PassBuilder& b) {
-          for (ResourceHandle h : {d0_t, d1_t}) b.Write(h, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {d0_t, d1_t, d2_t, d3_t})
+            b.Write(h, ResourceUsage::kStorageWrite);
           for (ResourceHandle h :
-               {p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p, d1_p})
+               {p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p, d1_p, d2_p, d3_p})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
-        [this, d0_t, d1_t, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p, d1_p,
-         frame](PassContext& ctx) {
+        [this, d0_t, d1_t, d2_t, d3_t, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p,
+         d1_p, d2_p, d3_p, sky_view, sky_sampler, frame](PassContext& ctx) {
           ResourceHandle reads[10] = {p_pos, nr_c, nr_p, vz_c, vz_p,
                                       id_c,  id_p, motion, d0_p, d1_p};
           base::Vector<BindingItem> items;
@@ -578,6 +649,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
           for (u32 i = 0; i < 10; ++i)
             items.push_back(Bind::Sampled(i + 2, ctx.graph->image(reads[i])));
           items.push_back(Bind::StorageBuffer(12, frame.lights));
+          items.push_back(Bind::Combined(13, sky_view, sky_sampler));
+          items.push_back(Bind::StorageBuffer(14, sky_cdf_, 0, sky_cdf_.size));
+          items.push_back(Bind::Storage(15, ctx.graph->image(d2_t)));
+          items.push_back(Bind::Storage(16, ctx.graph->image(d3_t)));
+          items.push_back(Bind::Sampled(17, ctx.graph->image(d2_p)));
+          items.push_back(Bind::Sampled(18, ctx.graph->image(d3_p)));
 
           RestirDiTemporalPush p{};
           Vec3 sun = Normalize(frame.sun_direction);
@@ -589,8 +666,10 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
           p.frame_index = frame.frame_index;
           p.light_count = frame.light_count;
           p.candidates = kRestirDiCandidates;
+          p.sky_candidates = kRestirDiSkyCandidates;
           p.m_max = kRestirDiMMax;
           p.reset = frame.reset ? 1.0f : 0.0f;
+          p.m_max_sky = kRestirDiSkyMMax;
           ctx.cmd->BindPipeline(restir_di_temporal_pipeline_);
           ctx.cmd->BindTransient(0, {items.data(), items.size()});
           ctx.cmd->Push(p);
@@ -600,13 +679,14 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
     graph.AddPass(
         "recon_restir_di_spatial",
         [&](RenderGraph::PassBuilder& b) {
-          for (ResourceHandle h : {direct_irr, d0_c, d1_c})
+          for (ResourceHandle h : {direct_irr, d0_c, d1_c, d2_c, d3_c})
             b.Write(h, ResourceUsage::kStorageWrite);
-          for (ResourceHandle h : {d0_t, d1_t, p_pos, nr_c, vz_c, id_c})
+          for (ResourceHandle h : {d0_t, d1_t, d2_t, d3_t, p_pos, nr_c, vz_c, id_c})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
-        [this, &raytracing, tlas_slot, bindless_set, direct_irr, d0_t, d1_t, d0_c, d1_c, p_pos,
-         nr_c, vz_c, id_c, frame](PassContext& ctx) {
+        [this, &raytracing, tlas_slot, bindless_set, direct_irr, d0_t, d1_t, d2_t, d3_t, d0_c,
+         d1_c, d2_c, d3_c, p_pos, nr_c, vz_c, id_c, sky_view, sky_sampler,
+         frame](PassContext& ctx) {
           ResourceHandle reads[6] = {d0_t, d1_t, p_pos, nr_c, vz_c, id_c};
           base::Vector<BindingItem> items;
           items.push_back(Bind::Storage(0, ctx.graph->image(direct_irr)));
@@ -616,6 +696,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
           items.push_back(Bind::Accel(8, raytracing.tlas(tlas_slot)));
           items.push_back(Bind::Storage(9, ctx.graph->image(d0_c)));
           items.push_back(Bind::Storage(10, ctx.graph->image(d1_c)));
+          items.push_back(Bind::Combined(11, sky_view, sky_sampler));
+          items.push_back(Bind::StorageBuffer(12, sky_cdf_, 0, sky_cdf_.size));
+          items.push_back(Bind::Sampled(13, ctx.graph->image(d2_t)));
+          items.push_back(Bind::Sampled(14, ctx.graph->image(d3_t)));
+          items.push_back(Bind::Storage(15, ctx.graph->image(d2_c)));
+          items.push_back(Bind::Storage(16, ctx.graph->image(d3_c)));
 
           RestirDiSpatialPush p{};
           Vec3 sun = Normalize(frame.sun_direction);

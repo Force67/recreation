@@ -465,9 +465,12 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (!h.hit) {
       // Sky sample: park the point far along the ray, facing back, so the
       // reservoir math (distance/cosine/Jacobian) degrades to direction reuse.
+      // With ReSTIR DI the sky candidates own the primary sky term (behind a
+      // real shadow ray); a zero here keeps it out of the GI reservoir so the
+      // two never double count.
       sample_pos_out[id.xy] = float4(prim.position + wi * 1.0e6, 1.0e6);
       sample_nrm_out[id.xy] = float4(-wi * 0.5 + 0.5, 0.0);
-      sample_rad_out[id.xy] = float4(SampleSky(wi), 1.0);
+      sample_rad_out[id.xy] = float4(restir_di ? 0.0.xxx : SampleSky(wi), 1.0);
     } else {
       float3 radiance =
           h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng);

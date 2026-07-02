@@ -193,6 +193,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/gi/recon_gbuffer.cs.hlsl
   shaders/gi/recon_restir_temporal.cs.hlsl
   shaders/gi/recon_restir_spatial.cs.hlsl
+  shaders/gi/recon_sky_cdf.cs.hlsl
   shaders/gi/recon_restir_di_temporal.cs.hlsl
   shaders/gi/recon_restir_di_spatial.cs.hlsl
   shaders/gi/recon_temporal.cs.hlsl
