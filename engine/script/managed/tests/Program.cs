@@ -25,6 +25,7 @@ internal static class Program
         SkyrimEventTests.Run(check);
         TimeOfDayTests.Run(check);
         SurvivalNeedsTests.Run(check);
+        EncumbranceTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;

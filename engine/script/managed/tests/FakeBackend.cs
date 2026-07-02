@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Recreation.Interop;
 
 namespace Recreation.Tests;
@@ -19,17 +20,19 @@ public sealed class FakeBackend : IEngineBackend
     private readonly HashSet<ulong> _essential = new();
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
-    private readonly Dictionary<ulong, List<ulong>> _inventory = new();  // container -> item handles
+    private readonly Dictionary<ulong, Dictionary<ulong, int>> _inventory = new();  // container -> item -> count
+    private readonly Dictionary<ulong, float> _weights = new();  // item -> unit weight
 
-    // Adds a distinct item form to a container's inventory, for enumeration.
-    public void AddInventoryItem(ulong container, ulong item)
+    // Adds items to a container's inventory, recording each form's unit weight.
+    public void AddInventoryItem(ulong container, ulong item, int count = 1, float weight = 0f)
     {
-        if (!_inventory.TryGetValue(container, out var list))
+        if (!_inventory.TryGetValue(container, out var items))
         {
-            list = new List<ulong>();
-            _inventory[container] = list;
+            items = new Dictionary<ulong, int>();
+            _inventory[container] = items;
         }
-        if (!list.Contains(item)) list.Add(item);
+        items[item] = items.GetValueOrDefault(item) + count;
+        _weights[item] = weight;
     }
 
     // Marks `item` as carrying `keyword`, for HasKeyword.
@@ -147,9 +150,14 @@ public sealed class FakeBackend : IEngineBackend
             {
                 int idx = args[0].AsInt();
                 return _inventory.TryGetValue(self, out var inv) && idx >= 0 && idx < inv.Count
-                    ? Value.Object(inv[idx])
+                    ? Value.Object(inv.Keys.ElementAt(idx))
                     : Value.Object(0);
             }
+            case "GetItemCount":
+                return Value.Int(_inventory.TryGetValue(self, out var owned) &&
+                                 owned.TryGetValue(args[0].AsHandle(), out int n) ? n : 0);
+            case "GetWeight":
+                return Value.Float(_weights.GetValueOrDefault(self));
             default:
                 return Value.None;
         }
