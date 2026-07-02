@@ -178,6 +178,11 @@ struct RenderSettings {
   bool sss = true;
   f32 sss_width = 0.012f;  // world scattering radius, meters
 
+  // Local light shadows: a depth-atlas of faces for the nearest clustered
+  // spot/point lights (the raster tier's answer to light leaking; the rt
+  // fragment path keeps its exact per-light rays).
+  bool local_shadows = true;
+
   // Async compute: overlap self-contained compute (DDGI) with the raster
   // pipeline on a second queue. Needs device support; no-op otherwise.
   bool async_compute = true;

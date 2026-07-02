@@ -230,6 +230,10 @@ bool EnvironmentSystem::CreatePipelines() {
   // 18/19: LTC area-light fit tables (matrix + magnitude/fresnel/sphere).
   env_desc.slots.push_back({18, BindingType::kCombinedTextureSampler});
   env_desc.slots.push_back({19, BindingType::kCombinedTextureSampler});
+  // 20/21: local light shadows (face matrices SB + depth atlas, comparison
+  // sampled like the cascade atlas).
+  env_desc.slots.push_back({20, BindingType::kStorageBuffer});
+  env_desc.slots.push_back({21, BindingType::kCombinedTextureSampler});
   env_set_layout_ = device_.CreateBindingLayout(env_desc);
   if (!env_set_layout_) return false;
 
@@ -394,7 +398,9 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                                     const GpuBuffer& cluster_indices,
                                     const GpuBuffer& decal_buffer,
                                     const GpuBuffer& decal_indices,
-                                    TextureView decal_atlas) const {
+                                    TextureView decal_atlas,
+                                    const GpuBuffer& local_shadow_faces,
+                                    TextureView local_shadow_atlas) const {
   device_.UpdateBindingSet(
       set,
       {Bind::Combined(0, irradiance_.view, sampler_),
@@ -429,7 +435,11 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                            decal_indices ? decal_indices.size : 256),
        Bind::Combined(17, decal_atlas ? decal_atlas : white_.view, sampler_),
        Bind::Combined(18, ltc_matrix_.view, sampler_),
-       Bind::Combined(19, ltc_amplitude_.view, sampler_)});
+       Bind::Combined(19, ltc_amplitude_.view, sampler_),
+       Bind::StorageBuffer(20, local_shadow_faces ? local_shadow_faces : dummy_storage_, 0,
+                           local_shadow_faces ? local_shadow_faces.size : 256),
+       Bind::Combined(21, local_shadow_atlas ? local_shadow_atlas : shadow_dummy_.view,
+                      shadow_sampler_)});
 }
 
 EnvironmentSystem::~EnvironmentSystem() {

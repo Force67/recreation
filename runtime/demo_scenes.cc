@@ -1201,6 +1201,20 @@ void DemoScenes::CreatePointLightDemoScene() {
     demo_lights_.push_back(panel);
   }
 
+  // Occluder pillars between lights and floor so the local shadow maps have
+  // something to block (verifies the atlas on the raster tier).
+  asset::Mesh pillar =
+      asset::MakeBox(0.18f, 1.1f, 0.55f, asset::MakeAssetId("builtin/lights/pillar"));
+  pillar.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(pillar.lods[0].indices.size()), floor_mat.id});
+  if (!config_.headless) renderer_.UploadMesh(pillar);
+  const f32 pillars[3][2] = {{-2.0f, 0.45f}, {0.4f, 0.5f}, {2.6f, 0.4f}};
+  for (auto& pp : pillars) {
+    ecs::Entity e = world_.Create();
+    world_.Add(e, world::Transform{.position = {pp[0], 0.55f, pp[1]}});
+    world_.Add(e, world::Renderable{pillar.id});
+  }
+
   ctx_.scene_owns_sun = true;  // keep the day/night clock off the staged dusk
   renderer_.settings().sun_intensity = 0.25f;  // dim the sun + ibl so the point lights dominate
   renderer_.settings().sun_direction = {0.2f, -0.25f, -0.95f};

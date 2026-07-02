@@ -46,6 +46,7 @@
 #include "render/rhi/swapchain.h"
 #include "render/core/settings.h"
 #include "render/geometry/fur.h"
+#include "render/gi/local_shadows.h"
 #include "render/gi/shadow.h"
 #include "render/gi/shadow_trace.h"
 #include "render/geometry/wboit.h"
@@ -284,6 +285,8 @@ class Renderer {
   ReflectionTrace reflection_trace_;
   MotionBlurPass motion_blur_;
   DepthOfFieldPass dof_;
+  LocalShadows local_shadows_;
+  bool local_shadows_active_ = false;  // faces assigned this frame
   PipelineHandle light_cluster_pipeline_;
   PipelineHandle contact_shadow_pipeline_;
   PipelineHandle cloud_shadow_pipeline_;

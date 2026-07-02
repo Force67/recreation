@@ -68,6 +68,17 @@ static const uint kMaxDecalsPerCluster = 16;
 [[vk::combinedImageSampler]] [[vk::binding(19, 2)]] Texture2D ltc_amp_lut : register(t19, space2);
 [[vk::combinedImageSampler]] [[vk::binding(19, 2)]] SamplerState ltc_amp_sampler : register(s19, space2);
 
+// Local light shadows: a depth atlas of faces (spot = 1, point = 6 cube
+// faces); a light's params.w carries 1 + its first face index, 0 = none.
+struct LocalShadowFace {
+  column_major float4x4 view_proj;
+  float4 rect;  // atlas uv scale.xy offset.zw
+};
+[[vk::binding(20, 2)]] StructuredBuffer<LocalShadowFace> local_shadow_faces : register(t20, space2);
+[[vk::combinedImageSampler]] [[vk::binding(21, 2)]] Texture2D local_shadow_atlas : register(t21, space2);
+[[vk::combinedImageSampler]] [[vk::binding(21, 2)]] SamplerComparisonState local_shadow_sampler : register(s21, space2);
+
+
 // Blends clustered decal albedo over the surface. Runs after the base-color
 // fetch, before lighting, so decals shade like part of the material.
 float3 ApplyDecals(float3 albedo, float3 world_pos, float3 n, float2 sv_xy, float view_z) {
@@ -378,6 +389,42 @@ float ParallaxShadow(float2 uv, float3 light_ts, float scale, float2 dx, float2 
   return 1.0 - saturate(occlusion * 6.0) * 0.75;
 }
 
+
+// --- local light shadows ----------------------------------------------------
+// Cube face pick for point lights; order matches kFaceDirs in local_shadows.cc.
+uint CubeFaceIndex(float3 d) {
+  float3 a = abs(d);
+  if (a.x >= a.y && a.x >= a.z) return d.x > 0.0 ? 0u : 1u;
+  if (a.y >= a.z) return d.y > 0.0 ? 2u : 3u;
+  return d.z > 0.0 ? 4u : 5u;
+}
+
+// 2x2 pcf against one atlas face. The faces render with the same matrix the
+// sample uses ([0,1] depth, no flip), so this stays self-consistent; the
+// normal offset pushes the receiver off its own surface.
+float LocalShadow(uint face_index, float3 world_pos, float3 n) {
+  LocalShadowFace face = local_shadow_faces[face_index];
+  float4 clip = mul(face.view_proj, float4(world_pos + n * 0.04, 1.0));
+  if (clip.w <= 0.0) return 1.0;
+  float3 ndc = clip.xyz / clip.w;
+  float2 uv = ndc.xy * 0.5 + 0.5;
+  if (any(uv < 0.0) || any(uv > 1.0) || ndc.z <= 0.0 || ndc.z >= 1.0) return 1.0;
+  const float inset = 1.5 / 512.0;  // keep pcf taps inside the face
+  uv = clamp(uv, inset, 1.0 - inset) * face.rect.xy + face.rect.zw;
+  float ref = ndc.z - 0.0015;
+  float texel = face.rect.x / 512.0;
+  float sum = 0.0;
+  [unroll]
+  for (int oy = 0; oy <= 1; ++oy) {
+    [unroll]
+    for (int ox = 0; ox <= 1; ++ox) {
+      sum += local_shadow_atlas.SampleCmpLevelZero(
+          local_shadow_sampler, uv + (float2(ox, oy) - 0.5) * texel, ref);
+    }
+  }
+  return sum * 0.25;
+}
+
 // --- linearly transformed cosines (Heitz et al. 2016), rect area lights ----
 static const float kLtcLut = 64.0;
 float3 LtcIntegrateEdge(float3 v1, float3 v2) {
@@ -614,6 +661,14 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
       float cd = dot(-pl_l, normalize(pl.direction_type.xyz));
       float att = saturate((cd - pl.params.y) / max(pl.params.x - pl.params.y, 1e-4));
       falloff *= att * att;
+      if (falloff <= 0.0) continue;
+    }
+    // Local shadow map (spot: its one face; point: the cube face toward the
+    // pixel). params.w carries 1 + first face, assigned by LocalShadows.
+    uint shadow_face = uint(pl.params.w + 0.5);
+    if (shadow_face != 0u && ltype <= 1u) {
+      uint face = shadow_face - 1u + (ltype == 0u ? CubeFaceIndex(-pl_l) : 0u);
+      falloff *= LocalShadow(face, input.world_pos, n);
       if (falloff <= 0.0) continue;
     }
     float3 pl_h = normalize(pl_l + v);

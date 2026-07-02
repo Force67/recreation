@@ -9,6 +9,7 @@ recreation_add_module(render
   pipeline/meshlet.cc
   pipeline/gpu_cull.cc
   gi/shadow.cc
+  gi/local_shadows.cc
   gi/shadow_trace.cc
   gi/ddgi.cc
   gi/raytracing.cc

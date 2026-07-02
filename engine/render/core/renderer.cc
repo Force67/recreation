@@ -39,6 +39,7 @@ base::Option<bool> SssOpt{"sss", true, "REC_SSS"};
 base::Option<double> SssWidth{"sss.width", 0.012, "REC_SSS_WIDTH"};
 base::Option<bool> AsyncComputeOpt{"async.compute", true, "REC_ASYNC_COMPUTE"};
 base::Option<bool> FrameGenOpt{"framegen", false, "REC_FRAMEGEN"};
+base::Option<bool> LocalShadowsOpt{"local.shadows", true, "REC_LOCAL_SHADOWS"};
 // Debug: horizontal fake velocity in pixels, to exercise the blur from a
 // static camera (screenshot testing).
 base::Option<double> MotionBlurDebugVel{"motion.blur.debug.vel", 0.0, "REC_MOTION_BLUR_DEBUG_VEL"};
@@ -308,6 +309,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!hdr_pipeline_) return false;
 
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
+  if (!local_shadows_.Initialize(*device_)) return false;  // clustered light shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!fur_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
@@ -461,6 +463,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (SssWidth.overridden()) settings_.sss_width = static_cast<f32>(double(SssWidth));
   if (AsyncComputeOpt.overridden()) settings_.async_compute = AsyncComputeOpt;
   if (FrameGenOpt.overridden()) settings_.frame_generation = FrameGenOpt;
+  if (LocalShadowsOpt.overridden()) settings_.local_shadows = LocalShadowsOpt;
   if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
@@ -1251,7 +1254,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               csm_on ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
               shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
               frame.lights, frame.lights.size, TextureView{}, cluster_counts_, cluster_indices_,
-              frame.decals, decal_cluster_indices_, decal_atlas_view_);
+              frame.decals, decal_cluster_indices_, decal_atlas_view_,
+              local_shadows_active_ ? local_shadows_.face_buffer(frame_slot) : GpuBuffer{},
+              local_shadows_active_ ? local_shadows_.atlas().view : TextureView{});
 
           ColorAttachment colors[2];
           colors[0] = {.view = ctx.graph->image(composite).view, .load = LoadOp::kLoad};
@@ -1384,6 +1389,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   u32 light_count = std::min<u32>(static_cast<u32>(view.lights.size()), kMaxFrameLights);
   if (light_count > 0) {
     std::memcpy(frame.lights.mapped, view.lights.data(), light_count * sizeof(PointLight));
+  }
+  // Local light shadows: the nearest casters claim atlas faces (writes each
+  // claimed light's params.w in the mapped buffer, so it must follow the copy).
+  local_shadows_active_ = false;
+  if (settings_.local_shadows && !path_trace && light_count > 0) {
+    local_shadows_.Assign(static_cast<PointLight*>(frame.lights.mapped), light_count,
+                          view.camera.eye, frame_slot);
+    local_shadows_active_ = local_shadows_.face_count() > 0;
   }
   u32 decal_count = std::min<u32>(static_cast<u32>(view.decals.size()), kMaxFrameDecals);
   if (decal_count > 0) {
@@ -1723,6 +1736,69 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               }
             }
           });
+        });
+  }
+
+  // Local light shadow faces: depth-only renders with a light-radius culled
+  // draw list, into the persistent atlas the cluster loop samples.
+  if (local_shadows_active_) {
+    graph_.AddPass(
+        "local_shadows", [](RenderGraph::PassBuilder&) {},
+        [this, &frame, &view](PassContext& ctx) {
+          local_shadows_.Render(
+              *ctx.cmd, shadow_.pipeline(),
+              [this, &frame, &view](CommandList& cmd, const LocalShadows::Face& face) {
+                BindingSetHandle bound_material{};
+                PipelineHandle bound_pipeline{};
+                for (const DrawItem& item : view.draws) {
+                  const GpuMesh* mesh = meshes_.find(item.mesh);
+                  if (!mesh || mesh->all_blend || (mesh->no_rt && !mesh->skinned)) continue;
+                  // Sphere cull against the light's influence: local shadows only
+                  // ever see casters inside the radius.
+                  Vec3 wc = TransformPoint(item.transform,
+                                           {mesh->bounds_center[0], mesh->bounds_center[1],
+                                            mesh->bounds_center[2]});
+                  const f32* m = item.transform.m;
+                  f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+                  f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+                  f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+                  f32 wr = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
+                  Vec3 d{wc.x - face.light_pos.x, wc.y - face.light_pos.y,
+                         wc.z - face.light_pos.z};
+                  f32 reach = face.light_radius + wr;
+                  if (wr > 0.0f && d.x * d.x + d.y * d.y + d.z * d.z > reach * reach) continue;
+
+                  bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
+                                      static_cast<bool>(shadow_.skinned_pipeline());
+                  PipelineHandle pipeline =
+                      draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
+                  if (!(pipeline == bound_pipeline)) {
+                    cmd.BindPipeline(pipeline);
+                    bound_pipeline = pipeline;
+                  }
+                  cmd.PushConstants(&item.transform, sizeof(Mat4), sizeof(Mat4));
+                  cmd.BindVertexBuffer(0, mesh->vertices);
+                  if (draw_skinned) {
+                    cmd.BindVertexBuffer(1, mesh->skinning);
+                    struct {
+                      u64 bone_address;
+                      u32 skin_offset;
+                      u32 pad;
+                    } skin{frame.bone_palette.address, static_cast<u32>(item.skin_offset), 0};
+                    cmd.PushConstants(&skin, sizeof(skin), 2 * sizeof(Mat4));
+                  }
+                  cmd.BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
+                  for (const GpuSubmesh& submesh : mesh->submeshes) {
+                    if (submesh.blend) continue;
+                    BindingSetHandle material = material_system_->set(submesh.material);
+                    if (!(material == bound_material)) {
+                      cmd.BindSet(0, material);
+                      bound_material = material;
+                    }
+                    cmd.DrawIndexed(submesh.index_count, 1, submesh.index_offset, 0, 0);
+                  }
+                }
+              });
         });
   }
 
@@ -2189,7 +2265,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             csm_active ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
             shadow_.cascade_buffer_size(), TextureView{}, sun_shadow_view, frame.lights,
             frame.lights.size, spec_refl_view, cluster_counts_, cluster_indices_,
-            frame.decals, decal_cluster_indices_, decal_atlas_view_);
+            frame.decals, decal_cluster_indices_, decal_atlas_view_,
+            local_shadows_active_ ? local_shadows_.face_buffer(frame_slot) : GpuBuffer{},
+            local_shadows_active_ ? local_shadows_.atlas().view : TextureView{});
 
         ColorAttachment colors[3];
         colors[0] = {.view = ctx.graph->image(scene_color).view,
@@ -2943,6 +3021,7 @@ void Renderer::Shutdown() {
     hdr_pipeline_ = {};
     device_->DestroyBuffer(hdr_readback_);
     shadow_.Destroy(*device_);
+    local_shadows_.Destroy(*device_);
     particles_.Destroy(*device_);
     gaussians_.Destroy(*device_);
     fur_.Destroy(*device_);

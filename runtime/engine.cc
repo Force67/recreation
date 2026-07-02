@@ -253,6 +253,7 @@ void Engine::ApplyRenderPreset() {
   tuned.sss_width = env.sss_width;
   tuned.async_compute = env.async_compute;  // honor REC_ASYNC_COMPUTE
   tuned.frame_generation = env.frame_generation;  // honor REC_FRAMEGEN
+  tuned.local_shadows = env.local_shadows;  // honor REC_LOCAL_SHADOWS
   tuned.aerial_perspective = env.aerial_perspective;
   tuned.clouds = env.clouds;
   tuned.cloud_coverage = env.cloud_coverage;

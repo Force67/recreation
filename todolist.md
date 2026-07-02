@@ -13,7 +13,7 @@ streaming.
 
 ## Tier 1 — correctness gaps that read as "not AAA" immediately
 
-- [ ] **Shadowed local lights.** Clustered spot/point lights cast no shadows
+- [x] **Shadowed local lights.** (landed) Clustered spot/point lights cast no shadows
       in the raster path (light leaks through walls — the biggest tell).
       Shadow atlas with per-face slots (spot = 1 face, point = 6 cube faces),
       nearest-K selection, PCF sampling in the cluster loop. Reuse the CSM

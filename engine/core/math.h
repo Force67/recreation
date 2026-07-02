@@ -293,6 +293,21 @@ inline Mat4 PerspectiveReversedZ(f32 fov_y_radians, f32 aspect, f32 near_plane) 
   return r;
 }
 
+// Right-handed perspective with a [0,1] depth range (near -> 0, far -> 1), no
+// y flip. Like Orthographic below this serves shadow maps that are rendered
+// and sampled with the same matrix, so it stays self-consistent without
+// matching the camera's reversed-infinite clip space.
+inline Mat4 PerspectiveShadow(f32 fov_y_radians, f32 aspect, f32 near_plane, f32 far_plane) {
+  f32 g = 1.0f / std::tan(fov_y_radians * 0.5f);
+  Mat4 r;
+  r.m[0] = g / aspect;
+  r.m[5] = g;
+  r.m[10] = -far_plane / (far_plane - near_plane);
+  r.m[11] = -1.0f;
+  r.m[14] = -far_plane * near_plane / (far_plane - near_plane);
+  return r;
+}
+
 // Right-handed orthographic projection with a [0,1] depth range (Vulkan), no y
 // flip. Used for shadow cascades: the map is rendered and sampled with the same
 // matrix, so it stays self-consistent without matching the camera's clip space.
