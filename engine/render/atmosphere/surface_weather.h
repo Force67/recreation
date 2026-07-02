@@ -28,13 +28,11 @@ class SurfaceWeather {
 
   // `normals`/`depth` are the G-buffer; `sky_view`/`sky_sampler` the sky cubemap.
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle normals,
-                            ResourceHandle depth, VkImageView sky_view, VkSampler sky_sampler,
-                            VkExtent2D extent, const Frame& frame);
+                            ResourceHandle depth, TextureView sky_view, SamplerHandle sky_sampler,
+                            Extent2D extent, const Frame& frame);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

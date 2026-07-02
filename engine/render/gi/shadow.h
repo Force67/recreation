@@ -36,7 +36,7 @@ class ShadowPass {
 
   // material_layout is set 0 here (the mesh pipeline's material set), bound per
   // submesh so the fragment stage can alpha-test masked casters.
-  bool Initialize(Device& device, VkDescriptorSetLayout material_layout);
+  bool Initialize(Device& device, BindingLayoutHandle material_layout);
   void Destroy(Device& device);
   void Configure(const Settings& settings);
 
@@ -49,26 +49,24 @@ class ShadowPass {
               f32 aspect, const Vec3& sun_direction, u32 frame_slot);
 
   // Records the depth-only cascade renders into cmd against the atlas view the
-  // graph allocated (already in DEPTH_ATTACHMENT layout). draw is invoked once
+  // graph allocated (already in the depth-target state). draw is invoked once
   // per cascade with that cascade's light_view_proj pushed; the caller emits its
   // opaque draws inside, binding pipeline() for static and skinned_pipeline()
-  // for animated casters (both share layout()).
-  void Render(VkCommandBuffer cmd, VkImageView atlas_view,
-              const std::function<void(VkCommandBuffer, VkPipelineLayout)>& draw);
+  // for animated casters (both share one binding/push interface).
+  void Render(CommandList& cmd, TextureView atlas_view,
+              const std::function<void(CommandList&)>& draw);
 
-  VkBuffer cascade_buffer(u32 frame_slot) const { return cascades_[frame_slot].buffer; }
+  const GpuBuffer& cascade_buffer(u32 frame_slot) const { return cascades_[frame_slot]; }
   u64 cascade_buffer_size() const { return sizeof(CascadeData); }
-  VkPipelineLayout layout() const { return layout_; }
-  VkPipeline pipeline() const { return pipeline_; }
-  VkPipeline skinned_pipeline() const { return skinned_pipeline_; }
+  PipelineHandle pipeline() const { return pipeline_; }
+  PipelineHandle skinned_pipeline() const { return skinned_pipeline_; }
 
  private:
   static constexpr u32 kFramesInFlight = 2;
 
   Settings settings_;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkPipeline skinned_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
+  PipelineHandle skinned_pipeline_;
   GpuBuffer cascades_[kFramesInFlight];
   CascadeData current_{};
 };

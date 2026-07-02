@@ -52,7 +52,7 @@ inline constexpr u32 kFrameFlagAurora = 1u << 8;       // draw the night-sky aur
 struct MeshPushConstants {
   Mat4 model;
   Mat4 prev_model;
-  u64 bone_address = 0;  // VkDeviceAddress of the frame bone palette, 0 = none
+  u64 bone_address = 0;  // device address of the frame bone palette, 0 = none
   u32 skin_offset = 0;   // first bone of this mesh in the palette
   u32 tint_packed = 0;   // per-draw rgb8 tint (0xRRGGBB) modulating albedo, 0 = none
 };
@@ -80,53 +80,53 @@ struct MeshShaderPush {
 class MeshPipeline {
  public:
   // bindless_layout enables set 3 (the scene tables the rt variant reads for
-  // reflection hit shading); pass VK_NULL_HANDLE when ray query is unavailable.
-  static std::unique_ptr<MeshPipeline> Create(Device& device, VkFormat color_format,
-                                              VkFormat motion_format, VkFormat normal_format,
-                                              VkFormat depth_format,
-                                              VkDescriptorSetLayout material_layout,
-                                              VkDescriptorSetLayout environment_layout,
-                                              VkDescriptorSetLayout bindless_layout);
+  // reflection hit shading); pass a null handle when ray query is unavailable.
+  static std::unique_ptr<MeshPipeline> Create(Device& device, Format color_format,
+                                              Format motion_format, Format normal_format,
+                                              Format depth_format,
+                                              BindingLayoutHandle material_layout,
+                                              BindingLayoutHandle environment_layout,
+                                              BindingLayoutHandle bindless_layout);
   ~MeshPipeline();
 
   MeshPipeline(const MeshPipeline&) = delete;
   MeshPipeline& operator=(const MeshPipeline&) = delete;
 
-  VkDescriptorSetLayout set_layout() const { return set_layout_; }
-  bool has_rt_variant() const { return pipelines_[kRt] != VK_NULL_HANDLE; }
+  BindingLayoutHandle set_layout() const { return set_layout_; }
+  bool has_rt_variant() const { return static_cast<bool>(pipelines_[kRt]); }
 
   // use_rt selects the ray-query fragment variant (shadows and/or reflections);
   // bindless is bound as set 3 when the pipeline was built with it.
-  void Bind(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
-            VkDescriptorSet bindless, bool use_rt, bool wireframe);
-  void BindPrepass(VkCommandBuffer cmd, VkDescriptorSet globals);
+  void Bind(CommandList& cmd, BindingSetHandle globals, BindingSetHandle environment,
+            BindingSetHandle bindless, bool use_rt, bool wireframe);
+  void BindPrepass(CommandList& cmd, BindingSetHandle globals);
   // Transparent variant: alpha blend over the opaque result, depth tested
   // against the prepass without writing. Set state mirrors Bind.
-  void BindBlend(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
-                 VkDescriptorSet bindless, bool use_rt);
-  void BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
-  void Draw(VkCommandBuffer cmd, const GpuMesh& mesh, const MeshPushConstants& push);
-  void DrawSubmesh(VkCommandBuffer cmd, const GpuSubmesh& submesh);
+  void BindBlend(CommandList& cmd, BindingSetHandle globals, BindingSetHandle environment,
+                 BindingSetHandle bindless, bool use_rt);
+  void BindMaterial(CommandList& cmd, BindingSetHandle material);
+  void Draw(CommandList& cmd, const GpuMesh& mesh, const MeshPushConstants& push);
+  void DrawSubmesh(CommandList& cmd, const GpuSubmesh& submesh);
 
-  // Optional mesh-shader opaque path (VK_EXT_mesh_shader). Built only when the
-  // device supports it; the scene/prepass variants reuse the same descriptor
-  // sets and fragment shaders as the raster path. BindMeshMaterial binds set 1
-  // with the mesh-shader layout; DrawMeshlets issues one workgroup per meshlet.
+  // Optional mesh-shader opaque path. Built only when the device supports it;
+  // the scene/prepass variants reuse the same descriptor sets and fragment
+  // shaders as the raster path. BindMeshMaterial binds set 1 with the
+  // mesh-shader layout; DrawMeshlets issues one workgroup per meshlet.
   bool has_mesh_shader() const {
-    return ms_scene_[0] != VK_NULL_HANDLE && ms_prepass_ != VK_NULL_HANDLE;
+    return static_cast<bool>(ms_scene_[0]) && static_cast<bool>(ms_prepass_);
   }
-  void BindMeshScene(VkCommandBuffer cmd, VkDescriptorSet globals, VkDescriptorSet environment,
-                     VkDescriptorSet bindless, bool use_rt);
-  void BindMeshPrepass(VkCommandBuffer cmd, VkDescriptorSet globals);
-  void BindMeshMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
-  void DrawMeshlets(VkCommandBuffer cmd, const MeshShaderPush& push);
+  void BindMeshScene(CommandList& cmd, BindingSetHandle globals, BindingSetHandle environment,
+                     BindingSetHandle bindless, bool use_rt);
+  void BindMeshPrepass(CommandList& cmd, BindingSetHandle globals);
+  void BindMeshMaterial(CommandList& cmd, BindingSetHandle material);
+  void DrawMeshlets(CommandList& cmd, const MeshShaderPush& push);
 
   // Swap the bound pipeline between the static and GPU-skinned vertex paths
   // mid-pass without rebinding descriptor sets (the layout is shared). The draw
   // loop calls these when it crosses a skinned/non-skinned mesh boundary.
-  bool has_skinning() const { return skinned_pipelines_[0] != VK_NULL_HANDLE; }
-  void SetSkinned(VkCommandBuffer cmd, bool skinned, bool use_rt, bool wireframe);
-  void SetPrepassSkinned(VkCommandBuffer cmd, bool skinned);
+  bool has_skinning() const { return static_cast<bool>(skinned_pipelines_[0]); }
+  void SetSkinned(CommandList& cmd, bool skinned, bool use_rt, bool wireframe);
+  void SetPrepassSkinned(CommandList& cmd, bool skinned);
 
  private:
   // Variant index bits.
@@ -136,19 +136,17 @@ class MeshPipeline {
   explicit MeshPipeline(Device& device) : device_(device) {}
 
   Device& device_;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
+  BindingLayoutHandle set_layout_;
   bool has_bindless_ = false;  // set 3 present in the layout
-  VkPipeline pipelines_[4] = {};  // [rt | wire]
-  VkPipeline blend_pipelines_[2] = {};  // [rt]
-  VkPipeline prepass_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipelines_[4] = {};  // [rt | wire]
+  PipelineHandle blend_pipelines_[2] = {};  // [rt]
+  PipelineHandle prepass_pipeline_;
   // Skinned vertex path: same fragment variants, extra vertex stream + VS.
-  VkPipeline skinned_pipelines_[2] = {};  // [rt]
-  VkPipeline skinned_prepass_pipeline_ = VK_NULL_HANDLE;
-  // Optional mesh-shader opaque variants (own layout, larger push range).
-  VkPipelineLayout ms_layout_ = VK_NULL_HANDLE;
-  VkPipeline ms_scene_[2] = {};  // [rt]
-  VkPipeline ms_prepass_ = VK_NULL_HANDLE;
+  PipelineHandle skinned_pipelines_[2] = {};  // [rt]
+  PipelineHandle skinned_prepass_pipeline_;
+  // Optional mesh-shader opaque variants (larger mesh-stage push range).
+  PipelineHandle ms_scene_[2] = {};  // [rt]
+  PipelineHandle ms_prepass_;
 };
 
 }  // namespace rec::render

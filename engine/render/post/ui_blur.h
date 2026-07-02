@@ -25,18 +25,16 @@ class UiBlurPass {
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle src, u32 width, u32 height);
 
   // Linear clamp sampler the UI backend uses to read the blurred result.
-  VkSampler sampler() const { return sampler_; }
+  SamplerHandle sampler() const { return sampler_; }
 
  private:
   explicit UiBlurPass(Device& device) : device_(device) {}
-  void Record(PassContext& ctx, VkImageView input, VkImageView output, VkExtent2D extent,
+  void Record(PassContext& ctx, TextureView input, TextureView output, Extent2D extent,
               float dx, float dy);
 
   Device& device_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

@@ -1,48 +1,54 @@
 #ifndef RECREATION_RENDER_RHI_SWAPCHAIN_H_
 #define RECREATION_RENDER_RHI_SWAPCHAIN_H_
 
-#include <memory>
-
-#include <base/containers/vector.h>
-
-#include "render/rhi/device.h"
+#include "core/types.h"
+#include "render/rhi/resources.h"
+#include "render/rhi/types.h"
 
 namespace rec::render {
 
+// Transfer function + primaries of the presented image. The engine renders
+// linear Rec.709 internally; the tonemap pass encodes for whichever of these
+// the swapchain negotiated.
+enum class ColorSpace : u8 {
+  kSrgbNonlinear,  // 8/10-bit SDR, sRGB OETF (the default everywhere)
+  kHdr10Pq,        // 10-bit Rec.2020 + ST2084 PQ
+  kScRgbLinear,    // fp16 linear, sRGB primaries, 1.0 = 80 nits
+};
+
+enum class AcquireResult : u8 {
+  kOk,
+  kSuboptimal,  // usable this frame; recreate when convenient
+  kOutOfDate,   // recreate before rendering
+  kFailed,
+};
+
+// Presentation images. Created via Device::CreateSwapchain; presentation goes
+// through Device::SubmitFrame (which owns the acquire/present sync for the
+// frame slot passed to Acquire).
 class Swapchain {
  public:
-  static std::unique_ptr<Swapchain> Create(Device& device, u32 width, u32 height, bool vsync);
-  ~Swapchain();
+  virtual ~Swapchain() = default;
 
   Swapchain(const Swapchain&) = delete;
   Swapchain& operator=(const Swapchain&) = delete;
 
-  // VK_ERROR_OUT_OF_DATE_KHR and VK_SUBOPTIMAL_KHR pass through so the
-  // renderer decides when to recreate.
-  VkResult Acquire(VkSemaphore signal, u32* out_image_index);
-  VkResult Present(VkSemaphore wait, u32 image_index);
+  // Acquires the next image using frame slot `slot`'s sync primitives; the
+  // following Device::SubmitFrame with the same slot waits on it.
+  virtual AcquireResult Acquire(u32 slot, u32* out_image_index) = 0;
 
-  VkFormat format() const { return format_; }
-  VkExtent2D extent() const { return extent_; }
-  u32 image_count() const { return static_cast<u32>(images_.size()); }
-  VkImage image(u32 index) const { return images_[index]; }
-  VkImageView view(u32 index) const { return views_[index]; }
-  // True when the surface allowed VK_IMAGE_USAGE_SAMPLED_BIT on the swapchain
-  // images, so the backbuffer can be sampled (e.g. for UI backdrop blur).
-  bool can_sample() const { return sampleable_; }
+  virtual Format format() const = 0;
+  virtual Extent2D extent() const = 0;
+  virtual u32 image_count() const = 0;
+  virtual const GpuImage& image(u32 index) const = 0;
+  // True when the backbuffer can be sampled (e.g. for UI backdrop blur).
+  virtual bool can_sample() const = 0;
+  // What the tonemap pass must encode; kSrgbNonlinear unless an HDR swapchain
+  // was requested AND the surface offers one.
+  virtual ColorSpace color_space() const { return ColorSpace::kSrgbNonlinear; }
 
- private:
-  explicit Swapchain(Device& device) : device_(device) {}
-
-  bool Init(u32 width, u32 height, bool vsync);
-
-  Device& device_;
-  VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
-  VkFormat format_ = VK_FORMAT_UNDEFINED;
-  VkExtent2D extent_{};
-  base::Vector<VkImage> images_;
-  base::Vector<VkImageView> views_;
-  bool sampleable_ = false;
+ protected:
+  Swapchain() = default;
 };
 
 }  // namespace rec::render

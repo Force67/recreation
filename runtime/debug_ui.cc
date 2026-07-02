@@ -23,6 +23,7 @@
 #include "core/log.h"
 #include "render/core/presets.h"
 #include "render/core/settings_ini.h"
+#include "render/rhi/vulkan_interop.h"
 
 namespace rec {
 namespace {
@@ -108,6 +109,9 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   SDL_Window* sdl_window = static_cast<SDL_Window*>(window.native_handles().window);
   render::Device* device = renderer.device();
   if (!sdl_window || !device || device->is_stub()) return false;
+  // imgui_impl_vulkan records raw Vulkan; on other backends the overlay is off.
+  const render::VulkanHandles vk = render::GetVulkanHandles(*device);
+  if (vk.device == VK_NULL_HANDLE) return false;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -124,14 +128,14 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
 
   if (!ImGui_ImplSDL3_InitForVulkan(sdl_window)) return false;
 
-  swapchain_format_ = renderer.swapchain_format();
+  swapchain_format_ = render::GetVkFormat(renderer.swapchain_format());
   ImGui_ImplVulkan_InitInfo info{};
   info.ApiVersion = VK_API_VERSION_1_3;
-  info.Instance = device->instance();
-  info.PhysicalDevice = device->physical_device();
-  info.Device = device->device();
-  info.QueueFamily = device->graphics_family();
-  info.Queue = device->graphics_queue();
+  info.Instance = vk.instance;
+  info.PhysicalDevice = vk.physical_device;
+  info.Device = vk.device;
+  info.QueueFamily = vk.graphics_family;
+  info.Queue = vk.graphics_queue;
   info.DescriptorPoolSize = 64;  // backend manages its own pool
   info.MinImageCount = std::max(2u, renderer.swapchain_image_count());
   info.ImageCount = std::max(2u, renderer.swapchain_image_count());
@@ -656,8 +660,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
 
   ImGui::Render();
   if (visible_ || ImGui::GetDrawData()->TotalVtxCount > 0) {
-    view->ui_draw = [](VkCommandBuffer cmd) {
-      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+    view->ui_draw = [](render::CommandList& cmd) {
+      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), render::GetVkCommandBuffer(cmd));
     };
   }
 }

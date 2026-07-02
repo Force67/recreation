@@ -10,62 +10,60 @@
 namespace rec::render {
 namespace {
 
-VkDeviceAddress BufferAddress(VkDevice device, VkBuffer buffer) {
-  VkBufferDeviceAddressInfo info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-  info.buffer = buffer;
-  return vkGetBufferDeviceAddress(device, &info);
-}
+u64 AlignUp(u64 value, u64 alignment) { return (value + alignment - 1) & ~(alignment - 1); }
 
-VkDeviceAddress AlignUp(VkDeviceAddress address, VkDeviceAddress alignment) {
-  return (address + alignment - 1) & ~(alignment - 1);
-}
-
-VkTransformMatrixKHR ToTransformMatrix(const Mat4& m) {
-  // VkTransformMatrixKHR is row major 3x4, Mat4 is column major.
-  VkTransformMatrixKHR result;
+void ToInstanceTransform(const Mat4& m, f32 out[3][4]) {
+  // TlasInstance transforms are row major 3x4, Mat4 is column major.
   for (u32 row = 0; row < 3; ++row) {
     for (u32 col = 0; col < 4; ++col) {
-      result.matrix[row][col] = m.m[col * 4 + row];
+      out[row][col] = m.m[col * 4 + row];
     }
   }
-  return result;
+}
+
+// One geometry per opaque submesh: hit shaders resolve the material from
+// CommittedGeometryIndex through the bindless geometry table, which is
+// written in the same order. Blend submeshes stay out entirely. Alpha-masked
+// (cutout) submeshes go in non-opaque so a ray query can alpha-test them; the
+// realtime paths trace RAY_FLAG_FORCE_OPAQUE which overrides that to opaque.
+base::Vector<AccelTriangles> BlasGeometries(const GpuMesh& mesh) {
+  base::Vector<AccelTriangles> geometries;
+  for (const GpuSubmesh& submesh : mesh.submeshes) {
+    if (submesh.blend || submesh.index_count == 0) continue;
+    geometries.push_back({.vertex_address = mesh.vertices.address,
+                          .vertex_stride = sizeof(asset::Vertex),
+                          .vertex_count = mesh.vertex_count,
+                          .vertex_format = Format::kRGB32Float,
+                          .index_address = mesh.indices.address + submesh.index_offset * sizeof(u32),
+                          .index_count = submesh.index_count,
+                          .index_type = IndexType::kUint32,
+                          .opaque = !submesh.alpha_mask});
+  }
+  return geometries;
 }
 
 }  // namespace
 
 std::unique_ptr<RayTracingContext> RayTracingContext::Create(Device& device) {
-  auto context = std::unique_ptr<RayTracingContext>(new RayTracingContext(device));
-
-  VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{
-      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
-  VkPhysicalDeviceProperties2 props{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-  props.pNext = &as_props;
-  vkGetPhysicalDeviceProperties2(device.physical_device(), &props);
-  context->scratch_alignment_ = as_props.minAccelerationStructureScratchOffsetAlignment;
-  return context;
+  return std::unique_ptr<RayTracingContext>(new RayTracingContext(device));
 }
 
 RayTracingContext::~RayTracingContext() {
-  for (auto kv : blas_) {
-    vkDestroyAccelerationStructureKHR(device_.device(), kv.value.handle, nullptr);
-    device_.DestroyBuffer(kv.value.buffer);
-  }
+  for (auto kv : blas_) device_.DestroyAccelStruct(kv.value.handle);
   device_.DestroyBuffer(blas_scratch_);
   for (Tlas& tlas : tlas_) DestroyTlas(tlas);
 }
 
 bool RayTracingContext::EnsureBlasScratch(u64 size) {
-  if (blas_scratch_.buffer && blas_scratch_.size >= size) return true;
+  if (blas_scratch_ && blas_scratch_.size >= size) return true;
   device_.WaitIdle();
   device_.DestroyBuffer(blas_scratch_);
-  blas_scratch_ = device_.CreateBuffer(
-      size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  return blas_scratch_.buffer != VK_NULL_HANDLE;
+  blas_scratch_ = device_.CreateBuffer(size, kBufferUsageAccelScratch);
+  return static_cast<bool>(blas_scratch_);
 }
 
 void RayTracingContext::DestroyTlas(Tlas& tlas) {
-  if (tlas.handle) vkDestroyAccelerationStructureKHR(device_.device(), tlas.handle, nullptr);
-  device_.DestroyBuffer(tlas.buffer);
+  if (tlas.handle) device_.DestroyAccelStruct(tlas.handle);
   device_.DestroyBuffer(tlas.instances);
   device_.DestroyBuffer(tlas.scratch);
   tlas = {};
@@ -74,90 +72,30 @@ void RayTracingContext::DestroyTlas(Tlas& tlas) {
 bool RayTracingContext::BuildBlas(u64 mesh_key, const GpuMesh& mesh) {
   if (blas_.contains(mesh_key)) return true;
   if (mesh.vertex_count == 0 || mesh.index_count == 0) return false;
+  if (mesh.vertices.address == 0 || mesh.indices.address == 0) return false;
 
-  // One geometry per opaque submesh: hit shaders resolve the material from
-  // CommittedGeometryIndex through the bindless geometry table, which is
-  // written in the same order. Blend submeshes stay out entirely. Alpha-masked
-  // (cutout) submeshes go in non-opaque so a ray query can alpha-test them; the
-  // realtime paths trace RAY_FLAG_FORCE_OPAQUE which overrides that to opaque.
-  VkAccelerationStructureGeometryKHR geometry_template{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
-  geometry_template.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-  geometry_template.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-  auto& triangles = geometry_template.geometry.triangles;
-  triangles = {.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR};
-  triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-  triangles.vertexData.deviceAddress = BufferAddress(device_.device(), mesh.vertices.buffer);
-  triangles.vertexStride = sizeof(asset::Vertex);
-  triangles.maxVertex = mesh.vertex_count - 1;
-  triangles.indexType = VK_INDEX_TYPE_UINT32;
-  triangles.indexData.deviceAddress = BufferAddress(device_.device(), mesh.indices.buffer);
-
-  base::Vector<VkAccelerationStructureGeometryKHR> geometries;
-  base::Vector<VkAccelerationStructureBuildRangeInfoKHR> range_infos;
-  base::Vector<u32> primitive_counts;
-  for (const GpuSubmesh& submesh : mesh.submeshes) {
-    if (submesh.blend || submesh.index_count == 0) continue;
-    geometries.push_back(geometry_template);
-    geometries.back().flags = submesh.alpha_mask ? 0 : VK_GEOMETRY_OPAQUE_BIT_KHR;
-    VkAccelerationStructureBuildRangeInfoKHR range{};
-    range.primitiveCount = submesh.index_count / 3;
-    range.primitiveOffset = submesh.index_offset * sizeof(u32);
-    range_infos.push_back(range);
-    primitive_counts.push_back(range.primitiveCount);
-  }
+  base::Vector<AccelTriangles> geometries = BlasGeometries(mesh);
   if (geometries.empty()) return false;
 
-  VkAccelerationStructureBuildGeometryInfoKHR build{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
-  build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-  build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  build.geometryCount = static_cast<u32>(geometries.size());
-  build.pGeometries = geometries.data();
-
-  VkAccelerationStructureBuildSizesInfoKHR sizes{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-  vkGetAccelerationStructureBuildSizesKHR(device_.device(),
-                                          VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build,
-                                          primitive_counts.data(), &sizes);
+  BlasBuildDesc desc{.geometries = {geometries.data(), geometries.size()}};
+  AccelSizes sizes = device_.GetBlasSizes(desc);
+  if (sizes.accel_bytes == 0) return false;
 
   Blas blas;
-  blas.buffer = device_.CreateBuffer(
-      sizes.accelerationStructureSize,
-      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  if (!blas.buffer.buffer) return false;
+  blas.handle = device_.CreateAccelStruct(AccelStructType::kBlas, sizes.accel_bytes);
+  if (!blas.handle) return false;
 
-  VkAccelerationStructureCreateInfoKHR create_info{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
-  create_info.buffer = blas.buffer.buffer;
-  create_info.size = sizes.accelerationStructureSize;
-  create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  if (vkCreateAccelerationStructureKHR(device_.device(), &create_info, nullptr, &blas.handle) !=
-      VK_SUCCESS) {
-    device_.DestroyBuffer(blas.buffer);
+  u32 alignment = device_.caps().accel_scratch_alignment;
+  if (!EnsureBlasScratch(sizes.scratch_bytes + alignment)) {
+    device_.DestroyAccelStruct(blas.handle);
     return false;
   }
+  u64 scratch_offset = AlignUp(blas_scratch_.address, alignment) - blas_scratch_.address;
 
-  if (!EnsureBlasScratch(sizes.buildScratchSize + scratch_alignment_)) {
-    vkDestroyAccelerationStructureKHR(device_.device(), blas.handle, nullptr);
-    device_.DestroyBuffer(blas.buffer);
-    return false;
-  }
-  build.dstAccelerationStructure = blas.handle;
-  build.scratchData.deviceAddress =
-      AlignUp(BufferAddress(device_.device(), blas_scratch_.buffer), scratch_alignment_);
-
-  const VkAccelerationStructureBuildRangeInfoKHR* ranges = range_infos.data();
-  device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
-    vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, &ranges);
+  device_.ImmediateSubmit([&](CommandList& cmd) {
+    cmd.BuildBlas(blas.handle, desc, blas_scratch_, scratch_offset);
   });
-
-  VkAccelerationStructureDeviceAddressInfoKHR address_info{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR};
-  address_info.accelerationStructure = blas.handle;
-  blas.address = vkGetAccelerationStructureDeviceAddressKHR(device_.device(), &address_info);
+  blas.address = device_.accel_address(blas.handle);
 
   blas_.emplace(mesh_key, blas);
   return true;
@@ -174,53 +112,15 @@ bool RayTracingContext::EnsureTlasCapacity(Tlas& tlas, u32 instance_count) {
   u32 capacity = 64;
   while (capacity < instance_count) capacity *= 2;
 
-  tlas.instances = device_.CreateBuffer(
-      capacity * sizeof(VkAccelerationStructureInstanceKHR),
-      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-      true);
+  tlas.instances = device_.CreateBuffer(capacity * sizeof(TlasInstance),
+                                        kBufferUsageAccelBuildInput, true);
   if (!tlas.instances.mapped) return false;
 
-  VkAccelerationStructureGeometryKHR geometry{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
-  geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-  geometry.geometry.instances = {
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR};
-  geometry.geometry.instances.data.deviceAddress =
-      BufferAddress(device_.device(), tlas.instances.buffer);
-
-  VkAccelerationStructureBuildGeometryInfoKHR build{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
-  build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-  build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-  build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  build.geometryCount = 1;
-  build.pGeometries = &geometry;
-
-  VkAccelerationStructureBuildSizesInfoKHR sizes{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
-  vkGetAccelerationStructureBuildSizesKHR(device_.device(),
-                                          VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build,
-                                          &capacity, &sizes);
-
-  tlas.buffer = device_.CreateBuffer(
-      sizes.accelerationStructureSize,
-      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  tlas.scratch = device_.CreateBuffer(
-      sizes.buildScratchSize + scratch_alignment_,
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-  if (!tlas.buffer.buffer || !tlas.scratch.buffer) return false;
-
-  VkAccelerationStructureCreateInfoKHR create_info{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
-  create_info.buffer = tlas.buffer.buffer;
-  create_info.size = sizes.accelerationStructureSize;
-  create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-  if (vkCreateAccelerationStructureKHR(device_.device(), &create_info, nullptr, &tlas.handle) !=
-      VK_SUCCESS) {
-    return false;
-  }
+  AccelSizes sizes = device_.GetTlasSizes(capacity);
+  tlas.handle = device_.CreateAccelStruct(AccelStructType::kTlas, sizes.accel_bytes);
+  u32 alignment = device_.caps().accel_scratch_alignment;
+  tlas.scratch = device_.CreateBuffer(sizes.scratch_bytes + alignment, kBufferUsageAccelScratch);
+  if (!tlas.handle || !tlas.scratch) return false;
   tlas.capacity = capacity;
   return true;
 }
@@ -231,21 +131,21 @@ void RayTracingContext::ReserveTlas(u32 slot, u32 instance_count) {
   EnsureTlasCapacity(tlas_[slot], std::max(instance_count, 1u));
 }
 
-void RayTracingContext::BuildTlas(VkCommandBuffer cmd, u32 slot,
+void RayTracingContext::BuildTlas(CommandList& cmd, u32 slot,
                                   const base::Vector<Instance>& instances) {
   Tlas& tlas = tlas_[slot];
 
-  base::Vector<VkAccelerationStructureInstanceKHR> gpu_instances;
+  base::Vector<TlasInstance> gpu_instances;
   gpu_instances.reserve(instances.size());
   for (const Instance& instance : instances) {
     const Blas* blas = blas_.find(instance.mesh_key);
     if (!blas) continue;
-    VkAccelerationStructureInstanceKHR gpu{};
-    gpu.transform = ToTransformMatrix(instance.transform);
-    gpu.instanceCustomIndex = instance.custom_index & 0xffffffu;
+    TlasInstance gpu{};
+    ToInstanceTransform(instance.transform, gpu.transform);
+    gpu.custom_index = instance.custom_index & 0xffffffu;
     gpu.mask = 0xff;
-    gpu.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-    gpu.accelerationStructureReference = blas->address;
+    gpu.flags = kTlasInstanceTriangleCullDisable;
+    gpu.blas_address = blas->address;
     gpu_instances.push_back(gpu);
   }
 
@@ -255,43 +155,11 @@ void RayTracingContext::BuildTlas(VkCommandBuffer cmd, u32 slot,
     return;
   }
   if (count > 0) {
-    std::memcpy(tlas.instances.mapped, gpu_instances.data(),
-                count * sizeof(VkAccelerationStructureInstanceKHR));
+    std::memcpy(tlas.instances.mapped, gpu_instances.data(), count * sizeof(TlasInstance));
   }
 
-  VkAccelerationStructureGeometryKHR geometry{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
-  geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-  geometry.geometry.instances = {
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR};
-  geometry.geometry.instances.data.deviceAddress =
-      BufferAddress(device_.device(), tlas.instances.buffer);
-
-  VkAccelerationStructureBuildGeometryInfoKHR build{
-      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
-  build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-  build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-  build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  build.geometryCount = 1;
-  build.pGeometries = &geometry;
-  build.dstAccelerationStructure = tlas.handle;
-  build.scratchData.deviceAddress =
-      AlignUp(BufferAddress(device_.device(), tlas.scratch.buffer), scratch_alignment_);
-
-  VkAccelerationStructureBuildRangeInfoKHR range{.primitiveCount = count};
-  const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
-  vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, &ranges);
-
-  VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-  barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-  barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-  barrier.dstStageMask =
-      VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-  barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-  VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dep.memoryBarrierCount = 1;
-  dep.pMemoryBarriers = &barrier;
-  vkCmdPipelineBarrier2(cmd, &dep);
+  cmd.BuildTlas(tlas.handle, tlas.instances, count, tlas.scratch);
+  cmd.MemoryBarrier(BarrierScope::kAccelBuildWrite, BarrierScope::kAccelRead);
 }
 
 }  // namespace rec::render

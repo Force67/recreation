@@ -24,7 +24,7 @@ class SsgiPass {
   };
 
   bool Initialize(Device& device);
-  void Resize(Device& device, VkExtent2D extent) { extent_ = extent; }
+  void Resize(Device& device, Extent2D extent) { extent_ = extent; }
   void Destroy(Device& device);
 
   void Configure(const Settings& settings) { settings_ = settings; }
@@ -37,10 +37,8 @@ class SsgiPass {
 
  private:
   Settings settings_;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkExtent2D extent_{};
+  PipelineHandle pipeline_;
+  Extent2D extent_{};
 };
 
 }  // namespace rec::render

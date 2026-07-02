@@ -14,18 +14,18 @@ namespace rec::render {
 // caller emits the same opaque + transparent draws it would otherwise shade.
 class OverdrawPass {
  public:
-  bool Initialize(Device& device, VkFormat color_format);
+  bool Initialize(Device& device, Format color_format);
   void Destroy(Device& device);
 
   // Clears `color_view` and additive-renders the geometry. draw is invoked with
-  // the pipeline layout bound; it pushes each mesh's model matrix (offset 64)
-  // and issues the draws. view_proj is pushed at offset 0.
-  void Render(VkCommandBuffer cmd, VkImageView color_view, VkExtent2D extent, const Mat4& view_proj,
-              const std::function<void(VkCommandBuffer, VkPipelineLayout)>& draw);
+  // the pipeline bound; for each mesh it pushes the full {view_proj, model}
+  // 128-byte block (push constants always start at offset 0 in the RHI) and
+  // issues the draws. view_proj is also pushed up front.
+  void Render(CommandList& cmd, TextureView color_view, Extent2D extent, const Mat4& view_proj,
+              const std::function<void(CommandList&)>& draw);
 
  private:
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

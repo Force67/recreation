@@ -8,6 +8,7 @@
 
 #include "core/math.h"
 #include "core/types.h"
+#include "render/rhi/command_list.h"
 #include "render/rhi/resources.h"
 
 namespace rec::render {
@@ -55,28 +56,26 @@ class RayTracingContext {
 
   // Grows the slot's TLAS to hold at least instance_count instances. This can
   // stall (device idle) and reallocate, so it MUST be called during the CPU
-  // frame-build phase, never while a command buffer is recording. Doing the
+  // frame-build phase, never while a command list is recording. Doing the
   // growth here keeps BuildTlas allocation-free at record time.
   void ReserveTlas(u32 slot, u32 instance_count);
 
   // Records a full TLAS rebuild into cmd, including the barrier that makes
   // it visible to shader ray queries. Instances without a BLAS are skipped.
   // Capacity must already cover the instances (see ReserveTlas).
-  void BuildTlas(VkCommandBuffer cmd, u32 slot, const base::Vector<Instance>& instances);
+  void BuildTlas(CommandList& cmd, u32 slot, const base::Vector<Instance>& instances);
 
-  VkAccelerationStructureKHR tlas(u32 slot) const { return tlas_[slot].handle; }
+  AccelStructHandle tlas(u32 slot) const { return tlas_[slot].handle; }
 
  private:
   struct Blas {
-    VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-    GpuBuffer buffer;
-    VkDeviceAddress address = 0;
+    AccelStructHandle handle;
+    u64 address = 0;
   };
 
   struct Tlas {
-    VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-    GpuBuffer buffer;
-    GpuBuffer instances;  // host visible VkAccelerationStructureInstanceKHR
+    AccelStructHandle handle;
+    GpuBuffer instances;  // host visible TlasInstance[]
     GpuBuffer scratch;
     u32 capacity = 0;
   };
@@ -89,7 +88,6 @@ class RayTracingContext {
 
   Device& device_;
   RayTracingSettings settings_;
-  u32 scratch_alignment_ = 128;
   base::UnorderedMap<u64, Blas> blas_;
   // Reused across builds. Freeing scratch right after the fence tripped
   // lavapipe, whose build workers can outlive the signal; a persistent

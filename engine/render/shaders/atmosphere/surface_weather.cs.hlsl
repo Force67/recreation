@@ -1,15 +1,16 @@
+#include "rhi_bindings.hlsli"
 // Surface weather: how precipitation marks the world, applied to the lit scene.
 // Rain wets surfaces (darkens them as water fills pores, and adds a glossy sky
 // reflection on up-facing puddles); snow settles white on up-facing surfaces.
 // Driven by the weather system, modulated by the surface normal (horizontal
 // faces wet/snow most). A screen-space pass over the G-buffer normals + depth.
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image;
-[[vk::binding(1, 0)]] Texture2D color_in;
-[[vk::binding(2, 0)]] Texture2D<float2> normal_map;  // world-space, octahedral
-[[vk::binding(3, 0)]] Texture2D depth_in;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] TextureCube sky;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState sky_sampler;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D color_in : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map : register(t2, space0);  // world-space, octahedral
+[[vk::binding(3, 0)]] Texture2D depth_in : register(t3, space0);
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] TextureCube sky : register(t4, space0);
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState sky_sampler : register(s4, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;
@@ -18,7 +19,7 @@ struct PushData {
   uint2 size;
   uint2 pad;
 };
-[[vk::push_constant]] PushData pc;
+PUSH_CONSTANTS(PushData, pc);
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);

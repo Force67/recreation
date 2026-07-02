@@ -29,21 +29,17 @@ class ExposurePass {
   void AddToGraph(RenderGraph& graph, ResourceHandle input, u32 width, u32 height,
                   f32 delta_seconds);
 
-  VkBuffer exposure_buffer() const { return exposure_.buffer; }
+  const GpuBuffer& exposure_buffer() const { return exposure_; }
   u64 exposure_buffer_size() const { return exposure_.size; }
 
  private:
   Settings settings_;
   Device* device_ = nullptr;
-  VkSampler sampler_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
   GpuBuffer histogram_;  // 256 u32, cleared by the resolve pass each frame
   GpuBuffer exposure_;   // [0] exposure, [1] avg luma
-  VkDescriptorSetLayout histogram_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout histogram_layout_ = VK_NULL_HANDLE;
-  VkPipeline histogram_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout resolve_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout resolve_layout_ = VK_NULL_HANDLE;
-  VkPipeline resolve_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle histogram_pipeline_;
+  PipelineHandle resolve_pipeline_;
   bool first_frame_ = true;
 };
 

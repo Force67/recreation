@@ -35,13 +35,11 @@ class VolumetricFog {
 
   // Marches color (the lit scene) against depth, returns a fogged copy.
   ResourceHandle AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                            ResourceHandle color, ResourceHandle depth, VkExtent2D extent,
+                            ResourceHandle color, ResourceHandle depth, Extent2D extent,
                             const Frame& frame);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

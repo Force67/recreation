@@ -15,6 +15,7 @@
 #include "core/math.h"
 #include "render/core/renderer.h"
 #include "render/rhi/device.h"
+#include "render/rhi/vulkan_interop.h"
 #include "render/util/shader_util.h"
 #include "shaders/thumb_ps_hlsl.h"
 #include "shaders/thumb_vs_hlsl.h"
@@ -246,11 +247,13 @@ int Thumbnailer::size() const { return impl_ ? impl_->size : 0; }
 bool Thumbnailer::Init(render::Renderer& renderer, int size) {
   render::Device* dev = renderer.device();
   if (!dev || dev->is_stub()) return false;
+  // Rasterizes with raw Vulkan; null handles on other backends leave it off.
+  const render::VulkanHandles vk = render::GetVulkanHandles(*dev);
   Impl& m = *impl_;
-  m.device = dev->device();
-  m.phys = dev->physical_device();
-  m.queue = dev->graphics_queue();
-  m.qfam = dev->graphics_family();
+  m.device = vk.device;
+  m.phys = vk.physical_device;
+  m.queue = vk.graphics_queue;
+  m.qfam = vk.graphics_family;
   m.size = size;
   if (!m.device || !m.queue) return false;
 

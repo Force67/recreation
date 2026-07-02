@@ -1,29 +1,37 @@
 #ifndef RECREATION_RENDER_RHI_RESOURCES_H_
 #define RECREATION_RENDER_RHI_RESOURCES_H_
 
-#include <volk.h>
-
-#include <vk_mem_alloc.h>
-
 #include <base/containers/vector.h>
 
 #include "core/types.h"
+#include "render/rhi/types.h"
 
 namespace rec::render {
 
+using BufferHandle = RhiHandle<struct BufferTag>;
+using TextureHandle = RhiHandle<struct TextureTag>;
+
+// Value-type views of GPU resources. The handle points at a backend-owned
+// record; everything else is mirrored here so hot paths never call into the
+// backend for metadata. Copies alias the same GPU resource; the owner calls
+// Device::DestroyBuffer/DestroyImage exactly once.
 struct GpuBuffer {
-  VkBuffer buffer = VK_NULL_HANDLE;
-  VmaAllocation allocation = nullptr;
+  BufferHandle handle;
   u64 size = 0;
   void* mapped = nullptr;  // set for host visible buffers
+  u64 address = 0;         // device address, set when created with kBufferUsageDeviceAddress
+
+  explicit operator bool() const { return static_cast<bool>(handle); }
 };
 
 struct GpuImage {
-  VkImage image = VK_NULL_HANDLE;
-  VmaAllocation allocation = nullptr;
-  VkImageView view = VK_NULL_HANDLE;
-  VkFormat format = VK_FORMAT_UNDEFINED;
-  VkExtent2D extent{};
+  TextureHandle handle;
+  TextureView view;  // whole-image default view
+  Format format = Format::kUnknown;
+  Extent2D extent{};
+  u32 mip_levels = 1;
+
+  explicit operator bool() const { return static_cast<bool>(handle); }
 };
 
 // Index range drawn with one material. Materials resolve at upload time so
@@ -64,17 +72,13 @@ struct GpuMesh {
   base::Vector<GpuSubmesh> submeshes;  // lod 0
   base::Vector<GpuLod> lods;           // extra lods (1+), selected by distance
 
-  // Mesh-shader path (VK_EXT_mesh_shader): lod 0 split into meshlets. Read in the
-  // mesh shader via buffer device address, so the *_address fields are what the
-  // push constants carry. Empty when mesh shaders are unavailable or the mesh is
+  // Mesh-shader path: lod 0 split into meshlets, read in the mesh shader via
+  // buffer device address, so the GpuBuffer::address fields are what the push
+  // constants carry. Empty when mesh shaders are unavailable or the mesh is
   // skinned. meshlets/meshlet_vertices/meshlet_triangles mirror MeshletPass.
   GpuBuffer meshlets;
   GpuBuffer meshlet_vertices;
   GpuBuffer meshlet_triangles;
-  u64 meshlets_address = 0;
-  u64 meshlet_vertices_address = 0;
-  u64 meshlet_triangles_address = 0;
-  u64 vertices_address = 0;  // device address of the lod-concatenated vertex buffer
   bool has_meshlets = false;
 };
 

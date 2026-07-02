@@ -1,13 +1,15 @@
 #ifndef RECREATION_RENDER_DENOISER_NRD_H_
 #define RECREATION_RENDER_DENOISER_NRD_H_
 
-#include <volk.h>
-
 #include <base/containers/vector.h>
 
 #include "core/math.h"
 #include "render/core/render_graph.h"
 #include "render/rhi/resources.h"
+// Vulkan-only module (compiled under RECREATION_HAS_NRD, which implies the
+// Vulkan backend): the internals speak raw Vulkan through the interop escape
+// hatch, the public surface below stays rhi-typed.
+#include "render/rhi/vulkan_interop.h"
 
 namespace nrd {
 struct Instance;
@@ -29,8 +31,8 @@ class Device;
 // imported into the render graph so later passes can sample them.
 class NrdDenoiser {
  public:
-  bool Initialize(Device& device, VkExtent2D extent);
-  void Resize(Device& device, VkExtent2D extent);
+  bool Initialize(Device& device, Extent2D extent);
+  void Resize(Device& device, Extent2D extent);
   void Destroy(Device& device);
 
   bool available() const { return instance_ != nullptr; }
@@ -84,13 +86,13 @@ class NrdDenoiser {
                                 ResourceHandle in_radiance_hitdist);
 
   // NRD encodings the engine shaders must match.
-  static constexpr VkFormat kNormalRoughnessFormat = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
-  static constexpr VkFormat kViewZFormat = VK_FORMAT_R16_SFLOAT;
-  static constexpr VkFormat kHitDistFormat = VK_FORMAT_R8_UNORM;
-  static constexpr VkFormat kPenumbraFormat = VK_FORMAT_R16_SFLOAT;
-  static constexpr VkFormat kShadowFormat = VK_FORMAT_R8_UNORM;
+  static constexpr Format kNormalRoughnessFormat = Format::kRGB10A2Unorm;
+  static constexpr Format kViewZFormat = Format::kR16Float;
+  static constexpr Format kHitDistFormat = Format::kR8Unorm;
+  static constexpr Format kPenumbraFormat = Format::kR16Float;
+  static constexpr Format kShadowFormat = Format::kR8Unorm;
   // Diffuse radiance + normalized hit distance, in and out (RGBA16f).
-  static constexpr VkFormat kDiffuseRadianceFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+  static constexpr Format kDiffuseRadianceFormat = Format::kRGBA16Float;
   // REBLUR hit distance normalization params (A, B, C), shared with the shader.
   static constexpr f32 kHitDistParams[3] = {3.0f, 0.1f, 20.0f};
 
@@ -118,20 +120,24 @@ class NrdDenoiser {
 
   bool CreatePipelines(Device& device);
   bool CreatePackPipeline(Device& device);
-  void CreatePools(Device& device, VkExtent2D extent);
+  bool CreateDescriptorPools();
+  void CreatePools(Device& device, Extent2D extent);
   void DestroyPools(Device& device);
+  // Per-dispatch descriptor sets, from the frame-parity pool reset in SetFrame.
+  VkDescriptorSet AllocateSet(VkDescriptorSetLayout layout);
   // noisy_type / output_type carry an nrd::ResourceType value as an int so this
   // header stays free of NRD types (the renderer includes it transitively).
   ResourceHandle AddDenoisePass(RenderGraph& graph, u32 identifier, const char* pass_name,
                                 ResourceHandle normal_roughness, ResourceHandle view_z,
                                 ResourceHandle motion, ResourceHandle noisy, int noisy_type,
                                 PoolTexture& output, int output_type, const char* output_name,
-                                VkImageLayout* output_layout);
+                                ResourceState* output_state);
   void RecordDispatches(PassContext& ctx, u32 identifier);
 
   Device* device_ = nullptr;
+  VkDevice vk_device_ = VK_NULL_HANDLE;  // raw handle via GetVulkanHandles
   nrd::Instance* instance_ = nullptr;
-  VkExtent2D extent_{};
+  Extent2D extent_{};
 
   base::Vector<Pipeline> pipelines_;
   base::Vector<PoolTexture> permanent_;
@@ -139,9 +145,11 @@ class NrdDenoiser {
   PoolTexture out_ao_;
   PoolTexture out_shadow_;
   PoolTexture out_diffuse_;
-  VkImageLayout out_ao_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkImageLayout out_shadow_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkImageLayout out_diffuse_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+  // Render-graph import states for the denoised outputs (the graph reads the
+  // starting state and writes the post-pass state back each frame).
+  ResourceState out_ao_state_ = ResourceState::kUndefined;
+  ResourceState out_shadow_state_ = ResourceState::kUndefined;
+  ResourceState out_diffuse_state_ = ResourceState::kUndefined;
 
   // Engine-side input packing (g-buffer -> NRD guides), not part of NRD itself.
   VkPipeline pack_pipeline_ = VK_NULL_HANDLE;
@@ -150,8 +158,10 @@ class NrdDenoiser {
 
   VkSampler samplers_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
   VkDescriptorSetLayout const_set_layout_ = VK_NULL_HANDLE;  // constant buffer + samplers
-  VkDescriptorSet const_set_ = VK_NULL_HANDLE;
-  VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
+  // Internal per-frame descriptor pools, double buffered by frame parity like
+  // the constant ring; the active parity's pool is reset in SetFrame.
+  VkDescriptorPool descriptor_pools_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+  u32 pool_parity_ = 0;
   GpuBuffer constant_ring_;  // host visible, dynamic-offset uniform buffer
   u64 constant_slot_size_ = 0;
   u32 constant_slot_count_ = 0;

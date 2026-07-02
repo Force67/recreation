@@ -59,25 +59,24 @@ class BindlessRegistry {
   BindlessRegistry& operator=(const BindlessRegistry&) = delete;
 
   // All return kInvalidIndex when the respective table is full.
-  u32 RegisterTexture(VkImageView view);
+  u32 RegisterTexture(TextureView view);
   u32 RegisterMaterial(const MaterialRecord& record);
   // Geometry records must follow the blas geometry order (non-blend
   // submeshes in submesh order). Returns the instanceCustomIndex.
-  u32 RegisterMesh(VkBuffer vertices, VkBuffer indices, const GeometryRecord* geometries,
-                   u32 geometry_count);
+  // The buffers must have been created with kBufferUsageDeviceAddress.
+  u32 RegisterMesh(const GpuBuffer& vertices, const GpuBuffer& indices,
+                   const GeometryRecord* geometries, u32 geometry_count);
 
-  VkDescriptorSetLayout set_layout() const { return set_layout_; }
-  VkDescriptorSet set() const { return set_; }
+  BindingLayoutHandle set_layout() const { return set_layout_; }
+  BindingSetHandle set() const { return set_; }
 
  private:
   explicit BindlessRegistry(Device& device) : device_(device) {}
   bool Initialize();
 
   Device& device_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkDescriptorPool pool_ = VK_NULL_HANDLE;
-  VkDescriptorSet set_ = VK_NULL_HANDLE;
+  BindingLayoutHandle set_layout_;
+  BindingSetHandle set_;
 
   GpuBuffer mesh_table_;      // host visible MeshRecord[]
   GpuBuffer geometry_table_;  // host visible GeometryRecord[]

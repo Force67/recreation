@@ -27,7 +27,7 @@ struct ParticleInstance {
 // blended, no depth write; occlusion and soft fade come from the prepass depth.
 class ParticleSystem {
  public:
-  bool Initialize(Device& device, VkFormat color_format);
+  bool Initialize(Device& device, Format color_format);
   void Destroy(Device& device);
 
   struct Frame {
@@ -73,15 +73,11 @@ class ParticleSystem {
  private:
   static constexpr u32 kFramesInFlight = 2;
   void RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
-                  ResourceHandle motion, VkBuffer instances, u32 count, const Frame& frame);
+                  ResourceHandle motion, const GpuBuffer& instances, u32 count, const Frame& frame);
 
   Device* device_ = nullptr;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout sim_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout sim_layout_ = VK_NULL_HANDLE;
-  VkPipeline sim_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
+  PipelineHandle sim_pipeline_;
   GpuBuffer buffers_[kFramesInFlight];  // host-visible billboard storage
   GpuBuffer sim_state_;                 // persistent gpu particle state
 };

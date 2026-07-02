@@ -1,13 +1,14 @@
+#include "rhi_bindings.hlsli"
 // Cosine convolution of the sky cubemap into a small irradiance cubemap.
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> irradiance_out;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] TextureCube sky;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState sky_sampler;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> irradiance_out : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] TextureCube sky : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState sky_sampler : register(s1, space0);
 
 struct PushData {
   float face_size;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 // Vulkan cubemap face order +x -x +y -y +z -z; uv in [0,1] within a face.
 float3 CubeDir(uint face, float2 uv) {

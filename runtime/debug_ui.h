@@ -1,6 +1,11 @@
 #ifndef RECREATION_RUNTIME_DEBUG_UI_H_
 #define RECREATION_RUNTIME_DEBUG_UI_H_
 
+// The overlay records raw Vulkan (imgui_impl_vulkan); the rhi headers pulled in
+// via renderer.h are backend-agnostic, so the VkFormat member below needs volk
+// directly (cf. gui_backend.h).
+#include <volk.h>
+
 #include <functional>
 #include <string>
 #include <utility>

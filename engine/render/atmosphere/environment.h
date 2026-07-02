@@ -34,52 +34,47 @@ class EnvironmentSystem {
   // Builds the sky background pipeline; needs the mesh pipeline's set 0
   // layout and the scene pass attachment formats, so it runs after the mesh
   // pipeline exists.
-  bool CreateSkyPipeline(VkDescriptorSetLayout globals_layout, VkFormat color_format,
-                         VkFormat motion_format, VkFormat depth_format);
+  bool CreateSkyPipeline(BindingLayoutHandle globals_layout, Format color_format,
+                         Format motion_format, Format depth_format);
 
   EnvironmentSystem(const EnvironmentSystem&) = delete;
   EnvironmentSystem& operator=(const EnvironmentSystem&) = delete;
 
   // Re-renders the sky and both convolutions with internal barriers. Call
-  // from the frame command buffer when the sun changed.
-  void RecordUpdate(VkCommandBuffer cmd, const Vec3& sun_direction, f32 sun_intensity,
+  // from the frame command list when the sun changed.
+  void RecordUpdate(CommandList& cmd, const Vec3& sun_direction, f32 sun_intensity,
                     const Vec3& sun_color);
 
   // Fullscreen sky at the far plane; call inside the scene rendering pass.
-  void DrawSky(VkCommandBuffer cmd, VkDescriptorSet globals);
+  void DrawSky(CommandList& cmd, BindingSetHandle globals);
 
-  VkDescriptorSetLayout env_set_layout() const { return env_set_layout_; }
-  VkImageView sky_view() const { return sky_.view; }
-  VkImageView transmittance_view() const { return transmittance_lut_.view; }
-  VkImageView multiscatter_view() const { return multiscatter_lut_.view; }
-  VkSampler sampler() const { return sampler_; }
+  BindingLayoutHandle env_set_layout() const { return env_set_layout_; }
+  TextureView sky_view() const { return sky_.view; }
+  TextureView transmittance_view() const { return transmittance_lut_.view; }
+  TextureView multiscatter_view() const { return multiscatter_lut_.view; }
+  SamplerHandle sampler() const { return sampler_; }
 
   struct DdgiBinding {
-    VkImageView irradiance = VK_NULL_HANDLE;
-    VkImageView distance = VK_NULL_HANDLE;
-    VkBuffer volume = VK_NULL_HANDLE;
+    TextureView irradiance;
+    TextureView distance;
+    GpuBuffer volume;
     u64 volume_size = 0;
-    VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Kept for callers that tracked the atlas layout; the RHI backend derives
+    // image layouts from the binding type, so this is no longer consumed.
+    ResourceState layout = ResourceState::kShaderReadFragment;
   };
 
   // Fills a freshly allocated set 2. Null ao view, ddgi binding, shadow view or
   // sun-shadow view fall back to the neutral dummies (white ao, black ddgi, lit
   // cascade shadow, fully-lit sun shadow).
-  void WriteEnvSet(VkDescriptorSet set, VkImageView ao_view, const DdgiBinding* ddgi,
-                   VkImageView shadow_view = VK_NULL_HANDLE,
-                   VkBuffer cascade_buffer = VK_NULL_HANDLE, u64 cascade_size = 0,
-                   VkImageView opaque_color = VK_NULL_HANDLE,
-                   VkImageView sun_shadow_view = VK_NULL_HANDLE,
-                   VkBuffer lights = VK_NULL_HANDLE, u64 lights_size = 0) const;
+  void WriteEnvSet(BindingSetHandle set, TextureView ao_view, const DdgiBinding* ddgi,
+                   TextureView shadow_view = {},
+                   const GpuBuffer& cascade_buffer = {}, u64 cascade_size = 0,
+                   TextureView opaque_color = {},
+                   TextureView sun_shadow_view = {},
+                   const GpuBuffer& lights = {}, u64 lights_size = 0) const;
 
  private:
-  struct ComputePass {
-    VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
-    VkPipelineLayout layout = VK_NULL_HANDLE;
-    VkPipeline pipeline = VK_NULL_HANDLE;
-    VkDescriptorSet set = VK_NULL_HANDLE;  // static inputs, written once
-  };
-
   explicit EnvironmentSystem(Device& device) : device_(device) {}
 
   bool CreatePipelines();
@@ -87,12 +82,10 @@ class EnvironmentSystem {
   bool CreateDummies();
   bool BakeBrdfLut();
   bool BakeLuts();  // transmittance + multiple-scattering, baked once
-  void DestroyComputePass(ComputePass& pass);
 
   Device& device_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkSampler shadow_sampler_ = VK_NULL_HANDLE;  // comparison sampler for cascades
-  VkDescriptorPool pool_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  SamplerHandle shadow_sampler_;  // comparison sampler for cascades
 
   GpuImage sky_;         // rgba16f cube
   GpuImage irradiance_;  // rgba16f cube
@@ -100,32 +93,28 @@ class EnvironmentSystem {
   GpuImage brdf_lut_;    // rg16f
   GpuImage transmittance_lut_;  // rgba16f 2d, Hillaire transmittance
   GpuImage multiscatter_lut_;   // rgba16f 2d, Hillaire multiple scattering
-  VkImageView sky_storage_view_ = VK_NULL_HANDLE;          // 2d array, mip 0
-  VkImageView irradiance_storage_view_ = VK_NULL_HANDLE;   // 2d array, mip 0
-  VkImageView prefilter_storage_views_[kPrefilterMips] = {};
+  TextureView sky_storage_view_;          // mip 0 storage view
+  TextureView irradiance_storage_view_;   // mip 0 storage view
+  TextureView prefilter_storage_views_[kPrefilterMips] = {};
 
   // Neutral fallbacks: white ao, black ddgi atlases, lit shadow, zeroed volume.
   GpuImage white_;
   GpuImage black_array_;
   GpuImage shadow_dummy_;  // 1x1 depth cleared to 1.0 (fully lit)
-  VkImageView black_array_view_ = VK_NULL_HANDLE;
+  TextureView black_array_view_;
   GpuBuffer dummy_volume_;
 
-  ComputePass sky_gen_;
-  ComputePass irradiance_gen_;
-  ComputePass prefilter_gen_;
-  VkDescriptorSet prefilter_sets_[kPrefilterMips] = {};
-  ComputePass brdf_gen_;
-  ComputePass transmittance_gen_;
-  ComputePass multiscatter_gen_;
+  PipelineHandle sky_gen_;
+  PipelineHandle irradiance_gen_;
+  PipelineHandle prefilter_gen_;
+  PipelineHandle brdf_gen_;
+  PipelineHandle transmittance_gen_;
+  PipelineHandle multiscatter_gen_;
 
-  VkDescriptorSetLayout env_set_layout_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout sky_draw_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout sky_draw_layout_ = VK_NULL_HANDLE;
-  VkPipeline sky_draw_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSet sky_draw_set_ = VK_NULL_HANDLE;
+  BindingLayoutHandle env_set_layout_;
+  PipelineHandle sky_draw_pipeline_;
 
-  bool maps_initialized_ = false;  // first update transitions from UNDEFINED
+  bool maps_initialized_ = false;  // first update transitions from kUndefined
 };
 
 }  // namespace rec::render

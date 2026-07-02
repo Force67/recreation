@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Mesh-shader meshlet path: one workgroup per meshlet. Each workgroup frustum-
 // and backface-cone-culls its meshlet (cluster culling), and if visible emits
 // the meshlet's vertices and triangles directly, no vertex fetch / index buffer.
@@ -15,18 +16,18 @@ struct MVertex {
   float nx, ny, nz;
 };
 
-[[vk::binding(0, 0)]] StructuredBuffer<Meshlet> meshlets;
-[[vk::binding(1, 0)]] StructuredBuffer<uint> meshlet_vertices;   // index into vertices
-[[vk::binding(2, 0)]] StructuredBuffer<uint> meshlet_triangles;  // 3 local indices packed per uint
-[[vk::binding(3, 0)]] StructuredBuffer<MVertex> vertices;
-[[vk::binding(4, 0)]] RWStructuredBuffer<uint> visible_counter;  // [0] survivors this frame
+[[vk::binding(0, 0)]] StructuredBuffer<Meshlet> meshlets : register(t0, space0);
+[[vk::binding(1, 0)]] StructuredBuffer<uint> meshlet_vertices : register(t1, space0);  // index into vertices
+[[vk::binding(2, 0)]] StructuredBuffer<uint> meshlet_triangles : register(t2, space0);  // 3 local indices packed per uint
+[[vk::binding(3, 0)]] StructuredBuffer<MVertex> vertices : register(t3, space0);
+[[vk::binding(4, 0)]] RWStructuredBuffer<uint> visible_counter : register(u4, space0);  // [0] survivors this frame
 
 struct PushData {
   column_major float4x4 view_proj;
   float4 planes[5];  // left,right,bottom,top,near (normalized, inside >= 0)
   float4 camera;     // xyz eye
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsOut {
   float4 pos : SV_Position;

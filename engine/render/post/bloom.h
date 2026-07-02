@@ -23,11 +23,9 @@ class BloomPass {
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle input, u32 width, u32 height);
 
  private:
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline down_pipeline_ = VK_NULL_HANDLE;
-  VkPipeline up_pipeline_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  PipelineHandle down_pipeline_;
+  PipelineHandle up_pipeline_;
 };
 
 }  // namespace rec::render

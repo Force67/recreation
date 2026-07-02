@@ -2,7 +2,6 @@
 
 #include "core/log.h"
 #include "render/rhi/device.h"
-#include "render/util/shader_util.h"
 #include "shaders/aerial_perspective_cs_hlsl.h"
 
 namespace rec::render {
@@ -21,61 +20,26 @@ struct ApPush {
 }  // namespace
 
 bool AerialPerspective::Initialize(Device& device) {
-  VkSamplerCreateInfo sampler_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-  sampler_info.magFilter = VK_FILTER_LINEAR;
-  sampler_info.minFilter = VK_FILTER_LINEAR;
-  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  if (vkCreateSampler(device.device(), &sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
-    return false;
-  }
+  sampler_ = device.GetSampler({.min_filter = Filter::kLinear,
+                                .mag_filter = Filter::kLinear,
+                                .mip_filter = Filter::kNearest,
+                                .address_u = AddressMode::kClampToEdge,
+                                .address_v = AddressMode::kClampToEdge,
+                                .address_w = AddressMode::kClampToEdge,
+                                .max_lod = 0.0f});
+  if (!sampler_) return false;
 
-  VkDescriptorSetLayoutBinding bindings[5]{};
-  bindings[0] = {.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  bindings[1] = {.binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  bindings[2] = {.binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  bindings[3] = {.binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  bindings[4] = {.binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-
-  VkDescriptorSetLayoutCreateInfo set_info{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = 5;
-  set_info.pBindings = bindings;
-  if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &set_layout_) !=
-      VK_SUCCESS) {
-    return false;
-  }
-
-  VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ApPush)};
-  VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 1;
-  layout_info.pSetLayouts = &set_layout_;
-  layout_info.pushConstantRangeCount = 1;
-  layout_info.pPushConstantRanges = &push;
-  if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-    return false;
-  }
-
-  VkShaderModule module =
-      CreateShaderModule(device.device(), k_aerial_perspective_cs_hlsl,
-                         sizeof(k_aerial_perspective_cs_hlsl));
-  if (module == VK_NULL_HANDLE) return false;
-  VkComputePipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-  info.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  info.stage.module = module;
-  info.stage.pName = "main";
-  info.layout = layout_;
-  VkResult result =
-      vkCreateComputePipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_);
-  vkDestroyShaderModule(device.device(), module, nullptr);
-  if (result != VK_SUCCESS) {
+  pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_aerial_perspective_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageImage},
+                          {1, BindingType::kSampledImage},
+                          {2, BindingType::kSampledImage},
+                          {3, BindingType::kCombinedTextureSampler},
+                          {4, BindingType::kCombinedTextureSampler}}}},
+      .push_constant_size = sizeof(ApPush),
+      .debug_name = "aerial_perspective",
+  });
+  if (!pipeline_) {
     REC_ERROR("aerial perspective pipeline creation failed");
     return false;
   }
@@ -83,22 +47,17 @@ bool AerialPerspective::Initialize(Device& device) {
 }
 
 void AerialPerspective::Destroy(Device& device) {
-  if (pipeline_) vkDestroyPipeline(device.device(), pipeline_, nullptr);
-  if (layout_) vkDestroyPipelineLayout(device.device(), layout_, nullptr);
-  if (set_layout_) vkDestroyDescriptorSetLayout(device.device(), set_layout_, nullptr);
-  if (sampler_) vkDestroySampler(device.device(), sampler_, nullptr);
-  pipeline_ = VK_NULL_HANDLE;
-  layout_ = VK_NULL_HANDLE;
-  set_layout_ = VK_NULL_HANDLE;
-  sampler_ = VK_NULL_HANDLE;
+  device.DestroyPipeline(pipeline_);
+  pipeline_ = {};
+  sampler_ = {};  // cached by the device, not destroyed by callers
 }
 
 ResourceHandle AerialPerspective::AddToGraph(RenderGraph& graph, ResourceHandle color,
-                                             ResourceHandle depth, VkImageView transmittance,
-                                             VkImageView multiscatter, VkExtent2D extent,
+                                             ResourceHandle depth, TextureView transmittance,
+                                             TextureView multiscatter, Extent2D extent,
                                              const Frame& frame) {
   ResourceHandle out = graph.CreateTexture({.name = "aerial_perspective",
-                                            .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+                                            .format = Format::kRGBA16Float,
                                             .width = extent.width,
                                             .height = extent.height});
   graph.AddPass(
@@ -109,35 +68,6 @@ ResourceHandle AerialPerspective::AddToGraph(RenderGraph& graph, ResourceHandle 
         builder.Write(out, ResourceUsage::kStorageWrite);
       },
       [this, color, depth, out, transmittance, multiscatter, extent, frame](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(set_layout_);
-
-        VkDescriptorImageInfo out_info{.imageView = ctx.graph->image(out).view,
-                                       .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-        VkDescriptorImageInfo color_info{.imageView = ctx.graph->image(color).view,
-                                         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo depth_info{.imageView = ctx.graph->image(depth).view,
-                                         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo tr_info{.sampler = sampler_, .imageView = transmittance,
-                                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo ms_info{.sampler = sampler_, .imageView = multiscatter,
-                                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-
-        VkWriteDescriptorSet writes[5];
-        VkDescriptorType types[5] = {
-            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER};
-        VkDescriptorImageInfo* infos[5] = {&out_info, &color_info, &depth_info, &tr_info, &ms_info};
-        for (u32 i = 0; i < 5; ++i) {
-          writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[i].dstSet = set;
-          writes[i].dstBinding = i;
-          writes[i].descriptorCount = 1;
-          writes[i].descriptorType = types[i];
-          writes[i].pImageInfo = infos[i];
-        }
-        vkUpdateDescriptorSets(ctx.device->device(), 5, writes, 0, nullptr);
-
         ApPush push{};
         push.inv_view_proj = frame.inv_view_proj;
         push.camera_pos[0] = frame.camera_pos.x;
@@ -156,11 +86,14 @@ ResourceHandle AerialPerspective::AddToGraph(RenderGraph& graph, ResourceHandle 
         push.size[1] = extent.height;
         push.steps = frame.steps;
 
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0,
-                                nullptr);
-        vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-        vkCmdDispatch(ctx.cmd, (extent.width + 7) / 8, (extent.height + 7) / 8, 1);
+        ctx.cmd->BindPipeline(pipeline_);
+        ctx.cmd->BindTransient(0, {Bind::Storage(0, ctx.graph->image(out)),
+                                   Bind::Sampled(1, ctx.graph->image(color)),
+                                   Bind::Sampled(2, ctx.graph->image(depth)),
+                                   Bind::Combined(3, transmittance, sampler_),
+                                   Bind::Combined(4, multiscatter, sampler_)});
+        ctx.cmd->Push(push);
+        ctx.cmd->Dispatch2D(extent);
       });
   return out;
 }

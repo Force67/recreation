@@ -25,13 +25,11 @@ class Precipitation {
   bool Initialize(Device& device);
   void Destroy(Device& device);
 
-  ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, VkExtent2D extent,
+  ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, Extent2D extent,
                             const Frame& frame);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

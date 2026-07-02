@@ -18,7 +18,7 @@ namespace rec::render {
 // sampler until a real upscaler owns it.
 class PostPass {
  public:
-  static std::unique_ptr<PostPass> Create(Device& device, VkFormat output_format);
+  static std::unique_ptr<PostPass> Create(Device& device, Format output_format);
   ~PostPass();
 
   PostPass(const PostPass&) = delete;
@@ -29,6 +29,12 @@ class PostPass {
     f32 bloom_intensity = 0.04f;
     u32 bloom_enabled = 0;
     u32 lut_enabled = 0;  // sample the grading lut (0 = neutral, skip)
+    // Pushed verbatim to tonemap.ps: output encode (0 srgb, 1 hdr10 pq,
+    // 2 scrgb) + the nit level tonemapped white maps to in the HDR modes.
+    u32 output_transfer = 0;
+    f32 paper_white = 200.0f;
+    f32 pad0 = 0;
+    f32 pad1 = 0;
   };
 
   // Rebakes the grading strip LUT when the grade changes (no-op otherwise).
@@ -40,8 +46,8 @@ class PostPass {
   bool LoadCubeLut(const std::string& path);
 
   // bloom may be the input view when bloom is off (still bound, not read).
-  void Record(PassContext& ctx, VkImageView input, VkImageView bloom, VkBuffer exposure,
-              u64 exposure_size, VkImageView output, VkExtent2D output_extent,
+  void Record(PassContext& ctx, TextureView input, TextureView bloom, const GpuBuffer& exposure,
+              u64 exposure_size, TextureView output, Extent2D output_extent,
               const Params& params);
 
  private:
@@ -54,10 +60,8 @@ class PostPass {
   void UploadLutPixels(base::Vector<u8>& pixels);  // staging + copy of a 32^3 strip
 
   Device& device_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  PipelineHandle pipeline_;
   GpuImage lut_;
   ColorGrade lut_grade_ = ColorGrade::kNeutral;
   bool lut_ready_ = false;  // false until the first upload transitions it

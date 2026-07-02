@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Accumulates the weighted, premultiplied colour and the (1 - alpha) product for
 // the WBOIT resolve. accum blends additively (src ONE, dst ONE); revealage
 // blends (src ZERO, dst ONE_MINUS_SRC_COLOR) so it ends up as the transmittance.
@@ -10,7 +11,7 @@ struct PushData {
   float3 sun_color;
   float ambient;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct PsIn {
   float4 pos : SV_Position;

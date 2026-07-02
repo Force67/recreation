@@ -47,19 +47,19 @@ class PathTracer {
     ResourceHandle background = kInvalidResource;
   };
 
-  bool Initialize(Device& device, VkDescriptorSetLayout bindless_layout);
-  void Resize(Device& device, VkExtent2D extent);
+  bool Initialize(Device& device, BindingLayoutHandle bindless_layout);
+  void Resize(Device& device, Extent2D extent);
   void Destroy(Device& device);
 
   // Reference accumulation into output (an hdr storage image, usually
   // scene_color), accumulating across frames.
   void AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                  VkDescriptorSet bindless_set, VkImageView sky_view, VkSampler sky_sampler,
+                  BindingSetHandle bindless_set, TextureView sky_view, SamplerHandle sky_sampler,
                   ResourceHandle output, const Frame& frame);
 
   // Denoised: trace one sample and write the NRD REBLUR_DIFFUSE inputs into t.
   void AddGbufferPass(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                      VkDescriptorSet bindless_set, VkImageView sky_view, VkSampler sky_sampler,
+                      BindingSetHandle bindless_set, TextureView sky_view, SamplerHandle sky_sampler,
                       const GbufferTargets& t, const Frame& frame);
 
   // Denoised: scene_color = denoised_radiance * albedo + background.
@@ -70,19 +70,13 @@ class PathTracer {
   u32 samples_per_frame() const { return spp_; }
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
   // Denoised path (NRD inputs + composite).
-  VkDescriptorSetLayout gbuffer_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout gbuffer_layout_ = VK_NULL_HANDLE;
-  VkPipeline gbuffer_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout composite_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout composite_layout_ = VK_NULL_HANDLE;
-  VkPipeline composite_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle gbuffer_pipeline_;
+  PipelineHandle composite_pipeline_;
   GpuImage accum_;  // rgba32f, persistent; rgb = sum, a = sample count
-  VkImageLayout accum_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkExtent2D extent_{};
+  ResourceState accum_state_ = ResourceState::kUndefined;
+  Extent2D extent_{};
   u32 accumulated_samples_ = 0;
   u32 spp_ = 2;     // samples per dispatch
   u32 bounces_ = 4;

@@ -8,7 +8,6 @@
 
 #include "core/log.h"
 #include "render/rhi/device.h"
-#include "render/util/shader_util.h"
 #include "shaders/meshlet_ms_hlsl.h"
 #include "shaders/meshlet_ps_hlsl.h"
 
@@ -194,105 +193,33 @@ MeshletGeometry BuildMeshletGeometry(const asset::Vertex* vertices, u32 vertex_c
   return BuildImpl(vertices, vertex_count, indices, index_count);
 }
 
-bool MeshletPass::Initialize(Device& device, VkFormat color_format, VkFormat depth_format) {
+bool MeshletPass::Initialize(Device& device, Format color_format, Format depth_format) {
   available_ = device.caps().mesh_shaders;
   if (!available_) return true;  // no mesh-shader support: pass stays inert, demo skips it
 
-  VkDescriptorSetLayoutBinding bindings[5]{};
-  for (u32 i = 0; i < 5; ++i) {
-    bindings[i].binding = i;
-    bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[i].descriptorCount = 1;
-    bindings[i].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
-  }
-  VkDescriptorSetLayoutCreateInfo set_info{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = 5;
-  set_info.pBindings = bindings;
-  if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &set_layout_) != VK_SUCCESS) {
-    return false;
-  }
-
-  VkPushConstantRange push{VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MeshletPush)};
-  VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 1;
-  layout_info.pSetLayouts = &set_layout_;
-  layout_info.pushConstantRangeCount = 1;
-  layout_info.pPushConstantRanges = &push;
-  if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-    return false;
-  }
-
-  VkShaderModule ms = CreateShaderModule(device.device(), k_meshlet_ms_hlsl, sizeof(k_meshlet_ms_hlsl));
-  VkShaderModule ps = CreateShaderModule(device.device(), k_meshlet_ps_hlsl, sizeof(k_meshlet_ps_hlsl));
-  if (ms == VK_NULL_HANDLE || ps == VK_NULL_HANDLE) return false;
-  VkPipelineShaderStageCreateInfo stages[2];
-  stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[0].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-  stages[0].module = ms;
-  stages[0].pName = "main";
-  stages[1] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  stages[1].module = ps;
-  stages[1].pName = "main";
-
-  VkPipelineViewportStateCreateInfo viewport{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-  viewport.viewportCount = 1;
-  viewport.scissorCount = 1;
-  VkPipelineRasterizationStateCreateInfo raster{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-  raster.polygonMode = VK_POLYGON_MODE_FILL;
-  raster.cullMode = VK_CULL_MODE_BACK_BIT;
-  raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-  raster.lineWidth = 1.0f;
-  VkPipelineMultisampleStateCreateInfo ms_state{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-  ms_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  VkPipelineDepthStencilStateCreateInfo ds{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-  ds.depthTestEnable = VK_TRUE;
-  ds.depthWriteEnable = VK_TRUE;
-  ds.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;  // reversed z
-  VkPipelineColorBlendAttachmentState blend{};
-  blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  VkPipelineColorBlendStateCreateInfo blend_state{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-  blend_state.attachmentCount = 1;
-  blend_state.pAttachments = &blend;
-  VkDynamicState dynamics[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-  VkPipelineDynamicStateCreateInfo dynamic{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-  dynamic.dynamicStateCount = 2;
-  dynamic.pDynamicStates = dynamics;
-  VkPipelineRenderingCreateInfo rendering{.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachmentFormats = &color_format;
-  rendering.depthAttachmentFormat = depth_format;
-
-  VkGraphicsPipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-  info.pNext = &rendering;
-  info.stageCount = 2;
-  info.pStages = stages;
-  info.pViewportState = &viewport;
-  info.pRasterizationState = &raster;
-  info.pMultisampleState = &ms_state;
-  info.pDepthStencilState = &ds;
-  info.pColorBlendState = &blend_state;
-  info.pDynamicState = &dynamic;
-  info.layout = layout_;
-  VkResult r =
-      vkCreateGraphicsPipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_);
-  vkDestroyShaderModule(device.device(), ms, nullptr);
-  vkDestroyShaderModule(device.device(), ps, nullptr);
-  if (r != VK_SUCCESS) {
+  pipeline_ = device.CreateGraphicsPipeline({
+      .fragment = REC_SHADER(k_meshlet_ps_hlsl),
+      .mesh = REC_SHADER(k_meshlet_ms_hlsl),
+      .raster = {.cull = CullMode::kBack},
+      .depth = {.test = true, .write = true, .compare = CompareOp::kGreaterEqual,  // reversed z
+                .format = depth_format},
+      .color_formats = {color_format},
+      .sets = {{.slots = {{0, BindingType::kStorageBuffer},
+                          {1, BindingType::kStorageBuffer},
+                          {2, BindingType::kStorageBuffer},
+                          {3, BindingType::kStorageBuffer},
+                          {4, BindingType::kStorageBuffer}},
+                .stages = kShaderStageMesh}},
+      .push_constant_size = sizeof(MeshletPush),
+      .debug_name = "meshlet",
+  });
+  if (!pipeline_) {
     REC_ERROR("meshlet pipeline creation failed");
     return false;
   }
 
   for (u32 i = 0; i < kFramesInFlight; ++i) {
-    counters_[i] = device.CreateBuffer(16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+    counters_[i] = device.CreateBuffer(16, kBufferUsageStorage, true);
   }
   return true;
 }
@@ -320,7 +247,7 @@ void MeshletPass::Upload(Device& device, const asset::Mesh& mesh) {
                      v.normal[2]});
   }
 
-  const VkBufferUsageFlags storage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  const BufferUsageFlags storage = kBufferUsageStorage;
   meshlets_ = device.CreateBufferWithData(
       Span(built.meshlets.data(), built.meshlets.size() * sizeof(Meshlet)), storage);
   meshlet_vertices_ = device.CreateBufferWithData(
@@ -351,7 +278,7 @@ void MeshletPass::AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceH
   push.camera[0] = camera.x;
   push.camera[1] = camera.y;
   push.camera[2] = camera.z;
-  VkBuffer counter = counters_[slot].buffer;
+  GpuBuffer counter = counters_[slot];
 
   graph.AddPass(
       "meshlet",
@@ -360,58 +287,25 @@ void MeshletPass::AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceH
         builder.Write(depth, ResourceUsage::kDepthAttachment);
       },
       [this, color, depth, push, counter](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(set_layout_);
-        VkBuffer buffers[5] = {meshlets_.buffer, meshlet_vertices_.buffer, meshlet_triangles_.buffer,
-                               vertices_.buffer, counter};
-        VkDescriptorBufferInfo infos[5];
-        VkWriteDescriptorSet writes[5];
-        for (u32 i = 0; i < 5; ++i) {
-          infos[i] = {buffers[i], 0, VK_WHOLE_SIZE};
-          writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[i].dstSet = set;
-          writes[i].dstBinding = i;
-          writes[i].descriptorCount = 1;
-          writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-          writes[i].pBufferInfo = &infos[i];
-        }
-        vkUpdateDescriptorSets(ctx.device->device(), 5, writes, 0, nullptr);
-
         const GpuImage& target = ctx.graph->image(color);
-        VkRenderingAttachmentInfo color_att{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        color_att.imageView = target.view;
-        color_att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        VkRenderingAttachmentInfo depth_att{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        depth_att.imageView = ctx.graph->image(depth).view;
-        depth_att.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depth_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-        rendering.renderArea = {{0, 0}, target.extent};
-        rendering.layerCount = 1;
-        rendering.colorAttachmentCount = 1;
-        rendering.pColorAttachments = &color_att;
-        rendering.pDepthAttachment = &depth_att;
-        vkCmdBeginRendering(ctx.cmd, &rendering);
-        VkViewport vp{0, 0, static_cast<f32>(target.extent.width),
-                      static_cast<f32>(target.extent.height), 0.0f, 1.0f};
-        VkRect2D scissor{{0, 0}, target.extent};
-        vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set, 0,
-                                nullptr);
-        vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(push), &push);
-        vkCmdDrawMeshTasksEXT(ctx.cmd, meshlet_count_, 1, 1);
-        vkCmdEndRendering(ctx.cmd);
+        ColorAttachment color_att{.view = target.view, .load = LoadOp::kLoad};
+        DepthAttachment depth_att{.view = ctx.graph->image(depth).view, .load = LoadOp::kLoad};
+        ctx.cmd->BeginRendering(
+            {.extent = target.extent, .colors = {&color_att, 1}, .depth = &depth_att});
+        ctx.cmd->BindPipeline(pipeline_);
+        ctx.cmd->BindTransient(0, {Bind::StorageBuffer(0, meshlets_),
+                                   Bind::StorageBuffer(1, meshlet_vertices_),
+                                   Bind::StorageBuffer(2, meshlet_triangles_),
+                                   Bind::StorageBuffer(3, vertices_),
+                                   Bind::StorageBuffer(4, counter)});
+        ctx.cmd->Push(push);
+        ctx.cmd->DrawMeshTasks(meshlet_count_, 1, 1);
+        ctx.cmd->EndRendering();
       });
 }
 
 void MeshletPass::Destroy(Device& device) {
-  if (pipeline_) vkDestroyPipeline(device.device(), pipeline_, nullptr);
-  if (layout_) vkDestroyPipelineLayout(device.device(), layout_, nullptr);
-  if (set_layout_) vkDestroyDescriptorSetLayout(device.device(), set_layout_, nullptr);
+  if (pipeline_) device.DestroyPipeline(pipeline_);
   device.DestroyBuffer(meshlets_);
   device.DestroyBuffer(meshlet_vertices_);
   device.DestroyBuffer(meshlet_triangles_);

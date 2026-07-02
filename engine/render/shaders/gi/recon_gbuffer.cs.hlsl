@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction path tracer, stage 1: trace one noisy sample per pixel and
 // emit the g-buffer + demodulated noisy DIFFUSE IRRADIANCE that the temporal /
 // atrous passes reconstruct. Irradiance carries no primary albedo (the composite
@@ -16,21 +17,36 @@ struct PathGbufferPush {
   uint spp;
   float pixel_spread;    // ray-cone spread (radians/pixel) for texture lod
   uint frame_index;
-  uint bounces;          // indirect diffuse bounces (>=1)
+  uint bounces;          // bits 0..7 indirect diffuse bounces (>=1);
+                         // bit 8: ReSTIR GI (emit an initial sample instead of
+                         // integrating indirect inline). Packed because the
+                         // push block already sits at the 256-byte limit.
 };
-[[vk::push_constant]] PathGbufferPush pc;
+PUSH_CONSTANTS(PathGbufferPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> normal_rough_out;
-[[vk::binding(2, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> viewz_out;
-[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out;
-[[vk::binding(4, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> materialid_out;
-[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out;
-[[vk::binding(6, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> emissive_out;
-[[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube;
-[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
-[[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out;  // noisy
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> irradiance_out : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> normal_rough_out : register(u1, space0);
+[[vk::binding(2, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> viewz_out : register(u2, space0);
+[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out : register(u3, space0);
+[[vk::binding(4, 0)]] [[vk::image_format("r32ui")]] RWTexture2D<uint> materialid_out : register(u4, space0);
+[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out : register(u5, space0);
+[[vk::binding(6, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> emissive_out : register(u6, space0);
+[[vk::binding(7, 0)]] RaytracingAccelerationStructure tlas : register(t7, space0);
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube : register(t8, space0);
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler : register(s8, space0);
+[[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out : register(u9, space0);  // noisy
+// ReSTIR GI initial sample (bit 8 of pc.bounces): the first indirect vertex's
+// position/normal and its outgoing radiance toward the primary hit, plus the
+// primary hit's world position (.w 0 marks sky) for reservoir reuse geometry.
+[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> sample_pos_out : register(u10, space0);
+[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_nrm_out : register(u11, space0);
+[[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_rad_out : register(u12, space0);
+[[vk::binding(13, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> primary_pos_out : register(u13, space0);
+// DLSS-RR guides (bit 9 of pc.bounces): F0-style specular albedo, decoded
+// world normals with packed roughness, and reversed-inf-z device depth.
+[[vk::binding(14, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> spec_albedo_out : register(u14, space0);
+[[vk::binding(15, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> rr_normals_out : register(u15, space0);
+[[vk::binding(16, 0)]] [[vk::image_format("r32f")]] RWTexture2D<float> rr_depth_out : register(u16, space0);
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -59,11 +75,11 @@ struct MaterialRecord {
 };
 static const uint kMaterialAlphaMask = 1u;
 static const uint kMaterialTerrain = 2u;
-[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 1)]] Texture2D bindless_textures[];
-[[vk::binding(4, 1)]] SamplerState bindless_sampler;
+[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space1);
+[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space1);
+[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space1);
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
 
 static const float kPi = 3.14159265359;
 static const float kInvPi = 0.31830988618;
@@ -71,9 +87,14 @@ static const uint kVertexStride = 52;
 static const uint kNormalOffset = 12;
 static const uint kUvOffset = 40;
 static const float kDenoisingRange = 1.0e6;
+// Must match the near plane the renderer bakes into PerspectiveReversedZ
+// (renderer.cc BuildFrameGraph); viewz below reconstructs from reversed-inf-z.
 static const float kNearPlane = 0.1;
 static const float kSecondarySpread = 0.03;
 static const float kFireflyClamp = 12.0;
+// Reflection hit distance for the temporal pass's virtual-point reprojection;
+// stored in specular_out.a (fp16, so capped well below its max).
+static const float kSpecSkyDist = 3.0e4;
 
 uint Pcg(inout uint state) {
   state = state * 747796405u + 2891336453u;
@@ -339,7 +360,8 @@ float3 SunSpecular(float3 pos, float3 N, float3 V, float3 albedo, float rough, f
 // the denoiser barely blurs it -> sharp reflection); rough surfaces spread out and
 // get smoothed. Replaces the prefiltered-sky approximation.
 float3 SpecularReflection(float3 pos, float3 N, float3 V, float3 base_color, float rough,
-                          float metal, inout uint rng) {
+                          float metal, inout uint rng, out float hit_dist) {
+  hit_dist = kSpecSkyDist;  // miss/sky: far, so virtual reprojection ~ direction reuse
   float NoV = saturate(dot(N, V));
   if (NoV <= 0.0) return 0.0.xxx;
   float a = max(rough * rough, 1e-3);
@@ -357,6 +379,7 @@ float3 SpecularReflection(float3 pos, float3 N, float3 V, float3 base_color, flo
   if (NoL <= 0.0) return 0.0.xxx;
 
   Hit h = TraceClosest(pos + N * 0.002, L, kSecondarySpread, false);
+  if (h.hit) hit_dist = min(length(h.position - pos), kSpecSkyDist);
   float3 Li = h.hit ? (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng))
                     : SampleSky(L);
 
@@ -388,6 +411,10 @@ void main(uint3 id : SV_DispatchThreadID) {
 
   Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread, true);
 
+  bool restir = (pc.bounces & 0x100u) != 0u;
+  bool rr = (pc.bounces & 0x200u) != 0u;  // emit DLSS-RR guide outputs
+  bool restir_di = (pc.bounces & 0x400u) != 0u;  // DI reservoirs own primary direct
+
   if (!prim.hit) {
     // Sky: irradiance 0, sky goes to emissive (composite adds it). Far reprojection
     // so motion is valid for the temporal pass.
@@ -401,39 +428,105 @@ void main(uint3 id : SV_DispatchThreadID) {
     albedo_out[id.xy] = 0.0.xxxx;
     emissive_out[id.xy] = float4(SampleSky(primary_dir), 1.0);
     specular_out[id.xy] = 0.0.xxxx;
+    if (restir) {
+      sample_pos_out[id.xy] = 0.0.xxxx;
+      sample_nrm_out[id.xy] = 0.0.xxxx;
+      sample_rad_out[id.xy] = 0.0.xxxx;
+    }
+    primary_pos_out[id.xy] = 0.0.xxxx;  // .w 0 = no visible surface
+    if (rr) {
+      spec_albedo_out[id.xy] = 0.0.xxxx;
+      rr_normals_out[id.xy] = 0.0.xxxx;
+      rr_depth_out[id.xy] = 0.0;  // reversed-inf-z far plane
+    }
     return;
   }
 
-  // Average spp samples of (primary direct + multi-bounce indirect) irradiance,
-  // no primary albedo. Cosine sampling cancels the pdf, leaving throughput that
-  // starts at pi and gathers albedo each bounce.
   uint spp = max(pc.spp, 1u);
-  uint bounces = max(pc.bounces, 1u);
+  uint bounces = max(pc.bounces & 0xffu, 1u);
   float3 irradiance = 0.0.xxx;
-  for (uint s = 0; s < spp; ++s) {
-    float3 e = DirectIrradiance(prim.position, prim.normal, rng);
-    float3 throughput = kPi.xxx;
-    float3 pos = prim.position;
-    float3 normal = prim.normal;
-    for (uint b = 0; b < bounces; ++b) {
-      float3 wi = CosineHemisphere(normal, rng);
-      Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread, false);
-      if (!h.hit) {
-        e += throughput * SampleSky(wi);
-        break;
+  if (restir) {
+    // ReSTIR GI: the inline estimate carries only the analytic direct term;
+    // indirect comes from the reservoir passes. One initial sample per pixel:
+    // a cosine-drawn first vertex whose OUTGOING radiance toward the primary
+    // hit folds in its emissive, direct light and the remaining bounces
+    // (throughput starts at 1, not pi: this is radiance, not irradiance).
+    // With ReSTIR DI the reservoir passes own the primary direct term
+    // (including the point lights this inline path never sampled).
+    if (!restir_di) {
+      for (uint s = 0; s < spp; ++s) {
+        irradiance += DirectIrradiance(prim.position, prim.normal, rng);
       }
-      // L_o(h) without its own indirect (carried by the next bounce).
-      e += throughput * (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng));
-      throughput *= h.albedo;
-      pos = h.position;
-      normal = h.normal;
-      if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+      irradiance /= float(spp);
     }
-    float lum = dot(e, float3(0.2126, 0.7152, 0.0722));
-    if (lum > kFireflyClamp) e *= kFireflyClamp / lum;
-    irradiance += e;
+
+    float3 wi = CosineHemisphere(prim.normal, rng);
+    Hit h = TraceClosest(prim.position + prim.normal * 0.002, wi, kSecondarySpread, false);
+    if (!h.hit) {
+      // Sky sample: park the point far along the ray, facing back, so the
+      // reservoir math (distance/cosine/Jacobian) degrades to direction reuse.
+      // With ReSTIR DI the sky candidates own the primary sky term (behind a
+      // real shadow ray); a zero here keeps it out of the GI reservoir so the
+      // two never double count.
+      sample_pos_out[id.xy] = float4(prim.position + wi * 1.0e6, 1.0e6);
+      sample_nrm_out[id.xy] = float4(-wi * 0.5 + 0.5, 0.0);
+      sample_rad_out[id.xy] = float4(restir_di ? 0.0.xxx : SampleSky(wi), 1.0);
+    } else {
+      float3 radiance =
+          h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng);
+      float3 throughput = h.albedo;
+      float3 pos = h.position;
+      float3 normal = h.normal;
+      for (uint b = 1; b < bounces; ++b) {
+        float3 wj = CosineHemisphere(normal, rng);
+        Hit hb = TraceClosest(pos + normal * 0.002, wj, kSecondarySpread, false);
+        if (!hb.hit) {
+          radiance += throughput * SampleSky(wj);
+          break;
+        }
+        radiance += throughput *
+                    (hb.emissive + hb.albedo * kInvPi * DirectIrradiance(hb.position, hb.normal, rng));
+        throughput *= hb.albedo;
+        pos = hb.position;
+        normal = hb.normal;
+        if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+      }
+      float rlum = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+      if (rlum > kFireflyClamp) radiance *= kFireflyClamp / rlum;
+      float hit_dist = length(h.position - prim.position);
+      sample_pos_out[id.xy] = float4(h.position, hit_dist);
+      sample_nrm_out[id.xy] = float4(h.normal * 0.5 + 0.5, 0.0);
+      sample_rad_out[id.xy] = float4(radiance, 1.0);
+    }
+  } else {
+    // Average spp samples of (primary direct + multi-bounce indirect) irradiance,
+    // no primary albedo. Cosine sampling cancels the pdf, leaving throughput that
+    // starts at pi and gathers albedo each bounce.
+    for (uint s = 0; s < spp; ++s) {
+      float3 e = DirectIrradiance(prim.position, prim.normal, rng);
+      float3 throughput = kPi.xxx;
+      float3 pos = prim.position;
+      float3 normal = prim.normal;
+      for (uint b = 0; b < bounces; ++b) {
+        float3 wi = CosineHemisphere(normal, rng);
+        Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread, false);
+        if (!h.hit) {
+          e += throughput * SampleSky(wi);
+          break;
+        }
+        // L_o(h) without its own indirect (carried by the next bounce).
+        e += throughput * (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng));
+        throughput *= h.albedo;
+        pos = h.position;
+        normal = h.normal;
+        if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+      }
+      float lum = dot(e, float3(0.2126, 0.7152, 0.0722));
+      if (lum > kFireflyClamp) e *= kFireflyClamp / lum;
+      irradiance += e;
+    }
+    irradiance /= float(spp);
   }
-  irradiance /= float(spp);
 
   // Sanitize: a single NaN/Inf pixel (degenerate normal, bad bounce) would be
   // spread into a big black rectangle by the a-trous filter. (x >= 0) is false
@@ -465,14 +558,25 @@ void main(uint3 id : SV_DispatchThreadID) {
   // at ~0.4-0.6 roughness, terrain at 1.0) otherwise pick up a bright denoised sky
   // reflection and read as glossy; their sky lighting is already in the diffuse GI.
   float refl_gate = 1.0 - smoothstep(0.3, 0.6, prim.roughness);
+  float spec_hit_dist = kSpecSkyDist;
   float3 reflection = refl_gate > 0.0
       ? SpecularReflection(prim.position, prim.normal, V, prim.albedo, prim.roughness,
-                           prim.metallic, rng) * refl_gate
+                           prim.metallic, rng, spec_hit_dist) * refl_gate
       : 0.0.xxx;
   reflection.x = reflection.x >= 0.0 ? reflection.x : 0.0;
   reflection.y = reflection.y >= 0.0 ? reflection.y : 0.0;
   reflection.z = reflection.z >= 0.0 ? reflection.z : 0.0;
   reflection = min(reflection, 1.0e4.xxx);
+
+  // Written in both modes: the temporal pass reprojects the specular signal
+  // through the virtual reflected point, which needs the primary position.
+  primary_pos_out[id.xy] = float4(prim.position, 1.0);
+
+  if (rr) {
+    spec_albedo_out[id.xy] = float4(lerp(0.04.xxx, prim.albedo, prim.metallic), 1.0);
+    rr_normals_out[id.xy] = float4(prim.normal, prim.roughness);  // roughness packed in .w
+    rr_depth_out[id.xy] = depth;  // clip z/w, reversed-inf-z
+  }
 
   irradiance_out[id.xy] = float4(irradiance, 1.0);
   normal_rough_out[id.xy] = float4(prim.normal * 0.5 + 0.5, prim.roughness);
@@ -483,5 +587,6 @@ void main(uint3 id : SV_DispatchThreadID) {
   // is all in the specular lobe), dielectrics keep theirs.
   albedo_out[id.xy] = float4(prim.albedo * (1.0 - prim.metallic), 1.0);
   emissive_out[id.xy] = float4(prim.emissive + sun_glint, 1.0);
-  specular_out[id.xy] = float4(reflection, 1.0);
+  // .a carries the reflection hit distance for virtual-point reprojection.
+  specular_out[id.xy] = float4(reflection, spec_hit_dist);
 }

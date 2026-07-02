@@ -32,7 +32,7 @@ struct GaussianInstance {
 // architecture treats splats as first-class drawables alongside triangles.
 class GaussianSplat {
  public:
-  bool Initialize(Device& device, VkFormat color_format);
+  bool Initialize(Device& device, Format color_format);
   void Destroy(Device& device);
 
   struct Frame {
@@ -54,9 +54,7 @@ class GaussianSplat {
   static constexpr u32 kFramesInFlight = 2;
   static constexpr u32 kMaxGaussians = 1u << 18;  // 262144
 
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
   GpuBuffer buffers_[kFramesInFlight];
 };
 

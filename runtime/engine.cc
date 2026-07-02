@@ -231,6 +231,11 @@ void Engine::ApplyRenderPreset() {
   tuned.path_trace_recon_weight = env.path_trace_recon_weight;
   tuned.path_trace_recon_atrous = env.path_trace_recon_atrous;
   tuned.path_trace_recon_debug = env.path_trace_recon_debug;
+  tuned.path_trace_restir = env.path_trace_restir;
+  tuned.path_trace_restir_di = env.path_trace_restir_di;
+  tuned.hdr_output = env.hdr_output;
+  tuned.hdr_paper_white = env.hdr_paper_white;
+  tuned.path_trace_rr = env.path_trace_rr;
   if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
   tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
   tuned.ssgi = env.ssgi;                      // honor REC_SSGI over the preset
@@ -239,6 +244,7 @@ void Engine::ApplyRenderPreset() {
   // Sky/weather env overrides (REC_AERIAL / REC_CLOUDS / REC_CLOUD_COVERAGE /
   // REC_PRECIP / REC_SNOW), so they survive the preset. A loaded game's weather
   // re-drives these per frame; this keeps them working in the demo/glTF scenes.
+  tuned.fog = env.fog;  // honor REC_FOG over the preset (fog params are defaults)
   tuned.aerial_perspective = env.aerial_perspective;
   tuned.clouds = env.clouds;
   tuned.cloud_coverage = env.cloud_coverage;

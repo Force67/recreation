@@ -33,7 +33,7 @@ class TaaPass {
   };
 
   bool Initialize(Device& device);
-  void Resize(Device& device, VkExtent2D extent);
+  void Resize(Device& device, Extent2D extent);
   void Destroy(Device& device);
 
   void Configure(const Settings& settings) { settings_ = settings; }
@@ -49,13 +49,11 @@ class TaaPass {
 
  private:
   Settings settings_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  PipelineHandle pipeline_;
   GpuImage history_[2];
-  VkImageLayout history_layouts_[2] = {VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_UNDEFINED};
-  VkExtent2D extent_{};
+  ResourceState history_states_[2] = {ResourceState::kUndefined, ResourceState::kUndefined};
+  Extent2D extent_{};
   bool history_valid_ = false;
 };
 

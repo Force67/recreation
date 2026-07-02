@@ -1,11 +1,12 @@
+#include "rhi_bindings.hlsli"
 // Screen-space sun shadow ray trace producing NRD's IN_PENUMBRA for the
 // SIGMA_SHADOW denoiser. One ray per pixel toward the sun; the packed value
 // carries the distance to the occluder so SIGMA can size the penumbra.
 #include "NRD.hlsli"
 
-[[vk::image_format("r16f")]] [[vk::binding(0, 0)]] RWTexture2D<float> penumbra_out;
-[[vk::binding(1, 0)]] Texture2D<float> depth_map;
-[[vk::binding(2, 0)]] RaytracingAccelerationStructure tlas;
+[[vk::image_format("r16f")]] [[vk::binding(0, 0)]] RWTexture2D<float> penumbra_out : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float> depth_map : register(t1, space0);
+[[vk::binding(2, 0)]] RaytracingAccelerationStructure tlas : register(t2, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;  // unjittered
@@ -18,7 +19,7 @@ struct PushData {
   float max_distance;                   // shadow ray length
   float2 jitter;                        // ndc projection jitter (screen = unjittered + jitter)
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

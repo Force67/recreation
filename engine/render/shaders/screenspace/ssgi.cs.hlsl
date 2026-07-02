@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Screen-space diffuse global illumination: one bounce of indirect light
 // gathered from nearby lit surfaces in screen space. Reuses ssao's hemisphere
 // disk, but accumulates each tap's lit color weighted by the receiver cosine and
@@ -6,10 +7,10 @@
 // ray query; ddgi handles gi when ray tracing is on. There is no albedo
 // g-buffer, so it adds a modest bounce fill rather than an albedo-modulated
 // term. TAA cleans the gather noise.
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_color;
-[[vk::binding(1, 0)]] Texture2D<float> depth_map;
-[[vk::binding(2, 0)]] Texture2D<float2> normal_map;
-[[vk::binding(3, 0)]] Texture2D<float4> scene_color;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> out_color : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D<float> depth_map : register(t1, space0);
+[[vk::binding(2, 0)]] Texture2D<float2> normal_map : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float4> scene_color : register(t3, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;
@@ -22,7 +23,7 @@ struct PushData {
   uint sample_count;
   uint pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float3 OctDecode(float2 o) {
   float3 d = float3(o.x, 1.0 - abs(o.x) - abs(o.y), o.y);

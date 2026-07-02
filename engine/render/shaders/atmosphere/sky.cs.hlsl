@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Sky cubemap (Hillaire 2020): a Rayleigh + Mie + ozone atmosphere raymarched
 // per cube direction, with single scattering (proper phases) PLUS the multiple-
 // scattering term from the precomputed LUT and sun/view extinction from the
@@ -7,11 +8,11 @@
 
 #include "atmosphere.hlsli"
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> sky_out;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<float4> transmittance;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState transmittance_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2D<float4> multiscatter;
-[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState multiscatter_sampler;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> sky_out : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<float4> transmittance : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState transmittance_sampler : register(s1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2D<float4> multiscatter : register(t2, space0);
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState multiscatter_sampler : register(s2, space0);
 
 struct PushData {
   float3 sun_direction;  // travel direction of the light
@@ -19,7 +20,7 @@ struct PushData {
   float3 sun_color;
   float face_size;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 // Vulkan cubemap face order +x -x +y -y +z -z; uv in [0,1] within a face.
 float3 CubeDir(uint face, float2 uv) {

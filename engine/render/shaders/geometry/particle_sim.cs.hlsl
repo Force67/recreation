@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // GPU particle simulation: integrates a persistent particle state buffer and
 // writes the camera-facing billboard instances the particle.vs draws. Every
 // particle respawns at the emitter when its life runs out, so the live set is a
@@ -23,8 +24,8 @@ struct ParticleInstance {  // matches render::ParticleInstance / particle.vs
   float pad;
 };
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<ParticleState> state;
-[[vk::binding(1, 0)]] RWStructuredBuffer<ParticleInstance> instances;
+[[vk::binding(0, 0)]] RWStructuredBuffer<ParticleState> state : register(u0, space0);
+[[vk::binding(1, 0)]] RWStructuredBuffer<ParticleInstance> instances : register(u1, space0);
 
 struct PushData {
   float3 emitter;
@@ -38,7 +39,7 @@ struct PushData {
   uint count;
   uint frame;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 uint Pcg(inout uint s) {
   s = s * 747796405u + 2891336453u;

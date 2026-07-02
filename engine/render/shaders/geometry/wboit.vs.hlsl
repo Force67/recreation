@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Weighted-blended order-independent transparency (McGuire & Bavoil 2013). The
 // transparent geometry accumulates premultiplied colour weighted by depth into
 // one target and the product of (1 - alpha) into another, so the result is
@@ -11,7 +12,7 @@ struct PushData {
   float3 sun_color;
   float ambient;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsIn {
   [[vk::location(0)]] float3 position : POSITION;

@@ -38,8 +38,8 @@ class DdgiSystem {
     f32 energy_scale = 1.0f;
   };
 
-  static std::unique_ptr<DdgiSystem> Create(Device& device, VkImageView sky_view,
-                                            VkSampler sky_sampler, BindlessRegistry& bindless);
+  static std::unique_ptr<DdgiSystem> Create(Device& device, TextureView sky_view,
+                                            SamplerHandle sky_sampler, BindlessRegistry& bindless);
   ~DdgiSystem();
 
   DdgiSystem(const DdgiSystem&) = delete;
@@ -66,37 +66,33 @@ class DdgiSystem {
 
   explicit DdgiSystem(Device& device) : device_(device) {}
 
-  bool CreateResources(VkImageView sky_view, VkSampler sky_sampler);
+  bool CreateResources(TextureView sky_view, SamplerHandle sky_sampler);
   bool CreatePipelines();
 
   Device& device_;
   Settings settings_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorPool pool_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
 
   GpuImage irradiance_;  // rgba16f atlas, 2d array view bound to shading
   GpuImage distance_;    // rg16f moments atlas
   GpuImage rays_;        // rgba16f: radiance + hit distance, ray x probe
-  VkImageView irradiance_array_view_ = VK_NULL_HANDLE;
-  VkImageView distance_array_view_ = VK_NULL_HANDLE;
+  // TODO(rhi): the shaders declare (RW)Texture2DArray for the atlases and the
+  // old code bound single-layer 2d-array views of the 2D images; the RHI has
+  // no array-view creation API yet, so these alias the default 2D views.
+  TextureView irradiance_array_view_;
+  TextureView distance_array_view_;
   GpuBuffer volume_buffers_[2];  // host visible, ping pong by frame parity
   bool atlas_initialized_ = false;
   bool history_valid_ = false;
   Vec3 origin_{};
 
-  VkImageView sky_view_ = VK_NULL_HANDLE;
-  VkSampler sky_sampler_ = VK_NULL_HANDLE;
+  TextureView sky_view_;
+  SamplerHandle sky_sampler_;
   BindlessRegistry* bindless_ = nullptr;
 
-  VkDescriptorSetLayout rays_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout rays_layout_ = VK_NULL_HANDLE;
-  VkPipeline rays_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout blend_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout blend_layout_ = VK_NULL_HANDLE;
-  VkPipeline blend_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout border_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout border_layout_ = VK_NULL_HANDLE;
-  VkPipeline border_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle rays_pipeline_;
+  PipelineHandle blend_pipeline_;
+  PipelineHandle border_pipeline_;
 };
 
 }  // namespace rec::render

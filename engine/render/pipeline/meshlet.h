@@ -32,10 +32,10 @@ struct MeshletGeometry {
 MeshletGeometry BuildMeshletGeometry(const asset::Vertex* vertices, u32 vertex_count,
                                      const u32* indices, u32 index_count);
 
-// Mesh-shader meshlet path (VK_EXT_mesh_shader). A mesh is split into meshlets
-// (clusters of <=64 verts / <=124 tris) at upload; a mesh shader dispatches one
-// workgroup per meshlet, frustum- and backface-cone-culls the cluster on the
-// gpu, and emits the surviving meshlet's geometry with no vertex/index fetch.
+// Mesh-shader meshlet path. A mesh is split into meshlets (clusters of
+// <=64 verts / <=124 tris) at upload; a mesh shader dispatches one workgroup
+// per meshlet, frustum- and backface-cone-culls the cluster on the gpu, and
+// emits the surviving meshlet's geometry with no vertex/index fetch.
 // Each meshlet is tinted a distinct color so the decomposition and the cluster
 // culling are directly visible. Used by the --demo meshlet scene.
 class MeshletPass {
@@ -45,7 +45,7 @@ class MeshletPass {
     f32 nx, ny, nz;
   };
 
-  bool Initialize(Device& device, VkFormat color_format, VkFormat depth_format);
+  bool Initialize(Device& device, Format color_format, Format depth_format);
   void Destroy(Device& device);
 
   // Builds meshlets from the mesh's lod 0 and uploads the gpu buffers. Replaces
@@ -64,9 +64,7 @@ class MeshletPass {
  private:
   static constexpr u32 kFramesInFlight = 2;
   bool available_ = false;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 
   GpuBuffer meshlets_;
   GpuBuffer meshlet_vertices_;

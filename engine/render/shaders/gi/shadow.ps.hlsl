@@ -17,9 +17,9 @@ struct MaterialParams {
   float3 sheen_color;
   float sheen_roughness;
 };
-[[vk::binding(0, 0)]] ConstantBuffer<MaterialParams> material;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D base_color_map;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState base_color_sampler;
+[[vk::binding(0, 0)]] ConstantBuffer<MaterialParams> material : register(b0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D base_color_map : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState base_color_sampler : register(s1, space0);
 
 static const uint kFlagAlphaMask = 1u;
 

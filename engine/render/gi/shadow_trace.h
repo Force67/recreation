@@ -18,7 +18,7 @@ class RayTracingContext;
 class ShadowTracePass {
  public:
   bool Initialize(Device& device);
-  void Resize(Device& device, VkExtent2D extent) { extent_ = extent; }
+  void Resize(Device& device, Extent2D extent) { extent_ = extent; }
   void Destroy(Device& device);
 
   // Adds the trace pass and returns the packed penumbra (R16f). sun_direction is
@@ -29,10 +29,8 @@ class ShadowTracePass {
                             f32 jitter_x, f32 jitter_y);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkExtent2D extent_{};
+  PipelineHandle pipeline_;
+  Extent2D extent_{};
 };
 
 }  // namespace rec::render

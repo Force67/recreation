@@ -13,7 +13,6 @@
 #include "asset/primitives.h"
 #include "core/log.h"
 #include "render/util/exr_write.h"
-#include "render/util/shader_util.h"
 #include "shaders/hdr_capture_cs_hlsl.h"
 
 namespace rec::render {
@@ -25,6 +24,11 @@ namespace {
 // name used in the casts below.
 base::Option<const char*> Screenshot{"screenshot", nullptr, "REC_SCREENSHOT"};
 base::Option<const char*> Hdr{"hdr", nullptr, "REC_HDR"};
+base::Option<bool> HdrOutput{"hdr.output", false, "REC_HDR_OUTPUT"};
+base::Option<double> HdrPaperWhite{"hdr.paper.white", 200.0, "REC_HDR_PAPER_WHITE"};
+// Debug: force the tonemap's output transfer (1 pq, 2 scrgb) on an SDR
+// swapchain, so the encode math is testable on displays with no HDR path.
+base::Option<int> HdrForceTransfer{"hdr.force.transfer", 0, "REC_HDR_FORCE_TRANSFER"};
 base::Option<bool> Wireframe{"wireframe", false, "REC_WIREFRAME"};
 base::Option<bool> Ssr{"ssr", false, "REC_SSR"};
 base::Option<bool> Ssgi{"ssgi", false, "REC_SSGI"};
@@ -40,6 +44,9 @@ base::Option<int> PathtraceSpp{"pathtrace.spp", 2, "REC_PATHTRACE_SPP"};
 base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
 base::Option<bool> PathtraceRecon{"pathtrace.recon", false, "REC_PATHTRACE_RECON"};
 base::Option<int> PathtraceReconDebug{"pathtrace.recon.debug", 0, "REC_PATHTRACE_RECON_DEBUG"};
+base::Option<bool> PathtraceRestir{"pathtrace.restir", true, "REC_PATHTRACE_RESTIR"};
+base::Option<bool> PathtraceRestirDi{"pathtrace.restir.di", true, "REC_PATHTRACE_RESTIR_DI"};
+base::Option<bool> PathtraceRr{"pathtrace.rr", true, "REC_PATHTRACE_RR"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
 base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
@@ -47,6 +54,7 @@ base::Option<float> CloudCoverage{"cloud.coverage", 0.46f, "REC_CLOUD_COVERAGE"}
 base::Option<float> Precip{"precip", 0.0f, "REC_PRECIP"};
 base::Option<bool> Snow{"snow", false, "REC_SNOW"};
 base::Option<bool> Aurora{"aurora", false, "REC_AURORA"};
+base::Option<const char*> RhiBackend{"rhi.backend", nullptr, "REC_RHI"};
 
 // Distance-based hierarchical lod: coarser geometry the further a mesh is from
 // the camera. Switches roughly every few bounding radii; clamps to the coarsest.
@@ -101,9 +109,25 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   settings_.rt_shadows = desc.raytracing.shadows;
   output_width_ = window.width();
   output_height_ = window.height();
+  // Applied before the swapchain exists (the rest of the option overrides run
+  // later in Initialize; these two decide the surface format).
+  if (HdrOutput.overridden()) settings_.hdr_output = HdrOutput;
+  if (HdrPaperWhite.overridden()) settings_.hdr_paper_white = static_cast<f32>(double(HdrPaperWhite));
+
+  // REC_RHI=vulkan|d3d12|null|auto overrides the graphics backend.
+  Backend backend = desc.backend;
+  if (const char* name = RhiBackend.get()) {
+    std::string value = name;
+    if (value == "vulkan") backend = Backend::kVulkan;
+    else if (value == "d3d12") backend = Backend::kD3D12;
+    else if (value == "null") backend = Backend::kNull;
+    else if (value == "auto") backend = Backend::kAuto;
+    else REC_WARN("REC_RHI: unknown backend '{}', using {}", value, BackendName(backend));
+  }
 
   window_ = &window;
-  device_ = Device::Create({.enable_validation = desc.enable_validation,
+  device_ = Device::Create({.backend = backend,
+                            .enable_validation = desc.enable_validation,
                             .request_raytracing = desc.enable_raytracing},
                            window);
   if (device_->is_stub()) {
@@ -111,8 +135,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     return true;
   }
 
-  swapchain_ = Swapchain::Create(*device_, output_width_, output_height_, settings_.vsync);
-  if (!swapchain_ || !CreateFrameResources() || !CreateRenderFinishedSemaphores()) return false;
+  swapchain_ = device_->CreateSwapchain(output_width_, output_height_, settings_.vsync,
+                                        settings_.hdr_output);
+  if (!swapchain_ || !CreateFrameResources()) return false;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
 
@@ -135,7 +160,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
                                         kNormalFormat, kDepthFormat,
                                         material_system_->set_layout(),
                                         environment_->env_set_layout(),
-                                        bindless_ ? bindless_->set_layout() : VK_NULL_HANDLE);
+                                        bindless_ ? bindless_->set_layout() : BindingLayoutHandle{});
   post_ = PostPass::Create(*device_, swapchain_->format());
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   ui_blur_ = UiBlurPass::Create(*device_);  // optional: frosted-glass UI blur
@@ -144,44 +169,25 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!ssr_.Initialize(*device_)) return false;   // raster reflection fallback
   if (!ssgi_.Initialize(*device_)) return false;  // raster diffuse-gi fallback
 
-  // Linear-hdr export: a compute copy from the resolved scene into a host buffer.
-  {
-    VkDescriptorSetLayoutBinding hb[2]{};
-    hb[0].binding = 0;
-    hb[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    hb[0].descriptorCount = 1;
-    hb[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    hb[1].binding = 1;
-    hb[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    hb[1].descriptorCount = 1;
-    hb[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    VkDescriptorSetLayoutCreateInfo si{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    si.bindingCount = 2;
-    si.pBindings = hb;
-    if (vkCreateDescriptorSetLayout(device_->device(), &si, nullptr, &hdr_set_layout_) != VK_SUCCESS)
-      return false;
-    VkPushConstantRange pr{VK_SHADER_STAGE_COMPUTE_BIT, 0, 2 * sizeof(u32)};
-    VkPipelineLayoutCreateInfo li{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    li.setLayoutCount = 1;
-    li.pSetLayouts = &hdr_set_layout_;
-    li.pushConstantRangeCount = 1;
-    li.pPushConstantRanges = &pr;
-    if (vkCreatePipelineLayout(device_->device(), &li, nullptr, &hdr_layout_) != VK_SUCCESS)
-      return false;
-    VkShaderModule m =
-        CreateShaderModule(device_->device(), k_hdr_capture_cs_hlsl, sizeof(k_hdr_capture_cs_hlsl));
-    if (m == VK_NULL_HANDLE) return false;
-    VkComputePipelineCreateInfo ci{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    ci.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-    ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    ci.stage.module = m;
-    ci.stage.pName = "main";
-    ci.layout = hdr_layout_;
-    VkResult r =
-        vkCreateComputePipelines(device_->device(), VK_NULL_HANDLE, 1, &ci, nullptr, &hdr_pipeline_);
-    vkDestroyShaderModule(device_->device(), m, nullptr);
-    if (r != VK_SUCCESS) return false;
+  // Persistent per-slot sets for the frame globals and environment bindings.
+  // Contents are rewritten each frame after the slot's fence has fired, before
+  // any pass of the new frame binds them.
+  for (u32 i = 0; i < kFramesInFlight; ++i) {
+    globals_sets_[i] = device_->CreateBindingSet(mesh_pipeline_->set_layout());
+    env_scene_sets_[i] = device_->CreateBindingSet(environment_->env_set_layout());
+    env_transparent_sets_[i] = device_->CreateBindingSet(environment_->env_set_layout());
+    if (!globals_sets_[i] || !env_scene_sets_[i] || !env_transparent_sets_[i]) return false;
   }
+
+  // Linear-hdr export: a compute copy from the resolved scene into a host buffer.
+  hdr_pipeline_ = device_->CreateComputePipeline({
+      .shader = REC_SHADER(k_hdr_capture_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageBuffer}, {1, BindingType::kSampledImage}}}},
+      .push_constant_size = 2 * sizeof(u32),
+      .debug_name = "hdr_capture",
+  });
+  if (!hdr_pipeline_) return false;
+
   if (!shadow_.Initialize(*device_, material_system_->set_layout())) return false;  // raster sun shadows
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
@@ -193,21 +199,10 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (device_->caps().mesh_shaders) {
     // 1x1 fallback hi-z so the mesh-shader cull descriptor is always valid; bound
     // (with occlusion disabled) on frames where no real hi-z was built.
-    ms_dummy_hiz_ = device_->CreateImage2D(VK_FORMAT_R32_SFLOAT, {1, 1},
-                                           VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-    device_->ImmediateSubmit([&](VkCommandBuffer cmd) {
-      VkImageMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      b.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-      b.dstStageMask = VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT;
-      b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-      b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      b.image = ms_dummy_hiz_.image;
-      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 1;
-      dep.pImageMemoryBarriers = &b;
-      vkCmdPipelineBarrier2(cmd, &dep);
+    ms_dummy_hiz_ = device_->CreateImage2D(Format::kR32Float, {1, 1}, kTextureUsageSampled);
+    device_->ImmediateSubmit([&](CommandList& cmd) {
+      cmd.Barrier(Transition(ms_dummy_hiz_, ResourceState::kUndefined,
+                             ResourceState::kShaderReadAll));
     });
   }
   if (!bloom_.Initialize(*device_) || !exposure_.Initialize(*device_)) return false;
@@ -295,9 +290,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   // REC_DISTANCE_LOD=1 re-enables distance-based lod downgrade (off by default;
   // the engine otherwise always renders the finest authored detail).
   if (DistanceLod.overridden()) settings_.distance_lod = DistanceLod;
-  // REC_MESH_SHADER_LOD=1 opts into the optional VK_EXT_mesh_shader opaque path.
+  // REC_MESH_SHADER_LOD=1 opts into the optional mesh-shader opaque path.
   if (MeshShaderLod.overridden()) settings_.mesh_shader_lod = MeshShaderLod;
-  // Hardware gate: the path needs VK_EXT_mesh_shader and its pipelines to have
+  // Hardware gate: the path needs mesh shaders and its pipelines to have
   // built. Disable + warn rather than silently doing nothing if it was requested.
   bool mesh_shader_ok = device_->caps().mesh_shaders && mesh_pipeline_ &&
                         mesh_pipeline_->has_mesh_shader();
@@ -341,6 +336,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
   if (PathtraceReconDebug.overridden()) settings_.path_trace_recon_debug = static_cast<u32>(std::max(0, int(PathtraceReconDebug)));
+  if (PathtraceRestir.overridden()) settings_.path_trace_restir = PathtraceRestir;
+  if (PathtraceRestirDi.overridden()) settings_.path_trace_restir_di = PathtraceRestirDi;
+  if (PathtraceRr.overridden()) settings_.path_trace_rr = PathtraceRr;
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
@@ -391,39 +389,16 @@ void Renderer::WriteHdr() {
 
 void Renderer::WriteScreenshot(u32 image_index) {
   device_->WaitIdle();
-  VkExtent2D extent = swapchain_->extent();
+  Extent2D extent = swapchain_->extent();
   u64 size = static_cast<u64>(extent.width) * extent.height * 4;
-  GpuBuffer staging = device_->CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true);
+  GpuBuffer staging = device_->CreateBuffer(size, kBufferUsageTransferDst, true);
   if (!staging.mapped) return;
 
-  device_->ImmediateSubmit([&](VkCommandBuffer cmd) {
-    VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.image = swapchain_->image(image_index);
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
-
-    VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {extent.width, extent.height, 1};
-    vkCmdCopyImageToBuffer(cmd, swapchain_->image(image_index),
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging.buffer, 1, &region);
-
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    vkCmdPipelineBarrier2(cmd, &dep);
+  const GpuImage& backbuffer = swapchain_->image(image_index);
+  device_->ImmediateSubmit([&](CommandList& cmd) {
+    cmd.Barrier(Transition(backbuffer, ResourceState::kPresent, ResourceState::kCopySrc));
+    cmd.CopyTextureToBuffer(backbuffer, staging, {});
+    cmd.Barrier(Transition(backbuffer, ResourceState::kCopySrc, ResourceState::kPresent));
   });
 
   // Swapchain is bgra; png wants rgb.
@@ -477,6 +452,25 @@ void Renderer::UpdateRenderResolution() {
   }
 }
 
+void Renderer::ResizeSizedPasses() {
+  taa_.Resize(*device_, {render_width_, render_height_});
+  ssao_.Resize(*device_, {render_width_, render_height_});
+  ssr_.Resize(*device_, {render_width_, render_height_});
+  ssgi_.Resize(*device_, {render_width_, render_height_});
+  path_tracer_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_ && settings_.path_trace_recon) {
+    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+  }
+  if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
+#if defined(RECREATION_HAS_NRD)
+  if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
+#endif
+#if defined(RECREATION_HAS_DLSS)
+  rr_.Resize(*device_, {render_width_, render_height_});
+#endif
+}
+
 void Renderer::ApplySettings() {
   if (settings_.vsync != applied_vsync_) {
     applied_vsync_ = settings_.vsync;
@@ -508,19 +502,7 @@ void Renderer::ApplySettings() {
     applied_render_scale_ = settings_.render_scale;
     UpdateRenderResolution();
     transient_pool_->Clear();
-    taa_.Resize(*device_, {render_width_, render_height_});
-    ssao_.Resize(*device_, {render_width_, render_height_});
-  ssr_.Resize(*device_, {render_width_, render_height_});
-  ssgi_.Resize(*device_, {render_width_, render_height_});
-    path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_ && settings_.path_trace_recon) {
-    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
-  }
-    if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
-#if defined(RECREATION_HAS_NRD)
-    if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
-    if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
-#endif
+    ResizeSizedPasses();
     taa_.Reset();
     has_prev_frame_ = false;
   }
@@ -533,19 +515,7 @@ void Renderer::ApplySettings() {
       device_->WaitIdle();
       UpdateRenderResolution();
       transient_pool_->Clear();
-      taa_.Resize(*device_, {render_width_, render_height_});
-      ssao_.Resize(*device_, {render_width_, render_height_});
-  ssr_.Resize(*device_, {render_width_, render_height_});
-  ssgi_.Resize(*device_, {render_width_, render_height_});
-      path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_ && settings_.path_trace_recon) {
-    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
-  }
-      if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
-#if defined(RECREATION_HAS_NRD)
-      if (rt_available_ && nrd_.available()) nrd_.Resize(*device_, {render_width_, render_height_});
-      if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
-#endif
+      ResizeSizedPasses();
     }
     taa_.Reset();
     has_prev_frame_ = false;
@@ -597,18 +567,11 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) return false;
   const u64 mesh_key = mesh.id.hash ^ id_salt;
 
-  VkBufferUsageFlags rt_usage =
-      raytracing_ ? VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
-                  : 0;
+  BufferUsageFlags rt_usage =
+      raytracing_ ? (kBufferUsageAccelBuildInput | kBufferUsageDeviceAddress) : 0;
   // The mesh-shader path reads vertices/meshlets by device address.
   const bool build_meshlets = device_->caps().mesh_shaders && !mesh.skinned;
-  VkBufferUsageFlags ms_usage = build_meshlets ? VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT : 0;
-  auto buffer_address = [&](const GpuBuffer& b) -> u64 {
-    VkBufferDeviceAddressInfo ai{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    ai.buffer = b.buffer;
-    return vkGetBufferDeviceAddress(device_->device(), &ai);
-  };
+  BufferUsageFlags ms_usage = build_meshlets ? kBufferUsageDeviceAddress : 0;
 
   // On the mesh-shader path, synthesize coarse lods for eligible single-material
   // statics so the task stage can drop detail with distance (GenerateLods is a
@@ -640,10 +603,10 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   gpu.vertices = device_->CreateBufferWithData(
       ByteSpan(reinterpret_cast<const u8*>(all_verts.data()),
                all_verts.size() * sizeof(asset::Vertex)),
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | rt_usage | ms_usage);
+      kBufferUsageVertex | rt_usage | ms_usage);
   gpu.indices = device_->CreateBufferWithData(
       ByteSpan(reinterpret_cast<const u8*>(all_indices.data()), all_indices.size() * sizeof(u32)),
-      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | rt_usage);
+      kBufferUsageIndex | rt_usage);
   gpu.index_count = static_cast<u32>(lod.indices.size());    // lod 0 (rt/shadow/overdraw)
   gpu.vertex_count = static_cast<u32>(lod.vertices.size());
   // Skinned meshes carry a parallel bone index/weight stream, bound as a second
@@ -652,8 +615,8 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
     gpu.skinning = device_->CreateBufferWithData(
         ByteSpan(reinterpret_cast<const u8*>(lod.skinning.data()),
                  lod.skinning.size() * sizeof(asset::SkinnedVertexExtra)),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    gpu.skinned = gpu.skinning.buffer != VK_NULL_HANDLE;
+        kBufferUsageVertex);
+    gpu.skinned = static_cast<bool>(gpu.skinning);
   }
   auto build_submeshes = [&](const asset::MeshLod& l, u32 index_base,
                              base::Vector<GpuSubmesh>& out) {
@@ -732,10 +695,6 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       gpu.meshlet_triangles = device_->CreateBufferWithData(
           ByteSpan(reinterpret_cast<const u8*>(all_mt.data()), all_mt.size() * sizeof(u32)),
           ms_usage);
-      gpu.meshlets_address = buffer_address(gpu.meshlets);
-      gpu.meshlet_vertices_address = buffer_address(gpu.meshlet_vertices);
-      gpu.meshlet_triangles_address = buffer_address(gpu.meshlet_triangles);
-      gpu.vertices_address = buffer_address(gpu.vertices);
       gpu.has_meshlets = true;
     }
   }
@@ -750,8 +709,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       geometries.push_back({submesh.index_offset,
                             material_system_->bindless_material(submesh.material)});
     }
-    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices.buffer, gpu.indices.buffer,
-                                                 geometries.data(),
+    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices, gpu.indices, geometries.data(),
                                                  static_cast<u32>(geometries.size()));
     if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
   }
@@ -780,8 +738,7 @@ void Renderer::EnsureRayTracingGeometry() {
       geometries.push_back({submesh.index_offset,
                             material_system_->bindless_material(submesh.material)});
     }
-    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices.buffer, gpu.indices.buffer,
-                                                 geometries.data(),
+    gpu.bindless_index = bindless_->RegisterMesh(gpu.vertices, gpu.indices, geometries.data(),
                                                  static_cast<u32>(geometries.size()));
     if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
     raytracing_->BuildBlas(entry.key, gpu);
@@ -803,71 +760,36 @@ void Renderer::RenderFrame(const FrameView& view) {
 
   ApplySettings();
 
-  FrameResources& frame = frames_[frame_index_ % kFramesInFlight];
-  vkWaitForFences(device_->device(), 1, &frame.in_flight, VK_TRUE, UINT64_MAX);
+  u32 slot = frame_index_ % kFramesInFlight;
+  // Waits on the slot's fence, resets its command allocator and transient
+  // descriptor pool, and begins recording.
+  CommandList* cmd = device_->BeginFrame(slot);
 
   u32 image_index = 0;
-  VkResult acquired = swapchain_->Acquire(frame.image_available, &image_index);
-  if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+  AcquireResult acquired = swapchain_->Acquire(slot, &image_index);
+  if (acquired == AcquireResult::kOutOfDate) {
     RecreateSwapchain();
     return;
   }
-  if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) return;
-
-  vkResetCommandPool(device_->device(), frame.pool, 0);
-  vkResetDescriptorPool(device_->device(), frame.descriptor_pool, 0);
+  if (acquired != AcquireResult::kOk && acquired != AcquireResult::kSuboptimal) return;
 
   transient_pool_->BeginFrame();
   graph_.Reset();
-  BuildFrameGraph(frame, image_index, view);
+  BuildFrameGraph(frames_[slot], image_index, view);
   if (!graph_.Compile(*device_, *transient_pool_)) return;
 
-  // Only reset once the frame is guaranteed to submit, so an early return
-  // above cannot deadlock the next wait.
-  vkResetFences(device_->device(), 1, &frame.in_flight);
-
-  VkCommandBufferBeginInfo begin{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-  begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  vkBeginCommandBuffer(frame.cmd, &begin);
-
-  profiler_.BeginFrame(frame.cmd, frame_index_ % kFramesInFlight);
+  profiler_.BeginFrame(*cmd, slot);
   graph_.SetPassHooks(
-      [this](VkCommandBuffer cmd, const char* name) { profiler_.BeginPass(cmd, name); },
-      [this](VkCommandBuffer cmd) { profiler_.EndPass(cmd); });
+      [this](CommandList& c, const char* name) { profiler_.BeginPass(c, name); },
+      [this](CommandList& c) { profiler_.EndPass(c); });
 
   PassContext ctx;
-  ctx.cmd = frame.cmd;
+  ctx.cmd = cmd;
   ctx.device = device_.get();
-  ctx.allocate_set = [this, &frame](VkDescriptorSetLayout layout) {
-    VkDescriptorSetAllocateInfo info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    info.descriptorPool = frame.descriptor_pool;
-    info.descriptorSetCount = 1;
-    info.pSetLayouts = &layout;
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    vkAllocateDescriptorSets(device_->device(), &info, &set);
-    return set;
-  };
+  ctx.graph = &graph_;
   graph_.Execute(ctx);
 
-  vkEndCommandBuffer(frame.cmd);
-
-  VkSemaphoreSubmitInfo wait{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-  wait.semaphore = frame.image_available;
-  wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-  VkSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-  signal.semaphore = render_finished_[image_index];
-  signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  VkCommandBufferSubmitInfo cmd_info{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-  cmd_info.commandBuffer = frame.cmd;
-
-  VkSubmitInfo2 submit{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-  submit.waitSemaphoreInfoCount = 1;
-  submit.pWaitSemaphoreInfos = &wait;
-  submit.commandBufferInfoCount = 1;
-  submit.pCommandBufferInfos = &cmd_info;
-  submit.signalSemaphoreInfoCount = 1;
-  submit.pSignalSemaphoreInfos = &signal;
-  vkQueueSubmit2(device_->graphics_queue(), 1, &submit, frame.in_flight);
+  PresentResult presented = device_->SubmitFrame(cmd, *swapchain_, image_index);
 
   if (!screenshot_path_.empty() && time_seconds_ >= screenshot_at_) {
     WriteScreenshot(image_index);
@@ -877,26 +799,14 @@ void Renderer::RenderFrame(const FrameView& view) {
     hdr_pending_ = false;
   }
 
-  VkResult presented = swapchain_->Present(render_finished_[image_index], image_index);
-  if (presented == VK_ERROR_OUT_OF_DATE_KHR) {
+  if (presented == PresentResult::kOutOfDate) {
     RecreateSwapchain();
-  } else if (presented == VK_SUBOPTIMAL_KHR) {
-    // Android reports SUBOPTIMAL every frame because preTransform (identity)
-    // differs from the panel's rotation, which is stable and handled by the
-    // display engine; recreating on that alone would rebuild every frame. Only
-    // recreate when the surface extent actually changed (a real resize).
-    VkSurfaceCapabilitiesKHR caps{};
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_->physical_device(), device_->surface(), &caps);
-    if (caps.currentExtent.width != 0xffffffffu &&
-        (caps.currentExtent.width != swapchain_->extent().width ||
-         caps.currentExtent.height != swapchain_->extent().height)) {
-      RecreateSwapchain();
-    }
   }
   ++frame_index_;
 }
 
 void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const FrameView& view) {
+  u32 frame_slot = frame_index_ % kFramesInFlight;
   bool rt_shadows = rt_available_ && settings_.rt_shadows;
   bool rtao_active = rt_available_ && settings_.rtao;
   bool ddgi_active = ddgi_ && settings_.ddgi && settings_.ibl;
@@ -958,14 +868,38 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   }
   bool water_pipeline_active = any_water && water_ != nullptr;
 
+  u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
+
+  // The frame's globals set (uniform + optional tlas + optional hi-z) is
+  // rewritten once per frame, from the first pass that needs it. The slot's
+  // fence has fired, so its previous frame no longer reads the set.
+  BindingSetHandle globals_set = globals_sets_[frame_slot];
+  auto update_globals_set = [this, globals_set, tlas_slot](PassContext& ctx,
+                                                           ResourceHandle cull_hiz,
+                                                           bool ms_active, bool want_tlas) {
+    base::Vector<BindingItem> items;
+    items.push_back(Bind::Uniform(0, frames_[frame_index_ % kFramesInFlight].globals, 0,
+                                  sizeof(FrameGlobals)));
+    if (want_tlas && rt_available_ && raytracing_ && raytracing_->tlas(tlas_slot)) {
+      items.push_back(Bind::Accel(1, raytracing_->tlas(tlas_slot)));
+    }
+    if (ms_active) {  // hi-z for the task-stage occlusion cull (real or fallback)
+      TextureView hiz = cull_hiz != kInvalidResource ? ctx.graph->image(cull_hiz).view
+                                                     : ms_dummy_hiz_.view;
+      items.push_back(Bind::SampledView(2, hiz));
+    }
+    device_->UpdateBindingSet(globals_set, {items.data(), items.size()});
+  };
+
   // Water + transparency over an opaque base. A lambda (rather than inline) so the
   // path tracer, which otherwise skips the whole raster transparency path, can
   // composite water over its result too. Consumes `transparent` (moved into the
   // pass), so it runs at most once per frame. Returns the composited colour.
   auto add_water = [&](ResourceHandle scene_color, ResourceHandle depth,
                        ResourceHandle depth_export, ResourceHandle motion,
-                       ResourceHandle sun_shadow, ResourceHandle shadow_atlas, bool csm_active,
-                       u32 shadow_slot, u32 tlas_slot) -> ResourceHandle {
+                       ResourceHandle sun_shadow, ResourceHandle shadow_atlas, bool csm_on,
+                       u32 shadow_slot, u32 water_tlas_slot,
+                       bool globals_written) -> ResourceHandle {
     std::sort(transparent.begin(), transparent.end(),
               [](const TransparentDraw& a, const TransparentDraw& b) {
                 return a.distance_sq > b.distance_sq;
@@ -1000,85 +934,40 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Read(opaque_depth, ResourceUsage::kSampledFragment);
           if (sun_shadow != kInvalidResource)
             builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
-          if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
+          if (csm_on) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
         },
-        [this, composite, motion, depth, opaque_color, opaque_depth, sun_shadow, tlas_slot,
-         rt_shadows, use_rt_frag, ddgi_active, water_pipeline_active, csm_active, shadow_slot,
-         shadow_atlas, transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
-          VkRenderingAttachmentInfo colors[2];
-          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          colors[0].imageView = ctx.graph->image(composite).view;
-          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-          colors[1] = colors[0];
-          colors[1].imageView = ctx.graph->image(motion).view;
-
-          VkRenderingAttachmentInfo depth_attachment{
-              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          depth_attachment.imageView = ctx.graph->image(depth).view;
-          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
-          rendering.layerCount = 1;
-          rendering.colorAttachmentCount = 2;
-          rendering.pColorAttachments = colors;
-          rendering.pDepthAttachment = &depth_attachment;
-          vkCmdBeginRendering(ctx.cmd, &rendering);
-
-          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
-                              static_cast<f32>(render_height_), 0.0f, 1.0f};
-          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
-          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
-          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-          VkWriteDescriptorSet writes[2];
-          writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[0].dstSet = globals_set;
-          writes[0].dstBinding = 0;
-          writes[0].descriptorCount = 1;
-          writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-          writes[0].pBufferInfo = &buffer_info;
-          u32 write_count = 1;
-          VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
-          VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
-              .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-          if (rt_available_ && raytracing_) {
-            tlas = raytracing_->tlas(tlas_slot);
-            if (tlas != VK_NULL_HANDLE) {
-              tlas_info.accelerationStructureCount = 1;
-              tlas_info.pAccelerationStructures = &tlas;
-              writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-              writes[1].pNext = &tlas_info;
-              writes[1].dstSet = globals_set;
-              writes[1].dstBinding = 1;
-              writes[1].descriptorCount = 1;
-              writes[1].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-              write_count = 2;
-            }
+        [this, composite, motion, depth, opaque_color, opaque_depth, sun_shadow, water_tlas_slot,
+         use_rt_frag, ddgi_active, water_pipeline_active, csm_on, shadow_slot, shadow_atlas,
+         globals_set, globals_written, update_globals_set, frame_slot,
+         transparent = std::move(transparent), &frame, &view](PassContext& ctx) {
+          if (!globals_written) {
+            update_globals_set(ctx, kInvalidResource, false, /*want_tlas=*/true);
           }
-          vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
 
-          VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
+          BindingSetHandle env_set = env_transparent_sets_[frame_slot];
           EnvironmentSystem::DdgiBinding ddgi_binding;
           if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
-          VkImageView sun_shadow_view =
-              sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : VK_NULL_HANDLE;
+          TextureView sun_shadow_view =
+              sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : TextureView{};
           environment_->WriteEnvSet(
-              env_set, VK_NULL_HANDLE, ddgi_active ? &ddgi_binding : nullptr,
-              csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
-              csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
+              env_set, TextureView{}, ddgi_active ? &ddgi_binding : nullptr,
+              csm_on ? ctx.graph->image(shadow_atlas).view : TextureView{},
+              csm_on ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
               shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
-              frame.lights.buffer, frame.lights.size);
+              frame.lights, frame.lights.size);
+
+          ColorAttachment colors[2];
+          colors[0] = {.view = ctx.graph->image(composite).view, .load = LoadOp::kLoad};
+          colors[1] = {.view = ctx.graph->image(motion).view, .load = LoadOp::kLoad};
+          DepthAttachment depth_attachment{.view = ctx.graph->image(depth).view,
+                                           .load = LoadOp::kLoad};
+          ctx.cmd->BeginRendering({.extent = {render_width_, render_height_},
+                                   .colors = {colors, 2},
+                                   .depth = &depth_attachment});
 
           enum class Mode { kNone, kWater, kBlend };
           Mode mode = Mode::kNone;
-          VkDescriptorSet bound_material = VK_NULL_HANDLE;
+          BindingSetHandle bound_material{};
           const DrawItem* bound_item = nullptr;
           for (const TransparentDraw& draw : transparent) {
             const GpuMesh* mesh = meshes_.find(draw.item->mesh);
@@ -1091,40 +980,40 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                 water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
                              opaque_depth);
               } else {
-                VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
-                mesh_pipeline_->BindBlend(ctx.cmd, globals_set, env_set, bindless_set,
+                BindingSetHandle bindless_set = bindless_ ? bindless_->set() : BindingSetHandle{};
+                mesh_pipeline_->BindBlend(*ctx.cmd, globals_set, env_set, bindless_set,
                                           use_rt_frag);
               }
               mode = wanted;
-              bound_material = VK_NULL_HANDLE;
+              bound_material = {};
               bound_item = nullptr;
             }
             if (draw.item != bound_item) {
               MeshPushConstants push{.model = draw.item->transform,
                                      .prev_model = draw.item->prev_transform};
               if (as_water) {
-                vkCmdPushConstants(ctx.cmd, water_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
-                                   sizeof(push), &push);
-                VkDeviceSize offset = 0;
-                vkCmdBindVertexBuffers(ctx.cmd, 0, 1, &mesh->vertices.buffer, &offset);
-                vkCmdBindIndexBuffer(ctx.cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+                // The water pipeline shares the mesh push block; only the
+                // matrices matter to its vertex stage.
+                ctx.cmd->PushConstants(&push, 2 * sizeof(Mat4));
+                ctx.cmd->BindVertexBuffer(0, mesh->vertices);
+                ctx.cmd->BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
               } else {
-                mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+                mesh_pipeline_->Draw(*ctx.cmd, *mesh, push);
               }
               bound_item = draw.item;
             }
-            VkDescriptorSet material = material_system_->set(draw.submesh->material);
-            if (material != bound_material) {
+            BindingSetHandle material = material_system_->set(draw.submesh->material);
+            if (!(material == bound_material)) {
               if (as_water) {
-                water_->BindMaterial(ctx.cmd, material);
+                water_->BindMaterial(*ctx.cmd, material);
               } else {
-                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+                mesh_pipeline_->BindMaterial(*ctx.cmd, material);
               }
               bound_material = material;
             }
-            mesh_pipeline_->DrawSubmesh(ctx.cmd, *draw.submesh);
+            mesh_pipeline_->DrawSubmesh(*ctx.cmd, *draw.submesh);
           }
-          vkCmdEndRendering(ctx.cmd);
+          ctx.cmd->EndRendering();
         });
     return composite;
   };
@@ -1220,7 +1109,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   ResourceHandle shadow_atlas = kInvalidResource;
   if (csm_active) {
     shadow_atlas = graph_.CreateTexture({.name = "shadow_atlas",
-                                         .format = VK_FORMAT_D32_SFLOAT,
+                                         .format = Format::kD32Float,
                                          .width = shadow_.atlas_width(),
                                          .height = shadow_.atlas_height()});
   }
@@ -1238,7 +1127,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     // this so the real depth attachment never changes layout mid frame
     // (sampling round trips corrupt its compression metadata on nvidia).
     depth_export = graph_.CreateTexture(
-        {.name = "depth_export", .format = VK_FORMAT_R32_SFLOAT, .width = render_width_,
+        {.name = "depth_export", .format = Format::kR32Float, .width = render_width_,
          .height = render_height_});
   }
 
@@ -1250,11 +1139,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     graph_.AddPass(
         "env_update", [](RenderGraph::PassBuilder&) {},
         [this, env_sun, env_intensity, env_color](PassContext& ctx) {
-          environment_->RecordUpdate(ctx.cmd, env_sun, env_intensity, env_color);
+          environment_->RecordUpdate(*ctx.cmd, env_sun, env_intensity, env_color);
         });
   }
 
-  u32 tlas_slot = frame_index_ % RayTracingContext::kSlots;
   if (rt_shadows || rtao_active || ddgi_active || water_pipeline_active || reflections_active ||
       path_trace || fog_active) {
     base::Vector<RayTracingContext::Instance> instances;
@@ -1269,13 +1157,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                            .transform = item.transform});
     }
     // Grow the TLAS now, on the build thread, so the record-time BuildTlas never
-    // stalls the device or frees buffers mid command buffer (which races the
+    // stalls the device or frees buffers mid command list (which races the
     // frame ring and corrupts the image). Spikes here when two worlds stream in.
     raytracing_->ReserveTlas(tlas_slot, static_cast<u32>(instances.size()));
     graph_.AddPass(
         "tlas_build", [](RenderGraph::PassBuilder&) {},
         [this, tlas_slot, instances = std::move(instances)](PassContext& ctx) {
-          raytracing_->BuildTlas(ctx.cmd, tlas_slot, instances);
+          raytracing_->BuildTlas(*ctx.cmd, tlas_slot, instances);
         });
   }
 
@@ -1307,6 +1195,18 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // Lazily allocate the recon history targets on first use: the mode is off by
       // default and the buffers are large, so they are not created up front.
       recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
+      bool rr_active = false;
+#if defined(RECREATION_HAS_DLSS)
+      // Ray reconstruction replaces the SVGF chain when its snippet loads;
+      // lazy-init mirrors the recon targets above.
+      if (settings_.path_trace_rr && !rr_init_attempted_) {
+        rr_init_attempted_ = true;
+        if (!rr_.Initialize(*device_, {render_width_, render_height_})) {
+          REC_INFO("dlss-rr unavailable, recon uses the in-tree svgf denoiser");
+        }
+      }
+      rr_active = settings_.path_trace_rr && rr_.available();
+#endif
       ReconPathTracer::Frame rf;
       rf.inv_view_proj = globals.inv_view_proj;
       rf.view_proj = view_proj;
@@ -1327,9 +1227,43 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.max_history = settings_.path_trace_accum;
       rf.atrous_passes = settings_.path_trace_recon_atrous;
       rf.debug_mode = settings_.path_trace_recon_debug;
-      recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
-                                    environment_->sky_view(), environment_->sampler(), scene_color,
-                                    rf);
+      // Modes 8/9 visualize the restir reservoir (M / W): the spatial pass
+      // substitutes the heatmap, the composite renders it as raw lighting.
+      if (rf.debug_mode >= 8) {
+        rf.restir = true;
+      }
+      rf.restir = settings_.path_trace_restir;
+      rf.restir_di = settings_.path_trace_restir_di;
+      rf.lights = frame.lights;
+      rf.light_count = light_count;
+      rf.fog = settings_.fog;
+      rf.fog_density = settings_.fog_density;
+      rf.fog_height_falloff = settings_.fog_height_falloff;
+      rf.fog_base_height = settings_.fog_base_height;
+      rf.fog_anisotropy = settings_.fog_anisotropy;
+#if defined(RECREATION_HAS_DLSS)
+      if (rr_active) {
+        ReconPathTracer::ExternalInputs ext;
+        recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                      environment_->sky_view(), environment_->sampler(),
+                                      scene_color, rf, &ext);
+        RrDenoiser::Frame rrf;
+        rrf.world_to_view = view_mat;
+        rrf.view_to_clip = proj;
+        rrf.frame_delta_ms = view.frame_delta_seconds * 1000.0f;
+        rrf.reset = rf.reset;
+        rr_.AddToGraph(graph_,
+                       {ext.color, ext.depth, ext.motion, ext.normals_rough, ext.diffuse_albedo,
+                        ext.specular_albedo},
+                       scene_color, rrf);
+      } else
+#endif
+      {
+        (void)rr_active;
+        recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
+                                      environment_->sky_view(), environment_->sampler(),
+                                      scene_color, rf);
+      }
     }
 #if defined(RECREATION_HAS_NRD)
     if (!recon_path && nrd_.available() && !settings_.path_trace_reference) {
@@ -1341,7 +1275,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       // Ray-cone spread for texture lod: vertical fov radians per pixel.
       pt.pixel_spread = 2.0f * std::tan(view.camera.fov_y * 0.5f) / static_cast<f32>(render_height_);
       PathTracer::GbufferTargets t;
-      auto guide = [&](const char* name, VkFormat format) {
+      auto guide = [&](const char* name, Format format) {
         return graph_.CreateTexture({.name = name, .format = format, .width = render_width_,
                                      .height = render_height_});
       };
@@ -1403,8 +1337,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     Vec3 fwd = Normalize(view.camera.target - view.camera.eye);
     Vec3 right = Normalize(Cross(fwd, Vec3{0, 1, 0}));
     Vec3 up = Cross(right, fwd);
-    f32 aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
-    shadow_.Update(view.camera.eye, fwd, right, up, view.camera.fov_y, aspect,
+    f32 shadow_aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
+    shadow_.Update(view.camera.eye, fwd, right, up, view.camera.fov_y, shadow_aspect,
                    settings_.sun_direction, shadow_slot);
     graph_.AddPass(
         "shadow_cascades",
@@ -1412,54 +1346,51 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Write(shadow_atlas, ResourceUsage::kDepthAttachment);
         },
         [this, shadow_atlas, &frame, &view](PassContext& ctx) {
-          VkImageView atlas = ctx.graph->image(shadow_atlas).view;
-          shadow_.Render(
-              ctx.cmd, atlas, [this, &frame, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
-                VkDescriptorSet bound_material = VK_NULL_HANDLE;
-                VkPipeline bound_pipeline = VK_NULL_HANDLE;
-                for (const DrawItem& item : view.draws) {
-                  const GpuMesh* mesh = meshes_.find(item.mesh);
-                  // no_rt skips grass-like fill geometry, but skinned actors are
-                  // no_rt only to stay out of the tlas; they still cast shadows.
-                  if (!mesh || mesh->all_blend || (mesh->no_rt && !mesh->skinned)) continue;
-                  // Skinned casters run the bone-blended vertex stage so the
-                  // shadow tracks the animated pose, not the bind pose.
-                  bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
-                                      shadow_.skinned_pipeline() != VK_NULL_HANDLE;
-                  VkPipeline pipeline =
-                      draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
-                  if (pipeline != bound_pipeline) {
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                    bound_pipeline = pipeline;
-                  }
-                  vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
-                                     sizeof(Mat4), &item.transform);
-                  VkDeviceSize offset = 0;
-                  vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
-                  if (draw_skinned) {
-                    vkCmdBindVertexBuffers(cmd, 1, 1, &mesh->skinning.buffer, &offset);
-                    struct {
-                      u64 bone_address;
-                      u32 skin_offset;
-                      u32 pad;
-                    } skin{frame.bone_palette_address, static_cast<u32>(item.skin_offset), 0};
-                    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, 2 * sizeof(Mat4),
-                                       sizeof(skin), &skin);
-                  }
-                  vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-                  for (const GpuSubmesh& submesh : mesh->submeshes) {
-                    if (submesh.blend) continue;
-                    // Bind the material so masked casters alpha-test in the fragment.
-                    VkDescriptorSet material = material_system_->set(submesh.material);
-                    if (material != bound_material) {
-                      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1,
-                                              &material, 0, nullptr);
-                      bound_material = material;
-                    }
-                    vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
-                  }
+          TextureView atlas = ctx.graph->image(shadow_atlas).view;
+          shadow_.Render(*ctx.cmd, atlas, [this, &frame, &view](CommandList& cmd) {
+            BindingSetHandle bound_material{};
+            PipelineHandle bound_pipeline{};
+            for (const DrawItem& item : view.draws) {
+              const GpuMesh* mesh = meshes_.find(item.mesh);
+              // no_rt skips grass-like fill geometry, but skinned actors are
+              // no_rt only to stay out of the tlas; they still cast shadows.
+              if (!mesh || mesh->all_blend || (mesh->no_rt && !mesh->skinned)) continue;
+              // Skinned casters run the bone-blended vertex stage so the
+              // shadow tracks the animated pose, not the bind pose.
+              bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
+                                  static_cast<bool>(shadow_.skinned_pipeline());
+              PipelineHandle pipeline =
+                  draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
+              if (!(pipeline == bound_pipeline)) {
+                cmd.BindPipeline(pipeline);
+                bound_pipeline = pipeline;
+              }
+              // The per-cascade light matrix sits at offset 0 (pushed by
+              // ShadowPass::Render); the model follows it, skin data after.
+              cmd.PushConstants(&item.transform, sizeof(Mat4), sizeof(Mat4));
+              cmd.BindVertexBuffer(0, mesh->vertices);
+              if (draw_skinned) {
+                cmd.BindVertexBuffer(1, mesh->skinning);
+                struct {
+                  u64 bone_address;
+                  u32 skin_offset;
+                  u32 pad;
+                } skin{frame.bone_palette.address, static_cast<u32>(item.skin_offset), 0};
+                cmd.PushConstants(&skin, sizeof(skin), 2 * sizeof(Mat4));
+              }
+              cmd.BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
+              for (const GpuSubmesh& submesh : mesh->submeshes) {
+                if (submesh.blend) continue;
+                // Bind the material so masked casters alpha-test in the fragment.
+                BindingSetHandle material = material_system_->set(submesh.material);
+                if (!(material == bound_material)) {
+                  cmd.BindSet(0, material);
+                  bound_material = material;
                 }
-              });
+                cmd.DrawIndexed(submesh.index_count, 1, submesh.index_offset, 0, 0);
+              }
+            }
+          });
         });
   }
 
@@ -1468,7 +1399,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // loops walk view.draws, then let a compute pass zero the culled instanceCounts.
   u32 cull_slot = frame_index_ % 2;
   gpu_cull_.ResizeDepth(*device_, render_width_, render_height_);
-  VkBuffer cull_commands = gpu_cull_.command_buffer(cull_slot);
+  const GpuBuffer& cull_commands = gpu_cull_.command_buffer(cull_slot);
   u32 cull_instance_count = 0;
   {
     GpuCull::Instance* insts = gpu_cull_.instances(cull_slot);
@@ -1501,7 +1432,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         Vec3 d = view.camera.eye - wc;
         lod = SelectLod(*mesh, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
       }
-      const base::Vector<GpuSubmesh>& src =
+      const base::Vector<GpuSubmesh>& lod_subs =
           lod == 0 ? mesh->submeshes : mesh->lods[lod - 1].submeshes;
       i32 vtx_off = lod == 0 ? 0 : static_cast<i32>(mesh->lods[lod - 1].vertex_offset);
 
@@ -1510,7 +1441,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       for (const GpuSubmesh& submesh : mesh->submeshes) {
         if (!submesh.blend) {
           if (cmd_total >= GpuCull::kMaxCommands) break;
-          const GpuSubmesh& s = k < src.size() ? src[k] : submesh;
+          const GpuSubmesh& s = k < lod_subs.size() ? lod_subs[k] : submesh;
           cmds[cmd_total] = {s.index_count, 1u, s.index_offset, vtx_off, 0u};
           ++cmd_total;
           ++mesh_cmds;
@@ -1549,6 +1480,59 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   f32 ms_planes[5][4];
   ExtractFrustumPlanes(view_proj, ms_planes);
 
+  // Draws every mesh-shader-eligible mesh; shared by the prepass and scene
+  // sub-passes (material binding differs via the bind callbacks).
+  auto draw_meshlet_instances = [this, &view, &ms_occ, &ms_planes, &frame](PassContext& ctx) {
+    BindingSetHandle bound{};
+    for (const DrawItem& item : view.draws) {
+      const GpuMesh* mesh = meshes_.find(item.mesh);
+      if (!mesh || mesh->all_blend || !mesh->has_meshlets) continue;
+      MeshShaderPush push{};
+      push.model = item.transform;
+      push.prev_model = item.prev_transform;
+      push.meshlets_address = mesh->meshlets.address;
+      push.meshlet_vertices_address = mesh->meshlet_vertices.address;
+      push.meshlet_triangles_address = mesh->meshlet_triangles.address;
+      push.vertices_address = mesh->vertices.address;
+      push.bounds[0] = mesh->bounds_center[0];
+      push.bounds[1] = mesh->bounds_center[1];
+      push.bounds[2] = mesh->bounds_center[2];
+      push.bounds[3] = mesh->bounds_radius;
+      push.occlusion[0] = ms_occ[0];
+      push.occlusion[1] = ms_occ[1];
+      push.occlusion[2] = ms_occ[2];
+      push.occlusion[3] = ms_occ[3];
+      // Distance lod pick; the task stage dispatches the chosen lod range.
+      Vec3 ms_wc = TransformPoint(
+          item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
+                           mesh->bounds_center[2]});
+      Vec3 ms_d = view.camera.eye - ms_wc;
+      // Cpu frustum skip: a conservative world radius (bounds scaled by the
+      // largest transform axis) lets off-screen instances cost no dispatch.
+      const f32* m = item.transform.m;
+      f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+      f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+      f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+      f32 ms_radius = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
+      if (ms_radius > 0.0f && SphereOutsideFrustum(ms_planes, ms_wc, ms_radius)) continue;
+      u32 ms_lod =
+          SelectLod(*mesh, std::sqrt(ms_d.x * ms_d.x + ms_d.y * ms_d.y + ms_d.z * ms_d.z));
+      const base::Vector<GpuSubmesh>& ms_subs =
+          ms_lod == 0 ? mesh->submeshes : mesh->lods[ms_lod - 1].submeshes;
+      for (const GpuSubmesh& submesh : ms_subs) {
+        if (submesh.blend || submesh.meshlet_count == 0) continue;
+        BindingSetHandle material = material_system_->set(submesh.material);
+        if (!(material == bound)) {
+          mesh_pipeline_->BindMeshMaterial(*ctx.cmd, material);
+          bound = material;
+        }
+        push.meshlet_offset = submesh.meshlet_offset;
+        push.meshlet_count = submesh.meshlet_count;
+        mesh_pipeline_->DrawMeshlets(*ctx.cmd, push);
+      }
+    }
+  };
+
   graph_.AddPass(
       "prepass",
       [&](RenderGraph::PassBuilder& builder) {
@@ -1559,128 +1543,33 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
       [this, normals, motion, depth_export, depth, cull_commands, &frame, &view, ms_active,
-       ms_occlude, cull_hiz, &ms_occ, &ms_planes](PassContext& ctx) {
-        VkRenderingAttachmentInfo colors[3];
-        colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colors[0].imageView = ctx.graph->image(normals).view;
-        colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colors[1] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colors[1].imageView = ctx.graph->image(motion).view;
-        colors[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colors[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colors[2] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colors[2].imageView = ctx.graph->image(depth_export).view;
-        colors[2].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colors[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+       ms_occlude, cull_hiz, globals_set, update_globals_set,
+       draw_meshlet_instances](PassContext& ctx) {
+        // First globals-set user this frame: write uniform + tlas + hi-z once.
+        update_globals_set(ctx, ms_occlude ? cull_hiz : kInvalidResource, ms_active,
+                           /*want_tlas=*/true);
 
-        VkRenderingAttachmentInfo depth_attachment{
-            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        depth_attachment.imageView = ctx.graph->image(depth).view;
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
-
-        VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-        rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
-        rendering.layerCount = 1;
-        rendering.colorAttachmentCount = 3;
-        rendering.pColorAttachments = colors;
-        rendering.pDepthAttachment = &depth_attachment;
-        vkCmdBeginRendering(ctx.cmd, &rendering);
-
-        VkViewport viewport{0, 0, static_cast<f32>(render_width_),
-                            static_cast<f32>(render_height_), 0.0f, 1.0f};
-        VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
-        vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-        VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
-        VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-        VkWriteDescriptorSet writes[2];
-        u32 nwrites = 1;
-        writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        writes[0].dstSet = globals_set;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorCount = 1;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].pBufferInfo = &buffer_info;
-        VkDescriptorImageInfo hiz_info{};
-        if (ms_active) {  // hi-z for the task-stage occlusion cull (real or fallback)
-          hiz_info.imageView = ms_occlude ? ctx.graph->image(cull_hiz).view : ms_dummy_hiz_.view;
-          hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-          writes[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[1].dstSet = globals_set;
-          writes[1].dstBinding = 2;
-          writes[1].descriptorCount = 1;
-          writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-          writes[1].pImageInfo = &hiz_info;
-          nwrites = 2;
-        }
-        vkUpdateDescriptorSets(device_->device(), nwrites, writes, 0, nullptr);
+        ColorAttachment colors[3];
+        colors[0] = {.view = ctx.graph->image(normals).view};
+        colors[1] = {.view = ctx.graph->image(motion).view};
+        colors[2] = {.view = ctx.graph->image(depth_export).view};
+        DepthAttachment depth_attachment{.view = ctx.graph->image(depth).view,
+                                         .clear = 0.0f};  // reversed z clears to far = 0
+        ctx.cmd->BeginRendering({.extent = {render_width_, render_height_},
+                                 .colors = {colors, 3},
+                                 .depth = &depth_attachment});
 
         // Mesh-shader sub-pass: static opaque meshes, cluster-culled on the gpu.
         if (ms_active) {
-          mesh_pipeline_->BindMeshPrepass(ctx.cmd, globals_set);
-          VkDescriptorSet bound = VK_NULL_HANDLE;
-          for (const DrawItem& item : view.draws) {
-            const GpuMesh* mesh = meshes_.find(item.mesh);
-            if (!mesh || mesh->all_blend || !mesh->has_meshlets) continue;
-            MeshShaderPush push{};
-            push.model = item.transform;
-            push.prev_model = item.prev_transform;
-            push.meshlets_address = mesh->meshlets_address;
-            push.meshlet_vertices_address = mesh->meshlet_vertices_address;
-            push.meshlet_triangles_address = mesh->meshlet_triangles_address;
-            push.vertices_address = mesh->vertices_address;
-            push.bounds[0] = mesh->bounds_center[0];
-            push.bounds[1] = mesh->bounds_center[1];
-            push.bounds[2] = mesh->bounds_center[2];
-            push.bounds[3] = mesh->bounds_radius;
-            push.occlusion[0] = ms_occ[0];
-            push.occlusion[1] = ms_occ[1];
-            push.occlusion[2] = ms_occ[2];
-            push.occlusion[3] = ms_occ[3];
-            // Distance lod pick; the task stage dispatches the chosen lod range.
-            Vec3 ms_wc = TransformPoint(
-                item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
-                                 mesh->bounds_center[2]});
-            Vec3 ms_d = view.camera.eye - ms_wc;
-            // Cpu frustum skip: a conservative world radius (bounds scaled by the
-            // largest transform axis) lets off-screen instances cost no dispatch.
-            const f32* m = item.transform.m;
-            f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
-            f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
-            f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
-            f32 ms_radius = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
-            if (ms_radius > 0.0f && SphereOutsideFrustum(ms_planes, ms_wc, ms_radius)) continue;
-            u32 ms_lod =
-                SelectLod(*mesh, std::sqrt(ms_d.x * ms_d.x + ms_d.y * ms_d.y + ms_d.z * ms_d.z));
-            const base::Vector<GpuSubmesh>& ms_subs =
-                ms_lod == 0 ? mesh->submeshes : mesh->lods[ms_lod - 1].submeshes;
-            for (const GpuSubmesh& submesh : ms_subs) {
-              if (submesh.blend || submesh.meshlet_count == 0) continue;
-              VkDescriptorSet material = material_system_->set(submesh.material);
-              if (material != bound) {
-                mesh_pipeline_->BindMeshMaterial(ctx.cmd, material);
-                bound = material;
-              }
-              push.meshlet_offset = submesh.meshlet_offset;
-              push.meshlet_count = submesh.meshlet_count;
-              mesh_pipeline_->DrawMeshlets(ctx.cmd, push);
-            }
-          }
+          mesh_pipeline_->BindMeshPrepass(*ctx.cmd, globals_set);
+          draw_meshlet_instances(ctx);
         }
 
         // Raster sub-pass: skinned / non-meshlet meshes via gpu-culled indirect
         // draws. Meshes already drawn by the mesh shader are skipped but still
         // advance the cull index so it stays aligned with the cull build order.
-        mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
-        VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        mesh_pipeline_->BindPrepass(*ctx.cmd, globals_set);
+        BindingSetHandle bound_material{};
         bool skinned_bound = false;
         u32 cull_cmd_index = 0;  // matches the cull build order
         for (const DrawItem& item : view.draws) {
@@ -1693,33 +1582,33 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
           if (!ms_handled) {
             if (draw_skinned != skinned_bound) {
-              mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
+              mesh_pipeline_->SetPrepassSkinned(*ctx.cmd, draw_skinned);
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
             if (draw_skinned && item.skin_offset >= 0) {
-              push.bone_address = frame.bone_palette_address;
+              push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
             }
-            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+            mesh_pipeline_->Draw(*ctx.cmd, *mesh, push);
           }
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;  // transparency owns its own depth
             if (cull_cmd_index >= cull_total_commands_) break;  // partial-mesh boundary
             if (!ms_handled) {
-              VkDescriptorSet material = material_system_->set(submesh.material);
-              if (material != bound_material) {
-                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              BindingSetHandle material = material_system_->set(submesh.material);
+              if (!(material == bound_material)) {
+                mesh_pipeline_->BindMaterial(*ctx.cmd, material);
                 bound_material = material;
               }
-              vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
-                                       cull_cmd_index * GpuCull::kCommandStride, 1,
-                                       GpuCull::kCommandStride);
+              ctx.cmd->DrawIndexedIndirect(cull_commands,
+                                           cull_cmd_index * GpuCull::kCommandStride, 1,
+                                           GpuCull::kCommandStride);
             }
             ++cull_cmd_index;
           }
         }
-        vkCmdEndRendering(ctx.cmd);
+        ctx.cmd->EndRendering();
       });
 
   // Snapshot this frame's depth for next frame's occlusion test.
@@ -1794,155 +1683,46 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
         if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
-      [this, scene_color, motion, depth, ao, sun_shadow, tlas_slot, rt_shadows, use_rt_frag,
-       ddgi_active, csm_active, shadow_slot, shadow_atlas, cull_commands, ms_active, ms_occlude,
-       cull_hiz, &ms_occ, &ms_planes, &frame, &view](PassContext& ctx) {
-        VkRenderingAttachmentInfo colors[2];
-        colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colors[0].imageView = ctx.graph->image(scene_color).view;
-        colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colors[0].clearValue.color = {{0.02f, 0.02f, 0.05f, 1.0f}};
-        colors[1] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colors[1].imageView = ctx.graph->image(motion).view;
-        colors[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colors[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // the prepass wrote motion
-        colors[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        VkRenderingAttachmentInfo depth_attachment{
-            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        depth_attachment.imageView = ctx.graph->image(depth).view;
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // prepass depth, tested EQUAL
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-        rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
-        rendering.layerCount = 1;
-        rendering.colorAttachmentCount = 2;
-        rendering.pColorAttachments = colors;
-        rendering.pDepthAttachment = &depth_attachment;
-        vkCmdBeginRendering(ctx.cmd, &rendering);
-
-        VkViewport viewport{0, 0, static_cast<f32>(render_width_),
-                            static_cast<f32>(render_height_), 0.0f, 1.0f};
-        VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
-        vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-        VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
-        VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-        VkWriteDescriptorSet writes[3];
-        writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        writes[0].dstSet = globals_set;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorCount = 1;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].pBufferInfo = &buffer_info;
-        u32 write_count = 1;
-
-        VkAccelerationStructureKHR tlas = VK_NULL_HANDLE;
-        VkWriteDescriptorSetAccelerationStructureKHR tlas_info{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
-        if (use_rt_frag) {
-          tlas = raytracing_->tlas(tlas_slot);
-          tlas_info.accelerationStructureCount = 1;
-          tlas_info.pAccelerationStructures = &tlas;
-          writes[write_count] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[write_count].pNext = &tlas_info;
-          writes[write_count].dstSet = globals_set;
-          writes[write_count].dstBinding = 1;
-          writes[write_count].descriptorCount = 1;
-          writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-          ++write_count;
-        }
-        VkDescriptorImageInfo hiz_info{};
-        if (ms_active) {  // hi-z for the task-stage occlusion cull (real or fallback)
-          hiz_info.imageView = ms_occlude ? ctx.graph->image(cull_hiz).view : ms_dummy_hiz_.view;
-          hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-          writes[write_count] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[write_count].dstSet = globals_set;
-          writes[write_count].dstBinding = 2;
-          writes[write_count].descriptorCount = 1;
-          writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-          writes[write_count].pImageInfo = &hiz_info;
-          ++write_count;
-        }
-        vkUpdateDescriptorSets(device_->device(), write_count, writes, 0, nullptr);
-
-        VkDescriptorSet env_set = ctx.allocate_set(environment_->env_set_layout());
-        VkImageView ao_view =
-            ao != kInvalidResource ? ctx.graph->image(ao).view : VK_NULL_HANDLE;
-        VkImageView sun_shadow_view =
-            sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : VK_NULL_HANDLE;
+      [this, scene_color, motion, depth, ao, sun_shadow, use_rt_frag, ddgi_active, csm_active,
+       shadow_slot, shadow_atlas, cull_commands, ms_active, globals_set, frame_slot, &frame,
+       &view, draw_meshlet_instances](PassContext& ctx) {
+        BindingSetHandle env_set = env_scene_sets_[frame_slot];
+        TextureView ao_view =
+            ao != kInvalidResource ? ctx.graph->image(ao).view : TextureView{};
+        TextureView sun_shadow_view =
+            sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : TextureView{};
         EnvironmentSystem::DdgiBinding ddgi_binding;
         if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
         environment_->WriteEnvSet(
             env_set, ao_view, ddgi_active ? &ddgi_binding : nullptr,
-            csm_active ? ctx.graph->image(shadow_atlas).view : VK_NULL_HANDLE,
-            csm_active ? shadow_.cascade_buffer(shadow_slot) : VK_NULL_HANDLE,
-            shadow_.cascade_buffer_size(), VK_NULL_HANDLE, sun_shadow_view, frame.lights.buffer,
+            csm_active ? ctx.graph->image(shadow_atlas).view : TextureView{},
+            csm_active ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
+            shadow_.cascade_buffer_size(), TextureView{}, sun_shadow_view, frame.lights,
             frame.lights.size);
 
-        VkDescriptorSet bindless_set = bindless_ ? bindless_->set() : VK_NULL_HANDLE;
+        ColorAttachment colors[2];
+        colors[0] = {.view = ctx.graph->image(scene_color).view,
+                     .load = LoadOp::kClear,
+                     .clear = {0.02f, 0.02f, 0.05f, 1.0f}};
+        colors[1] = {.view = ctx.graph->image(motion).view,
+                     .load = LoadOp::kLoad};  // the prepass wrote motion
+        DepthAttachment depth_attachment{.view = ctx.graph->image(depth).view,
+                                         .load = LoadOp::kLoad};  // prepass depth, tested EQUAL
+        ctx.cmd->BeginRendering({.extent = {render_width_, render_height_},
+                                 .colors = {colors, 2},
+                                 .depth = &depth_attachment});
+
+        BindingSetHandle bindless_set = bindless_ ? bindless_->set() : BindingSetHandle{};
 
         // Mesh-shader sub-pass: static opaque meshes, finest lod, cluster-culled.
         if (ms_active) {
-          mesh_pipeline_->BindMeshScene(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag);
-          VkDescriptorSet bound = VK_NULL_HANDLE;
-          for (const DrawItem& item : view.draws) {
-            const GpuMesh* mesh = meshes_.find(item.mesh);
-            if (!mesh || mesh->all_blend || !mesh->has_meshlets) continue;
-            MeshShaderPush push{};
-            push.model = item.transform;
-            push.prev_model = item.prev_transform;
-            push.meshlets_address = mesh->meshlets_address;
-            push.meshlet_vertices_address = mesh->meshlet_vertices_address;
-            push.meshlet_triangles_address = mesh->meshlet_triangles_address;
-            push.vertices_address = mesh->vertices_address;
-            push.bounds[0] = mesh->bounds_center[0];
-            push.bounds[1] = mesh->bounds_center[1];
-            push.bounds[2] = mesh->bounds_center[2];
-            push.bounds[3] = mesh->bounds_radius;
-            push.occlusion[0] = ms_occ[0];
-            push.occlusion[1] = ms_occ[1];
-            push.occlusion[2] = ms_occ[2];
-            push.occlusion[3] = ms_occ[3];
-            // Distance lod pick; the task stage dispatches the chosen lod range.
-            Vec3 ms_wc = TransformPoint(
-                item.transform, {mesh->bounds_center[0], mesh->bounds_center[1],
-                                 mesh->bounds_center[2]});
-            Vec3 ms_d = view.camera.eye - ms_wc;
-            // Cpu frustum skip: a conservative world radius (bounds scaled by the
-            // largest transform axis) lets off-screen instances cost no dispatch.
-            const f32* m = item.transform.m;
-            f32 sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
-            f32 sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
-            f32 sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
-            f32 ms_radius = mesh->bounds_radius * std::max(sx, std::max(sy, sz));
-            if (ms_radius > 0.0f && SphereOutsideFrustum(ms_planes, ms_wc, ms_radius)) continue;
-            u32 ms_lod =
-                SelectLod(*mesh, std::sqrt(ms_d.x * ms_d.x + ms_d.y * ms_d.y + ms_d.z * ms_d.z));
-            const base::Vector<GpuSubmesh>& ms_subs =
-                ms_lod == 0 ? mesh->submeshes : mesh->lods[ms_lod - 1].submeshes;
-            for (const GpuSubmesh& submesh : ms_subs) {
-              if (submesh.blend || submesh.meshlet_count == 0) continue;
-              VkDescriptorSet material = material_system_->set(submesh.material);
-              if (material != bound) {
-                mesh_pipeline_->BindMeshMaterial(ctx.cmd, material);
-                bound = material;
-              }
-              push.meshlet_offset = submesh.meshlet_offset;
-              push.meshlet_count = submesh.meshlet_count;
-              mesh_pipeline_->DrawMeshlets(ctx.cmd, push);
-            }
-          }
+          mesh_pipeline_->BindMeshScene(*ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag);
+          draw_meshlet_instances(ctx);
         }
 
-        mesh_pipeline_->Bind(ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
+        mesh_pipeline_->Bind(*ctx.cmd, globals_set, env_set, bindless_set, use_rt_frag,
                              settings_.wireframe);
-        VkDescriptorSet bound_material = VK_NULL_HANDLE;
+        BindingSetHandle bound_material{};
         bool skinned_bound = false;
         u32 cull_cmd_index = 0;  // matches the cull build + prepass order
         for (const DrawItem& item : view.draws) {
@@ -1953,38 +1733,38 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
           if (!ms_handled) {
             if (draw_skinned != skinned_bound) {
-              mesh_pipeline_->SetSkinned(ctx.cmd, draw_skinned, use_rt_frag, settings_.wireframe);
+              mesh_pipeline_->SetSkinned(*ctx.cmd, draw_skinned, use_rt_frag, settings_.wireframe);
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
             if (draw_skinned && item.skin_offset >= 0) {
-              push.bone_address = frame.bone_palette_address;
+              push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
             }
             push.tint_packed = item.tint;  // faction/team colour for skinned actors
-            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+            mesh_pipeline_->Draw(*ctx.cmd, *mesh, push);
           }
           for (const GpuSubmesh& submesh : mesh->submeshes) {
             if (submesh.blend) continue;
             if (cull_cmd_index >= cull_total_commands_) break;  // partial-mesh boundary
             if (!ms_handled) {
-              VkDescriptorSet material = material_system_->set(submesh.material);
-              if (material != bound_material) {
-                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              BindingSetHandle material = material_system_->set(submesh.material);
+              if (!(material == bound_material)) {
+                mesh_pipeline_->BindMaterial(*ctx.cmd, material);
                 bound_material = material;
               }
-              vkCmdDrawIndexedIndirect(ctx.cmd, cull_commands,
-                                       cull_cmd_index * GpuCull::kCommandStride, 1,
-                                       GpuCull::kCommandStride);
+              ctx.cmd->DrawIndexedIndirect(cull_commands,
+                                           cull_cmd_index * GpuCull::kCommandStride, 1,
+                                           GpuCull::kCommandStride);
             }
             ++cull_cmd_index;
           }
         }
         if (skinned_bound) {
-          mesh_pipeline_->SetSkinned(ctx.cmd, false, use_rt_frag, settings_.wireframe);
+          mesh_pipeline_->SetSkinned(*ctx.cmd, false, use_rt_frag, settings_.wireframe);
         }
-        if (settings_.sky) environment_->DrawSky(ctx.cmd, globals_set);
-        vkCmdEndRendering(ctx.cmd);
+        if (settings_.sky) environment_->DrawSky(*ctx.cmd, globals_set);
+        ctx.cmd->EndRendering();
       });
 
   // Screen-space gi: add a diffuse bounce over the opaque result before
@@ -2010,7 +1790,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
   if (!transparent.empty() && water_) {
     lit = add_water(scene_color, depth, depth_export, motion, sun_shadow, shadow_atlas, csm_active,
-                    shadow_slot, tlas_slot);
+                    shadow_slot, tlas_slot, /*globals_written=*/true);
   }
 
   // Surface weather: wet/darken (rain) or whiten (snow) the lit surfaces before
@@ -2170,18 +1950,18 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         },
         [this, lit, view_proj, &view](PassContext& ctx) {
           overdraw_.Render(
-              ctx.cmd, ctx.graph->image(lit).view, {render_width_, render_height_}, view_proj,
-              [this, &view](VkCommandBuffer cmd, VkPipelineLayout layout) {
+              *ctx.cmd, ctx.graph->image(lit).view, {render_width_, render_height_}, view_proj,
+              [this, &view](CommandList& cmd) {
                 for (const DrawItem& item : view.draws) {
                   const GpuMesh* mesh = meshes_.find(item.mesh);
-                  if (!mesh || mesh->indices.buffer == VK_NULL_HANDLE) continue;
-                  vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4),
-                                     sizeof(Mat4), &item.transform);
-                  VkDeviceSize offset = 0;
-                  vkCmdBindVertexBuffers(cmd, 0, 1, &mesh->vertices.buffer, &offset);
-                  vkCmdBindIndexBuffer(cmd, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+                  if (!mesh || !mesh->indices) continue;
+                  // view_proj sits at offset 0 (pushed by Render); the model
+                  // follows it per draw.
+                  cmd.PushConstants(&item.transform, sizeof(Mat4), sizeof(Mat4));
+                  cmd.BindVertexBuffer(0, mesh->vertices);
+                  cmd.BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
                   for (const GpuSubmesh& submesh : mesh->submeshes) {
-                    vkCmdDrawIndexed(cmd, submesh.index_count, 1, submesh.index_offset, 0, 0);
+                    cmd.DrawIndexed(submesh.index_count, 1, submesh.index_offset, 0, 0);
                   }
                 }
               });
@@ -2206,7 +1986,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         {.name = "pt_water_depth", .format = kDepthFormat, .width = render_width_,
          .height = render_height_});
     ResourceHandle pt_depth_export = graph_.CreateTexture(
-        {.name = "pt_water_depth_export", .format = VK_FORMAT_R32_SFLOAT,
+        {.name = "pt_water_depth_export", .format = Format::kR32Float,
          .width = render_width_, .height = render_height_});
     graph_.AddPass(
         "pt_water_prepass",
@@ -2216,81 +1996,53 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Write(pt_depth_export, ResourceUsage::kColorAttachment);
           builder.Write(pt_depth, ResourceUsage::kDepthAttachment);
         },
-        [this, pt_normals, pt_motion, pt_depth_export, pt_depth, &frame, &view](PassContext& ctx) {
-          VkRenderingAttachmentInfo colors[3];
-          colors[0] = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          colors[0].imageView = ctx.graph->image(pt_normals).view;
-          colors[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-          colors[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-          colors[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-          colors[1] = colors[0];
-          colors[1].imageView = ctx.graph->image(pt_motion).view;
-          colors[2] = colors[0];
-          colors[2].imageView = ctx.graph->image(pt_depth_export).view;
+        [this, pt_normals, pt_motion, pt_depth_export, pt_depth, globals_set, update_globals_set,
+         &frame, &view](PassContext& ctx) {
+          // First globals-set user on the path-traced frame: uniform + tlas (the
+          // transparent pass right after wants the tlas for water reflections).
+          update_globals_set(ctx, kInvalidResource, false, /*want_tlas=*/true);
 
-          VkRenderingAttachmentInfo depth_attachment{
-              .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          depth_attachment.imageView = ctx.graph->image(pt_depth).view;
-          depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-          depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-          depth_attachment.clearValue.depthStencil = {0.0f, 0};  // reversed z clears to far = 0
+          ColorAttachment colors[3];
+          colors[0] = {.view = ctx.graph->image(pt_normals).view};
+          colors[1] = {.view = ctx.graph->image(pt_motion).view};
+          colors[2] = {.view = ctx.graph->image(pt_depth_export).view};
+          DepthAttachment depth_attachment{.view = ctx.graph->image(pt_depth).view,
+                                           .clear = 0.0f};  // reversed z clears to far = 0
+          ctx.cmd->BeginRendering({.extent = {render_width_, render_height_},
+                                   .colors = {colors, 3},
+                                   .depth = &depth_attachment});
 
-          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-          rendering.renderArea = {{0, 0}, {render_width_, render_height_}};
-          rendering.layerCount = 1;
-          rendering.colorAttachmentCount = 3;
-          rendering.pColorAttachments = colors;
-          rendering.pDepthAttachment = &depth_attachment;
-          vkCmdBeginRendering(ctx.cmd, &rendering);
-
-          VkViewport viewport{0, 0, static_cast<f32>(render_width_),
-                              static_cast<f32>(render_height_), 0.0f, 1.0f};
-          VkRect2D scissor{{0, 0}, {render_width_, render_height_}};
-          vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-          vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
-
-          VkDescriptorSet globals_set = ctx.allocate_set(mesh_pipeline_->set_layout());
-          VkDescriptorBufferInfo buffer_info{frame.globals.buffer, 0, sizeof(FrameGlobals)};
-          VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          write.dstSet = globals_set;
-          write.dstBinding = 0;
-          write.descriptorCount = 1;
-          write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-          write.pBufferInfo = &buffer_info;
-          vkUpdateDescriptorSets(device_->device(), 1, &write, 0, nullptr);
-
-          mesh_pipeline_->BindPrepass(ctx.cmd, globals_set);
-          VkDescriptorSet bound_material = VK_NULL_HANDLE;
+          mesh_pipeline_->BindPrepass(*ctx.cmd, globals_set);
+          BindingSetHandle bound_material{};
           bool skinned_bound = false;
           for (const DrawItem& item : view.draws) {
             const GpuMesh* mesh = meshes_.find(item.mesh);
             if (!mesh || mesh->all_blend) continue;
             bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
             if (draw_skinned != skinned_bound) {
-              mesh_pipeline_->SetPrepassSkinned(ctx.cmd, draw_skinned);
+              mesh_pipeline_->SetPrepassSkinned(*ctx.cmd, draw_skinned);
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
             if (draw_skinned && item.skin_offset >= 0) {
-              push.bone_address = frame.bone_palette_address;
+              push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
             }
-            mesh_pipeline_->Draw(ctx.cmd, *mesh, push);
+            mesh_pipeline_->Draw(*ctx.cmd, *mesh, push);
             for (const GpuSubmesh& submesh : mesh->submeshes) {
               if (submesh.blend) continue;  // transparency owns its own depth
-              VkDescriptorSet material = material_system_->set(submesh.material);
-              if (material != bound_material) {
-                mesh_pipeline_->BindMaterial(ctx.cmd, material);
+              BindingSetHandle material = material_system_->set(submesh.material);
+              if (!(material == bound_material)) {
+                mesh_pipeline_->BindMaterial(*ctx.cmd, material);
                 bound_material = material;
               }
-              mesh_pipeline_->DrawSubmesh(ctx.cmd, submesh);
+              mesh_pipeline_->DrawSubmesh(*ctx.cmd, submesh);
             }
           }
-          vkCmdEndRendering(ctx.cmd);
+          ctx.cmd->EndRendering();
         });
     lit = add_water(scene_color, pt_depth, pt_depth_export, pt_motion, kInvalidResource,
-                    kInvalidResource, false, 0u, tlas_slot);
+                    kInvalidResource, false, 0u, tlas_slot, /*globals_written=*/true);
   }
 
   // The path tracer already resolved antialiasing through accumulation; the
@@ -2349,55 +2101,26 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     u64 need = static_cast<u64>(post_width) * post_height * sizeof(f32) * 4;
     if (hdr_readback_.size != need) {
       device_->DestroyBuffer(hdr_readback_);
-      hdr_readback_ = device_->CreateBuffer(need, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+      hdr_readback_ = device_->CreateBuffer(need, kBufferUsageStorage, true);
     }
     hdr_width_ = post_width;
     hdr_height_ = post_height;
     hdr_pending_ = hdr_readback_.mapped != nullptr;
     if (hdr_pending_) {
-      VkBuffer dst = hdr_readback_.buffer;
       graph_.AddPass(
           "hdr_capture",
           [&](RenderGraph::PassBuilder& builder) {
             builder.Read(post_input, ResourceUsage::kSampledCompute);
           },
-          [this, post_input, dst, post_width, post_height](PassContext& ctx) {
-            VkDescriptorSet set = ctx.allocate_set(hdr_set_layout_);
-            VkDescriptorBufferInfo binfo{dst, 0, VK_WHOLE_SIZE};
-            VkDescriptorImageInfo iinfo{VK_NULL_HANDLE, ctx.graph->image(post_input).view,
-                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            VkWriteDescriptorSet w[2];
-            w[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            w[0].dstSet = set;
-            w[0].dstBinding = 0;
-            w[0].descriptorCount = 1;
-            w[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            w[0].pBufferInfo = &binfo;
-            w[1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            w[1].dstSet = set;
-            w[1].dstBinding = 1;
-            w[1].descriptorCount = 1;
-            w[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            w[1].pImageInfo = &iinfo;
-            vkUpdateDescriptorSets(ctx.device->device(), 2, w, 0, nullptr);
-
+          [this, post_input, post_width, post_height](PassContext& ctx) {
             u32 push[2] = {post_width, post_height};
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, hdr_pipeline_);
-            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, hdr_layout_, 0, 1, &set,
-                                    0, nullptr);
-            vkCmdPushConstants(ctx.cmd, hdr_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push),
-                               push);
-            vkCmdDispatch(ctx.cmd, (post_width + 7) / 8, (post_height + 7) / 8, 1);
-
-            VkMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            b.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-            b.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-            VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.memoryBarrierCount = 1;
-            dep.pMemoryBarriers = &b;
-            vkCmdPipelineBarrier2(ctx.cmd, &dep);
+            ctx.cmd->BindPipeline(hdr_pipeline_);
+            ctx.cmd->BindTransient(
+                0, {Bind::StorageBuffer(0, hdr_readback_),
+                    Bind::Sampled(1, ctx.graph->image(post_input))});
+            ctx.cmd->PushConstants(push, sizeof(push));
+            ctx.cmd->Dispatch2D({post_width, post_height});
+            ctx.cmd->MemoryBarrier(BarrierScope::kComputeWrite, BarrierScope::kHostRead);
           });
     }
   }
@@ -2408,17 +2131,21 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     bloom = bloom_.AddToGraph(graph_, post_input, post_width, post_height);
   }
 
-  GpuImage backbuffer_image;
-  backbuffer_image.image = swapchain_->image(image_index);
-  backbuffer_image.view = swapchain_->view(image_index);
-  backbuffer_image.format = swapchain_->format();
-  backbuffer_image.extent = swapchain_->extent();
-  ResourceHandle backbuffer = graph_.ImportBackbuffer(backbuffer_image);
+  ResourceHandle backbuffer = graph_.ImportBackbuffer(swapchain_->image(image_index));
 
   post_->SetGrade(settings_.color_grade);  // rebakes the lut only when it changes
   PostPass::Params post_params{static_cast<u32>(settings_.tonemap), settings_.bloom_intensity,
                                bloom != kInvalidResource ? 1u : 0u,
                                settings_.color_grade != ColorGrade::kNeutral ? 1u : 0u};
+  switch (swapchain_->color_space()) {
+    case ColorSpace::kHdr10Pq: post_params.output_transfer = 1; break;
+    case ColorSpace::kScRgbLinear: post_params.output_transfer = 2; break;
+    default: break;
+  }
+  if (int forced = HdrForceTransfer; forced == 1 || forced == 2) {
+    post_params.output_transfer = static_cast<u32>(forced);
+  }
+  post_params.paper_white = settings_.hdr_paper_white;
   graph_.AddPass(
       "post",
       [&](RenderGraph::PassBuilder& builder) {
@@ -2427,7 +2154,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(backbuffer, ResourceUsage::kColorAttachment);
       },
       [this, post_input, bloom, backbuffer, post_params](PassContext& ctx) {
-        VkImageView bloom_view = bloom != kInvalidResource ? ctx.graph->image(bloom).view
+        TextureView bloom_view = bloom != kInvalidResource ? ctx.graph->image(bloom).view
                                                            : ctx.graph->image(post_input).view;
         post_->Record(ctx, ctx.graph->image(post_input).view, bloom_view,
                       exposure_.exposure_buffer(), exposure_.exposure_buffer_size(),
@@ -2452,94 +2179,35 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           builder.Write(backbuffer, ResourceUsage::kColorAttachment);
         },
         [this, backbuffer, ui_frost, &view](PassContext& ctx) {
-          VkRenderingAttachmentInfo color{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-          color.imageView = ctx.graph->image(backbuffer).view;
-          color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-          color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-          VkRenderingInfo rendering{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO};
-          rendering.renderArea = {{0, 0}, ctx.graph->image(backbuffer).extent};
-          rendering.layerCount = 1;
-          rendering.colorAttachmentCount = 1;
-          rendering.pColorAttachments = &color;
+          ColorAttachment color{.view = ctx.graph->image(backbuffer).view, .load = LoadOp::kLoad};
           // Hand the blurred backdrop to the UI before it records (the closure
           // reads view.blur_source); null when blur is not in play this frame.
           view.blur_source =
-              ui_frost != kInvalidResource ? ctx.graph->image(ui_frost).view : VK_NULL_HANDLE;
-          view.blur_sampler = ui_frost != kInvalidResource ? ui_blur_->sampler() : VK_NULL_HANDLE;
-          vkCmdBeginRendering(ctx.cmd, &rendering);
-          if (view.hud_draw) view.hud_draw(ctx.cmd);
-          if (view.ui_draw) view.ui_draw(ctx.cmd);
-          vkCmdEndRendering(ctx.cmd);
+              ui_frost != kInvalidResource ? ctx.graph->image(ui_frost).view : TextureView{};
+          view.blur_sampler = ui_frost != kInvalidResource ? ui_blur_->sampler() : SamplerHandle{};
+          ctx.cmd->BeginRendering({.extent = ctx.graph->image(backbuffer).extent,
+                                   .colors = {&color, 1}});
+          if (view.hud_draw) view.hud_draw(*ctx.cmd);
+          if (view.ui_draw) view.ui_draw(*ctx.cmd);
+          ctx.cmd->EndRendering();
         });
   }
 }
 
 bool Renderer::CreateFrameResources() {
   for (FrameResources& frame : frames_) {
-    VkCommandPoolCreateInfo pool_info{.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-    pool_info.queueFamilyIndex = device_->graphics_family();
-    if (vkCreateCommandPool(device_->device(), &pool_info, nullptr, &frame.pool) != VK_SUCCESS) {
-      return false;
-    }
-
-    VkCommandBufferAllocateInfo alloc{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    alloc.commandPool = frame.pool;
-    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_->device(), &alloc, &frame.cmd);
-
-    VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    VkFenceCreateInfo fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &frame.image_available) !=
-            VK_SUCCESS ||
-        vkCreateFence(device_->device(), &fence_info, nullptr, &frame.in_flight) != VK_SUCCESS) {
-      return false;
-    }
-
-    // SAMPLED_IMAGE / SAMPLER / UNIFORM_BUFFER_DYNAMIC are for NRD's many per
-    // frame dispatch sets; harmless reservations otherwise. The acceleration
-    // structure size must stay last so it can be dropped without the extension.
-    VkDescriptorPoolSize sizes[] = {
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 24},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128},
-        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256},
-        {VK_DESCRIPTOR_TYPE_SAMPLER, 16},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32},
-        {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 4},
-    };
-    VkDescriptorPoolCreateInfo descriptor_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    descriptor_info.maxSets = 256;
-    // The acceleration structure pool size is only legal with the extension
-    // enabled, drop it otherwise.
-    descriptor_info.poolSizeCount = device_->caps().raytracing ? 8 : 7;
-    descriptor_info.pPoolSizes = sizes;
-    if (vkCreateDescriptorPool(device_->device(), &descriptor_info, nullptr,
-                               &frame.descriptor_pool) != VK_SUCCESS) {
-      return false;
-    }
-
-    frame.globals = device_->CreateBuffer(sizeof(FrameGlobals),
-                                          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+    frame.globals = device_->CreateBuffer(sizeof(FrameGlobals), kBufferUsageUniform, true);
     if (!frame.globals.mapped) return false;
 
     // Bone palette: host visible, read in the skinned vertex shader through its
     // device address (no descriptor binding). Column-major 4x4 per bone.
     frame.bone_palette = device_->CreateBuffer(
         static_cast<u64>(kMaxFrameBones) * sizeof(Mat4),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, true);
+        kBufferUsageStorage | kBufferUsageDeviceAddress, true);
     if (!frame.bone_palette.mapped) return false;
-    VkBufferDeviceAddressInfo address_info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    address_info.buffer = frame.bone_palette.buffer;
-    frame.bone_palette_address = vkGetBufferDeviceAddress(device_->device(), &address_info);
 
     frame.lights = device_->CreateBuffer(static_cast<u64>(kMaxFrameLights) * sizeof(PointLight),
-                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+                                         kBufferUsageStorage, true);
     if (!frame.lights.mapped) return false;
   }
   return true;
@@ -2547,36 +2215,19 @@ bool Renderer::CreateFrameResources() {
 
 void Renderer::DestroyFrameResources() {
   for (FrameResources& frame : frames_) {
-    if (frame.globals.buffer) device_->DestroyBuffer(frame.globals);
-    if (frame.bone_palette.buffer) device_->DestroyBuffer(frame.bone_palette);
-    if (frame.lights.buffer) device_->DestroyBuffer(frame.lights);
-    if (frame.descriptor_pool) {
-      vkDestroyDescriptorPool(device_->device(), frame.descriptor_pool, nullptr);
-    }
-    if (frame.in_flight) vkDestroyFence(device_->device(), frame.in_flight, nullptr);
-    if (frame.image_available) vkDestroySemaphore(device_->device(), frame.image_available, nullptr);
-    if (frame.pool) vkDestroyCommandPool(device_->device(), frame.pool, nullptr);
+    if (frame.globals) device_->DestroyBuffer(frame.globals);
+    if (frame.bone_palette) device_->DestroyBuffer(frame.bone_palette);
+    if (frame.lights) device_->DestroyBuffer(frame.lights);
     frame = {};
   }
-  DestroyRenderFinishedSemaphores();
-}
-
-bool Renderer::CreateRenderFinishedSemaphores() {
-  render_finished_.resize(swapchain_->image_count());
-  for (VkSemaphore& semaphore : render_finished_) {
-    VkSemaphoreCreateInfo info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    if (vkCreateSemaphore(device_->device(), &info, nullptr, &semaphore) != VK_SUCCESS) {
-      return false;
-    }
+  for (u32 i = 0; i < kFramesInFlight; ++i) {
+    device_->DestroyBindingSet(globals_sets_[i]);
+    device_->DestroyBindingSet(env_scene_sets_[i]);
+    device_->DestroyBindingSet(env_transparent_sets_[i]);
+    globals_sets_[i] = {};
+    env_scene_sets_[i] = {};
+    env_transparent_sets_[i] = {};
   }
-  return true;
-}
-
-void Renderer::DestroyRenderFinishedSemaphores() {
-  for (VkSemaphore semaphore : render_finished_) {
-    if (semaphore) vkDestroySemaphore(device_->device(), semaphore, nullptr);
-  }
-  render_finished_.clear();
 }
 
 void Renderer::RecreateSwapchain() {
@@ -2585,10 +2236,9 @@ void Renderer::RecreateSwapchain() {
   if (width == 0 || height == 0) return;  // minimized
   device_->WaitIdle();
   swapchain_.reset();
-  swapchain_ = Swapchain::Create(*device_, width, height, settings_.vsync);
+  swapchain_ = device_->CreateSwapchain(width, height, settings_.vsync,
+                                        settings_.hdr_output);
   if (!swapchain_) return;
-  DestroyRenderFinishedSemaphores();
-  if (!CreateRenderFinishedSemaphores()) return;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
 
@@ -2622,14 +2272,13 @@ void Renderer::DestroySurface() {
   if (!device_ || device_->is_stub()) return;
   device_->WaitIdle();
   swapchain_.reset();
-  DestroyRenderFinishedSemaphores();
   device_->DestroySurface();
 }
 
 void Renderer::RecreateSurface() {
   if (!device_ || device_->is_stub() || !window_) return;
   if (!device_->RecreateSurface(*window_)) return;
-  RecreateSwapchain();  // rebuilds the swapchain, semaphores and sized targets
+  RecreateSwapchain();  // rebuilds the swapchain and sized targets
 }
 
 void Renderer::WaitIdle() {
@@ -2643,19 +2292,18 @@ void Renderer::Shutdown() {
     for (auto kv : meshes_) {
       device_->DestroyBuffer(kv.value.vertices);
       device_->DestroyBuffer(kv.value.indices);
-      if (kv.value.skinning.buffer) device_->DestroyBuffer(kv.value.skinning);
-      if (kv.value.meshlets.buffer) device_->DestroyBuffer(kv.value.meshlets);
-      if (kv.value.meshlet_vertices.buffer) device_->DestroyBuffer(kv.value.meshlet_vertices);
-      if (kv.value.meshlet_triangles.buffer) device_->DestroyBuffer(kv.value.meshlet_triangles);
+      if (kv.value.skinning) device_->DestroyBuffer(kv.value.skinning);
+      if (kv.value.meshlets) device_->DestroyBuffer(kv.value.meshlets);
+      if (kv.value.meshlet_vertices) device_->DestroyBuffer(kv.value.meshlet_vertices);
+      if (kv.value.meshlet_triangles) device_->DestroyBuffer(kv.value.meshlet_triangles);
     }
     meshes_.clear();
     taa_.Destroy(*device_);
     ssao_.Destroy(*device_);
     ssr_.Destroy(*device_);
     ssgi_.Destroy(*device_);
-    if (hdr_pipeline_) vkDestroyPipeline(device_->device(), hdr_pipeline_, nullptr);
-    if (hdr_layout_) vkDestroyPipelineLayout(device_->device(), hdr_layout_, nullptr);
-    if (hdr_set_layout_) vkDestroyDescriptorSetLayout(device_->device(), hdr_set_layout_, nullptr);
+    device_->DestroyPipeline(hdr_pipeline_);
+    hdr_pipeline_ = {};
     device_->DestroyBuffer(hdr_readback_);
     shadow_.Destroy(*device_);
     particles_.Destroy(*device_);
@@ -2665,11 +2313,14 @@ void Renderer::Shutdown() {
     overdraw_.Destroy(*device_);
     gpu_cull_.Destroy(*device_);
     meshlet_.Destroy(*device_);
-    if (ms_dummy_hiz_.image) device_->DestroyImage(ms_dummy_hiz_);
+    if (ms_dummy_hiz_) device_->DestroyImage(ms_dummy_hiz_);
     if (rt_available_) rtao_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);
     if (rt_available_) shadow_trace_.Destroy(*device_);
+#endif
+#if defined(RECREATION_HAS_DLSS)
+    rr_.Destroy(*device_);
 #endif
     bloom_.Destroy(*device_);
     exposure_.Destroy(*device_);
@@ -2677,10 +2328,10 @@ void Renderer::Shutdown() {
     path_tracer_.Destroy(*device_);
     recon_path_tracer_.Destroy(*device_);
     volumetric_fog_.Destroy(*device_);
-  aerial_perspective_.Destroy(*device_);
-  clouds_.Destroy(*device_);
-  precipitation_.Destroy(*device_);
-  surface_weather_.Destroy(*device_);
+    aerial_perspective_.Destroy(*device_);
+    clouds_.Destroy(*device_);
+    precipitation_.Destroy(*device_);
+    surface_weather_.Destroy(*device_);
     water_.reset();
     ddgi_.reset();
     environment_.reset();
@@ -2690,7 +2341,7 @@ void Renderer::Shutdown() {
   }
   graph_.Reset();
   post_.reset();
-  ui_blur_.reset();  // holds a Device& + Vk handles; destroy before device_/instance
+  ui_blur_.reset();  // holds a Device& + backend handles; destroy before device_
   mesh_pipeline_.reset();
   swapchain_.reset();
   upscaler_.reset();
@@ -2700,8 +2351,8 @@ void Renderer::Shutdown() {
 
 const DeviceCaps* Renderer::caps() const { return device_ ? &device_->caps() : nullptr; }
 
-VkFormat Renderer::swapchain_format() const {
-  return swapchain_ ? swapchain_->format() : VK_FORMAT_UNDEFINED;
+Format Renderer::swapchain_format() const {
+  return swapchain_ ? swapchain_->format() : Format::kUnknown;
 }
 
 u32 Renderer::swapchain_image_count() const {

@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Camera-facing billboard particles, vertex-pulled from a storage buffer (no
 // vertex buffer): four corners per instance expanded along the camera right/up
 // axes. Lit and soft-faded in the pixel shader.
@@ -8,7 +9,7 @@ struct Particle {
   float3 prev_pos;  // last frame's centre, for the motion vector
   float pad;
 };
-[[vk::binding(0, 0)]] StructuredBuffer<Particle> particles;
+[[vk::binding(0, 0)]] StructuredBuffer<Particle> particles : register(t0, space0);
 
 struct PushData {
   column_major float4x4 view_proj;
@@ -22,7 +23,7 @@ struct PushData {
   float ambient;
   column_major float4x4 prev_view_proj;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsOut {
   float4 pos : SV_Position;

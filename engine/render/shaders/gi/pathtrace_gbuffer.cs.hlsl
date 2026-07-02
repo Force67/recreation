@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Playable path tracer: one sample per pixel, emitting the inputs NRD's
 // REBLUR_DIFFUSE denoiser needs instead of brute-force accumulating. The primary
 // surface albedo is divided out (demodulation) so the denoiser blurs lighting,
@@ -22,17 +23,17 @@ struct PathGbufferPush {
   uint frame_index;
   uint bounces;
 };
-[[vk::push_constant]] PathGbufferPush pc;
+PUSH_CONSTANTS(PathGbufferPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> radiance_hitdist_out;
-[[vk::binding(1, 0)]] [[vk::image_format("rgb10a2")]] RWTexture2D<float4> normal_roughness_out;
-[[vk::binding(2, 0)]] [[vk::image_format("r16f")]] RWTexture2D<float> viewz_out;
-[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out;
-[[vk::binding(4, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out;
-[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> background_out;
-[[vk::binding(6, 0)]] RaytracingAccelerationStructure tlas;
-[[vk::combinedImageSampler]] [[vk::binding(7, 0)]] TextureCube sky_cube;
-[[vk::combinedImageSampler]] [[vk::binding(7, 0)]] SamplerState sky_sampler;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> radiance_hitdist_out : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgb10a2")]] RWTexture2D<float4> normal_roughness_out : register(u1, space0);
+[[vk::binding(2, 0)]] [[vk::image_format("r16f")]] RWTexture2D<float> viewz_out : register(u2, space0);
+[[vk::binding(3, 0)]] [[vk::image_format("rg16f")]] RWTexture2D<float2> motion_out : register(u3, space0);
+[[vk::binding(4, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> albedo_out : register(u4, space0);
+[[vk::binding(5, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> background_out : register(u5, space0);
+[[vk::binding(6, 0)]] RaytracingAccelerationStructure tlas : register(t6, space0);
+[[vk::combinedImageSampler]] [[vk::binding(7, 0)]] TextureCube sky_cube : register(t7, space0);
+[[vk::combinedImageSampler]] [[vk::binding(7, 0)]] SamplerState sky_sampler : register(s7, space0);
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -61,11 +62,11 @@ struct MaterialRecord {
 };
 static const uint kMaterialAlphaMask = 1u;
 static const uint kMaterialTerrain = 2u;
-[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records;
-[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records;
-[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records;
-[[vk::binding(3, 1)]] Texture2D bindless_textures[];
-[[vk::binding(4, 1)]] SamplerState bindless_sampler;
+[[vk::binding(0, 1)]] StructuredBuffer<MeshRecord> mesh_records : register(t0, space1);
+[[vk::binding(1, 1)]] StructuredBuffer<GeometryRecord> geometry_records : register(t1, space1);
+[[vk::binding(2, 1)]] StructuredBuffer<MaterialRecord> material_records : register(t2, space1);
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
 
 static const float kPi = 3.14159265359;
 static const uint kVertexStride = 52;

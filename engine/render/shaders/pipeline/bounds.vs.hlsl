@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Acceleration-structure / cull-bounds debug view: draws a wireframe box around
 // each opaque instance's world bounding sphere (the volume the gpu cull and the
 // tlas instances use). Vertex-pulled from the same cull instance buffer, twelve
@@ -10,12 +11,12 @@ struct Instance {
   uint cull_disabled;
   uint pad;
 };
-[[vk::binding(0, 0)]] StructuredBuffer<Instance> instances;
+[[vk::binding(0, 0)]] StructuredBuffer<Instance> instances : register(t0, space0);
 
 struct PushData {
   column_major float4x4 view_proj;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 // Corner index per line endpoint: 12 edges of a cube = 24 vertices.
 static const uint kEdges[24] = {0, 1, 1, 3, 3, 2, 2, 0, 4, 5, 5, 7,

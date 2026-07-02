@@ -28,6 +28,7 @@
 #include "core/window.h"
 #include "gui_backend.h"
 #include "render/core/renderer.h"
+#include "render/rhi/vulkan_interop.h"
 #include "ugui_platform.h"
 
 namespace rec {
@@ -1542,6 +1543,9 @@ GameUi::~GameUi() { Shutdown(); }
 bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   render::Device* device = renderer.device();
   if (!device || device->is_stub()) return false;
+  // The HUD backend records raw Vulkan; on other backends the HUD is unavailable.
+  const render::VulkanHandles vk = render::GetVulkanHandles(*device);
+  if (vk.device == VK_NULL_HANDLE) return false;
 
   impl_->host.window_width = static_cast<float>(window.width());
   impl_->host.window_height = static_cast<float>(window.height());
@@ -1574,12 +1578,12 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   }
 
   ui::GuiRenderBackend::InitInfo bi;
-  bi.instance = device->instance();
-  bi.physical_device = device->physical_device();
-  bi.device = device->device();
-  bi.queue_family = device->graphics_family();
-  bi.queue = device->graphics_queue();
-  bi.color_format = renderer.swapchain_format();
+  bi.instance = vk.instance;
+  bi.physical_device = vk.physical_device;
+  bi.device = vk.device;
+  bi.queue_family = vk.graphics_family;
+  bi.queue = vk.graphics_queue;
+  bi.color_format = render::GetVkFormat(renderer.swapchain_format());
   bi.frames_in_flight = 2;
   if (!impl_->backend.Init(bi)) {
     REC_WARN("ultragui vulkan backend init failed");
@@ -2325,11 +2329,13 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   }
 
   impl->backend.NewFrame();
-  view->hud_draw = [impl, view](VkCommandBuffer cmd) {
+  view->hud_draw = [impl, view](render::CommandList& cmd) {
     // The renderer fills view->blur_source just before this runs (inside the ui
     // pass) with the blurred backdrop for frosted panels; null disables frost.
-    impl->backend.SetBackdrop(view->blur_source, view->blur_sampler);
-    if (impl->draw_data) impl->backend.Render(*impl->draw_data, cmd);
+    impl->backend.SetBackdrop(render::GetVkImageView(view->blur_source),
+                              render::GetVkSampler(view->blur_sampler));
+    if (impl->draw_data)
+      impl->backend.Render(*impl->draw_data, render::GetVkCommandBuffer(cmd));
   };
 }
 

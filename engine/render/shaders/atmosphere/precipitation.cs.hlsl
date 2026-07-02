@@ -1,11 +1,12 @@
+#include "rhi_bindings.hlsli"
 // Screen-space precipitation: layered procedural rain streaks or snow flakes,
 // composited over the lit scene. Anchored in world (azimuth, altitude) of the
 // view ray so it scrolls correctly with the camera instead of swimming. Driven
 // by the weather system's precipitation amount + snow flag. Cheap; no particle
 // simulation.
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image;
-[[vk::binding(1, 0)]] Texture2D color_in;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D color_in : register(t1, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;
@@ -14,7 +15,7 @@ struct PushData {
   uint2 size;
   uint2 pad;
 };
-[[vk::push_constant]] PushData pc;
+PUSH_CONSTANTS(PushData, pc);
 
 float Hash21(float2 p) {
   p = frac(p * float2(123.34, 345.45));

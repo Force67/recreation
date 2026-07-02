@@ -1,16 +1,17 @@
+#include "rhi_bindings.hlsli"
 // 13-tap downsample (CoD: Advanced Warfare). The first pass from the scene
 // applies a Karis average per quad to kill fireflies before they bloom.
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> dst;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D src;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState src_sampler;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float4> dst : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D src : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState src_sampler : register(s1, space0);
 
 struct PushData {
   float2 src_inv_size;
   uint first_pass;
   float pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 

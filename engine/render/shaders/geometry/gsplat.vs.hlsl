@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // 3D Gaussian splatting (Kerbl et al. 2023): a non-triangle primitive path.
 // Each gaussian is vertex-pulled into a screen-space ellipse by projecting its
 // 3D covariance to 2D (EWA splatting). The pixel shader evaluates the gaussian
@@ -11,7 +12,7 @@ struct Gaussian {
   float3 color;
   float pad1;
 };
-[[vk::binding(0, 0)]] StructuredBuffer<Gaussian> gaussians;
+[[vk::binding(0, 0)]] StructuredBuffer<Gaussian> gaussians : register(t0, space0);
 
 struct PushData {
   column_major float4x4 view;  // world -> view
@@ -24,7 +25,7 @@ struct PushData {
   float pad1;
   float pad2;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 struct VsOut {
   float4 pos : SV_Position;

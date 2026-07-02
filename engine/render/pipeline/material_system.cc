@@ -9,7 +9,7 @@ namespace rec::render {
 namespace {
 
 struct FormatInfo {
-  VkFormat vk = VK_FORMAT_UNDEFINED;
+  Format format = Format::kUnknown;
   u32 block_bytes = 0;
   u32 block_dim = 1;  // 1 for uncompressed, 4 for BCn
 };
@@ -17,19 +17,19 @@ struct FormatInfo {
 FormatInfo FormatFor(asset::TextureFormat format, bool srgb) {
   switch (format) {
     case asset::TextureFormat::kRgba8:
-      return {srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM, 4, 1};
+      return {srgb ? Format::kRGBA8Srgb : Format::kRGBA8Unorm, 4, 1};
     case asset::TextureFormat::kBc1:
-      return {srgb ? VK_FORMAT_BC1_RGB_SRGB_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK, 8, 4};
+      return {srgb ? Format::kBC1RgbSrgb : Format::kBC1RgbUnorm, 8, 4};
     case asset::TextureFormat::kBc2:
-      return {srgb ? VK_FORMAT_BC2_SRGB_BLOCK : VK_FORMAT_BC2_UNORM_BLOCK, 16, 4};
+      return {srgb ? Format::kBC2Srgb : Format::kBC2Unorm, 16, 4};
     case asset::TextureFormat::kBc3:
-      return {srgb ? VK_FORMAT_BC3_SRGB_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK, 16, 4};
+      return {srgb ? Format::kBC3Srgb : Format::kBC3Unorm, 16, 4};
     case asset::TextureFormat::kBc4:
-      return {VK_FORMAT_BC4_UNORM_BLOCK, 8, 4};
+      return {Format::kBC4Unorm, 8, 4};
     case asset::TextureFormat::kBc5:
-      return {VK_FORMAT_BC5_UNORM_BLOCK, 16, 4};
+      return {Format::kBC5Unorm, 16, 4};
     case asset::TextureFormat::kBc7:
-      return {srgb ? VK_FORMAT_BC7_SRGB_BLOCK : VK_FORMAT_BC7_UNORM_BLOCK, 16, 4};
+      return {srgb ? Format::kBC7Srgb : Format::kBC7Unorm, 16, 4};
     case asset::TextureFormat::kUnknown:
       return {};
   }
@@ -52,25 +52,6 @@ u32 FullMipChainLength(u32 width, u32 height) {
   return levels;
 }
 
-void Barrier(VkCommandBuffer cmd, VkImage image, u32 base_mip, u32 mip_count,
-             VkImageLayout old_layout, VkImageLayout new_layout, VkPipelineStageFlags2 src_stage,
-             VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
-             VkAccessFlags2 dst_access) {
-  VkImageMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-  barrier.srcStageMask = src_stage;
-  barrier.srcAccessMask = src_access;
-  barrier.dstStageMask = dst_stage;
-  barrier.dstAccessMask = dst_access;
-  barrier.oldLayout = old_layout;
-  barrier.newLayout = new_layout;
-  barrier.image = image;
-  barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, base_mip, mip_count, 0, 1};
-  VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-  dep.imageMemoryBarrierCount = 1;
-  dep.pImageMemoryBarriers = &barrier;
-  vkCmdPipelineBarrier2(cmd, &dep);
-}
-
 }  // namespace
 
 std::unique_ptr<MaterialSystem> MaterialSystem::Create(Device& device,
@@ -78,41 +59,23 @@ std::unique_ptr<MaterialSystem> MaterialSystem::Create(Device& device,
   auto system = std::unique_ptr<MaterialSystem>(new MaterialSystem(device));
   system->registry_ = registry;
 
-  VkSamplerCreateInfo sampler_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-  sampler_info.magFilter = VK_FILTER_LINEAR;
-  sampler_info.minFilter = VK_FILTER_LINEAR;
-  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+  // Trilinear repeat sampler, anisotropic when the device supports it. Cached
+  // by the device, never destroyed here.
+  SamplerDesc sampler_desc{};
   if (device.caps().max_anisotropy > 1.0f) {
-    sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = std::min(16.0f, device.caps().max_anisotropy);
+    sampler_desc.max_anisotropy = std::min(16.0f, device.caps().max_anisotropy);
   }
-  if (vkCreateSampler(device.device(), &sampler_info, nullptr, &system->sampler_) != VK_SUCCESS) {
-    return nullptr;
-  }
+  system->sampler_ = device.GetSampler(sampler_desc);
 
-  VkDescriptorSetLayoutBinding bindings[5]{};
-  bindings[0].binding = 0;
-  bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  bindings[0].descriptorCount = 1;
-  bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  for (u32 i = 1; i < 5; ++i) {
-    bindings[i].binding = i;
-    bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[i].descriptorCount = 1;
-    bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  }
-  VkDescriptorSetLayoutCreateInfo set_info{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = 5;
-  set_info.pBindings = bindings;
-  if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &system->set_layout_) !=
-      VK_SUCCESS) {
-    return nullptr;
-  }
+  system->set_layout_ = device.CreateBindingLayout({
+      .stages = kShaderStageFragment,
+      .slots = {{0, BindingType::kUniformBuffer},
+                {1, BindingType::kCombinedTextureSampler},
+                {2, BindingType::kCombinedTextureSampler},
+                {3, BindingType::kCombinedTextureSampler},
+                {4, BindingType::kCombinedTextureSampler}},
+  });
+  if (!system->set_layout_) return nullptr;
 
   if (!system->CreateDefaults()) return nullptr;
   return system;
@@ -138,7 +101,7 @@ bool MaterialSystem::CreateDefaults() {
   asset::Texture normal = make_pixel(128, 128, 255, 255, false);
   white_ = UploadTextureImage(white);
   flat_normal_ = UploadTextureImage(normal);
-  if (white_.image == VK_NULL_HANDLE || flat_normal_.image == VK_NULL_HANDLE) return false;
+  if (!white_ || !flat_normal_) return false;
 
   asset::Material default_material;
   default_material.base_color_factor[0] = 0.6f;
@@ -151,13 +114,13 @@ bool MaterialSystem::CreateDefaults() {
     registry_->RegisterMaterial(record);  // index 0, the fallback
   }
   default_set_ = AllocateSet();
-  if (default_set_ == VK_NULL_HANDLE) return false;
+  if (!default_set_) return false;
   return WriteSet(default_set_, 0, default_material);
 }
 
 GpuImage MaterialSystem::UploadTextureImage(const asset::Texture& texture) {
   FormatInfo info = FormatFor(texture.format, texture.is_srgb);
-  if (info.vk == VK_FORMAT_UNDEFINED || texture.width == 0 || texture.height == 0) {
+  if (info.format == Format::kUnknown || texture.width == 0 || texture.height == 0) {
     REC_WARN("texture upload skipped, unsupported format");
     return {};
   }
@@ -172,14 +135,13 @@ GpuImage MaterialSystem::UploadTextureImage(const asset::Texture& texture) {
   u32 mip_count = generate_mips ? FullMipChainLength(texture.width, texture.height)
                                 : texture.mip_count;
 
-  VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  if (generate_mips) usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  GpuImage image = device_.CreateImage2D(info.vk, {texture.width, texture.height}, usage,
-                                         VK_IMAGE_ASPECT_COLOR_BIT, mip_count);
-  if (image.image == VK_NULL_HANDLE) return {};
+  TextureUsageFlags usage = kTextureUsageSampled | kTextureUsageTransferDst;
+  if (generate_mips) usage |= kTextureUsageTransferSrc;
+  GpuImage image =
+      device_.CreateImage2D(info.format, {texture.width, texture.height}, usage, mip_count);
+  if (!image) return {};
 
-  GpuBuffer staging =
-      device_.CreateBuffer(texture.data.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+  GpuBuffer staging = device_.CreateBuffer(texture.data.size(), kBufferUsageTransferSrc, true);
   if (!staging.mapped) {
     device_.DestroyImage(image);
     return {};
@@ -187,61 +149,54 @@ GpuImage MaterialSystem::UploadTextureImage(const asset::Texture& texture) {
   std::memcpy(staging.mapped, texture.data.data(), texture.data.size());
 
   u32 upload_mips = generate_mips ? 1 : mip_count;
-  device_.ImmediateSubmit([&](VkCommandBuffer cmd) {
-    Barrier(cmd, image.image, 0, mip_count, VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+  device_.ImmediateSubmit([&](CommandList& cmd) {
+    cmd.Barrier(Transition(image, ResourceState::kUndefined, ResourceState::kCopyDst));
 
+    base::Vector<BufferTextureCopy> regions;
     u64 offset = 0;
     u32 width = texture.width;
     u32 height = texture.height;
     for (u32 mip = 0; mip < upload_mips; ++mip) {
-      VkBufferImageCopy region{};
-      region.bufferOffset = offset;
-      region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, 1};
-      region.imageExtent = {width, height, 1};
-      vkCmdCopyBufferToImage(cmd, staging.buffer, image.image,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+      regions.push_back({.buffer_offset = offset, .mip = mip, .extent = {width, height}});
       offset += MipSizeBytes(info, width, height);
       width = std::max(1u, width / 2);
       height = std::max(1u, height / 2);
     }
+    cmd.CopyBufferToTexture(staging, image, {regions.data(), regions.size()});
 
     if (generate_mips && mip_count > 1) {
-      i32 src_width = static_cast<i32>(texture.width);
-      i32 src_height = static_cast<i32>(texture.height);
+      u32 src_width = texture.width;
+      u32 src_height = texture.height;
       for (u32 mip = 1; mip < mip_count; ++mip) {
-        Barrier(cmd, image.image, mip - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_READ_BIT);
-        i32 dst_width = std::max(1, src_width / 2);
-        i32 dst_height = std::max(1, src_height / 2);
-        VkImageBlit blit{};
-        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, 0, 1};
-        blit.srcOffsets[1] = {src_width, src_height, 1};
-        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, 1};
-        blit.dstOffsets[1] = {dst_width, dst_height, 1};
-        vkCmdBlitImage(cmd, image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image.image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        cmd.Barrier({.texture = image.handle,
+                     .before = ResourceState::kCopyDst,
+                     .after = ResourceState::kCopySrc,
+                     .base_mip = mip - 1,
+                     .mip_count = 1});
+        u32 dst_width = std::max(1u, src_width / 2);
+        u32 dst_height = std::max(1u, src_height / 2);
+        cmd.BlitMip(image, mip - 1, {src_width, src_height}, mip, {dst_width, dst_height});
         src_width = dst_width;
         src_height = dst_height;
       }
-      // Mips 0..n-2 sit in TRANSFER_SRC after feeding the next level, the
-      // last one still in TRANSFER_DST.
-      Barrier(cmd, image.image, 0, mip_count - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-              VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-      Barrier(cmd, image.image, mip_count - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-              VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+      // Mips 0..n-2 sit in kCopySrc after feeding the next level, the last one
+      // still in kCopyDst.
+      TextureBarrier finals[2] = {
+          {.texture = image.handle,
+           .before = ResourceState::kCopySrc,
+           .after = ResourceState::kShaderReadAll,
+           .base_mip = 0,
+           .mip_count = mip_count - 1},
+          {.texture = image.handle,
+           .before = ResourceState::kCopyDst,
+           .after = ResourceState::kShaderReadAll,
+           .base_mip = mip_count - 1,
+           .mip_count = 1}};
+      cmd.TextureBarriers({finals, 2});
     } else {
-      Barrier(cmd, image.image, 0, mip_count, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-              VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-              VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+      cmd.Barrier({.texture = image.handle,
+                   .before = ResourceState::kCopyDst,
+                   .after = ResourceState::kShaderReadAll});
     }
   });
   device_.DestroyBuffer(staging);
@@ -252,7 +207,7 @@ bool MaterialSystem::UploadTexture(const asset::Texture& texture, u64 id_salt) {
   u64 key = texture.id.hash ^ id_salt;
   if (textures_.find(key)) return true;
   GpuImage image = UploadTextureImage(texture);
-  if (image.image == VK_NULL_HANDLE) return false;
+  if (!image) return false;
   textures_.insert(key, image);
   if (registry_ && texture.is_srgb) {
     // Only color textures matter for ray hit shading.
@@ -265,38 +220,20 @@ bool MaterialSystem::UploadTexture(const asset::Texture& texture, u64 id_salt) {
 }
 
 bool MaterialSystem::AddPool() {
-  VkDescriptorPoolSize sizes[] = {
-      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kMaterialsPerPool},
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaterialsPerPool * 4},
-  };
-  VkDescriptorPoolCreateInfo info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  info.maxSets = kMaterialsPerPool;
-  info.poolSizeCount = 2;
-  info.pPoolSizes = sizes;
-  VkDescriptorPool pool = VK_NULL_HANDLE;
-  if (vkCreateDescriptorPool(device_.device(), &info, nullptr, &pool) != VK_SUCCESS) return false;
-  pools_.push_back(pool);
-  sets_in_last_pool_ = 0;
-
   GpuBuffer params = device_.CreateBuffer(static_cast<u64>(kParamStride) * kMaterialsPerPool,
-                                          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
+                                          kBufferUsageUniform, true);
   if (!params.mapped) return false;
   param_buffers_.push_back(params);
+  sets_in_last_pool_ = 0;
   return true;
 }
 
-VkDescriptorSet MaterialSystem::AllocateSet() {
-  if (pools_.empty() || sets_in_last_pool_ == kMaterialsPerPool) {
-    if (!AddPool()) return VK_NULL_HANDLE;
+BindingSetHandle MaterialSystem::AllocateSet() {
+  if (param_buffers_.empty() || sets_in_last_pool_ == kMaterialsPerPool) {
+    if (!AddPool()) return {};
   }
-  VkDescriptorSetAllocateInfo info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-  info.descriptorPool = pools_.back();
-  info.descriptorSetCount = 1;
-  info.pSetLayouts = &set_layout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_.device(), &info, &set) != VK_SUCCESS) {
-    return VK_NULL_HANDLE;
-  }
+  BindingSetHandle set = device_.CreateBindingSet(set_layout_);
+  if (!set) return {};
   ++sets_in_last_pool_;
   return set;
 }
@@ -308,7 +245,7 @@ const GpuImage* MaterialSystem::texture_or(u64 hash, const GpuImage& fallback) c
   return &fallback;
 }
 
-bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
+bool MaterialSystem::WriteSet(BindingSetHandle set, u32 param_index,
                               const asset::Material& material, u64 id_salt) {
   Params params;
   std::memcpy(params.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
@@ -341,39 +278,25 @@ bool MaterialSystem::WriteSet(VkDescriptorSet set, u32 param_index,
   u64 offset = static_cast<u64>(param_index) * kParamStride;
   std::memcpy(static_cast<u8*>(buffer.mapped) + offset, &params, sizeof(params));
 
-  VkDescriptorBufferInfo buffer_info{buffer.buffer, offset, sizeof(Params)};
-  VkDescriptorImageInfo images[4];
   const GpuImage* maps[4] = {
       texture_or(material.base_color.hash ^ id_salt, white_),
       texture_or(material.normal.hash ^ id_salt, flat_normal_),
       texture_or(material.metallic_roughness.hash ^ id_salt, white_),
       texture_or(material.emissive.hash ^ id_salt, white_),
   };
-  VkWriteDescriptorSet writes[5];
-  writes[0] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  writes[0].dstSet = set;
-  writes[0].dstBinding = 0;
-  writes[0].descriptorCount = 1;
-  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  writes[0].pBufferInfo = &buffer_info;
-  for (u32 i = 0; i < 4; ++i) {
-    images[i] = {sampler_, maps[i]->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    writes[i + 1] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    writes[i + 1].dstSet = set;
-    writes[i + 1].dstBinding = i + 1;
-    writes[i + 1].descriptorCount = 1;
-    writes[i + 1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[i + 1].pImageInfo = &images[i];
-  }
-  vkUpdateDescriptorSets(device_.device(), 5, writes, 0, nullptr);
+  device_.UpdateBindingSet(set, {Bind::Uniform(0, buffer, offset, sizeof(Params)),
+                                 Bind::Combined(1, maps[0]->view, sampler_),
+                                 Bind::Combined(2, maps[1]->view, sampler_),
+                                 Bind::Combined(3, maps[2]->view, sampler_),
+                                 Bind::Combined(4, maps[3]->view, sampler_)});
   return true;
 }
 
 bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt) {
   u64 key = material.id.hash ^ id_salt;
   if (sets_.find(key)) return true;
-  VkDescriptorSet set = AllocateSet();
-  if (set == VK_NULL_HANDLE) return false;
+  BindingSetHandle set = AllocateSet();
+  if (!set) return false;
   if (!WriteSet(set, sets_in_last_pool_ - 1, material, id_salt)) return false;
   sets_.insert(key, set);
   // Transmissive (glass) materials route to the transparent pass so they can
@@ -461,9 +384,9 @@ bool MaterialSystem::is_mask(u64 material_hash) const {
   return false;
 }
 
-VkDescriptorSet MaterialSystem::set(u64 material_hash) const {
+BindingSetHandle MaterialSystem::set(u64 material_hash) const {
   if (material_hash != 0) {
-    if (const VkDescriptorSet* found = sets_.find(material_hash)) return *found;
+    if (const BindingSetHandle* found = sets_.find(material_hash)) return *found;
   }
   return default_set_;
 }
@@ -474,9 +397,9 @@ MaterialSystem::~MaterialSystem() {
   device_.DestroyImage(white_);
   device_.DestroyImage(flat_normal_);
   for (GpuBuffer& buffer : param_buffers_) device_.DestroyBuffer(buffer);
-  for (VkDescriptorPool pool : pools_) vkDestroyDescriptorPool(device_.device(), pool, nullptr);
-  if (set_layout_) vkDestroyDescriptorSetLayout(device_.device(), set_layout_, nullptr);
-  if (sampler_) vkDestroySampler(device_.device(), sampler_, nullptr);
+  for (auto kv : sets_) device_.DestroyBindingSet(kv.value);
+  if (default_set_) device_.DestroyBindingSet(default_set_);
+  if (set_layout_) device_.DestroyBindingLayout(set_layout_);
 }
 
 }  // namespace rec::render

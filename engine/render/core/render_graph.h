@@ -7,6 +7,7 @@
 #include <base/containers/vector.h>
 
 #include "core/types.h"
+#include "render/rhi/command_list.h"
 #include "render/rhi/resources.h"
 
 namespace rec::render {
@@ -17,9 +18,8 @@ class RenderGraph;
 using ResourceHandle = u32;
 constexpr ResourceHandle kInvalidResource = 0;
 
-// How a pass touches a resource. Each usage maps to exactly one image
-// layout, pipeline stage and access mask, which is all the graph needs to
-// derive barriers.
+// How a pass touches a resource. Each usage maps to exactly one ResourceState
+// (and image usage flag), which is all the graph needs to derive barriers.
 enum class ResourceUsage : u8 {
   kColorAttachment,
   kDepthAttachment,
@@ -31,14 +31,14 @@ enum class ResourceUsage : u8 {
 
 struct TransientTextureDesc {
   std::string name;
-  VkFormat format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  Format format = Format::kRGBA16Float;
   u32 width = 0;
   u32 height = 0;
 };
 
 // Caches images keyed by their description so a steady frame allocates
 // nothing. Contents are not preserved across frames: every acquisition
-// starts in UNDEFINED and the first barrier discards.
+// starts in kUndefined and the first barrier discards.
 class TransientPool {
  public:
   explicit TransientPool(Device& device) : device_(device) {}
@@ -48,7 +48,7 @@ class TransientPool {
   TransientPool& operator=(const TransientPool&) = delete;
 
   void BeginFrame();
-  const GpuImage* Acquire(VkFormat format, VkExtent2D extent, VkImageUsageFlags usage);
+  const GpuImage* Acquire(Format format, Extent2D extent, TextureUsageFlags usage);
 
   // Frees every cached image. Call after WaitIdle, e.g. on resize.
   void Clear();
@@ -56,7 +56,7 @@ class TransientPool {
  private:
   struct Entry {
     GpuImage image;
-    VkImageUsageFlags usage = 0;
+    TextureUsageFlags usage = 0;
     bool in_use = false;
   };
 
@@ -64,17 +64,15 @@ class TransientPool {
   base::Vector<Entry> entries_;
 };
 
-// Handed to pass execute callbacks. Descriptor sets come from a per frame
-// pool owned by the renderer, valid until that frame slot is reused.
+// Handed to pass execute callbacks.
 struct PassContext {
-  VkCommandBuffer cmd = VK_NULL_HANDLE;
+  CommandList* cmd = nullptr;
   Device* device = nullptr;
   RenderGraph* graph = nullptr;
-  std::function<VkDescriptorSet(VkDescriptorSetLayout)> allocate_set;
 };
 
 // Declared per frame, compiled into barriers and executed into the frame
-// command buffer. Passes declare reads and writes with a usage; Compile
+// command list. Passes declare reads and writes with a usage; Compile
 // assigns physical images from the transient pool and derives the image
 // barriers between passes from the declared accesses.
 class RenderGraph {
@@ -94,21 +92,21 @@ class RenderGraph {
 
   ResourceHandle CreateTexture(const TransientTextureDesc& desc);
 
-  // Persistent images (TAA history, swapchain) enter the graph here. The
-  // graph reads the starting layout from *layout and writes the layout the
-  // image is left in back to it, so the owner can re-import next frame.
-  ResourceHandle ImportImage(std::string name, const GpuImage& image, VkImageLayout* layout);
+  // Persistent images (TAA history, path-trace ping-pongs) enter the graph
+  // here. The graph reads the starting state from *state and writes the state
+  // the image is left in back to it, so the owner can re-import next frame.
+  ResourceHandle ImportImage(std::string name, const GpuImage& image, ResourceState* state);
 
   // Imported swapchain image. Contents are discarded on first use and the
-  // graph appends a transition to PRESENT_SRC after the last pass.
+  // graph appends a transition to kPresent after the last pass.
   ResourceHandle ImportBackbuffer(const GpuImage& image);
 
   void AddPass(std::string name, SetupFn setup, ExecuteFn execute);
 
   // Optional per-pass brackets (gpu profiler timestamps + debug labels). Begin
   // runs before the pass barriers, end after the pass executes.
-  using PassBegin = std::function<void(VkCommandBuffer, const char*)>;
-  using PassEnd = std::function<void(VkCommandBuffer)>;
+  using PassBegin = std::function<void(CommandList&, const char*)>;
+  using PassEnd = std::function<void(CommandList&)>;
   void SetPassHooks(PassBegin begin, PassEnd end) {
     pass_begin_ = std::move(begin);
     pass_end_ = std::move(end);
@@ -151,11 +149,9 @@ class RenderGraph {
     GpuImage image;
     bool imported = false;
     bool is_backbuffer = false;
-    VkImageLayout* external_layout = nullptr;
+    ResourceState* external_state = nullptr;
     // Walked during Compile to derive barriers.
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    VkPipelineStageFlags2 last_stage = VK_PIPELINE_STAGE_2_NONE;
-    VkAccessFlags2 last_access = VK_ACCESS_2_NONE;
+    ResourceState state = ResourceState::kUndefined;
     bool last_was_write = false;
   };
 
@@ -163,12 +159,12 @@ class RenderGraph {
     std::string name;
     PassBuilder builder;
     ExecuteFn execute;
-    base::Vector<VkImageMemoryBarrier2> barriers;
+    base::Vector<TextureBarrier> barriers;
   };
 
   base::Vector<Resource> resources_;
   base::Vector<Pass> passes_;
-  base::Vector<VkImageMemoryBarrier2> final_barriers_;
+  base::Vector<TextureBarrier> final_barriers_;
   Stats stats_;
   PassBegin pass_begin_;
   PassEnd pass_end_;

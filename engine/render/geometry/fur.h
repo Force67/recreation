@@ -22,7 +22,7 @@ class FurPass {
     f32 base_color[3] = {0.46f, 0.32f, 0.17f};  // warm brown coat
   };
 
-  bool Initialize(Device& device, VkFormat color_format, VkFormat depth_format);
+  bool Initialize(Device& device, Format color_format, Format depth_format);
   void Destroy(Device& device);
 
   void AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth, const Mat4& model,
@@ -33,8 +33,7 @@ class FurPass {
 
  private:
   static constexpr f32 radius_ = 1.0f;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
   GpuBuffer vertices_;
   GpuBuffer indices_;
   u32 index_count_ = 0;

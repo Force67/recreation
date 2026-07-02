@@ -1,29 +1,33 @@
+#include "rhi_bindings.hlsli"
 // SVGF reconstruction, stage 2: temporal accumulation. Reproject last frame's
 // accumulated irradiance through the motion vector, reject stale history by
 // material id / viewZ / normal, clamp to the current 3x3 neighborhood, and blend.
 // Also tracks luminance moments -> variance + history length for the atrous pass.
 struct ReconTemporalPush {
+  column_major float4x4 prev_view_proj;  // spec: virtual-point reprojection
+  float4 camera_pos;                     // xyz eye
   uint2 size;
   float2 inv_size;
   float current_weight_min;  // floor on the current-frame weight (responsiveness)
   float max_history;         // history length cap (frames)
   float reset;               // 1 = drop all history this frame
-  float pad;
+  uint spec_mode;            // 1 = specular signal: virtual-point reprojection
 };
-[[vk::push_constant]] ReconTemporalPush pc;
+PUSH_CONSTANTS(ReconTemporalPush, pc);
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_accum;
-[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_moments;
-[[vk::binding(2, 0)]] Texture2D<float4> curr_noisy;
-[[vk::binding(3, 0)]] Texture2D<float4> prev_accum;
-[[vk::binding(4, 0)]] Texture2D<float4> curr_nr;
-[[vk::binding(5, 0)]] Texture2D<float4> prev_nr;
-[[vk::binding(6, 0)]] Texture2D<float> curr_viewz;
-[[vk::binding(7, 0)]] Texture2D<float> prev_viewz;
-[[vk::binding(8, 0)]] Texture2D<float2> motion;
-[[vk::binding(9, 0)]] Texture2D<uint> curr_matid;
-[[vk::binding(10, 0)]] Texture2D<uint> prev_matid;
-[[vk::binding(11, 0)]] Texture2D<float4> prev_moments;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_accum : register(u0, space0);
+[[vk::binding(1, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_moments : register(u1, space0);
+[[vk::binding(2, 0)]] Texture2D<float4> curr_noisy : register(t2, space0);
+[[vk::binding(3, 0)]] Texture2D<float4> prev_accum : register(t3, space0);
+[[vk::binding(4, 0)]] Texture2D<float4> curr_nr : register(t4, space0);
+[[vk::binding(5, 0)]] Texture2D<float4> prev_nr : register(t5, space0);
+[[vk::binding(6, 0)]] Texture2D<float> curr_viewz : register(t6, space0);
+[[vk::binding(7, 0)]] Texture2D<float> prev_viewz : register(t7, space0);
+[[vk::binding(8, 0)]] Texture2D<float2> motion : register(t8, space0);
+[[vk::binding(9, 0)]] Texture2D<uint> curr_matid : register(t9, space0);
+[[vk::binding(10, 0)]] Texture2D<uint> prev_matid : register(t10, space0);
+[[vk::binding(11, 0)]] Texture2D<float4> prev_moments : register(t11, space0);
+[[vk::binding(12, 0)]] Texture2D<float4> primary_pos : register(t12, space0);  // .w 0 = sky
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 DecodeN(float4 nr) { return normalize(nr.xyz * 2.0 - 1.0); }
@@ -36,7 +40,10 @@ bool ValidateHistory(int2 cp, int2 pp) {
   if (cm == 0xffffffffu || pm == 0xffffffffu || cm != pm) return false;
   float cz = curr_viewz.Load(int3(cp, 0));
   float pz = prev_viewz.Load(int3(pp, 0));
-  if (abs(cz - pz) / max(cz, 1.0) > 0.03) return false;
+  // Specular virtual reprojection lands on a DIFFERENT point of the same
+  // reflector, so its depth naturally differs; matid + normal carry the test.
+  float z_tolerance = pc.spec_mode != 0u ? 0.2 : 0.03;
+  if (abs(cz - pz) / max(cz, 1.0) > z_tolerance) return false;
   float3 cn = DecodeN(curr_nr.Load(int3(cp, 0)));
   float3 pn = DecodeN(prev_nr.Load(int3(pp, 0)));
   if (dot(cn, pn) < 0.9) return false;
@@ -52,6 +59,27 @@ void main(uint3 tid : SV_DispatchThreadID) {
 
   float2 uv = (float2(p) + 0.5) * pc.inv_size;
   float2 prev_uv = uv + motion.Load(int3(p, 0));
+
+  // Specular: a reflection's image moves with its VIRTUAL point (the sample
+  // mirrored behind the reflector at primary distance + reflection hit
+  // distance), not with the surface. Reproject that point with last frame's
+  // camera and blend toward plain surface motion as roughness widens the lobe
+  // (a rough "reflection" is diffuse-like and tracks the surface).
+  if (pc.spec_mode != 0u) {
+    float4 prim = primary_pos.Load(int3(p, 0));
+    float hit_t = curr_noisy.Load(int3(p, 0)).a;  // gbuffer packs reflection hit distance
+    if (prim.w != 0.0 && hit_t > 0.0) {
+      float3 view_vec = prim.xyz - pc.camera_pos.xyz;
+      float view_d = max(length(view_vec), 1e-4);
+      float3 virtual_pos = pc.camera_pos.xyz + view_vec / view_d * (view_d + hit_t);
+      float4 clip = mul(pc.prev_view_proj, float4(virtual_pos, 1.0));
+      if (clip.w > 1e-4) {
+        float2 virtual_uv = (clip.xy / clip.w) * 0.5 + 0.5;  // engine convention, no y-flip
+        float rough = curr_nr.Load(int3(p, 0)).a;
+        prev_uv = lerp(virtual_uv, prev_uv, smoothstep(0.15, 0.5, rough));
+      }
+    }
+  }
 
   // Bilinear reprojection: gather the 2x2 prev texels around the (sub-pixel)
   // history sample, weighting by the bilinear fraction AND per-tap validity, so

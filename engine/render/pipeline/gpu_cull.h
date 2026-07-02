@@ -11,7 +11,7 @@ class Device;
 
 // GPU-driven frustum culling for the opaque passes. Each frame the renderer
 // fills a per-instance buffer (model + bounds) and a parallel indirect-command
-// buffer (one VkDrawIndexedIndirectCommand per opaque submesh, instanceCount
+// buffer (one indexed indirect draw command per opaque submesh, instanceCount
 // pre-set to 1). A compute pass tests every instance's world bounding sphere
 // against the camera frustum and zeroes the instanceCount of culled draws, so
 // the prepass and scene issue them as indirect draws and the gpu skips the
@@ -28,7 +28,8 @@ class GpuCull {
     u32 cull_disabled = 0;
     u32 pad = 0;
   };
-  // Matches VkDrawIndexedIndirectCommand.
+  // Matches the indexed indirect draw command layout
+  // (VkDrawIndexedIndirectCommand / D3D12_DRAW_INDEXED_ARGUMENTS).
   struct Command {
     u32 index_count = 0;
     u32 instance_count = 1;
@@ -45,13 +46,13 @@ class GpuCull {
   static constexpr u32 kMaxCommands = 1u << 18;   // 262144 opaque submeshes
   static constexpr u32 kMaxInstances = 1u << 17;  // 131072 draws
 
-  bool Initialize(Device& device, VkFormat color_format);
+  bool Initialize(Device& device, Format color_format);
   void Destroy(Device& device);
 
   // Begins filling the frame slot's buffers; returns mapped spans to append to.
   Instance* instances(u32 slot);
   Command* commands(u32 slot);
-  VkBuffer command_buffer(u32 slot) const { return commands_[slot].buffer; }
+  const GpuBuffer& command_buffer(u32 slot) const { return commands_[slot]; }
   static constexpr u32 kCommandStride = sizeof(Command);
 
   // (Re)creates the ping-pong depth snapshots and the hi-z reduce; call on init
@@ -85,14 +86,10 @@ class GpuCull {
 
  private:
   static constexpr u32 kFramesInFlight = 2;
-  bool CreateBoundsPipeline(Device& device, VkFormat color_format);
+  bool CreateBoundsPipeline(Device& device, Format color_format);
 
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout bounds_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout bounds_layout_ = VK_NULL_HANDLE;
-  VkPipeline bounds_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
+  PipelineHandle bounds_pipeline_;
   GpuBuffer instances_[kFramesInFlight];
   GpuBuffer commands_[kFramesInFlight];
   GpuBuffer counts_[kFramesInFlight];
@@ -100,12 +97,10 @@ class GpuCull {
   // Occlusion culling: ping-pong full-res depth snapshots + a coarse hi-z reduce.
   static constexpr u32 kHizDownsample = 8;
   GpuImage prev_depth_[kFramesInFlight];
-  VkImageLayout prev_depth_layout_[kFramesInFlight] = {VK_IMAGE_LAYOUT_UNDEFINED,
-                                                       VK_IMAGE_LAYOUT_UNDEFINED};
+  ResourceState prev_depth_state_[kFramesInFlight] = {ResourceState::kUndefined,
+                                                      ResourceState::kUndefined};
   u32 depth_w_ = 0, depth_h_ = 0, hiz_w_ = 0, hiz_h_ = 0;
-  VkDescriptorSetLayout hiz_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout hiz_layout_ = VK_NULL_HANDLE;
-  VkPipeline hiz_pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle hiz_pipeline_;
 };
 
 }  // namespace rec::render

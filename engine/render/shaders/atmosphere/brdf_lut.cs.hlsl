@@ -1,12 +1,13 @@
+#include "rhi_bindings.hlsli"
 // Split-sum BRDF integration LUT (Karis), generated once at startup.
 // x: ndv, y: roughness; output scale and bias for f0.
 
-[[vk::image_format("rg16f")]] [[vk::binding(0, 0)]] RWTexture2D<float2> lut;
+[[vk::image_format("rg16f")]] [[vk::binding(0, 0)]] RWTexture2D<float2> lut : register(u0, space0);
 
 struct PushData {
   float size;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 static const float kPi = 3.14159265359;
 static const uint kSamples = 1024;

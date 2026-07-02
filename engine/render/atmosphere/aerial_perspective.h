@@ -33,14 +33,12 @@ class AerialPerspective {
   // sampling the atmosphere LUTs; returns the result. `transmittance` and
   // `multiscatter` are the EnvironmentSystem LUT views.
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                            VkImageView transmittance, VkImageView multiscatter, VkExtent2D extent,
+                            TextureView transmittance, TextureView multiscatter, Extent2D extent,
                             const Frame& frame);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkSampler sampler_ = VK_NULL_HANDLE;  // linear clamp, for the LUTs
+  PipelineHandle pipeline_;
+  SamplerHandle sampler_;  // linear clamp, for the LUTs
 };
 
 }  // namespace rec::render

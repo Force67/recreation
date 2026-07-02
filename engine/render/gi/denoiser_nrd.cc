@@ -4,6 +4,7 @@
 
 #include "core/log.h"
 #include "render/rhi/device.h"
+#include "render/rhi/vulkan_interop.h"
 #include "render/util/shader_util.h"
 #include "shaders/nrd_pack_cs_hlsl.h"
 
@@ -24,32 +25,32 @@ struct PackPush {
   f32 pad[2];
 };
 
-VkFormat ToVkFormat(nrd::Format format) {
+Format ToFormat(nrd::Format format) {
   switch (format) {
-    case nrd::Format::R8_UNORM: return VK_FORMAT_R8_UNORM;
-    case nrd::Format::R8_SNORM: return VK_FORMAT_R8_SNORM;
-    case nrd::Format::R8_UINT: return VK_FORMAT_R8_UINT;
-    case nrd::Format::RG8_UNORM: return VK_FORMAT_R8G8_UNORM;
-    case nrd::Format::RGBA8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
-    case nrd::Format::RGBA8_SNORM: return VK_FORMAT_R8G8B8A8_SNORM;
-    case nrd::Format::R16_UNORM: return VK_FORMAT_R16_UNORM;
-    case nrd::Format::R16_SNORM: return VK_FORMAT_R16_SNORM;
-    case nrd::Format::R16_UINT: return VK_FORMAT_R16_UINT;
-    case nrd::Format::R16_SFLOAT: return VK_FORMAT_R16_SFLOAT;
-    case nrd::Format::RG16_UNORM: return VK_FORMAT_R16G16_UNORM;
-    case nrd::Format::RG16_SNORM: return VK_FORMAT_R16G16_SNORM;
-    case nrd::Format::RG16_SFLOAT: return VK_FORMAT_R16G16_SFLOAT;
-    case nrd::Format::RGBA16_UNORM: return VK_FORMAT_R16G16B16A16_UNORM;
-    case nrd::Format::RGBA16_SNORM: return VK_FORMAT_R16G16B16A16_SNORM;
-    case nrd::Format::RGBA16_SFLOAT: return VK_FORMAT_R16G16B16A16_SFLOAT;
-    case nrd::Format::R32_UINT: return VK_FORMAT_R32_UINT;
-    case nrd::Format::R32_SFLOAT: return VK_FORMAT_R32_SFLOAT;
-    case nrd::Format::RG32_SFLOAT: return VK_FORMAT_R32G32_SFLOAT;
-    case nrd::Format::RGBA32_SFLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
-    case nrd::Format::R10_G10_B10_A2_UNORM: return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
-    case nrd::Format::R11_G11_B10_UFLOAT: return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
-    case nrd::Format::R9_G9_B9_E5_UFLOAT: return VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
-    default: return VK_FORMAT_UNDEFINED;
+    case nrd::Format::R8_UNORM: return Format::kR8Unorm;
+    case nrd::Format::R8_SNORM: return Format::kR8Snorm;
+    case nrd::Format::R8_UINT: return Format::kR8Uint;
+    case nrd::Format::RG8_UNORM: return Format::kRG8Unorm;
+    case nrd::Format::RGBA8_UNORM: return Format::kRGBA8Unorm;
+    case nrd::Format::RGBA8_SNORM: return Format::kRGBA8Snorm;
+    case nrd::Format::R16_UNORM: return Format::kR16Unorm;
+    case nrd::Format::R16_SNORM: return Format::kR16Snorm;
+    case nrd::Format::R16_UINT: return Format::kR16Uint;
+    case nrd::Format::R16_SFLOAT: return Format::kR16Float;
+    case nrd::Format::RG16_UNORM: return Format::kRG16Unorm;
+    case nrd::Format::RG16_SNORM: return Format::kRG16Snorm;
+    case nrd::Format::RG16_SFLOAT: return Format::kRG16Float;
+    case nrd::Format::RGBA16_UNORM: return Format::kRGBA16Unorm;
+    case nrd::Format::RGBA16_SNORM: return Format::kRGBA16Snorm;
+    case nrd::Format::RGBA16_SFLOAT: return Format::kRGBA16Float;
+    case nrd::Format::R32_UINT: return Format::kR32Uint;
+    case nrd::Format::R32_SFLOAT: return Format::kR32Float;
+    case nrd::Format::RG32_SFLOAT: return Format::kRG32Float;
+    case nrd::Format::RGBA32_SFLOAT: return Format::kRGBA32Float;
+    case nrd::Format::R10_G10_B10_A2_UNORM: return Format::kRGB10A2Unorm;
+    case nrd::Format::R11_G11_B10_UFLOAT: return Format::kRG11B10Float;
+    case nrd::Format::R9_G9_B9_E5_UFLOAT: return Format::kRGB9E5Float;
+    default: return Format::kUnknown;
   }
 }
 
@@ -59,8 +60,14 @@ void CopyMatrix(float (&dst)[16], const Mat4& m) {
 
 }  // namespace
 
-bool NrdDenoiser::Initialize(Device& device, VkExtent2D extent) {
+bool NrdDenoiser::Initialize(Device& device, Extent2D extent) {
   device_ = &device;
+  VulkanHandles h = GetVulkanHandles(device);
+  if (h.device == VK_NULL_HANDLE) {
+    REC_WARN("nrd: requires the vulkan backend, denoiser unavailable");
+    return false;
+  }
+  vk_device_ = h.device;
 
   const nrd::DenoiserDesc denoiser_descs[] = {
       {kAoIdentifier, nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION},
@@ -84,7 +91,7 @@ bool NrdDenoiser::Initialize(Device& device, VkExtent2D extent) {
   resource_base_register_ = desc.resourcesBaseRegisterIndex;
   sampler_num_ = desc.samplersNum;
 
-  if (!CreatePipelines(device) || !CreatePackPipeline(device)) {
+  if (!CreatePipelines(device) || !CreatePackPipeline(device) || !CreateDescriptorPools()) {
     Destroy(device);
     return false;
   }
@@ -107,7 +114,7 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
     info.magFilter = info.minFilter = i == 0 ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     info.maxLod = VK_LOD_CLAMP_NONE;
-    if (vkCreateSampler(device.device(), &info, nullptr, &samplers_[i]) != VK_SUCCESS) return false;
+    if (vkCreateSampler(vk_device_, &info, nullptr, &samplers_[i]) != VK_SUCCESS) return false;
   }
 
   // Shared set: one dynamic constant buffer + the immutable samplers.
@@ -132,7 +139,7 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     info.bindingCount = static_cast<u32>(bindings.size());
     info.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device.device(), &info, nullptr, &const_set_layout_) !=
+    if (vkCreateDescriptorSetLayout(vk_device_, &info, nullptr, &const_set_layout_) !=
         VK_SUCCESS) {
       return false;
     }
@@ -170,7 +177,7 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     set_info.bindingCount = static_cast<u32>(bindings.size());
     set_info.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &out.resource_set_layout) !=
+    if (vkCreateDescriptorSetLayout(vk_device_, &set_info, nullptr, &out.resource_set_layout) !=
         VK_SUCCESS) {
       return false;
     }
@@ -183,12 +190,12 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
     VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layout_info.setLayoutCount = static_cast<u32>(set_layouts.size());
     layout_info.pSetLayouts = set_layouts.data();
-    if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &out.layout) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(vk_device_, &layout_info, nullptr, &out.layout) != VK_SUCCESS) {
       return false;
     }
 
     VkShaderModule module = CreateShaderModule(
-        device.device(), static_cast<const unsigned char*>(pd.computeShaderSPIRV.bytecode),
+        vk_device_, static_cast<const unsigned char*>(pd.computeShaderSPIRV.bytecode),
         pd.computeShaderSPIRV.size);
     if (module == VK_NULL_HANDLE) return false;
     VkComputePipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -198,8 +205,8 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
     info.stage.pName = desc.shaderEntryPoint;
     info.layout = out.layout;
     VkResult result =
-        vkCreateComputePipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &out.pipeline);
-    vkDestroyShaderModule(device.device(), module, nullptr);
+        vkCreateComputePipelines(vk_device_, VK_NULL_HANDLE, 1, &info, nullptr, &out.pipeline);
+    vkDestroyShaderModule(vk_device_, module, nullptr);
     if (result != VK_SUCCESS) return false;
   }
 
@@ -210,11 +217,12 @@ bool NrdDenoiser::CreatePipelines(Device& device) {
   constant_slot_size_ = (d.constantBufferMaxDataSize + align - 1) & ~(align - 1);
   constant_slot_count_ = 64;
   constant_ring_ = device.CreateBuffer(constant_slot_size_ * constant_slot_count_ * 2,
-                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true);
-  return constant_ring_.buffer != VK_NULL_HANDLE;
+                                       kBufferUsageUniform, true);
+  return static_cast<bool>(constant_ring_);
 }
 
 bool NrdDenoiser::CreatePackPipeline(Device& device) {
+  (void)device;
   // bindings: 0 = normal_roughness (UAV), 1 = viewZ (UAV), 2 = normals, 3 = depth.
   VkDescriptorSetLayoutBinding bindings[4]{};
   for (u32 i = 0; i < 4; ++i) {
@@ -228,7 +236,7 @@ bool NrdDenoiser::CreatePackPipeline(Device& device) {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   set_info.bindingCount = 4;
   set_info.pBindings = bindings;
-  if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &pack_set_layout_) !=
+  if (vkCreateDescriptorSetLayout(vk_device_, &set_info, nullptr, &pack_set_layout_) !=
       VK_SUCCESS) {
     return false;
   }
@@ -238,11 +246,11 @@ bool NrdDenoiser::CreatePackPipeline(Device& device) {
   layout_info.pSetLayouts = &pack_set_layout_;
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push;
-  if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &pack_layout_) != VK_SUCCESS) {
+  if (vkCreatePipelineLayout(vk_device_, &layout_info, nullptr, &pack_layout_) != VK_SUCCESS) {
     return false;
   }
   VkShaderModule module =
-      CreateShaderModule(device.device(), k_nrd_pack_cs_hlsl, sizeof(k_nrd_pack_cs_hlsl));
+      CreateShaderModule(vk_device_, k_nrd_pack_cs_hlsl, sizeof(k_nrd_pack_cs_hlsl));
   if (module == VK_NULL_HANDLE) return false;
   VkComputePipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
   info.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -251,9 +259,45 @@ bool NrdDenoiser::CreatePackPipeline(Device& device) {
   info.stage.pName = "main";
   info.layout = pack_layout_;
   VkResult result =
-      vkCreateComputePipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pack_pipeline_);
-  vkDestroyShaderModule(device.device(), module, nullptr);
+      vkCreateComputePipelines(vk_device_, VK_NULL_HANDLE, 1, &info, nullptr, &pack_pipeline_);
+  vkDestroyShaderModule(vk_device_, module, nullptr);
   return result == VK_SUCCESS;
+}
+
+// The render graph's PassContext no longer hands out descriptor sets, so the
+// denoiser owns its own pools: one per frame parity (matching the constant
+// ring), reset in SetFrame before the frame's passes allocate from it. Sized
+// for the worst case dispatch count the constant ring assumes (64), each
+// dispatch with a resource set of up to 32 images, plus one shared
+// constant+samplers set per denoise pass and the pack pass set.
+bool NrdDenoiser::CreateDescriptorPools() {
+  const VkDescriptorPoolSize sizes[] = {
+      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 2048},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2048},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 16},
+      {VK_DESCRIPTOR_TYPE_SAMPLER, 64},
+  };
+  VkDescriptorPoolCreateInfo info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  info.maxSets = 128;
+  info.poolSizeCount = static_cast<u32>(sizeof(sizes) / sizeof(sizes[0]));
+  info.pPoolSizes = sizes;
+  for (VkDescriptorPool& pool : descriptor_pools_) {
+    if (vkCreateDescriptorPool(vk_device_, &info, nullptr, &pool) != VK_SUCCESS) return false;
+  }
+  return true;
+}
+
+VkDescriptorSet NrdDenoiser::AllocateSet(VkDescriptorSetLayout layout) {
+  VkDescriptorSetAllocateInfo info{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  info.descriptorPool = descriptor_pools_[pool_parity_];
+  info.descriptorSetCount = 1;
+  info.pSetLayouts = &layout;
+  VkDescriptorSet set = VK_NULL_HANDLE;
+  if (vkAllocateDescriptorSets(vk_device_, &info, &set) != VK_SUCCESS) {
+    REC_ERROR("nrd: descriptor set allocation failed (pool exhausted)");
+    return VK_NULL_HANDLE;
+  }
+  return set;
 }
 
 NrdDenoiser::Inputs NrdDenoiser::PrepareInputs(RenderGraph& graph, ResourceHandle depth,
@@ -273,15 +317,16 @@ NrdDenoiser::Inputs NrdDenoiser::PrepareInputs(RenderGraph& graph, ResourceHandl
         builder.Write(inputs.view_z, ResourceUsage::kStorageWrite);
       },
       [this, depth, normals, inputs, near_plane](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(pack_set_layout_);
+        VkCommandBuffer vk_cmd = GetVkCommandBuffer(*ctx.cmd);
+        VkDescriptorSet set = AllocateSet(pack_set_layout_);
         VkDescriptorImageInfo images[4]{};
-        images[0] = {.imageView = ctx.graph->image(inputs.normal_roughness).view,
+        images[0] = {.imageView = GetVkImageView(ctx.graph->image(inputs.normal_roughness).view),
                      .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-        images[1] = {.imageView = ctx.graph->image(inputs.view_z).view,
+        images[1] = {.imageView = GetVkImageView(ctx.graph->image(inputs.view_z).view),
                      .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-        images[2] = {.imageView = ctx.graph->image(normals).view,
+        images[2] = {.imageView = GetVkImageView(ctx.graph->image(normals).view),
                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        images[3] = {.imageView = ctx.graph->image(depth).view,
+        images[3] = {.imageView = GetVkImageView(ctx.graph->image(depth).view),
                      .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet writes[4];
         for (u32 i = 0; i < 4; ++i) {
@@ -293,93 +338,79 @@ NrdDenoiser::Inputs NrdDenoiser::PrepareInputs(RenderGraph& graph, ResourceHandl
               i < 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
           writes[i].pImageInfo = &images[i];
         }
-        vkUpdateDescriptorSets(ctx.device->device(), 4, writes, 0, nullptr);
+        vkUpdateDescriptorSets(vk_device_, 4, writes, 0, nullptr);
 
         PackPush push{near_plane, kDenoisingRange, {0, 0}};
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pack_pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pack_layout_, 0, 1, &set, 0,
+        vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pack_pipeline_);
+        vkCmdBindDescriptorSets(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pack_layout_, 0, 1, &set, 0,
                                 nullptr);
-        vkCmdPushConstants(ctx.cmd, pack_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push),
+        vkCmdPushConstants(vk_cmd, pack_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push),
                            &push);
-        vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
+        vkCmdDispatch(vk_cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
       });
   return inputs;
 }
 
-void NrdDenoiser::CreatePools(Device& device, VkExtent2D extent) {
+void NrdDenoiser::CreatePools(Device& device, Extent2D extent) {
   extent_ = extent;
   const nrd::InstanceDesc& desc = *nrd::GetInstanceDesc(*instance_);
 
   auto make_pool = [&](const nrd::TextureDesc* descs, u32 count, base::Vector<PoolTexture>& out) {
     out.resize(count);
     for (u32 i = 0; i < count; ++i) {
-      VkExtent2D e{extent.width / (descs[i].downsampleFactor ? descs[i].downsampleFactor : 1),
-                   extent.height / (descs[i].downsampleFactor ? descs[i].downsampleFactor : 1)};
+      Extent2D e{extent.width / (descs[i].downsampleFactor ? descs[i].downsampleFactor : 1),
+                 extent.height / (descs[i].downsampleFactor ? descs[i].downsampleFactor : 1)};
       if (e.width == 0) e.width = 1;
       if (e.height == 0) e.height = 1;
-      out[i].image = device.CreateImage2D(ToVkFormat(descs[i].format), e,
-                                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-                                          VK_IMAGE_ASPECT_COLOR_BIT);
+      out[i].image = device.CreateImage2D(ToFormat(descs[i].format), e,
+                                          kTextureUsageSampled | kTextureUsageStorage);
       out[i].layout = VK_IMAGE_LAYOUT_UNDEFINED;
     }
   };
   make_pool(desc.permanentPool, desc.permanentPoolSize, permanent_);
   make_pool(desc.transientPool, desc.transientPoolSize, transient_);
 
-  auto make_output = [&](VkFormat format) {
+  auto make_output = [&](Format format) {
     PoolTexture t{};
-    t.image = device.CreateImage2D(format, extent,
-                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-                                   VK_IMAGE_ASPECT_COLOR_BIT);
+    t.image = device.CreateImage2D(format, extent, kTextureUsageSampled | kTextureUsageStorage);
     t.layout = VK_IMAGE_LAYOUT_UNDEFINED;
     return t;
   };
   out_ao_ = make_output(kHitDistFormat);
   out_shadow_ = make_output(kShadowFormat);
   out_diffuse_ = make_output(kDiffuseRadianceFormat);
-  out_ao_layout_ = VK_IMAGE_LAYOUT_GENERAL;
-  out_shadow_layout_ = VK_IMAGE_LAYOUT_GENERAL;
-  out_diffuse_layout_ = VK_IMAGE_LAYOUT_GENERAL;
+  out_ao_state_ = ResourceState::kGeneral;
+  out_shadow_state_ = ResourceState::kGeneral;
+  out_diffuse_state_ = ResourceState::kGeneral;
 
   // Prime every owned texture into GENERAL so the first dispatch barrier has a
   // defined source layout.
-  device.ImmediateSubmit([&](VkCommandBuffer cmd) {
-    base::Vector<VkImageMemoryBarrier2> barriers;
-    auto add = [&](VkImage image) {
-      VkImageMemoryBarrier2 b{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      b.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-      b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-      b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-      b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      b.image = image;
-      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      barriers.push_back(b);
+  device.ImmediateSubmit([&](CommandList& cmd) {
+    base::Vector<TextureBarrier> barriers;
+    auto add = [&](PoolTexture& t) {
+      barriers.push_back(Transition(t.image, ResourceState::kUndefined, ResourceState::kGeneral));
+      t.layout = VK_IMAGE_LAYOUT_GENERAL;
     };
-    for (auto& t : permanent_) { add(t.image.image); t.layout = VK_IMAGE_LAYOUT_GENERAL; }
-    for (auto& t : transient_) { add(t.image.image); t.layout = VK_IMAGE_LAYOUT_GENERAL; }
-    add(out_ao_.image.image);
-    add(out_shadow_.image.image);
-    add(out_diffuse_.image.image);
-    out_ao_.layout = out_shadow_.layout = out_diffuse_.layout = VK_IMAGE_LAYOUT_GENERAL;
-    VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
-    dep.pImageMemoryBarriers = barriers.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
+    for (auto& t : permanent_) add(t);
+    for (auto& t : transient_) add(t);
+    add(out_ao_);
+    add(out_shadow_);
+    add(out_diffuse_);
+    cmd.TextureBarriers({barriers.data(), barriers.size()});
   });
 }
 
 void NrdDenoiser::DestroyPools(Device& device) {
-  for (auto& t : permanent_) if (t.image.image) device.DestroyImage(t.image);
-  for (auto& t : transient_) if (t.image.image) device.DestroyImage(t.image);
+  for (auto& t : permanent_) if (t.image) device.DestroyImage(t.image);
+  for (auto& t : transient_) if (t.image) device.DestroyImage(t.image);
   permanent_.clear();
   transient_.clear();
-  if (out_ao_.image.image) device.DestroyImage(out_ao_.image);
-  if (out_shadow_.image.image) device.DestroyImage(out_shadow_.image);
-  if (out_diffuse_.image.image) device.DestroyImage(out_diffuse_.image);
+  if (out_ao_.image) device.DestroyImage(out_ao_.image);
+  if (out_shadow_.image) device.DestroyImage(out_shadow_.image);
+  if (out_diffuse_.image) device.DestroyImage(out_diffuse_.image);
 }
 
-void NrdDenoiser::Resize(Device& device, VkExtent2D extent) {
+void NrdDenoiser::Resize(Device& device, Extent2D extent) {
   DestroyPools(device);
   CreatePools(device, extent);
 }
@@ -387,25 +418,29 @@ void NrdDenoiser::Resize(Device& device, VkExtent2D extent) {
 void NrdDenoiser::Destroy(Device& device) {
   DestroyPools(device);
   for (Pipeline& p : pipelines_) {
-    if (p.pipeline) vkDestroyPipeline(device.device(), p.pipeline, nullptr);
-    if (p.layout) vkDestroyPipelineLayout(device.device(), p.layout, nullptr);
+    if (p.pipeline) vkDestroyPipeline(vk_device_, p.pipeline, nullptr);
+    if (p.layout) vkDestroyPipelineLayout(vk_device_, p.layout, nullptr);
     if (p.resource_set_layout)
-      vkDestroyDescriptorSetLayout(device.device(), p.resource_set_layout, nullptr);
+      vkDestroyDescriptorSetLayout(vk_device_, p.resource_set_layout, nullptr);
   }
   pipelines_.clear();
-  if (pack_pipeline_) vkDestroyPipeline(device.device(), pack_pipeline_, nullptr);
-  if (pack_layout_) vkDestroyPipelineLayout(device.device(), pack_layout_, nullptr);
-  if (pack_set_layout_) vkDestroyDescriptorSetLayout(device.device(), pack_set_layout_, nullptr);
+  if (pack_pipeline_) vkDestroyPipeline(vk_device_, pack_pipeline_, nullptr);
+  if (pack_layout_) vkDestroyPipelineLayout(vk_device_, pack_layout_, nullptr);
+  if (pack_set_layout_) vkDestroyDescriptorSetLayout(vk_device_, pack_set_layout_, nullptr);
   pack_pipeline_ = VK_NULL_HANDLE;
   pack_layout_ = VK_NULL_HANDLE;
   pack_set_layout_ = VK_NULL_HANDLE;
-  if (const_set_layout_) vkDestroyDescriptorSetLayout(device.device(), const_set_layout_, nullptr);
+  if (const_set_layout_) vkDestroyDescriptorSetLayout(vk_device_, const_set_layout_, nullptr);
   const_set_layout_ = VK_NULL_HANDLE;
+  for (VkDescriptorPool& pool : descriptor_pools_) {
+    if (pool) vkDestroyDescriptorPool(vk_device_, pool, nullptr);
+    pool = VK_NULL_HANDLE;
+  }
   for (VkSampler& s : samplers_) {
-    if (s) vkDestroySampler(device.device(), s, nullptr);
+    if (s) vkDestroySampler(vk_device_, s, nullptr);
     s = VK_NULL_HANDLE;
   }
-  if (constant_ring_.buffer) device.DestroyBuffer(constant_ring_);
+  if (constant_ring_) device.DestroyBuffer(constant_ring_);
   if (instance_) {
     nrd::DestroyInstance(*instance_);
     instance_ = nullptr;
@@ -471,6 +506,12 @@ void NrdDenoiser::SetFrame(const FrameSettings& settings) {
   nrd::SetDenoiserSettings(*instance_, kShadowIdentifier, &sigma);
 
   constant_cursor_ = (settings.frame_index & 1u) * constant_slot_count_;
+  // Descriptor sets follow the same frame parity as the constant ring: the
+  // other parity's sets may still be in flight, this parity's were consumed
+  // two frames ago. SetFrame runs at graph-build time, before any of this
+  // frame's passes execute (and allocate).
+  pool_parity_ = settings.frame_index & 1u;
+  vkResetDescriptorPool(vk_device_, descriptor_pools_[pool_parity_], 0);
 }
 
 ResourceHandle NrdDenoiser::DenoiseAo(RenderGraph& graph, ResourceHandle normal_roughness,
@@ -479,7 +520,7 @@ ResourceHandle NrdDenoiser::DenoiseAo(RenderGraph& graph, ResourceHandle normal_
   return AddDenoisePass(graph, kAoIdentifier, "nrd_ao", normal_roughness, view_z, motion, in_hitdist,
                         static_cast<int>(nrd::ResourceType::IN_DIFF_HITDIST), out_ao_,
                         static_cast<int>(nrd::ResourceType::OUT_DIFF_HITDIST), "nrd_ao_out",
-                        &out_ao_layout_);
+                        &out_ao_state_);
 }
 
 ResourceHandle NrdDenoiser::DenoiseShadow(RenderGraph& graph, ResourceHandle normal_roughness,
@@ -488,7 +529,7 @@ ResourceHandle NrdDenoiser::DenoiseShadow(RenderGraph& graph, ResourceHandle nor
   return AddDenoisePass(graph, kShadowIdentifier, "nrd_shadow", normal_roughness, view_z, motion,
                         in_penumbra, static_cast<int>(nrd::ResourceType::IN_PENUMBRA), out_shadow_,
                         static_cast<int>(nrd::ResourceType::OUT_SHADOW_TRANSLUCENCY),
-                        "nrd_shadow_out", &out_shadow_layout_);
+                        "nrd_shadow_out", &out_shadow_state_);
 }
 
 ResourceHandle NrdDenoiser::DenoiseDiffuse(RenderGraph& graph, ResourceHandle normal_roughness,
@@ -498,15 +539,15 @@ ResourceHandle NrdDenoiser::DenoiseDiffuse(RenderGraph& graph, ResourceHandle no
                         in_radiance_hitdist,
                         static_cast<int>(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST), out_diffuse_,
                         static_cast<int>(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST),
-                        "nrd_diffuse_out", &out_diffuse_layout_);
+                        "nrd_diffuse_out", &out_diffuse_state_);
 }
 
 ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, const char* pass_name,
                                            ResourceHandle normal_roughness, ResourceHandle view_z,
                                            ResourceHandle motion, ResourceHandle noisy,
                                            int noisy_type, PoolTexture& output, int output_type,
-                                           const char* output_name, VkImageLayout* output_layout) {
-  ResourceHandle out_handle = graph.ImportImage(output_name, output.image, output_layout);
+                                           const char* output_name, ResourceState* output_state) {
+  ResourceHandle out_handle = graph.ImportImage(output_name, output.image, output_state);
   graph.AddPass(
       pass_name,
       [&](RenderGraph::PassBuilder& builder) {
@@ -519,16 +560,16 @@ ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, c
       [this, identifier, normal_roughness, view_z, motion, noisy, noisy_type, &output, output_type](
           PassContext& ctx) {
         for (auto& b : bindings_) b = {};
-        bindings_[static_cast<int>(nrd::ResourceType::IN_MV)] = {ctx.graph->image(motion).view,
-                                                                 nullptr};
+        bindings_[static_cast<int>(nrd::ResourceType::IN_MV)] = {
+            GetVkImageView(ctx.graph->image(motion).view), nullptr};
         bindings_[static_cast<int>(nrd::ResourceType::IN_NORMAL_ROUGHNESS)] = {
-            ctx.graph->image(normal_roughness).view, nullptr};
-        bindings_[static_cast<int>(nrd::ResourceType::IN_VIEWZ)] = {ctx.graph->image(view_z).view,
-                                                                    nullptr};
-        bindings_[noisy_type] = {ctx.graph->image(noisy).view, nullptr};
+            GetVkImageView(ctx.graph->image(normal_roughness).view), nullptr};
+        bindings_[static_cast<int>(nrd::ResourceType::IN_VIEWZ)] = {
+            GetVkImageView(ctx.graph->image(view_z).view), nullptr};
+        bindings_[noisy_type] = {GetVkImageView(ctx.graph->image(noisy).view), nullptr};
         // The graph leaves the imported output in GENERAL before the pass.
         output.layout = VK_IMAGE_LAYOUT_GENERAL;
-        bindings_[output_type] = {output.image.view, &output};
+        bindings_[output_type] = {GetVkImageView(output.image.view), &output};
         RecordDispatches(ctx, identifier);
         // Hand the output back to the graph in GENERAL (its kStorageWrite state).
         if (output.layout != VK_IMAGE_LAYOUT_GENERAL) {
@@ -538,12 +579,12 @@ ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, c
           b.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
           b.oldLayout = output.layout;
           b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-          b.image = output.image.image;
+          b.image = GetVkImage(output.image);
           b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
           VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
           dep.imageMemoryBarrierCount = 1;
           dep.pImageMemoryBarriers = &b;
-          vkCmdPipelineBarrier2(ctx.cmd, &dep);
+          vkCmdPipelineBarrier2(GetVkCommandBuffer(*ctx.cmd), &dep);
           output.layout = VK_IMAGE_LAYOUT_GENERAL;
         }
       });
@@ -559,12 +600,13 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
   }
 
   const nrd::SPIRVBindingOffsets& off = nrd::GetLibraryDesc()->spirvBindingOffsets;
-  VkDevice dev = ctx.device->device();
+  VkCommandBuffer vk_cmd = GetVkCommandBuffer(*ctx.cmd);
+  VkDevice dev = vk_device_;
 
   // One shared (constant + samplers) set for the whole denoiser, bound with a
   // per-dispatch dynamic offset into the constant ring.
-  VkDescriptorSet const_set = ctx.allocate_set(const_set_layout_);
-  VkDescriptorBufferInfo cb_info{constant_ring_.buffer, 0, constant_slot_size_};
+  VkDescriptorSet const_set = AllocateSet(const_set_layout_);
+  VkDescriptorBufferInfo cb_info{GetVkBuffer(constant_ring_), 0, constant_slot_size_};
   VkWriteDescriptorSet cb_write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   cb_write.dstSet = const_set;
   cb_write.dstBinding = off.constantBufferOffset + constant_register_;
@@ -590,7 +632,7 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
     }
 
     // Resolve resources, emit transition barriers and descriptor writes.
-    VkDescriptorSet res_set = ctx.allocate_set(pipe.resource_set_layout);
+    VkDescriptorSet res_set = AllocateSet(pipe.resource_set_layout);
     VkDescriptorImageInfo image_infos[32]{};
     VkWriteDescriptorSet writes[32];
     VkImageMemoryBarrier2 barriers[32];
@@ -604,10 +646,10 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
       PoolTexture* tracked = nullptr;
       if (res.type == nrd::ResourceType::TRANSIENT_POOL) {
         tracked = &transient_[res.indexInPool];
-        view = tracked->image.view;
+        view = GetVkImageView(tracked->image.view);
       } else if (res.type == nrd::ResourceType::PERMANENT_POOL) {
         tracked = &permanent_[res.indexInPool];
-        view = tracked->image.view;
+        view = GetVkImageView(tracked->image.view);
       } else {
         const ResourceBinding& b = bindings_[static_cast<int>(res.type)];
         view = b.view;
@@ -625,7 +667,7 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
                                      : VK_ACCESS_2_SHADER_READ_BIT;
         b.oldLayout = tracked->layout;
         b.newLayout = want;
-        b.image = tracked->image.image;
+        b.image = GetVkImage(tracked->image);
         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         tracked->layout = want;
       } else if (tracked && is_storage) {
@@ -636,7 +678,7 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
         b.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
         b.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
         b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        b.image = tracked->image.image;
+        b.image = GetVkImage(tracked->image);
         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       }
 
@@ -661,16 +703,16 @@ void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
       VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
       dep.imageMemoryBarrierCount = barrier_count;
       dep.pImageMemoryBarriers = barriers;
-      vkCmdPipelineBarrier2(ctx.cmd, &dep);
+      vkCmdPipelineBarrier2(vk_cmd, &dep);
     }
     if (write_count) vkUpdateDescriptorSets(dev, write_count, writes, 0, nullptr);
 
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout,
+    vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline);
+    vkCmdBindDescriptorSets(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout,
                             const_samplers_space_, 1, &const_set, 1, &dynamic_offset);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout, resources_space_,
+    vkCmdBindDescriptorSets(vk_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout, resources_space_,
                             1, &res_set, 0, nullptr);
-    vkCmdDispatch(ctx.cmd, d.gridWidth, d.gridHeight, 1);
+    vkCmdDispatch(vk_cmd, d.gridWidth, d.gridHeight, 1);
   }
 }
 

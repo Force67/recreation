@@ -1,8 +1,9 @@
+#include "rhi_bindings.hlsli"
 // Octahedral border duplication so bilinear taps at probe edges wrap
 // correctly. One thread per atlas texel, border texels copy their wrapped
 // interior source.
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> atlas;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> atlas : register(u0, space0);
 
 struct PushData {
   uint texels;  // interior resolution
@@ -10,7 +11,7 @@ struct PushData {
   uint probes_y;
   uint pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

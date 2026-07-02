@@ -2,13 +2,12 @@
 
 #include "core/log.h"
 #include "render/rhi/device.h"
-#include "render/util/shader_util.h"
 #include "shaders/taa_cs_hlsl.h"
 
 namespace rec::render {
 namespace {
 
-constexpr VkFormat kHistoryFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+constexpr Format kHistoryFormat = Format::kRGBA16Float;
 
 struct TaaPushConstants {
   f32 inv_size[2];
@@ -37,75 +36,33 @@ void JitterSequence::Sample(u32 frame_index, u32 sample_count, f32* out_x, f32* 
 }
 
 bool TaaPass::Initialize(Device& device) {
-  VkSamplerCreateInfo sampler_info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-  sampler_info.magFilter = VK_FILTER_LINEAR;
-  sampler_info.minFilter = VK_FILTER_LINEAR;
-  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  vkCreateSampler(device.device(), &sampler_info, nullptr, &sampler_);
+  sampler_ = device.GetSampler({.address_u = AddressMode::kClampToEdge,
+                                .address_v = AddressMode::kClampToEdge,
+                                .address_w = AddressMode::kClampToEdge});
 
-  VkDescriptorSetLayoutBinding bindings[5]{};
-  bindings[0] = {.binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  for (u32 i = 1; i < 4; ++i) {
-    bindings[i] = {.binding = i, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                   .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-  }
-  bindings[4] = {.binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                 .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT};
-
-  VkDescriptorSetLayoutCreateInfo set_info{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = 5;
-  set_info.pBindings = bindings;
-  if (vkCreateDescriptorSetLayout(device.device(), &set_info, nullptr, &set_layout_) !=
-      VK_SUCCESS) {
-    return false;
-  }
-
-  VkPushConstantRange push_range{};
-  push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  push_range.size = sizeof(TaaPushConstants);
-
-  VkPipelineLayoutCreateInfo layout_info{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 1;
-  layout_info.pSetLayouts = &set_layout_;
-  layout_info.pushConstantRangeCount = 1;
-  layout_info.pPushConstantRanges = &push_range;
-  if (vkCreatePipelineLayout(device.device(), &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-    return false;
-  }
-
-  VkShaderModule shader = CreateShaderModule(device.device(), k_taa_cs_hlsl, sizeof(k_taa_cs_hlsl));
-  if (shader == VK_NULL_HANDLE) {
-    REC_ERROR("taa shader module creation failed");
-    return false;
-  }
-
-  VkComputePipelineCreateInfo info{.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-  info.stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-  info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  info.stage.module = shader;
-  info.stage.pName = "main";
-  info.layout = layout_;
-  VkResult result =
-      vkCreateComputePipelines(device.device(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_);
-  vkDestroyShaderModule(device.device(), shader, nullptr);
-  if (result != VK_SUCCESS) {
+  pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_taa_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageImage},
+                          {1, BindingType::kCombinedTextureSampler},
+                          {2, BindingType::kCombinedTextureSampler},
+                          {3, BindingType::kCombinedTextureSampler},
+                          {4, BindingType::kStorageImage}}}},
+      .push_constant_size = sizeof(TaaPushConstants),
+      .debug_name = "taa",
+  });
+  if (!pipeline_) {
     REC_ERROR("taa pipeline creation failed");
     return false;
   }
   return true;
 }
 
-void TaaPass::Resize(Device& device, VkExtent2D extent) {
+void TaaPass::Resize(Device& device, Extent2D extent) {
   for (u32 i = 0; i < 2; ++i) {
-    if (history_[i].image) device.DestroyImage(history_[i]);
-    history_[i] = device.CreateImage2D(
-        kHistoryFormat, extent, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT);
-    history_layouts_[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (history_[i]) device.DestroyImage(history_[i]);
+    history_[i] = device.CreateImage2D(kHistoryFormat, extent,
+                                       kTextureUsageSampled | kTextureUsageStorage);
+    history_states_[i] = ResourceState::kUndefined;
   }
   extent_ = extent;
   history_valid_ = false;
@@ -113,16 +70,11 @@ void TaaPass::Resize(Device& device, VkExtent2D extent) {
 
 void TaaPass::Destroy(Device& device) {
   for (GpuImage& image : history_) {
-    if (image.image) device.DestroyImage(image);
+    if (image) device.DestroyImage(image);
   }
-  if (pipeline_) vkDestroyPipeline(device.device(), pipeline_, nullptr);
-  if (layout_) vkDestroyPipelineLayout(device.device(), layout_, nullptr);
-  if (set_layout_) vkDestroyDescriptorSetLayout(device.device(), set_layout_, nullptr);
-  if (sampler_) vkDestroySampler(device.device(), sampler_, nullptr);
-  pipeline_ = VK_NULL_HANDLE;
-  layout_ = VK_NULL_HANDLE;
-  set_layout_ = VK_NULL_HANDLE;
-  sampler_ = VK_NULL_HANDLE;
+  device.DestroyPipeline(pipeline_);
+  pipeline_ = {};
+  sampler_ = {};
 }
 
 ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
@@ -131,9 +83,9 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
   u32 write_index = frame_index % 2;
   u32 read_index = 1 - write_index;
   ResourceHandle resolved =
-      graph.ImportImage("taa_resolved", history_[write_index], &history_layouts_[write_index]);
+      graph.ImportImage("taa_resolved", history_[write_index], &history_states_[write_index]);
   ResourceHandle history =
-      graph.ImportImage("taa_history", history_[read_index], &history_layouts_[read_index]);
+      graph.ImportImage("taa_history", history_[read_index], &history_states_[read_index]);
 
   bool reset = !history_valid_;
   history_valid_ = true;
@@ -144,7 +96,7 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
   ResourceHandle debug_target = kInvalidResource;
   if (debug_disocclusion) {
     debug_target = graph.CreateTexture({.name = "taa_disocclusion",
-                                        .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+                                        .format = Format::kRGBA16Float,
                                         .width = extent_.width,
                                         .height = extent_.height});
   }
@@ -160,33 +112,9 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
       },
       [this, color, motion, history, resolved, reset, debug_mode,
        debug_target](PassContext& ctx) {
-        VkDescriptorSet set = ctx.allocate_set(set_layout_);
-
-        VkImageView debug_view =
+        TextureView debug_view =
             debug_target != kInvalidResource ? ctx.graph->image(debug_target).view
                                              : ctx.graph->image(resolved).view;
-        VkDescriptorImageInfo images[5]{};
-        images[0] = {.imageView = ctx.graph->image(resolved).view,
-                     .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-        images[1] = {.sampler = sampler_, .imageView = ctx.graph->image(color).view,
-                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        images[2] = {.sampler = sampler_, .imageView = ctx.graph->image(history).view,
-                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        images[3] = {.sampler = sampler_, .imageView = ctx.graph->image(motion).view,
-                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        images[4] = {.imageView = debug_view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
-
-        VkWriteDescriptorSet writes[5];
-        for (u32 i = 0; i < 5; ++i) {
-          writes[i] = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-          writes[i].dstSet = set;
-          writes[i].dstBinding = i;
-          writes[i].descriptorCount = 1;
-          writes[i].descriptorType = (i == 0 || i == 4) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
-                                                        : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-          writes[i].pImageInfo = &images[i];
-        }
-        vkUpdateDescriptorSets(ctx.device->device(), 5, writes, 0, nullptr);
 
         TaaPushConstants push{};
         push.inv_size[0] = 1.0f / static_cast<f32>(extent_.width);
@@ -195,11 +123,15 @@ ResourceHandle TaaPass::AddToGraph(RenderGraph& graph, ResourceHandle color,
         push.reset_history = reset ? 1u : 0u;
         push.debug = debug_mode;
 
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0,
-                                nullptr);
-        vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-        vkCmdDispatch(ctx.cmd, (extent_.width + 7) / 8, (extent_.height + 7) / 8, 1);
+        ctx.cmd->BindPipeline(pipeline_);
+        ctx.cmd->BindTransient(
+            0, {Bind::Storage(0, ctx.graph->image(resolved)),
+                Bind::Combined(1, ctx.graph->image(color).view, sampler_),
+                Bind::Combined(2, ctx.graph->image(history).view, sampler_),
+                Bind::Combined(3, ctx.graph->image(motion).view, sampler_),
+                Bind::StorageView(4, debug_view)});
+        ctx.cmd->Push(push);
+        ctx.cmd->Dispatch2D(extent_);
       });
   return debug_target != kInvalidResource ? debug_target : resolved;
 }

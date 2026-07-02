@@ -25,7 +25,7 @@ struct WboitInstance {
 // fragile material shaders.
 class WboitPass {
  public:
-  bool Initialize(Device& device, VkFormat color_format, VkFormat depth_format);
+  bool Initialize(Device& device, Format color_format, Format depth_format);
   void Destroy(Device& device);
 
   // Renders the instances order-independently and composites over color; returns
@@ -36,16 +36,13 @@ class WboitPass {
                             u32 height);
 
  private:
-  VkPipelineLayout geom_layout_ = VK_NULL_HANDLE;
-  VkPipeline geom_pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout resolve_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout resolve_layout_ = VK_NULL_HANDLE;
-  VkPipeline resolve_pipeline_ = VK_NULL_HANDLE;
-  VkSampler sampler_ = VK_NULL_HANDLE;
+  PipelineHandle geom_pipeline_;
+  PipelineHandle resolve_pipeline_;
+  SamplerHandle sampler_;
   GpuBuffer vertices_;
   GpuBuffer indices_;
   u32 index_count_ = 0;
-  VkFormat color_format_ = VK_FORMAT_UNDEFINED;
+  Format color_format_ = Format::kUnknown;
 };
 
 }  // namespace rec::render

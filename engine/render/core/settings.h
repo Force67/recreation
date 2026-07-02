@@ -127,6 +127,15 @@ struct RenderSettings {
   bool path_trace_recon = false;
   f32 path_trace_recon_weight = 0.05f;  // temporal: floor on current-frame weight
   u32 path_trace_recon_atrous = 4;      // a-trous wavelet passes
+  // ReSTIR GI in the recon mode: spatiotemporal reservoir resampling of the
+  // indirect diffuse samples. Big variance drop for one extra visibility ray;
+  // off falls back to inline multi-bounce integration.
+  bool path_trace_restir = true;
+  // ReSTIR DI over the sun disk + dynamic point lights (needs restir).
+  bool path_trace_restir_di = true;
+  // DLSS Ray Reconstruction as the recon denoiser (needs the NGX dlssd
+  // snippet); silently falls back to the in-tree SVGF chain when unavailable.
+  bool path_trace_rr = true;
   u32 path_trace_recon_debug = 0;  // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
 
   // Atmospheric aerial perspective: distant geometry hazes/blue-shifts like the
@@ -162,6 +171,10 @@ struct RenderSettings {
   bool bloom = true;
   f32 bloom_intensity = 0.04f;
 
+  // HDR presentation: request an HDR10/scRGB swapchain (falls back to SDR
+  // when the surface has neither); paper white = nits of tonemapped 1.0.
+  bool hdr_output = false;
+  f32 hdr_paper_white = 200.0f;
   bool auto_exposure = true;
   f32 adaptation_speed = 3.0f;
   // Compensation multiplier under auto exposure, absolute exposure without.

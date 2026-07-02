@@ -25,7 +25,7 @@ class SsaoPass {
   };
 
   bool Initialize(Device& device);
-  void Resize(Device& device, VkExtent2D extent) { extent_ = extent; }
+  void Resize(Device& device, Extent2D extent) { extent_ = extent; }
   void Destroy(Device& device);
 
   void Configure(const Settings& settings) { settings_ = settings; }
@@ -35,14 +35,12 @@ class SsaoPass {
                             const Mat4& inv_view_proj, const f32 proj_scale[2], f32 near_plane,
                             u32 frame_index);
 
-  static constexpr VkFormat kAoFormat = VK_FORMAT_R8_UNORM;
+  static constexpr Format kAoFormat = Format::kR8Unorm;
 
  private:
   Settings settings_;
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkExtent2D extent_{};
+  PipelineHandle pipeline_;
+  Extent2D extent_{};
 };
 
 }  // namespace rec::render

@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Blends the frame's probe rays into the octahedral atlases with
 // hysteresis. One dispatch updates irradiance (mode 0) or filtered distance
 // moments (mode 1); one thread per interior texel.
@@ -42,10 +43,10 @@ float3 ProbePosition(uint3 probe, DdgiVolume volume) {
   return volume.origin.xyz + float3(probe) * volume.origin.w;
 }
 
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> atlas;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D rays;
-[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState rays_sampler;
-[[vk::binding(2, 0)]] ConstantBuffer<DdgiVolume> volume;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2DArray<float4> atlas : register(u0, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D rays : register(t1, space0);
+[[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState rays_sampler : register(s1, space0);
+[[vk::binding(2, 0)]] ConstantBuffer<DdgiVolume> volume : register(b2, space0);
 
 struct PushData {
   float4 rotation_x;
@@ -56,7 +57,7 @@ struct PushData {
   uint reset;
   float pad;
 };
-[[vk::push_constant]] PushData push;
+PUSH_CONSTANTS(PushData, push);
 
 
 [numthreads(8, 8, 1)]

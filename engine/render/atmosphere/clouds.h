@@ -35,12 +35,10 @@ class Clouds {
   void Destroy(Device& device);
 
   ResourceHandle AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                            VkExtent2D extent, const Frame& frame);
+                            Extent2D extent, const Frame& frame);
 
  private:
-  VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
+  PipelineHandle pipeline_;
 };
 
 }  // namespace rec::render

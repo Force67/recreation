@@ -36,26 +36,58 @@ class ReconPathTracer {
     u32 max_history = 32;            // history length cap (frames)
     u32 atrous_passes = 4;           // a-trous iterations
     u32 debug_mode = 0;              // 0 final, 1 lighting, 2 history, 3 variance, 4 motion, 5 normal, 6 albedo
+    // ReSTIR GI: reservoir-resampled indirect diffuse (temporal + spatial
+    // reuse over the initial path samples) instead of integrating the noisy
+    // indirect inline. Massively lowers the variance the SVGF chain sees.
+    bool restir = true;
+    // ReSTIR DI (needs restir): reservoir resampling of the primary direct
+    // light over the sun disk AND the frame's dynamic point lights (which the
+    // inline path never sampled). One alpha-tested shadow ray per pixel.
+    bool restir_di = true;
+    GpuBuffer lights;     // host-visible PointLight[], the renderer's frame buffer
+    u32 light_count = 0;
+    // Volumetric fog (single-scattering height fog with shadowed sun shafts,
+    // same model as the raster pass); parameters mirror RenderSettings.
+    bool fog = false;
+    f32 fog_density = 0.03f;
+    f32 fog_height_falloff = 0.15f;
+    f32 fog_base_height = 0.0f;
+    f32 fog_anisotropy = 0.6f;
   };
 
-  bool Initialize(Device& device, VkDescriptorSetLayout bindless_layout);
-  void Resize(Device& device, VkExtent2D extent);
+  // Filled instead of running the SVGF chain when an external denoiser (DLSS
+  // Ray Reconstruction) owns reconstruction: the composed noisy radiance plus
+  // the gbuffer guides it consumes. All render-resolution graph handles.
+  struct ExternalInputs {
+    ResourceHandle color = kInvalidResource;          // albedo/pi*irr + emissive + spec
+    ResourceHandle depth = kInvalidResource;          // reversed-inf-z device depth
+    ResourceHandle motion = kInvalidResource;         // uv-space current->previous
+    ResourceHandle normals_rough = kInvalidResource;  // world normal, roughness in .w
+    ResourceHandle diffuse_albedo = kInvalidResource;
+    ResourceHandle specular_albedo = kInvalidResource;
+  };
+
+  bool Initialize(Device& device, BindingLayoutHandle bindless_layout);
+  void Resize(Device& device, Extent2D extent);
   void Destroy(Device& device);
 
   // Reconstructs the path-traced image into output (scene_color, an hdr storage
   // image), in place of the raster path.
+  // With `external` null, reconstructs into output (SVGF). With it set, stops
+  // after the gbuffer/restir stages, composes the noisy radiance and fills
+  // `external` for the caller's denoiser; output is untouched.
   void AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u32 tlas_slot,
-                  VkDescriptorSet bindless_set, VkImageView sky_view, VkSampler sky_sampler,
-                  ResourceHandle output, const Frame& frame);
+                  BindingSetHandle bindless_set, TextureView sky_view, SamplerHandle sky_sampler,
+                  ResourceHandle output, const Frame& frame, ExternalInputs* external = nullptr);
 
  private:
   struct PingPong {
     GpuImage image[2];
-    VkImageLayout layout[2] = {VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_UNDEFINED};
+    ResourceState state[2] = {ResourceState::kUndefined, ResourceState::kUndefined};
   };
 
-  bool CreatePipelines(Device& device, VkDescriptorSetLayout bindless_layout);
-  void CreateBuffers(Device& device, VkExtent2D extent);
+  bool CreatePipelines(Device& device, BindingLayoutHandle bindless_layout);
+  void CreateBuffers(Device& device, Extent2D extent);
   void DestroyBuffers(Device& device);
 
   // Reusable per-signal reconstruction (diffuse irradiance and specular both run
@@ -63,32 +95,33 @@ class ReconPathTracer {
   void RunTemporal(RenderGraph& graph, ResourceHandle noisy, ResourceHandle ac_c,
                    ResourceHandle ac_p, ResourceHandle mo_c, ResourceHandle mo_p, ResourceHandle nr_c,
                    ResourceHandle nr_p, ResourceHandle vz_c, ResourceHandle vz_p, ResourceHandle id_c,
-                   ResourceHandle id_p, ResourceHandle motion, const Frame& frame);
+                   ResourceHandle id_p, ResourceHandle motion, ResourceHandle primary_pos, bool spec,
+                   const Frame& frame);
   ResourceHandle RunAtrous(RenderGraph& graph, ResourceHandle in, ResourceHandle ping,
                            ResourceHandle pong, ResourceHandle nr_c, ResourceHandle vz_c,
                            ResourceHandle mo_c, u32 passes, bool spec);
 
   Device* device_ = nullptr;
-  VkExtent2D extent_{};
+  Extent2D extent_{};
   u32 spp_ = 1;
   u32 bounces_ = 2;
+  // Set when (re)creating the history images: their contents are undefined, so
+  // the next frame must drop history even if the caller did not ask for a
+  // reset (a mid-session resize otherwise feeds garbage - possibly NaN - into
+  // the temporal moments EMA, which never recovers).
+  bool history_invalid_ = false;
 
-  // gbuffer (set 0: 7 storage + tlas + sky; set 1: bindless)
-  VkDescriptorSetLayout gbuffer_set_ = VK_NULL_HANDLE;
-  VkPipelineLayout gbuffer_layout_ = VK_NULL_HANDLE;
-  VkPipeline gbuffer_pipeline_ = VK_NULL_HANDLE;
-  // temporal
-  VkDescriptorSetLayout temporal_set_ = VK_NULL_HANDLE;
-  VkPipelineLayout temporal_layout_ = VK_NULL_HANDLE;
-  VkPipeline temporal_pipeline_ = VK_NULL_HANDLE;
-  // atrous
-  VkDescriptorSetLayout atrous_set_ = VK_NULL_HANDLE;
-  VkPipelineLayout atrous_layout_ = VK_NULL_HANDLE;
-  VkPipeline atrous_pipeline_ = VK_NULL_HANDLE;
-  // composite
-  VkDescriptorSetLayout composite_set_ = VK_NULL_HANDLE;
-  VkPipelineLayout composite_layout_ = VK_NULL_HANDLE;
-  VkPipeline composite_pipeline_ = VK_NULL_HANDLE;
+  // gbuffer (set 0: 7 storage + tlas + sky + restir samples; set 1: bindless)
+  PipelineHandle gbuffer_pipeline_;
+  PipelineHandle temporal_pipeline_;
+  PipelineHandle atrous_pipeline_;
+  PipelineHandle composite_pipeline_;
+  PipelineHandle restir_temporal_pipeline_;
+  PipelineHandle restir_spatial_pipeline_;
+  PipelineHandle restir_di_temporal_pipeline_;
+  PipelineHandle restir_di_spatial_pipeline_;
+  PipelineHandle sky_cdf_pipeline_;
+  PipelineHandle fog_pipeline_;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
   PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
@@ -98,6 +131,22 @@ class ReconPathTracer {
   PingPong normal_rough_; // rgba16f normal*0.5+0.5, roughness
   PingPong viewz_;        // r32f
   PingPong matid_;        // r32ui
+  // ReSTIR GI reservoirs (pos+W / normal+M / radiance+w_sum). Cross-frame
+  // ping-pong like the accumulation history; ~40 B/px per slot.
+  PingPong restir_r0_;    // rgba32f sample position, W
+  PingPong restir_r1_;    // rgba16f sample normal, M
+  PingPong restir_r2_;    // rgba32f sample radiance, w_sum
+  // ReSTIR DI reservoirs: r0/r1 sun + point lights, r2/r3 the sky (separate
+  // reservoir so both classes stay temporally stable; see the DI shaders).
+  PingPong restir_di_r0_;  // rgba32f
+  PingPong restir_di_r1_;  // rgba32f
+  PingPong restir_di_r2_;  // rgba32f
+  PingPong restir_di_r3_;  // rgba32f
+  // Sky importance-sampling tables (equirect luminance CDFs), rebuilt in
+  // frame by the sky_cdf pass; layout documented in recon_sky_cdf.cs.hlsl.
+  GpuBuffer sky_cdf_;
+  PingPong fog_;  // rgba16f inscatter + transmittance, EMA history
+
 };
 
 }  // namespace rec::render

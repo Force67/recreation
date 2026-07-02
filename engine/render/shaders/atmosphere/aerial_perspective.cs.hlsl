@@ -1,3 +1,4 @@
+#include "rhi_bindings.hlsli"
 // Aerial perspective: the atmospheric scattering between the camera and each
 // lit surface, so distant geometry picks up the same haze/blue-shift as the sky
 // (Hillaire 2020). A short raymarch camera->surface accumulates in-scattering
@@ -7,13 +8,13 @@
 
 #include "atmosphere.hlsli"
 
-[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image;
-[[vk::binding(1, 0)]] Texture2D color_in;  // lit scene, fetched per texel
-[[vk::binding(2, 0)]] Texture2D depth_in;  // raw reversed-z depth export
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D<float4> transmittance;
-[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState transmittance_sampler;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D<float4> multiscatter;
-[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState multiscatter_sampler;
+[[vk::binding(0, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> out_image : register(u0, space0);
+[[vk::binding(1, 0)]] Texture2D color_in : register(t1, space0);  // lit scene, fetched per texel
+[[vk::binding(2, 0)]] Texture2D depth_in : register(t2, space0);  // raw reversed-z depth export
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] Texture2D<float4> transmittance : register(t3, space0);
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState transmittance_sampler : register(s3, space0);
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] Texture2D<float4> multiscatter : register(t4, space0);
+[[vk::combinedImageSampler]] [[vk::binding(4, 0)]] SamplerState multiscatter_sampler : register(s4, space0);
 
 struct PushData {
   column_major float4x4 inv_view_proj;
@@ -24,7 +25,7 @@ struct PushData {
   uint steps;
   uint pad;
 };
-[[vk::push_constant]] PushData pc;
+PUSH_CONSTANTS(PushData, pc);
 
 float3 SampleTransmittanceLut(float radius, float mu) {
   return transmittance.SampleLevel(transmittance_sampler, TransmittanceUv(radius, mu), 0).rgb;

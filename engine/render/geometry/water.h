@@ -17,12 +17,12 @@ class WaterPass {
  public:
   // Set layouts mirror the water.ps bindings: 0 mesh globals (+tlas),
   // 1 material, 2 environment, 3 bindless, 4 the opaque snapshot.
-  static std::unique_ptr<WaterPass> Create(Device& device, VkFormat color_format,
-                                           VkFormat motion_format, VkFormat depth_format,
-                                           VkDescriptorSetLayout globals_layout,
-                                           VkDescriptorSetLayout material_layout,
-                                           VkDescriptorSetLayout environment_layout,
-                                           VkDescriptorSetLayout bindless_layout);
+  static std::unique_ptr<WaterPass> Create(Device& device, Format color_format,
+                                           Format motion_format, Format depth_format,
+                                           BindingLayoutHandle globals_layout,
+                                           BindingLayoutHandle material_layout,
+                                           BindingLayoutHandle environment_layout,
+                                           BindingLayoutHandle bindless_layout);
   ~WaterPass();
 
   WaterPass(const WaterPass&) = delete;
@@ -34,22 +34,17 @@ class WaterPass {
 
   // Binds the water pipeline; sets 0-2 are the frame's globals/material-less
   // environment sets, set 4 is written from the snapshot views.
-  void Bind(PassContext& ctx, VkDescriptorSet globals, VkDescriptorSet environment,
-            VkDescriptorSet bindless, ResourceHandle opaque_color, ResourceHandle opaque_depth);
-  void BindMaterial(VkCommandBuffer cmd, VkDescriptorSet material);
-  VkPipelineLayout layout() const { return layout_; }
+  void Bind(PassContext& ctx, BindingSetHandle globals, BindingSetHandle environment,
+            BindingSetHandle bindless, ResourceHandle opaque_color, ResourceHandle opaque_depth);
+  void BindMaterial(CommandList& cmd, BindingSetHandle material);
 
  private:
   explicit WaterPass(Device& device) : device_(device) {}
 
   Device& device_;
-  VkSampler sampler_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout input_set_layout_ = VK_NULL_HANDLE;  // set 4
-  VkPipelineLayout layout_ = VK_NULL_HANDLE;
-  VkPipeline pipeline_ = VK_NULL_HANDLE;
-  VkDescriptorSetLayout copy_set_layout_ = VK_NULL_HANDLE;
-  VkPipelineLayout copy_layout_ = VK_NULL_HANDLE;
-  VkPipeline copy_pipeline_ = VK_NULL_HANDLE;
+  SamplerHandle sampler_;
+  PipelineHandle pipeline_;
+  PipelineHandle copy_pipeline_;
 };
 
 }  // namespace rec::render
