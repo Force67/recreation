@@ -8,12 +8,17 @@
 // temporal/a-trous chain unchanged. The visibility ray is force-opaque: the
 // sample's radiance already alpha-tested its own path, this only guards reuse
 // against leaking through walls (standard biased-variant tradeoff).
+//
+// The merged reservoir (post-visibility) is also written back as the frame's
+// canonical reservoir: next frame's temporal stage reuses the SPATIALLY
+// compounded history (the paper's feedback loop), which multiplies effective
+// sample counts; the temporal M clamp keeps the correlation bounded.
 struct ReconRestirSpatialPush {
   uint2 size;
   uint frame_index;
   uint sample_count;  // spatial neighbor taps
   float radius;       // neighbor disk radius, pixels
-  float pad0;
+  uint debug;         // 0 off, 1 reservoir M / 60, 2 reservoir W / 5
   float pad1;
   float pad2;
 };
@@ -29,6 +34,10 @@ struct ReconRestirSpatialPush {
 [[vk::binding(7, 0)]] Texture2D<uint> curr_matid;
 [[vk::binding(8, 0)]] Texture2D<float4> direct_irr;  // gbuffer's direct-only irradiance
 [[vk::binding(9, 0)]] RaytracingAccelerationStructure tlas;
+// Persistent reservoir history for next frame's temporal stage.
+[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r0_out;
+[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> r1_out;
+[[vk::binding(12, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> r2_out;
 
 static const float kPi = 3.14159265359;
 static const float kFarSample = 1.0e4;  // beyond this the sample is sky-like
@@ -72,6 +81,9 @@ void main(uint3 tid : SV_DispatchThreadID) {
   float4 primary = p_pos.Load(int3(p, 0));
   if (primary.w == 0.0) {  // sky: pass the (zero) direct term through
     irradiance_out[p] = float4(direct, 1.0);
+    r0_out[p] = 0.0.xxxx;
+    r1_out[p] = 0.0.xxxx;
+    r2_out[p] = 0.0.xxxx;
     return;
   }
   float3 vp = primary.xyz;
@@ -146,17 +158,35 @@ void main(uint3 tid : SV_DispatchThreadID) {
   }
 
   float3 indirect = 0.0.xxx;
+  float W = 0.0;
   float p_hat_sel = PHat(vp, vn, sel_pos, sel_rad);
   if (p_hat_sel > 0.0 && M > 0.0) {
-    float W = w_sum / (M * p_hat_sel);
+    W = w_sum / (M * p_hat_sel);
     float3 to_sample = sel_pos - vp;
     float dist = length(to_sample);
     float3 dir = to_sample / dist;
     // One visibility ray for the winner: reused samples were traced from a
-    // different visible point and may be behind local geometry here.
-    if (W > 0.0 && !Occluded(vp + vn * 0.002, dir, min(dist - 0.004, 1000.0))) {
-      indirect = sel_rad * saturate(dot(vn, dir)) * W;
+    // different visible point and may be behind local geometry here. A failed
+    // test zeroes W in the history too: the temporal stage skips dead
+    // reservoirs and reseeds, so occluded samples cannot linger.
+    if (W > 0.0 && Occluded(vp + vn * 0.002, dir, min(dist - 0.004, 1000.0))) {
+      W = 0.0;
     }
+    indirect = sel_rad * saturate(dot(vn, dir)) * W;
+  }
+  if (!(W < 1.0e12)) W = 0.0;
+  r0_out[p] = float4(sel_pos, W);
+  r1_out[p] = float4(sel_nrm * 0.5 + 0.5, M);
+  r2_out[p] = float4(sel_rad, w_sum);
+
+  if (pc.debug == 1u) {
+    irradiance_out[p] = float4((M / 60.0).xxx, 1.0);
+    return;
+  }
+  if (pc.debug == 2u) {
+    float W = (p_hat_sel > 0.0 && M > 0.0) ? w_sum / (M * p_hat_sel) : 0.0;
+    irradiance_out[p] = float4((W / 5.0).xxx, 1.0);
+    return;
   }
 
   // Sanitize like the gbuffer does: one NaN would smear across the a-trous.

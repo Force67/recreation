@@ -31,8 +31,8 @@ void main(uint3 tid : SV_DispatchThreadID) {
   float3 spec = specular.Load(int3(p, 0)).rgb;  // already F*weight*radiance, just add
   float3 color = alb * kInvPi * e + em + spec;
 
-  if (pc.debug_mode == 1u) {
-    color = e * kInvPi;  // denoised lighting (albedo-free)
+  if (pc.debug_mode == 1u || pc.debug_mode >= 8u) {
+    color = e * kInvPi;  // denoised lighting (albedo-free; 8/9 = restir M/W)
   } else if (pc.debug_mode == 2u) {
     float h = moments.Load(int3(p, 0)).w / max(pc.max_history, 1.0);
     color = lerp(float3(1, 0, 0), float3(0, 1, 0), saturate(h));  // red=fresh, green=full

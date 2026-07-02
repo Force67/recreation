@@ -72,7 +72,8 @@ struct RestirSpatialPush {
   u32 frame_index;
   u32 sample_count;
   f32 radius;
-  f32 pad[3];
+  u32 debug;  // 0 off, 1 reservoir M, 2 reservoir W
+  f32 pad[2];
 };
 
 }  // namespace
@@ -141,7 +142,10 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
                           {6, BindingType::kSampledImage},
                           {7, BindingType::kSampledImage},
                           {8, BindingType::kSampledImage},
-                          {9, BindingType::kAccelStruct}}}},
+                          {9, BindingType::kAccelStruct},
+                          {10, BindingType::kStorageImage},
+                          {11, BindingType::kStorageImage},
+                          {12, BindingType::kStorageImage}}}},
       .push_constant_size = sizeof(RestirSpatialPush),
       .debug_name = "recon_restir_spatial",
   });
@@ -440,6 +444,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   // accumulation targets; the temporal output (pre-spatial) is what the next
   // frame reuses, which keeps spatial correlation out of the history.
   if (frame.restir) {
+    // Temporal resamples into TRANSIENT reservoirs; spatial merges neighbors
+    // from those and writes the persistent slot, so next frame's temporal
+    // stage reuses the spatially compounded history (paper feedback loop).
+    ResourceHandle r0_t = tex("recon_rsv0_t", kWorldPos);
+    ResourceHandle r1_t = tex("recon_rsv1_t", kNormalRough);
+    ResourceHandle r2_t = tex("recon_rsv2_t", kWorldPos);
     ResourceHandle r0_c = imp("recon_rsv0_c", restir_r0_, cur);
     ResourceHandle r0_p = imp("recon_rsv0_p", restir_r0_, prv);
     ResourceHandle r1_c = imp("recon_rsv1_c", restir_r1_, cur);
@@ -450,20 +460,20 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
     graph.AddPass(
         "recon_restir_temporal",
         [&](RenderGraph::PassBuilder& b) {
-          for (ResourceHandle h : {r0_c, r1_c, r2_c}) b.Write(h, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {r0_t, r1_t, r2_t}) b.Write(h, ResourceUsage::kStorageWrite);
           for (ResourceHandle h :
                {s_pos, s_nrm, s_rad, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, r0_p,
                 r1_p, r2_p})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
-        [this, r0_c, r1_c, r2_c, s_pos, s_nrm, s_rad, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p,
+        [this, r0_t, r1_t, r2_t, s_pos, s_nrm, s_rad, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p,
          motion, r0_p, r1_p, r2_p, frame](PassContext& ctx) {
           ResourceHandle reads[14] = {s_pos, s_nrm, s_rad, p_pos, nr_c, nr_p, vz_c,
                                       vz_p, id_c, id_p, motion, r0_p, r1_p, r2_p};
           base::Vector<BindingItem> items;
-          items.push_back(Bind::Storage(0, ctx.graph->image(r0_c)));
-          items.push_back(Bind::Storage(1, ctx.graph->image(r1_c)));
-          items.push_back(Bind::Storage(2, ctx.graph->image(r2_c)));
+          items.push_back(Bind::Storage(0, ctx.graph->image(r0_t)));
+          items.push_back(Bind::Storage(1, ctx.graph->image(r1_t)));
+          items.push_back(Bind::Storage(2, ctx.graph->image(r2_t)));
           for (u32 i = 0; i < 14; ++i)
             items.push_back(Bind::Sampled(i + 3, ctx.graph->image(reads[i])));
 
@@ -482,23 +492,30 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         "recon_restir_spatial",
         [&](RenderGraph::PassBuilder& b) {
           b.Write(noisy, ResourceUsage::kStorageWrite);
-          for (ResourceHandle h : {r0_c, r1_c, r2_c, p_pos, nr_c, vz_c, id_c, gbuf_irr})
+          for (ResourceHandle h : {r0_c, r1_c, r2_c}) b.Write(h, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, gbuf_irr})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
-        [this, &raytracing, tlas_slot, noisy, r0_c, r1_c, r2_c, p_pos, nr_c, vz_c, id_c,
-         gbuf_irr, frame](PassContext& ctx) {
-          ResourceHandle reads[8] = {r0_c, r1_c, r2_c, p_pos, nr_c, vz_c, id_c, gbuf_irr};
+        [this, &raytracing, tlas_slot, noisy, r0_t, r1_t, r2_t, r0_c, r1_c, r2_c, p_pos, nr_c,
+         vz_c, id_c, gbuf_irr, frame](PassContext& ctx) {
+          ResourceHandle reads[8] = {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, gbuf_irr};
           base::Vector<BindingItem> items;
           items.push_back(Bind::Storage(0, ctx.graph->image(noisy)));
           for (u32 i = 0; i < 8; ++i)
             items.push_back(Bind::Sampled(i + 1, ctx.graph->image(reads[i])));
           items.push_back(Bind::Accel(9, raytracing.tlas(tlas_slot)));
+          items.push_back(Bind::Storage(10, ctx.graph->image(r0_c)));
+          items.push_back(Bind::Storage(11, ctx.graph->image(r1_c)));
+          items.push_back(Bind::Storage(12, ctx.graph->image(r2_c)));
 
           RestirSpatialPush p{};
           p.size[0] = extent_.width; p.size[1] = extent_.height;
           p.frame_index = frame.frame_index;
           p.sample_count = kRestirSpatialSamples;
           p.radius = kRestirSpatialRadius;
+          // debug 8/9 route the reservoir M / W heatmap through the noisy
+          // channel (the composite's mode-1 lighting view displays it).
+          p.debug = frame.debug_mode >= 8 ? frame.debug_mode - 7 : 0;
           ctx.cmd->BindPipeline(restir_spatial_pipeline_);
           ctx.cmd->BindTransient(0, {items.data(), items.size()});
           ctx.cmd->Push(p);

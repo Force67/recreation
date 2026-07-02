@@ -1198,6 +1198,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.max_history = settings_.path_trace_accum;
       rf.atrous_passes = settings_.path_trace_recon_atrous;
       rf.debug_mode = settings_.path_trace_recon_debug;
+      // Modes 8/9 visualize the restir reservoir (M / W): the spatial pass
+      // substitutes the heatmap, the composite renders it as raw lighting.
+      if (rf.debug_mode >= 8) {
+        rf.restir = true;
+      }
       rf.restir = settings_.path_trace_restir;
       recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
                                     environment_->sky_view(), environment_->sampler(), scene_color,
