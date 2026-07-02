@@ -837,16 +837,41 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
       continue;
     }
     if (ltype == 2u) {
-      // Representative point (Karis): stretch the highlight to the source.
-      float3 rr = reflect(-v, n);
-      float3 rep = pl.pos_radius.xyz;
-      float3 center_to_ray = dot(to_l, rr) * rr - to_l;
-      rep += center_to_ray * saturate(pl.params.x / max(length(center_to_ray), 1e-4));
-      float3 to_rep = rep - input.world_pos;
-      float rep_d = max(length(to_rep), 1e-4);
-      pl_l = to_rep / rep_d;
-      area_norm = a / saturate(a + pl.params.x / (2.0 * rep_d));
-      area_norm *= area_norm;
+      // Sphere area light through the same LTC path as the rect panels: a
+      // light-facing quad proxy with the disk's area (half side r*sqrt(pi)/2)
+      // matches the sphere's solid angle closely beyond ~1 radius, replacing
+      // the representative-point hack (stretched highlight, no diffuse
+      // widening). Radiance semantics match the rect panels.
+      float sr = max(pl.params.x, 1e-3);
+      float3 sln = -pl_l;  // proxy faces the shaded point
+      float3 slt = normalize(cross(abs(sln.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0), sln));
+      float3 slb = cross(sln, slt);
+      float shalf = sr * 0.8862;  // sqrt(pi)/2: quad area == disk area
+      float3 sex = slt * shalf;
+      float3 sey = slb * shalf;
+      float3 s0 = pl.pos_radius.xyz - sex - sey;
+      float3 s1 = pl.pos_radius.xyz - sex + sey;
+      float3 s2 = pl.pos_radius.xyz + sex + sey;
+      float3 s3 = pl.pos_radius.xyz + sex - sey;
+      float2 sltc_uv = float2(roughness, sqrt(saturate(1.0 - ndv)));
+      sltc_uv = sltc_uv * ((kLtcLut - 1.0) / kLtcLut) + 0.5 / kLtcLut;
+      float4 slm = ltc_matrix_lut.SampleLevel(ltc_matrix_sampler, sltc_uv, 0.0);
+      float4 slamp = ltc_amp_lut.SampleLevel(ltc_amp_sampler, sltc_uv, 0.0);
+      float3x3 sminv = float3x3(float3(slm.x, 0.0, slm.z), float3(0.0, 1.0, 0.0),
+                                float3(slm.y, 0.0, slm.w));
+      float sphere_spec = LtcEvaluate(n, v, input.world_pos, sminv, s0, s1, s2, s3);
+      static const float3x3 kLtcSphereId = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+      float sphere_diff = LtcEvaluate(n, v, input.world_pos, kLtcSphereId, s0, s1, s2, s3);
+      float3 sphere_spec_col = f0 * slamp.x + (1.0 - f0) * slamp.y;
+      float ball_falloff = saturate(1.0 - dist2 / (lr * lr));
+      ball_falloff *= ball_falloff;
+      ++light_hits;
+      float3 ball_diff = diffuse_color * sphere_diff;
+      lit += (ball_diff + sphere_spec_col * sphere_spec) * pl.color_intensity.rgb *
+             pl.color_intensity.w * ball_falloff;
+      g_skin_diffuse +=
+          ball_diff * pl.color_intensity.rgb * pl.color_intensity.w * ball_falloff;
+      continue;
     }
     float pndl = max(dot(n, pl_l), 0.0);
     if (pndl <= 0.0) continue;

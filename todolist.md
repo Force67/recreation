@@ -88,7 +88,11 @@ streaming.
 
 ## Loose ends
 
-- [ ] LTC for sphere lights (rect done; sphere still representative-point).
+- [x] LTC for sphere lights (landed): sphere area lights now go through the
+      same LTC path as the rect panels via a light-facing equal-area quad
+      proxy (half side r*sqrt(pi)/2), replacing the representative-point
+      hack - soft wide diffuse + correct area specular in both mesh.ps
+      variants. Golden lights ref regenerated (intentional change).
 - [ ] FFT ocean (Tessendorf) to replace Gerstner; shoreline flow maps.
 - [ ] Foliage imposters at distance; hierarchical pivot wind.
 - [ ] XeSS (enum exists, unimplemented).
