@@ -273,6 +273,7 @@ class Renderer {
   std::unique_ptr<FrameGenerator> framegen_;
   bool framegen_attempted_ = false;
   bool framegen_was_active_ = false;
+  bool fg_active_frame_ = false;  // this frame interpolates; BuildFrameGraph adds the hudless copy
   u32 fg_presents_ = 0;
   u32 fg_engine_frames_ = 0;
   f64 fg_log_time_ = 0.0;

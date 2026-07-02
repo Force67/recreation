@@ -121,10 +121,10 @@ class FfxFrameGenerator final : public FrameGenerator {
   bool Record(CommandList& cmd, const FrameGenInputs& in) override {
     FfxCommandList ffx_cmd = ffxGetCommandListVK(GetVkCommandBuffer(cmd));
 
-    // 1) Optical flow over the presented color.
+    // 1) Optical flow over the pre-UI color (the ui would drag flow vectors).
     FfxOpticalflowDispatchDescription of{};
     of.commandList = ffx_cmd;
-    of.color = Res(*in.backbuffer, FFX_RESOURCE_USAGE_READ_ONLY, L"fg_backbuffer",
+    of.color = Res(hudless_, FFX_RESOURCE_USAGE_READ_ONLY, L"fg_hudless",
                    FFX_RESOURCE_STATE_COMPUTE_READ);
     of.opticalFlowVector = Shared(kOfVector, L"fg_of_vector");
     of.opticalFlowSCD = Shared(kOfScd, L"fg_of_scd");
@@ -143,6 +143,10 @@ class FfxFrameGenerator final : public FrameGenerator {
     fi.renderSize = {desc_.render_width, desc_.render_height};
     fi.currentBackBuffer = Res(*in.backbuffer, FFX_RESOURCE_USAGE_READ_ONLY, L"fg_backbuffer",
                                FFX_RESOURCE_STATE_COMPUTE_READ);
+    // Interpolation sources the pre-UI copy; the renderer re-draws the UI on
+    // the generated frame afterwards.
+    fi.currentBackBuffer_HUDLess = Res(hudless_, FFX_RESOURCE_USAGE_READ_ONLY, L"fg_hudless",
+                                       FFX_RESOURCE_STATE_COMPUTE_READ);
     fi.output = Res(interpolated_, FFX_RESOURCE_USAGE_UAV, L"fg_output",
                     FFX_RESOURCE_STATE_UNORDERED_ACCESS);
     fi.interpolationRect = {0, 0, static_cast<i32>(desc_.display_width),
@@ -179,6 +183,7 @@ class FfxFrameGenerator final : public FrameGenerator {
   }
 
   const GpuImage& interpolated() const override { return interpolated_; }
+  const GpuImage& hudless() const override { return hudless_; }
 
  private:
   // Shared resource slots (app-owned, persistent, kept in GENERAL).
@@ -223,6 +228,16 @@ class FfxFrameGenerator final : public FrameGenerator {
       REC_ERROR("framegen: interpolated target allocation failed");
       return false;
     }
+    // Pre-UI interpolation source, blitted from the backbuffer each frame.
+    // TRANSFER_SRC as well: the FI context copies it into its internal
+    // previous-interpolation-source buffer each dispatch.
+    hudless_ = device_.CreateImage2D(
+        Format::kRGBA8Unorm, {desc_.display_width, desc_.display_height},
+        kTextureUsageSampled | kTextureUsageTransferDst | kTextureUsageTransferSrc);
+    if (!hudless_) {
+      REC_ERROR("framegen: hudless target allocation failed");
+      return false;
+    }
 
     device_.ImmediateSubmit([this](CommandList& cmd) {
       TextureBarrier barriers[kSharedCount + 1];
@@ -232,6 +247,9 @@ class FfxFrameGenerator final : public FrameGenerator {
       barriers[kSharedCount] =
           Transition(interpolated_, ResourceState::kUndefined, ResourceState::kGeneral);
       cmd.TextureBarriers({barriers, kSharedCount + 1});
+      TextureBarrier hudless_init =
+          Transition(hudless_, ResourceState::kUndefined, ResourceState::kShaderReadCompute);
+      cmd.TextureBarriers({&hudless_init, 1});
     });
     return true;
   }
@@ -260,6 +278,7 @@ class FfxFrameGenerator final : public FrameGenerator {
       if (image) device_.DestroyImage(image);
     }
     if (interpolated_) device_.DestroyImage(interpolated_);
+    if (hudless_) device_.DestroyImage(hudless_);
     if (scratch_) {
       std::free(scratch_);
       scratch_ = nullptr;
@@ -278,6 +297,7 @@ class FfxFrameGenerator final : public FrameGenerator {
   GpuImage shared_[kSharedCount];
   FfxResourceDescription shared_descs_[kSharedCount]{};
   GpuImage interpolated_;
+  GpuImage hudless_;
 };
 
 }  // namespace

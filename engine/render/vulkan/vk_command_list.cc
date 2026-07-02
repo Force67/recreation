@@ -196,12 +196,18 @@ void VulkanCommandList::CopyTextureToBuffer(const GpuImage& src, const GpuBuffer
 void VulkanCommandList::CopyTexture(const GpuImage& src, const GpuImage& dst) {
   const TextureRecord* src_rec = Rec(src.handle);
   const TextureRecord* dst_rec = Rec(dst.handle);
-  VkImageCopy copy{};
-  copy.srcSubresource = {src_rec->aspect, 0, 0, 1};
-  copy.dstSubresource = {dst_rec->aspect, 0, 0, 1};
-  copy.extent = {src.extent.width, src.extent.height, 1};
-  vkCmdCopyImage(cmd_, src_rec->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_rec->image,
-                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+  // Blit, not copy: the formats may differ in channel order (RGBA8 frame
+  // generation targets vs a BGRA8 swapchain), and only a blit converts
+  // per component; vkCmdCopyImage would copy raw bytes and swap red/blue.
+  VkImageBlit blit{};
+  blit.srcSubresource = {src_rec->aspect, 0, 0, 1};
+  blit.dstSubresource = {dst_rec->aspect, 0, 0, 1};
+  blit.srcOffsets[1] = {static_cast<i32>(src.extent.width),
+                        static_cast<i32>(src.extent.height), 1};
+  blit.dstOffsets[1] = {static_cast<i32>(dst.extent.width),
+                        static_cast<i32>(dst.extent.height), 1};
+  vkCmdBlitImage(cmd_, src_rec->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_rec->image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 }
 
 void VulkanCommandList::CopyBuffer(const GpuBuffer& src, u64 src_offset, const GpuBuffer& dst,

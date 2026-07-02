@@ -47,6 +47,10 @@ class FrameGenerator {
   // Returns false when a dispatch failed (present the real frame only).
   virtual bool Record(CommandList& cmd, const FrameGenInputs& inputs) = 0;
   virtual const GpuImage& interpolated() const = 0;
+  // Pre-UI copy of the backbuffer (kShaderReadCompute between frames): the
+  // renderer blits into it right before the ui pass so interpolation sources
+  // HUD-less data, and the UI is re-drawn crisp onto the generated frame.
+  virtual const GpuImage& hudless() const = 0;
 };
 
 // Returns null when FSR3 is not compiled in or the device is not vulkan.

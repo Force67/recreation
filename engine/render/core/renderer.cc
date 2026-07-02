@@ -960,6 +960,7 @@ void Renderer::RenderFrame(const FrameView& view) {
 
   transient_pool_->BeginFrame();
   graph_.Reset();
+  fg_active_frame_ = fg_frame;
   BuildFrameGraph(frames_[slot], image_index, view);
   if (!graph_.Compile(*device_, *transient_pool_)) return;
 
@@ -1009,9 +1010,22 @@ void Renderer::RenderFrame(const FrameView& view) {
           Transition(target, ResourceState::kUndefined, ResourceState::kCopyDst)};
       final_cmd->TextureBarriers(pre);
       final_cmd->CopyTexture(interp, target);
-      TextureBarrier post[] = {
+      TextureBarrier mid[] = {
           Transition(interp, ResourceState::kCopySrc, ResourceState::kGeneral),
-          Transition(target, ResourceState::kCopyDst, ResourceState::kPresent),
+          Transition(target, ResourceState::kCopyDst, ResourceState::kColorTarget)};
+      final_cmd->TextureBarriers(mid);
+      // Re-draw the UI onto the generated frame (the interpolation sourced the
+      // pre-UI copy). Both backends replay retained draw data, so recording
+      // them twice per frame is safe; blur_source was filled by the ui pass.
+      if (view.hud_draw || view.ui_draw) {
+        ColorAttachment ui_color{.view = target.view, .load = LoadOp::kLoad};
+        final_cmd->BeginRendering({.extent = target.extent, .colors = {&ui_color, 1}});
+        if (view.hud_draw) view.hud_draw(*final_cmd);
+        if (view.ui_draw) view.ui_draw(*final_cmd);
+        final_cmd->EndRendering();
+      }
+      TextureBarrier post[] = {
+          Transition(target, ResourceState::kColorTarget, ResourceState::kPresent),
           Transition(backbuffer, ResourceState::kShaderReadCompute, ResourceState::kPresent)};
       final_cmd->TextureBarriers(post);
     } else {
@@ -1040,6 +1054,8 @@ void Renderer::RenderFrame(const FrameView& view) {
       } else if (frame_index_ == dump_frame + 1) {
         DumpFgImage(framegen_->interpolated(), ResourceState::kGeneral, false,
                     "fg_dump_interp.png");
+        DumpFgImage(framegen_->hudless(), ResourceState::kShaderReadCompute, false,
+                    "fg_dump_hudless.png");
         DumpFgImage(swapchain_->image(image_index), ResourceState::kPresent, true,
                     "fg_dump_real1.png");
       }
@@ -2748,6 +2764,32 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                       ctx.graph->image(backbuffer).view, ctx.graph->image(backbuffer).extent,
                       post_params);
       });
+
+#if defined(RECREATION_HAS_FSR3)
+  // Frame generation: snapshot the pre-UI backbuffer as the interpolation
+  // source, so the generated frame carries no smeared UI (it is re-drawn
+  // crisp onto the interpolated image in the present path).
+  if (fg_active_frame_ && framegen_) {
+    graph_.AddPass(
+        "fg_hudless",
+        [&](RenderGraph::PassBuilder& b) {
+          b.Write(backbuffer, ResourceUsage::kColorAttachment);
+        },
+        [this, backbuffer](PassContext& ctx) {
+          const GpuImage& src = ctx.graph->image(backbuffer);
+          const GpuImage& dst = framegen_->hudless();
+          TextureBarrier pre[] = {
+              Transition(src, ResourceState::kColorTarget, ResourceState::kCopySrc),
+              Transition(dst, ResourceState::kShaderReadCompute, ResourceState::kCopyDst)};
+          ctx.cmd->TextureBarriers(pre);
+          ctx.cmd->CopyTexture(src, dst);
+          TextureBarrier post[] = {
+              Transition(src, ResourceState::kCopySrc, ResourceState::kColorTarget),
+              Transition(dst, ResourceState::kCopyDst, ResourceState::kShaderReadCompute)};
+          ctx.cmd->TextureBarriers(post);
+        });
+  }
+#endif
 
   if (view.ui_draw || view.hud_draw) {
     // Backdrop blur: when a frosted widget is present (and the surface lets us
