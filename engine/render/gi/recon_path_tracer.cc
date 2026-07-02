@@ -5,6 +5,7 @@
 #include "render/rhi/device.h"
 #include "shaders/recon_atrous_cs_hlsl.h"
 #include "shaders/recon_composite_cs_hlsl.h"
+#include "shaders/recon_fog_cs_hlsl.h"
 #include "shaders/recon_gbuffer_cs_hlsl.h"
 #include "shaders/recon_restir_di_spatial_cs_hlsl.h"
 #include "shaders/recon_restir_di_temporal_cs_hlsl.h"
@@ -39,6 +40,9 @@ constexpr f32 kRestirDiSkyMMax = 20.0f * kRestirDiSkyCandidates;
 constexpr u32 kSkyCdfGridW = 128;
 constexpr u32 kSkyCdfGridH = 64;
 constexpr u64 kSkyCdfFloats = 1 + kSkyCdfGridH + 2 * kSkyCdfGridW * kSkyCdfGridH;
+// Fog march parity with the raster VolumetricFog defaults.
+constexpr u32 kFogSteps = 32;
+constexpr f32 kFogMaxDistance = 200.0f;
 constexpr u32 kRestirDiSpatialSamples = 5;
 constexpr f32 kRestirDiSpatialRadius = 30.0f;
 
@@ -77,6 +81,8 @@ struct CompositePush {
   u32 size[2];
   u32 debug_mode;
   f32 max_history;
+  u32 fog;
+  u32 pad[3];
 };
 struct RestirTemporalPush {
   u32 size[2];
@@ -105,6 +111,19 @@ struct RestirDiTemporalPush {
   f32 reset;
   f32 m_max_sky;
   f32 pad[3];
+};
+struct FogPush {
+  Mat4 inv_view_proj;
+  f32 camera_pos[4];
+  f32 sun_direction[4];
+  f32 sun_color[4];
+  f32 params[4];  // density, height falloff, base height, max distance
+  u32 size[2];  // half res
+  u32 steps;
+  u32 frame_index;
+  f32 reset;
+  u32 full_size[2];
+  f32 pad;
 };
 struct SkyCdfPush {
   u32 grid[2];
@@ -286,6 +305,17 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
       .debug_name = "recon_atrous",
   });
 
+  fog_pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_recon_fog_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageImage},
+                          {1, BindingType::kSampledImage},
+                          {2, BindingType::kSampledImage},
+                          {3, BindingType::kSampledImage},
+                          {4, BindingType::kAccelStruct}}}},
+      .push_constant_size = sizeof(FogPush),
+      .debug_name = "recon_fog",
+  });
+
   composite_pipeline_ = device.CreateComputePipeline({
       .shader = REC_SHADER(k_recon_composite_cs_hlsl),
       .sets = {{.slots = {{0, BindingType::kStorageImage},
@@ -295,14 +325,16 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
                           {4, BindingType::kSampledImage},
                           {5, BindingType::kSampledImage},
                           {6, BindingType::kSampledImage},
-                          {7, BindingType::kSampledImage}}}},
+                          {7, BindingType::kSampledImage},
+                          {8, BindingType::kCombinedTextureSampler}}}},
       .push_constant_size = sizeof(CompositePush),
       .debug_name = "recon_composite",
   });
 
   if (!gbuffer_pipeline_ || !temporal_pipeline_ || !atrous_pipeline_ || !composite_pipeline_ ||
       !restir_temporal_pipeline_ || !restir_spatial_pipeline_ ||
-      !restir_di_temporal_pipeline_ || !restir_di_spatial_pipeline_ || !sky_cdf_pipeline_) {
+      !restir_di_temporal_pipeline_ || !restir_di_spatial_pipeline_ || !sky_cdf_pipeline_ ||
+      !fog_pipeline_) {
     REC_ERROR("recon path tracer pipeline creation failed");
     return false;
   }
@@ -332,6 +364,13 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
   make(restir_di_r1_, kWorldPos);
   make(restir_di_r2_, kWorldPos);
   make(restir_di_r3_, kWorldPos);
+  // Fog history at half res (low-frequency signal, upsampled in composite).
+  Extent2D half{(extent.width + 1) / 2, (extent.height + 1) / 2};
+  for (u32 i = 0; i < 2; ++i) {
+    fog_.image[i] =
+        device.CreateImage2D(kIrradiance, half, kTextureUsageSampled | kTextureUsageStorage);
+    fog_.state[i] = ResourceState::kUndefined;
+  }
   if (!sky_cdf_) {  // size is resolution-independent; survives Resize
     sky_cdf_ = device.CreateBuffer(kSkyCdfFloats * sizeof(f32), kBufferUsageStorage);
   }
@@ -343,7 +382,7 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
     base::Vector<TextureBarrier> barriers;
     for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
                          &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
-                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_})
+                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_, &fog_})
       for (u32 i = 0; i < 2; ++i) {
         barriers.push_back(Transition(pp->image[i], ResourceState::kUndefined,
                                       ResourceState::kGeneral));
@@ -356,7 +395,7 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
 void ReconPathTracer::DestroyBuffers(Device& device) {
   for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
                        &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
-                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_})
+                         &restir_di_r0_, &restir_di_r1_, &restir_di_r2_, &restir_di_r3_, &fog_})
     for (u32 i = 0; i < 2; ++i)
       if (pp->image[i]) device.DestroyImage(pp->image[i]);
 }
@@ -376,7 +415,8 @@ void ReconPathTracer::Destroy(Device& device) {
   for (PipelineHandle* p :
        {&gbuffer_pipeline_, &temporal_pipeline_, &atrous_pipeline_, &composite_pipeline_,
         &restir_temporal_pipeline_, &restir_spatial_pipeline_,
-        &restir_di_temporal_pipeline_, &restir_di_spatial_pipeline_, &sky_cdf_pipeline_}) {
+        &restir_di_temporal_pipeline_, &restir_di_spatial_pipeline_, &sky_cdf_pipeline_,
+        &fog_pipeline_}) {
     device.DestroyPipeline(*p);
     *p = {};
   }
@@ -802,6 +842,55 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         });
   }
 
+  // --- 1c. volumetric fog: marched against the primary hit with shadowed sun
+  // scattering, EMA'd into its own history; the composite folds it in. Bound
+  // to the composite even when off (static reference), aliasing the emissive
+  // target then.
+  bool fog_on = frame.fog;
+  ResourceHandle fog_c = fog_on ? imp("recon_fog_c", fog_, cur) : emissive;
+  if (fog_on) {
+    ResourceHandle fog_p = imp("recon_fog_p", fog_, prv);
+    graph.AddPass(
+        "recon_fog",
+        [&](RenderGraph::PassBuilder& b) {
+          b.Write(fog_c, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {fog_p, p_pos, motion})
+            b.Read(h, ResourceUsage::kSampledCompute);
+        },
+        [this, &raytracing, tlas_slot, fog_c, fog_p, p_pos, motion, frame](PassContext& ctx) {
+          base::Vector<BindingItem> items;
+          items.push_back(Bind::Storage(0, ctx.graph->image(fog_c)));
+          items.push_back(Bind::Sampled(1, ctx.graph->image(fog_p)));
+          items.push_back(Bind::Sampled(2, ctx.graph->image(p_pos)));
+          items.push_back(Bind::Sampled(3, ctx.graph->image(motion)));
+          items.push_back(Bind::Accel(4, raytracing.tlas(tlas_slot)));
+
+          FogPush p{};
+          p.inv_view_proj = frame.inv_view_proj;
+          p.camera_pos[0] = frame.camera_pos.x; p.camera_pos[1] = frame.camera_pos.y;
+          p.camera_pos[2] = frame.camera_pos.z;
+          Vec3 sun = Normalize(frame.sun_direction);
+          p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
+          p.sun_direction[3] = frame.sun_intensity;
+          p.sun_color[0] = frame.sun_color.x; p.sun_color[1] = frame.sun_color.y;
+          p.sun_color[2] = frame.sun_color.z; p.sun_color[3] = frame.fog_anisotropy;
+          p.params[0] = frame.fog_density;
+          p.params[1] = frame.fog_height_falloff;
+          p.params[2] = frame.fog_base_height;
+          p.params[3] = kFogMaxDistance;
+          Extent2D half{(extent_.width + 1) / 2, (extent_.height + 1) / 2};
+          p.size[0] = half.width; p.size[1] = half.height;
+          p.steps = kFogSteps;
+          p.frame_index = frame.frame_index;
+          p.reset = frame.reset ? 1.0f : 0.0f;
+          p.full_size[0] = extent_.width; p.full_size[1] = extent_.height;
+          ctx.cmd->BindPipeline(fog_pipeline_);
+          ctx.cmd->BindTransient(0, {items.data(), items.size()});
+          ctx.cmd->Push(p);
+          ctx.cmd->Dispatch2D(half);
+        });
+  }
+
   // --- external denoiser (DLSS-RR): compose the NOISY radiance with the
   // regular composite pipeline (mode 0 is exactly albedo/pi*e + emissive +
   // spec) and hand the guides back; SVGF stays out of the loop. ---
@@ -811,20 +900,22 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         "recon_rr_compose",
         [&](RenderGraph::PassBuilder& b) {
           b.Write(rr_color, ResourceUsage::kStorageWrite);
-          for (ResourceHandle h : {albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy})
+          for (ResourceHandle h : {albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy, fog_c})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
-        [this, rr_color, albedo, noisy, emissive, mo_c, nr_c, motion,
-         spec_noisy](PassContext& ctx) {
+        [this, rr_color, albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy, fog_c, fog_on,
+         sky_sampler](PassContext& ctx) {
           ResourceHandle reads[7] = {albedo, noisy, emissive, mo_c, nr_c, motion, spec_noisy};
           base::Vector<BindingItem> items;
           items.push_back(Bind::Storage(0, ctx.graph->image(rr_color)));
           for (u32 i = 0; i < 7; ++i)
             items.push_back(Bind::Sampled(i + 1, ctx.graph->image(reads[i])));
+          items.push_back(Bind::Combined(8, ctx.graph->image(fog_c).view, sky_sampler));
           CompositePush p{};
           p.size[0] = extent_.width; p.size[1] = extent_.height;
           p.debug_mode = 0;
           p.max_history = 1.0f;
+          p.fog = fog_on ? 1u : 0u;
           ctx.cmd->BindPipeline(composite_pipeline_);
           ctx.cmd->BindTransient(0, {items.data(), items.size()});
           ctx.cmd->Push(p);
@@ -856,22 +947,25 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
       "recon_composite",
       [&](RenderGraph::PassBuilder& b) {
         b.Write(output, ResourceUsage::kStorageWrite);
-        for (ResourceHandle h : {albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised})
+        for (ResourceHandle h :
+             {albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised, fog_c})
           b.Read(h, ResourceUsage::kSampledCompute);
       },
-      [this, output, albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised,
-       frame](PassContext& ctx) {
+      [this, output, albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised, fog_c, fog_on,
+       sky_sampler, frame](PassContext& ctx) {
         ResourceHandle reads[7] = {albedo, denoised, emissive, mo_c, nr_c, motion, spec_denoised};
         base::Vector<BindingItem> items;
         items.push_back(Bind::Storage(0, ctx.graph->image(output)));
         for (u32 i = 0; i < 7; ++i) {
           items.push_back(Bind::Sampled(i + 1, ctx.graph->image(reads[i])));
         }
+        items.push_back(Bind::Combined(8, ctx.graph->image(fog_c).view, sky_sampler));
 
         CompositePush p{};
         p.size[0] = extent_.width; p.size[1] = extent_.height;
         p.debug_mode = frame.debug_mode;
         p.max_history = static_cast<f32>(frame.max_history);
+        p.fog = fog_on ? 1u : 0u;
         ctx.cmd->BindPipeline(composite_pipeline_);
         ctx.cmd->BindTransient(0, {items.data(), items.size()});
         ctx.cmd->Push(p);

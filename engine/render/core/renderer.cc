@@ -1236,6 +1236,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.restir_di = settings_.path_trace_restir_di;
       rf.lights = frame.lights;
       rf.light_count = light_count;
+      rf.fog = settings_.fog;
+      rf.fog_density = settings_.fog_density;
+      rf.fog_height_falloff = settings_.fog_height_falloff;
+      rf.fog_base_height = settings_.fog_base_height;
+      rf.fog_anisotropy = settings_.fog_anisotropy;
 #if defined(RECREATION_HAS_DLSS)
       if (rr_active) {
         ReconPathTracer::ExternalInputs ext;

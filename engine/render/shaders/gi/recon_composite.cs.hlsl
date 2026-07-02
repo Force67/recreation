@@ -7,6 +7,10 @@ struct ReconCompositePush {
   uint2 size;
   uint debug_mode;  // 0 final,1 irradiance,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
   float max_history;
+  uint fog;  // 1 = apply the volumetric fog target (scene * a + rgb)
+  uint pad0;
+  uint pad1;
+  uint pad2;
 };
 PUSH_CONSTANTS(ReconCompositePush, pc);
 
@@ -18,6 +22,9 @@ PUSH_CONSTANTS(ReconCompositePush, pc);
 [[vk::binding(5, 0)]] Texture2D<float4> normal_rough : register(t5, space0);
 [[vk::binding(6, 0)]] Texture2D<float2> motion : register(t6, space0);
 [[vk::binding(7, 0)]] Texture2D<float4> specular : register(t7, space0);  // denoised reflection
+// Half-res fog (rgb inscatter, a transmittance), bilinearly upsampled.
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] Texture2D<float4> fog_tex : register(t8, space0);
+[[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState fog_sampler : register(s8, space0);
 
 static const float kInvPi = 0.31830988618;
 
@@ -31,6 +38,11 @@ void main(uint3 tid : SV_DispatchThreadID) {
   float3 em = emissive.Load(int3(p, 0)).rgb;
   float3 spec = specular.Load(int3(p, 0)).rgb;  // already F*weight*radiance, just add
   float3 color = alb * kInvPi * e + em + spec;
+  if (pc.fog != 0u) {
+    float2 uv = (float2(p) + 0.5) / float2(pc.size);
+    float4 fog = fog_tex.SampleLevel(fog_sampler, uv, 0.0);
+    color = color * fog.a + fog.rgb;
+  }
 
   if (pc.debug_mode == 1u || pc.debug_mode >= 8u) {
     color = e * kInvPi;  // denoised lighting (albedo-free; 8/9 = restir M/W)

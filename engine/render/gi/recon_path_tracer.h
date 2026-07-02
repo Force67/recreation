@@ -46,6 +46,13 @@ class ReconPathTracer {
     bool restir_di = true;
     GpuBuffer lights;     // host-visible PointLight[], the renderer's frame buffer
     u32 light_count = 0;
+    // Volumetric fog (single-scattering height fog with shadowed sun shafts,
+    // same model as the raster pass); parameters mirror RenderSettings.
+    bool fog = false;
+    f32 fog_density = 0.03f;
+    f32 fog_height_falloff = 0.15f;
+    f32 fog_base_height = 0.0f;
+    f32 fog_anisotropy = 0.6f;
   };
 
   // Filled instead of running the SVGF chain when an external denoiser (DLSS
@@ -114,6 +121,7 @@ class ReconPathTracer {
   PipelineHandle restir_di_temporal_pipeline_;
   PipelineHandle restir_di_spatial_pipeline_;
   PipelineHandle sky_cdf_pipeline_;
+  PipelineHandle fog_pipeline_;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
   PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
@@ -137,6 +145,8 @@ class ReconPathTracer {
   // Sky importance-sampling tables (equirect luminance CDFs), rebuilt in
   // frame by the sky_cdf pass; layout documented in recon_sky_cdf.cs.hlsl.
   GpuBuffer sky_cdf_;
+  PingPong fog_;  // rgba16f inscatter + transmittance, EMA history
+
 };
 
 }  // namespace rec::render
