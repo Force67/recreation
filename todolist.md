@@ -44,7 +44,7 @@ streaming.
       async pipeline compilation + ubershader fallback fixes run 1.
 - [ ] **Golden-image regression CI.** lavapipe + REC_UI_SHOT + per-demo
       reference images with tolerances; every ingredient exists.
-- [ ] **Histogram auto-exposure.** Average-based metering is why demos pin
+- [x] **Histogram auto-exposure.** (landed) Average-based metering is why demos pin
       exposure manually; histogram + center weighting + adaptation rates.
 
 ## Tier 3 — moonshots (multi-session each)

@@ -29,7 +29,11 @@ void main(uint3 id : SV_DispatchThreadID, uint group_index : SV_GroupIndex) {
       float logged = saturate((log2(luma) - push.min_log_luma) * push.inv_log_luma_range);
       bin = (uint)(logged * 254.0 + 1.0);
     }
-    InterlockedAdd(bins[bin], 1u);
+    // Center-weighted metering: the subject usually sits mid-frame; edges
+    // (sky, ground) count for less. Fixed-point weight 1..8.
+    float2 ndc = (float2(id.xy) + 0.5) / float2(push.width, push.height) * 2.0 - 1.0;
+    uint weight = 1u + (uint)(7.0 * exp(-1.5 * dot(ndc, ndc)));
+    InterlockedAdd(bins[bin], weight);
   }
   GroupMemoryBarrierWithGroupSync();
 

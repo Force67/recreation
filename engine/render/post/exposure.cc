@@ -30,6 +30,8 @@ struct ResolvePush {
   u32 auto_exposure;
   f32 manual_exposure;
   f32 pixel_count;
+  f32 low_percentile;
+  f32 high_percentile;
 };
 
 }  // namespace
@@ -127,6 +129,10 @@ void ExposurePass::AddToGraph(RenderGraph& graph, ResourceHandle input, u32 widt
         resolve_push.auto_exposure = settings_.automatic ? 1u : 0u;
         resolve_push.manual_exposure = settings_.manual_exposure;
         resolve_push.pixel_count = static_cast<f32>(width) * static_cast<f32>(height);
+        // Meter the 60th..97th percentile of the weighted mass: dark corners
+        // and blown highlights (sun disc, sky) stop steering the exposure.
+        resolve_push.low_percentile = 0.6f;
+        resolve_push.high_percentile = 0.97f;
         ctx.cmd->BindPipeline(resolve_pipeline_);
         ctx.cmd->BindTransient(0, {Bind::StorageBuffer(0, histogram_, 0, histogram_.size),
                                    Bind::StorageBuffer(1, exposure_, 0, exposure_.size)});
