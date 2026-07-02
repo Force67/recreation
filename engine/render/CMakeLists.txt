@@ -160,6 +160,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/util/hdr_capture.cs.hlsl
   shaders/gi/pathtrace.cs.hlsl
   shaders/gi/recon_gbuffer.cs.hlsl
+  shaders/gi/recon_restir_temporal.cs.hlsl
+  shaders/gi/recon_restir_spatial.cs.hlsl
   shaders/gi/recon_temporal.cs.hlsl
   shaders/gi/recon_atrous.cs.hlsl
   shaders/gi/recon_composite.cs.hlsl

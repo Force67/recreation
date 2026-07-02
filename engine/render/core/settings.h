@@ -127,6 +127,10 @@ struct RenderSettings {
   bool path_trace_recon = false;
   f32 path_trace_recon_weight = 0.05f;  // temporal: floor on current-frame weight
   u32 path_trace_recon_atrous = 4;      // a-trous wavelet passes
+  // ReSTIR GI in the recon mode: spatiotemporal reservoir resampling of the
+  // indirect diffuse samples. Big variance drop for one extra visibility ray;
+  // off falls back to inline multi-bounce integration.
+  bool path_trace_restir = true;
   u32 path_trace_recon_debug = 0;  // 0 final,1 lighting,2 history,3 variance,4 motion,5 normal,6 albedo,7 specular
 
   // Atmospheric aerial perspective: distant geometry hazes/blue-shifts like the

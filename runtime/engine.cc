@@ -231,6 +231,7 @@ void Engine::ApplyRenderPreset() {
   tuned.path_trace_recon_weight = env.path_trace_recon_weight;
   tuned.path_trace_recon_atrous = env.path_trace_recon_atrous;
   tuned.path_trace_recon_debug = env.path_trace_recon_debug;
+  tuned.path_trace_restir = env.path_trace_restir;
   if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
   tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
   tuned.ssgi = env.ssgi;                      // honor REC_SSGI over the preset

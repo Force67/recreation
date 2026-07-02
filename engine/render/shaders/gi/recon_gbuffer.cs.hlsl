@@ -16,7 +16,10 @@ struct PathGbufferPush {
   uint spp;
   float pixel_spread;    // ray-cone spread (radians/pixel) for texture lod
   uint frame_index;
-  uint bounces;          // indirect diffuse bounces (>=1)
+  uint bounces;          // bits 0..7 indirect diffuse bounces (>=1);
+                         // bit 8: ReSTIR GI (emit an initial sample instead of
+                         // integrating indirect inline). Packed because the
+                         // push block already sits at the 256-byte limit.
 };
 [[vk::push_constant]] PathGbufferPush pc;
 
@@ -31,6 +34,13 @@ struct PathGbufferPush {
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] TextureCube sky_cube;
 [[vk::combinedImageSampler]] [[vk::binding(8, 0)]] SamplerState sky_sampler;
 [[vk::binding(9, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> specular_out;  // noisy
+// ReSTIR GI initial sample (bit 8 of pc.bounces): the first indirect vertex's
+// position/normal and its outgoing radiance toward the primary hit, plus the
+// primary hit's world position (.w 0 marks sky) for reservoir reuse geometry.
+[[vk::binding(10, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> sample_pos_out;
+[[vk::binding(11, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_nrm_out;
+[[vk::binding(12, 0)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> sample_rad_out;
+[[vk::binding(13, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> primary_pos_out;
 
 struct MeshRecord {
   uint64_t vertex_address;
@@ -390,6 +400,8 @@ void main(uint3 id : SV_DispatchThreadID) {
 
   Hit prim = TraceClosest(ro, primary_dir, pc.pixel_spread, true);
 
+  bool restir = (pc.bounces & 0x100u) != 0u;
+
   if (!prim.hit) {
     // Sky: irradiance 0, sky goes to emissive (composite adds it). Far reprojection
     // so motion is valid for the temporal pass.
@@ -403,39 +415,94 @@ void main(uint3 id : SV_DispatchThreadID) {
     albedo_out[id.xy] = 0.0.xxxx;
     emissive_out[id.xy] = float4(SampleSky(primary_dir), 1.0);
     specular_out[id.xy] = 0.0.xxxx;
+    if (restir) {
+      sample_pos_out[id.xy] = 0.0.xxxx;
+      sample_nrm_out[id.xy] = 0.0.xxxx;
+      sample_rad_out[id.xy] = 0.0.xxxx;
+      primary_pos_out[id.xy] = 0.0.xxxx;  // .w 0 = no visible surface
+    }
     return;
   }
 
-  // Average spp samples of (primary direct + multi-bounce indirect) irradiance,
-  // no primary albedo. Cosine sampling cancels the pdf, leaving throughput that
-  // starts at pi and gathers albedo each bounce.
   uint spp = max(pc.spp, 1u);
-  uint bounces = max(pc.bounces, 1u);
+  uint bounces = max(pc.bounces & 0xffu, 1u);
   float3 irradiance = 0.0.xxx;
-  for (uint s = 0; s < spp; ++s) {
-    float3 e = DirectIrradiance(prim.position, prim.normal, rng);
-    float3 throughput = kPi.xxx;
-    float3 pos = prim.position;
-    float3 normal = prim.normal;
-    for (uint b = 0; b < bounces; ++b) {
-      float3 wi = CosineHemisphere(normal, rng);
-      Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread, false);
-      if (!h.hit) {
-        e += throughput * SampleSky(wi);
-        break;
-      }
-      // L_o(h) without its own indirect (carried by the next bounce).
-      e += throughput * (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng));
-      throughput *= h.albedo;
-      pos = h.position;
-      normal = h.normal;
-      if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+  if (restir) {
+    // ReSTIR GI: the inline estimate carries only the analytic direct term;
+    // indirect comes from the reservoir passes. One initial sample per pixel:
+    // a cosine-drawn first vertex whose OUTGOING radiance toward the primary
+    // hit folds in its emissive, direct light and the remaining bounces
+    // (throughput starts at 1, not pi: this is radiance, not irradiance).
+    for (uint s = 0; s < spp; ++s) {
+      irradiance += DirectIrradiance(prim.position, prim.normal, rng);
     }
-    float lum = dot(e, float3(0.2126, 0.7152, 0.0722));
-    if (lum > kFireflyClamp) e *= kFireflyClamp / lum;
-    irradiance += e;
+    irradiance /= float(spp);
+
+    float3 wi = CosineHemisphere(prim.normal, rng);
+    Hit h = TraceClosest(prim.position + prim.normal * 0.002, wi, kSecondarySpread, false);
+    if (!h.hit) {
+      // Sky sample: park the point far along the ray, facing back, so the
+      // reservoir math (distance/cosine/Jacobian) degrades to direction reuse.
+      sample_pos_out[id.xy] = float4(prim.position + wi * 1.0e6, 1.0e6);
+      sample_nrm_out[id.xy] = float4(-wi * 0.5 + 0.5, 0.0);
+      sample_rad_out[id.xy] = float4(SampleSky(wi), 1.0);
+    } else {
+      float3 radiance =
+          h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng);
+      float3 throughput = h.albedo;
+      float3 pos = h.position;
+      float3 normal = h.normal;
+      for (uint b = 1; b < bounces; ++b) {
+        float3 wj = CosineHemisphere(normal, rng);
+        Hit hb = TraceClosest(pos + normal * 0.002, wj, kSecondarySpread, false);
+        if (!hb.hit) {
+          radiance += throughput * SampleSky(wj);
+          break;
+        }
+        radiance += throughput *
+                    (hb.emissive + hb.albedo * kInvPi * DirectIrradiance(hb.position, hb.normal, rng));
+        throughput *= hb.albedo;
+        pos = hb.position;
+        normal = hb.normal;
+        if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+      }
+      float rlum = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+      if (rlum > kFireflyClamp) radiance *= kFireflyClamp / rlum;
+      float hit_dist = length(h.position - prim.position);
+      sample_pos_out[id.xy] = float4(h.position, hit_dist);
+      sample_nrm_out[id.xy] = float4(h.normal * 0.5 + 0.5, 0.0);
+      sample_rad_out[id.xy] = float4(radiance, 1.0);
+    }
+    primary_pos_out[id.xy] = float4(prim.position, 1.0);
+  } else {
+    // Average spp samples of (primary direct + multi-bounce indirect) irradiance,
+    // no primary albedo. Cosine sampling cancels the pdf, leaving throughput that
+    // starts at pi and gathers albedo each bounce.
+    for (uint s = 0; s < spp; ++s) {
+      float3 e = DirectIrradiance(prim.position, prim.normal, rng);
+      float3 throughput = kPi.xxx;
+      float3 pos = prim.position;
+      float3 normal = prim.normal;
+      for (uint b = 0; b < bounces; ++b) {
+        float3 wi = CosineHemisphere(normal, rng);
+        Hit h = TraceClosest(pos + normal * 0.002, wi, kSecondarySpread, false);
+        if (!h.hit) {
+          e += throughput * SampleSky(wi);
+          break;
+        }
+        // L_o(h) without its own indirect (carried by the next bounce).
+        e += throughput * (h.emissive + h.albedo * kInvPi * DirectIrradiance(h.position, h.normal, rng));
+        throughput *= h.albedo;
+        pos = h.position;
+        normal = h.normal;
+        if (max(throughput.r, max(throughput.g, throughput.b)) < 0.01) break;
+      }
+      float lum = dot(e, float3(0.2126, 0.7152, 0.0722));
+      if (lum > kFireflyClamp) e *= kFireflyClamp / lum;
+      irradiance += e;
+    }
+    irradiance /= float(spp);
   }
-  irradiance /= float(spp);
 
   // Sanitize: a single NaN/Inf pixel (degenerate normal, bad bounce) would be
   // spread into a big black rectangle by the a-trous filter. (x >= 0) is false

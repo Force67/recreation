@@ -36,6 +36,10 @@ class ReconPathTracer {
     u32 max_history = 32;            // history length cap (frames)
     u32 atrous_passes = 4;           // a-trous iterations
     u32 debug_mode = 0;              // 0 final, 1 lighting, 2 history, 3 variance, 4 motion, 5 normal, 6 albedo
+    // ReSTIR GI: reservoir-resampled indirect diffuse (temporal + spatial
+    // reuse over the initial path samples) instead of integrating the noisy
+    // indirect inline. Massively lowers the variance the SVGF chain sees.
+    bool restir = true;
   };
 
   bool Initialize(Device& device, BindingLayoutHandle bindless_layout);
@@ -78,11 +82,13 @@ class ReconPathTracer {
   // the temporal moments EMA, which never recovers).
   bool history_invalid_ = false;
 
-  // gbuffer (set 0: 7 storage + tlas + sky; set 1: bindless)
+  // gbuffer (set 0: 7 storage + tlas + sky + restir samples; set 1: bindless)
   PipelineHandle gbuffer_pipeline_;
   PipelineHandle temporal_pipeline_;
   PipelineHandle atrous_pipeline_;
   PipelineHandle composite_pipeline_;
+  PipelineHandle restir_temporal_pipeline_;
+  PipelineHandle restir_spatial_pipeline_;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
   PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
@@ -92,6 +98,11 @@ class ReconPathTracer {
   PingPong normal_rough_; // rgba16f normal*0.5+0.5, roughness
   PingPong viewz_;        // r32f
   PingPong matid_;        // r32ui
+  // ReSTIR GI reservoirs (pos+W / normal+M / radiance+w_sum). Cross-frame
+  // ping-pong like the accumulation history; ~40 B/px per slot.
+  PingPong restir_r0_;    // rgba32f sample position, W
+  PingPong restir_r1_;    // rgba16f sample normal, M
+  PingPong restir_r2_;    // rgba32f sample radiance, w_sum
 };
 
 }  // namespace rec::render

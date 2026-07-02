@@ -39,6 +39,7 @@ base::Option<int> PathtraceSpp{"pathtrace.spp", 2, "REC_PATHTRACE_SPP"};
 base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
 base::Option<bool> PathtraceRecon{"pathtrace.recon", false, "REC_PATHTRACE_RECON"};
 base::Option<int> PathtraceReconDebug{"pathtrace.recon.debug", 0, "REC_PATHTRACE_RECON_DEBUG"};
+base::Option<bool> PathtraceRestir{"pathtrace.restir", true, "REC_PATHTRACE_RESTIR"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
 base::Option<bool> CloudsOpt{"clouds", false, "REC_CLOUDS"};
@@ -323,6 +324,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
   if (PathtraceReconDebug.overridden()) settings_.path_trace_recon_debug = static_cast<u32>(std::max(0, int(PathtraceReconDebug)));
+  if (PathtraceRestir.overridden()) settings_.path_trace_restir = PathtraceRestir;
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
   if (Aerial.overridden()) settings_.aerial_perspective = Aerial.get();
@@ -1196,6 +1198,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       rf.max_history = settings_.path_trace_accum;
       rf.atrous_passes = settings_.path_trace_recon_atrous;
       rf.debug_mode = settings_.path_trace_recon_debug;
+      rf.restir = settings_.path_trace_restir;
       recon_path_tracer_.AddToGraph(graph_, *raytracing_, tlas_slot, bindless_->set(),
                                     environment_->sky_view(), environment_->sampler(), scene_color,
                                     rf);
