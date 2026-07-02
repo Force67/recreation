@@ -6,6 +6,8 @@
 #include "shaders/recon_atrous_cs_hlsl.h"
 #include "shaders/recon_composite_cs_hlsl.h"
 #include "shaders/recon_gbuffer_cs_hlsl.h"
+#include "shaders/recon_restir_di_spatial_cs_hlsl.h"
+#include "shaders/recon_restir_di_temporal_cs_hlsl.h"
 #include "shaders/recon_restir_spatial_cs_hlsl.h"
 #include "shaders/recon_restir_temporal_cs_hlsl.h"
 #include "shaders/recon_temporal_cs_hlsl.h"
@@ -25,6 +27,12 @@ constexpr Format kWorldPos = Format::kRGBA32Float;  // restir positions need fp3
 constexpr f32 kRestirMMax = 30.0f;         // temporal reservoir age cap
 constexpr u32 kRestirSpatialSamples = 5;   // neighbor taps per pixel
 constexpr f32 kRestirSpatialRadius = 30.0f;  // neighbor disk radius, pixels
+// ReSTIR DI tuning (Bitterli et al. 2020): K uniform light candidates + the
+// sun each frame; the age cap scales with the per-frame candidate mass.
+constexpr u32 kRestirDiCandidates = 8;
+constexpr f32 kRestirDiMMax = 20.0f * (kRestirDiCandidates + 1);
+constexpr u32 kRestirDiSpatialSamples = 5;
+constexpr f32 kRestirDiSpatialRadius = 30.0f;
 
 struct GbufferPush {
   Mat4 inv_view_proj;
@@ -75,6 +83,27 @@ struct RestirSpatialPush {
   u32 sample_count;
   f32 radius;
   u32 debug;  // 0 off, 1 reservoir M, 2 reservoir W
+  f32 pad[2];
+};
+struct RestirDiTemporalPush {
+  f32 sun_direction[4];
+  f32 sun_color[4];
+  u32 size[2];
+  u32 frame_index;
+  u32 light_count;
+  u32 candidates;
+  f32 m_max;
+  f32 reset;
+  f32 pad0;
+};
+struct RestirDiSpatialPush {
+  f32 sun_direction[4];
+  f32 sun_color[4];
+  u32 size[2];
+  u32 frame_index;
+  u32 light_count;
+  u32 sample_count;
+  f32 radius;
   f32 pad[2];
 };
 
@@ -155,6 +184,43 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
       .debug_name = "recon_restir_spatial",
   });
 
+  restir_di_temporal_pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_recon_restir_di_temporal_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageImage},
+                          {1, BindingType::kStorageImage},
+                          {2, BindingType::kSampledImage},
+                          {3, BindingType::kSampledImage},
+                          {4, BindingType::kSampledImage},
+                          {5, BindingType::kSampledImage},
+                          {6, BindingType::kSampledImage},
+                          {7, BindingType::kSampledImage},
+                          {8, BindingType::kSampledImage},
+                          {9, BindingType::kSampledImage},
+                          {10, BindingType::kSampledImage},
+                          {11, BindingType::kSampledImage},
+                          {12, BindingType::kStorageBuffer}}}},
+      .push_constant_size = sizeof(RestirDiTemporalPush),
+      .debug_name = "recon_restir_di_temporal",
+  });
+
+  restir_di_spatial_pipeline_ = device.CreateComputePipeline({
+      .shader = REC_SHADER(k_recon_restir_di_spatial_cs_hlsl),
+      .sets = {{.slots = {{0, BindingType::kStorageImage},
+                          {1, BindingType::kSampledImage},
+                          {2, BindingType::kSampledImage},
+                          {3, BindingType::kSampledImage},
+                          {4, BindingType::kSampledImage},
+                          {5, BindingType::kSampledImage},
+                          {6, BindingType::kSampledImage},
+                          {7, BindingType::kStorageBuffer},
+                          {8, BindingType::kAccelStruct},
+                          {9, BindingType::kStorageImage},
+                          {10, BindingType::kStorageImage}}},
+               {.shared = bindless_layout}},
+      .push_constant_size = sizeof(RestirDiSpatialPush),
+      .debug_name = "recon_restir_di_spatial",
+  });
+
   temporal_pipeline_ = device.CreateComputePipeline({
       .shader = REC_SHADER(k_recon_temporal_cs_hlsl),
       .sets = {{.slots = {{0, BindingType::kStorageImage},
@@ -200,7 +266,8 @@ bool ReconPathTracer::CreatePipelines(Device& device, BindingLayoutHandle bindle
   });
 
   if (!gbuffer_pipeline_ || !temporal_pipeline_ || !atrous_pipeline_ || !composite_pipeline_ ||
-      !restir_temporal_pipeline_ || !restir_spatial_pipeline_) {
+      !restir_temporal_pipeline_ || !restir_spatial_pipeline_ ||
+      !restir_di_temporal_pipeline_ || !restir_di_spatial_pipeline_) {
     REC_ERROR("recon path tracer pipeline creation failed");
     return false;
   }
@@ -226,6 +293,8 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
   make(restir_r0_, kWorldPos);
   make(restir_r1_, kNormalRough);
   make(restir_r2_, kWorldPos);
+  make(restir_di_r0_, kWorldPos);
+  make(restir_di_r1_, kWorldPos);
   history_invalid_ = true;
 
   // Prime every owned image to kGeneral so the first frame's barriers have a
@@ -233,7 +302,8 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
   device.ImmediateSubmit([&](CommandList& cmd) {
     base::Vector<TextureBarrier> barriers;
     for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
-                         &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_})
+                         &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
+                         &restir_di_r0_, &restir_di_r1_})
       for (u32 i = 0; i < 2; ++i) {
         barriers.push_back(Transition(pp->image[i], ResourceState::kUndefined,
                                       ResourceState::kGeneral));
@@ -245,7 +315,8 @@ void ReconPathTracer::CreateBuffers(Device& device, Extent2D extent) {
 
 void ReconPathTracer::DestroyBuffers(Device& device) {
   for (PingPong* pp : {&accum_, &moments_, &spec_accum_, &spec_moments_, &normal_rough_,
-                       &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_})
+                       &viewz_, &matid_, &restir_r0_, &restir_r1_, &restir_r2_,
+                         &restir_di_r0_, &restir_di_r1_})
     for (u32 i = 0; i < 2; ++i)
       if (pp->image[i]) device.DestroyImage(pp->image[i]);
 }
@@ -260,7 +331,8 @@ void ReconPathTracer::Destroy(Device& device) {
   DestroyBuffers(device);
   for (PipelineHandle* p :
        {&gbuffer_pipeline_, &temporal_pipeline_, &atrous_pipeline_, &composite_pipeline_,
-        &restir_temporal_pipeline_, &restir_spatial_pipeline_}) {
+        &restir_temporal_pipeline_, &restir_spatial_pipeline_,
+        &restir_di_temporal_pipeline_, &restir_di_spatial_pipeline_}) {
     device.DestroyPipeline(*p);
     *p = {};
   }
@@ -409,6 +481,7 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   // DLSS-RR guide outputs; when unused the (format-matching) existing targets
   // alias the bindings so the shader's static references stay valid.
   bool rr = external != nullptr;
+  bool di = frame.restir && frame.restir_di;
   ResourceHandle spec_albedo = rr ? tex("recon_rr_spec_albedo", kIrradiance) : albedo;
   ResourceHandle rr_normals = rr ? tex("recon_rr_normals", kNormalRough) : nr_c;
   ResourceHandle rr_depth = rr ? tex("recon_rr_depth", kViewZ) : vz_c;
@@ -427,7 +500,7 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
       },
       [this, &raytracing, tlas_slot, bindless_set, sky_view, sky_sampler, gbuf_irr, nr_c, vz_c,
        motion, id_c, albedo, emissive, spec_noisy, s_pos, s_nrm, s_rad, p_pos, spec_albedo,
-       rr_normals, rr_depth, rr, frame](PassContext& ctx) {
+       rr_normals, rr_depth, rr, di, frame](PassContext& ctx) {
         ResourceHandle outs[7] = {gbuf_irr, nr_c, vz_c, motion, id_c, albedo, emissive};
         base::Vector<BindingItem> items;
         for (u32 i = 0; i < 7; ++i) items.push_back(Bind::Storage(i, ctx.graph->image(outs[i])));
@@ -458,7 +531,8 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         p.frame_index = frame.frame_index;
         // bits 0..7 bounce count, bit 8 restir, bit 9 rr guides (the push
         // block is at the 256 B cap).
-        p.bounces = (bounces_ & 0xffu) | (frame.restir ? 0x100u : 0u) | (rr ? 0x200u : 0u);
+        p.bounces = (bounces_ & 0xffu) | (frame.restir ? 0x100u : 0u) | (rr ? 0x200u : 0u) |
+                    (di ? 0x400u : 0u);
         ctx.cmd->BindPipeline(gbuffer_pipeline_);
         ctx.cmd->BindTransient(0, {items.data(), items.size()});
         ctx.cmd->BindSet(1, bindless_set);
@@ -471,6 +545,97 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
   // consumes. Reservoir history ping-pongs with the frame parity like the
   // accumulation targets; the temporal output (pre-spatial) is what the next
   // frame reuses, which keeps spatial correlation out of the history.
+  // --- 1a. ReSTIR DI: light-sample reservoirs (sun disk + dynamic point
+  // lights) replace the gbuffer's inline sun sampling for the primary direct
+  // term. Temporal writes transient reservoirs, spatial merges + traces the
+  // one shadow ray, shades into direct_irr and persists the merged reservoir
+  // for next frame (same feedback layout as the GI reservoirs below).
+  ResourceHandle direct_irr = gbuf_irr;
+  if (di) {
+    direct_irr = tex("recon_di_direct", kIrradiance);
+    ResourceHandle d0_t = tex("recon_di_rsv0_t", kWorldPos);
+    ResourceHandle d1_t = tex("recon_di_rsv1_t", kWorldPos);
+    ResourceHandle d0_c = imp("recon_di_rsv0_c", restir_di_r0_, cur);
+    ResourceHandle d0_p = imp("recon_di_rsv0_p", restir_di_r0_, prv);
+    ResourceHandle d1_c = imp("recon_di_rsv1_c", restir_di_r1_, cur);
+    ResourceHandle d1_p = imp("recon_di_rsv1_p", restir_di_r1_, prv);
+
+    graph.AddPass(
+        "recon_restir_di_temporal",
+        [&](RenderGraph::PassBuilder& b) {
+          for (ResourceHandle h : {d0_t, d1_t}) b.Write(h, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h :
+               {p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p, d1_p})
+            b.Read(h, ResourceUsage::kSampledCompute);
+        },
+        [this, d0_t, d1_t, p_pos, nr_c, nr_p, vz_c, vz_p, id_c, id_p, motion, d0_p, d1_p,
+         frame](PassContext& ctx) {
+          ResourceHandle reads[10] = {p_pos, nr_c, nr_p, vz_c, vz_p,
+                                      id_c,  id_p, motion, d0_p, d1_p};
+          base::Vector<BindingItem> items;
+          items.push_back(Bind::Storage(0, ctx.graph->image(d0_t)));
+          items.push_back(Bind::Storage(1, ctx.graph->image(d1_t)));
+          for (u32 i = 0; i < 10; ++i)
+            items.push_back(Bind::Sampled(i + 2, ctx.graph->image(reads[i])));
+          items.push_back(Bind::StorageBuffer(12, frame.lights));
+
+          RestirDiTemporalPush p{};
+          Vec3 sun = Normalize(frame.sun_direction);
+          p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
+          p.sun_direction[3] = frame.sun_intensity;
+          p.sun_color[0] = frame.sun_color.x; p.sun_color[1] = frame.sun_color.y;
+          p.sun_color[2] = frame.sun_color.z; p.sun_color[3] = frame.sun_radius;
+          p.size[0] = extent_.width; p.size[1] = extent_.height;
+          p.frame_index = frame.frame_index;
+          p.light_count = frame.light_count;
+          p.candidates = kRestirDiCandidates;
+          p.m_max = kRestirDiMMax;
+          p.reset = frame.reset ? 1.0f : 0.0f;
+          ctx.cmd->BindPipeline(restir_di_temporal_pipeline_);
+          ctx.cmd->BindTransient(0, {items.data(), items.size()});
+          ctx.cmd->Push(p);
+          ctx.cmd->Dispatch2D(extent_);
+        });
+
+    graph.AddPass(
+        "recon_restir_di_spatial",
+        [&](RenderGraph::PassBuilder& b) {
+          for (ResourceHandle h : {direct_irr, d0_c, d1_c})
+            b.Write(h, ResourceUsage::kStorageWrite);
+          for (ResourceHandle h : {d0_t, d1_t, p_pos, nr_c, vz_c, id_c})
+            b.Read(h, ResourceUsage::kSampledCompute);
+        },
+        [this, &raytracing, tlas_slot, bindless_set, direct_irr, d0_t, d1_t, d0_c, d1_c, p_pos,
+         nr_c, vz_c, id_c, frame](PassContext& ctx) {
+          ResourceHandle reads[6] = {d0_t, d1_t, p_pos, nr_c, vz_c, id_c};
+          base::Vector<BindingItem> items;
+          items.push_back(Bind::Storage(0, ctx.graph->image(direct_irr)));
+          for (u32 i = 0; i < 6; ++i)
+            items.push_back(Bind::Sampled(i + 1, ctx.graph->image(reads[i])));
+          items.push_back(Bind::StorageBuffer(7, frame.lights));
+          items.push_back(Bind::Accel(8, raytracing.tlas(tlas_slot)));
+          items.push_back(Bind::Storage(9, ctx.graph->image(d0_c)));
+          items.push_back(Bind::Storage(10, ctx.graph->image(d1_c)));
+
+          RestirDiSpatialPush p{};
+          Vec3 sun = Normalize(frame.sun_direction);
+          p.sun_direction[0] = sun.x; p.sun_direction[1] = sun.y; p.sun_direction[2] = sun.z;
+          p.sun_direction[3] = frame.sun_intensity;
+          p.sun_color[0] = frame.sun_color.x; p.sun_color[1] = frame.sun_color.y;
+          p.sun_color[2] = frame.sun_color.z; p.sun_color[3] = frame.sun_radius;
+          p.size[0] = extent_.width; p.size[1] = extent_.height;
+          p.frame_index = frame.frame_index;
+          p.light_count = frame.light_count;
+          p.sample_count = kRestirDiSpatialSamples;
+          p.radius = kRestirDiSpatialRadius;
+          ctx.cmd->BindPipeline(restir_di_spatial_pipeline_);
+          ctx.cmd->BindTransient(0, {items.data(), items.size()});
+          ctx.cmd->BindSet(1, bindless_set);
+          ctx.cmd->Push(p);
+          ctx.cmd->Dispatch2D(extent_);
+        });
+  }
+
   if (frame.restir) {
     // Temporal resamples into TRANSIENT reservoirs; spatial merges neighbors
     // from those and writes the persistent slot, so next frame's temporal
@@ -521,12 +686,12 @@ void ReconPathTracer::AddToGraph(RenderGraph& graph, RayTracingContext& raytraci
         [&](RenderGraph::PassBuilder& b) {
           b.Write(noisy, ResourceUsage::kStorageWrite);
           for (ResourceHandle h : {r0_c, r1_c, r2_c}) b.Write(h, ResourceUsage::kStorageWrite);
-          for (ResourceHandle h : {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, gbuf_irr})
+          for (ResourceHandle h : {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, direct_irr})
             b.Read(h, ResourceUsage::kSampledCompute);
         },
         [this, &raytracing, tlas_slot, noisy, r0_t, r1_t, r2_t, r0_c, r1_c, r2_c, p_pos, nr_c,
-         vz_c, id_c, gbuf_irr, frame](PassContext& ctx) {
-          ResourceHandle reads[8] = {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, gbuf_irr};
+         vz_c, id_c, direct_irr, frame](PassContext& ctx) {
+          ResourceHandle reads[8] = {r0_t, r1_t, r2_t, p_pos, nr_c, vz_c, id_c, direct_irr};
           base::Vector<BindingItem> items;
           items.push_back(Bind::Storage(0, ctx.graph->image(noisy)));
           for (u32 i = 0; i < 8; ++i)

@@ -40,6 +40,12 @@ class ReconPathTracer {
     // reuse over the initial path samples) instead of integrating the noisy
     // indirect inline. Massively lowers the variance the SVGF chain sees.
     bool restir = true;
+    // ReSTIR DI (needs restir): reservoir resampling of the primary direct
+    // light over the sun disk AND the frame's dynamic point lights (which the
+    // inline path never sampled). One alpha-tested shadow ray per pixel.
+    bool restir_di = true;
+    GpuBuffer lights;     // host-visible PointLight[], the renderer's frame buffer
+    u32 light_count = 0;
   };
 
   // Filled instead of running the SVGF chain when an external denoiser (DLSS
@@ -105,6 +111,8 @@ class ReconPathTracer {
   PipelineHandle composite_pipeline_;
   PipelineHandle restir_temporal_pipeline_;
   PipelineHandle restir_spatial_pipeline_;
+  PipelineHandle restir_di_temporal_pipeline_;
+  PipelineHandle restir_di_spatial_pipeline_;
 
   // Cross-frame ping-pong buffers (indexed by frame_index & 1).
   PingPong accum_;        // rgba16f accumulated diffuse irradiance + variance
@@ -119,6 +127,9 @@ class ReconPathTracer {
   PingPong restir_r0_;    // rgba32f sample position, W
   PingPong restir_r1_;    // rgba16f sample normal, M
   PingPong restir_r2_;    // rgba32f sample radiance, w_sum
+  // ReSTIR DI reservoirs (sun disk dir + light id / w_sum, M, W).
+  PingPong restir_di_r0_;  // rgba32f
+  PingPong restir_di_r1_;  // rgba32f
 };
 
 }  // namespace rec::render

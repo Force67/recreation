@@ -131,6 +131,8 @@ struct RenderSettings {
   // indirect diffuse samples. Big variance drop for one extra visibility ray;
   // off falls back to inline multi-bounce integration.
   bool path_trace_restir = true;
+  // ReSTIR DI over the sun disk + dynamic point lights (needs restir).
+  bool path_trace_restir_di = true;
   // DLSS Ray Reconstruction as the recon denoiser (needs the NGX dlssd
   // snippet); silently falls back to the in-tree SVGF chain when unavailable.
   bool path_trace_rr = true;

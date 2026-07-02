@@ -193,6 +193,8 @@ set(RECREATION_RENDER_SHADERS
   shaders/gi/recon_gbuffer.cs.hlsl
   shaders/gi/recon_restir_temporal.cs.hlsl
   shaders/gi/recon_restir_spatial.cs.hlsl
+  shaders/gi/recon_restir_di_temporal.cs.hlsl
+  shaders/gi/recon_restir_di_spatial.cs.hlsl
   shaders/gi/recon_temporal.cs.hlsl
   shaders/gi/recon_atrous.cs.hlsl
   shaders/gi/recon_composite.cs.hlsl
@@ -237,6 +239,7 @@ set(RECREATION_SHADER_NO_DXIL
   pathtrace_gbuffer.cs.hlsl
   ddgi_rays.cs.hlsl
   recon_gbuffer.cs.hlsl
+  recon_restir_di_spatial.cs.hlsl
 )
 
 recreation_embed_shaders(recreation_render ${RECREATION_RENDER_SHADERS})

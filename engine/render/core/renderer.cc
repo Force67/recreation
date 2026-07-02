@@ -40,6 +40,7 @@ base::Option<int> PathtraceAccum{"pathtrace.accum", 16, "REC_PATHTRACE_ACCUM"};
 base::Option<bool> PathtraceRecon{"pathtrace.recon", false, "REC_PATHTRACE_RECON"};
 base::Option<int> PathtraceReconDebug{"pathtrace.recon.debug", 0, "REC_PATHTRACE_RECON_DEBUG"};
 base::Option<bool> PathtraceRestir{"pathtrace.restir", true, "REC_PATHTRACE_RESTIR"};
+base::Option<bool> PathtraceRestirDi{"pathtrace.restir.di", true, "REC_PATHTRACE_RESTIR_DI"};
 base::Option<bool> PathtraceRr{"pathtrace.rr", true, "REC_PATHTRACE_RR"};
 base::Option<bool> Fog{"fog", false, "REC_FOG"};
 base::Option<float> Aerial{"aerial", 1.0f, "REC_AERIAL"};
@@ -326,6 +327,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
   if (PathtraceReconDebug.overridden()) settings_.path_trace_recon_debug = static_cast<u32>(std::max(0, int(PathtraceReconDebug)));
   if (PathtraceRestir.overridden()) settings_.path_trace_restir = PathtraceRestir;
+  if (PathtraceRestirDi.overridden()) settings_.path_trace_restir_di = PathtraceRestirDi;
   if (PathtraceRr.overridden()) settings_.path_trace_rr = PathtraceRr;
   if (Fog.overridden()) settings_.fog = Fog;
   // REC_AERIAL overrides aerial-perspective strength (0 off, 1 physical, >1 exaggerated).
@@ -1221,6 +1223,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         rf.restir = true;
       }
       rf.restir = settings_.path_trace_restir;
+      rf.restir_di = settings_.path_trace_restir_di;
+      rf.lights = frame.lights;
+      rf.light_count = light_count;
 #if defined(RECREATION_HAS_DLSS)
       if (rr_active) {
         ReconPathTracer::ExternalInputs ext;
