@@ -59,6 +59,10 @@ float CloudDensity(float3 p, float time) {
 
   float3 wind = float3(time * pc.params.w, 0.0, time * pc.params.w * 0.3);
   float3 wp = (p + wind) * 0.00035;
+  // Low-frequency domain warp: breaks the fbm's blobby isotropy into
+  // billowing cauliflower masses.
+  float warp = Fbm3(wp * 0.4 + 13.7, 2);
+  wp += (warp - 0.5) * 0.9;
   float base = Fbm3(wp, 4);
   float coverage = pc.sun_color.w;
   float d = saturate(base - (1.0 - coverage)) * grad;
@@ -135,8 +139,9 @@ void main(uint3 id : SV_DispatchThreadID) {
 
   float3 to_sun = normalize(-pc.sun_direction.xyz);
   float3 sun_col = pc.sun_color.rgb * pc.sun_direction.w;
-  // Cool sky ambient so shadowed cloud bottoms aren't black.
-  float3 ambient = float3(0.55, 0.65, 0.85) * 0.35 * pc.sun_direction.w;
+  // Cool sky ambient so shadowed cloud bottoms aren't black; graded by height
+  // inside the march (tops see the whole sky dome, bases see the dark ground).
+  float3 ambient_base = float3(0.50, 0.62, 0.88) * 0.38 * pc.sun_direction.w;
   float c = dot(view, to_sun);
   float phase = max(HG(c, 0.35), 0.6 * HG(c, -0.15));  // forward lobe + a back lobe
 
@@ -152,7 +157,14 @@ void main(uint3 id : SV_DispatchThreadID) {
     float density = CloudDensity(pos, time);
     if (density > 0.001) {
       float light = LightMarch(pos, to_sun, time);
-      float3 lit = sun_col * light * phase + ambient;
+      // Beer-powder: multiple scattering darkens the crisp sun-facing edges
+      // of dense cores before they saturate (the classic sugary cumulus
+      // response, Schneider/Wrenninge).
+      float powder = 1.0 - exp(-density * 14.0);
+      float h = saturate((length(pos) - (kGroundRadius + pc.params.x)) /
+                         max(pc.params.y - pc.params.x, 1.0));
+      float3 ambient = ambient_base * (0.35 + 0.65 * h);
+      float3 lit = sun_col * light * lerp(0.35, 1.0, powder) * phase + ambient;
       float sigma = density * 0.05;  // extinction per metre
       float step_trans = exp(-sigma * dt);
       // Energy-conserving front-to-back integration.
@@ -161,6 +173,25 @@ void main(uint3 id : SV_DispatchThreadID) {
       if (transmittance < 0.01) break;
     }
     t += dt;
+  }
+
+  // High cirrus sheet: one sample of stretched 2d fbm on a shell above the
+  // cumulus layer. Thin, wispy, catches the sun; nearly free and it fills the
+  // empty upper sky.
+  if (transmittance > 0.02) {
+    float t_ci = RaySphere(p0, view, kGroundRadius + pc.params.y + 4200.0);
+    if (t_ci > 0.0 && t_ci < min(scene_dist, 260000.0)) {
+      float3 cp = p0 + view * t_ci;
+      float2 cuv = cp.xz * 0.000045 + float2(time * pc.params.w * 0.00002, 0.0);
+      float wisp = Fbm3(float3(cuv.x * 6.0, cuv.y * 1.4, 3.1), 4);  // wind-stretched
+      float ci = saturate(wisp - 0.62) * 1.6 * saturate(pc.sun_color.w + 0.25);
+      if (ci > 0.001) {
+        float ci_phase = max(HG(c, 0.55), 0.4 * HG(c, -0.1));
+        float3 ci_lit = sun_col * ci_phase * 0.9 + ambient_base * 0.8;
+        scatter += transmittance * ci_lit * ci * 0.35;
+        transmittance *= exp(-ci * 0.55);
+      }
+    }
   }
 
   float3 result = scene * transmittance + scatter;
