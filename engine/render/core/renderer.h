@@ -275,6 +275,7 @@ class Renderer {
   DepthOfFieldPass dof_;
   PipelineHandle light_cluster_pipeline_;
   PipelineHandle contact_shadow_pipeline_;
+  PipelineHandle cloud_shadow_pipeline_;
   GpuBuffer cluster_counts_;
   GpuBuffer cluster_indices_;
   GpuBuffer decal_cluster_indices_;

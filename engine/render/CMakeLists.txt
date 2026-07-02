@@ -162,6 +162,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/atmosphere/multiscatter_lut.cs.hlsl
   shaders/atmosphere/aerial_perspective.cs.hlsl
   shaders/atmosphere/clouds.cs.hlsl
+  shaders/atmosphere/cloud_shadow.cs.hlsl
   shaders/atmosphere/precipitation.cs.hlsl
   shaders/atmosphere/surface_weather.cs.hlsl
   shaders/atmosphere/sky.cs.hlsl
