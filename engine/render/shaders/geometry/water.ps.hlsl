@@ -246,16 +246,23 @@ float3 TraceReflection(float3 origin, float3 dir) {
 
 // --- surface ----------------------------------------------------------------
 
+#include "water_waves.hlsli"
+
 PsOut main(PsIn input) {
   float3 v = normalize(frame.camera_position.xyz - input.world_pos);
   float view_dist = length(frame.camera_position.xyz - input.world_pos);
 
-  // Wave detail fades with distance so far water stays calm under taa.
-  // Fine anisotropic ripples; grazing fresnel amplifies slopes heavily, so
-  // amplitudes stay small and fade with distance.
+  // Broad shape from the same Gerstner field that displaced the vertices
+  // (evaluated at the displaced footprint: the error is a fraction of the
+  // chop and invisible), fine anisotropic ripple detail layered on top and
+  // faded with distance so far water stays calm under taa.
+  float3 gerstner_n;
+  float crest;
+  GerstnerWave(input.world_pos.xz, frame.time, gerstner_n, crest);
   float strength = lerp(0.045, 0.008, saturate(view_dist / 250.0)) *
                    saturate(material.roughness_factor * 16.0);
-  float3 n = WaveNormal(input.world_pos.xz * float2(2.6, 1.4), frame.time * 0.7, strength);
+  float3 detail = WaveNormal(input.world_pos.xz * float2(2.6, 1.4), frame.time * 0.7, strength);
+  float3 n = normalize(float3(gerstner_n.xz + detail.xz, gerstner_n.y * detail.y).xzy);
 
   // Refraction against the opaque snapshot, distorted by the waves.
   float2 screen_uv = input.sv_position.xy / frame.misc.xy;
@@ -292,8 +299,30 @@ PsOut main(PsIn input) {
   float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
   float3 color = lerp(below, reflection, fresnel);
 
-  // Sun glint: ggx on the wave normal.
+  // Wave-backlight subsurface: sun shining through a lifted crest from
+  // behind scatters turquoise toward the camera.
   float3 l = normalize(-frame.sun_direction.xyz);
+  float backlight = pow(saturate(dot(v, -l) * 0.5 + 0.5), 3.0);
+  float3 sss_tint = saturate(material.base_color_factor.rgb * 2.5 + float3(0.0, 0.15, 0.12));
+  color += sss_tint * frame.sun_color.rgb * frame.sun_direction.w *
+           (backlight * crest * 0.18);
+
+  // Foam: whitecaps on pinched crests + a scrolling shoreline band where the
+  // water thins out over geometry. Foam is rough diffuse: it replaces the
+  // mirror response.
+  float shore = saturate(1.0 - water_depth / 0.55);
+  float foam_noise = WaveHeight(input.world_pos.xz * 1.7 + float2(0.0, frame.time * 0.35), frame.time) * 0.5 + 0.5;
+  float foam = saturate(crest * smoothstep(0.55, 0.85, foam_noise) * 1.2 +
+                        shore * smoothstep(0.35, 0.7, foam_noise + shore * 0.3));
+  if (foam > 0.001) {
+    float foam_ndl = max(dot(float3(0, 1, 0), l), 0.0);
+    float3 foam_col = 0.92.xxx * (frame.sun_color.rgb * frame.sun_direction.w * (0.25 * foam_ndl) +
+                                  irradiance_cube.SampleLevel(irradiance_sampler, float3(0, 1, 0), 0).rgb);
+    color = lerp(color, foam_col, foam * 0.85);
+    fresnel *= 1.0 - foam * 0.8;
+  }
+
+  // Sun glint: ggx on the wave normal.
   float3 h = normalize(l + v);
   float roughness = max(material.roughness_factor, 0.02);
   float a2 = roughness * roughness;

@@ -31,7 +31,10 @@ struct MaterialFlagsCb {
   float pad;
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialFlagsCb> material_vs : register(b0, space1);
-static const uint kVsFlagWind = 8u;  // 1 << 3, mirrors MaterialSystem::kFlagWind
+static const uint kVsFlagWind = 8u;   // 1 << 3, mirrors MaterialSystem::kFlagWind
+static const uint kVsFlagWater = 16u;  // 1 << 4
+
+#include "water_waves.hlsli"
 
 struct PushData {
   column_major float4x4 model;
@@ -134,6 +137,13 @@ VsOut main(VsIn input) {
       offset.y -= abs(gust) * amp * 0.25 * weight;  // swing lowers the free edge
       world.xyz += offset;
     }
+  }
+  // Gerstner displacement for water surfaces; water.ps re-evaluates the same
+  // field for the shading normal and foam.
+  if ((material_vs.flags & kVsFlagWater) != 0u) {
+    float3 wave_n;
+    float wave_crest;
+    world.xyz += GerstnerWave(world.xz, frame.time, wave_n, wave_crest);
   }
   float4 clip = mul(frame.view_proj, world);
   output.world_pos = world.xyz;

@@ -98,23 +98,36 @@ void DemoScenes::CreateWaterDemoScene() {
   water.id = asset::MakeAssetId("demo/water");
   water.lods.emplace_back();
   asset::MeshLod& lod = water.lods[0];
+  // Subdivided grid: the gerstner displacement in mesh.vs needs vertices to
+  // move. 1 m spacing resolves the shortest authored wavelength (3.7 m).
   constexpr f32 kHalf = 120.0f;
-  for (u32 i = 0; i < 4; ++i) {
-    asset::Vertex v{};
-    v.position[0] = (i & 1) ? kHalf : -kHalf;
-    v.position[1] = 0;
-    v.position[2] = (i & 2) ? kHalf : -kHalf;
-    v.normal[1] = 1;
-    v.tangent[0] = 1;
-    v.tangent[3] = 1;
-    v.uv[0] = v.position[0] / 8.0f;
-    v.uv[1] = v.position[2] / 8.0f;
-    v.color = 0xffffffff;
-    lod.vertices.push_back(v);
+  constexpr u32 kGrid = 240;
+  for (u32 gy = 0; gy <= kGrid; ++gy) {
+    for (u32 gx = 0; gx <= kGrid; ++gx) {
+      asset::Vertex v{};
+      v.position[0] = -kHalf + 2.0f * kHalf * static_cast<f32>(gx) / kGrid;
+      v.position[1] = 0;
+      v.position[2] = -kHalf + 2.0f * kHalf * static_cast<f32>(gy) / kGrid;
+      v.normal[1] = 1;
+      v.tangent[0] = 1;
+      v.tangent[3] = 1;
+      v.uv[0] = v.position[0] / 8.0f;
+      v.uv[1] = v.position[2] / 8.0f;
+      v.color = 0xffffffff;
+      lod.vertices.push_back(v);
+    }
   }
-  for (u32 index : {0u, 1u, 2u, 1u, 3u, 2u}) lod.indices.push_back(index);
+  for (u32 gy = 0; gy < kGrid; ++gy) {
+    for (u32 gx = 0; gx < kGrid; ++gx) {
+      u32 a = gy * (kGrid + 1) + gx;
+      u32 b = a + 1;
+      u32 c = a + (kGrid + 1);
+      u32 d = c + 1;
+      for (u32 index : {a, b, c, b, d, c}) lod.indices.push_back(index);
+    }
+  }
   asset::Submesh submesh;
-  submesh.index_count = 6;
+  submesh.index_count = static_cast<u32>(lod.indices.size());
   submesh.material = water_material.id;
   lod.submeshes.push_back(submesh);
   water.bounds_radius = kHalf * 1.5f;

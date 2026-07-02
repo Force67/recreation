@@ -222,6 +222,7 @@ endif()
 list(APPEND RECREATION_SHADER_INCLUDE_DIRS
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/atmosphere
+  ${CMAKE_CURRENT_SOURCE_DIR}/shaders/geometry
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/pipeline
   ${CMAKE_CURRENT_SOURCE_DIR}/shaders/gi)
 if(RECREATION_NRD)
