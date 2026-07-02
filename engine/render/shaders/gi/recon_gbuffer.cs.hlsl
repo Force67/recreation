@@ -71,6 +71,8 @@ static const uint kVertexStride = 52;
 static const uint kNormalOffset = 12;
 static const uint kUvOffset = 40;
 static const float kDenoisingRange = 1.0e6;
+// Must match the near plane the renderer bakes into PerspectiveReversedZ
+// (renderer.cc BuildFrameGraph); viewz below reconstructs from reversed-inf-z.
 static const float kNearPlane = 0.1;
 static const float kSecondarySpread = 0.03;
 static const float kFireflyClamp = 12.0;
