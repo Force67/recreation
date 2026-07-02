@@ -110,6 +110,7 @@ class EnvironmentSystem {
   GpuImage shadow_dummy_;  // 1x1 depth cleared to 1.0 (fully lit)
   TextureView black_array_view_;
   GpuBuffer dummy_volume_;
+  GpuBuffer dummy_storage_;  // storage-usage fallback for the SB slots
 
   PipelineHandle sky_gen_;
   PipelineHandle irradiance_gen_;

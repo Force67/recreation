@@ -114,6 +114,7 @@ bool EnvironmentSystem::CreateDummies() {
   if (!black_array_view_) return false;
 
   dummy_volume_ = device_.CreateBuffer(512, kBufferUsageUniform, true);
+  dummy_storage_ = device_.CreateBuffer(512, kBufferUsageStorage, true);
   if (!dummy_volume_.mapped) return false;
   std::memset(dummy_volume_.mapped, 0, 512);
 
@@ -372,13 +373,13 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
        Bind::Combined(9, opaque_color ? opaque_color : white_.view, sampler_),
        // white = fully lit
        Bind::Combined(10, sun_shadow_view ? sun_shadow_view : white_.view, sampler_),
-       Bind::StorageBuffer(11, lights ? lights : dummy_volume_, 0, lights ? lights_size : 256),
+       Bind::StorageBuffer(11, lights ? lights : dummy_storage_, 0, lights ? lights_size : 256),
        // The frame graph moves the denoised target to shader-read for the
        // scene pass (same as the sigma sun shadow); white when absent.
        Bind::Combined(12, spec_reflections ? spec_reflections : white_.view, sampler_),
-       Bind::StorageBuffer(13, cluster_counts ? cluster_counts : dummy_volume_, 0,
+       Bind::StorageBuffer(13, cluster_counts ? cluster_counts : dummy_storage_, 0,
                            cluster_counts ? cluster_counts.size : 256),
-       Bind::StorageBuffer(14, cluster_indices ? cluster_indices : dummy_volume_, 0,
+       Bind::StorageBuffer(14, cluster_indices ? cluster_indices : dummy_storage_, 0,
                            cluster_indices ? cluster_indices.size : 256)});
 }
 
@@ -406,6 +407,7 @@ EnvironmentSystem::~EnvironmentSystem() {
   device_.DestroyImage(black_array_);
   device_.DestroyImage(shadow_dummy_);
   device_.DestroyBuffer(dummy_volume_);
+  device_.DestroyBuffer(dummy_storage_);
   // Samplers are cached by the device and never destroyed by callers.
 }
 

@@ -161,6 +161,11 @@ struct RenderSettings {
   bool motion_blur = true;
   f32 motion_blur_shutter = 0.5f;  // 180-degree shutter
 
+  // Bokeh depth of field on the resolved frame. focus <= 0 = center autofocus.
+  bool dof = true;
+  f32 dof_aperture = 6.0f;    // coc px per unit relative defocus (bigger = shallower)
+  f32 dof_focus = 0.0f;       // meters; <= 0 autofocus
+
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)
   f32 fog_density = 0.03f;
   f32 fog_height_falloff = 0.15f;

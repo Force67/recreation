@@ -12,6 +12,7 @@
 #include "core/math.h"
 #include "core/window.h"
 #include "render/screenspace/ambient_occlusion.h"
+#include "render/post/depth_of_field.h"
 #include "render/post/motion_blur.h"
 #include "render/screenspace/reflection_trace.h"
 #include "render/post/antialiasing.h"
@@ -266,6 +267,7 @@ class Renderer {
   RtaoPass rtao_;
   ReflectionTrace reflection_trace_;
   MotionBlurPass motion_blur_;
+  DepthOfFieldPass dof_;
   PipelineHandle light_cluster_pipeline_;
   PipelineHandle contact_shadow_pipeline_;
   GpuBuffer cluster_counts_;

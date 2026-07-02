@@ -28,6 +28,9 @@ base::Option<const char*> Screenshot{"screenshot", nullptr, "REC_SCREENSHOT"};
 base::Option<const char*> Hdr{"hdr", nullptr, "REC_HDR"};
 base::Option<bool> HdrOutput{"hdr.output", false, "REC_HDR_OUTPUT"};
 base::Option<bool> MotionBlurOpt{"motion.blur", true, "REC_MOTION_BLUR"};
+base::Option<bool> DofOpt{"dof", true, "REC_DOF"};
+base::Option<double> DofFocus{"dof.focus", 0.0, "REC_DOF_FOCUS"};
+base::Option<double> DofAperture{"dof.aperture", 6.0, "REC_DOF_APERTURE"};
 // Debug: horizontal fake velocity in pixels, to exercise the blur from a
 // static camera (screenshot testing).
 base::Option<double> MotionBlurDebugVel{"motion.blur.debug.vel", 0.0, "REC_MOTION_BLUR_DEBUG_VEL"};
@@ -176,6 +179,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     return false;
   }
   if (!motion_blur_.Initialize(*device_)) return false;
+  if (!dof_.Initialize(*device_)) return false;
   {
     struct ClusterPush {
       Mat4 view;
@@ -390,6 +394,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (Pathtrace.overridden()) settings_.path_trace = Pathtrace;
   if (PathtraceReference.overridden()) settings_.path_trace_reference = PathtraceReference;
   if (MotionBlurOpt.overridden()) settings_.motion_blur = MotionBlurOpt;
+  if (DofOpt.overridden()) settings_.dof = DofOpt;
+  if (DofFocus.overridden()) settings_.dof_focus = static_cast<f32>(double(DofFocus));
+  if (DofAperture.overridden()) settings_.dof_aperture = static_cast<f32>(double(DofAperture));
   if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
@@ -1018,7 +1025,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               csm_on ? ctx.graph->image(shadow_atlas).view : TextureView{},
               csm_on ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
               shadow_.cascade_buffer_size(), ctx.graph->image(opaque_color).view, sun_shadow_view,
-              frame.lights, frame.lights.size);
+              frame.lights, frame.lights.size, TextureView{}, cluster_counts_, cluster_indices_);
 
           ColorAttachment colors[2];
           colors[0] = {.view = ctx.graph->image(composite).view, .load = LoadOp::kLoad};
@@ -2266,6 +2273,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   u32 post_width = upscaled ? output_width_ : render_width_;
   u32 post_height = upscaled ? output_height_ : render_height_;
 
+  // Depth of field on the resolved frame, before motion blur streaks over it.
+  if (settings_.dof && !path_trace && depth_export != kInvalidResource) {
+    DepthOfFieldPass::Frame df;
+    df.aperture = settings_.dof_aperture;
+    df.focus_distance = settings_.dof_focus;
+    post_input = dof_.AddToGraph(graph_, post_input, depth_export,
+                                 {post_width, post_height}, df);
+  }
+
   // Motion blur right after the AA resolve (before precipitation streaks and
   // the linear-hdr export). Uses the render-res prepass velocity; uv-space
   // velocities are resolution independent so the upscaled path works too.
@@ -2515,6 +2531,7 @@ void Renderer::Shutdown() {
     if (rt_available_) rtao_.Destroy(*device_);
     if (rt_available_) reflection_trace_.Destroy(*device_);
     motion_blur_.Destroy(*device_);
+    dof_.Destroy(*device_);
     if (light_cluster_pipeline_) device_->DestroyPipeline(light_cluster_pipeline_);
     if (contact_shadow_pipeline_) device_->DestroyPipeline(contact_shadow_pipeline_);
     if (cluster_counts_) device_->DestroyBuffer(cluster_counts_);
