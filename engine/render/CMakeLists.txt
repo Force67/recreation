@@ -221,14 +221,13 @@ if(RECREATION_NRD)
 endif()
 
 # SPIR-V-only shaders: everything reading GPU memory through buffer device
-# addresses (vk::RawBufferLoad), which has no DXIL equivalent. The skinned
-# vertex permutations, the meshlet path and the ray-hit shading readers need a
-# descriptor-based port before they can run on d3d12 (see RHI.md); the d3d12
-# device reports their pipelines unavailable and the engine's caps/feature
-# gating keeps them unreached (mesh shaders and ray query are off under vkd3d).
+# addresses (vk::RawBufferLoad), which has no DXIL equivalent. The meshlet
+# path and the ray-hit shading readers need a descriptor-based port before
+# they can run on d3d12 (see RHI.md); the d3d12 device reports their pipelines
+# unavailable and the engine's caps/feature gating keeps them unreached (mesh
+# shaders and ray query are off under vkd3d). The skinned vertex permutations
+# are NOT here: they carry a dual path (rec_bone_palette root SRV on DXIL).
 set(RECREATION_SHADER_NO_DXIL
-  mesh_skin.vs.hlsl
-  shadow_skin.vs.hlsl
   mesh_scene.as.hlsl
   mesh_scene.ms.hlsl
   meshlet.ms.hlsl

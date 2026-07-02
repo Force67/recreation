@@ -21,6 +21,14 @@ inline void DestroyFenceEvent(HANDLE event) { CloseHandle(event); }
 
 #else  // vkd3d (Linux and friends)
 
+// libvkd3d implements aggregate-returning methods (GetDesc,
+// Get*DescriptorHandleForHeapStart, GetResourceAllocationInfo, ...) with the
+// Windows ABI: the aggregate returns through an explicit out pointer. This
+// macro makes the C++ headers declare that ABI (plus source-compatible inline
+// wrappers); without it the SysV small-struct return convention reads a
+// garbage out-pointer and crashes inside libvkd3d.
+#define WIDL_EXPLICIT_AGGREGATE_RETURNS
+
 #include <vkd3d_utils.h>
 
 #ifdef min

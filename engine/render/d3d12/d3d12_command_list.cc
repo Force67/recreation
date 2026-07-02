@@ -212,6 +212,21 @@ void D3D12CommandList::PushConstants(const void* data, u32 size, u32 offset) {
   } else {
     SetPushRootCbv();
   }
+  // Push-block BDA convention: blocks big enough to carry the skinned bone
+  // palette address (u64 at byte 128) feed it to the t998 root SRV. Shaders
+  // that do not declare rec_bone_palette leave the parameter unused.
+  if (bound_->bda_param >= 0 && bound_->push_size >= 136 && offset <= 128 &&
+      offset + size >= 136) {
+    u64 address = 0;
+    std::memcpy(&address, push_shadow_ + 128, sizeof(address));
+    if (address != 0) {
+      if (bound_->compute) {
+        list_->SetComputeRootShaderResourceView(bound_->bda_param, address);
+      } else {
+        list_->SetGraphicsRootShaderResourceView(bound_->bda_param, address);
+      }
+    }
+  }
 }
 
 void D3D12CommandList::SetPushRootCbv() {
@@ -228,7 +243,10 @@ void D3D12CommandList::SetPushRootCbv() {
 
 // --- compute ---
 
-void D3D12CommandList::Dispatch(u32 x, u32 y, u32 z) { list_->Dispatch(x, y, z); }
+void D3D12CommandList::Dispatch(u32 x, u32 y, u32 z) {
+  if (!bound_) return;  // pipeline creation may have failed (dxil-less shader)
+  list_->Dispatch(x, y, z);
+}
 
 // --- raster ---
 
@@ -305,12 +323,14 @@ void D3D12CommandList::BindIndexBuffer(const GpuBuffer& buffer, u64 offset, Inde
 
 void D3D12CommandList::Draw(u32 vertex_count, u32 instance_count, u32 first_vertex,
                             u32 first_instance) {
+  if (!bound_) return;
   FlushVertexBuffers();
   list_->DrawInstanced(vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void D3D12CommandList::DrawIndexed(u32 index_count, u32 instance_count, u32 first_index,
                                    i32 vertex_offset, u32 first_instance) {
+  if (!bound_) return;
   FlushVertexBuffers();
   list_->DrawIndexedInstanced(index_count, instance_count, first_index, vertex_offset,
                               first_instance);
@@ -318,6 +338,7 @@ void D3D12CommandList::DrawIndexed(u32 index_count, u32 instance_count, u32 firs
 
 void D3D12CommandList::DrawIndexedIndirect(const GpuBuffer& args, u64 offset, u32 draw_count,
                                            u32 stride) {
+  if (!bound_) return;
   FlushVertexBuffers();
   BufferRecord* record = Rec(args.handle);
   RequireBufferState(record, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
@@ -327,6 +348,7 @@ void D3D12CommandList::DrawIndexedIndirect(const GpuBuffer& args, u64 offset, u3
 }
 
 void D3D12CommandList::DrawMeshTasks(u32 x, u32 y, u32 z) {
+  if (!bound_) return;
   ID3D12GraphicsCommandList6* list6 = nullptr;
   if (SUCCEEDED(list_->QueryInterface(IID_ID3D12GraphicsCommandList6,
                                       reinterpret_cast<void**>(&list6)))) {

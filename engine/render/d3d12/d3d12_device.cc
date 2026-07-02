@@ -605,10 +605,10 @@ GpuImage D3D12Device::CreateImage2D(Format format, Extent2D extent, TextureUsage
   if (usage & kTextureUsageColorTarget) desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
   if (usage & kTextureUsageDepthTarget) desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
   if (usage & kTextureUsageStorage) desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-  // BlitMip (mip-chain generation) lowers to a fullscreen draw: any image
-  // that will be blitted into needs render-target capability.
-  if ((usage & kTextureUsageTransferDst) && (usage & kTextureUsageTransferSrc) &&
-      mip_levels > 1 && !depth && !block) {
+  // BlitMip (mip-chain generation) lowers to a fullscreen draw and ClearColor
+  // to an RTV clear: any transfer-destination image gets render-target
+  // capability so both work (BC/depth formats cannot, and don't need to).
+  if ((usage & kTextureUsageTransferDst) && !depth && !block) {
     desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
   }
 
@@ -945,6 +945,20 @@ ID3D12RootSignature* D3D12Device::GetOrCreateRootSignature(std::span<SetLayout* 
     out->sets.push_back(set_params);
   }
 
+  // Push-block buffer-device-address emulation (skinned bone palettes): a
+  // root SRV at (t998, space0). Shaders that do not declare it simply leave
+  // the parameter unused; the command list binds it from the address at push
+  // byte 128 whenever the push block is large enough to carry one.
+  {
+    D3D12_ROOT_PARAMETER param = {};
+    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    param.Descriptor.ShaderRegister = 998;
+    param.Descriptor.RegisterSpace = 0;
+    param.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    out->bda_param = static_cast<i32>(params.size());
+    params.push_back(param);
+  }
+
   if (ID3D12RootSignature** cached = root_signature_cache_.find(key)) return *cached;
 
   D3D12_ROOT_SIGNATURE_DESC desc = {};
@@ -1262,6 +1276,7 @@ PipelineHandle D3D12Device::CreateComputePipeline(const ComputePipelineDesc& des
     delete record;
     return {};
   }
+  record->bda_param = -1;  // no compute shader uses the push-BDA convention
   return MakeHandle<PipelineHandle>(record);
 }
 
@@ -1305,6 +1320,13 @@ PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& d
   D3D12_BLEND_DESC blend = BuildBlendDesc(desc.color_formats, desc.blend);
   D3D12_RASTERIZER_DESC raster = BuildRasterDesc(desc.raster, desc.depth);
   D3D12_DEPTH_STENCIL_DESC depth = BuildDepthDesc(desc.depth);
+
+  // The push-BDA root SRV (bone palette) only applies to the skinned vertex
+  // shaders, which are exactly the ones consuming a BLENDINDICES stream.
+  // Everything else must leave the parameter unbound: binding a garbage
+  // "address" read out of an unrelated push block would fault in vkd3d's VA
+  // resolver at record time.
+  bool uses_bone_palette = false;
 
   HRESULT hr;
   if (mesh_path) {
@@ -1385,6 +1407,9 @@ PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& d
       return {};
     }
     base::Vector<D3D12_INPUT_ELEMENT_DESC> elements;
+    for (const SignatureElement& element : signature) {
+      if (element.name == "BLENDINDICES") uses_bone_palette = true;
+    }
     for (size_t i = 0; i < attributes.size(); ++i) {
       D3D12_INPUT_ELEMENT_DESC element = {};
       element.SemanticName = signature[i].name.c_str();
@@ -1427,6 +1452,7 @@ PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& d
     delete record;
     return {};
   }
+  if (!uses_bone_palette) record->bda_param = -1;
   return MakeHandle<PipelineHandle>(record);
 }
 

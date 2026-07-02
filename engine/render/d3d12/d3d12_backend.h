@@ -122,6 +122,10 @@ struct PipelineRecord {
   u32 push_size = 0;
   bool push_root_constants = false;  // else: root CBV fed from the upload ring
   i32 push_param = -1;
+  // Root SRV that emulates push-block buffer-device-address reads for DXIL
+  // (bone palettes): bound with the u64 the backend finds at byte 128 of the
+  // push block. See rec_bone_palette in mesh.vs.hlsl / RHI.md.
+  i32 bda_param = -1;
   struct SetParams {
     SetLayout* layout = nullptr;
     i32 view_param = -1;
