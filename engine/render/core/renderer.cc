@@ -349,6 +349,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!gpu_cull_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!meshlet_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (!vgeo_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
+  if (!hair_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (device_->caps().mesh_shaders) {
     // 1x1 fallback hi-z so the mesh-shader cull descriptor is always valid; bound
     // (with occlusion disabled) on frames where no real hi-z was built.
@@ -775,6 +776,12 @@ void Renderer::UploadMeshletMesh(const asset::Mesh& mesh) {
 void Renderer::UploadVirtualGeometryMesh(const asset::Mesh& mesh) {
   if (!device_ || device_->is_stub()) return;
   vgeo_.Upload(*device_, mesh);
+}
+
+void Renderer::SeedHairStrands(const Vec3& head_center, f32 head_radius, u32 strands,
+                               f32 length) {
+  if (!device_ || device_->is_stub()) return;
+  hair_.SeedCap(*device_, head_center, head_radius, strands, length);
 }
 
 bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
@@ -2752,6 +2759,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     ExtractFrustumPlanes(view_proj, planes);
     meshlet_.AddToGraph(graph_, lit, depth, view_proj, planes, view.camera.eye, frame_index_);
   }
+  // Strand hair: verlet sim + ribbon draw over the lit scene with depth.
+  if (hair_.active()) {
+    HairStrands::Frame hf;
+    hf.view_proj = view_proj;
+    hf.camera_pos = view.camera.eye;
+    hf.delta_seconds = view.frame_delta_seconds;
+    hf.sun_direction = applied_sun_direction_;
+    hf.sun_intensity = applied_sun_intensity_;
+    hf.sun_color = applied_sun_color_;
+    hf.time = static_cast<f32>(time_seconds_);
+    hair_.AddToGraph(graph_, lit, depth, {render_width_, render_height_}, hf);
+  }
+
   // Virtual geometry: cluster-DAG LOD cut + cull + draw, all on the gpu.
   if (vgeo_.active()) {
     f32 planes[5][4];
@@ -3237,6 +3257,7 @@ void Renderer::Shutdown() {
     restir_di_.Destroy(*device_);
     virtual_texture_.Destroy(*device_);
     vgeo_.Destroy(*device_);
+    hair_.Destroy(*device_);
     profiler_.Shutdown();
     path_tracer_.Destroy(*device_);
     recon_path_tracer_.Destroy(*device_);

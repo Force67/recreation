@@ -495,6 +495,68 @@ void DemoScenes::CreateGpuParticleDemoScene() {
   REC_INFO("gpu particle demo: {} compute-simulated embers", gpu_particle_count_);
 }
 
+void DemoScenes::CreateStrandHairDemoScene() {
+  // Strand-based hair: a head sphere with a few thousand simulated guide
+  // strands seeded on the crown, swaying in the wind with Kajiya-Kay
+  // highlights. A pedestal keeps the shadows grounded.
+  asset::Material skin;
+  skin.id = asset::MakeAssetId("builtin/strands/skin");
+  skin.base_color_factor[0] = 0.72f;
+  skin.base_color_factor[1] = 0.55f;
+  skin.base_color_factor[2] = 0.45f;
+  skin.roughness_factor = 0.55f;
+  if (!config_.headless) renderer_.UploadMaterial(skin);
+  asset::Material stone;
+  stone.id = asset::MakeAssetId("builtin/strands/stone");
+  stone.base_color_factor[0] = 0.35f;
+  stone.base_color_factor[1] = 0.35f;
+  stone.base_color_factor[2] = 0.37f;
+  stone.roughness_factor = 0.9f;
+  if (!config_.headless) renderer_.UploadMaterial(stone);
+
+  const Vec3 head_center{0.0f, 1.6f, 0.0f};
+  const f32 head_radius = 0.16f;
+  asset::Mesh head =
+      asset::MakeSphere(head_radius, 32, 48, asset::MakeAssetId("builtin/strands/head"));
+  head.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(head.lods[0].indices.size()), skin.id});
+  asset::Mesh pedestal =
+      asset::MakeBox(0.5f, 0.7f, 0.5f, asset::MakeAssetId("builtin/strands/pedestal"));
+  pedestal.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(pedestal.lods[0].indices.size()), stone.id});
+  asset::Mesh floor_m =
+      asset::MakeBox(8.0f, 0.1f, 8.0f, asset::MakeAssetId("builtin/strands/floor"));
+  floor_m.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(floor_m.lods[0].indices.size()), stone.id});
+  if (!config_.headless) {
+    renderer_.UploadMesh(head);
+    renderer_.UploadMesh(pedestal);
+    renderer_.UploadMesh(floor_m);
+  }
+  ecs::Entity h = world_.Create();
+  world_.Add(h, world::Transform{.position = {head_center.x, head_center.y, head_center.z}});
+  world_.Add(h, world::Renderable{head.id});
+  ecs::Entity p = world_.Create();
+  world_.Add(p, world::Transform{.position = {0.0f, 0.7f, 0.0f}});
+  world_.Add(p, world::Renderable{pedestal.id});
+  ecs::Entity f = world_.Create();
+  world_.Add(f, world::Transform{.position = {0.0f, -0.1f, 0.0f}});
+  world_.Add(f, world::Renderable{floor_m.id});
+
+  if (!config_.headless) {
+    renderer_.SeedHairStrands(head_center, head_radius, 4096, 0.20f);
+  }
+
+  ctx_.scene_owns_sun = true;
+  renderer_.settings().sun_direction = {-0.7f, -0.45f, -0.55f};
+  renderer_.settings().sun_intensity = 3.0f;
+  renderer_.settings().sun_color = {1.0f, 0.95f, 0.9f};
+  renderer_.settings().dof = false;  // macro shot; gameplay dof just blurs it
+  camera_.set_position({0.45f, 1.85f, 1.05f});
+  camera_.set_yaw_pitch(-0.4f, -0.22f);
+  camera_.speed = 2.0f;
+}
+
 void DemoScenes::CreateVirtualGeometryDemoScene() {
   // Virtual geometry showcase: a ~800k-triangle displaced terrain tile pushed
   // through the cluster-DAG LOD path. Clusters tint by id (meshlet.ps), so
@@ -1471,6 +1533,10 @@ void DemoScenes::CreateDemoScene() {
   }
   if (config_.demo_scene == "vgeo") {
     CreateVirtualGeometryDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "strands") {
+    CreateStrandHairDemoScene();
     return;
   }
   if (config_.demo_scene == "sss") {

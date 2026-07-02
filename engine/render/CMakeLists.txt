@@ -38,6 +38,7 @@ recreation_add_module(render
   gi/restir_di.cc
   texturing/virtual_texture.cc
   pipeline/virtual_geometry.cc
+  geometry/hair_strands.cc
   post/depth_of_field.cc
   post/upscaler.cc
   geometry/water.cc
@@ -208,6 +209,9 @@ set(RECREATION_RENDER_SHADERS
   shaders/gi/restir_di_temporal.cs.hlsl
   shaders/gi/restir_di_spatial.cs.hlsl
   shaders/pipeline/vgeo.ms.hlsl
+  shaders/geometry/hair_sim.cs.hlsl
+  shaders/geometry/hair.vs.hlsl
+  shaders/geometry/hair.ps.hlsl
   shaders/gi/ddgi_rays.cs.hlsl
   shaders/gi/ddgi_blend.cs.hlsl
   shaders/gi/ddgi_border.cs.hlsl

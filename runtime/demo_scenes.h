@@ -44,6 +44,7 @@ class DemoScenes {
   void CreateBrickDemoScene();
   void CreateVirtualTextureDemoScene();
   void CreateVirtualGeometryDemoScene();
+  void CreateStrandHairDemoScene();
   void CreateSssDemoScene();
 
   struct DemoParticle {

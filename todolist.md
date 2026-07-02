@@ -79,8 +79,12 @@ streaming.
       slots 23/24, kFrameFlagRestirDi). Replaces the analytic cluster loop +
       local shadow atlas for those lights on opaque surfaces. Experimental,
       REC_RESTIR_DI=1 (~0.3 ms, lights demo).
-- [ ] **Strand-based hair** (compute-simulated) once real character assets
-      exist; Kajiya-Kay cards are in place.
+- [x] **Strand-based hair** (landed - core) — 4096 verlet guide strands
+      (one compute thread per strand: gravity/wind, inextensibility
+      iterations, head-sphere collision), rendered as camera-facing ribbons
+      expanded in the VS from the sim buffer, dual-lobe Kajiya-Kay shading.
+      --demo strands. Real characters plug in by seeding roots from scalp
+      geometry; next: interpolated child strands, strand self-shadowing.
 
 ## Loose ends
 

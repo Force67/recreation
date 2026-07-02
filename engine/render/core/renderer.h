@@ -38,6 +38,7 @@
 #include "render/gi/restir_di.h"
 #include "render/texturing/virtual_texture.h"
 #include "render/pipeline/virtual_geometry.h"
+#include "render/geometry/hair_strands.h"
 #include "render/atmosphere/volumetric_fog.h"
 #include "render/pipeline/material_system.h"
 #include "render/pipeline/mesh_pipeline.h"
@@ -179,6 +180,8 @@ class Renderer {
   // Builds the cluster-DAG LOD hierarchy and activates the virtual-geometry
   // demo pass (--demo vgeo).
   void UploadVirtualGeometryMesh(const asset::Mesh& mesh);
+  // Seeds simulated hair strands on a head sphere (--demo strands).
+  void SeedHairStrands(const Vec3& head_center, f32 head_radius, u32 strands, f32 length);
 
   // Live tunables. Mutate freely; RenderFrame diffs against the applied
   // state and reconfigures, including full upscaler swaps.
@@ -345,6 +348,7 @@ class Renderer {
   GpuCull gpu_cull_;
   MeshletPass meshlet_;
   VirtualGeometryPass vgeo_;
+  HairStrands hair_;
   GpuImage ms_dummy_hiz_;  // 1x1 fallback bound to the mesh-shader cull when occlusion is off
   Mat4 pt_prev_view_proj_ = Mat4::Identity();
   f32 pt_prev_sig_ = 0;  // lighting signature; change resets accumulation
