@@ -177,7 +177,7 @@ class VulkanCommandList final : public CommandList {
 class VulkanSwapchain final : public Swapchain {
  public:
   static std::unique_ptr<VulkanSwapchain> Create(VulkanDevice& device, u32 width, u32 height,
-                                                 bool vsync);
+                                                 bool vsync, bool hdr);
   ~VulkanSwapchain() override;
 
   AcquireResult Acquire(u32 slot, u32* out_image_index) override;
@@ -186,13 +186,14 @@ class VulkanSwapchain final : public Swapchain {
   u32 image_count() const override { return static_cast<u32>(images_.size()); }
   const GpuImage& image(u32 index) const override { return images_[index]; }
   bool can_sample() const override { return sampleable_; }
+  ColorSpace color_space() const override { return color_space_; }
 
   VkSwapchainKHR swapchain() const { return swapchain_; }
   VkSemaphore render_finished(u32 image_index) const { return render_finished_[image_index]; }
 
  private:
   explicit VulkanSwapchain(VulkanDevice& device) : device_(device) {}
-  bool Init(u32 width, u32 height, bool vsync);
+  bool Init(u32 width, u32 height, bool vsync, bool hdr);
 
   VulkanDevice& device_;
   VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
@@ -204,6 +205,7 @@ class VulkanSwapchain final : public Swapchain {
   // its image is reacquired, so frame slots cannot own these.
   base::Vector<VkSemaphore> render_finished_;
   bool sampleable_ = false;
+  ColorSpace color_space_ = ColorSpace::kSrgbNonlinear;
 };
 
 class VulkanDevice final : public Device {
@@ -214,7 +216,8 @@ class VulkanDevice final : public Device {
   void WaitIdle() override;
   bool RecreateSurface(Window& window) override;
   void DestroySurface() override;
-  std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync) override;
+  std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync,
+                                             bool hdr) override;
   MemoryBudget memory_budget() const override;
 
   GpuBuffer CreateBuffer(u64 size, BufferUsageFlags usage, bool host_visible) override;

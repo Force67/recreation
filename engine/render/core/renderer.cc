@@ -24,6 +24,11 @@ namespace {
 // name used in the casts below.
 base::Option<const char*> Screenshot{"screenshot", nullptr, "REC_SCREENSHOT"};
 base::Option<const char*> Hdr{"hdr", nullptr, "REC_HDR"};
+base::Option<bool> HdrOutput{"hdr.output", false, "REC_HDR_OUTPUT"};
+base::Option<double> HdrPaperWhite{"hdr.paper.white", 200.0, "REC_HDR_PAPER_WHITE"};
+// Debug: force the tonemap's output transfer (1 pq, 2 scrgb) on an SDR
+// swapchain, so the encode math is testable on displays with no HDR path.
+base::Option<int> HdrForceTransfer{"hdr.force.transfer", 0, "REC_HDR_FORCE_TRANSFER"};
 base::Option<bool> Wireframe{"wireframe", false, "REC_WIREFRAME"};
 base::Option<bool> Ssr{"ssr", false, "REC_SSR"};
 base::Option<bool> Ssgi{"ssgi", false, "REC_SSGI"};
@@ -104,6 +109,10 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   settings_.rt_shadows = desc.raytracing.shadows;
   output_width_ = window.width();
   output_height_ = window.height();
+  // Applied before the swapchain exists (the rest of the option overrides run
+  // later in Initialize; these two decide the surface format).
+  if (HdrOutput.overridden()) settings_.hdr_output = HdrOutput;
+  if (HdrPaperWhite.overridden()) settings_.hdr_paper_white = static_cast<f32>(double(HdrPaperWhite));
 
   // REC_RHI=vulkan|d3d12|null|auto overrides the graphics backend.
   Backend backend = desc.backend;
@@ -126,7 +135,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     return true;
   }
 
-  swapchain_ = device_->CreateSwapchain(output_width_, output_height_, settings_.vsync);
+  swapchain_ = device_->CreateSwapchain(output_width_, output_height_, settings_.vsync,
+                                        settings_.hdr_output);
   if (!swapchain_ || !CreateFrameResources()) return false;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
@@ -2122,6 +2132,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   PostPass::Params post_params{static_cast<u32>(settings_.tonemap), settings_.bloom_intensity,
                                bloom != kInvalidResource ? 1u : 0u,
                                settings_.color_grade != ColorGrade::kNeutral ? 1u : 0u};
+  switch (swapchain_->color_space()) {
+    case ColorSpace::kHdr10Pq: post_params.output_transfer = 1; break;
+    case ColorSpace::kScRgbLinear: post_params.output_transfer = 2; break;
+    default: break;
+  }
+  if (int forced = HdrForceTransfer; forced == 1 || forced == 2) {
+    post_params.output_transfer = static_cast<u32>(forced);
+  }
+  post_params.paper_white = settings_.hdr_paper_white;
   graph_.AddPass(
       "post",
       [&](RenderGraph::PassBuilder& builder) {
@@ -2212,7 +2231,8 @@ void Renderer::RecreateSwapchain() {
   if (width == 0 || height == 0) return;  // minimized
   device_->WaitIdle();
   swapchain_.reset();
-  swapchain_ = device_->CreateSwapchain(width, height, settings_.vsync);
+  swapchain_ = device_->CreateSwapchain(width, height, settings_.vsync,
+                                        settings_.hdr_output);
   if (!swapchain_) return;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;

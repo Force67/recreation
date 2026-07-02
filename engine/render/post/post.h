@@ -29,6 +29,12 @@ class PostPass {
     f32 bloom_intensity = 0.04f;
     u32 bloom_enabled = 0;
     u32 lut_enabled = 0;  // sample the grading lut (0 = neutral, skip)
+    // Pushed verbatim to tonemap.ps: output encode (0 srgb, 1 hdr10 pq,
+    // 2 scrgb) + the nit level tonemapped white maps to in the HDR modes.
+    u32 output_transfer = 0;
+    f32 paper_white = 200.0f;
+    f32 pad0 = 0;
+    f32 pad1 = 0;
   };
 
   // Rebakes the grading strip LUT when the grade changes (no-op otherwise).

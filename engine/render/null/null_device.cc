@@ -52,7 +52,7 @@ class NullDevice final : public Device {
   void WaitIdle() override {}
   bool RecreateSurface(Window&) override { return false; }
   void DestroySurface() override {}
-  std::unique_ptr<Swapchain> CreateSwapchain(u32, u32, bool) override { return nullptr; }
+  std::unique_ptr<Swapchain> CreateSwapchain(u32, u32, bool, bool) override { return nullptr; }
   MemoryBudget memory_budget() const override { return {}; }
 
   GpuBuffer CreateBuffer(u64, BufferUsageFlags, bool) override { return {}; }

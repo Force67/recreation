@@ -181,3 +181,22 @@ libvkd3d implements aggregate returns with the Windows out-pointer ABI.
 
 Console backends follow the same recipe in their own directory; nothing in
 pass code assumes descriptor sets, image layouts or SPIR-V.
+
+## HDR presentation
+
+`Device::CreateSwapchain(..., hdr)` requests an HDR surface: HDR10 PQ
+(A2B10G10R10 + ST2084) preferred, scRGB (RGBA16F + extended-sRGB linear)
+second, silent SDR fallback otherwise — `Swapchain::color_space()` reports
+the negotiated space and the tonemap pass encodes accordingly (sRGB / PQ /
+scRGB). Enable with `REC_HDR_OUTPUT=1`; `REC_HDR_PAPER_WHITE=<nits>` maps
+tonemapped white (default 200). The HDR modes are SDR-referred v1: grading
+and LUTs stay valid, highlights are not carried past the tonemapper yet.
+`REC_HDR_FORCE_TRANSFER=1|2` forces the encode on an SDR surface for
+numeric testing (verified: PQ and scRGB round-trip at the container's
+quantization floor).
+
+Pending: a display with an HDR-capable surface (this box's X11 session
+offers only SRGB_NONLINEAR — Wayland or Windows needed for runtime
+validation), HDR10 metadata (VK_EXT_hdr_metadata), and the UI caveat: gui /
+HUD passes draw after the tonemap in sRGB values, so on a real HDR surface
+they will render dim/miscoded until they encode per color_space() too.

@@ -171,6 +171,10 @@ struct RenderSettings {
   bool bloom = true;
   f32 bloom_intensity = 0.04f;
 
+  // HDR presentation: request an HDR10/scRGB swapchain (falls back to SDR
+  // when the surface has neither); paper white = nits of tonemapped 1.0.
+  bool hdr_output = false;
+  f32 hdr_paper_white = 200.0f;
   bool auto_exposure = true;
   f32 adaptation_speed = 3.0f;
   // Compensation multiplier under auto exposure, absolute exposure without.

@@ -323,7 +323,10 @@ class D3D12Device final : public Device {
   void WaitIdle() override;
   bool RecreateSurface(Window& window) override { (void)window; return true; }
   void DestroySurface() override {}
-  std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync) override;
+  // `hdr` is accepted but not yet honored: the offscreen Linux swapchain has
+  // no display pipe, and the DXGI path needs CheckColorSpaceSupport wiring.
+  std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync,
+                                             bool hdr) override;
   MemoryBudget memory_budget() const override;
 
   GpuBuffer CreateBuffer(u64 size, BufferUsageFlags usage, bool host_visible) override;

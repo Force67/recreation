@@ -466,7 +466,8 @@ void D3D12Device::WaitIdle() {
   if (queue_) SignalAndWait();
 }
 
-std::unique_ptr<Swapchain> D3D12Device::CreateSwapchain(u32 width, u32 height, bool vsync) {
+std::unique_ptr<Swapchain> D3D12Device::CreateSwapchain(u32 width, u32 height, bool vsync,
+                                                        bool /*hdr*/) {
   return D3D12Swapchain::Create(*this, width, height, vsync);
 }
 

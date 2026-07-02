@@ -599,8 +599,9 @@ void VulkanDevice::DestroySurface() {
   }
 }
 
-std::unique_ptr<Swapchain> VulkanDevice::CreateSwapchain(u32 width, u32 height, bool vsync) {
-  return VulkanSwapchain::Create(*this, width, height, vsync);
+std::unique_ptr<Swapchain> VulkanDevice::CreateSwapchain(u32 width, u32 height, bool vsync,
+                                                         bool hdr) {
+  return VulkanSwapchain::Create(*this, width, height, vsync, hdr);
 }
 
 Device::MemoryBudget VulkanDevice::memory_budget() const {

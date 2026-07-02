@@ -97,7 +97,10 @@ class Device {
   // Destroys the presentation surface (its swapchain must already be gone).
   virtual void DestroySurface() = 0;
 
-  virtual std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync) = 0;
+  // `hdr` requests an HDR-capable surface format (HDR10 PQ preferred, scRGB
+  // fallback); silently falls back to SDR when the surface has neither.
+  virtual std::unique_ptr<Swapchain> CreateSwapchain(u32 width, u32 height, bool vsync,
+                                                     bool hdr = false) = 0;
 
   // Live gpu memory usage, summed over the device-local heaps, for the debug
   // overlay. budget is the driver's estimate of what the app may use.
