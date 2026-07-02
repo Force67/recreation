@@ -109,11 +109,11 @@ bool DdgiSystem::CreateResources(TextureView sky_view, SamplerHandle sky_sampler
   rays_ = device_.CreateImage2D(Format::kRGBA16Float, {kRaysPerProbe, kProbeCount}, usage);
   if (!irradiance_ || !distance_ || !rays_) return false;
 
-  // TODO(rhi): the atlases must be bound as 2d-array views (the shaders declare
-  // (RW)Texture2DArray); the RHI has no array-view API, so alias the default 2D
-  // views until Device grows one.
-  irradiance_array_view_ = irradiance_.view;
-  distance_array_view_ = distance_.view;
+  // The shaders declare (RW)Texture2DArray over the atlases, so bind them
+  // through explicit 2d-array views.
+  irradiance_array_view_ = device_.CreateArrayView(irradiance_);
+  distance_array_view_ = device_.CreateArrayView(distance_);
+  if (!irradiance_array_view_ || !distance_array_view_) return false;
 
   for (GpuBuffer& buffer : volume_buffers_) {
     buffer = device_.CreateBuffer(sizeof(VolumeData), kBufferUsageUniform, true);
@@ -232,7 +232,7 @@ void DdgiSystem::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u
         ctx.cmd->BindPipeline(rays_pipeline_);
         ctx.cmd->BindTransient(0, {Bind::Storage(0, rays_),
                                    Bind::Combined(1, sky_view_, sky_sampler_),
-                                   Bind::Combined(2, irradiance_array_view_, sampler_),
+                                   InGeneral(Bind::Combined(2, irradiance_array_view_, sampler_)),
                                    Bind::Accel(3, raytracing.tlas(tlas_slot)),
                                    Bind::Uniform(4, volume_buffer, 0, sizeof(VolumeData))});
         ctx.cmd->BindSet(1, bindless_->set());
@@ -250,7 +250,7 @@ void DdgiSystem::AddToGraph(RenderGraph& graph, RayTracingContext& raytracing, u
           push.reset = reset ? 1u : 0u;
           ctx.cmd->BindPipeline(blend_pipeline_);
           ctx.cmd->BindTransient(0, {Bind::StorageView(0, atlas_view),
-                                     Bind::Combined(1, rays_.view, sampler_),
+                                     InGeneral(Bind::Combined(1, rays_.view, sampler_)),
                                      Bind::Uniform(2, volume_buffer, 0, sizeof(VolumeData))});
           ctx.cmd->Push(push);
           ctx.cmd->Dispatch2D({width, height});
@@ -280,7 +280,8 @@ DdgiSystem::~DdgiSystem() {
     device_.DestroyPipeline(*p);
     *p = {};
   }
-  // The array views alias the images' default views; the images own them.
+  device_.DestroyView(irradiance_array_view_);
+  device_.DestroyView(distance_array_view_);
   device_.DestroyImage(irradiance_);
   device_.DestroyImage(distance_);
   device_.DestroyImage(rays_);

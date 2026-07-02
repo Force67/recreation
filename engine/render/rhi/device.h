@@ -121,6 +121,9 @@ class Device {
   virtual void DestroyImage(GpuImage& image) = 0;
   // Extra single-mip view for mip-chained images (bloom pyramid).
   virtual TextureView CreateMipView(const GpuImage& image, u32 mip) = 0;
+  // 2D-array view over the whole image, for shaders that declare
+  // Texture2DArray over a (possibly single-layer) atlas.
+  virtual TextureView CreateArrayView(const GpuImage& image) = 0;
   virtual void DestroyView(TextureView view) = 0;
 
   // Cached; valid for the device's lifetime, never destroyed by callers.

@@ -339,6 +339,10 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
       want_raytracing && HasExtension(available, VK_KHR_RAY_QUERY_EXTENSION_NAME);
   bool want_mesh_shaders = HasExtension(available, VK_EXT_MESH_SHADER_EXTENSION_NAME);
   bool want_shading_rate = HasExtension(available, VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+  // Some compute shaders (hi-z aware passes) declare quad derivatives; enable
+  // the extension whenever the driver has it so their modules validate.
+  bool want_compute_derivatives =
+      HasExtension(available, VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
 
   // Feature query chain. Optional structs join the chain only when their
   // extension exists, then whatever the driver reports gets enabled.
@@ -359,6 +363,8 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
   VkPhysicalDeviceFragmentShadingRateFeaturesKHR shading_rate{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+  VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_derivatives{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR};
 
   void** tail = &features.pNext;
   auto chain = [&tail](auto* node) {
@@ -386,6 +392,10 @@ std::unique_ptr<Device> VulkanDevice::Create(const DeviceDesc& desc, Window& win
   if (want_shading_rate) {
     chain(&shading_rate);
     device_extensions.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+  }
+  if (want_compute_derivatives) {
+    chain(&compute_derivatives);
+    device_extensions.push_back(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
   }
 
 #if defined(RECREATION_HAS_DLSS)
@@ -763,9 +773,24 @@ TextureView VulkanDevice::CreateMipView(const GpuImage& image, u32 mip) {
   const TextureRecord* record = Rec(image.handle);
   VkImageViewCreateInfo view_info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view_info.image = record->image;
-  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  // Layered images (cube maps) get an array view over every layer so compute
+  // passes can write all faces through one RWTexture2DArray binding.
+  view_info.viewType =
+      record->array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
   view_info.format = record->format;
-  view_info.subresourceRange = {record->aspect, mip, 1, 0, 1};
+  view_info.subresourceRange = {record->aspect, mip, 1, 0, record->array_layers};
+  VkImageView view = VK_NULL_HANDLE;
+  vkCreateImageView(device_, &view_info, nullptr, &view);
+  return MakeView(view);
+}
+
+TextureView VulkanDevice::CreateArrayView(const GpuImage& image) {
+  const TextureRecord* record = Rec(image.handle);
+  VkImageViewCreateInfo view_info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  view_info.image = record->image;
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+  view_info.format = record->format;
+  view_info.subresourceRange = {record->aspect, 0, record->mip_levels, 0, record->array_layers};
   VkImageView view = VK_NULL_HANDLE;
   vkCreateImageView(device_, &view_info, nullptr, &view);
   return MakeView(view);
@@ -841,9 +866,11 @@ VkDescriptorSetLayout VulkanDevice::GetOrCreateSetLayout(const BindingLayoutDesc
                         .stageFlags = stages});
     VkDescriptorBindingFlags flag = 0;
     if (slot.variable_count) {
+      // Fixed-size, partially bound array: VARIABLE_DESCRIPTOR_COUNT would
+      // force the binding to be the set's last, which the bindless layout
+      // (sampler after the texture array) cannot satisfy.
       flag = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
-             VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
       any_flags = true;
     }
     flags.push_back(flag);
@@ -930,13 +957,8 @@ BindingSetHandle VulkanDevice::CreateBindingSet(BindingLayoutHandle layout, u32 
     return {};
   }
 
-  VkDescriptorSetVariableDescriptorCountAllocateInfo variable_info{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO};
-  variable_info.descriptorSetCount = 1;
-  variable_info.pDescriptorCounts = &variable_count;
-
+  (void)variable_count;  // arrays are fixed-size, partially bound (see layout)
   VkDescriptorSetAllocateInfo alloc{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-  if (variable_count > 0) alloc.pNext = &variable_info;
   alloc.descriptorPool = pool;
   alloc.descriptorSetCount = 1;
   alloc.pSetLayouts = &layout_record->layout;
@@ -980,13 +1002,17 @@ void VulkanDevice::WriteDescriptors(VkDescriptorSet set, std::span<const Binding
         break;
       case BindingType::kSampledImage:
         images[i] = {.imageView = View(item.view),
-                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                     .imageLayout = item.general_layout
+                                        ? VK_IMAGE_LAYOUT_GENERAL
+                                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         write.pImageInfo = &images[i];
         break;
       case BindingType::kCombinedTextureSampler:
         images[i] = {.sampler = SamplerOf(item.sampler),
                      .imageView = View(item.view),
-                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                     .imageLayout = item.general_layout
+                                        ? VK_IMAGE_LAYOUT_GENERAL
+                                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         write.pImageInfo = &images[i];
         break;
       case BindingType::kSampler:

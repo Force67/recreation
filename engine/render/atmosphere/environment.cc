@@ -108,10 +108,9 @@ bool EnvironmentSystem::CreateDummies() {
                                         kTextureUsageSampled | kTextureUsageTransferDst);
   if (!white_ || !black_array_ || !shadow_dummy_) return false;
 
-  // TODO(rhi): the old view was VK_IMAGE_VIEW_TYPE_2D_ARRAY so Texture2DArray
-  // declarations accept the dummy; the RHI has no array-view creation, so this
-  // is a plain single-mip view.
-  black_array_view_ = device_.CreateMipView(black_array_, 0);
+  // The shaders declare Texture2DArray for the ddgi slots; the dummy must be
+  // an array view so the descriptor's view type matches when ddgi is off.
+  black_array_view_ = device_.CreateArrayView(black_array_);
   if (!black_array_view_) return false;
 
   dummy_volume_ = device_.CreateBuffer(512, kBufferUsageUniform, true);
@@ -350,8 +349,12 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
        Bind::Combined(1, prefiltered_.view, sampler_),
        Bind::Combined(2, brdf_lut_.view, sampler_),
        Bind::Combined(3, ao_view ? ao_view : white_.view, sampler_),
-       Bind::Combined(4, ddgi ? ddgi->irradiance : black_array_view_, sampler_),
-       Bind::Combined(5, ddgi ? ddgi->distance : black_array_view_, sampler_),
+       // The live atlases stay in kGeneral (storage-written by the ddgi
+       // compute passes each frame); the dummy is in the shader-read state.
+       ddgi ? InGeneral(Bind::Combined(4, ddgi->irradiance, sampler_))
+            : Bind::Combined(4, black_array_view_, sampler_),
+       ddgi ? InGeneral(Bind::Combined(5, ddgi->distance, sampler_))
+            : Bind::Combined(5, black_array_view_, sampler_),
        Bind::Uniform(6, ddgi ? ddgi->volume : dummy_volume_, 0,
                      ddgi ? ddgi->volume_size : 256),
        Bind::Combined(7, shadow_view ? shadow_view : shadow_dummy_.view, shadow_sampler_),

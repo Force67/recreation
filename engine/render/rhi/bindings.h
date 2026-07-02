@@ -52,7 +52,17 @@ struct BindingItem {
   u64 buffer_offset = 0;
   u64 buffer_range = 0;  // 0 = whole buffer
   AccelStructHandle accel;
+  // Sampled/combined bindings normally expect the image in the shader-read
+  // state; storage-persistent images (probe atlases living in kGeneral) set
+  // this so the descriptor matches their actual state.
+  bool general_layout = false;
 };
+
+// Marks a sampled/combined item as reading an image that lives in kGeneral.
+inline BindingItem InGeneral(BindingItem item) {
+  item.general_layout = true;
+  return item;
+}
 
 // Factories keep call sites one-liners:
 //   cmd->BindTransient(0, {Bind::Storage(0, img), Bind::Sampled(1, depth)});

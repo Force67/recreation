@@ -226,6 +226,7 @@ class VulkanDevice final : public Device {
                            u32 mip_levels) override;
   void DestroyImage(GpuImage& image) override;
   TextureView CreateMipView(const GpuImage& image, u32 mip) override;
+  TextureView CreateArrayView(const GpuImage& image) override;
   void DestroyView(TextureView view) override;
   SamplerHandle GetSampler(const SamplerDesc& desc) override;
 

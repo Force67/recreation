@@ -62,6 +62,7 @@ class NullDevice final : public Device {
   GpuImage CreateImageCube(Format, u32, TextureUsageFlags, u32) override { return {}; }
   void DestroyImage(GpuImage& image) override { image = {}; }
   TextureView CreateMipView(const GpuImage&, u32) override { return {}; }
+  TextureView CreateArrayView(const GpuImage&) override { return {}; }
   void DestroyView(TextureView) override {}
   SamplerHandle GetSampler(const SamplerDesc&) override { return {}; }
 
