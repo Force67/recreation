@@ -18,6 +18,7 @@ recreation_add_module(render
   screenspace/ssao.cc
   screenspace/ssr.cc
   screenspace/ssgi.cc
+  screenspace/reflection_trace.cc
   atmosphere/environment.cc
   atmosphere/volumetric_fog.cc
   atmosphere/aerial_perspective.cc
@@ -171,6 +172,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/screenspace/ssao.cs.hlsl
   shaders/screenspace/ssr.cs.hlsl
   shaders/screenspace/ssgi.cs.hlsl
+  shaders/screenspace/reflection_trace.cs.hlsl
   shaders/pipeline/cull.cs.hlsl
   shaders/pipeline/hiz_reduce.cs.hlsl
   shaders/pipeline/meshlet.ms.hlsl
@@ -242,6 +244,7 @@ set(RECREATION_SHADER_NO_DXIL
   ddgi_rays.cs.hlsl
   recon_gbuffer.cs.hlsl
   recon_restir_di_spatial.cs.hlsl
+  reflection_trace.cs.hlsl
 )
 
 recreation_embed_shaders(recreation_render ${RECREATION_RENDER_SHADERS})

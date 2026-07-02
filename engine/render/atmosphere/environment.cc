@@ -186,6 +186,9 @@ bool EnvironmentSystem::CreatePipelines() {
   env_desc.slots.push_back({9, BindingType::kCombinedTextureSampler});
   env_desc.slots.push_back({10, BindingType::kCombinedTextureSampler});
   env_desc.slots.push_back({11, BindingType::kStorageBuffer});  // dynamic point lights
+  // 12: NRD-denoised stochastic specular reflections (screen-space rgba16f),
+  // sampled by the rt variant instead of tracing inline.
+  env_desc.slots.push_back({12, BindingType::kCombinedTextureSampler});
   env_set_layout_ = device_.CreateBindingLayout(env_desc);
   if (!env_set_layout_) return false;
 
@@ -342,7 +345,8 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                                     const DdgiBinding* ddgi, TextureView shadow_view,
                                     const GpuBuffer& cascade_buffer, u64 cascade_size,
                                     TextureView opaque_color, TextureView sun_shadow_view,
-                                    const GpuBuffer& lights, u64 lights_size) const {
+                                    const GpuBuffer& lights, u64 lights_size,
+                                    TextureView spec_reflections) const {
   device_.UpdateBindingSet(
       set,
       {Bind::Combined(0, irradiance_.view, sampler_),
@@ -363,7 +367,10 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
        Bind::Combined(9, opaque_color ? opaque_color : white_.view, sampler_),
        // white = fully lit
        Bind::Combined(10, sun_shadow_view ? sun_shadow_view : white_.view, sampler_),
-       Bind::StorageBuffer(11, lights ? lights : dummy_volume_, 0, lights ? lights_size : 256)});
+       Bind::StorageBuffer(11, lights ? lights : dummy_volume_, 0, lights ? lights_size : 256),
+       // The frame graph moves the denoised target to shader-read for the
+       // scene pass (same as the sigma sun shadow); white when absent.
+       Bind::Combined(12, spec_reflections ? spec_reflections : white_.view, sampler_)});
 }
 
 EnvironmentSystem::~EnvironmentSystem() {

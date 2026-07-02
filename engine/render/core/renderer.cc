@@ -165,6 +165,10 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (!mesh_pipeline_ || !post_ || !taa_.Initialize(*device_)) return false;
   ui_blur_ = UiBlurPass::Create(*device_);  // optional: frosted-glass UI blur
   if (rt_available_ && !rtao_.Initialize(*device_)) return false;
+  if (rt_available_ && bindless_ &&
+      !reflection_trace_.Initialize(*device_, bindless_->set_layout())) {
+    return false;
+  }
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
   if (!ssr_.Initialize(*device_)) return false;   // raster reflection fallback
   if (!ssgi_.Initialize(*device_)) return false;  // raster diffuse-gi fallback
@@ -830,6 +834,12 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   nrd_ao = rtao_active && nrd_.available();
   nrd_shadow = rt_shadows && nrd_.available();
 #endif
+  // Denoised stochastic reflections need the NRD specular denoiser; without
+  // it the rt fragment variant keeps its inline deterministic mirror ray.
+  bool spec_refl_active = false;
+#if defined(RECREATION_HAS_NRD)
+  spec_refl_active = reflections_active && nrd_.available() && !path_trace;
+#endif
   bool ss_ao = settings_.ssao && !nrd_ao && !path_trace;
   // Cascaded shadow maps: the raster sun-shadow path, used whenever ray-traced
   // shadows are not. The rt fragment variant traces its own shadow ray instead.
@@ -1077,6 +1087,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   if (settings_.aurora) globals.flags |= kFrameFlagAurora;
   if (nrd_shadow) globals.flags |= kFrameFlagSigmaShadow;
   if (reflections_active) globals.flags |= kFrameFlagReflections;
+  if (spec_refl_active) globals.flags |= kFrameFlagSpecReflTex;
   globals.time = static_cast<f32>(time_seconds_);
   globals.debug_view = static_cast<u32>(settings_.debug_view);
   globals.reflection_cutoff = settings_.reflection_roughness_cutoff;
@@ -1624,6 +1635,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
   ResourceHandle ao = kInvalidResource;
   ResourceHandle sun_shadow = kInvalidResource;
+  ResourceHandle spec_refl = kInvalidResource;
 #if defined(RECREATION_HAS_NRD)
   if (nrd_ao || nrd_shadow) {
     // Shared NRD guides (normal+roughness, viewZ) and per-frame camera state for
@@ -1660,6 +1672,32 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       sun_shadow = nrd_.DenoiseShadow(graph_, nrd_inputs.normal_roughness, nrd_inputs.view_z, motion,
                                       penumbra);
     }
+    if (spec_refl_active) {
+      // 1-spp VNDF reflection radiance -> REBLUR_SPECULAR; the scene pass
+      // samples the result instead of tracing an inline mirror ray.
+      EnvironmentSystem::DdgiBinding refl_ddgi;
+      if (ddgi_active) refl_ddgi = ddgi_->binding(frame_index_);
+      ReflectionTrace::Frame rfl;
+      rfl.inv_view_proj = globals.inv_view_proj;
+      rfl.camera_pos = view.camera.eye;
+      rfl.sun_direction = settings_.sun_direction;
+      rfl.sun_intensity = settings_.sun_intensity + settings_.lightning * 9.0f;
+      rfl.sun_color = settings_.sun_color;
+      rfl.roughness_cutoff = settings_.reflection_roughness_cutoff;
+      rfl.frame_index = frame_index_;
+      rfl.near_plane = 0.1f;
+      rfl.hit_dist_params = NrdDenoiser::kHitDistParams;
+      rfl.ddgi = ddgi_active;
+      ResourceHandle raw = reflection_trace_.AddToGraph(
+          graph_, *raytracing_, tlas_slot, bindless_->set(), depth_export, normals,
+          environment_->prefiltered_view(),
+          ddgi_active ? refl_ddgi.irradiance : environment_->black_array_view(), ddgi_active,
+          ddgi_active ? refl_ddgi.volume : environment_->dummy_volume(),
+          ddgi_active ? refl_ddgi.volume_size : 256, environment_->sampler(),
+          {render_width_, render_height_}, rfl);
+      spec_refl = nrd_.DenoiseSpecular(graph_, nrd_inputs.normal_roughness, nrd_inputs.view_z,
+                                       motion, raw);
+    }
     prev_proj_ = proj;
     prev_view_ = view_mat;
     prev_jitter_[0] = jitter_x;
@@ -1680,17 +1718,20 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         builder.Write(depth, ResourceUsage::kDepthAttachment);
         if (ao != kInvalidResource) builder.Read(ao, ResourceUsage::kSampledFragment);
         if (sun_shadow != kInvalidResource) builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
+        if (spec_refl != kInvalidResource) builder.Read(spec_refl, ResourceUsage::kSampledFragment);
         if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
         if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
-      [this, scene_color, motion, depth, ao, sun_shadow, use_rt_frag, ddgi_active, csm_active,
-       shadow_slot, shadow_atlas, cull_commands, ms_active, globals_set, frame_slot, &frame,
-       &view, draw_meshlet_instances](PassContext& ctx) {
+      [this, scene_color, motion, depth, ao, sun_shadow, spec_refl, use_rt_frag, ddgi_active,
+       csm_active, shadow_slot, shadow_atlas, cull_commands, ms_active, globals_set, frame_slot,
+       &frame, &view, draw_meshlet_instances](PassContext& ctx) {
         BindingSetHandle env_set = env_scene_sets_[frame_slot];
         TextureView ao_view =
             ao != kInvalidResource ? ctx.graph->image(ao).view : TextureView{};
         TextureView sun_shadow_view =
             sun_shadow != kInvalidResource ? ctx.graph->image(sun_shadow).view : TextureView{};
+        TextureView spec_refl_view =
+            spec_refl != kInvalidResource ? ctx.graph->image(spec_refl).view : TextureView{};
         EnvironmentSystem::DdgiBinding ddgi_binding;
         if (ddgi_active) ddgi_binding = ddgi_->binding(frame_index_);
         environment_->WriteEnvSet(
@@ -1698,7 +1739,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             csm_active ? ctx.graph->image(shadow_atlas).view : TextureView{},
             csm_active ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
             shadow_.cascade_buffer_size(), TextureView{}, sun_shadow_view, frame.lights,
-            frame.lights.size);
+            frame.lights.size, spec_refl_view);
 
         ColorAttachment colors[2];
         colors[0] = {.view = ctx.graph->image(scene_color).view,
@@ -2315,6 +2356,7 @@ void Renderer::Shutdown() {
     meshlet_.Destroy(*device_);
     if (ms_dummy_hiz_) device_->DestroyImage(ms_dummy_hiz_);
     if (rt_available_) rtao_.Destroy(*device_);
+    if (rt_available_) reflection_trace_.Destroy(*device_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);
     if (rt_available_) shadow_trace_.Destroy(*device_);

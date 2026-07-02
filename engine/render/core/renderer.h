@@ -12,6 +12,7 @@
 #include "core/math.h"
 #include "core/window.h"
 #include "render/screenspace/ambient_occlusion.h"
+#include "render/screenspace/reflection_trace.h"
 #include "render/post/antialiasing.h"
 #include "render/core/bindless.h"
 #include "render/post/bloom.h"
@@ -203,7 +204,9 @@ class Renderer {
   static constexpr u32 kFramesInFlight = Device::kMaxFramesInFlight;
   static constexpr Format kSceneColorFormat = Format::kRGBA16Float;
   static constexpr Format kMotionFormat = Format::kRG16Float;
-  static constexpr Format kNormalFormat = Format::kRG16Float;
+  // Oct normal in rg, material roughness in b (denoiser guides + the
+  // reflection trace need real roughness), a free.
+  static constexpr Format kNormalFormat = Format::kRGBA16Float;
   static constexpr Format kDepthFormat = Format::kD32Float;
 
   // Per frame-in-flight host-visible buffers. Command recording, sync and the
@@ -257,6 +260,7 @@ class Renderer {
   RenderGraph graph_;
   TaaPass taa_;
   RtaoPass rtao_;
+  ReflectionTrace reflection_trace_;
   SsaoPass ssao_;
   SsrPass ssr_;
   SsgiPass ssgi_;

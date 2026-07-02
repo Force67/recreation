@@ -18,9 +18,12 @@ struct MaterialParams {
 [[vk::combinedImageSampler]] [[vk::binding(1, 1)]] SamplerState base_color_sampler : register(s1, space1);
 [[vk::combinedImageSampler]] [[vk::binding(2, 1)]] Texture2D normal_map : register(t2, space1);
 [[vk::combinedImageSampler]] [[vk::binding(2, 1)]] SamplerState normal_sampler : register(s2, space1);
+[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] Texture2D metallic_roughness_map : register(t3, space1);
+[[vk::combinedImageSampler]] [[vk::binding(3, 1)]] SamplerState metallic_roughness_sampler : register(s3, space1);
 
 static const uint kFlagAlphaMask = 1u;
 static const uint kFlagHasNormalMap = 2u;
+static const uint kFlagTerrain = 16u;  // mr slot holds a land layer, not m/r
 
 struct PsIn {
   float4 sv_position : SV_Position;
@@ -41,7 +44,7 @@ float2 OctEncode(float3 d) {
 }
 
 struct PsOut {
-  float2 normal : SV_Target0;
+  float4 normal : SV_Target0;  // oct normal rg, roughness b (guides/reflections)
   float2 motion : SV_Target1;
   // Raw reversed-z exported as color: downstream passes sample this instead
   // of the depth attachment, which then never leaves attachment layout.
@@ -64,8 +67,14 @@ PsOut main(PsIn input) {
       n = normalize(tn.x * t + tn.y * b + tn.z * n);
     }
   }
+  float roughness = (material.flags & kFlagTerrain) != 0u
+                        ? 1.0
+                        : clamp(metallic_roughness_map
+                                    .Sample(metallic_roughness_sampler, input.uv).g *
+                                    material.roughness_factor,
+                                0.045, 1.0);
   PsOut output;
-  output.normal = OctEncode(n);
+  output.normal = float4(OctEncode(n), roughness, 0.0);
   float2 curr = input.curr_clip.xy / input.curr_clip.w;
   float2 prev = input.prev_clip.xy / input.prev_clip.w;
   output.motion = (prev - curr) * 0.5;

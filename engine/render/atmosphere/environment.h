@@ -53,6 +53,10 @@ class EnvironmentSystem {
   TextureView transmittance_view() const { return transmittance_lut_.view; }
   TextureView multiscatter_view() const { return multiscatter_lut_.view; }
   SamplerHandle sampler() const { return sampler_; }
+  TextureView prefiltered_view() const { return prefiltered_.view; }
+  // Neutral stand-ins for passes that statically bind ddgi inputs.
+  TextureView black_array_view() const { return black_array_view_; }
+  const GpuBuffer& dummy_volume() const { return dummy_volume_; }
 
   struct DdgiBinding {
     TextureView irradiance;
@@ -72,7 +76,8 @@ class EnvironmentSystem {
                    const GpuBuffer& cascade_buffer = {}, u64 cascade_size = 0,
                    TextureView opaque_color = {},
                    TextureView sun_shadow_view = {},
-                   const GpuBuffer& lights = {}, u64 lights_size = 0) const;
+                   const GpuBuffer& lights = {}, u64 lights_size = 0,
+                   TextureView spec_reflections = {}) const;
 
  private:
   explicit EnvironmentSystem(Device& device) : device_(device) {}

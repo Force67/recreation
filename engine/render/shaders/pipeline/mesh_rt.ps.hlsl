@@ -27,6 +27,10 @@ struct PointLight {
   float4 color_intensity;  // rgb color, w intensity
 };
 [[vk::binding(11, 2)]] StructuredBuffer<PointLight> point_lights : register(t11, space2);
+// NRD REBLUR-denoised stochastic reflections (radiance in rgb); replaces the
+// inline mirror trace when kFrameSpecReflTex is set.
+[[vk::combinedImageSampler]] [[vk::binding(12, 2)]] Texture2D spec_refl_map : register(t12, space2);
+[[vk::combinedImageSampler]] [[vk::binding(12, 2)]] SamplerState spec_refl_sampler : register(s12, space2);
 
 struct MaterialParams {
   float4 base_color_factor;
@@ -125,7 +129,8 @@ static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
 static const uint kFrameReflections = 16u;
 static const uint kFrameRtShadows = 32u;
-static const uint kFrameSigmaShadow = 128u;  // sample the denoised sun shadow
+static const uint kFrameSigmaShadow = 128u;
+static const uint kFrameSpecReflTex = 512u;  // 1 << 9  // sample the denoised sun shadow
 static const float kPi = 3.14159265359;
 static const float kPrefilterMips = 6.0;
 static const uint kVertexStride = 52;
@@ -490,7 +495,16 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     // Hybrid specular: trace the reflection for smooth surfaces, fade to the
     // prefiltered probe as roughness climbs to the cutoff (which gets blurry
     // enough that the cube is indistinguishable and far cheaper).
-    if ((frame.flags & kFrameReflections) != 0u && roughness < frame.reflection_cutoff) {
+    if ((frame.flags & kFrameSpecReflTex) != 0u && roughness < frame.reflection_cutoff) {
+      // Denoised stochastic reflections: the trace pass VNDF-sampled the GGX
+      // lobe, so the texture already carries the roughness-matched blur - no
+      // crossfade to the cube needed until the cutoff.
+      float3 traced =
+          spec_refl_map.SampleLevel(spec_refl_sampler,
+                                    input.sv_position.xy / frame.misc.xy, 0.0).rgb;
+      float blend = smoothstep(0.75, 1.0, roughness / max(frame.reflection_cutoff, 1e-3));
+      radiance = lerp(traced, radiance, blend);
+    } else if ((frame.flags & kFrameReflections) != 0u && roughness < frame.reflection_cutoff) {
       float blend = saturate(roughness / max(frame.reflection_cutoff, 1e-3));
       float3 traced = TraceReflection(input.world_pos + n * 0.02, r);
       radiance = lerp(traced, radiance, blend);
@@ -534,7 +548,12 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     case 6: return ambient;     // indirect (ibl + ddgi), ao applied
     case 7: return lit;         // direct sun, shadowed
     case 8: return emissive;
-    case 9: return TraceReflection(input.world_pos + n * 0.02, reflect(-v, n));  // raw reflection
+    case 9:  // raw reflection: the denoised target when present, else traced
+      if ((frame.flags & kFrameSpecReflTex) != 0u) {
+        return spec_refl_map.SampleLevel(spec_refl_sampler,
+                                         input.sv_position.xy / frame.misc.xy, 0.0).rgb;
+      }
+      return TraceReflection(input.world_pos + n * 0.02, reflect(-v, n));
     case 14: {  // ray-count heatmap: shadow + ao + reflection rays this pixel casts
       float rays = float(frame.ao_ray_count);
       if ((frame.flags & kFrameRtShadows) != 0u && dot(n, l) > 0.0) rays += 1.0;

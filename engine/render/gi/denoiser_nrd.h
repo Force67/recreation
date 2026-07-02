@@ -81,6 +81,12 @@ class NrdDenoiser {
   // (albedo-demodulated) radiance + normalized hit distance, packed by
   // REBLUR_FrontEnd_PackRadianceAndNormHitDist (RGBA16f). Returns the denoised
   // radiance handle; unpack with REBLUR_BackEnd_UnpackRadianceAndNormHitDist.
+  // REBLUR specular radiance, for the hybrid reflections. Same packing as
+  // the diffuse variant; xyz of the output is the denoised radiance.
+  ResourceHandle DenoiseSpecular(RenderGraph& graph, ResourceHandle normal_roughness,
+                                 ResourceHandle view_z, ResourceHandle motion,
+                                 ResourceHandle in_radiance_hitdist);
+
   ResourceHandle DenoiseDiffuse(RenderGraph& graph, ResourceHandle normal_roughness,
                                 ResourceHandle view_z, ResourceHandle motion,
                                 ResourceHandle in_radiance_hitdist);
@@ -145,11 +151,13 @@ class NrdDenoiser {
   PoolTexture out_ao_;
   PoolTexture out_shadow_;
   PoolTexture out_diffuse_;
+  PoolTexture out_specular_;
   // Render-graph import states for the denoised outputs (the graph reads the
   // starting state and writes the post-pass state back each frame).
   ResourceState out_ao_state_ = ResourceState::kUndefined;
   ResourceState out_shadow_state_ = ResourceState::kUndefined;
   ResourceState out_diffuse_state_ = ResourceState::kUndefined;
+  ResourceState out_specular_state_ = ResourceState::kUndefined;
 
   // Engine-side input packing (g-buffer -> NRD guides), not part of NRD itself.
   VkPipeline pack_pipeline_ = VK_NULL_HANDLE;

@@ -16,6 +16,7 @@ namespace {
 constexpr u32 kAoIdentifier = 0;
 constexpr u32 kShadowIdentifier = 1;
 constexpr u32 kDiffuseIdentifier = 2;
+constexpr u32 kSpecularIdentifier = 3;
 // Sky / invalid pixels report a viewZ beyond this so NRD ignores them.
 constexpr f32 kDenoisingRange = 1.0e6f;
 
@@ -73,10 +74,11 @@ bool NrdDenoiser::Initialize(Device& device, Extent2D extent) {
       {kAoIdentifier, nrd::Denoiser::REBLUR_DIFFUSE_OCCLUSION},
       {kShadowIdentifier, nrd::Denoiser::SIGMA_SHADOW},
       {kDiffuseIdentifier, nrd::Denoiser::REBLUR_DIFFUSE},
+      {kSpecularIdentifier, nrd::Denoiser::REBLUR_SPECULAR},
   };
   nrd::InstanceCreationDesc creation{};
   creation.denoisers = denoiser_descs;
-  creation.denoisersNum = 3;
+  creation.denoisersNum = static_cast<u32>(std::size(denoiser_descs));
   if (nrd::CreateInstance(creation, instance_) != nrd::Result::SUCCESS || !instance_) {
     REC_ERROR("nrd: instance creation failed");
     instance_ = nullptr;
@@ -379,9 +381,11 @@ void NrdDenoiser::CreatePools(Device& device, Extent2D extent) {
   out_ao_ = make_output(kHitDistFormat);
   out_shadow_ = make_output(kShadowFormat);
   out_diffuse_ = make_output(kDiffuseRadianceFormat);
+  out_specular_ = make_output(kDiffuseRadianceFormat);
   out_ao_state_ = ResourceState::kGeneral;
   out_shadow_state_ = ResourceState::kGeneral;
   out_diffuse_state_ = ResourceState::kGeneral;
+  out_specular_state_ = ResourceState::kGeneral;
 
   // Prime every owned texture into GENERAL so the first dispatch barrier has a
   // defined source layout.
@@ -396,6 +400,7 @@ void NrdDenoiser::CreatePools(Device& device, Extent2D extent) {
     add(out_ao_);
     add(out_shadow_);
     add(out_diffuse_);
+    add(out_specular_);
     cmd.TextureBarriers({barriers.data(), barriers.size()});
   });
 }
@@ -408,6 +413,7 @@ void NrdDenoiser::DestroyPools(Device& device) {
   if (out_ao_.image) device.DestroyImage(out_ao_.image);
   if (out_shadow_.image) device.DestroyImage(out_shadow_.image);
   if (out_diffuse_.image) device.DestroyImage(out_diffuse_.image);
+  if (out_specular_.image) device.DestroyImage(out_specular_.image);
 }
 
 void NrdDenoiser::Resize(Device& device, Extent2D extent) {
@@ -499,6 +505,16 @@ void NrdDenoiser::SetFrame(const FrameSettings& settings) {
   diffuse.enableAntiFirefly = true;
   nrd::SetDenoiserSettings(*instance_, kDiffuseIdentifier, &diffuse);
 
+  // Specular reflections: 1-spp VNDF-sampled radiance. The lobe-driven
+  // reprojection needs the real roughness guide; anti-firefly kills the
+  // residual sky-hit sparkle on foliage.
+  nrd::ReblurSettings specular = reblur;
+  specular.maxAccumulatedFrameNum = 24;
+  specular.maxStabilizedFrameNum = 8;
+  specular.historyFixFrameNum = 4;
+  specular.enableAntiFirefly = true;
+  nrd::SetDenoiserSettings(*instance_, kSpecularIdentifier, &specular);
+
   nrd::SigmaSettings sigma{};
   sigma.lightDirection[0] = -settings.sun_direction.x;
   sigma.lightDirection[1] = -settings.sun_direction.y;
@@ -540,6 +556,17 @@ ResourceHandle NrdDenoiser::DenoiseDiffuse(RenderGraph& graph, ResourceHandle no
                         static_cast<int>(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST), out_diffuse_,
                         static_cast<int>(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST),
                         "nrd_diffuse_out", &out_diffuse_state_);
+}
+
+ResourceHandle NrdDenoiser::DenoiseSpecular(RenderGraph& graph, ResourceHandle normal_roughness,
+                                            ResourceHandle view_z, ResourceHandle motion,
+                                            ResourceHandle in_radiance_hitdist) {
+  return AddDenoisePass(graph, kSpecularIdentifier, "nrd_specular", normal_roughness, view_z,
+                        motion, in_radiance_hitdist,
+                        static_cast<int>(nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST),
+                        out_specular_,
+                        static_cast<int>(nrd::ResourceType::OUT_SPEC_RADIANCE_HITDIST),
+                        "nrd_specular_out", &out_specular_state_);
 }
 
 ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, const char* pass_name,
@@ -594,10 +621,12 @@ ResourceHandle NrdDenoiser::AddDenoisePass(RenderGraph& graph, u32 identifier, c
 void NrdDenoiser::RecordDispatches(PassContext& ctx, u32 identifier) {
   const nrd::DispatchDesc* dispatches = nullptr;
   uint32_t dispatch_num = 0;
-  if (nrd::GetComputeDispatches(*instance_, &identifier, 1, dispatches, dispatch_num) !=
-      nrd::Result::SUCCESS) {
+  nrd::Result res = nrd::GetComputeDispatches(*instance_, &identifier, 1, dispatches, dispatch_num);
+  if (res != nrd::Result::SUCCESS) {
+    REC_WARN("nrd: GetComputeDispatches({}) failed ({})", identifier, static_cast<int>(res));
     return;
   }
+  if (dispatch_num == 0) REC_WARN("nrd: identifier {} produced 0 dispatches", identifier);
 
   const nrd::SPIRVBindingOffsets& off = nrd::GetLibraryDesc()->spirvBindingOffsets;
   VkCommandBuffer vk_cmd = GetVkCommandBuffer(*ctx.cmd);
