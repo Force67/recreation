@@ -89,7 +89,10 @@ bool VulkanSwapchain::Init(u32 width, u32 height, bool vsync, bool hdr) {
     extent_.height = std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
   }
 
-  u32 image_count = caps.minImageCount + 1;
+  // +2 over the minimum: frame generation acquires two images per engine frame
+  // (interpolated + real); the extra slack keeps the second acquire's
+  // forward-progress guarantee (outstanding acquires <= count - min).
+  u32 image_count = caps.minImageCount + 2;
   if (caps.maxImageCount > 0) image_count = std::min(image_count, caps.maxImageCount);
 
   // Desktop surfaces support OPAQUE; Android surfaces often only offer INHERIT.
@@ -190,6 +193,18 @@ AcquireResult VulkanSwapchain::Acquire(u32 slot, u32* out_image_index) {
   VkResult result = vkAcquireNextImageKHR(device_.device(), swapchain_, UINT64_MAX,
                                           device_.frames_[slot].image_available, VK_NULL_HANDLE,
                                           out_image_index);
+  switch (result) {
+    case VK_SUCCESS: return AcquireResult::kOk;
+    case VK_SUBOPTIMAL_KHR: return AcquireResult::kSuboptimal;
+    case VK_ERROR_OUT_OF_DATE_KHR: return AcquireResult::kOutOfDate;
+    default: return AcquireResult::kFailed;
+  }
+}
+
+AcquireResult VulkanSwapchain::AcquireSecond(u32 slot, u32* out_image_index) {
+  VkResult result = vkAcquireNextImageKHR(device_.device(), swapchain_, UINT64_MAX,
+                                          device_.frames_[slot].image_available_fg,
+                                          VK_NULL_HANDLE, out_image_index);
   switch (result) {
     case VK_SUCCESS: return AcquireResult::kOk;
     case VK_SUBOPTIMAL_KHR: return AcquireResult::kSuboptimal;

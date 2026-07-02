@@ -194,6 +194,16 @@ class Device {
   virtual CommandList* BeginAsync() { return nullptr; }
   virtual void SubmitAsync(CommandList* /*cmd*/) {}
 
+  // --- frame generation present (optional; vulkan only today) ---
+  // Ends recording and submits waiting on BOTH of the slot's acquires (the
+  // regular one and Swapchain::AcquireSecond's), then presents interp_index
+  // followed by real_index. Under FIFO the two presents land a vblank apart,
+  // which is the whole pacing story.
+  virtual PresentResult SubmitFrameGen(CommandList* /*cmd*/, Swapchain& /*swapchain*/,
+                                       u32 /*interp_index*/, u32 /*real_index*/) {
+    return PresentResult::kFailed;
+  }
+
  protected:
   Device() = default;
 

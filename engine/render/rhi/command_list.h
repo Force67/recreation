@@ -156,6 +156,10 @@ class CommandList {
                                    std::span<const BufferTextureCopy> regions) = 0;
   virtual void CopyTextureToBuffer(const GpuImage& src, const GpuBuffer& dst,
                                    const BufferTextureCopy& region) = 0;
+  // Full-extent mip-0 image copy (matching format and size). Src must be in
+  // kCopySrc, dst in kCopyDst. Optional: only the vulkan backend implements it
+  // today (frame generation's interpolated-image copy).
+  virtual void CopyTexture(const GpuImage& /*src*/, const GpuImage& /*dst*/) {}
   virtual void CopyBuffer(const GpuBuffer& src, u64 src_offset, const GpuBuffer& dst,
                           u64 dst_offset, u64 size) = 0;
   // Linear-filtered blit mip -> mip (mip chain generation). Src mip must be in

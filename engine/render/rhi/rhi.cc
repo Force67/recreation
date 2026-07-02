@@ -82,6 +82,7 @@ u32 FormatTexelBytes(Format format) {
     case Format::kBGRA8Unorm:
     case Format::kRG16Unorm:
     case Format::kRG16Snorm:
+    case Format::kRG16Sint:
     case Format::kRG16Float:
     case Format::kR32Uint:
     case Format::kR32Float:

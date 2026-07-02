@@ -36,6 +36,11 @@ class Swapchain {
   // Acquires the next image using frame slot `slot`'s sync primitives; the
   // following Device::SubmitFrame with the same slot waits on it.
   virtual AcquireResult Acquire(u32 slot, u32* out_image_index) = 0;
+  // Second acquire for frame generation (the interpolated frame's image),
+  // waited by Device::SubmitFrameGen. Backends without frame generation fail.
+  virtual AcquireResult AcquireSecond(u32 /*slot*/, u32* /*out_image_index*/) {
+    return AcquireResult::kFailed;
+  }
 
   virtual Format format() const = 0;
   virtual Extent2D extent() const = 0;

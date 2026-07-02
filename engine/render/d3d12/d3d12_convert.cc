@@ -23,6 +23,7 @@ constexpr DXGI_FORMAT kFormatTable[] = {
     DXGI_FORMAT_R16_FLOAT,            // kR16Float
     DXGI_FORMAT_R16G16_UNORM,         // kRG16Unorm
     DXGI_FORMAT_R16G16_SNORM,         // kRG16Snorm
+    DXGI_FORMAT_R16G16_SINT,          // kRG16Sint
     DXGI_FORMAT_R16G16_FLOAT,         // kRG16Float
     DXGI_FORMAT_R16G16B16A16_UNORM,   // kRGBA16Unorm
     DXGI_FORMAT_R16G16B16A16_SNORM,   // kRGBA16Snorm

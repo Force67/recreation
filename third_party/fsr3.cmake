@@ -123,6 +123,68 @@ foreach(pass IN LISTS FFX_FSR3_PASSES)
   endforeach()
 endforeach()
 
+# ---------------------------------------------------------------------------
+# Frame generation permutations: the opticalflow + frameinterpolation passes,
+# same four variants as the upscaler but with each effect's own option set
+# (cmake/ffx_sc_compile_fg.cmake mirrors the SDK's per-effect args).
+set(FFX_FG_SHADERS
+  opticalflow/ffx_opticalflow_prepare_luma_pass
+  opticalflow/ffx_opticalflow_compute_luminance_pyramid_pass
+  opticalflow/ffx_opticalflow_generate_scd_histogram_pass
+  opticalflow/ffx_opticalflow_compute_scd_divergence_pass
+  opticalflow/ffx_opticalflow_compute_optical_flow_advanced_pass_v5
+  opticalflow/ffx_opticalflow_filter_optical_flow_pass_v5
+  opticalflow/ffx_opticalflow_scale_optical_flow_advanced_pass_v5
+  frameinterpolation/ffx_frameinterpolation_setup_pass
+  frameinterpolation/ffx_frameinterpolation_reconstruct_previous_depth_pass
+  frameinterpolation/ffx_frameinterpolation_reconstruct_and_dilate_pass
+  frameinterpolation/ffx_frameinterpolation_game_motion_vector_field_pass
+  frameinterpolation/ffx_frameinterpolation_optical_flow_vector_field_pass
+  frameinterpolation/ffx_frameinterpolation_disocclusion_mask_pass
+  frameinterpolation/ffx_frameinterpolation_pass
+  frameinterpolation/ffx_frameinterpolation_compute_game_vector_field_inpainting_pyramid_pass
+  frameinterpolation/ffx_frameinterpolation_compute_inpainting_pyramid_pass
+  frameinterpolation/ffx_frameinterpolation_inpainting_pass
+  frameinterpolation/ffx_frameinterpolation_debug_view_pass
+)
+foreach(entry IN LISTS FFX_FG_SHADERS)
+  get_filename_component(shader_base ${entry} NAME)
+  get_filename_component(effect ${entry} DIRECTORY)
+  set(shader ${FFX_SDK}/src/backends/vk/shaders/${entry}.glsl)
+  foreach(variant base wave64 16bit wave64_16bit)
+    if(variant STREQUAL "base")
+      set(suffix "")
+      set(half 0)
+    elseif(variant STREQUAL "wave64")
+      set(suffix "_wave64")
+      set(half 0)
+    elseif(variant STREQUAL "16bit")
+      set(suffix "_16bit")
+      set(half 1)
+    else()
+      set(suffix "_wave64_16bit")
+      set(half 1)
+    endif()
+    set(name ${shader_base}${suffix})
+    set(header ${FFX_FSR3_SHADER_DIR}/${name}_permutations.h)
+    add_custom_command(OUTPUT ${header}
+      COMMAND ${CMAKE_COMMAND}
+              -DFFX_SC=$<TARGET_FILE:ffx_sc>
+              -DGLSLANG=${RECREATION_GLSLANG}
+              -DGPU_DIR=${FFX_SDK}/include/FidelityFX/gpu
+              -DOUT_DIR=${FFX_FSR3_SHADER_DIR}
+              -DNAME=${name}
+              -DHALF=${half}
+              -DSHADER=${shader}
+              -DEFFECT=${effect}
+              -P ${CMAKE_SOURCE_DIR}/cmake/ffx_sc_compile_fg.cmake
+      DEPENDS ffx_sc ${shader} ${CMAKE_SOURCE_DIR}/cmake/ffx_sc_compile_fg.cmake
+      COMMENT "ffx_sc ${name}"
+      VERBATIM)
+    list(APPEND FFX_FSR3_PERMUTATION_HEADERS ${header})
+  endforeach()
+endforeach()
+
 add_custom_target(ffx_fsr3_shaders DEPENDS ${FFX_FSR3_PERMUTATION_HEADERS})
 
 # ---------------------------------------------------------------------------
@@ -131,9 +193,13 @@ add_custom_target(ffx_fsr3_shaders DEPENDS ${FFX_FSR3_PERMUTATION_HEADERS})
 # vulkan calls through volk (the engine's loader).
 add_library(recreation_ffx_fsr3 STATIC
   ${FFX_SDK}/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp
+  ${FFX_SDK}/src/components/opticalflow/ffx_opticalflow.cpp
+  ${FFX_SDK}/src/components/frameinterpolation/ffx_frameinterpolation.cpp
   ${FFX_SDK}/src/backends/vk/ffx_vk.cpp
   ${FFX_SDK}/src/backends/shared/ffx_shader_blobs.cpp
   ${FFX_SDK}/src/backends/shared/blob_accessors/ffx_fsr3upscaler_shaderblobs.cpp
+  ${FFX_SDK}/src/backends/shared/blob_accessors/ffx_opticalflow_shaderblobs.cpp
+  ${FFX_SDK}/src/backends/shared/blob_accessors/ffx_frameinterpolation_shaderblobs.cpp
   ${FFX_SDK}/src/shared/ffx_assert.cpp
   ${FFX_SDK}/src/shared/ffx_message.cpp
   ${FFX_SDK}/src/shared/ffx_object_management.cpp
@@ -158,7 +224,7 @@ if(NOT WIN32)
   # the 2-byte wchar_t the SDK sizes for, so the real header is used directly.
   target_include_directories(recreation_ffx_fsr3 BEFORE PUBLIC ${FFX_SHIM}/include)
 endif()
-target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_FSR3UPSCALER)
+target_compile_definitions(recreation_ffx_fsr3 PRIVATE FFX_FSR3UPSCALER FFX_OF FFX_FI)
 if(MSVC)
   # /FI force-includes ffx_compat.h (volk routing); FFX_GCC stays undefined so
   # the SDK takes its native MSVC paths.

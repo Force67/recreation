@@ -147,6 +147,7 @@ class VulkanCommandList final : public CommandList {
   void MemoryBarrier(BarrierScope src, BarrierScope dst) override;
   void CopyBufferToTexture(const GpuBuffer& src, const GpuImage& dst,
                            std::span<const BufferTextureCopy> regions) override;
+  void CopyTexture(const GpuImage& src, const GpuImage& dst) override;
   void CopyTextureToBuffer(const GpuImage& src, const GpuBuffer& dst,
                            const BufferTextureCopy& region) override;
   void CopyBuffer(const GpuBuffer& src, u64 src_offset, const GpuBuffer& dst, u64 dst_offset,
@@ -182,6 +183,7 @@ class VulkanSwapchain final : public Swapchain {
   ~VulkanSwapchain() override;
 
   AcquireResult Acquire(u32 slot, u32* out_image_index) override;
+  AcquireResult AcquireSecond(u32 slot, u32* out_image_index) override;
   Format format() const override { return format_; }
   Extent2D extent() const override { return extent_; }
   u32 image_count() const override { return static_cast<u32>(images_.size()); }
@@ -259,6 +261,8 @@ class VulkanDevice final : public Device {
   CommandList* SplitFrame(CommandList* cmd, bool signal_fork) override;
   CommandList* BeginAsync() override;
   void SubmitAsync(CommandList* cmd) override;
+  PresentResult SubmitFrameGen(CommandList* cmd, Swapchain& swapchain, u32 interp_index,
+                               u32 real_index) override;
 
   // Internal + interop surface.
   VkInstance instance() const { return instance_; }
@@ -280,6 +284,8 @@ class VulkanDevice final : public Device {
 
   bool InitResources();
   void ShutdownResources();
+  // Shared present-result handling (out-of-date / rotated-suboptimal folding).
+  PresentResult TranslatePresent(VkResult presented, Swapchain& swapchain);
   GpuBuffer WrapBuffer(VkBuffer buffer, VmaAllocation allocation, u64 size, void* mapped,
                        u64 address);
 
@@ -287,6 +293,8 @@ class VulkanDevice final : public Device {
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkSemaphore image_available = VK_NULL_HANDLE;
+    // Second acquire for frame generation's interpolated present.
+    VkSemaphore image_available_fg = VK_NULL_HANDLE;
     VkFence in_flight = VK_NULL_HANDLE;
     VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
     std::unique_ptr<VulkanCommandList> list;

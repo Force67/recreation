@@ -182,6 +182,11 @@ struct RenderSettings {
   // pipeline on a second queue. Needs device support; no-op otherwise.
   bool async_compute = true;
 
+  // FSR3 frame generation: optical-flow + interpolation inserts a generated
+  // frame between real ones (two presents per engine frame, FIFO-paced).
+  // Experimental; vulkan + SDR swapchain only. REC_FRAMEGEN=1 to enable.
+  bool frame_generation = false;
+
   bool fog = false;  // ray-marched volumetric fog with shadowed sun shafts (needs ray query)
   f32 fog_density = 0.03f;
   f32 fog_height_falloff = 0.15f;

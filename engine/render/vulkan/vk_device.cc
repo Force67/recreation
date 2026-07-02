@@ -571,6 +571,7 @@ bool VulkanDevice::InitResources() {
 
     VkSemaphoreCreateInfo semaphore_info{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     vkCreateSemaphore(device_, &semaphore_info, nullptr, &frame.image_available);
+    vkCreateSemaphore(device_, &semaphore_info, nullptr, &frame.image_available_fg);
     VkFenceCreateInfo frame_fence{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     frame_fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     vkCreateFence(device_, &frame_fence, nullptr, &frame.in_flight);
@@ -603,6 +604,7 @@ void VulkanDevice::ShutdownResources() {
     if (frame.descriptor_pool) vkDestroyDescriptorPool(device_, frame.descriptor_pool, nullptr);
     if (frame.in_flight) vkDestroyFence(device_, frame.in_flight, nullptr);
     if (frame.image_available) vkDestroySemaphore(device_, frame.image_available, nullptr);
+    if (frame.image_available_fg) vkDestroySemaphore(device_, frame.image_available_fg, nullptr);
     if (frame.fork_sem) vkDestroySemaphore(device_, frame.fork_sem, nullptr);
     if (frame.async_sem) vkDestroySemaphore(device_, frame.async_sem, nullptr);
     if (frame.pool) vkDestroyCommandPool(device_, frame.pool, nullptr);
@@ -1678,6 +1680,84 @@ PresentResult VulkanDevice::SubmitFrame(CommandList* cmd, Swapchain& swapchain, 
   present.pSwapchains = &handle;
   present.pImageIndices = &image_index;
   VkResult presented = vkQueuePresentKHR(graphics_queue_, &present);
+  return TranslatePresent(presented, swapchain);
+}
+
+PresentResult VulkanDevice::SubmitFrameGen(CommandList* cmd, Swapchain& swapchain,
+                                           u32 interp_index, u32 real_index) {
+  auto& vk_swapchain = static_cast<VulkanSwapchain&>(swapchain);
+  FrameRing* frame = nullptr;
+  for (FrameRing& candidate : frames_) {
+    if (candidate.list.get() == cmd) frame = &candidate;
+    for (const auto& seg : candidate.seg_lists) {
+      if (seg && seg.get() == cmd) frame = &candidate;
+    }
+  }
+  if (!frame) return PresentResult::kFailed;
+
+  VkCommandBuffer active =
+      frame->active_segment == 0 ? frame->cmd : frame->seg_cmds[frame->active_segment - 1];
+  vkEndCommandBuffer(active);
+  vkResetFences(device_, 1, &frame->in_flight);
+
+  // Wait both acquires; the interpolated image is written by a transfer, the
+  // real one by the color-attachment output, so gate at those stages.
+  VkSemaphoreSubmitInfo waits[3];
+  waits[0] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+  waits[0].semaphore = frame->image_available;
+  waits[0].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+  waits[1] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+  waits[1].semaphore = frame->image_available_fg;
+  waits[1].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+  u32 wait_count = 2;
+  if (frame->async_submitted) {
+    waits[2] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    waits[2].semaphore = frame->async_sem;
+    waits[2].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    wait_count = 3;
+    frame->async_submitted = false;
+  }
+  // Both presents get their own render-finished semaphore, signaled by this
+  // one submission.
+  VkSemaphoreSubmitInfo signals[2];
+  signals[0] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+  signals[0].semaphore = vk_swapchain.render_finished(interp_index);
+  signals[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  signals[1] = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+  signals[1].semaphore = vk_swapchain.render_finished(real_index);
+  signals[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+  VkCommandBufferSubmitInfo cmd_info{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  cmd_info.commandBuffer = active;
+  VkSubmitInfo2 submit{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  submit.waitSemaphoreInfoCount = wait_count;
+  submit.pWaitSemaphoreInfos = waits;
+  submit.commandBufferInfoCount = 1;
+  submit.pCommandBufferInfos = &cmd_info;
+  submit.signalSemaphoreInfoCount = 2;
+  submit.pSignalSemaphoreInfos = signals;
+  vkQueueSubmit2(graphics_queue_, 1, &submit, frame->in_flight);
+
+  // Interpolated (the older midpoint) first, then the fresh frame; FIFO paces
+  // them one vblank apart.
+  VkSwapchainKHR handle = vk_swapchain.swapchain();
+  VkResult presented = VK_SUCCESS;
+  const u32 indices[2] = {interp_index, real_index};
+  for (u32 i = 0; i < 2; ++i) {
+    VkSemaphore wait_sem = vk_swapchain.render_finished(indices[i]);
+    VkPresentInfoKHR present{.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    present.waitSemaphoreCount = 1;
+    present.pWaitSemaphores = &wait_sem;
+    present.swapchainCount = 1;
+    present.pSwapchains = &handle;
+    present.pImageIndices = &indices[i];
+    VkResult r = vkQueuePresentKHR(graphics_queue_, &present);
+    if (r != VK_SUCCESS) presented = r;
+  }
+  return TranslatePresent(presented, swapchain);
+}
+
+PresentResult VulkanDevice::TranslatePresent(VkResult presented, Swapchain& swapchain) {
 
   if (presented == VK_ERROR_OUT_OF_DATE_KHR) return PresentResult::kOutOfDate;
   if (presented == VK_SUBOPTIMAL_KHR) {

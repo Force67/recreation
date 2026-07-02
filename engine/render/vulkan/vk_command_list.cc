@@ -193,6 +193,17 @@ void VulkanCommandList::CopyTextureToBuffer(const GpuImage& src, const GpuBuffer
                          Rec(dst.handle)->buffer, 1, &copy);
 }
 
+void VulkanCommandList::CopyTexture(const GpuImage& src, const GpuImage& dst) {
+  const TextureRecord* src_rec = Rec(src.handle);
+  const TextureRecord* dst_rec = Rec(dst.handle);
+  VkImageCopy copy{};
+  copy.srcSubresource = {src_rec->aspect, 0, 0, 1};
+  copy.dstSubresource = {dst_rec->aspect, 0, 0, 1};
+  copy.extent = {src.extent.width, src.extent.height, 1};
+  vkCmdCopyImage(cmd_, src_rec->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_rec->image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+}
+
 void VulkanCommandList::CopyBuffer(const GpuBuffer& src, u64 src_offset, const GpuBuffer& dst,
                                    u64 dst_offset, u64 size) {
   VkBufferCopy region{src_offset, dst_offset, size};

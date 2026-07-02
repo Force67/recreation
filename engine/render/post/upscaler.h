@@ -36,6 +36,15 @@ struct UpscalerInputs {
 
 // One implementation per vendor SDK. Each lives behind this boundary so the
 // renderer stays free of vendor headers.
+// FSR3's app-owned shared resources (dilated depth/motion + reconstructed
+// previous depth), reused by frame generation so it skips its own
+// reconstruct-and-dilate pass.
+struct Fsr3SharedResources {
+  const GpuImage* dilated_depth = nullptr;
+  const GpuImage* dilated_motion = nullptr;
+  const GpuImage* recon_prev_depth = nullptr;
+};
+
 class Upscaler {
  public:
   virtual ~Upscaler() = default;
@@ -45,6 +54,8 @@ class Upscaler {
   // output, or kInvalidResource on failure (renderer shows the input then).
   virtual ResourceHandle AddToGraph(RenderGraph& graph, const UpscalerInputs& inputs) = 0;
   virtual UpscalerKind kind() const = 0;
+  // FSR3 only: the shared resources frame generation consumes.
+  virtual bool fsr3_shared(Fsr3SharedResources* /*out*/) const { return false; }
 };
 
 // Returns null if the SDK for the requested kind is not compiled in or the

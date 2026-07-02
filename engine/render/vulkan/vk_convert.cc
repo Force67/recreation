@@ -22,6 +22,7 @@ constexpr VkFormat kFormatTable[] = {
     VK_FORMAT_R16_SFLOAT,                // kR16Float
     VK_FORMAT_R16G16_UNORM,              // kRG16Unorm
     VK_FORMAT_R16G16_SNORM,              // kRG16Snorm
+    VK_FORMAT_R16G16_SINT,               // kRG16Sint
     VK_FORMAT_R16G16_SFLOAT,             // kRG16Float
     VK_FORMAT_R16G16B16A16_UNORM,        // kRGBA16Unorm
     VK_FORMAT_R16G16B16A16_SNORM,        // kRGBA16Snorm

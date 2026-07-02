@@ -52,6 +52,7 @@
 #include "render/screenspace/ssao.h"
 #include "render/screenspace/ssgi.h"
 #include "render/screenspace/ssr.h"
+#include "render/post/frame_generation.h"
 #include "render/post/upscaler.h"
 #include "render/geometry/water.h"
 
@@ -266,6 +267,15 @@ class Renderer {
   BindingSetHandle env_scene_sets_[kFramesInFlight];
   BindingSetHandle env_transparent_sets_[kFramesInFlight];
   std::unique_ptr<Upscaler> upscaler_;
+  // FSR3 frame generation (REC_FRAMEGEN): lazily created when the FSR3
+  // upscaler is active (its dilated guides are reused); the present-rate
+  // counters feed the periodic log line.
+  std::unique_ptr<FrameGenerator> framegen_;
+  bool framegen_attempted_ = false;
+  bool framegen_was_active_ = false;
+  u32 fg_presents_ = 0;
+  u32 fg_engine_frames_ = 0;
+  f64 fg_log_time_ = 0.0;
   std::unique_ptr<RayTracingContext> raytracing_;
   RenderGraph graph_;
   TaaPass taa_;
@@ -341,6 +351,7 @@ class Renderer {
   bool environment_dirty_ = true;
 
   void WriteScreenshot(u32 image_index);
+  void DumpFgImage(const GpuImage& image, ResourceState state, bool bgra, const char* path);
   void WriteHdr();  // reads back the captured linear hdr buffer to a .hdr file
 
   std::string screenshot_path_;

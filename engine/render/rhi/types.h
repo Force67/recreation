@@ -33,6 +33,7 @@ enum class Format : u8 {
   kR16Float,
   kRG16Unorm,
   kRG16Snorm,
+  kRG16Sint,
   kRG16Float,
   kRGBA16Unorm,
   kRGBA16Snorm,

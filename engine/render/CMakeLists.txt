@@ -105,7 +105,9 @@ target_link_libraries(recreation_render
 target_link_libraries(recreation_render PRIVATE recreation::stb)
 
 if(RECREATION_FSR3)
-  target_sources(recreation_render PRIVATE post/upscaler_fsr3.cc)
+  target_sources(recreation_render PRIVATE
+    post/upscaler_fsr3.cc
+    post/frame_generation.cc)
   target_compile_definitions(recreation_render PRIVATE RECREATION_HAS_FSR3)
   target_link_libraries(recreation_render PRIVATE recreation::ffx_fsr3)
 endif()

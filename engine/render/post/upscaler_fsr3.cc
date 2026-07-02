@@ -143,6 +143,14 @@ class Fsr3Upscaler final : public Upscaler {
 
   UpscalerKind kind() const override { return UpscalerKind::kFsr3; }
 
+  bool fsr3_shared(Fsr3SharedResources* out) const override {
+    if (!shared_[0] || !shared_[1] || !shared_[2]) return false;
+    out->dilated_depth = &shared_[0];
+    out->dilated_motion = &shared_[1];
+    out->recon_prev_depth = &shared_[2];
+    return true;
+  }
+
  private:
   // FSR3 (unlike FSR2) expects the application to own three resources it
   // shares with later effects. They persist across frames and stay in

@@ -38,6 +38,7 @@ base::Option<double> DofAperture{"dof.aperture", 2.8, "REC_DOF_APERTURE"};
 base::Option<bool> SssOpt{"sss", true, "REC_SSS"};
 base::Option<double> SssWidth{"sss.width", 0.012, "REC_SSS_WIDTH"};
 base::Option<bool> AsyncComputeOpt{"async.compute", true, "REC_ASYNC_COMPUTE"};
+base::Option<bool> FrameGenOpt{"framegen", false, "REC_FRAMEGEN"};
 // Debug: horizontal fake velocity in pixels, to exercise the blur from a
 // static camera (screenshot testing).
 base::Option<double> MotionBlurDebugVel{"motion.blur.debug.vel", 0.0, "REC_MOTION_BLUR_DEBUG_VEL"};
@@ -459,6 +460,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (SssOpt.overridden()) settings_.sss = SssOpt;
   if (SssWidth.overridden()) settings_.sss_width = static_cast<f32>(double(SssWidth));
   if (AsyncComputeOpt.overridden()) settings_.async_compute = AsyncComputeOpt;
+  if (FrameGenOpt.overridden()) settings_.frame_generation = FrameGenOpt;
   if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
@@ -512,6 +514,34 @@ void Renderer::WriteHdr() {
     REC_WARN("hdr write failed: {}", hdr_path_);
   }
   hdr_path_.clear();
+}
+
+// Debug readback for frame generation verification (REC_FRAMEGEN_DUMP): the
+// interpolated image should land between the two real frames around it.
+void Renderer::DumpFgImage(const GpuImage& image, ResourceState state, bool bgra,
+                           const char* path) {
+  device_->WaitIdle();
+  u64 size = static_cast<u64>(image.extent.width) * image.extent.height * 4;
+  GpuBuffer staging = device_->CreateBuffer(size, kBufferUsageTransferDst, true);
+  if (!staging.mapped) return;
+  device_->ImmediateSubmit([&](CommandList& cmd) {
+    cmd.Barrier(Transition(image, state, ResourceState::kCopySrc));
+    cmd.CopyTextureToBuffer(image, staging, {});
+    cmd.Barrier(Transition(image, ResourceState::kCopySrc, state));
+  });
+  base::Vector<u8> pixels(static_cast<size_t>(image.extent.width) * image.extent.height * 3);
+  const u8* src = static_cast<const u8*>(staging.mapped);
+  for (size_t i = 0; i < static_cast<size_t>(image.extent.width) * image.extent.height; ++i) {
+    pixels[i * 3 + 0] = src[i * 4 + (bgra ? 2 : 0)];
+    pixels[i * 3 + 1] = src[i * 4 + 1];
+    pixels[i * 3 + 2] = src[i * 4 + (bgra ? 0 : 2)];
+  }
+  device_->DestroyBuffer(staging);
+  if (stbi_write_png(path, static_cast<int>(image.extent.width),
+                     static_cast<int>(image.extent.height), 3, pixels.data(),
+                     static_cast<int>(image.extent.width) * 3)) {
+    REC_INFO("framegen dump written: {}", path);
+  }
 }
 
 void Renderer::WriteScreenshot(u32 image_index) {
@@ -906,6 +936,28 @@ void Renderer::RenderFrame(const FrameView& view) {
   }
   if (acquired != AcquireResult::kOk && acquired != AcquireResult::kSuboptimal) return;
 
+  // Frame generation: acquire a second image for the interpolated present.
+  bool fg_frame = false;
+  u32 interp_index = 0;
+#if defined(RECREATION_HAS_FSR3)
+  if (settings_.frame_generation && !settings_.path_trace &&
+      swapchain_->color_space() == ColorSpace::kSrgbNonlinear && upscaler_ &&
+      upscaler_->kind() == UpscalerKind::kFsr3) {
+    if (!framegen_ && !framegen_attempted_) {
+      framegen_attempted_ = true;
+      framegen_ = CreateFrameGenerator(
+          *device_, {.display_width = swapchain_->extent().width,
+                     .display_height = swapchain_->extent().height,
+                     .render_width = render_width_, .render_height = render_height_});
+      if (!framegen_) REC_WARN("framegen: unavailable, presenting real frames only");
+    }
+    if (framegen_) {
+      AcquireResult second = swapchain_->AcquireSecond(slot, &interp_index);
+      fg_frame = second == AcquireResult::kOk || second == AcquireResult::kSuboptimal;
+    }
+  }
+#endif
+
   transient_pool_->BeginFrame();
   graph_.Reset();
   BuildFrameGraph(frames_[slot], image_index, view);
@@ -924,7 +976,94 @@ void Renderer::RenderFrame(const FrameView& view) {
   // list is the final one and the only valid argument for SubmitFrame.
   CommandList* final_cmd = graph_.Execute(ctx);
 
-  PresentResult presented = device_->SubmitFrame(final_cmd, *swapchain_, image_index);
+  PresentResult presented;
+#if defined(RECREATION_HAS_FSR3)
+  Fsr3SharedResources fg_shared;
+  if (fg_frame && upscaler_ && upscaler_->fsr3_shared(&fg_shared)) {
+    const GpuImage& backbuffer = swapchain_->image(image_index);
+    const GpuImage& target = swapchain_->image(interp_index);
+    // The graph's final barrier left the backbuffer in PRESENT; bring it back
+    // for the interpolation dispatch to sample.
+    {
+      TextureBarrier to_read =
+          Transition(backbuffer, ResourceState::kPresent, ResourceState::kShaderReadCompute);
+      final_cmd->TextureBarriers({&to_read, 1});
+    }
+    FrameGenInputs fin;
+    fin.backbuffer = &backbuffer;
+    fin.dilated_depth = fg_shared.dilated_depth;
+    fin.dilated_motion = fg_shared.dilated_motion;
+    fin.recon_prev_depth = fg_shared.recon_prev_depth;
+    fin.frame_delta_seconds = view.frame_delta_seconds;
+    fin.camera_near = 0.1f;
+    fin.camera_fov_y = view.camera.fov_y;
+    fin.frame_id = frame_index_;
+    fin.reset = !framegen_was_active_;
+    bool interpolated = framegen_->Record(*final_cmd, fin);
+    framegen_was_active_ = interpolated;
+
+    if (interpolated) {
+      const GpuImage& interp = framegen_->interpolated();
+      TextureBarrier pre[] = {
+          Transition(interp, ResourceState::kGeneral, ResourceState::kCopySrc),
+          Transition(target, ResourceState::kUndefined, ResourceState::kCopyDst)};
+      final_cmd->TextureBarriers(pre);
+      final_cmd->CopyTexture(interp, target);
+      TextureBarrier post[] = {
+          Transition(interp, ResourceState::kCopySrc, ResourceState::kGeneral),
+          Transition(target, ResourceState::kCopyDst, ResourceState::kPresent),
+          Transition(backbuffer, ResourceState::kShaderReadCompute, ResourceState::kPresent)};
+      final_cmd->TextureBarriers(post);
+    } else {
+      // Dispatch failed: duplicate the real frame so the acquired image still
+      // presents something sane.
+      TextureBarrier pre[] = {
+          Transition(backbuffer, ResourceState::kShaderReadCompute, ResourceState::kCopySrc),
+          Transition(target, ResourceState::kUndefined, ResourceState::kCopyDst)};
+      final_cmd->TextureBarriers(pre);
+      final_cmd->CopyTexture(backbuffer, target);
+      TextureBarrier post[] = {
+          Transition(backbuffer, ResourceState::kCopySrc, ResourceState::kPresent),
+          Transition(target, ResourceState::kCopyDst, ResourceState::kPresent)};
+      final_cmd->TextureBarriers(post);
+    }
+    presented = device_->SubmitFrameGen(final_cmd, *swapchain_, interp_index, image_index);
+    fg_presents_ += 2;
+
+    // Debug: REC_FRAMEGEN_DUMP=<frame> writes real frame N, the interpolated
+    // N->N+1 midpoint and real frame N+1 as pngs in the working directory.
+    if (const char* dump = std::getenv("REC_FRAMEGEN_DUMP")) {
+      u64 dump_frame = std::strtoull(dump, nullptr, 10);
+      if (frame_index_ == dump_frame) {
+        DumpFgImage(swapchain_->image(image_index), ResourceState::kPresent, true,
+                    "fg_dump_real0.png");
+      } else if (frame_index_ == dump_frame + 1) {
+        DumpFgImage(framegen_->interpolated(), ResourceState::kGeneral, false,
+                    "fg_dump_interp.png");
+        DumpFgImage(swapchain_->image(image_index), ResourceState::kPresent, true,
+                    "fg_dump_real1.png");
+      }
+    }
+  } else
+#endif
+  {
+    presented = device_->SubmitFrame(final_cmd, *swapchain_, image_index);
+    framegen_was_active_ = false;
+    fg_presents_ += 1;
+  }
+
+  // Present-rate accounting: the observable proof that generation runs.
+  ++fg_engine_frames_;
+  if (settings_.frame_generation && time_seconds_ - fg_log_time_ >= 2.0) {
+    if (fg_log_time_ > 0.0) {
+      f64 span = time_seconds_ - fg_log_time_;
+      REC_INFO("framegen: {:.0f} engine fps -> {:.0f} presented fps",
+               fg_engine_frames_ / span, fg_presents_ / span);
+    }
+    fg_log_time_ = time_seconds_;
+    fg_engine_frames_ = 0;
+    fg_presents_ = 0;
+  }
 
   if (!screenshot_path_.empty() && time_seconds_ >= screenshot_at_) {
     WriteScreenshot(image_index);
@@ -2703,6 +2842,10 @@ void Renderer::RecreateSwapchain() {
       applied_upscaler_ = UpscalerKind::kNone;
     }
   }
+  // The frame generator is sized for the swapchain; lazily recreated.
+  framegen_.reset();
+  framegen_attempted_ = false;
+  framegen_was_active_ = false;
   UpdateRenderResolution();
   transient_pool_->Clear();
   taa_.Resize(*device_, {render_width_, render_height_});
@@ -2806,6 +2949,7 @@ void Renderer::Shutdown() {
   ui_blur_.reset();  // holds a Device& + backend handles; destroy before device_
   mesh_pipeline_.reset();
   swapchain_.reset();
+  framegen_.reset();  // ffx contexts destroy through the device
   upscaler_.reset();
   raytracing_.reset();
   device_.reset();
