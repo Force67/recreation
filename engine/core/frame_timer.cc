@@ -8,7 +8,8 @@ FrameTimer::FrameTimer(f64 fixed_step) : fixed_step_(fixed_step), last_(Clock::n
 
 int FrameTimer::Tick() {
   auto now = Clock::now();
-  frame_delta_ = std::chrono::duration<f64>(now - last_).count();
+  frame_delta_ = fixed_delta_ > 0.0 ? fixed_delta_
+                                    : std::chrono::duration<f64>(now - last_).count();
   last_ = now;
   ++frame_index_;
 

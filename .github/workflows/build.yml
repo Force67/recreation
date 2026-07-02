@@ -50,6 +50,43 @@ jobs:
             build/runtime/recreation
             build/tools/esminfo/esminfo
 
+  # Boots the renderer headlessly on lavapipe and captures the golden scenes
+  # (tests/golden). No reference set is pinned for the runner's mesa yet, so
+  # this is smoke-level: it fails on crashes, missing captures or degenerate
+  # frames, and uploads the captures for inspection / later promotion with
+  # `golden.py --update`. continue-on-error until the runner stack proves
+  # stable; flip it off once a ci reference set is checked in.
+  golden-smoke:
+    runs-on: ubuntu-24.04
+    needs: linux
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: recreation-linux-x64
+          path: build
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mesa-vulkan-drivers libvulkan1 xvfb python3-pil python3-numpy
+          chmod +x build/runtime/recreation
+      - name: golden smoke
+        env:
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          SDL_AUDIODRIVER: dummy
+          LP_NUM_THREADS: "1"
+        run: >
+          xvfb-run -a -s "-screen 0 1280x720x24"
+          python3 tests/golden/golden.py --binary build/runtime/recreation
+          --profile loose --timeout 600
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: golden-captures
+          path: build/golden
+
   linux-arm:
     runs-on: ubuntu-24.04-arm
     env:

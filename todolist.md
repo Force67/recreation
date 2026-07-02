@@ -43,8 +43,10 @@ streaming.
       CONCURRENT sharing on crossed resources incl. bindless materials).
 - [ ] **PSO hitch elimination.** The persistent pipeline cache fixes run 2;
       async pipeline compilation + ubershader fallback fixes run 1.
-- [ ] **Golden-image regression CI.** lavapipe + REC_UI_SHOT + per-demo
-      reference images with tolerances; every ingredient exists.
+- [x] **Golden-image regression CI.** (landed) tests/golden/golden.py:
+      REC_FIXED_DT lockstep captures of 4 demo scenes vs checked-in refs
+      (NVIDIA baseline, half-res), diff heatmaps; CI golden-smoke job on
+      lavapipe (smoke-level until a runner ref set is promoted).
 - [x] **Histogram auto-exposure.** (landed) Average-based metering is why demos pin
       exposure manually; histogram + center weighting + adaptation rates.
 

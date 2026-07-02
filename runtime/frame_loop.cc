@@ -41,6 +41,9 @@ static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
 static base::Option<float> Lightning{"lightning", 0.0f, "REC_LIGHTNING"};
 static base::Option<const char*> UiShot{"ui.shot", nullptr, "REC_UI_SHOT"};
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "REC_UI_SHOT_FRAMES"};
+// REC_FIXED_DT=<seconds> locks every frame to one delta (frame-index-pure
+// animation for golden-image captures; wall clock stops mattering).
+static base::Option<float> FixedDt{"fixed.dt", 0.0f, "REC_FIXED_DT"};
 
 void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) {
   if (verb == "QuitGame") {
@@ -103,6 +106,7 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 
 bool Engine::RunFrame() {
   if (quit_.load(std::memory_order_relaxed)) return false;
+  if (FixedDt.get() > 0.0f) timer_.set_fixed_delta(static_cast<f64>(FixedDt.get()));
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload here, before any stage reads the Vfs.
   if (mod_reload_requested_.exchange(false, std::memory_order_relaxed)) ReloadMods(*this);
