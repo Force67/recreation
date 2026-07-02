@@ -979,6 +979,43 @@ void DemoScenes::CreatePointLightDemoScene() {
     demo_lights_.push_back(l);
   }
 
+  // New light types: a spot cone sweeping the left floor, a warm sphere-area
+  // lamp, and a cool rect panel washing the right wall of tiles.
+  {
+    render::PointLight spot;
+    spot.pos_radius[0] = -4.5f; spot.pos_radius[1] = 3.0f; spot.pos_radius[2] = 2.5f;
+    spot.pos_radius[3] = 9.0f;
+    spot.color_intensity[0] = 1.0f; spot.color_intensity[1] = 0.95f;
+    spot.color_intensity[2] = 0.8f; spot.color_intensity[3] = 20.0f;
+    f32 dir[3] = {0.35f, -0.85f, -0.4f};
+    f32 len = std::sqrt(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
+    spot.direction_type[0] = dir[0]/len; spot.direction_type[1] = dir[1]/len;
+    spot.direction_type[2] = dir[2]/len; spot.direction_type[3] = 1.0f;  // spot
+    spot.params[0] = std::cos(0.28f);  // inner ~16 deg
+    spot.params[1] = std::cos(0.45f);  // outer ~26 deg
+    demo_lights_.push_back(spot);
+
+    render::PointLight ball;
+    ball.pos_radius[0] = 4.6f; ball.pos_radius[1] = 0.7f; ball.pos_radius[2] = 2.2f;
+    ball.pos_radius[3] = 6.0f;
+    ball.color_intensity[0] = 1.0f; ball.color_intensity[1] = 0.6f;
+    ball.color_intensity[2] = 0.25f; ball.color_intensity[3] = 8.0f;
+    ball.direction_type[3] = 2.0f;  // sphere area
+    ball.params[0] = 0.35f;         // source radius
+    demo_lights_.push_back(ball);
+
+    render::PointLight panel;
+    panel.pos_radius[0] = 0.0f; panel.pos_radius[1] = 1.6f; panel.pos_radius[2] = -3.2f;
+    panel.pos_radius[3] = 8.0f;
+    panel.color_intensity[0] = 0.4f; panel.color_intensity[1] = 0.7f;
+    panel.color_intensity[2] = 1.0f; panel.color_intensity[3] = 6.0f;
+    panel.direction_type[0] = 0.0f; panel.direction_type[1] = 0.0f;
+    panel.direction_type[2] = 1.0f; panel.direction_type[3] = 3.0f;  // rect area
+    panel.params[0] = 1.4f;  // half width
+    panel.params[1] = 0.8f;  // half height
+    demo_lights_.push_back(panel);
+  }
+
   renderer_.settings().sun_intensity = 0.25f;  // dim the sun + ibl so the point lights dominate
   renderer_.settings().ibl = false;
   renderer_.settings().ambient = 0.02f;

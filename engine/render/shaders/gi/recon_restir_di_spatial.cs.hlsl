@@ -32,6 +32,8 @@ PUSH_CONSTANTS(ReconRestirDiSpatialPush, pc);
 struct PointLight {
   float4 pos_radius;       // xyz position, w influence radius
   float4 color_intensity;  // rgb color, w intensity
+  float4 direction_type;   // xyz emit direction, w type (0 point 1 spot 2/3 area)
+  float4 params;           // spot cos inner/outer; area extents
 };
 [[vk::binding(7, 0)]] StructuredBuffer<PointLight> point_lights : register(t7, space0);
 [[vk::binding(8, 0)]] RaytracingAccelerationStructure tlas : register(t8, space0);
@@ -130,6 +132,11 @@ float PHatLight(float3 x, float3 n, PointLight pl) {
   float ndl = saturate(dot(n, to_l / dist));
   float falloff = saturate(1.0 - dist2 / (lr * lr));
   falloff *= falloff;
+  if (pl.direction_type.w >= 0.5 && pl.direction_type.w < 1.5) {  // spot
+    float cd = dot(-(to_l / dist), normalize(pl.direction_type.xyz));
+    float att = saturate((cd - pl.params.y) / max(pl.params.x - pl.params.y, 1e-4));
+    falloff *= att * att;
+  }
   return Luma(pl.color_intensity.rgb) * pl.color_intensity.w * falloff * ndl;
 }
 float PHat(float3 x, float3 n, float light_id, float3 dir) {
@@ -257,6 +264,11 @@ void main(uint3 tid : SV_DispatchThreadID) {
       if (!Occluded(x + n * 0.002, dir, max(dist - 0.004, 0.001))) {
         float falloff = saturate(1.0 - (dist * dist) / (pl.pos_radius.w * pl.pos_radius.w));
         falloff *= falloff;
+        if (pl.direction_type.w >= 0.5 && pl.direction_type.w < 1.5) {  // spot
+          float cd = dot(-dir, normalize(pl.direction_type.xyz));
+          float att = saturate((cd - pl.params.y) / max(pl.params.x - pl.params.y, 1e-4));
+          falloff *= att * att;
+        }
         direct = pl.color_intensity.rgb * pl.color_intensity.w * falloff *
                  saturate(dot(n, dir)) * W;
       } else {

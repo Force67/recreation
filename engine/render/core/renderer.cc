@@ -14,6 +14,7 @@
 #include "core/log.h"
 #include "render/util/exr_write.h"
 #include "shaders/hdr_capture_cs_hlsl.h"
+#include "shaders/light_cluster_cs_hlsl.h"
 
 namespace rec::render {
 namespace {
@@ -174,6 +175,32 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     return false;
   }
   if (!motion_blur_.Initialize(*device_)) return false;
+  {
+    struct ClusterPush {
+      Mat4 view;
+      f32 screen[2];
+      f32 near_plane;
+      f32 slice_scale;
+      f32 slice_bias;
+      u32 light_count;
+      f32 tan_half_fov_y;
+      f32 aspect;
+    };
+    light_cluster_pipeline_ = device_->CreateComputePipeline({
+        .shader = REC_SHADER(k_light_cluster_cs_hlsl),
+        .sets = {{.slots = {{0, BindingType::kStorageBuffer},
+                            {1, BindingType::kStorageBuffer},
+                            {2, BindingType::kStorageBuffer}}}},
+        .push_constant_size = sizeof(ClusterPush),
+        .debug_name = "light_cluster",
+    });
+    if (!light_cluster_pipeline_) return false;
+    cluster_counts_ = device_->CreateBuffer(kClusterCount * sizeof(u32), kBufferUsageStorage);
+    cluster_indices_ = device_->CreateBuffer(
+        static_cast<u64>(kClusterCount) * kMaxLightsPerCluster * sizeof(u32),
+        kBufferUsageStorage);
+    if (!cluster_counts_ || !cluster_indices_) return false;
+  }
   if (!ssao_.Initialize(*device_)) return false;  // raster ao fallback, no rt needed
   if (!ssr_.Initialize(*device_)) return false;   // raster reflection fallback
   if (!ssgi_.Initialize(*device_)) return false;  // raster diffuse-gi fallback
@@ -1105,6 +1132,17 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     std::memcpy(frame.lights.mapped, view.lights.data(), light_count * sizeof(PointLight));
   }
   globals.light_count = light_count;
+  {
+    // Froxel slicing: exponential view-z between the near plane and 500 m.
+    constexpr f32 kNear = 0.1f, kFar = 500.0f;
+    f32 scale = static_cast<f32>(kClusterSlices) / std::log2(kFar / kNear);
+    globals.cluster_params[0] = scale;
+    globals.cluster_params[1] = -std::log2(kNear) * scale;
+    globals.cluster_params[2] =
+        static_cast<f32>(render_width_) / static_cast<f32>(kClusterTilesX);
+    globals.cluster_params[3] =
+        static_cast<f32>(render_height_) / static_cast<f32>(kClusterTilesY);
+  }
   std::memcpy(frame.globals.mapped, &globals, sizeof(globals));
   prev_view_proj_ = view_proj;
   has_prev_frame_ = true;
@@ -1716,6 +1754,42 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                           frame_index_);
   }
 
+  // Froxel light culling: fixed slots per cluster, run every frame (a zero
+  // light count still zeroes the counts the forward loop reads).
+  graph_.AddPass(
+      "light_cluster",
+      [&](RenderGraph::PassBuilder&) {},
+      [this, &frame, &view, light_count, proj](PassContext& ctx) {
+        struct ClusterPush {
+          Mat4 view_mat;
+          f32 screen[2];
+          f32 near_plane;
+          f32 slice_scale;
+          f32 slice_bias;
+          u32 light_count;
+          f32 tan_half_fov_y;
+          f32 aspect;
+        } p{};
+        p.view_mat = LookAt(view.camera.eye, view.camera.target, {0, 1, 0});
+        p.screen[0] = static_cast<f32>(render_width_);
+        p.screen[1] = static_cast<f32>(render_height_);
+        p.near_plane = 0.1f;
+        constexpr f32 kNear = 0.1f, kFar = 500.0f;
+        p.slice_scale = static_cast<f32>(kClusterSlices) / std::log2(kFar / kNear);
+        p.slice_bias = -std::log2(kNear) * p.slice_scale;
+        p.light_count = light_count;
+        p.tan_half_fov_y = std::tan(view.camera.fov_y * 0.5f);
+        p.aspect = static_cast<f32>(render_width_) / static_cast<f32>(render_height_);
+        ctx.cmd->BindPipeline(light_cluster_pipeline_);
+        ctx.cmd->BindTransient(
+            0, {Bind::StorageBuffer(0, frame.lights, 0, frame.lights.size),
+                Bind::StorageBuffer(1, cluster_counts_, 0, cluster_counts_.size),
+                Bind::StorageBuffer(2, cluster_indices_, 0, cluster_indices_.size)});
+        ctx.cmd->Push(p);
+        ctx.cmd->Dispatch((kClusterCount + 63) / 64, 1, 1);
+        ctx.cmd->MemoryBarrier(BarrierScope::kComputeWrite, BarrierScope::kGraphicsRead);
+      });
+
   graph_.AddPass(
       "scene",
       [&](RenderGraph::PassBuilder& builder) {
@@ -1745,7 +1819,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             csm_active ? ctx.graph->image(shadow_atlas).view : TextureView{},
             csm_active ? shadow_.cascade_buffer(shadow_slot) : GpuBuffer{},
             shadow_.cascade_buffer_size(), TextureView{}, sun_shadow_view, frame.lights,
-            frame.lights.size, spec_refl_view);
+            frame.lights.size, spec_refl_view, cluster_counts_, cluster_indices_);
 
         ColorAttachment colors[2];
         colors[0] = {.view = ctx.graph->image(scene_color).view,
@@ -2383,6 +2457,9 @@ void Renderer::Shutdown() {
     if (rt_available_) rtao_.Destroy(*device_);
     if (rt_available_) reflection_trace_.Destroy(*device_);
     motion_blur_.Destroy(*device_);
+    if (light_cluster_pipeline_) device_->DestroyPipeline(light_cluster_pipeline_);
+    if (cluster_counts_) device_->DestroyBuffer(cluster_counts_);
+    if (cluster_indices_) device_->DestroyBuffer(cluster_indices_);
 #if defined(RECREATION_HAS_NRD)
     if (rt_available_) nrd_.Destroy(*device_);
     if (rt_available_) shadow_trace_.Destroy(*device_);

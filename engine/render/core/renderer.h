@@ -266,6 +266,9 @@ class Renderer {
   RtaoPass rtao_;
   ReflectionTrace reflection_trace_;
   MotionBlurPass motion_blur_;
+  PipelineHandle light_cluster_pipeline_;
+  GpuBuffer cluster_counts_;
+  GpuBuffer cluster_indices_;
   SsaoPass ssao_;
   SsrPass ssr_;
   SsgiPass ssgi_;

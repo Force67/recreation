@@ -77,7 +77,9 @@ class EnvironmentSystem {
                    TextureView opaque_color = {},
                    TextureView sun_shadow_view = {},
                    const GpuBuffer& lights = {}, u64 lights_size = 0,
-                   TextureView spec_reflections = {}) const;
+                   TextureView spec_reflections = {},
+                   const GpuBuffer& cluster_counts = {},
+                   const GpuBuffer& cluster_indices = {}) const;
 
  private:
   explicit EnvironmentSystem(Device& device) : device_(device) {}

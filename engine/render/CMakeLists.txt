@@ -175,6 +175,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/screenspace/ssgi.cs.hlsl
   shaders/screenspace/reflection_trace.cs.hlsl
   shaders/pipeline/cull.cs.hlsl
+  shaders/pipeline/light_cluster.cs.hlsl
   shaders/pipeline/hiz_reduce.cs.hlsl
   shaders/pipeline/meshlet.ms.hlsl
   shaders/pipeline/meshlet.ps.hlsl

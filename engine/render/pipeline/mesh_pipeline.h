@@ -10,9 +10,16 @@ namespace rec::render {
 
 // A dynamic omni light, accumulated in the forward lighting pass. Packed in
 // float4s so the StructuredBuffer stride matches the shader exactly.
+// Dynamic local light. The first two rows are the legacy point-light layout;
+// direction/params extend it to spots and representative-point area lights.
+// type: 0 point, 1 spot, 2 sphere area, 3 rect area.
 struct PointLight {
   f32 pos_radius[4] = {0, 0, 0, 1};       // xyz position, w influence radius (meters)
   f32 color_intensity[4] = {1, 1, 1, 1};  // rgb color, w intensity
+  f32 direction_type[4] = {0, -1, 0, 0};  // xyz emit direction, w type
+  // spot: x cos(inner), y cos(outer). sphere area: x source radius (m).
+  // rect area: x,y half extents (m); the basis derives from the direction.
+  f32 params[4] = {0.9f, 0.7f, 0, 0};
 };
 
 // Per frame camera and lighting state, bound as set 0. Layout matches the
@@ -36,7 +43,17 @@ struct FrameGlobals {
   f32 pad_wind[2] = {0, 0};  // aligns wind to the hlsl float4 register
   // xyz wind direction * strength (m of sway at weight 1), w gust frequency.
   f32 wind[4] = {0.6f, 0.0f, 0.35f, 1.0f};
+  // Froxel light clustering: x slice scale, y slice bias (exponential view-z
+  // slicing), z,w tile size in pixels.
+  f32 cluster_params[4] = {0, 0, 64, 64};
 };
+
+// Froxel grid for clustered lighting/decals (mirrored in the shaders).
+inline constexpr u32 kClusterTilesX = 16;
+inline constexpr u32 kClusterTilesY = 9;
+inline constexpr u32 kClusterSlices = 24;
+inline constexpr u32 kClusterCount = kClusterTilesX * kClusterTilesY * kClusterSlices;
+inline constexpr u32 kMaxLightsPerCluster = 32;
 
 // FrameGlobals::flags bits, mirrored in mesh.ps.hlsl.
 inline constexpr u32 kFrameFlagIbl = 1u << 0;

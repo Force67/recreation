@@ -17,14 +17,36 @@ struct FrameGlobals {
   float reflection_cutoff;
   uint ao_ray_count;  // rt ao rays/pixel this frame (0 when ao is screen-space)
   uint light_count;   // dynamic point lights in the light buffer
+  float2 pad_wind;
+  float4 wind;
+  float4 cluster_params;  // x slice scale, y slice bias, zw tile size px
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 
 struct PointLight {
   float4 pos_radius;       // xyz position, w influence radius
   float4 color_intensity;  // rgb color, w intensity
+  float4 direction_type;   // xyz emit direction, w type (0 point 1 spot 2 sphere 3 rect)
+  float4 params;           // spot: cos inner/outer; sphere: source radius; rect: half extents
 };
 [[vk::binding(11, 2)]] StructuredBuffer<PointLight> point_lights : register(t11, space2);
+
+// Froxel clustering (light_cluster.cs writes these; mirrors mesh_pipeline.h).
+[[vk::binding(13, 2)]] StructuredBuffer<uint> cluster_counts : register(t13, space2);
+[[vk::binding(14, 2)]] StructuredBuffer<uint> cluster_indices : register(t14, space2);
+static const uint kClusterTilesX = 16;
+static const uint kClusterTilesY = 9;
+static const uint kClusterSlices = 24;
+static const uint kMaxLightsPerCluster = 32;
+
+uint ClusterOf(float2 sv_xy, float view_z) {
+  uint tx = min(uint(sv_xy.x / frame.cluster_params.z), kClusterTilesX - 1u);
+  uint ty = min(uint(sv_xy.y / frame.cluster_params.w), kClusterTilesY - 1u);
+  uint tz = uint(clamp(log2(max(view_z, 1e-3)) * frame.cluster_params.x +
+                       frame.cluster_params.y, 0.0, float(kClusterSlices - 1u)));
+  return (tz * kClusterTilesY + ty) * kClusterTilesX + tx;
+}
+
 
 struct MaterialParams {
   float4 base_color_factor;
@@ -391,7 +413,11 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   // Dynamic point lights: ggx + diffuse with smooth radius falloff. light_hits
   // drives the light-complexity debug view.
   uint light_hits = 0;
-  for (uint li = 0; li < frame.light_count; ++li) {
+  float pixel_view_z = frame.misc.x > 0.0 ? 0.1 / max(input.sv_position.z, 1e-6) : 1.0;
+  uint cluster = ClusterOf(input.sv_position.xy, pixel_view_z);
+  uint cluster_count = min(cluster_counts[cluster], kMaxLightsPerCluster);
+  for (uint ci = 0; ci < cluster_count; ++ci) {
+    uint li = cluster_indices[cluster * kMaxLightsPerCluster + ci];
     PointLight pl = point_lights[li];
     float3 to_l = pl.pos_radius.xyz - input.world_pos;
     float dist2 = dot(to_l, to_l);
@@ -399,16 +425,50 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     if (dist2 >= lr * lr) continue;
     float dist = sqrt(max(dist2, 1e-8));
     float3 pl_l = to_l / dist;
+    uint ltype = uint(pl.direction_type.w + 0.5);
+    float area_norm = 1.0;
+    if (ltype == 2u || ltype == 3u) {
+      // Representative point (Karis): move the sample toward the reflection
+      // ray's closest point on the source so highlights stretch correctly.
+      float3 rr = reflect(-v, n);
+      float3 rep = pl.pos_radius.xyz;
+      if (ltype == 2u) {  // sphere
+        float3 center_to_ray = dot(to_l, rr) * rr - to_l;
+        rep += center_to_ray * saturate(pl.params.x / max(length(center_to_ray), 1e-4));
+      } else {  // rect: closest point on the plane rectangle
+        float3 ln = normalize(pl.direction_type.xyz);
+        float3 lt = normalize(cross(abs(ln.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0), ln));
+        float3 lb = cross(ln, lt);
+        float3 rel = input.world_pos - pl.pos_radius.xyz;
+        rep = pl.pos_radius.xyz + lt * clamp(dot(rel, lt), -pl.params.x, pl.params.x) +
+              lb * clamp(dot(rel, lb), -pl.params.y, pl.params.y);
+        if (dot(ln, input.world_pos - rep) < 0.0) continue;  // behind the panel
+      }
+      float3 to_rep = rep - input.world_pos;
+      float rep_d = max(length(to_rep), 1e-4);
+      pl_l = to_rep / rep_d;
+      // Energy normalization: widening the lobe by the source size keeps the
+      // total output roughly constant as the highlight grows.
+      float source = ltype == 2u ? pl.params.x : max(pl.params.x, pl.params.y);
+      area_norm = a / saturate(a + source / (2.0 * rep_d));
+      area_norm *= area_norm;
+    }
     float pndl = max(dot(n, pl_l), 0.0);
     if (pndl <= 0.0) continue;
     ++light_hits;
     float falloff = saturate(1.0 - dist2 / (lr * lr));
     falloff *= falloff;
+    if (ltype == 1u) {  // spot cone, squared for a soft edge
+      float cd = dot(-pl_l, normalize(pl.direction_type.xyz));
+      float att = saturate((cd - pl.params.y) / max(pl.params.x - pl.params.y, 1e-4));
+      falloff *= att * att;
+      if (falloff <= 0.0) continue;
+    }
     float3 pl_h = normalize(pl_l + v);
     float pndh = max(dot(n, pl_h), 0.0);
     float pvdh = max(dot(v, pl_h), 0.0);
     float3 pf = f0 + (1.0 - f0) * pow(1.0 - pvdh, 5.0);
-    float3 pspec = D_GGX(pndh, a) * V_SmithGGXCorrelated(ndv, pndl, a) * pf;
+    float3 pspec = D_GGX(pndh, a) * V_SmithGGXCorrelated(ndv, pndl, a) * pf * area_norm;
     float3 pdiff = diffuse_color * (1.0 / kPi) * (1.0 - pf);
     lit += (pdiff + pspec) * pl.color_intensity.rgb * pl.color_intensity.w * falloff * pndl;
   }

@@ -55,6 +55,8 @@ PUSH_CONSTANTS(ReconRestirDiTemporalPush, pc);
 struct PointLight {
   float4 pos_radius;       // xyz position, w influence radius
   float4 color_intensity;  // rgb color, w intensity
+  float4 direction_type;   // xyz emit direction, w type (0 point 1 spot 2/3 area)
+  float4 params;           // spot cos inner/outer; area extents
 };
 [[vk::binding(12, 0)]] StructuredBuffer<PointLight> point_lights : register(t12, space0);
 [[vk::combinedImageSampler]] [[vk::binding(13, 0)]] TextureCube sky_cube : register(t13, space0);
@@ -167,6 +169,11 @@ float PHatLight(float3 x, float3 n, PointLight pl) {
   // Radius-windowed falloff, matching mesh.ps exactly.
   float falloff = saturate(1.0 - dist2 / (lr * lr));
   falloff *= falloff;
+  if (pl.direction_type.w >= 0.5 && pl.direction_type.w < 1.5) {  // spot
+    float cd = dot(-(to_l / dist), normalize(pl.direction_type.xyz));
+    float att = saturate((cd - pl.params.y) / max(pl.params.x - pl.params.y, 1e-4));
+    falloff *= att * att;
+  }
   return Luma(pl.color_intensity.rgb) * pl.color_intensity.w * falloff * ndl;
 }
 float PHatSky(float3 n, float3 dir) {

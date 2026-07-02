@@ -189,6 +189,9 @@ bool EnvironmentSystem::CreatePipelines() {
   // 12: NRD-denoised stochastic specular reflections (screen-space rgba16f),
   // sampled by the rt variant instead of tracing inline.
   env_desc.slots.push_back({12, BindingType::kCombinedTextureSampler});
+  // 13/14: froxel cluster counts + light index list (light_cluster.cs).
+  env_desc.slots.push_back({13, BindingType::kStorageBuffer});
+  env_desc.slots.push_back({14, BindingType::kStorageBuffer});
   env_set_layout_ = device_.CreateBindingLayout(env_desc);
   if (!env_set_layout_) return false;
 
@@ -346,7 +349,9 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                                     const GpuBuffer& cascade_buffer, u64 cascade_size,
                                     TextureView opaque_color, TextureView sun_shadow_view,
                                     const GpuBuffer& lights, u64 lights_size,
-                                    TextureView spec_reflections) const {
+                                    TextureView spec_reflections,
+                                    const GpuBuffer& cluster_counts,
+                                    const GpuBuffer& cluster_indices) const {
   device_.UpdateBindingSet(
       set,
       {Bind::Combined(0, irradiance_.view, sampler_),
@@ -370,7 +375,11 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
        Bind::StorageBuffer(11, lights ? lights : dummy_volume_, 0, lights ? lights_size : 256),
        // The frame graph moves the denoised target to shader-read for the
        // scene pass (same as the sigma sun shadow); white when absent.
-       Bind::Combined(12, spec_reflections ? spec_reflections : white_.view, sampler_)});
+       Bind::Combined(12, spec_reflections ? spec_reflections : white_.view, sampler_),
+       Bind::StorageBuffer(13, cluster_counts ? cluster_counts : dummy_volume_, 0,
+                           cluster_counts ? cluster_counts.size : 256),
+       Bind::StorageBuffer(14, cluster_indices ? cluster_indices : dummy_volume_, 0,
+                           cluster_indices ? cluster_indices.size : 256)});
 }
 
 EnvironmentSystem::~EnvironmentSystem() {
