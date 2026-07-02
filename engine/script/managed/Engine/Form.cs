@@ -37,6 +37,12 @@ public class Form
 
     public bool HasKeyword(Form keyword) => Call("HasKeyword", keyword).AsBool();
 
+    // Item weight and gold value from the form's record. Available for the common
+    // inventory item types (weapons, armor, misc, ingredients, soul gems, keys,
+    // potions); other forms report 0.
+    public float Weight => Call("GetWeight").AsFloat();
+    public int GoldValue => Call("GetGoldValue").AsInt();
+
     // True if the engine resolves this handle to a script instance of typeName
     // or one of its ancestors.
     public bool Is(string typeName)
