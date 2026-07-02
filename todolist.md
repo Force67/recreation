@@ -95,5 +95,8 @@ streaming.
 - [ ] D3D12 Windows runtime validation (vkd3d parity holds on Linux).
 - [ ] DLSS-RR pending NVIDIA aarch64 snippets.
 - [ ] Skinned decals (wounds) once characters land.
-- [ ] Shutdown leak: 3x VUID-vkDestroyDevice-05137 child objects (pre-dates
-      frame generation; visible in --demo cube validation runs).
+- [x] Shutdown leak (fixed): re-uploading a mesh under an existing key (the
+      builtin biped: test spawn + npc template) overwrote the map entry
+      without freeing the old vertex/index/skinning buffers. UploadMesh now
+      destroys the previous entry's buffers. REC_BUFFER_TRACE=1 logs every
+      buffer creation for matching leaked handles.

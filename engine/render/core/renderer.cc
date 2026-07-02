@@ -935,6 +935,18 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
                                                  static_cast<u32>(geometries.size()));
     if (gpu.bindless_index == BindlessRegistry::kInvalidIndex) gpu.bindless_index = 0;
   }
+  // Re-uploading under an existing key (the builtin biped goes up once for
+  // the test spawn and again for the npc template) must free the previous
+  // buffers or they leak until vkDestroyDevice complains.
+  if (GpuMesh* previous = meshes_.find(mesh_key)) {
+    device_->WaitIdle();  // uploads happen at load time; never per frame
+    device_->DestroyBuffer(previous->vertices);
+    device_->DestroyBuffer(previous->indices);
+    if (previous->skinning) device_->DestroyBuffer(previous->skinning);
+    if (previous->meshlets) device_->DestroyBuffer(previous->meshlets);
+    if (previous->meshlet_vertices) device_->DestroyBuffer(previous->meshlet_vertices);
+    if (previous->meshlet_triangles) device_->DestroyBuffer(previous->meshlet_triangles);
+  }
   meshes_[mesh_key] = gpu;
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.

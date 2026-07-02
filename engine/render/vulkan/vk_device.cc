@@ -787,6 +787,10 @@ GpuBuffer VulkanDevice::CreateBuffer(u64 size, BufferUsageFlags usage, bool host
     return {};
   }
 
+  if (std::getenv("REC_BUFFER_TRACE")) {
+    REC_INFO("buffer created: {:#x} ({} bytes, usage {:#x})",
+             reinterpret_cast<u64>(buffer), size, static_cast<u64>(usage));
+  }
   u64 address = 0;
   if (buffer_info.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
     VkBufferDeviceAddressInfo address_info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
