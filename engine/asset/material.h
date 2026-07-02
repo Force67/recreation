@@ -61,6 +61,10 @@ struct Material {
   // subsurface buffer and the screen-space SSS blur diffuses it (red bleed at
   // shadow edges). Independent of `subsurface` (the analytic transmission term).
   bool skin = false;
+  // Hair: dual-lobe Kajiya-Kay strand specular along the vertex tangent
+  // (strand direction) replaces the GGX sun response; roughness drives the
+  // highlight width. Pair with alpha-masked cards for real hair.
+  bool hair = false;
 };
 
 }  // namespace rec::asset

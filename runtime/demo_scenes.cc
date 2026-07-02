@@ -743,6 +743,31 @@ void DemoScenes::CreateSssDemoScene() {
   spawn_sphere({-0.35f, 0.25f, -1.6f}, 0.22f, false, "control_far");
   spawn_sphere({0.35f, 0.25f, -1.6f}, 0.22f, true, "skin_far");
 
+  // Hair pair on the flanks: dark spheres whose latitude tangents act as
+  // strands. The right one carries the hair flag (dual anisotropic bands);
+  // the left is the plain ggx control blob.
+  auto spawn_hair = [&](Vec3 pos, bool hair, const char* tag) {
+    asset::Material mat;
+    mat.id = asset::MakeAssetId(std::string("builtin/sss/hairmat_") + tag);
+    mat.base_color_factor[0] = 0.16f;
+    mat.base_color_factor[1] = 0.10f;
+    mat.base_color_factor[2] = 0.06f;
+    mat.roughness_factor = 0.45f;
+    mat.hair = hair;
+    asset::Mesh sphere = asset::MakeSphere(
+        0.45f, 48, 64, asset::MakeAssetId(std::string("builtin/sss/hair_") + tag));
+    sphere.lods[0].submeshes[0].material = mat.id;
+    if (!config_.headless) {
+      renderer_.UploadMaterial(mat);
+      renderer_.UploadMesh(sphere);
+    }
+    ecs::Entity e = world_.Create();
+    world_.Add(e, world::Transform{.position = {pos.x, pos.y, pos.z}});
+    world_.Add(e, world::Renderable{sphere.id});
+  };
+  spawn_hair({-2.05f, 0.5f, -0.35f}, false, "control");
+  spawn_hair({2.05f, 0.5f, -0.35f}, true, "aniso");
+
   // A slim pole per sphere, placed sunward so its hard shadow line crosses the
   // camera-facing hemisphere: that edge is where the diffusion reads
   // (softening + red bleed). Smoothly lit spheres alone would show nothing -

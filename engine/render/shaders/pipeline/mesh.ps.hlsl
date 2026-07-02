@@ -160,6 +160,7 @@ static const uint kFlagHasNormalMap = 2u;
 static const uint kFlagTerrain = 4u;
 static const uint kFlagHasHeightMap = 32u;  // 1 << 5
 static const uint kFlagSkin = 64u;          // 1 << 6, exports diffuse for screen-space sss
+static const uint kFlagHair = 128u;         // 1 << 7, kajiya-kay strand specular
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
@@ -370,6 +371,17 @@ float ParallaxShadow(float2 uv, float3 light_ts, float scale, float2 dx, float2 
   return 1.0 - saturate(occlusion * 6.0) * 0.75;
 }
 
+// --- hair strand lobes (Kajiya-Kay with dual shifted highlights) -----------
+float3 ShiftTangent(float3 t, float3 n, float shift) {
+  return normalize(t + n * shift);
+}
+float StrandSpecular(float3 t, float3 v, float3 l, float exponent) {
+  float3 h = normalize(l + v);
+  float tdh = dot(t, h);
+  float sin_th = sqrt(max(1.0 - tdh * tdh, 1e-4));
+  return smoothstep(-1.0, 0.0, tdh) * pow(sin_th, exponent);
+}
+
 // Specular anti-aliasing (Tokuyoshi/Kaplanyan-style): widen the GGX lobe by
 // the screen-space variance of the shaded normal, so minified normal maps and
 // curved silhouettes stop minting single-pixel fireflies the TAA cannot hold.
@@ -454,6 +466,25 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   float3 sun = frame.sun_color.rgb * frame.sun_direction.w;
   float3 lit = direct * sun * ndl * shadow;
   g_skin_diffuse += diffuse_color / kPi * sun * ndl * shadow;
+
+  // Hair: dual shifted Kajiya-Kay strand lobes along the tangent replace the
+  // ggx sun response - an uncolored primary at the surface and an
+  // albedo-tinted secondary beneath it - with a wrapped diffuse standing in
+  // for multiple strand scattering. Point lights below keep the ggx path
+  // (the double band only reads under the key light).
+  if ((material.flags & kFlagHair) != 0u) {
+    float3 strand = input.tangent.xyz - n * dot(input.tangent.xyz, n);
+    if (dot(strand, strand) > 1e-8) {
+      strand = normalize(strand);
+      float gloss = 1.0 - roughness;
+      float e1 = lerp(30.0, 260.0, gloss * gloss);
+      float3 spec1 = 0.20 * StrandSpecular(ShiftTangent(strand, n, -0.08), v, l, e1).xxx;
+      float3 spec2 =
+          albedo * 0.45 * StrandSpecular(ShiftTangent(strand, n, 0.10), v, l, e1 * 0.25);
+      float wrap = saturate((dot(n, l) + 0.5) / 1.5);
+      lit = (diffuse_color / kPi + spec1 + spec2) * wrap * sun * shadow;
+    }
+  }
 
   // Subsurface scattering: a wrapped front term softens the terminator and a
   // view-aligned back term glows where light transmits through thin geometry.
