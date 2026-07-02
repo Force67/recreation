@@ -83,6 +83,7 @@ inline constexpr u32 kFrameFlagShadowMap = 1u << 6;    // sample cascaded shadow
 inline constexpr u32 kFrameFlagSigmaShadow = 1u << 7;  // sample the SIGMA-denoised sun shadow
 inline constexpr u32 kFrameFlagAurora = 1u << 8;       // draw the night-sky aurora (sky.ps)
 inline constexpr u32 kFrameFlagSpecReflTex = 1u << 9;  // sample the denoised reflection target
+inline constexpr u32 kFrameFlagRestirDi = 1u << 10;     // point/spot lights come from the ReSTIR DI textures
 
 // model + prev_model are 128 bytes; skinned draws append the bone palette's
 // buffer device address and this mesh's offset into it (needs a 144 byte push

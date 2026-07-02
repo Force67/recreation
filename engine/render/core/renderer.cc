@@ -45,6 +45,7 @@ base::Option<bool> FroxelOpt{"froxel.fog", true, "REC_FROXEL"};
 base::Option<double> FroxelDensity{"froxel.density", 0.005, "REC_FROXEL_DENSITY"};
 base::Option<bool> VrsOpt{"vrs", true, "REC_VRS"};
 base::Option<double> VrsThreshold{"vrs.threshold", 0.06, "REC_VRS_THRESHOLD"};
+base::Option<bool> RestirDiOpt{"restir.di", false, "REC_RESTIR_DI"};
 // Debug: horizontal fake velocity in pixels, to exercise the blur from a
 // static camera (screenshot testing).
 base::Option<double> MotionBlurDebugVel{"motion.blur.debug.vel", 0.0, "REC_MOTION_BLUR_DEBUG_VEL"};
@@ -337,6 +338,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
     REC_WARN("froxel volumetrics unavailable");  // non-fatal: feature gates on available()
   }
   vrs_.Initialize(*device_);  // non-fatal: needs attachment VRS hardware
+  if (rt_available_) restir_di_.Initialize(*device_);  // non-fatal: gates on available()
   if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!fur_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
@@ -391,6 +393,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
 
   UpdateRenderResolution();
   vrs_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) restir_di_.Resize(*device_, {render_width_, render_height_});
   taa_.Resize(*device_, {render_width_, render_height_});
   ssao_.Resize(*device_, {render_width_, render_height_});
   ssr_.Resize(*device_, {render_width_, render_height_});
@@ -496,6 +499,7 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (FroxelDensity.overridden()) settings_.froxel_density = static_cast<f32>(double(FroxelDensity));
   if (VrsOpt.overridden()) settings_.vrs = VrsOpt;
   if (VrsThreshold.overridden()) settings_.vrs_threshold = static_cast<f32>(double(VrsThreshold));
+  if (RestirDiOpt.overridden()) settings_.restir_di = RestirDiOpt;
   if (PathtraceSpp.overridden()) settings_.path_trace_spp = static_cast<u32>(std::max(1, int(PathtraceSpp)));
   if (PathtraceAccum.overridden()) settings_.path_trace_accum = static_cast<u32>(std::max(1, int(PathtraceAccum)));
   if (PathtraceRecon.overridden()) settings_.path_trace_recon = PathtraceRecon;
@@ -655,6 +659,7 @@ void Renderer::UpdateRenderResolution() {
 
 void Renderer::ResizeSizedPasses() {
   vrs_.Resize(*device_, {render_width_, render_height_});
+  if (rt_available_) restir_di_.Resize(*device_, {render_width_, render_height_});
   taa_.Resize(*device_, {render_width_, render_height_});
   ssao_.Resize(*device_, {render_width_, render_height_});
   ssr_.Resize(*device_, {render_width_, render_height_});
@@ -1452,6 +1457,12 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     std::memcpy(frame.decals.mapped, view.decals.data(), decal_count * sizeof(Decal));
   }
   globals.light_count = light_count;
+  // Hybrid ReSTIR DI decision happens before the globals upload below; the
+  // graph passes record later under the same flag.
+  bool restir_active = settings_.restir_di && rt_available_ && restir_di_.available() &&
+                       !path_trace && light_count > 0 && raytracing_ &&
+                       raytracing_->tlas(tlas_slot);
+  if (restir_active) globals.flags |= kFrameFlagRestirDi;
   {
     // Froxel slicing: exponential view-z between the near plane and 500 m.
     constexpr f32 kNear = 0.1f, kFar = 500.0f;
@@ -2235,6 +2246,22 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                           frame_index_);
   }
 
+  // Hybrid ReSTIR DI: reservoir-resampled point/spot lights with one shadow
+  // ray per pixel, shaded off the prepass G-buffer into screen-space targets
+  // the forward pass folds back in (env slots 23/24, kFrameFlagRestirDi).
+  RestirDi::Outputs restir_out;
+  if (restir_active) {
+    RestirDi::Frame rf;
+    rf.inv_view_proj = globals.inv_view_proj;
+    rf.camera_pos = view.camera.eye;
+    rf.frame_index = frame_index_;
+    rf.light_count = globals.light_count;
+    rf.lights = frame.lights;
+    rf.tlas_slot = tlas_slot;
+    restir_out = restir_di_.AddToGraph(graph_, depth_export, normals, motion, *raytracing_,
+                                       {render_width_, render_height_}, rf);
+  }
+
   // Without the reflection trace the scene pass is DDGI's first consumer;
   // join the async queue before the lighting work leading into it.
   if (ddgi_async && spec_refl == kInvalidResource) {
@@ -2296,11 +2323,16 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (sun_shadow != kInvalidResource) builder.Read(sun_shadow, ResourceUsage::kSampledFragment);
         if (spec_refl != kInvalidResource) builder.Read(spec_refl, ResourceUsage::kSampledFragment);
         if (csm_active) builder.Read(shadow_atlas, ResourceUsage::kSampledFragment);
+        if (restir_active) {
+          builder.Read(restir_out.diffuse, ResourceUsage::kSampledFragment);
+          builder.Read(restir_out.spec, ResourceUsage::kSampledFragment);
+        }
         if (ms_occlude) builder.Read(cull_hiz, ResourceUsage::kSampledTaskMesh);
       },
       [this, scene_color, motion, skin_diffuse, depth, ao, sun_shadow, spec_refl, use_rt_frag,
        ddgi_active, csm_active, shadow_slot, shadow_atlas, cull_commands, ms_active, globals_set,
-       frame_slot, &frame, &view, draw_meshlet_instances](PassContext& ctx) {
+       frame_slot, restir_active, restir_out, &frame, &view,
+       draw_meshlet_instances](PassContext& ctx) {
         BindingSetHandle env_set = env_scene_sets_[frame_slot];
         TextureView ao_view =
             ao != kInvalidResource ? ctx.graph->image(ao).view : TextureView{};
@@ -2319,7 +2351,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             frame.decals, decal_cluster_indices_, decal_atlas_view_,
             local_shadows_active_ ? local_shadows_.face_buffer(frame_slot) : GpuBuffer{},
             local_shadows_active_ ? local_shadows_.atlas().view : TextureView{},
-            decal_normal_atlas_view_);
+            decal_normal_atlas_view_,
+            restir_active ? ctx.graph->image(restir_out.diffuse).view : TextureView{},
+            restir_active ? ctx.graph->image(restir_out.spec).view : TextureView{});
 
         ColorAttachment colors[3];
         colors[0] = {.view = ctx.graph->image(scene_color).view,
@@ -3174,6 +3208,7 @@ void Renderer::Shutdown() {
     bloom_.Destroy(*device_);
     exposure_.Destroy(*device_);
     vrs_.Destroy(*device_);
+    restir_di_.Destroy(*device_);
     profiler_.Shutdown();
     path_tracer_.Destroy(*device_);
     recon_path_tracer_.Destroy(*device_);

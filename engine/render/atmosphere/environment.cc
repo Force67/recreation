@@ -111,7 +111,9 @@ bool EnvironmentSystem::CreateDummies() {
   // Flat-normal stand-in for the decal channel atlas (0.5, 0.5, 1).
   flat_normal_ = device_.CreateImage2D(Format::kRGBA8Unorm, {1, 1},
                                        kTextureUsageSampled | kTextureUsageTransferDst);
-  if (!white_ || !black_array_ || !shadow_dummy_ || !flat_normal_) return false;
+  black_ = device_.CreateImage2D(Format::kR8Unorm, {1, 1},
+                                 kTextureUsageSampled | kTextureUsageTransferDst);
+  if (!white_ || !black_array_ || !shadow_dummy_ || !flat_normal_ || !black_) return false;
 
   // The shaders declare Texture2DArray for the ddgi slots; the dummy must be
   // an array view so the descriptor's view type matches when ddgi is off.
@@ -124,7 +126,7 @@ bool EnvironmentSystem::CreateDummies() {
   std::memset(dummy_volume_.mapped, 0, 512);
 
   device_.ImmediateSubmit([&](CommandList& cmd) {
-    for (GpuImage* image : {&white_, &black_array_, &flat_normal_}) {
+    for (GpuImage* image : {&white_, &black_array_, &flat_normal_, &black_}) {
       cmd.Barrier(Transition(*image, ResourceState::kUndefined, ResourceState::kCopyDst));
       f32 clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
       if (image == &white_) clear[0] = 1.0f;
@@ -245,6 +247,10 @@ bool EnvironmentSystem::CreatePipelines() {
   env_desc.slots.push_back({21, BindingType::kCombinedTextureSampler});
   // 22: decal channel atlas (normal in decal space).
   env_desc.slots.push_back({22, BindingType::kCombinedTextureSampler});
+  // 23/24: hybrid ReSTIR DI outputs (demodulated diffuse irradiance +
+  // F-less specular), black when the feature is off.
+  env_desc.slots.push_back({23, BindingType::kCombinedTextureSampler});
+  env_desc.slots.push_back({24, BindingType::kCombinedTextureSampler});
   env_set_layout_ = device_.CreateBindingLayout(env_desc);
   if (!env_set_layout_) return false;
 
@@ -412,7 +418,8 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
                                     TextureView decal_atlas,
                                     const GpuBuffer& local_shadow_faces,
                                     TextureView local_shadow_atlas,
-                                    TextureView decal_normal_atlas) const {
+                                    TextureView decal_normal_atlas,
+                                    TextureView restir_diffuse, TextureView restir_spec) const {
   device_.UpdateBindingSet(
       set,
       {Bind::Combined(0, irradiance_.view, sampler_),
@@ -453,7 +460,9 @@ void EnvironmentSystem::WriteEnvSet(BindingSetHandle set, TextureView ao_view,
        Bind::Combined(21, local_shadow_atlas ? local_shadow_atlas : shadow_dummy_.view,
                       shadow_sampler_),
        Bind::Combined(22, decal_normal_atlas ? decal_normal_atlas : flat_normal_.view,
-                      sampler_)});
+                      sampler_),
+       Bind::Combined(23, restir_diffuse ? restir_diffuse : black_.view, sampler_),
+       Bind::Combined(24, restir_spec ? restir_spec : black_.view, sampler_)});
 }
 
 EnvironmentSystem::~EnvironmentSystem() {
@@ -480,6 +489,7 @@ EnvironmentSystem::~EnvironmentSystem() {
   device_.DestroyImage(black_array_);
   device_.DestroyImage(shadow_dummy_);
   device_.DestroyImage(flat_normal_);
+  device_.DestroyImage(black_);
   device_.DestroyImage(ltc_matrix_);
   device_.DestroyImage(ltc_amplitude_);
   device_.DestroyBuffer(dummy_volume_);

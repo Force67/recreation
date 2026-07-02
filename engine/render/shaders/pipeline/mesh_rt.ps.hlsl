@@ -68,6 +68,12 @@ static const uint kMaxDecalsPerCluster = 16;
 // atlas's uv layout (the albedo alpha is the shared mask).
 [[vk::combinedImageSampler]] [[vk::binding(22, 2)]] Texture2D decal_normal_atlas : register(t22, space2);
 [[vk::combinedImageSampler]] [[vk::binding(22, 2)]] SamplerState decal_normal_sampler : register(s22, space2);
+// Hybrid ReSTIR DI outputs: demodulated diffuse irradiance (multiply by
+// albedo/pi) and F-less specular (multiply by f0). Black when off.
+[[vk::combinedImageSampler]] [[vk::binding(23, 2)]] Texture2D restir_diffuse_map : register(t23, space2);
+[[vk::combinedImageSampler]] [[vk::binding(23, 2)]] SamplerState restir_diffuse_sampler : register(s23, space2);
+[[vk::combinedImageSampler]] [[vk::binding(24, 2)]] Texture2D restir_spec_map : register(t24, space2);
+[[vk::combinedImageSampler]] [[vk::binding(24, 2)]] SamplerState restir_spec_sampler : register(s24, space2);
 
 
 // LTC fit tables for rect area lights (Heitz et al. 2016): 18 = inverse
@@ -236,6 +242,7 @@ static const uint kFrameReflections = 16u;
 static const uint kFrameRtShadows = 32u;
 static const uint kFrameSigmaShadow = 128u;
 static const uint kFrameSpecReflTex = 512u;  // 1 << 9  // sample the denoised sun shadow
+static const uint kFrameRestirDi = 1024u;  // 1 << 10, point/spot lights from ReSTIR DI
 static const float kPi = 3.14159265359;
 static const float kPrefilterMips = 6.0;
 static const uint kVertexStride = 52;
@@ -717,6 +724,9 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
   for (uint ci = 0; ci < cluster_count; ++ci) {
     uint li = cluster_indices[cluster * kMaxLightsPerCluster + ci];
     PointLight pl = point_lights[li];
+    // ReSTIR DI owns point/spot lights this frame (sampled below the loop);
+    // area lights keep their analytic LTC / representative-point paths.
+    if ((frame.flags & kFrameRestirDi) != 0u && uint(pl.direction_type.w + 0.5) <= 1u) continue;
     float3 to_l = pl.pos_radius.xyz - input.world_pos;
     float dist2 = dot(to_l, to_l);
     float lr = pl.pos_radius.w;
@@ -826,6 +836,15 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     float3 pdiff = diffuse_color * (1.0 / kPi) * (1.0 - pf);
     lit += (pdiff + pspec) * pl.color_intensity.rgb * pl.color_intensity.w * falloff * pndl;
     g_skin_diffuse += pdiff * pl.color_intensity.rgb * pl.color_intensity.w * falloff * pndl;
+  }
+
+  if ((frame.flags & kFrameRestirDi) != 0u) {
+    int3 restir_p = int3(input.sv_position.xy, 0);
+    float3 restir_di = restir_diffuse_map.Load(restir_p).rgb;
+    float3 restir_ds = restir_spec_map.Load(restir_p).rgb;
+    float3 restir_diffuse_term = diffuse_color * (1.0 / kPi) * restir_di;
+    lit += restir_diffuse_term + f0 * restir_ds;
+    g_skin_diffuse += restir_diffuse_term;
   }
 
   float ao = 1.0;

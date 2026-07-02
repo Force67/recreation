@@ -61,9 +61,13 @@ streaming.
       occlusion already exist as the foundation. Pairs with **virtual shadow
       maps** replacing the CSM.
 - [ ] **Virtual texturing** — scalability for 4K-modded content.
-- [ ] **Hybrid-path ReSTIR GI/DI** — bring reservoir many-light sampling from
-      the path tracer into the hybrid path as the clustered-light shading
-      input (the Lumen-competitive direction).
+- [x] **Hybrid-path ReSTIR DI** (landed; GI still recon-only) — per-pixel
+      reservoirs over the clustered point/spot lights on the prepass G-buffer
+      (temporal + spatial reuse, one ray-query shadow ray for the winner),
+      demodulated diffuse/spec textures folded into the forward pass (env
+      slots 23/24, kFrameFlagRestirDi). Replaces the analytic cluster loop +
+      local shadow atlas for those lights on opaque surfaces. Experimental,
+      REC_RESTIR_DI=1 (~0.3 ms, lights demo).
 - [ ] **Strand-based hair** (compute-simulated) once real character assets
       exist; Kajiya-Kay cards are in place.
 

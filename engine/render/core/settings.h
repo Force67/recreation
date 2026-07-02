@@ -189,6 +189,12 @@ struct RenderSettings {
   // fragment path keeps its exact per-light rays).
   bool local_shadows = true;
 
+  // Hybrid ReSTIR DI: reservoir-resampled point/spot lighting with one
+  // ray-traced shadow ray per pixel, replacing the analytic cluster loop and
+  // the local shadow atlas for those lights on opaque surfaces. Needs ray
+  // query; experimental (off by default), REC_RESTIR_DI=1.
+  bool restir_di = false;
+
   // Variable rate shading: content-adaptive per-block shading rates on the
   // scene pass, rebuilt each frame from luminance detail + screen motion.
   // Needs attachment VRS hardware; silently full-rate otherwise.
