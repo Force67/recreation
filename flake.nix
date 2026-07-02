@@ -118,10 +118,15 @@
             # paths cover other hosts. The nvidia libs land in the symlink dir so
             # the loader can resolve them by soname without the whole dir on the
             # path. libnvidia-ngx (the NGX core behind DLSS) is dlopened this way.
+            # libcuda/libnvcuextend too: the driver's ray tracing stack dlopens
+            # libcuda.so.1 (observed on GB10), and without it vkCreateDevice with
+            # the acceleration-structure extensions fails INITIALIZATION_FAILED.
             for f in /usr/lib/*-linux-gnu/libnvidia*.so* /usr/lib/*-linux-gnu/libGLX_nvidia.so* \
                      /usr/lib/*-linux-gnu/libEGL_nvidia.so* \
+                     /usr/lib/*-linux-gnu/libcuda.so* /usr/lib/*-linux-gnu/libnvcuextend.so* \
                      /run/opengl-driver/lib/libnvidia*.so* /run/opengl-driver/lib/libGLX_nvidia.so* \
-                     /run/opengl-driver/lib/libEGL_nvidia.so*; do
+                     /run/opengl-driver/lib/libEGL_nvidia.so* \
+                     /run/opengl-driver/lib/libcuda.so* /run/opengl-driver/lib/libnvcuextend.so*; do
               [ -e "$f" ] && ln -sf "$f" "$driver_libs/"
             done
             if [ -e /usr/share/vulkan/icd.d/nvidia_icd.json ]; then
