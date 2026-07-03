@@ -1,0 +1,31 @@
+using Recreation;
+using Recreation.Interop;
+
+namespace Recreation.Tests;
+
+// Covers the record-backed query data exposed to mods: an actor's sex and race
+// (read through its base) and a weapon's base damage.
+public static class ActorDataTests
+{
+    public static void Run(Check check)
+    {
+        var fake = new FakeBackend();
+        Native.Backend = fake;
+
+        const ulong actor = 0x14;
+        const ulong actorBase = 0x7;
+        const ulong race = 0x13745;  // NordRace
+        fake.SetBase(actor, actorBase, essential: false);
+        fake.SetActorBaseData(actorBase, sex: 1, race: race);
+
+        Actor character = Actor.From(actor);
+        check.Equal("sex read through the base", Sex.Female, character.Sex);
+        check.Equal("race read through the base", race, character.Race.Handle);
+
+        const ulong sword = 0x12EB7;
+        fake.SetWeaponDamage(sword, 7);
+        check.Equal("weapon damage from the record", 7, Form.From(sword).WeaponDamage);
+
+        Native.Backend = null;
+    }
+}

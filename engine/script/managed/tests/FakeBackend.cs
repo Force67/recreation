@@ -18,6 +18,17 @@ public sealed class FakeBackend : IEngineBackend
     private readonly HashSet<ulong> _inCombat = new();
     private readonly Dictionary<ulong, ulong> _baseObject = new();
     private readonly HashSet<ulong> _essential = new();
+    private readonly Dictionary<ulong, int> _sex = new();        // base -> 0/1
+    private readonly Dictionary<ulong, ulong> _race = new();     // base -> race form
+    private readonly Dictionary<ulong, int> _weaponDamage = new();  // weapon -> damage
+
+    public void SetActorBaseData(ulong baseObject, int sex, ulong race)
+    {
+        _sex[baseObject] = sex;
+        _race[baseObject] = race;
+    }
+
+    public void SetWeaponDamage(ulong weapon, int damage) => _weaponDamage[weapon] = damage;
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
     private readonly Dictionary<ulong, Dictionary<ulong, int>> _inventory = new();  // container -> item -> count
@@ -158,6 +169,12 @@ public sealed class FakeBackend : IEngineBackend
                                  owned.TryGetValue(args[0].AsHandle(), out int n) ? n : 0);
             case "GetWeight":
                 return Value.Float(_weights.GetValueOrDefault(self));
+            case "GetSex":
+                return Value.Int(_sex.GetValueOrDefault(self));
+            case "GetRace":
+                return Value.Object(_race.GetValueOrDefault(self));
+            case "GetWeaponDamage":
+                return Value.Int(_weaponDamage.GetValueOrDefault(self));
             default:
                 return Value.None;
         }
