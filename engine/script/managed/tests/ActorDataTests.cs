@@ -26,6 +26,10 @@ public static class ActorDataTests
         fake.SetWeaponDamage(sword, 7);
         check.Equal("weapon damage from the record", 7, Form.From(sword).WeaponDamage);
 
+        const ulong armor = 0x12E4D;
+        fake.SetArmorRating(armor, 15f);
+        check.Equal("armor rating from the record", 15f, Form.From(armor).ArmorRating);
+
         Native.Backend = null;
     }
 }

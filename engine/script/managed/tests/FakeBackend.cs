@@ -21,6 +21,7 @@ public sealed class FakeBackend : IEngineBackend
     private readonly Dictionary<ulong, int> _sex = new();        // base -> 0/1
     private readonly Dictionary<ulong, ulong> _race = new();     // base -> race form
     private readonly Dictionary<ulong, int> _weaponDamage = new();  // weapon -> damage
+    private readonly Dictionary<ulong, float> _armorRating = new();  // armor -> rating
 
     public void SetActorBaseData(ulong baseObject, int sex, ulong race)
     {
@@ -29,6 +30,7 @@ public sealed class FakeBackend : IEngineBackend
     }
 
     public void SetWeaponDamage(ulong weapon, int damage) => _weaponDamage[weapon] = damage;
+    public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
     private readonly Dictionary<ulong, Dictionary<ulong, int>> _inventory = new();  // container -> item -> count
@@ -175,6 +177,8 @@ public sealed class FakeBackend : IEngineBackend
                 return Value.Object(_race.GetValueOrDefault(self));
             case "GetWeaponDamage":
                 return Value.Int(_weaponDamage.GetValueOrDefault(self));
+            case "GetArmorRating":
+                return Value.Float(_armorRating.GetValueOrDefault(self));
             default:
                 return Value.None;
         }
