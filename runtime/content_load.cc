@@ -32,6 +32,7 @@ namespace rec {
 // Load-time env overrides, declared at file scope so they register before
 // InitOptionsFromEnv() populates them; see each use site for behaviour.
 static base::Option<const char*> Weather{"weather", nullptr, "REC_WEATHER"};
+static base::Option<const char*> Interior{"interior", nullptr, "REC_INTERIOR"};
 static base::Option<bool> CwFieldBattle{"cw.field.battle", false, "REC_CW_FIELD_BATTLE"};
 static base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "REC_CW_SIEGE_DEMO"};
 static base::Option<bool> CwReinfTest{"cw.reinf.test", false, "REC_CW_REINF_TEST"};
@@ -416,6 +417,10 @@ bool LoadGameData(Engine& engine) {
     self->streamer_->SetUploads(std::move(uploads));
   }
 
+  // REC_INTERIOR=<editor id or 0x form id> boots straight into that interior
+  // cell with the flycam placed inside, for testing authored interior lighting.
+  // --interior takes precedence when both are given.
+  if (self->config_.interior.empty() && Interior.get()) self->config_.interior = Interior.get();
   if (!self->config_.interior.empty()) return LoadInterior(engine);
   if (!self->streamer_->SelectWorldspace(profile.exterior_worldspace)) return false;
 

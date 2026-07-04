@@ -568,6 +568,16 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         if (settings.bloom) {
           ImGui::SliderFloat("Bloom intensity", &settings.bloom_intensity, 0.0f, 0.2f, "%.3f");
         }
+        ImGui::Checkbox("Depth of field", &settings.dof);
+        if (settings.dof) {
+          ImGui::SliderFloat("Aperture", &settings.dof_aperture, 0.5f, 8.0f, "%.1f");
+          ImGui::SliderFloat("Focus (m, 0 = auto)", &settings.dof_focus, 0.0f, 200.0f, "%.0f");
+        }
+        ImGui::SliderFloat("Chromatic aberration", &settings.chromatic_aberration, 0.0f, 4.0f,
+                           "%.1f px");
+        ImGui::SliderFloat("Vignette", &settings.vignette, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Film grain", &settings.film_grain, 0.0f, 0.06f, "%.3f");
+        ImGui::SliderFloat("Lens flare", &settings.lens_flare, 0.0f, 0.3f, "%.2f");
         ImGui::Checkbox("Auto exposure", &settings.auto_exposure);
         if (settings.auto_exposure) {
           ImGui::SliderFloat("Adaptation speed", &settings.adaptation_speed, 0.5f, 10.0f);

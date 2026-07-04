@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <cmath>
 #include <thread>
 #include <utility>
@@ -39,6 +40,7 @@ static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
 // Config overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
 static base::Option<float> Lightning{"lightning", 0.0f, "REC_LIGHTNING"};
+static base::Option<bool> AuthoredInterior{"interior.lighting", true, "REC_INTERIOR_LIGHTING"};
 static base::Option<const char*> UiShot{"ui.shot", nullptr, "REC_UI_SHOT"};
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "REC_UI_SHOT_FRAMES"};
 // REC_FIXED_DT=<seconds> locks every frame to one delta (frame-index-pure
@@ -356,6 +358,27 @@ bool Engine::RunFrame() {
           s.ambient = sky.ambient + (has_weather ? w.cloud_coverage * 0.05f : 0.0f);
         }
       }
+      // Interior cells author their own ambience (XCLL/LGTM): override the
+      // sky-derived lighting with the resolved flat ambient + directional fill +
+      // fog, and flag the renderer to suppress the sky/atmosphere.
+      {
+        auto& s = renderer_.settings();
+        const bool inside = streamer_ && streamer_->in_interior() && AuthoredInterior;
+        s.interior = inside;
+        if (inside && streamer_->interior_lighting().valid) {
+          const world::InteriorLighting& il = streamer_->interior_lighting();
+          s.interior_ambient = il.ambient;
+          s.interior_directional_color = il.directional_color;
+          s.interior_directional_dir = il.directional_dir;
+          s.interior_directional_intensity = il.directional_intensity;
+          s.interior_fog_near_color = il.fog_near_color;
+          s.interior_fog_far_color = il.fog_far_color;
+          s.interior_fog_near = il.fog_near;
+          s.interior_fog_far = il.fog_far;
+          s.interior_fog_power = il.fog_power;
+          s.interior_fog_max = il.fog_max;
+        }
+      }
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
@@ -373,6 +396,12 @@ bool Engine::RunFrame() {
         view.camera.target = camera_.target();
       }
       view.frame_delta_seconds = frame_delta;
+      // Sink the distant terrain-LOD proxies under the primary streamer's
+      // fully loaded cells (secondary --add-game streamers keep the old
+      // depth-sink behavior; the view carries a single rect).
+      if (streamer_ && !streamer_->in_interior()) {
+        std::memcpy(view.detail_rect, streamer_->detail_rect(), sizeof(view.detail_rect));
+      }
       // Move the audio listener to this frame's viewpoint (the walk-mode player or
       // the fly camera), so positional voices pan and attenuate around the player.
       if (audio_) {
@@ -395,6 +424,16 @@ bool Engine::RunFrame() {
       actors_->EmitDraws(view);
       demos_->EmitToView(frame_delta, view);
       if (editor_) editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
+      if (streamer_) streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
+      if (streamer_) {
+        streamer_->CollectDecals(view.decals);  // streamed TXST refs project decals
+        // Keep the clustered decal sampler on the streamer's atlas once built
+        // (cheap texture lookup; a fresh streamer re-points it on its own).
+        if (streamer_->decal_atlas_version() > 0) {
+          renderer_.SetDecalAtlas(streamer_->decal_atlas_id(),
+                                  streamer_->decal_atlas_normal_id());
+        }
+      }
       quest_->RefreshQuestPanel(frame_delta);
       quest_->RefreshNativeTrace(frame_delta);
       // Outside a scripted playthrough, the auto-walk test player heads for the

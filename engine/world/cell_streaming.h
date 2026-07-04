@@ -13,11 +13,31 @@
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
+#include "render/pipeline/mesh_pipeline.h"
 #include "world/grass_baker.h"
 #include "world/land_baker.h"
 #include "world/quest_world.h"
 
 namespace rec::world {
+
+// Effective authored lighting of an interior cell, resolved from its CELL XCLL
+// subrecord and the referenced LGTM lighting template (LTMP), applying the
+// per-group inherit flags (a set bit takes the template's value, a clear bit the
+// cell's own). Colours are 0..1 (byte/255); fog distances are meters. Consumed by
+// the frame loop, which pushes it onto the renderer's interior lighting settings.
+struct InteriorLighting {
+  bool valid = false;
+  Vec3 ambient{0.05f, 0.05f, 0.06f};
+  Vec3 directional_color{0.0f, 0.0f, 0.0f};
+  Vec3 directional_dir{0.2f, -0.9f, 0.3f};  // engine-space travel direction
+  f32 directional_intensity = 0.0f;
+  Vec3 fog_near_color{0.0f, 0.0f, 0.0f};
+  Vec3 fog_far_color{0.0f, 0.0f, 0.0f};
+  f32 fog_near = 0.0f;  // meters
+  f32 fog_far = 0.0f;   // meters; <= near disables fog
+  f32 fog_power = 1.0f;
+  f32 fog_max = 1.0f;
+};
 
 // Streams exterior cells of one worldspace around the camera. CELL/REFR/LAND
 // records become entities with Transform + Renderable; meshes and terrain
@@ -127,6 +147,10 @@ class CellStreamer {
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
 
+  // The authored lighting of the active interior (XCLL/LGTM resolved), valid only
+  // while in_interior(). The frame loop feeds it to the renderer each frame.
+  const InteriorLighting& interior_lighting() const { return interior_lighting_; }
+
   // Drops everything this streamer has spawned (all exterior cells, any active
   // interior, and the distant LOD proxies). The trailer uses it to unload the
   // previous game before cutting to the next; a later Update re-streams from the
@@ -144,8 +168,37 @@ class CellStreamer {
   ecs::Entity PlaceObject(ecs::World& world, bethesda::GlobalFormId base_id, const Vec3& position,
                           const f32 rotation[4], f32 scale, asset::AssetId* out_mesh = nullptr);
 
+  // Appends the point lights from every loaded cell's placed LIGH refs (torches,
+  // sconces, lamps) to `out`, so dungeons and night scenes get local lighting.
+  // Kept nearest-to-camera when the streamed count would overflow the renderer's
+  // frame light budget. Matches MapEditor::CollectLights' shape; the frame loop
+  // calls both and the renderer clusters the union.
+  void CollectLights(base::Vector<render::PointLight>& out) const;
+
+  // Appends the projected decals from every loaded cell's placed TXST refs
+  // (blood pools, burn marks, shadowmarks, giant paint) to `out`, nearest to
+  // the camera first when over the renderer's frame decal budget. The frame
+  // loop feeds them into FrameView::decals next to the CollectLights call.
+  void CollectDecals(base::Vector<render::Decal>& out) const;
+
+  // The shared decal atlas the collected decals' uv rects index, built once
+  // from every decal-capable TXST when the first placed decal streams in. Ids
+  // are salted for this domain like the mesh ids; version stays 0 until the
+  // atlas exists, so the frame loop knows when to point the renderer at it.
+  asset::AssetId decal_atlas_id() const { return {decal_atlas_.id.hash ^ mesh_id_salt_}; }
+  asset::AssetId decal_atlas_normal_id() const {
+    return {decal_atlas_normal_.id.hash ^ mesh_id_salt_};
+  }
+  u32 decal_atlas_version() const { return decal_atlas_version_; }
+
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
+
+  // World-space rect (min_x, min_z, max_x, max_z) of the contiguous cell ring
+  // around the camera whose full-detail terrain is spawned; all zeros while
+  // none is. Distant terrain-LOD draws sink their vertices inside it (see
+  // render::FrameView::detail_rect).
+  const f32* detail_rect() const { return detail_rect_; }
 
   // True once streaming has caught up: every in-range cell is loaded and its
   // incremental conversion is done, no budget was left pending, and (when on) the
@@ -161,6 +214,17 @@ class CellStreamer {
  private:
   struct LoadedCell {
     base::Vector<ecs::Entity> entities;
+    // Point lights from this cell's placed LIGH refs, baked at spawn (statics
+    // never move) so they drop out when the cell unloads.
+    base::Vector<render::PointLight> lights;
+    // Projected decals from this cell's placed TXST refs, baked at spawn like
+    // the lights. The world position rides along for the nearest-to-camera cut
+    // (the packed Decal only carries the inverse box rows).
+    struct PlacedDecal {
+      render::Decal decal;
+      Vec3 position;
+    };
+    base::Vector<PlacedDecal> decals;
     const bethesda::RecordStore::ExteriorCell* source = nullptr;
     physics::BodyId terrain_body = 0;
     base::Vector<physics::BodyId> bodies;  // static ref colliders
@@ -176,6 +240,9 @@ class CellStreamer {
   void UnloadCell(ecs::World& world, u32 key);
   // Destroys the active interior's entities and colliders (see interior_cell_).
   void UnloadInterior(ecs::World& world);
+  // Resolves the active interior's authored lighting into interior_lighting_ from
+  // the cell's XCLL and its LGTM template per the inherit flags.
+  void ResolveInteriorLighting(bethesda::GlobalFormId cell_id);
   bool SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   // Distant LOD: discovers the coarsest .btr (terrain) + .bto (object) quads of
   // the streamed worldspace once, then drains them under a budget. They cover the
@@ -192,11 +259,32 @@ class CellStreamer {
                         f32* engine_y) const;
   bool SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64 ref_id, LoadedCell& cell,
                       u32& mesh_budget, bool interior);
+  // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
+  // REFR XRDS radius override into a point light at `position` and records it on
+  // the cell. No-op for other base types or when REC_PLACED_LIGHTS is off.
+  void AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda::Record& refr,
+                      const Vec3& position, LoadedCell& cell);
+  // When `base_id` is a TXST, builds a projected decal box from the REFR
+  // placement (rotation/XSCL) and the TXST's DODT extents/tint, uv'd into the
+  // shared decal atlas, and records it on the cell. Builds the atlas on first
+  // use. No-op for other base types or when REC_PLACED_DECALS is off.
+  void AddPlacedDecal(bethesda::GlobalFormId base_id, bethesda::GlobalFormId ref_id,
+                      const bethesda::Record& refr, const Vec3& position, LoadedCell& cell);
+  // Builds the decal atlas once: every TXST with decal data (DODT) gets its
+  // TX00/TX01 decoded into 256px tiles (subtexture sheets split into one tile
+  // per variant, textures shared across TXSTs deduped), then uploads both
+  // atlas pages and records per-base extents/uv info in decal_bases_.
+  void EnsureDecalAtlas();
   const asset::Mesh* MeshForBase(bethesda::GlobalFormId base_id, u32& mesh_budget,
                                  bool& budget_exceeded);
   bool EnsureUploaded(const asset::Mesh& mesh);
   void EnsureLandMaterial();
-  const asset::Mesh* EnsureWaterMesh();
+  // Water plane tinted by the cell's WATR type (XCWT, else the worldspace NAM2
+  // default). ResolveCellWaterForm picks the form; WaterMeshForCell caches a
+  // shallow-colour-tinted quad per WATR form; EnsureWaterMesh builds it.
+  bethesda::GlobalFormId ResolveCellWaterForm(const LoadedCell& cell) const;
+  const asset::Mesh* WaterMeshForCell(const LoadedCell& cell);
+  const asset::Mesh* EnsureWaterMesh(u64 form_key, const f32 tint[3]);
   // Bethesda game-space (x, y, z) to engine space, including world_offset_.
   Vec3 ToWorld(f32 bethesda_x, f32 bethesda_y, f32 bethesda_z) const;
   // The renderer-side mesh key for a converted asset, salted for this domain.
@@ -235,6 +323,7 @@ class CellStreamer {
   // placed refs are tracked here so a later transition can unload them.
   bool interior_active_ = false;
   LoadedCell interior_cell_;
+  InteriorLighting interior_lighting_;
   std::function<void(u64, bool)> on_location_change_;  // load-door transition hook
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
@@ -252,11 +341,35 @@ class CellStreamer {
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
   f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units
+  bethesda::GlobalFormId default_water_form_;  // worldspace WRLD NAM2 (WATR), else invalid
+  // WATR form (packed) -> tinted water quad mesh id; key 0 is the untinted
+  // fallback plane. Cached so each water type is parsed and built once.
+  base::UnorderedMap<u64, asset::AssetId> water_meshes_;
   size_t spawned_entities_ = 0;
   size_t spawned_npcs_ = 0;
   size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;
+  f32 detail_rect_[4] = {0, 0, 0, 0};  // see detail_rect()
+  Vec3 last_camera_{0.0f, 0.0f, 0.0f};  // last Update anchor, for nearest-light culling
+  mutable size_t logged_light_count_ = ~size_t{0};  // last CollectLights count logged
+
+  // Placed-decal state (see EnsureDecalAtlas). A base's entry carries the
+  // projection box half extents (meters, before XSCL), DODT tint, and its
+  // tile run in the atlas; invalid bases (no DODT/texture) are absent.
+  struct DecalBase {
+    f32 half_w = 0, half_h = 0, half_d = 0;
+    f32 tint[3] = {1, 1, 1};
+    f32 normal_strength = 0;  // 1 when the TX01 normal page decoded
+    u32 tile = 0;             // first atlas tile
+    u32 tiles = 1;            // subtexture variants, consecutive tiles
+  };
+  base::UnorderedMap<u64, DecalBase> decal_bases_;
+  asset::Texture decal_atlas_;         // rgba8 albedo page, uploaded once
+  asset::Texture decal_atlas_normal_;  // matching normal page
+  bool decal_atlas_built_ = false;
+  u32 decal_atlas_version_ = 0;
+  mutable size_t logged_decal_count_ = ~size_t{0};  // last CollectDecals count logged
 };
 
 }  // namespace rec::world
