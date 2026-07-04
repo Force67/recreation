@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using Recreation.Interop;
 
 namespace Recreation;
@@ -65,6 +67,25 @@ public class ObjectReference : Form
         int count = ItemCount;
         for (int i = 0; i < count; i++)
             yield return Form.From(Call("GetNthForm", i).AsHandle());
+    }
+
+    // Moves up to `count` of `item` into `destination` (a negative count moves
+    // all held). The basis for loot and container-management mods.
+    public void TransferItemTo(ObjectReference destination, Form item, int count = -1)
+    {
+        int held = GetItemCount(item);
+        int n = count < 0 ? held : Math.Min(count, held);
+        if (n <= 0) return;
+        RemoveItem(item, n);
+        destination.AddItem(item, n);
+    }
+
+    // Moves the entire inventory into `destination` (loot-all). The item list is
+    // snapshotted first, since the transfer mutates this container.
+    public void TransferAllItemsTo(ObjectReference destination)
+    {
+        foreach (Form item in Items().ToList())
+            TransferItemTo(destination, item);
     }
 
     // --- world ----------------------------------------------------------------
