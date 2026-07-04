@@ -266,6 +266,21 @@ bool MaterialSystem::WriteSet(BindingSetHandle set, u32 param_index,
   params.iridescence = material.iridescence;
   params.iridescence_thickness = material.iridescence_thickness;
   params.transmission = material.transmission;
+  params.uv_scroll[0] = material.uv_scroll_u;
+  params.uv_scroll[1] = material.uv_scroll_v;
+  params.emissive_pulse[0] = material.emissive_pulse[0];
+  params.emissive_pulse[1] = material.emissive_pulse[1];
+  // Effect-shader (unlit vfx) geometry: torch/campfire flames, glow planes,
+  // mist. base_color is the source texture, base_color_factor the emissive
+  // colour * multiple, and the unlit shader branch reads these flags/params.
+  if (material.effect) {
+    params.flags |= kFlagEffect;
+    if (material.effect_additive) params.flags |= kFlagEffectAdditive;
+    if (material.effect_grayscale_color) params.flags |= kFlagEffectGrayColor;
+    if (material.effect_grayscale_alpha) params.flags |= kFlagEffectGrayAlpha;
+    if (material.effect_falloff) params.flags |= kFlagEffectFalloff;
+    for (int k = 0; k < 4; ++k) params.effect_falloff[k] = material.effect_falloff_params[k];
+  }
   // Blend materials draw without the cutout test; mask materials cut.
   if (material.alpha_mode == asset::AlphaMode::kMask) params.flags |= kFlagAlphaMask;
   if (material.wind) params.flags |= kFlagWind;
@@ -322,6 +337,7 @@ bool MaterialSystem::UploadMaterial(const asset::Material& material, u64 id_salt
       material.transmission > 0.0f ? asset::AlphaMode::kBlend : material.alpha_mode;
   blend_modes_.insert(key, static_cast<u8>(mode));
   if (material.is_water) water_.insert(key, 1);
+  if (material.effect) effects_.insert(key, material.effect_additive ? 2 : 1);
   if (registry_) {
     BindlessRegistry::MaterialRecord record;
     std::memcpy(record.base_color_factor, material.base_color_factor, sizeof(f32) * 4);
@@ -387,6 +403,11 @@ u32 MaterialSystem::bindless_material(u64 material_hash) const {
   return 0;
 }
 
+u32 MaterialSystem::bindless_texture(u64 texture_hash) const {
+  if (const u32* index = bindless_textures_.find(texture_hash)) return *index;
+  return BindlessRegistry::kInvalidIndex;
+}
+
 bool MaterialSystem::is_blend(u64 material_hash) const {
   if (const u8* mode = blend_modes_.find(material_hash)) {
     return static_cast<asset::AlphaMode>(*mode) == asset::AlphaMode::kBlend;
@@ -399,6 +420,15 @@ bool MaterialSystem::is_mask(u64 material_hash) const {
     return static_cast<asset::AlphaMode>(*mode) == asset::AlphaMode::kMask;
   }
   return false;
+}
+
+bool MaterialSystem::is_effect(u64 material_hash) const {
+  return effects_.find(material_hash) != nullptr;
+}
+
+bool MaterialSystem::is_effect_additive(u64 material_hash) const {
+  const u8* kind = effects_.find(material_hash);
+  return kind && *kind == 2;
 }
 
 BindingSetHandle MaterialSystem::set(u64 material_hash) const {

@@ -45,6 +45,7 @@
 #include "render/pipeline/material_system.h"
 #include "render/pipeline/mesh_pipeline.h"
 #include "render/post/overdraw.h"
+#include "render/geometry/particle_emitters.h"
 #include "render/geometry/particles.h"
 #include "render/post/post.h"
 #include "render/post/ui_blur.h"
@@ -101,6 +102,10 @@ struct DrawItem {
 struct FrameView {
   CameraPose camera;
   f32 frame_delta_seconds = 1.0f / 60.0f;  // upscalers want real frame time
+  // World-space rect (min_x, min_z, max_x, max_z) covering the fully streamed
+  // terrain cells. Distant terrain-LOD draws sink their vertices inside it so
+  // the coarse proxy never bridges above the real land. All zeros = disabled.
+  f32 detail_rect[4] = {0, 0, 0, 0};
   base::Vector<DrawItem> draws;
   // Projected decals this frame (world-space boxes, clustered with the lights).
   base::Vector<Decal> decals;
@@ -347,6 +352,10 @@ class Renderer {
   Precipitation precipitation_;
   SurfaceWeather surface_weather_;
   ParticleSystem particles_;
+  // CPU pools for the NIF particle emitters (fires, smoke, mist), fed from
+  // mesh_emitters_ by the draw list each frame. No GPU state to shut down.
+  ParticleEmitterSim emitter_sim_;
+  base::UnorderedMap<u64, base::Vector<asset::ParticleEmitter>> mesh_emitters_;
   GaussianSplat gaussians_;
   FurPass fur_;
   WboitPass wboit_;

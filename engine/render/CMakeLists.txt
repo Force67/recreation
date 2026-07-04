@@ -45,6 +45,7 @@ recreation_add_module(render
   post/upscaler.cc
   geometry/water.cc
   geometry/particles.cc
+  geometry/particle_emitters.cc
   geometry/fur.cc
   geometry/wboit.cc
   geometry/gaussian.cc
@@ -154,6 +155,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/gi/shadow.ps.hlsl
   shaders/geometry/particle.vs.hlsl
   shaders/geometry/particle.ps.hlsl
+  shaders/geometry/particle_tex.ps.hlsl
   shaders/geometry/particle_sim.cs.hlsl
   shaders/geometry/fur.vs.hlsl
   shaders/geometry/fur.ps.hlsl
@@ -279,6 +281,7 @@ endif()
 # Wrapper-shader include dependencies (see cmake/shaders.cmake).
 set(RECREATION_SHADER_DEPS_mesh_sss_ps_hlsl shaders/pipeline/mesh.ps.hlsl)
 set(RECREATION_SHADER_DEPS_mesh_rt_sss_ps_hlsl shaders/pipeline/mesh_rt.ps.hlsl)
+set(RECREATION_SHADER_DEPS_particle_tex_ps_hlsl shaders/geometry/particle.ps.hlsl)
 
 set(RECREATION_SHADER_NO_DXIL
   mesh_scene.as.hlsl
@@ -286,6 +289,7 @@ set(RECREATION_SHADER_NO_DXIL
   meshlet.ms.hlsl
   mesh_rt.ps.hlsl
   mesh_rt_sss.ps.hlsl
+  particle_tex.ps.hlsl
   water.ps.hlsl
   pathtrace.cs.hlsl
   pathtrace_gbuffer.cs.hlsl

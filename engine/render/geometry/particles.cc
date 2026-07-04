@@ -6,6 +6,7 @@
 #include "core/log.h"
 #include "shaders/particle_ps_hlsl.h"
 #include "shaders/particle_sim_cs_hlsl.h"
+#include "shaders/particle_tex_ps_hlsl.h"
 #include "shaders/particle_vs_hlsl.h"
 
 namespace rec::render {
@@ -50,50 +51,47 @@ struct ParticleSimPush {
 
 }  // namespace
 
-bool ParticleSystem::Initialize(Device& device, Format color_format) {
+bool ParticleSystem::Initialize(Device& device, Format color_format,
+                                BindingLayoutHandle bindless_layout) {
   device_ = &device;
+  bindless_layout_ = bindless_layout;
+  bool textured = static_cast<bool>(bindless_layout);
+
+  // Set 0 is the per-frame draw inputs; when a bindless table is available it
+  // binds as set 1 and the billboards sample their authored effect texture.
+  base::Vector<PipelineBindings> sets;
+  sets.push_back({.slots = {{0, BindingType::kStorageBuffer},
+                            {1, BindingType::kSampledImage},
+                            {2, BindingType::kStorageBuffer},
+                            {3, BindingType::kStorageBuffer},
+                            {4, BindingType::kStorageBuffer},
+                            {5, BindingType::kStorageBuffer},
+                            {6, BindingType::kCombinedTextureSampler},
+                            {7, BindingType::kCombinedTextureSampler}}});
+  if (textured) sets.push_back({.shared = bindless_layout_});
+  ShaderBlob frag =
+      textured ? REC_SHADER(k_particle_tex_ps_hlsl) : REC_SHADER(k_particle_ps_hlsl);
 
   // attachment 0 = lit colour, attachment 1 = motion. Both alpha-weighted so the
   // particle's velocity feeds the motion buffer where it is opaque.
   // TODO(rhi): blend preset mismatch: old alpha factors were ZERO/ONE (dst alpha
   // preserved); kAlpha uses ONE/ONE_MINUS_SRC_ALPHA.
-  pipeline_ = device.CreateGraphicsPipeline({
+  GraphicsPipelineDesc desc{
       .vertex = REC_SHADER(k_particle_vs_hlsl),
-      .fragment = REC_SHADER(k_particle_ps_hlsl),
+      .fragment = frag,
       .topology = PrimitiveTopology::kTriangleStrip,
       .raster = {.cull = CullMode::kNone},
       .color_formats = {color_format, kParticleMotionFormat},
       .blend = {BlendMode::kAlpha, BlendMode::kAlpha},
-      .sets = {{.slots = {{0, BindingType::kStorageBuffer},
-                          {1, BindingType::kSampledImage},
-                          {2, BindingType::kStorageBuffer},
-                          {3, BindingType::kStorageBuffer},
-                          {4, BindingType::kStorageBuffer},
-                          {5, BindingType::kStorageBuffer},
-                          {6, BindingType::kCombinedTextureSampler},
-                          {7, BindingType::kCombinedTextureSampler}}}},
+      .sets = sets,
       .push_constant_size = sizeof(ParticlePush),
       .debug_name = "particles",
-  });
+  };
+  pipeline_ = device.CreateGraphicsPipeline(desc);
   // Fire path: HDR additive color, motion still alpha-weighted.
-  pipeline_additive_ = device.CreateGraphicsPipeline({
-      .vertex = REC_SHADER(k_particle_vs_hlsl),
-      .fragment = REC_SHADER(k_particle_ps_hlsl),
-      .topology = PrimitiveTopology::kTriangleStrip,
-      .raster = {.cull = CullMode::kNone},
-      .color_formats = {color_format, kParticleMotionFormat},
-      .blend = {BlendMode::kAdditive, BlendMode::kAlpha},
-      .sets = {{.slots = {{0, BindingType::kStorageBuffer},
-                          {1, BindingType::kSampledImage},
-                          {2, BindingType::kStorageBuffer},
-                          {3, BindingType::kStorageBuffer},
-                          {4, BindingType::kStorageBuffer},
-                          {5, BindingType::kStorageBuffer},
-                          {6, BindingType::kCombinedTextureSampler},
-                          {7, BindingType::kCombinedTextureSampler}}}},
-      .push_constant_size = sizeof(ParticlePush),
-      .debug_name = "particles_additive",
-  });
+  desc.blend = {BlendMode::kAdditive, BlendMode::kAlpha};
+  desc.debug_name = "particles_additive";
+  pipeline_additive_ = device.CreateGraphicsPipeline(desc);
   if (!pipeline_ || !pipeline_additive_) {
     REC_ERROR("particle pipeline creation failed");
     return false;
@@ -129,11 +127,24 @@ bool ParticleSystem::Initialize(Device& device, Format color_format) {
 
 void ParticleSystem::AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
                                 ResourceHandle motion,
-                                const base::Vector<ParticleInstance>& particles, const Frame& frame,
-                                u32 frame_slot) {
-  if (particles.empty()) return;
+                                const base::Vector<ParticleInstance>& particles,
+                                const base::Vector<ParticleInstance>& additive, const Frame& frame,
+                                u32 frame_slot, BindingSetHandle bindless) {
+  // Both sets share the slot's buffer: lit at 0, additive at the next
+  // 256-aligned offset (safe for any minStorageBufferOffsetAlignment).
   u32 count = std::min(static_cast<u32>(particles.size()), kMaxParticles);
-  std::memcpy(buffers_[frame_slot].mapped, particles.data(), count * sizeof(ParticleInstance));
+  u64 additive_offset = (static_cast<u64>(count) * sizeof(ParticleInstance) + 255) & ~255ull;
+  u64 capacity = static_cast<u64>(kMaxParticles) * sizeof(ParticleInstance);
+  u64 additive_room = (capacity - std::min(capacity, additive_offset)) / sizeof(ParticleInstance);
+  u32 additive_count =
+      std::min(static_cast<u32>(additive.size()), static_cast<u32>(additive_room));
+  if (count == 0 && additive_count == 0) return;
+  u8* mapped = static_cast<u8*>(buffers_[frame_slot].mapped);
+  if (count > 0) std::memcpy(mapped, particles.data(), count * sizeof(ParticleInstance));
+  if (additive_count > 0) {
+    std::memcpy(mapped + additive_offset, additive.data(),
+                additive_count * sizeof(ParticleInstance));
+  }
   GpuBuffer buffer = buffers_[frame_slot];
 
   graph.AddPass(
@@ -143,25 +154,42 @@ void ParticleSystem::AddToGraph(RenderGraph& graph, ResourceHandle color, Resour
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Read(depth, ResourceUsage::kSampledFragment);
       },
-      [this, color, depth, motion, buffer, count, frame](PassContext& ctx) {
-        RecordDraw(ctx, color, depth, motion, buffer, count, frame);
+      [this, color, depth, motion, buffer, count, additive_offset, additive_count, frame,
+       bindless](PassContext& ctx) {
+        const GpuImage& target = ctx.graph->image(color);
+        ColorAttachment attachments[2];
+        attachments[0] = {.view = target.view, .load = LoadOp::kLoad};
+        attachments[1] = {.view = ctx.graph->image(motion).view, .load = LoadOp::kLoad};
+        ctx.cmd->BeginRendering({.extent = target.extent, .colors = attachments});
+        if (count > 0) RecordSet(ctx, depth, buffer, 0, count, frame, frame.emissive, bindless);
+        if (additive_count > 0) {
+          RecordSet(ctx, depth, buffer, additive_offset, additive_count, frame, true, bindless);
+        }
+        ctx.cmd->EndRendering();
       });
 }
 
 void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
                                 ResourceHandle motion, const GpuBuffer& instances, u32 count,
-                                const Frame& frame) {
+                                const Frame& frame, BindingSetHandle bindless) {
   const GpuImage& target = ctx.graph->image(color);
   ColorAttachment attachments[2];
   attachments[0] = {.view = target.view, .load = LoadOp::kLoad};  // blend over the lit scene
   attachments[1] = {.view = ctx.graph->image(motion).view,
                     .load = LoadOp::kLoad};  // blend velocity over the mvecs
   ctx.cmd->BeginRendering({.extent = target.extent, .colors = attachments});
+  RecordSet(ctx, depth, instances, 0, count, frame, frame.emissive, bindless);
+  ctx.cmd->EndRendering();
+}
 
-  ctx.cmd->BindPipeline(frame.emissive ? pipeline_additive_ : pipeline_);
+void ParticleSystem::RecordSet(PassContext& ctx, ResourceHandle depth, const GpuBuffer& instances,
+                               u64 offset, u32 count, const Frame& frame, bool emissive,
+                               BindingSetHandle bindless) {
+  ctx.cmd->BindPipeline(emissive ? pipeline_additive_ : pipeline_);
+  if (bindless_layout_ && bindless) ctx.cmd->BindSet(1, bindless);
   // The froxel volume stays in GENERAL; every other input arrives shader-read.
   ctx.cmd->BindTransient(
-      0, {Bind::StorageBuffer(0, instances, 0, count * sizeof(ParticleInstance)),
+      0, {Bind::StorageBuffer(0, instances, offset, count * sizeof(ParticleInstance)),
           Bind::Sampled(1, ctx.graph->image(depth)),
           Bind::StorageBuffer(2, frame.lights, 0, frame.lights.size),
           Bind::StorageBuffer(3, frame.cluster_counts, 0, frame.cluster_counts.size),
@@ -194,15 +222,14 @@ void ParticleSystem::RecordDraw(PassContext& ctx, ResourceHandle color, Resource
   push.froxel_params[1] = frame.froxel_far;
   push.froxel_params[2] = frame.froxel_enabled ? 1.0f : 0.0f;
   push.froxel_params[3] = 0.0f;
-  push.emissive = frame.emissive ? 1u : 0u;
+  push.emissive = emissive ? 1u : 0u;
   ctx.cmd->Push(push);
   ctx.cmd->Draw(4, count, 0, 0);
-  ctx.cmd->EndRendering();
 }
 
 void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
                                      ResourceHandle motion, const Sim& sim, const Frame& frame,
-                                     u32 frame_slot) {
+                                     u32 frame_slot, BindingSetHandle bindless) {
   u32 count = std::min(sim.count, kMaxParticles);
   if (count == 0) return;
   GpuBuffer instances = buffers_[frame_slot];
@@ -215,7 +242,8 @@ void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, R
         builder.Write(motion, ResourceUsage::kColorAttachment);
         builder.Read(depth, ResourceUsage::kSampledFragment);
       },
-      [this, color, depth, motion, instances, state, count, sim, frame](PassContext& ctx) {
+      [this, color, depth, motion, instances, state, count, sim, frame,
+       bindless](PassContext& ctx) {
         // Step the simulation, then draw the freshly written billboards.
         ParticleSimPush sp{};
         sp.emitter[0] = sim.emitter[0];
@@ -246,7 +274,7 @@ void ParticleSystem::SimulateAndDraw(RenderGraph& graph, ResourceHandle color, R
         ctx.cmd->MemoryBarrier(BarrierScope::kComputeWrite, BarrierScope::kGraphicsRead);
         ctx.cmd->MemoryBarrier(BarrierScope::kComputeWrite, BarrierScope::kComputeRead);
 
-        RecordDraw(ctx, color, depth, motion, instances, count, frame);
+        RecordDraw(ctx, color, depth, motion, instances, count, frame, bindless);
       });
 }
 

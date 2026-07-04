@@ -346,7 +346,9 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   vrs_.Initialize(*device_);  // non-fatal: needs attachment VRS hardware
   if (rt_available_) restir_di_.Initialize(*device_);  // non-fatal: gates on available()
   virtual_texture_.Initialize(*device_);  // non-fatal: gates on available()
-  if (!particles_.Initialize(*device_, kSceneColorFormat)) return false;
+  if (!particles_.Initialize(*device_, kSceneColorFormat,
+                             bindless_ ? bindless_->set_layout() : BindingLayoutHandle{}))
+    return false;
   if (!gaussians_.Initialize(*device_, kSceneColorFormat)) return false;
   if (!fur_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
   if (!wboit_.Initialize(*device_, kSceneColorFormat, kDepthFormat)) return false;
@@ -803,8 +805,28 @@ void Renderer::BakeImposter(const asset::Mesh& mesh,
 
 bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   if (!device_ || device_->is_stub()) return false;
-  if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) return false;
   const u64 mesh_key = mesh.id.hash ^ id_salt;
+  // Resolve each emitter's texture asset hash to a bindless index (or invalid)
+  // so the particle billboards can sample the authored effect texture.
+  auto register_emitters = [&](const base::Vector<asset::ParticleEmitter>& src) {
+    base::Vector<asset::ParticleEmitter> emitters = src;
+    for (asset::ParticleEmitter& e : emitters) {
+      u32 index = BindlessRegistry::kInvalidIndex;
+      if (e.texture != 0 && material_system_) {
+        index = material_system_->bindless_texture(e.texture ^ id_salt);
+      }
+      e.texture = index;  // now a bindless index, 0xffffffff = untextured
+    }
+    mesh_emitters_[mesh_key] = std::move(emitters);
+  };
+  // Emitter-only NIFs (smoke columns, dust wisps) carry no geometry but still
+  // need their particle pools: register the emitters and accept the upload so
+  // the placed reference spawns and the sim runs, without a GPU mesh.
+  if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) {
+    if (mesh.emitters.empty()) return false;
+    register_emitters(mesh.emitters);
+    return true;
+  }
 
   BufferUsageFlags rt_usage =
       raytracing_ ? (kBufferUsageAccelBuildInput | kBufferUsageDeviceAddress) : 0;
@@ -870,8 +892,13 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
       bool water = material_system_ && material_system_->is_water(material);
       bool blend = water || (material_system_ && material_system_->is_blend(material));
       bool mask = material_system_ && material_system_->is_mask(material);
-      out.push_back({index_base + submesh.index_offset, submesh.index_count, material,
-                     blend, water, mask});
+      bool effect = material_system_ && material_system_->is_effect(material);
+      bool effect_additive = effect && material_system_->is_effect_additive(material);
+      GpuSubmesh out_submesh{index_base + submesh.index_offset, submesh.index_count, material,
+                             blend, water, mask};
+      out_submesh.effect = effect;
+      out_submesh.effect_additive = effect_additive;
+      out.push_back(out_submesh);
     }
   };
   build_submeshes(src->lods[0], index_bases[0], gpu.submeshes);
@@ -888,6 +915,7 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   std::memcpy(gpu.bounds_center, mesh.bounds_center, sizeof(f32) * 3);
   gpu.bounds_radius = mesh.bounds_radius;
   gpu.no_rt = mesh.exclude_from_rt;
+  gpu.terrain_lod = mesh.terrain_lod;
 
   // Mesh-shader path: split every opaque submesh of every lod into meshlets,
   // concatenated into shared buffers. Each (lod, submesh) records its meshlet
@@ -965,6 +993,9 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
     if (previous->meshlet_triangles) device_->DestroyBuffer(previous->meshlet_triangles);
   }
   meshes_[mesh_key] = gpu;
+  // NIF particle emitters ride along with the mesh; every placed draw of it
+  // feeds a cpu pool (see emitter_sim_ in BuildFrameGraph).
+  if (!mesh.emitters.empty()) register_emitters(mesh.emitters);
   // Pure transparency never enters the tlas: water occluding rtao and
   // shadow rays would black out everything under it.
   if (raytracing_ && !gpu.all_blend && include_rt) raytracing_->BuildBlas(mesh_key, gpu);
@@ -1017,6 +1048,17 @@ bool Renderer::UploadMaterial(const asset::Material& material, u64 id_salt) {
 
 void Renderer::RenderFrame(const FrameView& view) {
   if (!device_ || device_->is_stub() || !swapchain_) return;
+
+  // Wayland surfaces report an undefined currentExtent, so the driver never
+  // flags the swapchain out-of-date on a window resize (unlike X11). Poll the
+  // window each frame and recreate when it no longer matches the swapchain, so
+  // the rendered output tracks the window the same way imgui's DisplaySize does
+  // - otherwise the overlay is drawn/hit-tested against a stale size and clicks
+  // stop landing on widgets after a resize.
+  if (window_) {
+    u32 w = window_->width(), h = window_->height();
+    if (w != 0 && h != 0 && (w != output_width_ || h != output_height_)) RecreateSwapchain();
+  }
 
   ApplySettings();
 
@@ -1368,7 +1410,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                                    .colors = {colors, 2},
                                    .depth = &depth_attachment});
 
-          enum class Mode { kNone, kWater, kBlend };
+          // Effect-shader fire/glows use the additive blend pipeline; the same
+          // unlit fragment shader serves both the alpha and additive effect
+          // materials (it premultiplies coverage for the additive one).
+          enum class Mode { kNone, kWater, kBlend, kBlendAdditive };
           Mode mode = Mode::kNone;
           BindingSetHandle bound_material{};
           const DrawItem* bound_item = nullptr;
@@ -1376,14 +1421,19 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             const GpuMesh* mesh = meshes_.find(draw.item->mesh);
             if (!mesh) continue;
             bool as_water = draw.submesh->water && water_pipeline_active;
+            bool additive = draw.submesh->effect_additive;
 
-            Mode wanted = as_water ? Mode::kWater : Mode::kBlend;
+            Mode wanted = as_water ? Mode::kWater
+                                   : (additive ? Mode::kBlendAdditive : Mode::kBlend);
             if (mode != wanted) {
+              BindingSetHandle bindless_set = bindless_ ? bindless_->set() : BindingSetHandle{};
               if (as_water) {
                 water_->Bind(ctx, globals_set, env_set, bindless_->set(), opaque_color,
                              opaque_depth);
+              } else if (additive) {
+                mesh_pipeline_->BindBlendAdditive(*ctx.cmd, globals_set, env_set, bindless_set,
+                                                  use_rt_frag);
               } else {
-                BindingSetHandle bindless_set = bindless_ ? bindless_->set() : BindingSetHandle{};
                 mesh_pipeline_->BindBlend(*ctx.cmd, globals_set, env_set, bindless_set,
                                           use_rt_frag);
               }
@@ -1395,9 +1445,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               MeshPushConstants push{.model = draw.item->transform,
                                      .prev_model = draw.item->prev_transform};
               if (as_water) {
-                // The water pipeline shares the mesh push block; only the
-                // matrices matter to its vertex stage.
-                ctx.cmd->PushConstants(&push, 2 * sizeof(Mat4));
+                // The water pipeline shares the mesh push block. Push the whole
+                // struct so detail_rect is zeroed: mesh.vs sinks vertices inside
+                // a nonzero rect, and a stale one would sink the water plane.
+                ctx.cmd->PushConstants(&push, sizeof(push));
                 ctx.cmd->BindVertexBuffer(0, mesh->vertices);
                 ctx.cmd->BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
               } else {
@@ -1450,19 +1501,44 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.inv_view_proj = Inverse(view_proj);
   globals.jitter[0] = 2.0f * jitter_x / static_cast<f32>(render_width_);
   globals.jitter[1] = 2.0f * jitter_y / static_cast<f32>(render_height_);
-  Vec3 sun = Normalize(settings_.sun_direction);
+  // Interior cells author their own lighting (XCLL/LGTM): the directional fill
+  // rides the sun path with the authored colour/direction, and the sky-derived
+  // sun/atmosphere/IBL are suppressed below.
+  const bool interior = settings_.interior;
+  Vec3 sun = Normalize(interior ? settings_.interior_directional_dir : settings_.sun_direction);
   globals.sun_direction[0] = sun.x;
   globals.sun_direction[1] = sun.y;
   globals.sun_direction[2] = sun.z;
   // Lightning flashes the PER-FRAME direct light only (not settings_, so the
   // sun-change check never rebuilds the IBL cubemap): a brief bright blue-white
   // boost to the directional intensity, colour and ambient fill.
-  const f32 flash = settings_.lightning;
-  globals.sun_direction[3] = settings_.sun_intensity + flash * 9.0f;
-  globals.sun_color[0] = settings_.sun_color.x + flash * (0.90f - settings_.sun_color.x);
-  globals.sun_color[1] = settings_.sun_color.y + flash * (0.95f - settings_.sun_color.y);
-  globals.sun_color[2] = settings_.sun_color.z + flash * (1.10f - settings_.sun_color.z);
-  globals.sun_color[3] = settings_.ambient + flash * 0.5f;
+  const f32 flash = interior ? 0.0f : settings_.lightning;
+  if (interior) {
+    globals.sun_direction[3] = settings_.interior_directional_intensity;
+    globals.sun_color[0] = settings_.interior_directional_color.x;
+    globals.sun_color[1] = settings_.interior_directional_color.y;
+    globals.sun_color[2] = settings_.interior_directional_color.z;
+    globals.sun_color[3] = 0.0f;
+    globals.interior_ambient[0] = settings_.interior_ambient.x;
+    globals.interior_ambient[1] = settings_.interior_ambient.y;
+    globals.interior_ambient[2] = settings_.interior_ambient.z;
+    globals.interior_fog_color0[0] = settings_.interior_fog_near_color.x;
+    globals.interior_fog_color0[1] = settings_.interior_fog_near_color.y;
+    globals.interior_fog_color0[2] = settings_.interior_fog_near_color.z;
+    globals.interior_fog_color0[3] = settings_.interior_fog_near;
+    globals.interior_fog_color1[0] = settings_.interior_fog_far_color.x;
+    globals.interior_fog_color1[1] = settings_.interior_fog_far_color.y;
+    globals.interior_fog_color1[2] = settings_.interior_fog_far_color.z;
+    globals.interior_fog_color1[3] = settings_.interior_fog_far;
+    globals.interior_fog_params[0] = settings_.interior_fog_power;
+    globals.interior_fog_params[1] = settings_.interior_fog_max;
+  } else {
+    globals.sun_direction[3] = settings_.sun_intensity + flash * 9.0f;
+    globals.sun_color[0] = settings_.sun_color.x + flash * (0.90f - settings_.sun_color.x);
+    globals.sun_color[1] = settings_.sun_color.y + flash * (0.95f - settings_.sun_color.y);
+    globals.sun_color[2] = settings_.sun_color.z + flash * (1.10f - settings_.sun_color.z);
+    globals.sun_color[3] = settings_.ambient + flash * 0.5f;
+  }
   globals.camera_position[0] = view.camera.eye.x;
   globals.camera_position[1] = view.camera.eye.y;
   globals.camera_position[2] = view.camera.eye.z;
@@ -1471,14 +1547,15 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   globals.misc[1] = static_cast<f32>(render_height_);
   globals.misc[2] = settings_.sun_angular_radius;
   globals.misc[3] = static_cast<f32>(frame_index_ % 4096);
-  if (settings_.ibl) globals.flags |= kFrameFlagIbl;
+  if (settings_.ibl && !interior) globals.flags |= kFrameFlagIbl;
   if (nrd_ao || ss_ao) globals.flags |= kFrameFlagAoValid;
-  if (csm_active) globals.flags |= kFrameFlagShadowMap;
-  if (ddgi_active) globals.flags |= kFrameFlagDdgi;
+  if (csm_active && !interior) globals.flags |= kFrameFlagShadowMap;
+  if (ddgi_active && !interior) globals.flags |= kFrameFlagDdgi;
   if (water_pipeline_active && settings_.water_reflections) globals.flags |= kFrameFlagWaterRt;
-  if (rt_shadows) globals.flags |= kFrameFlagRtShadows;
-  if (settings_.aurora) globals.flags |= kFrameFlagAurora;
-  if (nrd_shadow) globals.flags |= kFrameFlagSigmaShadow;
+  if (rt_shadows && !interior) globals.flags |= kFrameFlagRtShadows;
+  if (settings_.aurora && !interior) globals.flags |= kFrameFlagAurora;
+  if (nrd_shadow && !interior) globals.flags |= kFrameFlagSigmaShadow;
+  if (interior) globals.flags |= kFrameFlagInterior;
   if (reflections_active) globals.flags |= kFrameFlagReflections;
   if (spec_refl_active) globals.flags |= kFrameFlagSpecReflTex;
   globals.time = static_cast<f32>(time_seconds_);
@@ -1504,7 +1581,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
     std::memcpy(frame.decals.mapped, view.decals.data(), decal_count * sizeof(Decal));
   }
   globals.light_count = light_count;
-  fft_ocean_active_ = settings_.fft_ocean && ocean_.available() && !path_trace;
+  fft_ocean_active_ = settings_.fft_ocean && ocean_.available() && !path_trace && !interior;
   const bool fft_ocean_active = fft_ocean_active_;
   if (fft_ocean_active) globals.flags |= kFrameFlagFftOcean;
   // Hybrid ReSTIR DI decision happens before the globals upload below; the
@@ -2121,6 +2198,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (mesh->terrain_lod) {
+              std::memcpy(push.detail_rect, view.detail_rect, sizeof(push.detail_rect));
+            }
             if (draw_skinned && item.skin_offset >= 0) {
               push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
@@ -2465,6 +2545,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (mesh->terrain_lod) {
+              std::memcpy(push.detail_rect, view.detail_rect, sizeof(push.detail_rect));
+            }
             if (draw_skinned && item.skin_offset >= 0) {
               push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
@@ -2491,7 +2574,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         if (skinned_bound) {
           mesh_pipeline_->SetSkinned(*ctx.cmd, false, use_rt_frag, settings_.wireframe);
         }
-        if (settings_.sky) environment_->DrawSky(*ctx.cmd, globals_set);
+        if (settings_.sky && !settings_.interior) environment_->DrawSky(*ctx.cmd, globals_set);
         ctx.cmd->EndRendering();
       });
 
@@ -2614,7 +2697,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   // Aerial perspective: composite the atmosphere between the camera and each
   // surface so distant geometry hazes/blue-shifts like the sky. Cheap; skipped
   // when path tracing (the path tracer scatters its own sky).
-  if (settings_.aerial_perspective > 0.0f && !path_trace) {
+  if (settings_.aerial_perspective > 0.0f && !path_trace && !interior) {
     AerialPerspective::Frame af;
     af.inv_view_proj = globals.inv_view_proj;
     af.camera_pos = view.camera.eye;
@@ -2630,7 +2713,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
   // Volumetric clouds raymarched over the sky, composited against depth so
   // terrain occludes them. Skipped when path tracing.
-  if (settings_.clouds && !path_trace) {
+  if (settings_.clouds && !path_trace && !interior) {
     Clouds::Frame cf;
     cf.inv_view_proj = globals.inv_view_proj;
     cf.camera_pos = view.camera.eye;
@@ -2736,10 +2819,26 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                             render_height_, oit_light);
   }
 
+  // NIF particle emitters: a cpu pool per placed instance of an emitting mesh,
+  // stepped here and appended to the frame's billboard sets (lit smoke/mist
+  // plus HDR additive fire).
+  base::Vector<ParticleInstance> emitter_lit;
+  base::Vector<ParticleInstance> emitter_additive;
+  if (!mesh_emitters_.empty()) {
+    emitter_sim_.BeginFrame(view.frame_delta_seconds, view.camera.eye);
+    for (const DrawItem& item : view.draws) {
+      if (const auto* emitters = mesh_emitters_.find(item.mesh)) {
+        emitter_sim_.AddInstance(item.mesh, *emitters, item.transform);
+      }
+    }
+    emitter_sim_.Simulate(&emitter_lit, &emitter_additive);
+  }
+
   // Lit billboard particles blend over the resolved scene, faded against the
   // prepass depth, before temporal reconstruction. Either a cpu-uploaded set or
   // the gpu-simulated fountain.
-  if (!view.particles.empty() || view.gpu_particle_count > 0) {
+  if (!view.particles.empty() || !emitter_lit.empty() || !emitter_additive.empty() ||
+      view.gpu_particle_count > 0) {
     Vec3 fwd = Normalize(view.camera.target - view.camera.eye);
     Vec3 right = Normalize(Cross(fwd, Vec3{0, 1, 0}));
     ParticleSystem::Frame pf;
@@ -2780,9 +2879,14 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
       sim.intensity = view.gpu_particle_intensity;
       sim.time = static_cast<f32>(time_seconds_);
       pf.emissive = view.gpu_particle_mode == 1;
-      particles_.SimulateAndDraw(graph_, lit, depth_export, motion, sim, pf, frame_index_ % 2);
+      BindingSetHandle particle_bindless = bindless_ ? bindless_->set() : BindingSetHandle{};
+      particles_.SimulateAndDraw(graph_, lit, depth_export, motion, sim, pf, frame_index_ % 2,
+                                 particle_bindless);
     } else {
-      particles_.AddToGraph(graph_, lit, depth_export, motion, view.particles, pf, frame_index_ % 2);
+      for (const ParticleInstance& inst : view.particles) emitter_lit.push_back(inst);
+      BindingSetHandle particle_bindless = bindless_ ? bindless_->set() : BindingSetHandle{};
+      particles_.AddToGraph(graph_, lit, depth_export, motion, emitter_lit, emitter_additive,
+                            pf, frame_index_ % 2, particle_bindless);
     }
   }
 
@@ -2939,6 +3043,9 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               skinned_bound = draw_skinned;
             }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
+            if (mesh->terrain_lod) {
+              std::memcpy(push.detail_rect, view.detail_rect, sizeof(push.detail_rect));
+            }
             if (draw_skinned && item.skin_offset >= 0) {
               push.bone_address = frame.bone_palette.address;
               push.skin_offset = static_cast<u32>(item.skin_offset);
@@ -3238,18 +3345,13 @@ void Renderer::RecreateSwapchain() {
   framegen_was_active_ = false;
   UpdateRenderResolution();
   transient_pool_->Clear();
-  taa_.Resize(*device_, {render_width_, render_height_});
-  ssao_.Resize(*device_, {render_width_, render_height_});
-  ssr_.Resize(*device_, {render_width_, render_height_});
-  ssgi_.Resize(*device_, {render_width_, render_height_});
-  path_tracer_.Resize(*device_, {render_width_, render_height_});
-  if (rt_available_ && settings_.path_trace_recon) {
-    recon_path_tracer_.Resize(*device_, {render_width_, render_height_});
-  }
-  if (rt_available_) rtao_.Resize(*device_, {render_width_, render_height_});
-#if defined(RECREATION_HAS_NRD)
-  if (rt_available_) shadow_trace_.Resize(*device_, {render_width_, render_height_});
-#endif
+  // Resize every render-resolution pass through the shared helper rather than a
+  // partial hand-rolled copy: this list had drifted and omitted the NRD
+  // denoiser (and vrs/restir/rr), so the SIGMA sun-shadow history stayed at the
+  // old resolution - shadows kept the pre-resize size and ghosted at the wrong
+  // framebuffer position until the history flushed.
+  ResizeSizedPasses();
+  taa_.Reset();
   has_prev_frame_ = false;
 }
 

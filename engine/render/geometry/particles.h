@@ -18,7 +18,9 @@ struct ParticleInstance {
   f32 size = 0.1f;
   f32 color[4] = {1, 1, 1, 1};  // rgb tint, a opacity
   f32 prev_pos[3] = {0, 0, 0};  // last frame's centre, for the motion vector
-  f32 pad = 0;
+  // Bindless index of the authored effect texture sampled on the billboard;
+  // 0xffffffff keeps the procedural (untextured) gaussian sprite.
+  u32 tex = 0xffffffffu;
 };
 
 // Camera-facing billboard particle renderer. The engine owns the simulation;
@@ -27,7 +29,10 @@ struct ParticleInstance {
 // blended, no depth write; occlusion and soft fade come from the prepass depth.
 class ParticleSystem {
  public:
-  bool Initialize(Device& device, Format color_format);
+  // bindless_layout binds the engine's bindless texture table as set 1 so the
+  // billboards can sample their authored effect texture; pass a null handle to
+  // keep the procedural sprites (no bindless device).
+  bool Initialize(Device& device, Format color_format, BindingLayoutHandle bindless_layout = {});
   void Destroy(Device& device);
 
   struct Frame {
@@ -60,13 +65,17 @@ class ParticleSystem {
     SamplerHandle froxel_sampler;
   };
 
-  // Uploads particles into the frame slot's buffer and adds the draw pass.
-  // No-op when particles is empty. color is the resolved scene color (blended
-  // into), depth is the prepass reversed-z depth export, motion is the velocity
-  // target the particles write into (for stable temporal reconstruction).
+  // Uploads both billboard sets into the frame slot's buffer and adds one draw
+  // pass: `particles` draws with the lit alpha pipeline (frame.emissive picks
+  // additive instead, as before), `additive` always with the HDR additive one
+  // (fire from the NIF emitters, beside smoke in the same frame). No-op when
+  // both are empty. color is the resolved scene color (blended into), depth is
+  // the prepass reversed-z depth export, motion is the velocity target the
+  // particles write into (for stable temporal reconstruction).
   void AddToGraph(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
                   ResourceHandle motion, const base::Vector<ParticleInstance>& particles,
-                  const Frame& frame, u32 frame_slot);
+                  const base::Vector<ParticleInstance>& additive, const Frame& frame,
+                  u32 frame_slot, BindingSetHandle bindless = {});
 
   // Fountain emitter parameters for the gpu simulation.
   struct Sim {
@@ -89,14 +98,21 @@ class ParticleSystem {
   // Simulates the particles on the gpu (one compute dispatch over the persistent
   // state buffer) and draws the resulting billboards, in a single pass.
   void SimulateAndDraw(RenderGraph& graph, ResourceHandle color, ResourceHandle depth,
-                       ResourceHandle motion, const Sim& sim, const Frame& frame, u32 frame_slot);
+                       ResourceHandle motion, const Sim& sim, const Frame& frame, u32 frame_slot,
+                       BindingSetHandle bindless = {});
 
  private:
   static constexpr u32 kFramesInFlight = 2;
   void RecordDraw(PassContext& ctx, ResourceHandle color, ResourceHandle depth,
-                  ResourceHandle motion, const GpuBuffer& instances, u32 count, const Frame& frame);
+                  ResourceHandle motion, const GpuBuffer& instances, u32 count, const Frame& frame,
+                  BindingSetHandle bindless);
+  // One pipeline + bind + draw inside an open rendering pass; offset is the
+  // byte offset of this set's instances in the shared buffer.
+  void RecordSet(PassContext& ctx, ResourceHandle depth, const GpuBuffer& instances, u64 offset,
+                 u32 count, const Frame& frame, bool emissive, BindingSetHandle bindless);
 
   Device* device_ = nullptr;
+  BindingLayoutHandle bindless_layout_;  // engine bindless texture table (set 1)
   PipelineHandle pipeline_;
   PipelineHandle pipeline_additive_;
   PipelineHandle sim_pipeline_;

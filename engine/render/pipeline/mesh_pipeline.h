@@ -46,6 +46,13 @@ struct FrameGlobals {
   // Froxel light clustering: x slice scale, y slice bias (exponential view-z
   // slicing), z,w tile size in pixels.
   f32 cluster_params[4] = {0, 0, 64, 64};
+  // Authored interior lighting (XCLL/LGTM), used when kFrameFlagInterior is set:
+  // flat ambient replaces sky IBL, a linear distance fog fades to the fog
+  // colours, and the directional fill rides the sun_direction/sun_color path.
+  f32 interior_ambient[4] = {0, 0, 0, 0};      // rgb flat ambient (x albedo), w unused
+  f32 interior_fog_color0[4] = {0, 0, 0, 0};   // rgb near fog colour, w near dist (m)
+  f32 interior_fog_color1[4] = {0, 0, 0, 0};   // rgb far fog colour, w far dist (m)
+  f32 interior_fog_params[4] = {1, 1, 0, 0};   // x fog power, y fog max, zw unused
 };
 
 // A projected decal: an oriented box whose -z face carries an atlas region,
@@ -85,6 +92,7 @@ inline constexpr u32 kFrameFlagAurora = 1u << 8;       // draw the night-sky aur
 inline constexpr u32 kFrameFlagSpecReflTex = 1u << 9;  // sample the denoised reflection target
 inline constexpr u32 kFrameFlagRestirDi = 1u << 10;     // point/spot lights come from the ReSTIR DI textures
 inline constexpr u32 kFrameFlagFftOcean = 1u << 11;     // water displaces/shades from the FFT ocean maps
+inline constexpr u32 kFrameFlagInterior = 1u << 12;    // authored interior lighting: flat ambient + fog, no sky
 
 // model + prev_model are 128 bytes; skinned draws append the bone palette's
 // buffer device address and this mesh's offset into it (needs a 144 byte push
@@ -95,6 +103,11 @@ struct MeshPushConstants {
   u64 bone_address = 0;  // device address of the frame bone palette, 0 = none
   u32 skin_offset = 0;   // first bone of this mesh in the palette
   u32 tint_packed = 0;   // per-draw rgb8 tint (0xRRGGBB) modulating albedo, 0 = none
+  // World-space rect (min_x, min_z, max_x, max_z) where full-detail terrain is
+  // streamed in. Set only on distant terrain-LOD draws: the vertex shader sinks
+  // vertices inside it so the coarse proxy never bridges above the real land
+  // (it cut through buildings otherwise). All zeros = no clip.
+  f32 detail_rect[4] = {0, 0, 0, 0};
 };
 
 // Push constants for the optional mesh-shader opaque path. The geometry buffers
@@ -148,6 +161,10 @@ class MeshPipeline {
   // against the prepass without writing. Set state mirrors Bind.
   void BindBlend(CommandList& cmd, BindingSetHandle globals, BindingSetHandle environment,
                  BindingSetHandle bindless, bool use_rt);
+  // Additive-blend transparent variant (one, one): HDR effect-shader fire and
+  // glows. Same shaders as BindBlend; the unlit branch premultiplies coverage.
+  void BindBlendAdditive(CommandList& cmd, BindingSetHandle globals, BindingSetHandle environment,
+                         BindingSetHandle bindless, bool use_rt);
   void BindMaterial(CommandList& cmd, BindingSetHandle material);
   void Draw(CommandList& cmd, const GpuMesh& mesh, const MeshPushConstants& push);
   void DrawSubmesh(CommandList& cmd, const GpuSubmesh& submesh);
@@ -184,6 +201,7 @@ class MeshPipeline {
   bool has_bindless_ = false;  // set 3 present in the layout
   PipelineHandle pipelines_[4] = {};  // [rt | wire]
   PipelineHandle blend_pipelines_[2] = {};  // [rt]
+  PipelineHandle blend_additive_pipelines_[2] = {};  // [rt] additive effect vfx
   PipelineHandle prepass_pipeline_;
   // Skinned vertex path: same fragment variants, extra vertex stream + VS.
   PipelineHandle skinned_pipelines_[2] = {};  // [rt]

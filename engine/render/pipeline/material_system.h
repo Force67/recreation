@@ -47,6 +47,18 @@ class MaterialSystem {
     f32 iridescence_thickness = 400.0f;
     f32 transmission = 0;
     f32 irid_pad = 0;
+    // Animated texture scroll rate (uv units/sec); the shader adds
+    // frame.time * uv_scroll to the uv before sampling.
+    f32 uv_scroll[2] = {0, 0};
+    f32 scroll_pad[2] = {0, 0};
+    // Effect-shader (unlit vfx) view-angle falloff: start angle, stop angle,
+    // start opacity, stop opacity (dot-of-view thresholds). Only read on the
+    // mesh.ps unlit branch (kFlagEffect).
+    f32 effect_falloff[4] = {1, 1, 1, 1};
+    // Emissive pulse from a shader controller: x frequency (Hz), y amount
+    // (0..1 of the mean the emission swings). Applies to lit glow and effects.
+    f32 emissive_pulse[2] = {0, 0};
+    f32 effect_pad[2] = {0, 0};
   };
   static constexpr u32 kFlagAlphaMask = 1u << 0;
   static constexpr u32 kFlagHasNormalMap = 1u << 1;
@@ -57,6 +69,11 @@ class MaterialSystem {
   static constexpr u32 kFlagSkin = 1u << 6;          // screen-space subsurface scattering
   static constexpr u32 kFlagHair = 1u << 7;          // kajiya-kay strand specular
   static constexpr u32 kFlagVirtualAlbedo = 1u << 8;  // albedo via the virtual-texture atlas
+  static constexpr u32 kFlagEffect = 1u << 9;          // unlit emissive vfx (torch flames, glows)
+  static constexpr u32 kFlagEffectAdditive = 1u << 10;  // additive blend (fire) vs alpha (mist)
+  static constexpr u32 kFlagEffectGrayColor = 1u << 11;  // remap luminance through the palette
+  static constexpr u32 kFlagEffectGrayAlpha = 1u << 12;  // coverage from luminance
+  static constexpr u32 kFlagEffectFalloff = 1u << 13;    // view-angle opacity fade
 
   // Looks up an uploaded texture by asset hash (null when absent). Used by
   // systems that bind textures outside the material sets (decal atlas).
@@ -92,10 +109,18 @@ class MaterialSystem {
   // Alpha-masked (cutout) materials: kept in the tlas but flagged non-opaque so
   // ray traces can alpha-test them. Unknown hashes are opaque.
   bool is_mask(u64 material_hash) const;
+  // Effect-shader (unlit vfx) materials draw through the transparent pass's
+  // unlit branch; additive ones use the additive blend pipeline (fire), the
+  // rest the alpha one (mist). Unknown hashes are neither.
+  bool is_effect(u64 material_hash) const;
+  bool is_effect_additive(u64 material_hash) const;
 
   // Bindless material record index for ray hit shading; 0 (the default
   // material) for unknown hashes.
   u32 bindless_material(u64 material_hash) const;
+  // Bindless texture-table index for an uploaded (sRGB) texture, or
+  // BindlessRegistry::kInvalidIndex when absent. Used to texture particles.
+  u32 bindless_texture(u64 texture_hash) const;
 
   BindingLayoutHandle set_layout() const { return set_layout_; }
   u32 texture_count() const { return static_cast<u32>(textures_.size()); }
@@ -125,6 +150,7 @@ class MaterialSystem {
   base::UnorderedMap<u64, BindingSetHandle> sets_;
   base::UnorderedMap<u64, u8> blend_modes_;  // asset::AlphaMode per material
   base::UnorderedMap<u64, u8> water_;        // material hash -> is_water
+  base::UnorderedMap<u64, u8> effects_;      // 0 none, 1 alpha effect, 2 additive effect
   base::UnorderedMap<u64, u32> bindless_textures_;   // texture hash -> registry index
   base::UnorderedMap<u64, u32> bindless_materials_;  // material hash -> registry index
   BindingLayoutHandle set_layout_;

@@ -135,6 +135,18 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, Format color_
         REC_ERROR("mesh blend pipeline creation failed");
       }
     }
+    // Additive (one, one) variant for HDR effect-shader fire/glows: same shaders
+    // (the unlit branch premultiplies its coverage into the colour).
+    desc.blend = {BlendMode::kAdditive, BlendMode::kOpaque};
+    desc.debug_name = "mesh_blend_additive";
+    for (u32 variant = 0; variant < 2; ++variant) {
+      if (variant == 1 && !rt) continue;
+      desc.fragment = variant == 1 ? REC_SHADER(k_mesh_rt_ps_hlsl) : REC_SHADER(k_mesh_ps_hlsl);
+      pipeline->blend_additive_pipelines_[variant] = device.CreateGraphicsPipeline(desc);
+      if (!pipeline->blend_additive_pipelines_[variant]) {
+        REC_ERROR("mesh additive blend pipeline creation failed");
+      }
+    }
   }
 
   // Prepass: depth write + normals/motion/depth-export targets, same layout.
@@ -230,6 +242,9 @@ MeshPipeline::~MeshPipeline() {
   for (PipelineHandle pipeline : blend_pipelines_) {
     if (pipeline) device_.DestroyPipeline(pipeline);
   }
+  for (PipelineHandle pipeline : blend_additive_pipelines_) {
+    if (pipeline) device_.DestroyPipeline(pipeline);
+  }
   for (PipelineHandle pipeline : skinned_pipelines_) {
     if (pipeline) device_.DestroyPipeline(pipeline);
   }
@@ -261,6 +276,18 @@ void MeshPipeline::BindBlend(CommandList& cmd, BindingSetHandle globals,
                              bool use_rt) {
   u32 variant = use_rt && blend_pipelines_[1] ? 1 : 0;
   cmd.BindPipeline(blend_pipelines_[variant]);
+  cmd.BindSet(0, globals);
+  cmd.BindSet(2, environment);
+  if (has_bindless_ && bindless) {
+    cmd.BindSet(3, bindless);
+  }
+}
+
+void MeshPipeline::BindBlendAdditive(CommandList& cmd, BindingSetHandle globals,
+                                     BindingSetHandle environment, BindingSetHandle bindless,
+                                     bool use_rt) {
+  u32 variant = use_rt && blend_additive_pipelines_[1] ? 1 : 0;
+  cmd.BindPipeline(blend_additive_pipelines_[variant]);
   cmd.BindSet(0, globals);
   cmd.BindSet(2, environment);
   if (has_bindless_ && bindless) {

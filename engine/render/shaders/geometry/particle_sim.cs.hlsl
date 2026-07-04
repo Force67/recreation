@@ -21,7 +21,7 @@ struct ParticleInstance {  // matches render::ParticleInstance / particle.vs
   float size;
   float4 color;
   float3 prev_pos;
-  float pad;
+  uint tex;  // bindless texture index; the gpu fountain stays procedural
 };
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<ParticleState> state : register(u0, space0);
@@ -177,6 +177,6 @@ void main(uint3 id : SV_DispatchThreadID) {
     inst.color = float4(p.color, t * t * 0.8);
   }
   inst.prev_pos = old_pos;
-  inst.pad = 0.0;
+  inst.tex = 0xffffffffu;  // procedural sprite
   instances[i] = inst;
 }

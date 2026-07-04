@@ -43,6 +43,8 @@ struct GpuSubmesh {
   bool blend = false;  // alpha blended: drawn sorted after opaque
   bool water = false;  // routed to the water pipeline
   bool alpha_mask = false;  // cutout: non-opaque blas geometry for ray alpha tests
+  bool effect = false;  // unlit emissive vfx (torch flames, glow planes, mist)
+  bool effect_additive = false;  // effect drawn with the additive blend pipeline
   // lod 0 meshlet range in GpuMesh's meshlet buffers, for the mesh-shader path.
   u32 meshlet_offset = 0;
   u32 meshlet_count = 0;  // 0 = no meshlets built (skinned / mesh shaders off)
@@ -65,6 +67,7 @@ struct GpuMesh {
   u32 vertex_count = 0;    // lod 0 vertex count
   bool all_blend = false;  // pure transparency (water): stays out of the tlas
   bool no_rt = false;      // grass-like fill geometry, excluded from the tlas
+  bool terrain_lod = false;  // distant terrain proxy, sunk inside the streamed rect
   bool skinned = false;    // drawn with the skinned pipeline against a bone palette
   u32 bindless_index = 0;  // mesh record in the bindless registry
   f32 bounds_center[3] = {0, 0, 0};  // model-space bounding sphere, for gpu culling

@@ -22,6 +22,10 @@ struct FrameGlobals {
   float2 pad_wind;
   float4 wind;
   float4 cluster_params;  // x slice scale, y slice bias, zw tile size px
+  float4 interior_ambient;     // rgb flat ambient (x albedo) when kFrameInterior
+  float4 interior_fog_color0;  // rgb near fog colour, w near dist (m)
+  float4 interior_fog_color1;  // rgb far fog colour, w far dist (m)
+  float4 interior_fog_params;  // x fog power, y fog max
 };
 [[vk::binding(0, 0)]] ConstantBuffer<FrameGlobals> frame : register(b0, space0);
 
@@ -210,6 +214,11 @@ struct MaterialParams {
   float iridescence_thickness;
   float transmission;
   float irid_pad;
+  float2 uv_scroll;  // animated texture scroll (uv units/sec)
+  float2 scroll_pad;
+  float4 effect_falloff;  // start angle, stop angle, start opacity, stop opacity
+  float2 emissive_pulse;  // x frequency (Hz), y amount
+  float2 effect_pad;
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material : register(b0, space1);
 
@@ -288,6 +297,11 @@ static const uint kFlagHasHeightMap = 32u;  // 1 << 5
 static const uint kFlagSkin = 64u;          // 1 << 6, exports diffuse for screen-space sss
 static const uint kFlagHair = 128u;         // 1 << 7, kajiya-kay strand specular
 static const uint kFlagVirtualAlbedo = 256u;  // 1 << 8, albedo via the vt atlas
+static const uint kFlagEffect = 512u;          // 1 << 9, unlit emissive vfx (flames, glows)
+static const uint kFlagEffectAdditive = 1024u; // 1 << 10, additive blend (fire) vs alpha (mist)
+static const uint kFlagEffectGrayColor = 2048u; // 1 << 11, luminance through the palette
+static const uint kFlagEffectGrayAlpha = 4096u; // 1 << 12, coverage from luminance
+static const uint kFlagEffectFalloff = 8192u;   // 1 << 13, view-angle opacity fade
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
@@ -296,6 +310,7 @@ static const uint kFrameRtShadows = 32u;
 static const uint kFrameSigmaShadow = 128u;
 static const uint kFrameSpecReflTex = 512u;  // 1 << 9  // sample the denoised sun shadow
 static const uint kFrameRestirDi = 1024u;  // 1 << 10, point/spot lights from ReSTIR DI
+static const uint kFrameInterior = 4096u;  // 1 << 12, authored interior ambient + fog
 static const float kPi = 3.14159265359;
 static const float kPrefilterMips = 6.0;
 static const uint kVertexStride = 52;
@@ -662,6 +677,20 @@ float SpecularAaRoughness(float roughness, float3 n) {
   return sqrt(saturate(roughness * roughness + kernel));
 }
 
+// Linear distance fog for interior cells (XCLL/LGTM), fading geometry to the
+// authored near..far fog colours. A no-op outside interiors or when unauthored.
+float3 ApplyInteriorFog(float3 color, float3 world_pos) {
+  if ((frame.flags & kFrameInterior) == 0u) return color;
+  float near_d = frame.interior_fog_color0.w;
+  float far_d = frame.interior_fog_color1.w;
+  if (far_d <= near_d) return color;
+  float dist = length(world_pos - frame.camera_position.xyz);
+  float t = saturate((dist - near_d) / (far_d - near_d));
+  float3 fog_col = lerp(frame.interior_fog_color0.rgb, frame.interior_fog_color1.rgb, t);
+  float amt = min(pow(t, max(frame.interior_fog_params.x, 0.01)), frame.interior_fog_params.y);
+  return lerp(color, fog_col, amt);
+}
+
 // Cook-Torrance ggx with Schlick fresnel and Smith visibility for the sun,
 // split-sum ibl with Fdez-Aguera multi-scatter for ambient. Optional clearcoat,
 // sheen and anisotropy lobes layer on top.
@@ -966,6 +995,9 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
     float3 k_d = diffuse_color * (1.0 - fss_ess - fms_ems);
     ambient = (fss_ess * radiance + (fms_ems + k_d) * irradiance) * frame.camera_position.w;
     g_skin_diffuse += (fms_ems + k_d) * irradiance * frame.camera_position.w * ao;
+  } else if ((frame.flags & kFrameInterior) != 0u) {
+    ambient = albedo * frame.interior_ambient.rgb;
+    g_skin_diffuse += ambient * ao;
   } else {
     ambient = albedo * frame.sun_color.w;
     g_skin_diffuse += ambient * ao;
@@ -1017,7 +1049,8 @@ float3 ShadeSurface(PsIn input, float3 albedo, float3 n, float shadow) {
                              1.5 - abs(4.0 * t - 1.0)));
     }
   }
-  return lit + ambient + emissive + decal_emissive;
+  float3 color = lit + ambient + emissive + decal_emissive;
+  return ApplyInteriorFog(color, input.world_pos);
 }
 
 // Interleaved gradient noise, decorrelated across frames by the golden
@@ -1098,7 +1131,61 @@ float3 TerrainAlbedo(float2 uv) {
   return l0 * w.r + l1 * w.g + l2 * w.b;
 }
 
+// Effect-shader (unlit vfx) shading: torch/campfire flames, glow planes, mist
+// sheets. Colour is the source texture (or a greyscale-palette remap) times the
+// emissive colour * multiple (base_color_factor) times the vertex colour, with a
+// cyclic emissive pulse and a view-angle opacity falloff. No lighting, shadows,
+// SSS or decals. Returns rgb = emissive radiance, a = coverage.
+float4 EffectColor(PsIn input) {
+  float4 src = base_color_map.Sample(base_color_sampler, input.uv);
+  float3 col;
+  float coverage;
+  if ((material.flags & kFlagEffectGrayColor) != 0u) {
+    float4 pal = emissive_map.Sample(emissive_sampler, float2(src.r, 0.5));
+    col = pal.rgb;
+    coverage = (material.flags & kFlagEffectGrayAlpha) != 0u ? pal.a : src.a;
+  } else {
+    col = src.rgb;
+    coverage = (material.flags & kFlagEffectGrayAlpha) != 0u ? src.r : src.a;
+  }
+  float3 emissive = col * material.base_color_factor.rgb * input.color.rgb;
+  coverage *= material.base_color_factor.a * input.color.a;
+  if (material.emissive_pulse.x > 0.0) {
+    emissive *= 1.0 + material.emissive_pulse.y *
+                          sin(6.2831853 * material.emissive_pulse.x * frame.time);
+  }
+  if ((material.flags & kFlagEffectFalloff) != 0u) {
+    float3 v = normalize(frame.camera_position.xyz - input.world_pos);
+    float vdotn = saturate(abs(dot(normalize(input.normal), v)));
+    float range = material.effect_falloff.x - material.effect_falloff.y;
+    float t = abs(range) > 1e-4 ? saturate((vdotn - material.effect_falloff.y) / range) : 1.0;
+    coverage *= lerp(material.effect_falloff.w, material.effect_falloff.z, t);
+  }
+  return float4(emissive, saturate(coverage));
+}
+
 PsOut main(PsIn input) {
+  // Animated scroll (waterfalls, rivers, lava): shift the uv before anything
+  // samples it.
+  input.uv += frame.time * material.uv_scroll;
+
+  // Effect-shader geometry short-circuits the lit path entirely (no lighting,
+  // shadows, SSS or decals): additive fire premultiplies its coverage for the
+  // one/one blend, alpha mist blends straight.
+  if ((material.flags & kFlagEffect) != 0u) {
+    float4 fx = EffectColor(input);
+    PsOut output;
+    output.color = (material.flags & kFlagEffectAdditive) != 0u
+                       ? float4(fx.rgb * fx.a, fx.a)
+                       : float4(fx.rgb, fx.a);
+    float2 curr = input.curr_clip.xy / input.curr_clip.w;
+    float2 prev = input.prev_clip.xy / input.prev_clip.w;
+    output.motion = (prev - curr) * 0.5;
+#if REC_SSS_MRT
+    output.sss = float4(0.0, 0.0, 0.0, 0.0);
+#endif
+    return output;
+  }
   // Parallax occlusion: displace the uv along the view ray through the height
   // field before anything samples, and self-shadow the sun against it.
   float parallax_sun = 1.0;

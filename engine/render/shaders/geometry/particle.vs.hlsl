@@ -7,7 +7,7 @@ struct Particle {
   float size;
   float4 color;  // rgb tint, a opacity
   float3 prev_pos;  // last frame's centre, for the motion vector
-  float pad;
+  uint tex;         // bindless texture index, 0xffffffff = procedural sprite
 };
 [[vk::binding(0, 0)]] StructuredBuffer<Particle> particles : register(t0, space0);
 
@@ -31,6 +31,7 @@ struct VsOut {
   [[vk::location(1)]] float4 color : COLOR0;
   [[vk::location(2)]] float2 motion : TEXCOORD1;  // centre velocity, uv space
   [[vk::location(3)]] float3 world_pos : TEXCOORD2;  // for clustered lighting
+  [[vk::location(4)]] nointerpolation uint tex : TEXCOORD3;  // bindless texture
 };
 
 static const float2 kCorners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};
@@ -44,6 +45,7 @@ VsOut main(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
   o.uv = c;
   o.world_pos = world;
   o.color = p.color;
+  o.tex = p.tex;
   // Centre motion, matching the prepass convention (prev - curr) * 0.5 in uv.
   float4 cc = mul(push.view_proj, float4(p.pos, 1.0));
   float4 pc = mul(push.prev_view_proj, float4(p.prev_pos, 1.0));

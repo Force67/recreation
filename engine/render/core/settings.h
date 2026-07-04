@@ -169,7 +169,9 @@ struct RenderSettings {
   f32 film_grain = 0.015f;
 
   // Bokeh depth of field on the resolved frame. focus <= 0 = center autofocus.
-  bool dof = true;
+  // Off by default: the center-chasing focal plane blurs most of a landscape
+  // vista and reads as a permanently soft image.
+  bool dof = false;
   f32 dof_aperture = 2.8f;    // coc px per unit relative defocus (bigger = shallower)
   f32 dof_focus = 0.0f;       // meters; <= 0 autofocus
 
@@ -224,6 +226,23 @@ struct RenderSettings {
   f32 sun_intensity = 4.0f;
   Vec3 sun_color{1.0f, 0.96f, 0.9f};
   f32 ambient = 0.06f;
+
+  // Authored interior-cell lighting resolved from CELL XCLL + its LGTM template.
+  // When `interior` is set the renderer suppresses the sky/atmosphere/clouds/
+  // aerial/ocean, replaces sky IBL with the flat ambient, drives the directional
+  // fill through the sun path, and fades geometry to the fog colours over the
+  // near..far distance. Colours are 0..1 (byte/255); distances are meters.
+  bool interior = false;
+  Vec3 interior_ambient{0.05f, 0.05f, 0.06f};
+  Vec3 interior_directional_color{0.0f, 0.0f, 0.0f};
+  Vec3 interior_directional_dir{0.2f, -0.9f, 0.3f};  // engine-space travel dir
+  f32 interior_directional_intensity = 0.0f;
+  Vec3 interior_fog_near_color{0.0f, 0.0f, 0.0f};
+  Vec3 interior_fog_far_color{0.0f, 0.0f, 0.0f};
+  f32 interior_fog_near = 0.0f;
+  f32 interior_fog_far = 0.0f;   // <= near disables the fog
+  f32 interior_fog_power = 1.0f;
+  f32 interior_fog_max = 1.0f;
 
   bool bloom = true;
   f32 bloom_intensity = 0.04f;

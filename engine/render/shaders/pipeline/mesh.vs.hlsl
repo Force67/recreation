@@ -43,7 +43,14 @@ struct PushData {
   uint64_t bone_address;  // device address of the frame bone palette
   uint skin_offset;       // first bone of this mesh in the palette
   uint tint_packed;       // rgb8 (0xRRGGBB) albedo tint, 0 = none (team colour)
+#else
+  uint2 pad_bone;  // layout mirrors the skinned block (MeshPushConstants)
+  uint pad_skin;
+  uint pad_tint;
 #endif
+  // World-space rect (min_x, min_z, max_x, max_z) of the fully streamed
+  // terrain cells; set only on distant terrain-LOD draws, zeros otherwise.
+  float4 detail_rect;
 };
 PUSH_CONSTANTS(PushData, push);
 
@@ -150,13 +157,23 @@ VsOut main(VsIn input) {
       world.xyz += GerstnerWave(world.xz, frame.time, wave_n, wave_crest);
     }
   }
+  float4 prev_world = mul(push.prev_model, float4(local_pos, 1.0));
+  // Distant terrain LOD: sink vertices inside the full-detail streamed rect so
+  // the coarse proxy never bridges above the real land there (level-32 quads
+  // span valleys and would cut through buildings). Boundary triangles slope
+  // down across one triangle; the real terrain covers that seam.
+  if (push.detail_rect.z > push.detail_rect.x &&
+      all(world.xz > push.detail_rect.xy) && all(world.xz < push.detail_rect.zw)) {
+    world.y -= 100.0;
+    prev_world.y -= 100.0;
+  }
   float4 clip = mul(frame.view_proj, world);
   output.world_pos = world.xyz;
   // Motion vectors compare unjittered positions, so jitter only moves the
   // rasterized sample, never the reprojection. Skinned deformation reuses the
   // current pose for prev (rigid motion only).
   output.curr_clip = clip;
-  output.prev_clip = mul(frame.prev_view_proj, mul(push.prev_model, float4(local_pos, 1.0)));
+  output.prev_clip = mul(frame.prev_view_proj, prev_world);
   output.sv_position = clip + float4(frame.jitter * clip.w, 0.0, 0.0);
   output.normal = mul((float3x3)push.model, local_normal);
   output.tangent = float4(mul((float3x3)push.model, local_tangent), input.tangent.w);

@@ -4,6 +4,14 @@
 // particles) and clips it where it is fully occluded.
 [[vk::binding(1, 0)]] Texture2D<float> scene_depth : register(t1, space0);  // reversed-z, point-fetched
 
+#ifdef REC_PARTICLE_BINDLESS
+// Authored effect texture sampled per particle from the engine's bindless table
+// (set 1), matching the mesh/recon bindless convention (textures at t3, sampler
+// at s4). A particle's tex == 0xffffffff keeps the procedural sprite.
+[[vk::binding(3, 1)]] Texture2D bindless_textures[] : register(t3, space1);
+[[vk::binding(4, 1)]] SamplerState bindless_sampler : register(s4, space1);
+#endif
+
 struct PushData {
   column_major float4x4 view_proj;
   float3 cam_right;
@@ -108,6 +116,7 @@ struct PsIn {
   [[vk::location(1)]] float4 color : COLOR0;
   [[vk::location(2)]] float2 motion : TEXCOORD1;
   [[vk::location(3)]] float3 world_pos : TEXCOORD2;
+  [[vk::location(4)]] nointerpolation uint tex : TEXCOORD3;
 };
 
 struct PsOut {
@@ -117,7 +126,26 @@ struct PsOut {
 
 PsOut main(PsIn input) {
   float r2 = dot(input.uv, input.uv);
-  if (r2 > 1.0) discard;  // round sprite
+  // Authored texture (when bound) shapes the sprite; otherwise a round mask.
+  float4 tex_sample = float4(1.0, 1.0, 1.0, 1.0);
+  bool textured = false;
+#ifdef REC_PARTICLE_BINDLESS
+  // tex packs: bindless index (low 16 bits, 0xffff = untextured), flipbook
+  // frame (bits 16-23) and the atlas grid cols/rows (bits 24-27 / 28-31).
+  uint tex_index = input.tex & 0xffffu;
+  if (tex_index != 0xffffu) {
+    textured = true;
+    float2 uv01 = input.uv * 0.5 + 0.5;
+    uint cols = (input.tex >> 24) & 0xfu;
+    uint rows = (input.tex >> 28) & 0xfu;
+    if (cols > 1u || rows > 1u) {
+      uint frame = (input.tex >> 16) & 0xffu;
+      uv01 = (uv01 + float2(frame % cols, frame / cols)) / float2(cols, rows);
+    }
+    tex_sample = bindless_textures[NonUniformResourceIndex(tex_index)].Sample(bindless_sampler, uv01);
+  }
+#endif
+  if (!textured && r2 > 1.0) discard;  // round sprite
 
   // Sphere impostor normal, oriented to the camera basis.
   float3 cam_forward = normalize(cross(push.cam_right, push.cam_up));
@@ -148,16 +176,21 @@ PsOut main(PsIn input) {
     lit += input.color.rgb * ClusterLight(input.world_pos, n, input.pos.xy, part_vz);
   }
 
-  float alpha = input.color.a * smoothstep(1.0, 0.55, sqrt(r2)) * soft;
+  // Coverage: the texture's alpha (kept soft-edged by a radial vignette so the
+  // sprite still fades at the quad rim) when textured, else the round falloff.
+  float radial = smoothstep(1.3, 0.35, sqrt(r2));
+  float mask = textured ? tex_sample.a * radial : smoothstep(1.0, 0.55, sqrt(r2));
+  float alpha = input.color.a * mask * soft;
   if (alpha <= 0.001) discard;
-  lit *= fog_t;
+  lit *= fog_t * (textured ? tex_sample.rgb : float3(1.0, 1.0, 1.0));
   PsOut o;
   if (push.emissive != 0u) {
-    // Additive HDR: the sim authored radiance; a soft gaussian-ish falloff
-    // shapes the puff and the blend accumulates the flame body. Bloom does
-    // the rest of the glow.
-    float shape = exp(-r2 * 2.6) * smoothstep(1.0, 0.7, sqrt(r2));
-    o.color = float4(input.color.rgb * shape * soft * fog_t, 0.0);
+    // Additive HDR: the sim authored radiance; the texture (or a soft
+    // gaussian-ish falloff) shapes the puff and the blend accumulates the flame
+    // body. Bloom does the rest of the glow.
+    float3 shaped = textured ? (tex_sample.rgb * tex_sample.a * radial)
+                             : (exp(-r2 * 2.6) * smoothstep(1.0, 0.7, sqrt(r2))).xxx;
+    o.color = float4(input.color.rgb * shaped * soft * fog_t, 0.0);
   } else {
     o.color = float4(lit, alpha);
   }
