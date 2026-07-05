@@ -179,8 +179,13 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   const char* pso_batch_env = std::getenv("REC_PSO_BATCH");
   if (!pso_batch_env || pso_batch_env[0] != '0') device_->BeginPipelineBatch();
 
+  swapchain_hdr_request_ = WantHdrSwapchain();
+  if (settings_.hdr_output && !swapchain_hdr_request_) {
+    REC_INFO("hdr output requested but the system is not compositing in hdr; using sdr "
+             "(enable hdr in the os display settings)");
+  }
   swapchain_ = device_->CreateSwapchain(output_width_, output_height_, settings_.vsync,
-                                        settings_.hdr_output);
+                                        swapchain_hdr_request_);
   if (!swapchain_ || !CreateFrameResources()) return false;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;
@@ -1058,6 +1063,12 @@ void Renderer::RenderFrame(const FrameView& view) {
   if (window_) {
     u32 w = window_->width(), h = window_->height();
     if (w != 0 && h != 0 && (w != output_width_ || h != output_height_)) RecreateSwapchain();
+    // The effective HDR request tracks the live OS state (system toggle
+    // flipped, window moved to an SDR monitor, hdr_output changed): rebuild
+    // when it diverges from what the current swapchain was built with.
+    // Comparing against the request (not the achieved color space) avoids a
+    // recreate loop when the surface cannot satisfy it.
+    if (WantHdrSwapchain() != swapchain_hdr_request_) RecreateSwapchain();
   }
 
   ApplySettings();
@@ -3326,14 +3337,19 @@ void Renderer::DestroyFrameResources() {
   }
 }
 
+bool Renderer::WantHdrSwapchain() const {
+  return settings_.hdr_output && window_ && window_->hdr_enabled();
+}
+
 void Renderer::RecreateSwapchain() {
   u32 width = window_->width();
   u32 height = window_->height();
   if (width == 0 || height == 0) return;  // minimized
   device_->WaitIdle();
   swapchain_.reset();
+  swapchain_hdr_request_ = WantHdrSwapchain();
   swapchain_ = device_->CreateSwapchain(width, height, settings_.vsync,
-                                        settings_.hdr_output);
+                                        swapchain_hdr_request_);
   if (!swapchain_) return;
   output_width_ = swapchain_->extent().width;
   output_height_ = swapchain_->extent().height;

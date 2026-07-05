@@ -158,6 +158,7 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   // HUD has the screen to itself for clean screenshots (cf. RECREATION_UI_MENU).
   if (HideDebugUi)
     visible_ = trace_visible_ = quests_visible_ = false;
+  window_ = &window;
   initialized_ = true;
   REC_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
   return true;
@@ -425,6 +426,14 @@ void DebugUi::DrawDisplayTab(render::Renderer& renderer, render::RenderSettings&
   }
   ImGui::SeparatorText("Presentation");
   ImGui::Checkbox("VSync", &settings.vsync);
+  // The renderer only requests an HDR swapchain when the OS is actually
+  // compositing in HDR, so this is an intent toggle; the label shows why it
+  // may stay SDR.
+  ImGui::Checkbox("HDR output", &settings.hdr_output);
+  if (window_) {
+    ImGui::SameLine();
+    ImGui::TextDisabled(window_->hdr_enabled() ? "(system hdr on)" : "(system hdr off: sdr)");
+  }
 }
 
 void DebugUi::DrawRayTracingTab(render::Renderer& renderer, render::RenderSettings& settings,

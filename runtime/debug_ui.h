@@ -176,6 +176,7 @@ class DebugUi {
 
   bool initialized_ = false;
   bool visible_ = true;
+  Window* window_ = nullptr;  // for the live system-HDR state in the Display tab
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
   bool show_demo_ = false;

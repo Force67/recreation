@@ -256,6 +256,10 @@ class Renderer {
   bool CreateFrameResources();
   void DestroyFrameResources();
   void RecreateSwapchain();
+  // Whether the swapchain should request an HDR format: the hdr_output setting
+  // gated on the OS actually compositing the window in HDR (Window::
+  // hdr_enabled). A capable-but-disabled display keeps SDR.
+  bool WantHdrSwapchain() const;
   void UpdateRenderResolution();
   void ResizeSizedPasses();
   void ApplySettings();
@@ -269,6 +273,9 @@ class Renderer {
   RendererDesc desc_;
   RenderSettings settings_;
   Window* window_ = nullptr;
+  // The HDR request the current swapchain was built with; when WantHdrSwapchain
+  // diverges (OS toggle flipped, setting changed) the frame loop rebuilds.
+  bool swapchain_hdr_request_ = false;
   std::unique_ptr<Device> device_;
   std::unique_ptr<Swapchain> swapchain_;
   std::unique_ptr<TransientPool> transient_pool_;

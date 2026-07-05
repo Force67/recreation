@@ -54,6 +54,14 @@ class Window {
   virtual void SetRelativeMouseMode(bool enabled) {}
   virtual bool relative_mouse_mode() const { return false; }
 
+  // True when the OS/compositor is actually presenting this window with HDR
+  // headroom (Windows advanced-color toggle on, Wayland color-management HDR,
+  // macOS EDR) - NOT merely an HDR-capable display. The renderer gates its HDR
+  // swapchain request on this: a Vulkan surface can advertise HDR10 formats
+  // while the system toggle is off, and presenting PQ then washes out. Can flip
+  // at runtime (OS setting, window moved between monitors); polled per frame.
+  virtual bool hdr_enabled() const { return false; }
+
   // Called for every native event before the window handles it. With the
   // SDL3 backend the pointer is an SDL_Event. ImGui hooks in here.
   void set_event_hook(std::function<void(const void* native_event)> hook) {

@@ -239,6 +239,15 @@ class Sdl3Window final : public Window {
     return {window_, nullptr};
   }
 
+  bool hdr_enabled() const override {
+    // SDL tracks the live compositor state per window (DXGI advanced color on
+    // Windows, wp_color_management on Wayland, EDR on macOS) and updates it on
+    // SDL_EVENT_WINDOW_HDR_STATE_CHANGED. False on X11 and on HDR-capable
+    // displays whose system toggle is off.
+    return SDL_GetBooleanProperty(SDL_GetWindowProperties(window_),
+                                  SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+  }
+
   u32 width() const override {
     int w = 0, h = 0;
     SDL_GetWindowSizeInPixels(window_, &w, &h);
