@@ -22,6 +22,11 @@ public static class EngineEventsTests
         EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.ItemAdded, A = 0x22, B = 0x33, I = 5 });
         check.That("ItemAdded maps all payloads", added == (0x22UL, 0x33UL, 5));
 
+        (ulong container, ulong item, int count) removed = default;
+        using var s2b = EventBus.Subscribe<ItemRemoved>(e => removed = (e.ContainerHandle, e.ItemHandle, e.Count));
+        EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.ItemRemoved, A = 0x22, B = 0x33, I = 2 });
+        check.That("ItemRemoved maps all payloads", removed == (0x22UL, 0x33UL, 2));
+
         (ulong quest, int stage) staged = default;
         using var s3 = EventBus.Subscribe<QuestStageChanged>(e => staged = (e.QuestHandle, e.Stage));
         EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.QuestStageChanged, A = 0x44, I = 30 });
