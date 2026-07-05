@@ -16,6 +16,7 @@ recreation_add_module(bethesda
   strings.cc
   script_attachment.cc
   tri.cc
+  facegen.cc
 )
 
 target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset)
