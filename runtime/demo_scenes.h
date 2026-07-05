@@ -84,6 +84,10 @@ class DemoScenes {
   u32 particle_seed_ = 0x9e3779b9u;
   f32 particle_spawn_accum_ = 0;
   f32 demo_input_time_ = 0;
+  base::Vector<u32> hair_grooms_;      // strand-hair demo groom handles
+  u32 hair_orbit_groom_ = 0;           // the groom driven on a slow orbit
+  Vec3 hair_orbit_center_{0, 0, 0};
+  f32 hair_time_ = 0;
 };
 
 }  // namespace rec

@@ -3,15 +3,23 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 #include <base/option.h>
 
 #include "actor_system.h"
+#include "asset/asset_database.h"
+#include "asset/asset_id.h"
 #include "asset/materialx.h"
 #include "asset/primitives.h"
+#include "bethesda/archive.h"
+#include "bethesda/converters.h"
+#include "bethesda/game_profile.h"
+#include "bethesda/nif.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "render/geometry/hair_groom.h"
 #include "world/components.h"
 
 namespace rec {
@@ -21,6 +29,10 @@ namespace rec {
 static base::Option<const char*> Ply{"ply", nullptr, "REC_PLY"};
 static base::Option<bool> OitReverse{"oit.reverse", false, "REC_OIT_REVERSE"};
 static base::Option<const char*> Mtlx{"mtlx", nullptr, "REC_MTLX"};
+// Skyrim data dir for the strand-hair demo (needs real hair NIFs + diffuse).
+static base::Option<const char*> HairData{
+    "hair.data", "/speed/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
+    "REC_HAIR_DATA"};
 
 DemoScenes::DemoScenes(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx),
@@ -68,6 +80,20 @@ void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
   if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
   if (!demo_lights_.empty()) view.lights = demo_lights_;
   if (!demo_decals_.empty()) view.decals = demo_decals_;
+
+  // Strand-hair demo: swing one groom on a slow orbit to show the moving
+  // attachment (its collision sphere and roots ride the transform; the sim
+  // catches up), so the hair sways as the head bobs.
+  if (hair_orbit_groom_ != 0) {
+    hair_time_ += dt;
+    f32 a = hair_time_ * 0.9f;
+    // Mostly a head turn (rotation keeps the head under the hair) plus a small
+    // bob, so the hair sways and lags without exposing the scalp.
+    Vec3 pos{hair_orbit_center_.x + 0.03f * std::sin(a),
+             hair_orbit_center_.y + 0.02f * std::sin(a * 1.7f), hair_orbit_center_.z};
+    Mat4 m = MakeTranslation(pos) * MakeFromQuat(QuatFromAxisAngle({0, 1, 0}, 0.8f * std::sin(a)));
+    renderer_.SetHairGroomTransform(hair_orbit_groom_, m);
+  }
 }
 
 namespace {
@@ -610,65 +636,141 @@ void DemoScenes::CreateImposterDemoScene() {
 }
 
 void DemoScenes::CreateStrandHairDemoScene() {
-  // Strand-based hair: a head sphere with a few thousand simulated guide
-  // strands seeded on the crown, swaying in the wind with Kajiya-Kay
-  // highlights. A pedestal keeps the shadows grounded.
+  // Strand hair from real Skyrim hairstyles: three grooms on head spheres, each
+  // resampled into simulated guide strands that trace the original hair cards,
+  // tinted distinctly. The right one orbits to prove the moving attachment.
   asset::Material skin;
   skin.id = asset::MakeAssetId("builtin/strands/skin");
-  skin.base_color_factor[0] = 0.72f;
-  skin.base_color_factor[1] = 0.55f;
-  skin.base_color_factor[2] = 0.45f;
-  skin.roughness_factor = 0.55f;
-  if (!config_.headless) renderer_.UploadMaterial(skin);
+  skin.base_color_factor[0] = 0.68f;
+  skin.base_color_factor[1] = 0.5f;
+  skin.base_color_factor[2] = 0.42f;
+  skin.roughness_factor = 0.5f;
   asset::Material stone;
   stone.id = asset::MakeAssetId("builtin/strands/stone");
-  stone.base_color_factor[0] = 0.35f;
-  stone.base_color_factor[1] = 0.35f;
-  stone.base_color_factor[2] = 0.37f;
+  stone.base_color_factor[0] = 0.32f;
+  stone.base_color_factor[1] = 0.32f;
+  stone.base_color_factor[2] = 0.34f;
   stone.roughness_factor = 0.9f;
-  if (!config_.headless) renderer_.UploadMaterial(stone);
+  if (!config_.headless) {
+    renderer_.UploadMaterial(skin);
+    renderer_.UploadMaterial(stone);
+  }
 
-  const Vec3 head_center{0.0f, 1.6f, 0.0f};
-  const f32 head_radius = 0.16f;
-  asset::Mesh head =
-      asset::MakeSphere(head_radius, 32, 48, asset::MakeAssetId("builtin/strands/head"));
-  head.lods[0].submeshes.push_back(
-      {0, static_cast<u32>(head.lods[0].indices.size()), skin.id});
-  asset::Mesh pedestal =
-      asset::MakeBox(0.5f, 0.7f, 0.5f, asset::MakeAssetId("builtin/strands/pedestal"));
-  pedestal.lods[0].submeshes.push_back(
-      {0, static_cast<u32>(pedestal.lods[0].indices.size()), stone.id});
+  const f32 head_radius = 0.085f;
   asset::Mesh floor_m =
       asset::MakeBox(8.0f, 0.1f, 8.0f, asset::MakeAssetId("builtin/strands/floor"));
   floor_m.lods[0].submeshes.push_back(
       {0, static_cast<u32>(floor_m.lods[0].indices.size()), stone.id});
-  if (!config_.headless) {
-    renderer_.UploadMesh(head);
-    renderer_.UploadMesh(pedestal);
-    renderer_.UploadMesh(floor_m);
-  }
-  ecs::Entity h = world_.Create();
-  world_.Add(h, world::Transform{.position = {head_center.x, head_center.y, head_center.z}});
-  world_.Add(h, world::Renderable{head.id});
-  ecs::Entity p = world_.Create();
-  world_.Add(p, world::Transform{.position = {0.0f, 0.7f, 0.0f}});
-  world_.Add(p, world::Renderable{pedestal.id});
+  if (!config_.headless) renderer_.UploadMesh(floor_m);
   ecs::Entity f = world_.Create();
   world_.Add(f, world::Transform{.position = {0.0f, -0.1f, 0.0f}});
   world_.Add(f, world::Renderable{floor_m.id});
-
-  if (!config_.headless) {
-    renderer_.SeedHairStrands(head_center, head_radius, 4096, 0.20f);
-  }
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.7f, -0.45f, -0.55f};
   renderer_.settings().sun_intensity = 3.0f;
   renderer_.settings().sun_color = {1.0f, 0.95f, 0.9f};
   renderer_.settings().dof = false;  // macro shot; gameplay dof just blurs it
-  camera_.set_position({0.45f, 1.85f, 1.05f});
-  camera_.set_yaw_pitch(-0.4f, -0.22f);
+  camera_.set_position({0.12f, 1.9f, 0.86f});
+  camera_.set_yaw_pitch(-0.06f, -0.38f);
   camera_.speed = 2.0f;
+
+  if (config_.headless) return;
+
+  // Mount the Skyrim archives into a LOCAL vfs (not the shared ctx_.vfs, which
+  // the actor system reads: giving it archives would make it load bodies it
+  // has no asset db for). This one only feeds the hair NIFs + diffuse textures.
+  const char* data_dir = HairData.get();
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  if (!fs::exists(data_dir, ec)) {
+    REC_WARN("hair demo: data dir not found ({}); set REC_HAIR_DATA", data_dir);
+    return;
+  }
+  asset::Vfs vfs;
+  for (const auto& entry : fs::directory_iterator(data_dir, ec)) {
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+  }
+  asset::AssetDatabase db(vfs);
+  const auto& profile =
+      bethesda::GameProfile::For(bethesda::GameProfile::DetectFromDataDir(data_dir));
+  bethesda::RegisterConverters(db, profile);
+
+  struct HairSpec {
+    const char* nif;
+    const char* diffuse;  // explicit fallback when the mesh's texture is missing
+    Vec3 tint;
+    bool orbit;
+  };
+  const HairSpec specs[] = {
+      {"meshes/actors/character/character assets/hair/hairlonghumanm.nif",
+       "textures/actors/character/hair/hairlong.dds", {0.50f, 0.36f, 0.24f}, false},  // brown, long
+      {"meshes/actors/character/character assets/hair/hairshorthumanf.nif",
+       "textures/actors/character/hair/hairshort.dds", {0.78f, 0.36f, 0.22f}, false},  // auburn, short
+      {"meshes/actors/character/character assets/hair/elf/female/hair05.nif",
+       "textures/actors/character/hair/hairlong.dds", {1.10f, 0.95f, 0.62f}, true},  // blonde, orbiting
+  };
+  const f32 xs[] = {-0.62f, 0.0f, 0.62f};
+
+  for (u32 i = 0; i < 3; ++i) {
+    Vec3 head_center{xs[i], 1.62f, 0.0f};
+    auto bytes = vfs.Read(asset::NormalizePath(specs[i].nif));
+    if (!bytes) {
+      REC_WARN("hair demo: missing {}", specs[i].nif);
+      continue;
+    }
+    bethesda::NifConversion conv = bethesda::ConvertNifRigid(
+        ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(specs[i].nif), specs[i].nif);
+    if (!conv.mesh || conv.mesh->lods.empty()) {
+      REC_WARN("hair demo: convert failed {}", specs[i].nif);
+      continue;
+    }
+    // Diffuse for per-strand root colour: the material's base_color texture,
+    // falling back to the spec's known diffuse when the mesh points at a texture
+    // that is not shipped.
+    const asset::Texture* diffuse = nullptr;
+    for (const asset::Material& m : conv.materials) {
+      if (!m.base_color) continue;
+      for (const std::string& tp : conv.texture_paths) {
+        if (asset::MakeAssetId(tp).hash == m.base_color.hash) {
+          diffuse = db.LoadTexture(tp);
+          break;
+        }
+      }
+      if (diffuse) break;
+    }
+    if (!diffuse) diffuse = db.LoadTexture(specs[i].diffuse);
+
+    render::GroomParams params;
+    params.guide_count = 4000;
+    params.children_per_guide = 16;
+    params.clump_radius = 0.006f;
+    params.strand_width = 0.0013f;
+    params.tint = specs[i].tint;
+    params.diffuse = diffuse;
+    params.seed = i + 1;
+    u32 id = renderer_.CreateHairGroom(*conv.mesh, params, MakeTranslation(head_center));
+    if (id == 0) continue;
+    hair_grooms_.push_back(id);
+    if (specs[i].orbit) {
+      hair_orbit_groom_ = id;
+      hair_orbit_center_ = head_center;
+    }
+
+    // Head prop sized to sit just inside the groom's collision sphere so the
+    // hair envelops it instead of poking through a bare scalp.
+    Vec3 hc = head_center;
+    f32 hr = head_radius;
+    renderer_.HairGroomHead(id, &hc, &hr);
+    asset::Mesh head = asset::MakeSphere(hr * 0.7f, 24, 36,
+                                         asset::MakeAssetId(std::string("builtin/strands/head") +
+                                                            std::to_string(i)));
+    head.lods[0].submeshes.push_back({0, static_cast<u32>(head.lods[0].indices.size()), skin.id});
+    renderer_.UploadMesh(head);
+    ecs::Entity h = world_.Create();
+    world_.Add(h, world::Transform{.position = {hc.x, hc.y, hc.z}});
+    world_.Add(h, world::Renderable{head.id});
+  }
 }
 
 void DemoScenes::CreateVirtualGeometryDemoScene() {
