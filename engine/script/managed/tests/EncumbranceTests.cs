@@ -50,6 +50,13 @@ public static class EncumbranceTests
         check.That("fast travel restored", fake.FastTravelEnabled);
         check.Equal("speed restored", 100f, fake.GetCurrent(fake.Player, ActorValue.SpeedMult));
 
+        // Responsiveness: an inventory change recomputes within a frame, not only
+        // on the interval. Drop capacity below the load and publish the event.
+        fake.SetValue(fake.Player, ActorValue.CarryWeight, 50, 50);
+        EventBus.Publish(new ItemAdded(fake.Player, 0x12, 1));
+        ModHost.Tick(0.1f);  // far less than the 1s interval
+        check.That("inventory change recomputes immediately", !fake.FastTravelEnabled);
+
         ModHost.Shutdown();
         EventBus.Clear();
         Native.Backend = null;
