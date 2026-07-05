@@ -659,6 +659,7 @@ void RecordBackedSkyrimBindings::RemoveItem(ObjectRef container, ObjectRef item,
   const papyrus::Value none = papyrus::Value::Object(ObjectRef{0});
   RaiseFormEvent(container.handle, "OnItemRemoved",
                  {papyrus::Value::Object(item), papyrus::Value::Int(removed), none, none});
+  EmitManagedEvent(host::ManagedEventId::kItemRemoved, container.handle, item.handle, removed);
 }
 
 i32 RecordBackedSkyrimBindings::GetStage(ObjectRef quest) {

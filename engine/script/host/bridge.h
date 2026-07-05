@@ -96,6 +96,7 @@ enum class ManagedEventId : std::int32_t {
   kQuestStageChanged = 3,   // a = quest form id, i = stage
   kFormLoaded = 4,          // a = form handle (its scripts just attached / it went live)
   kPlayerActivated = 5,     // a = activated target handle (the player pressed use on it)
+  kItemRemoved = 6,         // a = container handle, b = item handle, i = count removed
 };
 
 struct ManagedEvent {
