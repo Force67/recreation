@@ -1,10 +1,14 @@
 #ifndef RECREATION_RUNTIME_DEMO_SCENES_H_
 #define RECREATION_RUNTIME_DEMO_SCENES_H_
 
+#include <memory>
+#include <vector>
+
 #include <base/containers/vector.h>
 
 #include "core/math.h"
 #include "engine_context.h"
+#include "face.h"
 #include "render/core/renderer.h"
 
 namespace rec {
@@ -21,6 +25,10 @@ class DemoScenes {
 
   // Dispatches on config.demo_scene; the default spins a cube + test biped.
   void CreateDemoScene();
+  // A row of assembled, morphed, Loop-subdivided FaceGen heads from real NPCs.
+  // Requires loaded game data (records + vfs); routed here from LoadGameData when
+  // --demo faces is passed with a --data-dir.
+  void CreateFacesDemoScene();
   // Appends the live demo effects (particles, gaussians, oit, lights, fur, gpu
   // particles) into this frame's render view.
   void EmitToView(f32 dt, render::FrameView& view);
@@ -84,6 +92,11 @@ class DemoScenes {
   u32 particle_seed_ = 0x9e3779b9u;
   f32 particle_spawn_accum_ = 0;
   f32 demo_input_time_ = 0;
+
+  // FaceGen head demo state: the shared builder (stable address; the faces cache
+  // pointers into it) and one editable FaceState per assembled head.
+  std::unique_ptr<FaceBuilder> face_builder_;
+  std::vector<FaceState> faces_;
 };
 
 }  // namespace rec

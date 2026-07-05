@@ -10,6 +10,7 @@
 #include "actor_system.h"
 #include "asset/materialx.h"
 #include "asset/primitives.h"
+#include "bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "world/components.h"
@@ -1116,6 +1117,95 @@ void DemoScenes::CreateSssDemoScene() {
   camera_.set_yaw_pitch(0.0f, -0.04f);
   camera_.speed = 2.0f;
   REC_INFO("sss demo: skin sphere (right) vs control (left)");
+}
+
+void DemoScenes::CreateFacesDemoScene() {
+  if (config_.headless || !ctx_.records) return;
+  face_builder_ = std::make_unique<FaceBuilder>(ctx_);
+
+  // A spread of distinct real faces across races (Nord, Orc, High Elf, Redguard,
+  // Nord female) for stronger race blends, with the exaggerated head placed next
+  // to its unmodified twin so the morph pipeline reads as an A/B.
+  struct Want {
+    const char* edid;
+    bool exaggerate = false;
+  };
+  const Want wanted[] = {
+      {"BalgruuftheGreater"}, {"BalgruuftheGreater", true}, {"Ghorbash"},
+      {"Ancano"},             {"Nazeem"},                   {"Ysolda"},
+  };
+  const int count = static_cast<int>(std::size(wanted));
+
+  // Resolve the editor ids to form ids in one NPC_ pass (records offer no
+  // by-edid NPC lookup). Duplicates in `wanted` resolve to the same id.
+  bethesda::GlobalFormId ids[std::size(wanted)];
+  for (auto& id : ids) id = bethesda::GlobalFormId{0xffff, 0};
+  const u32 kEdid = FourCc('E', 'D', 'I', 'D');
+  ctx_.records->EachOfType(FourCc('N', 'P', 'C', '_'),
+                           [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+    bethesda::Record r;
+    if (!ctx_.records->Parse(id, &r)) return;
+    std::string edid = r.GetString(kEdid);
+    for (int i = 0; i < count; ++i)
+      if (ids[i].plugin == 0xffff && edid == wanted[i].edid) ids[i] = id;
+  });
+
+  // Bethesda object space (Z-up, game units) -> engine (Y-up, metres): the head
+  // vertices already sit at head height above the feet, so the entity origin
+  // stays at y = 0 and the head floats up at eye level. Rx(-90) reorients Z-up
+  // to Y-up; the 0.01428 scale converts game units to metres.
+  const Quat basis = QuatFromAxisAngle({1, 0, 0}, -1.57079633f);
+  const f32 spacing = 0.5f;
+  const f32 x0 = -spacing * (count - 1) * 0.5f;
+
+  faces_.clear();
+  faces_.reserve(count);
+  int built = 0;
+  for (int i = 0; i < count; ++i) {
+    if (ids[i].plugin == 0xffff) {
+      REC_WARN("faces demo: NPC '{}' not found", wanted[i].edid);
+      continue;
+    }
+    FaceState fs;
+    if (!face_builder_->AssembleNpc(ids[i], &fs)) continue;
+    if (wanted[i].exaggerate) {
+      // Push a handful of chargen morphs well past their in-game range so the
+      // morph pipeline reads unmistakably (a caricature, on purpose).
+      fs.SetMorph("NoseLong", 4.0f);
+      fs.SetMorph("JawWide", 3.5f);
+      fs.SetMorph("BrowUp", 3.0f);
+      fs.SetMorph("LipMoveOut", 3.5f);
+      fs.SetMorph("EyesMoveDown", 2.0f);
+      fs.SetMorph("ChinMoveDown", 3.0f);
+    }
+    f32 ms = fs.RebuildAndUpload();
+    REC_INFO("faces demo: '{}' built {} parts in {:.2f} ms (subdiv {})", wanted[i].edid,
+             fs.parts().size(), ms, fs.subdiv_levels());
+    faces_.push_back(std::move(fs));
+
+    const f32 x = x0 + spacing * i;
+    for (const BuiltFacePart& part : faces_.back().parts()) {
+      ecs::Entity e = world_.Create();
+      world_.Add(e, world::Transform{.position = {x, 0.0f, 0.0f},
+                                     .rotation = {basis.x, basis.y, basis.z, basis.w},
+                                     .scale = 0.01428f});
+      world_.Add(e, world::Renderable{part.mesh});
+    }
+    ++built;
+  }
+  REC_INFO("faces demo: {} heads assembled", built);
+
+  // Soft frontal key light so every face reads; the heads face -Z, so frame
+  // them from -Z looking +Z (like the actor bringup).
+  ctx_.scene_owns_sun = true;
+  renderer_.settings().sun_direction = {-0.35f, -0.55f, 0.75f};
+  renderer_.settings().sun_intensity = 3.4f;
+  renderer_.settings().sun_color = {1.0f, 0.96f, 0.92f};
+  renderer_.settings().dof = false;
+
+  camera_.set_position({0.0f, 1.63f, -2.35f});
+  camera_.set_yaw_pitch(3.14159f, -0.01f);
+  camera_.speed = 1.5f;
 }
 
 void DemoScenes::CreateFireDemoScene() {

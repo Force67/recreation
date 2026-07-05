@@ -379,6 +379,14 @@ bool LoadGameData(Engine& engine) {
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
   if (self->config_.demo_scene == "actor") return self->actors_->CreateSkyrimActor();
 
+  // FaceGen head lineup: assemble + morph real NPC heads, no streaming. Needs
+  // the loaded records/vfs, hence it routes through here rather than the bare
+  // demo-scene path.
+  if (self->config_.demo_scene == "faces") {
+    self->demos_->CreateFacesDemoScene();
+    return true;
+  }
+
   self->streamer_ = std::make_unique<world::CellStreamer>(self->records_, *self->assets_);
   self->ctx_.streamer = self->streamer_.get();
   // Forward load-door cell transitions to the managed world (LocationChanged), so
