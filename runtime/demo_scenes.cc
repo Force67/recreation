@@ -742,10 +742,10 @@ void DemoScenes::CreateStrandHairDemoScene() {
     if (!diffuse) diffuse = db.LoadTexture(specs[i].diffuse);
 
     render::GroomParams params;
-    params.guide_count = 4000;
-    params.children_per_guide = 16;
-    params.clump_radius = 0.006f;
-    params.strand_width = 0.0013f;
+    params.guide_count = 8000;
+    params.children_per_guide = 20;
+    params.clump_radius = 0.0035f;
+    params.strand_width = 0.0007f;
     params.tint = specs[i].tint;
     params.diffuse = diffuse;
     params.seed = i + 1;
@@ -762,7 +762,7 @@ void DemoScenes::CreateStrandHairDemoScene() {
     Vec3 hc = head_center;
     f32 hr = head_radius;
     renderer_.HairGroomHead(id, &hc, &hr);
-    asset::Mesh head = asset::MakeSphere(hr * 0.7f, 24, 36,
+    asset::Mesh head = asset::MakeSphere(hr * 0.58f, 24, 36,
                                          asset::MakeAssetId(std::string("builtin/strands/head") +
                                                             std::to_string(i)));
     head.lods[0].submeshes.push_back({0, static_cast<u32>(head.lods[0].indices.size()), skin.id});

@@ -69,7 +69,7 @@ VsOut main(uint vid : SV_VertexID) {
 
   float3 view_dir = normalize(p - pc.camera.xyz);
   float3 right = normalize(cross(view_dir, tangent) + 1e-6);
-  float width = pc.camera.w * (1.0 - 0.7 * along);
+  float width = pc.camera.w * (1.0 - 0.85 * along);
   float3 world = p + right * (side * width);
 
   float3 col = strand_color[guide].rgb * pc.tint.rgb;
