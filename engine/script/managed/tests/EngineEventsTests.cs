@@ -42,6 +42,11 @@ public static class EngineEventsTests
         EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.PlayerActivated, A = 0x66 });
         check.Equal("PlayerActivated maps with handle", 0x66UL, used);
 
+        (ulong cell, bool interior) loc = default;
+        using var s6 = EventBus.Subscribe<LocationChanged>(e => loc = (e.CellHandle, e.IsInterior));
+        EngineEvents.Dispatch(new ManagedEvent { Id = ManagedEventId.LocationChanged, A = 0x77, I = 1 });
+        check.That("LocationChanged maps cell and interior flag", loc == (0x77UL, true));
+
         EventBus.Clear();
     }
 }
