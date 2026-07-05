@@ -635,6 +635,15 @@ bool Engine::LoadGameData() {
 
   streamer_ = std::make_unique<world::CellStreamer>(records_, *assets_);
   ctx_.streamer = streamer_.get();
+  // Forward load-door cell transitions to the managed world (LocationChanged), so
+  // mods react to where the player is. Runs on the main thread; drained next frame.
+  if (managed_) {
+    auto* host = managed_.get();
+    streamer_->set_on_location_change([host](u64 cell, bool interior) {
+      host->QueueEvent({rec::script::host::ManagedEventId::kLocationChanged, cell, 0,
+                        interior ? 1 : 0, 0.0f});
+    });
+  }
   // Register streamed NPCs in the quest world so quests can target them and
   // clients can apply replicated actor transforms by form id.
   streamer_->set_quest_world(&quest_world_);

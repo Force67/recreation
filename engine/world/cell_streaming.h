@@ -65,6 +65,13 @@ class CellStreamer {
   void Configure(const Settings& settings) { settings_ = settings; }
   void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
 
+  // Notified on a load-door cell transition with the destination interior cell
+  // id (0 when going outside) and whether it is interior. The runtime forwards
+  // it to the managed world as a LocationChanged event.
+  void set_on_location_change(std::function<void(u64, bool)> cb) {
+    on_location_change_ = std::move(cb);
+  }
+
   // Picks the worldspace to stream, e.g. "Tamriel". False if missing.
   bool SelectWorldspace(std::string_view editor_id);
 
@@ -140,6 +147,7 @@ class CellStreamer {
   // placed refs are tracked here so a later transition can unload them.
   bool interior_active_ = false;
   LoadedCell interior_cell_;
+  std::function<void(u64, bool)> on_location_change_;  // load-door transition hook
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;

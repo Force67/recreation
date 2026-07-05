@@ -882,13 +882,16 @@ bool CellStreamer::EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_
   for (u32 key : keys) UnloadCell(world, key);
   UnloadInterior(world);
   announced_idle_ = false;
-  return LoadInterior(world, cell_id, camera_position);
+  const bool ok = LoadInterior(world, cell_id, camera_position);
+  if (ok && on_location_change_) on_location_change_(cell_id.packed(), true);
+  return ok;
 }
 
 void CellStreamer::EnterExterior(ecs::World& world) {
   UnloadInterior(world);
   interior_active_ = false;
   announced_idle_ = false;
+  if (on_location_change_) on_location_change_(0, false);
   // The exterior cells were unloaded on the way in; Update re-streams them
   // around the camera on the next tick.
 }
