@@ -29,12 +29,35 @@ public sealed class Encumbrance : GameBehaviour
 
     private float _timer;
     private bool _overEncumbered;
+    private bool _dirty = true;  // force a recompute on the first frame
+    private EventBus.Subscription? _added;
+    private EventBus.Subscription? _removed;
+
+    protected override void OnStart()
+    {
+        // Recompute as soon as the player's inventory changes, not only on the
+        // interval, so picking up loot updates the state immediately.
+        _added = EventBus.Subscribe<ItemAdded>(e => MarkDirtyIfPlayer(e.ContainerHandle));
+        _removed = EventBus.Subscribe<ItemRemoved>(e => MarkDirtyIfPlayer(e.ContainerHandle));
+    }
+
+    protected override void OnDestroy()
+    {
+        _added?.Dispose();
+        _removed?.Dispose();
+    }
+
+    private void MarkDirtyIfPlayer(ulong container)
+    {
+        if (container == Game.Player.Handle) _dirty = true;
+    }
 
     protected override void OnUpdate(float deltaTime)
     {
         _timer += deltaTime;
-        if (_timer < RecomputeInterval) return;
+        if (!_dirty && _timer < RecomputeInterval) return;
         _timer = 0f;
+        _dirty = false;
 
         Actor player = Game.Player;
         if (!player.Exists) return;
