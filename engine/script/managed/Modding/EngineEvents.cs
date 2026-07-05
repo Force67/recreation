@@ -30,6 +30,9 @@ public static class EngineEvents
             case ManagedEventId.PlayerActivated:
                 EventBus.Publish(new PlayerActivated(e.A));
                 break;
+            case ManagedEventId.LocationChanged:
+                EventBus.Publish(new LocationChanged(e.A, e.I != 0));
+                break;
         }
     }
 }

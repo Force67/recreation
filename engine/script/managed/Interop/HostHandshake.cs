@@ -13,6 +13,7 @@ public enum ManagedEventId : int
     FormLoaded = 4,          // A = form handle (its scripts attached / it went live)
     PlayerActivated = 5,     // A = activated target handle
     ItemRemoved = 6,         // A = container handle, B = item handle, I = count removed
+    LocationChanged = 7,     // A = interior cell id (0 outside), I = 1 if interior
 }
 
 // An engine event payload. Byte-for-byte mirror of host/bridge.h ManagedEvent;

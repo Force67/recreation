@@ -75,6 +75,17 @@ public readonly struct PlayerActivated(ulong targetHandle) : IGameEvent
     public ObjectReference Target => ObjectReference.From(TargetHandle);
 }
 
+// Raised when the player moves through a load door into a new location. Mods use
+// it for region effects, discovery and ambient changes. CellHandle is 0 when
+// stepping back outside.
+public readonly struct LocationChanged(ulong cellHandle, bool isInterior) : IGameEvent
+{
+    public ulong CellHandle { get; } = cellHandle;
+    public bool IsInterior { get; } = isInterior;
+
+    public Cell Cell => Cell.From(CellHandle);
+}
+
 // Raised by the time service when a new in-game hour begins. Mods drive NPC
 // schedules, shop hours and day/night mechanics off it.
 public readonly struct GameHourStarted(int hour, int day) : IGameEvent
