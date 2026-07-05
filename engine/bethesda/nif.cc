@@ -417,12 +417,17 @@ void DecodePackedVertices(const VertexLayout& layout, const u8* base, u32 vertex
   for (u32 i = 0; i < vertex_count; ++i) {
     const u8* v = base + i * layout.stride;
     asset::Vertex& vertex = (*vertices)[i];
-    if (layout.full_precision) {
-      std::memcpy(vertex.position, v, 12);
-    } else {
-      u16 h[3];
-      std::memcpy(h, v, 6);
-      for (int k = 0; k < 3; ++k) vertex.position[k] = HalfToFloat(h[k]);
+    // Dynamic shapes (head, hair) keep positions in a separate array, so their
+    // partition buffer carries UV/normal/tangent at offset 0 with no position
+    // flag; only read a position when one is actually present.
+    if (layout.flags & VertexLayout::kHasVertex) {
+      if (layout.full_precision) {
+        std::memcpy(vertex.position, v, 12);
+      } else {
+        u16 h[3];
+        std::memcpy(h, v, 6);
+        for (int k = 0; k < 3; ++k) vertex.position[k] = HalfToFloat(h[k]);
+      }
     }
     if (layout.flags & VertexLayout::kHasUv) {
       u16 h[2];
@@ -523,8 +528,10 @@ bool ReadBsDynamicTriShape(Reader& r, u32 bs_version, Geometry* out) {
     out->vertices.resize(vertex_count);
   }
 
-  // Dynamic vertices: Vector4 per vertex, w unused. These are the live
-  // positions; triangles come from the skin partition (filled by the caller).
+  // Dynamic vertices: an 8 byte header (a reserved u32 plus the vertex-data-size
+  // u32, = 16 * vertex_count) precedes the Vector4 per vertex array (w unused).
+  // These are the live positions; triangles come from the skin partition.
+  r.Skip(8);
   const u8* dyn = r.Bytes(16 * vertex_count);
   if (!dyn) return false;
   for (u32 i = 0; i < vertex_count; ++i) {
@@ -613,9 +620,9 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
     if (data_size % vertex_size != 0 || layout.stride != vertex_size) return false;
     const u8* base = r.Bytes(data_size);
     if (!base || vertex_count == 0) return false;
-    if (layout.flags & VertexLayout::kHasVertex) {
-      DecodePackedVertices(layout, base, vertex_count, &out->vertices, &out->skin);
-    }
+    // Decode even without a position flag: dynamic shapes still carry their
+    // UV/normal/tangent/color here (the shape block supplies the positions).
+    DecodePackedVertices(layout, base, vertex_count, &out->vertices, &out->skin);
   }
 
   for (u32 p = 0; p < partition_count; ++p) {
@@ -1866,6 +1873,19 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (part && !part->indices.empty()) {
         baked = shape->geometry;
         baked.indices = part->indices;
+        // Dynamic shapes only carry positions inline; the partition buffer holds
+        // the matching UV/normal/tangent/color (same global vertex order).
+        if (part->vertices.size() == baked.vertices.size()) {
+          for (size_t vi = 0; vi < baked.vertices.size(); ++vi) {
+            const asset::Vertex& src = part->vertices[vi];
+            asset::Vertex& dst = baked.vertices[vi];
+            dst.uv[0] = src.uv[0];
+            dst.uv[1] = src.uv[1];
+            std::memcpy(dst.normal, src.normal, sizeof(dst.normal));
+            std::memcpy(dst.tangent, src.tangent, sizeof(dst.tangent));
+            dst.color = src.color;
+          }
+        }
         bool valid = true;
         for (u32 idx : baked.indices) {
           if (idx >= baked.vertices.size()) {
