@@ -14,6 +14,7 @@ set(RECREATION_RUNTIME_SOURCES
   controls_settings.cc
   content_domain.cc
   actor_system.cc
+  face.cc
   demo_scenes.cc
   interaction_system.cc
   npc_director.cc

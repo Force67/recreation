@@ -7,6 +7,8 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <memory>
+
 #include "anim/locomotion.h"
 #include "anim/pose.h"
 #include "asset/asset_database.h"
@@ -14,6 +16,7 @@
 #include "core/math.h"
 #include "ecs/world.h"
 #include "engine_context.h"
+#include "face.h"
 #include "physics/physics_world.h"
 #include "render/core/renderer.h"
 
@@ -101,6 +104,10 @@ class ActorSystem {
   bool LoadStarfieldActorTemplate(Actor* out);
   void LoadBuiltinActorTemplate(Actor* out);
   bool LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone = -1);
+  // Attaches head-part meshes riding the head bone. With a valid `npc` it
+  // assembles + morphs that NPC's FaceGen head (face/eyes/brows/beard/hair);
+  // otherwise (player, soldiers) it falls back to the default male head + hair.
+  void AttachHead(Actor& actor, bethesda::GlobalFormId npc);
   bool LoadStarfieldActorPart(const std::string& path, Actor& actor,
                               const bethesda::StarfieldMaterialDb& mat_db);
   base::Vector<std::string> FindHeadPartModels(u32 part_type, u32 max);
@@ -123,6 +130,7 @@ class ActorSystem {
   base::UnorderedMap<u64, Actor> npc_actors_;
   base::Vector<u64> scratch_dead_actors_;
   base::UnorderedMap<u64, physics::BodyId> solid_bodies_;
+  std::unique_ptr<FaceBuilder> face_builder_;  // lazily built; owns the head caches
 };
 
 }  // namespace rec

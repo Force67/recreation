@@ -296,16 +296,44 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
     REC_ERROR("no skyrim body parts loaded");
     return false;
   }
-  // Head + hair ride the head bone (static meshes, no FaceGen morphs).
-  i32 head_bone = out->skeleton.Find("NPC Head [Head]");
-  LoadActorPart("meshes/actors/character/character assets/malehead.nif", *out, head_bone);
-  for (const std::string& hair : FindHeadPartModels(/*hair=*/3, 24)) {
-    if (LoadActorPart(hair, *out, head_bone)) {
-      REC_INFO("hair: {}", hair);
-      break;
+  // The head is attached per actor (AttachHead): NPCs get their own assembled +
+  // morphed FaceGen head, the player/soldiers the default head. The shared body
+  // template carries no head so it is not baked into every copy.
+  return true;
+}
+
+void ActorSystem::AttachHead(Actor& actor, bethesda::GlobalFormId npc) {
+  i32 head_bone = actor.skeleton.Find("NPC Head [Head]");
+  if (head_bone < 0) return;
+  const Mat4 inv = head_bone < static_cast<i32>(actor.bone_model.size())
+                       ? Inverse(actor.bone_model[head_bone])
+                       : Mat4::Identity();
+
+  // A named NPC: assemble + morph its real FaceGen head, attach every built part
+  // rigidly to the head bone. The FaceState is transient (the GPU owns the
+  // uploaded meshes; the parts reference them by id), so it is dropped after.
+  if (npc.plugin != 0xffff && ctx_.records) {
+    if (!face_builder_) face_builder_ = std::make_unique<FaceBuilder>(ctx_);
+    FaceState fs;
+    if (face_builder_->AssembleNpc(npc, &fs)) {
+      fs.RebuildAndUpload();
+      for (const BuiltFacePart& p : fs.parts()) {
+        ActorPart part;
+        part.mesh = p.mesh;
+        part.attach_bone = head_bone;
+        part.attach_inverse_bind = inv;
+        actor.parts.push_back(std::move(part));
+      }
+      return;
     }
   }
-  return true;
+
+  // Player, soldiers, or a face that failed to resolve: the default male head
+  // and a hairstyle, unmorphed.
+  LoadActorPart("meshes/actors/character/character assets/malehead.nif", actor, head_bone);
+  for (const std::string& hair : FindHeadPartModels(/*hair=*/3, 24)) {
+    if (LoadActorPart(hair, actor, head_bone)) break;
+  }
 }
 
 bool ActorSystem::LoadStarfieldActorPart(const std::string& path, Actor& actor,
@@ -434,6 +462,9 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
   Actor actor;
   const bool starfield = ctx_.game == bethesda::Game::kStarfield;
   if (!(starfield ? LoadStarfieldActorTemplate(&actor) : LoadActorTemplate(&actor))) return false;
+  // Skyrim bodies carry no head; give the player the default head + hair.
+  if (ctx_.game == bethesda::Game::kSkyrimSe)
+    AttachHead(actor, bethesda::GlobalFormId{0xffff, 0});
 
   actor.entity = world_.Create();
   world_.Add(actor.entity, world::Transform{.position = {pos.x, pos.y, pos.z}});
@@ -593,6 +624,7 @@ const ActorSystem::Actor* ActorSystem::SoldierTemplate(int team) {
   if (!slot) {
     Actor tmpl;
     if (!LoadActorTemplate(&tmpl, team)) return nullptr;  // fall back to the bare body
+    AttachHead(tmpl, bethesda::GlobalFormId{0xffff, 0});  // default head for battle soldiers
     tmpl.animate = true;
     tmpl.speed = 0.0f;
     tmpl.foot_ik = false;
@@ -627,16 +659,23 @@ void ActorSystem::SyncNpcActors() {
   // meshes shared by hash with the template). Battle actors (those on a combat
   // team) instance from their faction's armoured template instead of the bare
   // civilian body, so the two armies read as soldiers.
-  world_.Each<world::Npc, world::Transform>([&](ecs::Entity e, world::Npc&, world::Transform&) {
+  world_.Each<world::Npc, world::Transform>([&](ecs::Entity e, world::Npc& npc, world::Transform&) {
     const u64 key = static_cast<u64>(e.generation) << 32 | e.index;
     if (npc_actors_.find(key)) return;
     const Actor* tmpl = &*npc_template_;
+    bool is_soldier = false;
     if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
-      if (const Actor* st = SoldierTemplate(ct->team)) tmpl = st;
+      if (const Actor* st = SoldierTemplate(ct->team)) {
+        tmpl = st;
+        is_soldier = true;
+      }
     Actor a = *tmpl;
     a.entity = e;
     a.character = 0;
     a.pose.ResetToBind(a.skeleton);
+    // Skyrim civilians get their own assembled, morphed FaceGen head; soldiers
+    // already carry the default head from their (armoured) template copy.
+    if (!is_soldier && ctx_.game == bethesda::Game::kSkyrimSe) AttachHead(a, npc.base);
     npc_actors_.insert(key, std::move(a));
   });
   // Drop actors whose NPC entity streamed out, so none render at the origin.
