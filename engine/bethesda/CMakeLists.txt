@@ -17,6 +17,7 @@ recreation_add_module(bethesda
   script_attachment.cc
   tri.cc
   facegen.cc
+  head_morph.cc
 )
 
 target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset)

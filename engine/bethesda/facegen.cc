@@ -28,6 +28,8 @@ constexpr u32 kTini = FourCc('T', 'I', 'N', 'I');
 constexpr u32 kTinc = FourCc('T', 'I', 'N', 'C');
 constexpr u32 kTinv = FourCc('T', 'I', 'N', 'V');
 constexpr u32 kTias = FourCc('T', 'I', 'A', 'S');
+constexpr u32 kAcbs = FourCc('A', 'C', 'B', 'S');
+constexpr u32 kTplt = FourCc('T', 'P', 'L', 'T');
 constexpr u32 kMnam = FourCc('M', 'N', 'A', 'M');
 constexpr u32 kIndx = FourCc('I', 'N', 'D', 'X');
 constexpr u32 kHead = FourCc('H', 'E', 'A', 'D');
@@ -113,7 +115,8 @@ std::optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId
   return color;
 }
 
-std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId id) {
+static std::optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, GlobalFormId id,
+                                                     int depth) {
   const RecordStore::StoredRecord* stored = store.Find(id);
   if (!stored || stored->header.type != FourCc('N', 'P', 'C', '_')) return std::nullopt;
   Record rec;
@@ -123,6 +126,14 @@ std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId
   NpcFaceData face;
   face.id = id;
   face.editor_id = rec.GetString(kEdid);
+  // ACBS: u32 flags (bit0 = Female) then, at offset 20, the u16 template-use
+  // flags (bit0 = Use Traits: race/sex/face come from the TPLT actor).
+  bool use_traits = false;
+  if (const Subrecord* acbs = rec.Find(kAcbs); acbs && acbs->data.size() >= 22) {
+    face.female = (ReadAt<u32>(*acbs) & 0x1u) != 0;
+    use_traits = (ReadAt<u16>(*acbs, 20) & 0x1u) != 0;
+  }
+  const GlobalFormId template_form = ReadFormRef(store, rec.Find(kTplt), plugin);
   face.race = ReadFormRef(store, rec.Find(kRnam), plugin);
   face.hair_color = ReadFormRef(store, rec.Find(kHclf), plugin);
   face.face_texture_set = ReadFormRef(store, rec.Find(kFtst), plugin);
@@ -158,7 +169,38 @@ std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId
       face.tint_layers.back().preset = ReadAt<i16>(sub);
     }
   }
+
+  // Use-Traits NPCs (leveled bandits, generic guards, ...) author no face of
+  // their own and inherit race/sex/face from their TPLT actor. Chase it and
+  // fill in the traits this record left blank, capped so a cyclic chain stops.
+  if (use_traits && template_form.plugin != 0xffff && depth < 8) {
+    if (auto tmpl = ResolveNpcFaceImpl(store, template_form, depth + 1)) {
+      face.female = tmpl->female;  // sex is a trait
+      if (face.race.plugin == 0xffff) face.race = tmpl->race;
+      if (face.head_parts.empty()) face.head_parts = tmpl->head_parts;
+      if (!face.has_face_morph && tmpl->has_face_morph) {
+        std::memcpy(face.face_morph, tmpl->face_morph, sizeof(face.face_morph));
+        face.has_face_morph = true;
+      }
+      if (!face.has_face_parts && tmpl->has_face_parts) {
+        std::memcpy(face.face_parts, tmpl->face_parts, sizeof(face.face_parts));
+        face.has_face_parts = true;
+      }
+      if (face.hair_color.plugin == 0xffff) face.hair_color = tmpl->hair_color;
+      if (face.face_texture_set.plugin == 0xffff)
+        face.face_texture_set = tmpl->face_texture_set;
+      if (!face.has_skin_tone && tmpl->has_skin_tone) {
+        std::memcpy(face.skin_tone, tmpl->skin_tone, sizeof(face.skin_tone));
+        face.has_skin_tone = true;
+      }
+      if (face.tint_layers.empty()) face.tint_layers = tmpl->tint_layers;
+    }
+  }
   return face;
+}
+
+std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId id) {
+  return ResolveNpcFaceImpl(store, id, 0);
 }
 
 std::optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalFormId id) {

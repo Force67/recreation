@@ -82,6 +82,7 @@ constexpr u32 kFaceMorphCount = 19;
 struct NpcFaceData {
   GlobalFormId id;
   std::string editor_id;                    // EDID
+  bool female = false;                       // ACBS flags bit0 (0x1); picks the sex head
   GlobalFormId race;                        // RNAM
   base::Vector<GlobalFormId> head_parts;    // PNAM (HDPT), the chosen parts
   GlobalFormId hair_color;                  // HCLF (CLFM)
