@@ -10,6 +10,7 @@ recreation_add_module(bethesda
   bsa.cc
   ba2.cc
   nif.cc
+  hkx.cc
   starfield_mesh.cc
   material_db.cc
   converters.cc

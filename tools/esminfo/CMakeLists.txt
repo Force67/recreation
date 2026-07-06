@@ -7,3 +7,7 @@ recreation_set_warnings(esminfo)
 add_executable(assetdump ../assetdump/main.cc)
 target_link_libraries(assetdump PRIVATE recreation::bethesda recreation::asset)
 recreation_set_warnings(assetdump)
+
+add_executable(hkxinfo ../hkxinfo/main.cc)
+target_link_libraries(hkxinfo PRIVATE recreation::bethesda recreation::asset)
+recreation_set_warnings(hkxinfo)
