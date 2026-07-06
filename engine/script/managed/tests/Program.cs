@@ -30,6 +30,7 @@ internal static class Program
         SurvivalNeedsTests.Run(check);
         EncumbranceTests.Run(check);
         FastTravelTests.Run(check);
+        LocationDiscoveryTests.Run(check);
 
         Console.WriteLine($"[tests] {check.Passed} passed, {check.Failed} failed");
         return check.Failed;
