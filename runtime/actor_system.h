@@ -11,6 +11,7 @@
 #include <unordered_map>
 
 #include "anim/locomotion.h"
+#include "bethesda/animation_data.h"
 #include "bethesda/hkx_anim.h"
 #include "bethesda/hkx_physics.h"
 #include "anim/pose.h"
@@ -85,6 +86,18 @@ class ActorSystem {
   struct HavokClip {
     bethesda::HkxAnimation animation;
     base::Vector<i32> track_to_skeleton;
+    // Root motion + trigger events from the animationdata sidecars (Skyrim
+    // strips Havok's extracted motion from the .hkx files). has_motion is
+    // false when no block matched the clip.
+    bethesda::AnimMotion motion;
+    bool has_motion = false;
+    std::vector<bethesda::ClipEvent> events;
+  };
+  // A behavior project's animation data: the parsed sidecar text files plus
+  // the hkbCharacterStringData animation list (creature clip ids index it).
+  struct ProjectAnimData {
+    bethesda::AnimationData data;
+    std::vector<std::string> animation_names;
   };
   struct Actor {
     ecs::Entity entity;
@@ -122,8 +135,15 @@ class ActorSystem {
   // skeleton.hkx (cached). False when the file is missing or undecodable.
   bool CreateCreatureActor(const std::string& name, const std::string& clip_override);
   bool PlayHavokClip(Actor& actor, const std::string& animation_path,
-                     const std::string& skeleton_hkx_path);
+                     const std::string& skeleton_hkx_path, const std::string& actor_name);
   const bethesda::HkxSkeleton* LoadHavokSkeleton(const std::string& skeleton_hkx_path);
+  // Cached animationdata sidecars for an actor folder ("character", "troll").
+  const ProjectAnimData* LoadProjectAnimData(const std::string& actor_name);
+  // Root motion + events for one animation file, resolved through the project
+  // data (clip-name match, animation-list index, then unique duration), each
+  // gated on the motion duration agreeing with the decoded animation.
+  void ResolveClipMotion(const ProjectAnimData& project, const std::string& animation_path,
+                         HavokClip* clip);
   // Lazily builds + caches the worn-armour template for a battle side (team 1
   // imperial, team 2 stormcloak), falling back to the bare body template.
   const Actor* SoldierTemplate(int team);
@@ -157,6 +177,7 @@ class ActorSystem {
   // creature rig) and a per-tick sampling scratch buffer.
   std::unordered_map<std::string, std::unique_ptr<bethesda::HkxSkeleton>> havok_skeletons_;
   std::vector<bethesda::HkxTrackPose> havok_sample_;
+  std::unordered_map<std::string, std::unique_ptr<ProjectAnimData>> project_anim_data_;
 
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none

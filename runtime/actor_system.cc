@@ -10,6 +10,7 @@
 #include "anim/foot_ik.h"
 #include "asset/primitives.h"
 #include "bethesda/converters.h"
+#include "bethesda/hkx_character.h"
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
@@ -594,8 +595,118 @@ const bethesda::HkxSkeleton* ActorSystem::LoadHavokSkeleton(
   return result;
 }
 
+const ActorSystem::ProjectAnimData* ActorSystem::LoadProjectAnimData(
+    const std::string& actor_name) {
+  auto it = project_anim_data_.find(actor_name);
+  if (it != project_anim_data_.end()) return it->second.get();
+  auto& slot = project_anim_data_[actor_name];  // negative-cache misses too
+
+  // The behavior project stem: the character project is "defaultmale";
+  // creatures are "<name>project" (trollproject) or occasionally bare.
+  base::Vector<std::string> stems;
+  if (actor_name == "character") {
+    stems.push_back("defaultmale");
+  } else {
+    stems.push_back(actor_name + "project");
+    stems.push_back(actor_name);
+  }
+  for (const std::string& stem : stems) {
+    auto project = vfs_.Read(asset::NormalizePath("meshes/animationdata/" + stem + ".txt"));
+    if (!project) continue;
+    auto motion =
+        vfs_.Read(asset::NormalizePath("meshes/animationdata/boundanims/anims_" + stem + ".txt"));
+    auto data = std::make_unique<ProjectAnimData>();
+    data->data = bethesda::ParseAnimationData(
+        std::string_view(reinterpret_cast<const char*>(project->data()), project->size()),
+        motion ? std::string_view(reinterpret_cast<const char*>(motion->data()), motion->size())
+               : std::string_view());
+    // The animation list the creature clip ids index (characters/*.hkx).
+    std::string chars_path = actor_name == "character"
+                                 ? "meshes/actors/character/characters/defaultmale.hkx"
+                                 : "meshes/actors/" + actor_name + "/characters/" + actor_name +
+                                       ".hkx";
+    if (auto chars = vfs_.Read(asset::NormalizePath(chars_path))) {
+      if (auto hkx = bethesda::HkxFile::Parse(chars->data(), chars->size())) {
+        data->animation_names = bethesda::DecodeAnimationNames(*hkx);
+      }
+    }
+    REC_INFO("animationdata {}: {} clips, {} motion blocks, {} cached animations", stem,
+             data->data.clips.size(), data->data.motion.size(), data->animation_names.size());
+    slot = std::move(data);
+    break;
+  }
+  return slot.get();
+}
+
+namespace {
+
+std::string LowerBasename(std::string_view path) {
+  size_t slash = path.find_last_of("/\\");
+  if (slash != std::string_view::npos) path.remove_prefix(slash + 1);
+  size_t dot = path.rfind('.');
+  if (dot != std::string_view::npos) path = path.substr(0, dot);
+  std::string out(path);
+  for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return out;
+}
+
+}  // namespace
+
+void ActorSystem::ResolveClipMotion(const ProjectAnimData& project,
+                                    const std::string& animation_path, HavokClip* clip) {
+  const std::string basename = LowerBasename(animation_path);
+  const f32 duration = clip->animation.duration;
+  // A motion block is only trusted when its duration matches the decoded
+  // animation (both were authored from the same source clip); the character
+  // project's clip ids drift against its animation list, so every route is
+  // duration-gated.
+  i32 resolved = -1;
+  auto accept = [&](i32 id, const bethesda::ClipData* events_from) {
+    auto it = project.data.motion.find(id);
+    if (it == project.data.motion.end()) return false;
+    if (std::abs(it->second.duration - duration) > 0.005f) return false;
+    clip->motion = it->second;
+    clip->has_motion = true;
+    resolved = id;
+    if (events_from) clip->events = events_from->events;
+    return true;
+  };
+  // 1) Clip generator named like the file (the character project convention).
+  for (const bethesda::ClipData& c : project.data.clips) {
+    if (LowerBasename(c.name) == basename && accept(c.animation_index, &c)) return;
+  }
+  // 2) The file's index in the project's animation list (creature projects).
+  for (size_t i = 0; i < project.animation_names.size(); ++i) {
+    if (LowerBasename(project.animation_names[i]) == basename &&
+        accept(static_cast<i32>(i), nullptr)) {
+      break;
+    }
+  }
+  // 3) Unique duration match across all motion blocks.
+  if (!clip->has_motion) {
+    i32 match = -1;
+    for (const auto& [id, motion] : project.data.motion) {
+      if (std::abs(motion.duration - duration) > 0.001f) continue;
+      if (match >= 0) return;  // ambiguous
+      match = id;
+    }
+    if (match >= 0) accept(match, nullptr);
+  }
+  // Events can still come from any clip block driving the resolved animation
+  // (e.g. the troll's walk events sit on a differently-named generator).
+  if (clip->has_motion && clip->events.empty()) {
+    for (const bethesda::ClipData& c : project.data.clips) {
+      if (c.animation_index == resolved && !c.events.empty()) {
+        clip->events = c.events;
+        break;
+      }
+    }
+  }
+}
+
 bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
-                                const std::string& skeleton_hkx_path) {
+                                const std::string& skeleton_hkx_path,
+                                const std::string& actor_name) {
   const bethesda::HkxSkeleton* havok_skeleton = LoadHavokSkeleton(skeleton_hkx_path);
   if (!havok_skeleton) return false;
   auto bytes = vfs_.Read(asset::NormalizePath(animation_path));
@@ -630,11 +741,21 @@ bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
     clip->track_to_skeleton[t] = bone;
     if (bone >= 0) ++matched;
   }
-  REC_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched to the skeleton)", animation_path,
-           animation->duration, animation->num_tracks, matched);
-  if (matched == 0) return false;
+  if (matched == 0) {
+    REC_INFO("havok clip {}: {} tracks, none matched the skeleton", animation_path,
+             animation->num_tracks);
+    return false;
+  }
   clip->animation = std::move(*animation);
+  if (const ProjectAnimData* project = LoadProjectAnimData(actor_name)) {
+    ResolveClipMotion(*project, animation_path, clip.get());
+  }
+  REC_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events{}",
+           animation_path, clip->animation.duration, clip->animation.num_tracks, matched,
+           clip->has_motion ? "yes" : "no", clip->events.size(),
+           clip->animation.additive ? ", ADDITIVE (played absolute)" : "");
   actor.foot_ik = false;  // the clip owns the feet
+  actor.havok_time = 0;
   actor.havok_clip = std::move(clip);
   return true;
 }
@@ -682,7 +803,7 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
   bool playing = false;
   for (const std::string& clip : candidates) {
     if (!vfs_.Contains(asset::NormalizePath(clip))) continue;
-    if (PlayHavokClip(actor, clip, base + "character assets/skeleton.hkx")) {
+    if (PlayHavokClip(actor, clip, base + "character assets/skeleton.hkx", name)) {
       playing = true;
       break;
     }
@@ -744,7 +865,7 @@ bool ActorSystem::CreateSkyrimActor() {
                               ? clip_override
                               : "meshes/actors/character/animations/mt_idle_b_long_left.hkx";
   PlayHavokClip(actors_[player_actor_], clip_path,
-                "meshes/actors/character/character assets/skeleton.hkx");
+                "meshes/actors/character/character assets/skeleton.hkx", "character");
   REC_INFO("skyrim actor ready ({} body parts); press T to walk it",
            actors_[player_actor_].parts.size());
   if (Autowalk) {
@@ -775,7 +896,30 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
   if (actor.havok_clip) {
     const HavokClip& clip = *actor.havok_clip;
     f32 duration = std::max(clip.animation.duration, 1.0f / 30.0f);
+    f32 prev_time = actor.havok_time;
     actor.havok_time = std::fmod(actor.havok_time + dt, duration);
+    bool wrapped = actor.havok_time < prev_time;
+    // Root motion: the sidecar's cumulative offsets become a per-tick world
+    // delta, through the same Z-up-game-units -> Y-up-metres basis the mesh
+    // uses, then the actor's facing.
+    if (clip.has_motion) {
+      Vec3 d = bethesda::MotionTranslationDelta(clip.motion, prev_time, actor.havok_time);
+      constexpr f32 s = 0.01428f;
+      Vec3 local{d.x * s, d.z * s, -d.y * s};
+      f32 cy = std::cos(actor.yaw), sy = std::sin(actor.yaw);
+      Vec3 step{local.x * cy + local.z * sy, local.y, -local.x * sy + local.z * cy};
+      if (world::Transform* t = world_.Get<world::Transform>(actor.entity)) {
+        t->position[0] += step.x;
+        t->position[1] += step.y;
+        t->position[2] += step.z;
+      }
+    }
+    // Trigger events (footsteps, sync markers) whose time passed this tick.
+    for (const bethesda::ClipEvent& event : clip.events) {
+      bool fired = wrapped ? (event.time > prev_time || event.time <= actor.havok_time)
+                           : (event.time > prev_time && event.time <= actor.havok_time);
+      if (fired) REC_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
+    }
     bethesda::SampleAnimation(clip.animation, actor.havok_time, &havok_sample_);
     actor.pose.ResetToBind(actor.skeleton);
     for (u32 t = 0; t < havok_sample_.size() && t < clip.track_to_skeleton.size(); ++t) {

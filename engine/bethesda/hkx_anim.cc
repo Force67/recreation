@@ -28,6 +28,7 @@ constexpr u64 kData = 0x98;           // hkArray<u8>
 constexpr u64 kBindingSkeletonName = 0x10;
 constexpr u64 kBindingAnimation = 0x18;
 constexpr u64 kBindingTrackToBone = 0x20;  // hkArray<i16>
+constexpr u64 kBindingBlendHint = 0x40;    // 0 normal, 1 additive
 }  // namespace off
 
 constexpr int kSplineAnimationType = 3;  // hkaAnimation::TYPE_SPLINE_COMPRESSED (2010)
@@ -292,6 +293,7 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
     for (u32 i = 0; i < map_count && map != HkxFile::kNull; ++i) {
       animation.track_to_bone.push_back(hkx.I16(map + static_cast<u64>(i) * 2));
     }
+    animation.additive = hkx.U8(obj.offset + off::kBindingBlendHint) != 0;
     break;
   }
   return animation;

@@ -31,6 +31,7 @@ struct HkxAnimation {
   u32 num_frames = 0;
   std::string skeleton_name;       // binding's original skeleton
   std::vector<i16> track_to_bone;  // empty = identity mapping
+  bool additive = false;           // binding blendHint: layer over another pose
 
   // --- decoded spline data (internal layout, stable for Sample) ---
   struct Channel {

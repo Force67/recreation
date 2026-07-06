@@ -24,6 +24,7 @@
 #include "bethesda/hkx_physics.h"
 #include "bethesda/hkx_to_physics.h"
 #include "bethesda/hkx_anim.h"
+#include "bethesda/hkx_character.h"
 #include "physics/physics_world.h"
 #include <cmath>
 
@@ -111,6 +112,36 @@ int main(int argc, char** argv) {
       });
       return 0;
     }
+    if (args[2].rfind("--scan", 0) == 0 && args.size() > 3) {
+      // hkxinfo --data <dir> --scan <substring>: decode every matching .hkx
+      // animation and report bindings with an additive blend hint or float
+      // tracks (the rare vanilla features worth locating).
+      std::string needle = args[3];
+      std::vector<std::string> paths;
+      vfs.Enumerate([&](std::string_view path) {
+        if (path.find(needle) != std::string_view::npos && path.size() > 4 &&
+            path.substr(path.size() - 4) == ".hkx") {
+          paths.emplace_back(path);
+        }
+      });
+      int scanned = 0, additive = 0;
+      for (const std::string& path : paths) {
+        auto data = vfs.Read(path);
+        if (!data) continue;
+        auto file = HkxFile::Parse(data->data(), data->size());
+        if (!file) continue;
+        auto anim = rec::bethesda::DecodeAnimation(*file);
+        if (!anim) continue;
+        ++scanned;
+        if (anim->additive) {
+          ++additive;
+          std::printf("ADDITIVE %s (%.2fs, %u tracks)\n", path.c_str(), anim->duration,
+                      anim->num_tracks);
+        }
+      }
+      std::printf("scanned %d animations, %d additive\n", scanned, additive);
+      return 0;
+    }
     auto data = vfs.Read(args[2]);
     if (!data) {
       std::fprintf(stderr, "not found in archives: %s\n", args[2].c_str());
@@ -125,6 +156,17 @@ int main(int argc, char** argv) {
       return 1;
     }
     consumed = 1;
+  }
+
+  // Raw extraction works for any VFS file (animationdata .txt etc.), so it
+  // runs before the packfile parse.
+  for (size_t i = consumed; i + 1 < args.size(); ++i) {
+    if (args[i] == "--extract") {
+      std::ofstream out(args[i + 1], std::ios::binary);
+      out.write(reinterpret_cast<const char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size()));
+      std::printf("wrote %s (%zu bytes)\n", args[i + 1].c_str(), bytes.size());
+    }
   }
 
   auto hkx = HkxFile::Parse(bytes.data(), bytes.size());
@@ -146,10 +188,13 @@ int main(int argc, char** argv) {
     } else if (args[i] == "--classes") {
       PrintClasses(*hkx);
     } else if (args[i] == "--extract" && i + 1 < args.size()) {
-      std::ofstream out(args[++i], std::ios::binary);
-      out.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-      std::printf("wrote %s\n", args[i].c_str());
+      ++i;  // handled pre-parse
+    } else if (args[i] == "--animnames") {
+      auto names = rec::bethesda::DecodeAnimationNames(*hkx);
+      std::printf("%zu animation names:\n", names.size());
+      for (size_t n = 0; n < names.size(); ++n) {
+        std::printf("  [%4zu] %s\n", n, names[n].c_str());
+      }
     } else if (args[i] == "--hex" && i + 1 < args.size()) {
       rec::u64 offset = std::strtoull(args[++i].c_str(), nullptr, 0);
       rec::u64 count = 128;
@@ -233,10 +278,11 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "no decodable spline-compressed animation\n");
         return 1;
       }
-      std::printf("animation: %.2fs, %u tracks, %u frames, %zu blocks, skeleton '%s'%s\n",
+      std::printf("animation: %.2fs, %u tracks, %u frames, %zu blocks, skeleton '%s'%s%s\n",
                   anim->duration, anim->num_tracks, anim->num_frames, anim->blocks.size(),
                   anim->skeleton_name.c_str(),
-                  anim->track_to_bone.empty() ? " (identity track map)" : "");
+                  anim->track_to_bone.empty() ? " (identity track map)" : "",
+                  anim->additive ? " ADDITIVE" : "");
       std::vector<rec::bethesda::HkxTrackPose> pose;
       rec::bethesda::SampleAnimation(*anim, at_time, &pose);
       int bad_quats = 0;
