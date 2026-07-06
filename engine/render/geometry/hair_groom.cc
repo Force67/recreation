@@ -481,7 +481,8 @@ bool BuildHairGroom(const asset::Mesh& mesh, const GroomParams& params, GroomDat
     Vec3 fdir{std::cos(fang), -0.15f - 0.3f * fh, std::sin(fang)};  // outward + slight droop
     // A few strands only (fh near 1) get a real flyaway; most stay tidy so the
     // silhouette reads as groomed hair, not frizz. Curl already separates strands.
-    f32 famp = std::clamp(comp.hw * 0.3f, 0.002f, 0.008f) * (fh > 0.7f ? fh : 0.15f * fh);
+    f32 famp = std::clamp(comp.hw * 0.3f, 0.002f, 0.008f) * (fh > 0.7f ? fh : 0.15f * fh) *
+               params.frizz;
     // Lock cross-section: quantise across into ~10 mm locks and bulge each out
     // along the card normal (round tube, not flat sheet).
     const f32 kLockWorld = 0.010f;
@@ -500,7 +501,7 @@ bool BuildHairGroom(const asset::Mesh& mesh, const GroomParams& params, GroomDat
     // Curl scaled to lock width with a floor, so the smaller-card style (elf
     // blonde) breaks up as much as the wide-card ones. Two octaves: a broad wave
     // plus fine detail that breaks flat card facets.
-    f32 camp = std::clamp(comp.hw * 0.85f, 0.009f, 0.024f) * (0.6f + 0.8f * randf());
+    f32 camp = std::clamp(comp.hw * 0.85f, 0.009f, 0.024f) * (0.6f + 0.8f * randf()) * params.frizz;
     // Trace root->tip, anchored on the scalp vertex and holding across = c_seed so
     // it follows one card strip (narrow world bandwidth prevents slab merging).
     Vec3 chain_prev = root_pos;

@@ -124,6 +124,12 @@ class FaceState {
   const f32* hair_color() const { return hair_color_; }
   const std::string& race_morph() const { return race_morph_; }
   u32 subdiv_levels() const { return subdiv_levels_; }
+  // The face part's object-space (Bethesda game units) bounding sphere, set by
+  // RebuildAndUpload. A hair groom, authored head-local at the origin, is dropped
+  // onto the scalp by anchoring it here (the face part carries the body-height
+  // offset the standalone hair NIF lacks).
+  const f32* head_center() const { return head_center_; }
+  f32 head_radius() const { return head_radius_; }
 
   // Chargen morph names available on this face's chargen tri, for the UI to
   // populate its "advanced" slider list beyond the 18 NAM9 sliders.
@@ -173,6 +179,8 @@ class FaceState {
   std::string npc_tag_;
   std::string hair_model_;
   f32 hair_color_[3] = {0.32f, 0.24f, 0.18f};
+  f32 head_center_[3] = {0, 0, 0};  // face part bounds, game units (hair anchor)
+  f32 head_radius_ = 0;
   u32 tint_version_ = 0;
   bool tint_dirty_ = true;
 };

@@ -43,7 +43,7 @@ float4 main(PsIn input) : SV_Target0 {
 
   float3 li = pc.sun_color.rgb * pc.sun.w;
   float3 color = base_color * diffuse * root_dark * li * 0.35 +
-                 (spec1 * 0.35 + spec2 * 0.2 * base_color * 3.0) * li * 0.25 +
+                 (spec1 * 0.2 + spec2 * 0.2 * base_color * 3.0) * li * 0.25 +
                  base_color * 0.12;  // flat ambient fill
   return float4(color, 1.0);
 }

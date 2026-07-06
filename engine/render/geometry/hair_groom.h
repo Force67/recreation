@@ -24,6 +24,10 @@ struct GroomParams {
   Vec3 tint{1, 1, 1};             // multiplies the sampled diffuse colour
   const asset::Texture* diffuse = nullptr;  // hair diffuse for per-strand colour
   u32 seed = 1;
+  // Scales the per-strand flyaway + curl amplitude. 1 = the demo's loose,
+  // wind-blown look; lower values keep strands tight to the card silhouette for
+  // groomed styles (facegen heads read as spikes at full frizz).
+  f32 frizz = 1.0f;
   // When true (the default) the groom is recentred so the scalp sits at the local
   // origin, ready for a translation. Bone-attached hair keeps its authored
   // (engine-scaled, head-local) coordinates instead, so the caller can drop it on

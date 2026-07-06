@@ -38,6 +38,16 @@ std::string TexturePath(const std::string& tex) {
   return path;
 }
 
+// Bethesda head/face normals ship as model-space maps (_msn): the shader must
+// take the object-space normal path, not the tangent-space TBN (which smears
+// them into bruised streaks). Eye/brow tangent-space _n maps stay tangent.
+bool IsModelSpaceNormal(const std::string& path) {
+  size_t dot = path.rfind('.');
+  std::string_view stem = dot == std::string::npos ? std::string_view{path}
+                                                   : std::string_view{path}.substr(0, dot);
+  return stem.ends_with("_msn");
+}
+
 // --- CPU BCn decode for the facetint bake (BC1/BC2/BC3/RGBA8 -> sRGB rgb8) ---
 // Same block layout the land + hair bakes decode; kept local so the face bake
 // stays self-contained.
@@ -360,9 +370,13 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
       asset::Material m;
       m.id = asset::MakeAssetId("facegen/eye/" + npc_tag + "/" + p.label);
       m.base_color = asset::MakeAssetId(pt->diffuse);
-      if (!pt->normal.empty()) m.normal = asset::MakeAssetId(pt->normal);
+      if (!pt->normal.empty()) {
+        m.normal = asset::MakeAssetId(pt->normal);
+        m.normal_model_space = IsModelSpaceNormal(pt->normal);
+      }
       m.metallic_factor = 0.0f;
-      m.roughness_factor = 0.08f;  // glossy: a bright catchlight stands in for the eye cubemap
+      m.roughness_factor = 0.06f;  // glossy: a bright catchlight stands in for the eye cubemap
+      for (int k = 0; k < 3; ++k) m.base_color_factor[k] = 1.2f;  // lift sclera/iris in the socket
       ctx_.assets->AddMaterial(m);
       ctx_.renderer->UploadMaterial(m);
       p.material_override = m.id;
@@ -371,7 +385,10 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
       asset::Material m;
       m.id = asset::MakeAssetId("facegen/brow/" + npc_tag + "/" + p.label);
       if (pt && !pt->diffuse.empty()) m.base_color = asset::MakeAssetId(pt->diffuse);
-      if (pt && !pt->normal.empty()) m.normal = asset::MakeAssetId(pt->normal);
+      if (pt && !pt->normal.empty()) {
+        m.normal = asset::MakeAssetId(pt->normal);
+        m.normal_model_space = IsModelSpaceNormal(pt->normal);
+      }
       for (int k = 0; k < 3; ++k) m.base_color_factor[k] = hair_col[k];
       m.roughness_factor = 0.6f;
       m.alpha_mode = asset::AlphaMode::kMask;
@@ -508,7 +525,10 @@ f32 FaceState::BakeFaceTint() {
   asset::Material m;
   m.id = face_material_;
   m.base_color = face_texture_;
-  if (!face_normal_.empty()) m.normal = asset::MakeAssetId(face_normal_);
+  if (!face_normal_.empty()) {
+    m.normal = asset::MakeAssetId(face_normal_);
+    m.normal_model_space = IsModelSpaceNormal(face_normal_);
+  }
   m.metallic_factor = 0.0f;
   m.roughness_factor = 0.55f;  // skin
   m.skin = true;
@@ -560,6 +580,10 @@ f32 FaceState::RebuildAndUpload() {
     }
     mesh.id = part.out_id;
     RecomputeBounds(mesh);
+    if (part.type == bethesda::HeadPartType::kFace) {
+      for (int k = 0; k < 3; ++k) head_center_[k] = mesh.bounds_center[k];
+      head_radius_ = mesh.bounds_radius;
+    }
     renderer.UploadMesh(mesh);
     built_.push_back({part.out_id, part.type, part.subdivide});
   }
