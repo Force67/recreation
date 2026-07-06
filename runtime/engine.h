@@ -26,6 +26,7 @@
 #include "audio/ambient.h"
 
 #include "actor_system.h"
+#include "chargen.h"
 #include "content_domain.h"
 #include "demo_scenes.h"
 #include "editor.h"
@@ -530,6 +531,8 @@ class Engine {
   std::unique_ptr<DemoScenes> demos_;
   // Live map editor (windowed client only); F4 toggles it. Null in headless.
   std::unique_ptr<MapEditor> editor_;
+  // Character-creation screen (REC_CHARGEN boot mode). Null in headless.
+  std::unique_ptr<CharGen> chargen_;
 
   std::atomic<bool> quit_ = false;
   bool shut_down_ = false;

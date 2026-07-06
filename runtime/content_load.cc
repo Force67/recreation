@@ -49,6 +49,10 @@ static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "REC_DOM
 static base::Option<const char*> DomainCell{"domain.cell", nullptr, "REC_DOMAIN_CELL"};
 static base::Option<bool> AudioDump{"audio.dump", false, "REC_AUDIO_DUMP",
                                     "resolve and decode each region's ambient bed at load and log it"};
+// REC_CHARGEN boots straight into the character-creation screen (a standalone
+// preview head, no world streaming), like the faces demo.
+static base::Option<bool> CharGenBoot{"chargen", false, "REC_CHARGEN",
+                                      "boot into the character-creation screen"};
 
 bool LoadGameData(Engine& engine) {
   Engine* const self = &engine;
@@ -384,6 +388,13 @@ bool LoadGameData(Engine& engine) {
   // demo-scene path.
   if (self->config_.demo_scene == "faces") {
     self->demos_->CreateFacesDemoScene();
+    return true;
+  }
+
+  // Character creation: a single editable preview head in a lit void, no world
+  // streaming. Boots the overlay + framed orbit camera; input routes to CharGen.
+  if (CharGenBoot && self->chargen_) {
+    self->chargen_->Enter();
     return true;
   }
 

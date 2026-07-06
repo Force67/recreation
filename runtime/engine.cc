@@ -104,6 +104,8 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   // The live map editor (windowed client only). Constructed after game_ui_ is up
   // so it can register its overlay event sink; ticked from UpdateCamera.
   if (!config_.headless) editor_ = std::make_unique<MapEditor>(ctx_);
+  // Character creation (REC_CHARGEN); Enter() runs once game data has loaded.
+  if (!config_.headless) chargen_ = std::make_unique<CharGen>(ctx_);
 
   if (physics_.Initialize()) {
     // A small wooden cube every scene can throw around (F key).

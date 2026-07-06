@@ -116,6 +116,11 @@ class FaceState {
 
   const base::Vector<BuiltFacePart>& parts() const { return built_; }
   bool female() const { return female_; }
+  // The live NAM9 slider values (kNam9Count) and NAMA type indices (nose/brows/
+  // eyes/mouth), so the chargen UI can read back a freshly assembled preset's
+  // face instead of showing neutral sliders over a morphed head.
+  const f32* nam9() const { return nam9_; }
+  const i32* nama() const { return nama_; }
   const f32* skin_tone() const { return skin_tone_; }
   // The NPC's hair HDPT nif path (empty when bald), for the caller to build a
   // strand groom instead of the flat card the part would otherwise be.

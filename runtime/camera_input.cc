@@ -53,6 +53,15 @@ void Engine::UpdateCamera(f32 frame_delta) {
     UpdateMainMenu(frame_delta);
     return;
   }
+  // Character creation owns all input while it is up: it hit-tests its own
+  // overlay against a free (absolute) cursor and orbits the framed camera on a
+  // viewport drag, so the fly camera and gameplay toggles stay frozen.
+  if (chargen_ && chargen_->active()) {
+    window_->SetRelativeMouseMode(false);
+    chargen_->Update(window_->input(), frame_delta);
+    return;
+  }
+
   const InputState& input = window_->input();
 
   // The pause menu freezes the camera and frees the cursor so it can click.
