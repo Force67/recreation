@@ -11,6 +11,7 @@
 #include "asset/primitives.h"
 #include "bethesda/converters.h"
 #include "bethesda/hkx_character.h"
+#include "bethesda/hkx_to_kinema.h"
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
@@ -33,6 +34,9 @@ static base::Option<bool> Player{"player", false, "REC_PLAYER"};
 // it on the head bone. Off falls back to the flat card the hair part uploads.
 static base::Option<bool> StrandHair{"strand_hair", true, "REC_STRAND_HAIR"};
 static base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
+// Sample Havok clips through the transcoded kinema blobs (fast path); off
+// falls back to direct spline evaluation for A/B comparison.
+static base::Option<bool> UseKinema{"anim.kinema", true, "REC_KINEMA"};
 static base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
 
 ActorSystem::ActorSystem(EngineContext& ctx)
@@ -750,9 +754,12 @@ bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
   if (const ProjectAnimData* project = LoadProjectAnimData(actor_name)) {
     ResolveClipMotion(*project, animation_path, clip.get());
   }
-  REC_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events{}",
+  clip->kinema = kinema::OwnedClip(bethesda::TranscodeToKinema(
+      clip->animation, clip->has_motion ? &clip->motion : nullptr, &clip->events));
+  REC_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events, kinema {} KiB{}",
            animation_path, clip->animation.duration, clip->animation.num_tracks, matched,
            clip->has_motion ? "yes" : "no", clip->events.size(),
+           clip->kinema ? clip->kinema.bytes().size() / 1024 : 0,
            clip->animation.additive ? ", ADDITIVE (played absolute)" : "");
   actor.foot_ik = false;  // the clip owns the feet
   actor.havok_time = 0;
@@ -895,6 +902,7 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
 #endif
   if (actor.havok_clip) {
     const HavokClip& clip = *actor.havok_clip;
+    const bool kin = UseKinema && clip.kinema;
     f32 duration = std::max(clip.animation.duration, 1.0f / 30.0f);
     f32 prev_time = actor.havok_time;
     actor.havok_time = std::fmod(actor.havok_time + dt, duration);
@@ -903,7 +911,13 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
     // delta, through the same Z-up-game-units -> Y-up-metres basis the mesh
     // uses, then the actor's facing.
     if (clip.has_motion) {
-      Vec3 d = bethesda::MotionTranslationDelta(clip.motion, prev_time, actor.havok_time);
+      Vec3 d;
+      if (kin) {
+        kinema::Vec3 kd = clip.kinema->RootDelta(prev_time, actor.havok_time);
+        d = Vec3{kd.x, kd.y, kd.z};
+      } else {
+        d = bethesda::MotionTranslationDelta(clip.motion, prev_time, actor.havok_time);
+      }
       constexpr f32 s = 0.01428f;
       Vec3 local{d.x * s, d.z * s, -d.y * s};
       f32 cy = std::cos(actor.yaw), sy = std::sin(actor.yaw);
@@ -915,21 +929,46 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
       }
     }
     // Trigger events (footsteps, sync markers) whose time passed this tick.
-    for (const bethesda::ClipEvent& event : clip.events) {
-      bool fired = wrapped ? (event.time > prev_time || event.time <= actor.havok_time)
-                           : (event.time > prev_time && event.time <= actor.havok_time);
-      if (fired) REC_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
+    if (kin) {
+      clip.kinema->EventsInRange(prev_time, actor.havok_time, [&](const kinema::ClipEvent& e) {
+        REC_DEBUG("anim event '{}' @ {:.2f}s", e.name, e.time);
+      });
+    } else {
+      for (const bethesda::ClipEvent& event : clip.events) {
+        bool fired = wrapped ? (event.time > prev_time || event.time <= actor.havok_time)
+                             : (event.time > prev_time && event.time <= actor.havok_time);
+        if (fired) REC_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
+      }
     }
-    bethesda::SampleAnimation(clip.animation, actor.havok_time, &havok_sample_);
     actor.pose.ResetToBind(actor.skeleton);
-    for (u32 t = 0; t < havok_sample_.size() && t < clip.track_to_skeleton.size(); ++t) {
-      i32 bone = clip.track_to_skeleton[t];
-      if (bone < 0) continue;
-      const bethesda::HkxTrackPose& sample = havok_sample_[t];
-      actor.pose.translation[bone] = sample.translation;
-      actor.pose.rotation[bone] = Quat{sample.rotation[0], sample.rotation[1],
-                                       sample.rotation[2], sample.rotation[3]};
-      actor.pose.scale[bone] = sample.scale;
+    if (kin) {
+      const u32 tracks = clip.kinema->num_tracks();
+      if (kinema_t_.size() < tracks) {
+        kinema_t_.resize(tracks);
+        kinema_r_.resize(tracks);
+        kinema_s_.resize(tracks);
+      }
+      kinema::PoseView pose{kinema_t_.data(), kinema_r_.data(), kinema_s_.data(), tracks};
+      clip.kinema->Sample(actor.havok_time, pose);
+      for (u32 t = 0; t < tracks && t < clip.track_to_skeleton.size(); ++t) {
+        i32 bone = clip.track_to_skeleton[t];
+        if (bone < 0) continue;
+        actor.pose.translation[bone] = Vec3{kinema_t_[t].x, kinema_t_[t].y, kinema_t_[t].z};
+        actor.pose.rotation[bone] =
+            Quat{kinema_r_[t].x, kinema_r_[t].y, kinema_r_[t].z, kinema_r_[t].w};
+        actor.pose.scale[bone] = kinema_s_[t];
+      }
+    } else {
+      bethesda::SampleAnimation(clip.animation, actor.havok_time, &havok_sample_);
+      for (u32 t = 0; t < havok_sample_.size() && t < clip.track_to_skeleton.size(); ++t) {
+        i32 bone = clip.track_to_skeleton[t];
+        if (bone < 0) continue;
+        const bethesda::HkxTrackPose& sample = havok_sample_[t];
+        actor.pose.translation[bone] = sample.translation;
+        actor.pose.rotation[bone] = Quat{sample.rotation[0], sample.rotation[1],
+                                         sample.rotation[2], sample.rotation[3]};
+        actor.pose.scale[bone] = sample.scale;
+      }
     }
   } else {
     actor.locomotion.phase = anim::AdvancePhase(actor.locomotion.phase, actor.speed, dt);

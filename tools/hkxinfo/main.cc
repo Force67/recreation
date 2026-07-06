@@ -25,12 +25,56 @@
 #include "bethesda/hkx_to_physics.h"
 #include "bethesda/hkx_anim.h"
 #include "bethesda/hkx_character.h"
+#include "bethesda/hkx_to_kinema.h"
+#include <chrono>
+#include <kinema/kinema.h>
 #include "physics/physics_world.h"
 #include <cmath>
 
 namespace {
 
 using rec::bethesda::HkxFile;
+
+// Transcodes an animation to kinema and compares against the reference
+// spline sampler at `samples` deterministic pseudo-random times. Returns the
+// worst deltas through the out params; false when the file has no animation.
+bool CompareKinema(const rec::bethesda::HkxAnimation& anim, int samples, float* worst_t,
+                   float* worst_q, float* worst_s, size_t* blob_size) {
+  auto blob = rec::bethesda::TranscodeToKinema(anim, nullptr, nullptr);
+  auto clip = kinema::Clip::FromBlob(blob.data(), blob.size());
+  if (!clip) return false;
+  *blob_size = blob.size();
+  kinema::PoseArena arena(anim.num_tracks, 1);
+  kinema::PoseView pose = arena.Acquire();
+  std::vector<rec::bethesda::HkxTrackPose> reference;
+  rec::u32 seed = 0x9E3779B9u;
+  *worst_t = *worst_q = *worst_s = 0;
+  for (int i = 0; i < samples; ++i) {
+    seed = seed * 1664525u + 1013904223u;
+    float time = anim.duration * static_cast<float>(seed >> 8) / 16777216.0f;
+    rec::bethesda::SampleAnimation(anim, time, &reference);
+    clip->Sample(time, pose);
+    for (rec::u32 t = 0; t < anim.num_tracks && t < reference.size(); ++t) {
+      const auto& r = reference[t];
+      // A handful of vanilla clips carry authored-garbage position ranges
+      // (1e15+ game units on unused 1st-person helper tracks); both samplers
+      // reproduce the garbage but relative float error explodes, so exclude
+      // anything far outside plausible authored space from the metric.
+      if (std::abs(r.translation.x) > 1e6f || std::abs(r.translation.y) > 1e6f ||
+          std::abs(r.translation.z) > 1e6f) {
+        continue;
+      }
+      *worst_t = std::max({*worst_t, std::abs(pose.translation[t].x - r.translation.x),
+                           std::abs(pose.translation[t].y - r.translation.y),
+                           std::abs(pose.translation[t].z - r.translation.z)});
+      float dot = std::abs(pose.rotation[t].x * r.rotation[0] + pose.rotation[t].y * r.rotation[1] +
+                           pose.rotation[t].z * r.rotation[2] + pose.rotation[t].w * r.rotation[3]);
+      *worst_q = std::max(*worst_q, 1.0f - std::min(dot, 1.0f));
+      *worst_s = std::max(*worst_s, std::abs(pose.scale[t] - r.scale));
+    }
+  }
+  return true;
+}
 
 std::vector<rec::u8> ReadFileBytes(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
@@ -143,6 +187,54 @@ int main(int argc, char** argv) {
       std::printf("scanned %d animations, %d additive\n", scanned, additive);
       return 0;
     }
+    if (args[2].rfind("--kinemascan", 0) == 0 && args.size() > 3) {
+      // hkxinfo --data <dir> --kinemascan <substring>: transcode every
+      // matching animation to kinema and report the worst deviation from the
+      // reference spline sampler across the corpus.
+      std::string needle = args[3];
+      std::vector<std::string> paths;
+      vfs.Enumerate([&](std::string_view path) {
+        if (path.find(needle) != std::string_view::npos && path.size() > 4 &&
+            path.substr(path.size() - 4) == ".hkx") {
+          paths.emplace_back(path);
+        }
+      });
+      int scanned = 0, outlier_t = 0, outlier_q = 0;
+      float corpus_t = 0, corpus_q = 0, corpus_s = 0;
+      size_t total_hkx = 0, total_blob = 0;
+      std::string worst_t_file, worst_q_file, worst_s_file;
+      for (const std::string& path : paths) {
+        auto data = vfs.Read(path);
+        if (!data) continue;
+        auto file = HkxFile::Parse(data->data(), data->size());
+        if (!file) continue;
+        auto anim = rec::bethesda::DecodeAnimation(*file);
+        if (!anim) continue;
+        float wt = 0, wq = 0, ws = 0;
+        size_t blob = 0;
+        if (!CompareKinema(*anim, 32, &wt, &wq, &ws, &blob)) continue;
+        ++scanned;
+        total_hkx += data->size();
+        total_blob += blob;
+        if (wt > corpus_t) worst_t_file = path;
+        if (wq > corpus_q) worst_q_file = path;
+        if (ws > corpus_s) worst_s_file = path;
+        corpus_t = std::max(corpus_t, wt);
+        corpus_q = std::max(corpus_q, wq);
+        corpus_s = std::max(corpus_s, ws);
+        if (wt > 0.1f) ++outlier_t;
+        if (wq > 1e-3f) ++outlier_q;
+      }
+      std::printf("kinema corpus: %d clips\n  worst dt %.5f gu (%s)\n  worst dq %.2e (%s)\n"
+                  "  worst ds %.2e (%s)\n  outliers: %d clips dt>0.1gu, %d clips dq>1e-3\n",
+                  scanned, corpus_t, worst_t_file.c_str(), corpus_q, worst_q_file.c_str(),
+                  corpus_s, worst_s_file.c_str(), outlier_t, outlier_q);
+      std::printf("  size: hkx %.1f MiB -> kinema %.1f MiB (%.2fx)\n",
+                  static_cast<double>(total_hkx) / 1048576.0,
+                  static_cast<double>(total_blob) / 1048576.0,
+                  static_cast<double>(total_blob) / static_cast<double>(std::max<size_t>(total_hkx, 1)));
+      return 0;
+    }
     auto data = vfs.Read(args[2]);
     if (!data) {
       std::fprintf(stderr, "not found in archives: %s\n", args[2].c_str());
@@ -190,6 +282,77 @@ int main(int argc, char** argv) {
       PrintClasses(*hkx);
     } else if (args[i] == "--extract" && i + 1 < args.size()) {
       ++i;  // handled pre-parse
+    } else if (args[i] == "--kinema") {
+      // Transcode to kinema, validate against the spline sampler, then race
+      // the two samplers.
+      auto anim = rec::bethesda::DecodeAnimation(*hkx);
+      if (!anim) {
+        std::fprintf(stderr, "no decodable spline-compressed animation\n");
+        return 1;
+      }
+      float wt = 0, wq = 0, ws = 0;
+      size_t blob_size = 0;
+      if (!CompareKinema(*anim, 256, &wt, &wq, &ws, &blob_size)) {
+        std::fprintf(stderr, "kinema transcode failed\n");
+        return 1;
+      }
+      std::printf("kinema: %u tracks x %u frames, blob %zu bytes (source hkx %zu)\n",
+                  anim->num_tracks, anim->num_frames, blob_size, bytes.size());
+      std::printf("  vs spline sampler over 256 times: worst dt %.5f gu, dq %.2e, ds %.2e\n", wt,
+                  wq, ws);
+      // Source-data sanity: the decoded control-point extremes. A wild range
+      // here means the source spline decode is broken, not the transcode.
+      float cp_min = 0, cp_max = 0;
+      for (const auto& block : anim->blocks) {
+        for (const auto& track : block.tracks) {
+          for (float v : track.position.control_points) {
+            cp_min = std::min(cp_min, v);
+            cp_max = std::max(cp_max, v);
+          }
+        }
+      }
+      std::printf("  source position control points span [%.3f, %.3f]\n", cp_min, cp_max);
+      for (size_t b = 0; b < anim->blocks.size(); ++b) {
+        const auto& tracks = anim->blocks[b].tracks;
+        for (size_t t = 0; t < tracks.size(); ++t) {
+          const auto& ch = tracks[t].position;
+          float lo = 0, hi = 0;
+          for (float v : ch.control_points) {
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+          }
+          if (hi > 1e6f || lo < -1e6f) {
+            std::printf("  WILD block %zu track %zu: degree %u, %zu cps, span [%.3g, %.3g]\n", b,
+                        t, ch.degree, ch.control_points.size() / 3, lo, hi);
+          }
+        }
+      }
+      auto blob = rec::bethesda::TranscodeToKinema(*anim, nullptr, nullptr);
+      auto clip = kinema::Clip::FromBlob(blob.data(), blob.size());
+      kinema::PoseArena arena(anim->num_tracks, 1);
+      kinema::PoseView pose = arena.Acquire();
+      std::vector<rec::bethesda::HkxTrackPose> reference;
+      constexpr int kIters = 20000;
+      volatile float sink = 0;
+      auto t0 = std::chrono::steady_clock::now();
+      for (int it = 0; it < kIters; ++it) {
+        clip->Sample(anim->duration * static_cast<float>(it % 100) / 100.0f, pose);
+        sink += pose.rotation[0].w;
+      }
+      auto t1 = std::chrono::steady_clock::now();
+      for (int it = 0; it < kIters; ++it) {
+        rec::bethesda::SampleAnimation(*anim, anim->duration * static_cast<float>(it % 100) / 100.0f,
+                                       &reference);
+        sink += reference[0].rotation[3];
+      }
+      auto t2 = std::chrono::steady_clock::now();
+      auto ns = [](auto a, auto b) {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count();
+      };
+      std::printf("  sample cost: kinema %lld ns/pose, spline sampler %lld ns/pose (%.1fx)\n",
+                  static_cast<long long>(ns(t0, t1) / kIters),
+                  static_cast<long long>(ns(t1, t2) / kIters),
+                  static_cast<double>(ns(t1, t2)) / static_cast<double>(std::max<long long>(ns(t0, t1), 1)));
     } else if (args[i] == "--animnames") {
       auto names = rec::bethesda::DecodeAnimationNames(*hkx);
       std::printf("%zu animation names:\n", names.size());

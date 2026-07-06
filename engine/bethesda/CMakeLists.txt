@@ -15,6 +15,7 @@ recreation_add_module(bethesda
   hkx_to_physics.cc
   hkx_anim.cc
   hkx_character.cc
+  hkx_to_kinema.cc
   animation_data.cc
   starfield_mesh.cc
   material_db.cc
@@ -26,4 +27,4 @@ recreation_add_module(bethesda
   head_morph.cc
 )
 
-target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset recreation::physics)
+target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset recreation::physics kinema::kinema)

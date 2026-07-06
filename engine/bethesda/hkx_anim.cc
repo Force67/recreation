@@ -120,6 +120,7 @@ void ReadVectorChannel(Cursor* cursor, u8 mask, u8 quant_bits, f32 default_value
   out->static_value[0] = out->static_value[1] = out->static_value[2] = default_value;
   u8 spline = (mask >> 4) & 0x7;
   u8 fixed = mask & 0x7;
+  spline &= static_cast<u8>(~fixed);  // static wins when both bits are set
   if (spline == 0) {
     for (int c = 0; c < 3; ++c) {
       if (fixed & (1 << c)) out->static_value[c] = cursor->F32();
@@ -132,6 +133,8 @@ void ReadVectorChannel(Cursor* cursor, u8 mask, u8 quant_bits, f32 default_value
   cursor->Align(4);
   f32 range_min[3] = {}, range_max[3] = {};
   f32 fixed_value[3] = {default_value, default_value, default_value};
+  // Per component, in x,y,z order: dynamic components carry a min/max pair,
+  // static ones a single float.
   for (int c = 0; c < 3; ++c) {
     if (spline & (1 << c)) {
       range_min[c] = cursor->F32();
@@ -175,7 +178,9 @@ bool ReadRotationChannel(Cursor* cursor, u8 mask, u8 quant, HkxAnimation::Channe
     u16 num_items = 0;
     u8 degree = 0;
     ReadSplineHeader(cursor, &num_items, &degree, &out->knots);
-    // The packed quats follow the knots directly; no alignment first.
+    // 40-bit quats follow the knots directly; 48-bit payloads align to 2
+    // (matching Havok's serializer).
+    if (quant == 2) cursor->Align(2);
     out->has_spline = true;
     out->degree = degree;
     out->control_points.resize(static_cast<size_t>(num_items + 1) * 4);
@@ -292,12 +297,17 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
     }
     cursor.at = mask_bytes;  // section is padded; track data starts here
 
+    const bool trace = std::getenv("REC_HKX_TRACE") != nullptr;
     for (u32 t = 0; t < animation.num_tracks; ++t) {
       const Mask& m = masks[t];
       u8 pos_quant = m.quant & 0x3;
       u8 rot_quant = (m.quant >> 2) & 0xF;
       u8 scale_quant = (m.quant >> 6) & 0x3;
       HkxAnimation::Track& track = block.tracks[t];
+      if (trace) {
+        std::fprintf(stderr, "track %u @ +0x%zx masks q=%02x p=%02x r=%02x s=%02x\n", t,
+                     cursor.at, m.quant, m.pos, m.rot, m.scale);
+      }
       ReadVectorChannel(&cursor, m.pos, pos_quant, 0.0f, &track.position);
       if (!ReadRotationChannel(&cursor, m.rot, rot_quant, &track.rotation)) {
         REC_WARN("hkx animation: unsupported rotation quantization {}", rot_quant);

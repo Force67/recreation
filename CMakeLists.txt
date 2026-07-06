@@ -324,6 +324,13 @@ if(RECREATION_NET)
   list(APPEND RECREATION_MODULES net)
 endif()
 
+# Self-contained reusable libraries (no engine dependencies).
+if(RECREATION_BUILD_TOOLS)
+  enable_testing()  # before the libs so their add_test calls register
+endif()
+set(KINEMA_BUILD_TESTS ${RECREATION_BUILD_TOOLS})
+add_subdirectory(libs/kinema)
+
 foreach(module ${RECREATION_MODULES})
   add_subdirectory(engine/${module})
 endforeach()

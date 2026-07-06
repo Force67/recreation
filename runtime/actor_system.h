@@ -10,6 +10,8 @@
 #include <memory>
 #include <unordered_map>
 
+#include <kinema/kinema.h>
+
 #include "anim/locomotion.h"
 #include "bethesda/animation_data.h"
 #include "bethesda/hkx_anim.h"
@@ -92,6 +94,10 @@ class ActorSystem {
     bethesda::AnimMotion motion;
     bool has_motion = false;
     std::vector<bethesda::ClipEvent> events;
+    // Transcoded kinema blob (uniform quantized keys): the fast runtime
+    // sampling path; the spline data above stays as the REC_KINEMA=0
+    // fallback and decode-time reference.
+    kinema::OwnedClip kinema;
   };
   // A behavior project's animation data: the parsed sidecar text files plus
   // the hkbCharacterStringData animation list (creature clip ids index it).
@@ -178,6 +184,10 @@ class ActorSystem {
   std::unordered_map<std::string, std::unique_ptr<bethesda::HkxSkeleton>> havok_skeletons_;
   std::vector<bethesda::HkxTrackPose> havok_sample_;
   std::unordered_map<std::string, std::unique_ptr<ProjectAnimData>> project_anim_data_;
+  // Kinema sampling scratch (SoA, sized to the widest clip seen this frame).
+  std::vector<kinema::Vec3> kinema_t_;
+  std::vector<kinema::Quat> kinema_r_;
+  std::vector<f32> kinema_s_;
 
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
