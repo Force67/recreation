@@ -112,6 +112,21 @@ class ActorSystem {
     anim::SkeletonPose pose;
     std::shared_ptr<const HavokClip> havok_clip;  // when set, replaces the gait
     f32 havok_time = 0;
+    // Debug clip cycling (REC_ANIM_B): a preloaded second clip the bringup actor
+    // alternates with every 4s, blended across the switch by the inertializer so
+    // the pose never pops. Both clips stay resident; the timer swaps which is
+    // active. Kinema-only (skipped under REC_KINEMA=0).
+    std::shared_ptr<const HavokClip> havok_clip_b;
+    bool clip_cycle = false;   // REC_ANIM_B armed
+    f32 clip_timer = 0;        // seconds since the last switch
+    kinema::Inertializer inert;    // decaying pose offset across a clip switch
+    anim::SkeletonPose inert_from;  // scratch: old clip's pose at the switch
+    anim::SkeletonPose inert_to;    // scratch: new clip's pose at its start
+    // Additive layer (REC_ANIM_ADDITIVE): a second clip composed on top of the
+    // base pose each tick (rot compose, trans add, scale multiply) over its own
+    // mapped bones. Loops on its own time accumulator. Kinema-only.
+    std::shared_ptr<const HavokClip> additive_clip;
+    f32 additive_time = 0;
     base::Vector<Mat4> bone_model;  // model-space per skeleton bone
     base::Vector<ActorPart> parts;
     bool animate = true;  // false = hold the bind pose
@@ -142,6 +157,16 @@ class ActorSystem {
   bool CreateCreatureActor(const std::string& name, const std::string& clip_override);
   bool PlayHavokClip(Actor& actor, const std::string& animation_path,
                      const std::string& skeleton_hkx_path, const std::string& actor_name);
+  // Decodes + transcodes a clip against the actor's skeleton without touching
+  // playback state (PlayHavokClip is this plus assign-and-play). Used to preload
+  // the clip-cycle / additive layers. Null on a missing or unmatched file.
+  std::shared_ptr<HavokClip> LoadHavokClip(const Actor& actor, const std::string& animation_path,
+                                           const std::string& skeleton_hkx_path,
+                                           const std::string& actor_name);
+  // Samples a clip at `time` and maps its tracks into skeleton-bone space (bind
+  // pose for untouched bones), through the same kinema/spline paths as the tick.
+  void SampleHavokClipToPose(const Actor& actor, const HavokClip& clip, f32 time,
+                             anim::SkeletonPose* out);
   const bethesda::HkxSkeleton* LoadHavokSkeleton(const std::string& skeleton_hkx_path);
   // Cached animationdata sidecars for an actor folder ("character", "troll").
   const ProjectAnimData* LoadProjectAnimData(const std::string& actor_name);

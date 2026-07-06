@@ -27,13 +27,18 @@ BodyId PhysicsWorld::AddDynamicShape(const ShapeDesc&, const Vec3&, const f32[4]
 }
 i32 PhysicsWorld::CreateBodyFilterGroup(u32) { return -1; }
 void PhysicsWorld::DisableFilterPair(i32, u32, u32) {}
-bool PhysicsWorld::AddSwingTwistJoint(BodyId, BodyId, const f32[12], const f32[12], f32, f32,
-                                      f32, f32, f32, f32) {
-  return false;
+JointId PhysicsWorld::AddSwingTwistJoint(BodyId, BodyId, const f32[12], const f32[12], f32, f32,
+                                         f32, f32, f32, f32) {
+  return 0;
 }
-bool PhysicsWorld::AddHingeJoint(BodyId, BodyId, const f32[12], const f32[12], f32, f32, f32) {
-  return false;
+JointId PhysicsWorld::AddHingeJoint(BodyId, BodyId, const f32[12], const f32[12], f32, f32, f32) {
+  return 0;
 }
+void PhysicsWorld::EnableJointMotors(JointId, f32, f32) {}
+void PhysicsWorld::SetJointMotorTarget(JointId, const f32[4]) {}
+bool PhysicsWorld::GetJointOrientation(JointId, f32[4]) const { return false; }
+void PhysicsWorld::ApplyImpulse(BodyId, const Vec3&) {}
+void PhysicsWorld::SetBodyKinematic(BodyId) {}
 BodyId PhysicsWorld::AddDynamicSphere(const Vec3&, f32, f32, const Vec3&) { return 0; }
 BodyId PhysicsWorld::AddKinematicCapsule(const Vec3&, f32, f32) { return 0; }
 void PhysicsWorld::SetBodyPosition(BodyId, const Vec3&, const f32[4]) {}

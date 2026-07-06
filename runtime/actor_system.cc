@@ -29,6 +29,12 @@ static base::Option<bool> Autowalk{"autowalk", false, "REC_AUTOWALK"};
 // REC_ANIM=<internal .hkx path> selects the clip the actor bringup scene
 // plays (default: a long idle fidget).
 static base::Option<const char*> AnimClipPath{"anim.clip", nullptr, "REC_ANIM"};
+// REC_ANIM_B=<internal .hkx path>: a second clip the bringup actor alternates
+// with every 4s, inertialized across the switch (no pose pop). Kinema-only.
+static base::Option<const char*> AnimClipPathB{"anim.clip_b", nullptr, "REC_ANIM_B"};
+// REC_ANIM_ADDITIVE=<internal .hkx path>: an additive clip layered on top of the
+// base pose each tick over its own mapped bones. Kinema-only.
+static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "REC_ANIM_ADDITIVE"};
 static base::Option<bool> Player{"player", false, "REC_PLAYER"};
 // Strand hair on actors: build a simulated groom from the NPC's hair nif and ride
 // it on the head bone. Off falls back to the flat card the hair part uploads.
@@ -38,6 +44,17 @@ static base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
 // falls back to direct spline evaluation for A/B comparison.
 static base::Option<bool> UseKinema{"anim.kinema", true, "REC_KINEMA"};
 static base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
+
+// rec's Vec3/Quat share layout with kinema's (x,y,z / x,y,z,w), so a bone-space
+// SkeletonPose can back a kinema PoseView with no copy — the inertializer and
+// additive layering work directly on actor.pose's arrays.
+static_assert(sizeof(Vec3) == sizeof(kinema::Vec3), "Vec3 layout mismatch");
+static_assert(sizeof(Quat) == sizeof(kinema::Quat), "Quat layout mismatch");
+static kinema::PoseView KinPoseView(anim::SkeletonPose& p) {
+  return kinema::PoseView{reinterpret_cast<kinema::Vec3*>(p.translation.data()),
+                          reinterpret_cast<kinema::Quat*>(p.rotation.data()), p.scale.data(),
+                          p.size()};
+}
 
 ActorSystem::ActorSystem(EngineContext& ctx)
     : ctx_(ctx),
@@ -708,25 +725,25 @@ void ActorSystem::ResolveClipMotion(const ProjectAnimData& project,
   }
 }
 
-bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
-                                const std::string& skeleton_hkx_path,
-                                const std::string& actor_name) {
+std::shared_ptr<ActorSystem::HavokClip> ActorSystem::LoadHavokClip(
+    const Actor& actor, const std::string& animation_path, const std::string& skeleton_hkx_path,
+    const std::string& actor_name) {
   const bethesda::HkxSkeleton* havok_skeleton = LoadHavokSkeleton(skeleton_hkx_path);
-  if (!havok_skeleton) return false;
+  if (!havok_skeleton) return nullptr;
   auto bytes = vfs_.Read(asset::NormalizePath(animation_path));
   if (!bytes) {
     REC_ERROR("animation not found: {}", animation_path);
-    return false;
+    return nullptr;
   }
   auto hkx = bethesda::HkxFile::Parse(bytes->data(), bytes->size());
   if (!hkx) {
     REC_ERROR("{} is not a supported havok packfile", animation_path);
-    return false;
+    return nullptr;
   }
   auto animation = bethesda::DecodeAnimation(*hkx);
   if (!animation) {
     REC_ERROR("{} has no decodable spline-compressed animation", animation_path);
-    return false;
+    return nullptr;
   }
 
   auto clip = std::make_shared<HavokClip>();
@@ -748,7 +765,7 @@ bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
   if (matched == 0) {
     REC_INFO("havok clip {}: {} tracks, none matched the skeleton", animation_path,
              animation->num_tracks);
-    return false;
+    return nullptr;
   }
   clip->animation = std::move(*animation);
   if (const ProjectAnimData* project = LoadProjectAnimData(actor_name)) {
@@ -761,10 +778,51 @@ bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
            clip->has_motion ? "yes" : "no", clip->events.size(),
            clip->kinema ? clip->kinema.bytes().size() / 1024 : 0,
            clip->animation.additive ? ", ADDITIVE (played absolute)" : "");
+  return clip;
+}
+
+bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
+                                const std::string& skeleton_hkx_path,
+                                const std::string& actor_name) {
+  auto clip = LoadHavokClip(actor, animation_path, skeleton_hkx_path, actor_name);
+  if (!clip) return false;
   actor.foot_ik = false;  // the clip owns the feet
   actor.havok_time = 0;
   actor.havok_clip = std::move(clip);
   return true;
+}
+
+void ActorSystem::SampleHavokClipToPose(const Actor& actor, const HavokClip& clip, f32 time,
+                                        anim::SkeletonPose* out) {
+  out->ResetToBind(actor.skeleton);
+  if (UseKinema && clip.kinema) {
+    const u32 tracks = clip.kinema->num_tracks();
+    if (kinema_t_.size() < tracks) {
+      kinema_t_.resize(tracks);
+      kinema_r_.resize(tracks);
+      kinema_s_.resize(tracks);
+    }
+    kinema::PoseView pose{kinema_t_.data(), kinema_r_.data(), kinema_s_.data(), tracks};
+    clip.kinema->Sample(time, pose);
+    for (u32 t = 0; t < tracks && t < clip.track_to_skeleton.size(); ++t) {
+      i32 bone = clip.track_to_skeleton[t];
+      if (bone < 0) continue;
+      out->translation[bone] = Vec3{kinema_t_[t].x, kinema_t_[t].y, kinema_t_[t].z};
+      out->rotation[bone] = Quat{kinema_r_[t].x, kinema_r_[t].y, kinema_r_[t].z, kinema_r_[t].w};
+      out->scale[bone] = kinema_s_[t];
+    }
+  } else {
+    bethesda::SampleAnimation(clip.animation, time, &havok_sample_);
+    for (u32 t = 0; t < havok_sample_.size() && t < clip.track_to_skeleton.size(); ++t) {
+      i32 bone = clip.track_to_skeleton[t];
+      if (bone < 0) continue;
+      const bethesda::HkxTrackPose& sample = havok_sample_[t];
+      out->translation[bone] = sample.translation;
+      out->rotation[bone] =
+          Quat{sample.rotation[0], sample.rotation[1], sample.rotation[2], sample.rotation[3]};
+      out->scale[bone] = sample.scale;
+    }
+  }
 }
 
 // Spawns a creature rig (its own skeleton.nif + skinned mesh + skeleton.hkx)
@@ -871,8 +929,35 @@ bool ActorSystem::CreateSkyrimActor() {
   std::string clip_path = clip_override && clip_override[0]
                               ? clip_override
                               : "meshes/actors/character/animations/mt_idle_b_long_left.hkx";
-  PlayHavokClip(actors_[player_actor_], clip_path,
-                "meshes/actors/character/character assets/skeleton.hkx", "character");
+  const std::string skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
+  PlayHavokClip(actors_[player_actor_], clip_path, skel_hkx, "character");
+  // Debug clip cycling: preload a second clip and arm the 4s inertialized swap.
+  if (const char* clip_b = AnimClipPathB.get(); clip_b && clip_b[0]) {
+    Actor& a = actors_[player_actor_];
+    if (auto second = LoadHavokClip(a, clip_b, skel_hkx, "character")) {
+      a.havok_clip_b = std::move(second);
+      a.inert.Init(static_cast<u32>(a.skeleton.bones.size()));
+      a.inert_from.ResetToBind(a.skeleton);
+      a.inert_to.ResetToBind(a.skeleton);
+      a.clip_cycle = true;
+      a.clip_timer = 0;
+      REC_INFO("anim clip-cycle: alternating base clip with {} every 4s (inertialized)", clip_b);
+    }
+  }
+  // Additive layer: preload an additive clip composed on top of the base pose.
+  if (const char* add = AnimAdditivePath.get(); add && add[0]) {
+    Actor& a = actors_[player_actor_];
+    if (auto layer = LoadHavokClip(a, add, skel_hkx, "character")) {
+      u32 mapped = 0;
+      for (i32 b : layer->track_to_skeleton)
+        if (b >= 0) ++mapped;
+      a.additive_clip = std::move(layer);
+      a.additive_time = 0;
+      REC_INFO("anim additive layer attached: {} ({} tracks, {} mapped, additive={})", add,
+               a.additive_clip->animation.num_tracks, mapped,
+               a.additive_clip->animation.additive ? "yes" : "no");
+    }
+  }
   REC_INFO("skyrim actor ready ({} body parts); press T to walk it",
            actors_[player_actor_].parts.size());
   if (Autowalk) {
@@ -901,8 +986,23 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
     actor.speed = gait->speed;
 #endif
   if (actor.havok_clip) {
+    const bool kin = UseKinema && actor.havok_clip->kinema;
+    // Debug clip cycling (kinema-only): every 4s, capture the pose the outgoing
+    // clip shows now (`from`) and the pose the incoming clip shows at its start
+    // (`to`), swap which clip is active, and hand the from-to offset to the
+    // inertializer so the following ticks decay it in — no pose pop.
+    if (kin && actor.clip_cycle && actor.havok_clip_b) {
+      actor.clip_timer += dt;
+      if (actor.clip_timer >= 4.0f) {
+        actor.clip_timer -= 4.0f;
+        SampleHavokClipToPose(actor, *actor.havok_clip, actor.havok_time, &actor.inert_from);
+        std::swap(actor.havok_clip, actor.havok_clip_b);
+        actor.havok_time = 0;
+        SampleHavokClipToPose(actor, *actor.havok_clip, 0.0f, &actor.inert_to);
+        actor.inert.Begin(KinPoseView(actor.inert_from), KinPoseView(actor.inert_to), 0.25f);
+      }
+    }
     const HavokClip& clip = *actor.havok_clip;
-    const bool kin = UseKinema && clip.kinema;
     f32 duration = std::max(clip.animation.duration, 1.0f / 30.0f);
     f32 prev_time = actor.havok_time;
     actor.havok_time = std::fmod(actor.havok_time + dt, duration);
@@ -940,34 +1040,36 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
         if (fired) REC_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
       }
     }
-    actor.pose.ResetToBind(actor.skeleton);
-    if (kin) {
-      const u32 tracks = clip.kinema->num_tracks();
+    SampleHavokClipToPose(actor, clip, actor.havok_time, &actor.pose);
+    // Decay the captured clip-switch offset onto the freshly sampled pose so the
+    // transition reads as a blend rather than a snap (kinema-only).
+    if (kin && actor.inert.active()) {
+      kinema::PoseView pv = KinPoseView(actor.pose);
+      actor.inert.Apply(pv, dt);
+    }
+    // Additive layer (kinema-only): sample the layer on its own looping clock and
+    // compose it onto the mapped bones (rotation composes, translation adds,
+    // scale multiplies) at full weight, matching kinema::ApplyAdditive.
+    if (kin && actor.additive_clip && actor.additive_clip->kinema) {
+      const HavokClip& add = *actor.additive_clip;
+      f32 add_dur = std::max(add.animation.duration, 1.0f / 30.0f);
+      actor.additive_time = std::fmod(actor.additive_time + dt, add_dur);
+      const u32 tracks = add.kinema->num_tracks();
       if (kinema_t_.size() < tracks) {
         kinema_t_.resize(tracks);
         kinema_r_.resize(tracks);
         kinema_s_.resize(tracks);
       }
       kinema::PoseView pose{kinema_t_.data(), kinema_r_.data(), kinema_s_.data(), tracks};
-      clip.kinema->Sample(actor.havok_time, pose);
-      for (u32 t = 0; t < tracks && t < clip.track_to_skeleton.size(); ++t) {
-        i32 bone = clip.track_to_skeleton[t];
+      add.kinema->Sample(actor.additive_time, pose);
+      for (u32 t = 0; t < tracks && t < add.track_to_skeleton.size(); ++t) {
+        i32 bone = add.track_to_skeleton[t];
         if (bone < 0) continue;
-        actor.pose.translation[bone] = Vec3{kinema_t_[t].x, kinema_t_[t].y, kinema_t_[t].z};
-        actor.pose.rotation[bone] =
-            Quat{kinema_r_[t].x, kinema_r_[t].y, kinema_r_[t].z, kinema_r_[t].w};
-        actor.pose.scale[bone] = kinema_s_[t];
-      }
-    } else {
-      bethesda::SampleAnimation(clip.animation, actor.havok_time, &havok_sample_);
-      for (u32 t = 0; t < havok_sample_.size() && t < clip.track_to_skeleton.size(); ++t) {
-        i32 bone = clip.track_to_skeleton[t];
-        if (bone < 0) continue;
-        const bethesda::HkxTrackPose& sample = havok_sample_[t];
-        actor.pose.translation[bone] = sample.translation;
-        actor.pose.rotation[bone] = Quat{sample.rotation[0], sample.rotation[1],
-                                         sample.rotation[2], sample.rotation[3]};
-        actor.pose.scale[bone] = sample.scale;
+        const Quat ar{kinema_r_[t].x, kinema_r_[t].y, kinema_r_[t].z, kinema_r_[t].w};
+        actor.pose.rotation[bone] = Normalize(actor.pose.rotation[bone] * ar);
+        actor.pose.translation[bone] =
+            actor.pose.translation[bone] + Vec3{kinema_t_[t].x, kinema_t_[t].y, kinema_t_[t].z};
+        actor.pose.scale[bone] = actor.pose.scale[bone] * kinema_s_[t];
       }
     }
   } else {

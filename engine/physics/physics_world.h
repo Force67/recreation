@@ -15,6 +15,8 @@ namespace rec::physics {
 using BodyId = u64;
 // Opaque character-controller handle; 0 is invalid.
 using CharacterId = u64;
+// Opaque joint/constraint handle; 0 is invalid.
+using JointId = u64;
 
 // Jolt-backed rigid body world. Fixed-step simulation driven from the sim
 // stage; dynamic bodies report their transforms back for ECS sync. Bodies
@@ -71,11 +73,42 @@ class PhysicsWorld {
   // twist/hinge axis, column 1 = the plane/normal axis, in desc units
   // (scaled by `scale` like the shapes). Angles in radians. The swing-twist
   // joint approximates Havok's asymmetric plane limit with a symmetric one.
-  bool AddSwingTwistJoint(BodyId a, BodyId b, const f32 frame_a[12], const f32 frame_b[12],
-                          f32 scale, f32 twist_min, f32 twist_max, f32 cone_max,
-                          f32 plane_min, f32 plane_max);
-  bool AddHingeJoint(BodyId a, BodyId b, const f32 frame_a[12], const f32 frame_b[12], f32 scale,
-                     f32 angle_min, f32 angle_max);
+  // Return a JointId handle (0 on failure) that the motor/pose API below
+  // addresses; also usable as a bool for the plain "did it stick" check.
+  JointId AddSwingTwistJoint(BodyId a, BodyId b, const f32 frame_a[12], const f32 frame_b[12],
+                             f32 scale, f32 twist_min, f32 twist_max, f32 cone_max,
+                             f32 plane_min, f32 plane_max);
+  JointId AddHingeJoint(BodyId a, BodyId b, const f32 frame_a[12], const f32 frame_b[12], f32 scale,
+                        f32 angle_min, f32 angle_max);
+
+  // Powered-ragdoll motor drive (the "physical hit reaction" primitive). A
+  // joint's motor is switched to position mode so the constraint is pulled
+  // toward a target relative orientation by a critically-tunable spring
+  // (`frequency` in Hz, `damping` ~1.0 for no overshoot). For swing-twist
+  // joints both the swing and twist motors are driven; for hinges the single
+  // hinge motor. Off by default, so unpowered ragdolls (plain drops) are
+  // unaffected.
+  void EnableJointMotors(JointId joint, f32 frequency, f32 damping);
+  // Sets the motor target as a CONSTRAINT-SPACE orientation quaternion
+  // (x,y,z,w): the rotation q that takes body A's constraint frame to body
+  // B's, i.e. the pose the drive holds. For swing-twist this is passed to
+  // Jolt's SetTargetOrientationCS; for hinges the twist angle about the hinge
+  // axis is extracted from the quaternion and used as the target angle. Feed
+  // GetJointOrientation()'s spawn-time reading here to hold the bind pose.
+  void SetJointMotorTarget(JointId joint, const f32 target_quat[4]);
+  // Reads a joint's CURRENT relative orientation in constraint space as a
+  // quaternion (x,y,z,w); hinges report a pure rotation about the hinge axis
+  // by their current angle. Used to snapshot the bind-pose target and to
+  // measure motor tracking error. False on an invalid handle.
+  bool GetJointOrientation(JointId joint, f32 out_quat[4]) const;
+
+  // Applies an instantaneous impulse (kg*m/s) at a body's centre of mass and
+  // wakes it. Drives the "get hit" disturbance for the powered-ragdoll test.
+  void ApplyImpulse(BodyId id, const Vec3& impulse);
+  // Switches a body to kinematic (infinite mass, immovable, immune to
+  // gravity/forces) while keeping its layer and collision group. Used to pin
+  // a ragdoll's root so the figure hangs from it like a puppet.
+  void SetBodyKinematic(BodyId id);
 
   // Dynamic bodies; density in kg/m^3 (wood floats, stone sinks).
   BodyId AddDynamicBox(const Vec3& position, const Vec3& half_extent, f32 density,

@@ -9,6 +9,7 @@
 // Data-dependent (real Skyrim archives); not run in CI.
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -556,6 +557,214 @@ int main(int argc, char** argv) {
           spawned, joints, max_separation * 1000.0f, min_y, max_y, nan ? "YES" : "no",
           pass ? "PASS" : "FAIL");
       if (!pass) return 1;
+    } else if (args[i] == "--ragdolldrive") {
+      // Powered-ragdoll motor drive test (the "physical hit reaction"
+      // primitive): build the same character ragdoll as --ragdoll, pin the
+      // root body kinematic so the figure hangs like a puppet, switch every
+      // joint's motor to position mode targeting the bind pose, and verify the
+      // motors hold that pose against gravity (phase A) and recover after a
+      // hand is yanked by a strong impulse (phase B). Deterministic: fixed dt,
+      // no randomness.
+      auto physics = rec::bethesda::DecodePhysics(*hkx);
+      rec::physics::PhysicsWorld world;
+      if (!world.Initialize()) {
+        std::fprintf(stderr, "jolt world init failed (stub linked?)\n");
+        return 1;
+      }
+      constexpr rec::f32 kScale = 0.01428f;  // game units -> meters
+      constexpr float kRad2Deg = 57.29577951f;
+      // Motor tuning: a critically-damped position spring stiff enough to hold
+      // the limb subtrees against gravity without visible overshoot. Optional
+      // "--ragdolldrive <freq> <damp>" overrides for iteration.
+      rec::f32 kFrequency = 20.0f;  // Hz
+      rec::f32 kDamping = 1.0f;
+      if (i + 1 < args.size() && args[i + 1][0] != '-') {
+        kFrequency = std::strtof(args[++i].c_str(), nullptr);
+      }
+      if (i + 1 < args.size() && args[i + 1][0] != '-') {
+        kDamping = std::strtof(args[++i].c_str(), nullptr);
+      }
+      const rec::Quat kZupToYup{-0.70710678f, 0.0f, 0.0f, 0.70710678f};  // -90 deg about X
+      world.AddStaticBox({0.0f, -10.0f, 0.0f}, {50.0f, 0.5f, 50.0f});  // floor far below
+
+      std::vector<rec::physics::BodyId> ids(physics.bodies.size(), 0);
+      rec::i32 filter = world.CreateBodyFilterGroup(static_cast<rec::u32>(physics.bodies.size()));
+      int spawned = 0;
+      for (size_t b = 0; b < physics.bodies.size(); ++b) {
+        const auto& body = physics.bodies[b];
+        if (body.mass <= 0.0f) continue;  // keyframed helpers (CharacterBumper)
+        rec::physics::ShapeDesc desc = rec::bethesda::ToShapeDesc(body.shape);
+        rec::Vec3 pos = rec::Rotate(kZupToYup, body.position * kScale);
+        pos.y += 2.0f;  // hang height, clear of the floor
+        rec::Quat body_rot{body.rotation[0], body.rotation[1], body.rotation[2],
+                           body.rotation[3]};
+        rec::Quat rot = kZupToYup * body_rot;
+        rec::f32 rot4[4] = {rot.x, rot.y, rot.z, rot.w};
+        ids[b] = world.AddDynamicShape(desc, pos, rot4, kScale, body.mass, body.friction,
+                                       body.restitution, filter, static_cast<rec::u32>(b));
+        if (ids[b] != 0) ++spawned;
+      }
+      // Full intra-ragdoll no-collide, as in --ragdoll.
+      for (size_t x = 0; x < physics.bodies.size(); ++x) {
+        for (size_t y = x + 1; y < physics.bodies.size(); ++y) {
+          world.DisableFilterPair(filter, static_cast<rec::u32>(x), static_cast<rec::u32>(y));
+        }
+      }
+
+      // Joints, one JointId per usable constraint. Also record which body is a
+      // constraint child (body_a) / parent (body_b) to find the root and the
+      // extremities.
+      std::vector<rec::physics::JointId> joint_ids(physics.constraints.size(), 0);
+      std::vector<int> parent_joint(physics.bodies.size(), -1);  // child body -> constraint index
+      std::vector<bool> is_child(physics.bodies.size(), false);
+      std::vector<bool> is_parent(physics.bodies.size(), false);
+      int joints = 0;
+      for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
+        const auto& c = physics.constraints[ci];
+        if (c.body_a < 0 || c.body_b < 0) continue;
+        if (ids[c.body_a] == 0 || ids[c.body_b] == 0) continue;
+        rec::physics::JointId jid = 0;
+        if (c.kind == rec::bethesda::HkxConstraint::Kind::kRagdoll) {
+          jid = world.AddSwingTwistJoint(ids[c.body_a], ids[c.body_b], c.frame_a, c.frame_b,
+                                         kScale, c.twist_min, c.twist_max, c.cone_max,
+                                         c.plane_min, c.plane_max);
+        } else if (c.kind == rec::bethesda::HkxConstraint::Kind::kLimitedHinge) {
+          jid = world.AddHingeJoint(ids[c.body_a], ids[c.body_b], c.frame_a, c.frame_b, kScale,
+                                    c.hinge_min, c.hinge_max);
+        }
+        if (jid != 0) {
+          joint_ids[ci] = jid;
+          parent_joint[c.body_a] = static_cast<int>(ci);
+          is_child[c.body_a] = true;
+          is_parent[c.body_b] = true;
+          ++joints;
+        }
+      }
+
+      // Pin the root(s): a spawned body that parents a joint but is never a
+      // child (the pelvis / COM). The figure then hangs from it.
+      int frozen = 0;
+      for (size_t b = 0; b < physics.bodies.size(); ++b) {
+        if (ids[b] != 0 && is_parent[b] && !is_child[b]) {
+          world.SetBodyKinematic(ids[b]);
+          ++frozen;
+        }
+      }
+
+      // Enable every motor and target the bind pose (each joint's spawn-time
+      // constraint-space orientation).
+      std::vector<std::array<rec::f32, 4>> target(physics.constraints.size(), {0, 0, 0, 1});
+      for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
+        if (joint_ids[ci] == 0) continue;
+        world.EnableJointMotors(joint_ids[ci], kFrequency, kDamping);
+        world.GetJointOrientation(joint_ids[ci], target[ci].data());
+        world.SetJointMotorTarget(joint_ids[ci], target[ci].data());
+      }
+
+      auto joint_error_deg = [&](size_t ci) -> float {
+        rec::f32 cur[4];
+        if (!world.GetJointOrientation(joint_ids[ci], cur)) return 0.0f;
+        float dot = std::abs(cur[0] * target[ci][0] + cur[1] * target[ci][1] +
+                             cur[2] * target[ci][2] + cur[3] * target[ci][3]);
+        dot = std::min(1.0f, dot);
+        return 2.0f * std::acos(dot) * kRad2Deg;
+      };
+      auto pose_error = [&](float* mean, float* max) {
+        float sum = 0, mx = 0;
+        int n = 0;
+        for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
+          if (joint_ids[ci] == 0) continue;
+          float e = joint_error_deg(ci);
+          sum += e;
+          mx = std::max(mx, e);
+          ++n;
+        }
+        *mean = n ? sum / static_cast<float>(n) : 0.0f;
+        *max = mx;
+      };
+      auto any_nan = [&]() {
+        for (size_t b = 0; b < physics.bodies.size(); ++b) {
+          if (ids[b] == 0) continue;
+          rec::Vec3 pos;
+          rec::f32 rot4[4];
+          world.GetBodyTransform(ids[b], &pos, rot4);
+          if (pos.x != pos.x || pos.y != pos.y || pos.z != pos.z) return true;
+        }
+        return false;
+      };
+
+      // Phase A: hold the bind pose against gravity. Metric at 120 steps.
+      float meanA = 0, maxA = 0;
+      bool nan = false;
+      for (int step = 0; step < 240; ++step) {
+        world.Update(1.0f / 60.0f);
+        if (step == 119) pose_error(&meanA, &maxA);
+        nan = nan || any_nan();
+      }
+      float mean_settled = 0, max_settled = 0;
+      pose_error(&mean_settled, &max_settled);
+
+      // Pick an extremity to hit: prefer a hand, else the first spawned leaf
+      // (a child that parents nothing). Its ancestor chain (up to 3 joints) is
+      // the "disturbed arm".
+      int hit_body = -1;
+      for (size_t b = 0; b < physics.bodies.size(); ++b) {
+        if (ids[b] != 0 && physics.bodies[b].name.find("Hand") != std::string::npos) {
+          hit_body = static_cast<int>(b);
+          break;
+        }
+      }
+      if (hit_body < 0) {
+        for (size_t b = 0; b < physics.bodies.size(); ++b) {
+          if (ids[b] != 0 && is_child[b] && !is_parent[b]) {
+            hit_body = static_cast<int>(b);
+            break;
+          }
+        }
+      }
+      std::vector<size_t> arm_joints;
+      for (int cur = hit_body; cur >= 0 && arm_joints.size() < 3;) {
+        int ci = parent_joint[cur];
+        if (ci < 0 || joint_ids[ci] == 0) break;
+        arm_joints.push_back(static_cast<size_t>(ci));
+        cur = physics.constraints[ci].body_b;
+      }
+      auto arm_error = [&](float* max) {
+        float mx = 0;
+        for (size_t ci : arm_joints) mx = std::max(mx, joint_error_deg(ci));
+        *max = mx;
+      };
+
+      // Phase B: yank the extremity, then let the motors recover.
+      float arm_before = 0, arm_peak = 0, arm_final = 0;
+      arm_error(&arm_before);
+      if (hit_body >= 0) {
+        // Strong shove scaled to the hit body's mass so heavier skeletons get
+        // a comparable velocity kick (~8 m/s) rather than a fixed impulse.
+        rec::f32 kick = physics.bodies[hit_body].mass * 8.0f;
+        world.ApplyImpulse(ids[hit_body], {0.0f, 0.0f, -kick});
+      }
+      for (int step = 0; step < 180; ++step) {
+        world.Update(1.0f / 60.0f);
+        float e = 0;
+        arm_error(&e);
+        arm_peak = std::max(arm_peak, e);
+        nan = nan || any_nan();
+      }
+      arm_error(&arm_final);
+
+      const char* hit_name = hit_body >= 0 ? physics.bodies[hit_body].name.c_str() : "(none)";
+      bool passA = meanA < 15.0f;
+      bool passB = hit_body >= 0 && arm_peak > arm_before + 2.0f && arm_final < 20.0f && !nan;
+      std::printf(
+          "ragdolldrive: %d bodies, %d joints, %d pinned, motors %.1fHz d%.1f\n"
+          "  phase A (hold): mean joint err %.1f deg @120, %.1f deg settled (max %.1f) -> %s\n"
+          "  phase B (hit '%s', %zu arm joints): before %.1f, peak %.1f, final %.1f deg, "
+          "nan %s -> %s\n",
+          spawned, joints, frozen, kFrequency, kDamping, meanA, mean_settled, max_settled,
+          passA ? "PASS" : "FAIL", hit_name, arm_joints.size(), arm_before, arm_peak, arm_final,
+          nan ? "YES" : "no", passB ? "PASS" : "FAIL");
+      if (!passA || !passB) return 1;
     } else if (args[i] == "--jolt") {
       // Smoke test: lower every decoded body's shape into a live Jolt world
       // (game-unit scale) and report what stuck.

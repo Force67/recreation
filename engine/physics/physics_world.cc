@@ -1,5 +1,6 @@
 #include "physics/physics_world.h"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 
@@ -25,6 +26,8 @@
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/GroupFilterTable.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/MotorSettings.h>
+#include <Jolt/Physics/Constraints/SpringSettings.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -107,6 +110,14 @@ struct PhysicsWorld::Impl {
     f32 vy = 0;  // tracked vertical velocity (gravity + jump)
   };
   base::Vector<CharacterEntry> characters;
+  // Typed handles to created joints so the motor/pose API can address them;
+  // JointId is index + 1. `hinge` selects the downcast (HingeConstraint vs
+  // SwingTwistConstraint) at use.
+  struct JointEntry {
+    JPH::Ref<JPH::Constraint> constraint;
+    bool hinge = false;
+  };
+  base::Vector<JointEntry> joints;
 };
 
 PhysicsWorld::PhysicsWorld() = default;
@@ -463,11 +474,11 @@ JPH::Body* LockBody(JPH::PhysicsSystem& system, JPH::BodyID id) {
 
 }  // namespace
 
-bool PhysicsWorld::AddSwingTwistJoint(BodyId a, BodyId b, const f32 frame_a[12],
-                                      const f32 frame_b[12], f32 scale, f32 twist_min,
-                                      f32 twist_max, f32 cone_max, f32 plane_min,
-                                      f32 plane_max) {
-  if (!impl_ || a == 0 || b == 0) return false;
+JointId PhysicsWorld::AddSwingTwistJoint(BodyId a, BodyId b, const f32 frame_a[12],
+                                         const f32 frame_b[12], f32 scale, f32 twist_min,
+                                         f32 twist_max, f32 cone_max, f32 plane_min,
+                                         f32 plane_max) {
+  if (!impl_ || a == 0 || b == 0) return 0;
   JPH::BodyID body_a(static_cast<JPH::uint32>(a - 1));
   JPH::BodyID body_b(static_cast<JPH::uint32>(b - 1));
   JPH::BodyInterface& bodies = impl_->system->GetBodyInterface();
@@ -490,15 +501,20 @@ bool PhysicsWorld::AddSwingTwistJoint(BodyId a, BodyId b, const f32 frame_a[12],
 
   JPH::Body* pa = LockBody(*impl_->system, body_a);
   JPH::Body* pb = LockBody(*impl_->system, body_b);
-  if (!pa || !pb) return false;
-  impl_->system->AddConstraint(settings.Create(*pa, *pb));
-  return true;
+  if (!pa || !pb) return 0;
+  JPH::TwoBodyConstraint* constraint = settings.Create(*pa, *pb);
+  impl_->system->AddConstraint(constraint);
+  Impl::JointEntry entry;
+  entry.constraint = constraint;
+  entry.hinge = false;
+  impl_->joints.push_back(std::move(entry));
+  return static_cast<JointId>(impl_->joints.size());
 }
 
-bool PhysicsWorld::AddHingeJoint(BodyId a, BodyId b, const f32 frame_a[12],
-                                 const f32 frame_b[12], f32 scale, f32 angle_min,
-                                 f32 angle_max) {
-  if (!impl_ || a == 0 || b == 0) return false;
+JointId PhysicsWorld::AddHingeJoint(BodyId a, BodyId b, const f32 frame_a[12],
+                                    const f32 frame_b[12], f32 scale, f32 angle_min,
+                                    f32 angle_max) {
+  if (!impl_ || a == 0 || b == 0) return 0;
   JPH::BodyID body_a(static_cast<JPH::uint32>(a - 1));
   JPH::BodyID body_b(static_cast<JPH::uint32>(b - 1));
   JPH::BodyInterface& bodies = impl_->system->GetBodyInterface();
@@ -515,9 +531,81 @@ bool PhysicsWorld::AddHingeJoint(BodyId a, BodyId b, const f32 frame_a[12],
 
   JPH::Body* pa = LockBody(*impl_->system, body_a);
   JPH::Body* pb = LockBody(*impl_->system, body_b);
-  if (!pa || !pb) return false;
-  impl_->system->AddConstraint(settings.Create(*pa, *pb));
+  if (!pa || !pb) return 0;
+  JPH::TwoBodyConstraint* constraint = settings.Create(*pa, *pb);
+  impl_->system->AddConstraint(constraint);
+  Impl::JointEntry entry;
+  entry.constraint = constraint;
+  entry.hinge = true;
+  impl_->joints.push_back(std::move(entry));
+  return static_cast<JointId>(impl_->joints.size());
+}
+
+void PhysicsWorld::EnableJointMotors(JointId joint, f32 frequency, f32 damping) {
+  if (!impl_ || joint == 0 || joint > impl_->joints.size()) return;
+  Impl::JointEntry& entry = impl_->joints[joint - 1];
+  JPH::SpringSettings spring(JPH::ESpringMode::FrequencyAndDamping, frequency, damping);
+  if (entry.hinge) {
+    auto* hinge = static_cast<JPH::HingeConstraint*>(entry.constraint.GetPtr());
+    hinge->GetMotorSettings().mSpringSettings = spring;
+    hinge->SetMotorState(JPH::EMotorState::Position);
+  } else {
+    auto* st = static_cast<JPH::SwingTwistConstraint*>(entry.constraint.GetPtr());
+    st->GetSwingMotorSettings().mSpringSettings = spring;
+    st->GetTwistMotorSettings().mSpringSettings = spring;
+    st->SetSwingMotorState(JPH::EMotorState::Position);
+    st->SetTwistMotorState(JPH::EMotorState::Position);
+  }
+}
+
+void PhysicsWorld::SetJointMotorTarget(JointId joint, const f32 target_quat[4]) {
+  if (!impl_ || joint == 0 || joint > impl_->joints.size()) return;
+  Impl::JointEntry& entry = impl_->joints[joint - 1];
+  JPH::Quat q(target_quat[0], target_quat[1], target_quat[2], target_quat[3]);
+  if (q.LengthSq() < 1e-8f) q = JPH::Quat::sIdentity();
+  q = q.Normalized();
+  if (entry.hinge) {
+    auto* hinge = static_cast<JPH::HingeConstraint*>(entry.constraint.GetPtr());
+    // Twist angle about the hinge axis (constraint-space X) of the target.
+    f32 angle = 2.0f * std::atan2(q.GetX(), q.GetW());
+    hinge->SetTargetAngle(angle);
+  } else {
+    auto* st = static_cast<JPH::SwingTwistConstraint*>(entry.constraint.GetPtr());
+    st->SetTargetOrientationCS(q);
+  }
+}
+
+bool PhysicsWorld::GetJointOrientation(JointId joint, f32 out_quat[4]) const {
+  if (!impl_ || joint == 0 || joint > impl_->joints.size()) return false;
+  Impl::JointEntry& entry = impl_->joints[joint - 1];
+  JPH::Quat q;
+  if (entry.hinge) {
+    auto* hinge = static_cast<JPH::HingeConstraint*>(entry.constraint.GetPtr());
+    q = JPH::Quat::sRotation(JPH::Vec3::sAxisX(), hinge->GetCurrentAngle());
+  } else {
+    auto* st = static_cast<JPH::SwingTwistConstraint*>(entry.constraint.GetPtr());
+    q = st->GetRotationInConstraintSpace();
+  }
+  out_quat[0] = q.GetX();
+  out_quat[1] = q.GetY();
+  out_quat[2] = q.GetZ();
+  out_quat[3] = q.GetW();
   return true;
+}
+
+void PhysicsWorld::ApplyImpulse(BodyId id, const Vec3& impulse) {
+  if (!impl_ || id == 0) return;
+  JPH::BodyID body(static_cast<JPH::uint32>(id - 1));
+  JPH::BodyInterface& bodies = impl_->system->GetBodyInterface();
+  bodies.ActivateBody(body);
+  bodies.AddImpulse(body, ToJolt(impulse));
+}
+
+void PhysicsWorld::SetBodyKinematic(BodyId id) {
+  if (!impl_ || id == 0) return;
+  JPH::BodyID body(static_cast<JPH::uint32>(id - 1));
+  impl_->system->GetBodyInterface().SetMotionType(body, JPH::EMotionType::Kinematic,
+                                                  JPH::EActivation::Activate);
 }
 
 BodyId PhysicsWorld::AddDynamicBox(const Vec3& position, const Vec3& half_extent, f32 density,
