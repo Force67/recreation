@@ -22,6 +22,8 @@
 #include "bethesda/archive.h"
 #include "bethesda/hkx.h"
 #include "bethesda/hkx_physics.h"
+#include "bethesda/hkx_to_physics.h"
+#include "physics/physics_world.h"
 
 namespace {
 
@@ -208,6 +210,36 @@ int main(int argc, char** argv) {
           std::printf("  other   '%s' %d<->%d\n", c.name.c_str(), c.body_a, c.body_b);
         }
       }
+    } else if (args[i] == "--jolt") {
+      // Smoke test: lower every decoded body's shape into a live Jolt world
+      // (game-unit scale) and report what stuck.
+      auto physics = rec::bethesda::DecodePhysics(*hkx);
+      rec::physics::PhysicsWorld world;
+      if (!world.Initialize()) {
+        std::fprintf(stderr, "jolt world init failed\n");
+        return 1;
+      }
+      constexpr rec::f32 kUnitsToMeters = 0.01428f;
+      int ok = 0, failed = 0;
+      for (const auto& body : physics.bodies) {
+        rec::physics::ShapeDesc desc = rec::bethesda::ToShapeDesc(body.shape);
+        rec::physics::BodyId id =
+            body.mass > 0.0f
+                ? world.AddDynamicShape(desc, body.position * kUnitsToMeters, body.rotation,
+                                        kUnitsToMeters, body.mass, body.friction,
+                                        body.restitution)
+                : world.AddStaticShape(desc, body.position * kUnitsToMeters, body.rotation,
+                                       kUnitsToMeters);
+        if (id != 0) {
+          ++ok;
+        } else {
+          ++failed;
+          std::printf("  FAILED '%s' (%s)\n", body.name.c_str(),
+                      body.shape.class_name.c_str());
+        }
+      }
+      for (int step = 0; step < 60; ++step) world.Update(1.0f / 60.0f);
+      std::printf("jolt: %d bodies created, %d failed, 60 steps simulated\n", ok, failed);
     } else if (args[i] == "--sections") {
       // Header line above already covers the summary.
     } else {

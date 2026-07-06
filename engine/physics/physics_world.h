@@ -7,6 +7,7 @@
 #include "asset/mesh.h"
 #include "core/math.h"
 #include "core/types.h"
+#include "physics/shape_desc.h"
 
 namespace rec::physics {
 
@@ -49,6 +50,15 @@ class PhysicsWorld {
   // Heightfield grid of sample*sample values covering size x size meters,
   // anchored at `origin` (min corner). For streamed terrain cells.
   BodyId AddHeightField(const Vec3& origin, const f32* heights, u32 samples, f32 size);
+
+  // Generic shape-tree bodies (authored collision from the havok decoder or
+  // other producers). `scale` converts the desc's units into meters (pass
+  // the game-unit scale for Bethesda data). Dynamic bodies take an explicit
+  // mass in kg; 0 falls back to Jolt's density-derived mass.
+  BodyId AddStaticShape(const ShapeDesc& desc, const Vec3& position, const f32 rotation[4],
+                        f32 scale);
+  BodyId AddDynamicShape(const ShapeDesc& desc, const Vec3& position, const f32 rotation[4],
+                         f32 scale, f32 mass, f32 friction, f32 restitution);
 
   // Dynamic bodies; density in kg/m^3 (wood floats, stone sinks).
   BodyId AddDynamicBox(const Vec3& position, const Vec3& half_extent, f32 density,

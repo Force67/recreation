@@ -18,6 +18,13 @@ bool PhysicsWorld::RegisterMeshShape(u64, const asset::Mesh&) { return false; }
 bool PhysicsWorld::has_mesh_shape(u64) const { return false; }
 BodyId PhysicsWorld::AddStaticMeshInstance(u64, const Vec3&, const f32[4], f32) { return 0; }
 BodyId PhysicsWorld::AddDynamicBox(const Vec3&, const Vec3&, f32, const Vec3&) { return 0; }
+BodyId PhysicsWorld::AddStaticShape(const ShapeDesc&, const Vec3&, const f32[4], f32) {
+  return 0;
+}
+BodyId PhysicsWorld::AddDynamicShape(const ShapeDesc&, const Vec3&, const f32[4], f32, f32, f32,
+                                     f32) {
+  return 0;
+}
 BodyId PhysicsWorld::AddDynamicSphere(const Vec3&, f32, f32, const Vec3&) { return 0; }
 BodyId PhysicsWorld::AddKinematicCapsule(const Vec3&, f32, f32) { return 0; }
 void PhysicsWorld::SetBodyPosition(BodyId, const Vec3&, const f32[4]) {}

@@ -19,7 +19,10 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -271,6 +274,141 @@ BodyId PhysicsWorld::AddHeightField(const Vec3& origin, const f32* heights, u32 
                                      JPH::EMotionType::Static, layers::kStatic);
   JPH::BodyID id = impl_->system->GetBodyInterface().CreateAndAddBody(
       settings, JPH::EActivation::DontActivate);
+  return id.GetIndexAndSequenceNumber() + 1;
+}
+
+namespace {
+
+// Quaternion from three orthonormal basis COLUMNS (c0, c1, c2), the layout
+// ShapeDesc::transform carries.
+JPH::Quat QuatFromColumns(const f32* t) {
+  JPH::Mat44 m = JPH::Mat44::sIdentity();
+  m.SetColumn3(0, {t[0], t[1], t[2]});
+  m.SetColumn3(1, {t[4], t[5], t[6]});
+  m.SetColumn3(2, {t[8], t[9], t[10]});
+  return m.GetQuaternion().Normalized();
+}
+
+// Lowers a ShapeDesc tree into a Jolt shape, scaling all metrics into
+// meters. Returns null on unconvertible input (empty hulls, degenerate
+// primitives), which callers surface as a failed body.
+JPH::Ref<JPH::Shape> BuildShape(const rec::physics::ShapeDesc& desc, f32 scale) {
+  using Kind = rec::physics::ShapeDesc::Kind;
+  switch (desc.kind) {
+    case Kind::kSphere: {
+      if (desc.radius * scale < 1e-4f) return nullptr;
+      return new JPH::SphereShape(desc.radius * scale);
+    }
+    case Kind::kCapsule: {
+      // Havok capsules are arbitrary segments; Jolt's are Y-centered, so
+      // wrap in a rotated-translated placement.
+      JPH::Vec3 a(desc.a.x, desc.a.y, desc.a.z);
+      JPH::Vec3 b(desc.b.x, desc.b.y, desc.b.z);
+      a *= scale;
+      b *= scale;
+      f32 radius = desc.radius * scale;
+      f32 half_height = (b - a).Length() * 0.5f;
+      if (radius < 1e-4f) return nullptr;
+      if (half_height < 1e-4f) return new JPH::SphereShape(radius);
+      JPH::Ref<JPH::Shape> capsule = new JPH::CapsuleShape(half_height, radius);
+      JPH::Vec3 axis = (b - a).Normalized();
+      JPH::Quat align = JPH::Quat::sFromTo(JPH::Vec3::sAxisY(), axis);
+      JPH::RotatedTranslatedShapeSettings placed((a + b) * 0.5f, align, capsule);
+      auto result = placed.Create();
+      return result.IsValid() ? result.Get() : JPH::Ref<JPH::Shape>();
+    }
+    case Kind::kBox: {
+      JPH::Vec3 half(desc.half_extents.x, desc.half_extents.y, desc.half_extents.z);
+      half *= scale;
+      f32 min_extent = half.ReduceMin();
+      if (min_extent < 1e-4f) return nullptr;
+      return new JPH::BoxShape(half, JPH::min(0.05f, min_extent * 0.5f));
+    }
+    case Kind::kConvexHull: {
+      if (desc.vertices.size() < 4) return nullptr;
+      JPH::Array<JPH::Vec3> points;
+      points.reserve(desc.vertices.size());
+      for (const auto& v : desc.vertices) points.emplace_back(v.x * scale, v.y * scale,
+                                                              v.z * scale);
+      JPH::ConvexHullShapeSettings hull(points);
+      auto result = hull.Create();
+      return result.IsValid() ? result.Get() : JPH::Ref<JPH::Shape>();
+    }
+    case Kind::kCompound: {
+      JPH::StaticCompoundShapeSettings compound;
+      u32 added = 0;
+      for (const auto& child : desc.children) {
+        if (child.kind == Kind::kPlaced && !child.children.empty()) {
+          JPH::Ref<JPH::Shape> inner = BuildShape(child.children[0], scale);
+          if (!inner) continue;
+          JPH::Vec3 origin(child.transform[12], child.transform[13], child.transform[14]);
+          compound.AddShape(origin * scale, QuatFromColumns(child.transform), inner);
+          ++added;
+        } else if (JPH::Ref<JPH::Shape> inner = BuildShape(child, scale)) {
+          compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), inner);
+          ++added;
+        }
+      }
+      if (added == 0) return nullptr;
+      if (added == 1 && desc.children.size() == 1 &&
+          desc.children[0].kind != Kind::kPlaced) {
+        return BuildShape(desc.children[0], scale);  // trivial list
+      }
+      auto result = compound.Create();
+      return result.IsValid() ? result.Get() : JPH::Ref<JPH::Shape>();
+    }
+    case Kind::kPlaced: {
+      if (desc.children.empty()) return nullptr;
+      JPH::Ref<JPH::Shape> inner = BuildShape(desc.children[0], scale);
+      if (!inner) return nullptr;
+      JPH::Vec3 origin(desc.transform[12], desc.transform[13], desc.transform[14]);
+      JPH::RotatedTranslatedShapeSettings placed(origin * scale, QuatFromColumns(desc.transform),
+                                                 inner);
+      auto result = placed.Create();
+      return result.IsValid() ? result.Get() : JPH::Ref<JPH::Shape>();
+    }
+    case Kind::kInvalid:
+      return nullptr;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+BodyId PhysicsWorld::AddStaticShape(const ShapeDesc& desc, const Vec3& position,
+                                    const f32 rotation[4], f32 scale) {
+  if (!impl_) return 0;
+  JPH::Ref<JPH::Shape> shape = BuildShape(desc, scale);
+  if (!shape) return 0;
+  JPH::Quat rot(rotation[0], rotation[1], rotation[2], rotation[3]);
+  if (rot.LengthSq() < 1e-6f) rot = JPH::Quat::sIdentity();
+  JPH::BodyCreationSettings settings(shape, ToJolt(position), rot.Normalized(),
+                                     JPH::EMotionType::Static, layers::kStatic);
+  JPH::BodyID id =
+      impl_->system->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+  return id.GetIndexAndSequenceNumber() + 1;
+}
+
+BodyId PhysicsWorld::AddDynamicShape(const ShapeDesc& desc, const Vec3& position,
+                                     const f32 rotation[4], f32 scale, f32 mass, f32 friction,
+                                     f32 restitution) {
+  if (!impl_) return 0;
+  JPH::Ref<JPH::Shape> shape = BuildShape(desc, scale);
+  if (!shape) return 0;
+  JPH::Quat rot(rotation[0], rotation[1], rotation[2], rotation[3]);
+  if (rot.LengthSq() < 1e-6f) rot = JPH::Quat::sIdentity();
+  JPH::BodyCreationSettings settings(shape, ToJolt(position), rot.Normalized(),
+                                     JPH::EMotionType::Dynamic, layers::kDynamic);
+  settings.mFriction = friction;
+  settings.mRestitution = restitution;
+  if (mass > 0.0f) {
+    settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+    settings.mMassPropertiesOverride.mMass = mass;
+  }
+  JPH::BodyID id =
+      impl_->system->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
+  impl_->dynamic_bodies.push_back(id);
+  ++dynamic_count_;
   return id.GetIndexAndSequenceNumber() + 1;
 }
 

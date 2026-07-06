@@ -12,6 +12,7 @@ recreation_add_module(bethesda
   nif.cc
   hkx.cc
   hkx_physics.cc
+  hkx_to_physics.cc
   starfield_mesh.cc
   material_db.cc
   converters.cc
@@ -22,4 +23,4 @@ recreation_add_module(bethesda
   head_morph.cc
 )
 
-target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset)
+target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset recreation::physics)
