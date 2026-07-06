@@ -127,16 +127,33 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
     u32 bit_count, r_mask;
     std::memcpy(&bit_count, data.data() + 88, 4);
     std::memcpy(&r_mask, data.data() + 92, 4);
-    if (bit_count != 32) {
+    if (bit_count == 24) {
+      // R8G8B8 / B8G8R8 (face tint masks ship as 24bpp uncompressed): expand to
+      // rgba8 with opaque alpha. Widths are power-of-two so rows are 4-aligned
+      // and the packed source tiles contiguously across the mip chain.
+      texture->format = asset::TextureFormat::kRgba8;
+      const u8* src = data.data() + data_offset;
+      size_t texels = (data.size() - data_offset) / 3;
+      bool bgr = r_mask == 0x00ff0000;
+      texture->data.resize(texels * 4);
+      for (size_t i = 0; i < texels; ++i) {
+        u8 a = src[i * 3 + 0], b = src[i * 3 + 1], c = src[i * 3 + 2];
+        texture->data[i * 4 + 0] = bgr ? c : a;
+        texture->data[i * 4 + 1] = b;
+        texture->data[i * 4 + 2] = bgr ? a : c;
+        texture->data[i * 4 + 3] = 255;
+      }
+    } else if (bit_count == 32) {
+      texture->format = asset::TextureFormat::kRgba8;
+      texture->data.assign(data.begin() + static_cast<std::ptrdiff_t>(data_offset), data.end());
+      if (r_mask == 0x00ff0000) {  // BGRA on disk
+        for (size_t i = 0; i + 3 < texture->data.size(); i += 4) {
+          std::swap(texture->data[i], texture->data[i + 2]);
+        }
+      }
+    } else {
       REC_WARN("unsupported uncompressed dds ({} bpp) in {}", bit_count, path);
       return nullptr;
-    }
-    texture->format = asset::TextureFormat::kRgba8;
-    texture->data.assign(data.begin() + static_cast<std::ptrdiff_t>(data_offset), data.end());
-    if (r_mask == 0x00ff0000) {  // BGRA on disk
-      for (size_t i = 0; i + 3 < texture->data.size(); i += 4) {
-        std::swap(texture->data[i], texture->data[i + 2]);
-      }
     }
   } else {
     REC_WARN("unsupported dds pixel format in {}", path);

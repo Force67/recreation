@@ -66,6 +66,20 @@ GlobalFormId ReadFormRef(const RecordStore& store, const Subrecord* sub, u16 plu
 
 }  // namespace
 
+std::optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalFormId id) {
+  const RecordStore::StoredRecord* stored = store.Find(id);
+  if (!stored || stored->header.type != FourCc('T', 'X', 'S', 'T')) return std::nullopt;
+  Record rec;
+  if (!store.Parse(id, &rec)) return std::nullopt;
+  TextureSet set;
+  set.id = id;
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '0'))) set.diffuse = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '1'))) set.normal = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '2'))) set.subsurface = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '7'))) set.specular = SubString(*s);
+  return set;
+}
+
 std::optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
   if (!stored || stored->header.type != FourCc('H', 'D', 'P', 'T')) return std::nullopt;

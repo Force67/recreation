@@ -147,6 +147,18 @@ struct RaceHeadData {
   RaceSexHead female;
 };
 
+// TXST: a texture set. Skyrim skin/face texture sets bind TX00 diffuse, TX01
+// normal (model-space _msn), TX02 the subsurface/detail (_sk) and TX07 the
+// specular (_s). Paths are stored backslashed without the textures/ root.
+struct TextureSet {
+  GlobalFormId id;
+  std::string diffuse;   // TX00
+  std::string normal;    // TX01
+  std::string subsurface;  // TX02 (skin _sk)
+  std::string specular;  // TX07 (skin _s)
+};
+
+std::optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalFormId id);
 std::optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId id);
 std::optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId id);
 std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId id);
