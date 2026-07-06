@@ -30,6 +30,7 @@ public sealed class SkyrimMod : IMod
         ModHost.Register(new QuestProgressTracker());
         ModHost.Register(new CombatTracker());
         ModHost.Register(new CombatFastTravelLock());
+        ModHost.Register(new IndoorFastTravelLock());
         ModHost.Register(new EssentialProtection());
         ModHost.Register(new InjurySlowdown());
         ModHost.Register(new TimeOfDayService());
