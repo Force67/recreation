@@ -68,7 +68,8 @@ public sealed class Encumbrance : GameBehaviour
         if (over == _overEncumbered) return;
 
         _overEncumbered = over;
-        Game.EnableFastTravel(!over);
+        if (over) FastTravel.Block("encumbrance");
+        else FastTravel.Unblock("encumbrance");
         player.ModValue(ActorValue.SpeedMult, over ? -SpeedPenalty : SpeedPenalty);
         EventBus.Publish(new EncumbranceChanged(over, carried, capacity));
     }

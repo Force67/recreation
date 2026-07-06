@@ -18,6 +18,7 @@ public sealed class CombatFastTravelLock : GameBehaviour
         bool inCombat = player.IsInCombat;
         if (_lastInCombat == inCombat) return;
         _lastInCombat = inCombat;
-        Game.EnableFastTravel(!inCombat);
+        if (inCombat) FastTravel.Block("combat");
+        else FastTravel.Unblock("combat");
     }
 }

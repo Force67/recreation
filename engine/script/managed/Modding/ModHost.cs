@@ -101,6 +101,7 @@ public static class ModHost
         Scheduler.Clear();
         Coroutines.Clear();
         Cooldowns.Clear();
+        FastTravel.Clear();
         EventBus.Clear();
         _booted = false;
     }
