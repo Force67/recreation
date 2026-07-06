@@ -80,6 +80,10 @@ class CharGen {
   void Reassemble(bool read_preset);
   void SpawnHeadEntities();
   void RebuildHairGroom();
+  // The head bone's rest world position (engine space), read once from the real
+  // skeleton: hair HDPT NIFs are authored head-bone-local, so the preview groom
+  // is translated by this onto the standalone head.
+  Vec3 HeadBoneOffset();
   void PushEditsToFace();       // mirror -> FaceState (all sliders + types + skin)
   void ScanChargenMorphs();     // available morph names + NAMA type index lists
   void SetupSceneAndCamera();   // portrait light + framed orbit camera (once)
@@ -137,11 +141,11 @@ class CharGen {
   std::vector<std::pair<std::string, Vec3>> hair_colors_;  // AHCM CLFM colours
   int hair_color_ = -1;  // -1 = the assembled default
 
-  // Framed orbit camera around the head.
+  // Framed portrait orbit around the head (limits + defaults in chargen.cc).
   Vec3 head_center_{0.0f, 1.63f, 0.0f};
-  f32 orbit_yaw_ = 0.0f;
+  f32 orbit_yaw_ = 0.35f;
   f32 orbit_pitch_ = 0.0f;
-  f32 orbit_dist_ = 2.15f;
+  f32 orbit_dist_ = 0.56f;
 
   // Interaction state.
   bool prev_lmb_ = false;

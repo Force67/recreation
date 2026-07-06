@@ -13,6 +13,8 @@
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
+#include "asset/primitives.h"
+#include "asset/skeleton.h"
 #include "bethesda/converters.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
@@ -38,6 +40,18 @@ base::Option<const char*> ChargenScript{"chargen.script", nullptr, "REC_CHARGEN_
 constexpr f32 kStatusSeconds = 4.0f;
 constexpr f32 kOrbitSens = 0.006f;   // radians per cursor pixel
 constexpr f32 kUnitsToMeters = 0.01428f;
+
+// Portrait framing: the head sits at eye height in a studio orbit. The camera
+// pivots around the head, defaults to a slight 3/4 angle, and zooms between a
+// face close-up and a bust; the look target sits a little below the eyes so
+// they land near the upper-third line.
+constexpr f32 kOrbitDistDefault = 0.56f;
+constexpr f32 kOrbitDistMin = 0.36f;  // face close-up (near plane is 0.1)
+constexpr f32 kOrbitDistMax = 0.80f;  // bust, never further out
+constexpr f32 kOrbitYawDefault = 0.35f;  // slight 3/4
+constexpr f32 kOrbitYawMax = 0.6f;       // studio orbit; keeps the backdrop behind
+constexpr f32 kOrbitPitchMax = 0.45f;
+constexpr f32 kLookDrop = 0.05f;  // look below the pivot -> eyes at the upper third
 
 // "NoseUp" -> "Nose Up": a space before an uppercase that follows a lowercase.
 std::string Spacify(const std::string& s) {
@@ -263,6 +277,44 @@ void CharGen::SpawnHeadEntities() {
   }
 }
 
+// Hair HDPT NIFs are authored head-bone-local (an actor rides them on the head
+// bone; the standalone heads have no skeleton), so the groom needs the head
+// bone's rest world position as a fixed translation. Read it once from the real
+// skeleton and convert to engine space; the fallback constant is that same
+// offset measured against Skyrim SE's skeleton.nif.
+Vec3 CharGen::HeadBoneOffset() {
+  static bool resolved = false;
+  static Vec3 offset{0.0f, 1.66f, -0.04f};  // Skyrim SE fallback
+  if (resolved) return offset;
+  resolved = true;
+  const char* kSkeleton = "meshes/actors/character/character assets/skeleton.nif";
+  auto bytes = ctx_.vfs->Read(kSkeleton);
+  if (!bytes) return offset;
+  asset::Skeleton skel;
+  if (!bethesda::ConvertNifSkeleton(ByteSpan(bytes->data(), bytes->size()),
+                                    asset::MakeAssetId(kSkeleton), &skel)) {
+    return offset;
+  }
+  const i32 head = skel.Find("NPC Head [Head]");
+  if (head < 0) return offset;
+  // Compose the parent-relative rest transforms up the chain (Bethesda object
+  // space), then map to engine space like static NIF geometry.
+  Vec3 t{0, 0, 0};
+  Quat r{0, 0, 0, 1};
+  f32 s = 1.0f;
+  base::Vector<i32> chain;
+  for (i32 b = head; b >= 0; b = skel.bones[b].parent) chain.push_back(b);
+  for (size_t i = chain.size(); i-- > 0;) {
+    const asset::Bone& bone = skel.bones[chain[i]];
+    t = t + Rotate(r, bone.bind_translation * s);
+    r = r * bone.bind_rotation;
+    s *= bone.bind_scale;
+  }
+  offset = Vec3{t.x, t.z, -t.y} * kUnitsToMeters;
+  REC_INFO("chargen: head bone rest at ({:.3f}, {:.3f}, {:.3f})", offset.x, offset.y, offset.z);
+  return offset;
+}
+
 void CharGen::RebuildHairGroom() {
   render::Renderer& r = *ctx_.renderer;
   if (groom_) {
@@ -288,14 +340,14 @@ void CharGen::RebuildHairGroom() {
                   ? hair_colors_[hair_color_].second
                   : Vec3{face_.hair_color()[0], face_.hair_color()[1], face_.hair_color()[2]};
   render::GroomParams p;
-  p.recenter = false;
+  p.recenter = false;  // keep authored head-bone-local coords; translate onto the head
   p.tint = {tint.x, tint.y, tint.z};
   p.diffuse = diffuse;
   p.guide_count = 7000;
   p.children_per_guide = 18;
   p.strand_width = 0.0013f;
   p.clump_radius = 0.005f;
-  groom_ = r.CreateHairGroom(*conv.mesh, p, MakeTranslation({0, 0, 0}));
+  groom_ = r.CreateHairGroom(*conv.mesh, p, MakeTranslation(HeadBoneOffset()));
 }
 
 void CharGen::SetupSceneAndCamera() {
@@ -307,13 +359,42 @@ void CharGen::SetupSceneAndCamera() {
   ctx_.scene_owns_sun = true;
   auto& s = ctx_.renderer->settings();
   s.sun_direction = {-0.3f, -0.5f, 0.8f};
-  s.sun_intensity = 2.4f;
+  s.sun_intensity = 2.0f;
   s.sun_color = {1.0f, 0.97f, 0.94f};
-  s.ambient = 0.35f;
+  s.ambient = 0.32f;
   s.dof = false;
-  orbit_yaw_ = 0.0f;
-  orbit_pitch_ = 0.0f;
-  orbit_dist_ = 2.15f;
+  // Fixed exposure: the dark backdrop dominates the frame, so auto exposure
+  // would crank up and wash out both the backdrop and the skin.
+  s.auto_exposure = false;
+  s.exposure = 0.95f;
+
+  // A big dark backdrop behind the head (the head faces -Z; the clamped orbit
+  // keeps the camera on that side), so the portrait reads against a studio
+  // gradient instead of the empty sky/sea horizon.
+  asset::Material back;
+  back.id = asset::MakeAssetId("chargen/backdrop/material");
+  back.base_color_factor[0] = 0.02f;
+  back.base_color_factor[1] = 0.022f;
+  back.base_color_factor[2] = 0.028f;
+  back.roughness_factor = 0.92f;
+  ctx_.renderer->UploadMaterial(back);
+  // Far enough back that the head's sun shadow falls below the framed view (10 m
+  // at this sun angle), big enough that the clamped orbit never sees past its
+  // edges even at the frame corners.
+  asset::Mesh cube = asset::MakeCube(60.0f, asset::MakeAssetId("chargen/backdrop"));
+  for (asset::MeshLod& lod : cube.lods) {
+    for (asset::Submesh& sm : lod.submeshes) sm.material = back.id;
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), back.id});
+  }
+  ctx_.renderer->UploadMesh(cube);
+  ecs::Entity e = ctx_.world->Create();
+  ctx_.world->Add(e, world::Transform{.position = {0.0f, 0.0f, 70.0f}});
+  ctx_.world->Add(e, world::Renderable{cube.id});
+
+  orbit_yaw_ = kOrbitYawDefault;
+  orbit_pitch_ = 0.02f;
+  orbit_dist_ = kOrbitDistDefault;
   UpdateCameraPose();
 }
 
@@ -322,7 +403,8 @@ void CharGen::UpdateCameraPose() {
   const Vec3 off{std::sin(orbit_yaw_) * cp, sp, -std::cos(orbit_yaw_) * cp};
   const Vec3 eye = head_center_ + off * orbit_dist_;
   ctx_.camera->set_position(eye);
-  const Vec3 d = Normalize(head_center_ - eye);
+  // Look a touch below the pivot so the eyes land near the upper-third line.
+  const Vec3 d = Normalize(head_center_ - Vec3{0, kLookDrop, 0} - eye);
   ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(std::clamp(d.y, -1.0f, 1.0f)));
 }
 
@@ -732,8 +814,9 @@ void CharGen::Update(const InputState& input, f32 dt) {
       const float trackX = rightLeft + kCgTrackX;
       ApplyControl(controls[drag_control_], (mx - trackX) / kCgTrackW);
     } else if (orbiting_) {
-      orbit_yaw_ += dx * kOrbitSens;
-      orbit_pitch_ = std::clamp(orbit_pitch_ - dy * kOrbitSens, -0.8f, 0.8f);
+      orbit_yaw_ = std::clamp(orbit_yaw_ + dx * kOrbitSens, -kOrbitYawMax, kOrbitYawMax);
+      orbit_pitch_ =
+          std::clamp(orbit_pitch_ - dy * kOrbitSens, -kOrbitPitchMax, kOrbitPitchMax);
     }
   }
 
@@ -749,7 +832,7 @@ void CharGen::Update(const InputState& input, f32 dt) {
     if (inRight)
       row_first_ = std::clamp(row_first_ - (input.wheel > 0 ? 1 : -1), 0, max_first);
     else if (!inLeft)
-      orbit_dist_ = std::clamp(orbit_dist_ - input.wheel * 0.25f, 1.3f, 3.4f);
+      orbit_dist_ = std::clamp(orbit_dist_ - input.wheel * 0.06f, kOrbitDistMin, kOrbitDistMax);
   }
 
   UpdateCameraPose();
