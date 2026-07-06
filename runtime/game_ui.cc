@@ -501,6 +501,168 @@ std::string BuildEditorSection() {
   return s;
 }
 
+// The character-creation overlay: two absolute-positioned docks whose pixel
+// geometry matches the kCg* constants (game_ui.h) so CharGen can hit-test its own
+// widgets against the raw cursor. Left dock = race list + sex + preset + page
+// tabs + actions; right dock = the pooled slider/cycler rows for the active page.
+// Everything is pooled (fixed widget counts, filled and toggled each frame) and
+// starts hidden; the engine collapses cg_root until chargen is entered.
+std::string BuildCharGenSection() {
+  const char* FLD = "#0e1016";   // sunken field
+  const char* AC = "#6c7bf5";    // accent indigo
+  const char* TXP = "#e6e9f2";   // primary text
+  const char* TXS = "#9aa3b5";   // secondary text
+  const char* TXM = "#6b7488";   // muted text
+  std::string s;
+  char buf[1400];
+
+  const float contentW = kCgLeftW - 2 * kCgPad;
+  const float sexW = (contentW - 8.0f) / 2.0f;
+  const float tabW = (contentW - 2 * 6.0f) / 3.0f;
+
+  std::snprintf(buf, sizeof(buf),
+                "\n  panel cg_root {\n"
+                "    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;\n"
+                "    panel cg_left { position: absolute; left: 0; top: %g; width: %g; bottom: %g;"
+                " background: #171a22ff; border-color: #ffffff12; border-width: 1;\n",
+                kCgTop, kCgLeftW, kCgTop);
+  s += buf;
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: 16; font-size: 16; color: %s;"
+                " letter-spacing: 2; text: \"CHARACTER CREATION\"; }\n"
+                "      text { position: absolute; left: %g; top: 60; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"RACE\"; }\n",
+                kCgPad, TXP, kCgPad, TXM);
+  s += buf;
+  // Race rows (pooled).
+  for (int i = 0; i < kCgRaceRows; ++i) {
+    const std::string id = std::to_string(i);
+    std::snprintf(buf, sizeof(buf),
+                  "      panel cg_race%s { position: absolute; left: %g; top: %g; width: %g;"
+                  " height: %g; corner-radius: 6; background: #ffffff00; cursor: pointer;"
+                  " :hover { background: #ffffff0e; }\n"
+                  "        text cg_race%s_t { position: absolute; left: 10; top: 5; font-size: 12;"
+                  " color: %s; text: \"\"; }\n      }\n",
+                  id.c_str(), kCgPad, kCgRaceY0 + i * kCgRaceRowH, contentW, kCgRaceRowH - 3.0f,
+                  id.c_str(), TXS);
+    s += buf;
+  }
+  // Sex toggle.
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: %g; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"SEX\"; }\n",
+                kCgPad, kCgSexY - 24.0f, TXM);
+  s += buf;
+  std::snprintf(buf, sizeof(buf),
+                "      panel cg_sexm { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
+                " layout: column; justify: center; align: center; cursor: pointer;"
+                " text cg_sexm_t { font-size: 13; color: %s; text: \"Male\"; } }\n"
+                "      panel cg_sexf { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+                " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
+                " layout: column; justify: center; align: center; cursor: pointer;"
+                " text cg_sexf_t { font-size: 13; color: %s; text: \"Female\"; } }\n",
+                kCgPad, kCgSexY, sexW, kCgBtnH, FLD, TXP, kCgPad + sexW + 8.0f, kCgSexY, sexW,
+                kCgBtnH, FLD, TXS);
+  s += buf;
+  // Preset cycler.
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: %g; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"PRESET\"; }\n",
+                kCgPad, kCgPresetY - 24.0f, TXM);
+  s += buf;
+  std::snprintf(buf, sizeof(buf),
+                "      panel cg_pprev { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+                " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
+                " cursor: pointer; :hover { background: #ffffff18; }"
+                " text { font-size: 15; color: %s; text: \"<\"; } }\n"
+                "      text cg_plabel { position: absolute; left: %g; top: %g; width: %g;"
+                " text-align: center; font-size: 12; color: %s; text: \"Preset 1\"; }\n"
+                "      panel cg_pnext { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+                " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
+                " cursor: pointer; :hover { background: #ffffff18; }"
+                " text { font-size: 15; color: %s; text: \">\"; } }\n",
+                kCgPad, kCgPresetY, kCgBtnH, FLD, TXP, kCgPad + 46.0f, kCgPresetY + 8.0f,
+                contentW - 92.0f, TXP, kCgPad + contentW - 40.0f, kCgPresetY, kCgBtnH, FLD, TXP);
+  s += buf;
+  // Page tabs.
+  const char* pages[3] = {"Face", "Advanced", "Look"};
+  for (int i = 0; i < 3; ++i) {
+    const std::string id = std::to_string(i);
+    std::snprintf(buf, sizeof(buf),
+                  "      panel cg_page%s { position: absolute; left: %g; top: %g; width: %g;"
+                  " height: 32; corner-radius: 7; background: %s; layout: column; justify: center;"
+                  " align: center; cursor: pointer;"
+                  " text cg_page%s_t { font-size: 12; color: %s; text: \"%s\"; } }\n",
+                  id.c_str(), kCgPad + i * (tabW + 6.0f), kCgPageY, tabW, i == 0 ? AC : FLD,
+                  id.c_str(), i == 0 ? TXP : TXS, pages[i]);
+    s += buf;
+  }
+  // Action buttons.
+  const char* acts[3] = {"Randomize", "Reset", "Save"};
+  const char* actn[3] = {"cg_rand", "cg_reset", "cg_save"};
+  for (int i = 0; i < 3; ++i) {
+    std::snprintf(buf, sizeof(buf),
+                  "      panel %s { position: absolute; left: %g; top: %g; width: %g; height: 30;"
+                  " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
+                  " layout: column; justify: center; align: center; cursor: pointer;"
+                  " :hover { background: #ffffff14; }"
+                  " text { font-size: 13; color: %s; text: \"%s\"; } }\n",
+                  actn[i], kCgPad, kCgActY + i * kCgActH, contentW, i == 2 ? AC : FLD,
+                  i == 2 ? TXP : TXS, acts[i]);
+    s += buf;
+  }
+  std::snprintf(buf, sizeof(buf),
+                "      text cg_status { position: absolute; left: %g; top: %g; width: %g;"
+                " font-size: 11; color: %s; text: \"\"; }\n    }\n",
+                kCgPad, kCgActY + 3 * kCgActH + 8.0f, contentW, TXS);
+  s += buf;
+
+  // Right dock: page title + pager + pooled control rows.
+  std::snprintf(buf, sizeof(buf),
+                "    panel cg_right { position: absolute; right: 0; top: %g; width: %g; bottom: %g;"
+                " background: #171a22ff; border-color: #ffffff12; border-width: 1;\n"
+                "      text cg_ptitle { position: absolute; left: 16; top: 16; font-size: 15;"
+                " color: %s; letter-spacing: 1; text: \"FACE\"; }\n"
+                "      text cg_scinfo { position: absolute; left: 16; top: 40; font-size: 11;"
+                " color: %s; text: \"\"; }\n"
+                "      panel cg_scup { position: absolute; right: 52; top: 14; width: 30; height: 26;"
+                " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
+                " cursor: pointer; :hover { background: #ffffff18; }"
+                " text { font-size: 13; color: %s; text: \"^\"; } }\n"
+                "      panel cg_scdn { position: absolute; right: 16; top: 14; width: 30; height: 26;"
+                " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
+                " cursor: pointer; :hover { background: #ffffff18; }"
+                " text { font-size: 13; color: %s; text: \"v\"; } }\n",
+                kCgTop, kCgRightW, kCgTop, TXP, TXM, FLD, TXP, FLD, TXP);
+  s += buf;
+  for (int i = 0; i < kCgSliderRows; ++i) {
+    const std::string id = std::to_string(i);
+    std::snprintf(buf, sizeof(buf),
+                  "      panel cg_row%s { position: absolute; left: 8; top: %g; width: %g;"
+                  " height: %g; corner-radius: 6; background: #ffffff00; cursor: pointer;"
+                  " :hover { background: #ffffff0c; }\n"
+                  "        text cg_row%s_lbl { position: absolute; left: 10; top: 9; font-size: 12;"
+                  " color: #c9cfdb; text: \"\"; }\n"
+                  "        panel cg_row%s_sw { position: absolute; left: %g; top: 8; width: 14;"
+                  " height: 14; corner-radius: 3; background: #000000; }\n"
+                  "        panel cg_row%s_trk { position: absolute; left: %g; top: %g; width: %g;"
+                  " height: 8; corner-radius: 4; background: %s; border-color: #ffffff14;"
+                  " border-width: 1;\n"
+                  "          panel cg_row%s_fill { position: absolute; left: 0; top: 0; width: 50%%;"
+                  " height: 8; corner-radius: 4; background: %s; }\n        }\n"
+                  "        text cg_row%s_val { position: absolute; left: %g; top: 9; font-size: 11;"
+                  " color: %s; text: \"\"; }\n      }\n",
+                  id.c_str(), kCgRowsY0 + i * kCgRowH, kCgRightW - 16.0f, kCgRowH - 6.0f,
+                  id.c_str(), id.c_str(), kCgTrackX - 8.0f - 20.0f, id.c_str(), kCgTrackX - 8.0f,
+                  (kCgRowH - 6.0f) / 2.0f - 4.0f, kCgTrackW, FLD, id.c_str(), AC, id.c_str(),
+                  kCgTrackX - 8.0f + kCgTrackW + 10.0f, TXS);
+    s += buf;
+  }
+  s += "    }\n  }\n";
+  return s;
+}
+
 // --- UI markup fragments (runtime/ui/*.ugui) --------------------------------
 // The static screens live in editable .ugui files so they can be tweaked and
 // hot-reloaded without a rebuild. The procedural screens (the scrolling compass
@@ -611,6 +773,7 @@ std::string BuildUi() {
   s += LoadUiFragment("dialogue.ugui");
   s += LoadUiFragment("container.ugui");
   s += BuildEditorSection();              // procedural: Glyph icons; before the menu
+  s += BuildCharGenSection();             // procedural: character creation docks
   s += LoadUiFragment("pause_menu.ugui");
   s += LoadUiFragment("main_menu.ugui");
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
@@ -763,6 +926,12 @@ struct GameUi::Impl {
   EditorView editor;
   std::function<void(const EditorUiEvent&)> editor_sink;
   bool editor_prev_active = false;  // edge-detect to hide/restore the gameplay HUD
+
+  // Character-creation overlay state (a pure view; CharGen hit-tests its own
+  // panels, so there is no click sink). Edge-detect hides the gameplay HUD.
+  CharGenView chargen;
+  bool chargen_prev_active = false;
+  void ApplyCharGenView();
 
   // NEXUS main menu state, driven by the engine and the click router. The
   // request is raised here (click / keyboard) and consumed by PollMainMenuRequest.
@@ -1158,6 +1327,83 @@ void GameUi::Impl::ApplyEditorView() {
     char b[32];
     std::snprintf(b, sizeof(b), "fps %d", last_fps);
     setText("ed_fps", b);
+  }
+}
+
+void GameUi::Impl::ApplyCharGenView() {
+  // On the active<->inactive edge, hide the gameplay HUD while creating a
+  // character and restore it on exit (the overlay owns the whole screen).
+  if (chargen.active != chargen_prev_active) {
+    const bool hud = !chargen.active;
+    SetVisible("topbar", hud);
+    SetVisible("crosshair", hud);
+    SetVisible("vitals", hud);
+    SetVisible("readout", hud);
+    chargen_prev_active = chargen.active;
+  }
+  SetVisible("cg_root", chargen.active);
+  if (!chargen.active) return;
+
+  auto setText = [&](const std::string& n, const std::string& t) {
+    ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
+  };
+  auto setFill = [&](const std::string& n, float pct) {
+    SetStyleField(
+        n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); }, pct);
+  };
+
+  // Race list.
+  for (int i = 0; i < kCgRaceRows; ++i) {
+    const std::string row = "cg_race" + std::to_string(i);
+    if (i < static_cast<int>(chargen.races.size())) {
+      SetVisible(row.c_str(), true);
+      setText(row + "_t", chargen.races[i]);
+      const bool on = i == chargen.race;
+      SetBackground(row.c_str(), on ? kEdAccentSoft : kEdClear);
+      SetTextColor((row + "_t").c_str(), on ? kEdTxP : kEdTxS);
+    } else {
+      SetVisible(row.c_str(), false);
+    }
+  }
+
+  // Sex toggle + page tabs.
+  SetBackground("cg_sexm", chargen.sex == 0 ? kEdAccent : kEdField);
+  SetBackground("cg_sexf", chargen.sex == 1 ? kEdAccent : kEdField);
+  SetTextColor("cg_sexm_t", chargen.sex == 0 ? kEdTxP : kEdTxS);
+  SetTextColor("cg_sexf_t", chargen.sex == 1 ? kEdTxP : kEdTxS);
+  for (int i = 0; i < 3; ++i) {
+    const std::string tab = "cg_page" + std::to_string(i);
+    const bool on = i == chargen.page;
+    SetBackground(tab.c_str(), on ? kEdAccent : kEdField);
+    SetTextColor((tab + "_t").c_str(), on ? kEdTxP : kEdTxS);
+  }
+  setText("cg_plabel", chargen.preset_label);
+  setText("cg_status", chargen.status);
+
+  // Right dock: page title, pager readout, control rows.
+  setText("cg_ptitle", chargen.page_title);
+  if (chargen.row_total > kCgSliderRows) {
+    char b[64];
+    std::snprintf(b, sizeof(b), "%d-%d / %d", chargen.row_first + 1,
+                  std::min(chargen.row_first + kCgSliderRows, chargen.row_total), chargen.row_total);
+    setText("cg_scinfo", b);
+  } else {
+    setText("cg_scinfo", "");
+  }
+  for (int i = 0; i < kCgSliderRows; ++i) {
+    const std::string row = "cg_row" + std::to_string(i);
+    if (i < static_cast<int>(chargen.rows.size())) {
+      const CharGenView::Row& r = chargen.rows[i];
+      SetVisible(row.c_str(), true);
+      setText(row + "_lbl", r.label);
+      setText(row + "_val", r.value);
+      setFill(row + "_fill", std::clamp(r.fill, 0.0f, 1.0f) * 100.0f);
+      const bool sw = r.swatch != 0;
+      SetVisible((row + "_sw").c_str(), sw);
+      if (sw) SetBackground((row + "_sw").c_str(), Rgba(r.swatch));
+    } else {
+      SetVisible(row.c_str(), false);
+    }
   }
 }
 
@@ -1640,8 +1886,9 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     }
   });
 
-  // Editor overlay starts collapsed; the engine reveals it on F4.
+  // Editor + character-creation overlays start collapsed; the engine reveals them.
   impl_->SetVisible("editor_root", false);
+  impl_->SetVisible("cg_root", false);
 
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
   if (UiMenu) impl_->menu_open = true;
@@ -1914,6 +2161,10 @@ void GameUi::SetEditorView(const EditorView& view) {
 
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink) {
   if (impl_->initialized) impl_->editor_sink = std::move(sink);
+}
+
+void GameUi::SetCharGenView(const CharGenView& view) {
+  if (impl_->initialized) impl_->chargen = view;
 }
 
 u64 GameUi::CreateUiTexture(int width, int height, const u8* rgba) {
@@ -2300,6 +2551,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // Map editor overlay (asset browser, toolbar, inspector, status, reticle).
   impl->ApplyEditorView();
 
+  // Character-creation overlay (race/sex/preset docks + slider list).
+  impl->ApplyCharGenView();
+
   // NEXUS main menu (the startup front screen, on top of everything).
   impl->ApplyMainMenu();
 
@@ -2369,6 +2623,7 @@ void GameUi::SetJournal(bool, const std::vector<HudQuest>&, int) {}
 void GameUi::SetWarMap(bool, const std::vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
+void GameUi::SetCharGenView(const CharGenView&) {}
 u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
 void GameUi::ToggleMenu() {}
 bool GameUi::menu_open() const { return false; }

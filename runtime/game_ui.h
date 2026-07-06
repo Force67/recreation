@@ -152,6 +152,57 @@ struct EditorView {
   int object_count = 0;        // editor-placed objects so far
 };
 
+// Character-creation overlay geometry, shared by the layout (game_ui.cc) and the
+// C++ hit-testing (chargen.cc) so a click / drag lands on the widget under it.
+// Both panels are absolute-positioned at fixed pixel offsets (not flex), so the
+// two files agree on every control's rect. Left panel = race / sex / preset /
+// page tabs / actions; right panel = the scrollable slider list for the page.
+constexpr float kCgTop = 10.0f;         // both panels' top (px)
+constexpr float kCgLeftW = 322.0f;      // left panel width
+constexpr float kCgRightW = 396.0f;     // right panel width
+constexpr float kCgPad = 16.0f;         // panel inner padding
+// Left panel: interactive elements at fixed offsets from the panel top.
+constexpr float kCgRaceY0 = 86.0f;      // first race row (rel to panel top)
+constexpr float kCgRaceRowH = 27.0f;    // race row height
+constexpr int kCgRaceRows = 10;         // pooled race rows
+constexpr float kCgSexY = 392.0f;       // sex Male/Female buttons (rel)
+constexpr float kCgPresetY = 458.0f;    // preset prev/label/next bar (rel)
+constexpr float kCgPageY = 524.0f;      // page tabs (rel)
+constexpr float kCgActY = 578.0f;       // first action button (rel)
+constexpr float kCgActH = 34.0f;        // action button height + gap
+constexpr float kCgBtnH = 30.0f;        // small control height
+// Right panel: the pooled slider/cycler rows.
+constexpr float kCgRowsY0 = 66.0f;      // first row (rel to panel top)
+constexpr float kCgRowH = 40.0f;        // one control row height
+constexpr int kCgSliderRows = 11;       // pooled slider/cycler rows
+constexpr float kCgTrackX = 158.0f;     // track left (rel to right panel left)
+constexpr float kCgTrackW = 164.0f;     // track width
+
+// The character-creation screen state, rebuilt each frame by CharGen and mirrored
+// into the overlay (mirrors EditorView). Empty / !active hides every panel.
+struct CharGenView {
+  bool active = false;
+  // --- left dock ---
+  std::vector<std::string> races;  // playable race display names
+  int race = 0;                    // selected race index
+  int sex = 0;                     // 0 male, 1 female
+  std::string preset_label;        // e.g. "Preset 2 / 6"
+  int page = 0;                    // 0 Face, 1 Advanced, 2 Appearance
+  std::string status;              // transient confirmation ("Saved ...")
+  // --- right dock: the active page's controls ---
+  std::string page_title;
+  struct Row {
+    std::string label;
+    std::string value;    // formatted value / index text
+    float fill = 0;       // 0..1 track fill (sliders); cyclers centre at 0.5
+    int kind = 0;         // 0 slider, 1 cycler
+    u32 swatch = 0;       // small colour chip (rgba8); 0 = none
+  };
+  std::vector<Row> rows;  // the visible window of the page's controls
+  int row_total = 0;      // total controls on the page (for the pager)
+  int row_first = 0;      // index of rows[0] within the page's control list
+};
+
 // Live data the engine feeds the NEXUS main menu each frame: the player banner,
 // the network status line, and the per-column "available" flags. Read by the
 // menu's profile/multiplayer/status widgets; all optional, sensible defaults.
@@ -369,6 +420,12 @@ class GameUi {
   // registers the callback that receives clicks/scrolls on the editor widgets.
   void SetEditorView(const EditorView& view);
   void SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink);
+
+  // Character-creation overlay: the race / sex / preset / page controls and the
+  // scrollable slider list. CharGen owns all the interaction (it hit-tests its own
+  // fixed-geometry panels against the raw cursor), so this is a pure view push;
+  // an inactive view hides every chargen panel and restores the gameplay HUD.
+  void SetCharGenView(const CharGenView& view);
 
   // Registers an RGBA8 image (width*height*4 bytes) with the UI's texture backend
   // and returns its ugui TextureId, for editor asset-card thumbnails. Returns 0
