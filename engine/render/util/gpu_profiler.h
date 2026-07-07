@@ -29,12 +29,26 @@ class GpuProfiler {
 
   // Resolves the previous results recorded into this slot, then records a
   // query-pool reset into cmd. Call once right after frame recording begins.
+  // Latches the detail flag for the frame.
   void BeginFrame(CommandList& cmd, u32 frame_slot);
 
-  // Bracket a render-graph pass. BeginPass opens a debug label and writes a
-  // top-of-pipe timestamp; EndPass writes bottom-of-pipe and closes the label.
+  // Per-pass timestamps on/off. Each timestamp pair costs real GPU time
+  // (barriers + cache flushes around every pass), so detail is only worth
+  // paying while something displays the per-pass numbers. Debug labels are
+  // free and stay on either way.
+  void SetDetail(bool enabled) { detail_ = enabled; }
+
+  // Bracket a render-graph pass. BeginPass opens a debug label and (with
+  // detail on) writes a top-of-pipe timestamp; EndPass writes bottom-of-pipe
+  // and closes the label.
   void BeginPass(CommandList& cmd, const char* name);
   void EndPass(CommandList& cmd);
+
+  // Whole-frame fallback bracket while detail is off: two timestamps per
+  // frame keep total_ms() (dynamic resolution's input) fed. No-ops when the
+  // frame latched detail on (the per-pass sum covers it).
+  void BeginFrameTotal(CommandList& cmd);
+  void EndFrameTotal(CommandList& cmd);
 
   bool available() const { return device_ != nullptr; }
   // Last fully resolved frame's per-pass timings.
@@ -56,6 +70,8 @@ class GpuProfiler {
   f32 period_ns_ = 0.0f;
   base::Vector<FramePool> frames_;
   u32 current_ = 0;
+  bool detail_ = false;
+  bool frame_detail_ = false;  // latched at BeginFrame so brackets stay paired
 
   base::Vector<PassTiming> results_;
   f32 total_ms_ = 0.0f;

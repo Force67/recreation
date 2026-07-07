@@ -36,6 +36,7 @@ constexpr VkFormat kFormatTable[] = {
     VK_FORMAT_B10G11R11_UFLOAT_PACK32,   // kRG11B10Float
     VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,    // kRGB9E5Float
     VK_FORMAT_D32_SFLOAT,                // kD32Float
+    VK_FORMAT_D16_UNORM,                 // kD16Unorm
     VK_FORMAT_BC1_RGB_UNORM_BLOCK,       // kBC1RgbUnorm
     VK_FORMAT_BC1_RGB_SRGB_BLOCK,        // kBC1RgbSrgb
     VK_FORMAT_BC2_UNORM_BLOCK,           // kBC2Unorm

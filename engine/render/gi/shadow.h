@@ -18,6 +18,9 @@ namespace rec::render {
 class ShadowPass {
  public:
   static constexpr u32 kMaxCascades = 4;
+  // D16 is enough for the tightened per-cascade ortho ranges and halves the
+  // atlas bandwidth; the graph texture and the pipelines must agree.
+  static constexpr Format kAtlasFormat = Format::kD16Unorm;
 
   // Mirrors CascadeData in mesh.ps; 4 light matrices then two param vectors.
   struct CascadeData {

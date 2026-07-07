@@ -601,9 +601,11 @@ GpuImage D3D12Device::CreateImage2D(Format format, Extent2D extent, TextureUsage
   desc.Height = extent.height;
   desc.DepthOrArraySize = 1;
   desc.MipLevels = static_cast<UINT16>(mip_levels);
-  // Depth resources are created typeless so both the DSV (D32_FLOAT) and the
-  // SRV (R32_FLOAT) can view them.
-  desc.Format = depth ? DXGI_FORMAT_R32_TYPELESS : ToDxgiFormat(format);
+  // Depth resources are created typeless so both the DSV (D32_FLOAT/D16_UNORM)
+  // and the SRV (R32_FLOAT/R16_UNORM) can view them.
+  desc.Format = depth ? (format == Format::kD16Unorm ? DXGI_FORMAT_R16_TYPELESS
+                                                     : DXGI_FORMAT_R32_TYPELESS)
+                      : ToDxgiFormat(format);
   desc.SampleDesc.Count = 1;
   if (usage & kTextureUsageColorTarget) desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
   if (usage & kTextureUsageDepthTarget) desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
@@ -802,7 +804,8 @@ u32 D3D12Device::EnsureDsv(TextureViewRecord* view) {
   if (view->dsv != kInvalidIndex) return view->dsv;
   TextureRecord* texture = view->texture;
   D3D12_DEPTH_STENCIL_VIEW_DESC desc = {};
-  desc.Format = DXGI_FORMAT_D32_FLOAT;
+  desc.Format = texture->rhi_format == Format::kD16Unorm ? DXGI_FORMAT_D16_UNORM
+                                                         : DXGI_FORMAT_D32_FLOAT;
   desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
   desc.Texture2D.MipSlice = view->base_mip;
   view->dsv = dsv_pool_.Alloc();
@@ -1408,8 +1411,9 @@ PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& d
     for (size_t i = 0; i < desc.color_formats.size() && i < 8; ++i) {
       stream.rtv_formats.value.RTFormats[i] = ToDxgiFormat(desc.color_formats[i]);
     }
-    stream.dsv.value = desc.depth.format != Format::kUnknown ? DXGI_FORMAT_D32_FLOAT
-                                                             : DXGI_FORMAT_UNKNOWN;
+    stream.dsv.value = desc.depth.format != Format::kUnknown
+                           ? ToDxgiFormat(desc.depth.format)
+                           : DXGI_FORMAT_UNKNOWN;
     stream.sample.value = {1, 0};
 
     D3D12_PIPELINE_STATE_STREAM_DESC stream_desc = {sizeof(stream), &stream};
@@ -1482,7 +1486,7 @@ PipelineHandle D3D12Device::CreateGraphicsPipeline(const GraphicsPipelineDesc& d
     for (size_t i = 0; i < desc.color_formats.size() && i < 8; ++i) {
       pso.RTVFormats[i] = ToDxgiFormat(desc.color_formats[i]);
     }
-    pso.DSVFormat = desc.depth.format != Format::kUnknown ? DXGI_FORMAT_D32_FLOAT
+    pso.DSVFormat = desc.depth.format != Format::kUnknown ? ToDxgiFormat(desc.depth.format)
                                                           : DXGI_FORMAT_UNKNOWN;
     pso.SampleDesc = {1, 0};
     hr = device_->CreateGraphicsPipelineState(&pso, IID_ID3D12PipelineState,

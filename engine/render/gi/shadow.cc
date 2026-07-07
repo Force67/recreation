@@ -42,11 +42,13 @@ bool ShadowPass::Initialize(Device& device, BindingLayoutHandle material_layout)
         // Thin geometry must cast from both sides.
         .raster = {.cull = CullMode::kNone, .front = FrontFace::kCounterClockwise},
         // Standard depth, nearest occluder wins; slope-scaled bias kills most
-        // shadow acne.
+        // shadow acne. D16: each cascade's ortho range is tightened to its
+        // frustum slice, where 16 bits resolve fine and cost half the
+        // bandwidth of D32 (shadow pixel cost scales with resolution^2).
         .depth = {.test = true,
                   .write = true,
                   .compare = CompareOp::kLess,
-                  .format = Format::kD32Float,
+                  .format = kAtlasFormat,
                   .bias_constant = 1.25f,
                   .bias_slope = 2.0f},
         .sets = {{.shared = material_layout}},  // set 0: alpha-test inputs

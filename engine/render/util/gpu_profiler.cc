@@ -57,13 +57,14 @@ void GpuProfiler::BeginFrame(CommandList& cmd, u32 frame_slot) {
   fp.names.clear();
   fp.pass_count = 0;
   fp.recorded = true;
+  frame_detail_ = detail_;
 }
 
 void GpuProfiler::BeginPass(CommandList& cmd, const char* name) {
   if (!device_ || frames_.empty()) return;
   FramePool& fp = frames_[current_];
-  cmd.BeginDebugLabel(name);
-  if (fp.pass_count >= kMaxPasses) return;
+  cmd.BeginDebugLabel(name);  // labels are free; captures stay readable
+  if (!frame_detail_ || fp.pass_count >= kMaxPasses) return;
   fp.names.push_back(name);
   cmd.WriteTimestamp(fp.pool, fp.pass_count * 2, /*after_work=*/false);
 }
@@ -71,11 +72,27 @@ void GpuProfiler::BeginPass(CommandList& cmd, const char* name) {
 void GpuProfiler::EndPass(CommandList& cmd) {
   if (!device_ || frames_.empty()) return;
   FramePool& fp = frames_[current_];
-  if (fp.pass_count < kMaxPasses) {
+  if (frame_detail_ && fp.pass_count < kMaxPasses) {
     cmd.WriteTimestamp(fp.pool, fp.pass_count * 2 + 1, /*after_work=*/true);
     ++fp.pass_count;
   }
   cmd.EndDebugLabel();
+}
+
+void GpuProfiler::BeginFrameTotal(CommandList& cmd) {
+  if (!device_ || frames_.empty() || frame_detail_) return;
+  FramePool& fp = frames_[current_];
+  fp.names.push_back("frame");
+  cmd.WriteTimestamp(fp.pool, fp.pass_count * 2, /*after_work=*/false);
+}
+
+void GpuProfiler::EndFrameTotal(CommandList& cmd) {
+  if (!device_ || frames_.empty() || frame_detail_) return;
+  FramePool& fp = frames_[current_];
+  if (fp.pass_count < kMaxPasses) {
+    cmd.WriteTimestamp(fp.pool, fp.pass_count * 2 + 1, /*after_work=*/true);
+    ++fp.pass_count;
+  }
 }
 
 }  // namespace rec::render

@@ -37,6 +37,7 @@ constexpr DXGI_FORMAT kFormatTable[] = {
     DXGI_FORMAT_R11G11B10_FLOAT,      // kRG11B10Float
     DXGI_FORMAT_R9G9B9E5_SHAREDEXP,   // kRGB9E5Float
     DXGI_FORMAT_D32_FLOAT,            // kD32Float
+    DXGI_FORMAT_D16_UNORM,            // kD16Unorm
     DXGI_FORMAT_BC1_UNORM,            // kBC1RgbUnorm
     DXGI_FORMAT_BC1_UNORM_SRGB,       // kBC1RgbSrgb
     DXGI_FORMAT_BC2_UNORM,            // kBC2Unorm
@@ -57,6 +58,7 @@ DXGI_FORMAT ToDxgiFormat(Format format) { return kFormatTable[static_cast<u32>(f
 
 DXGI_FORMAT ToDxgiSrvFormat(Format format) {
   if (format == Format::kD32Float) return DXGI_FORMAT_R32_FLOAT;
+  if (format == Format::kD16Unorm) return DXGI_FORMAT_R16_UNORM;
   return ToDxgiFormat(format);
 }
 

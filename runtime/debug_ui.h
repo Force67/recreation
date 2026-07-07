@@ -179,6 +179,10 @@ class DebugUi {
   Window* window_ = nullptr;  // for the live system-HDR state in the Display tab
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
+  // Per-pass GPU timestamps follow overlay visibility; the boot value
+  // (REC_GPU_TIMINGS / preset) is latched so a forced run keeps them.
+  bool gpu_timings_latched_ = false;
+  bool gpu_timings_forced_ = false;
   bool show_demo_ = false;
   WorldClock* clock_ = nullptr;  // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel

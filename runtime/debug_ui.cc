@@ -194,6 +194,16 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
   frame_times_[frame_time_cursor_] = frame_delta * 1000.0f;
   frame_time_cursor_ = (frame_time_cursor_ + 1) % IM_ARRAYSIZE(frame_times_);
 
+  // Per-pass GPU timestamps cost real frame time (barriers per pass), so the
+  // renderer only records them while this overlay displays them (the GPU
+  // passes table and the stage chart). The boot value (REC_GPU_TIMINGS) is
+  // latched once so a forced-on headless run keeps them without the overlay.
+  if (!gpu_timings_latched_) {
+    gpu_timings_forced_ = renderer.settings().gpu_pass_timings;
+    gpu_timings_latched_ = true;
+  }
+  renderer.settings().gpu_pass_timings = visible_ || gpu_timings_forced_;
+
   if (visible_) {
     render::RenderSettings& settings = renderer.settings();
     const render::DeviceCaps* caps = renderer.caps();

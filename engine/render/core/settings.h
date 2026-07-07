@@ -71,6 +71,12 @@ struct RenderSettings {
   f32 dynamic_target_ms = 16.6f;
   f32 dynamic_min_scale = 0.5f;
 
+  // Per-pass GPU timestamps. Each pass pair inserts barriers + cache flushes,
+  // a few percent of real frame time across ~40 passes, so they only run
+  // while something shows the numbers (the debug overlay flips this on).
+  // gpu_frame_ms() stays fed either way via a whole-frame bracket.
+  bool gpu_pass_timings = false;
+
   // Material-texture VRAM budget (MB) for the mip streaming in MaterialSystem:
   // textures whose materials haven't drawn recently drop to a low-mip tail
   // when the budget is exceeded, and stream back in when used again.

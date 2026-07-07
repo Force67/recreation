@@ -262,6 +262,7 @@ void Engine::ApplyRenderPreset() {
   tuned.froxel_density = env.froxel_density;
   tuned.vrs = env.vrs;  // honor REC_VRS
   tuned.texture_budget_mb = env.texture_budget_mb;  // honor REC_TEX_BUDGET_MB
+  tuned.gpu_pass_timings = env.gpu_pass_timings;    // honor REC_GPU_TIMINGS
   tuned.dynamic_resolution = env.dynamic_resolution;  // honor REC_DRS
   tuned.dynamic_target_ms = env.dynamic_target_ms;
   tuned.dynamic_min_scale = env.dynamic_min_scale;

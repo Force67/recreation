@@ -49,6 +49,7 @@ base::Option<bool> LocalShadowsOpt{"local.shadows", true, "REC_LOCAL_SHADOWS"};
 base::Option<bool> FroxelOpt{"froxel.fog", true, "REC_FROXEL"};
 base::Option<double> FroxelDensity{"froxel.density", 0.005, "REC_FROXEL_DENSITY"};
 base::Option<int> TexBudgetMb{"tex.budget.mb", -1, "REC_TEX_BUDGET_MB"};
+base::Option<bool> GpuTimings{"gpu.timings", false, "REC_GPU_TIMINGS"};
 base::Option<bool> DrsOpt{"drs", false, "REC_DRS"};
 base::Option<double> DrsTargetMs{"drs.target.ms", 16.6, "REC_DRS_TARGET_MS"};
 base::Option<double> DrsMinScale{"drs.min.scale", 0.5, "REC_DRS_MIN_SCALE"};
@@ -550,6 +551,8 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   // REC_TEX_BUDGET_MB caps resident material-texture memory (mip streaming);
   // -1 auto (half of vram), 0 unlimited.
   if (TexBudgetMb.overridden()) settings_.texture_budget_mb = TexBudgetMb;
+  // REC_GPU_TIMINGS forces per-pass timestamps on for headless profiling.
+  if (GpuTimings.overridden()) settings_.gpu_pass_timings = GpuTimings;
   // REC_DRS holds the GPU frame time at REC_DRS_TARGET_MS by stepping the
   // render scale, no lower than REC_DRS_MIN_SCALE per axis.
   if (DrsOpt.overridden()) settings_.dynamic_resolution = DrsOpt;
@@ -1223,6 +1226,7 @@ void Renderer::RenderFrame(const FrameView& view) {
   BuildFrameGraph(frames_[slot], image_index, view);
   if (!graph_.Compile(*device_, *transient_pool_)) return;
 
+  profiler_.SetDetail(settings_.gpu_pass_timings);
   profiler_.BeginFrame(*cmd, slot);
   graph_.SetPassHooks(
       [this](CommandList& c, const char* name) { profiler_.BeginPass(c, name); },
@@ -1232,9 +1236,13 @@ void Renderer::RenderFrame(const FrameView& view) {
   ctx.cmd = cmd;
   ctx.device = device_.get();
   ctx.graph = &graph_;
+  // With per-pass detail off the whole frame gets one bracket so
+  // gpu_frame_ms() (dynamic resolution's input) stays fed.
+  profiler_.BeginFrameTotal(*cmd);
   // With async passes the graph splits the frame into segments; the returned
   // list is the final one and the only valid argument for SubmitFrame.
   CommandList* final_cmd = graph_.Execute(ctx);
+  profiler_.EndFrameTotal(*final_cmd);
 
   PresentResult presented;
 #if defined(RECREATION_HAS_FSR3)
@@ -1777,7 +1785,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
   ResourceHandle shadow_atlas = kInvalidResource;
   if (csm_active) {
     shadow_atlas = graph_.CreateTexture({.name = "shadow_atlas",
-                                         .format = Format::kD32Float,
+                                         .format = ShadowPass::kAtlasFormat,
                                          .width = shadow_.atlas_width(),
                                          .height = shadow_.atlas_height()});
   }

@@ -50,6 +50,7 @@ enum class Format : u8 {
   kRGB9E5Float,
   // depth
   kD32Float,
+  kD16Unorm,  // shadow cascades: half the bandwidth, enough for tight ortho ranges
   // block compressed
   kBC1RgbUnorm,
   kBC1RgbSrgb,
@@ -65,7 +66,9 @@ enum class Format : u8 {
 };
 constexpr u32 kFormatCount = static_cast<u32>(Format::kCount);
 
-constexpr bool IsDepthFormat(Format format) { return format == Format::kD32Float; }
+constexpr bool IsDepthFormat(Format format) {
+  return format == Format::kD32Float || format == Format::kD16Unorm;
+}
 
 // Bytes per texel (per block for BC formats), for footprint estimates and
 // tightly packed copies.
