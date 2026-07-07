@@ -41,6 +41,24 @@ class LandBaker {
   };
   SplatBake BakeSplat(const bethesda::Record& land, u16 land_plugin, i16 grid_x, i16 grid_y);
 
+  // Splat v2: a per-cell palette of up to 8 LTEX layers (coverage-ranked, so
+  // most cells keep every layer Skyrim authored instead of the top 3) blended
+  // by two RGBA8 weight maps (palette slots 0-3 / 4-7; weights renormalize in
+  // the shader, so bilinear filtering stays valid - never store indices in a
+  // filtered map). Each layer's normal map is resolved from its texture set
+  // (zero id = flat). The legacy SplatBake stays as the fallback and as the
+  // ray-traced hit-shading approximation.
+  struct SplatBakeV2 {
+    asset::AssetId layers[8];
+    asset::AssetId layer_normals[8];
+    u32 layer_count = 0;
+    asset::AssetId weights_a;  // palette slots 0-3
+    asset::AssetId weights_b;  // palette slots 4-7
+    bool ok = false;
+  };
+  SplatBakeV2 BakeSplatV2(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
+                          i16 grid_y);
+
   size_t baked_count() const { return baked_; }
 
  private:
@@ -56,6 +74,8 @@ class LandBaker {
   // Resolves an LTEX (0 = default) to its diffuse texture path / loaded asset.
   std::string LayerDiffusePath(u64 ltex_packed) const;
   asset::AssetId LayerAsset(u64 ltex_packed);
+  // The LTEX texture set's normal map (TX01); zero id when the set has none.
+  asset::AssetId LayerNormalAsset(u64 ltex_packed);
   // Resolves the bake/layer resolution from REC_LAND_BAKE_TEXELS on first use.
   void EnsureBakeSize();
 

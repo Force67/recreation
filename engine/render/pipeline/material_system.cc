@@ -386,6 +386,35 @@ bool MaterialSystem::WriteSet(BindingSetHandle set, u32 pool, u32 param_index,
     params.flags |= kFlagHasHeightMap;
     params.height_scale = material.height_scale;
   }
+  // Terrain splat v2: resolve the palette to bindless indices. The indices
+  // live in this uniform, so the layers are pinned - a streamed slot move
+  // would leave the params stale. Any unresolvable layer keeps the whole
+  // material on the legacy 3-layer path (flag unset).
+  if (material.is_terrain && material.terrain_layer_count > 0 && registry_) {
+    u32 count = std::min(material.terrain_layer_count, 8u);
+    bool complete = true;
+    for (u32 s = 0; s < count && complete; ++s) {
+      u64 albedo_key = material.terrain_layers[s].hash ^ id_salt;
+      Pin(albedo_key);
+      u32 albedo = EnsureBindless(albedo_key);
+      if (albedo == BindlessRegistry::kInvalidIndex) {
+        complete = false;
+        break;
+      }
+      params.terrain_albedo[s] = albedo;
+      if (material.terrain_layer_normals[s]) {
+        u64 normal_key = material.terrain_layer_normals[s].hash ^ id_salt;
+        Pin(normal_key);
+        params.terrain_normal[s] = EnsureBindless(normal_key);
+      }
+    }
+    if (complete) {
+      params.flags |= kFlagTerrainV2;
+    } else {
+      REC_WARN("terrain v2 material {:x}: palette layer missing from bindless, using 3-layer path",
+               material.id.hash);
+    }
+  }
 
   GpuBuffer& buffer = param_buffers_[pool];
   u64 offset = static_cast<u64>(param_index) * kParamStride;

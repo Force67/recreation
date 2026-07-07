@@ -207,10 +207,12 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   rt_available_ = raytracing_ && device_->caps().ray_query;
 
   transient_pool_ = std::make_unique<TransientPool>(*device_);
-  if (rt_available_) {
-    bindless_ = BindlessRegistry::Create(*device_);
-    if (!bindless_) return false;
-  }
+  // The bindless registry has no ray-tracing dependency (buffers + an
+  // update-after-bind set): the forward terrain splat and textured particles
+  // sample through it too, so it exists on every real device. Mesh/geometry
+  // registration (device-address reads) stays gated on ray tracing below.
+  bindless_ = BindlessRegistry::Create(*device_);
+  if (!bindless_) return false;
   material_system_ = MaterialSystem::Create(*device_, bindless_.get());
   if (!material_system_) return false;
   environment_ = EnvironmentSystem::Create(*device_);
@@ -1075,7 +1077,10 @@ bool Renderer::UploadMesh(const asset::Mesh& mesh, u64 id_salt) {
   // the path tracer wants it (alpha-tested foliage), so include it when path
   // tracing is enabled.
   bool include_rt = !gpu.no_rt || settings_.path_trace;
-  if (bindless_ && !gpu.all_blend && include_rt) {
+  // raytracing_ gate: without it the vertex/index buffers were created
+  // without device-address usage, so the mesh records would hold null
+  // addresses (the registry itself now always exists for textures/materials).
+  if (bindless_ && raytracing_ && !gpu.all_blend && include_rt) {
     base::Vector<BindlessRegistry::GeometryRecord> geometries;
     for (const GpuSubmesh& submesh : gpu.submeshes) {
       if (submesh.blend || submesh.index_count == 0) continue;

@@ -55,6 +55,16 @@ struct Material {
   // (emissive). The shader tiles the layers at the native land repeat and
   // blends them by the weight map instead of the usual base-color sample.
   bool is_terrain = false;
+  // Terrain splat v2: a per-cell palette of up to 8 land layers, sampled
+  // through the bindless table and blended by two RGBA8 weight maps (emissive
+  // = palette slots 0-3, height = slots 4-7; weights renormalize in the
+  // shader so bilinear filtering stays valid). Per-layer normal maps come
+  // from the LTEX texture sets; a zero id keeps that layer flat.
+  // terrain_layer_count 0 keeps the legacy 3-layer path above (also the path
+  // the ray-traced hit shading continues to approximate).
+  u32 terrain_layer_count = 0;
+  AssetId terrain_layers[8];
+  AssetId terrain_layer_normals[8];
   // Height/displacement map (r channel, 1 = surface, 0 = deepest) for
   // parallax occlusion mapping; scale is the depth in uv-tangent units.
   AssetId height;

@@ -228,6 +228,10 @@ struct MaterialParams {
   float4 effect_falloff;  // start angle, stop angle, start opacity, stop opacity
   float2 emissive_pulse;  // x frequency (Hz), y amount
   float2 effect_pad;
+  // Terrain splat v2 palette: bindless indices, albedo then normal
+  // (0xffffffff = flat). Only read when kFlagTerrainV2 is set.
+  uint4 terrain_albedo[2];
+  uint4 terrain_normal[2];
 };
 [[vk::binding(0, 1)]] ConstantBuffer<MaterialParams> material : register(b0, space1);
 
@@ -239,6 +243,12 @@ struct MaterialParams {
 [[vk::combinedImageSampler]] [[vk::binding(3, 1)]] SamplerState metallic_roughness_sampler : register(s3, space1);
 [[vk::combinedImageSampler]] [[vk::binding(5, 1)]] Texture2D height_map : register(t5, space1);
 [[vk::combinedImageSampler]] [[vk::binding(5, 1)]] SamplerState height_sampler : register(s5, space1);
+
+// Bindless texture table (set 3, shared with the rt hit shading): the terrain
+// splat v2 palette samples through it. Indices come from the material uniform,
+// so they are wave-uniform within a draw - no NonUniformResourceIndex needed.
+[[vk::binding(3, 3)]] Texture2D bindless_textures[] : register(t3, space3);
+[[vk::binding(4, 3)]] SamplerState bindless_sampler : register(s4, space3);
 [[vk::combinedImageSampler]] [[vk::binding(4, 1)]] Texture2D emissive_map : register(t4, space1);
 [[vk::combinedImageSampler]] [[vk::binding(4, 1)]] SamplerState emissive_sampler : register(s4, space1);
 
@@ -288,6 +298,7 @@ static const uint kFlagEffectAdditive = 1024u; // 1 << 10, additive blend (fire)
 static const uint kFlagEffectGrayColor = 2048u; // 1 << 11, luminance through the palette
 static const uint kFlagEffectGrayAlpha = 4096u; // 1 << 12, coverage from luminance
 static const uint kFlagEffectFalloff = 8192u;   // 1 << 13, view-angle opacity fade
+static const uint kFlagTerrainV2 = 32768u;      // 1 << 15, bindless splat palette
 static const uint kFrameIbl = 1u;
 static const uint kFrameAoValid = 2u;
 static const uint kFrameDdgi = 4u;
@@ -323,8 +334,26 @@ struct PsOut {
 // sss target for skin materials so the blur can subtract/re-add exactly it.
 static float3 g_skin_diffuse = float3(0.0, 0.0, 0.0);
 
+// Terrain splat v2 results, sampled once in main (albedo and normal share the
+// weight fetch) and consumed by the base-color pick and SurfaceNormal.
+static float3 g_terrain_albedo = float3(0.0, 0.0, 0.0);
+static float3 g_terrain_normal_ts = float3(0.0, 0.0, 1.0);
+
 float3 SurfaceNormal(PsIn input) {
   float3 n = normalize(input.normal);
+  if ((material.flags & kFlagTerrainV2) != 0u) {
+    // Blended per-layer tangent-space normal from the splat palette. The
+    // terrain TBN is coarse (constant vertex tangent) but the land grid is
+    // near-planar per cell, so it holds up.
+    float3 t = input.tangent.xyz - n * dot(input.tangent.xyz, n);
+    if (dot(t, t) > 1e-8) {
+      t = normalize(t);
+      float3 b = cross(n, t) * input.tangent.w;
+      float3 tn = g_terrain_normal_ts;
+      if (dot(tn, tn) > 1e-6) n = normalize(tn.x * t + tn.y * b + tn.z * n);
+    }
+    return n;
+  }
   if ((material.flags & kFlagHasNormalMap) != 0u) {
     float3 sampled = normal_map.Sample(normal_sampler, input.uv).xyz * 2.0 - 1.0;
     if ((material.flags & kFlagNormalModelSpace) != 0u) {
@@ -989,6 +1018,47 @@ float3 TerrainAlbedo(float2 uv) {
   return l0 * w.r + l1 * w.g + l2 * w.b;
 }
 
+// Terrain splat v2: up to 8 palette layers from the bindless table, blended by
+// two RGBA8 weight maps (emissive = palette slots 0-3, height = slots 4-7;
+// weights, never indices, so the maps filter correctly). Layers below a visual
+// threshold are skipped, so typical pixels sample 2-3 layers. SampleGrad with
+// hoisted derivatives keeps mips valid inside the varying branches.
+void TerrainSampleV2(float2 uv, out float3 albedo, out float3 normal_ts) {
+  float4 wa = emissive_map.Sample(emissive_sampler, uv);
+  float4 wb = height_map.Sample(height_sampler, uv);
+  float w[8] = {wa.x, wa.y, wa.z, wa.w, wb.x, wb.y, wb.z, wb.w};
+  float wsum = dot(wa, float4(1.0, 1.0, 1.0, 1.0)) + dot(wb, float4(1.0, 1.0, 1.0, 1.0));
+  if (wsum < 1e-4) {
+    w[0] = 1.0;
+    wsum = 1.0;
+  }
+  float2 tuv = uv * 8.0;  // native land repeat, 8 tiles per cell
+  float2 duvx = ddx(tuv);
+  float2 duvy = ddy(tuv);
+  albedo = float3(0.0, 0.0, 0.0);
+  normal_ts = float3(0.0, 0.0, 0.0);
+  float inv = 1.0 / wsum;
+  [unroll]
+  for (uint s = 0; s < 8; ++s) {
+    float weight = w[s] * inv;
+    [branch]
+    if (weight < 1.0 / 255.0) continue;
+    uint albedo_index = material.terrain_albedo[s / 4][s % 4];
+    albedo += bindless_textures[albedo_index].SampleGrad(bindless_sampler, tuv, duvx, duvy).rgb *
+              weight;
+    uint normal_index = material.terrain_normal[s / 4][s % 4];
+    [branch]
+    if (normal_index != 0xffffffffu) {
+      float3 tn =
+          bindless_textures[normal_index].SampleGrad(bindless_sampler, tuv, duvx, duvy).xyz *
+              2.0 - 1.0;
+      normal_ts += tn * weight;
+    } else {
+      normal_ts += float3(0.0, 0.0, 1.0) * weight;  // flat contribution
+    }
+  }
+}
+
 // Effect-shader (unlit vfx) shading: torch/campfire flames, glow planes, mist
 // sheets. Colour is the source texture (or a greyscale-palette remap) times the
 // emissive colour * multiple (base_color_factor) times the vertex colour, with a
@@ -1074,6 +1144,10 @@ PsOut main(PsIn input) {
   if ((material.flags & kFlagVirtualAlbedo) != 0u) {
     base = float4(SampleVirtualAlbedo(input.uv, input.sv_position.xy), 1.0) *
            material.base_color_factor * input.color;
+  } else if ((material.flags & kFlagTerrainV2) != 0u) {
+    // One fetch feeds both the albedo pick here and SurfaceNormal below.
+    TerrainSampleV2(input.uv, g_terrain_albedo, g_terrain_normal_ts);
+    base = float4(g_terrain_albedo, 1.0) * material.base_color_factor * input.color;
   } else if ((material.flags & kFlagTerrain) != 0u) {
     base = float4(TerrainAlbedo(input.uv), 1.0) * material.base_color_factor * input.color;
   } else {

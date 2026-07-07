@@ -69,6 +69,13 @@ class MaterialSystem {
     // (0..1 of the mean the emission swings). Applies to lit glow and effects.
     f32 emissive_pulse[2] = {0, 0};
     f32 effect_pad[2] = {0, 0};
+    // Terrain splat v2 (kFlagTerrainV2): bindless indices of the per-cell
+    // palette, albedo then normal (kInvalidIndex = flat). uint4-row layout in
+    // the shader mirror, so this block must stay 16-byte aligned. The indices
+    // bake into this uniform, so the palette textures are pinned against
+    // streaming.
+    u32 terrain_albedo[8] = {~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u};
+    u32 terrain_normal[8] = {~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u};
   };
   static constexpr u32 kFlagAlphaMask = 1u << 0;
   static constexpr u32 kFlagHasNormalMap = 1u << 1;
@@ -85,6 +92,7 @@ class MaterialSystem {
   static constexpr u32 kFlagEffectGrayAlpha = 1u << 12;  // coverage from luminance
   static constexpr u32 kFlagEffectFalloff = 1u << 13;    // view-angle opacity fade
   static constexpr u32 kFlagNormalModelSpace = 1u << 14;  // _msn object-space normal map
+  static constexpr u32 kFlagTerrainV2 = 1u << 15;  // splat v2: bindless palette + 2 weight maps
 
   // Looks up an uploaded texture by asset hash (null when absent). Used by
   // systems that bind textures outside the material sets (decal atlas).

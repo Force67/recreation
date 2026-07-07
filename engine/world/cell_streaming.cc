@@ -24,6 +24,10 @@ base::Option<bool> DistantLod{"distant.lod", false, "REC_DISTANT_LOD"};
 // and blend by a small weight map, instead of the lower-res per-cell albedo
 // bake. On for the higher presets; REC_LAND_SPLAT forces it either way.
 base::Option<bool> LandSplat{"land.splat", true, "REC_LAND_SPLAT"};
+// Splat v2 (8-layer palette + per-layer normals via the bindless table) rides
+// on top of the splat path; REC_TERRAIN_V2=0 pins the legacy 3-layer blend
+// for A/B comparisons.
+base::Option<bool> TerrainV2{"terrain.v2", true, "REC_TERRAIN_V2"};
 // Feed placed LIGH refs (torches, sconces, lamps) into the dynamic light list so
 // dungeons and night scenes have local lighting. On by default.
 base::Option<bool> PlacedLights{"placed.lights", true, "REC_PLACED_LIGHTS"};
@@ -577,6 +581,13 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     u16 plugin = records_.Find(land_id)->winning_plugin;
     bool splat = LandSplat.overridden() ? LandSplat.get() : settings_.terrain_splat;
     if (splat) {
+      // v2: the full LTEX palette (up to 8 layers + per-layer normals) blended
+      // by two weight maps, sampled through the bindless table. The legacy
+      // 3-layer slots are still filled from a v1 bake: they are the fallback
+      // when v2 can't resolve and the approximation the ray-traced hit
+      // shading keeps using (its material records carry only 3 layer slots).
+      LandBaker::SplatBakeV2 v2;
+      if (TerrainV2) v2 = baker_.BakeSplatV2(land, plugin, grid_x, grid_y);
       LandBaker::SplatBake splat = baker_.BakeSplat(land, plugin, grid_x, grid_y);
       if (splat.ok) {
         asset::Material material;
@@ -589,6 +600,20 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
         material.emissive = splat.control;
         material.roughness_factor = 1.0f;
         material.is_terrain = true;
+        if (v2.ok) {
+          REC_INFO("terrain v2: cell {},{} palette {} layers", grid_x, grid_y, v2.layer_count);
+          material.terrain_layer_count = v2.layer_count;
+          for (u32 s = 0; s < v2.layer_count; ++s) {
+            material.terrain_layers[s] = v2.layers[s];
+            material.terrain_layer_normals[s] = v2.layer_normals[s];
+          }
+          // The v2 weight maps ride the emissive/height slots. The RT hit
+          // shading (3-layer approximation) reads emissive.rgb as its weights;
+          // both bakes rank the palette by the same coverage logic, so
+          // weights_a's first three channels line up with the v1 layers.
+          material.emissive = v2.weights_a;
+          material.height = v2.weights_b;
+        }
         assets_.AddMaterial(material);
         material_id = material.id;
       }
@@ -1577,16 +1602,24 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
     for (const asset::Submesh& submesh : mesh.lods[0].submeshes) {
       const asset::Material* material = assets_.FindMaterial(submesh.material);
       if (!material || uploaded_.contains(material->id.hash)) continue;
-      const asset::AssetId textures[] = {material->base_color, material->normal,
-                                         material->metallic_roughness, material->emissive};
-      for (asset::AssetId texture_id : textures) {
-        if (!texture_id || uploaded_.contains(texture_id.hash)) continue;
+      auto upload_texture = [&](asset::AssetId texture_id) {
+        if (!texture_id || uploaded_.contains(texture_id.hash)) return;
         if (const asset::Texture* texture = assets_.FindTexture(texture_id)) {
           if (!uploads_.texture(*texture)) REC_WARN("texture upload failed: {:x}", texture_id.hash);
           uploaded_.emplace(texture_id.hash, true);
         } else {
           REC_WARN("texture missing for material {:x}: {:x}", material->id.hash, texture_id.hash);
         }
+      };
+      const asset::AssetId textures[] = {material->base_color, material->normal,
+                                         material->metallic_roughness, material->emissive,
+                                         material->height};
+      for (asset::AssetId texture_id : textures) upload_texture(texture_id);
+      // Terrain splat v2 palette: layer diffuses + normals resolve to bindless
+      // indices at material upload, so they must be resident first.
+      for (u32 s = 0; s < material->terrain_layer_count; ++s) {
+        upload_texture(material->terrain_layers[s]);
+        upload_texture(material->terrain_layer_normals[s]);
       }
       if (!uploads_.material(*material)) {
         REC_WARN("material upload failed: {:x}", material->id.hash);
