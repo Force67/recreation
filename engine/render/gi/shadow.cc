@@ -33,10 +33,12 @@ bool ShadowPass::Initialize(Device& device, BindingLayoutHandle material_layout)
       .attributes = {{5, Format::kRGBA8Uint, offsetof(asset::SkinnedVertexExtra, bone_indices)},
                      {6, Format::kRGBA8Unorm, offsetof(asset::SkinnedVertexExtra, bone_weights)}}};
 
-  auto make_pipeline = [&](ShaderBlob vertex, bool skinned, const char* name) {
+  auto make_pipeline = [&](ShaderBlob vertex, bool skinned, bool masked, const char* name) {
     GraphicsPipelineDesc desc{
         .vertex = vertex,
-        .fragment = REC_SHADER(k_shadow_ps_hlsl),
+        // Masked casters alpha-test in the fragment; opaque ones run with no
+        // fragment shader at all (the discard's presence would force late-Z).
+        .fragment = masked ? REC_SHADER(k_shadow_ps_hlsl) : ShaderBlob{},
         // Thin geometry must cast from both sides.
         .raster = {.cull = CullMode::kNone, .front = FrontFace::kCounterClockwise},
         // Standard depth, nearest occluder wins; slope-scaled bias kills most
@@ -56,9 +58,13 @@ bool ShadowPass::Initialize(Device& device, BindingLayoutHandle material_layout)
     return device.CreateGraphicsPipeline(desc);
   };
 
-  pipeline_ = make_pipeline(REC_SHADER(k_shadow_vs_hlsl), false, "shadow");
-  skinned_pipeline_ = make_pipeline(REC_SHADER(k_shadow_skin_vs_hlsl), true, "shadow_skinned");
-  if (!pipeline_ || !skinned_pipeline_) {
+  pipeline_ = make_pipeline(REC_SHADER(k_shadow_vs_hlsl), false, true, "shadow");
+  skinned_pipeline_ =
+      make_pipeline(REC_SHADER(k_shadow_skin_vs_hlsl), true, true, "shadow_skinned");
+  opaque_pipeline_ = make_pipeline(REC_SHADER(k_shadow_vs_hlsl), false, false, "shadow_opaque");
+  skinned_opaque_pipeline_ =
+      make_pipeline(REC_SHADER(k_shadow_skin_vs_hlsl), true, false, "shadow_skinned_opaque");
+  if (!pipeline_ || !skinned_pipeline_ || !opaque_pipeline_ || !skinned_opaque_pipeline_) {
     REC_ERROR("shadow pipeline creation failed");
     return false;
   }
@@ -179,6 +185,8 @@ void ShadowPass::Render(CommandList& cmd, TextureView atlas_view,
 void ShadowPass::Destroy(Device& device) {
   device.DestroyPipeline(pipeline_);
   device.DestroyPipeline(skinned_pipeline_);
+  device.DestroyPipeline(opaque_pipeline_);
+  device.DestroyPipeline(skinned_opaque_pipeline_);
   for (u32 i = 0; i < kFramesInFlight; ++i) device.DestroyBuffer(cascades_[i]);
   pipeline_ = {};
   skinned_pipeline_ = {};

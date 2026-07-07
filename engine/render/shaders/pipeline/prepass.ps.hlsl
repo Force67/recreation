@@ -2,6 +2,11 @@
 // passes, and lets the main pass run with depth EQUAL and no overdraw
 // shading. The main pass masks off its motion output; only the sky pass
 // adds motion on top of this.
+//
+// Two compiled variants: the base has NO discard (its mere presence forces
+// late-Z for the whole draw, cutting Hi-Z benefit for all opaque geometry);
+// prepass_masked.ps.hlsl defines REC_PREPASS_MASKED to compile the
+// alpha-test path for cutout materials (foliage, fences, hair cards).
 
 struct MaterialParams {
   float4 base_color_factor;
@@ -52,11 +57,13 @@ struct PsOut {
 };
 
 PsOut main(PsIn input) {
+#if defined(REC_PREPASS_MASKED)
   if ((material.flags & kFlagAlphaMask) != 0u) {
     float4 base = base_color_map.Sample(base_color_sampler, input.uv) *
                   material.base_color_factor * input.color;
     if (base.a < material.alpha_cutoff) discard;
   }
+#endif
   float3 n = normalize(input.normal);
   if ((material.flags & kFlagHasNormalMap) != 0u) {
     float3 t = input.tangent.xyz - n * dot(input.tangent.xyz, n);

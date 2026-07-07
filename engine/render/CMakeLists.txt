@@ -191,6 +191,7 @@ set(RECREATION_RENDER_SHADERS
   shaders/atmosphere/prefilter.cs.hlsl
   shaders/atmosphere/brdf_lut.cs.hlsl
   shaders/pipeline/prepass.ps.hlsl
+  shaders/pipeline/prepass_masked.ps.hlsl
   shaders/screenspace/rtao.cs.hlsl
   shaders/screenspace/ssao.cs.hlsl
   shaders/screenspace/ssr.cs.hlsl
@@ -282,6 +283,7 @@ endif()
 # are NOT here: they carry a dual path (rec_bone_palette root SRV on DXIL).
 # Wrapper-shader include dependencies (see cmake/shaders.cmake).
 set(RECREATION_SHADER_DEPS_mesh_sss_ps_hlsl shaders/pipeline/mesh.ps.hlsl)
+set(RECREATION_SHADER_DEPS_prepass_masked_ps_hlsl shaders/pipeline/prepass.ps.hlsl)
 set(RECREATION_SHADER_DEPS_mesh_rt_sss_ps_hlsl shaders/pipeline/mesh_rt.ps.hlsl)
 set(RECREATION_SHADER_DEPS_particle_tex_ps_hlsl shaders/geometry/particle.ps.hlsl)
 

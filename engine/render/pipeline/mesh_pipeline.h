@@ -187,7 +187,9 @@ class MeshPipeline {
   // loop calls these when it crosses a skinned/non-skinned mesh boundary.
   bool has_skinning() const { return static_cast<bool>(skinned_pipelines_[0]); }
   void SetSkinned(CommandList& cmd, bool skinned, bool use_rt, bool wireframe);
-  void SetPrepassSkinned(CommandList& cmd, bool skinned);
+  // Binds the prepass pipeline for a submesh: skinned vs static vertex path,
+  // masked (alpha-test discard) vs opaque fragment (keeps early-Z).
+  void SetPrepassVariant(CommandList& cmd, bool skinned, bool masked);
 
  private:
   // Variant index bits.
@@ -203,9 +205,11 @@ class MeshPipeline {
   PipelineHandle blend_pipelines_[2] = {};  // [rt]
   PipelineHandle blend_additive_pipelines_[2] = {};  // [rt] additive effect vfx
   PipelineHandle prepass_pipeline_;
+  PipelineHandle prepass_masked_pipeline_;  // alpha-test discard variant
   // Skinned vertex path: same fragment variants, extra vertex stream + VS.
   PipelineHandle skinned_pipelines_[2] = {};  // [rt]
   PipelineHandle skinned_prepass_pipeline_;
+  PipelineHandle skinned_prepass_masked_pipeline_;
   // Optional mesh-shader opaque variants (larger mesh-stage push range).
   PipelineHandle ms_scene_[2] = {};  // [rt]
   PipelineHandle ms_prepass_;

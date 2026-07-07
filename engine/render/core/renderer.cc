@@ -2044,7 +2044,10 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           TextureView atlas = ctx.graph->image(shadow_atlas).view;
           shadow_.Render(*ctx.cmd, atlas, [this, &frame, &view](CommandList& cmd) {
             BindingSetHandle bound_material{};
-            PipelineHandle bound_pipeline{};
+            // ShadowPass::Render bound the masked static permutation; all four
+            // shadow pipelines share one layout, so pushes and set binds
+            // persist across the per-submesh variant switches below.
+            PipelineHandle bound_pipeline = shadow_.pipeline();
             for (const DrawItem& item : view.draws) {
               const GpuMesh* mesh = meshes_.find(item.mesh);
               // no_rt skips grass-like fill geometry, but skinned actors are
@@ -2054,12 +2057,6 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               // shadow tracks the animated pose, not the bind pose.
               bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
                                   static_cast<bool>(shadow_.skinned_pipeline());
-              PipelineHandle pipeline =
-                  draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
-              if (!(pipeline == bound_pipeline)) {
-                cmd.BindPipeline(pipeline);
-                bound_pipeline = pipeline;
-              }
               // The per-cascade light matrix sits at offset 0 (pushed by
               // ShadowPass::Render); the model follows it, skin data after.
               cmd.PushConstants(&item.transform, sizeof(Mat4), sizeof(Mat4));
@@ -2076,11 +2073,21 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               cmd.BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
               for (const GpuSubmesh& submesh : mesh->submeshes) {
                 if (submesh.blend) continue;
-                // Bind the material so masked casters alpha-test in the fragment.
-                BindingSetHandle material = material_system_->set(submesh.material);
-                if (!(material == bound_material)) {
-                  cmd.BindSet(0, material);
-                  bound_material = material;
+                // Opaque casters draw depth-only (no fragment, early-Z stays);
+                // masked ones bind the alpha-test fragment + its material set.
+                PipelineHandle pipeline = draw_skinned
+                                              ? shadow_.skinned_pipeline(submesh.alpha_mask)
+                                              : shadow_.pipeline(submesh.alpha_mask);
+                if (!(pipeline == bound_pipeline)) {
+                  cmd.BindPipeline(pipeline);
+                  bound_pipeline = pipeline;
+                }
+                if (submesh.alpha_mask) {
+                  BindingSetHandle material = material_system_->set(submesh.material);
+                  if (!(material == bound_material)) {
+                    cmd.BindSet(0, material);
+                    bound_material = material;
+                  }
                 }
                 cmd.DrawIndexed(submesh.index_count, 1, submesh.index_offset, 0, 0);
               }
@@ -2099,7 +2106,8 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
               *ctx.cmd, shadow_.pipeline(),
               [this, &frame, &view](CommandList& cmd, const LocalShadows::Face& face) {
                 BindingSetHandle bound_material{};
-                PipelineHandle bound_pipeline{};
+                // LocalShadows::Render bound the passed masked static pipeline.
+                PipelineHandle bound_pipeline = shadow_.pipeline();
                 for (const DrawItem& item : view.draws) {
                   const GpuMesh* mesh = meshes_.find(item.mesh);
                   if (!mesh || mesh->all_blend || (mesh->no_rt && !mesh->skinned)) continue;
@@ -2120,12 +2128,6 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
 
                   bool draw_skinned = mesh->skinned && item.skin_offset >= 0 &&
                                       static_cast<bool>(shadow_.skinned_pipeline());
-                  PipelineHandle pipeline =
-                      draw_skinned ? shadow_.skinned_pipeline() : shadow_.pipeline();
-                  if (!(pipeline == bound_pipeline)) {
-                    cmd.BindPipeline(pipeline);
-                    bound_pipeline = pipeline;
-                  }
                   cmd.PushConstants(&item.transform, sizeof(Mat4), sizeof(Mat4));
                   cmd.BindVertexBuffer(0, mesh->vertices);
                   if (draw_skinned) {
@@ -2140,10 +2142,20 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
                   cmd.BindIndexBuffer(mesh->indices, 0, IndexType::kUint32);
                   for (const GpuSubmesh& submesh : mesh->submeshes) {
                     if (submesh.blend) continue;
-                    BindingSetHandle material = material_system_->set(submesh.material);
-                    if (!(material == bound_material)) {
-                      cmd.BindSet(0, material);
-                      bound_material = material;
+                    // Depth-only for opaque casters, alpha-test only for masked.
+                    PipelineHandle pipeline =
+                        draw_skinned ? shadow_.skinned_pipeline(submesh.alpha_mask)
+                                     : shadow_.pipeline(submesh.alpha_mask);
+                    if (!(pipeline == bound_pipeline)) {
+                      cmd.BindPipeline(pipeline);
+                      bound_pipeline = pipeline;
+                    }
+                    if (submesh.alpha_mask) {
+                      BindingSetHandle material = material_system_->set(submesh.material);
+                      if (!(material == bound_material)) {
+                        cmd.BindSet(0, material);
+                        bound_material = material;
+                      }
                     }
                     cmd.DrawIndexed(submesh.index_count, 1, submesh.index_offset, 0, 0);
                   }
@@ -2338,6 +2350,7 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         mesh_pipeline_->BindPrepass(*ctx.cmd, globals_set, env_prepass_sets_[frame_slot]);
         BindingSetHandle bound_material{};
         bool skinned_bound = false;
+        bool masked_bound = false;  // BindPrepass bound the opaque static variant
         u32 cull_cmd_index = 0;  // matches the cull build order
         for (const DrawItem& item : view.draws) {
           const GpuMesh* mesh = meshes_.find(item.mesh);
@@ -2348,10 +2361,6 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
           bool ms_handled = ms_active && mesh->has_meshlets;
           bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
           if (!ms_handled) {
-            if (draw_skinned != skinned_bound) {
-              mesh_pipeline_->SetPrepassSkinned(*ctx.cmd, draw_skinned);
-              skinned_bound = draw_skinned;
-            }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
             if (mesh->terrain_lod) {
               std::memcpy(push.detail_rect, view.detail_rect, sizeof(push.detail_rect));
@@ -2366,6 +2375,13 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             if (submesh.blend) continue;  // transparency owns its own depth
             if (cull_cmd_index >= cull_total_commands_) break;  // partial-mesh boundary
             if (!ms_handled) {
+              // Masked submeshes take the alpha-test variant; opaque ones keep
+              // the discard-free fragment so the draw keeps early-Z.
+              if (draw_skinned != skinned_bound || submesh.alpha_mask != masked_bound) {
+                mesh_pipeline_->SetPrepassVariant(*ctx.cmd, draw_skinned, submesh.alpha_mask);
+                skinned_bound = draw_skinned;
+                masked_bound = submesh.alpha_mask;
+              }
               BindingSetHandle material = material_system_->set(submesh.material);
               if (!(material == bound_material)) {
                 mesh_pipeline_->BindMaterial(*ctx.cmd, material);
@@ -3189,14 +3205,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
         mesh_pipeline_->BindPrepass(*ctx.cmd, globals_set, env_prepass_sets_[frame_slot]);
           BindingSetHandle bound_material{};
           bool skinned_bound = false;
+          bool masked_bound = false;  // BindPrepass bound the opaque static variant
           for (const DrawItem& item : view.draws) {
             const GpuMesh* mesh = meshes_.find(item.mesh);
             if (!mesh || mesh->all_blend) continue;
             bool draw_skinned = mesh->skinned && mesh_pipeline_->has_skinning();
-            if (draw_skinned != skinned_bound) {
-              mesh_pipeline_->SetPrepassSkinned(*ctx.cmd, draw_skinned);
-              skinned_bound = draw_skinned;
-            }
             MeshPushConstants push{.model = item.transform, .prev_model = item.prev_transform};
             if (mesh->terrain_lod) {
               std::memcpy(push.detail_rect, view.detail_rect, sizeof(push.detail_rect));
@@ -3208,6 +3221,11 @@ void Renderer::BuildFrameGraph(FrameResources& frame, u32 image_index, const Fra
             mesh_pipeline_->Draw(*ctx.cmd, *mesh, push);
             for (const GpuSubmesh& submesh : mesh->submeshes) {
               if (submesh.blend) continue;  // transparency owns its own depth
+              if (draw_skinned != skinned_bound || submesh.alpha_mask != masked_bound) {
+                mesh_pipeline_->SetPrepassVariant(*ctx.cmd, draw_skinned, submesh.alpha_mask);
+                skinned_bound = draw_skinned;
+                masked_bound = submesh.alpha_mask;
+              }
               BindingSetHandle material = material_system_->set(submesh.material);
               if (!(material == bound_material)) {
                 mesh_pipeline_->BindMaterial(*ctx.cmd, material);

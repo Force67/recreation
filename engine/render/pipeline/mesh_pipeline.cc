@@ -10,6 +10,7 @@
 #include "shaders/mesh_scene_ms_hlsl.h"
 #include "shaders/mesh_skin_vs_hlsl.h"
 #include "shaders/mesh_vs_hlsl.h"
+#include "shaders/prepass_masked_ps_hlsl.h"
 #include "shaders/prepass_ps_hlsl.h"
 
 namespace rec::render {
@@ -165,14 +166,31 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, Format color_
       REC_ERROR("mesh prepass pipeline creation failed");
     }
 
+    // Masked (alpha-tested) variant: only cutout submeshes bind it, so the
+    // discard in its fragment shader never costs opaque draws their early-Z.
+    desc.fragment = REC_SHADER(k_prepass_masked_ps_hlsl);
+    desc.debug_name = "mesh_prepass_masked";
+    pipeline->prepass_masked_pipeline_ = device.CreateGraphicsPipeline(desc);
+    if (!pipeline->prepass_masked_pipeline_) {
+      REC_ERROR("mesh masked prepass pipeline creation failed");
+    }
+
     // Skinned prepass: must match the skinned main pose so the EQUAL depth test
     // passes.
     desc.vertex = REC_SHADER(k_mesh_skin_vs_hlsl);
     desc.vertex_buffers = {static_stream, skin_stream};
+    desc.fragment = REC_SHADER(k_prepass_ps_hlsl);
     desc.debug_name = "mesh_prepass_skinned";
     pipeline->skinned_prepass_pipeline_ = device.CreateGraphicsPipeline(desc);
     if (!pipeline->skinned_prepass_pipeline_) {
       REC_ERROR("mesh skinned prepass pipeline creation failed");
+    }
+
+    desc.fragment = REC_SHADER(k_prepass_masked_ps_hlsl);
+    desc.debug_name = "mesh_prepass_skinned_masked";
+    pipeline->skinned_prepass_masked_pipeline_ = device.CreateGraphicsPipeline(desc);
+    if (!pipeline->skinned_prepass_masked_pipeline_) {
+      REC_ERROR("mesh skinned masked prepass pipeline creation failed");
     }
   }
 
@@ -210,10 +228,13 @@ std::unique_ptr<MeshPipeline> MeshPipeline::Create(Device& device, Format color_
       }
     }
 
-    // Prepass variant: depth write + normal/motion/depth-export targets.
+    // Prepass variant: depth write + normal/motion/depth-export targets. The
+    // meshlet path draws masked and opaque submeshes through one pipeline, so
+    // it keeps the alpha-test (runtime-flag) fragment; the early-Z split only
+    // applies to the raster prepass, which bins per submesh.
     {
       GraphicsPipelineDesc desc = ms;
-      desc.fragment = REC_SHADER(k_prepass_ps_hlsl);
+      desc.fragment = REC_SHADER(k_prepass_masked_ps_hlsl);
       desc.depth = {.test = true, .write = true, .compare = CompareOp::kGreater,  // reversed z
                     .format = depth_format};
       desc.color_formats = {normal_format, motion_format, Format::kR32Float};
@@ -249,7 +270,9 @@ MeshPipeline::~MeshPipeline() {
     if (pipeline) device_.DestroyPipeline(pipeline);
   }
   if (skinned_prepass_pipeline_) device_.DestroyPipeline(skinned_prepass_pipeline_);
+  if (skinned_prepass_masked_pipeline_) device_.DestroyPipeline(skinned_prepass_masked_pipeline_);
   if (prepass_pipeline_) device_.DestroyPipeline(prepass_pipeline_);
+  if (prepass_masked_pipeline_) device_.DestroyPipeline(prepass_masked_pipeline_);
   for (PipelineHandle pipeline : ms_scene_) {
     if (pipeline) device_.DestroyPipeline(pipeline);
   }
@@ -321,9 +344,14 @@ void MeshPipeline::SetSkinned(CommandList& cmd, bool skinned, bool use_rt, bool 
   cmd.BindPipeline(pipelines_[variant]);
 }
 
-void MeshPipeline::SetPrepassSkinned(CommandList& cmd, bool skinned) {
-  PipelineHandle p =
-      skinned && skinned_prepass_pipeline_ ? skinned_prepass_pipeline_ : prepass_pipeline_;
+void MeshPipeline::SetPrepassVariant(CommandList& cmd, bool skinned, bool masked) {
+  PipelineHandle p;
+  if (skinned && skinned_prepass_pipeline_) {
+    p = masked && skinned_prepass_masked_pipeline_ ? skinned_prepass_masked_pipeline_
+                                                   : skinned_prepass_pipeline_;
+  } else {
+    p = masked && prepass_masked_pipeline_ ? prepass_masked_pipeline_ : prepass_pipeline_;
+  }
   cmd.BindPipeline(p);
 }
 

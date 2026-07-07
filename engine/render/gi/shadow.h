@@ -58,8 +58,15 @@ class ShadowPass {
 
   const GpuBuffer& cascade_buffer(u32 frame_slot) const { return cascades_[frame_slot]; }
   u64 cascade_buffer_size() const { return sizeof(CascadeData); }
-  PipelineHandle pipeline() const { return pipeline_; }
-  PipelineHandle skinned_pipeline() const { return skinned_pipeline_; }
+  // masked = alpha-tested caster (binds the discard fragment + material set);
+  // opaque casters get the depth-only pipeline (no fragment shader at all), so
+  // the discard's presence never costs them early-Z.
+  PipelineHandle pipeline(bool masked = true) const {
+    return masked || !opaque_pipeline_ ? pipeline_ : opaque_pipeline_;
+  }
+  PipelineHandle skinned_pipeline(bool masked = true) const {
+    return masked || !skinned_opaque_pipeline_ ? skinned_pipeline_ : skinned_opaque_pipeline_;
+  }
 
  private:
   static constexpr u32 kFramesInFlight = 2;
@@ -67,6 +74,8 @@ class ShadowPass {
   Settings settings_;
   PipelineHandle pipeline_;
   PipelineHandle skinned_pipeline_;
+  PipelineHandle opaque_pipeline_;  // depth-only, no fragment stage
+  PipelineHandle skinned_opaque_pipeline_;
   GpuBuffer cascades_[kFramesInFlight];
   CascadeData current_{};
 };
