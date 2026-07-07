@@ -48,6 +48,9 @@ base::Option<bool> FrameGenOpt{"framegen", false, "REC_FRAMEGEN"};
 base::Option<bool> LocalShadowsOpt{"local.shadows", true, "REC_LOCAL_SHADOWS"};
 base::Option<bool> FroxelOpt{"froxel.fog", true, "REC_FROXEL"};
 base::Option<double> FroxelDensity{"froxel.density", 0.005, "REC_FROXEL_DENSITY"};
+base::Option<bool> DrsOpt{"drs", false, "REC_DRS"};
+base::Option<double> DrsTargetMs{"drs.target.ms", 16.6, "REC_DRS_TARGET_MS"};
+base::Option<double> DrsMinScale{"drs.min.scale", 0.5, "REC_DRS_MIN_SCALE"};
 base::Option<bool> VrsOpt{"vrs", true, "REC_VRS"};
 base::Option<double> VrsThreshold{"vrs.threshold", 0.06, "REC_VRS_THRESHOLD"};
 base::Option<bool> RestirDiOpt{"restir.di", false, "REC_RESTIR_DI"};
@@ -543,6 +546,11 @@ bool Renderer::Initialize(const RendererDesc& desc, Window& window) {
   if (LocalShadowsOpt.overridden()) settings_.local_shadows = LocalShadowsOpt;
   if (FroxelOpt.overridden()) settings_.froxel_fog = FroxelOpt;
   if (FroxelDensity.overridden()) settings_.froxel_density = static_cast<f32>(double(FroxelDensity));
+  // REC_DRS holds the GPU frame time at REC_DRS_TARGET_MS by stepping the
+  // render scale, no lower than REC_DRS_MIN_SCALE per axis.
+  if (DrsOpt.overridden()) settings_.dynamic_resolution = DrsOpt;
+  if (DrsTargetMs.overridden()) settings_.dynamic_target_ms = static_cast<f32>(double(DrsTargetMs));
+  if (DrsMinScale.overridden()) settings_.dynamic_min_scale = static_cast<f32>(double(DrsMinScale));
   if (VrsOpt.overridden()) settings_.vrs = VrsOpt;
   if (VrsThreshold.overridden()) settings_.vrs_threshold = static_cast<f32>(double(VrsThreshold));
   if (RestirDiOpt.overridden()) settings_.restir_di = RestirDiOpt;
@@ -702,7 +710,8 @@ void Renderer::UpdateRenderResolution() {
   } else {
     // No upscaler: render at output * render_scale. >1 supersamples (the post
     // pass samples this image into the swapchain, so it downscales for free).
-    f32 rs = std::clamp(settings_.render_scale, 0.25f, 2.0f);
+    // Dynamic resolution multiplies in as a <=1 factor while active.
+    f32 rs = std::clamp(settings_.render_scale * drs_.scale(), 0.25f, 2.0f);
     render_width_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_width_) * rs));
     render_height_ = std::max(1u, static_cast<u32>(static_cast<f32>(output_height_) * rs));
   }
@@ -740,9 +749,23 @@ void Renderer::ApplySettings() {
     settings_.aa_mode = AntiAliasingMode::kTaa;
   }
 
+  // Dynamic resolution: stepped controller on the resolved GPU frame time.
+  // Inert while a vendor upscaler pins the render ratio, or while the path
+  // tracer runs (a step resets its accumulation every time it fires).
+  bool drs_active = settings_.dynamic_resolution && !settings_.path_trace &&
+                    !(upscaler_ && settings_.aa_mode == AntiAliasingMode::kUpscaler);
+  if (drs_active) {
+    drs_.Configure({.target_ms = settings_.dynamic_target_ms,
+                    .min_scale = settings_.dynamic_min_scale});
+    drs_.Update(profiler_.total_ms());
+  } else if (drs_.scale() != 1.0f) {
+    drs_.Reset();
+  }
+
   bool upscaler_changed = settings_.upscaler != applied_upscaler_ ||
                           settings_.upscaler_quality != applied_quality_ ||
-                          settings_.render_scale != applied_render_scale_;
+                          settings_.render_scale != applied_render_scale_ ||
+                          drs_.scale() != applied_dynamic_scale_;
   if (upscaler_changed) {
     device_->WaitIdle();
     upscaler_.reset();
@@ -758,6 +781,11 @@ void Renderer::ApplySettings() {
     applied_upscaler_ = settings_.upscaler;
     applied_quality_ = settings_.upscaler_quality;
     applied_render_scale_ = settings_.render_scale;
+    if (drs_.scale() != applied_dynamic_scale_) {
+      applied_dynamic_scale_ = drs_.scale();
+      REC_INFO("drs: render scale {:.0f}% (gpu {:.2f} ms, target {:.2f} ms)",
+               applied_dynamic_scale_ * 100.0f, profiler_.total_ms(), settings_.dynamic_target_ms);
+    }
     UpdateRenderResolution();
     transient_pool_->Clear();
     ResizeSizedPasses();

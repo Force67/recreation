@@ -63,6 +63,13 @@ struct RenderSettings {
   // active. >1 supersamples (renders above the window, the post pass downscales);
   // <1 renders cheaper. Ignored while an upscaler drives the resolution.
   f32 render_scale = 1.0f;
+  // Dynamic resolution: hold the GPU frame time at a target by stepping an
+  // extra <=1 factor on top of render_scale. Steps are coarse and rate-limited
+  // (each costs a device idle + TAA history reset); the controller is inert
+  // while a vendor upscaler pins the ratio or the path tracer accumulates.
+  bool dynamic_resolution = false;
+  f32 dynamic_target_ms = 16.6f;
+  f32 dynamic_min_scale = 0.5f;
 
   bool rt_shadows = true;  // masked by device caps and the renderer desc
   f32 sun_angular_radius = 0.005f;  // radians; 0 reverts to hard shadows

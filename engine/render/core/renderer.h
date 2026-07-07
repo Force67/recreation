@@ -25,6 +25,7 @@
 #include "render/atmosphere/environment.h"
 #include "render/geometry/gaussian.h"
 #include "render/pipeline/gpu_cull.h"
+#include "render/core/dynamic_resolution.h"
 #include "render/util/gpu_profiler.h"
 #include "render/pipeline/meshlet.h"
 #include "render/atmosphere/aerial_perspective.h"
@@ -226,6 +227,9 @@ class Renderer {
     return profiler_.results();
   }
   f32 gpu_frame_ms() const { return profiler_.total_ms(); }
+  // Dynamic-resolution factor currently applied on top of render_scale
+  // (1 while the controller is off or inactive).
+  f32 dynamic_resolution_scale() const { return applied_dynamic_scale_; }
   u32 path_trace_samples() const { return path_tracer_.accumulated_samples(); }
 
   // Last compiled frame graph, for the debug inspector (passes, transient
@@ -400,6 +404,11 @@ class Renderer {
   UpscalerKind applied_upscaler_ = UpscalerKind::kNone;
   UpscalerQuality applied_quality_ = UpscalerQuality::kQuality;
   f32 applied_render_scale_ = 1.0f;
+  // Dynamic resolution: the controller decides drs_.scale(), the applied copy
+  // is what the current targets were sized with; diverging triggers the same
+  // resize path as a render_scale change.
+  DynamicResolution drs_;
+  f32 applied_dynamic_scale_ = 1.0f;
   AntiAliasingMode applied_aa_ = AntiAliasingMode::kTaa;
   bool applied_vsync_ = false;
   // Sun state baked into the environment maps; differing means regenerate.

@@ -3,6 +3,7 @@ recreation_add_module(render
   core/presets.cc
   core/settings_ini.cc
   core/render_graph.cc
+  core/dynamic_resolution.cc
   core/bindless.cc
   pipeline/mesh_pipeline.cc
   pipeline/material_system.cc

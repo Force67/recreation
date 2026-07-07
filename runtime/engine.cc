@@ -261,6 +261,9 @@ void Engine::ApplyRenderPreset() {
   tuned.froxel_fog = env.froxel_fog;  // honor REC_FROXEL
   tuned.froxel_density = env.froxel_density;
   tuned.vrs = env.vrs;  // honor REC_VRS
+  tuned.dynamic_resolution = env.dynamic_resolution;  // honor REC_DRS
+  tuned.dynamic_target_ms = env.dynamic_target_ms;
+  tuned.dynamic_min_scale = env.dynamic_min_scale;
   tuned.restir_di = env.restir_di;  // honor REC_RESTIR_DI
   tuned.fft_ocean = env.fft_ocean;  // honor REC_FFT_OCEAN
   tuned.vrs_threshold = env.vrs_threshold;
