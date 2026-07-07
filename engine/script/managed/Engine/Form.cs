@@ -49,6 +49,9 @@ public class Form
     // Base armor rating if this form is armor, else 0.
     public float ArmorRating => Call("GetArmorRating").AsFloat();
 
+    // The item a harvestable flora produces (its FLOR produce), or Form.None.
+    public Form HarvestIngredient => Form.From(Call("GetHarvestIngredient").AsHandle());
+
     // True if the engine resolves this handle to a script instance of typeName
     // or one of its ancestors.
     public bool Is(string typeName)
