@@ -30,6 +30,15 @@ public static class ActorDataTests
         fake.SetArmorRating(armor, 15f);
         check.Equal("armor rating from the record", 15f, Form.From(armor).ArmorRating);
 
+        // Enchantment: an enchanted item resolves to its enchantment, a plain one
+        // to None.
+        const ulong enchantedSword = 0x17288;
+        const ulong enchantment = 0x45C2C;
+        fake.SetEnchantment(enchantedSword, enchantment);
+        check.Equal("enchantment from the record", enchantment, Form.From(enchantedSword).Enchantment.Handle);
+        check.That("enchanted item reports enchanted", Form.From(enchantedSword).IsEnchanted);
+        check.That("plain item is not enchanted", !Form.From(sword).IsEnchanted);
+
         Native.Backend = null;
     }
 }
