@@ -525,6 +525,10 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetHarvestIngredient(ObjectRef fl
   return ResolveFormRef(flora, FourCc('P', 'F', 'I', 'G'));
 }
 
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetEnchantment(ObjectRef item) {
+  return ResolveFormRef(item, FourCc('E', 'I', 'T', 'M'));
+}
+
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetBaseObject(ObjectRef ref) {
   return ResolveFormRef(ref, FourCc('N', 'A', 'M', 'E'));
 }

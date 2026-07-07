@@ -38,6 +38,8 @@ class SkyrimBindings {
   virtual i32 GetWeaponDamage(papyrus::ObjectRef weapon) { return 0; }
   // Base armor rating of an armor form (ARMO); 0 for non-armor.
   virtual f32 GetArmorRating(papyrus::ObjectRef armor) { return 0; }
+  // The enchantment on a weapon or armor form (its EITM); None if unenchanted.
+  virtual papyrus::ObjectRef GetEnchantment(papyrus::ObjectRef item) { return {}; }
 
   // The ingredient a harvestable flora (FLOR) produces, from its PFIG; None for
   // non-flora. The form passed is the flora base, not a placed reference.
