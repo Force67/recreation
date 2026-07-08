@@ -12,6 +12,7 @@ recreation_add_module(script
   host/managed_host.cc
   games/skyrim/skyrim_natives.cc
   games/skyrim/skyrim_bindings.cc
+  games/skyrim/skyrim_bindings_item_data.cc
   games/skyrim/skyrim_condition_context.cc
 )
 
