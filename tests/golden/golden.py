@@ -51,6 +51,12 @@ PROFILES = {
 
 def run_scene(binary, runner, name, demo, frames, extra_env, out_path, timeout):
     env = os.environ.copy()
+    # Refs are the 1920x1008 NVIDIA vkrun baseline; the WM may hand us a
+    # different client size, which fails compare() as a size mismatch. Pin the
+    # geometry to the refs' resolution by default, but let an explicit caller
+    # override still win.
+    env.setdefault("RX_WIN_W", "1920")
+    env.setdefault("RX_WIN_H", "1008")
     env.update({
         "RX_UI_SHOT": str(out_path),
         "RX_UI_SHOT_FRAMES": str(frames),
@@ -116,7 +122,7 @@ def compare(img, ref, prof, diff_path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--binary", default=str(REPO / "build/nix/runtime/recreation"))
+    ap.add_argument("--binary", default=str(REPO / "build/linux/runtime/recreation"))
     ap.add_argument("--runner", default="", help="wrapper command (vkrun / swrun)")
     ap.add_argument("--refs", default=str(Path(__file__).parent / "refs"))
     ap.add_argument("--out", default=str(REPO / "build/golden"))

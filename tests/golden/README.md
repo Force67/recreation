@@ -19,6 +19,12 @@ Failures write `<scene>_diff.png` heatmaps next to the captures in
 
 Notes:
 
+- `--binary` defaults to `build/linux/runtime/recreation` (the CMakePresets
+  "linux" preset output); pass `--binary` to point at another build dir.
+- Captures are pinned to 1920x1008 (`RX_WIN_W`/`RX_WIN_H` are set with
+  `setdefault`, so the refs' geometry is the default but an explicit env
+  override still wins) so a WM that hands the window a different client size
+  does not fail every scene as a size mismatch.
 - References are driver-stack-specific; the checked-in set is the NVIDIA
   vkrun baseline at 1920x1008, stored at half resolution to keep git history
   small. Scenes without a reference for the current platform run smoke-only
