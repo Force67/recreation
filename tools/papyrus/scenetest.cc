@@ -8,8 +8,8 @@
 #include "core/types.h"
 #include "quest/scene.h"
 
-using namespace rec;
-using namespace rec::quest;
+using namespace rx;
+using namespace rx::quest;
 
 namespace {
 

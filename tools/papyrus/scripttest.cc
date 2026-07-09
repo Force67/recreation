@@ -22,11 +22,11 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::bethesda;
-using rec::script::ScriptSystem;
-using rec::script::papyrus::ObjectRef;
-using rec::script::papyrus::VirtualMachine;
+using namespace rx;
+using namespace rx::bethesda;
+using rx::script::ScriptSystem;
+using rx::script::papyrus::ObjectRef;
+using rx::script::papyrus::VirtualMachine;
 
 struct Found {
   GlobalFormId id;
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
       if (!s.properties.empty()) return s;
     return found->attachment.scripts.front();
   }();
-  rec::u64 handle = static_cast<rec::u64>(found->id.plugin) << 32 | found->id.local_id;
+  rx::u64 handle = static_cast<rx::u64>(found->id.plugin) << 32 | found->id.local_id;
   std::printf("form %04x:%06x -> script %s (%zu properties)\n", found->id.plugin,
               found->id.local_id, first.name.c_str(), first.properties.size());
 

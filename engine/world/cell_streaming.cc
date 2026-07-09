@@ -13,27 +13,27 @@
 #include "core/log.h"
 #include "world/components.h"
 
-namespace rec::world {
+namespace rx::world {
 namespace {
 
 // Streaming overrides formerly read straight from the environment; populated by
 // base::InitOptionsFromEnv() at startup.
-base::Option<int> LoadRadius{"load.radius", -1, "REC_LOAD_RADIUS"};
-base::Option<bool> DistantLod{"distant.lod", false, "REC_DISTANT_LOD"};
+base::Option<int> LoadRadius{"load.radius", -1, "RX_LOAD_RADIUS"};
+base::Option<bool> DistantLod{"distant.lod", false, "RX_DISTANT_LOD"};
 // Runtime terrain splatting: tile the real land textures at native resolution
 // and blend by a small weight map, instead of the lower-res per-cell albedo
-// bake. On for the higher presets; REC_LAND_SPLAT forces it either way.
-base::Option<bool> LandSplat{"land.splat", true, "REC_LAND_SPLAT"};
+// bake. On for the higher presets; RX_LAND_SPLAT forces it either way.
+base::Option<bool> LandSplat{"land.splat", true, "RX_LAND_SPLAT"};
 // Splat v2 (8-layer palette + per-layer normals via the bindless table) rides
-// on top of the splat path; REC_TERRAIN_V2=0 pins the legacy 3-layer blend
+// on top of the splat path; RX_TERRAIN_V2=0 pins the legacy 3-layer blend
 // for A/B comparisons.
-base::Option<bool> TerrainV2{"terrain.v2", true, "REC_TERRAIN_V2"};
+base::Option<bool> TerrainV2{"terrain.v2", true, "RX_TERRAIN_V2"};
 // Feed placed LIGH refs (torches, sconces, lamps) into the dynamic light list so
 // dungeons and night scenes have local lighting. On by default.
-base::Option<bool> PlacedLights{"placed.lights", true, "REC_PLACED_LIGHTS"};
+base::Option<bool> PlacedLights{"placed.lights", true, "RX_PLACED_LIGHTS"};
 // Project placed TXST refs (blood pools, burn marks, shadowmarks, giant paint)
 // through the clustered decal system. On by default.
-base::Option<bool> PlacedDecals{"placed.decals", true, "REC_PLACED_DECALS"};
+base::Option<bool> PlacedDecals{"placed.decals", true, "RX_PLACED_DECALS"};
 
 constexpr f32 kUnitsToMeters = 0.01428f;
 // Mirrors Renderer::kMaxFrameLights (private): the renderer clamps the bound
@@ -321,12 +321,12 @@ void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src,
 bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
   worldspace_ = records_.FindWorldspace(editor_id);
   if (worldspace_.plugin == 0xffff) {
-    REC_ERROR("worldspace not found: {}", editor_id);
+    RX_ERROR("worldspace not found: {}", editor_id);
     return false;
   }
   grid_ = records_.ExteriorCells(worldspace_);
   if (!grid_) {
-    REC_ERROR("worldspace has no exterior cells: {}", editor_id);
+    RX_ERROR("worldspace has no exterior cells: {}", editor_id);
     return false;
   }
   ground_cache_.clear();  // heights are per worldspace
@@ -354,7 +354,7 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
         default_water_form_ = records_.ResolveFrom(bethesda::RawFormId{raw}, ws->winning_plugin);
     }
   }
-  REC_INFO("streaming worldspace {} ({} exterior cells, default water {})", editor_id,
+  RX_INFO("streaming worldspace {} ({} exterior cells, default water {})", editor_id,
            grid_->size(), default_water_height_);
   return true;
 }
@@ -405,7 +405,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   f32 beth_y = -anchor.z / kUnitsToMeters;
   i16 center_x = static_cast<i16>(std::floor(beth_x / kCellSize));
   i16 center_y = static_cast<i16>(std::floor(beth_y / kCellSize));
-  // REC_LOAD_RADIUS extends the streamed cell ring for greater draw distance;
+  // RX_LOAD_RADIUS extends the streamed cell ring for greater draw distance;
   // affordable on the mesh-shader lod path (gpu cluster cull + distance lods).
   i32 radius = LoadRadius > 0 ? LoadRadius.get() : settings_.load_radius;
 
@@ -495,7 +495,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (mesh_budget == 0 || ref_budget == 0) all_done = false;
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
-    REC_INFO(
+    RX_INFO(
         "streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped, "
         "{} land bakes, {} water planes, {} grass instances ({} verts)",
         loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_, baker_.baked_count(),
@@ -537,7 +537,7 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     ++cell.next_ref;
   }
   cell.done = true;
-  REC_DEBUG("cell {},{}: {} refs, {} entities", grid_x, grid_y, cell.source->refs.size(),
+  RX_DEBUG("cell {},{}: {} refs, {} entities", grid_x, grid_y, cell.source->refs.size(),
             cell.entities.size());
   return true;
 }
@@ -601,7 +601,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
         material.roughness_factor = 1.0f;
         material.is_terrain = true;
         if (v2.ok) {
-          REC_INFO("terrain v2: cell {},{} palette {} layers", grid_x, grid_y, v2.layer_count);
+          RX_INFO("terrain v2: cell {},{} palette {} layers", grid_x, grid_y, v2.layer_count);
           material.terrain_layer_count = v2.layer_count;
           for (u32 s = 0; s < v2.layer_count; ++s) {
             material.terrain_layers[s] = v2.layers[s];
@@ -783,7 +783,7 @@ void CellStreamer::DiscoverDistantQuads() {
     i32 want = f.object ? max_object : max_terrain;
     if (f.level == want) distant_quads_.push_back({f.path, f.x, f.y, f.object});
   }
-  REC_INFO("distant lod: {} quads for {} (terrain lvl {}, object lvl {})", distant_quads_.size(),
+  RX_INFO("distant lod: {} quads for {} (terrain lvl {}, object lvl {})", distant_quads_.size(),
            worldspace_edid_, max_terrain, max_object);
 }
 
@@ -851,7 +851,7 @@ const asset::Mesh* CellStreamer::WaterMeshForCell(const LoadedCell& cell) {
         const u8* c = dnam->data.data() + kWatrShallowColor;
         if (c[0] || c[1] || c[2]) {  // 0,0,0 = unset -> keep the fallback
           for (int i = 0; i < 3; ++i) tint[i] = static_cast<f32>(c[i]) / 255.0f;
-          REC_INFO("water: WATR {:04x}:{:06x} {} shallow {},{},{} -> tint {:.3f},{:.3f},{:.3f}",
+          RX_INFO("water: WATR {:04x}:{:06x} {} shallow {},{},{} -> tint {:.3f},{:.3f},{:.3f}",
                    form.plugin, form.local_id, watr.GetString(kEdid), c[0], c[1], c[2], tint[0],
                    tint[1], tint[2]);
         }
@@ -1264,7 +1264,7 @@ void CellStreamer::CollectLights(base::Vector<render::PointLight>& out) const {
 
   if (total != logged_light_count_) {
     logged_light_count_ = total;
-    REC_INFO("streaming placed lights: {}", total);
+    RX_INFO("streaming placed lights: {}", total);
   }
   if (total == 0) return;
 
@@ -1364,7 +1364,7 @@ void CellStreamer::EnsureDecalAtlas() {
         vertical = true;
       }
       if (tiles_used + subs > kDecalMaxTiles) {
-        REC_WARN("decal atlas full, skipping {}", diffuse);
+        RX_WARN("decal atlas full, skipping {}", diffuse);
         return;
       }
       run.tile = tiles_used;
@@ -1421,7 +1421,7 @@ void CellStreamer::EnsureDecalAtlas() {
   decal_atlas_.data = base::Vector<u8>{};
   decal_atlas_normal_.data = base::Vector<u8>{};
   ++decal_atlas_version_;
-  REC_INFO("decal atlas: {} decal TXST bases, {} tiles", decal_bases_.size(), tiles_used);
+  RX_INFO("decal atlas: {} decal TXST bases, {} tiles", decal_bases_.size(), tiles_used);
 }
 
 void CellStreamer::AddPlacedDecal(bethesda::GlobalFormId base_id, bethesda::GlobalFormId ref_id,
@@ -1497,7 +1497,7 @@ void CellStreamer::CollectDecals(base::Vector<render::Decal>& out) const {
 
   if (total != logged_decal_count_) {
     logged_decal_count_ = total;
-    REC_INFO("streaming placed decals: {}", total);
+    RX_INFO("streaming placed decals: {}", total);
   }
   if (total == 0) return;
 
@@ -1605,10 +1605,10 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
       auto upload_texture = [&](asset::AssetId texture_id) {
         if (!texture_id || uploaded_.contains(texture_id.hash)) return;
         if (const asset::Texture* texture = assets_.FindTexture(texture_id)) {
-          if (!uploads_.texture(*texture)) REC_WARN("texture upload failed: {:x}", texture_id.hash);
+          if (!uploads_.texture(*texture)) RX_WARN("texture upload failed: {:x}", texture_id.hash);
           uploaded_.emplace(texture_id.hash, true);
         } else {
-          REC_WARN("texture missing for material {:x}: {:x}", material->id.hash, texture_id.hash);
+          RX_WARN("texture missing for material {:x}: {:x}", material->id.hash, texture_id.hash);
         }
       };
       const asset::AssetId textures[] = {material->base_color, material->normal,
@@ -1622,7 +1622,7 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
         upload_texture(material->terrain_layer_normals[s]);
       }
       if (!uploads_.material(*material)) {
-        REC_WARN("material upload failed: {:x}", material->id.hash);
+        RX_WARN("material upload failed: {:x}", material->id.hash);
       }
       uploaded_.emplace(material->id.hash, true);
     }
@@ -1632,7 +1632,7 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
   for (const asset::ParticleEmitter& emitter : mesh.emitters) {
     if (emitter.texture == 0 || uploaded_.contains(emitter.texture)) continue;
     if (const asset::Texture* texture = assets_.FindTexture(asset::AssetId{emitter.texture})) {
-      if (!uploads_.texture(*texture)) REC_WARN("emitter texture upload failed: {:x}", emitter.texture);
+      if (!uploads_.texture(*texture)) RX_WARN("emitter texture upload failed: {:x}", emitter.texture);
     }
     uploaded_.emplace(emitter.texture, true);
   }
@@ -1846,7 +1846,7 @@ void CellStreamer::ResolveInteriorLighting(bethesda::GlobalFormId cell_id) {
   const f32 lum = L.directional_color.x + L.directional_color.y + L.directional_color.z;
   L.directional_intensity = lum > 0.001f ? (3.0f + dir_fade) : 0.0f;
 
-  REC_INFO("interior lighting {:04x}:{:06x}: ambient ({:.2f},{:.2f},{:.2f}) directional "
+  RX_INFO("interior lighting {:04x}:{:06x}: ambient ({:.2f},{:.2f},{:.2f}) directional "
            "({:.2f},{:.2f},{:.2f}) i={:.1f} fog {:.1f}..{:.1f}m col ({:.2f},{:.2f},{:.2f}) "
            "pow {:.2f} max {:.2f}",
            cell_id.plugin, cell_id.local_id, L.ambient.x, L.ambient.y, L.ambient.z,
@@ -1859,7 +1859,7 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
                                 Vec3* camera_position) {
   const base::Vector<u64>* refs = records_.InteriorRefs(cell_id);
   if (!refs) {
-    REC_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin, cell_id.local_id);
+    RX_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin, cell_id.local_id);
     return false;
   }
 
@@ -1895,7 +1895,7 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
   centroid.y += 1.5f;
   *camera_position = centroid;
 
-  REC_INFO("interior {:04x}:{:06x}: {} refs, {} entities", cell_id.plugin, cell_id.local_id,
+  RX_INFO("interior {:04x}:{:06x}: {} refs, {} entities", cell_id.plugin, cell_id.local_id,
            refs->size(), cell.entities.size());
   return !cell.entities.empty();
 }
@@ -1957,4 +1957,4 @@ void CellStreamer::UnloadAllCells(ecs::World& world) {
   announced_idle_ = false;
 }
 
-}  // namespace rec::world
+}  // namespace rx::world

@@ -23,13 +23,13 @@
 #include "thumbnailer.h"
 #include "world/cell_streaming.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 // Config overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
-base::Option<bool> EditorDemo{"editor.demo", false, "REC_EDITOR_DEMO"};
-base::Option<bool> Cam{"cam", false, "REC_CAM"};
+base::Option<bool> EditorDemo{"editor.demo", false, "RX_EDITOR_DEMO"};
+base::Option<bool> Cam{"cam", false, "RX_CAM"};
 
 constexpr f32 kFovY = 1.0472f;           // matches CameraPose::fov_y (60 degrees)
 constexpr f32 kStatusSeconds = 3.5f;     // how long a status message lingers
@@ -80,7 +80,7 @@ void MapEditor::Toggle() {
     prefab_armed_ = false;
     ClearGhost();
   }
-  REC_INFO("map editor {}", active_ ? "on" : "off");
+  RX_INFO("map editor {}", active_ ? "on" : "off");
   // Push one view so the overlay shows/hides immediately.
   if (ctx_.game_ui) PushView();
 }
@@ -479,7 +479,7 @@ void MapEditor::PlaceDemoBuild() {
   // Select the middle object so the selection reticle and inspector are live.
   if (!placed_.empty()) selected_ = {placed_[placed_.size() / 2].entity};
 
-  // Frame the rows for a clean capture (unless REC_CAM already pinned a vantage):
+  // Frame the rows for a clean capture (unless RX_CAM already pinned a vantage):
   // a near-top-down vantage so dense start cells never occlude them.
   if (!Cam) {
     Vec3 row_center = base_center + fwd_h * 2.0f;
@@ -489,7 +489,7 @@ void MapEditor::PlaceDemoBuild() {
     ctx_.camera->set_yaw_pitch(0.0f, -1.4f);  // look almost straight down, slight tilt
   }
 
-  REC_INFO("editor: demo build placed {} objects across {} game(s)", total, domains_.size());
+  RX_INFO("editor: demo build placed {} objects across {} game(s)", total, domains_.size());
   SetStatus("Demo build: placed " + std::to_string(total) + " objects");
   SaveLayout();
 }
@@ -1366,4 +1366,4 @@ void MapEditor::PushView() {
   ctx_.game_ui->SetEditorView(v);
 }
 
-}  // namespace rec
+}  // namespace rx

@@ -23,31 +23,31 @@
 #include "net/replication.h"
 #endif
 
-namespace rec {
+namespace rx {
 
-static base::Option<bool> Autowalk{"autowalk", false, "REC_AUTOWALK"};
-// REC_ANIM=<internal .hkx path> selects the clip the actor bringup scene
+static base::Option<bool> Autowalk{"autowalk", false, "RX_AUTOWALK"};
+// RX_ANIM=<internal .hkx path> selects the clip the actor bringup scene
 // plays (default: a long idle fidget).
-static base::Option<const char*> AnimClipPath{"anim.clip", nullptr, "REC_ANIM"};
-// REC_ANIM_B=<internal .hkx path>: a second clip the bringup actor alternates
+static base::Option<const char*> AnimClipPath{"anim.clip", nullptr, "RX_ANIM"};
+// RX_ANIM_B=<internal .hkx path>: a second clip the bringup actor alternates
 // with every 4s, inertialized across the switch (no pose pop). Kinema-only.
-static base::Option<const char*> AnimClipPathB{"anim.clip_b", nullptr, "REC_ANIM_B"};
-// REC_ANIM_ADDITIVE=<internal .hkx path>: an additive clip layered on top of the
+static base::Option<const char*> AnimClipPathB{"anim.clip_b", nullptr, "RX_ANIM_B"};
+// RX_ANIM_ADDITIVE=<internal .hkx path>: an additive clip layered on top of the
 // base pose each tick over its own mapped bones. Kinema-only.
-static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "REC_ANIM_ADDITIVE"};
-// REC_PIN_ROOT=1 discards a clip's root-motion translation so a locomotion clip
+static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "RX_ANIM_ADDITIVE"};
+// RX_PIN_ROOT=1 discards a clip's root-motion translation so a locomotion clip
 // (e.g. a walk cycle) marches in place instead of striding out of frame. Handy
 // for demos/screenshots of the pose.
-static base::Option<bool> PinRoot{"anim.pin_root", false, "REC_PIN_ROOT"};
-static base::Option<bool> Player{"player", false, "REC_PLAYER"};
+static base::Option<bool> PinRoot{"anim.pin_root", false, "RX_PIN_ROOT"};
+static base::Option<bool> Player{"player", false, "RX_PLAYER"};
 // Strand hair on actors: build a simulated groom from the NPC's hair nif and ride
 // it on the head bone. Off falls back to the flat card the hair part uploads.
-static base::Option<bool> StrandHair{"strand_hair", true, "REC_STRAND_HAIR"};
-static base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
+static base::Option<bool> StrandHair{"strand_hair", true, "RX_STRAND_HAIR"};
+static base::Option<bool> Mq101Demo{"mq101.demo", false, "RX_MQ101_DEMO"};
 // Sample Havok clips through the transcoded kinema blobs (fast path); off
 // falls back to direct spline evaluation for A/B comparison.
-static base::Option<bool> UseKinema{"anim.kinema", true, "REC_KINEMA"};
-static base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
+static base::Option<bool> UseKinema{"anim.kinema", true, "RX_KINEMA"};
+static base::Option<bool> Mq101Scene{"mq101.scene", false, "RX_MQ101_SCENE"};
 
 // rec's Vec3/Quat share layout with kinema's (x,y,z / x,y,z,w), so a bone-space
 // SkeletonPose can back a kinema PoseView with no copy — the inertializer and
@@ -105,9 +105,9 @@ void ActorSystem::SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw) 
 
 void ActorSystem::MovePlayer(const Vec3& velocity, bool jump, f32 yaw, bool moving, f32 speed,
                              f32 dt, Vec3* out_body) {
-  if (std::getenv("REC_SKEL_DUMP")) {
+  if (std::getenv("RX_SKEL_DUMP")) {
     static int calls = 0;
-    if (calls++ < 3) REC_INFO("MovePlayer called (vel {:.2f} {:.2f} {:.2f})", velocity.x, velocity.y, velocity.z);
+    if (calls++ < 3) RX_INFO("MovePlayer called (vel {:.2f} {:.2f} {:.2f})", velocity.x, velocity.y, velocity.z);
   }
   if (player_actor_ < 0) return;
   Actor& actor = actors_[player_actor_];
@@ -184,7 +184,7 @@ void ActorSystem::CreateTestCharacter() {
   size_t bone_count = actor.skeleton.bones.size();
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(std::move(actor));
-  REC_INFO("spawned test biped ({} bones); press T to walk it", bone_count);
+  RX_INFO("spawned test biped ({} bones); press T to walk it", bone_count);
 
   if (Autowalk) {
     ctx_.auto_walk = true;
@@ -197,7 +197,7 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
   // (which move the player on real saves) must not yank the showcase actor
   // out of frame.
   if (config_.demo_scene == "actor") return;
-  if (std::getenv("REC_SKEL_DUMP")) REC_INFO("TeleportPlayer({:.2f}, {:.2f}, {:.2f})", x, y, z);
+  if (std::getenv("RX_SKEL_DUMP")) RX_INFO("TeleportPlayer({:.2f}, {:.2f}, {:.2f})", x, y, z);
   if (player_actor_ < 0) return;
   Actor& a = actors_[player_actor_];
   if (a.character) physics_.SetCharacterPosition(a.character, Vec3{x, y, z});
@@ -206,13 +206,13 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     t->position[1] = y;
     t->position[2] = z;
   }
-  REC_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
+  RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
 }
 
 bool ActorSystem::LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone) {
   auto bytes = vfs_.Read(asset::NormalizePath(path));
   if (!bytes) {
-    REC_WARN("actor part not found: {}", path);
+    RX_WARN("actor part not found: {}", path);
     return false;
   }
   ByteSpan span(bytes->data(), bytes->size());
@@ -222,12 +222,12 @@ bool ActorSystem::LoadActorPart(const std::string& path, Actor& actor, i32 attac
   if (!conv.mesh || !conv.mesh->skinned || conv.mesh->skin.bones.empty()) {
     // Head/hair are static meshes rigged to a single bone, not skinned.
     if (attach_bone < 0) {
-      REC_WARN("actor part {} has no skinned geometry", path);
+      RX_WARN("actor part {} has no skinned geometry", path);
       return false;
     }
     conv = bethesda::ConvertNifRigid(span, id, path);
     if (!conv.mesh || conv.mesh->lods.empty() || conv.mesh->lods[0].vertices.empty()) {
-      REC_WARN("actor part {} has no geometry", path);
+      RX_WARN("actor part {} has no geometry", path);
       return false;
     }
     rigid = true;
@@ -249,7 +249,7 @@ bool ActorSystem::LoadActorPart(const std::string& path, Actor& actor, i32 attac
     if (attach_bone < static_cast<i32>(actor.bone_model.size())) {
       part.attach_inverse_bind = Inverse(actor.bone_model[attach_bone]);
     }
-    REC_INFO("actor part {}: rigid, riding bone {}", path, attach_bone);
+    RX_INFO("actor part {}: rigid, riding bone {}", path, attach_bone);
   } else {
     part.skin = conv.mesh->skin;
     part.remap = anim::BuildBoneRemap(actor.skeleton, part.skin);
@@ -257,7 +257,7 @@ bool ActorSystem::LoadActorPart(const std::string& path, Actor& actor, i32 attac
     for (i32 b : part.remap) {
       if (b >= 0) ++matched;
     }
-    REC_INFO("actor part {}: {} skin bones, {} matched to skeleton", path, part.skin.bones.size(),
+    RX_INFO("actor part {}: {} skin bones, {} matched to skeleton", path, part.skin.bones.size(),
              matched);
   }
   actor.parts.push_back(std::move(part));
@@ -295,20 +295,20 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
   const std::string skel_path = "meshes/actors/character/character assets/skeleton.nif";
   auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
   if (!skel_bytes) {
-    REC_ERROR("skeleton.nif not found in the mounted archives");
+    RX_ERROR("skeleton.nif not found in the mounted archives");
     return false;
   }
   asset::Skeleton skeleton;
   if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
                                     asset::MakeAssetId(skel_path), &skeleton)) {
-    REC_ERROR("failed to parse skeleton.nif");
+    RX_ERROR("failed to parse skeleton.nif");
     return false;
   }
   out->skeleton = std::move(skeleton);
-  if (std::getenv("REC_SKEL_DUMP")) {
+  if (std::getenv("RX_SKEL_DUMP")) {
     for (u32 i = 0; i < out->skeleton.bones.size(); ++i) {
       const asset::Bone& bone = out->skeleton.bones[i];
-      REC_INFO("nif bone [{:3}] parent {:3} t({:7.2f} {:7.2f} {:7.2f}) {}", i, bone.parent,
+      RX_INFO("nif bone [{:3}] parent {:3} t({:7.2f} {:7.2f} {:7.2f}) {}", i, bone.parent,
                bone.bind_translation.x, bone.bind_translation.y, bone.bind_translation.z,
                bone.name);
     }
@@ -342,7 +342,7 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
   any = LoadActorPart("meshes/actors/character/character assets/malehands_1.nif", *out) || any;
   any = LoadActorPart("meshes/actors/character/character assets/malefeet_1.nif", *out) || any;
   if (!any) {
-    REC_ERROR("no skyrim body parts loaded");
+    RX_ERROR("no skyrim body parts loaded");
     return false;
   }
   // The head is attached per actor (AttachHead): NPCs get their own assembled +
@@ -431,7 +431,7 @@ bool ActorSystem::LoadStarfieldActorPart(const std::string& path, Actor& actor,
                                          const bethesda::StarfieldMaterialDb& mat_db) {
   auto bytes = vfs_.Read(asset::NormalizePath(path));
   if (!bytes) {
-    REC_WARN("starfield actor part not found: {}", path);
+    RX_WARN("starfield actor part not found: {}", path);
     return false;
   }
   ByteSpan span(bytes->data(), bytes->size());
@@ -439,7 +439,7 @@ bool ActorSystem::LoadStarfieldActorPart(const std::string& path, Actor& actor,
   base::UniquePointer<asset::Mesh> mesh =
       bethesda::ConvertStarfieldSkinnedNif(*ctx_.assets, mat_db, span, id, path);
   if (!mesh || !mesh->skinned || mesh->skin.bones.empty()) {
-    REC_WARN("starfield actor part {} has no skinned geometry", path);
+    RX_WARN("starfield actor part {} has no skinned geometry", path);
     return false;
   }
   // The converter adds the material and loads its textures into the database;
@@ -469,7 +469,7 @@ bool ActorSystem::LoadStarfieldActorPart(const std::string& path, Actor& actor,
   for (i32 b : part.remap) {
     if (b >= 0) ++matched;
   }
-  REC_INFO("starfield actor part {}: {} skin bones, {} matched to skeleton", path,
+  RX_INFO("starfield actor part {}: {} skin bones, {} matched to skeleton", path,
            part.skin.bones.size(), matched);
   actor.parts.push_back(std::move(part));
   return true;
@@ -479,13 +479,13 @@ bool ActorSystem::LoadStarfieldActorTemplate(Actor* out) {
   const std::string skel_path = "meshes/actors/human/characterassets/skeleton.nif";
   auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
   if (!skel_bytes) {
-    REC_ERROR("starfield skeleton.nif not found in the mounted archives");
+    RX_ERROR("starfield skeleton.nif not found in the mounted archives");
     return false;
   }
   asset::Skeleton skeleton;
   if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
                                     asset::MakeAssetId(skel_path), &skeleton)) {
-    REC_ERROR("failed to parse starfield skeleton.nif");
+    RX_ERROR("failed to parse starfield skeleton.nif");
     return false;
   }
   out->skeleton = std::move(skeleton);
@@ -521,7 +521,7 @@ bool ActorSystem::LoadStarfieldActorTemplate(Actor* out) {
   bool any = false;
   for (const std::string& p : skinned_parts) any = LoadStarfieldActorPart(p, *out, mat_db) || any;
   if (!any) {
-    REC_ERROR("no starfield body parts loaded");
+    RX_ERROR("no starfield body parts loaded");
     return false;
   }
   return true;
@@ -587,7 +587,7 @@ void ActorSystem::MaybeSpawnWorldPlayer(const Vec3& ground_pos) {
   ctx_.walk_mode = true;
   ctx_.third_person = true;
   if (Autowalk) ctx_.auto_walk = true;
-  REC_INFO("player: walkable avatar spawned at ({:.1f}, {:.1f}, {:.1f}); walk mode on", ground_pos.x,
+  RX_INFO("player: walkable avatar spawned at ({:.1f}, {:.1f}, {:.1f}); walk mode on", ground_pos.x,
            ground_pos.y, ground_pos.z);
 }
 
@@ -597,12 +597,12 @@ const bethesda::HkxSkeleton* ActorSystem::LoadHavokSkeleton(
   if (it != havok_skeletons_.end()) return it->second.get();
   auto bytes = vfs_.Read(asset::NormalizePath(skeleton_hkx_path));
   if (!bytes) {
-    REC_ERROR("{} not found in the mounted archives", skeleton_hkx_path);
+    RX_ERROR("{} not found in the mounted archives", skeleton_hkx_path);
     return nullptr;
   }
   auto hkx = bethesda::HkxFile::Parse(bytes->data(), bytes->size());
   if (!hkx) {
-    REC_ERROR("{} is not a supported havok packfile", skeleton_hkx_path);
+    RX_ERROR("{} is not a supported havok packfile", skeleton_hkx_path);
     return nullptr;
   }
   bethesda::HkxPhysics physics = bethesda::DecodePhysics(*hkx);
@@ -611,7 +611,7 @@ const bethesda::HkxSkeleton* ActorSystem::LoadHavokSkeleton(
     if (!full || skeleton.bones.size() > full->bones.size()) full = &skeleton;
   }
   if (!full || full->bones.empty()) {
-    REC_ERROR("{} carries no skeleton", skeleton_hkx_path);
+    RX_ERROR("{} carries no skeleton", skeleton_hkx_path);
     return nullptr;
   }
   auto owned = std::make_unique<bethesda::HkxSkeleton>(*full);
@@ -655,7 +655,7 @@ const ActorSystem::ProjectAnimData* ActorSystem::LoadProjectAnimData(
         data->animation_names = bethesda::DecodeAnimationNames(*hkx);
       }
     }
-    REC_INFO("animationdata {}: {} clips, {} motion blocks, {} cached animations", stem,
+    RX_INFO("animationdata {}: {} clips, {} motion blocks, {} cached animations", stem,
              data->data.clips.size(), data->data.motion.size(), data->animation_names.size());
     slot = std::move(data);
     break;
@@ -736,17 +736,17 @@ std::shared_ptr<ActorSystem::HavokClip> ActorSystem::LoadHavokClip(
   if (!havok_skeleton) return nullptr;
   auto bytes = vfs_.Read(asset::NormalizePath(animation_path));
   if (!bytes) {
-    REC_ERROR("animation not found: {}", animation_path);
+    RX_ERROR("animation not found: {}", animation_path);
     return nullptr;
   }
   auto hkx = bethesda::HkxFile::Parse(bytes->data(), bytes->size());
   if (!hkx) {
-    REC_ERROR("{} is not a supported havok packfile", animation_path);
+    RX_ERROR("{} is not a supported havok packfile", animation_path);
     return nullptr;
   }
   auto animation = bethesda::DecodeAnimation(*hkx);
   if (!animation) {
-    REC_ERROR("{} has no decodable spline-compressed animation", animation_path);
+    RX_ERROR("{} has no decodable spline-compressed animation", animation_path);
     return nullptr;
   }
 
@@ -767,7 +767,7 @@ std::shared_ptr<ActorSystem::HavokClip> ActorSystem::LoadHavokClip(
     if (bone >= 0) ++matched;
   }
   if (matched == 0) {
-    REC_INFO("havok clip {}: {} tracks, none matched the skeleton", animation_path,
+    RX_INFO("havok clip {}: {} tracks, none matched the skeleton", animation_path,
              animation->num_tracks);
     return nullptr;
   }
@@ -777,7 +777,7 @@ std::shared_ptr<ActorSystem::HavokClip> ActorSystem::LoadHavokClip(
   }
   clip->kinema = kinema::OwnedClip(bethesda::TranscodeToKinema(
       clip->animation, clip->has_motion ? &clip->motion : nullptr, &clip->events));
-  REC_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events, kinema {} KiB{}",
+  RX_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events, kinema {} KiB{}",
            animation_path, clip->animation.duration, clip->animation.num_tracks, matched,
            clip->has_motion ? "yes" : "no", clip->events.size(),
            clip->kinema ? clip->kinema.bytes().size() / 1024 : 0,
@@ -836,13 +836,13 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
   const std::string skel_path = base + "character assets/skeleton.nif";
   auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
   if (!skel_bytes) {
-    REC_ERROR("{} not found in the mounted archives", skel_path);
+    RX_ERROR("{} not found in the mounted archives", skel_path);
     return false;
   }
   Actor actor;
   if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
                                     asset::MakeAssetId(skel_path), &actor.skeleton)) {
-    REC_ERROR("failed to parse {}", skel_path);
+    RX_ERROR("failed to parse {}", skel_path);
     return false;
   }
   actor.pose.ResetToBind(actor.skeleton);
@@ -877,17 +877,17 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
       break;
     }
   }
-  if (!playing) REC_WARN("{}: no playable clip found, holding bind pose", name);
+  if (!playing) RX_WARN("{}: no playable clip found, holding bind pose", name);
 
-  REC_INFO("creature actor '{}': {} bones, {} parts", name, actor.skeleton.bones.size(),
+  RX_INFO("creature actor '{}': {} bones, {} parts", name, actor.skeleton.bones.size(),
            actor.parts.size());
   actors_.push_back(std::move(actor));
   return true;
 }
 
 bool ActorSystem::CreateSkyrimActor() {
-  // REC_CREATURE=<troll|horse|...> swaps the human for a creature rig.
-  if (const char* creature = std::getenv("REC_CREATURE")) {
+  // RX_CREATURE=<troll|horse|...> swaps the human for a creature rig.
+  if (const char* creature = std::getenv("RX_CREATURE")) {
     const char* clip = AnimClipPath.get();
     if (!CreateCreatureActor(creature, clip ? clip : "")) return false;
     asset::Mesh slab = asset::MakeCube(10.0f, asset::MakeAssetId("builtin/actor_ground"));
@@ -902,7 +902,7 @@ bool ActorSystem::CreateSkyrimActor() {
     return true;
   }
   if (!SpawnPlayerActor({0, 0, 0})) return false;
-  REC_INFO("loaded skyrim skeleton: {} bones", actors_[player_actor_].skeleton.bones.size());
+  RX_INFO("loaded skyrim skeleton: {} bones", actors_[player_actor_].skeleton.bones.size());
 
   // A ground slab to stand on (top at y = 0, where the skeleton's feet sit),
   // plus a step under one foot so the foot IK has something to adapt to.
@@ -927,7 +927,7 @@ bool ActorSystem::CreateSkyrimActor() {
   // The skeleton faces -Z in engine space, so frame it from the front.
   camera_.set_position({0.0f, 0.95f, -3.0f});
   camera_.set_yaw_pitch(3.14159f, -0.08f);
-  // Real Havok animation on the bringup actor; REC_ANIM overrides the clip,
+  // Real Havok animation on the bringup actor; RX_ANIM overrides the clip,
   // and a failed load falls back to the procedural gait.
   const char* clip_override = AnimClipPath.get();
   std::string clip_path = clip_override && clip_override[0]
@@ -945,7 +945,7 @@ bool ActorSystem::CreateSkyrimActor() {
       a.inert_to.ResetToBind(a.skeleton);
       a.clip_cycle = true;
       a.clip_timer = 0;
-      REC_INFO("anim clip-cycle: alternating base clip with {} every 4s (inertialized)", clip_b);
+      RX_INFO("anim clip-cycle: alternating base clip with {} every 4s (inertialized)", clip_b);
     }
   }
   // Additive layer: preload an additive clip composed on top of the base pose.
@@ -957,12 +957,12 @@ bool ActorSystem::CreateSkyrimActor() {
         if (b >= 0) ++mapped;
       a.additive_clip = std::move(layer);
       a.additive_time = 0;
-      REC_INFO("anim additive layer attached: {} ({} tracks, {} mapped, additive={})", add,
+      RX_INFO("anim additive layer attached: {} ({} tracks, {} mapped, additive={})", add,
                a.additive_clip->animation.num_tracks, mapped,
                a.additive_clip->animation.additive ? "yes" : "no");
     }
   }
-  REC_INFO("skyrim actor ready ({} body parts); press T to walk it",
+  RX_INFO("skyrim actor ready ({} body parts); press T to walk it",
            actors_[player_actor_].parts.size());
   if (Autowalk) {
     ctx_.auto_walk = true;
@@ -1035,13 +1035,13 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
     // Trigger events (footsteps, sync markers) whose time passed this tick.
     if (kin) {
       clip.kinema->EventsInRange(prev_time, actor.havok_time, [&](const kinema::ClipEvent& e) {
-        REC_DEBUG("anim event '{}' @ {:.2f}s", e.name, e.time);
+        RX_DEBUG("anim event '{}' @ {:.2f}s", e.name, e.time);
       });
     } else {
       for (const bethesda::ClipEvent& event : clip.events) {
         bool fired = wrapped ? (event.time > prev_time || event.time <= actor.havok_time)
                              : (event.time > prev_time && event.time <= actor.havok_time);
-        if (fired) REC_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
+        if (fired) RX_DEBUG("anim event '{}' @ {:.2f}s", event.name, event.time);
       }
     }
     SampleHavokClipToPose(actor, clip, actor.havok_time, &actor.pose);
@@ -1123,19 +1123,19 @@ void ActorSystem::EmitOneActor(Actor& actor, render::FrameView& view) {
     if (ct->team == 1) tint = 0xC85040u;       // imperial-side red
     else if (ct->team == 2) tint = 0x4078C8u;  // stormcloak-side blue
   }
-  if (std::getenv("REC_SKEL_DUMP") && actor.parts.size() > 2) {
+  if (std::getenv("RX_SKEL_DUMP") && actor.parts.size() > 2) {
     static bool logged = false;
     if (!logged) {
       logged = true;
-      REC_INFO("actor emit: model t=({:.2f} {:.2f} {:.2f}) scale col0=({:.4f} {:.4f} {:.4f})",
+      RX_INFO("actor emit: model t=({:.2f} {:.2f} {:.2f}) scale col0=({:.4f} {:.4f} {:.4f})",
                model.m[12], model.m[13], model.m[14], model.m[0], model.m[1], model.m[2]);
       i32 com = actor.skeleton.Find("NPC COM [COM ]");
       if (com >= 0 && com < static_cast<i32>(actor.bone_model.size())) {
         const Mat4& b = actor.bone_model[com];
-        REC_INFO("actor emit: bone_model[COM] t=({:.2f} {:.2f} {:.2f})", b.m[12], b.m[13],
+        RX_INFO("actor emit: bone_model[COM] t=({:.2f} {:.2f} {:.2f})", b.m[12], b.m[13],
                  b.m[14]);
       }
-      REC_INFO("actor emit: {} parts, first mesh hash {:x}", actor.parts.size(),
+      RX_INFO("actor emit: {} parts, first mesh hash {:x}", actor.parts.size(),
                actor.parts[0].mesh.hash);
     }
   }
@@ -1182,7 +1182,7 @@ const ActorSystem::Actor* ActorSystem::SoldierTemplate(int team) {
     tmpl.speed = 0.0f;
     tmpl.foot_ik = false;
     slot = std::move(tmpl);
-    REC_INFO("soldier template ready: team {} ({} parts)", team, slot->parts.size());
+    RX_INFO("soldier template ready: team {} ({} parts)", team, slot->parts.size());
   }
   return &*slot;
 }
@@ -1200,13 +1200,13 @@ void ActorSystem::SyncNpcActors() {
       // populate the world.
       tmpl = Actor{};
       LoadBuiltinActorTemplate(&tmpl);
-      REC_INFO("npc rendering: using the builtin biped (game body assets absent)");
+      RX_INFO("npc rendering: using the builtin biped (game body assets absent)");
     }
     tmpl.animate = true;
     tmpl.speed = 0.0f;     // idle
     tmpl.foot_ik = false;  // skip per-NPC ground raycasts
     npc_template_ = std::move(tmpl);
-    REC_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
+    RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
   }
   // Give every NPC entity without one a skinned actor instance (own pose, GPU
   // meshes shared by hash with the template). Battle actors (those on a combat
@@ -1281,4 +1281,4 @@ void ActorSystem::SyncSolidBodies() {
   }
 }
 
-}  // namespace rec
+}  // namespace rx

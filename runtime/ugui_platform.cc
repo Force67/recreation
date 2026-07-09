@@ -13,7 +13,7 @@
 namespace ugui {
 
 struct Platform::Impl {
-  rec::ui::UguiHostState* host = nullptr;
+  rx::ui::UguiHostState* host = nullptr;
   InputQueue queue;
   std::chrono::steady_clock::time_point start{};
 };
@@ -22,7 +22,7 @@ Platform::Platform() : impl_(new Impl()) {}
 Platform::~Platform() { delete impl_; }
 
 bool Platform::Init(const WindowConfig& config) {
-  impl_->host = static_cast<rec::ui::UguiHostState*>(config.external_window);
+  impl_->host = static_cast<rx::ui::UguiHostState*>(config.external_window);
   impl_->start = std::chrono::steady_clock::now();
   return true;
 }

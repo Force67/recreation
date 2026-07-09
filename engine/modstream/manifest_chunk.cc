@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 constexpr size_t kHeaderSize = 16;
@@ -59,4 +59,4 @@ std::optional<ManifestChunkView> DecodeManifestChunk(const u8* data, size_t size
   return view;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

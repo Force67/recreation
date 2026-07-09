@@ -9,7 +9,7 @@
 
 #include "bethesda/plugin.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Plugins in load order. Built from plugins.txt (asterisk prefixed entries
 // are enabled) with base game masters forced to the front, like the games do.
@@ -140,6 +140,6 @@ class RecordStore {
   base::UnorderedMap<u64, base::Vector<u64>> topic_infos_;  // DIAL id -> INFO ids
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_LOAD_ORDER_H_

@@ -2,7 +2,7 @@
 
 #include "script/games/skyrim/skyrim_bindings.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 
@@ -65,4 +65,4 @@ bool SkyrimConditionContext::Allows(const quest::ConditionList& conditions) cons
   return true;
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

@@ -12,7 +12,7 @@
 #include "core/types.h"
 #include "script/papyrus/value.h"
 
-namespace rec {
+namespace rx {
 
 // A transient toast pushed by a mod through Hud.Notify (kind: 0 info, 1 success,
 // 2 warning, 3 error).
@@ -146,6 +146,6 @@ class PlatformHud {
   std::optional<std::string> pending_connect_;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_PLATFORM_HUD_H_

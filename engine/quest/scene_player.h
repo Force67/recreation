@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Receives a playing scene's fragment cues. The engine backs this with the
 // bindings' RunSceneBegin/RunScenePhase/RunSceneEnd, which run the SCEN's
@@ -50,6 +50,6 @@ class ScenePlayer {
   std::unordered_map<u64, Active> active_;
 };
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_SCENE_PLAYER_H_

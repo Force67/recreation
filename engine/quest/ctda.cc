@@ -7,7 +7,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 namespace {
 
 // Maps a Creation Kit condition-function index to the native Func we can
@@ -120,4 +120,4 @@ ConditionList ParseConditions(const bethesda::Record& record) {
   return list;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

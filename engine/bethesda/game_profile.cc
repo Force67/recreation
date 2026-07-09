@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 const GameProfile& GameProfile::For(Game game) {
   static const GameProfile skyrim_se{
@@ -67,4 +67,4 @@ Game GameProfile::DetectFromDataDir(const std::string& data_dir) {
   return Game::kUnknown;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

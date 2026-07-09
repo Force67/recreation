@@ -4,7 +4,7 @@
 
 #include "core/log.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 // Bounds-checked, endian-aware cursor over the .pex blob. Any read past the
@@ -93,7 +93,7 @@ VariableData ReadVarData(Reader& r) {
       v.bool_value = r.U8() != 0;
       break;
     default:
-      REC_WARN("pex: bad operand type {} at byte {}", static_cast<int>(v.type), r.pos());
+      RX_WARN("pex: bad operand type {} at byte {}", static_cast<int>(v.type), r.pos());
       // Force failure: an unknown operand type means the stream is desynced.
       r.U8();  // keep advancing so pos() is meaningful, ok() set below by caller
       v.type = VariableData::Type::kNone;
@@ -127,7 +127,7 @@ Function ReadFunction(Reader& r) {
     insn.op = static_cast<Op>(raw);
     const OpInfo& info = GetOpInfo(raw);
     if (std::strcmp(info.mnemonic, "invalid") == 0) {
-      REC_WARN("pex: unknown opcode 0x{:02x} at byte {}", raw, r.pos());
+      RX_WARN("pex: unknown opcode 0x{:02x} at byte {}", raw, r.pos());
       return f;  // caller sees !ok via the truncation check, or count mismatch
     }
     for (u8 a = 0; a < info.fixed_args; ++a) insn.args.push_back(ReadVarData(r));
@@ -261,7 +261,7 @@ const std::string& PexFile::Str(StringIndex index) const {
 
 bool ParsePex(ByteSpan data, PexFile* out) {
   if (data.size() < 4) {
-    REC_WARN("pex: too small ({} bytes)", data.size());
+    RX_WARN("pex: too small ({} bytes)", data.size());
     return false;
   }
   bool big;
@@ -270,7 +270,7 @@ bool ParsePex(ByteSpan data, PexFile* out) {
   } else if (data[0] == 0xDE && data[1] == 0xC0 && data[2] == 0x57 && data[3] == 0xFA) {
     big = false;  // Fallout 4/76
   } else {
-    REC_WARN("pex: bad magic {:02x} {:02x} {:02x} {:02x}", data[0], data[1], data[2], data[3]);
+    RX_WARN("pex: bad magic {:02x} {:02x} {:02x} {:02x}", data[0], data[1], data[2], data[3]);
     return false;
   }
 
@@ -324,10 +324,10 @@ bool ParsePex(ByteSpan data, PexFile* out) {
     out->objects.push_back(ReadObject(r, fallout));
 
   if (!r.ok()) {
-    REC_WARN("pex: truncated or malformed near byte {}", r.pos());
+    RX_WARN("pex: truncated or malformed near byte {}", r.pos());
     return false;
   }
   return true;
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

@@ -12,7 +12,7 @@
 // loads at startup, applies sensitivity/invert to the camera and the lightbar to
 // the pad, and runs the Settings sub-view (capture a key/button per row, nudge
 // the look sliders, toggle invert, reset, test the rumble + adaptive triggers).
-namespace rec {
+namespace rx {
 namespace {
 
 // The curated, rebindable gameplay actions shown in the settings list, in row
@@ -44,9 +44,9 @@ void Engine::LoadControls() {
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(controls_path_).parent_path(), ec);
     if (input_map_.LoadFromIni(controls_path_))
-      REC_INFO("controls loaded from {}", controls_path_);
+      RX_INFO("controls loaded from {}", controls_path_);
     else
-      REC_INFO("no controls config at {}, using defaults", controls_path_);
+      RX_INFO("no controls config at {}, using defaults", controls_path_);
   }
   ApplyControls();
 }
@@ -170,4 +170,4 @@ void Engine::UpdateSettings() {
   game_ui_.SetControlsView(view);
 }
 
-}  // namespace rec
+}  // namespace rx

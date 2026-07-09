@@ -22,12 +22,12 @@
 #include "quest/quest_system.h"
 #include "world/quest_world.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 class ModCatalog;
 class ContentStore;
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
-namespace rec::net {
+namespace rx::net {
 
 class AssetStreamServer;
 class AssetStreamClient;
@@ -279,6 +279,6 @@ class ClientSession final : public Session {
   bool failure_logged_ = false;
 };
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_SESSION_H_

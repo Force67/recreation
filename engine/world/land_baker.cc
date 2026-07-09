@@ -10,7 +10,7 @@
 
 #include "core/log.h"
 
-namespace rec::world {
+namespace rx::world {
 namespace {
 
 // LTEX texels decoded per 512-unit repeat; the per-cell bake follows at 8x this
@@ -20,7 +20,7 @@ namespace {
 // radius) is the sharpest the bake reaches. The bake can't match the original
 // game's full per-repeat detail (that needs runtime splatting); this just lifts
 // the ceiling as far as a per-cell texture sensibly goes. Clamped to [16,256].
-base::Option<int> LandBakeTexels{"land.bake.texels", 192, "REC_LAND_BAKE_TEXELS"};
+base::Option<int> LandBakeTexels{"land.bake.texels", 192, "RX_LAND_BAKE_TEXELS"};
 
 constexpr f32 kCellSize = 4096.0f;
 // Land textures repeat every 512 game units (~7.3 m), the same scale the
@@ -334,7 +334,7 @@ const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
     }
   }
   if (layer->size == 0) {
-    REC_WARN("land texture missing for ltex {:x}, using default", ltex_packed);
+    RX_WARN("land texture missing for ltex {:x}, using default", ltex_packed);
     return DefaultLayer();
   }
   return layer;
@@ -669,4 +669,4 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
   return out;
 }
 
-}  // namespace rec::world
+}  // namespace rx::world

@@ -3,7 +3,7 @@
 #include <set>
 #include <unordered_map>
 
-namespace rec::script::skyrim::state {
+namespace rx::script::skyrim::state {
 namespace {
 
 // Each store maps an owner handle to its named values. A composite key would
@@ -100,4 +100,4 @@ void Clear(ObjectRef owner) {
   Members().erase(owner.handle);
 }
 
-}  // namespace rec::script::skyrim::state
+}  // namespace rx::script::skyrim::state

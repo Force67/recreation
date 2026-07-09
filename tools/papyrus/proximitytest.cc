@@ -8,14 +8,14 @@
 
 #include "script/games/skyrim/skyrim_bindings.h"
 
-using rec::script::papyrus::ObjectRef;
-using rec::script::skyrim::RecordBackedSkyrimBindings;
+using rx::script::papyrus::ObjectRef;
+using rx::script::skyrim::RecordBackedSkyrimBindings;
 
 int main() {
   RecordBackedSkyrimBindings bindings;  // no records needed for proximity
 
   // Engine-space positions: the centre at the origin, two close refs and one far.
-  std::vector<std::pair<rec::u64, std::array<rec::f32, 3>>> snapshot = {
+  std::vector<std::pair<rx::u64, std::array<rx::f32, 3>>> snapshot = {
       {0x14, {0.0f, 0.0f, 0.0f}},     // centre
       {0x100, {3.0f, 0.0f, 0.0f}},    // 3 m away
       {0x101, {0.0f, 4.0f, 0.0f}},    // 4 m away
@@ -35,8 +35,8 @@ int main() {
 
   bool saw_100 = false, saw_101 = false, saw_102 = false, saw_center = false;
   for (int i = 0; i < count; ++i) {
-    const rec::u64 h = bindings.GetNthNearbyRef(i).handle;
-    const rec::f32 d = bindings.GetNthNearbyDistance(i);
+    const rx::u64 h = bindings.GetNthNearbyRef(i).handle;
+    const rx::f32 d = bindings.GetNthNearbyDistance(i);
     saw_100 |= h == 0x100;
     saw_101 |= h == 0x101;
     saw_102 |= h == 0x102;

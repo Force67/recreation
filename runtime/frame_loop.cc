@@ -24,7 +24,7 @@
 // quest-driven world mutation flush, and host-authoritative NPC shove-out, plus
 // the render path that builds the FrameView and submits it. Split out of the
 // core lifecycle unit so the hot loop reads on its own.
-namespace rec {
+namespace rx {
 
 // Case-insensitive ASCII string compare, for matching a NetEntity model against a
 // record's editor id.
@@ -39,13 +39,13 @@ static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
 
 // Config overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
-static base::Option<float> Lightning{"lightning", 0.0f, "REC_LIGHTNING"};
-static base::Option<bool> AuthoredInterior{"interior.lighting", true, "REC_INTERIOR_LIGHTING"};
-static base::Option<const char*> UiShot{"ui.shot", nullptr, "REC_UI_SHOT"};
-static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "REC_UI_SHOT_FRAMES"};
-// REC_FIXED_DT=<seconds> locks every frame to one delta (frame-index-pure
+static base::Option<float> Lightning{"lightning", 0.0f, "RX_LIGHTNING"};
+static base::Option<bool> AuthoredInterior{"interior.lighting", true, "RX_INTERIOR_LIGHTING"};
+static base::Option<const char*> UiShot{"ui.shot", nullptr, "RX_UI_SHOT"};
+static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "RX_UI_SHOT_FRAMES"};
+// RX_FIXED_DT=<seconds> locks every frame to one delta (frame-index-pure
 // animation for golden-image captures; wall clock stops mattering).
-static base::Option<float> FixedDt{"fixed.dt", 0.0f, "REC_FIXED_DT"};
+static base::Option<float> FixedDt{"fixed.dt", 0.0f, "RX_FIXED_DT"};
 
 void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) {
   if (verb == "QuitGame") {
@@ -63,7 +63,7 @@ void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) 
   } else if (verb == "SetFootIK") {
     debug_flags_.foot_ik = arg == "1";
   }
-  REC_INFO("[debug] {} {}", verb, arg);
+  RX_INFO("[debug] {} {}", verb, arg);
 }
 
 void Engine::ApplyQuestWorld() {
@@ -124,7 +124,7 @@ bool Engine::RunFrame() {
     const InputState& keys = window_->input();
     for (u8 k = 0; k < static_cast<u8>(Key::kCount); ++k)
       if (keys.key_pressed(static_cast<Key>(k)))
-        managed_->QueueEvent({rec::script::host::ManagedEventId::kKeyPressed, k, 0, 0, 0.0f});
+        managed_->QueueEvent({rx::script::host::ManagedEventId::kKeyPressed, k, 0, 0, 0.0f});
   }
   {
     int steps = timer_.Tick();
@@ -191,7 +191,7 @@ bool Engine::RunFrame() {
       auto* binds = ctx_.bindings;
       const f32 sdt = static_cast<f32>(timer_.frame_delta());
       scripts_->guest().Submit(
-          [binds, sdt](rec::script::papyrus::VirtualMachine&) { binds->TickScenes(sdt); });
+          [binds, sdt](rx::script::papyrus::VirtualMachine&) { binds->TickScenes(sdt); });
     }
 
     // Apply (and, when hosting, replicate) the world mutations quests requested
@@ -265,7 +265,7 @@ bool Engine::RunFrame() {
           region_blend_t_ = 0.0f;
           active_region_ = region;
           weather_.SetClimate(climate ? *climate : default_climate_);
-          REC_INFO("weather: region {:x} ({} weathers)", region,
+          RX_INFO("weather: region {:x} ({} weathers)", region,
                    climate ? climate->size() : default_climate_.size());
         }
       }
@@ -330,12 +330,12 @@ bool Engine::RunFrame() {
           const f32 b = e > 0.12f ? 0.65f * std::exp(-(e - 0.12f) * 12.0f) : 0.0f;  // flicker
           lightning_ = std::min(1.0f, a + b);
         }
-        // REC_LIGHTNING holds the flash at a fixed level (testing the brief, random strike).
+        // RX_LIGHTNING holds the flash at a fixed level (testing the brief, random strike).
         if (Lightning.overridden()) lightning_ = Lightning.get();
         renderer_.settings().lightning = lightning_;
       }
       // Day/night: derive the sun direction/intensity/color/ambient from the
-      // clock's time of day (unless REC_SUN_DIR pinned a fixed sun), tinted and
+      // clock's time of day (unless RX_SUN_DIR pinned a fixed sun), tinted and
       // dimmed by the weather. Throttled to ~0.02-hour steps so the IBL
       // environment is not rebuilt every frame, also re-firing when the weather
       // light changes.
@@ -532,7 +532,7 @@ bool Engine::RunFrame() {
         game_ui_.SetCompassBlips(cblips);
       }
       if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
-        REC_INFO("[platform] connect requested: {}", *addr);
+        RX_INFO("[platform] connect requested: {}", *addr);
       // Floating player nametags: project each world-space label to screen pixels
       // for the 2D HUD, dropping ones behind the camera or off-screen.
       {
@@ -675,7 +675,7 @@ bool Engine::RunFrame() {
       }
       game_ui_.Build(*window_, renderer_, camera_, frame_delta, &view);
       renderer_.RenderFrame(view);
-      // Test/CI hook: REC_UI_SHOT=<path> grabs the frame after REC_UI_SHOT_FRAMES
+      // Test/CI hook: RX_UI_SHOT=<path> grabs the frame after RX_UI_SHOT_FRAMES
       // (default 30) and quits. Lets a headless GPU run capture the UI without
       // loading a universe (the NEXUS menu renders at boot).
       if (const char* shot = UiShot.get()) {
@@ -690,7 +690,7 @@ bool Engine::RunFrame() {
         if (ui_shot_frames == ui_shot_target) {
           renderer_.CaptureScreenshot(shot);
           // Perf breadcrumb for headless A/B runs alongside the capture.
-          REC_INFO("gpu frame at capture: {:.2f} ms", renderer_.gpu_frame_ms());
+          RX_INFO("gpu frame at capture: {:.2f} ms", renderer_.gpu_frame_ms());
         }
         else if (ui_shot_frames > ui_shot_target) quit_.store(true, std::memory_order_relaxed);
       }
@@ -703,4 +703,4 @@ bool Engine::RunFrame() {
   return !quit_.load(std::memory_order_relaxed);
 }
 
-}  // namespace rec
+}  // namespace rx

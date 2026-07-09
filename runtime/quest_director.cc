@@ -26,22 +26,22 @@
 #include "world/components.h"
 #include "world/objective_marker.h"
 
-namespace rec {
+namespace rx {
 
 namespace {
 
-// Config options (formerly REC_* env vars; populated by InitOptionsFromEnv()).
-base::Option<bool> NoAutostart{"no.autostart", false, "REC_NO_AUTOSTART"};
-base::Option<const char*> StartQuest{"start.quest", nullptr, "REC_START_QUEST"};
-base::Option<bool> Mq101Demo{"mq101.demo", false, "REC_MQ101_DEMO"};
-base::Option<bool> Mq101Scene{"mq101.scene", false, "REC_MQ101_SCENE"};
-base::Option<bool> CwBattle{"cw.battle", false, "REC_CW_BATTLE"};
-base::Option<bool> CwFieldBattle{"cw.field.battle", false, "REC_CW_FIELD_BATTLE"};
-base::Option<bool> Cw00Demo{"cw00.demo", false, "REC_CW00_DEMO"};
-base::Option<bool> CwDemo{"cw.demo", false, "REC_CW_DEMO"};
-base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "REC_CW_SIEGE_DEMO"};
-base::Option<const char*> CwSide{"cw.side", nullptr, "REC_CW_SIDE"};
-base::Option<bool> Journal{"journal", false, "REC_JOURNAL"};
+// Config options (formerly RX_* env vars; populated by InitOptionsFromEnv()).
+base::Option<bool> NoAutostart{"no.autostart", false, "RX_NO_AUTOSTART"};
+base::Option<const char*> StartQuest{"start.quest", nullptr, "RX_START_QUEST"};
+base::Option<bool> Mq101Demo{"mq101.demo", false, "RX_MQ101_DEMO"};
+base::Option<bool> Mq101Scene{"mq101.scene", false, "RX_MQ101_SCENE"};
+base::Option<bool> CwBattle{"cw.battle", false, "RX_CW_BATTLE"};
+base::Option<bool> CwFieldBattle{"cw.field.battle", false, "RX_CW_FIELD_BATTLE"};
+base::Option<bool> Cw00Demo{"cw00.demo", false, "RX_CW00_DEMO"};
+base::Option<bool> CwDemo{"cw.demo", false, "RX_CW_DEMO"};
+base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "RX_CW_SIEGE_DEMO"};
+base::Option<const char*> CwSide{"cw.side", nullptr, "RX_CW_SIDE"};
+base::Option<bool> Journal{"journal", false, "RX_JOURNAL"};
 
 // One of a quest's scenes: its handle, editor id, and parsed Papyrus fragments.
 struct SceneJob {
@@ -120,7 +120,7 @@ void QuestDirector::AttachQuestScripts() {
   int limit = config_.max_quest_scripts;
   int quests = 0;
   int instances = 0;
-  // Start-Game-Enabled quests come online at load (REC_NO_AUTOSTART disables it).
+  // Start-Game-Enabled quests come online at load (RX_NO_AUTOSTART disables it).
   const bool no_autostart_ = bool(NoAutostart);
   int autostarted = 0;
   records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
@@ -165,7 +165,7 @@ void QuestDirector::AttachQuestScripts() {
                         // aliases now, while the records are at hand.
                         IndexObjectiveTargets(def, stored.winning_plugin);
                         // Key the record list by editor id: it is the stable
-                        // handle REC_START_QUEST and the debugger match on. The
+                        // handle RX_START_QUEST and the debugger match on. The
                         // panel's display name comes from the quest definition.
                         std::string edid =
                             !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
@@ -183,22 +183,22 @@ void QuestDirector::AttachQuestScripts() {
                         ctx_.scripts->guest().Submit(
                             [binds, handle, sge, def = std::move(def),
                              fragments = std::move(fragments)](
-                                rec::script::papyrus::VirtualMachine&) mutable {
+                                rx::script::papyrus::VirtualMachine&) mutable {
                               binds->quest_system().SetDefinition(std::move(def));
                               for (const auto& f : fragments)
                                 binds->SetStageFragment(handle, f.stage, f.function);
-                              if (sge) binds->StartQuest(rec::script::papyrus::ObjectRef{handle});
+                              if (sge) binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
                             });
                       });
-  REC_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
+  RX_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
            quests, ctx_.scripts->loaded_script_count());
-  REC_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
-  REC_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
+  RX_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
+  RX_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
            objective_targets_.size());
 
-  // REC_START_QUEST=<EDID>[:<stage>] starts a quest at load (runs its opening
+  // RX_START_QUEST=<EDID>[:<stage>] starts a quest at load (runs its opening
   // stage fragment) so quest logic can be exercised without the UI. The optional
-  // :stage drives it to that stage, e.g. REC_START_QUEST=MQ101:160 to surface an
+  // :stage drives it to that stage, e.g. RX_START_QUEST=MQ101:160 to surface an
   // objective on the HUD.
   if (const char* want = StartQuest.get()) {
     std::string spec = want;
@@ -212,8 +212,8 @@ void QuestDirector::AttachQuestScripts() {
     int started = 0;
     for (const auto& [handle, name] : quest_records_) {
       if (edid != "all" && name != edid) continue;
-      ctx_.scripts->guest().Submit([binds, h = handle, start_stage](rec::script::papyrus::VirtualMachine&) {
-        rec::script::papyrus::ObjectRef ref{h};
+      ctx_.scripts->guest().Submit([binds, h = handle, start_stage](rx::script::papyrus::VirtualMachine&) {
+        rx::script::papyrus::ObjectRef ref{h};
         binds->StartQuest(ref);
         if (start_stage >= 0) binds->SetStage(ref, start_stage);
       });
@@ -222,7 +222,7 @@ void QuestDirector::AttachQuestScripts() {
       ++started;
       if (edid != "all") break;
     }
-    REC_INFO("debug: started {} quest(s) matching '{}'", started, edid);
+    RX_INFO("debug: started {} quest(s) matching '{}'", started, edid);
   }
 
   // The scripted MQ101 playthroughs run host-authoritatively: they drive quest
@@ -231,7 +231,7 @@ void QuestDirector::AttachQuestScripts() {
   // guest discards in replica mode and steer NPCs the host already owns.
   const bool host = ctx_.config->connect_address.empty();
 
-  // REC_MQ101_DEMO seeds a playable slice of the first main quest: start MQ101
+  // RX_MQ101_DEMO seeds a playable slice of the first main quest: start MQ101
   // (its opening fragment surfaces the first objective), then the npc director
   // drops a waypoint and recruits followers once the player and that objective
   // exist. Walk to the marker to complete the quest.
@@ -241,40 +241,40 @@ void QuestDirector::AttachQuestScripts() {
       quest_panel_.selected = handle;
       npc_->ArmMq101Demo(handle);
     }
-    REC_INFO("debug: MQ101 breadcrumb demo armed (walk the waypoints to complete the quest)");
+    RX_INFO("debug: MQ101 breadcrumb demo armed (walk the waypoints to complete the quest)");
   }
 
-  // REC_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
+  // RX_MQ101_SCENE arms an NPC-driven escort: once the player and NPCs exist,
   // a guide NPC leads the player along a path while MQ101 advances to completion.
   if (host && Mq101Scene) {
     const u64 handle = FindQuestHandle("MQ101");
     if (handle != 0) {
       quest_panel_.selected = handle;
       npc_->ArmMq101Scene(handle);
-      REC_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
+      RX_INFO("debug: MQ101 escort scene armed (a guide NPC will lead the player out)");
     }
   }
 
-  // REC_CW_BATTLE enlists the streamed NPCs around the player into two armies and
+  // RX_CW_BATTLE enlists the streamed NPCs around the player into two armies and
   // lets the combat driver fight it out, a live check that the melee path works
   // end to end on real rendered actors. Pairs well with --interior HelgenKeep01.
   if (host && CwBattle) {
     npc_->ArmCwBattle();
-    REC_INFO("debug: CW battle harness armed (nearby NPCs split into two armies)");
+    RX_INFO("debug: CW battle harness armed (nearby NPCs split into two armies)");
   }
-  // REC_CW_FIELD_BATTLE stages a fresh two-army clash in the open in front of the
+  // RX_CW_FIELD_BATTLE stages a fresh two-army clash in the open in front of the
   // player, framed for the camera.
   if (host && CwFieldBattle) {
     npc_->ArmCwFieldBattle();
-    REC_INFO("debug: CW field battle armed (two lines of soldiers will charge)");
+    RX_INFO("debug: CW field battle armed (two lines of soldiers will charge)");
   }
-  // REC_CW00_DEMO: the live join beat, walk to General Tullius in Castle Dour
-  // and enlist (pair with --interior SolitudeCastleDour REC_PLAYER).
+  // RX_CW00_DEMO: the live join beat, walk to General Tullius in Castle Dour
+  // and enlist (pair with --interior SolitudeCastleDour RX_PLAYER).
   if (host && Cw00Demo) {
     npc_->ArmCw00Demo();
-    REC_INFO("debug: CW00 join demo armed (walk to Tullius to enlist)");
+    RX_INFO("debug: CW00 join demo armed (walk to Tullius to enlist)");
   }
-  // REC_CW_DEMO: a playable slice of "Joining the Legion" (CW01A). Start the
+  // RX_CW_DEMO: a playable slice of "Joining the Legion" (CW01A). Start the
   // quest at the clear-the-fort stage (its real fragment surfaces objective 1),
   // stage a fort skirmish the player fights in, and on victory advance to stage
   // 100 (its fragment completes objective 1 and surfaces "Report to Legate
@@ -284,16 +284,16 @@ void QuestDirector::AttachQuestScripts() {
     if (cw01a != 0) {
       quest_panel_.selected = cw01a;
       auto* binds = ctx_.bindings;
-      ctx_.scripts->guest().Submit([binds, cw01a](rec::script::papyrus::VirtualMachine&) {
-        binds->StartQuest(rec::script::papyrus::ObjectRef{cw01a});
-        binds->SetStage(rec::script::papyrus::ObjectRef{cw01a}, 1);  // "Clear out Fort Hraggstad"
+      ctx_.scripts->guest().Submit([binds, cw01a](rx::script::papyrus::VirtualMachine&) {
+        binds->StartQuest(rx::script::papyrus::ObjectRef{cw01a});
+        binds->SetStage(rx::script::papyrus::ObjectRef{cw01a}, 1);  // "Clear out Fort Hraggstad"
       });
       npc_->ArmCwFieldBattle();
       npc_->set_battle_quest(cw01a, 100);  // victory -> "Report to Legate Rikke"
-      REC_INFO("debug: CW01A demo armed (clear the fort, then report to Rikke)");
+      RX_INFO("debug: CW01A demo armed (clear the fort, then report to Rikke)");
     }
   }
-  // REC_CW_SIEGE_DEMO: start the real fort-siege quest at its
+  // RX_CW_SIEGE_DEMO: start the real fort-siege quest at its
   // battle stage (journal "assist in taking the fort"), stage a two-line clash the
   // player fights in, and on victory advance to its completion stage 9000 ("We
   // have succeeded in taking the fort"): a real Civil War siege quest's journal
@@ -303,7 +303,7 @@ void QuestDirector::AttachQuestScripts() {
     if (siege != 0) {
       quest_panel_.selected = siege;
       auto* binds = ctx_.bindings;
-      // REC_CW_SIDE enlists the player first (imperial|stormcloak) by advancing
+      // RX_CW_SIDE enlists the player first (imperial|stormcloak) by advancing
       // that side's intro quest; the C# allegiance tracker reads the side, so the
       // won siege captures the fort for the player's chosen banner. This is the
       // engine-side mirror of the in-game F1/F2 enlistment prompt, both just
@@ -313,9 +313,9 @@ void QuestDirector::AttachQuestScripts() {
         const bool stormcloak = std::string(side) == "stormcloak";
         npc_->set_enlist_quest(FindQuestHandle(stormcloak ? "CW00B" : "CW00A"));
       }
-      ctx_.scripts->guest().Submit([binds, siege](rec::script::papyrus::VirtualMachine&) {
-        binds->StartQuest(rec::script::papyrus::ObjectRef{siege});
-        binds->SetStage(rec::script::papyrus::ObjectRef{siege}, 10);  // "assist in taking the fort"
+      ctx_.scripts->guest().Submit([binds, siege](rx::script::papyrus::VirtualMachine&) {
+        binds->StartQuest(rx::script::papyrus::ObjectRef{siege});
+        binds->SetStage(rx::script::papyrus::ObjectRef{siege}, 10);  // "assist in taking the fort"
       });
       npc_->ArmCwFieldBattle();
       npc_->set_battle_quest(siege, 9000);  // victory -> "succeeded in taking the fort"
@@ -323,12 +323,12 @@ void QuestDirector::AttachQuestScripts() {
       // the HUD bars become the live CWReinforcementPool globals, depleting as
       // soldiers fall through the quest's own ModifyPool (CW = the master quest).
       npc_->set_battle_siege_pool(siege, FindQuestHandle("CW"));
-      REC_INFO("debug: CW fort siege demo armed (win the battle to take the fort)");
+      RX_INFO("debug: CW fort siege demo armed (win the battle to take the fort)");
     }
   }
 
-  // REC_JOURNAL opens the quest journal at load (it is normally toggled with J),
-  // for screenshots (cf. RECREATION_UI_MENU / REC_HIDE_DEBUG_UI).
+  // RX_JOURNAL opens the quest journal at load (it is normally toggled with J),
+  // for screenshots (cf. RECREATION_UI_MENU / RX_HIDE_DEBUG_UI).
   if (Journal) journal_open_ = true;
 
 }
@@ -418,8 +418,8 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
   // build the human-readable report there and print it on return.
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, handle](rec::script::papyrus::VirtualMachine&) {
-            using rec::script::papyrus::ObjectRef;
+          .SubmitFor([binds, handle](rx::script::papyrus::VirtualMachine&) {
+            using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             const ObjectRef ref{handle};
             std::string r;
@@ -495,7 +495,7 @@ void QuestDirector::ReportQuestList(const std::string& prefix) {
   std::string report =
       ctx_.scripts->guest()
           .SubmitFor([binds, records = std::move(records), lower_prefix](
-                         rec::script::papyrus::VirtualMachine&) mutable {
+                         rx::script::papyrus::VirtualMachine&) mutable {
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
@@ -578,8 +578,8 @@ void QuestDirector::ReportReinforcementTest() {
   const u64 cw_master = FindQuestHandle("CW");
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, siege, pct_atk, pool_atk, cw_master](rec::script::papyrus::VirtualMachine& vm) {
-            using rec::script::papyrus::ObjectRef;
+          .SubmitFor([binds, siege, pct_atk, pool_atk, cw_master](rx::script::papyrus::VirtualMachine& vm) {
+            using rx::script::papyrus::ObjectRef;
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
 
@@ -587,7 +587,7 @@ void QuestDirector::ReportReinforcementTest() {
             // OnDeath is what drives the pool), scanning the encoded handles.
             i32 alias_id = -1;
             for (i32 id = 0; id < 60; ++id) {
-              const ObjectRef ah{rec::script::papyrus::EncodeAliasHandle(siege, id)};
+              const ObjectRef ah{rx::script::papyrus::EncodeAliasHandle(siege, id)};
               if (vm.TypeOf(ah).find("Reinforcement") != std::string::npos) {
                 alias_id = id;
                 break;
@@ -626,7 +626,7 @@ void QuestDirector::ReportReinforcementTest() {
                   atk_alias < 0 ? 0
                                 : binds
                                       ->AliasReference(ObjectRef{
-                                          rec::script::papyrus::EncodeAliasHandle(siege, atk_alias)})
+                                          rx::script::papyrus::EncodeAliasHandle(siege, atk_alias)})
                                       .handle;
               emit(Fmt("FillFindMatchingAliases: %d filled; attacker alias %d -> ref 0x%llx",
                        nfilled, atk_alias, static_cast<unsigned long long>(atk_ref)));
@@ -642,15 +642,15 @@ void QuestDirector::ReportReinforcementTest() {
                 }
               if (fort_alias >= 0)
                 binds->ForceAliasLocation(
-                    ObjectRef{rec::script::papyrus::EncodeAliasHandle(siege, fort_alias)},
+                    ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, fort_alias)},
                     ObjectRef{0x019183});
               vm.Call(ObjectRef{siege}, "Fragment_0", {});
               auto memo = [&](const char* v) -> std::string {
-                rec::script::papyrus::Value* p = vm.MemberVar(ObjectRef{siege}, v);
+                rx::script::papyrus::Value* p = vm.MemberVar(ObjectRef{siege}, v);
                 if (!p) return "(absent)";
-                if (p->type() == rec::script::papyrus::ValueType::kObject)
+                if (p->type() == rx::script::papyrus::ValueType::kObject)
                   return Fmt("obj:0x%llx", static_cast<unsigned long long>(p->as_object().handle));
-                if (p->type() == rec::script::papyrus::ValueType::kFloat)
+                if (p->type() == rx::script::papyrus::ValueType::kFloat)
                   return Fmt("%.1f", p->as_float());
                 return p->is_none() ? "None" : "(other)";
               };
@@ -658,11 +658,11 @@ void QuestDirector::ReportReinforcementTest() {
               // now hold a placed ref if SetUpAliases ran its ForceRefTo chain.
               u64 gen_ref = 0;
               for (i32 id = 0; id < 60; ++id)
-                if (vm.TypeOf(ObjectRef{rec::script::papyrus::EncodeAliasHandle(siege, id)})
+                if (vm.TypeOf(ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, id)})
                         .find("Reinforcement") != std::string::npos) {
                   gen_ref = binds
                                 ->AliasReference(ObjectRef{
-                                    rec::script::papyrus::EncodeAliasHandle(siege, id)})
+                                    rx::script::papyrus::EncodeAliasHandle(siege, id)})
                                 .handle;
                   if (gen_ref) break;
                 }
@@ -700,7 +700,7 @@ void QuestDirector::ReportReinforcementTest() {
             emit(Fmt("after setup: stage=%d running=%d", binds->GetStage(ObjectRef{siege}),
                      binds->IsRunning(ObjectRef{siege})));
 
-            using rec::script::papyrus::Value;
+            using rx::script::papyrus::Value;
             auto gv = [&](u64 h) { return h ? binds->GetGlobalValue(ObjectRef{h}) : -1.0f; };
             auto memf = [&](const char* var) -> f32 {
               Value* p = vm.MemberVar(ObjectRef{siege}, var);
@@ -731,7 +731,7 @@ void QuestDirector::ReportReinforcementTest() {
             // GetOwningQuest().registerDeath, the engine half of the chain (the
             // event trace shows 'OnDeath -> 0x4000... (handler ran)').
             if (alias_id >= 0) {
-              const u64 alias_h = rec::script::papyrus::EncodeAliasHandle(siege, alias_id);
+              const u64 alias_h = rx::script::papyrus::EncodeAliasHandle(siege, alias_id);
               const ObjectRef soldier{(0xFFFFull << 32) | 0x5050};
               binds->SetActorValue(soldier, "health", 80.0f);  // base+current full
               binds->AliasForceRefTo(ObjectRef{alias_h}, soldier);
@@ -772,7 +772,7 @@ void QuestDirector::ReportReinforcementTest() {
             // runs tryToRespawnAliass -> TryToRespawnAlias -> IsAliasAttacker ->
             // SubtractFromAttackerPool -> ModifyPool -> global.
             if (cw_master) {
-              using rec::script::papyrus::ValueType;
+              using rx::script::papyrus::ValueType;
               auto cwm = [&](const char* v) { return vm.MemberVar(ObjectRef{cw_master}, v); };
               auto ctl = [&](const char* v) { return vm.MemberVar(ObjectRef{siege}, v); };
               auto handle = [&](Value* p) -> u64 {
@@ -809,7 +809,7 @@ void QuestDirector::ReportReinforcementTest() {
 
                 // A Stormcloak trooper fills a reinforcement alias; register it
                 // through the REAL classifier so it lands in an attacker A-slot.
-                const u64 slot_h = rec::script::papyrus::EncodeAliasHandle(siege, alias_id);
+                const u64 slot_h = rx::script::papyrus::EncodeAliasHandle(siege, alias_id);
                 const ObjectRef trooper{(0xFFFFull << 32) | 0x6060};
                 binds->AddToFaction(trooper, ObjectRef{sons_fac});
                 binds->SetActorValue(trooper, "health", 100.0f);
@@ -886,8 +886,8 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
   std::string report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle, edid, jobs = std::move(jobs)](
-                         rec::script::papyrus::VirtualMachine&) mutable {
-            using rec::script::papyrus::ObjectRef;
+                         rx::script::papyrus::VirtualMachine&) mutable {
+            using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
@@ -944,10 +944,10 @@ void QuestDirector::AttachQuestScenes(u64 quest) {
   const size_t n = jobs.size();
   auto* binds = ctx_.bindings;
   ctx_.scripts->guest().Submit(
-      [binds, quest, jobs = std::move(jobs)](rec::script::papyrus::VirtualMachine&) mutable {
+      [binds, quest, jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
         for (SceneJob& j : jobs) binds->SetSceneFragments(j.handle, quest, std::move(j.frags));
       });
-  REC_INFO("quest: attached {} scene script(s) for 0x{:x}", n, quest);
+  RX_INFO("quest: attached {} scene script(s) for 0x{:x}", n, quest);
 }
 
 void QuestDirector::ReportSceneLive(const std::string& edid) {
@@ -964,8 +964,8 @@ void QuestDirector::ReportSceneLive(const std::string& edid) {
   // it gets on its own (no breadcrumb, no direct stages).
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, handle, edid](rec::script::papyrus::VirtualMachine&) {
-            using rec::script::papyrus::ObjectRef;
+          .SubmitFor([binds, handle, edid](rx::script::papyrus::VirtualMachine&) {
+            using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
@@ -1027,8 +1027,8 @@ void QuestDirector::ReportScenePlay(const std::string& edid) {
   std::string report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle, edid, jobs = std::move(jobs)](
-                         rec::script::papyrus::VirtualMachine&) mutable {
-            using rec::script::papyrus::ObjectRef;
+                         rx::script::papyrus::VirtualMachine&) mutable {
+            using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
             auto emit = [&](const std::string& line) { r += line; r += '\n'; };
@@ -1140,7 +1140,7 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
       Vec3 pp;
       if (actors_->PlayerWorldPos(&pp)) m.pos = pp;
       quest_markers_.push_back(m);
-      REC_INFO("quest: placed marker for objective {} of 0x{:x} -> advance to stage {}", objective,
+      RX_INFO("quest: placed marker for objective {} of 0x{:x} -> advance to stage {}", objective,
                quest, advance_stage);
     };
     quest_panel_.clear_markers = [this] { quest_markers_.clear(); };
@@ -1334,7 +1334,7 @@ void QuestDirector::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>
       ctx_.scripts->guest().Submit([binds, quest, stage](script::papyrus::VirtualMachine&) {
         binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
       });
-      REC_INFO("quest: reached objective {} marker, advancing 0x{:x} to stage {}", armed->objective,
+      RX_INFO("quest: reached objective {} marker, advancing 0x{:x} to stage {}", armed->objective,
                quest, stage);
     }
   }
@@ -1524,4 +1524,4 @@ void QuestDirector::RefreshNativeTrace(f32 dt) {
   native_trace_panel_.top = std::move(top);
 }
 
-}  // namespace rec
+}  // namespace rx

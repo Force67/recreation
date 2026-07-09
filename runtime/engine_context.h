@@ -31,7 +31,7 @@
 #include "net/session.h"
 #endif
 
-namespace rec {
+namespace rx {
 
 // An additional game loaded as a live secondary content domain alongside the
 // primary (rendered) game. Each runs its own isolated Papyrus microvm, so
@@ -53,7 +53,7 @@ struct EngineConfig {
   // Defaults on for a bare windowed launch with no content source.
   bool main_menu = false;
   // Spawn a walkable player and enter walk mode after the world loads (set when
-  // entering a universe from the main menu, alongside the REC_PLAYER env gate).
+  // entering a universe from the main menu, alongside the RX_PLAYER env gate).
   bool spawn_player = false;
   bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect
   // Exterior cell the camera starts in. When the user does not pass --cell the
@@ -127,7 +127,7 @@ struct EngineContext {
   asset::AssetDatabase* assets = nullptr;
   world::CellStreamer* streamer = nullptr;
   script::ScriptSystem* scripts = nullptr;
-  rec::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
+  rx::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
   script::host::ManagedHost* managed = nullptr;  // null when C# scripting is off
 #if RECREATION_HAS_NET
   net::ServerSession* server_session = nullptr;
@@ -151,11 +151,11 @@ struct EngineContext {
   Vec3 auto_walk_goal{};
 
   // Demo scenes that stage their own lighting set this so the day/night clock
-  // stops re-driving sun direction/intensity/ambient every frame (REC_SUN_DIR
+  // stops re-driving sun direction/intensity/ambient every frame (RX_SUN_DIR
   // has the same effect globally).
   bool scene_owns_sun = false;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_ENGINE_CONTEXT_H_

@@ -13,8 +13,8 @@
 #include "script/world_effect_sink.h"
 #include "world/combat.h"
 
-using rec::script::papyrus::ObjectRef;
-using rec::script::skyrim::RecordBackedSkyrimBindings;
+using rx::script::papyrus::ObjectRef;
+using rx::script::skyrim::RecordBackedSkyrimBindings;
 
 namespace {
 
@@ -27,25 +27,25 @@ bool Near(float a, float b, float eps = 0.01f) { return std::fabs(a - b) < eps; 
 
 // Records the death notifications routed to the world sink, so we can assert the
 // main-thread driver would be told to drop the dead actor.
-class RecordingSink : public rec::script::WorldEffectSink {
+class RecordingSink : public rx::script::WorldEffectSink {
  public:
-  rec::u64 SpawnReference(rec::u64, rec::u64, float, float, float) override { return 0; }
-  void MoveReference(rec::u64, rec::u64, float, float, float) override {}
-  void MovePlayer(rec::u64, rec::u64, float, float, float) override {}
-  void SetEnabled(rec::u64, rec::u64, bool) override {}
-  void DeleteReference(rec::u64, rec::u64) override {}
-  void CleanupQuest(rec::u64) override {}
-  void StartCombat(rec::u64, rec::u64 a, rec::u64 t) override { engaged.push_back({a, t}); }
-  void StopCombat(rec::u64, rec::u64 a) override { disengaged.push_back(a); }
-  void ActorDied(rec::u64, rec::u64 a) override { died.push_back(a); }
-  std::vector<std::pair<rec::u64, rec::u64>> engaged;
-  std::vector<rec::u64> disengaged;
-  std::vector<rec::u64> died;
+  rx::u64 SpawnReference(rx::u64, rx::u64, float, float, float) override { return 0; }
+  void MoveReference(rx::u64, rx::u64, float, float, float) override {}
+  void MovePlayer(rx::u64, rx::u64, float, float, float) override {}
+  void SetEnabled(rx::u64, rx::u64, bool) override {}
+  void DeleteReference(rx::u64, rx::u64) override {}
+  void CleanupQuest(rx::u64) override {}
+  void StartCombat(rx::u64, rx::u64 a, rx::u64 t) override { engaged.push_back({a, t}); }
+  void StopCombat(rx::u64, rx::u64 a) override { disengaged.push_back(a); }
+  void ActorDied(rx::u64, rx::u64 a) override { died.push_back(a); }
+  std::vector<std::pair<rx::u64, rx::u64>> engaged;
+  std::vector<rx::u64> disengaged;
+  std::vector<rx::u64> died;
 };
 
 void TestPureHelpers() {
   std::puts("pure combat geometry:");
-  using namespace rec::world;
+  using namespace rx::world;
   const float a[3] = {0, 0, 0};
   const float b[3] = {3, 100, 4};  // height ignored: planar distance is 5
   Check("planar dist ignores height", Near(PlanarDist2(a, b), 25.0f));
@@ -88,9 +88,9 @@ void TestBindingsCombat() {
   RecordingSink sink;
   binds.set_world_sink(&sink);
 
-  rec::u64 killer = 0;
-  binds.set_event_sink([&](const rec::script::host::ManagedEvent& e) {
-    if (e.id == rec::script::host::ManagedEventId::kActorDied) killer = e.b;
+  rx::u64 killer = 0;
+  binds.set_event_sink([&](const rx::script::host::ManagedEvent& e) {
+    if (e.id == rx::script::host::ManagedEventId::kActorDied) killer = e.b;
   });
 
   const ObjectRef soldier{0x100};
@@ -122,9 +122,9 @@ void TestBindingsCombat() {
 void TestTokenResolution() {
   std::puts("quest text tokens:");
   RecordBackedSkyrimBindings binds;  // no records: globals stay, aliases fall back to name
-  rec::quest::QuestDef def;
+  rx::quest::QuestDef def;
   def.handle = 0xCAFE;
-  rec::quest::AliasDef city;
+  rx::quest::AliasDef city;
   city.id = 1;
   city.name = "City";
   def.aliases.push_back(city);

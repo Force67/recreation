@@ -6,7 +6,7 @@
 
 #include "modstream/mod_catalog.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 namespace fs = std::filesystem;
@@ -76,4 +76,4 @@ void MountCatalog(asset::Vfs& vfs, const ModCatalog& catalog) {
   }
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

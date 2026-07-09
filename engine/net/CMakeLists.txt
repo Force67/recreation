@@ -16,12 +16,12 @@ recreation_add_module(net
 # journal state the sessions replicate. modstream catalogs and caches the
 # streamed mods, rpc supplies the scripting call codec and registry.
 target_link_libraries(recreation_net PUBLIC
-  recreation::core
-  recreation::ecs
+  rx::core
+  rx::ecs
   recreation::world
   recreation::quest
   recreation::nanobuf
   recreation::modstream
-  recreation::rpc
+  rx::rpc
   zetanet
 )

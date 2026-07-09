@@ -20,7 +20,7 @@
 #include "core/world_clock.h"
 #include "quest/quest_graph.h"
 
-namespace rec::audio {
+namespace rx::audio {
 class AudioSystem;
 }
 #include "quest/scene_player.h"
@@ -29,11 +29,11 @@ class AudioSystem;
 #include "script/host/bridge.h"
 #include "script/world_effect_sink.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 class VirtualMachine;
 }
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 // A concrete SkyrimBindings that backs the native surface with real state:
 //   - Form data (id, type, name, keywords) comes from the engine's existing
@@ -618,6 +618,6 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   bool sound_catalog_built_ = false;
 };
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_

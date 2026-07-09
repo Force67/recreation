@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rec {
+namespace rx {
 
 const char* TrailerRenderModeLabel(TrailerRenderMode mode) {
   switch (mode) {
@@ -165,4 +165,4 @@ int TrailerDirector::ActiveBeatIndex(f32 t) const {
   return static_cast<int>(beats_.size()) - 1;
 }
 
-}  // namespace rec
+}  // namespace rx

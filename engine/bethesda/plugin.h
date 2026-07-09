@@ -11,7 +11,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 constexpr u32 kPluginFlagMaster = 0x00000001;
 constexpr u32 kPluginFlagLocalized = 0x00000080;
@@ -75,6 +75,6 @@ class PluginFile {
   size_t records_begin_ = 0;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_PLUGIN_H_

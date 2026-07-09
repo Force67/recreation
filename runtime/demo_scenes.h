@@ -11,7 +11,7 @@
 #include "face.h"
 #include "render/core/renderer.h"
 
-namespace rec {
+namespace rx {
 
 class ActorSystem;
 
@@ -104,6 +104,6 @@ class DemoScenes {
   f32 hair_time_ = 0;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_DEMO_SCENES_H_

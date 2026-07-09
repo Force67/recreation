@@ -13,7 +13,7 @@
 #include "asset/skeleton.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Gamebryo/NetImmerse scene file. All three games ship 20.2.0.7 with
 // different BS stream versions (SSE: 100 with BSTriShape packed vertices
@@ -72,6 +72,6 @@ NifConversion ConvertNifRigid(ByteSpan data, asset::AssetId id, std::string_view
 // node local binds in Bethesda object space. Returns false if no nodes parse.
 bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_NIF_H_

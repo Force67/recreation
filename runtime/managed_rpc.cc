@@ -18,7 +18,7 @@
 #include "script/host/bridge.h"
 #include "script/host/managed_host.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 using script::host::ApiKind;
@@ -167,6 +167,6 @@ void RegisterManagedRpcForwarding(Engine& e) {
   }
 }
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_HAS_NET

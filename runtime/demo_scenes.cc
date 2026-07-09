@@ -23,20 +23,20 @@
 #include "render/geometry/hair_groom.h"
 #include "world/components.h"
 
-namespace rec {
+namespace rx {
 
 // Config overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
-static base::Option<const char*> Ply{"ply", nullptr, "REC_PLY"};
-static base::Option<bool> OitReverse{"oit.reverse", false, "REC_OIT_REVERSE"};
-static base::Option<const char*> Mtlx{"mtlx", nullptr, "REC_MTLX"};
+static base::Option<const char*> Ply{"ply", nullptr, "RX_PLY"};
+static base::Option<bool> OitReverse{"oit.reverse", false, "RX_OIT_REVERSE"};
+static base::Option<const char*> Mtlx{"mtlx", nullptr, "RX_MTLX"};
 // Skyrim data dir for the strand-hair demo (needs real hair NIFs + diffuse).
 static base::Option<const char*> HairData{
     "hair.data", "/speed/SteamLibrary/steamapps/common/Skyrim Special Edition/Data",
-    "REC_HAIR_DATA"};
+    "RX_HAIR_DATA"};
 // Faces-demo camera: 0 = the full six-head lineup, 1 = a 3/4 portrait of the
 // first head (head ~60% of frame), 2 = a straight-on pair (Nazeem + Ysolda).
-static base::Option<int> FaceShot{"faces.shot", 0, "REC_FACE_SHOT",
+static base::Option<int> FaceShot{"faces.shot", 0, "RX_FACE_SHOT",
                                   "faces demo camera: 0 lineup, 1 hero 3/4, 2 front pair"};
 
 DemoScenes::DemoScenes(EngineContext& ctx, ActorSystem* actors)
@@ -204,7 +204,7 @@ void DemoScenes::CreateWaterDemoScene() {
 
   camera_.set_position({-14.0f, 3.0f, 0.0f});
   camera_.set_yaw_pitch(1.5708f, -0.25f);
-  REC_INFO("water demo scene");
+  RX_INFO("water demo scene");
 }
 
 void DemoScenes::CreateMaterialDemoScene() {
@@ -297,7 +297,7 @@ void DemoScenes::CreateMaterialDemoScene() {
   camera_.set_position({0.0f, 1.8f, 5.4f});
   camera_.set_yaw_pitch(0.0f, -0.16f);
   camera_.speed = 4.0f;
-  REC_INFO("material preview: clearcoat, anisotropy, sheen and roughness sweeps");
+  RX_INFO("material preview: clearcoat, anisotropy, sheen and roughness sweeps");
 }
 
 void DemoScenes::UpdateParticles(f32 dt, render::FrameView& view) {
@@ -376,17 +376,17 @@ void DemoScenes::CreateGaussianDemoScene() {
   world_.Add(floor, world::Transform{.position = {0, -8.0f, 0}});  // top at y = 0
   world_.Add(floor, world::Renderable{ground.id});
 
-  // REC_PLY=<path> loads a real captured splat scene instead of the procedural
+  // RX_PLY=<path> loads a real captured splat scene instead of the procedural
   // sphere. The renderer sorts and projects them exactly the same way.
   if (const char* ply = Ply.get()) {
     if (render::LoadGaussianPly(ply, &demo_gaussians_)) {
       camera_.set_position({0.0f, 1.0f, 4.0f});
       camera_.set_yaw_pitch(0.0f, 0.0f);
       camera_.speed = 3.0f;
-      REC_INFO("gaussian splat demo: {} splats from {}", demo_gaussians_.size(), ply);
+      RX_INFO("gaussian splat demo: {} splats from {}", demo_gaussians_.size(), ply);
       return;
     }
-    REC_WARN("gaussian splat demo: ply load failed, using the procedural sphere");
+    RX_WARN("gaussian splat demo: ply load failed, using the procedural sphere");
   }
 
   const u32 kCount = 12000;
@@ -415,7 +415,7 @@ void DemoScenes::CreateGaussianDemoScene() {
   camera_.set_position({0.0f, 1.9f, 5.2f});
   camera_.set_yaw_pitch(0.0f, -0.04f);
   camera_.speed = 3.0f;
-  REC_INFO("gaussian splat demo: {} splats", demo_gaussians_.size());
+  RX_INFO("gaussian splat demo: {} splats", demo_gaussians_.size());
 }
 
 void DemoScenes::CreateLodDemoScene() {
@@ -455,7 +455,7 @@ void DemoScenes::CreateLodDemoScene() {
   camera_.set_position({0.0f, 1.5f, 6.5f});
   camera_.set_yaw_pitch(0.0f, -0.1f);
   camera_.speed = 4.0f;
-  REC_INFO("lod demo: distance-based tessellation, near smooth to far faceted");
+  RX_INFO("lod demo: distance-based tessellation, near smooth to far faceted");
 }
 
 void DemoScenes::CreateCornellDemoScene() {
@@ -502,7 +502,7 @@ void DemoScenes::CreateCornellDemoScene() {
   camera_.set_position({0.0f, 1.5f, 4.7f});
   camera_.set_yaw_pitch(0.0f, -0.12f);
   camera_.speed = 3.0f;
-  REC_INFO("cornell box: gi color-bleed test (red/green walls)");
+  RX_INFO("cornell box: gi color-bleed test (red/green walls)");
 }
 
 void DemoScenes::CreateGpuParticleDemoScene() {
@@ -523,7 +523,7 @@ void DemoScenes::CreateGpuParticleDemoScene() {
   camera_.set_position({0.0f, 2.6f, 7.5f});
   camera_.set_yaw_pitch(0.0f, -0.18f);
   camera_.speed = 4.0f;
-  REC_INFO("gpu particle demo: {} compute-simulated embers", gpu_particle_count_);
+  RX_INFO("gpu particle demo: {} compute-simulated embers", gpu_particle_count_);
 }
 
 void DemoScenes::CreateImposterDemoScene() {
@@ -689,7 +689,7 @@ void DemoScenes::CreateStrandHairDemoScene() {
   namespace fs = std::filesystem;
   std::error_code ec;
   if (!fs::exists(data_dir, ec)) {
-    REC_WARN("hair demo: data dir not found ({}); set REC_HAIR_DATA", data_dir);
+    RX_WARN("hair demo: data dir not found ({}); set RX_HAIR_DATA", data_dir);
     return;
   }
   asset::Vfs vfs;
@@ -721,13 +721,13 @@ void DemoScenes::CreateStrandHairDemoScene() {
     Vec3 head_center{xs[i], 1.62f, 0.0f};
     auto bytes = vfs.Read(asset::NormalizePath(specs[i].nif));
     if (!bytes) {
-      REC_WARN("hair demo: missing {}", specs[i].nif);
+      RX_WARN("hair demo: missing {}", specs[i].nif);
       continue;
     }
     bethesda::NifConversion conv = bethesda::ConvertNifRigid(
         ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(specs[i].nif), specs[i].nif);
     if (!conv.mesh || conv.mesh->lods.empty()) {
-      REC_WARN("hair demo: convert failed {}", specs[i].nif);
+      RX_WARN("hair demo: convert failed {}", specs[i].nif);
       continue;
     }
     // Diffuse for per-strand root colour: the material's base_color texture,
@@ -830,7 +830,7 @@ void DemoScenes::CreateVirtualGeometryDemoScene() {
     }
   }
   if (!config_.headless) renderer_.UploadVirtualGeometryMesh(terrain);
-  REC_INFO("vgeo demo: {} tris in the source terrain", lod.indices.size() / 3);
+  RX_INFO("vgeo demo: {} tris in the source terrain", lod.indices.size() / 3);
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.55f, -0.55f, -0.63f};
@@ -1116,7 +1116,7 @@ void DemoScenes::CreateBrickDemoScene() {
   camera_.set_position({-0.4f, 1.7f, 2.6f});
   camera_.set_yaw_pitch(-0.25f, -0.10f);
   camera_.speed = 3.0f;
-  REC_INFO("brick demo: pom wall (left) vs flat normal-mapped wall (right)");
+  RX_INFO("brick demo: pom wall (left) vs flat normal-mapped wall (right)");
 }
 
 void DemoScenes::CreateSssDemoScene() {
@@ -1222,7 +1222,7 @@ void DemoScenes::CreateSssDemoScene() {
   camera_.set_position({0.0f, 0.72f, 2.0f});
   camera_.set_yaw_pitch(0.0f, -0.04f);
   camera_.speed = 2.0f;
-  REC_INFO("sss demo: skin sphere (right) vs control (left)");
+  RX_INFO("sss demo: skin sphere (right) vs control (left)");
 }
 
 void DemoScenes::CreateFacesDemoScene() {
@@ -1269,7 +1269,7 @@ void DemoScenes::CreateFacesDemoScene() {
   int built = 0;
   for (int i = 0; i < count; ++i) {
     if (ids[i].plugin == 0xffff) {
-      REC_WARN("faces demo: NPC '{}' not found", wanted[i].edid);
+      RX_WARN("faces demo: NPC '{}' not found", wanted[i].edid);
       continue;
     }
     FaceState fs;
@@ -1285,7 +1285,7 @@ void DemoScenes::CreateFacesDemoScene() {
       fs.SetMorph("ChinMoveDown", 3.0f);
     }
     f32 ms = fs.RebuildAndUpload();
-    REC_INFO("faces demo: '{}' built {} parts in {:.2f} ms (subdiv {})", wanted[i].edid,
+    RX_INFO("faces demo: '{}' built {} parts in {:.2f} ms (subdiv {})", wanted[i].edid,
              fs.parts().size(), ms, fs.subdiv_levels());
     faces_.push_back(std::move(fs));
 
@@ -1339,7 +1339,7 @@ void DemoScenes::CreateFacesDemoScene() {
     }
     ++built;
   }
-  REC_INFO("faces demo: {} heads assembled", built);
+  RX_INFO("faces demo: {} heads assembled", built);
 
   // Soft frontal key light so every face reads; the heads face -Z, so frame
   // them from -Z looking +Z (like the actor bringup). A gentle key plus a raised
@@ -1510,7 +1510,7 @@ void DemoScenes::CreateFireDemoScene() {
   camera_.set_position({2.6f, 1.5f, 3.4f});
   camera_.set_yaw_pitch(-0.65f, -0.22f);
   camera_.speed = 3.0f;
-  REC_INFO("fire demo: {} gpu flame/ember particles + flickering shadowed light",
+  RX_INFO("fire demo: {} gpu flame/ember particles + flickering shadowed light",
            gpu_particle_count_);
 }
 
@@ -1546,7 +1546,7 @@ void DemoScenes::CreateFurDemoScene() {
   camera_.set_position({0.0f, 1.4f, 4.2f});
   camera_.set_yaw_pitch(0.0f, -0.06f);
   camera_.speed = 3.0f;
-  REC_INFO("fur demo: shell-based hair/fur on a sphere");
+  RX_INFO("fur demo: shell-based hair/fur on a sphere");
 }
 
 void DemoScenes::CreateAutoLodDemoScene() {
@@ -1574,7 +1574,7 @@ void DemoScenes::CreateAutoLodDemoScene() {
   sphere.lods[0].submeshes[0].material = mat.id;
   asset::GenerateLods(&sphere);  // appends the decimated lods
   for (size_t i = 0; i < sphere.lods.size(); ++i) {
-    REC_INFO("auto-lod: lod{} = {} tris", i, sphere.lods[i].indices.size() / 3);
+    RX_INFO("auto-lod: lod{} = {} tris", i, sphere.lods[i].indices.size() / 3);
   }
   if (!config_.headless) renderer_.UploadMesh(sphere);
 
@@ -1589,7 +1589,7 @@ void DemoScenes::CreateAutoLodDemoScene() {
   camera_.set_position({0.0f, 1.5f, 6.5f});
   camera_.set_yaw_pitch(0.0f, -0.1f);
   camera_.speed = 4.0f;
-  REC_INFO("auto-lod demo: decimated lods on a single high-poly sphere");
+  RX_INFO("auto-lod demo: decimated lods on a single high-poly sphere");
 }
 
 void DemoScenes::CreateOitDemoScene() {
@@ -1636,7 +1636,7 @@ void DemoScenes::CreateOitDemoScene() {
   camera_.set_position({0.0f, 1.3f, 4.2f});
   camera_.set_yaw_pitch(0.0f, -0.06f);
   camera_.speed = 3.0f;
-  REC_INFO("oit demo: {} overlapping transparent spheres{}", oit_instances_.size(),
+  RX_INFO("oit demo: {} overlapping transparent spheres{}", oit_instances_.size(),
            reverse ? " (reversed order)" : "");
 }
 
@@ -1646,7 +1646,7 @@ void DemoScenes::CreateOcclusionDemoScene() {
   // frame's depth, so the visible-draw count drops to roughly the wall + floor
   // even though every cube is still submitted. Strafe sideways and the cubes
   // reappear as they leave the wall's shadow. Verified via the debug overlay
-  // ("opaque draws: N / M visible") and REC_NO_OCCLUSION for the A/B baseline.
+  // ("opaque draws: N / M visible") and RX_NO_OCCLUSION for the A/B baseline.
   auto mat = [&](const char* tag, f32 r, f32 g, f32 b) {
     asset::Material m;
     m.id = asset::MakeAssetId(tag);
@@ -1693,13 +1693,13 @@ void DemoScenes::CreateOcclusionDemoScene() {
   camera_.set_position({0.0f, 1.6f, 6.0f});
   camera_.set_yaw_pitch(0.0f, 0.0f);
   camera_.speed = 3.0f;
-  REC_INFO("occlusion demo: {} small cubes hidden behind a wall (gpu hi-z cull)", idx);
+  RX_INFO("occlusion demo: {} small cubes hidden behind a wall (gpu hi-z cull)", idx);
 }
 
 void DemoScenes::CreatePointLightDemoScene() {
   // A grid of white tiles under a row of colored omni lights, with the sun dimmed
   // so the dynamic point lights dominate. Verifies forward point lighting and the
-  // light-complexity view (REC_DEBUG_VIEW=15) where light volumes overlap.
+  // light-complexity view (RX_DEBUG_VIEW=15) where light volumes overlap.
   asset::Material floor_mat;
   floor_mat.id = asset::MakeAssetId("builtin/lights/floor");
   floor_mat.base_color_factor[0] = floor_mat.base_color_factor[1] = floor_mat.base_color_factor[2] =
@@ -1809,7 +1809,7 @@ void DemoScenes::CreatePointLightDemoScene() {
   camera_.set_position({0.0f, 1.1f, 4.8f});
   camera_.set_yaw_pitch(0.0f, -0.16f);
   camera_.speed = 3.0f;
-  REC_INFO("point-light demo: {} dynamic omni lights", demo_lights_.size());
+  RX_INFO("point-light demo: {} dynamic omni lights", demo_lights_.size());
 }
 
 void DemoScenes::CreateMeshletDemoScene() {
@@ -1823,12 +1823,12 @@ void DemoScenes::CreateMeshletDemoScene() {
   camera_.set_position({0.0f, 0.0f, 4.5f});
   camera_.set_yaw_pitch(0.0f, 0.0f);
   camera_.speed = 3.0f;
-  REC_INFO("meshlet demo: mesh-shader cluster rendering ({} tris)",
+  RX_INFO("meshlet demo: mesh-shader cluster rendering ({} tris)",
            sphere.lods[0].indices.size() / 3);
 }
 
 void DemoScenes::CreateMaterialXDemoScene() {
-  // One sphere per MaterialX file listed (comma separated) in REC_MTLX, so the
+  // One sphere per MaterialX file listed (comma separated) in RX_MTLX, so the
   // imported standard_surface lobes can be eyeballed against the source.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/mtlx/ground"));
   for (asset::MeshLod& lod : ground.lods) {
@@ -1852,7 +1852,7 @@ void DemoScenes::CreateMaterialXDemoScene() {
     }
     if (!cur.empty()) paths.push_back(cur);
   }
-  if (paths.empty()) REC_WARN("mtlx demo: set REC_MTLX=a.mtlx,b.mtlx to load materials");
+  if (paths.empty()) RX_WARN("mtlx demo: set RX_MTLX=a.mtlx,b.mtlx to load materials");
 
   int n = static_cast<int>(paths.size());
   for (int i = 0; i < n; ++i) {
@@ -1873,7 +1873,7 @@ void DemoScenes::CreateMaterialXDemoScene() {
   camera_.set_position({0.0f, 0.9f, 4.5f});
   camera_.set_yaw_pitch(0.0f, -0.12f);
   camera_.speed = 3.0f;
-  REC_INFO("materialx demo: {} materials", n);
+  RX_INFO("materialx demo: {} materials", n);
 }
 
 void DemoScenes::CreateDemoScene() {
@@ -1978,7 +1978,7 @@ void DemoScenes::CreateDemoScene() {
       input.yaw = demo_input_time_ * 0.8f;
       ctx_.client_session->SetInput(input);
     });
-    REC_INFO("no game data given, joining as demo client");
+    RX_INFO("no game data given, joining as demo client");
     return;
   }
 #endif
@@ -2008,10 +2008,10 @@ void DemoScenes::CreateDemoScene() {
     });
   });
   actors_->CreateTestCharacter();
-  REC_INFO("no game data given, spinning a cube instead");
+  RX_INFO("no game data given, spinning a cube instead");
 }
 
 
 
 
-}  // namespace rec
+}  // namespace rx

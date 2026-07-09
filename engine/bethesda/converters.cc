@@ -11,7 +11,7 @@
 #include "core/log.h"
 #include "core/math.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kDdsMagic = FourCc('D', 'D', 'S', ' ');
@@ -101,7 +101,7 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
       case 98: texture->format = asset::TextureFormat::kBc7; break;
       case 99: texture->format = asset::TextureFormat::kBc7; srgb_from_format = true; break;
       default:
-        REC_WARN("unsupported dxgi format {} in {}", dxgi, path);
+        RX_WARN("unsupported dxgi format {} in {}", dxgi, path);
         return nullptr;
     }
     // B8G8R8A8 ships blue and red swapped relative to the RGBA8 Vulkan format.
@@ -120,7 +120,7 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
     else if (fourcc == FourCc('A', 'T', 'I', '2') || fourcc == FourCc('B', 'C', '5', 'U'))
       texture->format = asset::TextureFormat::kBc5;
     else {
-      REC_WARN("unsupported dds fourcc in {}", path);
+      RX_WARN("unsupported dds fourcc in {}", path);
       return nullptr;
     }
   } else if (pf_flags & kDdpfRgb) {
@@ -152,11 +152,11 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
         }
       }
     } else {
-      REC_WARN("unsupported uncompressed dds ({} bpp) in {}", bit_count, path);
+      RX_WARN("unsupported uncompressed dds ({} bpp) in {}", bit_count, path);
       return nullptr;
     }
   } else {
-    REC_WARN("unsupported dds pixel format in {}", path);
+    RX_WARN("unsupported dds pixel format in {}", path);
     return nullptr;
   }
 
@@ -171,7 +171,7 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
     --texture->mip_count;
   }
   if (MipChainSize(texture->format, texture->width, texture->height, 1) > texture->data.size()) {
-    REC_WARN("truncated dds: {}", path);
+    RX_WARN("truncated dds: {}", path);
     return nullptr;
   }
 
@@ -565,9 +565,9 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
     auto material_db = std::make_shared<StarfieldMaterialDb>();
     if (auto cdb = database.vfs().Read("materials/materialsbeta.cdb")) {
       material_db->Build(ByteSpan(cdb->data(), cdb->size()));
-      REC_INFO("starfield material database: {} materials indexed", material_db->size());
+      RX_INFO("starfield material database: {} materials indexed", material_db->size());
     } else {
-      REC_WARN("starfield material database not found; meshes use the path convention only");
+      RX_WARN("starfield material database not found; meshes use the path convention only");
     }
     database.RegisterMeshConverter(
         ".nif",
@@ -575,7 +575,7 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
           return ConvertStarfieldNif(database, *material_db, data, id, path);
         });
     database.RegisterTextureConverter(".dds", ConvertDds);
-    REC_INFO("registered bethesda converters for {}", profile.name);
+    RX_INFO("registered bethesda converters for {}", profile.name);
     return;
   }
   // The NIF converter synthesizes materials from the shader property blocks
@@ -617,17 +617,17 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
           database.AddMaterial(material);
         }
         if (conversion.skipped_shapes > 0) {
-          REC_DEBUG("{}: skipped {} shapes", path, conversion.skipped_shapes);
+          RX_DEBUG("{}: skipped {} shapes", path, conversion.skipped_shapes);
         }
         if (conversion.refraction_shapes > 0) {
-          REC_INFO("{}: {} refraction shapes routed to transmission", path,
+          RX_INFO("{}: {} refraction shapes routed to transmission", path,
                    conversion.refraction_shapes);
         }
         if (conversion.effect_shapes > 0) {
-          REC_INFO("vfx: {} effect-shader shapes {}", conversion.effect_shapes, path);
+          RX_INFO("vfx: {} effect-shader shapes {}", conversion.effect_shapes, path);
         }
         if (!conversion.mesh->emitters.empty()) {
-          REC_INFO("vfx: {} particle emitters {}", conversion.mesh->emitters.size(), path);
+          RX_INFO("vfx: {} particle emitters {}", conversion.mesh->emitters.size(), path);
         }
         // Distant LOD proxies (.btr/.bto/.btt) must stay out of the tlas: they
         // would double the geometry the full-detail near meshes already provide
@@ -647,7 +647,7 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
     database.RegisterMaterialConverter(".bgsm", ConvertBgsm);
     database.RegisterMaterialConverter(".bgem", ConvertBgsm);
   }
-  REC_INFO("registered bethesda converters for {}", profile.name);
+  RX_INFO("registered bethesda converters for {}", profile.name);
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

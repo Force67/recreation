@@ -6,7 +6,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 void PutBytes(base::Vector<u8>* out, const void* data, size_t size) {
@@ -92,7 +92,7 @@ bool StringTableWriter::Save(const std::string& path, bool length_prefixed) cons
   base::Vector<u8> bytes = Build(length_prefixed);
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   if (!file) {
-    REC_ERROR("cannot open string table for writing: {}", path);
+    RX_ERROR("cannot open string table for writing: {}", path);
     return false;
   }
   file.write(reinterpret_cast<const char*>(bytes.data()),
@@ -100,4 +100,4 @@ bool StringTableWriter::Save(const std::string& path, bool length_prefixed) cons
   return static_cast<bool>(file);
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

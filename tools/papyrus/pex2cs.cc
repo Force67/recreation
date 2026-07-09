@@ -35,8 +35,8 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 void MountArchives(asset::Vfs& vfs, const std::string& data_dir) {
   std::error_code ec;
@@ -234,8 +234,8 @@ std::string CsIdent(const std::string& n) {
 // Formats one call argument so the VM and C# sides render it identically: literal
 // primitives compare exactly, objects collapse to a single token (their identity
 // is seeded differently on each side and is not what this test checks).
-std::string FormatArg(const rec::script::papyrus::Value& v) {
-  using rec::script::papyrus::ValueType;
+std::string FormatArg(const rx::script::papyrus::Value& v) {
+  using rx::script::papyrus::ValueType;
   switch (v.type()) {
     case ValueType::kInt: return "i" + std::to_string(v.as_int());
     case ValueType::kFloat:
@@ -251,10 +251,10 @@ std::string FormatArg(const rec::script::papyrus::Value& v) {
 // the corpus, so any engine call the quest makes resolves and is logged with its
 // arguments into `trace`. Each returns a fresh object handle (deterministic by
 // `counter`) so chained calls keep dispatching and both sides stay in lockstep.
-void RegisterRecorders(asset::Vfs& vfs, rec::script::papyrus::NativeRegistry& reg,
+void RegisterRecorders(asset::Vfs& vfs, rx::script::papyrus::NativeRegistry& reg,
                        std::shared_ptr<std::uint64_t> counter,
                        std::shared_ptr<std::vector<std::string>> trace) {
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
   std::set<std::pair<std::string, std::string>> seen;
   vfs.Enumerate([&](std::string_view p) {
     if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
@@ -343,7 +343,7 @@ namespace Recreation.Decompiled {
 )CS";
 
 int RunTest(const std::string& data_dir, const std::string& script_name, const std::string& out_dir) {
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
@@ -438,7 +438,7 @@ bool IsPrimScalar(const std::string& t) {
 // A pure function: native-free, no engine reach, and every identifier it touches
 // is one of its own params, locals, or compiler temps.
 bool IsPure(const PexFile& pex, const Function& fn) {
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
   if (fn.is_native) return false;
   for (const TypedName& p : fn.params)
     if (!IsPrimScalar(LowerStr(pex.Str(p.type)))) return false;
@@ -486,8 +486,8 @@ const char* InpS(int fi, int t, int p) {
 }
 
 // Formats a VM return value the same way the emitted C# formats its result.
-std::string FormatResult(const std::string& ret_lower, const rec::script::papyrus::Value& v) {
-  using rec::script::papyrus::Value;
+std::string FormatResult(const std::string& ret_lower, const rx::script::papyrus::Value& v) {
+  using rx::script::papyrus::Value;
   if (ret_lower == "int") return "I" + std::to_string(v.ToInt());
   if (ret_lower == "bool") return v.ToBool() ? "B1" : "B0";
   if (ret_lower == "string") return "S" + v.ToString();
@@ -497,7 +497,7 @@ std::string FormatResult(const std::string& ret_lower, const rec::script::papyru
 }
 
 int DiffTest(const std::string& data_dir, const std::string& out_dir) {
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
@@ -610,7 +610,7 @@ bool IsMainQuestScript(const std::string& name) {
 // fragments and event handlers) through the VM and reports which engine natives
 // they actually dispatch, as a sorted Type.Function set.
 int MqTrace(const std::string& data_dir) {
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
 

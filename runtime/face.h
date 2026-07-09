@@ -15,7 +15,7 @@
 #include "bethesda/tri.h"
 #include "core/types.h"
 
-namespace rec {
+namespace rx {
 
 struct EngineContext;
 
@@ -190,6 +190,6 @@ class FaceState {
   bool tint_dirty_ = true;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_FACE_H_

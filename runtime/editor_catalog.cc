@@ -12,7 +12,7 @@
 #include "editor.h"
 #include "engine_context.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 constexpr int kPerDomainCap = 6000;  // entries per game (keeps the first toggle snappy)
@@ -142,7 +142,7 @@ void MapEditor::BuildCatalog() {
     if (a_named != b_named) return a_named;
     return Lower(a.name) < Lower(b.name);
   });
-  REC_INFO("editor catalog: {} curated placeable forms across {} game(s)", catalog_.size(),
+  RX_INFO("editor catalog: {} curated placeable forms across {} game(s)", catalog_.size(),
            domains_.size());
   RefreshFilter();
 }
@@ -169,4 +169,4 @@ void MapEditor::RefreshFilter() {
   if (page_first_ >= static_cast<int>(filtered_.size())) page_first_ = 0;
 }
 
-}  // namespace rec
+}  // namespace rx

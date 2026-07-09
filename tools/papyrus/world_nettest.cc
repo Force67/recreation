@@ -10,9 +10,9 @@
 #include "net/world_replication.h"
 #include "world/quest_world.h"
 
-using Handle = std::uint64_t;  // avoid the rec::u64 / arch_types::u64 ambiguity
-using rec::world::WorldCommand;
-using rec::world::WorldOp;
+using Handle = std::uint64_t;  // avoid the rx::u64 / arch_types::u64 ambiguity
+using rx::world::WorldCommand;
+using rx::world::WorldOp;
 
 namespace {
 int g_failures = 0;
@@ -55,10 +55,10 @@ int main() {
   cleanup.quest = 0x0100ABCD;
   cmds.push_back(cleanup);
 
-  std::vector<rec::u8> blob = rec::net::EncodeWorldCommands(cmds);
+  std::vector<rx::u8> blob = rx::net::EncodeWorldCommands(cmds);
   Check("encodes to a non-empty blob", !blob.empty());
 
-  auto decoded = rec::net::DecodeWorldCommands(rec::ByteSpan(blob.data(), blob.size()));
+  auto decoded = rx::net::DecodeWorldCommands(rx::ByteSpan(blob.data(), blob.size()));
   Check("decodes", decoded.has_value());
   if (decoded) {
     const auto& d = *decoded;
@@ -80,8 +80,8 @@ int main() {
 
   // A truncated blob must be rejected, not read out of bounds.
   if (!blob.empty()) {
-    std::vector<rec::u8> truncated(blob.begin(), blob.begin() + blob.size() / 2);
-    auto bad = rec::net::DecodeWorldCommands(rec::ByteSpan(truncated.data(), truncated.size()));
+    std::vector<rx::u8> truncated(blob.begin(), blob.begin() + blob.size() / 2);
+    auto bad = rx::net::DecodeWorldCommands(rx::ByteSpan(truncated.data(), truncated.size()));
     Check("rejects a truncated blob", !bad.has_value());
   }
 

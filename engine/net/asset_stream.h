@@ -21,7 +21,7 @@
 #include "modstream/mod_catalog.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Server side of FiveM-style asset streaming. Holds the catalogued server mods
 // directory and feeds requested files to clients over zetanet's reliable file
@@ -164,6 +164,6 @@ class AssetStreamClient {
   bool failed_ = false;
 };
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_ASSET_STREAM_H_

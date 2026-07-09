@@ -8,7 +8,7 @@
 // UIConfig::external_window; the platform reads viewport/close state from it
 // and the engine pushes input straight into platform()->input_queue().
 
-namespace rec::ui {
+namespace rx::ui {
 
 struct UguiHostState {
   float window_width = 1280.0f;
@@ -17,6 +17,6 @@ struct UguiHostState {
   bool should_close = false;
 };
 
-}  // namespace rec::ui
+}  // namespace rx::ui
 
 #endif  // RECREATION_RUNTIME_UGUI_PLATFORM_H_

@@ -7,7 +7,7 @@
 
 #include "core/log.h"
 
-namespace rec::world {
+namespace rx::world {
 namespace {
 
 constexpr f32 kCellSize = 4096.0f;
@@ -180,7 +180,7 @@ const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
     if (!path.starts_with("meshes/")) path = "meshes/" + path;
     type->model = assets_.LoadMesh(path);
     if (type->model && type->model->lods.empty()) type->model = nullptr;
-    if (!type->model) REC_WARN("grass model failed: {}", path);
+    if (!type->model) RX_WARN("grass model failed: {}", path);
     // Flag the model's materials for the renderer's vertex wind (uv.y-weighted
     // sway). Marked here, before EnsureUploaded pushes them to the gpu.
     if (type->model) {
@@ -397,9 +397,9 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
 
   total_instances_ += instances;
   total_vertices_ += lod.vertices.size();
-  REC_INFO("grass {},{}: {} instances, {} verts, {} submeshes", grid_x, grid_y, instances,
+  RX_INFO("grass {},{}: {} instances, {} verts, {} submeshes", grid_x, grid_y, instances,
            lod.vertices.size(), lod.submeshes.size());
   return assets_.AddMesh(std::move(built));
 }
 
-}  // namespace rec::world
+}  // namespace rx::world

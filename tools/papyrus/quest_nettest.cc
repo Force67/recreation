@@ -11,18 +11,18 @@
 #include "quest/quest_system.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
-// arch_types scalar aliases, so the scalar types stay fully qualified as rec::
+// arch_types scalar aliases, so the scalar types stay fully qualified as rx::
 // throughout rather than imported, which would make u8/u64/i32 ambiguous.
 namespace {
 
-using rec::ByteSpan;
-using rec::net::ApplyQuestUpdate;
-using rec::net::DecodeQuestUpdate;
-using rec::net::DomainQuestStatus;
-using rec::net::EncodeQuestUpdate;
-using rec::net::QuestReplicator;
-using rec::quest::ObjectiveStatus;
-using rec::quest::QuestStatus;
+using rx::ByteSpan;
+using rx::net::ApplyQuestUpdate;
+using rx::net::DecodeQuestUpdate;
+using rx::net::DomainQuestStatus;
+using rx::net::EncodeQuestUpdate;
+using rx::net::QuestReplicator;
+using rx::quest::ObjectiveStatus;
+using rx::quest::QuestStatus;
 
 int g_failures = 0;
 
@@ -33,9 +33,9 @@ void Check(const char* what, bool ok) {
 
 // A quest with the replicated fields set plus some text/name, which must NOT
 // survive the round trip (clients resolve text locally), tagged with a domain.
-DomainQuestStatus MakeQuest(rec::u64 handle, rec::i32 stage, bool running, bool active,
+DomainQuestStatus MakeQuest(rx::u64 handle, rx::i32 stage, bool running, bool active,
                             bool complete, std::vector<ObjectiveStatus> objectives = {},
-                            rec::u8 domain = 0) {
+                            rx::u8 domain = 0) {
   QuestStatus q;
   q.handle = handle;
   q.stage = stage;
@@ -48,7 +48,7 @@ DomainQuestStatus MakeQuest(rec::u64 handle, rec::i32 stage, bool running, bool 
   return DomainQuestStatus{domain, std::move(q)};
 }
 
-ObjectiveStatus MakeObjective(rec::i32 index, bool displayed, bool completed) {
+ObjectiveStatus MakeObjective(rx::i32 index, bool displayed, bool completed) {
   ObjectiveStatus o;
   o.index = index;
   o.displayed = displayed;
@@ -90,7 +90,7 @@ void TestRoundTrip() {
                 /*complete=*/false),
   };
 
-  std::vector<rec::u8> blob = EncodeQuestUpdate(quests);
+  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
   Check("non-empty encoding", !blob.empty());
 
   std::optional<std::vector<DomainQuestStatus>> decoded = DecodeQuestUpdate(blob);
@@ -170,7 +170,7 @@ void TestDeltas() {
   snap[0].status.revision = 1;
   snap[1].status.revision = 1;
 
-  std::vector<rec::u8> first = rep.Build(snap);
+  std::vector<rx::u8> first = rep.Build(snap);
   std::optional<std::vector<DomainQuestStatus>> d1 = DecodeQuestUpdate(first);
   Check("first build sends both", d1.has_value() && d1->size() == 2);
 
@@ -180,7 +180,7 @@ void TestDeltas() {
   // Bump only the second quest's revision and stage.
   snap[1].status.revision = 2;
   snap[1].status.stage = 10;
-  std::vector<rec::u8> second = rep.Build(snap);
+  std::vector<rx::u8> second = rep.Build(snap);
   std::optional<std::vector<DomainQuestStatus>> d2 = DecodeQuestUpdate(second);
   Check("only changed quest sent",
         d2.has_value() && d2->size() == 1 && (*d2)[0].status.handle == 0x20ull &&
@@ -225,11 +225,11 @@ void TestApplySink() {
       MakeQuest(0x10ull, 5, true, true, false, {MakeObjective(1, true, false)}, /*domain=*/0),
       MakeQuest(0x20ull, 6, true, false, true, {}, /*domain=*/1),
   };
-  std::vector<rec::u8> blob = EncodeQuestUpdate(quests);
+  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
 
   std::vector<DomainQuestStatus> received;
   const bool ok = ApplyQuestUpdate(
-      blob, [&](rec::u8 domain, const QuestStatus& q) {
+      blob, [&](rx::u8 domain, const QuestStatus& q) {
         received.push_back(DomainQuestStatus{domain, q});
       });
   Check("apply succeeds", ok);
@@ -251,13 +251,13 @@ void TestCorrupt() {
                  MakeObjective(2, false, true)}),
       MakeQuest(0x20ull, 6, true, false, true),
   };
-  std::vector<rec::u8> blob = EncodeQuestUpdate(quests);
+  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
 
   // Empty buffer has no message header at all.
   Check("empty buffer rejected", !DecodeQuestUpdate(ByteSpan()).has_value());
 
   // One byte cannot hold the 2-byte fixed-section length.
-  const std::vector<rec::u8> tiny = {0x00};
+  const std::vector<rx::u8> tiny = {0x00};
   Check("one byte rejected", !DecodeQuestUpdate(tiny).has_value());
 
   // Every truncation of a valid blob must be rejected (it is no longer
@@ -265,7 +265,7 @@ void TestCorrupt() {
   // sanitized ctest build an over-read here would abort the test.
   bool every_truncation_rejected = true;
   for (size_t cut = 1; cut < blob.size(); ++cut) {
-    std::vector<rec::u8> shorter(blob.begin(), blob.begin() + cut);
+    std::vector<rx::u8> shorter(blob.begin(), blob.begin() + cut);
     if (DecodeQuestUpdate(shorter).has_value()) every_truncation_rejected = false;
   }
   Check("every truncation rejected without over-read", every_truncation_rejected);
@@ -274,7 +274,7 @@ void TestCorrupt() {
   // length/count no longer matches the buffer, so decode must reject it.
   bool mid_corruption_rejected = true;
   for (size_t i = 0; i < blob.size(); ++i) {
-    std::vector<rec::u8> flipped = blob;
+    std::vector<rx::u8> flipped = blob;
     flipped[i] ^= 0xff;
     // A flip is allowed to still parse (e.g. a flag bit), but it must never
     // crash. We only assert the decoder stays in bounds; that it returns at

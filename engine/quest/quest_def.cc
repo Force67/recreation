@@ -6,7 +6,7 @@
 #include "bethesda/strings.h"
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 namespace {
 
 // Resolves a localized string subrecord: a 4-byte string id in a localized
@@ -196,4 +196,4 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
   return def;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

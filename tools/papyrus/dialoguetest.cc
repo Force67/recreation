@@ -11,7 +11,7 @@
 #include "core/types.h"
 #include "dialogue/dialogue.h"
 
-using namespace rec;
+using namespace rx;
 
 namespace {
 
@@ -80,7 +80,7 @@ std::vector<u8> MakeCtda(u8 op_bits, u8 flags, float value, u16 function, u32 pa
 // driven deterministically.
 struct StageContext : quest::ConditionContext {
   float stage = 0.0f;
-  float GetStage(rec::u64) const override { return stage; }
+  float GetStage(rx::u64) const override { return stage; }
 };
 
 void TestInfoFragments() {

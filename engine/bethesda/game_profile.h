@@ -7,7 +7,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 enum class Game : u8 { kUnknown, kSkyrimSe, kFallout4, kFallout76, kStarfield };
 
@@ -35,6 +35,6 @@ struct GameProfile {
   static Game DetectFromDataDir(const std::string& data_dir);
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_GAME_PROFILE_H_

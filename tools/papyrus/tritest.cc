@@ -13,10 +13,10 @@
 
 namespace {
 
-using rec::f32;
-using rec::i16;
-using rec::u32;
-using rec::u8;
+using rx::f32;
+using rx::i16;
+using rx::u32;
+using rx::u8;
 
 int g_failures = 0;
 
@@ -29,7 +29,7 @@ void PutU32(std::vector<u8>& b, u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
 }
 void PutI16(std::vector<u8>& b, i16 v) {
-  auto u = static_cast<rec::u16>(v);
+  auto u = static_cast<rx::u16>(v);
   b.insert(b.end(), {u8(u), u8(u >> 8)});
 }
 void PutF32(std::vector<u8>& b, f32 v) {
@@ -79,11 +79,11 @@ std::vector<u8> BuildTri() {
 }  // namespace
 
 int main() {
-  using namespace rec::bethesda;
+  using namespace rx::bethesda;
   std::puts("tri parser:");
 
   std::vector<u8> buf = BuildTri();
-  auto set = ParseTri(rec::ByteSpan(buf.data(), buf.size()));
+  auto set = ParseTri(rx::ByteSpan(buf.data(), buf.size()));
   Check("parses a valid FRTRI003 blob", set.has_value());
   if (!set) {
     std::printf("tri: %d checks FAILED\n", ++g_failures);
@@ -111,8 +111,8 @@ int main() {
   Check("ApplyMorph vertex 2", pos[6] == 7.0f && pos[7] == 8.0f && pos[8] == 9.0f);
 
   // Rejection cases.
-  Check("rejects bad magic", !ParseTri(rec::ByteSpan(reinterpret_cast<const u8*>("NOTTRI00"), 8)));
-  Check("rejects truncation", !ParseTri(rec::ByteSpan(buf.data(), buf.size() - 4)));
+  Check("rejects bad magic", !ParseTri(rx::ByteSpan(reinterpret_cast<const u8*>("NOTTRI00"), 8)));
+  Check("rejects truncation", !ParseTri(rx::ByteSpan(buf.data(), buf.size() - 4)));
 
   if (g_failures == 0) {
     std::puts("tri: all checks passed");

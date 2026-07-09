@@ -7,7 +7,7 @@
 
 #include "core/types.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // One hold on the Civil War board: its display name and controlling side
 // (0 neutral, 1 Imperial, 2 Stormcloak).
@@ -33,6 +33,6 @@ std::vector<u8> EncodeWarMap(const WarMapState& m);
 // of bounds.
 std::optional<WarMapState> DecodeWarMap(ByteSpan data);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_WAR_MAP_NET_H_

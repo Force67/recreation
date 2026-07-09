@@ -8,7 +8,7 @@
 #include "bethesda/record.h"
 #include "script/games/skyrim/skyrim_bindings.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 
@@ -89,4 +89,4 @@ ObjectRef RecordBackedSkyrimBindings::GetNthListForm(i32 index) {
   return form_list_cache_[static_cast<size_t>(index)];
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

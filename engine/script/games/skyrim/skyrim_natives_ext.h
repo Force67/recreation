@@ -13,7 +13,7 @@
 // own .cc so they can be developed independently. RegisterSkyrimNatives calls
 // them. The helpers below mirror the ones in skyrim_natives.cc so a batch file
 // needs nothing else.
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 namespace ext {
 using Args = std::vector<papyrus::Value>;
@@ -61,6 +61,6 @@ void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bind
 void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterUtilityRest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_EXT_H_

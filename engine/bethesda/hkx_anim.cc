@@ -6,7 +6,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // hkaSplineCompressedAnimation serialized offsets (hk2010 x64, verified with
@@ -297,7 +297,7 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
     }
     cursor.at = mask_bytes;  // section is padded; track data starts here
 
-    const bool trace = std::getenv("REC_HKX_TRACE") != nullptr;
+    const bool trace = std::getenv("RX_HKX_TRACE") != nullptr;
     for (u32 t = 0; t < animation.num_tracks; ++t) {
       const Mask& m = masks[t];
       u8 pos_quant = m.quant & 0x3;
@@ -310,7 +310,7 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
       }
       ReadVectorChannel(&cursor, m.pos, pos_quant, 0.0f, &track.position);
       if (!ReadRotationChannel(&cursor, m.rot, rot_quant, &track.rotation)) {
-        REC_WARN("hkx animation: unsupported rotation quantization {}", rot_quant);
+        RX_WARN("hkx animation: unsupported rotation quantization {}", rot_quant);
         return std::nullopt;
       }
       ReadVectorChannel(&cursor, m.scale, scale_quant, 1.0f, &track.scale);
@@ -370,4 +370,4 @@ void SampleAnimation(const HkxAnimation& animation, f32 time, std::vector<HkxTra
   }
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

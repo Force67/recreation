@@ -8,7 +8,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // On disk record header, identical layout in Skyrim SE, FO4 and FO76.
 struct RecordHeader {
@@ -58,6 +58,6 @@ struct Record {
   std::string GetString(u32 fourcc) const;  // zero terminated subrecord as string
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_RECORD_H_

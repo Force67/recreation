@@ -7,7 +7,7 @@
 
 #include "core/math.h"
 
-namespace rec {
+namespace rx {
 
 struct ShowcasePose {
   Vec3 eye{};
@@ -47,6 +47,6 @@ class ShowcaseCamera {
   f32 total_ = 0;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_SHOWCASE_CAMERA_H_

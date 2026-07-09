@@ -19,21 +19,21 @@ void PrintUsage() {
 }
 
 int Inspect(const std::string& dir) {
-  std::optional<rec::modstream::ModCatalog> catalog = rec::modstream::ModCatalog::Build(dir);
+  std::optional<rx::modstream::ModCatalog> catalog = rx::modstream::ModCatalog::Build(dir);
   if (!catalog) {
     std::printf("modtool: cannot catalog '%s' (missing directory or an unreadable file)\n",
                 dir.c_str());
     return 1;
   }
 
-  const rec::modstream::ModManifest& manifest = catalog->manifest();
+  const rx::modstream::ModManifest& manifest = catalog->manifest();
   std::printf("modtool: %s\n", dir.c_str());
-  for (const rec::modstream::ModResource& resource : manifest.resources) {
-    rec::u64 resource_bytes = 0;
-    for (const rec::modstream::ResourceFile& f : resource.files) resource_bytes += f.size;
+  for (const rx::modstream::ModResource& resource : manifest.resources) {
+    rx::u64 resource_bytes = 0;
+    for (const rx::modstream::ResourceFile& f : resource.files) resource_bytes += f.size;
     std::printf("  resource \"%s\" (%zu files, %llu bytes)\n", resource.name.c_str(),
                 resource.files.size(), static_cast<unsigned long long>(resource_bytes));
-    for (const rec::modstream::ResourceFile& f : resource.files) {
+    for (const rx::modstream::ResourceFile& f : resource.files) {
       std::printf("    %-48s %10llu  %016llx\n", f.path.c_str(),
                   static_cast<unsigned long long>(f.size),
                   static_cast<unsigned long long>(f.hash));

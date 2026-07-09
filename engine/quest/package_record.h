@@ -3,12 +3,12 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 struct Record;
 class RecordStore;
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Engine-agnostic decode of a PACK (AI Package) record, focused on the one
 // thing the runtime needs to drive a scene/escort actor: where the package
@@ -89,6 +89,6 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record,
 // reference target as its raw plugin-relative form id.
 PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_PACKAGE_RECORD_H_

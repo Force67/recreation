@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 std::string NativeRegistry::Key(std::string_view script_type, std::string_view function) {
   std::string key;
@@ -28,4 +28,4 @@ const NativeFunction* NativeRegistry::Find(std::string_view script_type,
   return it == table_.end() ? nullptr : &it->second;
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

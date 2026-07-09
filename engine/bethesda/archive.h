@@ -8,7 +8,7 @@
 #include "asset/vfs.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // BSA: Skyrim SE uses version 105 (104 is original Skyrim, still readable).
 // BA2: Fallout 4 uses v1/v7/v8, Fallout 76 adds v2/v3, with GNRL (general)
@@ -20,6 +20,6 @@ base::UniquePointer<asset::FileProvider> OpenBa2(const std::string& path);
 // Dispatches on extension and magic.
 base::UniquePointer<asset::FileProvider> OpenArchive(const std::string& path);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_ARCHIVE_H_

@@ -26,6 +26,12 @@ jobs:
           repository: Force67/libultragui
           path: libultragui
           submodules: recursive
+      - name: rx
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/rx
+          path: rx
+          submodules: recursive
       - name: deps
         run: |
           scripts/setup-linux.sh --system
@@ -33,14 +39,15 @@ jobs:
       - name: third-party deps
         run: |
           bash tools/get_nanobuf.sh
-          bash tools/get_fidelityfx.sh
-          bash tools/get_dlss.sh
-          bash tools/get_nrd.sh
-          bash tools/get_jolt.sh
+          bash rx/tools/get_fidelityfx.sh
+          bash rx/tools/get_dlss.sh
+          bash rx/tools/get_nrd.sh
+          bash rx/tools/get_jolt.sh
       - name: configure
         run: >
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
           -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+          -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build
       - uses: actions/upload-artifact@v4
@@ -110,6 +117,12 @@ jobs:
           repository: Force67/libultragui
           path: libultragui
           submodules: recursive
+      - name: rx
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/rx
+          path: rx
+          submodules: recursive
       - name: deps
         run: scripts/setup-linux.sh --system
       - name: dxc cache
@@ -143,13 +156,14 @@ jobs:
       - name: third-party deps
         run: |
           bash tools/get_nanobuf.sh
-          bash tools/get_fidelityfx.sh
-          bash tools/get_nrd.sh
-          bash tools/get_jolt.sh
+          bash rx/tools/get_fidelityfx.sh
+          bash rx/tools/get_nrd.sh
+          bash rx/tools/get_jolt.sh
       - name: configure
         run: >
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
           -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+          -DRECREATION_RX_DIR=${{ github.workspace }}/rx
           -DRECREATION_DLSS=OFF
       - name: build
         run: cmake --build build
@@ -179,6 +193,12 @@ jobs:
           repository: Force67/libultragui
           path: libultragui
           submodules: recursive
+      - name: rx
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/rx
+          path: rx
+          submodules: recursive
       # Real-time scanning of every .obj/.lib/.exe dominates Windows build time on
       # the hosted runner; exclude the workspace for the duration of the job.
       - name: exclude workspace from Defender
@@ -205,9 +225,9 @@ jobs:
         shell: bash
         run: |
           bash tools/get_nanobuf.sh
-          bash tools/get_fidelityfx.sh
-          bash tools/get_nrd.sh
-          bash tools/get_jolt.sh
+          bash rx/tools/get_fidelityfx.sh
+          bash rx/tools/get_nrd.sh
+          bash rx/tools/get_jolt.sh
       # cl/link for the Ninja generator (the VS generator found MSVC itself; Ninja
       # does not). Runs AFTER the dxc setup: msvc-dev-cmd puts the Windows SDK's
       # DXIL-only dxc on PATH, and setup-windows.ps1 skips its SPIRV dxc download
@@ -227,6 +247,7 @@ jobs:
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON
           -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
           -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+          -DRECREATION_RX_DIR=${{ github.workspace }}/rx
           -DRECREATION_DLSS=OFF
       - name: build
         run: cmake --build build
@@ -262,6 +283,12 @@ jobs:
         with:
           repository: Force67/libultragui
           path: libultragui
+          submodules: recursive
+      - name: rx
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/rx
+          path: rx
           submodules: recursive
       - name: deps
         run: scripts/setup-macos.sh --system
@@ -303,12 +330,13 @@ jobs:
       - name: third-party deps
         run: |
           bash tools/get_nanobuf.sh
-          bash tools/get_jolt.sh
+          bash rx/tools/get_jolt.sh
       - name: configure
         run: >
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRECREATION_FETCH_SDL3=ON -DRECREATION_MIMALLOC=ON          -DCMAKE_PREFIX_PATH=$(brew --prefix)
           -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
           -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
+          -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build
       - uses: actions/upload-artifact@v4
@@ -331,6 +359,12 @@ jobs:
           ref: develop
           path: zetanet
           submodules: recursive
+      - name: rx
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/rx
+          path: rx
+          submodules: recursive
       - name: deps
         run: |
           scripts/setup-linux.sh --system --minimal
@@ -343,6 +377,7 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake
           -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29
           -DCMAKE_BUILD_TYPE=Release -DRECREATION_BUILD_TOOLS=OFF -DRECREATION_MIMALLOC=ON          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
+          -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build-android
       - uses: actions/upload-artifact@v4

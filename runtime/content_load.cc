@@ -27,31 +27,31 @@
 // data, stands up the Papyrus guest and Skyrim bindings, then builds the cell
 // streamer(s) for the primary worldspace and every secondary content domain.
 // Also the standalone interior and glTF scene load paths.
-namespace rec {
+namespace rx {
 
 // Load-time env overrides, declared at file scope so they register before
 // InitOptionsFromEnv() populates them; see each use site for behaviour.
-static base::Option<const char*> Weather{"weather", nullptr, "REC_WEATHER"};
-static base::Option<const char*> Interior{"interior", nullptr, "REC_INTERIOR"};
-static base::Option<bool> CwFieldBattle{"cw.field.battle", false, "REC_CW_FIELD_BATTLE"};
-static base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "REC_CW_SIEGE_DEMO"};
-static base::Option<bool> CwReinfTest{"cw.reinf.test", false, "REC_CW_REINF_TEST"};
-static base::Option<bool> WarMap{"war.map", false, "REC_WAR_MAP"};
-static base::Option<bool> VenueProbe{"venue.probe", false, "REC_VENUE_PROBE"};
-static base::Option<const char*> QuestList{"quest.list", nullptr, "REC_QUEST_LIST"};
-static base::Option<const char*> QuestReport{"quest.report", nullptr, "REC_QUEST_REPORT"};
-static base::Option<const char*> DialogueReport{"dialogue.report", nullptr, "REC_DIALOGUE_REPORT"};
-static base::Option<const char*> DialogueProbe{"dialogue.probe", nullptr, "REC_DIALOGUE_PROBE"};
-static base::Option<const char*> SceneReport{"scene.report", nullptr, "REC_SCENE_REPORT"};
-static base::Option<const char*> ScenePlay{"scene.play", nullptr, "REC_SCENE_PLAY"};
-static base::Option<const char*> SceneLive{"scene.live", nullptr, "REC_SCENE_LIVE"};
-static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "REC_DOMAIN_OFFSET"};
-static base::Option<const char*> DomainCell{"domain.cell", nullptr, "REC_DOMAIN_CELL"};
-static base::Option<bool> AudioDump{"audio.dump", false, "REC_AUDIO_DUMP",
+static base::Option<const char*> Weather{"weather", nullptr, "RX_WEATHER"};
+static base::Option<const char*> Interior{"interior", nullptr, "RX_INTERIOR"};
+static base::Option<bool> CwFieldBattle{"cw.field.battle", false, "RX_CW_FIELD_BATTLE"};
+static base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "RX_CW_SIEGE_DEMO"};
+static base::Option<bool> CwReinfTest{"cw.reinf.test", false, "RX_CW_REINF_TEST"};
+static base::Option<bool> WarMap{"war.map", false, "RX_WAR_MAP"};
+static base::Option<bool> VenueProbe{"venue.probe", false, "RX_VENUE_PROBE"};
+static base::Option<const char*> QuestList{"quest.list", nullptr, "RX_QUEST_LIST"};
+static base::Option<const char*> QuestReport{"quest.report", nullptr, "RX_QUEST_REPORT"};
+static base::Option<const char*> DialogueReport{"dialogue.report", nullptr, "RX_DIALOGUE_REPORT"};
+static base::Option<const char*> DialogueProbe{"dialogue.probe", nullptr, "RX_DIALOGUE_PROBE"};
+static base::Option<const char*> SceneReport{"scene.report", nullptr, "RX_SCENE_REPORT"};
+static base::Option<const char*> ScenePlay{"scene.play", nullptr, "RX_SCENE_PLAY"};
+static base::Option<const char*> SceneLive{"scene.live", nullptr, "RX_SCENE_LIVE"};
+static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "RX_DOMAIN_OFFSET"};
+static base::Option<const char*> DomainCell{"domain.cell", nullptr, "RX_DOMAIN_CELL"};
+static base::Option<bool> AudioDump{"audio.dump", false, "RX_AUDIO_DUMP",
                                     "resolve and decode each region's ambient bed at load and log it"};
-// REC_CHARGEN boots straight into the character-creation screen (a standalone
+// RX_CHARGEN boots straight into the character-creation screen (a standalone
 // preview head, no world streaming), like the faces demo.
-static base::Option<bool> CharGenBoot{"chargen", false, "REC_CHARGEN",
+static base::Option<bool> CharGenBoot{"chargen", false, "RX_CHARGEN",
                                       "boot into the character-creation screen"};
 
 bool LoadGameData(Engine& engine) {
@@ -60,12 +60,12 @@ bool LoadGameData(Engine& engine) {
               ? self->config_.game
               : bethesda::GameProfile::DetectFromDataDir(self->config_.data_dir);
   if (self->game_ == bethesda::Game::kUnknown) {
-    REC_ERROR("could not detect a supported game in {}", self->config_.data_dir);
+    RX_ERROR("could not detect a supported game in {}", self->config_.data_dir);
     return false;
   }
   self->ctx_.game = self->game_;
   const auto& profile = bethesda::GameProfile::For(self->game_);
-  REC_INFO("detected {}", profile.name);
+  RX_INFO("detected {}", profile.name);
 
   MountArchives(engine);
   // Loose files mount last so they win over archives.
@@ -77,27 +77,27 @@ bool LoadGameData(Engine& engine) {
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(self->config_.plugins_txt, profile);
   if (!self->records_.LoadAll(self->config_.data_dir, order, profile)) return false;
-  REC_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
+  RX_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
 
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
   for (const std::string& plugin : order.plugins())
     self->strings_.Load(self->vfs_, plugin, profile.string_language);
-  REC_INFO("loaded {} localized strings", self->strings_.size());
+  RX_INFO("loaded {} localized strings", self->strings_.size());
 
   // Index dialogue topics by quest so an NPC conversation opens without
   // rescanning every DIAL.
   self->dialogue_.Build(self->records_);
-  REC_INFO("dialogue: {} topics indexed", self->dialogue_.topic_count());
+  RX_INFO("dialogue: {} topics indexed", self->dialogue_.topic_count());
 
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
-  self->script_bindings_ = std::make_unique<rec::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
+  self->script_bindings_ = std::make_unique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
   self->ctx_.bindings = self->script_bindings_.get();
   self->script_bindings_->set_strings(&self->strings_);
-  self->script_bindings_->set_player(rec::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
+  self->script_bindings_->set_player(rx::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
   self->script_bindings_->set_audio(self->audio_.get());  // Sound.Play routes here
   // Route quest-driven world mutations (PlaceAtMe/MoveTo/Enable/Delete + cleanup)
   // through the provenance layer; the player teleports through a host hook since
@@ -115,7 +115,7 @@ bool LoadGameData(Engine& engine) {
   if (timescale_glob.plugin != 0xffff) {
     // Read before set_time_globals so it returns the authored FLTV, not the clock.
     authored_timescale = self->script_bindings_->GetGlobalValue(
-        rec::script::papyrus::ObjectRef{timescale_glob.packed()});
+        rx::script::papyrus::ObjectRef{timescale_glob.packed()});
   }
   self->ConfigureClock(authored_timescale);
   self->script_bindings_->set_time_globals(game_hour.plugin == 0xffff ? 0 : game_hour.packed(),
@@ -124,13 +124,13 @@ bool LoadGameData(Engine& engine) {
                                                                            : timescale_glob.packed());
 
   // Weather: parse the game's WTHR/CLMT into a climate and drive our physical
-  // sky/clouds/atmosphere from it (no baked skydome). REC_WEATHER forces a kind.
+  // sky/clouds/atmosphere from it (no baked skydome). RX_WEATHER forces a kind.
   {
-    std::unordered_map<u64, rec::weather::WeatherDef> weathers;
-    const int n = rec::weather::LoadWeathers(self->records_, &weathers);
+    std::unordered_map<u64, rx::weather::WeatherDef> weathers;
+    const int n = rx::weather::LoadWeathers(self->records_, &weathers);
     int kinds[4] = {};
     for (auto& [id, def] : weathers) kinds[static_cast<int>(def.kind)]++;
-    REC_INFO("weather: WTHR kinds -- pleasant {} cloudy {} rainy {} snow {}", kinds[0], kinds[1],
+    RX_INFO("weather: WTHR kinds -- pleasant {} cloudy {} rainy {} snow {}", kinds[0], kinds[1],
              kinds[2], kinds[3]);
     const bool starfield = self->game_ == bethesda::Game::kStarfield;
     const char* worldspace = self->game_ == bethesda::Game::kSkyrimSe  ? "Tamriel"
@@ -140,35 +140,35 @@ bool LoadGameData(Engine& engine) {
     // Starfield authors one characteristic weather per planet worldspace, so a
     // single-weather CLMT is the real answer (don't fall through to synthetic).
     auto climate =
-        rec::weather::BuildClimate(self->records_, weathers, worldspace, starfield ? 1 : 4);
+        rx::weather::BuildClimate(self->records_, weathers, worldspace, starfield ? 1 : 4);
     // For now, always spawn under clear weather: pin a single weather kind (clear
-    // by default; REC_WEATHER overrides) and suppress the dynamic per-region
+    // by default; RX_WEATHER overrides) and suppress the dynamic per-region
     // cycle. Set kPinClearWeather to false to restore BuildClimate's dynamic
-    // weather + regions (REC_WEATHER then only pins when explicitly set).
+    // weather + regions (RX_WEATHER then only pins when explicitly set).
     constexpr bool kPinClearWeather = true;
     if (kPinClearWeather || Weather.get()) {
       std::string s = Weather.get() ? Weather.get() : "clear";
-      rec::weather::WeatherDef forced;
-      forced.kind = (s == "rain" || s == "rainy")    ? rec::weather::WeatherDef::Kind::kRainy
-                    : (s == "snow")                  ? rec::weather::WeatherDef::Kind::kSnow
-                    : (s == "cloud" || s == "cloudy") ? rec::weather::WeatherDef::Kind::kCloudy
-                                                      : rec::weather::WeatherDef::Kind::kPleasant;
+      rx::weather::WeatherDef forced;
+      forced.kind = (s == "rain" || s == "rainy")    ? rx::weather::WeatherDef::Kind::kRainy
+                    : (s == "snow")                  ? rx::weather::WeatherDef::Kind::kSnow
+                    : (s == "cloud" || s == "cloudy") ? rx::weather::WeatherDef::Kind::kCloudy
+                                                      : rx::weather::WeatherDef::Kind::kPleasant;
       forced.DeriveFromKind();
       climate = {{forced, 1}};
-      REC_INFO("weather: pinned to '{}' (clear by default; REC_WEATHER overrides)", s);
+      RX_INFO("weather: pinned to '{}' (clear by default; RX_WEATHER overrides)", s);
     }
     self->default_climate_ = climate;  // restored when the player leaves all regions
     self->weather_.SetClimate(std::move(climate));
     self->weather_.set_seed(0xBEE71Eull ^ static_cast<u64>(self->game_));
     self->ap_base_ = self->renderer_.settings().aerial_perspective;
-    REC_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
+    RX_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
 
     // Per-region weather: the REGN areas override the worldspace climate where
     // the player stands (skipped while a single weather is pinned).
     if (!kPinClearWeather && !Weather && *worldspace) {
       const bethesda::GlobalFormId ws = self->records_.FindWorldspace(worldspace);
-      const int rn = rec::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
-      REC_INFO("weather: {} weather regions in {}", rn, worldspace);
+      const int rn = rx::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
+      RX_INFO("weather: {} weather regions in {}", rn, worldspace);
     }
   }
 
@@ -191,7 +191,7 @@ bool LoadGameData(Engine& engine) {
     self->ambient_director_.Configure(self->audio_.get(), &self->sound_catalog_,
                                       &self->region_ambience_);
 
-    // audio.dump (REC_AUDIO_DUMP): resolve and decode each region's ambient bed
+    // audio.dump (RX_AUDIO_DUMP): resolve and decode each region's ambient bed
     // up front and log the result. A no-GPU way to confirm the SOUN/SNDR/REGN
     // parse, the Vfs path resolution and the decoder line up against real data.
     if (AudioDump) {
@@ -201,12 +201,12 @@ bool LoadGameData(Engine& engine) {
           const std::string path = self->sound_catalog_.PathFor(snd);
           if (path.empty()) continue;
           if (!self->audio_->HasAsset(path)) {
-            REC_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(), path);
+            RX_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(), path);
             ++missing;
             continue;
           }
           const u32 voice = self->audio_->PlayLoop(path, {});
-          REC_INFO("audio dump: region {:x} -> {} ({})", region, path,
+          RX_INFO("audio dump: region {:x} -> {} ({})", region, path,
                    voice ? "decoded" : "decode failed");
           if (voice) {
             self->audio_->Stop(voice, 0.0f);
@@ -217,7 +217,7 @@ bool LoadGameData(Engine& engine) {
           break;  // one playable bed per region is enough
         }
       }
-      REC_INFO("audio dump: {} regions playable, {} missing files, {} undecodable", ok, missing,
+      RX_INFO("audio dump: {} regions playable, {} missing files, {} undecodable", ok, missing,
                undecodable);
     }
   }
@@ -244,7 +244,7 @@ bool LoadGameData(Engine& engine) {
       if (interior.plugin != 0xffff) {
         Vec3 spawn;
         if (self->streamer_->EnterInterior(self->world_, interior, &spawn))
-          REC_INFO("quest: entered interior {:04x}:{:06x} to move the player", interior.plugin,
+          RX_INFO("quest: entered interior {:04x}:{:06x} to move the player", interior.plugin,
                    interior.local_id);
       } else if (self->streamer_->in_interior()) {
         self->streamer_->EnterExterior(self->world_);  // a move back out to the worldspace
@@ -259,8 +259,8 @@ bool LoadGameData(Engine& engine) {
   // The host and single-player stay authoritative.
   self->script_bindings_->set_replica_mode(!self->config_.connect_address.empty());
   if (self->script_bindings_->replica_mode())
-    REC_INFO("multiplayer client: quests run server-authoritative (replica mode)");
-  self->scripts_ = std::make_unique<rec::script::ScriptSystem>(self->game_, &self->vfs_, self->script_bindings_.get());
+    RX_INFO("multiplayer client: quests run server-authoritative (replica mode)");
+  self->scripts_ = std::make_unique<rx::script::ScriptSystem>(self->game_, &self->vfs_, self->script_bindings_.get());
   self->ctx_.scripts = self->scripts_.get();
   // Run engine-triggered stage fragments on a fiber, so a latent Wait inside one
   // suspends like a script-triggered fragment instead of returning at once.
@@ -294,10 +294,10 @@ bool LoadGameData(Engine& engine) {
   {
     auto* binds = self->script_bindings_.get();
     auto* guest = &self->scripts_->guest();
-    guest->Submit([binds, guest](rec::script::papyrus::VirtualMachine& vm) {
+    guest->Submit([binds, guest](rx::script::papyrus::VirtualMachine& vm) {
       binds->set_vm(&vm);
       guest->set_alias_resolver(
-          [binds](rec::script::papyrus::ObjectRef ref) { return binds->AliasesFilledBy(ref); });
+          [binds](rx::script::papyrus::ObjectRef ref) { return binds->AliasesFilledBy(ref); });
     });
   }
   // Route Debug.Notification (from Papyrus quests or C# mods) to the HUD toast.
@@ -305,7 +305,7 @@ bool LoadGameData(Engine& engine) {
   // and the main loop drains it to the UI.
   {
     auto* guest = &self->scripts_->guest();
-    guest->Submit([guest, self](rec::script::papyrus::VirtualMachine&) {
+    guest->Submit([guest, self](rx::script::papyrus::VirtualMachine&) {
       guest->set_on_notification([self](const std::string& message) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
@@ -316,12 +316,12 @@ bool LoadGameData(Engine& engine) {
       });
       guest->set_game_time_provider([self]() { return self->clock_.game_days(); });
       guest->set_los_provider([self](u64 viewer, u64 target) {
-        return self->script_bindings_->HasLos(rec::script::papyrus::ObjectRef{viewer},
-                                              rec::script::papyrus::ObjectRef{target});
+        return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
+                                              rx::script::papyrus::ObjectRef{target});
       });
       guest->set_on_platform_hud(
           [self](const std::string& type, const std::string& func,
-                 const std::vector<rec::script::papyrus::Value>& args) {
+                 const std::vector<rx::script::papyrus::Value>& args) {
             self->platform_hud_.Submit(type, func, args);
           });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
@@ -337,9 +337,9 @@ bool LoadGameData(Engine& engine) {
   // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
   BootManagedScripting(engine);
 
-  // REC_QUEST_REPORT=<EDID> drives a quest through its stages to completion and
-  // prints the journey, then quits; REC_DIALOGUE_REPORT dumps its dialogue.
-  // REC_WAR_MAP opens the Civil War war-map overlay at load (normally toggled
+  // RX_QUEST_REPORT=<EDID> drives a quest through its stages to completion and
+  // prints the journey, then quits; RX_DIALOGUE_REPORT dumps its dialogue.
+  // RX_WAR_MAP opens the Civil War war-map overlay at load (normally toggled
   // with M), for screenshots.
   if (WarMap) self->war_map_open_ = true;
   if (const char* want = QuestList.get()) {
@@ -358,7 +358,7 @@ bool LoadGameData(Engine& engine) {
     self->quest_->ReportDialogue(want);
     self->quit_.store(true, std::memory_order_relaxed);
   }
-  // REC_DIALOGUE_PROBE=<0xNpcOrAchrForm> logs the topics an NPC would offer (the
+  // RX_DIALOGUE_PROBE=<0xNpcOrAchrForm> logs the topics an NPC would offer (the
   // speaker-gated, priority-ordered set), to verify dialogue without the UI.
   if (const char* want = DialogueProbe.get()) {
     self->interaction_->ReportDialogueWith(std::strtoull(want, nullptr, 0));
@@ -406,7 +406,7 @@ bool LoadGameData(Engine& engine) {
     auto* host = self->managed_.get();
     self->streamer_->set_on_location_change([host](u64 cell, bool interior) {
       host->QueueEvent(
-          {rec::script::host::ManagedEventId::kLocationChanged, cell, 0, interior ? 1 : 0, 0.0f});
+          {rx::script::host::ManagedEventId::kLocationChanged, cell, 0, interior ? 1 : 0, 0.0f});
     });
   }
   // Register streamed NPCs in the quest world so quests can target them and
@@ -436,7 +436,7 @@ bool LoadGameData(Engine& engine) {
     self->streamer_->SetUploads(std::move(uploads));
   }
 
-  // REC_INTERIOR=<editor id or 0x form id> boots straight into that interior
+  // RX_INTERIOR=<editor id or 0x form id> boots straight into that interior
   // cell with the flycam placed inside, for testing authored interior lighting.
   // --interior takes precedence when both are given.
   if (self->config_.interior.empty() && Interior.get()) self->config_.interior = Interior.get();
@@ -470,17 +470,17 @@ bool LoadGameData(Engine& engine) {
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {
     start.y = ground + 10.0f;  // a little above the terrain for a view
   } else {
-    REC_WARN("no terrain at start cell {},{}", self->config_.start_cell_x, self->config_.start_cell_y);
+    RX_WARN("no terrain at start cell {},{}", self->config_.start_cell_x, self->config_.start_cell_y);
   }
   self->camera_.set_position(start);
   self->camera_.set_yaw_pitch(0.0f, -0.1f);
   self->camera_.speed = 30.0f;
-  REC_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
+  RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
            self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
   self->showcase_regions_.push_back(
       {{start.x, ground, start.z}, std::string(profile.name), self->streamer_.get()});
-  // REC_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
+  // RX_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
   // ground is within a 14 m ring and whether any of it is under water. A good
   // showcase venue has a small max-drop and zero submerged samples. Headless +
   // fast, so a range of --cell values can be screened to pick a dry, flat one.
@@ -499,7 +499,7 @@ bool LoadGameData(Engine& engine) {
       Vec3 flow;
       if (self->streamer_->WaterHeightAt({px, h, pz}, &wh, &flow) && h < wh - 0.5f) ++submerged;
     }
-    REC_INFO("venue probe cell {},{}: base_y={:.1f} max_drop={:.1f}m submerged={}/12 sampled={}",
+    RX_INFO("venue probe cell {},{}: base_y={:.1f} max_drop={:.1f}m submerged={}/12 sampled={}",
              self->config_.start_cell_x, self->config_.start_cell_y, ground, max_drop, submerged,
              sampled);
   }
@@ -528,15 +528,15 @@ void SetupExtraStreamers(Engine& engine) {
   constexpr f32 kCellSize = 4096.0f;
 
   // Each secondary worldspace is a fixed diorama placed this far east of the
-  // primary camera, stepped per domain so several never overlap. REC_DOMAIN_OFFSET
-  // tunes the seam; REC_DOMAIN_CELL="x,y" picks which region of the secondary
+  // primary camera, stepped per domain so several never overlap. RX_DOMAIN_OFFSET
+  // tunes the seam; RX_DOMAIN_CELL="x,y" picks which region of the secondary
   // world to show (its default is a content-dense cell, not the empty ocean the
   // primary camera's own coordinates would land on).
   Vec3 step{450.0f, 0.0f, 0.0f};
   if (const char* env = DomainOffset.get()) {
     std::sscanf(env, "%f,%f,%f", &step.x, &step.y, &step.z);
   }
-  // REC_DOMAIN_CELL forces the region for every secondary; otherwise each game
+  // RX_DOMAIN_CELL forces the region for every secondary; otherwise each game
   // defaults to a content-dense cell of its own (the primary camera's raw
   // coordinates usually land in empty ocean in the secondary world).
   i32 forced_x = 0, forced_y = 0;
@@ -597,14 +597,14 @@ void SetupExtraStreamers(Engine& engine) {
     };
     streamer->SetUploads(std::move(uploads));
     if (streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
-      REC_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
+      RX_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
                domain.profile().name, region_x, region_y, place.x, place.y, place.z);
       // The showcase flies over each rendered region; its ground baseline sits the
       // same 10m below the placed camera-height anchor as the primary's does.
       self->showcase_regions_.push_back(
           {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name), streamer.get()});
     } else {
-      REC_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
+      RX_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
                domain.profile().name, domain.profile().exterior_worldspace);
     }
     // Kept parallel to extra_domains_ even when not rendered, so the editor can
@@ -624,7 +624,7 @@ bool LoadInterior(Engine& engine) {
     cell_id = self->records_.FindInteriorCell(self->config_.interior);
   }
   if (cell_id.plugin == 0xffff) {
-    REC_ERROR("interior cell not found: {}", self->config_.interior);
+    RX_ERROR("interior cell not found: {}", self->config_.interior);
     return false;
   }
 
@@ -633,9 +633,9 @@ bool LoadInterior(Engine& engine) {
   self->camera_.set_position(start);
   self->camera_.set_yaw_pitch(0.0f, 0.0f);
   self->camera_.speed = 5.0f;
-  REC_INFO("camera start: interior {} at ({:.1f}, {:.1f}, {:.1f})", self->config_.interior, start.x,
+  RX_INFO("camera start: interior {} at ({:.1f}, {:.1f}, {:.1f})", self->config_.interior, start.x,
            start.y, start.z);
-  REC_INFO("interior {}: {} npcs loaded", self->config_.interior, self->streamer_->spawned_npc_count());
+  RX_INFO("interior {}: {} npcs loaded", self->config_.interior, self->streamer_->spawned_npc_count());
   self->actors_->MaybeSpawnWorldPlayer(start);
   return true;
 }
@@ -648,12 +648,12 @@ void LoadExtraDomains(Engine& engine) {
     // there too: their scripts read content but do not drive authoritative state.
     if (!domain->Load(cfg.game, cfg.data_dir, cfg.plugins_txt,
                       /*replica_mode=*/!self->config_.connect_address.empty())) {
-      REC_WARN("secondary domain failed to load: {}", cfg.data_dir);
+      RX_WARN("secondary domain failed to load: {}", cfg.data_dir);
       continue;
     }
     // Surface its Debug.Notification on the same HUD toast as the primary game.
     auto* guest = &domain->scripts()->guest();
-    guest->Submit([guest, self](rec::script::papyrus::VirtualMachine&) {
+    guest->Submit([guest, self](rx::script::papyrus::VirtualMachine&) {
       guest->set_on_notification([self](const std::string& message) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
@@ -664,19 +664,19 @@ void LoadExtraDomains(Engine& engine) {
       });
       guest->set_game_time_provider([self]() { return self->clock_.game_days(); });
       guest->set_los_provider([self](u64 viewer, u64 target) {
-        return self->script_bindings_->HasLos(rec::script::papyrus::ObjectRef{viewer},
-                                              rec::script::papyrus::ObjectRef{target});
+        return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
+                                              rx::script::papyrus::ObjectRef{target});
       });
       guest->set_on_platform_hud(
           [self](const std::string& type, const std::string& func,
-                 const std::vector<rec::script::papyrus::Value>& args) {
+                 const std::vector<rx::script::papyrus::Value>& args) {
             self->platform_hud_.Submit(type, func, args);
           });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
     // Run that game's quests inside its own microvm (capped like the primary).
     domain->AttachQuestScripts(self->config_.max_quest_scripts);
-    REC_INFO("secondary domain live: {} ({} records, isolated microvm)", domain->profile().name,
+    RX_INFO("secondary domain live: {} ({} records, isolated microvm)", domain->profile().name,
              domain->records().record_count());
     self->extra_domains_.push_back(std::move(domain));
   }
@@ -724,4 +724,4 @@ bool Engine::LoadGltfScene() {
   return true;
 }
 
-}  // namespace rec
+}  // namespace rx

@@ -2,7 +2,7 @@
 // itself: it pulls in recreation::core (a static library) and reaches the flag
 // table only through the registry API, never through base::Feature's InitChain.
 // If the table is complete here, the manifest survived static linking, which is
-// the whole reason the registry exists. Also covers REC_FEATURES overrides.
+// the whole reason the registry exists. Also covers RX_FEATURES overrides.
 #include <cstdio>
 #include <cstdlib>
 
@@ -16,10 +16,10 @@ static int setenv(const char* name, const char* value, int /*overwrite*/) {
 static int unsetenv(const char* name) { return _putenv_s(name, ""); }
 #endif
 
-using rec::FeatureEnabled;
-using rec::FeatureId;
-using rec::Features;
-using rec::InitFeatures;
+using rx::FeatureEnabled;
+using rx::FeatureId;
+using rx::Features;
+using rx::InitFeatures;
 
 int main() {
   int failures = 0;
@@ -43,8 +43,8 @@ int main() {
     names_ok &= Features()[i].name != nullptr;
   check("every flag has a name", names_ok);
 
-  // REC_FEATURES override: flip the two defaults and exercise every token form.
-  ::setenv("REC_FEATURES",
+  // RX_FEATURES override: flip the two defaults and exercise every token form.
+  ::setenv("RX_FEATURES",
            "render.pathtracer,-render.distant_lod render.mesh_shader_lod=1,bogus.flag", 1);
   InitFeatures();
   check("bare token enables", FeatureEnabled(FeatureId::kPathTracer));
@@ -52,7 +52,7 @@ int main() {
   check("name=1 enables", FeatureEnabled(FeatureId::kMeshShaderLod));
 
   // Unknown names and empty specs are harmless no-ops.
-  ::unsetenv("REC_FEATURES");
+  ::unsetenv("RX_FEATURES");
   InitFeatures();
   check("empty spec leaves flags untouched", FeatureEnabled(FeatureId::kPathTracer));
 

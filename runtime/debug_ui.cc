@@ -25,17 +25,17 @@
 #include "render/core/settings_ini.h"
 #include "render/rhi/vulkan_interop.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 // Config toggle formerly read from getenv (populated by base::InitOptionsFromEnv).
-base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
+base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 
 // Override for the editable .ini render presets directory; defaults to the
 // compiled-in engine/render/presets source path.
-base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "REC_PRESETS_DIR"};
+base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "RX_PRESETS_DIR"};
 
-// Directory holding the .ini render presets: REC_PRESETS_DIR, else the
+// Directory holding the .ini render presets: RX_PRESETS_DIR, else the
 // compiled-in source path, else a cwd-relative fallback.
 std::filesystem::path PresetDir() {
   if (const char* env = PresetsDirOpt.get(); env && *env) return env;
@@ -154,13 +154,13 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
     ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
   });
 
-  // REC_HIDE_DEBUG_UI starts with the imgui overlays hidden, so the libultragui
+  // RX_HIDE_DEBUG_UI starts with the imgui overlays hidden, so the libultragui
   // HUD has the screen to itself for clean screenshots (cf. RECREATION_UI_MENU).
   if (HideDebugUi)
     visible_ = trace_visible_ = quests_visible_ = false;
   window_ = &window;
   initialized_ = true;
-  REC_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
+  RX_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
   return true;
 }
 
@@ -196,7 +196,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
 
   // Per-pass GPU timestamps cost real frame time (barriers per pass), so the
   // renderer only records them while this overlay displays them (the GPU
-  // passes table and the stage chart). The boot value (REC_GPU_TIMINGS) is
+  // passes table and the stage chart). The boot value (RX_GPU_TIMINGS) is
   // latched once so a forced-on headless run keeps them without the overlay.
   if (!gpu_timings_latched_) {
     gpu_timings_forced_ = renderer.settings().gpu_pass_timings;
@@ -233,7 +233,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         render::QualityPreset preset = kPresetValues[preset_choice_];
         settings = render::PresetSettings(preset, *caps);
         if (preset == render::QualityPreset::kAuto) {
-          REC_INFO("preset: auto -> {}", render::PresetName(render::DetectPreset(*caps)));
+          RX_INFO("preset: auto -> {}", render::PresetName(render::DetectPreset(*caps)));
         }
       }
 
@@ -254,7 +254,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             if (render::LoadSettingsIni(path, settings)) {
               preset_choice_ = 0;  // settings are file-tuned now, not a hardware tier
               preset_status_ = "loaded " + preset_files_[preset_file_choice_];
-              REC_INFO("render preset: loaded {}", path.string());
+              RX_INFO("render preset: loaded {}", path.string());
             } else {
               preset_status_ = "could not open " + preset_files_[preset_file_choice_];
             }
@@ -271,7 +271,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
           const auto path = PresetDir() / fn;
           if (render::SaveSettingsIni(path, settings)) {
             preset_status_ = "saved " + fn;
-            REC_INFO("render preset: saved {}", path.string());
+            RX_INFO("render preset: saved {}", path.string());
             ScanPresetFiles();
           } else {
             preset_status_ = "could not write " + fn;
@@ -522,7 +522,7 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
   // Day/night cycle: scrub the time of day (drives the sun, sky and ambient) and
   // the rate game time passes. While the cycle runs it owns the sun, so the
   // manual sun controls below only stick when time is frozen (Time scale 0) or
-  // REC_SUN_DIR pinned a fixed sun.
+  // RX_SUN_DIR pinned a fixed sun.
   if (clock_) {
     f32 hour = clock_->hour();
     if (ImGui::SliderFloat("Time of day", &hour, 0.0f, 24.0f, "%.2f h")) clock_->set_hour(hour);
@@ -1125,11 +1125,11 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   ImGui::PopID();
 }
 
-}  // namespace rec
+}  // namespace rx
 
 #else  // !RECREATION_HAS_IMGUI
 
-namespace rec {
+namespace rx {
 
 DebugUi::DebugUi() = default;
 DebugUi::~DebugUi() = default;
@@ -1141,6 +1141,6 @@ void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*, Ques
 bool DebugUi::wants_mouse() const { return false; }
 bool DebugUi::wants_keyboard() const { return false; }
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_HAS_IMGUI

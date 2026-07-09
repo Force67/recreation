@@ -3,7 +3,7 @@
 
 #include <cmath>
 
-namespace rec::world {
+namespace rx::world {
 
 // Pure geometry for objective waypoints, engine-type free so it is trivially
 // testable. The world is +Y up; markers sit on the ground, so the tests are
@@ -38,6 +38,6 @@ inline float MarkerCompassBearingDeg(const float view_fwd[3], const float to_mar
   return std::atan2(det, dot) * 57.2957795f;
 }
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_OBJECTIVE_MARKER_H_

@@ -27,4 +27,4 @@ recreation_add_module(bethesda
   head_morph.cc
 )
 
-target_link_libraries(recreation_bethesda PUBLIC recreation::core recreation::asset recreation::physics kinema::kinema)
+target_link_libraries(recreation_bethesda PUBLIC rx::core rx::asset rx::physics kinema::kinema)

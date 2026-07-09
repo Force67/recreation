@@ -4,7 +4,7 @@ using Recreation.Modding;
 namespace Recreation.Net.Samples;
 
 // Sample gamemode composing the platform: teams, economy with jobs, chat commands
-// and emotes. Inert unless REC_RP_SAMPLE is set. The command logic is exposed as
+// and emotes. Inert unless RX_RP_SAMPLE is set. The command logic is exposed as
 // static methods so it is unit-tested directly.
 [Mod("RoleplayServer"), Realm(ModRealm.Server)]
 public sealed class RoleplayServer : IMod
@@ -14,7 +14,7 @@ public sealed class RoleplayServer : IMod
 
     public void OnLoad()
     {
-        if (Environment.GetEnvironmentVariable("REC_RP_SAMPLE") == null) return;
+        if (Environment.GetEnvironmentVariable("RX_RP_SAMPLE") == null) return;
         Setup();
     }
 

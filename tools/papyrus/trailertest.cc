@@ -7,9 +7,9 @@
 
 #include "../../runtime/trailer.h"
 
-using rec::TrailerDirector;
-using rec::TrailerRenderMode;
-using rec::TrailerState;
+using rx::TrailerDirector;
+using rx::TrailerRenderMode;
+using rx::TrailerState;
 
 int main() {
   int failures = 0;
@@ -75,7 +75,7 @@ int main() {
   check("path tracing second", dir.At(20.0f).mode == TrailerRenderMode::kPathTracing);
   check("ray tracing third", dir.At(32.0f).mode == TrailerRenderMode::kRayTracing);
   check("badge names path tracing",
-        dir.At(20.0f).overlay.badge == std::string(rec::TrailerRenderModeLabel(
+        dir.At(20.0f).overlay.badge == std::string(rx::TrailerRenderModeLabel(
                                            TrailerRenderMode::kPathTracing)));
 
   // --- Multi-game: active-beat index drives which map stays resident ---

@@ -3,7 +3,7 @@
 
 #include <cmath>
 
-namespace rec::world {
+namespace rx::world {
 
 // Context steering: choose a travel direction toward `goal_dir` that avoids
 // nearby obstacles. `candidate_dirs` is `count` * 3 floats (xyz unit vectors on
@@ -55,6 +55,6 @@ inline void SteerAroundObstacles(const float goal_dir[3], const float* candidate
   out_dir[2] = chosen[2];
 }
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_STEERING_AVOIDANCE_H_

@@ -6,7 +6,7 @@
 #include "bethesda/compression.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kTes4 = FourCc('T', 'E', 'S', '4');
@@ -108,7 +108,7 @@ std::string Record::GetString(u32 fourcc) const {
 std::optional<PluginFile> PluginFile::Open(const std::string& path, const GameProfile& profile) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file) {
-    REC_ERROR("cannot open plugin: {}", path);
+    RX_ERROR("cannot open plugin: {}", path);
     return std::nullopt;
   }
   PluginFile plugin;
@@ -121,7 +121,7 @@ std::optional<PluginFile> PluginFile::Open(const std::string& path, const GamePr
   plugin.file_name_ = slash == std::string::npos ? path : path.substr(slash + 1);
 
   if (!plugin.ParseHeader(profile)) {
-    REC_ERROR("bad TES4 header: {}", path);
+    RX_ERROR("bad TES4 header: {}", path);
     return std::nullopt;
   }
   if (EndsWithEsl(path)) plugin.is_light_ = true;
@@ -152,7 +152,7 @@ bool PluginFile::ParseHeader(const GameProfile& profile) {
   }
 
   if (profile.plugin_version != 0 && version_ > profile.plugin_version) {
-    REC_WARN("{}: plugin version {} newer than profile {}", file_name_, version_,
+    RX_WARN("{}: plugin version {} newer than profile {}", file_name_, version_,
              profile.plugin_version);
   }
   return true;
@@ -203,11 +203,11 @@ bool PluginFile::VisitRecords(const RecordVisitor& visitor) const {
   return VisitRecordsRaw([&](const RecordHeader& header, ByteSpan payload, const GroupContext&) {
     Record record;
     if (!ParseRecordPayload(header, payload, &record)) {
-      REC_WARN("{}: failed to parse record {:08x}", file_name_, header.form_id.value);
+      RX_WARN("{}: failed to parse record {:08x}", file_name_, header.form_id.value);
       return;
     }
     visitor(record);
   });
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

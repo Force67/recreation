@@ -3,7 +3,7 @@
 
 #include "core/types.h"
 
-namespace rec::script {
+namespace rx::script {
 
 // Guest-thread-facing sink for quest-driven world mutations. The Skyrim bindings
 // call these; the runtime implements them by marshaling to the main thread's ECS
@@ -42,6 +42,6 @@ class WorldEffectSink {
   virtual void ActorFollow(u64 quest, u64 actor, bool follow) {}
 };
 
-}  // namespace rec::script
+}  // namespace rx::script
 
 #endif  // RECREATION_SCRIPT_WORLD_EFFECT_SINK_H_

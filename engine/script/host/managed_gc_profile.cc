@@ -4,7 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 
-namespace rec::script::host {
+namespace rx::script::host {
 namespace {
 
 std::string Lower(std::string s) {
@@ -85,4 +85,4 @@ std::vector<GcProperty> ManagedGcProfile(const std::string& name) {
   return props;
 }
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host

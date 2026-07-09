@@ -12,7 +12,7 @@
 #include "core/math.h"
 #include "world/components.h"
 
-namespace rec {
+namespace rx {
 
 // A stable per-game slug stored in the editor's layout file, so a saved
 // placement reloads against the same game next run. Shared by the content-load
@@ -53,6 +53,6 @@ inline Mat4 TransformMatrix(const world::Transform& transform) {
          MakeScale(transform.scale);
 }
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_ENGINE_INTERNAL_H_

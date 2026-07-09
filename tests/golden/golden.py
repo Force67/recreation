@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Golden-image regression harness.
 
-Renders a fixed set of demo scenes headlessly (REC_FIXED_DT locks animation
+Renders a fixed set of demo scenes headlessly (RX_FIXED_DT locks animation
 to the frame index, so a capture at frame N is deterministic) and compares
 the captures against checked-in reference images.
 
@@ -52,10 +52,10 @@ PROFILES = {
 def run_scene(binary, runner, name, demo, frames, extra_env, out_path, timeout):
     env = os.environ.copy()
     env.update({
-        "REC_UI_SHOT": str(out_path),
-        "REC_UI_SHOT_FRAMES": str(frames),
-        "REC_HIDE_DEBUG_UI": "1",
-        "REC_FIXED_DT": "0.016666667",
+        "RX_UI_SHOT": str(out_path),
+        "RX_UI_SHOT_FRAMES": str(frames),
+        "RX_HIDE_DEBUG_UI": "1",
+        "RX_FIXED_DT": "0.016666667",
     })
     env.update(extra_env)
     cmd = ([runner] if runner else []) + [str(binary), "--demo", demo]

@@ -11,7 +11,7 @@
 
 #include "core/types.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Bumped whenever nbuf/protocol.nb or a hand-encoded payload changes shape.
 // v2 adds the per-quest domain tag (multi-game quest replication).
@@ -77,6 +77,6 @@ std::optional<View> ParseAs(const tx::network::IncomingPacket& packet) {
                      packet.data.size());
 }
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_PROTOCOL_H_

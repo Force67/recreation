@@ -7,7 +7,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::editor {
+namespace rx::editor {
 
 // One placed object as stored in a layout file: the game it came from (a stable
 // slug, e.g. "skyrimse" or "fallout4"), the base form it instantiates, and its
@@ -52,6 +52,6 @@ inline bool ParsePlaceLine(const std::string& line, LayoutEntry* out) {
   return true;
 }
 
-}  // namespace rec::editor
+}  // namespace rx::editor
 
 #endif  // RECREATION_RUNTIME_EDITOR_LAYOUT_H_

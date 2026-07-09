@@ -11,7 +11,7 @@
 #include "net/rpc_channel.h"
 #include "net/world_replication.h"
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 constexpr f32 kPlayerSpeed = 4.0f;  // units per second
@@ -39,7 +39,7 @@ bool ServerSession::Start() {
       .start_threads = true,
       .chaos = {}};
   if (!server_.Begin(config_.port, options)) {
-    REC_ERROR("net: failed to open server on port {}", config_.port);
+    RX_ERROR("net: failed to open server on port {}", config_.port);
     return false;
   }
   started_ = true;
@@ -47,7 +47,7 @@ bool ServerSession::Start() {
   if (config_.mod_catalog) {
     asset_stream_ = std::make_unique<AssetStreamServer>(server_, *config_.mod_catalog);
   }
-  REC_INFO("net: server listening on {}", config_.port);
+  RX_INFO("net: server listening on {}", config_.port);
   return true;
 }
 
@@ -66,7 +66,7 @@ void ServerSession::Tick(ecs::World& world, f32 dt) {
   }
   // Heartbeat for dedicated server logs.
   if (tick_ % (static_cast<u64>(config_.tick_rate) * 30) == 0) {
-    REC_INFO("net: tick {}, {} clients, {} entities", tick_, clients_.size(),
+    RX_INFO("net: tick {}, {} clients, {} entities", tick_, clients_.size(),
              world.entity_count());
   }
 }
@@ -135,7 +135,7 @@ void ServerSession::PollMessages(ecs::World& world) {
         break;
       }
       default:
-        REC_WARN("net: unhandled message type {} from peer {}",
+        RX_WARN("net: unhandled message type {} from peer {}",
                  static_cast<u16>(packet.type), peer);
         break;
     }
@@ -185,7 +185,7 @@ void ServerSession::HandleJoin(ecs::World& world, u32 peer,
     fresh.player_net_id = net_id.value;
     clients_.insert(peer, std::move(fresh));
     client = clients_.find(peer);
-    REC_INFO("net: peer {} joined as '{}' ({} clients)", peer,
+    RX_INFO("net: peer {} joined as '{}' ({} clients)", peer,
              client->name.c_str(), clients_.size());
     // Make sure the newcomer gets the whole world (and journal) on the next
     // broadcast. Quest deltas reach every peer, but resending all of them is
@@ -226,7 +226,7 @@ void ServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
 void ServerSession::DropClient(ecs::World& world, u32 peer) {
   RemoteClient* client = clients_.find(peer);
   if (!client) return;
-  REC_INFO("net: dropping peer {} ('{}')", peer, client->name.c_str());
+  RX_INFO("net: dropping peer {} ('{}')", peer, client->name.c_str());
   if (world.IsAlive(client->player)) world.Destroy(client->player);
   clients_.erase(peer);
   if (client_left_sink_) client_left_sink_(peer);
@@ -356,7 +356,7 @@ bool ClientSession::Start() {
       .chaos = {}};
   if (!client_.Connect(base::StringRef(config_.address.c_str()), config_.port,
                        options)) {
-    REC_ERROR("net: failed to start connecting to {}:{}",
+    RX_ERROR("net: failed to start connecting to {}:{}",
               config_.address.c_str(), config_.port);
     return false;
   }
@@ -365,7 +365,7 @@ bool ClientSession::Start() {
     asset_stream_ = std::make_unique<AssetStreamClient>(
         client_, *config_.content_store, config_.content_store->root() / ".incoming");
   }
-  REC_INFO("net: connecting to {}:{}", config_.address.c_str(), config_.port);
+  RX_INFO("net: connecting to {}:{}", config_.address.c_str(), config_.port);
   return true;
 }
 
@@ -387,7 +387,7 @@ void ClientSession::Tick(ecs::World& world, f32 dt) {
   const Phase phase = client_.handshake_phase();
   if (phase == Phase::kFailed) {
     if (!failure_logged_) {
-      REC_ERROR("net: handshake failed (reason {})",
+      RX_ERROR("net: handshake failed (reason {})",
                 static_cast<u32>(client_.handshake_failure_reason()));
       failure_logged_ = true;
       applier_.Reset(world);
@@ -419,11 +419,11 @@ void ClientSession::Tick(ecs::World& world, f32 dt) {
     if (tick_ % (static_cast<u64>(config_.tick_rate) * 5) == 0) {
       const ecs::Entity player = player_entity();
       if (const auto* t = player ? world.Get<world::Transform>(player) : nullptr) {
-        REC_INFO("net: {} replicated entities, player at ({:.2f}, {:.2f}, {:.2f})",
+        RX_INFO("net: {} replicated entities, player at ({:.2f}, {:.2f}, {:.2f})",
                  applier_.entity_count(), t->position[0], t->position[1],
                  t->position[2]);
       } else {
-        REC_INFO("net: {} replicated entities, player not spawned yet",
+        RX_INFO("net: {} replicated entities, player not spawned yet",
                  applier_.entity_count());
       }
     }
@@ -467,14 +467,14 @@ void ClientSession::PollMessages(ecs::World& world) {
         if (accept->snapshot_rate() > 0) {
           snapshot_dt_ = 1.0f / static_cast<f32>(accept->snapshot_rate());
         }
-        REC_INFO("net: joined as client {} (player entity {})",
+        RX_INFO("net: joined as client {} (player entity {})",
                  accept->client_id(), player_net_id_);
         break;
       }
       case MessageType::kJoinRefuse: {
         if (auto refuse = ParseAs<JoinRefuseView>(packet)) {
           const char* reason = refuse->reason().name();
-          REC_ERROR("net: server refused join: {}",
+          RX_ERROR("net: server refused join: {}",
                     reason ? reason : "unknown");
         }
         joined_ = false;
@@ -493,7 +493,7 @@ void ClientSession::PollMessages(ecs::World& world) {
         const ByteSpan blob(reinterpret_cast<const u8*>(packet.data.data()),
                             packet.data.size());
         if (!ApplyQuestUpdate(blob, quest_sink_)) {
-          REC_WARN("net: dropped corrupt quest update");
+          RX_WARN("net: dropped corrupt quest update");
         }
         break;
       }
@@ -504,7 +504,7 @@ void ClientSession::PollMessages(ecs::World& world) {
         if (auto cmds = DecodeWorldCommands(blob)) {
           world_command_sink_(*cmds);
         } else {
-          REC_WARN("net: dropped corrupt world-command update");
+          RX_WARN("net: dropped corrupt world-command update");
         }
         break;
       }
@@ -515,7 +515,7 @@ void ClientSession::PollMessages(ecs::World& world) {
         if (auto actors = DecodeActorStates(blob)) {
           actor_sink_(*actors);
         } else {
-          REC_WARN("net: dropped corrupt actor sync");
+          RX_WARN("net: dropped corrupt actor sync");
         }
         break;
       }
@@ -526,7 +526,7 @@ void ClientSession::PollMessages(ecs::World& world) {
         if (auto marker = DecodeObjectiveMarker(blob)) {
           objective_marker_sink_(*marker);
         } else {
-          REC_WARN("net: dropped corrupt objective marker");
+          RX_WARN("net: dropped corrupt objective marker");
         }
         break;
       }
@@ -537,7 +537,7 @@ void ClientSession::PollMessages(ecs::World& world) {
         if (auto board = DecodeWarMap(blob)) {
           war_map_sink_(*board);
         } else {
-          REC_WARN("net: dropped corrupt war map");
+          RX_WARN("net: dropped corrupt war map");
         }
         break;
       }
@@ -554,11 +554,11 @@ void ClientSession::PollMessages(ecs::World& world) {
         break;
       }
       default:
-        REC_WARN("net: unhandled message type {}",
+        RX_WARN("net: unhandled message type {}",
                  static_cast<u16>(packet.type));
         break;
     }
   }
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

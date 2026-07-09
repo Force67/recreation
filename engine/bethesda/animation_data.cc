@@ -2,7 +2,7 @@
 
 #include <cstdlib>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Line cursor over the text image. Lines are \r\n or \n terminated; a blank
@@ -122,4 +122,4 @@ Vec3 MotionTranslationDelta(const AnimMotion& motion, f32 t0, f32 t1) {
   return Vec3{end.x - at0.x + at1.x, end.y - at0.y + at1.y, end.z - at0.z + at1.z};
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

@@ -25,21 +25,21 @@ namespace {
 
 constexpr const char* kTag = "recreation";
 
-rec::bethesda::Game ParseGame(const std::string& id) {
-  if (id == "skyrimse") return rec::bethesda::Game::kSkyrimSe;
-  if (id == "fo4") return rec::bethesda::Game::kFallout4;
-  if (id == "fo76") return rec::bethesda::Game::kFallout76;
-  if (id == "starfield") return rec::bethesda::Game::kStarfield;
-  return rec::bethesda::Game::kUnknown;
+rx::bethesda::Game ParseGame(const std::string& id) {
+  if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
+  if (id == "fo4") return rx::bethesda::Game::kFallout4;
+  if (id == "fo76") return rx::bethesda::Game::kFallout76;
+  if (id == "starfield") return rx::bethesda::Game::kStarfield;
+  return rx::bethesda::Game::kUnknown;
 }
 
 // Reads the launcher's config (`recreation.cfg` in the app's internal data
 // dir). Format is one `key=value` per line; unknown keys are ignored. The UI
 // stores every configured game's Data path under `data_dir.<id>` and selects
 // one with `active`, so several games can be configured while one is launched.
-rec::EngineConfig LoadConfig(android_app* app) {
-  rec::EngineConfig config;
-  config.preset = rec::render::QualityPreset::kAndroid;
+rx::EngineConfig LoadConfig(android_app* app) {
+  rx::EngineConfig config;
+  config.preset = rx::render::QualityPreset::kAndroid;
 
   std::string path = std::string(app->activity->internalDataPath) + "/recreation.cfg";
   std::ifstream file(path);
@@ -78,18 +78,18 @@ rec::EngineConfig LoadConfig(android_app* app) {
   std::string demo = get("demo");
   if (!demo.empty()) config.demo_scene = demo;
   std::string preset = get("preset");
-  if (!preset.empty()) config.preset = rec::render::ParsePreset(preset);
+  if (!preset.empty()) config.preset = rx::render::ParsePreset(preset);
   std::string interior = get("interior");
   if (!interior.empty()) config.interior = interior;
   if (get("validation") == "1") config.renderer.enable_validation = true;
   if (get("no_rt") == "1") config.renderer.enable_raytracing = false;
-  // screenshot=<seconds>: the renderer reads REC_SCREENSHOT and writes the
+  // screenshot=<seconds>: the renderer reads RX_SCREENSHOT and writes the
   // frame at that time to the app's data dir, for on-device render verification
   // that does not depend on the platform screenshotter.
   std::string shot = get("screenshot");
   if (!shot.empty()) {
     std::string shot_path = std::string(app->activity->internalDataPath) + "/frame.png:" + shot;
-    setenv("REC_SCREENSHOT", shot_path.c_str(), 1);
+    setenv("RX_SCREENSHOT", shot_path.c_str(), 1);
   }
 
   __android_log_print(ANDROID_LOG_INFO, kTag, "config: game=%s data_dir=%s", active.c_str(),
@@ -98,9 +98,9 @@ rec::EngineConfig LoadConfig(android_app* app) {
 }
 
 struct AppState {
-  rec::Engine engine;
-  rec::AndroidWindowBase* window = nullptr;  // owned by the engine post-Initialize
-  rec::EngineConfig config;
+  rx::Engine engine;
+  rx::AndroidWindowBase* window = nullptr;  // owned by the engine post-Initialize
+  rx::EngineConfig config;
   bool initialized = false;
   bool finished = false;
   bool has_surface = false;  // window present and surface bound (between INIT/TERM)
@@ -115,25 +115,25 @@ struct AppState {
   float look_last_y = 0;
 };
 
-void SetKey(rec::InputState& input, rec::Key key, bool down) {
-  input.keys[static_cast<rec::u8>(key)] = down;
+void SetKey(rx::InputState& input, rx::Key key, bool down) {
+  input.keys[static_cast<rx::u8>(key)] = down;
 }
 
 // Maps the virtual stick offset (pixels from where the finger went down) to the
 // fly camera's movement keys, with a small deadzone.
-void ApplyMoveStick(rec::InputState& input, float dx, float dy) {
+void ApplyMoveStick(rx::InputState& input, float dx, float dy) {
   constexpr float kDeadzone = 36.0f;
-  SetKey(input, rec::Key::kW, dy < -kDeadzone);
-  SetKey(input, rec::Key::kS, dy > kDeadzone);
-  SetKey(input, rec::Key::kA, dx < -kDeadzone);
-  SetKey(input, rec::Key::kD, dx > kDeadzone);
+  SetKey(input, rx::Key::kW, dy < -kDeadzone);
+  SetKey(input, rx::Key::kS, dy > kDeadzone);
+  SetKey(input, rx::Key::kA, dx < -kDeadzone);
+  SetKey(input, rx::Key::kD, dx > kDeadzone);
 }
 
-void ClearMoveStick(rec::InputState& input) {
-  SetKey(input, rec::Key::kW, false);
-  SetKey(input, rec::Key::kS, false);
-  SetKey(input, rec::Key::kA, false);
-  SetKey(input, rec::Key::kD, false);
+void ClearMoveStick(rx::InputState& input) {
+  SetKey(input, rx::Key::kW, false);
+  SetKey(input, rx::Key::kS, false);
+  SetKey(input, rx::Key::kA, false);
+  SetKey(input, rx::Key::kD, false);
 }
 
 void HandleCmd(android_app* app, int32_t cmd) {
@@ -142,7 +142,7 @@ void HandleCmd(android_app* app, int32_t cmd) {
     case APP_CMD_INIT_WINDOW:
       if (app->window == nullptr) break;
       if (!state->initialized) {
-        auto window = rec::CreateAndroidWindow(app->window);  // acquires the window
+        auto window = rx::CreateAndroidWindow(app->window);  // acquires the window
         state->window = window.get();
         if (!state->engine.Initialize(state->config, std::move(window))) {
           __android_log_print(ANDROID_LOG_ERROR, kTag, "engine initialization failed");
@@ -179,7 +179,7 @@ void HandleCmd(android_app* app, int32_t cmd) {
   }
 }
 
-void PointerDown(AppState* state, rec::InputState& input, int id, float x, float y, float mid_x) {
+void PointerDown(AppState* state, rx::InputState& input, int id, float x, float y, float mid_x) {
   if (x < mid_x) {
     if (state->move_pointer < 0) {
       state->move_pointer = id;
@@ -190,17 +190,17 @@ void PointerDown(AppState* state, rec::InputState& input, int id, float x, float
     state->look_pointer = id;
     state->look_last_x = x;
     state->look_last_y = y;
-    input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = true;
+    input.mouse[static_cast<rx::u8>(rx::MouseButton::kRight)] = true;
   }
 }
 
-void PointerUp(AppState* state, rec::InputState& input, int id) {
+void PointerUp(AppState* state, rx::InputState& input, int id) {
   if (id == state->move_pointer) {
     state->move_pointer = -1;
     ClearMoveStick(input);
   } else if (id == state->look_pointer) {
     state->look_pointer = -1;
-    input.mouse[static_cast<rec::u8>(rec::MouseButton::kRight)] = false;
+    input.mouse[static_cast<rx::u8>(rx::MouseButton::kRight)] = false;
   }
 }
 
@@ -209,7 +209,7 @@ int32_t HandleInput(android_app* app, AInputEvent* event) {
   if (!state->initialized || state->window == nullptr) return 0;
   if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
 
-  rec::InputState& input = state->window->mutable_input();
+  rx::InputState& input = state->window->mutable_input();
   // Touch x arrives in the activity's (landscape) space; the larger dimension is
   // the horizontal extent, so split the zones at half of it.
   const float mid_x =
@@ -276,7 +276,7 @@ void android_main(android_app* app) {
     // them here before this frame's motion events accumulate. Movement keys are
     // held state and persist until the stick pointer lifts.
     if (active) {
-      rec::InputState& input = state.window->mutable_input();
+      rx::InputState& input = state.window->mutable_input();
       input.mouse_dx = 0;
       input.mouse_dy = 0;
       input.wheel = 0;

@@ -26,7 +26,7 @@
 #include "physics/physics_world.h"
 #include "render/core/renderer.h"
 
-namespace rec {
+namespace rx {
 
 namespace bethesda {
 class StarfieldMaterialDb;
@@ -95,7 +95,7 @@ class ActorSystem {
     bool has_motion = false;
     std::vector<bethesda::ClipEvent> events;
     // Transcoded kinema blob (uniform quantized keys): the fast runtime
-    // sampling path; the spline data above stays as the REC_KINEMA=0
+    // sampling path; the spline data above stays as the RX_KINEMA=0
     // fallback and decode-time reference.
     kinema::OwnedClip kinema;
   };
@@ -112,17 +112,17 @@ class ActorSystem {
     anim::SkeletonPose pose;
     std::shared_ptr<const HavokClip> havok_clip;  // when set, replaces the gait
     f32 havok_time = 0;
-    // Debug clip cycling (REC_ANIM_B): a preloaded second clip the bringup actor
+    // Debug clip cycling (RX_ANIM_B): a preloaded second clip the bringup actor
     // alternates with every 4s, blended across the switch by the inertializer so
     // the pose never pops. Both clips stay resident; the timer swaps which is
-    // active. Kinema-only (skipped under REC_KINEMA=0).
+    // active. Kinema-only (skipped under RX_KINEMA=0).
     std::shared_ptr<const HavokClip> havok_clip_b;
-    bool clip_cycle = false;   // REC_ANIM_B armed
+    bool clip_cycle = false;   // RX_ANIM_B armed
     f32 clip_timer = 0;        // seconds since the last switch
     kinema::Inertializer inert;    // decaying pose offset across a clip switch
     anim::SkeletonPose inert_from;  // scratch: old clip's pose at the switch
     anim::SkeletonPose inert_to;    // scratch: new clip's pose at its start
-    // Additive layer (REC_ANIM_ADDITIVE): a second clip composed on top of the
+    // Additive layer (RX_ANIM_ADDITIVE): a second clip composed on top of the
     // base pose each tick (rot compose, trans add, scale multiply) over its own
     // mapped bones. Loops on its own time accumulator. Kinema-only.
     std::shared_ptr<const HavokClip> additive_clip;
@@ -186,7 +186,7 @@ class ActorSystem {
   // otherwise (player, soldiers) it falls back to the default male head + hair.
   void AttachHead(Actor& actor, bethesda::GlobalFormId npc, bool allow_groom = true);
   // Builds a strand groom from a hair nif and rides it on the head bone. Replaces
-  // the flat card hair when REC_STRAND_HAIR is on. No-op if the nif has no usable
+  // the flat card hair when RX_STRAND_HAIR is on. No-op if the nif has no usable
   // geometry.
   void AttachHairGroom(Actor& actor, const std::string& hair_model, const Vec3& tint,
                        i32 head_bone, const Mat4& inverse_bind);
@@ -224,6 +224,6 @@ class ActorSystem {
   std::unique_ptr<FaceBuilder> face_builder_;  // lazily built; owns the head caches
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_ACTOR_SYSTEM_H_

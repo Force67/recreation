@@ -12,19 +12,19 @@
 
 #include <filesystem>
 
-namespace rec {
+namespace rx {
 
 bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
                          const std::string& plugins_txt, bool replica_mode) {
   game_ = game != bethesda::Game::kUnknown ? game
                                            : bethesda::GameProfile::DetectFromDataDir(data_dir);
   if (game_ == bethesda::Game::kUnknown) {
-    REC_ERROR("could not detect a supported game in {}", data_dir);
+    RX_ERROR("could not detect a supported game in {}", data_dir);
     return false;
   }
   data_dir_ = data_dir;
   profile_ = &bethesda::GameProfile::For(game_);
-  REC_INFO("domain: loading {} from {}", profile_->name, data_dir);
+  RX_INFO("domain: loading {} from {}", profile_->name, data_dir);
 
   // Archives first, then loose files so they win over archives.
   std::error_code ec;
@@ -38,13 +38,13 @@ bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(plugins_txt, *profile_);
   if (!records_.LoadAll(data_dir, order, *profile_)) return false;
-  REC_INFO("domain {}: {} plugins, {} records", profile_->name, order.plugins().size(),
+  RX_INFO("domain {}: {} plugins, {} records", profile_->name, order.plugins().size(),
            records_.record_count());
 
   for (const std::string& plugin : order.plugins())
     strings_.Load(vfs_, plugin, profile_->string_language);
   dialogue_.Build(records_);
-  REC_INFO("domain {}: {} strings, {} dialogue topics", profile_->name, strings_.size(),
+  RX_INFO("domain {}: {} strings, {} dialogue topics", profile_->name, strings_.size(),
            dialogue_.topic_count());
 
   bindings_ = std::make_unique<script::skyrim::RecordBackedSkyrimBindings>(&records_);
@@ -93,7 +93,7 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
               for (const auto& f : fragments) binds->SetStageFragment(handle, f.stage, f.function);
             });
       });
-  REC_INFO("domain {}: instantiated {} scripts across {} quests", profile_->name, instances,
+  RX_INFO("domain {}: instantiated {} scripts across {} quests", profile_->name, instances,
            quests);
   return quests;
 }
@@ -102,4 +102,4 @@ void ContentDomain::Tick(f32 dt) {
   if (scripts_) scripts_->Tick(dt);
 }
 
-}  // namespace rec
+}  // namespace rx

@@ -7,7 +7,7 @@
 
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // The client side of asset streaming: a content-addressed cache on disk. Files
 // live under root/<shard>/<hash>.bin keyed by their content hash, so identical
@@ -54,6 +54,6 @@ class ContentStore {
   std::filesystem::path root_;
 };
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_CONTENT_STORE_H_

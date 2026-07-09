@@ -10,7 +10,7 @@
 #include "core/types.h"
 #include "quest/quest_system.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Quest state replication. Unlike entity snapshots, quest progress is sparse,
 // permanent, and must never be lost, so updates ride the reliable channel and
@@ -74,6 +74,6 @@ bool ApplyQuestUpdate(
     ByteSpan data,
     const std::function<void(u8 domain, const quest::QuestStatus&)>& sink);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_QUEST_REPLICATION_H_

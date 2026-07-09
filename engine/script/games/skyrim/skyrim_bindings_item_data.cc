@@ -10,7 +10,7 @@
 
 #include "bethesda/record.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 namespace {
 
 using papyrus::ObjectRef;
@@ -460,4 +460,4 @@ i32 RecordBackedSkyrimBindings::GetSpellDelivery(ObjectRef spell) {
   return SpitField(records_, ToFormId(spell), 20);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

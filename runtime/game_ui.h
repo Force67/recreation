@@ -8,7 +8,7 @@
 
 #include "core/types.h"
 
-namespace rec {
+namespace rx {
 
 class Window;
 class FlyCamera;
@@ -498,6 +498,6 @@ class GameUi {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_GAME_UI_H_

@@ -13,7 +13,7 @@
 #include "core/window.h"
 #include "engine_context.h"
 
-namespace rec {
+namespace rx {
 
 class ActorSystem;
 
@@ -36,7 +36,7 @@ class InteractionSystem {
 
   void OpenDialogue(u64 npc);
   void SelectDialogueOption(int index);
-  // Headless diagnostic (REC_DIALOGUE_PROBE): opens dialogue with `npc` and logs
+  // Headless diagnostic (RX_DIALOGUE_PROBE): opens dialogue with `npc` and logs
   // the topics it would offer, then closes it. Verifies speaker gating + topic
   // selection without the UI.
   void ReportDialogueWith(u64 npc);
@@ -123,6 +123,6 @@ class InteractionSystem {
   base::Vector<u64> trigger_scratch_;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_INTERACTION_SYSTEM_H_

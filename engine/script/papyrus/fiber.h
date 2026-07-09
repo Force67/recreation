@@ -9,7 +9,7 @@
 // The coroutine backend (minicoro) type, kept out of this header.
 struct mco_coro;
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // A latent native's request to suspend its activation: how long until it resumes.
 // real_seconds >= 0 is a real-time wait (Utility.Wait); game_days >= 0 is an
@@ -66,6 +66,6 @@ class Fiber {
   Context* ctx_;
 };
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_FIBER_H_

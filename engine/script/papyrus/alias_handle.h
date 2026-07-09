@@ -3,7 +3,7 @@
 
 #include "core/types.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // A quest alias addressed as an ObjectRef handle. A real form handle is a packed
 // GlobalFormId (plugin << 32 | local, at most 48 bits); an alias handle sets a
@@ -23,6 +23,6 @@ constexpr u64 AliasHandleQuest(u64 handle) { return (handle & (kAliasHandleTag -
 
 constexpr u32 AliasHandleAliasId(u64 handle) { return static_cast<u32>(handle & 0xfffu); }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_ALIAS_HANDLE_H_

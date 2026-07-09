@@ -17,8 +17,8 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 void MountArchives(asset::Vfs& vfs, const std::string& data_dir) {
   std::error_code ec;

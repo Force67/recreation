@@ -12,7 +12,7 @@
 #include "modstream/transfer_plan.h"
 #include "net/protocol.h"
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 namespace fs = std::filesystem;
@@ -65,7 +65,7 @@ void AssetStreamServer::SendManifest(u32 peer) {
                                                            bytes.data() + offset, len),
                             /*reliable=*/true, tx::network::PacketPriority::High));
   }
-  REC_INFO("net: sent manifest ({} files, {} bytes) to peer {}",
+  RX_INFO("net: sent manifest ({} files, {} bytes) to peer {}",
            catalog_->manifest().TotalFiles(), catalog_->manifest().TotalBytes(), peer);
 }
 
@@ -98,7 +98,7 @@ void AssetStreamServer::Worker() {
       jobs_.pop_front();
     }
     if (!transporter_.SendFile(ToBasePath(job.path), tx::network::ZPeerId(job.peer))) {
-      REC_WARN("net: asset stream failed to send {} to peer {}",
+      RX_WARN("net: asset stream failed to send {} to peer {}",
                job.path.string(), job.peer);
     }
   }
@@ -187,7 +187,7 @@ void AssetStreamClient::OnManifestComplete() {
   std::optional<modstream::ModManifest> decoded =
       modstream::DecodeManifest(manifest_buffer_);
   if (!decoded) {
-    REC_ERROR("net: received a corrupt asset manifest");
+    RX_ERROR("net: received a corrupt asset manifest");
     failed_ = true;
     return;
   }
@@ -196,7 +196,7 @@ void AssetStreamClient::OnManifestComplete() {
   const std::vector<modstream::NeededFile> plan =
       modstream::ComputeMissing(manifest_, store_);
   if (plan.empty()) {
-    REC_INFO("net: asset manifest complete, {} files already cached",
+    RX_INFO("net: asset manifest complete, {} files already cached",
              manifest_.TotalFiles());
     ready_ = true;
     SendReady();
@@ -208,7 +208,7 @@ void AssetStreamClient::OnManifestComplete() {
   for (const modstream::NeededFile& need : plan) remaining_[need.hash] = need.size;
   planned_files_ = plan.size();
   downloading_ = true;
-  REC_INFO("net: streaming {} mod files ({} bytes) from the server", plan.size(),
+  RX_INFO("net: streaming {} mod files ({} bytes) from the server", plan.size(),
            modstream::PlannedBytes(plan));
 
   // Request the missing hashes, split across packets to stay under the datagram
@@ -239,7 +239,7 @@ void AssetStreamClient::HandleChunk(
   for (auto it = transfer.pending.begin(); it != transfer.pending.end();) {
     bool completed = false;
     if (!transporter_.StreamChunkToFile(it->second, temp_dir, &completed)) {
-      REC_WARN("net: asset stream write failed for transfer {}", transfer_id);
+      RX_WARN("net: asset stream write failed for transfer {}", transfer_id);
       failed_ = true;
       transporter_.AbortStreamedFile(transfer_id);  // drop the half-written temp file
       transfers_.erase(transfer_id);
@@ -252,7 +252,7 @@ void AssetStreamClient::HandleChunk(
     if (transporter_.FinalizeStreamedFile(transfer_id, ToBasePath(out))) {
       OnFileFinished(out);
     } else {
-      REC_WARN("net: asset stream finalize failed for transfer {}", transfer_id);
+      RX_WARN("net: asset stream finalize failed for transfer {}", transfer_id);
       failed_ = true;
       transporter_.AbortStreamedFile(transfer_id);  // finalize already failed; clean up
     }
@@ -264,7 +264,7 @@ void AssetStreamClient::HandleChunk(
 void AssetStreamClient::OnFileFinished(const fs::path& path) {
   std::optional<modstream::ContentHash> hash = store_.Ingest(path);
   if (!hash) {
-    REC_WARN("net: failed to cache a streamed mod file");
+    RX_WARN("net: failed to cache a streamed mod file");
     failed_ = true;
     return;
   }
@@ -276,7 +276,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
     const size_t done = planned_files_ - remaining_.size();
     const size_t step = planned_files_ <= 20 ? 1 : planned_files_ / 10;
     if (done % step == 0) {
-      REC_INFO("net: streamed {}/{} mod files ({} bytes left)", done, planned_files_,
+      RX_INFO("net: streamed {}/{} mod files ({} bytes left)", done, planned_files_,
                bytes_remaining());
     }
   }
@@ -284,7 +284,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
   if (downloading_ && remaining_.empty()) {
     downloading_ = false;
     ready_ = true;
-    REC_INFO("net: all mod assets streamed, mounting {} files", manifest_.TotalFiles());
+    RX_INFO("net: all mod assets streamed, mounting {} files", manifest_.TotalFiles());
     SendReady();
     if (on_ready_) on_ready_(manifest_);
   }
@@ -296,4 +296,4 @@ void AssetStreamClient::SendReady() {
                           tx::network::PacketPriority::High));
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

@@ -4,7 +4,7 @@
 #include "core/types.h"
 #include "quest/condition.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 class RecordBackedSkyrimBindings;
 
@@ -44,6 +44,6 @@ class SkyrimConditionContext : public quest::ConditionContext {
   RecordBackedSkyrimBindings* bindings_;
 };
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_CONDITION_CONTEXT_H_

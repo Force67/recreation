@@ -12,11 +12,11 @@
 #include "core/types.h"
 #include "ecs/entity.h"
 
-namespace rec::ecs {
+namespace rx::ecs {
 class World;
 }
 
-namespace rec::world {
+namespace rx::world {
 
 // A world mutation a quest asked for, marshaled from the Papyrus guest thread to
 // the main thread (which owns the ECS). Every command carries the issuing quest
@@ -126,6 +126,6 @@ class QuestWorld {
   u64 player_handle_ = 0x14;
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_QUEST_WORLD_H_

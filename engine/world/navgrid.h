@@ -7,7 +7,7 @@
 #include "core/math.h"
 #include "core/types.h"
 
-namespace rec::world {
+namespace rx::world {
 
 // A persistent walkability grid over a square region of the world, sampled once
 // from a caller-supplied floor probe and reused across many path queries. It
@@ -72,6 +72,6 @@ class NavGrid {
   std::vector<f32> floor_y_;
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_NAVGRID_H_

@@ -18,13 +18,13 @@
 #include "script/papyrus/fiber.h"
 #include "script/papyrus/vm.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 namespace {
 
 using papyrus::ObjectRef;
 
-// REC_EVENT_TRACE logs every raised form event; was a function-local static.
-base::Option<bool> EventTrace{"event.trace", false, "REC_EVENT_TRACE"};
+// RX_EVENT_TRACE logs every raised form event; was a function-local static.
+base::Option<bool> EventTrace{"event.trace", false, "RX_EVENT_TRACE"};
 
 // Seconds the ScenePlayer dwells in each scene phase before advancing. Scenes
 // really pace on dialogue length / completion conditions; a fixed cadence keeps
@@ -747,11 +747,11 @@ f32 RecordBackedSkyrimBindings::GetActorValuePercentage(ObjectRef actor, const s
 void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target, const char* event,
                                                 std::vector<papyrus::Value> args) {
   const bool dispatched = vm_ && vm_->TryCall(ObjectRef{target}, event, std::move(args));
-  // REC_EVENT_TRACE logs every raised form event and whether a handler ran, so a
+  // RX_EVENT_TRACE logs every raised form event and whether a handler ran, so a
   // headless quest run shows which events the stage fragments actually produce.
   const bool trace = bool(EventTrace);
   if (trace)
-    REC_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
+    RX_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
 }
 
 void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* event,
@@ -1169,7 +1169,7 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
   // Scene fragments call SetStage, whose stage fragment can run more fragments;
   // share the stage-fragment depth guard so a cyclic chain cannot blow the stack.
   if (fragment_depth_ >= 32) {
-    REC_WARN("scene fragment recursion too deep at {}.{}", scene, function);
+    RX_WARN("scene fragment recursion too deep at {}.{}", scene, function);
     return;
   }
   ++fragment_depth_;
@@ -1179,7 +1179,7 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
   active_quest_ = owning_quest;
   u64 before = vm_->native_call_count();
   vm_->Call(papyrus::ObjectRef{scene}, function, {});
-  REC_DEBUG("scene fragment {} ran, {} native calls", function,
+  RX_DEBUG("scene fragment {} ran, {} native calls", function,
             vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
@@ -1226,7 +1226,7 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   // Stage fragments call SetStage on themselves and other quests; cap the depth
   // so a cyclic chain in the data cannot blow the guest stack.
   if (fragment_depth_ >= 32) {
-    REC_WARN("quest fragment recursion too deep at {}.{}", quest.handle, fit->second);
+    RX_WARN("quest fragment recursion too deep at {}.{}", quest.handle, fit->second);
     return;
   }
   ++fragment_depth_;
@@ -1236,7 +1236,7 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   active_quest_ = quest.handle;
   u64 before = vm_->native_call_count();
   vm_->Call(quest, fit->second, {});
-  REC_DEBUG("quest fragment {} (stage {}) ran, {} native calls", fit->second, stage,
+  RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", fit->second, stage,
             vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
@@ -1400,4 +1400,4 @@ bool RecordBackedSkyrimBindings::IsObjectiveCompleted(ObjectRef quest, i32 objec
   return quest_system_.IsObjectiveCompleted(quest.handle, objective);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

@@ -11,7 +11,7 @@
 #include "bethesda/nif.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Starfield ".mesh" positions are in metres (a small rock is ~0.6 units wide),
@@ -539,4 +539,4 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
   return !out->empty();
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

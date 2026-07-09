@@ -7,7 +7,7 @@
 #include "bethesda/plugin.h"  // plugin flag constants
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kTes4 = FourCc('T', 'E', 'S', '4');
@@ -205,7 +205,7 @@ bool PluginWriter::Save(const std::string& path) const {
   base::Vector<u8> bytes = Build();
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   if (!file) {
-    REC_ERROR("cannot open plugin for writing: {}", path);
+    RX_ERROR("cannot open plugin for writing: {}", path);
     return false;
   }
   file.write(reinterpret_cast<const char*>(bytes.data()),
@@ -237,4 +237,4 @@ RecordBuilder& RecordBuilder::EditorId(std::string_view editor_id) {
   return *this;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

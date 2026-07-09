@@ -8,7 +8,7 @@
 #include "script/papyrus/opcode.h"
 #include "script/papyrus/transpile_internal.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 using namespace detail;
@@ -441,4 +441,4 @@ std::string TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
   return out;
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

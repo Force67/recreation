@@ -11,7 +11,7 @@
 #include <ugui/render/texture_backend.h>
 #include <ugui/rhi/rhi_types.h>
 
-namespace rec::ui {
+namespace rx::ui {
 
 // Vulkan renderer backend for ultragui draw data. Adapted from the bundled
 // ugui_impl_vulkan to the recreation engine's conventions: volk entry points,
@@ -122,6 +122,6 @@ class GuiRenderBackend final : public ugui::TextureBackend {
   std::vector<VkDescriptorSet> frost_sets_;
 };
 
-}  // namespace rec::ui
+}  // namespace rx::ui
 
 #endif  // RECREATION_RUNTIME_GUI_BACKEND_H_

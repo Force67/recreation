@@ -12,12 +12,12 @@
 
 #include "bethesda/hkx.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // animationNames from the first hkbCharacterStringData in the file
 // ("Animations\MT_WalkForward.hkx", ...). Empty when the file has none.
 std::vector<std::string> DecodeAnimationNames(const HkxFile& hkx);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HKX_CHARACTER_H_

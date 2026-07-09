@@ -6,11 +6,11 @@
 
 #include "world/npc_ai.h"
 
-using rec::world::FollowSlot;
-using rec::world::SeparationOffset;
-using rec::world::SteerOutput;
-using rec::world::SteerParams;
-using rec::world::SteerToward;
+using rx::world::FollowSlot;
+using rx::world::SeparationOffset;
+using rx::world::SteerOutput;
+using rx::world::SteerParams;
+using rx::world::SteerToward;
 
 namespace {
 

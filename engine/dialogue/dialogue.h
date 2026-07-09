@@ -9,13 +9,13 @@
 #include "core/types.h"
 #include "quest/condition.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 class RecordStore;
 class StringTable;
 struct Record;
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
-namespace rec::dialogue {
+namespace rx::dialogue {
 
 // A dialogue form is addressed by its packed GlobalFormId, the same handle the
 // quest system and Papyrus guest use.
@@ -83,6 +83,6 @@ class DialogueDb {
   size_t topic_count_ = 0;
 };
 
-}  // namespace rec::dialogue
+}  // namespace rx::dialogue
 
 #endif  // RECREATION_DIALOGUE_DIALOGUE_H_

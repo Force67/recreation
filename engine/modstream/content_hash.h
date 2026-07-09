@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // FNV-1a/64 over a byte range. Matches the constants core/types.h uses for asset
 // ids, so the same content hashes the same everywhere in the engine.
@@ -25,6 +25,6 @@ struct ContentHasher {
   void Update(const void* data, size_t size);
 };
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_CONTENT_HASH_H_

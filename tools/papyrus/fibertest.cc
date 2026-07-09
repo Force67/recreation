@@ -15,14 +15,14 @@
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
 
-using rec::script::papyrus::Fiber;
-using rec::script::papyrus::FiberScheduler;
-using rec::script::papyrus::NativeFunction;
-using rec::script::papyrus::NativeRegistry;
-using rec::script::papyrus::ObjectRef;
-using rec::script::papyrus::Value;
-using rec::script::papyrus::VirtualMachine;
-using rec::script::skyrim::SkyrimBindings;
+using rx::script::papyrus::Fiber;
+using rx::script::papyrus::FiberScheduler;
+using rx::script::papyrus::NativeFunction;
+using rx::script::papyrus::NativeRegistry;
+using rx::script::papyrus::ObjectRef;
+using rx::script::papyrus::Value;
+using rx::script::papyrus::VirtualMachine;
+using rx::script::skyrim::SkyrimBindings;
 
 int main() {
   int failures = 0;
@@ -172,7 +172,7 @@ int main() {
   {
     SkyrimBindings binds;
     NativeRegistry reg;
-    rec::script::skyrim::RegisterSkyrimNatives(reg, &binds);
+    rx::script::skyrim::RegisterSkyrimNatives(reg, &binds);
     VirtualMachine vm(&reg);
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
     const NativeFunction* wait = reg.Find("Utility", "Wait");
@@ -196,7 +196,7 @@ int main() {
   {
     SkyrimBindings binds;
     NativeRegistry reg;
-    rec::script::skyrim::RegisterSkyrimNatives(reg, &binds);
+    rx::script::skyrim::RegisterSkyrimNatives(reg, &binds);
     VirtualMachine vm(&reg);
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
     const NativeFunction* wait_gt = reg.Find("Utility", "WaitGameTime");
@@ -219,7 +219,7 @@ int main() {
   //     fiber runner, but one reached while already on a fiber runs inline (it
   //     rides the caller's fiber).
   {
-    rec::script::skyrim::RecordBackedSkyrimBindings binds(nullptr);
+    rx::script::skyrim::RecordBackedSkyrimBindings binds(nullptr);
     NativeRegistry reg;
     VirtualMachine vm(&reg);
     binds.set_vm(&vm);

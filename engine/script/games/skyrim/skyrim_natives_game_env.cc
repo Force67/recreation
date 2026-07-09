@@ -3,7 +3,7 @@
 #include <cmath>
 #include <numbers>
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -49,4 +49,4 @@ void RegisterGameEnvironment(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   });
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

@@ -28,13 +28,13 @@
 #include "render/geometry/hair_groom.h"
 #include "world/components.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 // Config knobs, populated from the environment by base::InitOptionsFromEnv().
-base::Option<const char*> ChargenOut{"chargen.out", nullptr, "REC_CHARGEN_OUT",
+base::Option<const char*> ChargenOut{"chargen.out", nullptr, "RX_CHARGEN_OUT",
                                      "where the character-creation preset is saved/loaded"};
-base::Option<const char*> ChargenScript{"chargen.script", nullptr, "REC_CHARGEN_SCRIPT",
+base::Option<const char*> ChargenScript{"chargen.script", nullptr, "RX_CHARGEN_SCRIPT",
                                         "headless chargen edits applied after boot (e.g. nam9:3=0.8,page:1)"};
 
 constexpr f32 kStatusSeconds = 4.0f;
@@ -73,12 +73,12 @@ CharGen::~CharGen() {
 void CharGen::Enter() {
   if (active_) return;
   if (!ctx_.records || !ctx_.renderer || !ctx_.vfs || !ctx_.assets) {
-    REC_WARN("chargen: services not ready");
+    RX_WARN("chargen: services not ready");
     return;
   }
   BuildRaces();
   if (races_.empty()) {
-    REC_WARN("chargen: no playable human-head races resolved; not entering");
+    RX_WARN("chargen: no playable human-head races resolved; not entering");
     return;
   }
   race_ = 0;
@@ -94,7 +94,7 @@ void CharGen::Enter() {
 
   active_ = true;
   ctx_.walk_mode = false;
-  REC_INFO("chargen: entered ({} races, preview {} {}, {} presets)", races_.size(),
+  RX_INFO("chargen: entered ({} races, preview {} {}, {} presets)", races_.size(),
            races_[race_].display, sex_ ? "female" : "male", preset_count_);
   PushView();
 }
@@ -196,7 +196,7 @@ void CharGen::Reassemble(bool read_preset) {
   race_ = std::clamp(race_, 0, static_cast<int>(races_.size()) - 1);
   auto race = bethesda::ResolveRaceHead(*ctx_.records, races_[race_].form);
   if (!race) {
-    REC_WARN("chargen: no race head data for {}", races_[race_].edid);
+    RX_WARN("chargen: no race head data for {}", races_[race_].edid);
     return;
   }
   const bethesda::RaceSexHead& sh = sex_ == 1 ? race->female : race->male;
@@ -217,7 +217,7 @@ void CharGen::Reassemble(bool read_preset) {
     }
   }
   if (!ok) {
-    REC_WARN("chargen: no assemblable preset for {} {}", races_[race_].edid,
+    RX_WARN("chargen: no assemblable preset for {} {}", races_[race_].edid,
              sex_ ? "female" : "male");
     if (face_.parts().empty()) return;  // first boot with nothing: bail
   }
@@ -311,7 +311,7 @@ Vec3 CharGen::HeadBoneOffset() {
     s *= bone.bind_scale;
   }
   offset = Vec3{t.x, t.z, -t.y} * kUnitsToMeters;
-  REC_INFO("chargen: head bone rest at ({:.3f}, {:.3f}, {:.3f})", offset.x, offset.y, offset.z);
+  RX_INFO("chargen: head bone rest at ({:.3f}, {:.3f}, {:.3f})", offset.x, offset.y, offset.z);
   return offset;
 }
 
@@ -600,13 +600,13 @@ void CharGen::Save() {
   if (!out) {
     status_ = "Save failed: " + save_path_;
     status_age_ = 0;
-    REC_WARN("chargen: cannot open {} for writing", save_path_);
+    RX_WARN("chargen: cannot open {} for writing", save_path_);
     return;
   }
   out << chargen::SerializeCharGenPreset(p);
   status_ = "Saved to " + save_path_;
   status_age_ = 0;
-  REC_INFO("chargen: saved preset to {}", save_path_);
+  RX_INFO("chargen: saved preset to {}", save_path_);
 }
 
 bool CharGen::Load() {
@@ -629,7 +629,7 @@ bool CharGen::Load() {
   for (const auto& m : p.morphs) morphs_.push_back(m);
   hair_style_ = p.hair_style < 0 ? 0 : p.hair_style;
   hair_color_ = p.hair_color;
-  REC_INFO("chargen: loaded preset from {}", save_path_);
+  RX_INFO("chargen: loaded preset from {}", save_path_);
   return true;
 }
 
@@ -718,10 +718,10 @@ void CharGen::ApplyScript(const std::string& script) {
   face_.RebuildAndUpload();
   SpawnHeadEntities();
   RebuildHairGroom();
-  status_ = "Applied REC_CHARGEN_SCRIPT";
+  status_ = "Applied RX_CHARGEN_SCRIPT";
   status_age_ = 0;
   (void)edited;
-  REC_INFO("chargen: applied script '{}'", script);
+  RX_INFO("chargen: applied script '{}'", script);
 }
 
 void CharGen::Update(const InputState& input, f32 dt) {
@@ -947,4 +947,4 @@ void CharGen::PushView() {
   ctx_.game_ui->SetCharGenView(v);
 }
 
-}  // namespace rec
+}  // namespace rx

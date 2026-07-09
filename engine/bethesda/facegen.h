@@ -9,7 +9,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 class RecordStore;
 
@@ -167,6 +167,6 @@ std::optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalForm
 // Names of the 19 NAM9 sliders in file order, for dumps and UI labels.
 const char* FaceMorphName(u32 index);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_FACEGEN_H_

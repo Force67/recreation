@@ -7,7 +7,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 
-namespace rec::weather {
+namespace rx::weather {
 namespace {
 
 constexpr u32 kWthr = FourCc('W', 'T', 'H', 'R');
@@ -171,8 +171,8 @@ int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, W
         (*out)[def.form] = std::move(def);
         ++n;
       });
-  if (rad > 0) REC_INFO("weather: {} radiation storms", rad);
-  if (graded > 0) REC_INFO("weather: {} weathers colour-graded from authored sunlight", graded);
+  if (rad > 0) RX_INFO("weather: {} radiation storms", rad);
+  if (graded > 0) RX_INFO("weather: {} weathers colour-graded from authored sunlight", graded);
   return n;
 }
 
@@ -194,7 +194,7 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
         // the bar high (its thin Tamriel CLMT yields to the richer synthetic
         // spread + REGN); Starfield sets it to 1 (a planet authors one weather).
         if (static_cast<int>(list.size()) >= min_worldspace_weathers && !list.empty()) {
-          REC_INFO("weather: climate from worldspace {} ({} weathers)", worldspace_edid,
+          RX_INFO("weather: climate from worldspace {} ({} weathers)", worldspace_edid,
                    list.size());
           return list;
         }
@@ -210,13 +210,13 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
                        if (list.size() > best.size()) best = std::move(list);
                      });
   if (best.size() >= 4) {
-    REC_INFO("weather: climate from largest CLMT ({} weathers)", best.size());
+    RX_INFO("weather: climate from largest CLMT ({} weathers)", best.size());
     return best;
   }
 
   // 3) Synthetic spread over the loaded weather kinds.
   auto syn = Synthetic(weathers);
-  REC_INFO("weather: synthetic climate ({} kinds)", syn.size());
+  RX_INFO("weather: synthetic climate ({} kinds)", syn.size());
   return syn;
 }
 
@@ -268,4 +268,4 @@ int LoadRegions(const bethesda::RecordStore& records,
   return n;
 }
 
-}  // namespace rec::weather
+}  // namespace rx::weather

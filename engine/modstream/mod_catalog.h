@@ -7,7 +7,7 @@
 
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // The server side of asset streaming: a scan of the mods directory that both
 // describes what is offered (the manifest sent to clients) and resolves a
@@ -35,6 +35,6 @@ class ModCatalog {
   std::unordered_map<ContentHash, std::filesystem::path> by_hash_;
 };
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_MOD_CATALOG_H_

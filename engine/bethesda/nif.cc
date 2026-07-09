@@ -10,20 +10,20 @@
 #include "asset/asset_id.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Refraction-flagged shapes (SLSF1 bits 15/16) route to the screen-space
 // transmission path; off restores the old skip-them behaviour.
-base::Option<bool> NifRefraction{"nif.refraction", true, "REC_NIF_REFRACTION",
+base::Option<bool> NifRefraction{"nif.refraction", true, "RX_NIF_REFRACTION",
                                  "render refraction-flagged nif shapes as transmission"};
 // NiParticleSystem emitters parsed into asset::ParticleEmitter for the
 // renderer's cpu billboard simulation (fires, smoke, mist).
-base::Option<bool> NifParticles{"nif.particles", true, "REC_PARTICLES",
+base::Option<bool> NifParticles{"nif.particles", true, "RX_PARTICLES",
                                 "parse nif particle systems into runtime emitters"};
 // BSEffectShaderProperty geometry (torch/campfire flames, glow planes, mist
 // sheets) rendered as unlit emissive transparents; off restores the skip.
-base::Option<bool> NifEffectShaders{"nif.effect_shaders", true, "REC_EFFECT_SHADERS",
+base::Option<bool> NifEffectShaders{"nif.effect_shaders", true, "RX_EFFECT_SHADERS",
                                     "render nif effect-shader geometry as unlit emissive"};
 
 constexpr std::string_view kMagic = "Gamebryo File Format, Version ";
@@ -807,7 +807,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   NifConversion result;
   auto header = ParseNifHeader(data);
   if (!header) {
-    REC_WARN("unsupported nif: {}", source_path);
+    RX_WARN("unsupported nif: {}", source_path);
     return result;
   }
 
@@ -1235,17 +1235,17 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       u32 emissive_mul = c->effect ? 0u : 11u;
       if (c->variable == u_offset && rate != 0.0f) {
         info.uv_scroll_u = rate;
-        REC_INFO("nif: uv scroll u={}/s {}", rate, source_path);
+        RX_INFO("nif: uv scroll u={}/s {}", rate, source_path);
       } else if (c->variable == v_offset && rate != 0.0f) {
         info.uv_scroll_v = rate;
-        REC_INFO("nif: uv scroll v={}/s {}", rate, source_path);
+        RX_INFO("nif: uv scroll v={}/s {}", rate, source_path);
       } else if (c->variable == emissive_mul && keys->max_value > keys->min_value) {
         // Cyclic glow pulse: modulate emission by a sine around the key mean.
         f32 mean = (keys->max_value + keys->min_value) * 0.5f;
         f32 amount = mean > 1e-4f ? (keys->max_value - keys->min_value) * 0.5f / mean : 0.0f;
         info.emissive_pulse[0] = 1.0f / duration;  // one cycle over the key span
         info.emissive_pulse[1] = std::clamp(amount, 0.0f, 1.0f);
-        REC_INFO("nif: emissive pulse {:.2f}Hz amount {:.2f} {}", info.emissive_pulse[0],
+        RX_INFO("nif: emissive pulse {:.2f}Hz amount {:.2f} {}", info.emissive_pulse[0],
                  info.emissive_pulse[1], source_path);
       }
     }
@@ -1304,7 +1304,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
           if ((shader->shader_type == 3 || shader->shader_type == 7) && set->size() > 3 &&
               !(*set)[3].empty()) {
             height = NormalizeTexturePath((*set)[3]);
-            REC_INFO("nif: parallax height map {}", height);
+            RX_INFO("nif: parallax height map {}", height);
           }
           if (glow_mapped && set->size() > 2 && !(*set)[2].empty()) {
             glow = NormalizeTexturePath((*set)[2]);
@@ -1683,7 +1683,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         }
       }
     }
-    REC_DEBUG("nif: psys tex='{}' additive={} rate={} alpha_flags={:#x} {}", texture, additive,
+    RX_DEBUG("nif: psys tex='{}' additive={} rate={} alpha_flags={:#x} {}", texture, additive,
               rate, alpha ? alpha->flags : 0u, source_path);
     bool known_class = texture.find("fire") != std::string::npos ||
                        texture.find("flame") != std::string::npos ||
@@ -1751,7 +1751,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         out.subtex_frames = psys_data->frames;
         out.subtex_cols = psys_data->cols;
         out.subtex_rows = psys_data->rows;
-        REC_INFO("vfx: flipbook {}x{} ({} frames) '{}' {}", psys_data->cols, psys_data->rows,
+        RX_INFO("vfx: flipbook {}x{} ({} frames) '{}' {}", psys_data->cols, psys_data->rows,
                  psys_data->frames, texture, source_path);
       }
       for (i32 gm : psys.modifiers) {
@@ -2002,7 +2002,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     mesh->skinned = true;
     result.skinned = true;
     if (mesh->skin.bones.size() > 256) {
-      REC_WARN("nif {} skins {} bones, over the 256 GPU palette limit",
+      RX_WARN("nif {} skins {} bones, over the 256 GPU palette limit",
                source_path, mesh->skin.bones.size());
     }
   }
@@ -2103,4 +2103,4 @@ bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) 
   return !out->bones.empty();
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

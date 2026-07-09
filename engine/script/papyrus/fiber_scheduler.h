@@ -8,7 +8,7 @@
 #include "core/types.h"
 #include "script/papyrus/fiber.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // Runs script activations on fibers so a latent native (Utility.Wait) can suspend
 // the whole call chain and resume it later. An activation that does not wait runs
@@ -69,6 +69,6 @@ class FiberScheduler {
   std::vector<Parked> parked_;
 };
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_FIBER_SCHEDULER_H_

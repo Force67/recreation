@@ -81,8 +81,8 @@ shows the most recent entries (the first bullet of each release is its headline)
   the WMA inside FUZ voice files, and Starfield's Wwise .wem
 - Region ambience: walking into an area cross-fades to the bed its REGN record
   authors, resolved through the game's SOUN/SNDR sound files; indoors falls silent
-- Suppression and level controls: REC_AUDIO_MUTE (base::Option "audio.mute") opens
-  no device and runs silent, REC_AUDIO_VOLUME ("audio.volume") sets the master level
+- Suppression and level controls: RX_AUDIO_MUTE (base::Option "audio.mute") opens
+  no device and runs silent, RX_AUDIO_VOLUME ("audio.volume") sets the master level
 
 ## [0.4.0] - 2026-06-23
 ### Added

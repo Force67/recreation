@@ -9,7 +9,7 @@
 #include "asset/vfs.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Localized plugins store string ids instead of inline text. The actual
 // strings live in strings/<plugin>_<language>.strings (.dlstrings and
@@ -27,6 +27,6 @@ class StringTable {
   base::UnorderedMap<u32, base::String> strings_;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_STRINGS_H_

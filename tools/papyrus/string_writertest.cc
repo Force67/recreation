@@ -87,7 +87,7 @@ void RunVariant(const char* label, bool length_prefixed, const std::string& dir)
   const std::string s_unicode = "caf\xC3\xA9 \xF0\x9F\x97\xA1";  // "café [dagger]"
   const std::string s_long(300, 'X');                            // spans a >255 length
 
-  rec::bethesda::StringTableWriter w;
+  rx::bethesda::StringTableWriter w;
   u32 id_hello = w.Add(s_hello);
   u32 id_empty = w.Add(s_empty);
   u32 id_unicode = w.Add(s_unicode);
@@ -151,7 +151,7 @@ void RunVariant(const char* label, bool length_prefixed, const std::string& dir)
 // Confirms Set() honors explicit ids and keeps auto-assignment past them.
 void TestExplicitIds() {
   std::puts("string table explicit ids:");
-  rec::bethesda::StringTableWriter w;
+  rx::bethesda::StringTableWriter w;
   w.Set(100, "hundred");
   w.Set(5, "five");
   w.Set(100, "hundred-updated");  // overwrite, no new entry

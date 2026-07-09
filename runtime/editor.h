@@ -18,21 +18,21 @@
 #include "thumbnailer.h"
 #include "world/components.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 class RecordStore;
 class StringTable;
-}  // namespace rec::bethesda
-namespace rec::world {
+}  // namespace rx::bethesda
+namespace rx::world {
 class CellStreamer;
-}  // namespace rec::world
-namespace rec::render {
+}  // namespace rx::world
+namespace rx::render {
 struct PointLight;
-}  // namespace rec::render
-namespace rec::asset {
+}  // namespace rx::render
+namespace rx::asset {
 struct Mesh;
-}  // namespace rec::asset
+}  // namespace rx::asset
 
-namespace rec {
+namespace rx {
 
 struct EngineContext;
 struct InputState;
@@ -207,7 +207,7 @@ class MapEditor {
   void UpdateGhost(const InputState& input);
   void ClearGhost();
   // Drops a curated row of assets on the ground ahead of the camera and saves
-  // the layout. Driven by REC_EDITOR_DEMO so a capture (or a save/load round
+  // the layout. Driven by RX_EDITOR_DEMO so a capture (or a save/load round
   // trip) needs no interactive clicks.
   void PlaceDemoBuild();
   void SelectUnderCursor(const InputState& input, bool additive);
@@ -326,6 +326,6 @@ class MapEditor {
   bool layout_loaded_ = false;  // auto-load the saved layout once, on first entry
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_EDITOR_H_

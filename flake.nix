@@ -35,9 +35,18 @@
       url = "path:/home/captainspark/Documents/Projects/nanobuf";
       flake = false;
     };
+
+    # rx: the extracted generic engine (core/ecs/asset/render/physics/anim/
+    # audio/rpc + the imgui/cgltf/stb vendored libs and the FSR3/DLSS/NRD/Jolt
+    # SDKs). Same co-developed-sibling treatment as zetanet/nanobuf: a path
+    # input so local engine edits reach the sandbox without a commit.
+    rx-src = {
+      url = "path:/home/captainspark/Documents/Projects/rx";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src, nanobuf-src }:
+  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src, nanobuf-src, rx-src }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems
@@ -103,6 +112,7 @@
           cmakeFlags = fetchContentFlags ++ [
             "-DRECREATION_ZETANET_DIR=${zetanet-src}"
             "-DRECREATION_NANOBUF_DIR=${nanobuf-src}"
+            "-DRECREATION_RX_DIR=${rx-src}"
             "-DRECREATION_AUDIO_FFMPEG=ON"
           ];
 

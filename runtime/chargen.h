@@ -15,7 +15,7 @@
 #include "face.h"
 #include "game_ui.h"
 
-namespace rec {
+namespace rx {
 
 struct EngineContext;
 struct InputState;
@@ -28,7 +28,7 @@ struct InputState;
 // own fixed-geometry panels (game_ui.h kCg* constants) against the raw cursor, so
 // the overlay is a pure view. A slider drag re-morphs the head every frame
 // (RebuildAndUpload, a few ms); skin tone re-bakes on release (the bake versions
-// GPU ids). Boots via REC_CHARGEN (see content_load.cc); mirrors MapEditor.
+// GPU ids). Boots via RX_CHARGEN (see content_load.cc); mirrors MapEditor.
 class CharGen {
  public:
   explicit CharGen(EngineContext& ctx);
@@ -37,11 +37,11 @@ class CharGen {
   bool active() const { return active_; }
 
   // Build the race/hair catalogs, assemble the base preview head, frame the
-  // camera and open the overlay. Loads a saved preset (REC_CHARGEN_OUT, default
+  // camera and open the overlay. Loads a saved preset (RX_CHARGEN_OUT, default
   // chargen_preset.json) when one exists. A no-op with no resolvable races.
   void Enter();
 
-  // Per-frame tick while active: applies REC_CHARGEN_SCRIPT once, hit-tests the
+  // Per-frame tick while active: applies RX_CHARGEN_SCRIPT once, hit-tests the
   // panels (slider drag / cyclers / race / sex / preset / page / actions), orbits
   // the camera on a viewport drag (wheel zooms head<->bust), and pushes the
   // CharGenView into the overlay.
@@ -164,6 +164,6 @@ class CharGen {
   f32 elapsed_ = 0.0f;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_CHARGEN_H_

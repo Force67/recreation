@@ -4,12 +4,12 @@
 #include "core/types.h"
 #include "quest/condition.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 struct Record;
 class RecordStore;
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Transpiles one CTDA subrecord payload into a native Comparison. Returns false
 // if the payload is too short to be a CTDA. Handles the 28-byte classic layout
@@ -32,6 +32,6 @@ void ResolveConditionForms(ConditionList& conditions, const bethesda::RecordStor
 // importer parses CTDA per stage/objective rather than calling this.
 ConditionList ParseConditions(const bethesda::Record& record);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_CTDA_H_

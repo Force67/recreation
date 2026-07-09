@@ -1,6 +1,6 @@
 #include "script/games/skyrim/skyrim_natives_ext.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -24,4 +24,4 @@ void RegisterFormExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Form", "UnregisterForTrackedStatsEvent", noop);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

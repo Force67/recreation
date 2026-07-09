@@ -15,7 +15,7 @@
 #include "world/components.h"
 #include "world/interaction.h"
 
-namespace rec {
+namespace rx {
 
 InteractionSystem::InteractionSystem(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx),
@@ -153,7 +153,7 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
   }
 
   if (activate_pressed) {
-    REC_INFO("activate: {} (0x{:x})", activate_label_, handle);
+    RX_INFO("activate: {} (0x{:x})", activate_label_, handle);
     // Raise the player-use hook for mods (gmod-style) before the built-in
     // affordances. Fires on the main thread; drained into managed next frame.
     if (ctx_.managed)
@@ -253,17 +253,17 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             return s;
           })
           .get();
-  REC_INFO("dialogue: opened with '{}' ({} topics)", dialogue_session_.speaker,
+  RX_INFO("dialogue: opened with '{}' ({} topics)", dialogue_session_.speaker,
            dialogue_session_.options.size());
 }
 
 void InteractionSystem::ReportDialogueWith(u64 npc) {
   OpenDialogue(npc);
-  REC_INFO("dialogue probe: '{}' offers {} topic(s):", dialogue_session_.speaker,
+  RX_INFO("dialogue probe: '{}' offers {} topic(s):", dialogue_session_.speaker,
            dialogue_session_.options.size());
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
     const DialogueOption& o = dialogue_session_.options[i];
-    REC_INFO("  [{}] \"{}\" -> info 0x{:x}{}", i,
+    RX_INFO("  [{}] \"{}\" -> info 0x{:x}{}", i,
              o.player_line.empty() ? "(forcegreet/silent)" : o.player_line, o.info,
              o.fragment_function.empty() ? "" : " [has fragment]");
   }
@@ -379,7 +379,7 @@ void InteractionSystem::UpdateTriggers() {
         vol.center = Vec3{t.position[0], t.position[1], t.position[2]};
         vol.half_extents = Vec3{std::fabs(b[0]) * s, std::fabs(b[2]) * s, std::fabs(b[1]) * s};
         triggers_.insert(handle, vol);
-        REC_INFO("trigger: registered scripted volume 0x{:x}", handle);
+        RX_INFO("trigger: registered scripted volume 0x{:x}", handle);
       });
 
   Vec3 player;
@@ -401,12 +401,12 @@ void InteractionSystem::UpdateTriggers() {
                         std::fabs(player.y - v.center.y) <= v.half_extents.y &&
                         std::fabs(player.z - v.center.z) <= v.half_extents.z;
     if (inside && !entry.value.inside) {
-      REC_INFO("trigger: player entered 0x{:x}, raising OnTriggerEnter", entry.key);
+      RX_INFO("trigger: player entered 0x{:x}, raising OnTriggerEnter", entry.key);
       ctx_.scripts->guest().RaiseEvent(
           script::papyrus::ObjectRef{entry.key}, "OnTriggerEnter",
           {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
     } else if (!inside && entry.value.inside) {
-      REC_INFO("trigger: player left 0x{:x}, raising OnTriggerLeave", entry.key);
+      RX_INFO("trigger: player left 0x{:x}, raising OnTriggerLeave", entry.key);
       ctx_.scripts->guest().RaiseEvent(
           script::papyrus::ObjectRef{entry.key}, "OnTriggerLeave",
           {script::papyrus::Value::Object(script::papyrus::ObjectRef{0x14})});
@@ -461,13 +461,13 @@ void InteractionSystem::EnterThroughDoor(bethesda::GlobalFormId dest_door, const
   if (interior.plugin != 0xffff) {
     Vec3 spawn;
     if (!ctx_.streamer->EnterInterior(world_, interior, &spawn)) {
-      REC_WARN("door: failed to enter interior {:04x}:{:06x}", interior.plugin, interior.local_id);
+      RX_WARN("door: failed to enter interior {:04x}:{:06x}", interior.plugin, interior.local_id);
       return;
     }
-    REC_INFO("door: entered interior {:04x}:{:06x}", interior.plugin, interior.local_id);
+    RX_INFO("door: entered interior {:04x}:{:06x}", interior.plugin, interior.local_id);
   } else {
     ctx_.streamer->EnterExterior(world_);
-    REC_INFO("door: returned to the exterior worldspace");
+    RX_INFO("door: returned to the exterior worldspace");
   }
 
   // Bethesda -> engine (mirrors CellStreamer): meters, axes (x, z, -y).
@@ -522,7 +522,7 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
     s.items.push_back(std::move(ci));
   }
   container_session_ = std::move(s);
-  REC_INFO("container: opened '{}' ({} items)", container_session_.name,
+  RX_INFO("container: opened '{}' ({} items)", container_session_.name,
            container_session_.items.size());
   return true;
 }
@@ -534,4 +534,4 @@ void InteractionSystem::UpdateContainerInput(const InputState& input, const Acti
   if (actions.pressed(Action::kMenuCancel)) CloseContainer();  // Esc / pad B
 }
 
-}  // namespace rec
+}  // namespace rx

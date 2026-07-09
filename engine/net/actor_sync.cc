@@ -8,7 +8,7 @@
 #include "net/replication.h"
 #include "world/components.h"
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // Fixed 36-byte little-endian record: u64 form | 3xf32 pos | 4xf32 rot.
@@ -150,4 +150,4 @@ void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
   }
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

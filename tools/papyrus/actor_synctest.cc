@@ -15,12 +15,12 @@
 #include "world/quest_world.h"
 
 using Handle = std::uint64_t;
-using rec::net::ActorReplicator;
-using rec::net::ActorState;
-using rec::world::FormLink;
-using rec::world::Npc;
-using rec::world::QuestWorld;
-using rec::world::Transform;
+using rx::net::ActorReplicator;
+using rx::net::ActorState;
+using rx::world::FormLink;
+using rx::world::Npc;
+using rx::world::QuestWorld;
+using rx::world::Transform;
 
 namespace {
 int g_failures = 0;
@@ -30,14 +30,14 @@ void Check(const char* what, bool ok) {
 }
 
 // Creates an NPC entity at (x,_,z) and registers it by form handle.
-rec::ecs::Entity MakeNpc(rec::ecs::World& w, QuestWorld& qw, Handle form, float x, float z) {
-  rec::ecs::Entity e = w.Create();
+rx::ecs::Entity MakeNpc(rx::ecs::World& w, QuestWorld& qw, Handle form, float x, float z) {
+  rx::ecs::Entity e = w.Create();
   Transform t;
   t.position[0] = x;
   t.position[2] = z;
   w.Add(e, t);
-  w.Add(e, FormLink{rec::bethesda::GlobalFormId{static_cast<rec::u16>(form >> 32),
-                                                static_cast<rec::u32>(form)}});
+  w.Add(e, FormLink{rx::bethesda::GlobalFormId{static_cast<rx::u16>(form >> 32),
+                                                static_cast<rx::u32>(form)}});
   w.Add(e, Npc{});
   qw.Register(form, e);
   return e;
@@ -49,39 +49,39 @@ int main() {
   const Handle kForm = (Handle{1} << 32) | 0x000ABC;
 
   // --- host ---
-  rec::ecs::World host;
+  rx::ecs::World host;
   QuestWorld host_qw(host);
-  rec::ecs::Entity npc = MakeNpc(host, host_qw, kForm, 0.0f, 0.0f);
+  rx::ecs::Entity npc = MakeNpc(host, host_qw, kForm, 0.0f, 0.0f);
 
   ActorReplicator rep;
   Check("first build seeds without emitting (clients have spawn pose)",
-        rep.Build(rec::net::CollectActorStates(host)).empty());
+        rep.Build(rx::net::CollectActorStates(host)).empty());
 
   // The host moves the NPC (e.g. shoved by a player).
   host.Get<Transform>(npc)->position[0] = 5.0f;
-  std::vector<ActorState> changed = rep.Build(rec::net::CollectActorStates(host));
+  std::vector<ActorState> changed = rep.Build(rx::net::CollectActorStates(host));
   Check("a moved NPC is emitted", changed.size() == 1 && changed[0].form == kForm);
   Check("emitted position is the new one", changed.size() == 1 && changed[0].pos[0] == 5.0f);
 
   Check("a second build with no movement emits nothing",
-        rep.Build(rec::net::CollectActorStates(host)).empty());
+        rep.Build(rx::net::CollectActorStates(host)).empty());
 
   // --- wire ---
-  std::vector<rec::u8> blob = rec::net::EncodeActorStates(changed);
-  auto decoded = rec::net::DecodeActorStates(rec::ByteSpan(blob.data(), blob.size()));
+  std::vector<rx::u8> blob = rx::net::EncodeActorStates(changed);
+  auto decoded = rx::net::DecodeActorStates(rx::ByteSpan(blob.data(), blob.size()));
   Check("decodes", decoded.has_value() && decoded->size() == 1);
 
   // --- client: same NPC loaded from cell data, still at spawn ---
-  rec::ecs::World client;
+  rx::ecs::World client;
   QuestWorld client_qw(client);
-  rec::ecs::Entity cnpc = MakeNpc(client, client_qw, kForm, 0.0f, 0.0f);
+  rx::ecs::Entity cnpc = MakeNpc(client, client_qw, kForm, 0.0f, 0.0f);
 
-  rec::net::ApplyActorStates(client, client_qw, *decoded, /*lerp=*/0.1f);
+  rx::net::ApplyActorStates(client, client_qw, *decoded, /*lerp=*/0.1f);
   Check("apply does not duplicate the entity", client_qw.Find(kForm) == cnpc);
   Check("client NPC has not snapped yet (interpolating)",
         client.Get<Transform>(cnpc)->position[0] == 0.0f);
 
-  rec::net::TickInterpolation(client, 0.2f);  // past the lerp duration
+  rx::net::TickInterpolation(client, 0.2f);  // past the lerp duration
   Check("client NPC reaches the authoritative position",
         client.Get<Transform>(cnpc)->position[0] == 5.0f);
 
@@ -89,8 +89,8 @@ int main() {
   std::vector<ActorState> stray(1);
   stray[0].form = (Handle{9} << 32) | 0x123;
   stray[0].pos[0] = 99.0f;
-  rec::net::ApplyActorStates(client, client_qw, stray, 0.1f);  // must not crash
-  Check("unknown form is ignored", client_qw.Find(stray[0].form).index == rec::ecs::kInvalidEntity.index);
+  rx::net::ApplyActorStates(client, client_qw, stray, 0.1f);  // must not crash
+  Check("unknown form is ignored", client_qw.Find(stray[0].form).index == rx::ecs::kInvalidEntity.index);
 
   if (g_failures) {
     std::printf("FAILED: %d check(s)\n", g_failures);

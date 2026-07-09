@@ -7,7 +7,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 
-namespace rec::audio {
+namespace rx::audio {
 namespace {
 
 constexpr u32 kSndr = FourCc('S', 'N', 'D', 'R');
@@ -87,7 +87,7 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
     if (!fnam.empty()) paths_[id.packed()] = NormalizeSoundPath(fnam);
   });
 
-  REC_INFO("audio: sound catalog built, {} sound forms", paths_.size());
+  RX_INFO("audio: sound catalog built, {} sound forms", paths_.size());
 }
 
 std::string SoundCatalog::PathFor(bethesda::GlobalFormId form) const {
@@ -95,4 +95,4 @@ std::string SoundCatalog::PathFor(bethesda::GlobalFormId form) const {
   return it != paths_.end() ? it->second : std::string{};
 }
 
-}  // namespace rec::audio
+}  // namespace rx::audio

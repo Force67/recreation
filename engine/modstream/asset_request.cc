@@ -1,6 +1,6 @@
 #include "modstream/asset_request.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 void PutU32(std::vector<u8>& out, u32 v) {
@@ -48,4 +48,4 @@ std::optional<std::vector<ContentHash>> DecodeHashRequest(const u8* data, size_t
   return hashes;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

@@ -21,8 +21,8 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 std::string Lower(std::string s) {
   std::ranges::transform(s, s.begin(), [](char c) { return (char)std::tolower((unsigned char)c); });
@@ -71,8 +71,8 @@ int main(int argc, char** argv) {
 
   // The native table the engine ships (timers/debug from the guest, plus the
   // Skyrim surface).
-  rec::script::PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
+  rx::script::PapyrusGuest guest(bethesda::Game::kSkyrimSe);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
   const NativeRegistry& reg = guest.natives();
 
   int total = 0;

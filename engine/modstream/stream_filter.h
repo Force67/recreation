@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // A per-resource deny list controlling which files reach clients, so server-only
 // configs, source data and secrets can sit in the mods directory without being
@@ -40,6 +40,6 @@ class StreamFilter {
   std::vector<std::string> ext_suffixes_;  // e.g. ".bak"
 };
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_STREAM_FILTER_H_

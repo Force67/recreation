@@ -17,7 +17,7 @@
 #include "bethesda/hkx.h"
 #include "core/math.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 struct HkxTrackPose {
   Vec3 translation{};
@@ -63,6 +63,6 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx);
 // Samples all tracks at `time` (clamped to [0, duration]).
 void SampleAnimation(const HkxAnimation& animation, f32 time, std::vector<HkxTrackPose>* out);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HKX_ANIM_H_

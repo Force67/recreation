@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // 64-bit content fingerprint (FNV-1a over the file bytes). A file is identified
 // by what it contains, so identical files across resources collapse to one
@@ -46,6 +46,6 @@ struct ModManifest {
   bool operator==(const ModManifest&) const = default;
 };
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_MOD_RESOURCE_H_

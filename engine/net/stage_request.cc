@@ -2,7 +2,7 @@
 
 #include <nanobuf.h>
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // The whole request is a single fixed-size little-endian record, so there is no
@@ -56,4 +56,4 @@ std::optional<StageRequest> DecodeStageRequest(ByteSpan data) {
   return req;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

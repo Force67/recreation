@@ -7,7 +7,7 @@
 #include "core/log.h"
 #include "script/papyrus/fiber.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 std::string Lower(std::string s) {
@@ -214,7 +214,7 @@ Value Frame::Run() {
   u32 latent_waits = 0;
   while (ip < code.size()) {
     if (++executed > kMaxInstructions) {
-      REC_WARN("papyrus: {}.{} exceeded {} instructions, aborting", pex_.Str(object_.name),
+      RX_WARN("papyrus: {}.{} exceeded {} instructions, aborting", pex_.Str(object_.name),
                fn_name_.empty() ? "?" : fn_name_, kMaxInstructions);
       return Value();
     }
@@ -313,7 +313,7 @@ Value Frame::Run() {
         // once, so a poll loop would spin: keep bailing that case after a few spins.
         if (IsLatentWait(object, method) && !Fiber::current() &&
             ++latent_waits > kMaxLatentWaits) {
-          REC_WARN("papyrus: {}.{} bailed a latent {}.{}() wait loop after {} waits",
+          RX_WARN("papyrus: {}.{} bailed a latent {}.{}() wait loop after {} waits",
                    pex_.Str(object_.name), fn_name_.empty() ? "?" : fn_name_, object, method,
                    kMaxLatentWaits);
           return Value();
@@ -410,7 +410,7 @@ Value Frame::Run() {
         break;
       }
       default:
-        REC_WARN("papyrus: unknown opcode 0x{:02x}", static_cast<int>(in.op));
+        RX_WARN("papyrus: unknown opcode 0x{:02x}", static_cast<int>(in.op));
         break;
     }
     ip = next;
@@ -426,4 +426,4 @@ Value ExecuteFunction(const PexFile& pex, const Object& object, const Function& 
   return frame.Run();
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

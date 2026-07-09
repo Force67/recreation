@@ -11,18 +11,18 @@
 #include "world/components.h"
 #include "world/quest_world.h"
 
-// Handles are addressed with std::uint64_t here rather than rec::u64: linking the
+// Handles are addressed with std::uint64_t here rather than rx::u64: linking the
 // world (-> physics -> arch_types) makes the bare name `u64` ambiguous in this
-// global scope. The WorldCommand fields are rec::u64 and convert implicitly.
+// global scope. The WorldCommand fields are rx::u64 and convert implicitly.
 using Handle = std::uint64_t;
 
-using namespace rec;
-using rec::world::Hidden;
-using rec::world::QuestWorld;
-using rec::world::Transform;
-using rec::world::WorldCommand;
-using rec::world::WorldCommandQueue;
-using rec::world::WorldOp;
+using namespace rx;
+using rx::world::Hidden;
+using rx::world::QuestWorld;
+using rx::world::Transform;
+using rx::world::WorldCommand;
+using rx::world::WorldCommandQueue;
+using rx::world::WorldOp;
 
 namespace {
 
@@ -120,8 +120,8 @@ int main() {
   // the runtime can switch cells when it names an interior.
   bool moved = false;
   f32 player_x = 0;
-  rec::u64 dest_ref = 0;
-  qw.set_on_move_player([&](rec::u64 ref, f32 x, f32, f32) {
+  rx::u64 dest_ref = 0;
+  qw.set_on_move_player([&](rx::u64 ref, f32 x, f32, f32) {
     moved = true;
     player_x = x;
     dest_ref = ref;

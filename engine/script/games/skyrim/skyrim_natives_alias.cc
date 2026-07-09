@@ -1,7 +1,7 @@
 #include "script/games/skyrim/skyrim_natives_ext.h"
 #include "script/papyrus/alias_handle.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -32,4 +32,4 @@ void RegisterAliasExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("ReferenceAlias", "RemoveInventoryEventFilter", noop);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

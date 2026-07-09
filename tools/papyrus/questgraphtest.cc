@@ -10,8 +10,8 @@
 #include "quest/condition.h"
 #include "quest/quest_graph.h"
 
-using namespace rec;
-using namespace rec::quest;
+using namespace rx;
+using namespace rx::quest;
 
 namespace {
 

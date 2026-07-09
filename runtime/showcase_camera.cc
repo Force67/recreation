@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace rec {
+namespace rx {
 
 void ShowcaseCamera::Add(Waypoint wp) {
   total_ = keys_.empty() ? 0.0f : total_ + std::max(0.0f, wp.travel);
@@ -54,4 +54,4 @@ int ShowcaseCamera::CaptureCrossed(f32 prev_t, f32 t, std::string* label) const 
   return -1;
 }
 
-}  // namespace rec
+}  // namespace rx

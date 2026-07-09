@@ -4,13 +4,13 @@ using Recreation.Modding;
 namespace Recreation.Net.Samples;
 
 // Two-process demo of native multiplayer sync: the server publishes shared state
-// and chat, the client logs what it receives over the wire. Gated on REC_WIRE_DEMO.
+// and chat, the client logs what it receives over the wire. Gated on RX_WIRE_DEMO.
 [Mod("WireSyncServer"), Realm(ModRealm.Server)]
 public sealed class WireSyncServer : IMod
 {
     public void OnLoad()
     {
-        if (Environment.GetEnvironmentVariable("REC_WIRE_DEMO") == null) return;
+        if (Environment.GetEnvironmentVariable("RX_WIRE_DEMO") == null) return;
         Console.WriteLine("[wiresync/server] online; publishing shared state");
         StateBags.Global.Set("motd", "Synced over the wire by recreation");
 
@@ -30,7 +30,7 @@ public sealed class WireSyncClient : IMod
 {
     public void OnLoad()
     {
-        if (Environment.GetEnvironmentVariable("REC_WIRE_DEMO") == null) return;
+        if (Environment.GetEnvironmentVariable("RX_WIRE_DEMO") == null) return;
         Console.WriteLine("[wiresync/client] online; watching for replicated state");
 
         StateBags.Global.OnChange("motd", c =>

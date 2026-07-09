@@ -7,7 +7,7 @@
 
 #include "modstream/content_hash.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 namespace fs = std::filesystem;
@@ -130,4 +130,4 @@ std::optional<ContentHash> ContentStore::Ingest(const fs::path& source) {
   return hash;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

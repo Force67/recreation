@@ -9,13 +9,13 @@
 #include "net/objective_marker_net.h"
 
 // zetanet's headers (pulled in via net/objective_marker_net.h's siblings) inject
-// their own scalar aliases, so scalar types stay fully qualified as rec::.
+// their own scalar aliases, so scalar types stay fully qualified as rx::.
 namespace {
 
-using rec::ByteSpan;
-using rec::net::DecodeObjectiveMarker;
-using rec::net::EncodeObjectiveMarker;
-using rec::net::ObjectiveMarkerState;
+using rx::ByteSpan;
+using rx::net::DecodeObjectiveMarker;
+using rx::net::EncodeObjectiveMarker;
+using rx::net::ObjectiveMarkerState;
 
 int g_failures = 0;
 
@@ -30,7 +30,7 @@ bool Same(const ObjectiveMarkerState& a, const ObjectiveMarkerState& b) {
 }
 
 void RoundTrip(const char* what, const ObjectiveMarkerState& m) {
-  std::vector<rec::u8> blob = EncodeObjectiveMarker(m);
+  std::vector<rx::u8> blob = EncodeObjectiveMarker(m);
   Check("encoding is exactly 21 bytes", blob.size() == 21);
   std::optional<ObjectiveMarkerState> decoded = DecodeObjectiveMarker(blob);
   Check(what, decoded.has_value() && Same(m, *decoded));
@@ -59,13 +59,13 @@ void TestSizeRejection() {
   // Empty buffer has nothing to read.
   Check("empty buffer rejected", !DecodeObjectiveMarker(ByteSpan()).has_value());
 
-  std::vector<rec::u8> valid = EncodeObjectiveMarker(
+  std::vector<rx::u8> valid = EncodeObjectiveMarker(
       ObjectiveMarkerState{.active = true, .quest = 7, .x = 1, .y = 2, .z = 3});
 
   // Every truncation must be rejected and must never read out of bounds.
   bool every_truncation_rejected = true;
   for (size_t cut = 0; cut < valid.size(); ++cut) {
-    std::vector<rec::u8> shorter(valid.begin(), valid.begin() + cut);
+    std::vector<rx::u8> shorter(valid.begin(), valid.begin() + cut);
     if (DecodeObjectiveMarker(shorter).has_value()) {
       every_truncation_rejected = false;
     }
@@ -73,7 +73,7 @@ void TestSizeRejection() {
   Check("every truncation rejected", every_truncation_rejected);
 
   // One trailing byte makes the buffer oversized and is rejected.
-  std::vector<rec::u8> oversized = valid;
+  std::vector<rx::u8> oversized = valid;
   oversized.push_back(0);
   Check("oversized buffer rejected",
         !DecodeObjectiveMarker(oversized).has_value());

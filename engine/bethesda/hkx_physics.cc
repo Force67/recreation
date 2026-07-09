@@ -5,7 +5,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Serialized hk2010 64-bit member offsets, verified against the vanilla SE
@@ -288,4 +288,4 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
   return physics;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

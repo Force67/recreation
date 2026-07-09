@@ -4,7 +4,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Little-endian, bounds-checked cursor over a VMAD body.
@@ -126,7 +126,7 @@ void SkipPropertyValue(Reader& r, i16 object_format, u8 type) {
       break;
     }
     default:
-      REC_WARN("vmad: unknown property type {}", type);
+      RX_WARN("vmad: unknown property type {}", type);
       break;  // cannot size an unknown type; the caller's ok() check fails out
   }
 }
@@ -179,7 +179,7 @@ void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
       SkipPropertyValue(r, object_format, p->type);
       break;
     default:
-      REC_WARN("vmad: unknown property type {}", p->type);
+      RX_WARN("vmad: unknown property type {}", p->type);
       break;  // cannot size an unknown type; the caller's ok() check fails out
   }
 }
@@ -219,11 +219,11 @@ bool ReadScriptsSection(Reader& r, ScriptAttachment* out) {
   // section is identical for object_format 2; only the fragment tail differs.
   if (out->version < 1 || out->version > 6 ||
       (out->object_format != 1 && out->object_format != 2)) {
-    REC_WARN("vmad: bad header version {} format {}", out->version, out->object_format);
+    RX_WARN("vmad: bad header version {} format {}", out->version, out->object_format);
     return false;
   }
   if (!ReadScriptList(r, out->version, out->object_format, &out->scripts)) {
-    REC_WARN("vmad: truncated near byte {}", r.pos());
+    RX_WARN("vmad: truncated near byte {}", r.pos());
     return false;
   }
   return true;
@@ -366,4 +366,4 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
   return true;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

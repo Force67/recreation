@@ -2,7 +2,7 @@
 
 #include <nanobuf.h>
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // Fixed wire layout, all little-endian:
@@ -34,4 +34,4 @@ std::optional<ObjectiveMarkerState> DecodeObjectiveMarker(ByteSpan data) {
   return m;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

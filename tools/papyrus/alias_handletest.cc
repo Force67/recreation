@@ -8,11 +8,11 @@
 
 namespace {
 
-using rec::script::papyrus::AliasHandleAliasId;
-using rec::script::papyrus::AliasHandleQuest;
-using rec::script::papyrus::EncodeAliasHandle;
-using rec::script::papyrus::IsAliasHandle;
-using rec::script::papyrus::kAliasHandleTag;
+using rx::script::papyrus::AliasHandleAliasId;
+using rx::script::papyrus::AliasHandleQuest;
+using rx::script::papyrus::EncodeAliasHandle;
+using rx::script::papyrus::IsAliasHandle;
+using rx::script::papyrus::kAliasHandleTag;
 
 int g_failures = 0;
 
@@ -21,8 +21,8 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void RoundTrip(rec::u64 quest, rec::u32 alias) {
-  const rec::u64 h = EncodeAliasHandle(quest, alias);
+void RoundTrip(rx::u64 quest, rx::u32 alias) {
+  const rx::u64 h = EncodeAliasHandle(quest, alias);
   Check("tagged as an alias handle", IsAliasHandle(h));
   Check("quest survives the round trip", AliasHandleQuest(h) == quest);
   Check("alias id survives the round trip", AliasHandleAliasId(h) == alias);

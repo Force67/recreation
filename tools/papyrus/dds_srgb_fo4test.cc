@@ -27,9 +27,9 @@ void Check(const char* what, bool ok) {
 // header layout matches ConvertDds: magic, 124-byte header (h@12, w@16,
 // mips@28, pf flags@80, fourcc@84, caps2@112), then the 20-byte DX10 tail
 // (dxgi@128) and the block payload at offset 148.
-std::vector<rec::u8> MakeDx10Dds(rec::u32 dxgi, rec::u32 block_bytes) {
-  std::vector<rec::u8> b(148, 0);
-  auto put = [&](size_t off, rec::u32 v) { std::memcpy(b.data() + off, &v, 4); };
+std::vector<rx::u8> MakeDx10Dds(rx::u32 dxgi, rx::u32 block_bytes) {
+  std::vector<rx::u8> b(148, 0);
+  auto put = [&](size_t off, rx::u32 v) { std::memcpy(b.data() + off, &v, 4); };
   b[0] = 'D'; b[1] = 'D'; b[2] = 'S'; b[3] = ' ';
   put(12, 4);     // height
   put(16, 4);     // width
@@ -41,24 +41,24 @@ std::vector<rec::u8> MakeDx10Dds(rec::u32 dxgi, rec::u32 block_bytes) {
   return b;
 }
 
-bool DecodeSrgb(rec::u32 dxgi, rec::u32 block_bytes, std::string_view path) {
+bool DecodeSrgb(rx::u32 dxgi, rx::u32 block_bytes, std::string_view path) {
   auto blob = MakeDx10Dds(dxgi, block_bytes);
-  auto tex = rec::bethesda::ConvertDds(rec::ByteSpan(blob.data(), blob.size()),
-                                       rec::asset::MakeAssetId(path), path);
+  auto tex = rx::bethesda::ConvertDds(rx::ByteSpan(blob.data(), blob.size()),
+                                       rx::asset::MakeAssetId(path), path);
   return tex && tex->is_srgb;
 }
 
-bool Decodes(rec::u32 dxgi, rec::u32 block_bytes, std::string_view path) {
+bool Decodes(rx::u32 dxgi, rx::u32 block_bytes, std::string_view path) {
   auto blob = MakeDx10Dds(dxgi, block_bytes);
-  return rec::bethesda::ConvertDds(rec::ByteSpan(blob.data(), blob.size()),
-                                   rec::asset::MakeAssetId(path), path) != nullptr;
+  return rx::bethesda::ConvertDds(rx::ByteSpan(blob.data(), blob.size()),
+                                   rx::asset::MakeAssetId(path), path) != nullptr;
 }
 
-constexpr rec::u32 kBc1Block = 8;
-constexpr rec::u32 kBc3Block = 16;
-constexpr rec::u32 kBc5Block = 16;
-constexpr rec::u32 kBc7Block = 16;
-constexpr rec::u32 kRgba4x4 = 4 * 4 * 4;  // uncompressed 4x4 BGRA/RGBA payload
+constexpr rx::u32 kBc1Block = 8;
+constexpr rx::u32 kBc3Block = 16;
+constexpr rx::u32 kBc5Block = 16;
+constexpr rx::u32 kBc7Block = 16;
+constexpr rx::u32 kRgba4x4 = 4 * 4 * 4;  // uncompressed 4x4 BGRA/RGBA payload
 
 void TestColorMapsAreSrgb() {
   std::puts("UNORM color maps with a diffuse path decode as sRGB:");

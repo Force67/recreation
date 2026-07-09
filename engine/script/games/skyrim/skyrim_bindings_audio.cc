@@ -3,7 +3,7 @@
 #include "audio/audio_system.h"
 #include "script/games/skyrim/skyrim_bindings.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 
@@ -32,4 +32,4 @@ void RecordBackedSkyrimBindings::SetSoundCategoryVolume(ObjectRef /*category*/, 
   if (audio_) audio_->SetMasterVolume(volume);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

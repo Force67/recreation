@@ -22,7 +22,7 @@
 
 #include "nanobuf.h"
 
-namespace rec::net {
+namespace rx::net {
 
 struct ClientJoin;
 class ClientJoinView;
@@ -37,9 +37,9 @@ class SnapshotView;
 struct PlayerInput;
 class PlayerInputView;
 
-}  // namespace rec::net
+}  // namespace rx::net
 
-namespace rec::net {
+namespace rx::net {
 
 // Why the server refused a join or dropped a client.
 // Open enum: values outside the schema are preserved.
@@ -74,9 +74,9 @@ inline constexpr DisconnectReason DisconnectReason::kServerFull{4};
 inline bool operator==(DisconnectReason a, DisconnectReason b) { return a.value == b.value; }
 inline bool operator!=(DisconnectReason a, DisconnectReason b) { return a.value != b.value; }
 
-}  // namespace rec::net
+}  // namespace rx::net
 
-namespace rec::net {
+namespace rx::net {
 
 // First data-channel message a client sends once the zetanet handshake is
 // connected. Everything before this rides zetanet's own control channel.
@@ -499,9 +499,9 @@ class PlayerInputView {
   nanobuf::View view_;
 };
 
-}  // namespace rec::net
+}  // namespace rx::net
 
-namespace rec::net {
+namespace rx::net {
 
 inline std::vector<uint8_t> ClientJoin::Encode() const {
   nanobuf::Writer w;
@@ -1506,4 +1506,4 @@ inline std::optional<PlayerInput> PlayerInputView::ToOwned() const {
   return out;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

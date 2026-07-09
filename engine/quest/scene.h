@@ -5,7 +5,7 @@
 
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // One beat of a scene. Fields are read per kind:
 //   kGuideTo        -> actor walks to pos; done when the actor reaches it (radius)
@@ -63,6 +63,6 @@ class SceneRunner {
   float elapsed_ = 0;     // accumulates for kWait
 };
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_SCENE_H_

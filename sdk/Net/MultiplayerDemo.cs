@@ -4,13 +4,13 @@ using Recreation.Modding;
 namespace Recreation.Net;
 
 // Built-in showcase of the multiplayer platform reaching the on-screen HUD: chat
-// lines and toasts flow C# -> native -> engine HUD. Inert unless REC_MP_DEMO is set.
+// lines and toasts flow C# -> native -> engine HUD. Inert unless RX_MP_DEMO is set.
 [Mod("MultiplayerDemo"), Realm(ModRealm.Shared)]
 public sealed class MultiplayerDemo : IMod
 {
     public void OnLoad()
     {
-        if (Environment.GetEnvironmentVariable("REC_MP_DEMO") == null) return;
+        if (Environment.GetEnvironmentVariable("RX_MP_DEMO") == null) return;
 
         Notify.Show("Connected to Recreation Multiplayer", NoticeKind.Success);
         Chat.System("Welcome to the server. Type /help for commands.");

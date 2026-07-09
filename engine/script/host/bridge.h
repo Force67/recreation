@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 // The C ABI the .NET host (the user-facing "main" world where mods live) calls
 // to reach the engine through its Papyrus guest. The managed side mirrors these
@@ -178,7 +178,7 @@ struct HostHandshake {
   HostCallbacks callbacks;
   std::int32_t domain_count;
   const DomainBridge* domains;
-  // The ultragui widget-operation table (rec::ugui_cs::WidgetOps*), so managed UI
+  // The ultragui widget-operation table (rx::ugui_cs::WidgetOps*), so managed UI
   // handlers can read and mutate live widgets. Null when the UI backend is absent
   // (dedicated server, or no ultragui). Opaque here -- the runtime, not this
   // header, knows the concrete type. Append-only.
@@ -197,6 +197,6 @@ struct HostHandshake {
 // resolves a function pointer of this type and calls it with the handshake.
 using ManagedEntry = std::int32_t (*)(HostHandshake*);
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host
 
 #endif  // RECREATION_SCRIPT_HOST_BRIDGE_H_

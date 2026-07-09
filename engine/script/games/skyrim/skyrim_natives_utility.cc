@@ -3,7 +3,7 @@
 #include <cmath>
 #include <string>
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -39,4 +39,4 @@ void RegisterUtilityExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Utility", "GetAverageFrameRate", frame_rate);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

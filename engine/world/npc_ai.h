@@ -3,7 +3,7 @@
 
 #include <cmath>
 
-namespace rec::world {
+namespace rx::world {
 
 // Tuning for planar (XZ) steering. +Y is up and never touched here; an NPC's
 // height comes from physics/ground, not from these horizontal decisions.
@@ -87,6 +87,6 @@ inline void SeparationOffset(const float self_pos[3], const float* others, int o
   }
 }
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_NPC_AI_H_

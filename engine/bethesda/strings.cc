@@ -4,7 +4,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 bool StringTable::Load(const asset::Vfs& vfs, const std::string& plugin_name,
                        const std::string& language) {
@@ -30,7 +30,7 @@ bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool 
 
   size_t directory_end = 8 + static_cast<size_t>(count) * 8;
   if (bytes->size() < directory_end + data_size) {
-    REC_WARN("truncated string table: {}", path);
+    RX_WARN("truncated string table: {}", path);
     return false;
   }
 
@@ -57,4 +57,4 @@ bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool 
   return true;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

@@ -9,7 +9,7 @@
 #include "core/types.h"
 #include "quest/quest_def.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // A quest is addressed by its packed GlobalFormId (plugin << 32 | local_id),
 // the same value the Papyrus guest uses as a quest instance handle.
@@ -147,6 +147,6 @@ class QuestSystem {
   u32 revision_ = 0;
 };
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_QUEST_SYSTEM_H_

@@ -18,8 +18,8 @@
 #include "core/types.h"
 #include "quest/scene_record.h"
 
-using namespace rec;
-using namespace rec::quest;
+using namespace rx;
+using namespace rx::quest;
 
 namespace {
 
@@ -255,7 +255,7 @@ void TestFragments() {
 // Dumps the real MQ101 SCEN scenes when a data dir is given. Validation only;
 // not part of the deterministic gate.
 int DumpReal(const std::string& data_dir) {
-  using namespace rec::bethesda;
+  using namespace rx::bethesda;
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -264,7 +264,7 @@ int DumpReal(const std::string& data_dir) {
     return 1;
   }
 
-  constexpr rec::u64 kMq101 = 0x0003372bull;  // MQ101 owning quest handle (Skyrim.esm)
+  constexpr rx::u64 kMq101 = 0x0003372bull;  // MQ101 owning quest handle (Skyrim.esm)
   int scenes = 0;
   records.EachOfType(FourCc('S', 'C', 'E', 'N'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {

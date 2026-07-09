@@ -6,7 +6,7 @@
 
 #include "world/steering_avoidance.h"
 
-using rec::world::SteerAroundObstacles;
+using rx::world::SteerAroundObstacles;
 
 namespace {
 

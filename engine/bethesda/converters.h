@@ -9,7 +9,7 @@
 #include "bethesda/game_profile.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Decodes a DDS blob (DX10 or legacy FourCC header) into an engine texture,
 // passing BCn block data straight through. `path` drives the sRGB-vs-linear
@@ -55,6 +55,6 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase
 // conversion.
 void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profile);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_CONVERTERS_H_

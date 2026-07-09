@@ -11,7 +11,7 @@
 
 namespace {
 
-rec::Engine* g_engine = nullptr;
+rx::Engine* g_engine = nullptr;
 
 void HandleSignal(int) {
   if (g_engine) g_engine->RequestQuit();
@@ -26,27 +26,27 @@ void HandleReload(int) {
 #endif
 
 void PrintUsage() {
-  REC_INFO("usage: recreation-server [options]");
-  REC_INFO("  --data-dir <path>     game Data directory (omit for demo scene)");
-  REC_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
-  REC_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
-  REC_INFO("  --port <port>         listen port (default: 29700)");
-  REC_INFO("  --max-clients <n>     player slots (default: 64)");
-  REC_INFO("  --mods-dir <path>     UGC resources to stream to clients (FiveM-style)");
+  RX_INFO("usage: recreation-server [options]");
+  RX_INFO("  --data-dir <path>     game Data directory (omit for demo scene)");
+  RX_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
+  RX_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
+  RX_INFO("  --port <port>         listen port (default: 29700)");
+  RX_INFO("  --max-clients <n>     player slots (default: 64)");
+  RX_INFO("  --mods-dir <path>     UGC resources to stream to clients (FiveM-style)");
 }
 
-rec::bethesda::Game ParseGame(const std::string& id) {
-  if (id == "skyrimse") return rec::bethesda::Game::kSkyrimSe;
-  if (id == "fo4") return rec::bethesda::Game::kFallout4;
-  if (id == "fo76") return rec::bethesda::Game::kFallout76;
-  if (id == "starfield") return rec::bethesda::Game::kStarfield;
-  return rec::bethesda::Game::kUnknown;
+rx::bethesda::Game ParseGame(const std::string& id) {
+  if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
+  if (id == "fo4") return rx::bethesda::Game::kFallout4;
+  if (id == "fo76") return rx::bethesda::Game::kFallout76;
+  if (id == "starfield") return rx::bethesda::Game::kStarfield;
+  return rx::bethesda::Game::kUnknown;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  rec::EngineConfig config;
+  rx::EngineConfig config;
   config.headless = true;
   config.host_server = true;
 
@@ -57,8 +57,8 @@ int main(int argc, char** argv) {
     if (arg == "--data-dir") config.data_dir = next();
     else if (arg == "--plugins") config.plugins_txt = next();
     else if (arg == "--game") config.game = ParseGame(next());
-    else if (arg == "--port") config.port = static_cast<rec::u16>(std::stoi(next()));
-    else if (arg == "--max-clients") config.max_clients = static_cast<rec::u32>(std::stoi(next()));
+    else if (arg == "--port") config.port = static_cast<rx::u16>(std::stoi(next()));
+    else if (arg == "--max-clients") config.max_clients = static_cast<rx::u32>(std::stoi(next()));
     else if (arg == "--mods-dir") config.mods_dir = next();
     else {
       PrintUsage();
@@ -70,9 +70,9 @@ int main(int argc, char** argv) {
     config.plugins_txt = config.data_dir + "/../plugins.txt";
   }
 
-  rec::Engine engine;
+  rx::Engine engine;
   if (!engine.Initialize(config)) {
-    REC_ERROR("server initialization failed");
+    RX_ERROR("server initialization failed");
     return 1;
   }
 
@@ -83,9 +83,9 @@ int main(int argc, char** argv) {
   std::signal(SIGHUP, HandleReload);  // kill -HUP <pid> to reload mods live
 #endif
 
-  REC_INFO("dedicated server up on port {}, ctrl-c to stop", config.port);
+  RX_INFO("dedicated server up on port {}, ctrl-c to stop", config.port);
   int rc = engine.Run();
   engine.Shutdown();
-  REC_INFO("server stopped");
+  RX_INFO("server stopped");
   return rc;
 }

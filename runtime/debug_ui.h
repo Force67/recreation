@@ -22,7 +22,7 @@
 // (it compiles to a stub when imgui is absent).
 struct ImFont;
 
-namespace rec {
+namespace rx {
 
 class FlyCamera;
 
@@ -169,7 +169,7 @@ class DebugUi {
   // onto the foreground draw list from the renderer's per-pass timings.
   void DrawStageChart(render::Renderer& renderer);
 
-  // Cinematic trailer chrome (REC_TRAILER) onto the foreground draw list:
+  // Cinematic trailer chrome (RX_TRAILER) onto the foreground draw list:
   // letterbox bars, the intro/outro black wash, the lower-third location title
   // and the render-mode badge. A no-op unless an overlay is set and active.
   void DrawTrailerOverlay();
@@ -180,7 +180,7 @@ class DebugUi {
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
   // Per-pass GPU timestamps follow overlay visibility; the boot value
-  // (REC_GPU_TIMINGS / preset) is latched so a forced run keeps them.
+  // (RX_GPU_TIMINGS / preset) is latched so a forced run keeps them.
   bool gpu_timings_latched_ = false;
   bool gpu_timings_forced_ = false;
   bool show_demo_ = false;
@@ -208,6 +208,6 @@ class DebugUi {
   u32 frame_time_cursor_ = 0;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_DEBUG_UI_H_

@@ -3,7 +3,7 @@
 #include <set>
 #include <utility>
 
-namespace rec::quest {
+namespace rx::quest {
 
 void QuestSystem::SetDefinition(QuestDef def) {
   const QuestHandle handle = def.handle;
@@ -215,4 +215,4 @@ void QuestSystem::ApplyStatus(const QuestStatus& status) {
   Notify(status.handle, QuestEvent::kApplied);
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

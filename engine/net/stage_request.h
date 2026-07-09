@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // A client's quest-debugger action, sent to the server so the change is applied
 // authoritatively and then replicated back through the normal QuestUpdate path.
@@ -32,6 +32,6 @@ std::vector<u8> EncodeStageRequest(const StageRequest& req);
 // or carrying an unknown op value, never reading out of bounds.
 std::optional<StageRequest> DecodeStageRequest(ByteSpan data);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_STAGE_REQUEST_H_

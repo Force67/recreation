@@ -6,7 +6,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kGrup = FourCc('G', 'R', 'U', 'P');
@@ -26,7 +26,7 @@ void PutPod(base::Vector<u8>* out, const T& v) {
 std::optional<RawRewriter> RawRewriter::Open(const std::string& path) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file) {
-    REC_ERROR("cannot open plugin for rewrite: {}", path);
+    RX_ERROR("cannot open plugin for rewrite: {}", path);
     return std::nullopt;
   }
   base::Vector<u8> bytes;
@@ -154,7 +154,7 @@ bool RawRewriter::Save(const std::string& path) const {
   base::Vector<u8> bytes = Build();
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   if (!file) {
-    REC_ERROR("cannot open plugin for writing: {}", path);
+    RX_ERROR("cannot open plugin for writing: {}", path);
     return false;
   }
   file.write(reinterpret_cast<const char*>(bytes.data()),
@@ -162,4 +162,4 @@ bool RawRewriter::Save(const std::string& path) const {
   return static_cast<bool>(file);
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

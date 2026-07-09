@@ -7,7 +7,7 @@
 #include "quest/scene.h"
 #include "quest/scene_record.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Resolvers the runtime supplies to turn a parsed SceneDef (form ids + alias
 // indices) into a runnable Scene (live handles + world positions). Kept as
@@ -34,6 +34,6 @@ struct SceneBindings {
 // by the scene's Papyrus phase fragments, not encoded here.
 Scene CompileScene(const SceneDef& def, const SceneBindings& bindings);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_SCENE_COMPILE_H_

@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kMagic0 = 0x57E0E057u;
@@ -178,4 +178,4 @@ u64 HkxFile::Array(u64 offset, u32* count) const {
   return elems;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

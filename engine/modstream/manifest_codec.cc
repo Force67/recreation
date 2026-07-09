@@ -1,6 +1,6 @@
 #include "modstream/manifest_codec.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 constexpr u32 kMagic = FourCc('R', 'M', 'D', '1');
@@ -142,4 +142,4 @@ std::optional<ModManifest> DecodeManifest(const u8* data, size_t size) {
   return manifest;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

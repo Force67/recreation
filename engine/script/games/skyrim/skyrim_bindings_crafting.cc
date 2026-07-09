@@ -9,7 +9,7 @@
 #include "bethesda/record.h"
 #include "script/games/skyrim/skyrim_bindings.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 
@@ -98,4 +98,4 @@ i32 RecordBackedSkyrimBindings::GetNthRecipeInputQuantity(i32 recipe, i32 input)
   return r->inputs[static_cast<size_t>(input)].count;
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

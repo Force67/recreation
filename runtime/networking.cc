@@ -25,10 +25,10 @@
 // commands, NPC actor streaming, dialogue/stage requests) between the net layer
 // and the script/quest systems. Built as a separate Engine translation unit;
 // the whole file compiles away when RECREATION_HAS_NET is off.
-namespace rec {
+namespace rx {
 
 #if RECREATION_HAS_NET
-static base::Option<bool> NetQuestLog{"net.quest.log", false, "REC_NET_QUEST_LOG"};
+static base::Option<bool> NetQuestLog{"net.quest.log", false, "RX_NET_QUEST_LOG"};
 
 bool StartNetworking(Engine& engine) {
   Engine* const self = &engine;
@@ -47,10 +47,10 @@ bool StartNetworking(Engine& engine) {
       std::optional<modstream::ModCatalog> catalog =
           modstream::ModCatalog::Build(self->config_.mods_dir);
       if (!catalog) {
-        REC_ERROR("net: could not catalog mods directory '{}'", self->config_.mods_dir);
+        RX_ERROR("net: could not catalog mods directory '{}'", self->config_.mods_dir);
         return false;
       }
-      REC_INFO("net: offering {} mod files ({} bytes) from {}",
+      RX_INFO("net: offering {} mod files ({} bytes) from {}",
                catalog->manifest().TotalFiles(), catalog->manifest().TotalBytes(),
                self->config_.mods_dir);
       self->mod_catalog_ = std::make_unique<modstream::ModCatalog>(std::move(*catalog));
@@ -82,8 +82,8 @@ bool StartNetworking(Engine& engine) {
         // Replicate every loaded game's journal, each tagged with its domain so
         // the client routes it to the matching game.
         std::vector<net::DomainQuestStatus> all;
-        auto collect = [&](u8 domain, rec::script::ScriptSystem* scripts,
-                           rec::script::skyrim::RecordBackedSkyrimBindings* binds) {
+        auto collect = [&](u8 domain, rx::script::ScriptSystem* scripts,
+                           rx::script::skyrim::RecordBackedSkyrimBindings* binds) {
           if (!scripts || !binds) return;
           auto statuses = scripts->guest()
                               .SubmitFor([binds](script::papyrus::VirtualMachine&) {
@@ -151,21 +151,21 @@ bool StartNetworking(Engine& engine) {
     // When a client finishes streaming the mods, raise a managed event so
     // server-side C# scripts can react (gate spawn, greet the player).
     self->server_session_->SetClientReadySink([self](u32 peer) {
-      REC_INFO("net: peer {} finished streaming the server's mods", peer);
+      RX_INFO("net: peer {} finished streaming the server's mods", peer);
       if (self->managed_)
-        self->managed_->QueueEvent({rec::script::host::ManagedEventId::kClientAssetsReady,
+        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientAssetsReady,
                                     peer, 0, 0, 0.0f});
     });
     // The fundamental multiplayer hooks: a player joined, a player left. Raised
     // for every peer so server-side scripts work even without streamed mods.
     self->server_session_->SetClientJoinedSink([self](u32 peer) {
       if (self->managed_)
-        self->managed_->QueueEvent({rec::script::host::ManagedEventId::kClientJoined,
+        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientJoined,
                                     peer, 0, 0, 0.0f});
     });
     self->server_session_->SetClientLeftSink([self](u32 peer) {
       if (self->managed_)
-        self->managed_->QueueEvent({rec::script::host::ManagedEventId::kClientLeft,
+        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientLeft,
                                     peer, 0, 0, 0.0f});
     });
   } else if (!self->config_.connect_address.empty()) {
@@ -184,7 +184,7 @@ bool StartNetworking(Engine& engine) {
             // thread where nothing is reading the Vfs.
             self->vfs_.UnmountByPrefix("modstream:");
             modstream::MountManifest(self->vfs_, manifest, *self->content_store_);
-            REC_INFO("net: mounted {} streamed mod files into the asset vfs",
+            RX_INFO("net: mounted {} streamed mod files into the asset vfs",
                      manifest.TotalFiles());
           });
     }
@@ -194,8 +194,8 @@ bool StartNetworking(Engine& engine) {
       self->client_session_->SetQuestSink([self](u8 domain, const quest::QuestStatus& status) {
         // Route the replicated quest to the game it belongs to: 0 is the primary
         // game, 1..N the secondary domains loaded in the same order as the host.
-        rec::script::ScriptSystem* scripts = nullptr;
-        rec::script::skyrim::RecordBackedSkyrimBindings* binds = nullptr;
+        rx::script::ScriptSystem* scripts = nullptr;
+        rx::script::skyrim::RecordBackedSkyrimBindings* binds = nullptr;
         if (domain == 0) {
           scripts = self->scripts_.get();
           binds = self->script_bindings_.get();
@@ -211,7 +211,7 @@ bool StartNetworking(Engine& engine) {
           binds->ApplyReplicatedStatus(status);
         });
         if (NetQuestLog)
-          REC_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain,
+          RX_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain,
                    status.handle, status.stage, status.complete ? 1 : 0);
       });
       // Mirror the host's quest-driven world effects (spawns/moves/disables/
@@ -267,11 +267,11 @@ void ReloadMods(Engine& engine) {
   std::optional<modstream::ModCatalog> fresh =
       modstream::ModCatalog::Build(self->config_.mods_dir);
   if (!fresh) {
-    REC_ERROR("net: mod reload failed to catalog '{}', keeping the current set",
+    RX_ERROR("net: mod reload failed to catalog '{}', keeping the current set",
               self->config_.mods_dir);
     return;  // a broken edit must not take down the running server
   }
-  REC_INFO("net: reloaded mods, now offering {} files ({} bytes)",
+  RX_INFO("net: reloaded mods, now offering {} files ({} bytes)",
            fresh->manifest().TotalFiles(), fresh->manifest().TotalBytes());
 
   // Point the session at the new catalog before the old one is destroyed, then
@@ -287,4 +287,4 @@ void ReloadMods(Engine& engine) {
 }
 #endif  // RECREATION_HAS_NET
 
-}  // namespace rec
+}  // namespace rx

@@ -4,7 +4,7 @@
 
 #include "core/log.h"
 
-namespace rec::script {
+namespace rx::script {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -286,7 +286,7 @@ void PapyrusGuest::BindEngineNatives() {
 
   // Debug output: the most common engine-independent Papyrus natives.
   auto trace = [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-    REC_INFO("[papyrus] {}", args.empty() ? "" : args[0].ToString());
+    RX_INFO("[papyrus] {}", args.empty() ? "" : args[0].ToString());
     return Value();
   };
   natives_.Register("Debug", "Trace", trace);
@@ -294,14 +294,14 @@ void PapyrusGuest::BindEngineNatives() {
   natives_.Register("Debug", "TraceUser",
                     [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
                       const std::string log = args.size() > 1 ? args[1].ToString() : "user";
-                      REC_INFO("[papyrus:{}] {}", log, args.empty() ? "" : args[0].ToString());
+                      RX_INFO("[papyrus:{}] {}", log, args.empty() ? "" : args[0].ToString());
                       return Value();
                     });
   // A message box and a notification both surface on the HUD when the runtime
   // wires a handler, and the trace log either way for diagnostics.
   auto surface = [this](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
     const std::string message = args.empty() ? "" : args[0].ToString();
-    REC_INFO("[papyrus] notification: {}", message);
+    RX_INFO("[papyrus] notification: {}", message);
     if (on_notification_) on_notification_(message);
     return Value();
   };
@@ -369,4 +369,4 @@ void PapyrusGuest::BindEngineNatives() {
   }
 }
 
-}  // namespace rec::script
+}  // namespace rx::script

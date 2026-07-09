@@ -20,7 +20,7 @@
 #include "shaders/thumb_ps_hlsl.h"
 #include "shaders/thumb_vs_hlsl.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 struct PushData {
@@ -283,7 +283,7 @@ bool Thumbnailer::Init(render::Renderer& renderer, int size) {
   vkCreateFence(m.device, &fci, nullptr, &m.fence);
 
   m.ready = true;
-  REC_INFO("thumbnailer ready ({}x{})", size, size);
+  RX_INFO("thumbnailer ready ({}x{})", size, size);
   return true;
 }
 
@@ -441,11 +441,11 @@ void Thumbnailer::SaveCached(const std::string& path, const std::vector<std::uin
   stbi_write_png(path.c_str(), impl_->size, impl_->size, 4, rgba.data(), impl_->size * 4);
 }
 
-}  // namespace rec
+}  // namespace rx
 
 #else  // !RECREATION_HAS_UGUI
 
-namespace rec {
+namespace rx {
 struct Thumbnailer::Impl {};
 Thumbnailer::Thumbnailer() = default;
 Thumbnailer::~Thumbnailer() = default;
@@ -456,6 +456,6 @@ int Thumbnailer::size() const { return 0; }
 bool Thumbnailer::Render(const asset::Mesh&, std::vector<std::uint8_t>&) { return false; }
 bool Thumbnailer::LoadCached(const std::string&, std::vector<std::uint8_t>&) const { return false; }
 void Thumbnailer::SaveCached(const std::string&, const std::vector<std::uint8_t>&) const {}
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_HAS_UGUI

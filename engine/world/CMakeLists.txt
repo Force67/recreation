@@ -6,6 +6,6 @@ recreation_add_module(world
   navgrid.cc
 )
 
-target_link_libraries(recreation_world PUBLIC recreation::physics)
+target_link_libraries(recreation_world PUBLIC rx::physics)
 target_link_libraries(recreation_world PUBLIC
-  recreation::core recreation::ecs recreation::asset recreation::bethesda)
+  rx::core rx::ecs rx::asset recreation::bethesda)

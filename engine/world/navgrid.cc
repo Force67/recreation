@@ -5,7 +5,7 @@
 
 #include "world/pathfind.h"
 
-namespace rec::world {
+namespace rx::world {
 
 void NavGrid::Build(const Vec3& center, f32 half_extent_m, f32 cell_m, f32 walk_height,
                     f32 step_tolerance, const FloorProbe& probe) {
@@ -98,4 +98,4 @@ Vec3 NavGrid::CellToWorld(int cx, int cz) const {
   return {x, y, z};
 }
 
-}  // namespace rec::world
+}  // namespace rx::world

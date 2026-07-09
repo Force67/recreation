@@ -8,7 +8,7 @@
 #include "core/math.h"
 #include "core/types.h"
 
-namespace rec::weather {
+namespace rx::weather {
 
 // Renderer-agnostic weather parameters. Parsed from a Bethesda WTHR record (or
 // built by hand for tests) and derived into physical knobs our sky / cloud /
@@ -112,6 +112,6 @@ class WeatherSystem {
   f32 transition_hours_ = 0.6f;
 };
 
-}  // namespace rec::weather
+}  // namespace rx::weather
 
 #endif  // RECREATION_WEATHER_WEATHER_H_

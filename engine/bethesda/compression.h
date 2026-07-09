@@ -5,7 +5,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Self contained decoders for the two codecs bethesda archives and plugins
 // use. The build has no zlib/lz4 dependency, the formats are small enough to
@@ -39,6 +39,6 @@ bool Lz4FrameDecompress(ByteSpan src, u8* dst, size_t dst_size);
 // stored this way. dst_size must be the exact decompressed size.
 bool Lz4BlockDecompress(ByteSpan src, u8* dst, size_t dst_size);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_COMPRESSION_H_

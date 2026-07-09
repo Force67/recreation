@@ -7,7 +7,7 @@
 
 #include "script/papyrus/transpile_internal.h"
 
-namespace rec::script::papyrus::detail {
+namespace rx::script::papyrus::detail {
 namespace {
 
 // Reconstructs one Papyrus function body as C# statements. It inlines the
@@ -564,4 +564,4 @@ void DecompileFunction(const DecompileCtx& ctx, const Function& fn, std::string&
   Decompiler(ctx).Emit(fn, out, indent, value_alias);
 }
 
-}  // namespace rec::script::papyrus::detail
+}  // namespace rx::script::papyrus::detail

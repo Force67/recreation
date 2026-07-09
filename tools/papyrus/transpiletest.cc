@@ -15,7 +15,7 @@
 
 namespace {
 
-using namespace rec::script::papyrus;
+using namespace rx::script::papyrus;
 
 // Interns strings into a PexFile's table and hands back stable indices.
 struct Builder {

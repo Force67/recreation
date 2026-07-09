@@ -36,19 +36,19 @@ streaming.
 - [x] **VRS.** (landed) Content-adaptive rate image on the scene pass:
       luminance-detail scored per 16px block, motion-gated (static camera
       stays near-full-rate - coarse fragments stripe glossy surfaces under
-      the temporal upscaler), 2x2 ceiling. REC_VRS / REC_VRS_THRESHOLD.
+      the temporal upscaler), 2x2 ceiling. RX_VRS / RX_VRS_THRESHOLD.
 - [x] **Async compute, dedicated family.** (landed) Async queue now picks a
-      compute-only family (GB10: family 2; REC_ASYNC_DEDICATED=0 falls back);
+      compute-only family (GB10: family 2; RX_ASYNC_DEDICATED=0 falls back);
       CONCURRENT sharing on buffers + non-attachment images (render targets
       stay EXCLUSIVE for compression), compute-family command pool, and
       compute-legal stage/access mask filtering on the async list's barriers.
 - [x] **PSO hitch elimination.** (landed) The persistent pipeline cache fixes
       run 2+; startup pipeline creation now batches onto a worker pool
       (BeginPipelineBatch/EndPipelineBatch, binds wait on in-flight compiles)
-      so a cold cache costs ~90 ms over warm instead of ~2.6 s. REC_PSO_BATCH=0
+      so a cold cache costs ~90 ms over warm instead of ~2.6 s. RX_PSO_BATCH=0
       forces the serial path.
 - [x] **Golden-image regression CI.** (landed) tests/golden/golden.py:
-      REC_FIXED_DT lockstep captures of 4 demo scenes vs checked-in refs
+      RX_FIXED_DT lockstep captures of 4 demo scenes vs checked-in refs
       (NVIDIA baseline, half-res), diff heatmaps; CI golden-smoke job on
       lavapipe (smoke-level until a runner ref set is promoted).
 - [x] **Histogram auto-exposure.** (landed) Average-based metering is why demos pin
@@ -63,7 +63,7 @@ streaming.
       by construction), mesh-shader runtime cut
       project(self) <= tau < project(parent) + frustum/backface cull.
       --demo vgeo: 819k-tri terrain -> 29.8k clusters / 5 levels, cluster
-      count scales with REC_VGEO_ERROR. Next: scene-path integration,
+      count scales with RX_VGEO_ERROR. Next: scene-path integration,
       streaming, software raster, virtual shadow maps.
 - [x] **Virtual texturing** (landed - core) — feedback-driven sparse VT:
       256x256-page virtual space (9 mips) behind a mip-mapped indirection
@@ -78,7 +78,7 @@ streaming.
       demodulated diffuse/spec textures folded into the forward pass (env
       slots 23/24, kFrameFlagRestirDi). Replaces the analytic cluster loop +
       local shadow atlas for those lights on opaque surfaces. Experimental,
-      REC_RESTIR_DI=1 (~0.3 ms, lights demo).
+      RX_RESTIR_DI=1 (~0.3 ms, lights demo).
 - [x] **Strand-based hair** (landed - core) — 4096 verlet guide strands
       (one compute thread per strand: gravity/wind, inextensibility
       iterations, head-sphere collision), rendered as camera-facing ribbons
@@ -98,7 +98,7 @@ streaming.
       per line) into tiling displacement + normal/foam maps (64m patch, 256^2),
       sampled by mesh.vs/water.ps via env slots 28/29 (env set now
       vertex-visible; prepass binds a dummies+ocean env set since mesh.vs
-      statically uses set 2). Default on, REC_FFT_OCEAN=0 = Gerstner. Water
+      statically uses set 2). Default on, RX_FFT_OCEAN=0 = Gerstner. Water
       golden regenerated. Shoreline flow maps still open.
 - [x] Foliage imposters at distance (landed - core): hemi-octahedral imposter
       bake (4x4 views, albedo+coverage & normal atlases with mips) + instanced
@@ -121,5 +121,5 @@ streaming.
 - [x] Shutdown leak (fixed): re-uploading a mesh under an existing key (the
       builtin biped: test spawn + npc template) overwrote the map entry
       without freeing the old vertex/index/skinning buffers. UploadMesh now
-      destroys the previous entry's buffers. REC_BUFFER_TRACE=1 logs every
+      destroys the previous entry's buffers. RX_BUFFER_TRACE=1 logs every
       buffer creation for matching leaked handles.

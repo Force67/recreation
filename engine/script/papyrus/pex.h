@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "script/papyrus/opcode.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // Index into PexFile::string_table. The format stores every name and literal
 // string once and references them by index, so the parsed model keeps indices
@@ -147,6 +147,6 @@ struct PexFile {
 // truncated or malformed stream. out is left partially filled on failure.
 bool ParsePex(ByteSpan data, PexFile* out);
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_PEX_H_

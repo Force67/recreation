@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
   physics::ShapeDesc desc;
@@ -53,4 +53,4 @@ physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
   return desc;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

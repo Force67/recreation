@@ -3,7 +3,7 @@
 #include <array>
 #include <fstream>
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 constexpr ContentHash kFnvPrime = 0x100000001b3ull;
@@ -40,4 +40,4 @@ std::optional<ContentHash> HashFile(const std::filesystem::path& path) {
   return hasher.value;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

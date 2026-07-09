@@ -11,7 +11,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::world {
+namespace rx::world {
 
 // Bakes one albedo texture per exterior cell from the LAND texture layers:
 // BTXT picks the base LTEX per quadrant, ATXT/VTXT stack additive layers
@@ -76,7 +76,7 @@ class LandBaker {
   asset::AssetId LayerAsset(u64 ltex_packed);
   // The LTEX texture set's normal map (TX01); zero id when the set has none.
   asset::AssetId LayerNormalAsset(u64 ltex_packed);
-  // Resolves the bake/layer resolution from REC_LAND_BAKE_TEXELS on first use.
+  // Resolves the bake/layer resolution from RX_LAND_BAKE_TEXELS on first use.
   void EnsureBakeSize();
 
   const bethesda::RecordStore& records_;
@@ -89,6 +89,6 @@ class LandBaker {
   u32 bake_size_ = 0;   // baked albedo texels across the whole cell
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_LAND_BAKER_H_

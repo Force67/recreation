@@ -17,27 +17,27 @@
 // loading, the main menu, managed scripting and camera/input live in sibling
 // engine translation units (see frame_loop.cc, networking.cc, content_load.cc,
 // main_menu.cc, managed_scripting.cc, camera_input.cc).
-namespace rec {
+namespace rx {
 namespace {
 // Engine-startup options. Namespace scope, so they register before
 // InitOptionsFromEnv() runs. WinW/WinH=0 keep the WindowDesc default
 // (1920x1080); they shrink the window for fast headless capture (e.g. the
 // software-rendered swrun path).
-base::Option<int> WinW{"win.width", 0, "REC_WIN_W"};
-base::Option<int> WinH{"win.height", 0, "REC_WIN_H"};
+base::Option<int> WinW{"win.width", 0, "RX_WIN_W"};
+base::Option<int> WinH{"win.height", 0, "RX_WIN_H"};
 // SunDir pins a fixed sun for headless lighting/shadow tests (its presence
 // disables the world clock driving the sun); the renderer parses the value.
-base::Option<const char*> SunDir{"sun.dir", nullptr, "REC_SUN_DIR"};
-base::Option<bool> NoOcclusion{"no.occlusion", false, "REC_NO_OCCLUSION"};
+base::Option<const char*> SunDir{"sun.dir", nullptr, "RX_SUN_DIR"};
+base::Option<bool> NoOcclusion{"no.occlusion", false, "RX_NO_OCCLUSION"};
 // Timescale (0 freezes time) overrides the game's timescale; GameHour overrides
 // the mid-morning start the world boots lit at.
-base::Option<float> Timescale{"timescale", 0.0f, "REC_TIMESCALE"};
-base::Option<float> GameHour{"game.hour", 11.0f, "REC_GAME_HOUR"};
+base::Option<float> Timescale{"timescale", 0.0f, "RX_TIMESCALE"};
+base::Option<float> GameHour{"game.hour", 11.0f, "RX_GAME_HOUR"};
 }  // namespace
 
 bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> window) {
   config_ = config;
-  InitFeatures();              // apply REC_FEATURES overrides before any flag read
+  InitFeatures();              // apply RX_FEATURES overrides before any flag read
   base::InitOptionsFromEnv();  // populate every base::Option from the environment
   jobs_ = std::make_unique<JobSystem>();
   // When SunDir is set the world clock stops driving the day/night cycle.
@@ -58,12 +58,12 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
 
   if (!config_.headless) {
     if (!debug_ui_.Initialize(*window_, renderer_)) {
-      REC_WARN("debug ui unavailable");
+      RX_WARN("debug ui unavailable");
     }
     debug_ui_.set_clock(&clock_);  // Lighting panel scrubs the day/night cycle
     debug_ui_.set_weather(&weather_override_, &weather_override_state_);  // Weather playground
     if (!game_ui_.Initialize(*window_, renderer_)) {
-      REC_WARN("game ui unavailable");
+      RX_WARN("game ui unavailable");
     }
   }
 
@@ -89,7 +89,7 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
   // Audio comes up before content loads (it reads sound bytes lazily through the
-  // Vfs). Headless servers and mute (REC_AUDIO_MUTE) open no device and run
+  // Vfs). Headless servers and mute (RX_AUDIO_MUTE) open no device and run
   // silent; the rest of the engine is unaffected either way.
   audio_ = std::make_unique<audio::AudioSystem>();
   audio_->Initialize(&vfs_);
@@ -104,7 +104,7 @@ bool Engine::Initialize(const EngineConfig& config, std::unique_ptr<Window> wind
   // The live map editor (windowed client only). Constructed after game_ui_ is up
   // so it can register its overlay event sink; ticked from UpdateCamera.
   if (!config_.headless) editor_ = std::make_unique<MapEditor>(ctx_);
-  // Character creation (REC_CHARGEN); Enter() runs once game data has loaded.
+  // Character creation (RX_CHARGEN); Enter() runs once game data has loaded.
   if (!config_.headless) chargen_ = std::make_unique<CharGen>(ctx_);
 
   if (physics_.Initialize()) {
@@ -214,10 +214,10 @@ void Engine::ApplyRenderPreset() {
     tuned.aa_mode = render::AntiAliasingMode::kUpscaler;
   }
 
-  // Initialize() applied the REC_DEBUG_VIEW / REC_PATHTRACE debug env overrides;
+  // Initialize() applied the RX_DEBUG_VIEW / RX_PATHTRACE debug env overrides;
   // carry them through so a preset never silently disables headless captures.
   const render::RenderSettings& env = renderer_.settings();
-  if (env.aa_mode == render::AntiAliasingMode::kMsaa) {  // honor REC_MSAA
+  if (env.aa_mode == render::AntiAliasingMode::kMsaa) {  // honor RX_MSAA
     tuned.aa_mode = env.aa_mode;
     tuned.msaa_samples = env.msaa_samples;
     tuned.upscaler = render::UpscalerKind::kNone;
@@ -228,7 +228,7 @@ void Engine::ApplyRenderPreset() {
     tuned.exposure = 1.0f;
   }
   if (env.path_trace) tuned.path_trace = true;
-  // Carry the path-tracer mode + tunables (REC_PATHTRACE_RECON / _REFERENCE / _SPP
+  // Carry the path-tracer mode + tunables (RX_PATHTRACE_RECON / _REFERENCE / _SPP
   // / _ACCUM ...) through the preset, or env-selected recon/reference silently
   // falls back to the NRD path.
   tuned.path_trace_reference = env.path_trace_reference;
@@ -243,36 +243,36 @@ void Engine::ApplyRenderPreset() {
   tuned.hdr_output = env.hdr_output;
   tuned.hdr_paper_white = env.hdr_paper_white;
   tuned.path_trace_rr = env.path_trace_rr;
-  if (env.wireframe) tuned.wireframe = true;  // honor REC_WIREFRAME over the preset
-  tuned.ssr = env.ssr;                        // honor REC_SSR over the preset
-  tuned.ssgi = env.ssgi;                      // honor REC_SSGI over the preset
+  if (env.wireframe) tuned.wireframe = true;  // honor RX_WIREFRAME over the preset
+  tuned.ssr = env.ssr;                        // honor RX_SSR over the preset
+  tuned.ssgi = env.ssgi;                      // honor RX_SSGI over the preset
   tuned.color_grade = env.color_grade;        // presets never set a grade
-  tuned.sun_direction = env.sun_direction;    // honor REC_SUN_DIR over the default
-  // Sky/weather env overrides (REC_AERIAL / REC_CLOUDS / REC_CLOUD_COVERAGE /
-  // REC_PRECIP / REC_SNOW), so they survive the preset. A loaded game's weather
+  tuned.sun_direction = env.sun_direction;    // honor RX_SUN_DIR over the default
+  // Sky/weather env overrides (RX_AERIAL / RX_CLOUDS / RX_CLOUD_COVERAGE /
+  // RX_PRECIP / RX_SNOW), so they survive the preset. A loaded game's weather
   // re-drives these per frame; this keeps them working in the demo/glTF scenes.
-  tuned.fog = env.fog;  // honor REC_FOG over the preset (fog params are defaults)
-  tuned.motion_blur = env.motion_blur;  // honor REC_MOTION_BLUR over the preset
-  tuned.lens_flare = env.lens_flare;    // honor REC_LENS_FLARE over the preset
-  tuned.film_grain = env.film_grain;    // honor REC_FILM_GRAIN over the preset
+  tuned.fog = env.fog;  // honor RX_FOG over the preset (fog params are defaults)
+  tuned.motion_blur = env.motion_blur;  // honor RX_MOTION_BLUR over the preset
+  tuned.lens_flare = env.lens_flare;    // honor RX_LENS_FLARE over the preset
+  tuned.film_grain = env.film_grain;    // honor RX_FILM_GRAIN over the preset
   tuned.dof = env.dof;
   tuned.dof_focus = env.dof_focus;
   tuned.dof_aperture = env.dof_aperture;
-  tuned.sss = env.sss;  // honor REC_SSS over the preset
+  tuned.sss = env.sss;  // honor RX_SSS over the preset
   tuned.sss_width = env.sss_width;
-  tuned.async_compute = env.async_compute;  // honor REC_ASYNC_COMPUTE
-  tuned.frame_generation = env.frame_generation;  // honor REC_FRAMEGEN
-  tuned.local_shadows = env.local_shadows;  // honor REC_LOCAL_SHADOWS
-  tuned.froxel_fog = env.froxel_fog;  // honor REC_FROXEL
+  tuned.async_compute = env.async_compute;  // honor RX_ASYNC_COMPUTE
+  tuned.frame_generation = env.frame_generation;  // honor RX_FRAMEGEN
+  tuned.local_shadows = env.local_shadows;  // honor RX_LOCAL_SHADOWS
+  tuned.froxel_fog = env.froxel_fog;  // honor RX_FROXEL
   tuned.froxel_density = env.froxel_density;
-  tuned.vrs = env.vrs;  // honor REC_VRS
-  tuned.texture_budget_mb = env.texture_budget_mb;  // honor REC_TEX_BUDGET_MB
-  tuned.gpu_pass_timings = env.gpu_pass_timings;    // honor REC_GPU_TIMINGS
-  tuned.dynamic_resolution = env.dynamic_resolution;  // honor REC_DRS
+  tuned.vrs = env.vrs;  // honor RX_VRS
+  tuned.texture_budget_mb = env.texture_budget_mb;  // honor RX_TEX_BUDGET_MB
+  tuned.gpu_pass_timings = env.gpu_pass_timings;    // honor RX_GPU_TIMINGS
+  tuned.dynamic_resolution = env.dynamic_resolution;  // honor RX_DRS
   tuned.dynamic_target_ms = env.dynamic_target_ms;
   tuned.dynamic_min_scale = env.dynamic_min_scale;
-  tuned.restir_di = env.restir_di;  // honor REC_RESTIR_DI
-  tuned.fft_ocean = env.fft_ocean;  // honor REC_FFT_OCEAN
+  tuned.restir_di = env.restir_di;  // honor RX_RESTIR_DI
+  tuned.fft_ocean = env.fft_ocean;  // honor RX_FFT_OCEAN
   tuned.vrs_threshold = env.vrs_threshold;
   tuned.aerial_perspective = env.aerial_perspective;
   tuned.clouds = env.clouds;
@@ -283,7 +283,7 @@ void Engine::ApplyRenderPreset() {
   if (NoOcclusion) tuned.gpu_occlusion = false;  // a/b baseline
 
   renderer_.settings() = tuned;
-  REC_INFO("render preset: {} ({})", render::PresetName(resolved),
+  RX_INFO("render preset: {} ({})", render::PresetName(resolved),
            config_.preset == render::QualityPreset::kAuto ? "auto" : "forced");
 }
 
@@ -292,7 +292,7 @@ void Engine::ConfigureClock(f32 base_timescale) {
   if (Timescale.overridden() && Timescale.get() >= 0) timescale = Timescale.get();
   const f32 start_hour = GameHour.get();
   clock_.Configure(start_hour, timescale);
-  REC_INFO("day/night clock: start hour {:.1f}, timescale {:.0f}", start_hour, timescale);
+  RX_INFO("day/night clock: start hour {:.1f}, timescale {:.0f}", start_hour, timescale);
 }
 
 int Engine::Run() {
@@ -336,4 +336,4 @@ void Engine::Shutdown() {
   if (jobs_) jobs_->WaitIdle();
 }
 
-}  // namespace rec
+}  // namespace rx

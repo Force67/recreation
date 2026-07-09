@@ -16,5 +16,5 @@ recreation_add_module(modstream
 # resources back into the asset Vfs. The net layer carries the bytes; this module
 # never touches a socket.
 target_link_libraries(recreation_modstream PUBLIC
-  recreation::core
-  recreation::asset)
+  rx::core
+  rx::asset)

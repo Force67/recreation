@@ -44,8 +44,8 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 // Minimal VM backing for the interpreter: one instance's member variables, a
 // flat array heap, and a current state string. Calls and properties are stubs.
@@ -395,7 +395,7 @@ int SelfTest() {
     it_vm.AddScript(std::move(ob2.pex));
     ObjectRef container = it_vm.CreateInstance("ObjectReference");
 
-    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    rx::script::skyrim::RecordBackedSkyrimBindings bindings;
     bindings.set_vm(&it_vm);
     bindings.AddItem(container, ObjectRef{0xA11CE}, 5);
     Value* got_m = it_vm.MemberVar(container, "::Got_var");
@@ -437,7 +437,7 @@ int SelfTest() {
     hit_vm.AddScript(std::move(hb.pex));
     ObjectRef victim = hit_vm.CreateInstance("ObjectReference");
 
-    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    rx::script::skyrim::RecordBackedSkyrimBindings bindings;
     bindings.set_vm(&hit_vm);
     bindings.SetActorValue(victim, "health", 100.0f);
     const ObjectRef aggressor{0xA66E5};
@@ -484,7 +484,7 @@ int SelfTest() {
     cs_vm.AddScript(std::move(cb.pex));
     ObjectRef fighter = cs_vm.CreateInstance("Actor");
 
-    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    rx::script::skyrim::RecordBackedSkyrimBindings bindings;
     bindings.set_vm(&cs_vm);
     bindings.SetActorValue(fighter, "health", 100.0f);
     const ObjectRef foe{0xF0E01};
@@ -595,7 +595,7 @@ int SelfTest() {
     eq_vm.AddScript(std::move(ib.pex));
     ObjectRef item = eq_vm.CreateInstance("EquipItemScr");
 
-    rec::script::skyrim::RecordBackedSkyrimBindings bindings;
+    rx::script::skyrim::RecordBackedSkyrimBindings bindings;
     bindings.set_vm(&eq_vm);
 
     bindings.EquipItem(actor, item);
@@ -652,10 +652,10 @@ int SelfTest() {
     al_vm.AddScript(std::move(ab.pex));
 
     const unsigned long long alias_handle =
-        rec::script::papyrus::EncodeAliasHandle(/*quest=*/0x83042, /*alias_id=*/1);
+        rx::script::papyrus::EncodeAliasHandle(/*quest=*/0x83042, /*alias_id=*/1);
     al_vm.CreateInstanceWithHandle("CWReinforcementAliasScript", alias_handle);
 
-    rec::script::skyrim::RecordBackedSkyrimBindings binds;
+    rx::script::skyrim::RecordBackedSkyrimBindings binds;
     binds.set_vm(&al_vm);
     const ObjectRef soldier{0x500};
     binds.SetActorValue(soldier, "health", 50.0f);
@@ -692,7 +692,7 @@ int SelfTest() {
     check("None (handle 0) does not dispatch",
           bare_vm.Call(ObjectRef{0}, "Is3DLoaded", {}).ToBool() == false);
     check("an unbound bare-ref method is None",
-          bare_vm.Call(bare, "NoSuchMethod", {}).type() == rec::script::papyrus::ValueType::kNone);
+          bare_vm.Call(bare, "NoSuchMethod", {}).type() == rx::script::papyrus::ValueType::kNone);
   }
 
   std::printf("%s (%d failures)\n", failures ? "SELFTEST FAILED" : "SELFTEST PASSED", failures);
@@ -1008,7 +1008,7 @@ TickerScripts BuildTickerScripts() {
 // command ordering, native dispatch through the inheritance chain, the update
 // scheduler and OnUpdate event firing, plus cross-thread reads via futures.
 int GuestTest() {
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
 
   TickerScripts scripts = BuildTickerScripts();
   PexFile form = std::move(scripts.form);
@@ -1087,7 +1087,7 @@ int GuestTest() {
 
     const ObjectRef ref{0x9001};
     const unsigned long long alias_handle =
-        rec::script::papyrus::EncodeAliasHandle(/*quest=*/0x9002, /*alias_id=*/2);
+        rx::script::papyrus::EncodeAliasHandle(/*quest=*/0x9002, /*alias_id=*/2);
     guest.SubmitFor([ref](VirtualMachine& vm) {
            return vm.CreateInstanceWithHandle("PingRef", ref.handle);
          }).get();
@@ -1126,7 +1126,7 @@ int GuestTest() {
 
 // Engine bindings stub with known values, so the managed SDK self-test can
 // assert on dispatched native results.
-struct TestBindings : rec::script::skyrim::SkyrimBindings {
+struct TestBindings : rx::script::skyrim::SkyrimBindings {
   ObjectRef GetPlayer() override { return ObjectRef{0x14}; }
   f32 GetPositionX(ObjectRef) override { return 1.0f; }
   f32 GetActorValue(ObjectRef, const std::string& av) override {
@@ -1136,7 +1136,7 @@ struct TestBindings : rec::script::skyrim::SkyrimBindings {
   bool IsDead(ObjectRef) override { return false; }
   bool IsInCombat(ObjectRef) override { return true; }
   i32 GetItemCount(ObjectRef, ObjectRef) override { return 3; }
-  std::unordered_map<rec::u64, i32> stages;
+  std::unordered_map<rx::u64, i32> stages;
   i32 GetStage(ObjectRef q) override { return stages.count(q.handle) ? stages[q.handle] : 0; }
   void SetStage(ObjectRef q, i32 s) override { stages[q.handle] = s; }
 };
@@ -1148,12 +1148,12 @@ struct TestBindings : rec::script::skyrim::SkyrimBindings {
 // managed side returns its failure count; this asserts it is zero. Skips
 // cleanly (rc 0) when no .NET runtime is present.
 int HostTest(const std::string& runtime_config, const std::string& assembly) {
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
 
   TestBindings bindings;
   TickerScripts scripts = BuildTickerScripts();
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   guest.Start();
   guest.SubmitFor([f = std::move(scripts.form)](VirtualMachine& vm) mutable {
         return vm.AddScript(std::move(f));
@@ -1162,9 +1162,9 @@ int HostTest(const std::string& runtime_config, const std::string& assembly) {
         return vm.AddScript(std::move(t));
       }).get();
 
-  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
-  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
-  rec::script::host::ClrHost host;
+  rx::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rx::script::host::ScriptBridge bridge = rx::script::host::MakeScriptBridge(bridge_ctx);
+  rx::script::host::ClrHost host;
   if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "SelfTest")) {
     std::printf("HOSTTEST SKIPPED (no .NET runtime / entrypoint)\n");
@@ -1190,8 +1190,8 @@ int HostTest(const std::string& runtime_config, const std::string& assembly) {
 // SDK call back into the engine -> bindings state changes -> engine observes.
 // Skips cleanly (rc 0) when no .NET runtime is present.
 int ManagedHostTest(const std::string& runtime_config, const std::string& assembly) {
-  using rec::script::PapyrusGuest;
-  using rec::script::skyrim::RecordBackedSkyrimBindings;
+  using rx::script::PapyrusGuest;
+  using rx::script::skyrim::RecordBackedSkyrimBindings;
 
   RecordBackedSkyrimBindings bindings;
   const ObjectRef player{0x14};
@@ -1201,10 +1201,10 @@ int ManagedHostTest(const std::string& runtime_config, const std::string& assemb
   bindings.ModActorValue(player, "Health", -50.0f);
 
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   guest.Start();
 
-  rec::script::host::ManagedHost host;
+  rx::script::host::ManagedHost host;
   host.AddDomain("Skyrim Special Edition", guest, /*loader=*/{});
   if (!host.Boot(/*dotnet_root=*/"", runtime_config, assembly)) {
     std::printf("MANAGEDHOSTTEST SKIPPED (no .NET runtime / entrypoint)\n");
@@ -1217,7 +1217,7 @@ int ManagedHostTest(const std::string& runtime_config, const std::string& assemb
   const f32 after = bindings.GetActorValue(player, "Health");
 
   // Event delivery must not fault even without a consumer.
-  host.PublishEvent({rec::script::host::ManagedEventId::kActorDied, player.handle, 0, 0, 0.0f});
+  host.PublishEvent({rx::script::host::ManagedEventId::kActorDied, player.handle, 0, 0, 0.0f});
 
   host.Shutdown();
   guest.Stop();
@@ -1251,7 +1251,7 @@ NamedFunction NativeMethod(Builder& b, const char* name,
 int SkyrimTest() {
   TestBindings bindings;
   NativeRegistry natives;
-  rec::script::skyrim::RegisterSkyrimNatives(natives, &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(natives, &bindings);
   VirtualMachine vm(&natives);
 
   // ObjectReference (native GetPositionX) and Actor extends it (native AV ops).
@@ -1334,7 +1334,7 @@ int SkyrimTest() {
   // ReferenceAlias.GetOwningQuest decodes the quest from the alias handle (the
   // bare-ref native path, no script instance), so an alias's OnDeath can
   // GetOwningQuest().registerDeath(self).
-  const unsigned long long alias = rec::script::papyrus::EncodeAliasHandle(0x3372b, 7);
+  const unsigned long long alias = rx::script::papyrus::EncodeAliasHandle(0x3372b, 7);
   check("ReferenceAlias.GetOwningQuest decodes its quest",
         vm.Call(ObjectRef{alias}, "GetOwningQuest", {}).as_object().handle == 0x3372b);
 
@@ -1347,7 +1347,7 @@ int SkyrimTest() {
 // serialize there with no lost work, no race and no deadlock. The direct test
 // of "the papyrus vm runs compartmentalized on its own thread".
 int ConcurrencyTest() {
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
   Builder cb;
   cb.obj.name = cb.S("Counter");
   cb.obj.parent_class = cb.S("");
@@ -1452,7 +1452,7 @@ int SeparationTest() {
 // enabled, keeps a running total, and clears. This backs the debug trace window.
 int TraceTest() {
   NativeRegistry natives;
-  rec::script::skyrim::RegisterSkyrimNatives(natives, nullptr);
+  rx::script::skyrim::RegisterSkyrimNatives(natives, nullptr);
   VirtualMachine vm(&natives);
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
@@ -1480,9 +1480,9 @@ int TraceTest() {
 
   // The exact path the engine debug window drives: enable, call, and snapshot
   // all marshalled through the guest thread.
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
   guest.Start();
   guest.Submit([](VirtualMachine& g) { g.set_native_trace(true); });
   guest.SubmitFor([](VirtualMachine& g) {
@@ -1513,9 +1513,9 @@ int GcProfileTest(const std::string& runtime_config, const std::string& assembly
 #if defined(__linux__) || defined(__APPLE__)
   ::setenv("RECREATION_MANAGED_GC_HEAP_PERCENT", "10", /*overwrite=*/1);
 #endif
-  const auto props = rec::script::host::ManagedGcProfile("constrained");
+  const auto props = rx::script::host::ManagedGcProfile("constrained");
 
-  rec::script::host::ClrHost host;
+  rx::script::host::ClrHost host;
   if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "GcReport", props)) {
     std::printf("GCPROFILETEST SKIPPED (no .NET runtime / entrypoint)\n");
@@ -1572,11 +1572,11 @@ int GcProfileTest(const std::string& runtime_config, const std::string& assembly
 // and the string/growth cases prove the arena marshals correctly. Skips cleanly
 // (rc 0) when no .NET runtime is present.
 int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
 
   TestBindings bindings;
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   guest.natives().Register(
       "Bench", "Echo", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
         return a.empty() ? Value() : a[0];
@@ -1593,9 +1593,9 @@ int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
       });
   guest.Start();
 
-  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
-  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
-  rec::script::host::ClrHost host;
+  rx::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rx::script::host::ScriptBridge bridge = rx::script::host::MakeScriptBridge(bridge_ctx);
+  rx::script::host::ClrHost host;
   if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "BridgeCheck")) {
     std::printf("BRIDGETEST SKIPPED (no .NET runtime / entrypoint)\n");
@@ -1626,11 +1626,11 @@ int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
 // and bytes/call before vs after the NativeBackend change isolates the
 // per-call allocations (#2). Skips cleanly (rc 0) without a .NET runtime.
 int BenchBridge(const std::string& runtime_config, const std::string& assembly) {
-  using rec::script::PapyrusGuest;
+  using rx::script::PapyrusGuest;
 
   TestBindings bindings;
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
-  rec::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   // A silent global native that echoes its first argument back, so a call can
   // exercise the string-argument marshalling path without any log spam.
   guest.natives().Register(
@@ -1639,9 +1639,9 @@ int BenchBridge(const std::string& runtime_config, const std::string& assembly) 
       });
   guest.Start();
 
-  rec::script::host::BridgeContext bridge_ctx{&guest, {}};
-  rec::script::host::ScriptBridge bridge = rec::script::host::MakeScriptBridge(bridge_ctx);
-  rec::script::host::ClrHost host;
+  rx::script::host::BridgeContext bridge_ctx{&guest, {}};
+  rx::script::host::ScriptBridge bridge = rx::script::host::MakeScriptBridge(bridge_ctx);
+  rx::script::host::ClrHost host;
   if (!host.Initialize(/*dotnet_root=*/"", runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "Bench")) {
     std::printf("BENCHBRIDGE SKIPPED (no .NET runtime / entrypoint)\n");
@@ -1651,7 +1651,7 @@ int BenchBridge(const std::string& runtime_config, const std::string& assembly) 
 
   // Mirrors ScriptHost.BenchArgs (sequential layout).
   struct BenchArgs {
-    rec::script::host::ScriptBridge* bridge;
+    rx::script::host::ScriptBridge* bridge;
     std::int64_t iters;
     std::int64_t alloc_bytes;
   };

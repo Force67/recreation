@@ -20,14 +20,14 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-bool Near(rec::f32 a, rec::f32 b) { return std::fabs(a - b) < 1e-4f; }
+bool Near(rx::f32 a, rx::f32 b) { return std::fabs(a - b) < 1e-4f; }
 
 }  // namespace
 
 int main() {
-  using rec::chargen::CharGenPreset;
-  using rec::chargen::ParseCharGenPreset;
-  using rec::chargen::SerializeCharGenPreset;
+  using rx::chargen::CharGenPreset;
+  using rx::chargen::ParseCharGenPreset;
+  using rx::chargen::SerializeCharGenPreset;
 
   std::printf("chargen preset format\n");
 

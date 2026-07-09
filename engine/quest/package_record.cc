@@ -6,7 +6,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 namespace {
 
 constexpr u32 kPkdt = FourCc('P', 'K', 'D', 'T');
@@ -161,4 +161,4 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record) {
   return ParseImpl(handle, record, nullptr);
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

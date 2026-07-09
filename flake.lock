@@ -33,10 +33,24 @@
       "inputs": {
         "nanobuf-src": "nanobuf-src",
         "nixpkgs": "nixpkgs",
+        "rx-src": "rx-src",
         "vma-src": "vma-src",
         "volk-src": "volk-src",
         "vulkan-headers-src": "vulkan-headers-src",
         "zetanet-src": "zetanet-src"
+      }
+    },
+    "rx-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783636570,
+        "narHash": "sha256-dM0aURbyJ+LH5Ee0Ig1gMqwyCQzrDcYeWYCWWIx/Byk=",
+        "path": "/home/captainspark/Documents/Projects/rx",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/captainspark/Documents/Projects/rx",
+        "type": "path"
       }
     },
     "vma-src": {

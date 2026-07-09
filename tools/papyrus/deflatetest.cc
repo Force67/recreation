@@ -10,8 +10,8 @@
 #include "bethesda/compression.h"
 #include "core/types.h"
 
-using namespace rec;
-using namespace rec::bethesda;
+using namespace rx;
+using namespace rx::bethesda;
 
 namespace {
 

@@ -19,14 +19,14 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-bool Near(rec::f32 a, rec::f32 b) { return std::fabs(a - b) < 1e-4f; }
+bool Near(rx::f32 a, rx::f32 b) { return std::fabs(a - b) < 1e-4f; }
 
 }  // namespace
 
 int main() {
-  using rec::editor::FormatPlaceLine;
-  using rec::editor::LayoutEntry;
-  using rec::editor::ParsePlaceLine;
+  using rx::editor::FormatPlaceLine;
+  using rx::editor::LayoutEntry;
+  using rx::editor::ParsePlaceLine;
 
   std::printf("editor layout format\n");
 
@@ -34,7 +34,7 @@ int main() {
   // a non-trivial transform).
   LayoutEntry in;
   in.domain = "fallout4";
-  in.base = rec::bethesda::GlobalFormId{4, 0x0123ab};
+  in.base = rx::bethesda::GlobalFormId{4, 0x0123ab};
   in.pos[0] = -140.5f;
   in.pos[1] = 29.13f;
   in.pos[2] = 1191.28f;

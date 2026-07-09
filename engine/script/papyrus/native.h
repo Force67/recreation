@@ -9,7 +9,7 @@
 
 #include "script/papyrus/value.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 class VirtualMachine;
 
@@ -36,6 +36,6 @@ class NativeRegistry {
   std::unordered_map<std::string, NativeFunction> table_;
 };
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_NATIVE_H_

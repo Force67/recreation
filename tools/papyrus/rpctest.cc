@@ -23,13 +23,13 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-using rec::rpc::DecodeCall;
-using rec::rpc::EncodeCall;
-using rec::rpc::RpcArgs;
-using rec::rpc::RpcCall;
-using rec::rpc::RpcContext;
-using rec::rpc::RpcRegistry;
-using rec::rpc::RpcValue;
+using rx::rpc::DecodeCall;
+using rx::rpc::EncodeCall;
+using rx::rpc::RpcArgs;
+using rx::rpc::RpcCall;
+using rx::rpc::RpcContext;
+using rx::rpc::RpcRegistry;
+using rx::rpc::RpcValue;
 
 void TestValue() {
   std::puts("rpc value construction/accessors:");
@@ -41,11 +41,11 @@ void TestValue() {
   Check("bool type", b.type() == RpcValue::Type::kBool);
   Check("bool value", b.as_bool() == true);
 
-  RpcValue i(rec::i64{-42});
+  RpcValue i(rx::i64{-42});
   Check("int type", i.type() == RpcValue::Type::kInt);
   Check("int value", i.as_int() == -42);
 
-  RpcValue f(rec::f64{3.5});
+  RpcValue f(rx::f64{3.5});
   Check("float type", f.type() == RpcValue::Type::kFloat);
   Check("float value", f.as_float() == 3.5);
 
@@ -53,9 +53,9 @@ void TestValue() {
   Check("string type", s.type() == RpcValue::Type::kString);
   Check("string value", s.as_string() == "hello");
 
-  RpcValue blob(std::vector<rec::u8>{1, 2, 3});
+  RpcValue blob(std::vector<rx::u8>{1, 2, 3});
   Check("blob type", blob.type() == RpcValue::Type::kBlob);
-  Check("blob value", blob.as_blob() == (std::vector<rec::u8>{1, 2, 3}));
+  Check("blob value", blob.as_blob() == (std::vector<rx::u8>{1, 2, 3}));
 
   std::puts("rpc value type-mismatch defaults:");
   Check("bool mismatch default", i.as_bool(true) == true);
@@ -65,15 +65,15 @@ void TestValue() {
   Check("blob mismatch empty", s.as_blob().empty());
 
   std::puts("rpc value equality:");
-  Check("equal same", RpcValue(rec::i64{5}) == RpcValue(rec::i64{5}));
-  Check("unequal value", !(RpcValue(rec::i64{5}) == RpcValue(rec::i64{6})));
-  Check("unequal type", !(RpcValue(rec::i64{1}) == RpcValue(true)));
+  Check("equal same", RpcValue(rx::i64{5}) == RpcValue(rx::i64{5}));
+  Check("unequal value", !(RpcValue(rx::i64{5}) == RpcValue(rx::i64{6})));
+  Check("unequal type", !(RpcValue(rx::i64{1}) == RpcValue(true)));
   Check("null equal null", RpcValue() == RpcValue());
 }
 
 // Encodes then decodes and confirms the call is reproduced exactly.
 void CheckRoundTrip(const char* what, const RpcCall& call) {
-  std::vector<rec::u8> bytes = EncodeCall(call);
+  std::vector<rx::u8> bytes = EncodeCall(call);
   std::optional<RpcCall> back = DecodeCall(bytes.data(), bytes.size());
   bool ok = back.has_value() && back->name == call.name && back->args == call.args;
   Check(what, ok);
@@ -83,18 +83,18 @@ void TestCodec() {
   std::puts("rpc codec round trip:");
   CheckRoundTrip("null arg", {"a.null", {RpcValue()}});
   CheckRoundTrip("bool arg", {"a.bool", {RpcValue(false)}});
-  CheckRoundTrip("int arg", {"a.int", {RpcValue(rec::i64{-1234567890123})}});
-  CheckRoundTrip("float arg", {"a.float", {RpcValue(rec::f64{-2.718281828})}});
+  CheckRoundTrip("int arg", {"a.int", {RpcValue(rx::i64{-1234567890123})}});
+  CheckRoundTrip("float arg", {"a.float", {RpcValue(rx::f64{-2.718281828})}});
   CheckRoundTrip("string arg", {"a.string", {RpcValue(std::string("a\0b", 3))}});
   CheckRoundTrip("blob arg",
-                 {"a.blob", {RpcValue(std::vector<rec::u8>{0, 255, 16, 32})}});
+                 {"a.blob", {RpcValue(std::vector<rx::u8>{0, 255, 16, 32})}});
   CheckRoundTrip("empty args", {"a.noargs", {}});
 
   RpcCall mixed;
   mixed.name = "spell.cast";
-  mixed.args = {RpcValue(rec::i64{7}), RpcValue(std::string("Fireball")),
-                RpcValue(rec::f64{1.5}), RpcValue(true), RpcValue(),
-                RpcValue(std::vector<rec::u8>{9, 8, 7})};
+  mixed.args = {RpcValue(rx::i64{7}), RpcValue(std::string("Fireball")),
+                RpcValue(rx::f64{1.5}), RpcValue(true), RpcValue(),
+                RpcValue(std::vector<rx::u8>{9, 8, 7})};
   CheckRoundTrip("mixed args", mixed);
 }
 
@@ -103,7 +103,7 @@ void TestCodecRejects() {
   RpcCall call;
   call.name = "x";
   call.args = {RpcValue(std::string("payload"))};
-  std::vector<rec::u8> good = EncodeCall(call);
+  std::vector<rx::u8> good = EncodeCall(call);
 
   Check("good decodes", DecodeCall(good.data(), good.size()).has_value());
 
@@ -114,35 +114,35 @@ void TestCodecRejects() {
   }
   Check("all truncations rejected", !any_truncation_ok);
 
-  std::vector<rec::u8> bad_magic = good;
+  std::vector<rx::u8> bad_magic = good;
   bad_magic[0] ^= 0xFF;
   Check("bad magic rejected", !DecodeCall(bad_magic.data(), bad_magic.size()).has_value());
 
-  std::vector<rec::u8> trailing = good;
+  std::vector<rx::u8> trailing = good;
   trailing.push_back(0x00);
   Check("trailing garbage rejected",
         !DecodeCall(trailing.data(), trailing.size()).has_value());
 
   // An over-limit string length (> 16 MiB) in the header must be rejected before
   // any allocation, even though the buffer itself is tiny.
-  std::vector<rec::u8> over;
-  auto put_u32 = [&](rec::u32 v) {
-    for (int i = 0; i < 4; ++i) over.push_back(rec::u8(v >> (8 * i)));
+  std::vector<rx::u8> over;
+  auto put_u32 = [&](rx::u32 v) {
+    for (int i = 0; i < 4; ++i) over.push_back(rx::u8(v >> (8 * i)));
   };
-  auto put_u16 = [&](rec::u16 v) {
-    over.push_back(rec::u8(v));
-    over.push_back(rec::u8(v >> 8));
+  auto put_u16 = [&](rx::u16 v) {
+    over.push_back(rx::u8(v));
+    over.push_back(rx::u8(v >> 8));
   };
-  put_u32(rec::FourCc('R', 'P', 'C', '1'));
+  put_u32(rx::FourCc('R', 'P', 'C', '1'));
   put_u16(1);          // name length
   over.push_back('n');
   put_u16(1);          // arg count
-  over.push_back(static_cast<rec::u8>(RpcValue::Type::kString));
+  over.push_back(static_cast<rx::u8>(RpcValue::Type::kString));
   put_u32(0x7FFFFFFF);  // ~2 GiB declared length
   Check("over-limit length rejected", !DecodeCall(over.data(), over.size()).has_value());
 
   // An unknown type tag means the stream is corrupt.
-  std::vector<rec::u8> bad_tag;
+  std::vector<rx::u8> bad_tag;
   bad_tag.insert(bad_tag.end(), over.begin(), over.begin() + 4);  // magic
   bad_tag.push_back(0); bad_tag.push_back(0);  // name length 0
   bad_tag.push_back(1); bad_tag.push_back(0);  // arg count 1
@@ -171,7 +171,7 @@ void TestRegistry() {
   RpcContext ctx;
   ctx.sender = 99;
   ctx.from_server = true;
-  RpcCall call{"ping", {RpcValue(rec::i64{5}), RpcValue(std::string("hi"))}};
+  RpcCall call{"ping", {RpcValue(rx::i64{5}), RpcValue(std::string("hi"))}};
   Check("dispatch returns true", reg.Dispatch(ctx, call));
   Check("handler invoked once", calls == 1);
   Check("context sender forwarded", seen_ctx.sender == 99);

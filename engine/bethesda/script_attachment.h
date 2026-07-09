@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Parsed VMAD subrecord: the Papyrus scripts attached to a form plus the
 // property values the editor baked in. This is the bridge from plugin data to
@@ -124,6 +124,6 @@ struct SceneFragments {
 // malformed; a malformed fragment tail leaves whatever parsed cleanly.
 bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* frags);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_

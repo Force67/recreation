@@ -9,7 +9,7 @@
 #include "bethesda/tri.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Runtime FaceGen head morphing. Maps an NPC_'s NAM9 face sliders + NAMA
 // face-part type indices onto the named morphs in the head-part chargen/race
@@ -56,6 +56,6 @@ bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
                      const std::string& race_morph, const TriMorphSet* chargen_tri,
                      const base::Vector<MorphWeight>& chargen);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HEAD_MORPH_H_

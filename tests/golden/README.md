@@ -1,7 +1,7 @@
 # Golden-image regression tests
 
 `golden.py` renders the demo scenes headlessly and compares frame captures
-against the references in `refs/`. `REC_FIXED_DT` locks the frame delta, so
+against the references in `refs/`. `RX_FIXED_DT` locks the frame delta, so
 every time-driven system (water waves, particles, exposure adaptation,
 day/night sun) is a pure function of the frame index and captures are
 deterministic on a given driver stack.

@@ -2,8 +2,8 @@
 
 #include "quest/scene_compile.h"
 
-using namespace rec;
-using namespace rec::quest;
+using namespace rx;
+using namespace rx::quest;
 
 static int g_failures = 0;
 static void Check(const char* what, bool ok) {

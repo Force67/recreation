@@ -6,11 +6,11 @@
 
 #include "script/host/bridge.h"
 
-namespace rec::script {
+namespace rx::script {
 class PapyrusGuest;
 }
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 // What a ScriptBridge needs from the engine. The guest serves every dispatch,
 // property and tick call; the loader pulls a script (and its ancestor chain)
@@ -30,6 +30,6 @@ struct BridgeContext {
 // managed code drives the guest without ever touching the VM directly.
 ScriptBridge MakeScriptBridge(BridgeContext& ctx);
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host
 
 #endif  // RECREATION_SCRIPT_HOST_GUEST_BRIDGE_H_

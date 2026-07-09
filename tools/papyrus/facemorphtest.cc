@@ -15,9 +15,9 @@
 
 namespace {
 
-using rec::f32;
-using rec::i32;
-using rec::u32;
+using rx::f32;
+using rx::i32;
+using rx::u32;
 
 int g_failures = 0;
 
@@ -26,8 +26,8 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-rec::asset::Vertex MakeVert(f32 x, f32 y, f32 z, f32 u, f32 v) {
-  rec::asset::Vertex vert{};
+rx::asset::Vertex MakeVert(f32 x, f32 y, f32 z, f32 u, f32 v) {
+  rx::asset::Vertex vert{};
   vert.position[0] = x;
   vert.position[1] = y;
   vert.position[2] = z;
@@ -38,24 +38,24 @@ rec::asset::Vertex MakeVert(f32 x, f32 y, f32 z, f32 u, f32 v) {
 }
 
 // A unit quad in the z = 0 plane, two triangles sharing the diagonal.
-rec::asset::MeshLod MakeQuad() {
-  rec::asset::MeshLod lod;
+rx::asset::MeshLod MakeQuad() {
+  rx::asset::MeshLod lod;
   lod.vertices.push_back(MakeVert(0, 0, 0, 0, 0));  // 0
   lod.vertices.push_back(MakeVert(1, 0, 0, 1, 0));  // 1
   lod.vertices.push_back(MakeVert(1, 1, 0, 1, 1));  // 2
   lod.vertices.push_back(MakeVert(0, 1, 0, 0, 1));  // 3
   const u32 idx[] = {0, 1, 2, 0, 2, 3};
   for (u32 i : idx) lod.indices.push_back(i);
-  lod.submeshes.push_back({0, 6, rec::asset::AssetId{}});
+  lod.submeshes.push_back({0, 6, rx::asset::AssetId{}});
   return lod;
 }
 
 void TestNormals() {
   std::printf("normal/tangent recompute:\n");
-  rec::asset::MeshLod lod = MakeQuad();
-  rec::asset::RecomputeNormalsTangents(lod);
+  rx::asset::MeshLod lod = MakeQuad();
+  rx::asset::RecomputeNormalsTangents(lod);
   bool all_facing = true;
-  for (const rec::asset::Vertex& v : lod.vertices) {
+  for (const rx::asset::Vertex& v : lod.vertices) {
     // Flat z=0 quad wound CCW: normals should be +Z, unit length.
     if (std::fabs(v.normal[2] - 1.0f) > 1e-3f) all_facing = false;
     f32 len = std::sqrt(v.normal[0] * v.normal[0] + v.normal[1] * v.normal[1] +
@@ -70,13 +70,13 @@ void TestNormals() {
 
 void TestSubdivide() {
   std::printf("loop subdivision (boundary preserving):\n");
-  rec::asset::MeshLod lod = MakeQuad();
+  rx::asset::MeshLod lod = MakeQuad();
   // Capture the 4 corner positions before subdividing.
   f32 corners[4][3];
   for (int i = 0; i < 4; ++i)
     for (int k = 0; k < 3; ++k) corners[i][k] = lod.vertices[i].position[k];
 
-  rec::asset::SubdivideLoop(lod, 1);
+  rx::asset::SubdivideLoop(lod, 1);
   // 4 originals + 5 edges (4 boundary + 1 shared diagonal) = 9 vertices;
   // 2 triangles -> 8 triangles = 24 indices.
   Check("vertex count 4 -> 9", lod.vertices.size() == 9);
@@ -91,7 +91,7 @@ void TestSubdivide() {
 
   // A boundary-edge midpoint (0->1) must be the linear midpoint (0.5, 0, 0).
   bool found_mid = false;
-  for (const rec::asset::Vertex& v : lod.vertices) {
+  for (const rx::asset::Vertex& v : lod.vertices) {
     if (std::fabs(v.position[0] - 0.5f) < 1e-5f && std::fabs(v.position[1]) < 1e-5f &&
         std::fabs(v.position[2]) < 1e-5f)
       found_mid = true;
@@ -99,26 +99,26 @@ void TestSubdivide() {
   Check("boundary edge 0-1 splits at its linear midpoint", found_mid);
 
   // Subdividing again must not crash and must keep growing.
-  rec::asset::SubdivideLoop(lod, 1);
+  rx::asset::SubdivideLoop(lod, 1);
   Check("second subdivision grows the mesh", lod.vertices.size() > 9);
 
   // Level 0 only recomputes normals: geometry unchanged.
-  rec::asset::MeshLod flat = MakeQuad();
-  rec::asset::SubdivideLoop(flat, 0);
+  rx::asset::MeshLod flat = MakeQuad();
+  rx::asset::SubdivideLoop(flat, 0);
   Check("subdiv level 0 leaves 4 vertices", flat.vertices.size() == 4);
 }
 
 void TestMorphMapping() {
   std::printf("NAM9/NAMA -> chargen morph mapping:\n");
-  f32 nam9[rec::bethesda::kNam9Count] = {};
+  f32 nam9[rx::bethesda::kNam9Count] = {};
   // index 0 = NoseLong (negative -> NoseShort), 1 = NoseUp (positive), 9 = BrowsUp.
   nam9[0] = -1.0f;  // NoseLong slider pushed negative
   nam9[1] = 0.5f;   // NoseUp
   nam9[9] = -0.8f;  // BrowsUp negative -> BrowDown
   i32 nama[4] = {3, -1, 17, 4};  // nose type 3, eyes 17, mouth 4, brows none
 
-  base::Vector<rec::bethesda::MorphWeight> out;
-  rec::bethesda::CollectFaceMorphs(nam9, nama, &out);
+  base::Vector<rx::bethesda::MorphWeight> out;
+  rx::bethesda::CollectFaceMorphs(nam9, nama, &out);
 
   auto weight_of = [&](const char* name) -> f32 {
     for (const auto& w : out)
@@ -137,10 +137,10 @@ void TestMorphMapping() {
   Check("NAMA brows -1 emits nothing", !has("BrowType-1") && !has("BrowType1"));
 
   // A single-sided slider (JawForward, index 4) drops a negative value.
-  f32 nam9b[rec::bethesda::kNam9Count] = {};
+  f32 nam9b[rx::bethesda::kNam9Count] = {};
   nam9b[4] = -0.5f;
-  base::Vector<rec::bethesda::MorphWeight> out2;
-  rec::bethesda::CollectFaceMorphs(nam9b, nama, &out2);
+  base::Vector<rx::bethesda::MorphWeight> out2;
+  rx::bethesda::CollectFaceMorphs(nam9b, nama, &out2);
   bool jaw = false;
   for (const auto& w : out2)
     if (w.name == "JawForward") jaw = true;
@@ -148,7 +148,7 @@ void TestMorphMapping() {
 
   // Slider labels enumerate for the UI.
   Check("slider 1 label is NoseUp",
-        std::string(rec::bethesda::Nam9SliderInfo(1).label) == "NoseUp");
+        std::string(rx::bethesda::Nam9SliderInfo(1).label) == "NoseUp");
 }
 
 }  // namespace

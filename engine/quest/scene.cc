@@ -1,6 +1,6 @@
 #include "quest/scene.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 void SceneRunner::Reset(const Scene* scene) {
   scene_ = scene;
@@ -65,4 +65,4 @@ bool SceneRunner::Tick(SceneSink& sink, float dt) {
   return index_ < scene_->actions.size();
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

@@ -14,11 +14,11 @@
 
 namespace {
 
-using rec::f32;
-using rec::i16;
-using rec::u16;
-using rec::u32;
-using rec::u8;
+using rx::f32;
+using rx::i16;
+using rx::u16;
+using rx::u32;
+using rx::u8;
 
 int g_failures = 0;
 
@@ -83,9 +83,9 @@ int main() {
     }
   }
 
-  rec::bethesda::StarfieldSkinnedMeshData out;
-  bool parsed = rec::bethesda::ParseStarfieldSkinnedMesh(
-      rec::ByteSpan(mesh.data(), mesh.size()), &out);
+  rx::bethesda::StarfieldSkinnedMeshData out;
+  bool parsed = rx::bethesda::ParseStarfieldSkinnedMesh(
+      rx::ByteSpan(mesh.data(), mesh.size()), &out);
 
   std::puts("starfield skinned mesh:");
   Check("parses", parsed);
@@ -103,7 +103,7 @@ int main() {
   }
 
   if (out.skinning.size() == kVertexCount) {
-    const rec::asset::SkinnedVertexExtra& e0 = out.skinning[0];
+    const rx::asset::SkinnedVertexExtra& e0 = out.skinning[0];
     // Top four by weight are bones 1(30000), 2(4000), 7(2000), 9(1000); the two
     // smallest (5=100, 3=500) are dropped.
     bool right_bones = e0.bone_indices[0] == 1 && e0.bone_indices[1] == 2 &&
@@ -114,7 +114,7 @@ int main() {
     Check("dominant bone has the largest weight",
           e0.bone_weights[0] > e0.bone_weights[1] && e0.bone_weights[1] >= e0.bone_weights[2]);
 
-    const rec::asset::SkinnedVertexExtra& e1 = out.skinning[1];
+    const rx::asset::SkinnedVertexExtra& e1 = out.skinning[1];
     Check("single-influence bone index", e1.bone_indices[0] == 11);
     Check("single-influence weight is full", e1.bone_weights[0] == 255);
   }

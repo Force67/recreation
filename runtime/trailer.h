@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "weather/weather.h"
 
-namespace rec {
+namespace rx {
 
 // Which rendering path the trailer is showing off this moment. The badge text
 // names it on screen; the engine maps it onto the renderer's feature flags.
@@ -87,6 +87,6 @@ class TrailerDirector {
   f32 duration_ = 0.0f;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_TRAILER_H_

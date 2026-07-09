@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
     std::printf("usage: assetdump <data-dir> <virtual path> [out-file]\n");
     return 1;
   }
-  using namespace rec;
+  using namespace rx;
 
   asset::Vfs vfs;
   std::error_code ec;
@@ -62,14 +62,14 @@ int main(int argc, char** argv) {
       path.ends_with(".btt")) {
     // Convert directly (LoadMesh dispatches by .nif extension; .btr/.bto won't
     // route there, so use the conversion result for geometry).
-    base::UnorderedMap<rec::u64, std::string> paths_by_id;
+    base::UnorderedMap<rx::u64, std::string> paths_by_id;
     auto bytes = vfs.Read(path);
     if (!bytes) {
       std::printf("not in vfs: %s\n", path.c_str());
       return 1;
     }
     bethesda::NifConversion conversion = bethesda::ConvertNifScene(
-        rec::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(path), path);
+        rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(path), path);
     for (const std::string& texture : conversion.texture_paths) {
       paths_by_id.emplace(asset::MakeAssetId(texture).hash, texture);
     }

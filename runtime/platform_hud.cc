@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace rec {
+namespace rx {
 namespace {
 
 // Small typed argument readers, tolerant of a short or mistyped argument list so a
@@ -170,4 +170,4 @@ void PlatformHud::Clear() {
   pending_connect_.reset();
 }
 
-}  // namespace rec
+}  // namespace rx

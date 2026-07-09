@@ -2,7 +2,7 @@
 
 #include <vector>
 
-namespace rec::quest {
+namespace rx::quest {
 
 const QuestNode* QuestGraph::FindNode(i32 id) const {
   for (const QuestNode& n : nodes)
@@ -102,4 +102,4 @@ bool QuestInstance::PostEvent(const std::string& event, QuestActionSink& sink) {
   return any;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

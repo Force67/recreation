@@ -8,14 +8,14 @@
 
 #include "render/core/settings_ini.h"
 
-using rec::render::AntiAliasingMode;
-using rec::render::ApplyIni;
-using rec::render::LoadSettingsIni;
-using rec::render::RenderSettings;
-using rec::render::SettingsToIni;
-using rec::render::TonemapOperator;
-using rec::render::UpscalerKind;
-using rec::render::UpscalerQuality;
+using rx::render::AntiAliasingMode;
+using rx::render::ApplyIni;
+using rx::render::LoadSettingsIni;
+using rx::render::RenderSettings;
+using rx::render::SettingsToIni;
+using rx::render::TonemapOperator;
+using rx::render::UpscalerKind;
+using rx::render::UpscalerQuality;
 
 namespace {
 

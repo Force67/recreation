@@ -26,18 +26,18 @@ static int pclose(FILE* stream) { return _pclose(stream); }
 // few preferences, then persists the choices to a small setup.ini and hands off
 // to SetupMainMenu. A marker in that file (done=1) suppresses the wizard on
 // every later launch, and the player can re-run it from the menu's Settings.
-namespace rec {
+namespace rx {
 namespace fs = std::filesystem;
 
 namespace {
 
 // Test/CI hooks, formerly read straight from the environment. Namespace scope so
 // they register before InitOptionsFromEnv() runs at startup.
-base::Option<const char*> PickOverride{"pick.override", nullptr, "REC_PICK_OVERRIDE"};
-base::Option<bool> ForceFirstRun{"force.first.run", false, "REC_FORCE_FIRST_RUN"};
+base::Option<const char*> PickOverride{"pick.override", nullptr, "RX_PICK_OVERRIDE"};
+base::Option<bool> ForceFirstRun{"force.first.run", false, "RX_FORCE_FIRST_RUN"};
 base::Option<const char*> FirstrunAutobrowse{"firstrun.autobrowse", nullptr,
-                                             "REC_FIRSTRUN_AUTOBROWSE"};
-base::Option<bool> FirstrunAutolaunch{"firstrun.autolaunch", false, "REC_FIRSTRUN_AUTOLAUNCH"};
+                                             "RX_FIRSTRUN_AUTOBROWSE"};
+base::Option<bool> FirstrunAutolaunch{"firstrun.autolaunch", false, "RX_FIRSTRUN_AUTOLAUNCH"};
 
 // Per-platform user config directory holding setup.ini and the default mods
 // folder: %APPDATA%\Recreation, ~/Library/Application Support/Recreation, or
@@ -167,7 +167,7 @@ void LoadSetupConfig(Engine& engine) {
 }
 
 // True once the wizard has been completed (setup.ini exists with done=1).
-// REC_FORCE_FIRST_RUN forces the wizard back on for testing.
+// RX_FORCE_FIRST_RUN forces the wizard back on for testing.
 bool FirstRunComplete() {
   if (ForceFirstRun) return false;
   const auto kv = ReadIni();
@@ -182,7 +182,7 @@ void SetupFirstRun(Engine& engine) {
   if (self->first_run_mods_dir_.empty()) self->first_run_mods_dir_ = DefaultModsDir();
   self->game_ui_.OpenFirstRun();
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
-  REC_INFO("first-run setup wizard open");
+  RX_INFO("first-run setup wizard open");
 }
 
 namespace {
@@ -196,7 +196,7 @@ void WriteSetupIni(const std::array<std::string, 3>& data_dirs, const std::strin
   fs::create_directories(SetupDir(), ec);
   std::ofstream f(SetupFile(), std::ios::trunc);
   if (!f) {
-    REC_WARN("first-run: could not write {}", SetupFile().string());
+    RX_WARN("first-run: could not write {}", SetupFile().string());
     return;
   }
   f << "done=1\n";
@@ -208,7 +208,7 @@ void WriteSetupIni(const std::array<std::string, 3>& data_dirs, const std::strin
   f << "enable_mods=" << (r.enable_mods ? 1 : 0) << "\n";
   f << "share_diagnostics=" << (r.share_diagnostics ? 1 : 0) << "\n";
   f << "check_updates=" << (r.check_updates ? 1 : 0) << "\n";
-  REC_INFO("first-run setup saved to {}", SetupFile().string());
+  RX_INFO("first-run setup saved to {}", SetupFile().string());
 }
 
 }  // namespace
@@ -224,18 +224,18 @@ void Engine::UpdateFirstRun(f32 dt) {
     MenuUniverse& u = menu_universes_[idx];
     const std::string data = ResolvePickedDataDir(u.game, picked);
     if (data.empty()) {
-      REC_WARN("first-run: {} not found under {}", u.name, picked);
+      RX_WARN("first-run: {} not found under {}", u.name, picked);
       return;
     }
     u.data_dir = data;
     u.plugins_txt = data + "/../plugins.txt";
     u.available = true;
-    REC_INFO("first-run: located {} at {}", u.name, data);
+    RX_INFO("first-run: located {} at {}", u.name, data);
   };
 
-  // Test hook: REC_FIRSTRUN_AUTOBROWSE=<0..2> browses that column once on the
-  // first frame (mirrors REC_MENU_AUTOPLAY), so the picker, validation and
-  // locate path run without a mouse. Pair with REC_PICK_OVERRIDE for the folder.
+  // Test hook: RX_FIRSTRUN_AUTOBROWSE=<0..2> browses that column once on the
+  // first frame (mirrors RX_MENU_AUTOPLAY), so the picker, validation and
+  // locate path run without a mouse. Pair with RX_PICK_OVERRIDE for the folder.
   if (const char* ab = FirstrunAutobrowse.get()) {
     static bool fired = false;
     if (!fired) {
@@ -261,7 +261,7 @@ void Engine::UpdateFirstRun(f32 dt) {
   view.mods_dir = first_run_mods_dir_;
   game_ui_.SetFirstRunView(view);
 
-  // Test hook: REC_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
+  // Test hook: RX_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
   // launches, so the setup->main-menu handoff can be verified headlessly. Runs
   // after the view push so the locate-page gate sees any auto-browsed game.
   if (FirstrunAutolaunch) game_ui_.FirstRunNext();
@@ -313,4 +313,4 @@ void Engine::UpdateFirstRun(f32 dt) {
   }
 }
 
-}  // namespace rec
+}  // namespace rx

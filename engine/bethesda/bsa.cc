@@ -9,7 +9,7 @@
 #include "bethesda/compression.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kBsaMagic = FourCc('B', 'S', 'A', '\0');
@@ -139,7 +139,7 @@ class BsaProvider final : public asset::FileProvider {
     bool ok = header_.version >= 105 ? Lz4FrameDecompress(src, data.data(), data.size())
                                      : ZlibInflate(src, data.data(), data.size());
     if (!ok) {
-      REC_WARN("bsa decompression failed: {} in {}", normalized_path, path_);
+      RX_WARN("bsa decompression failed: {} in {}", normalized_path, path_);
       return std::nullopt;
     }
     return data;
@@ -166,21 +166,21 @@ base::UniquePointer<asset::FileProvider> OpenBsa(const std::string& path) {
   BsaHeader header{};
   file.read(reinterpret_cast<char*>(&header), sizeof(header));
   if (!file || header.magic != kBsaMagic) {
-    REC_ERROR("not a bsa: {}", path);
+    RX_ERROR("not a bsa: {}", path);
     return nullptr;
   }
   if (header.version != 104 && header.version != 105) {
-    REC_ERROR("unsupported bsa version {} in {}", header.version, path);
+    RX_ERROR("unsupported bsa version {} in {}", header.version, path);
     return nullptr;
   }
   file.close();
   auto provider = base::MakeUnique<BsaProvider>(path, header);
   if (!provider->Parse()) {
-    REC_ERROR("failed to parse bsa tables: {}", path);
+    RX_ERROR("failed to parse bsa tables: {}", path);
     return nullptr;
   }
-  REC_INFO("bsa {}: v{}, {} files", path, header.version, header.file_count);
+  RX_INFO("bsa {}: v{}, {} files", path, header.version, header.file_count);
   return provider;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

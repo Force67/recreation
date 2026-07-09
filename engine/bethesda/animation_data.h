@@ -20,7 +20,7 @@
 #include "core/math.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 struct MotionKey {
   f32 time = 0;
@@ -65,6 +65,6 @@ Vec3 SampleMotionTranslation(const AnimMotion& motion, f32 time);
 // (looped playback).
 Vec3 MotionTranslationDelta(const AnimMotion& motion, f32 t0, f32 t1);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_ANIMATION_DATA_H_

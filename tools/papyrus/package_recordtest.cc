@@ -18,8 +18,8 @@
 #include "core/types.h"
 #include "quest/package_record.h"
 
-using namespace rec;
-using namespace rec::quest;
+using namespace rx;
+using namespace rx::quest;
 
 namespace {
 
@@ -218,7 +218,7 @@ void TestEmptyAndTruncated() {
 // Dumps real travel/escort packages when a data dir is given. Validation only;
 // not part of the deterministic gate.
 int DumpReal(const std::string& data_dir) {
-  using namespace rec::bethesda;
+  using namespace rx::bethesda;
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;

@@ -44,7 +44,7 @@
 #include "modstream/mod_catalog.h"
 #endif
 
-namespace rec {
+namespace rx {
 
 // WorldEffectSink implementation: the Skyrim bindings call this on the guest
 // thread; it allocates handles and marshals each mutation into the thread-safe
@@ -227,7 +227,7 @@ class Engine {
   // applies it to the renderer's live settings.
   void ApplyRenderPreset();
   // (Re)seeds the day/night clock. base_timescale is the game's authored
-  // TimeScale (or 20 before a game loads); REC_TIMESCALE / REC_GAME_HOUR
+  // TimeScale (or 20 before a game loads); RX_TIMESCALE / RX_GAME_HOUR
   // override the timescale and start hour. Called once at boot and again when a
   // game loads with its real timescale.
   void ConfigureClock(f32 base_timescale);
@@ -235,14 +235,14 @@ class Engine {
   void ThrowPhysicsCube();
   void UpdateCamera(f32 frame_delta);
   // Camera record/replay (deterministic playback for benchmarks and capture).
-  // REC_ORBIT turntables the camera, REC_RECORD=<path> writes the path each
-  // frame, REC_REPLAY=<path> drives the camera from a recorded path.
+  // RX_ORBIT turntables the camera, RX_RECORD=<path> writes the path each
+  // frame, RX_REPLAY=<path> drives the camera from a recorded path.
   void DriveCamera(f32 dt);
   void LookCameraAt(const Vec3& eye, const Vec3& center);
-  // Builds the cinematic showcase path (REC_SHOWCASE): a smooth drone pass over
+  // Builds the cinematic showcase path (RX_SHOWCASE): a smooth drone pass over
   // each loaded worldspace in turn, from the region centers gathered at load.
   void BuildShowcase();
-  // Builds the trailer timeline (REC_TRAILER) over the showcase path: a location
+  // Builds the trailer timeline (RX_TRAILER) over the showcase path: a location
   // title per region, plus the weather + render-mode cycles.
   void BuildTrailer();
   // Maps a trailer render mode onto the renderer's feature flags (raster vs
@@ -276,7 +276,7 @@ class Engine {
 
   // The three universes the NEXUS main menu offers, in column order (Skyrim,
   // Fallout 4, Starfield); resolved at menu setup from --data-dir/--add-game,
-  // env overrides (REC_SKYRIM_DATA/REC_FALLOUT4_DATA/REC_STARFIELD_DATA) or a
+  // env overrides (RX_SKYRIM_DATA/RX_FALLOUT4_DATA/RX_STARFIELD_DATA) or a
   // scan of the Steam libraries. main_menu_active_ is true while the menu owns
   // the screen, before a universe has been entered.
   struct MenuUniverse {
@@ -305,7 +305,7 @@ class Engine {
   // The in-world clock driving the day/night cycle. Advanced each frame from the
   // real frame delta; the Papyrus time natives read it through the bindings, and
   // the render loop derives the sun/sky from it. drive_sun_from_clock_ is false
-  // when REC_SUN_DIR pins a fixed sun (headless lighting tests), leaving the sun
+  // when RX_SUN_DIR pins a fixed sun (headless lighting tests), leaving the sun
   // static. last_sky_hour_ throttles the sun update so the IBL environment is
   // not rebuilt every frame for sub-degree motion.
   WorldClock clock_;
@@ -375,8 +375,8 @@ class Engine {
   base::Vector<std::unique_ptr<world::CellStreamer>> extra_streamers_;
   // Declared before scripts_ so the guest thread (which calls into the bindings)
   // is joined in ScriptSystem's destructor before the bindings are torn down.
-  std::unique_ptr<rec::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
-  std::unique_ptr<rec::script::ScriptSystem> scripts_;
+  std::unique_ptr<rx::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
+  std::unique_ptr<rx::script::ScriptSystem> scripts_;
   // Additional games loaded as live secondary content domains (Fallout 4 next to
   // Skyrim, say). Each owns its data and an isolated Papyrus microvm, ticked
   // every frame. Declared after scripts_ so the primary guest is unaffected by
@@ -385,7 +385,7 @@ class Engine {
   // The managed (C#) scripting world, where user mods and Skyrim soft logic run.
   // Declared after scripts_ so it tears down before the guest thread it drives.
   // Null when .NET or the assembly is unavailable, leaving the engine unaffected.
-  std::unique_ptr<rec::script::host::ManagedHost> managed_;
+  std::unique_ptr<rx::script::host::ManagedHost> managed_;
   // Reused buffer for the per-frame position snapshot handed to the bindings'
   // proximity query. Main-thread only.
   std::vector<std::pair<u64, std::array<f32, 3>>> position_snapshot_;
@@ -421,9 +421,9 @@ class Engine {
   std::FILE* cam_record_ = nullptr;
   base::Vector<CamKey> cam_replay_;
 
-  // Cinematic showcase (REC_SHOWCASE): a smooth drone flythrough over every
+  // Cinematic showcase (RX_SHOWCASE): a smooth drone flythrough over every
   // loaded worldspace in one take, doubling as a deterministic benchmark and a
-  // source of regression frames (REC_SHOWCASE_SHOTS=<dir>). The region centers
+  // source of regression frames (RX_SHOWCASE_SHOTS=<dir>). The region centers
   // are gathered at ground level as each worldspace is placed.
   struct ShowcaseRegion {
     Vec3 center{};     // ground-level center of the worldspace to fly over
@@ -436,7 +436,7 @@ class Engine {
   ShowcaseCamera showcase_;
   bool cam_showcase_ = false;
   bool showcase_done_ = false;
-  bool showcase_quit_ = false;  // REC_SHOWCASE_QUIT: exit when the pass ends
+  bool showcase_quit_ = false;  // RX_SHOWCASE_QUIT: exit when the pass ends
   std::string showcase_shot_dir_;
   f32 showcase_dt_min_ = 1e9f;
   f32 showcase_dt_max_ = 0;
@@ -446,7 +446,7 @@ class Engine {
   // showcase_regions_; used to fade the trailer location titles in on cue.
   base::Vector<f32> showcase_region_start_;
 
-  // Trailer overlay (REC_TRAILER): layered over the showcase, it cycles weather
+  // Trailer overlay (RX_TRAILER): layered over the showcase, it cycles weather
   // and the render mode and titles each map. current_trailer_overlay_ is the
   // chrome the debug overlay draws; the render mode is only re-applied on change.
   TrailerDirector trailer_;
@@ -499,7 +499,7 @@ class Engine {
   asset::AssetId physics_cube_mesh_;
 
   f32 cam_pitch_ = -0.15f;
-  f32 auto_attack_timer_ = 0;  // REC_AUTO_ATTACK swing cadence (playthrough verification)
+  f32 auto_attack_timer_ = 0;  // RX_AUTO_ATTACK swing cadence (playthrough verification)
   bool war_map_open_ = false;  // Civil War war-map overlay (toggled with M)
   // Last frame's world matrices keyed by entity, for motion vectors.
   base::UnorderedMap<u64, Mat4> prev_transforms_;
@@ -531,7 +531,7 @@ class Engine {
   std::unique_ptr<DemoScenes> demos_;
   // Live map editor (windowed client only); F4 toggles it. Null in headless.
   std::unique_ptr<MapEditor> editor_;
-  // Character-creation screen (REC_CHARGEN boot mode). Null in headless.
+  // Character-creation screen (RX_CHARGEN boot mode). Null in headless.
   std::unique_ptr<CharGen> chargen_;
 
   std::atomic<bool> quit_ = false;
@@ -589,6 +589,6 @@ void RegisterManagedRpcForwarding(Engine& engine);
 void ReloadMods(Engine& engine);
 #endif
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_ENGINE_H_

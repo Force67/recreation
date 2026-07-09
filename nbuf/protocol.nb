@@ -1,4 +1,4 @@
-schema rec.net
+schema rx.net
 
 /// Why the server refused a join or dropped a client.
 enum DisconnectReason: u8 {

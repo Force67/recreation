@@ -10,7 +10,7 @@
 #include "ecs/world.h"
 #include "world/quest_world.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // One NPC's authoritative transform, addressed by form id. NPCs exist on every
 // peer from cell data, so movement updates the EXISTING entity (found by form
@@ -49,6 +49,6 @@ class ActorReplicator {
 void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
                       const std::vector<ActorState>& actors, f32 lerp_duration);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_ACTOR_SYNC_H_

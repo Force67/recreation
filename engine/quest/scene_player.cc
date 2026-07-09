@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Every sink call can re-enter the player: a fragment it fires may SetStage,
 // whose stage fragment Starts/Stops another scene, mutating active_. So we never
@@ -71,4 +71,4 @@ void ScenePlayer::Tick(f32 dt, ScenePlayerSink& sink) {
   }
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

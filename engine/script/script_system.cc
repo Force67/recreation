@@ -4,7 +4,7 @@
 #include "script/papyrus/alias_handle.h"
 #include "script/papyrus/vm.h"
 
-namespace rec::script {
+namespace rx::script {
 
 using papyrus::ArrayRef;
 using papyrus::ObjectRef;
@@ -39,7 +39,7 @@ std::string ScriptSystem::EnsureScriptLoaded(const std::string& name) {
 
   auto blob = vfs_->Read("scripts/" + name + ".pex");
   if (!blob) {
-    REC_DEBUG("script: scripts/{}.pex not found", name);
+    RX_DEBUG("script: scripts/{}.pex not found", name);
     return "";
   }
   std::vector<u8> bytes(blob->begin(), blob->end());
@@ -135,7 +135,7 @@ std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
     std::string type = EnsureScriptLoaded(entry.name);
     if (type.empty()) {
       if (warned_unloadable_.insert(entry.name).second)
-        REC_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
+        RX_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
       continue;
     }
     ObjectRef inst =
@@ -163,4 +163,4 @@ size_t ScriptSystem::loaded_script_count() {
   return guest_.SubmitFor([](VirtualMachine& vm) { return vm.script_count(); }).get();
 }
 
-}  // namespace rec::script
+}  // namespace rx::script

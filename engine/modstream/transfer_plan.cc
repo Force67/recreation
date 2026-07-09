@@ -2,7 +2,7 @@
 
 #include <unordered_set>
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 std::vector<NeededFile> ComputeMissing(const ModManifest& manifest,
                                        const ContentStore& store) {
@@ -24,4 +24,4 @@ u64 PlannedBytes(const std::vector<NeededFile>& plan) {
   return total;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

@@ -5,7 +5,7 @@
 #include "core/log.h"
 #include "net/protocol.h"
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // An encoded call must fit in one datagram (no fragmentation). A call larger
@@ -19,19 +19,19 @@ constexpr size_t kMaxRpcPacket = 60000;
 void RpcServerChannel::OnPacket(u32 peer, const u8* data, size_t size) {
   std::optional<rpc::RpcCall> call = rpc::DecodeCall(data, size);
   if (!call) {
-    REC_WARN("net: dropped corrupt rpc from peer {}", peer);
+    RX_WARN("net: dropped corrupt rpc from peer {}", peer);
     return;
   }
   const rpc::RpcContext ctx{peer, /*from_server=*/false};
   if (!registry_.Dispatch(ctx, *call)) {
-    REC_WARN("net: no rpc handler '{}' (from peer {})", call->name, peer);
+    RX_WARN("net: no rpc handler '{}' (from peer {})", call->name, peer);
   }
 }
 
 bool RpcServerChannel::Send(u32 destination, const rpc::RpcCall& call) {
   std::vector<u8> payload = rpc::EncodeCall(call);
   if (payload.size() > kMaxRpcPacket) {
-    REC_WARN("net: rpc '{}' is too large to send ({} bytes)", call.name, payload.size());
+    RX_WARN("net: rpc '{}' is too large to send ({} bytes)", call.name, payload.size());
     return false;
   }
   server_.Push(MakePacket(destination, MessageType::kRpcCall, payload,
@@ -61,19 +61,19 @@ bool RpcServerChannel::Broadcast(std::string name, rpc::RpcArgs args) {
 void RpcClientChannel::OnPacket(const u8* data, size_t size) {
   std::optional<rpc::RpcCall> call = rpc::DecodeCall(data, size);
   if (!call) {
-    REC_WARN("net: dropped corrupt rpc from server");
+    RX_WARN("net: dropped corrupt rpc from server");
     return;
   }
   const rpc::RpcContext ctx{0, /*from_server=*/true};
   if (!registry_.Dispatch(ctx, *call)) {
-    REC_WARN("net: no rpc handler '{}' (from server)", call->name);
+    RX_WARN("net: no rpc handler '{}' (from server)", call->name);
   }
 }
 
 bool RpcClientChannel::EmitToServer(const rpc::RpcCall& call) {
   std::vector<u8> payload = rpc::EncodeCall(call);
   if (payload.size() > kMaxRpcPacket) {
-    REC_WARN("net: rpc '{}' is too large to send ({} bytes)", call.name, payload.size());
+    RX_WARN("net: rpc '{}' is too large to send ({} bytes)", call.name, payload.size());
     return false;
   }
   client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kRpcCall,
@@ -85,4 +85,4 @@ bool RpcClientChannel::EmitToServer(std::string name, rpc::RpcArgs args) {
   return EmitToServer(rpc::RpcCall{std::move(name), std::move(args)});
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

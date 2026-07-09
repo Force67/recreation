@@ -20,7 +20,7 @@
 #include "bethesda/hkx.h"
 #include "core/math.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 struct HkxBone {
   std::string name;
@@ -95,6 +95,6 @@ struct HkxPhysics {
 // yields just skeletons).
 HkxPhysics DecodePhysics(const HkxFile& hkx);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HKX_PHYSICS_H_

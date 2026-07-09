@@ -1,26 +1,26 @@
 add_executable(pexdump main.cc)
-target_link_libraries(pexdump PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(pexdump PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(pexdump)
 
 add_executable(pexrun run.cc)
-target_link_libraries(pexrun PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(pexrun PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(pexrun)
 
 add_executable(vmaddump vmad.cc)
-target_link_libraries(vmaddump PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(vmaddump PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(vmaddump)
 
 add_executable(scripttest scripttest.cc)
-target_link_libraries(scripttest PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(scripttest PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(scripttest)
 
 add_executable(nativescan nativescan.cc)
-target_link_libraries(nativescan PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(nativescan PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(nativescan)
 
 # EXPERIMENTAL Papyrus -> C# decompiler and its self-contained unit test.
 add_executable(pex2cs pex2cs.cc)
-target_link_libraries(pex2cs PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(pex2cs PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(pex2cs)
 
 add_executable(transpiletest transpiletest.cc)
@@ -28,7 +28,7 @@ target_link_libraries(transpiletest PRIVATE recreation::script)
 recreation_set_warnings(transpiletest)
 
 add_executable(bindingstest bindingstest.cc)
-target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(bindingstest PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(bindingstest)
 
 add_executable(nativesexttest nativesexttest.cc)
@@ -45,11 +45,11 @@ target_link_libraries(proximitytest PRIVATE recreation::script)
 recreation_set_warnings(proximitytest)
 
 add_executable(daycycletest daycycletest.cc)
-target_link_libraries(daycycletest PRIVATE recreation::script recreation::core)
+target_link_libraries(daycycletest PRIVATE recreation::script rx::core)
 recreation_set_warnings(daycycletest)
 
 add_executable(featuretest featuretest.cc)
-target_link_libraries(featuretest PRIVATE recreation::core)
+target_link_libraries(featuretest PRIVATE rx::core)
 recreation_set_warnings(featuretest)
 
 add_executable(optiontest optiontest.cc)
@@ -68,14 +68,14 @@ target_link_libraries(audiotest PRIVATE recreation::audio)
 recreation_set_warnings(audiotest)
 
 add_executable(settings_initest settings_initest.cc)
-target_link_libraries(settings_initest PRIVATE recreation::render)
+target_link_libraries(settings_initest PRIVATE rx::render)
 target_compile_definitions(settings_initest PRIVATE
-  RECREATION_PRESETS_TEST_DIR="${CMAKE_SOURCE_DIR}/engine/render/presets")
+  RECREATION_PRESETS_TEST_DIR="${RECREATION_RX_DIR}/engine/render/presets")
 recreation_set_warnings(settings_initest)
 
 add_executable(trailertest trailertest.cc ${CMAKE_SOURCE_DIR}/runtime/trailer.cc)
 target_include_directories(trailertest PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
-target_link_libraries(trailertest PRIVATE recreation::weather recreation::core)
+target_link_libraries(trailertest PRIVATE recreation::weather rx::core)
 recreation_set_warnings(trailertest)
 
 add_executable(questtest questtest.cc)
@@ -103,43 +103,43 @@ target_link_libraries(conditiontest PRIVATE recreation::quest recreation::bethes
 recreation_set_warnings(conditiontest)
 
 add_executable(ba2test ba2test.cc)
-target_link_libraries(ba2test PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(ba2test PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(ba2test)
 
 add_executable(writertest writertest.cc)
-target_link_libraries(writertest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(writertest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(writertest)
 
 add_executable(edit_sessiontest edit_sessiontest.cc)
-target_link_libraries(edit_sessiontest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(edit_sessiontest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(edit_sessiontest)
 
 add_executable(deflatetest deflatetest.cc)
-target_link_libraries(deflatetest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(deflatetest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(deflatetest)
 
 add_executable(string_writertest string_writertest.cc)
-target_link_libraries(string_writertest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(string_writertest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(string_writertest)
 
 add_executable(roundtriptest roundtriptest.cc)
-target_link_libraries(roundtriptest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(roundtriptest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(roundtriptest)
 
 add_executable(raw_rewritertest raw_rewritertest.cc)
-target_link_libraries(raw_rewritertest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(raw_rewritertest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(raw_rewritertest)
 
 add_executable(modstreamtest modstreamtest.cc)
-target_link_libraries(modstreamtest PRIVATE recreation::modstream recreation::asset)
+target_link_libraries(modstreamtest PRIVATE recreation::modstream rx::asset)
 recreation_set_warnings(modstreamtest)
 
 add_executable(rpctest rpctest.cc)
-target_link_libraries(rpctest PRIVATE recreation::rpc)
+target_link_libraries(rpctest PRIVATE rx::rpc)
 recreation_set_warnings(rpctest)
 
 add_executable(codec_fuzztest codec_fuzztest.cc)
-target_link_libraries(codec_fuzztest PRIVATE recreation::modstream recreation::rpc)
+target_link_libraries(codec_fuzztest PRIVATE recreation::modstream rx::rpc)
 recreation_set_warnings(codec_fuzztest)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   # GCC 15 mis-fires -Wfree-nonheap-object when it inlines std::variant's
@@ -157,19 +157,19 @@ target_link_libraries(vmad_fo4test PRIVATE recreation::bethesda)
 recreation_set_warnings(vmad_fo4test)
 
 add_executable(nif_fo4test nif_fo4test.cc)
-target_link_libraries(nif_fo4test PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(nif_fo4test PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(nif_fo4test)
 
 add_executable(nif_starfieldtest nif_starfieldtest.cc)
-target_link_libraries(nif_starfieldtest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(nif_starfieldtest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(nif_starfieldtest)
 
 add_executable(starfield_skinned_meshtest starfield_skinned_meshtest.cc)
-target_link_libraries(starfield_skinned_meshtest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(starfield_skinned_meshtest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(starfield_skinned_meshtest)
 
 add_executable(material_dbtest material_dbtest.cc)
-target_link_libraries(material_dbtest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(material_dbtest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(material_dbtest)
 
 add_executable(tritest tritest.cc)
@@ -177,20 +177,20 @@ target_link_libraries(tritest PRIVATE recreation::bethesda)
 recreation_set_warnings(tritest)
 
 add_executable(facemorphtest facemorphtest.cc)
-target_link_libraries(facemorphtest PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(facemorphtest PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(facemorphtest)
 
 add_executable(chargen_presettest chargen_presettest.cc)
 target_include_directories(chargen_presettest PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
-target_link_libraries(chargen_presettest PRIVATE recreation::core)
+target_link_libraries(chargen_presettest PRIVATE rx::core)
 recreation_set_warnings(chargen_presettest)
 
 add_executable(bgsm_fo4test bgsm_fo4test.cc)
-target_link_libraries(bgsm_fo4test PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(bgsm_fo4test PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(bgsm_fo4test)
 
 add_executable(dds_srgb_fo4test dds_srgb_fo4test.cc)
-target_link_libraries(dds_srgb_fo4test PRIVATE recreation::bethesda recreation::asset)
+target_link_libraries(dds_srgb_fo4test PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(dds_srgb_fo4test)
 
 add_executable(questgraphtest questgraphtest.cc)
@@ -270,7 +270,7 @@ if(RECREATION_NET)
   recreation_set_warnings(stage_requesttest)
 
   add_executable(asset_streamtest asset_streamtest.cc)
-  target_link_libraries(asset_streamtest PRIVATE recreation::net recreation::modstream recreation::asset)
+  target_link_libraries(asset_streamtest PRIVATE recreation::net recreation::modstream rx::asset)
   recreation_set_warnings(asset_streamtest)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # GCC mis-fires -Warray-bounds inside the fortified memcpy when it cannot
@@ -293,11 +293,11 @@ if(RECREATION_NET)
 endif()
 
 add_executable(pexsoak soak.cc)
-target_link_libraries(pexsoak PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(pexsoak PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(pexsoak)
 
 add_executable(pexfuzz fuzz.cc)
-target_link_libraries(pexfuzz PRIVATE recreation::script recreation::bethesda recreation::asset)
+target_link_libraries(pexfuzz PRIVATE recreation::script recreation::bethesda rx::asset)
 recreation_set_warnings(pexfuzz)
 
 # Deterministic VM regression suite (no game data needed), so `ctest` is the

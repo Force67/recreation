@@ -7,7 +7,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Starfield ships its materials compiled into one database, materialsbeta.cdb
 // (a BSComponentDB2). A material (.mat) resolves its textures through that
@@ -48,6 +48,6 @@ class StarfieldMaterialDb {
   std::unordered_map<std::string, Textures> by_stem_;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_MATERIAL_DB_H_

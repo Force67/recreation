@@ -31,7 +31,7 @@
 #include "render/rhi/vulkan_interop.h"
 #include "ugui_platform.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 namespace fs = std::filesystem;
@@ -695,7 +695,7 @@ std::string LoadUiFragment(const char* name) {
   const fs::path p = UiDir() / name;
   std::ifstream f(p, std::ios::binary);
   if (!f) {
-    REC_WARN("ui: fragment not found: {}", p.string());
+    RX_WARN("ui: fragment not found: {}", p.string());
     return {};
   }
   std::stringstream ss;
@@ -1081,7 +1081,7 @@ struct GameUi::Impl {
     ApplyMenuVisibility();
     ApplyMainMenu();
     ApplyFirstRun();
-    REC_INFO("ui: hot-reloaded {} .ugui fragment(s)", sizeof(kUiFragments) / sizeof(*kUiFragments));
+    RX_INFO("ui: hot-reloaded {} .ugui fragment(s)", sizeof(kUiFragments) / sizeof(*kUiFragments));
   }
 };
 
@@ -1802,16 +1802,16 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   cfg.width = static_cast<int>(window.width());
   cfg.height = static_cast<int>(window.height());
   if (!impl_->ui.Init(cfg)) {
-    REC_WARN("ultragui init failed");
+    RX_WARN("ultragui init failed");
     return false;
   }
 
   if (const char* font_path = FindFont()) {
     impl_->font = impl_->ui.LoadFont(font_path);
     impl_->ui.set_default_font(impl_->font);
-    REC_INFO("ultragui font: {}", font_path);
+    RX_INFO("ultragui font: {}", font_path);
   } else {
-    REC_WARN("no ui font found (set RECREATION_UI_FONT), hud text will be blank");
+    RX_WARN("no ui font found (set RECREATION_UI_FONT), hud text will be blank");
   }
   // A monospace face for the technical layer (load-order indices, ids, paths),
   // selectable in markup as `font: mono`. Optional; absent leaves those on sans.
@@ -1819,7 +1819,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     ugui::FontHandle mono = impl_->ui.LoadFont(mono_path);
     if (mono != ugui::kInvalidFont) {
       impl_->ui.builder().RegisterFont("mono", mono);
-      REC_INFO("ultragui mono font: {}", mono_path);
+      RX_INFO("ultragui mono font: {}", mono_path);
     }
   }
 
@@ -1832,7 +1832,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   bi.color_format = render::GetVkFormat(renderer.swapchain_format());
   bi.frames_in_flight = 2;
   if (!impl_->backend.Init(bi)) {
-    REC_WARN("ultragui vulkan backend init failed");
+    RX_WARN("ultragui vulkan backend init failed");
     impl_->ui.Shutdown();
     return false;
   }
@@ -1844,7 +1844,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);
   impl_->CaptureFragmentMtimes();
-  if (impl_->hot_reload) REC_INFO("ui: hot reload on, watching {}", UiDir().string());
+  if (impl_->hot_reload) RX_INFO("ui: hot reload on, watching {}", UiDir().string());
 
   Impl* impl = impl_.get();
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
@@ -1900,7 +1900,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   if (FirstRun) impl_->first_run_open = true;
   impl_->ApplyFirstRun();
   impl_->initialized = true;
-  REC_INFO("ultragui hud initialized (draw-data mode)");
+  RX_INFO("ultragui hud initialized (draw-data mode)");
   return true;
 }
 
@@ -2593,11 +2593,11 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   };
 }
 
-}  // namespace rec
+}  // namespace rx
 
 #else  // !RECREATION_HAS_UGUI
 
-namespace rec {
+namespace rx {
 
 struct GameUi::Impl {};
 GameUi::GameUi() = default;
@@ -2654,6 +2654,6 @@ void GameUi::FirstRunBack() {}
 void GameUi::SetFirstRunView(const FirstRunView&) {}
 FirstRunRequest GameUi::PollFirstRunRequest() { return {}; }
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_HAS_UGUI

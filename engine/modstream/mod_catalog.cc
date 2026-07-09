@@ -7,7 +7,7 @@
 #include "modstream/content_hash.h"
 #include "modstream/stream_filter.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 namespace fs = std::filesystem;
@@ -100,4 +100,4 @@ std::optional<fs::path> ModCatalog::PathForHash(ContentHash hash) const {
   return it->second;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

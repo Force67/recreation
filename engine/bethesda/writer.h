@@ -10,7 +10,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // The write side of the plugin module, the inverse of plugin.cc's parser. It
 // works on the same Record/Subrecord container the reader produces, so a record
@@ -140,6 +140,6 @@ class RecordBuilder {
   base::Vector<base::Vector<u8>> storage_;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_WRITER_H_

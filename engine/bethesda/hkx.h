@@ -19,7 +19,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 struct HkxObject {
   u64 offset = 0;               // into the data image
@@ -77,6 +77,6 @@ class HkxFile {
   std::vector<HkxObject> objects_;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HKX_H_

@@ -18,20 +18,20 @@
 #include "quest/quest_system.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
-// arch_types scalar aliases, so the scalar types stay fully qualified as rec::
+// arch_types scalar aliases, so the scalar types stay fully qualified as rx::
 // throughout rather than imported, which would make u8/u64/i32 ambiguous.
 namespace {
 
-using rec::net::ApplyQuestUpdate;
-using rec::net::DomainQuestStatus;
-using rec::net::QuestReplicator;
-using rec::quest::ObjectiveDef;
-using rec::quest::ObjectiveStatus;
-using rec::quest::QuestDef;
-using rec::quest::QuestHandle;
-using rec::quest::QuestStatus;
-using rec::quest::QuestSystem;
-using rec::quest::StageDef;
+using rx::net::ApplyQuestUpdate;
+using rx::net::DomainQuestStatus;
+using rx::net::QuestReplicator;
+using rx::quest::ObjectiveDef;
+using rx::quest::ObjectiveStatus;
+using rx::quest::QuestDef;
+using rx::quest::QuestHandle;
+using rx::quest::QuestStatus;
+using rx::quest::QuestSystem;
+using rx::quest::StageDef;
 
 int g_failures = 0;
 
@@ -68,10 +68,10 @@ size_t Replicate(QuestReplicator& rep, const QuestSystem& server,
   // This single-game harness replicates everything as the primary domain (0).
   std::vector<DomainQuestStatus> snapshot;
   for (QuestStatus& s : server.AllStatuses()) snapshot.push_back({0, std::move(s)});
-  std::vector<rec::u8> blob = rep.Build(snapshot);
+  std::vector<rx::u8> blob = rep.Build(snapshot);
   if (blob.empty()) return 0;
   size_t count = 0;
-  const bool ok = ApplyQuestUpdate(blob, [&](rec::u8 /*domain*/, const QuestStatus& q) {
+  const bool ok = ApplyQuestUpdate(blob, [&](rx::u8 /*domain*/, const QuestStatus& q) {
     client.ApplyStatus(q);
     ++count;
   });

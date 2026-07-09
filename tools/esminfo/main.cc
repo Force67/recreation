@@ -16,12 +16,12 @@
 
 namespace {
 
-using namespace rec::bethesda;
+using namespace rx::bethesda;
 
-constexpr rec::u32 kEdid = rec::FourCc('E', 'D', 'I', 'D');
-constexpr rec::u32 kName = rec::FourCc('N', 'A', 'M', 'E');
-constexpr rec::u32 kData = rec::FourCc('D', 'A', 'T', 'A');
-constexpr rec::u32 kModl = rec::FourCc('M', 'O', 'D', 'L');
+constexpr rx::u32 kEdid = rx::FourCc('E', 'D', 'I', 'D');
+constexpr rx::u32 kName = rx::FourCc('N', 'A', 'M', 'E');
+constexpr rx::u32 kData = rx::FourCc('D', 'A', 'T', 'A');
+constexpr rx::u32 kModl = rx::FourCc('M', 'O', 'D', 'L');
 
 // Lists the refs of one exterior cell with their base record info, for
 // chasing down "what is that thing on screen" questions.
@@ -35,20 +35,20 @@ int DumpCellRefs(const std::string& data_dir, int x, int y) {
   const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world);
   if (!grid) return 1;
   const RecordStore::ExteriorCell* cell =
-      grid->find(RecordStore::GridKey(static_cast<rec::i16>(x), static_cast<rec::i16>(y)));
+      grid->find(RecordStore::GridKey(static_cast<rx::i16>(x), static_cast<rx::i16>(y)));
   if (!cell) {
     std::printf("no cell at %d,%d\n", x, y);
     return 1;
   }
   std::printf("cell %d,%d: %zu refs\n", x, y, static_cast<size_t>(cell->refs.size()));
-  for (rec::u64 packed : cell->refs) {
-    GlobalFormId id{static_cast<rec::u16>(packed >> 32), static_cast<rec::u32>(packed)};
+  for (rx::u64 packed : cell->refs) {
+    GlobalFormId id{static_cast<rx::u16>(packed >> 32), static_cast<rx::u32>(packed)};
     Record refr;
     if (!records.Parse(id, &refr)) continue;
     const Subrecord* name = refr.Find(kName);
     const Subrecord* data = refr.Find(kData);
     if (!name || name->data.size() < 4) continue;
-    rec::u32 base_raw;
+    rx::u32 base_raw;
     std::memcpy(&base_raw, name->data.data(), 4);
     GlobalFormId base_id = records.ResolveFrom(RawFormId{base_raw}, records.Find(id)->winning_plugin);
     const RecordStore::StoredRecord* base_stored = records.Find(base_id);
@@ -79,19 +79,19 @@ int DumpLand(const std::string& data_dir, int x, int y) {
   GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
   const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world);
   const RecordStore::ExteriorCell* cell =
-      grid ? grid->find(RecordStore::GridKey(static_cast<rec::i16>(x), static_cast<rec::i16>(y)))
+      grid ? grid->find(RecordStore::GridKey(static_cast<rx::i16>(x), static_cast<rx::i16>(y)))
            : nullptr;
   if (!cell || cell->land == 0) {
     std::printf("no land at %d,%d\n", x, y);
     return 1;
   }
-  GlobalFormId land_id{static_cast<rec::u16>(cell->land >> 32),
-                       static_cast<rec::u32>(cell->land)};
+  GlobalFormId land_id{static_cast<rx::u16>(cell->land >> 32),
+                       static_cast<rx::u32>(cell->land)};
   Record land;
   if (!records.Parse(land_id, &land)) return 1;
-  rec::u16 plugin = records.Find(land_id)->winning_plugin;
+  rx::u16 plugin = records.Find(land_id)->winning_plugin;
 
-  auto ltex_name = [&](rec::u32 raw) {
+  auto ltex_name = [&](rx::u32 raw) {
     if (raw == 0) return std::string("(default)");
     GlobalFormId id = records.ResolveFrom(RawFormId{raw}, plugin);
     Record ltex;
@@ -102,12 +102,12 @@ int DumpLand(const std::string& data_dir, int x, int y) {
     return std::string(buffer);
   };
 
-  constexpr rec::u32 kBtxt = rec::FourCc('B', 'T', 'X', 'T');
-  constexpr rec::u32 kAtxt = rec::FourCc('A', 'T', 'X', 'T');
-  constexpr rec::u32 kVtxt = rec::FourCc('V', 'T', 'X', 'T');
+  constexpr rx::u32 kBtxt = rx::FourCc('B', 'T', 'X', 'T');
+  constexpr rx::u32 kAtxt = rx::FourCc('A', 'T', 'X', 'T');
+  constexpr rx::u32 kVtxt = rx::FourCc('V', 'T', 'X', 'T');
   for (const Subrecord& sub : land.subrecords) {
     if ((sub.type == kBtxt || sub.type == kAtxt) && sub.data.size() >= 8) {
-      rec::u32 raw;
+      rx::u32 raw;
       std::memcpy(&raw, sub.data.data(), 4);
       std::printf("%s quadrant=%u %s\n", sub.type == kBtxt ? "BTXT" : "ATXT", sub.data[4],
                   ltex_name(raw).c_str());
@@ -135,8 +135,8 @@ int DumpGrass(const std::string& data_dir) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kGnam = rec::FourCc('G', 'N', 'A', 'M');
-  records.EachOfType(rec::FourCc('G', 'R', 'A', 'S'),
+  constexpr rx::u32 kGnam = rx::FourCc('G', 'N', 'A', 'M');
+  records.EachOfType(rx::FourCc('G', 'R', 'A', 'S'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     Record gras;
     if (!records.Parse(id, &gras)) return;
@@ -145,9 +145,9 @@ int DumpGrass(const std::string& data_dir) {
                 gras.GetString(kEdid).c_str(), gras.GetString(kModl).c_str(),
                 data ? static_cast<size_t>(data->data.size()) : 0);
     if (data && data->data.size() >= 32) {
-      const rec::u8* d = data->data.data();
-      rec::u16 units_from_water;
-      rec::u32 water_type;
+      const rx::u8* d = data->data.data();
+      rx::u16 units_from_water;
+      rx::u32 water_type;
       float pos_range, height_range, color_range, wave_period;
       std::memcpy(&units_from_water, d + 4, 2);
       std::memcpy(&water_type, d + 8, 4);
@@ -162,14 +162,14 @@ int DumpGrass(const std::string& data_dir) {
     }
   });
 
-  records.EachOfType(rec::FourCc('L', 'T', 'E', 'X'),
+  records.EachOfType(rx::FourCc('L', 'T', 'E', 'X'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
     Record ltex;
     if (!records.Parse(id, &ltex)) return;
     std::string grass;
     for (const Subrecord& sub : ltex.subrecords) {
       if (sub.type != kGnam || sub.data.size() < 4) continue;
-      rec::u32 raw;
+      rx::u32 raw;
       std::memcpy(&raw, sub.data.data(), 4);
       GlobalFormId gras_id = records.ResolveFrom(RawFormId{raw}, stored.winning_plugin);
       char buffer[32];
@@ -193,9 +193,9 @@ int DumpWeather(const std::string& data_dir, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kNam0 = rec::FourCc('N', 'A', 'M', '0');
+  constexpr rx::u32 kNam0 = rx::FourCc('N', 'A', 'M', '0');
   int shown = 0;
-  records.EachOfType(rec::FourCc('W', 'T', 'H', 'R'),
+  records.EachOfType(rx::FourCc('W', 'T', 'H', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     if (limit > 0 && shown >= limit) return;
     Record w;
@@ -207,18 +207,18 @@ int DumpWeather(const std::string& data_dir, int limit) {
       std::memcpy(t, &sub.type, 4);
       std::printf("  %s  %zu\n", t, static_cast<size_t>(sub.data.size()));
     }
-    constexpr rec::u32 kDalc = rec::FourCc('D', 'A', 'L', 'C');
+    constexpr rx::u32 kDalc = rx::FourCc('D', 'A', 'L', 'C');
     int dalc_i = 0;
     for (const Subrecord& sub : w.subrecords) {
       if (sub.type != kDalc || sub.data.size() < 24) continue;
-      const rec::u8* d = sub.data.data();
+      const rx::u8* d = sub.data.data();
       std::printf("  DALC[%d]:", dalc_i++);
       for (int k = 0; k < 6; ++k)  // X+ X- Y+ Y- Z+ Z- hemisphere ambient (RGBA)
         std::printf(" %3u/%3u/%3u", d[k * 4], d[k * 4 + 1], d[k * 4 + 2]);
       std::printf("\n");
     }
     if (const Subrecord* nam0 = w.Find(kNam0); nam0 && nam0->data.size() % 16 == 0) {
-      const rec::u8* d = nam0->data.data();
+      const rx::u8* d = nam0->data.data();
       size_t quads = nam0->data.size() / 4;  // RGBA bytes; 4 times-of-day per type
       std::printf("  NAM0 decoded (%zu colours, 4 per type = dawn/day/dusk/night):\n", quads);
       for (size_t i = 0; i < quads; ++i)
@@ -239,9 +239,9 @@ int DumpWater(const std::string& data_dir, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kDnam = rec::FourCc('D', 'N', 'A', 'M');
+  constexpr rx::u32 kDnam = rx::FourCc('D', 'N', 'A', 'M');
   int shown = 0, total = 0;
-  records.EachOfType(rec::FourCc('W', 'A', 'T', 'R'),
+  records.EachOfType(rx::FourCc('W', 'A', 'T', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     ++total;
     if (limit > 0 && shown >= limit) return;
@@ -250,7 +250,7 @@ int DumpWater(const std::string& data_dir, int limit) {
     const Subrecord* dnam = w.Find(kDnam);
     if (!dnam || dnam->data.size() < 52) return;
     ++shown;
-    const rec::u8* d = dnam->data.data();
+    const rx::u8* d = dnam->data.data();
     float fog_near, fog_far, fog_amount = 0;
     std::memcpy(&fog_near, d + 32, 4);
     std::memcpy(&fog_far, d + 36, 4);
@@ -275,8 +275,8 @@ int DumpCellWater(const std::string& data_dir, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kXcwt = rec::FourCc('X', 'C', 'W', 'T');
-  constexpr rec::u32 kNam2 = rec::FourCc('N', 'A', 'M', '2');
+  constexpr rx::u32 kXcwt = rx::FourCc('X', 'C', 'W', 'T');
+  constexpr rx::u32 kNam2 = rx::FourCc('N', 'A', 'M', '2');
   GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
   const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world);
   if (!grid) return 1;
@@ -285,7 +285,7 @@ int DumpCellWater(const std::string& data_dir, int limit) {
   Record wrld;
   if (records.Parse(world, &wrld)) {
     if (const Subrecord* nam2 = wrld.Find(kNam2); nam2 && nam2->data.size() >= 4) {
-      rec::u32 raw;
+      rx::u32 raw;
       std::memcpy(&raw, nam2->data.data(), 4);
       default_water = records.ResolveFrom(RawFormId{raw}, records.Find(world)->winning_plugin);
     }
@@ -295,16 +295,16 @@ int DumpCellWater(const std::string& data_dir, int limit) {
   int shown = 0;
   for (auto kv : *grid) {
     if (limit > 0 && shown >= limit) break;
-    rec::i16 x = static_cast<rec::i16>(kv.key >> 16);
-    rec::i16 y = static_cast<rec::i16>(kv.key & 0xffff);
+    rx::i16 x = static_cast<rx::i16>(kv.key >> 16);
+    rx::i16 y = static_cast<rx::i16>(kv.key & 0xffff);
     if (kv.value.cell == 0) continue;
-    GlobalFormId cell_id{static_cast<rec::u16>(kv.value.cell >> 32),
-                         static_cast<rec::u32>(kv.value.cell)};
+    GlobalFormId cell_id{static_cast<rx::u16>(kv.value.cell >> 32),
+                         static_cast<rx::u32>(kv.value.cell)};
     Record cell;
     if (!records.Parse(cell_id, &cell)) continue;
     const Subrecord* xcwt = cell.Find(kXcwt);
     if (!xcwt || xcwt->data.size() < 4) continue;
-    rec::u32 raw;
+    rx::u32 raw;
     std::memcpy(&raw, xcwt->data.data(), 4);
     if (raw == 0) continue;
     GlobalFormId water = records.ResolveFrom(RawFormId{raw}, records.Find(cell_id)->winning_plugin);
@@ -328,8 +328,8 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  std::set<rec::u64> txst_ids;
-  records.EachOfType(rec::FourCc('T', 'X', 'S', 'T'),
+  std::set<rx::u64> txst_ids;
+  records.EachOfType(rx::FourCc('T', 'X', 'S', 'T'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     txst_ids.insert(id.packed());
   });
@@ -337,28 +337,28 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
 
   // Refs of the primary worldspace's exterior grid, to split the counts and
   // report which cells decals cluster in (screenshot poses).
-  std::map<rec::u64, rec::u32> exterior_refs;  // ref -> grid key
+  std::map<rx::u64, rx::u32> exterior_refs;  // ref -> grid key
   GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
   if (const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world)) {
     for (auto kv : *grid)
-      for (rec::u64 packed : kv.value.refs) exterior_refs.emplace(packed, kv.key);
+      for (rx::u64 packed : kv.value.refs) exterior_refs.emplace(packed, kv.key);
   }
-  std::map<rec::u32, int> per_cell;
+  std::map<rx::u32, int> per_cell;
 
-  constexpr rec::u32 kXprm = rec::FourCc('X', 'P', 'R', 'M');
-  constexpr rec::u32 kXscl = rec::FourCc('X', 'S', 'C', 'L');
-  constexpr rec::u32 kTx00 = rec::FourCc('T', 'X', '0', '0');
-  constexpr rec::u32 kTx01 = rec::FourCc('T', 'X', '0', '1');
+  constexpr rx::u32 kXprm = rx::FourCc('X', 'P', 'R', 'M');
+  constexpr rx::u32 kXscl = rx::FourCc('X', 'S', 'C', 'L');
+  constexpr rx::u32 kTx00 = rx::FourCc('T', 'X', '0', '0');
+  constexpr rx::u32 kTx01 = rx::FourCc('T', 'X', '0', '1');
   int refr_total = 0, total = 0, exterior = 0, with_xprm = 0, shown = 0;
-  std::map<rec::u64, int> per_base;
-  records.EachOfType(rec::FourCc('R', 'E', 'F', 'R'),
+  std::map<rx::u64, int> per_base;
+  records.EachOfType(rx::FourCc('R', 'E', 'F', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
     ++refr_total;
     Record refr;
     if (!records.Parse(id, &refr)) return;
     const Subrecord* name = refr.Find(kName);
     if (!name || name->data.size() < 4) return;
-    rec::u32 base_raw;
+    rx::u32 base_raw;
     std::memcpy(&base_raw, name->data.data(), 4);
     GlobalFormId base_id = records.ResolveFrom(RawFormId{base_raw}, stored.winning_plugin);
     if (!txst_ids.count(base_id.packed())) return;
@@ -414,9 +414,9 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
 
   // Placed bases with their DODT decal data (widths/heights/depth in game
   // units), the numbers the engine needs for projection box extents.
-  constexpr rec::u32 kDodt = rec::FourCc('D', 'O', 'D', 'T');
+  constexpr rx::u32 kDodt = rx::FourCc('D', 'O', 'D', 'T');
   for (const auto& [packed, count] : per_base) {
-    GlobalFormId base_id{static_cast<rec::u16>(packed >> 32), static_cast<rec::u32>(packed)};
+    GlobalFormId base_id{static_cast<rx::u16>(packed >> 32), static_cast<rx::u32>(packed)};
     Record base;
     if (!records.Parse(base_id, &base)) continue;
     std::printf("base %04x:%06x x%-4d %-32s", base_id.plugin, base_id.local_id, count,
@@ -424,7 +424,7 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
     if (const Subrecord* dodt = base.Find(kDodt); dodt && dodt->data.size() >= 36) {
       float v[5];
       std::memcpy(v, dodt->data.data(), 20);
-      const rec::u8* d = dodt->data.data();
+      const rx::u8* d = dodt->data.data();
       std::printf(" DODT w %.0f..%.0f h %.0f..%.0f depth %.0f flags %02x color %u,%u,%u",
                   v[0], v[1], v[2], v[3], v[4], d[29], d[32], d[33], d[34]);
     } else {
@@ -434,13 +434,13 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
   }
 
   // Densest exterior cells, for finding a screenshot pose.
-  std::multimap<int, rec::u32, std::greater<int>> dense;
+  std::multimap<int, rx::u32, std::greater<int>> dense;
   for (const auto& [key, count] : per_cell) dense.emplace(count, key);
   int listed = 0;
   for (const auto& [count, key] : dense) {
     if (++listed > 12) break;
-    std::printf("cell %d,%d: %d decals\n", static_cast<rec::i16>(key >> 16),
-                static_cast<rec::i16>(key & 0xffff), count);
+    std::printf("cell %d,%d: %d decals\n", static_cast<rx::i16>(key >> 16),
+                static_cast<rx::i16>(key & 0xffff), count);
   }
   return 0;
 }
@@ -459,14 +459,14 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kXcll = rec::FourCc('X', 'C', 'L', 'L');
-  constexpr rec::u32 kLtmp = rec::FourCc('L', 'T', 'M', 'P');
-  auto col = [](const rec::u8* d) {
+  constexpr rx::u32 kXcll = rx::FourCc('X', 'C', 'L', 'L');
+  constexpr rx::u32 kLtmp = rx::FourCc('L', 'T', 'M', 'P');
+  auto col = [](const rx::u8* d) {
     return std::string(std::to_string(d[0]) + "," + std::to_string(d[1]) + "," +
                        std::to_string(d[2]));
   };
   int shown = 0, interiors = 0, with_xcll = 0;
-  records.EachOfType(rec::FourCc('C', 'E', 'L', 'L'),
+  records.EachOfType(rx::FourCc('C', 'E', 'L', 'L'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     Record cell;
     if (!records.Parse(id, &cell)) return;
@@ -484,7 +484,7 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
 
     std::printf("CELL %04x:%06x %-28s", id.plugin, id.local_id, edid.c_str());
     if (ltmp && ltmp->data.size() >= 4) {
-      rec::u32 raw;
+      rx::u32 raw;
       std::memcpy(&raw, ltmp->data.data(), 4);
       GlobalFormId t = records.ResolveFrom(RawFormId{raw}, records.Find(id)->winning_plugin);
       Record lgtm;
@@ -496,13 +496,13 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
       std::printf("  (no XCLL, fully inherits template)\n");
       return;
     }
-    const rec::u8* d = xcll->data.data();
+    const rx::u8* d = xcll->data.data();
     const size_t n = xcll->data.size();
     std::printf("  XCLL %zu  ambient=%s directional=%s fogNear=%s", n, col(d).c_str(),
                 col(d + 4).c_str(), col(d + 8).c_str());
     if (n >= 40) {
       float fog_near, fog_far, dir_fade, fog_clip, fog_pow;
-      rec::i32 rot_xy, rot_z;
+      rx::i32 rot_xy, rot_z;
       std::memcpy(&fog_near, d + 12, 4);
       std::memcpy(&fog_far, d + 16, 4);
       std::memcpy(&rot_xy, d + 20, 4);
@@ -522,7 +522,7 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
     }
     if (n >= 92) {
       float fade_begin, fade_end;
-      rec::u32 inherits;
+      rx::u32 inherits;
       std::memcpy(&fade_begin, d + 80, 4);
       std::memcpy(&fade_end, d + 84, 4);
       std::memcpy(&inherits, d + 88, 4);
@@ -551,13 +551,13 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  constexpr rec::u32 kDalc = rec::FourCc('D', 'A', 'L', 'C');
-  auto col = [](const rec::u8* d) {
+  constexpr rx::u32 kDalc = rx::FourCc('D', 'A', 'L', 'C');
+  auto col = [](const rx::u8* d) {
     return std::string(std::to_string(d[0]) + "," + std::to_string(d[1]) + "," +
                        std::to_string(d[2]));
   };
   int shown = 0, total = 0;
-  records.EachOfType(rec::FourCc('L', 'G', 'T', 'M'),
+  records.EachOfType(rx::FourCc('L', 'G', 'T', 'M'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     ++total;
     if (limit > 0 && shown >= limit) return;
@@ -566,7 +566,7 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
     const Subrecord* data = r.Find(kData);
     if (!data || data->data.size() < 40) return;
     ++shown;
-    const rec::u8* d = data->data.data();
+    const rx::u8* d = data->data.data();
     float fog_near, fog_far, fog_pow;
     std::memcpy(&fog_near, d + 12, 4);
     std::memcpy(&fog_far, d + 16, 4);
@@ -599,7 +599,7 @@ int DumpType(const std::string& data_dir, const std::string& type, int limit) {
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  rec::u32 fourcc = rec::FourCc(type[0], type[1], type[2], type[3]);
+  rx::u32 fourcc = rx::FourCc(type[0], type[1], type[2], type[3]);
   int shown = 0, total = 0;
   records.EachOfType(fourcc, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     ++total;
@@ -613,7 +613,7 @@ int DumpType(const std::string& data_dir, const std::string& type, int limit) {
       char t[5] = {};
       std::memcpy(t, &sub.type, 4);
       // Show the first 4 bytes as a form ref / int for short subrecords.
-      rec::u32 head = 0;
+      rx::u32 head = 0;
       if (sub.data.size() >= 4) std::memcpy(&head, sub.data.data(), 4);
       std::printf("  %s  %4zu  [%08x]\n", t, static_cast<size_t>(sub.data.size()), head);
     }
@@ -634,14 +634,14 @@ int DumpHeadParts(const std::string& data_dir, int limit) {
 
   const char* kTypes[] = {"misc", "face", "eyes", "hair", "facialhair", "scar", "eyebrows"};
   int shown = 0, total = 0;
-  records.EachOfType(rec::FourCc('H', 'D', 'P', 'T'),
+  records.EachOfType(rx::FourCc('H', 'D', 'P', 'T'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     ++total;
     if (limit > 0 && shown >= limit) return;
     std::optional<HeadPart> part = ResolveHeadPart(records, id);
     if (!part) return;
     ++shown;
-    rec::u32 t = static_cast<rec::u32>(part->type);
+    rx::u32 t = static_cast<rx::u32>(part->type);
     std::printf("HDPT %04x:%06x %-32s type=%s flags=%02x\n", id.plugin, id.local_id,
                 part->editor_id.c_str(), t < 7 ? kTypes[t] : "?", part->flags);
     if (!part->model.empty()) std::printf("  MODL %s\n", part->model.c_str());
@@ -673,10 +673,10 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
 
   GlobalFormId target{0xffff, 0};
   if (size_t colon = query.find(':'); colon != std::string::npos) {
-    target.plugin = static_cast<rec::u16>(std::stoul(query.substr(0, colon), nullptr, 16));
-    target.local_id = static_cast<rec::u32>(std::stoul(query.substr(colon + 1), nullptr, 16));
+    target.plugin = static_cast<rx::u16>(std::stoul(query.substr(0, colon), nullptr, 16));
+    target.local_id = static_cast<rx::u32>(std::stoul(query.substr(colon + 1), nullptr, 16));
   } else {
-    records.EachOfType(rec::FourCc('N', 'P', 'C', '_'),
+    records.EachOfType(rx::FourCc('N', 'P', 'C', '_'),
                        [&](GlobalFormId id, const RecordStore::StoredRecord&) {
       if (target.plugin != 0xffff) return;
       Record r;
@@ -684,7 +684,7 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
       if (r.GetString(kEdid) == query) target = id;
     });
     if (target.plugin == 0xffff) {  // fall back to substring match
-      records.EachOfType(rec::FourCc('N', 'P', 'C', '_'),
+      records.EachOfType(rx::FourCc('N', 'P', 'C', '_'),
                          [&](GlobalFormId id, const RecordStore::StoredRecord&) {
         if (target.plugin != 0xffff) return;
         Record r;
@@ -723,7 +723,7 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
       std::printf("    %04x:%06x (unresolved)\n", hp.plugin, hp.local_id);
       continue;
     }
-    rec::u32 t = static_cast<rec::u32>(part->type);
+    rx::u32 t = static_cast<rx::u32>(part->type);
     std::printf("    %04x:%06x %-28s %s\n", hp.plugin, hp.local_id, part->editor_id.c_str(),
                 t < 7 ? kTypes[t] : "?");
     for (const HeadPartTri& tri : part->tris)
@@ -732,7 +732,7 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
 
   if (face->has_face_morph) {
     std::printf("  NAM9 face morphs:\n");
-    for (rec::u32 i = 0; i < kFaceMorphCount; ++i)
+    for (rx::u32 i = 0; i < kFaceMorphCount; ++i)
       std::printf("    %-14s % .3f\n", FaceMorphName(i), face->face_morph[i]);
   }
   if (face->has_face_parts)
@@ -763,18 +763,18 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
 // Parses a .tri morph file from the vfs and lists its vertex count and named
 // morphs (+ scale and delta count). esminfo <data-dir> tri <vfs-path>.
 int DumpTri(const std::string& data_dir, const std::string& path) {
-  rec::asset::Vfs vfs;
+  rx::asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
     if (auto p = OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
-  vfs.Mount(rec::asset::MakeLooseFileProvider(data_dir));
+  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir));
 
   auto bytes = vfs.Read(path);
   if (!bytes) {
     std::printf("not in vfs: %s\n", path.c_str());
     return 1;
   }
-  std::optional<TriMorphSet> tri = ParseTri(rec::ByteSpan(bytes->data(), bytes->size()));
+  std::optional<TriMorphSet> tri = ParseTri(rx::ByteSpan(bytes->data(), bytes->size()));
   if (!tri) {
     std::printf("not a valid FRTRI003 file: %s\n", path.c_str());
     return 1;

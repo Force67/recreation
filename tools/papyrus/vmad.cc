@@ -18,8 +18,8 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::bethesda;
+using namespace rx;
+using namespace rx::bethesda;
 
 std::string PropertySummary(const ScriptProperty& p) {
   switch (p.type) {

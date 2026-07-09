@@ -21,7 +21,7 @@
 // A widget is addressed as a u64: the 8-byte ugui::WidgetId packed as
 // (generation << 32 | index). 0 is the null widget.
 
-namespace rec::ugui_cs {
+namespace rx::ugui_cs {
 
 // Read/write operations on live ugui widgets, resolved against the thread's
 // active widget registry (the one UIContext makes current). Plain C function
@@ -66,6 +66,6 @@ void InstallHostDispatch(DispatchFn dispatch, void* ctx);
 // Defined in the backend; never null.
 const WidgetOps* GetWidgetOps();
 
-}  // namespace rec::ugui_cs
+}  // namespace rx::ugui_cs
 
 #endif  // RECREATION_RUNTIME_UGUI_CSHARP_HOST_H_

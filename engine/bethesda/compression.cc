@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -925,4 +925,4 @@ base::Vector<u8> ZlibDeflate(ByteSpan src) {
 #pragma GCC diagnostic pop
 #endif
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

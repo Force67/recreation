@@ -4,7 +4,7 @@
 
 #include <nanobuf.h>
 
-namespace rec::net {
+namespace rx::net {
 
 std::vector<u8> EncodeWarMap(const WarMapState& m) {
   std::vector<u8> out;
@@ -45,4 +45,4 @@ std::optional<WarMapState> DecodeWarMap(ByteSpan data) {
   return m;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

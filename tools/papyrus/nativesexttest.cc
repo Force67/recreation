@@ -19,13 +19,13 @@
 
 namespace {
 
-using namespace rec;
-using rec::script::papyrus::NativeFunction;
-using rec::script::papyrus::NativeRegistry;
-using rec::script::papyrus::ObjectRef;
-using rec::script::papyrus::Value;
-using rec::script::papyrus::VirtualMachine;
-using rec::script::skyrim::SkyrimBindings;
+using namespace rx;
+using rx::script::papyrus::NativeFunction;
+using rx::script::papyrus::NativeRegistry;
+using rx::script::papyrus::ObjectRef;
+using rx::script::papyrus::Value;
+using rx::script::papyrus::VirtualMachine;
+using rx::script::skyrim::SkyrimBindings;
 
 // A binding with just the slices the computed natives read, seeded with fixed
 // values so the outputs are exact.
@@ -113,7 +113,7 @@ class MockBindings : public SkyrimBindings {
 int main() {
   MockBindings bindings;
   NativeRegistry reg;
-  rec::script::skyrim::RegisterSkyrimNatives(reg, &bindings);
+  rx::script::skyrim::RegisterSkyrimNatives(reg, &bindings);
   VirtualMachine vm(&reg);
 
   int failures = 0;
@@ -251,7 +251,7 @@ int main() {
 
   // The record-backed HasLos is a real distance gate over the refs' positions.
   {
-    rec::script::skyrim::RecordBackedSkyrimBindings los_b(nullptr);
+    rx::script::skyrim::RecordBackedSkyrimBindings los_b(nullptr);
     los_b.SetPosition(ObjectRef{1}, 0.0f, 0.0f, 0.0f);
     los_b.SetPosition(ObjectRef{2}, 100.0f, 0.0f, 0.0f);
     los_b.SetPosition(ObjectRef{3}, 9000.0f, 0.0f, 0.0f);
@@ -272,7 +272,7 @@ int main() {
         bindings.running_actor.handle == 0x14);
 
   // Alias.GetOwningQuest unpacks the quest from the alias handle.
-  ObjectRef alias{rec::script::papyrus::EncodeAliasHandle(0xABC, 4)};
+  ObjectRef alias{rx::script::papyrus::EncodeAliasHandle(0xABC, 4)};
   check("GetOwningQuest unpacks the alias handle's quest",
         callOn(alias, "Alias", "GetOwningQuest", {}).as_object().handle == 0xABC);
   check("GetOwningQuest is None for a plain form",
@@ -281,7 +281,7 @@ int main() {
   // Debug.* engine commands route through the guest's command hook with a verb and
   // a string argument. The guest binds these in its constructor.
   {
-    rec::script::PapyrusGuest guest(rec::bethesda::Game::kSkyrimSe);
+    rx::script::PapyrusGuest guest(rx::bethesda::Game::kSkyrimSe);
     std::vector<std::pair<std::string, std::string>> cmds;
     guest.set_on_debug_command(
         [&](const std::string& verb, const std::string& arg) { cmds.emplace_back(verb, arg); });

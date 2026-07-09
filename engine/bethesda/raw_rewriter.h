@@ -10,7 +10,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Structure-preserving rewriter for a single plugin file. Unlike the RecordStore
 // load path (which flattens groups, skips deleted records and decompresses), the
@@ -59,6 +59,6 @@ class RawRewriter {
   std::unordered_map<u32, base::Vector<u8>> inserts_;  // record type -> encoded records
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_RAW_REWRITER_H_

@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 // Hosts the .NET CoreCLR runtime in process and resolves a managed entrypoint.
 // This is the engine's scripting runtime: the "main" world users write C#
@@ -58,6 +58,6 @@ class ClrHost {
   int (*entry_)(void*) = nullptr;  // resolved managed entrypoint
 };
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host
 
 #endif  // RECREATION_SCRIPT_HOST_CLR_HOST_H_

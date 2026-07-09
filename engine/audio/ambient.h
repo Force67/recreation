@@ -10,11 +10,11 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 class RecordStore;
 }
 
-namespace rec::audio {
+namespace rx::audio {
 
 class AudioSystem;
 
@@ -100,6 +100,6 @@ class AmbientDirector {
   u32 current_voice_ = 0;
 };
 
-}  // namespace rec::audio
+}  // namespace rx::audio
 
 #endif  // RECREATION_AUDIO_AMBIENT_H_

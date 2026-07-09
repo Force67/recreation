@@ -11,11 +11,11 @@
 #include "script/host/clr_host.h"
 #include "script/host/guest_bridge.h"
 
-namespace rec::script {
+namespace rx::script {
 class PapyrusGuest;
 }
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 // The engine-facing handle to the managed scripting world. It wires the two
 // directions of the boundary: it builds the inbound bridge over a Papyrus guest,
@@ -51,7 +51,7 @@ class ManagedHost {
             const std::string& assembly);
 
   // Hands the managed world the ultragui widget-operation table (a
-  // rec::ugui_cs::WidgetOps*, opaque here) so its UI handlers can read and mutate
+  // rx::ugui_cs::WidgetOps*, opaque here) so its UI handlers can read and mutate
   // live widgets. Call before Boot; passed through the handshake. Null disables
   // managed widget access (handlers still fire, but cannot touch widgets).
   void SetUiWidgetOps(const void* ops) { ui_widget_ops_ = ops; }
@@ -116,7 +116,7 @@ class ManagedHost {
   std::vector<std::unique_ptr<Domain>> domains_;
   std::vector<DomainBridge> domain_table_;  // handshake view: borrows name/bridge
   HostHandshake handshake_{};
-  const void* ui_widget_ops_ = nullptr;  // rec::ugui_cs::WidgetOps*, set before Boot
+  const void* ui_widget_ops_ = nullptr;  // rx::ugui_cs::WidgetOps*, set before Boot
   RpcBridge rpc_bridge_{};               // multiplayer RPC surface, set before Boot
   std::int32_t realm_ = 2;               // process role, standalone until set
   bool available_ = false;
@@ -125,6 +125,6 @@ class ManagedHost {
   std::vector<ManagedEvent> pending_events_;
 };
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host
 
 #endif  // RECREATION_SCRIPT_HOST_MANAGED_HOST_H_

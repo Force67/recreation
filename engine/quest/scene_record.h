@@ -5,12 +5,12 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 struct Record;
 class RecordStore;
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Engine-agnostic decode of a SCEN (Scene) record: the data the runtime needs
 // to drive Skyrim's scripted scenes (the Helgen intro and escort are SCENs).
@@ -94,6 +94,6 @@ struct SceneDef {
 SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
                           const bethesda::RecordStore* records);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_SCENE_RECORD_H_

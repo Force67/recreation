@@ -6,8 +6,8 @@
 
 #include "world/navgrid.h"
 
-using rec::Vec3;
-using rec::world::NavGrid;
+using rx::Vec3;
+using rx::world::NavGrid;
 
 namespace {
 

@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // The manifest is too big to ride one datagram, so it is split into chunks. Each
 // chunk packet is a 16-byte header (u32 generation, u32 total size, u32 total
@@ -48,6 +48,6 @@ std::vector<u8> EncodeManifestChunk(u32 generation, u32 total_size, u32 total_ch
 // returned view borrows `data`.
 std::optional<ManifestChunkView> DecodeManifestChunk(const u8* data, size_t size);
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_MANIFEST_CHUNK_H_

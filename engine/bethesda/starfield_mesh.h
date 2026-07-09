@@ -8,7 +8,7 @@
 #include "asset/mesh.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Starfield (BS stream 173) replaced the inline BSTriShape geometry with the
 // BSGeometry block: it carries only a node transform, bounds, and a list of LOD
@@ -66,6 +66,6 @@ struct StarfieldGeometryRef {
 // Returns false when the header does not parse or no geometry is found.
 bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_STARFIELD_MESH_H_

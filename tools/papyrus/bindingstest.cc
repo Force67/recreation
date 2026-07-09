@@ -18,12 +18,12 @@
 
 namespace {
 
-using namespace rec;
-using namespace rec::bethesda;
-using rec::script::papyrus::ObjectRef;
-using rec::script::skyrim::RecordBackedSkyrimBindings;
+using namespace rx;
+using namespace rx::bethesda;
+using rx::script::papyrus::ObjectRef;
+using rx::script::skyrim::RecordBackedSkyrimBindings;
 
-rec::u64 Handle(GlobalFormId id) { return id.packed(); }
+rx::u64 Handle(GlobalFormId id) { return id.packed(); }
 
 }  // namespace
 
@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
   // Runtime alias fill (ReferenceAlias.ForceRefTo / Clear). Uses a quest handle
   // with no definition so only the runtime override is in play.
   {
-    const ObjectRef alias{rec::script::papyrus::EncodeAliasHandle(0xDEAD, 5)};
+    const ObjectRef alias{rx::script::papyrus::EncodeAliasHandle(0xDEAD, 5)};
     const ObjectRef ref{0x000ABCDE};
     check("unfilled alias is None", bindings.AliasReference(alias).handle == 0);
     bindings.AliasForceRefTo(alias, ref);

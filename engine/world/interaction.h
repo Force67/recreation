@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace rec::world {
+namespace rx::world {
 
 // A thing the player could activate: its form handle (packed GlobalFormId) and
 // world position. Kept free of engine types so the picker is trivially testable.
@@ -72,6 +72,6 @@ inline bool ShoveOutOfRadius(const float pusher[3], const float target[3], float
   return true;
 }
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_INTERACTION_H_

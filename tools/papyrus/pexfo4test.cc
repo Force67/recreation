@@ -22,35 +22,35 @@ void Check(const char* what, bool ok) {
 }
 
 // Little-endian writers (Fallout .pex is little-endian on disk).
-void PutU8(std::vector<rec::u8>& b, rec::u8 v) { b.push_back(v); }
-void PutU16(std::vector<rec::u8>& b, rec::u16 v) {
-  b.push_back(rec::u8(v));
-  b.push_back(rec::u8(v >> 8));
+void PutU8(std::vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+  b.push_back(rx::u8(v));
+  b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rec::u8>& b, rec::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rec::u8(v >> (8 * i)));
+void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutWStr(std::vector<rec::u8>& b, const char* s) {
-  rec::u16 n = 0;
+void PutWStr(std::vector<rx::u8>& b, const char* s) {
+  rx::u16 n = 0;
   while (s[n]) ++n;
   PutU16(b, n);
-  for (rec::u16 i = 0; i < n; ++i) b.push_back(static_cast<rec::u8>(s[i]));
+  for (rx::u16 i = 0; i < n; ++i) b.push_back(static_cast<rx::u8>(s[i]));
 }
 // A kNone VariableData: one type byte, no payload.
-void PutNoneValue(std::vector<rec::u8>& b) { PutU8(b, 0); }
+void PutNoneValue(std::vector<rx::u8>& b) { PutU8(b, 0); }
 
 }  // namespace
 
 int main() {
   std::puts("fallout 4 pex object layout:");
-  using namespace rec::script::papyrus;
+  using namespace rx::script::papyrus;
 
   // String table indices used below.
-  enum : rec::u16 {
+  enum : rx::u16 {
     kEmpty = 0, kScript, kParent, kVar, kInt, kStruct, kMember, kFunc, kBool,
   };
 
-  std::vector<rec::u8> b;
+  std::vector<rx::u8> b;
   b.insert(b.end(), {0xDE, 0xC0, 0x57, 0xFA});  // FO4 magic (little-endian)
   PutU8(b, 3);                                   // major
   PutU8(b, 9);                                   // minor
@@ -118,11 +118,11 @@ int main() {
   PutU16(b, 0);        // param count
   PutU16(b, 0);        // local count
   PutU16(b, 1);        // instruction count
-  PutU8(b, static_cast<rec::u8>(Op::kReturn));  // opcode 0x1A, one operand
+  PutU8(b, static_cast<rx::u8>(Op::kReturn));  // opcode 0x1A, one operand
   PutNoneValue(b);     // the return operand (None)
 
   PexFile pex;
-  const bool ok = ParsePex(rec::ByteSpan(b.data(), b.size()), &pex);
+  const bool ok = ParsePex(rx::ByteSpan(b.data(), b.size()), &pex);
   Check("parses", ok);
   Check("little-endian fallout", !pex.big_endian);
   Check("game id 2", pex.game_id == 2);

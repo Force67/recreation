@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 // The .NET runtime's garbage collector and heap behaviour are configurable per
 // process, and the right choice depends on where the game runs. The managed
@@ -34,6 +34,6 @@ std::string ResolveGcProfileName(std::int32_t realm);
 // RECREATION_MANAGED_GC_CONSERVE (0-9), RECREATION_MANAGED_GC_SERVER (0/1).
 std::vector<GcProperty> ManagedGcProfile(const std::string& name);
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host
 
 #endif  // RECREATION_SCRIPT_HOST_MANAGED_GC_PROFILE_H_

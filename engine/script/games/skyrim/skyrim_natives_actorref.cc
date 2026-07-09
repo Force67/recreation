@@ -2,7 +2,7 @@
 
 #include "script/games/skyrim/skyrim_natives_ext.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -47,4 +47,4 @@ void RegisterActorRefGetters(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
                });
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

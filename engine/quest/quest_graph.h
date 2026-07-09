@@ -9,7 +9,7 @@
 #include "core/types.h"
 #include "quest/condition.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Engine-native quest representation: a directed graph of nodes (journal phases)
 // joined by transitions whose triggers are declarative (conditions or events).
@@ -135,6 +135,6 @@ class QuestInstance {
   bool has_stage_ = false;
 };
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_QUEST_GRAPH_H_

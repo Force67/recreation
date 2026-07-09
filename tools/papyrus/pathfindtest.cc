@@ -7,8 +7,8 @@
 
 #include "world/pathfind.h"
 
-using rec::world::FindPath;
-using rec::world::PathNode;
+using rx::world::FindPath;
+using rx::world::PathNode;
 
 namespace {
 

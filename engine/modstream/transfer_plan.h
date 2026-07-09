@@ -6,7 +6,7 @@
 #include "modstream/content_store.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // One piece of content a client still has to fetch.
 struct NeededFile {
@@ -25,6 +25,6 @@ std::vector<NeededFile> ComputeMissing(const ModManifest& manifest,
 // Total bytes a plan will transfer, for progress reporting and join budgeting.
 u64 PlannedBytes(const std::vector<NeededFile>& plan);
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_TRANSFER_PLAN_H_

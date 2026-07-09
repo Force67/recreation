@@ -16,7 +16,7 @@
 #include "world/navgrid.h"
 #include "world/quest_world.h"
 
-namespace rec {
+namespace rx {
 
 class ActorSystem;
 class InteractionSystem;
@@ -77,11 +77,11 @@ class NpcDirector {
   void Mq101DemoTick(f32 dt);
   void Mq101SceneTick(f32 dt);
 
-  // Load-time arming from the quest director's REC_MQ101_* hooks.
+  // Load-time arming from the quest director's RX_MQ101_* hooks.
   void ArmMq101Demo(u64 quest_handle);
   void ArmMq101Scene(u64 quest_handle);
 
-  // REC_CW_BATTLE verification harness: enlist the streamed NPCs near the player
+  // RX_CW_BATTLE verification harness: enlist the streamed NPCs near the player
   // into two armies (CombatTeam) and let the combat driver fight it out. Exercises
   // the combat path (closing, swinging, dying) on real actors, independent of the
   // Civil War Papyrus. Not the quest itself.
@@ -98,12 +98,12 @@ class NpcDirector {
   std::vector<world::WorldCommand> DrainReplicatedSpawns() {
     return std::move(replicated_spawns_);
   }
-  // REC_CW_FIELD_BATTLE: spawns two lines of soldiers in the open in front of the
+  // RX_CW_FIELD_BATTLE: spawns two lines of soldiers in the open in front of the
   // player and lets them charge and clash, framed for the camera (spawning,
   // combat and rendering together).
   void ArmCwFieldBattle() { cw_field_pending_ = true; }
   void CwFieldBattleTick(f32 dt);
-  // REC_CW00_DEMO: the live "join the Legion" beat. Walks the player to General
+  // RX_CW00_DEMO: the live "join the Legion" beat. Walks the player to General
   // Tullius in Castle Dour (load --interior SolitudeCastleDour); on arrival he
   // greets the player and the enlistment is acknowledged (CW00A runs its real
   // stage-10 fragment). Instrumentation, like the MQ101 demo: the quest itself
@@ -257,6 +257,6 @@ class NpcDirector {
   f32 mq101_scene_stuck_time_ = 0;  // seconds the current beat has not progressed
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_NPC_DIRECTOR_H_

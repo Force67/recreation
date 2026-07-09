@@ -2,7 +2,7 @@
 
 #include <nanobuf.h>
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // Quest-record flag bits, packed into one byte (status flags) and one byte per
@@ -175,4 +175,4 @@ bool ApplyQuestUpdate(
   return true;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

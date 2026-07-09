@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <format>
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 const std::string kEmpty;
@@ -152,4 +152,4 @@ int Value::Compare(const Value& other) const {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

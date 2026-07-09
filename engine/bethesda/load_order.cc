@@ -7,7 +7,7 @@
 
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 std::string ToLower(std::string_view str) {
@@ -79,16 +79,16 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
     if (!plugin) {
       bool required = std::ranges::find(profile.base_masters, name) != profile.base_masters.end();
       if (required) {
-        REC_ERROR("missing required master: {}", name);
+        RX_ERROR("missing required master: {}", name);
         return false;
       }
-      REC_WARN("skipping missing plugin: {}", name);
+      RX_WARN("skipping missing plugin: {}", name);
       continue;
     }
 
     for (const auto& master : plugin->masters()) {
       if (order.IndexOf(master) == 0xffff) {
-        REC_ERROR("{} requires missing master {}", name, master);
+        RX_ERROR("{} requires missing master {}", name, master);
         return false;
       }
     }
@@ -165,9 +165,9 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
     });
     plugins_.push_back(std::move(*plugin));
     by_order_[i] = &plugins_.back();
-    REC_INFO("loaded {} ({} records total)", name, records_.size());
+    RX_INFO("loaded {} ({} records total)", name, records_.size());
   }
-  REC_INFO("{} persistent worldspace refs indexed, {} interior cells", persistent_refs,
+  RX_INFO("{} persistent worldspace refs indexed, {} interior cells", persistent_refs,
            interior_.size());
   return true;
 }
@@ -276,4 +276,4 @@ const base::Vector<u64>* RecordStore::TopicInfos(GlobalFormId dial) const {
   return topic_infos_.find(dial.packed());
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

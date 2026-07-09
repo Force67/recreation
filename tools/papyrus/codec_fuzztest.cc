@@ -17,7 +17,7 @@
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_value.h"
 
-using namespace rec;
+using namespace rx;
 
 namespace {
 

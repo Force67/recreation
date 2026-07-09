@@ -11,11 +11,11 @@
 
 namespace {
 
-using rec::ByteSpan;
-using rec::net::DecodeWarMap;
-using rec::net::EncodeWarMap;
-using rec::net::WarMapHold;
-using rec::net::WarMapState;
+using rx::ByteSpan;
+using rx::net::DecodeWarMap;
+using rx::net::EncodeWarMap;
+using rx::net::WarMapHold;
+using rx::net::WarMapState;
 
 int g_failures = 0;
 
@@ -33,7 +33,7 @@ bool Same(const WarMapState& a, const WarMapState& b) {
 }
 
 void RoundTrip(const char* what, const WarMapState& m) {
-  std::vector<rec::u8> blob = EncodeWarMap(m);
+  std::vector<rx::u8> blob = EncodeWarMap(m);
   std::optional<WarMapState> decoded = DecodeWarMap(blob);
   Check(what, decoded.has_value() && Same(m, *decoded));
 }
@@ -68,12 +68,12 @@ void TestTruncation() {
   WarMapState m;
   m.imperial_fraction = 0.25f;
   m.holds = {{"Whiterun", 1}, {"Riften", 2}};
-  std::vector<rec::u8> valid = EncodeWarMap(m);
+  std::vector<rx::u8> valid = EncodeWarMap(m);
 
   // Every truncation must be rejected and must never read out of bounds.
   bool every_truncation_rejected = true;
   for (size_t cut = 0; cut < valid.size(); ++cut) {
-    std::vector<rec::u8> shorter(valid.begin(), valid.begin() + cut);
+    std::vector<rx::u8> shorter(valid.begin(), valid.begin() + cut);
     if (DecodeWarMap(shorter).has_value()) every_truncation_rejected = false;
   }
   Check("every truncation rejected", every_truncation_rejected);

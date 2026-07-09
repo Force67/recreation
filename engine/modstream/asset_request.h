@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // The asset-request wire form: a client asks the server to stream a batch of
 // content hashes (the files it is missing). A compact little-endian u32 count
@@ -24,6 +24,6 @@ std::vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes);
 std::optional<std::vector<ContentHash>> DecodeHashRequest(const u8* data, size_t size,
                                                           size_t max_hashes);
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_ASSET_REQUEST_H_

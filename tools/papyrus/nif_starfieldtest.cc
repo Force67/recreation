@@ -22,16 +22,16 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU16(std::vector<rec::u8>& b, rec::u16 v) {
-  b.push_back(rec::u8(v));
-  b.push_back(rec::u8(v >> 8));
+void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+  b.push_back(rx::u8(v));
+  b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rec::u8>& b, rec::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rec::u8(v >> (8 * i)));
+void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutI16(std::vector<rec::u8>& b, rec::i16 v) { PutU16(b, static_cast<rec::u16>(v)); }
-void PutF32(std::vector<rec::u8>& b, float f) {
-  rec::u32 v;
+void PutI16(std::vector<rx::u8>& b, rx::i16 v) { PutU16(b, static_cast<rx::u16>(v)); }
+void PutF32(std::vector<rx::u8>& b, float f) {
+  rx::u32 v;
   std::memcpy(&v, &f, 4);
   PutU32(b, v);
 }
@@ -44,15 +44,15 @@ int main() {
   // A unit quad: four corners at the extents of the dequant range, two
   // triangles. scale 2.0 metres so a corner decodes to +/-2 metres.
   const float scale = 2.0f;
-  const rec::i16 q = 32767;
-  const rec::i16 pos[4][3] = {
+  const rx::i16 q = 32767;
+  const rx::i16 pos[4][3] = {
       {-q, -q, 0}, {q, -q, 0}, {q, q, 0}, {-q, q, 0}};
-  const rec::u16 indices[6] = {0, 1, 2, 0, 2, 3};
+  const rx::u16 indices[6] = {0, 1, 2, 0, 2, 3};
 
-  std::vector<rec::u8> b;
+  std::vector<rx::u8> b;
   PutU32(b, 2);  // version
   PutU32(b, 6);  // index count
-  for (rec::u16 i : indices) PutU16(b, i);
+  for (rx::u16 i : indices) PutU16(b, i);
   PutF32(b, scale);
   PutU32(b, 0);  // weights per vertex
   PutU32(b, 4);  // vertex count
@@ -67,8 +67,8 @@ int main() {
   PutU32(b, 0);  // normals
   PutU32(b, 0);  // tangents
 
-  rec::bethesda::StarfieldMeshData mesh;
-  bool ok = rec::bethesda::ParseStarfieldMesh(rec::ByteSpan(b.data(), b.size()), &mesh);
+  rx::bethesda::StarfieldMeshData mesh;
+  bool ok = rx::bethesda::ParseStarfieldMesh(rx::ByteSpan(b.data(), b.size()), &mesh);
   Check("mesh parsed", ok);
   Check("four vertices decoded", mesh.vertices.size() == 4);
   Check("six indices decoded", mesh.indices.size() == 6);
@@ -84,9 +84,9 @@ int main() {
   }
 
   // A truncated buffer (header only) must fail rather than read past the end.
-  rec::bethesda::StarfieldMeshData truncated;
+  rx::bethesda::StarfieldMeshData truncated;
   Check("short buffer rejected",
-        !rec::bethesda::ParseStarfieldMesh(rec::ByteSpan(b.data(), 8), &truncated));
+        !rx::bethesda::ParseStarfieldMesh(rx::ByteSpan(b.data(), 8), &truncated));
 
   if (g_failures == 0) {
     std::puts("starfield mesh: all checks passed");

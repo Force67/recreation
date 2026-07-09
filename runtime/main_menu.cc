@@ -32,12 +32,12 @@
 // installed universes (Steam/env scan), drives menu navigation and the
 // select-then-PLAY request flow, loads a universe on demand, and refreshes the
 // front-screen identity/stats plus the cached scene backdrops.
-namespace rec {
+namespace rx {
 
 // Config toggles formerly read from getenv (populated by base::InitOptionsFromEnv).
-static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "REC_HIDE_DEBUG_UI"};
-static base::Option<bool> MenuCapture{"menu.capture", false, "REC_MENU_CAPTURE"};
-static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "REC_MENU_AUTOPLAY"};
+static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
+static base::Option<bool> MenuCapture{"menu.capture", false, "RX_MENU_CAPTURE"};
+static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU_AUTOPLAY"};
 
 // The C# gameplay modules each universe installs once it is the primary domain,
 // previewed on the menu's Mods screen before the game loads. Skyrim and
@@ -69,9 +69,9 @@ void ResolveUniverses(Engine& engine) {
     const char* subdir;
   };
   const Spec specs[3] = {
-      {bethesda::Game::kSkyrimSe, "Skyrim", "REC_SKYRIM_DATA", "Skyrim Special Edition/Data"},
-      {bethesda::Game::kFallout4, "Fallout 4", "REC_FALLOUT4_DATA", "Fallout 4/Data"},
-      {bethesda::Game::kStarfield, "Starfield", "REC_STARFIELD_DATA", "Starfield/Data"},
+      {bethesda::Game::kSkyrimSe, "Skyrim", "RX_SKYRIM_DATA", "Skyrim Special Edition/Data"},
+      {bethesda::Game::kFallout4, "Fallout 4", "RX_FALLOUT4_DATA", "Fallout 4/Data"},
+      {bethesda::Game::kStarfield, "Starfield", "RX_STARFIELD_DATA", "Starfield/Data"},
   };
   // Steam "common" roots to scan when no explicit path is configured.
   const char* roots[] = {
@@ -112,7 +112,7 @@ void ResolveUniverses(Engine& engine) {
     if (u.plugins_txt.empty() && !u.data_dir.empty()) u.plugins_txt = u.data_dir + "/../plugins.txt";
     std::error_code ec;
     u.available = !u.data_dir.empty() && fs::exists(u.data_dir, ec);
-    REC_INFO("menu universe {}: {} -> {}", i, u.name,
+    RX_INFO("menu universe {}: {} -> {}", i, u.name,
              u.available ? u.data_dir : std::string("(unavailable)"));
   }
 }
@@ -170,7 +170,7 @@ void SetupMainMenu(Engine& engine) {
   self->game_ui_.SetMainMenuNews(news);
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
-  REC_INFO("nexus main menu open");
+  RX_INFO("nexus main menu open");
 }
 
 void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const std::string& join_address) {
@@ -178,10 +178,10 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const s
   if (idx < 0 || idx >= static_cast<int>(self->menu_universes_.size())) return;
   const Engine::MenuUniverse& u = self->menu_universes_[idx];
   if (!u.available) {
-    REC_WARN("universe {} has no data; cannot enter", u.name);
+    RX_WARN("universe {} has no data; cannot enter", u.name);
     return;
   }
-  REC_INFO("entering universe {}{}", u.name,
+  RX_INFO("entering universe {}{}", u.name,
            multiplayer ? (host ? " (hosting)" : " (joining)") : "");
   self->config_.game = u.game;
   self->config_.data_dir = u.data_dir;
@@ -197,10 +197,10 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const s
   self->main_menu_active_ = false;
   self->debug_ui_.SetVisible(!HideDebugUi);
   if (!LoadGameData(engine)) {  // boots the managed world, so the game's C# module installs
-    REC_ERROR("failed to load universe {}", u.name);
+    RX_ERROR("failed to load universe {}", u.name);
     return;
   }
-  // Opt-in (REC_MENU_CAPTURE): grab a clean frame of this world for the menu
+  // Opt-in (RX_MENU_CAPTURE): grab a clean frame of this world for the menu
   // backdrop cache once it has streamed in, so a later menu shows the real scene.
   // Off by default, since a mid-stream grab can catch an unsettled frame.
   if (!self->config_.headless && MenuCapture) {
@@ -209,7 +209,7 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const s
   }
 #if RECREATION_HAS_NET
   if (self->config_.host_server || !self->config_.connect_address.empty()) {
-    if (!StartNetworking(engine)) REC_WARN("networking failed to start");
+    if (!StartNetworking(engine)) RX_WARN("networking failed to start");
   }
 #endif
 }
@@ -219,7 +219,7 @@ void Engine::UpdateMainMenu(f32 dt) {
   const InputState& in = window_->input();
   window_->SetRelativeMouseMode(false);  // free cursor so the menu can be clicked
 
-  // Test hook: REC_MENU_AUTOPLAY=<0|1|2> drives the same select-then-PLAY path a
+  // Test hook: RX_MENU_AUTOPLAY=<0|1|2> drives the same select-then-PLAY path a
   // mouse/keyboard would, so the menu->request->boot chain runs without input.
   if (const char* ap = MenuAutoplay.get()) {
     static int beat = 0;
@@ -266,8 +266,8 @@ void Engine::UpdateMainMenu(f32 dt) {
 #else
         const std::string cmd = "xdg-open \"" + req.url + "\" >/dev/null 2>&1 &";
 #endif
-        if (std::system(cmd.c_str()) != 0) REC_WARN("could not open url {}", req.url);
-        else REC_INFO("opened url {}", req.url);
+        if (std::system(cmd.c_str()) != 0) RX_WARN("could not open url {}", req.url);
+        else RX_INFO("opened url {}", req.url);
       }
       break;
     case MainMenuRequest::Kind::kNone:
@@ -734,7 +734,7 @@ void Engine::GenerateMenuBackdrops() {
     const u64 tex = game_ui_.CreateUiTexture(W, H, px.data());
     if (tex) {
       game_ui_.SetMainMenuBackdrop(i, tex);
-      REC_INFO("menu backdrop {} painted ({}x{})", GameSlug(menu_universes_[i].game), W, H);
+      RX_INFO("menu backdrop {} painted ({}x{})", GameSlug(menu_universes_[i].game), W, H);
     }
   }
   // Emblems / icons — line art bound to the menu's image widgets.
@@ -762,11 +762,11 @@ void Engine::GenerateMenuBackdrops() {
         const u64 tex = game_ui_.CreateUiTexture(S, S, px.data());
         if (tex) {
           game_ui_.SetMainMenuGlyph("mm_hero", tex);
-          REC_INFO("menu hero gem rendered ({}x{})", S, S);
+          RX_INFO("menu hero gem rendered ({}x{})", S, S);
         }
       }
     } else {
-      REC_WARN("menu: thumbnailer unavailable, hero art absent");
+      RX_WARN("menu: thumbnailer unavailable, hero art absent");
     }
   }
 #endif
@@ -783,8 +783,8 @@ void Engine::TickMenuCapture() {
   } else if (c == 1) {  // restore the overlays for play
     game_ui_.SetHudVisible(true);
     debug_ui_.SetAllVisible(!HideDebugUi);
-    REC_INFO("menu backdrop captured: {}", menu_capture_path_);
+    RX_INFO("menu backdrop captured: {}", menu_capture_path_);
   }
 }
 
-}  // namespace rec
+}  // namespace rx

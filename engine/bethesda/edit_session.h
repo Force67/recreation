@@ -15,7 +15,7 @@
 #include "bethesda/string_writer.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 class RawRewriter;
 
@@ -189,6 +189,6 @@ class EditSession {
   base::Vector<std::string> in_place_masters_;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_EDIT_SESSION_H_

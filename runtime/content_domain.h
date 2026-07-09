@@ -15,7 +15,7 @@
 #include "script/games/skyrim/skyrim_bindings.h"
 #include "script/script_system.h"
 
-namespace rec {
+namespace rx {
 
 // One game's content fully enclosed: its archives and loose files (vfs), the
 // converted asset cache, the merged record store, localized strings, dialogue
@@ -80,6 +80,6 @@ class ContentDomain {
   std::unique_ptr<script::ScriptSystem> scripts_;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_CONTENT_DOMAIN_H_

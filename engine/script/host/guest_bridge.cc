@@ -8,7 +8,7 @@
 #include "script/papyrus/value.h"
 #include "script/papyrus_guest.h"
 
-namespace rec::script::host {
+namespace rx::script::host {
 namespace {
 
 using papyrus::ArrayRef;
@@ -172,4 +172,4 @@ ScriptBridge MakeScriptBridge(BridgeContext& ctx) {
   return bridge;
 }
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host

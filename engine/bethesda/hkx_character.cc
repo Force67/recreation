@@ -1,6 +1,6 @@
 #include "bethesda/hkx_character.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // hkbCharacterStringData, hk2010 x64 serialized image. Verified against
@@ -26,4 +26,4 @@ std::vector<std::string> DecodeAnimationNames(const HkxFile& hkx) {
   return names;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

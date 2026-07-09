@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // Papyrus is dynamically typed at runtime over six value kinds. Object and
 // array values are reference handles: copying a Value copies the handle, the
@@ -96,6 +96,6 @@ class Value {
   Storage data_;
 };
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_VALUE_H_

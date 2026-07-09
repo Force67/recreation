@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <vector>
 
-namespace rec::quest {
+namespace rx::quest {
 
 QuestGraph BuildQuestGraph(const QuestDef& def,
                            const std::unordered_map<i32, std::string>& stage_fragments) {
@@ -66,4 +66,4 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
   return graph;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

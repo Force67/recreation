@@ -17,27 +17,27 @@
 // menu, editor, dialogue/container/journal modals, walk mode, or the free-fly
 // camera), the walk-mode character controller, the scripted camera drivers
 // (orbit / replay / cinematic showcase / record), and the debug physics toss.
-namespace rec {
+namespace rx {
 
 // Camera / capture overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
-static base::Option<const char*> Cam{"cam", nullptr, "REC_CAM"};
-static base::Option<bool> Orbit{"orbit", false, "REC_ORBIT"};
-static base::Option<bool> Editor{"editor", false, "REC_EDITOR"};
-static base::Option<const char*> Record{"record", nullptr, "REC_RECORD"};
-static base::Option<const char*> Replay{"replay", nullptr, "REC_REPLAY"};
-static base::Option<bool> Showcase{"showcase", false, "REC_SHOWCASE"};
-static base::Option<const char*> ShowcaseShots{"showcase.shots", nullptr, "REC_SHOWCASE_SHOTS"};
-static base::Option<bool> ShowcaseQuit{"showcase.quit", false, "REC_SHOWCASE_QUIT"};
-// REC_TRAILER layers the cinematic trailer (cycling weather + render mode, with
-// title cards) over the showcase flythrough; it implies REC_SHOWCASE.
-static base::Option<bool> Trailer{"trailer", false, "REC_TRAILER"};
-static base::Option<const char*> TrailerTitle{"trailer.title", "RECREATION", "REC_TRAILER_TITLE"};
+static base::Option<const char*> Cam{"cam", nullptr, "RX_CAM"};
+static base::Option<bool> Orbit{"orbit", false, "RX_ORBIT"};
+static base::Option<bool> Editor{"editor", false, "RX_EDITOR"};
+static base::Option<const char*> Record{"record", nullptr, "RX_RECORD"};
+static base::Option<const char*> Replay{"replay", nullptr, "RX_REPLAY"};
+static base::Option<bool> Showcase{"showcase", false, "RX_SHOWCASE"};
+static base::Option<const char*> ShowcaseShots{"showcase.shots", nullptr, "RX_SHOWCASE_SHOTS"};
+static base::Option<bool> ShowcaseQuit{"showcase.quit", false, "RX_SHOWCASE_QUIT"};
+// RX_TRAILER layers the cinematic trailer (cycling weather + render mode, with
+// title cards) over the showcase flythrough; it implies RX_SHOWCASE.
+static base::Option<bool> Trailer{"trailer", false, "RX_TRAILER"};
+static base::Option<const char*> TrailerTitle{"trailer.title", "RECREATION", "RX_TRAILER_TITLE"};
 // Safety cap on the per-game loading hold: if a map never reports caught-up
 // (huge worldspace, missing assets), reveal it anyway after this many seconds.
 // Generous, because the wide preload diorama (radius 4) is a lot of cells.
 static constexpr f32 kTrailerMaxLoadHold = 25.0f;
-static base::Option<bool> AutoAttack{"auto.attack", false, "REC_AUTO_ATTACK"};
+static base::Option<bool> AutoAttack{"auto.attack", false, "RX_AUTO_ATTACK"};
 
 void Engine::UpdateCamera(f32 frame_delta) {
   if (!window_) return;
@@ -77,7 +77,7 @@ void Engine::UpdateCamera(f32 frame_delta) {
   if (actions_.pressed(Action::kToggleWalk) && !menu && !kb && !modal && !editor_on &&
       actors_->HasPlayer()) {
     ctx_.walk_mode = !ctx_.walk_mode;
-    REC_INFO("walk mode {}",
+    RX_INFO("walk mode {}",
              ctx_.walk_mode ? "on (WASD move, Shift run, Space jump, C view)" : "off");
   }
   if (actions_.pressed(Action::kToggleThirdPerson) && !menu && !kb && !modal && !editor_on)
@@ -162,7 +162,7 @@ void Engine::LookCameraAt(const Vec3& eye, const Vec3& center) {
 void Engine::DriveCamera(f32 dt) {
   if (!cam_init_) {
     cam_init_ = true;
-    // REC_CAM="x,y,z,yaw,pitch" pins the camera for a framed capture (handy for
+    // RX_CAM="x,y,z,yaw,pitch" pins the camera for a framed capture (handy for
     // screenshots that must show a specific vantage, e.g. two worlds side by side).
     if (const char* c = Cam.get()) {
       Vec3 p{};
@@ -173,7 +173,7 @@ void Engine::DriveCamera(f32 dt) {
       }
     }
     cam_orbit_ = bool(Orbit);
-    // REC_EDITOR boots straight into the map editor (the catalog is ready once
+    // RX_EDITOR boots straight into the map editor (the catalog is ready once
     // the records are loaded), so a capture or a builder session can skip F4.
     if (Editor && editor_ && !editor_->active()) editor_->Toggle();
     if (const char* r = Record.get()) cam_record_ = std::fopen(r, "wb");
@@ -184,12 +184,12 @@ void Engine::DriveCamera(f32 dt) {
           cam_replay_.push_back({rec[0], {rec[1], rec[2], rec[3]}, {rec[4], rec[5], rec[6]}});
         }
         std::fclose(f);
-        REC_INFO("camera replay: {} keys from {}", cam_replay_.size(), p);
+        RX_INFO("camera replay: {} keys from {}", cam_replay_.size(), p);
       }
     }
-    // REC_SHOWCASE flies a smooth cinematic pass over every loaded worldspace in
-    // one take. REC_SHOWCASE_SHOTS=<dir> writes a regression PNG at each marked
-    // beat; REC_SHOWCASE_QUIT exits when the pass ends (headless benchmark).
+    // RX_SHOWCASE flies a smooth cinematic pass over every loaded worldspace in
+    // one take. RX_SHOWCASE_SHOTS=<dir> writes a regression PNG at each marked
+    // beat; RX_SHOWCASE_QUIT exits when the pass ends (headless benchmark).
     if (Showcase || Trailer) {
       // Multi-game trailer: collapse the side-by-side regions onto one shared
       // center and stream the games one at a time. Must run before BuildShowcase
@@ -202,7 +202,7 @@ void Engine::DriveCamera(f32 dt) {
       if (cam_showcase_) {
         ctx_.walk_mode = false;         // the cinematic owns the camera
         game_ui_.SetHudVisible(false);  // clean frames: no crosshair / compass / bars
-        REC_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
+        RX_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
                  showcase_regions_.size(), showcase_.duration(),
                  showcase_shot_dir_.empty() ? "" : " (capturing)");
         // The trailer rides the same path, adding the weather/render-mode cycle
@@ -214,12 +214,12 @@ void Engine::DriveCamera(f32 dt) {
           if (cam_trailer_) {
             debug_ui_.SetAllVisible(false);
             debug_ui_.SetTrailerOverlay(&current_trailer_overlay_);
-            REC_INFO("trailer: {} title card(s) over {:.1f}s", showcase_regions_.size(),
+            RX_INFO("trailer: {} title card(s) over {:.1f}s", showcase_regions_.size(),
                      trailer_.duration());
           }
         }
       } else {
-        REC_WARN("REC_SHOWCASE/REC_TRAILER set but no worldspaces to fly over");
+        RX_WARN("RX_SHOWCASE/RX_TRAILER set but no worldspaces to fly over");
       }
     }
   }
@@ -251,7 +251,7 @@ void Engine::DriveCamera(f32 dt) {
         if (trailer_loading_ &&
             (TrailerActiveLoaded() || trailer_load_elapsed_ >= kTrailerMaxLoadHold)) {
           trailer_loading_ = false;
-          REC_INFO("trailer: {} ready ({:.1f}s){}",
+          RX_INFO("trailer: {} ready ({:.1f}s){}",
                    showcase_regions_[trailer_active_domain_].name, trailer_load_elapsed_,
                    TrailerActiveLoaded() ? "" : " [timeout]");
         }
@@ -289,7 +289,7 @@ void Engine::DriveCamera(f32 dt) {
         std::snprintf(path, sizeof(path), "%s/%02d_%s.png", showcase_shot_dir_.c_str(), idx,
                       label.c_str());
         renderer_.CaptureScreenshot(path);
-        REC_INFO("showcase capture: {}", path);
+        RX_INFO("showcase capture: {}", path);
       }
     }
     if (!showcase_done_) {
@@ -306,7 +306,7 @@ void Engine::DriveCamera(f32 dt) {
         showcase_done_ = true;
         f32 avg =
             showcase_frames_ > 0 ? showcase_bench_time_ / static_cast<f32>(showcase_frames_) : 0.0f;
-        REC_INFO("showcase done: {} frames over {:.1f}s, avg {:.0f} fps (min {:.0f}, max {:.0f})",
+        RX_INFO("showcase done: {} frames over {:.1f}s, avg {:.0f} fps (min {:.0f}, max {:.0f})",
                  showcase_frames_, showcase_bench_time_, avg > 0 ? 1.0f / avg : 0.0f,
                  showcase_dt_max_ > 0 ? 1.0f / showcase_dt_max_ : 0.0f,
                  showcase_dt_min_ > 0 ? 1.0f / showcase_dt_min_ : 0.0f);
@@ -489,7 +489,7 @@ void Engine::SetupTrailerStreaming() {
   preload.load_radius = 3;     // ~120 m of resident near cells around the subject
   preload.mesh_budget = 48;    // load fast (hidden behind the black loading hold)
   preload.ref_budget = 768;
-  preload.distant_lod = true;  // horizon fill (REC_DISTANT_LOD also forces this on)
+  preload.distant_lod = true;  // horizon fill (RX_DISTANT_LOD also forces this on)
   preload.distant_budget = 12;
   preload.grass_density = config_.grass_density;
 
@@ -525,7 +525,7 @@ void Engine::SwitchTrailerDomain(int region_index) {
     prev->UnloadAllCells(world_);  // drop the outgoing map; the incoming streams in
   trailer_active_domain_ = region_index;
   if (region_index >= 0 && static_cast<size_t>(region_index) < showcase_regions_.size())
-    REC_INFO("trailer: cut to {} (loading)", showcase_regions_[region_index].name);
+    RX_INFO("trailer: cut to {} (loading)", showcase_regions_[region_index].name);
 }
 
 void Engine::WalkUpdate(f32 dt, bool allow) {
@@ -587,7 +587,7 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
 
   // Melee: a left-click / right-trigger swing strikes the NPC the player faces,
   // so the player can fight (clear a fort, join a battle). Aim is the camera yaw.
-  // REC_AUTO_ATTACK swings on a timer for headless playthrough verification.
+  // RX_AUTO_ATTACK swings on a timer for headless playthrough verification.
   const bool auto_attack = bool(AutoAttack);
   bool swing = allow && actions_.pressed(Action::kAttack);
   if (auto_attack) {
@@ -645,4 +645,4 @@ void Engine::ThrowPhysicsCube() {
   if (window_ && input_map_.rumble) window_->SetRumble(0.35f, 0.7f, 180);  // toss kick
 }
 
-}  // namespace rec
+}  // namespace rx

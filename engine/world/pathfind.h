@@ -8,7 +8,7 @@
 #include <queue>
 #include <vector>
 
-namespace rec::world {
+namespace rx::world {
 
 struct PathNode {
   int x = 0;
@@ -96,6 +96,6 @@ inline bool FindPath(int width, int height, const std::function<bool(int, int)>&
   return false;
 }
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_PATHFIND_H_

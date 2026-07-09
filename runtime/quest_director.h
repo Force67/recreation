@@ -12,7 +12,7 @@
 #include "quest/quest_def.h"
 #include "quest/quest_system.h"
 
-namespace rec {
+namespace rx {
 
 class ActorSystem;
 class NpcDirector;
@@ -44,8 +44,8 @@ class QuestDirector {
     interaction_ = interaction;
   }
 
-  // Instantiates the attached quest scripts and applies the REC_START_QUEST /
-  // REC_MQ101_* / REC_JOURNAL load-time hooks.
+  // Instantiates the attached quest scripts and applies the RX_START_QUEST /
+  // RX_MQ101_* / RX_JOURNAL load-time hooks.
   void AttachQuestScripts();
   void RefreshQuestPanel(f32 dt);
   void RefreshNativeTrace(f32 dt);
@@ -53,12 +53,12 @@ class QuestDirector {
   QuestPanel* quest_panel() { return &quest_panel_; }
   NativeTracePanel* native_trace_panel() { return &native_trace_panel_; }
 
-  // Headless debug aids (REC_QUEST_REPORT / REC_DIALOGUE_REPORT / REC_SCENE_REPORT).
+  // Headless debug aids (RX_QUEST_REPORT / RX_DIALOGUE_REPORT / RX_SCENE_REPORT).
   void ReportQuestToCompletion(const std::string& edid);
   // Lists every loaded quest whose editor id begins with `prefix` (case
   // insensitive; empty lists all), one line each: handle, priority, stage and
   // objective counts, completion stage, name. The fast way to survey a whole
-  // questline (e.g. REC_QUEST_LIST=CW) without reloading data per quest.
+  // questline (e.g. RX_QUEST_LIST=CW) without reloading data per quest.
   void ReportQuestList(const std::string& prefix);
   void ReportDialogue(const std::string& edid);
   // Headless check that the real Civil War reinforcement Papyrus runs: start the
@@ -160,6 +160,6 @@ class QuestDirector {
   bool native_trace_on_ = false;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_QUEST_DIRECTOR_H_

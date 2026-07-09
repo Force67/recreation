@@ -4,7 +4,7 @@
 // Sound routes to the engine audio system. The visual and weather wrappers track
 // what a script sets, awaiting their renderers.
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -123,4 +123,4 @@ void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bind
   reg.Register("Weather", "ReleaseOverride", noop);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

@@ -72,7 +72,7 @@ channels render from it: **chat box**, **scoreboard**, **interaction prompts**,
 **compass blips**, **notifications**, and **floating player nametags** (world
 position projected to screen). Plus `Net.LocalWorldPos` (the local player's world
 position for mods) and `PlaceObject`-based net-entity placement. Verified live in a
-streamed scene (`REC_MP_DEMO`).
+streamed scene (`RX_MP_DEMO`).
 
 Planned:
 

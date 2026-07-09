@@ -15,8 +15,8 @@
 #include "bethesda/archive.h"
 #include "script/papyrus/pex.h"
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 int main(int argc, char** argv) {
   if (argc < 2) {

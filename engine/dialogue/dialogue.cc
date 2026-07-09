@@ -9,7 +9,7 @@
 #include "core/types.h"
 #include "quest/ctda.h"
 
-namespace rec::dialogue {
+namespace rx::dialogue {
 namespace {
 
 // A localized subrecord: a 4-byte string id in a localized plugin, inline
@@ -133,4 +133,4 @@ const std::vector<Handle>& DialogueDb::TopicsForQuest(Handle quest) const {
   return it == by_quest_.end() ? empty_ : it->second;
 }
 
-}  // namespace rec::dialogue
+}  // namespace rx::dialogue

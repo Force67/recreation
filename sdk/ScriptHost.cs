@@ -31,7 +31,7 @@ public static unsafe class ScriptHost
         // for this process role, before mods load so an OnLoad can use it.
         Recreation.Net.Platform.Boot(handshake->Realm);
         Console.WriteLine($"[managed] Recreation scripting host online (SDK {SdkInfo.Version}), {Domains.Count} game(s)");
-        if (Environment.GetEnvironmentVariable("REC_DOMAINS_REPORT") != null) ReportDomains();
+        if (Environment.GetEnvironmentVariable("RX_DOMAINS_REPORT") != null) ReportDomains();
         // Bring in the optional default gamemodes (the per-game rulesets) as
         // separate assemblies before the boot scan, so they load like the built-ins
         // they replaced. Absent (or disabled) just means a barebones session.
@@ -73,7 +73,7 @@ public static unsafe class ScriptHost
             Domains.Register(new GameWorld("primary", Native.Backend), isPrimary: true);
     }
 
-    // REC_DOMAINS_REPORT: list every game a mod can reach this session.
+    // RX_DOMAINS_REPORT: list every game a mod can reach this session.
     private static void ReportDomains()
     {
         Console.WriteLine($"[managed] {Domains.Count} game domain(s) live:");

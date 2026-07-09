@@ -26,8 +26,8 @@
 #include "script/papyrus/pex.h"
 #include "script/papyrus/vm.h"
 
-using namespace rec;
-using namespace rec::script::papyrus;
+using namespace rx;
+using namespace rx::script::papyrus;
 
 // A function is safe to execute blind when it has no calls (no recursion, no
 // latent natives) and no backward jumps (no loops), so it always terminates.
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     });
 
   NativeRegistry natives;
-  rec::script::skyrim::RegisterSkyrimNatives(natives, nullptr);
+  rx::script::skyrim::RegisterSkyrimNatives(natives, nullptr);
   VirtualMachine vm(&natives);
 
   int parse_fail = 0, load_fail = 0, loaded = 0;

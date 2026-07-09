@@ -15,7 +15,7 @@
 // the primary game plus every secondary content domain as managed domains, then
 // routes engine gameplay events (death, item added, form load/unload, location
 // change) into the managed event bus. Optional and gracefully absent.
-namespace rec {
+namespace rx {
 
 // RECREATION_SCRIPTING_DIR points at the built managed assemblies; was read
 // straight from the environment.
@@ -26,7 +26,7 @@ static base::Option<const char*> ScriptingDir{"scripting.dir", nullptr,
 // Bridges ultragui's handler dispatch to the managed world. Installed as the C#
 // backend's dispatch callback; ctx is the ManagedHost.
 static std::int32_t DispatchUiToManaged(void* ctx, const char* func_name, std::uint64_t widget) {
-  return static_cast<rec::script::host::ManagedHost*>(ctx)->DispatchUi(func_name, widget);
+  return static_cast<rx::script::host::ManagedHost*>(ctx)->DispatchUi(func_name, widget);
 }
 #endif
 
@@ -43,7 +43,7 @@ void BootManagedScripting(Engine& engine) {
 
   const char* dir = ScriptingDir.get();
   if (!dir || !*dir) {
-    REC_INFO("managed: RECREATION_SCRIPTING_DIR unset, C# scripting disabled");
+    RX_INFO("managed: RECREATION_SCRIPTING_DIR unset, C# scripting disabled");
     return;
   }
   namespace fs = std::filesystem;
@@ -52,10 +52,10 @@ void BootManagedScripting(Engine& engine) {
   const std::string runtime_config = (base / "Recreation.Scripting.runtimeconfig.json").string();
   std::error_code ec;
   if (!fs::exists(assembly, ec) || !fs::exists(runtime_config, ec)) {
-    REC_WARN("managed: Recreation.Scripting not found under {}", dir);
+    RX_WARN("managed: Recreation.Scripting not found under {}", dir);
     return;
   }
-  self->managed_ = std::make_unique<rec::script::host::ManagedHost>();
+  self->managed_ = std::make_unique<rx::script::host::ManagedHost>();
   // Register the primary (rendered) game first, then every secondary domain, so a
   // C# mod can reach Skyrim and Fallout content at the same time. Each domain
   // dispatches into its own guest, keeping the games' state isolated.
@@ -71,7 +71,7 @@ void BootManagedScripting(Engine& engine) {
 #if defined(RECREATION_HAS_UGUI)
   // Let managed UI handlers read and mutate live ugui widgets. Must precede Boot:
   // the table is handed to the managed entrypoint through the handshake.
-  self->managed_->SetUiWidgetOps(rec::ugui_cs::GetWidgetOps());
+  self->managed_->SetUiWidgetOps(rx::ugui_cs::GetWidgetOps());
 #endif
 #if RECREATION_HAS_NET
   // Hand the managed world the multiplayer RPC surface so mod scripts emit and
@@ -87,7 +87,7 @@ void BootManagedScripting(Engine& engine) {
 #if defined(RECREATION_HAS_UGUI)
   // Route every ultragui handler (button clicks, on_change) into the managed
   // world now that it is up. Inert until this point, so early UI input is safe.
-  rec::ugui_cs::InstallHostDispatch(&DispatchUiToManaged, self->managed_.get());
+  rx::ugui_cs::InstallHostDispatch(&DispatchUiToManaged, self->managed_.get());
 #endif
   // Route gameplay events (death, item added, quest stage) from the bindings to
   // the managed event bus. The sink runs on the guest thread, so set it there to
@@ -95,23 +95,23 @@ void BootManagedScripting(Engine& engine) {
   // queue into managed code (DrainEvents).
   auto* host = self->managed_.get();
   auto* binds = self->script_bindings_.get();
-  self->scripts_->guest().Submit([binds, host](rec::script::papyrus::VirtualMachine&) {
+  self->scripts_->guest().Submit([binds, host](rx::script::papyrus::VirtualMachine&) {
     binds->set_event_sink(
-        [host](const rec::script::host::ManagedEvent& e) { host->QueueEvent(e); });
+        [host](const rx::script::host::ManagedEvent& e) { host->QueueEvent(e); });
   });
   // Notify the managed world when a form's scripts attach (it goes live), so
   // mods can attach C# behaviours to it. Fires on the main thread; QueueEvent is
   // drained next frame.
   self->scripts_->set_on_scripts_attached([host](u64 form) {
-    host->QueueEvent({rec::script::host::ManagedEventId::kFormLoaded, form, 0, 0, 0.0f});
+    host->QueueEvent({rx::script::host::ManagedEventId::kFormLoaded, form, 0, 0, 0.0f});
   });
   // The symmetric unload: when a tracked reference streams out, tell managed code
   // so per-form behaviours detach instead of ticking on a stale handle. Fires on
   // the main thread (cell streaming); QueueEvent is drained next frame.
   self->quest_world_.set_on_unregister([host](u64 form) {
-    host->QueueEvent({rec::script::host::ManagedEventId::kFormUnloaded, form, 0, 0, 0.0f});
+    host->QueueEvent({rx::script::host::ManagedEventId::kFormUnloaded, form, 0, 0, 0.0f});
   });
   self->ctx_.managed = host;  // let subsystems (interaction, ...) raise managed events
 }
 
-}  // namespace rec
+}  // namespace rx

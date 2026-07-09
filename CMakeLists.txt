@@ -65,29 +65,9 @@ if(RECREATION_SANITIZE)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-if(RECREATION_FSR3 AND NOT EXISTS
-   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FidelityFX-SDK/sdk/include/FidelityFX/host/ffx_fsr3upscaler.h)
-  message(STATUS "FidelityFX-SDK not found, fsr3 disabled (run tools/get_fidelityfx.sh)")
-  set(RECREATION_FSR3 OFF)
-endif()
-
-if(RECREATION_DLSS AND NOT EXISTS
-   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/DLSS/lib/Linux_x86_64/libnvsdk_ngx.a)
-  message(STATUS "DLSS SDK not found, dlss disabled (run tools/get_dlss.sh)")
-  set(RECREATION_DLSS OFF)
-endif()
-
-if(RECREATION_NRD AND NOT EXISTS
-   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/NRD/Include/NRD.h)
-  message(STATUS "NRD not found, denoiser disabled (run tools/get_nrd.sh)")
-  set(RECREATION_NRD OFF)
-endif()
-
-if(RECREATION_JOLT AND NOT EXISTS
-   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/JoltPhysics/Jolt/Jolt.cmake)
-  message(STATUS "JoltPhysics not found, physics disabled (run tools/get_jolt.sh)")
-  set(RECREATION_JOLT OFF)
-endif()
+# The FidelityFX/DLSS/NRD/Jolt SDKs now live under the rx engine checkout, which
+# runs its own existence checks against its own third_party tree; the
+# RECREATION_FSR3/DLSS/NRD/JOLT options are forwarded to rx below.
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(warnings)
@@ -267,6 +247,35 @@ else()
   endif()
 endif()
 
+# The rx engine (sibling checkout) supplies the generic engine modules
+# (core/ecs/asset/render/physics/anim/audio/rpc), the imgui/cgltf/stb vendored
+# libs and the FSR3/DLSS/NRD/Jolt SDKs. recreation stays the provider for
+# volk/VMA/equilibrium (rx guards those on `if(NOT TARGET ...)` so they skip),
+# and applies its own mimalloc helper to its executables (RX_MIMALLOC off).
+set(RECREATION_RX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rx" CACHE PATH "Path to an rx engine checkout")
+if(NOT EXISTS "${RECREATION_RX_DIR}/CMakeLists.txt")
+  message(FATAL_ERROR "rx not found at ${RECREATION_RX_DIR}, set RECREATION_RX_DIR")
+endif()
+set(RX_BUILD_RUNTIME OFF CACHE BOOL "" FORCE)
+set(RX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(RX_FSR3 ${RECREATION_FSR3} CACHE BOOL "" FORCE)
+set(RX_DLSS ${RECREATION_DLSS} CACHE BOOL "" FORCE)
+set(RX_NRD ${RECREATION_NRD} CACHE BOOL "" FORCE)
+set(RX_JOLT ${RECREATION_JOLT} CACHE BOOL "" FORCE)
+set(RX_AUDIO_FFMPEG ${RECREATION_AUDIO_FFMPEG} CACHE BOOL "" FORCE)
+set(RX_SANITIZE ${RECREATION_SANITIZE} CACHE BOOL "" FORCE)
+set(RX_MIMALLOC OFF CACHE BOOL "" FORCE)
+# rx ships cmake/{warnings,shaders,mimalloc,...}.cmake with the same file names
+# as recreation's but different helper names (rx_add_module vs
+# recreation_add_module, etc). recreation's cmake dir is already first on
+# CMAKE_MODULE_PATH, so rx's own include(warnings)/include(shaders) would resolve
+# to recreation's copies and never define the rx_* helpers. Clear the path for
+# rx's configure (it appends its own cmake dir) and restore it afterwards.
+set(_recreation_saved_module_path "${CMAKE_MODULE_PATH}")
+set(CMAKE_MODULE_PATH "")
+add_subdirectory(${RECREATION_RX_DIR} rx)
+set(CMAKE_MODULE_PATH "${_recreation_saved_module_path}")
+
 add_subdirectory(third_party)
 
 # libultragui: GPU UI middleware (sibling checkout) for the HUD and menus. Built
@@ -303,13 +312,10 @@ else()
   message(STATUS "libultragui not found, hud disabled")
 endif()
 
+# The generic engine modules (core/ecs/asset/render/physics/anim/rpc) and the
+# kinema animation runtime now come from rx; recreation keeps only its Bethesda
+# game modules.
 set(RECREATION_MODULES
-  core
-  ecs
-  asset
-  render
-  physics
-  anim
   bethesda
   audio
   world
@@ -318,18 +324,14 @@ set(RECREATION_MODULES
   dialogue
   script
   modstream
-  rpc
 )
 if(RECREATION_NET)
   list(APPEND RECREATION_MODULES net)
 endif()
 
-# Self-contained reusable libraries (no engine dependencies).
 if(RECREATION_BUILD_TOOLS)
-  enable_testing()  # before the libs so their add_test calls register
+  enable_testing()  # papyrus vm regression suite, run with `ctest`
 endif()
-set(KINEMA_BUILD_TESTS ${RECREATION_BUILD_TOOLS})
-add_subdirectory(libs/kinema)
 
 foreach(module ${RECREATION_MODULES})
   add_subdirectory(engine/${module})

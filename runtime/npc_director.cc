@@ -17,9 +17,9 @@
 #include "world/npc_ai.h"
 #include "world/steering_avoidance.h"
 
-namespace rec {
+namespace rx {
 
-static base::Option<float> CwBattleDelay{"cw.battle.delay", 0.f, "REC_CW_BATTLE_DELAY"};
+static base::Option<float> CwBattleDelay{"cw.battle.delay", 0.f, "RX_CW_BATTLE_DELAY"};
 
 NpcDirector::NpcDirector(EngineContext& ctx, ActorSystem* actors)
     : ctx_(ctx), actors_(actors), world_(*ctx.world), physics_(*ctx.physics) {}
@@ -402,7 +402,7 @@ void NpcDirector::UpdateCombat(f32 dt) {
   if (!hits.empty() && ctx_.scripts && ctx_.bindings) {
     auto* binds = ctx_.bindings;
     ctx_.scripts->guest().Submit(
-        [binds, hits = std::move(hits)](rec::script::papyrus::VirtualMachine&) {
+        [binds, hits = std::move(hits)](rx::script::papyrus::VirtualMachine&) {
           for (const Hit& h : hits)
             binds->ApplyMeleeHit(script::papyrus::ObjectRef{h.attacker},
                                  script::papyrus::ObjectRef{h.target}, h.damage);
@@ -433,12 +433,12 @@ bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
       });
   if (!best) return false;
   auto* binds = ctx_.bindings;
-  ctx_.scripts->guest().Submit([binds, best](rec::script::papyrus::VirtualMachine&) {
+  ctx_.scripts->guest().Submit([binds, best](rx::script::papyrus::VirtualMachine&) {
     // A heavier blow than a common soldier's: the player is the dragonborn.
     binds->ApplyMeleeHit(script::papyrus::ObjectRef{kPlayerHandle},
                          script::papyrus::ObjectRef{best}, 42.0f);
   });
-  REC_DEBUG("player struck 0x{:x}", best);
+  RX_DEBUG("player struck 0x{:x}", best);
   return true;
 }
 
@@ -514,14 +514,14 @@ void NpcDirector::CwBattleTick(f32 dt) {
     // resolves in seconds rather than the default 100 hp grind.
     std::vector<u64> handles(enlisted.begin(), enlisted.end());
     auto* binds = ctx_.bindings;
-    ctx_.scripts->guest().Submit([binds, handles](rec::script::papyrus::VirtualMachine&) {
+    ctx_.scripts->guest().Submit([binds, handles](rx::script::papyrus::VirtualMachine&) {
       for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
     });
     cw_battle_active_ = true;
     cw_start2_ = foes;
     cw_start1_ = static_cast<int>(enlisted.size()) - foes;  // for the reinforcement bars
     player_team_ = 1;  // the player fights on team 1; team-2 soldiers will target it
-    REC_INFO("cw battle: enlisted {} soldiers into two armies", enlisted.size());
+    RX_INFO("cw battle: enlisted {} soldiers into two armies", enlisted.size());
   }
 
   cw_battle_log_timer_ -= dt;
@@ -529,7 +529,7 @@ void NpcDirector::CwBattleTick(f32 dt) {
     cw_battle_log_timer_ = 1.0f;
     int a = 0, b = 0, d = 0;
     BattleStrength(&a, &b, &d);
-    REC_INFO("cw battle: team1={} team2={} fallen={} engaged={}", a, b, d, combatant_count());
+    RX_INFO("cw battle: team1={} team2={} fallen={} engaged={}", a, b, d, combatant_count());
   }
 }
 
@@ -581,12 +581,12 @@ void NpcDirector::Cw00DemoTick(f32 dt) {
     if (ctx_.scripts && ctx_.bindings) {
       auto* binds = ctx_.bindings;
       constexpr u64 kCw00a = 0x000D3C5F;  // CW00A "Imperial Introductions"
-      ctx_.scripts->guest().Submit([binds](rec::script::papyrus::VirtualMachine&) {
-        REC_INFO("cw00 demo: CW00A is now at stage {} after the forcegreet",
+      ctx_.scripts->guest().Submit([binds](rx::script::papyrus::VirtualMachine&) {
+        RX_INFO("cw00 demo: CW00A is now at stage {} after the forcegreet",
                  binds->GetStage(script::papyrus::ObjectRef{kCw00a}));
       });
     }
-    REC_INFO("cw00 demo: General Tullius hails the player -- enlisted (CW00A stage 10)");
+    RX_INFO("cw00 demo: General Tullius hails the player -- enlisted (CW00A stage 10)");
     cw00_demo_phase_ = 1;
     cw00_demo_timer_ = 0;
   } else {
@@ -594,7 +594,7 @@ void NpcDirector::Cw00DemoTick(f32 dt) {
     ctx_.auto_walk = false;
     ctx_.auto_walk_has_goal = false;
     cw00_demo_pending_ = false;
-    REC_INFO("cw00 demo: reported to Legate Rikke for the fort assignment");
+    RX_INFO("cw00 demo: reported to Legate Rikke for the fort assignment");
   }
 }
 
@@ -646,10 +646,10 @@ void NpcDirector::SeedSiegeReinforcementPools() {
   // touch) and hand back the two pool globals the controller writes through.
   const std::pair<u64, u64> globals =
       ctx_.scripts->guest()
-          .SubmitFor([siege, master, atk, def, binds](rec::script::papyrus::VirtualMachine& vm) {
-            using rec::script::papyrus::ObjectRef;
-            using rec::script::papyrus::Value;
-            using rec::script::papyrus::ValueType;
+          .SubmitFor([siege, master, atk, def, binds](rx::script::papyrus::VirtualMachine& vm) {
+            using rx::script::papyrus::ObjectRef;
+            using rx::script::papyrus::Value;
+            using rx::script::papyrus::ValueType;
             auto set_member = [&](const char* name, Value v) {
               if (Value* m = vm.MemberVar(ObjectRef{siege}, name)) *m = std::move(v);
             };
@@ -677,7 +677,7 @@ void NpcDirector::SeedSiegeReinforcementPools() {
   cw_pool_atk_start_ = cw_pool_atk_cur_ = static_cast<f32>(atk);
   cw_pool_def_start_ = cw_pool_def_cur_ = static_cast<f32>(def);
   cw_siege_pool_seeded_ = true;
-  REC_INFO("cw siege: reinforcement pool seeded (attackers {}, defenders {}); globals 0x{:x}/0x{:x}",
+  RX_INFO("cw siege: reinforcement pool seeded (attackers {}, defenders {}); globals 0x{:x}/0x{:x}",
            atk, def, globals.first, globals.second);
 }
 
@@ -704,9 +704,9 @@ void NpcDirector::ChargeSiegeReinforcementDeaths() {
   if (attacker_died.empty()) return;
   const u64 siege = cw_siege_quest_;
   ctx_.scripts->guest().Submit(
-      [siege, attacker_died](rec::script::papyrus::VirtualMachine& vm) {
-        using rec::script::papyrus::ObjectRef;
-        using rec::script::papyrus::Value;
+      [siege, attacker_died](rx::script::papyrus::VirtualMachine& vm) {
+        using rx::script::papyrus::ObjectRef;
+        using rx::script::papyrus::Value;
         for (bool attacker : attacker_died)
           vm.Call(ObjectRef{siege}, "ModifyPool", {Value::Bool(attacker), Value::Int(-1)});
       });
@@ -717,7 +717,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
   if (!cw_field_active_) {
     cw_field_warmup_ += dt;
     // Let the terrain stream and the player settle (and, in MP, a client finish
-    // joining so it receives the live spawn broadcast). REC_CW_BATTLE_DELAY tunes it.
+    // joining so it receives the live spawn broadcast). RX_CW_BATTLE_DELAY tunes it.
     f32 warmup = 2.0f;
     if (CwBattleDelay.overridden()) warmup = CwBattleDelay.get();
     if (cw_field_warmup_ < warmup) return;
@@ -783,7 +783,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     std::vector<u64> handles(cw_field_soldiers_.begin(), cw_field_soldiers_.end());
     auto* binds = ctx_.bindings;
     if (binds && ctx_.scripts)
-      ctx_.scripts->guest().Submit([binds, handles](rec::script::papyrus::VirtualMachine&) {
+      ctx_.scripts->guest().Submit([binds, handles](rx::script::papyrus::VirtualMachine&) {
         // The soldiers are pushed team1, team2, team1, ... so even indices are the
         // player's assaulting line. Give it the edge so the siege resolves as a
         // win (the fort is taken) rather than dragging to the grace timeout; the
@@ -795,16 +795,16 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     cw_field_active_ = true;
     cw_start1_ = cw_start2_ = kPerSide;  // for the reinforcement bars
     player_team_ = 1;  // the player fights on the near line; team 2 targets it too
-    REC_INFO("cw field battle: spawned {} soldiers in two lines", cw_field_soldiers_.size());
+    RX_INFO("cw field battle: spawned {} soldiers in two lines", cw_field_soldiers_.size());
     SeedSiegeReinforcementPools();
-    // Deferred REC_CW_SIDE enlistment: advance the intro quest now (the managed
+    // Deferred RX_CW_SIDE enlistment: advance the intro quest now (the managed
     // allegiance tracker is up by the time the battle stages), so the won siege
     // captures the fort for the player's chosen side.
     if (cw_enlist_quest_ != 0 && ctx_.scripts && ctx_.bindings) {
       const u64 join = cw_enlist_quest_;
       cw_enlist_quest_ = 0;
       auto* binds = ctx_.bindings;
-      ctx_.scripts->guest().Submit([binds, join](rec::script::papyrus::VirtualMachine&) {
+      ctx_.scripts->guest().Submit([binds, join](rx::script::papyrus::VirtualMachine&) {
         binds->StartQuest(script::papyrus::ObjectRef{join});
         binds->SetStage(script::papyrus::ObjectRef{join}, 10);
       });
@@ -827,10 +827,10 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
   if (cw_battle_log_timer_ <= 0.0f) {
     cw_battle_log_timer_ = 1.0f;
     if (cw_siege_pool_seeded_) {
-      REC_INFO("cw field battle: team1={} team2={} fallen={} | reinforcement pool atk={} def={}", a,
+      RX_INFO("cw field battle: team1={} team2={} fallen={} | reinforcement pool atk={} def={}", a,
                b, d, cw_pool_atk_cur_, cw_pool_def_cur_);
     } else {
-      REC_INFO("cw field battle: team1={} team2={} fallen={} engaged={}", a, b, d,
+      RX_INFO("cw field battle: team1={} team2={} fallen={} engaged={}", a, b, d,
                combatant_count());
     }
   }
@@ -869,7 +869,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     const i32 stage = cw_battle_win_stage_;
     auto* binds = ctx_.bindings;
     if (binds && ctx_.scripts)
-      ctx_.scripts->guest().Submit([binds, quest, stage](rec::script::papyrus::VirtualMachine&) {
+      ctx_.scripts->guest().Submit([binds, quest, stage](rx::script::papyrus::VirtualMachine&) {
         binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
       });
     // Modern battle summary: close the clash with an outcome banner and the toll
@@ -881,7 +881,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
                                      std::to_string(your_fell) + ", enemy losses " +
                                      std::to_string(enemy_fell) + ")");
     }
-    REC_INFO("cw field battle: enemy line broken ({} left) -> quest 0x{:x} stage {}", b, quest,
+    RX_INFO("cw field battle: enemy line broken ({} left) -> quest 0x{:x} stage {}", b, quest,
              stage);
   }
 }
@@ -1019,7 +1019,7 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
         ctx_.scripts->guest().Submit([binds, quest, stage](script::papyrus::VirtualMachine&) {
           binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
         });
-        REC_INFO("demo: MQ101 waypoint timed out, advancing to stage {}", stage);
+        RX_INFO("demo: MQ101 waypoint timed out, advancing to stage {}", stage);
         mq101_demo_wait_ = 0.0f;
       }
       return;
@@ -1029,7 +1029,7 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
   if (mq101_demo_next_ >= mq101_demo_stages_.size()) {
     mq101_demo_pending_ = false;  // the last waypoint advanced the quest to completion
     ctx_.auto_walk_has_goal = false;
-    REC_INFO("demo: MQ101 breadcrumb finished, quest driven to its completion stage");
+    RX_INFO("demo: MQ101 breadcrumb finished, quest driven to its completion stage");
     return;
   }
 
@@ -1080,7 +1080,7 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
     }
   }
 
-  REC_INFO("demo: MQ101 waypoint dropped -> reaching it advances to stage {}{}", advance_to,
+  RX_INFO("demo: MQ101 waypoint dropped -> reaching it advances to stage {}{}", advance_to,
            first ? Fmt(", %d companion(s) recruited", recruited) : std::string());
 }
 
@@ -1203,7 +1203,7 @@ bool NpcDirector::StartMq101Scene() {
   scene_runner_.Reset(&mq101_scene_);
   mq101_scene_active_ = true;
   mq101_scene_stuck_time_ = 0;
-  REC_INFO("scene: MQ101 escort armed, guide 0x{:x} leads the player to completion", guide);
+  RX_INFO("scene: MQ101 escort armed, guide 0x{:x} leads the player to completion", guide);
   return true;
 }
 
@@ -1235,10 +1235,10 @@ void NpcDirector::Mq101SceneTick(f32 dt) {
             t.position[1] = wy;
             t.position[2] = wz;
           });
-      REC_INFO("scene: guide reached the next mark");
+      RX_INFO("scene: guide reached the next mark");
     } else if (a.kind == quest::SceneAction::Kind::kWaitPlayerNear) {
       actors_->TeleportPlayer(a.pos[0], a.pos[1], a.pos[2]);
-      REC_INFO("scene: player caught up to the next mark");
+      RX_INFO("scene: player caught up to the next mark");
     }
     mq101_scene_stuck_time_ = 0;
   }
@@ -1256,8 +1256,8 @@ void NpcDirector::Mq101SceneTick(f32 dt) {
     mq101_scene_active_ = false;
     guides_.clear();
     ctx_.auto_walk_has_goal = false;
-    REC_INFO("scene: MQ101 escort complete, quest driven to its completion stage");
+    RX_INFO("scene: MQ101 escort complete, quest driven to its completion stage");
   }
 }
 
-}  // namespace rec
+}  // namespace rx

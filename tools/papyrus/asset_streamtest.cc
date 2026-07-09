@@ -6,7 +6,7 @@
 // threaded transport, the worker-thread sender, and the control-channel receive
 // loop, so it is built (and gated) only with networking.
 //
-// zetanet's headers inject global arch_types scalar aliases, so rec:: scalar and
+// zetanet's headers inject global arch_types scalar aliases, so rx:: scalar and
 // namespace symbols are fully qualified here to avoid the ambiguity, matching the
 // other net/bethesda tests.
 
@@ -28,11 +28,11 @@
 #include "rpc/rpc_value.h"
 
 namespace fs = std::filesystem;
-namespace net = rec::net;
-namespace modstream = rec::modstream;
-namespace rpc = rec::rpc;
-namespace ecs = rec::ecs;
-namespace asset = rec::asset;
+namespace net = rx::net;
+namespace modstream = rx::modstream;
+namespace rpc = rx::rpc;
+namespace ecs = rx::ecs;
+namespace asset = rx::asset;
 
 namespace {
 
@@ -103,12 +103,12 @@ int main() {
   // Register RPC handlers before any traffic flows. The server echoes back to
   // the sender; the client records the reply.
   bool server_saw_rpc = false;
-  rec::i64 echoed_value = 0;
+  rx::i64 echoed_value = 0;
   bool client_saw_reply = false;
   server.rpc()->registry().On("echo", [&](const rpc::RpcContext& ctx, const rpc::RpcArgs& args) {
     server_saw_rpc = true;
-    const rec::i64 v = args.empty() ? 0 : args[0].as_int();
-    server.rpc()->EmitToClient(ctx.sender, "echo_reply", {rpc::RpcValue(rec::i64{v + 1})});
+    const rx::i64 v = args.empty() ? 0 : args[0].as_int();
+    server.rpc()->EmitToClient(ctx.sender, "echo_reply", {rpc::RpcValue(rx::i64{v + 1})});
   });
   client.rpc()->registry().On("echo_reply", [&](const rpc::RpcContext&, const rpc::RpcArgs& args) {
     client_saw_reply = true;
@@ -118,22 +118,22 @@ int main() {
   // The server learns when the client finished streaming, the hook server-side
   // scripts use to gate spawn or greet the player.
   bool server_saw_ready = false;
-  rec::u32 ready_peer = 9999;
-  server.SetClientReadySink([&](rec::u32 peer) {
+  rx::u32 ready_peer = 9999;
+  server.SetClientReadySink([&](rx::u32 peer) {
     server_saw_ready = true;
     ready_peer = peer;
   });
 
   // The fundamental multiplayer lifecycle hooks.
   bool server_saw_join = false;
-  rec::u32 join_peer = 9999;
-  server.SetClientJoinedSink([&](rec::u32 peer) {
+  rx::u32 join_peer = 9999;
+  server.SetClientJoinedSink([&](rx::u32 peer) {
     server_saw_join = true;
     join_peer = peer;
   });
   bool server_saw_left = false;
-  rec::u32 left_peer = 9999;
-  server.SetClientLeftSink([&](rec::u32 peer) {
+  rx::u32 left_peer = 9999;
+  server.SetClientLeftSink([&](rx::u32 peer) {
     server_saw_left = true;
     left_peer = peer;
   });
@@ -188,7 +188,7 @@ int main() {
   Check("ready notice carries the client's peer id", ready_peer == 0);
 
   // --- RPC round-trip ---
-  client.rpc()->EmitToServer("echo", {rpc::RpcValue(rec::i64{41})});
+  client.rpc()->EmitToServer("echo", {rpc::RpcValue(rx::i64{41})});
   for (int i = 0; i < 600 && !client_saw_reply; ++i) Pump(server, sworld, client, cworld);
   Check("server received the client's RPC", server_saw_rpc);
   Check("client received the server's reply", client_saw_reply);

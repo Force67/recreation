@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // NAM9 slider -> chargen morph pair, in NAM9 file order. Verified against
@@ -94,4 +94,4 @@ bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
   return applied;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

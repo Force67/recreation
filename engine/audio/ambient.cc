@@ -7,7 +7,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 
-namespace rec::audio {
+namespace rx::audio {
 namespace {
 
 constexpr u32 kRegn = FourCc('R', 'E', 'G', 'N');
@@ -86,7 +86,7 @@ void RegionAmbience::Build(const bethesda::RecordStore& records,
     }
     if (region.polygon.size() >= 3 && !region.sounds.empty()) regions_.push_back(std::move(region));
   });
-  REC_INFO("audio: {} regions carry ambient sounds", regions_.size());
+  RX_INFO("audio: {} regions carry ambient sounds", regions_.size());
 }
 
 u64 RegionAmbience::RegionAt(f32 x, f32 y) const {
@@ -156,7 +156,7 @@ void AmbientDirector::Update(const AmbientContext& context) {
     params.positional = false;
     params.fade_in = kAmbientFadeIn;
     current_voice_ = audio_->PlayLoop(target, params);
-    if (current_voice_) REC_INFO("audio: ambient bed -> {}", target);
+    if (current_voice_) RX_INFO("audio: ambient bed -> {}", target);
   }
   current_path_ = target;
 }
@@ -167,4 +167,4 @@ void AmbientDirector::Stop() {
   current_path_.clear();
 }
 
-}  // namespace rec::audio
+}  // namespace rx::audio

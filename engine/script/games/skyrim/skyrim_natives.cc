@@ -10,7 +10,7 @@
 #include "script/papyrus/alias_handle.h"
 #include "script/papyrus/vm.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 namespace {
 
 using papyrus::ObjectRef;
@@ -101,7 +101,7 @@ void RegisterDebug(papyrus::NativeRegistry& reg) {
   reg.Register("Debug", "GetVersionNumber",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Str("1.6.640"); });
   reg.Register("Debug", "TraceStack", [](VirtualMachine&, ObjectRef, Args& a) {
-    REC_INFO("[papyrus:stack] {}", a.empty() ? "" : a[0].ToString());
+    RX_INFO("[papyrus:stack] {}", a.empty() ? "" : a[0].ToString());
     return Value();
   });
 }
@@ -882,4 +882,4 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterUtilityRest(reg, bindings);
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

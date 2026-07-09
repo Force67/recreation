@@ -1,7 +1,7 @@
 #include "script/games/skyrim/skyrim_native_state.h"
 #include "script/games/skyrim/skyrim_natives_ext.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
 using papyrus::Value;
@@ -117,4 +117,4 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   });
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

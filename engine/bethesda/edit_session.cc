@@ -11,7 +11,7 @@
 #include "bethesda/writer.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
@@ -69,7 +69,7 @@ u16 EditSession::AddMasterName(const std::string& name) {
 bool EditSession::RequireChain(u16 plugin) {
   const PluginFile* pf = base_.PluginAt(plugin);
   if (!pf) {
-    REC_ERROR("edit: source plugin {} not loaded", plugin);
+    RX_ERROR("edit: source plugin {} not loaded", plugin);
     return false;
   }
   // The output plugin must begin with this plugin's masters followed by the
@@ -82,7 +82,7 @@ bool EditSession::RequireChain(u16 plugin) {
   for (u16 k = 0; k < chain.size(); ++k) {
     if (k < masters_.size()) {
       if (!IEquals(masters_[k], chain[k])) {
-        REC_ERROR("edit: master order conflict at {} ({} vs {})", k, masters_[k].c_str(),
+        RX_ERROR("edit: master order conflict at {} ({} vs {})", k, masters_[k].c_str(),
                   chain[k].c_str());
         return false;
       }
@@ -111,7 +111,7 @@ RawFormId EditSession::Ref(GlobalFormId id) {
         }
       }
       if (mod_index == in_place_masters_.size()) {
-        REC_ERROR("edit: in-place reference to non-master plugin {} would need a new master", name);
+        RX_ERROR("edit: in-place reference to non-master plugin {} would need a new master", name);
       }
     }
   } else if (id.plugin == kOutputPlugin) {
@@ -125,7 +125,7 @@ RawFormId EditSession::Ref(GlobalFormId id) {
 bool EditSession::SetInPlaceTarget(u16 plugin_index) {
   const PluginFile* pf = base_.PluginAt(plugin_index);
   if (!pf) {
-    REC_ERROR("edit: in-place target plugin {} not loaded", plugin_index);
+    RX_ERROR("edit: in-place target plugin {} not loaded", plugin_index);
     return false;
   }
   in_place_ = true;
@@ -149,7 +149,7 @@ bool EditSession::SetInPlaceTarget(u16 plugin_index) {
 
 bool EditSession::ApplyEditsTo(RawRewriter& rewriter) {
   if (!in_place_) {
-    REC_ERROR("edit: ApplyEditsTo requires SetInPlaceTarget");
+    RX_ERROR("edit: ApplyEditsTo requires SetInPlaceTarget");
     return false;
   }
   for (u64 packed : order_of_entries_) {
@@ -158,7 +158,7 @@ bool EditSession::ApplyEditsTo(RawRewriter& rewriter) {
       // A brand new record: insert it into its top-level type group. Nested
       // (placed) new records can't be spliced into an existing tree in place.
       if (claimed_.count(packed)) {
-        REC_WARN("edit: in-place insert skips nested created record {:06x}", entry.handle.local_id);
+        RX_WARN("edit: in-place insert skips nested created record {:06x}", entry.handle.local_id);
         continue;
       }
       Record out = BuildOutput(entry);
@@ -200,13 +200,13 @@ bool EditSession::Override(GlobalFormId id) {
   if (FindEntry(id)) return true;  // already overriding
   const RecordStore::StoredRecord* stored = base_.Find(id);
   if (!stored) {
-    REC_ERROR("edit: cannot override unknown form {:04x}:{:06x}", id.plugin, id.local_id);
+    RX_ERROR("edit: cannot override unknown form {:04x}:{:06x}", id.plugin, id.local_id);
     return false;
   }
   if (!RequireChain(stored->winning_plugin)) return false;
   Entry& entry = NewEntry(id);
   if (!ParseRecordPayload(stored->header, stored->payload, &entry.record)) {
-    REC_ERROR("edit: failed to parse form {:04x}:{:06x} for override", id.plugin, id.local_id);
+    RX_ERROR("edit: failed to parse form {:04x}:{:06x} for override", id.plugin, id.local_id);
     return false;
   }
   return true;
@@ -239,7 +239,7 @@ ByteSpan EditSession::Store(Entry* entry, const u8* data, size_t size) {
 bool EditSession::PutField(GlobalFormId handle, u32 type, ByteSpan bytes, bool replace) {
   Entry* entry = FindEntry(handle);
   if (!entry) {
-    REC_ERROR("edit: no record for handle {:04x}:{:06x}", handle.plugin, handle.local_id);
+    RX_ERROR("edit: no record for handle {:04x}:{:06x}", handle.plugin, handle.local_id);
     return false;
   }
   ByteSpan owned = Store(entry, bytes.data(), bytes.size());
@@ -306,7 +306,7 @@ bool EditSession::RemoveField(GlobalFormId handle, u32 type) {
 bool EditSession::PlaceInInteriorCell(GlobalFormId cell, GlobalFormId reference,
                                       bool persistent) {
   if (!FindEntry(cell) || !FindEntry(reference)) {
-    REC_ERROR("edit: cell and reference must be created or overridden before placement");
+    RX_ERROR("edit: cell and reference must be created or overridden before placement");
     return false;
   }
   auto it = cell_children_.find(cell.packed());
@@ -320,7 +320,7 @@ bool EditSession::PlaceInInteriorCell(GlobalFormId cell, GlobalFormId reference,
 
 bool EditSession::AddTopicInfo(GlobalFormId dialogue, GlobalFormId info) {
   if (!FindEntry(dialogue) || !FindEntry(info)) {
-    REC_ERROR("edit: dialogue and info must be created or overridden before linking");
+    RX_ERROR("edit: dialogue and info must be created or overridden before linking");
     return false;
   }
   auto it = topic_infos_.find(dialogue.packed());
@@ -334,7 +334,7 @@ bool EditSession::AddTopicInfo(GlobalFormId dialogue, GlobalFormId info) {
 bool EditSession::PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell,
                                       GlobalFormId reference, bool persistent) {
   if (!FindEntry(worldspace) || !FindEntry(cell) || !FindEntry(reference)) {
-    REC_ERROR("edit: worldspace, cell and reference must all exist before placement");
+    RX_ERROR("edit: worldspace, cell and reference must all exist before placement");
     return false;
   }
   auto it = world_cells_.find(worldspace.packed());
@@ -555,4 +555,4 @@ bool EditSession::Save(const std::string& path, const SaveOptions& options) {
   return true;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

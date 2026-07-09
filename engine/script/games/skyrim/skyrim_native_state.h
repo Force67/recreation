@@ -10,7 +10,7 @@
 // even when the engine subsystem behind it is not built yet (a script that calls
 // SetGhost(true) then IsGhost() sees true). State is keyed by an object's handle
 // and a name the caller picks. The guest runs single-threaded, so no locking.
-namespace rec::script::skyrim::state {
+namespace rx::script::skyrim::state {
 
 using papyrus::ObjectRef;
 
@@ -35,6 +35,6 @@ i32 MemberCount(ObjectRef owner, const std::string& key);
 // Drops every stored value for one object (ObjectReference.Reset, ResetQuest).
 void Clear(ObjectRef owner);
 
-}  // namespace rec::script::skyrim::state
+}  // namespace rx::script::skyrim::state
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVE_STATE_H_

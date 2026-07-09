@@ -5,7 +5,7 @@
 #include "core/input_actions.h"
 #include "core/math.h"
 
-namespace rec {
+namespace rx {
 
 // Free flight debug camera. Hold the right mouse button (or push the right
 // stick) to look around, move actions to fly, cam up/down for vertical, sprint
@@ -38,6 +38,6 @@ class FlyCamera {
   bool looking_ = false;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_FLY_CAMERA_H_

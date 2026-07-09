@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace rec {
+namespace rx {
 
 namespace asset {
 struct Mesh;
@@ -49,6 +49,6 @@ class Thumbnailer {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace rec
+}  // namespace rx
 
 #endif  // RECREATION_RUNTIME_THUMBNAILER_H_

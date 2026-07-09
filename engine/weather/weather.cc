@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace rec::weather {
+namespace rx::weather {
 namespace {
 
 u64 Mix(u64 x) {
@@ -172,4 +172,4 @@ const std::vector<std::pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x, f
   return best ? &best->climate : nullptr;
 }
 
-}  // namespace rec::weather
+}  // namespace rx::weather

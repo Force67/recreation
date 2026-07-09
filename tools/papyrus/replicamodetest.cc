@@ -9,11 +9,11 @@
 #include "script/games/skyrim/skyrim_bindings.h"
 #include "script/host/bridge.h"
 
-using rec::quest::QuestStatus;
-using rec::script::host::ManagedEvent;
-using rec::script::host::ManagedEventId;
-using rec::script::papyrus::ObjectRef;
-using rec::script::skyrim::RecordBackedSkyrimBindings;
+using rx::quest::QuestStatus;
+using rx::script::host::ManagedEvent;
+using rx::script::host::ManagedEventId;
+using rx::script::papyrus::ObjectRef;
+using rx::script::skyrim::RecordBackedSkyrimBindings;
 
 namespace {
 int g_failures = 0;

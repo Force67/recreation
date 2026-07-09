@@ -6,7 +6,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 namespace {
 
 constexpr u32 kFnam = FourCc('F', 'N', 'A', 'M');
@@ -243,4 +243,4 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
   return def;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

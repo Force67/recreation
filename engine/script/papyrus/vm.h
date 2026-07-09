@@ -14,7 +14,7 @@
 #include "script/papyrus/pex.h"
 #include "script/papyrus/value.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // The Papyrus virtual machine: a registry of loaded script types, the live
 // object instances, and the dispatch that ties them together (method/property
@@ -210,6 +210,6 @@ class VirtualMachine : public VmInterface {
   LatentRequest latent_;                    // pending Wait, set just before a fiber yields
 };
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_VM_H_

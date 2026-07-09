@@ -7,7 +7,7 @@
 #include "bethesda/compression.h"
 #include "core/log.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kBa2Magic = FourCc('B', 'T', 'D', 'X');
@@ -199,7 +199,7 @@ class Ba2Provider final : public asset::FileProvider {
       const GnrlEntry& e = it->second;
       base::Vector<u8> data(e.full_size);
       if (!ReadBlock(file, e.offset, e.packed_size, e.full_size, data.data(), lz4)) {
-        REC_WARN("ba2 read failed: {} in {}", normalized_path, path_);
+        RX_WARN("ba2 read failed: {} in {}", normalized_path, path_);
         return std::nullopt;
       }
       return data;
@@ -215,7 +215,7 @@ class Ba2Provider final : public asset::FileProvider {
       size_t cursor = header_size;
       for (const TexChunk& c : tex.chunks) {
         if (!ReadBlock(file, c.offset, c.packed_size, c.full_size, dds.data() + cursor, lz4)) {
-          REC_WARN("ba2 tex read failed: {} in {}", normalized_path, path_);
+          RX_WARN("ba2 tex read failed: {} in {}", normalized_path, path_);
           return std::nullopt;
         }
         cursor += c.full_size;
@@ -252,21 +252,21 @@ base::UniquePointer<asset::FileProvider> OpenBa2(const std::string& path) {
   Ba2Header header{};
   file.read(reinterpret_cast<char*>(&header), sizeof(header));
   if (!file || header.magic != kBa2Magic) {
-    REC_ERROR("not a ba2: {}", path);
+    RX_ERROR("not a ba2: {}", path);
     return nullptr;
   }
   if (!IsKnownVersion(header.version) ||
       (header.type != kBa2Gnrl && header.type != kBa2Dx10)) {
-    REC_ERROR("unsupported ba2 (v{}) in {}", header.version, path);
+    RX_ERROR("unsupported ba2 (v{}) in {}", header.version, path);
     return nullptr;
   }
   file.close();
   auto provider = base::MakeUnique<Ba2Provider>(path, header);
   if (!provider->Parse()) {
-    REC_ERROR("failed to parse ba2 tables: {}", path);
+    RX_ERROR("failed to parse ba2 tables: {}", path);
     return nullptr;
   }
-  REC_INFO("ba2 {}: v{}, {} files", path, header.version, header.file_count);
+  RX_INFO("ba2 {}: v{}, {} files", path, header.version, header.file_count);
   return provider;
 }
 
@@ -276,4 +276,4 @@ base::UniquePointer<asset::FileProvider> OpenArchive(const std::string& path) {
   return nullptr;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

@@ -6,12 +6,12 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 struct Record;
 class StringTable;
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
-namespace rec::quest {
+namespace rx::quest {
 
 // One journal stage: the index the script sets, its journal log text, and
 // whether reaching it completes the quest. Parsed from the QUST INDX/QSDT/CNAM
@@ -76,6 +76,6 @@ struct QuestDef {
 QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
                               const bethesda::StringTable* strings);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_QUEST_DEF_H_

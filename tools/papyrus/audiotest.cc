@@ -16,8 +16,8 @@
 #include "audio/spatial.h"
 #include "audio/wav.h"
 
-using namespace rec;
-using namespace rec::audio;
+using namespace rx;
+using namespace rx::audio;
 
 namespace {
 

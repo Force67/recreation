@@ -7,11 +7,11 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 class RecordStore;
 }
 
-namespace rec::audio {
+namespace rx::audio {
 
 // Resolves Bethesda sound forms to playable asset paths. A SOUN (Sound Marker) in
 // Skyrim SE / Fallout 4 points at a SNDR (Sound Descriptor) that lists one or
@@ -33,6 +33,6 @@ class SoundCatalog {
   std::unordered_map<u64, std::string> paths_;  // form.packed() -> normalized asset path
 };
 
-}  // namespace rec::audio
+}  // namespace rx::audio
 
 #endif  // RECREATION_AUDIO_SOUND_CATALOG_H_

@@ -5,7 +5,7 @@
 #include "bethesda/load_order.h"
 #include "bethesda/record.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
@@ -302,4 +302,4 @@ const char* FaceMorphName(u32 index) {
   return index < kFaceMorphCount ? kNames[index] : "?";
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

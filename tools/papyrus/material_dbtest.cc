@@ -14,9 +14,9 @@
 
 namespace {
 
-using rec::u16;
-using rec::u32;
-using rec::u8;
+using rx::u16;
+using rx::u32;
+using rx::u8;
 
 int g_failures = 0;
 
@@ -72,8 +72,8 @@ int main() {
   PutDiff(cdb, kNameField, "Composite\\SomeWorld\\Thing");
   PutDiff(cdb, kTextureField, "Data\\Textures\\Junk\\unrelated_color.dds");
 
-  rec::bethesda::StarfieldMaterialDb db;
-  db.Build(rec::ByteSpan(cdb.data(), cdb.size()));
+  rx::bethesda::StarfieldMaterialDb db;
+  db.Build(rx::ByteSpan(cdb.data(), cdb.size()));
 
   std::puts("material database:");
   Check("indexed two materials", db.size() == 2);

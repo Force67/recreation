@@ -5,7 +5,7 @@
 
 #include "asset/asset_id.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 namespace {
 
 // Strips leading and trailing ASCII whitespace.
@@ -67,4 +67,4 @@ bool StreamFilter::Excludes(std::string_view path) const {
   return false;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

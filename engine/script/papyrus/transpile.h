@@ -6,7 +6,7 @@
 
 #include "script/papyrus/pex.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // Collects what a compile-harness run needs an external stub to declare, so the
 // generated C# can be fed to a real C# compiler with nothing else present. The
@@ -63,6 +63,6 @@ std::string TranspileToCSharp(const PexFile& pex, const TranspileOptions& opts =
 std::string TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
                                       const std::string& cs_name);
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_TRANSPILE_H_

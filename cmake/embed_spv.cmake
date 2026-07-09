@@ -7,7 +7,7 @@ file(WRITE ${HEADER}
   "// generated from ${SPV}, do not edit\n"
   "static const unsigned char k_${SYMBOL}[] = {\n${bytes}\n};\n")
 if(DEFINED DXIL_MISSING)
-  # SPIR-V-only shader: null sidecar keeps REC_SHADER compiling while
+  # SPIR-V-only shader: null sidecar keeps RX_SHADER compiling while
   # ShaderBlob::dxil_valid() reports false (see rhi/types.h).
   file(APPEND ${HEADER}
     "static const unsigned char* const k_${SYMBOL}_dxil = nullptr;\n")

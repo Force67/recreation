@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 constexpr char kMagic[8] = {'F', 'R', 'T', 'R', 'I', '0', '0', '3'};
@@ -115,4 +115,4 @@ void ApplyMorph(const TriMorph& morph, f32 weight, f32* positions, u32 vertex_co
   }
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

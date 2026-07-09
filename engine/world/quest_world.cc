@@ -5,7 +5,7 @@
 #include "ecs/world.h"
 #include "world/components.h"
 
-namespace rec::world {
+namespace rx::world {
 
 void WorldCommandQueue::Push(const WorldCommand& cmd) {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -64,7 +64,7 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
         // Carry the combat side for rendering only (the client does not simulate
         // combat) so the actor system instances the matching faction armour.
         if (cmd.team != 0) world_.Add(entity, CombatTeam{cmd.team});
-        REC_INFO("quest_world: spawned replicated actor 0x{:x} (team {})", cmd.handle, cmd.team);
+        RX_INFO("quest_world: spawned replicated actor 0x{:x} (team {})", cmd.handle, cmd.team);
       }
       registry_[cmd.handle] = entity;
       RecordEffect(cmd.quest, {EffectKind::kSpawned, cmd.handle, {}, false});
@@ -146,4 +146,4 @@ void QuestWorld::SnapshotPositions(
   }
 }
 
-}  // namespace rec::world
+}  // namespace rx::world

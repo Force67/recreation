@@ -23,8 +23,8 @@
 #include "modstream/transfer_plan.h"
 
 namespace fs = std::filesystem;
-using namespace rec;
-using namespace rec::modstream;
+using namespace rx;
+using namespace rx::modstream;
 
 namespace {
 

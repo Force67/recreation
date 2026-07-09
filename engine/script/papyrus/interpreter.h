@@ -7,7 +7,7 @@
 #include "script/papyrus/pex.h"
 #include "script/papyrus/value.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // Everything the interpreter needs from the surrounding VM: cross-object calls,
 // properties, member storage, state, type checks and arrays. The interpreter
@@ -65,6 +65,6 @@ Value ExecuteFunction(const PexFile& pex, const Object& object, const Function& 
                       std::vector<Value> args, VmInterface& vm,
                       std::string_view function_name = {});
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_INTERPRETER_H_

@@ -3,7 +3,7 @@
 
 #include "core/types.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 // The Papyrus bytecode instruction set. Skyrim defines 0x00-0x23; Fallout 4
 // and 76 append struct/array opcodes (0x24-0x37) that share this numbering, so
@@ -77,6 +77,6 @@ struct OpInfo {
 const OpInfo& GetOpInfo(Op op);
 inline const OpInfo& GetOpInfo(u8 raw) { return GetOpInfo(static_cast<Op>(raw)); }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_OPCODE_H_

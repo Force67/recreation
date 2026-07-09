@@ -10,7 +10,7 @@
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_registry.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Carries scripting RPCs over the session's reliable data channel and dispatches
 // inbound calls through a registry the engine populates. The server channel
@@ -64,6 +64,6 @@ class RpcClientChannel {
   rpc::RpcRegistry registry_;
 };
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_RPC_CHANNEL_H_

@@ -9,7 +9,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // Skyrim head/hair/brow/beard morph file ("FRTRI003"). Ships the base head
 // shape plus named vertex morphs: race blends (NordRace, BretonRace, ...),
@@ -75,6 +75,6 @@ std::optional<TriMorphSet> ParseTri(ByteSpan data);
 // overrun.
 void ApplyMorph(const TriMorph& morph, f32 weight, f32* positions, u32 vertex_count);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_TRI_H_

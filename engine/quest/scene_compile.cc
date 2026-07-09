@@ -1,6 +1,6 @@
 #include "quest/scene_compile.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 Scene CompileScene(const SceneDef& def, const SceneBindings& bindings) {
   Scene out;
@@ -63,4 +63,4 @@ Scene CompileScene(const SceneDef& def, const SceneBindings& bindings) {
   return out;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest

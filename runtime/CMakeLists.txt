@@ -33,13 +33,13 @@ set(RECREATION_RUNTIME_SOURCES
 )
 
 set(RECREATION_RUNTIME_MODULES
-  recreation::core
-  recreation::ecs
-  recreation::asset
+  rx::core
+  rx::ecs
+  rx::asset
   recreation::audio
-  recreation::render
-  recreation::physics
-  recreation::anim
+  rx::render
+  rx::physics
+  rx::anim
   recreation::bethesda
   recreation::world
   recreation::quest
@@ -86,14 +86,14 @@ if(RECREATION_NET)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_NET=1)
 endif()
 
-if(TARGET recreation_imgui)
-  target_link_libraries(recreation PRIVATE recreation::imgui)
+if(TARGET rx_imgui)
+  target_link_libraries(recreation PRIVATE rx::imgui)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_IMGUI=1)
-  # Default location of the editable .ini render presets (engine/render/presets).
-  # The debug ui lists and loads them; override with the env var REC_PRESETS_DIR.
-  # Absolute so the dev build finds the source files.
+  # Default location of the editable .ini render presets (they live in the rx
+  # render module now). The debug ui lists and loads them; override with the env
+  # var RX_PRESETS_DIR. Absolute so the dev build finds the source files.
   target_compile_definitions(recreation PRIVATE
-    RECREATION_PRESETS_DIR_DEFAULT="${CMAKE_SOURCE_DIR}/engine/render/presets")
+    RECREATION_PRESETS_DIR_DEFAULT="${RECREATION_RX_DIR}/engine/render/presets")
 endif()
 
 # libultragui HUD: only the windowed client builds it; the dedicated server

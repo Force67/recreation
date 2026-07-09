@@ -16,7 +16,7 @@
 
 // zetanet's headers (via archive.h) inject global arch_types scalar aliases, so
 // the scalar types are left bare (they resolve to those same uint aliases) and
-// the rec:: symbols are fully qualified, matching the other net/bethesda tests.
+// the rx:: symbols are fully qualified, matching the other net/bethesda tests.
 namespace {
 
 int g_failures = 0;
@@ -38,13 +38,13 @@ void PutBytes(std::vector<u8>& b, const char* s, size_t n) {
 }
 
 // Writes `bytes` to a temp .ba2 and opens it through OpenArchive.
-base::UniquePointer<rec::asset::FileProvider> OpenSynthetic(const std::vector<u8>& bytes,
+base::UniquePointer<rx::asset::FileProvider> OpenSynthetic(const std::vector<u8>& bytes,
                                                             const std::string& path) {
   std::ofstream out(path, std::ios::binary);
   out.write(reinterpret_cast<const char*>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
   out.close();
-  return rec::bethesda::OpenArchive(path);
+  return rx::bethesda::OpenArchive(path);
 }
 
 void TestGnrl(const std::string& dir) {

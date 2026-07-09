@@ -6,8 +6,8 @@
 
 #include "world/objective_marker.h"
 
-using rec::world::MarkerCompassBearingDeg;
-using rec::world::MarkerReached;
+using rx::world::MarkerCompassBearingDeg;
+using rx::world::MarkerReached;
 
 namespace {
 

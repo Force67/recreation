@@ -18,7 +18,7 @@
 #include "world/land_baker.h"
 #include "world/quest_world.h"
 
-namespace rec::world {
+namespace rx::world {
 
 // Effective authored lighting of an interior cell, resolved from its CELL XCLL
 // subrecord and the referenced LGTM lighting template (LTMP), applying the
@@ -261,13 +261,13 @@ class CellStreamer {
                       u32& mesh_budget, bool interior);
   // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
   // REFR XRDS radius override into a point light at `position` and records it on
-  // the cell. No-op for other base types or when REC_PLACED_LIGHTS is off.
+  // the cell. No-op for other base types or when RX_PLACED_LIGHTS is off.
   void AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda::Record& refr,
                       const Vec3& position, LoadedCell& cell);
   // When `base_id` is a TXST, builds a projected decal box from the REFR
   // placement (rotation/XSCL) and the TXST's DODT extents/tint, uv'd into the
   // shared decal atlas, and records it on the cell. Builds the atlas on first
-  // use. No-op for other base types or when REC_PLACED_DECALS is off.
+  // use. No-op for other base types or when RX_PLACED_DECALS is off.
   void AddPlacedDecal(bethesda::GlobalFormId base_id, bethesda::GlobalFormId ref_id,
                       const bethesda::Record& refr, const Vec3& position, LoadedCell& cell);
   // Builds the decal atlas once: every TXST with decal data (DODT) gets its
@@ -372,6 +372,6 @@ class CellStreamer {
   mutable size_t logged_decal_count_ = ~size_t{0};  // last CollectDecals count logged
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_CELL_STREAMING_H_

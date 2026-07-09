@@ -9,7 +9,7 @@
 #include "bethesda/record.h"
 #include "core/types.h"
 
-namespace rec::world {
+namespace rx::world {
 
 // Scatters grass for one exterior cell straight from the game records: the
 // dominant LAND texture layer at each sample point (BTXT base under the
@@ -61,6 +61,6 @@ class GrassBaker {
   size_t total_vertices_ = 0;
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_GRASS_BAKER_H_

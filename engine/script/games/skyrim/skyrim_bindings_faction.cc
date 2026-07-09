@@ -10,7 +10,7 @@
 #include "bethesda/record.h"
 #include "script/games/skyrim/skyrim_bindings.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 namespace {
 
 using papyrus::ObjectRef;
@@ -120,4 +120,4 @@ i32 RecordBackedSkyrimBindings::AuthoredFactionReaction(ObjectRef faction, Objec
   return 0;
 }
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim

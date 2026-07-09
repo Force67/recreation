@@ -3,4 +3,4 @@ recreation_add_module(weather
   weather_loader.cc
 )
 
-target_link_libraries(recreation_weather PUBLIC recreation::core recreation::bethesda)
+target_link_libraries(recreation_weather PUBLIC rx::core recreation::bethesda)

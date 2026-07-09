@@ -22,26 +22,26 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU8(std::vector<rec::u8>& b, rec::u8 v) { b.push_back(v); }
-void PutU16(std::vector<rec::u8>& b, rec::u16 v) {
-  b.push_back(rec::u8(v));
-  b.push_back(rec::u8(v >> 8));
+void PutU8(std::vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+  b.push_back(rx::u8(v));
+  b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rec::u8>& b, rec::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rec::u8(v >> (8 * i)));
+void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutStr(std::vector<rec::u8>& b, const char* s) {  // u16 len + bytes, no terminator
-  rec::u16 n = 0;
+void PutStr(std::vector<rx::u8>& b, const char* s) {  // u16 len + bytes, no terminator
+  rx::u16 n = 0;
   while (s[n]) ++n;
   PutU16(b, n);
-  for (rec::u16 i = 0; i < n; ++i) b.push_back(static_cast<rec::u8>(s[i]));
+  for (rx::u16 i = 0; i < n; ++i) b.push_back(static_cast<rx::u8>(s[i]));
 }
 
 // A v6 script section with one script carrying one type-17 (array-of-struct)
 // property, the FO4-specific type the parser must skip to stay aligned.
 void TestScriptSectionType17() {
   std::puts("vmad v6 script section (type 17):");
-  std::vector<rec::u8> b;
+  std::vector<rx::u8> b;
   PutU16(b, 6);  // version (Fallout 4)
   PutU16(b, 2);  // object format
   PutU16(b, 1);  // script count
@@ -59,8 +59,8 @@ void TestScriptSectionType17() {
   PutU8(b, 1);   // member status
   PutU32(b, 42);  // member int value
 
-  rec::bethesda::ScriptAttachment att;
-  const bool ok = rec::bethesda::ParseScriptAttachment(rec::ByteSpan(b.data(), b.size()), &att);
+  rx::bethesda::ScriptAttachment att;
+  const bool ok = rx::bethesda::ParseScriptAttachment(rx::ByteSpan(b.data(), b.size()), &att);
   Check("parses", ok);
   Check("version 6", att.version == 6);
   Check("one script", att.scripts.size() == 1);
@@ -73,7 +73,7 @@ void TestScriptSectionType17() {
 // fragment entry that follows reads the wrong bytes.
 void TestQuestFragmentHeader() {
   std::puts("vmad v6 quest fragment header:");
-  std::vector<rec::u8> b;
+  std::vector<rx::u8> b;
   PutU16(b, 6);  // version
   PutU16(b, 2);  // object format
   PutU16(b, 1);  // script count
@@ -96,10 +96,10 @@ void TestQuestFragmentHeader() {
   PutStr(b, "Frag:25");
   PutStr(b, "Fragment_Stage_0025_Item_00");
 
-  rec::bethesda::ScriptAttachment att;
-  std::vector<rec::bethesda::QuestStageFragment> frags;
+  rx::bethesda::ScriptAttachment att;
+  std::vector<rx::bethesda::QuestStageFragment> frags;
   const bool ok =
-      rec::bethesda::ParseQuestFragments(rec::ByteSpan(b.data(), b.size()), &att, &frags);
+      rx::bethesda::ParseQuestFragments(rx::ByteSpan(b.data(), b.size()), &att, &frags);
   Check("parses", ok);
   Check("one fragment", frags.size() == 1);
   if (frags.size() == 1) {

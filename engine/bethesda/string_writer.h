@@ -8,7 +8,7 @@
 
 #include "core/types.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 // The write side of the localized string table, the inverse of StringTable
 // (strings.cc). A localized plugin stores u32 string ids in its records; the
@@ -52,6 +52,6 @@ class StringTableWriter {
   u32 next_id_ = 1;
 };
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_STRING_WRITER_H_

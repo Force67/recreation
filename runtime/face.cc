@@ -13,12 +13,12 @@
 #include "engine_context.h"
 #include "render/core/renderer.h"
 
-namespace rec {
+namespace rx {
 
 // Loop-subdivision levels applied to head-part meshes (0/1/2). A plain option,
 // not a RenderSetting, so the engine.cc preset merge never clobbers it. Shared
 // by the faces demo and the per-NPC actor head assembly.
-static base::Option<int> HeadSubdiv{"head.subdiv", 1, "REC_HEAD_SUBDIV",
+static base::Option<int> HeadSubdiv{"head.subdiv", 1, "RX_HEAD_SUBDIV",
                                     "loop subdivision levels on facegen head parts"};
 
 namespace {
@@ -181,7 +181,7 @@ const bethesda::TriMorphSet* FaceBuilder::Tri(const std::string& vfs_path) {
     if (auto parsed = bethesda::ParseTri(ByteSpan(bytes->data(), bytes->size())))
       *set = std::move(*parsed);
     else
-      REC_WARN("face: tri parse failed {}", path);
+      RX_WARN("face: tri parse failed {}", path);
   }
   bool ok = set->vertex_count != 0;
   auto* slot = tri_cache_.insert(key, std::move(set)).first;
@@ -222,7 +222,7 @@ const asset::Mesh* FaceBuilder::BasePartMesh(const std::string& model_path) {
       *mesh = std::move(*conv.mesh);
     }
   } else {
-    REC_WARN("face: head part mesh not found {}", path);
+    RX_WARN("face: head part mesh not found {}", path);
   }
   bool ok = !mesh->lods.empty();
   auto* slot = mesh_cache_.insert(key, std::move(mesh)).first;
@@ -249,12 +249,12 @@ const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const std::string& path)
 bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   auto face = bethesda::ResolveNpcFace(*ctx_.records, npc);
   if (!face) {
-    REC_WARN("face: not an NPC_ {:04x}:{:06x}", npc.plugin, npc.local_id);
+    RX_WARN("face: not an NPC_ {:04x}:{:06x}", npc.plugin, npc.local_id);
     return false;
   }
   auto race = bethesda::ResolveRaceHead(*ctx_.records, face->race);
   if (!race) {
-    REC_WARN("face: no race head data for {}", face->editor_id);
+    RX_WARN("face: no race head data for {}", face->editor_id);
     return false;
   }
   const bethesda::RaceSexHead& sex = face->female ? race->female : race->male;
@@ -314,7 +314,7 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     out->parts_.push_back(std::move(part));
   }
   if (out->parts_.empty()) {
-    REC_WARN("face: no renderable head parts for {}", face->editor_id);
+    RX_WARN("face: no renderable head parts for {}", face->editor_id);
     return false;
   }
 
@@ -404,7 +404,7 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     }
   }
 
-  REC_INFO("face: assembled {} ({} parts, {}, race {}, {} tint layers, facetint bake {:.2f} ms)",
+  RX_INFO("face: assembled {} ({} parts, {}, race {}, {} tint layers, facetint bake {:.2f} ms)",
            face->editor_id, out->parts_.size(), face->female ? "female" : "male", race->editor_id,
            out->tint_layers_.size(), bake_ms);
   return true;
@@ -595,4 +595,4 @@ f32 FaceState::RebuildAndUpload() {
   return std::chrono::duration<f32, std::milli>(t1 - t0).count();
 }
 
-}  // namespace rec
+}  // namespace rx

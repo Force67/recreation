@@ -5,7 +5,7 @@
 
 #include "core/types.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Native, engine-side representation of a Bethesda condition list (a run of CTDA
 // subrecords). Quests gate stage/objective transitions on these and dialogue
@@ -116,6 +116,6 @@ bool Evaluate(const ConditionList& conditions, const ConditionContext& ctx);
 // applies its operator against the right side (literal or global).
 bool EvaluateOne(const Comparison& c, const ConditionContext& ctx);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_CONDITION_H_

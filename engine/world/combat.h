@@ -12,7 +12,7 @@
 // and death notification) to the main-thread combat driver. Like npc_ai.h and
 // objective_marker.h this header is dependency-light so the geometry can be unit
 // tested without the ECS or the renderer.
-namespace rec::world {
+namespace rx::world {
 
 // Tunables for the melee combat simulation, in engine space (metres, seconds).
 struct CombatParams {
@@ -110,6 +110,6 @@ class CombatEventQueue {
   std::vector<CombatEvent> pending_;
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_COMBAT_H_

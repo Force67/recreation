@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
                                           const std::vector<ClipEvent>* events) {
@@ -38,4 +38,4 @@ std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const A
   return builder.Build();
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

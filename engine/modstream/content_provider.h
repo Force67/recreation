@@ -5,7 +5,7 @@
 #include "modstream/content_store.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 class ModCatalog;
 
@@ -26,6 +26,6 @@ void MountManifest(asset::Vfs& vfs, const ModManifest& manifest,
 // catalog must outlive the vfs mounts. Used on the host.
 void MountCatalog(asset::Vfs& vfs, const ModCatalog& catalog);
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_CONTENT_PROVIDER_H_

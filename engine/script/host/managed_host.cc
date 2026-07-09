@@ -6,7 +6,7 @@
 #include "script/host/managed_gc_profile.h"
 #include "script/papyrus_guest.h"
 
-namespace rec::script::host {
+namespace rx::script::host {
 
 ManagedHost::~ManagedHost() { Shutdown(); }
 
@@ -23,7 +23,7 @@ void ManagedHost::AddDomain(std::string name, PapyrusGuest& guest,
 bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtime_config,
                        const std::string& assembly) {
   if (domains_.empty()) {
-    REC_WARN("managed: no content domain registered, scripting disabled");
+    RX_WARN("managed: no content domain registered, scripting disabled");
     return false;
   }
   domain_table_.clear();
@@ -43,22 +43,22 @@ bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtim
   // it starts. Keyed by realm (dedicated server vs client vs standalone) and the
   // build platform; RECREATION_MANAGED_GC* env vars override.
   const std::string gc_profile = ResolveGcProfileName(realm_);
-  REC_INFO("managed: GC profile '{}'", gc_profile);
+  RX_INFO("managed: GC profile '{}'", gc_profile);
   if (!clr_.Initialize(dotnet_root, runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "Main",
                        ManagedGcProfile(gc_profile))) {
-    REC_INFO("managed: .NET host unavailable, scripting disabled");
+    RX_INFO("managed: .NET host unavailable, scripting disabled");
     return false;
   }
 
   // The managed entrypoint binds the bridge, boots its mods, and fills in the
   // outbound callbacks we drive from here on.
   if (clr_.Invoke(&handshake_) != 0) {
-    REC_WARN("managed: entrypoint returned nonzero, scripting disabled");
+    RX_WARN("managed: entrypoint returned nonzero, scripting disabled");
     return false;
   }
   available_ = true;
-  REC_INFO("managed: scripting world online");
+  RX_INFO("managed: scripting world online");
   return true;
 }
 
@@ -66,7 +66,7 @@ void ManagedHost::RunManaged(const std::function<void()>& fn) {
   if (primary_guest_ && primary_guest_->running())
     // Dispatch runs fn inline if we are already on the guest thread (so a managed
     // callback that reaches back here cannot deadlock), else posts and blocks.
-    primary_guest_->Dispatch([&fn](rec::script::papyrus::VirtualMachine&) {
+    primary_guest_->Dispatch([&fn](rx::script::papyrus::VirtualMachine&) {
       fn();
       return 0;
     });
@@ -134,4 +134,4 @@ void ManagedHost::Shutdown() {
   clr_.Shutdown();
 }
 
-}  // namespace rec::script::host
+}  // namespace rx::script::host

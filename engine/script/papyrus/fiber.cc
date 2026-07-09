@@ -4,7 +4,7 @@
 
 #include "minicoro.h"  // API only; the implementation is in minicoro_impl.cc
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 // The fiber currently executing on this thread. Maintained across every context
 // switch so YieldCurrent and the trampoline always find the right one.
@@ -82,4 +82,4 @@ bool Fiber::YieldCurrent() {
 
 Fiber* Fiber::current() { return t_current; }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

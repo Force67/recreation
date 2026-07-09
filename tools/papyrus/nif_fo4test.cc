@@ -24,33 +24,33 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU8(std::vector<rec::u8>& b, rec::u8 v) { b.push_back(v); }
-void PutU16(std::vector<rec::u8>& b, rec::u16 v) {
-  b.push_back(rec::u8(v));
-  b.push_back(rec::u8(v >> 8));
+void PutU8(std::vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+  b.push_back(rx::u8(v));
+  b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rec::u8>& b, rec::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rec::u8(v >> (8 * i)));
+void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutI32(std::vector<rec::u8>& b, rec::i32 v) { PutU32(b, static_cast<rec::u32>(v)); }
-void PutU64(std::vector<rec::u8>& b, rec::u64 v) {
-  for (int i = 0; i < 8; ++i) b.push_back(rec::u8(v >> (8 * i)));
+void PutI32(std::vector<rx::u8>& b, rx::i32 v) { PutU32(b, static_cast<rx::u32>(v)); }
+void PutU64(std::vector<rx::u8>& b, rx::u64 v) {
+  for (int i = 0; i < 8; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutF32(std::vector<rec::u8>& b, float f) {
-  rec::u32 v;
+void PutF32(std::vector<rx::u8>& b, float f) {
+  rx::u32 v;
   std::memcpy(&v, &f, 4);
   PutU32(b, v);
 }
-void PutSizedStr(std::vector<rec::u8>& b, const char* s) {  // u32 len + bytes
-  rec::u32 n = 0;
+void PutSizedStr(std::vector<rx::u8>& b, const char* s) {  // u32 len + bytes
+  rx::u32 n = 0;
   while (s[n]) ++n;
   PutU32(b, n);
-  for (rec::u32 i = 0; i < n; ++i) b.push_back(static_cast<rec::u8>(s[i]));
+  for (rx::u32 i = 0; i < n; ++i) b.push_back(static_cast<rx::u8>(s[i]));
 }
 
 // NiAVObject prefix the reader consumes: name, extra list, controller, flags,
 // transform (translation, 3x3 rotation, scale), collision ref. 72 bytes here.
-void PutAvObject(std::vector<rec::u8>& b) {
+void PutAvObject(std::vector<rx::u8>& b) {
   PutI32(b, -1);  // name (no string table entry)
   PutU32(b, 0);   // extra data count
   PutI32(b, -1);  // controller
@@ -69,12 +69,12 @@ void PutAvObject(std::vector<rec::u8>& b) {
 void RunCase(const char* shape_type) {
   std::printf("  -- %s --\n", shape_type);
 
-  std::vector<rec::u8> node;
+  std::vector<rx::u8> node;
   PutAvObject(node);
   PutU32(node, 1);   // child count
   PutI32(node, 1);   // child -> block 1
 
-  std::vector<rec::u8> shape;
+  std::vector<rx::u8> shape;
   PutAvObject(shape);
   for (int i = 0; i < 4; ++i) PutF32(shape, 0.0f);  // bounding sphere (center+radius)
   PutI32(shape, -1);  // skin
@@ -82,9 +82,9 @@ void RunCase(const char* shape_type) {
   PutI32(shape, -1);  // alpha property
   // Vertex desc: kHasVertex (flag bit 0 -> desc bit 44), stride nibble = 4 (16
   // bytes), no other attributes, so positions are full-precision floats.
-  PutU64(shape, (rec::u64(1) << 44) | 0x4);
-  const rec::u32 triangles = 1, stride = 16;
-  const rec::u16 vertices = 3;
+  PutU64(shape, (rx::u64(1) << 44) | 0x4);
+  const rx::u32 triangles = 1, stride = 16;
+  const rx::u16 vertices = 3;
   PutU32(shape, triangles);   // FO4: u32 triangle count
   PutU16(shape, vertices);
   PutU32(shape, stride * vertices + 6 * triangles);  // data size = 54
@@ -100,9 +100,9 @@ void RunCase(const char* shape_type) {
   Check("node block is 80 bytes", node.size() == 80);
   Check("shape block is 172 bytes", shape.size() == 172);
 
-  std::vector<rec::u8> b;
+  std::vector<rx::u8> b;
   const char* magic = "Gamebryo File Format, Version 20.2.0.7\n";
-  for (const char* p = magic; *p; ++p) b.push_back(static_cast<rec::u8>(*p));
+  for (const char* p = magic; *p; ++p) b.push_back(static_cast<rx::u8>(*p));
   PutU32(b, 0x14020007);  // version 20.2.0.7
   PutU8(b, 1);            // little-endian
   PutU32(b, 12);          // user version
@@ -114,8 +114,8 @@ void RunCase(const char* shape_type) {
   PutSizedStr(b, shape_type);
   PutU16(b, 0);  // block 0 type index
   PutU16(b, 1);  // block 1 type index
-  PutU32(b, static_cast<rec::u32>(node.size()));
-  PutU32(b, static_cast<rec::u32>(shape.size()));
+  PutU32(b, static_cast<rx::u32>(node.size()));
+  PutU32(b, static_cast<rx::u32>(shape.size()));
   PutU32(b, 0);  // header string count
   PutU32(b, 0);  // max string length
   PutU32(b, 0);  // group count
@@ -124,8 +124,8 @@ void RunCase(const char* shape_type) {
   PutU32(b, 1);   // footer: one root
   PutI32(b, 0);   // root -> block 0 (the node)
 
-  rec::bethesda::NifConversion conv = rec::bethesda::ConvertNifScene(
-      rec::ByteSpan(b.data(), b.size()), rec::asset::MakeAssetId("test/synthetic.nif"),
+  rx::bethesda::NifConversion conv = rx::bethesda::ConvertNifScene(
+      rx::ByteSpan(b.data(), b.size()), rx::asset::MakeAssetId("test/synthetic.nif"),
       "test/synthetic.nif");
   Check("mesh produced", conv.mesh != nullptr);
   if (conv.mesh && !conv.mesh->lods.empty()) {

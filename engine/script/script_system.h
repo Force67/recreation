@@ -14,7 +14,7 @@
 #include "script/papyrus/value.h"
 #include "script/papyrus_guest.h"
 
-namespace rec::script {
+namespace rx::script {
 
 // Ties the Papyrus guest to game data. It loads compiled scripts (and their
 // ancestor chain) on demand from the asset VFS, instantiates the scripts a form
@@ -62,6 +62,6 @@ class ScriptSystem {
   std::unordered_set<std::string> warned_unloadable_;
 };
 
-}  // namespace rec::script
+}  // namespace rx::script
 
 #endif  // RECREATION_SCRIPT_SCRIPT_SYSTEM_H_

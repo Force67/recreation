@@ -6,7 +6,7 @@
 
 #include "core/types.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // The host's single active objective waypoint (the quest compass marker),
 // replicated server -> client so a client's HUD can draw the same pip. Only
@@ -27,6 +27,6 @@ std::vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m);
 // 21 bytes, never reading out of bounds.
 std::optional<ObjectiveMarkerState> DecodeObjectiveMarker(ByteSpan data);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_OBJECTIVE_MARKER_NET_H_

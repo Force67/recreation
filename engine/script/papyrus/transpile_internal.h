@@ -15,7 +15,7 @@
 // Helpers shared by the two halves of the transpiler: decompiler.cc (one
 // function body to C# statements) and transpile.cc (the surrounding class and
 // file structure). They are inline so both translation units agree on them.
-namespace rec::script::papyrus::detail {
+namespace rx::script::papyrus::detail {
 
 inline const std::unordered_set<std::string>& CsKeywords() {
   static const std::unordered_set<std::string> kKeywords = {
@@ -238,6 +238,6 @@ struct DecompileCtx {
 void DecompileFunction(const DecompileCtx& ctx, const Function& fn, std::string& out, int indent,
                        const std::string& value_alias = {});
 
-}  // namespace rec::script::papyrus::detail
+}  // namespace rx::script::papyrus::detail
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_TRANSPILE_INTERNAL_H_

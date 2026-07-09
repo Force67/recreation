@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 
 bool FiberScheduler::Run(std::function<void()> body, f64 real_now, f64 game_now) {
   // A fresh top-level activation starts from the baseline, not a parked fiber's
@@ -46,4 +46,4 @@ void FiberScheduler::Advance(f64 real_now, f64 game_now) {
   }
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

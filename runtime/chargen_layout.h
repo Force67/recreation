@@ -8,7 +8,7 @@
 
 #include "core/types.h"
 
-namespace rec::chargen {
+namespace rx::chargen {
 
 // A saved character-creation preset: the race blend, sex, chosen RPRM preset and
 // hairstyle, the skin + hair colours, the four NAMA face-part type indices, the
@@ -109,6 +109,6 @@ inline bool ParseCharGenPreset(const std::string& text, CharGenPreset* out) {
   return any;
 }
 
-}  // namespace rec::chargen
+}  // namespace rx::chargen
 
 #endif  // RECREATION_RUNTIME_CHARGEN_LAYOUT_H_

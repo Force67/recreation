@@ -8,7 +8,7 @@
 #include "bethesda/load_order.h"
 #include "weather/weather.h"
 
-namespace rec::weather {
+namespace rx::weather {
 
 // Parses every WTHR (weather) record into a def map keyed by packed form id, and
 // returns the count. Defensive: the physical params come from the DATA
@@ -37,6 +37,6 @@ int LoadRegions(const bethesda::RecordStore& records,
                 const std::unordered_map<u64, WeatherDef>& weathers,
                 bethesda::GlobalFormId worldspace, RegionWeather* out);
 
-}  // namespace rec::weather
+}  // namespace rx::weather
 
 #endif  // RECREATION_WEATHER_WEATHER_LOADER_H_

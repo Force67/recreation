@@ -4,7 +4,7 @@
 
 #include <nanobuf.h>
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 // One command is encoded as a fixed 40-byte little-endian record, carried as an
@@ -112,4 +112,4 @@ std::optional<std::vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan dat
   return out;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

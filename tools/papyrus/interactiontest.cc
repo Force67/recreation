@@ -6,9 +6,9 @@
 
 #include "world/interaction.h"
 
-using rec::world::ActivationCandidate;
-using rec::world::PickActivationTarget;
-using rec::world::ShoveOutOfRadius;
+using rx::world::ActivationCandidate;
+using rx::world::PickActivationTarget;
+using rx::world::ShoveOutOfRadius;
 
 namespace {
 

@@ -20,7 +20,7 @@
 #include "script/papyrus/value.h"
 #include "script/papyrus/vm.h"
 
-namespace rec::script {
+namespace rx::script {
 
 // The Papyrus guest world. It owns one papyrus::VirtualMachine and runs it on a
 // single dedicated thread, fully isolated from the host: the engine and the
@@ -251,6 +251,6 @@ auto PapyrusGuest::SubmitFor(Fn fn)
   return future;
 }
 
-}  // namespace rec::script
+}  // namespace rx::script
 
 #endif  // RECREATION_SCRIPT_PAPYRUS_GUEST_H_

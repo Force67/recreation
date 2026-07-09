@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace rec {
+namespace rx {
 
 Vec3 FlyCamera::forward() const {
   return {std::cos(pitch_) * std::sin(yaw_), std::sin(pitch_), -std::cos(pitch_) * std::cos(yaw_)};
@@ -46,4 +46,4 @@ void FlyCamera::Update(const InputState& input, const ActionState& actions, bool
   }
 }
 
-}  // namespace rec
+}  // namespace rx

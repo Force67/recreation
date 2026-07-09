@@ -1,6 +1,6 @@
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 u64 ModManifest::TotalBytes() const {
   u64 total = 0;
@@ -16,4 +16,4 @@ size_t ModManifest::TotalFiles() const {
   return total;
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream

@@ -7,7 +7,7 @@
 
 #include "core/log.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 std::string Lower(std::string s) {
@@ -480,7 +480,7 @@ void VirtualMachine::StructSet(StructRef instance, const std::string& member, Va
 void VirtualMachine::WarnUnbound(const std::string& type, const std::string& function) {
   std::string key = Lower(type) + "." + Lower(function);
   if (warned_.insert(key).second)
-    REC_DEBUG("papyrus: unbound function {}.{} (returning None)", type, function);
+    RX_DEBUG("papyrus: unbound function {}.{} (returning None)", type, function);
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

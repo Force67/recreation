@@ -7,7 +7,7 @@
 #include "script/papyrus/native.h"
 #include "script/papyrus/value.h"
 
-namespace rec::script::skyrim {
+namespace rx::script::skyrim {
 
 // Everything the Skyrim native surface needs from the engine. The engine
 // implements the slices it supports; the rest keep the defaults here, so a
@@ -379,6 +379,6 @@ class SkyrimBindings {
 // implemented here; engine-touching natives route through bindings.
 void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 
-}  // namespace rec::script::skyrim
+}  // namespace rx::script::skyrim
 
 #endif  // RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_H_

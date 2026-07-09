@@ -10,7 +10,7 @@
 #include "ecs/world.h"
 #include "world/components.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Stable identity across machines. Local Entity values differ per peer, the
 // NetworkId is what snapshots address.
@@ -103,6 +103,6 @@ class SnapshotApplier {
   u64 latest_tick_ = 0;
 };
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_REPLICATION_H_

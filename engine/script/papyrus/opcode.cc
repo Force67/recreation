@@ -1,6 +1,6 @@
 #include "script/papyrus/opcode.h"
 
-namespace rec::script::papyrus {
+namespace rx::script::papyrus {
 namespace {
 
 // Indexed by opcode value. Arities for 0x00-0x23 are exact (Skyrim, validated
@@ -68,4 +68,4 @@ const OpInfo& GetOpInfo(Op op) {
   return kTable[raw];
 }
 
-}  // namespace rec::script::papyrus
+}  // namespace rx::script::papyrus

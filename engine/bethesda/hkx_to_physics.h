@@ -8,10 +8,10 @@
 #include "bethesda/hkx_physics.h"
 #include "physics/shape_desc.h"
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 
 physics::ShapeDesc ToShapeDesc(const HkxShape& shape);
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_HKX_TO_PHYSICS_H_

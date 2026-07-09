@@ -11,16 +11,16 @@
 #include "engine_context.h"
 #include "world/cell_streaming.h"
 
-namespace rec {
+namespace rx {
 namespace {
 
 constexpr f32 kUnitsToMeters = 0.01428f;  // mirrors CellStreamer (unit -> metre)
 
 // Config override, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
-base::Option<const char*> EditorLayout{"editor.layout", nullptr, "REC_EDITOR_LAYOUT"};
+base::Option<const char*> EditorLayout{"editor.layout", nullptr, "RX_EDITOR_LAYOUT"};
 
-// Where the layout lives: REC_EDITOR_LAYOUT, else a file in the working dir.
+// Where the layout lives: RX_EDITOR_LAYOUT, else a file in the working dir.
 std::string DefaultLayoutPath() {
   if (const char* env = EditorLayout.get()) return env;
   return "editor_layout.reclayout";
@@ -33,7 +33,7 @@ int MapEditor::SaveLayout() {
   std::ofstream out(layout_path_, std::ios::trunc);
   if (!out) {
     SetStatus("Save failed: " + layout_path_);
-    REC_WARN("editor: cannot open {} for writing", layout_path_);
+    RX_WARN("editor: cannot open {} for writing", layout_path_);
     return 0;
   }
   out << "# recreation map layout v1\n";
@@ -55,7 +55,7 @@ int MapEditor::SaveLayout() {
     ++n;
   }
   SetStatus("Saved " + std::to_string(n) + " objects to " + layout_path_);
-  REC_INFO("editor: saved {} objects to {}", n, layout_path_);
+  RX_INFO("editor: saved {} objects to {}", n, layout_path_);
   return n;
 }
 
@@ -101,12 +101,12 @@ int MapEditor::LoadLayout() {
     placed_.push_back({e, le.base, std::move(name), domain});
     ++n;
   }
-  if (skipped > 0) REC_INFO("editor: skipped {} placements for unloaded games", skipped);
+  if (skipped > 0) RX_INFO("editor: skipped {} placements for unloaded games", skipped);
   if (n > 0) {
     SetStatus("Loaded " + std::to_string(n) + " saved objects");
-    REC_INFO("editor: loaded {} objects from {}", n, layout_path_);
+    RX_INFO("editor: loaded {} objects from {}", n, layout_path_);
   }
   return n;
 }
 
-}  // namespace rec
+}  // namespace rx

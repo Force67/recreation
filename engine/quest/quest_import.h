@@ -8,7 +8,7 @@
 #include "quest/quest_def.h"
 #include "quest/quest_graph.h"
 
-namespace rec::quest {
+namespace rx::quest {
 
 // Builds a native QuestGraph from a parsed Skyrim QUST definition and its
 // stage->fragment map (the VMAD quest fragments, keyed by stage index).
@@ -23,6 +23,6 @@ namespace rec::quest {
 QuestGraph BuildQuestGraph(const QuestDef& def,
                            const std::unordered_map<i32, std::string>& stage_fragments);
 
-}  // namespace rec::quest
+}  // namespace rx::quest
 
 #endif  // RECREATION_QUEST_QUEST_IMPORT_H_

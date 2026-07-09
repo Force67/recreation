@@ -5,7 +5,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 
-namespace rec::world {
+namespace rx::world {
 
 struct Transform {
   f32 position[3] = {0, 0, 0};
@@ -60,6 +60,6 @@ struct QuestSpawned {
   u64 quest = 0;
 };
 
-}  // namespace rec::world
+}  // namespace rx::world
 
 #endif  // RECREATION_WORLD_COMPONENTS_H_

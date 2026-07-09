@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "world/quest_world.h"
 
-namespace rec::net {
+namespace rx::net {
 
 // Replication for quest-driven world commands (spawn / move / enable / delete /
 // cleanup). The host drains its WorldCommandQueue each tick and ships the list
@@ -24,6 +24,6 @@ std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& comm
 // blob, never reading out of bounds.
 std::optional<std::vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data);
 
-}  // namespace rec::net
+}  // namespace rx::net
 
 #endif  // RECREATION_NET_WORLD_REPLICATION_H_

@@ -52,7 +52,7 @@ std::unordered_map<std::string, wid>& Registry() {
 
 // The host dispatch callback installed via the seam. Null until the host wires it
 // (e.g. a dedicated-server / no-managed build leaves handlers inert).
-rec::ugui_cs::DispatchFn g_dispatch = nullptr;
+rx::ugui_cs::DispatchFn g_dispatch = nullptr;
 void* g_dispatch_ctx = nullptr;
 
 // Resolve a packed handle to its live node, or null if stale / unknown.
@@ -163,7 +163,7 @@ void OpSetVisible(std::uint64_t widget, std::int32_t visible) {
   ClearAnimationStyle(world, w);
 }
 
-constexpr rec::ugui_cs::WidgetOps kWidgetOps = {
+constexpr rx::ugui_cs::WidgetOps kWidgetOps = {
     OpFind,     OpGetText,    OpSetText,     OpGetChecked,  OpSetChecked, OpGetValue,
     OpSetValue, OpGetSelected, OpSetSelected, OpGetVisible, OpSetVisible,
 };
@@ -251,7 +251,7 @@ void ScriptRuntime::UpdateTimers(double) {}
 
 // --- Host seam (defined here, called by the recreation runtime) -------------
 
-namespace rec::ugui_cs {
+namespace rx::ugui_cs {
 
 void InstallHostDispatch(DispatchFn dispatch, void* ctx) {
   ugui::g_dispatch = dispatch;
@@ -260,4 +260,4 @@ void InstallHostDispatch(DispatchFn dispatch, void* ctx) {
 
 const WidgetOps* GetWidgetOps() { return &ugui::kWidgetOps; }
 
-}  // namespace rec::ugui_cs
+}  // namespace rx::ugui_cs

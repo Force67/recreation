@@ -7,7 +7,7 @@
 #include "core/types.h"
 #include "modstream/mod_resource.h"
 
-namespace rec::modstream {
+namespace rx::modstream {
 
 // Serializes a manifest to the compact little-endian wire form the server hands
 // every joining client. The bytes ride a normal reliable game packet; this codec
@@ -23,6 +23,6 @@ inline std::optional<ModManifest> DecodeManifest(const std::vector<u8>& bytes) {
   return DecodeManifest(bytes.data(), bytes.size());
 }
 
-}  // namespace rec::modstream
+}  // namespace rx::modstream
 
 #endif  // RECREATION_MODSTREAM_MANIFEST_CODEC_H_

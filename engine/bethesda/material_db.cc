@@ -3,7 +3,7 @@
 #include <cctype>
 #include <cstring>
 
-namespace rec::bethesda {
+namespace rx::bethesda {
 namespace {
 
 // Component-type ids of the two string fields the reader needs: a TextureSet's
@@ -117,4 +117,4 @@ bool StarfieldMaterialDb::Lookup(std::string_view mat_path, std::string* base_co
   return true;
 }
 
-}  // namespace rec::bethesda
+}  // namespace rx::bethesda

@@ -6,7 +6,7 @@
 
 #include "core/log.h"
 
-namespace rec::net {
+namespace rx::net {
 namespace {
 
 EntityState CaptureState(ecs::World& world, ecs::Entity entity, u64 net_id,
@@ -258,4 +258,4 @@ ecs::Entity SnapshotApplier::Find(u64 net_id) const {
   return replica ? replica->entity : ecs::kInvalidEntity;
 }
 
-}  // namespace rec::net
+}  // namespace rx::net

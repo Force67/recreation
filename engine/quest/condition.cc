@@ -1,6 +1,6 @@
 #include "quest/condition.h"
 
-namespace rec::quest {
+namespace rx::quest {
 namespace {
 
 float LeftSide(const Comparison& c, const ConditionContext& ctx) {
@@ -70,4 +70,4 @@ bool Evaluate(const ConditionList& conditions, const ConditionContext& ctx) {
   return true;
 }
 
-}  // namespace rec::quest
+}  // namespace rx::quest
