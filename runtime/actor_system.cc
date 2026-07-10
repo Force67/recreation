@@ -414,6 +414,7 @@ void ActorSystem::AttachHairGroom(Actor& actor, const std::string& hair_model, c
   }
   render::GroomParams params;
   params.recenter = false;  // keep authored head-local coords; ride the head bone
+  params.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
   params.tint = tint;
   params.diffuse = diffuse;
   params.guide_count = 1600;

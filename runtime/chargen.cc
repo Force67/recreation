@@ -341,6 +341,7 @@ void CharGen::RebuildHairGroom() {
                   : Vec3{face_.hair_color()[0], face_.hair_color()[1], face_.hair_color()[2]};
   render::GroomParams p;
   p.recenter = false;  // keep authored head-bone-local coords; translate onto the head
+  p.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
   p.tint = {tint.x, tint.y, tint.z};
   p.diffuse = diffuse;
   p.guide_count = 7000;

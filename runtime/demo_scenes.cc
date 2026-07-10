@@ -754,6 +754,7 @@ void DemoScenes::CreateStrandHairDemoScene() {
     params.tint = specs[i].tint;
     params.diffuse = diffuse;
     params.seed = i + 1;
+    params.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
     u32 id = renderer_.CreateHairGroom(*conv.mesh, params, MakeTranslation(head_center));
     if (id == 0) continue;
     hair_grooms_.push_back(id);
@@ -1317,6 +1318,7 @@ void DemoScenes::CreateFacesDemoScene() {
           const f32* hc = built_face.hair_color();
           render::GroomParams params;
           params.recenter = true;  // scalp -> groom origin; anchored on the head below
+          params.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
           params.tint = {hc[0], hc[1], hc[2]};
           params.diffuse = diffuse;
           params.guide_count = 9000;
