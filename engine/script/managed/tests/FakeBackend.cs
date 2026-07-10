@@ -123,8 +123,15 @@ public sealed class FakeBackend : IEngineBackend
         return Value.None;
     }
 
+    // The last method dispatched and its first argument, for asserting that the
+    // thin wrappers call the right native.
+    public string LastMethod { get; private set; } = "";
+    public Value LastMethodArg0 { get; private set; } = Value.None;
+
     public Value CallMethod(ulong self, string function, ReadOnlySpan<Value> args)
     {
+        LastMethod = function;
+        LastMethodArg0 = args.Length > 0 ? args[0] : Value.None;
         switch (function)
         {
             case "GetActorValue":

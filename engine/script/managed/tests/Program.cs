@@ -14,6 +14,7 @@ internal static class Program
         SdkApiTests.Run(check);
         InventoryTests.Run(check);
         ActorDataTests.Run(check);
+        WrapperDispatchTests.Run(check);
         EventBusTests.Run(check);
         EngineEventsTests.Run(check);
         ModHostTests.Run(check);
