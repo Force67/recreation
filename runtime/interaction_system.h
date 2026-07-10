@@ -12,6 +12,7 @@
 #include "core/types.h"
 #include "core/window.h"
 #include "engine_context.h"
+#include "game_input.h"  // Action / Axis enums the game resolves
 
 namespace rx {
 

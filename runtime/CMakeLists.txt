@@ -12,6 +12,7 @@ set(RECREATION_RUNTIME_SOURCES
   first_run.cc
   camera_input.cc
   controls_settings.cc
+  game_input.cc
   content_domain.cc
   actor_system.cc
   face.cc

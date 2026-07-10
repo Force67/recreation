@@ -39,6 +39,9 @@ void Engine::ApplyControls() {
 }
 
 void Engine::LoadControls() {
+  // The engine owns no actions; register the game's set (names, folds and
+  // default bindings) before any controls.ini overrides them.
+  RegisterGameInput(input_map_);
   controls_path_ = InputMap::DefaultConfigPath();
   if (!controls_path_.empty()) {
     std::error_code ec;

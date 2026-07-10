@@ -5,6 +5,8 @@
 #include "core/input_actions.h"
 #include "core/math.h"
 
+#include "game_input.h"  // Action / Axis enums the game resolves
+
 namespace rx {
 
 // Free flight debug camera. Hold the right mouse button (or push the right
