@@ -40,6 +40,17 @@ public static class SdkApiTests
         ObjectReference.From(from).Translate(new Vector3(5, 0, 0));
         check.That("translate shifts the reference", fake.GetPosition(from).X == 5f);
 
+        // Form.Is matches the engine's script type for a handle (case-insensitive).
+        const ulong scripted = 0x30;
+        fake.SetType(scripted, "Ticker");
+        check.That("Form.Is matches the type", Form.From(scripted).Is("ticker"));
+        check.That("Form.Is rejects a different type", !Form.From(scripted).Is("Actor"));
+
+        // Game typed getters resolve a form id through GetForm.
+        check.Equal("Game.GetActor resolves the id", 0x99UL, Game.GetActor(0x99).Handle);
+        check.Equal("Game.GetQuest resolves the id", 0xABUL, Game.GetQuest(0xAB).Handle);
+        check.Equal("Game.GetFaction resolves the id", 0xCDUL, Game.GetFaction(0xCD).Handle);
+
         Native.Backend = null;
     }
 }

@@ -236,10 +236,13 @@ public sealed class FakeBackend : IEngineBackend
         }
     }
 
+    private readonly Dictionary<ulong, string> _types = new();  // handle -> script type
+    public void SetType(ulong handle, string type) => _types[handle] = type;
+
     public bool IsScriptLoaded(string type) => false;
     public bool LoadScript(string type) => false;
     public ulong CreateInstance(string type) => 0;
-    public string TypeOf(ulong handle) => string.Empty;
+    public string TypeOf(ulong handle) => _types.GetValueOrDefault(handle, string.Empty);
     public Value GetProperty(ulong self, string name) => Value.None;
     public void SetProperty(ulong self, string name, Value value) { }
     public void Tick(float deltaTime) { }
