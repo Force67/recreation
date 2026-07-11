@@ -5,7 +5,9 @@
 #include <atomic>
 #include <cstdio>
 #include <memory>
+#include <array>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <base/containers/unordered_map.h>
@@ -190,6 +192,9 @@ class Engine {
   // Declared after scripts_ so it tears down before the guest thread it drives.
   // Null when .NET or the assembly is unavailable, leaving the engine unaffected.
   std::unique_ptr<rec::script::host::ManagedHost> managed_;
+  // Reused buffer for the per-frame position snapshot handed to the bindings'
+  // proximity query. Main-thread only.
+  std::vector<std::pair<u64, std::array<f32, 3>>> position_snapshot_;
 
   render::Renderer renderer_;
   FlyCamera camera_;

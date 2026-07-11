@@ -357,6 +357,15 @@ bool Engine::RunFrame() {
     // The guest advances on the main loop's clock; it does its work on its own
     // thread, so this only posts a tick.
     if (scripts_) scripts_->Tick(static_cast<f32>(timer_.frame_delta()));
+    // Refresh the world-space position snapshot the managed proximity query reads
+    // (registered refs plus the player), so mods see this frame's positions.
+    if (managed_ && ctx_.bindings) {
+      quest_world_.SnapshotPositions(position_snapshot_);
+      Vec3 pp;
+      if (actors_->PlayerWorldPos(&pp))
+        position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
+      ctx_.bindings->UpdatePositionSnapshot(position_snapshot_);
+    }
     // Advance the managed world: deliver any queued engine events to mod hooks,
     // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
     // into the engine through the bridge.
