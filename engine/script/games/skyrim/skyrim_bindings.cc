@@ -451,6 +451,42 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetEnchantment(ObjectRef item) {
   return ResolveFormRef(item, FourCc('E', 'I', 'T', 'M'));
 }
 
+namespace {
+// Bethesda game units to engine meters (the runtime's snapshot is in engine
+// space). Distance is invariant under the axis swap, so a radius converts by the
+// same factor.
+constexpr f32 kGameUnitsToEngine = 0.01428f;
+}  // namespace
+
+void RecordBackedSkyrimBindings::UpdatePositionSnapshot(
+    const std::vector<std::pair<u64, std::array<f32, 3>>>& positions) {
+  std::lock_guard<std::mutex> lock(live_positions_mutex_);
+  live_positions_.clear();
+  for (const auto& [handle, pos] : positions) live_positions_[handle] = pos;
+}
+
+i32 RecordBackedSkyrimBindings::GetNearbyRefs(ObjectRef center, f32 radius) {
+  std::lock_guard<std::mutex> lock(live_positions_mutex_);
+  nearby_cache_.clear();
+  auto it = live_positions_.find(center.handle);
+  if (it == live_positions_.end()) return 0;
+  const std::array<f32, 3> c = it->second;
+  const f32 r = radius * kGameUnitsToEngine;
+  const f32 r2 = r * r;
+  for (const auto& [handle, pos] : live_positions_) {
+    if (handle == center.handle) continue;
+    const f32 dx = pos[0] - c[0], dy = pos[1] - c[1], dz = pos[2] - c[2];
+    if (dx * dx + dy * dy + dz * dz <= r2) nearby_cache_.push_back(handle);
+  }
+  return static_cast<i32>(nearby_cache_.size());
+}
+
+papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthNearbyRef(i32 index) {
+  std::lock_guard<std::mutex> lock(live_positions_mutex_);
+  if (index < 0 || index >= static_cast<i32>(nearby_cache_.size())) return {};
+  return ObjectRef{nearby_cache_[static_cast<size_t>(index)]};
+}
+
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetBaseObject(ObjectRef ref) {
   return ResolveFormRef(ref, FourCc('N', 'A', 'M', 'E'));
 }

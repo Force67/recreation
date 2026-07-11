@@ -51,6 +51,13 @@ class SkyrimBindings {
   virtual bool IsEssential(papyrus::ObjectRef actor_base) { return false; }
   virtual papyrus::ObjectRef GetRace(papyrus::ObjectRef actor_base) { return {}; }
 
+  // Proximity over a per-frame position snapshot: references within `radius`
+  // (game units) of `center`. GetNearbyRefs computes and caches the set and
+  // returns its size; GetNthNearbyRef reads that cached result by index. Both run
+  // on the guest thread; the snapshot is refreshed by the runtime.
+  virtual i32 GetNearbyRefs(papyrus::ObjectRef center, f32 radius) { return 0; }
+  virtual papyrus::ObjectRef GetNthNearbyRef(i32 index) { return {}; }
+
   // ObjectReference spatial state (engine transform / ECS).
   virtual f32 GetPositionX(papyrus::ObjectRef ref) { return 0; }
   virtual f32 GetPositionY(papyrus::ObjectRef ref) { return 0; }

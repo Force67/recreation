@@ -4,9 +4,11 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "bethesda/load_order.h"
@@ -59,6 +61,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void set_event_sink(std::function<void(const host::ManagedEvent&)> sink) {
     event_sink_ = std::move(sink);
   }
+
+  // Refreshes the world-space position snapshot the proximity query reads. Called
+  // by the runtime each frame on the main thread; it takes the snapshot mutex, so
+  // it is the one method on these bindings safe to call off the guest thread.
+  void UpdatePositionSnapshot(const std::vector<std::pair<u64, std::array<f32, 3>>>& positions);
 
   // Replica mode (a multiplayer client): the server is authoritative for quests
   // and quest-driven world state, so the client's own scripts must not mutate
@@ -128,6 +135,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   bool IsUnique(papyrus::ObjectRef actor_base) override;
   bool IsEssential(papyrus::ObjectRef actor_base) override;
   papyrus::ObjectRef GetRace(papyrus::ObjectRef actor_base) override;
+
+  i32 GetNearbyRefs(papyrus::ObjectRef center, f32 radius) override;
+  papyrus::ObjectRef GetNthNearbyRef(i32 index) override;
 
   // Spatial state: authored placement from the REFR record, overridable by
   // SetPosition / MoveTo (the override store is the new system).
@@ -300,6 +310,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::array<bool, SkyrimBindings::kControlCount> player_controls_{};   // true = enabled
   bool player_controls_init_ = false;
   std::unordered_map<u64, f32> global_values_;  // GlobalVariable overrides
+
+  // Proximity query state. live_positions_ is a world-space snapshot the runtime
+  // refreshes each frame (main thread); the natives read it on the guest thread,
+  // so the mutex guards both it and the cached last result. This is the only
+  // bindings state touched from two threads.
+  std::mutex live_positions_mutex_;
+  std::unordered_map<u64, std::array<f32, 3>> live_positions_;
+  std::vector<u64> nearby_cache_;  // last GetNearbyRefs result
 };
 
 }  // namespace rec::script::skyrim

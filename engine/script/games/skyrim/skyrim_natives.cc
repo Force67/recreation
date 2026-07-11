@@ -237,6 +237,12 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
 }
 
 void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
+  reg.Register("ObjectReference", "GetNearbyRefs", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Int(Resolve(bindings).GetNearbyRefs(self, ArgF(a, 0)));
+  });
+  reg.Register("ObjectReference", "GetNthNearbyRef", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Object(Resolve(bindings).GetNthNearbyRef(ArgI(a, 0)));
+  });
   reg.Register("ObjectReference", "GetPositionX", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Float(Resolve(bindings).GetPositionX(self));
   });
