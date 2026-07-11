@@ -41,7 +41,7 @@ public sealed class FakeBackend : IEngineBackend
     public void SetArmorRating(ulong armor, float rating) => _armorRating[armor] = rating;
     private readonly HashSet<(ulong, ulong)> _keywords = new();
     private readonly Dictionary<ulong, (float X, float Y, float Z)> _positions = new();
-    private readonly List<ulong> _nearbyCache = new();
+    private readonly List<(ulong Handle, float Distance)> _nearbyCache = new();
     private readonly Dictionary<ulong, Dictionary<ulong, int>> _inventory = new();  // container -> item -> count
     private readonly Dictionary<ulong, float> _weights = new();  // item -> unit weight
 
@@ -192,13 +192,15 @@ public sealed class FakeBackend : IEngineBackend
                 _nearbyCache.Clear();
                 if (_positions.TryGetValue(self, out var center))
                 {
-                    float r2 = args[0].AsFloat() * args[0].AsFloat();
+                    float radius = args[0].AsFloat();
+                    float r2 = radius * radius;
                     foreach (var kv in _positions)
                     {
                         if (kv.Key == self) continue;
                         float dx = kv.Value.X - center.X, dy = kv.Value.Y - center.Y,
                               dz = kv.Value.Z - center.Z;
-                        if (dx * dx + dy * dy + dz * dz <= r2) _nearbyCache.Add(kv.Key);
+                        float d2 = dx * dx + dy * dy + dz * dz;
+                        if (d2 <= r2) _nearbyCache.Add((kv.Key, System.MathF.Sqrt(d2)));
                     }
                 }
                 return Value.Int(_nearbyCache.Count);
@@ -207,8 +209,15 @@ public sealed class FakeBackend : IEngineBackend
             {
                 int idx = args[0].AsInt();
                 return idx >= 0 && idx < _nearbyCache.Count
-                    ? Value.Object(_nearbyCache[idx])
+                    ? Value.Object(_nearbyCache[idx].Handle)
                     : Value.Object(0);
+            }
+            case "GetNthNearbyDistance":
+            {
+                int idx = args[0].AsInt();
+                return idx >= 0 && idx < _nearbyCache.Count
+                    ? Value.Float(_nearbyCache[idx].Distance)
+                    : Value.Float(0);
             }
             case "GetItemCount":
                 return Value.Int(_inventory.TryGetValue(self, out var owned) &&

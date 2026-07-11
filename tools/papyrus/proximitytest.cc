@@ -36,10 +36,13 @@ int main() {
   bool saw_100 = false, saw_101 = false, saw_102 = false, saw_center = false;
   for (int i = 0; i < count; ++i) {
     const rec::u64 h = bindings.GetNthNearbyRef(i).handle;
+    const rec::f32 d = bindings.GetNthNearbyDistance(i);
     saw_100 |= h == 0x100;
     saw_101 |= h == 0x101;
     saw_102 |= h == 0x102;
     saw_center |= h == 0x14;
+    // Distance is reported in game units: 3 m engine -> ~210 game units.
+    if (h == 0x100) check("3 m ref reports ~210 game units", d > 205.0f && d < 215.0f);
   }
   check("includes the close refs", saw_100 && saw_101);
   check("excludes the far ref", !saw_102);
