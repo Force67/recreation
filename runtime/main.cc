@@ -13,7 +13,7 @@ void PrintUsage() {
   RX_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
   RX_INFO("  --menu                open the NEXUS main menu (pick a universe to play)");
   RX_INFO("  --demo <id>           builtin scene: water | materials | gaussian");
-  RX_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
+  RX_INFO("  --game <id>           skyrimse | fo4 | fo76 | starfield | oblivion (default: autodetect)");
   RX_INFO("  --add-game <spec>     load another game's content live alongside the");
   RX_INFO("                        primary, as <game>:<data-dir>[:<plugins.txt>]");
   RX_INFO("                        (repeatable; runs its own isolated microvm)");
@@ -39,6 +39,7 @@ rx::bethesda::Game ParseGame(const std::string& id) {
   if (id == "fo4") return rx::bethesda::Game::kFallout4;
   if (id == "fo76") return rx::bethesda::Game::kFallout76;
   if (id == "starfield") return rx::bethesda::Game::kStarfield;
+  if (id == "oblivion") return rx::bethesda::Game::kOblivion;
   return rx::bethesda::Game::kUnknown;
 }
 

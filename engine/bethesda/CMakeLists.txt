@@ -10,6 +10,7 @@ recreation_add_module(bethesda
   bsa.cc
   ba2.cc
   nif.cc
+  nif_gamebryo.cc
   hkx.cc
   hkx_physics.cc
   hkx_to_physics.cc

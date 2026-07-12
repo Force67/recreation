@@ -53,9 +53,20 @@ struct NifConversion {
   u32 skinned_shapes = 0;  // shapes baked rigidly at their bind pose
   // Set by ConvertNifSkinnedMesh: mesh->skinned with mesh->skin populated.
   bool skinned = false;
+  // Classic Gamebryo (Oblivion) source: normal-map paths were derived by the
+  // "<diffuse>_n.dds" convention, so the converter existence-checks them and
+  // unbinds the ones that do not resolve.
+  bool gamebryo = false;
 };
 
 NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path);
+
+// Classic Gamebryo NIFs (Oblivion, 10.1.0.106 .. 20.0.0.5): NiTriShape /
+// NiTriStrips geometry with inline NiTexturingProperty materials, walked
+// sequentially (these files carry no block size table). ConvertNifScene
+// dispatches here when IsGamebryoNifVersion matches.
+bool IsGamebryoNifVersion(ByteSpan data);
+NifConversion ConvertGamebryoNif(ByteSpan data, asset::AssetId id, std::string_view source_path);
 
 // Like ConvertNifScene but keeps skinned shapes as runtime-skinned geometry:
 // vertices stay in bind space, MeshLod::skinning carries per-vertex bone

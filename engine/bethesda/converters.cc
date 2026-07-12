@@ -587,6 +587,16 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
         NifConversion conversion = ConvertNifScene(data, id, path);
         if (!conversion.mesh) return base::UniquePointer<asset::Mesh>();
         for (const std::string& texture : conversion.texture_paths) {
+          // Gamebryo (Oblivion) normal maps are derived by the _n.dds naming
+          // convention, so only bind the ones that actually exist.
+          if (conversion.gamebryo && texture.ends_with("_n.dds") &&
+              !database.vfs().Contains(texture)) {
+            asset::AssetId missing = asset::MakeAssetId(texture);
+            for (asset::Material& material : conversion.materials) {
+              if (material.normal.hash == missing.hash) material.normal = {};
+            }
+            continue;
+          }
           database.LoadTexture(texture);
         }
         // Fallout 4 binds textures through a .bgsm/.bgem material file; the

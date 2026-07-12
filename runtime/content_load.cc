@@ -424,6 +424,9 @@ bool LoadGameData(Engine& engine) {
   // ray tracing) falls back to the cheaper per-cell albedo bake.
   settings.terrain_splat = self->config_.preset != render::QualityPreset::kLowEnd;
   self->streamer_->Configure(settings);
+  // Oblivion worldspaces carry no default water height (WRLD has no DNAM);
+  // the game's exterior sea level is 0 (Lake Rumare, the Niben, the coast).
+  if (self->game_ == bethesda::Game::kOblivion) self->streamer_->set_fallback_water_height(0.0f);
   if (!self->config_.headless) {
     world::CellStreamer::Uploads uploads;
     uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
@@ -449,6 +452,11 @@ bool LoadGameData(Engine& engine) {
   if (!self->config_.start_cell_explicit && self->game_ == bethesda::Game::kStarfield) {
     self->config_.start_cell_x = 0;
     self->config_.start_cell_y = -3;
+  }
+  // Oblivion: Weye with the Imperial City island across Lake Rumare.
+  if (!self->config_.start_cell_explicit && self->game_ == bethesda::Game::kOblivion) {
+    self->config_.start_cell_x = 3;
+    self->config_.start_cell_y = 10;
   }
   // The Civil War battle showcases stage two armies in the open, so without an
   // explicit --cell drop them onto a flat, dry patch of the Whiterun tundra
@@ -585,6 +593,9 @@ void SetupExtraStreamers(Engine& engine) {
     world::CellStreamer::Settings settings;
     settings.grass_density = self->config_.grass_density;
     streamer->Configure(settings);
+    if (domain.profile().game == bethesda::Game::kOblivion) {
+      streamer->set_fallback_water_height(0.0f);
+    }
     world::CellStreamer::Uploads uploads;
     uploads.mesh = [self, salt](const asset::Mesh& mesh) {
       return self->renderer_->UploadMesh(mesh, salt);

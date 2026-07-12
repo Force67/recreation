@@ -2011,6 +2011,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
 }
 
 NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+  if (IsGamebryoNifVersion(data)) return ConvertGamebryoNif(data, id, source_path);
   return ConvertNifImpl(data, id, source_path, /*keep_skin=*/false, /*rigid_fallback=*/false);
 }
 

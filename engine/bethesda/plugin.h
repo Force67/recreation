@@ -73,6 +73,9 @@ class PluginFile {
   u32 record_count_ = 0;
   bool is_light_ = false;
   size_t records_begin_ = 0;
+  // On disk record/group header size (GameProfile::record_header_size).
+  // Oblivion headers are 20 bytes, Skyrim and later 24.
+  u32 header_size_ = 24;
 };
 
 }  // namespace rx::bethesda

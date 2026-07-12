@@ -9,7 +9,7 @@
 
 namespace rx::bethesda {
 
-enum class Game : u8 { kUnknown, kSkyrimSe, kFallout4, kFallout76, kStarfield };
+enum class Game : u8 { kUnknown, kSkyrimSe, kFallout4, kFallout76, kStarfield, kOblivion };
 
 enum class ArchiveFormat : u8 { kBsa, kBa2 };
 
@@ -30,6 +30,9 @@ struct GameProfile {
   std::string string_language = "english";
   bool supports_esl = true;
   bool has_loose_script_source = true;
+  // On disk record/group header size. Oblivion's TES4 headers are 20 bytes
+  // (no form_version/unknown tail); everything since Skyrim uses 24.
+  u32 record_header_size = 24;
 
   static const GameProfile& For(Game game);
   static Game DetectFromDataDir(const std::string& data_dir);

@@ -341,6 +341,7 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
   // own XCLW flood at the water height (Tamriel: -14000, the ocean). NAM2 is the
   // worldspace default water type (a WATR form), used by cells with no XCWT.
   default_water_form_ = {};
+  default_water_height_ = fallback_water_height_;
   bethesda::Record wrld;
   if (records_.Parse(worldspace_, &wrld)) {
     if (const bethesda::Subrecord* dnam = wrld.Find(kDnam); dnam && dnam->data.size() >= 8) {

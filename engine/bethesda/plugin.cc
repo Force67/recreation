@@ -79,6 +79,23 @@ bool EndsWithEsl(const std::string& path) {
          (path.ends_with(".esl") || path.ends_with(".ESL") || path.ends_with(".Esl"));
 }
 
+// Oblivion record and group headers are 20 bytes: they end at version_control,
+// without the form_version/unknown tail Skyrim added. Reads either size into
+// the in-memory 24 byte structs.
+bool ReadRecordHeader(Reader& reader, u32 header_size, RecordHeader* out) {
+  if (header_size == sizeof(RecordHeader)) return reader.Read(out);
+  *out = RecordHeader{};
+  return reader.Read(&out->type) && reader.Read(&out->data_size) && reader.Read(&out->flags) &&
+         reader.Read(&out->form_id) && reader.Read(&out->version_control);
+}
+
+bool ReadGroupHeader(Reader& reader, u32 header_size, GroupHeader* out) {
+  if (header_size == sizeof(GroupHeader)) return reader.Read(out);
+  *out = GroupHeader{};
+  return reader.Read(&out->type) && reader.Read(&out->group_size) && reader.Read(&out->label) &&
+         reader.Read(&out->group_type) && reader.Read(&out->version_control);
+}
+
 }  // namespace
 
 bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* out) {
@@ -129,9 +146,10 @@ std::optional<PluginFile> PluginFile::Open(const std::string& path, const GamePr
 }
 
 bool PluginFile::ParseHeader(const GameProfile& profile) {
+  if (profile.record_header_size != 0) header_size_ = profile.record_header_size;
   Reader reader{ByteSpan(data_.data(), data_.size())};
   RecordHeader header;
-  if (!reader.Read(&header) || header.type != kTes4) return false;
+  if (!ReadRecordHeader(reader, header_size_, &header) || header.type != kTes4) return false;
   if (reader.remaining() < header.data_size) return false;
 
   header_flags_ = header.flags;
@@ -163,7 +181,7 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
   reader.pos = records_begin_;
   GroupContext ctx;
 
-  while (reader.remaining() >= sizeof(GroupHeader)) {
+  while (reader.remaining() >= header_size_) {
     u32 type;
     std::memcpy(&type, reader.data.data() + reader.pos, 4);
 
@@ -173,7 +191,7 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
       // cell children groups carry the context records need; records always
       // follow their enclosing group header, so last-seen labels are enough.
       GroupHeader group;
-      if (!reader.Read(&group)) return false;
+      if (!ReadGroupHeader(reader, header_size_, &group)) return false;
       // Top level and interior block groups end any worldspace context, so
       // interior cells are never misattributed to the last seen worldspace.
       if (group.group_type == 0 || group.group_type == 2 || group.group_type == 3) {
@@ -191,7 +209,9 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
     }
 
     RecordHeader header;
-    if (!reader.Read(&header) || reader.remaining() < header.data_size) return false;
+    if (!ReadRecordHeader(reader, header_size_, &header) || reader.remaining() < header.data_size) {
+      return false;
+    }
     ByteSpan payload = reader.Take(header.data_size);
     if (header.flags & kRecordFlagDeleted) continue;
     visitor(header, payload, ctx);
