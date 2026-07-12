@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <vector>
@@ -379,9 +380,60 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
     // through the ID components above, so the edge table is not needed here.
   }
 
-  // Resolve each top-level material (a .mat object that owns layers) down to its
-  // base layer's texture set and index it by both resource id and stem name.
-  auto tex_of = [&](const Object& mat, u32 slot) -> const std::string* {
+  // A layer's color texture is a generic overlay (grunge/dust/detail/tint/blank
+  // pattern) rather than the surface's actual material, when it lives under
+  // common\grunge / common\detail or its file name marks it as a grunge/detail/
+  // blend/tint/blank overlay. Starfield stacks these as layer 0 to weather a
+  // dominant lower layer through a blend mask; binding the overlay as the whole
+  // base colour makes a granite rock read as flat dust. Preferring the first
+  // non-overlay layer's textures picks the real surface (the closest single-map
+  // approximation of the multi-layer blend). Slot-independent: normal/PBR follow
+  // the chosen layer set.
+  auto is_generic_overlay = [](std::string_view path) {
+    std::string lower(path);
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : lower) if (c == '\\') c = '/';
+    if (lower.find("/grunge/") != std::string::npos ||
+        lower.find("/detail/") != std::string::npos)
+      return true;
+    size_t slash = lower.rfind('/');
+    std::string_view name = slash == std::string::npos ? lower : std::string_view(lower).substr(slash + 1);
+    return name.find("grunge") != std::string_view::npos ||
+           name.find("detail") != std::string_view::npos ||
+           name.find("blank") != std::string_view::npos ||
+           name.find("_tint") != std::string_view::npos ||
+           name.find("blend") != std::string_view::npos;
+  };
+
+  // RX_STARFIELD_LAYER_PICK=0 pins the original behaviour (first layer with a
+  // texture in each slot, independently) for A/B; default prefers a real surface
+  // layer over a generic overlay for the whole texture set.
+  const char* pick_env = std::getenv("RX_STARFIELD_LAYER_PICK");
+  const bool prefer_surface = !pick_env || pick_env[0] != '0';
+
+  // The chosen texture set for a material: the first layer whose colour is a
+  // real surface (not a generic overlay), else the first layer with any colour,
+  // else the first layer. Reading every slot from this one set keeps a material
+  // internally consistent (colour/normal/PBR from the same surface).
+  auto pick_layer = [&](const Object& mat) -> u32 {
+    u32 first_with_color = 0, first_any = 0;
+    for (u32 layer : mat.layer_ids) {
+      if (!layer || layer >= objects.size()) continue;
+      u32 mid = objects[layer].material_id;
+      if (!mid || mid >= objects.size()) continue;
+      u32 tsid = objects[mid].texture_set_id;
+      if (!tsid || tsid >= objects.size()) continue;
+      if (!first_any) first_any = tsid;
+      const std::string& c = objects[tsid].tex[kSlotColor];
+      if (c.empty()) continue;
+      if (!first_with_color) first_with_color = tsid;
+      if (!is_generic_overlay(c)) return tsid;  // a real surface layer
+    }
+    return first_with_color ? first_with_color : first_any;
+  };
+
+  // Original path: first layer (in order) with a texture in this slot.
+  auto tex_of_first = [&](const Object& mat, u32 slot) -> const std::string* {
     for (u32 layer : mat.layer_ids) {
       if (!layer || layer >= objects.size()) continue;
       u32 mid = objects[layer].material_id;
@@ -396,12 +448,19 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
 
   for (const Object& o : objects) {
     if (o.id.ext != kExtMat || !o.has_layer) continue;
-    const std::string* color = tex_of(o, kSlotColor);
-    const std::string* normal = tex_of(o, kSlotNormal);
-    const std::string* emissive = tex_of(o, kSlotEmissive);
-    const std::string* roughness = tex_of(o, kSlotRoughness);
-    const std::string* metallic = tex_of(o, kSlotMetallic);
-    const std::string* ao = tex_of(o, kSlotAo);
+    u32 tsid = prefer_surface ? pick_layer(o) : 0;
+    auto tex_of = [&](u32 slot) -> const std::string* {
+      if (!prefer_surface) return tex_of_first(o, slot);
+      if (!tsid || tsid >= objects.size()) return nullptr;
+      const std::string& t = objects[tsid].tex[slot];
+      return t.empty() ? nullptr : &t;
+    };
+    const std::string* color = tex_of(kSlotColor);
+    const std::string* normal = tex_of(kSlotNormal);
+    const std::string* emissive = tex_of(kSlotEmissive);
+    const std::string* roughness = tex_of(kSlotRoughness);
+    const std::string* metallic = tex_of(kSlotMetallic);
+    const std::string* ao = tex_of(kSlotAo);
     if (!color && !normal && !emissive && !roughness && !metallic && !ao) continue;
     Textures t;
     if (color) t.base_color = NormalizeTexturePath(*color);
