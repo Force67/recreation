@@ -568,7 +568,8 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
     auto material_db = std::make_shared<StarfieldMaterialDb>();
     if (auto cdb = database.vfs().Read("materials/materialsbeta.cdb")) {
       material_db->Build(ByteSpan(cdb->data(), cdb->size()));
-      RX_INFO("starfield material database: {} materials indexed", material_db->size());
+      RX_INFO("starfield material database: {} materials indexed ({} via object graph)",
+              material_db->size(), material_db->graph_size());
     } else {
       RX_WARN("starfield material database not found; meshes use the path convention only");
     }
