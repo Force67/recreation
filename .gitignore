@@ -32,6 +32,9 @@ android/screenshots/
 thumbs/
 editor_layout.reclayout
 
+# Local render-verification screenshot captures
+.pbr_shots/
+
 # Local launch helpers (machine-specific Steam paths)
 /run-common.sh
 /run-skyrim.sh

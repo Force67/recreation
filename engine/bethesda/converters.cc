@@ -7,6 +7,7 @@
 #include <string>
 
 #include <base/containers/unordered_map.h>
+#include <base/option.h>
 
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
@@ -16,6 +17,10 @@
 
 namespace rx::bethesda {
 namespace {
+
+// Starfield metallic/roughness/AO wiring; RX_STARFIELD_PBR=0 pins the old
+// gray-matte look for A/B comparison.
+base::Option<bool> StarfieldPbr{"starfield.pbr", true, "RX_STARFIELD_PBR"};
 
 constexpr u32 kDdsMagic = FourCc('D', 'D', 'S', ' ');
 constexpr u32 kDdpfFourCc = 0x4;
@@ -49,7 +54,10 @@ size_t MipChainSize(asset::TextureFormat format, u32 width, u32 height, u32 mips
 bool PathIsLinearData(std::string_view path) {
   size_t dot = path.rfind('.');
   std::string_view stem = dot == std::string_view::npos ? path : path.substr(0, dot);
-  return stem.ends_with("_n") || stem.ends_with("_msn") || stem.ends_with("_normal");
+  // Normal maps and the PBR data channels (roughness/metallic/occlusion) are
+  // linear data, not colour, so a UNORM DDS of one must not be sampled as sRGB.
+  return stem.ends_with("_n") || stem.ends_with("_msn") || stem.ends_with("_normal") ||
+         stem.ends_with("_rough") || stem.ends_with("_metal") || stem.ends_with("_ao");
 }
 
 }  // namespace
@@ -322,6 +330,41 @@ void BindConventionTextures(asset::AssetDatabase& database, const std::string& m
   BindTextureIfExists(database, "textures/" + stem + "_color.dds", &material->base_color);
   BindTextureIfExists(database, "textures/" + stem + "_normal.dds", &material->normal);
   BindEmissiveIfExists(database, "textures/" + stem + "_emissive.dds", material);
+  // PBR channels by the same mirror (roughness/metallic/AO ship as separate
+  // maps in Starfield). rx keeps the roughness map in the metallic_roughness
+  // slot and reads separate metallic/occlusion under their own slots.
+  if (!StarfieldPbr.get()) return;  // RX_STARFIELD_PBR=0: old gray-matte look
+  BindTextureIfExists(database, "textures/" + stem + "_rough.dds", &material->metallic_roughness);
+  BindTextureIfExists(database, "textures/" + stem + "_metal.dds", &material->metallic_map);
+  BindTextureIfExists(database, "textures/" + stem + "_ao.dds", &material->occlusion_map);
+  if (material->metallic_roughness) material->roughness_factor = 1.0f;
+  if (material->metallic_map) {
+    material->separate_metallic = true;
+    material->metallic_factor = 1.0f;
+  }
+}
+
+// Applies the resolved PBR channels: roughness -> the mr slot (read as .g),
+// metallic -> the dedicated metallic slot (separate_metallic tells the shader
+// the mr slot is roughness-only), AO -> the occlusion slot. metallic_factor is
+// raised to 1 for a metal so the map (or the flat white default) reads as metal;
+// non-metals stay dielectric (factor 0 from the caller).
+void BindStarfieldPbr(asset::AssetDatabase& database, const StarfieldMaterialDb::Resolved& r,
+                      asset::Material* material) {
+  if (!StarfieldPbr.get()) return;  // RX_STARFIELD_PBR=0: old gray-matte look
+  BindTextureIfExists(database, r.roughness, &material->metallic_roughness);
+  BindTextureIfExists(database, r.metallic, &material->metallic_map);
+  BindTextureIfExists(database, r.ao, &material->occlusion_map);
+  // With a real roughness map the per-texel gloss should drive shading, so let
+  // the factor pass through fully instead of the gray-default 0.8 dampening it.
+  if (material->metallic_roughness) material->roughness_factor = 1.0f;
+  // Even without a per-texel metallic map, the CDB metal hint promotes the
+  // surface to metal so it reflects; the flat white metallic default * factor 1
+  // then reads fully metallic.
+  if (material->metallic_map || r.metallic_hint) {
+    material->separate_metallic = true;
+    material->metallic_factor = 1.0f;
+  }
 }
 
 // Resolves a Starfield mesh's textures: the compiled material database first (it
@@ -329,11 +372,12 @@ void BindConventionTextures(asset::AssetDatabase& database, const std::string& m
 // convention (landscape), then nothing (the gray factor shows through).
 void BindStarfieldMaterial(asset::AssetDatabase& database, const StarfieldMaterialDb& mat_db,
                            const std::string& mat_path, asset::Material* material) {
-  std::string color, normal, emissive;
-  if (mat_db.Lookup(mat_path, &color, &normal, &emissive)) {
-    BindTextureIfExists(database, color, &material->base_color);
-    BindTextureIfExists(database, normal, &material->normal);
-    BindEmissiveIfExists(database, emissive, material);
+  StarfieldMaterialDb::Resolved r;
+  if (mat_db.Lookup(mat_path, &r)) {
+    BindTextureIfExists(database, r.base_color, &material->base_color);
+    BindTextureIfExists(database, r.normal, &material->normal);
+    BindEmissiveIfExists(database, r.emissive, material);
+    BindStarfieldPbr(database, r, material);
     return;
   }
   BindConventionTextures(database, mat_path, material);

@@ -60,8 +60,13 @@ constexpr u32 kChunkObjt = 0x544A424F;  // "OBJT"
 constexpr u32 kChunkDiff = 0x46464944;  // "DIFF"
 
 // TextureSet slot indices, from the BSMaterial::TextureFile component key.
+// Confirmed Starfield BSMaterial layout: 0 color, 1 normal, 2 opacity,
+// 3 roughness, 4 metallic, 5 ambient occlusion, 6 height, 7 emissive, 8 glow.
 constexpr u32 kSlotColor = 0;
 constexpr u32 kSlotNormal = 1;
+constexpr u32 kSlotRoughness = 3;
+constexpr u32 kSlotMetallic = 4;
+constexpr u32 kSlotAo = 5;
 constexpr u32 kSlotEmissive = 7;
 constexpr u32 kMaxSlots = 21;
 
@@ -394,11 +399,17 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
     const std::string* color = tex_of(o, kSlotColor);
     const std::string* normal = tex_of(o, kSlotNormal);
     const std::string* emissive = tex_of(o, kSlotEmissive);
-    if (!color && !normal && !emissive) continue;
+    const std::string* roughness = tex_of(o, kSlotRoughness);
+    const std::string* metallic = tex_of(o, kSlotMetallic);
+    const std::string* ao = tex_of(o, kSlotAo);
+    if (!color && !normal && !emissive && !roughness && !metallic && !ao) continue;
     Textures t;
     if (color) t.base_color = NormalizeTexturePath(*color);
     if (normal) t.normal = NormalizeTexturePath(*normal);
     if (emissive) t.emissive = NormalizeTexturePath(*emissive);
+    if (roughness) t.roughness = NormalizeTexturePath(*roughness);
+    if (metallic) t.metallic = NormalizeTexturePath(*metallic);
+    if (ao) t.ao = NormalizeTexturePath(*ao);
     by_resource_.emplace(o.id, std::move(t));
   }
 }
@@ -448,6 +459,9 @@ void StarfieldMaterialDb::BuildStemIndex(ByteSpan cdb) {
             if (cur.base_color.empty() && EndsWith(norm, "_color.dds")) cur.base_color = std::move(norm);
             else if (cur.normal.empty() && EndsWith(norm, "_normal.dds")) cur.normal = std::move(norm);
             else if (cur.emissive.empty() && EndsWith(norm, "_emissive.dds")) cur.emissive = std::move(norm);
+            else if (cur.roughness.empty() && EndsWith(norm, "_rough.dds")) cur.roughness = std::move(norm);
+            else if (cur.metallic.empty() && EndsWith(norm, "_metal.dds")) cur.metallic = std::move(norm);
+            else if (cur.ao.empty() && EndsWith(norm, "_ao.dds")) cur.ao = std::move(norm);
           }
         }
       }
@@ -457,13 +471,22 @@ void StarfieldMaterialDb::BuildStemIndex(ByteSpan cdb) {
   commit();
 }
 
-bool StarfieldMaterialDb::Lookup(std::string_view mat_path, std::string* base_color,
-                                 std::string* normal, std::string* emissive) const {
+bool StarfieldMaterialDb::Lookup(std::string_view mat_path, Resolved* out) const {
+  auto fill = [&](const Textures& t) {
+    out->base_color = t.base_color;
+    out->normal = t.normal;
+    out->emissive = t.emissive;
+    out->roughness = t.roughness;
+    out->metallic = t.metallic;
+    out->ao = t.ao;
+    // A bound metallic map is the metal signal (no scalar metalness in the
+    // TextureFile leaves this reader follows).
+    out->metallic_hint = !t.metallic.empty();
+  };
+
   // Prefer the object-graph result (resolves architecture/ships by path hash).
   if (auto it = by_resource_.find(HashResource(mat_path)); it != by_resource_.end()) {
-    if (base_color && !it->second.base_color.empty()) *base_color = it->second.base_color;
-    if (normal && !it->second.normal.empty()) *normal = it->second.normal;
-    if (emissive && !it->second.emissive.empty()) *emissive = it->second.emissive;
+    fill(it->second);
     return true;
   }
 
@@ -475,9 +498,17 @@ bool StarfieldMaterialDb::Lookup(std::string_view mat_path, std::string* base_co
 
   auto it = by_stem_.find(std::string(file));
   if (it == by_stem_.end()) return false;
-  if (base_color && !it->second.base_color.empty()) *base_color = it->second.base_color;
-  if (normal && !it->second.normal.empty()) *normal = it->second.normal;
-  if (emissive && !it->second.emissive.empty()) *emissive = it->second.emissive;
+  fill(it->second);
+  return true;
+}
+
+bool StarfieldMaterialDb::Lookup(std::string_view mat_path, std::string* base_color,
+                                 std::string* normal, std::string* emissive) const {
+  Resolved r;
+  if (!Lookup(mat_path, &r)) return false;
+  if (base_color && !r.base_color.empty()) *base_color = r.base_color;
+  if (normal && !r.normal.empty()) *normal = r.normal;
+  if (emissive && !r.emissive.empty()) *emissive = r.emissive;
   return true;
 }
 
