@@ -794,7 +794,7 @@ int DumpTri(const std::string& data_dir, const std::string& path) {
 // coordinate it lists that exterior cell's refs instead.
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::printf("usage: esminfo <plugin.esm> [game: skyrimse|fo4|fo76]\n");
+    std::printf("usage: esminfo <plugin.esm> [game: skyrimse|fo4|fo76|starfield|oblivion]\n");
     std::printf("       esminfo <data-dir> cell <x,y>\n");
     std::printf("       esminfo <data-dir> gras\n");
     return 1;
@@ -863,6 +863,8 @@ int main(int argc, char** argv) {
     std::string id = argv[2];
     if (id == "fo4") game = Game::kFallout4;
     if (id == "fo76") game = Game::kFallout76;
+    if (id == "starfield") game = Game::kStarfield;
+    if (id == "oblivion") game = Game::kOblivion;
   }
 
   auto plugin = PluginFile::Open(argv[1], GameProfile::For(game));
