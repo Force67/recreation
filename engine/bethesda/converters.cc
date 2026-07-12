@@ -22,6 +22,17 @@ namespace {
 // gray-matte look for A/B comparison.
 base::Option<bool> StarfieldPbr{"starfield.pbr", true, "RX_STARFIELD_PBR"};
 
+// Starfield emissive signage (billboards, kiosks, holo-screens, warning signs).
+// The CDB resolves an emissive map for these, but at a flat factor 1 they read
+// as dim; and the pure-emissive signs (no base colour) render as plain white lit
+// panels that swamp the glow. This gives emissive materials an HDR boost so they
+// read as light sources, and treats a colourless emissive material as unlit
+// signage (its base stops contributing lit white). RX_STARFIELD_EMISSIVE=0 pins
+// the old flat look. RX_STARFIELD_EMISSIVE_SCALE overrides the boost.
+base::Option<bool> StarfieldEmissive{"starfield.emissive", true, "RX_STARFIELD_EMISSIVE"};
+base::Option<float> StarfieldEmissiveScale{"starfield.emissive_scale", 3.0f,
+                                           "RX_STARFIELD_EMISSIVE_SCALE"};
+
 constexpr u32 kDdsMagic = FourCc('D', 'D', 'S', ' ');
 constexpr u32 kDdpfFourCc = 0x4;
 constexpr u32 kDdpfRgb = 0x40;
@@ -317,6 +328,24 @@ void BindEmissiveIfExists(asset::AssetDatabase& database, const std::string& pat
   database.LoadTexture(path);
 }
 
+// Makes a bound emissive material read as glowing signage: an HDR boost on the
+// emissive factor (so the sign is a light source, not a faint tint), and, for a
+// colourless emissive material (a self-lit sign/holo-screen with no base map),
+// dropping the lit-white base contribution so the emissive is the whole look
+// instead of a bright white panel with a dim glow on top. Opaque materials that
+// merely have an emissive detail keep their base colour and just glow brighter.
+void ApplyStarfieldEmissive(asset::Material* material, bool no_base_color) {
+  if (!StarfieldEmissive.get()) return;
+  if (!material->emissive) return;  // nothing emissive to promote
+  float scale = StarfieldEmissiveScale.get();
+  for (int k = 0; k < 3; ++k) material->emissive_factor[k] *= scale;
+  if (no_base_color && !material->base_color) {
+    // Self-illuminated sign with no diffuse: suppress the white lit fallback so
+    // the panel does not render as a flat-white surface swamping its glow.
+    for (int k = 0; k < 3; ++k) material->base_color_factor[k] = 0.0f;
+  }
+}
+
 // Binds the base-color, normal and emissive textures a ".mat" implies by
 // Starfield's path mirror convention (Materials\X\Y.mat -> textures/X/Y_color.dds),
 // but only when the files actually exist, so a mesh is never bound a wrong
@@ -330,6 +359,7 @@ void BindConventionTextures(asset::AssetDatabase& database, const std::string& m
   BindTextureIfExists(database, "textures/" + stem + "_color.dds", &material->base_color);
   BindTextureIfExists(database, "textures/" + stem + "_normal.dds", &material->normal);
   BindEmissiveIfExists(database, "textures/" + stem + "_emissive.dds", material);
+  ApplyStarfieldEmissive(material, !material->base_color);
   // PBR channels by the same mirror (roughness/metallic/AO ship as separate
   // maps in Starfield). rx keeps the roughness map in the metallic_roughness
   // slot and reads separate metallic/occlusion under their own slots.
@@ -378,6 +408,7 @@ void BindStarfieldMaterial(asset::AssetDatabase& database, const StarfieldMateri
     BindTextureIfExists(database, r.normal, &material->normal);
     BindEmissiveIfExists(database, r.emissive, material);
     BindStarfieldPbr(database, r, material);
+    ApplyStarfieldEmissive(material, r.base_color.empty());
     return;
   }
   BindConventionTextures(database, mat_path, material);
