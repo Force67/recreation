@@ -84,7 +84,7 @@ recreation_set_warnings(recreation)
 recreation_enable_mimalloc(recreation)
 
 if(RECREATION_NET)
-  target_link_libraries(recreation PRIVATE recreation::net)
+  target_link_libraries(recreation PRIVATE recreation::gamenet rx::net_viz)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_NET=1)
 endif()
 
@@ -130,6 +130,6 @@ recreation_set_warnings(recreation-server)
 recreation_enable_mimalloc(recreation-server)
 
 if(RECREATION_NET)
-  target_link_libraries(recreation-server PRIVATE recreation::net)
+  target_link_libraries(recreation-server PRIVATE recreation::gamenet rx::net_viz)
   target_compile_definitions(recreation-server PRIVATE RECREATION_HAS_NET=1)
 endif()

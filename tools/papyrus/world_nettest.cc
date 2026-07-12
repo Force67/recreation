@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "net/world_replication.h"
+#include "gamenet/world_replication.h"
 #include "world/quest_world.h"
 
 using Handle = std::uint64_t;  // avoid the rx::u64 / arch_types::u64 ambiguity

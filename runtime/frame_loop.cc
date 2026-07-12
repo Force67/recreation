@@ -411,6 +411,26 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       prev_transforms_ = std::move(transforms);
       actors_->EmitDraws(view);
       demos_->EmitToView(frame_delta, view);
+#if RECREATION_HAS_NET
+      // Overlay the session's streaming bubbles: the host draws its live
+      // interest map, a client the server-replicated mirror (kBubbleSync).
+      // Nothing renders when bubbles are off (no bubbles) or RX_NET_BUBBLES=0.
+      {
+        const base::Vector<net::BubbleState>* bubbles = nullptr;
+        if (server_session_) {
+          bubbles = &server_session_->engine().interest().bubbles();
+        } else if (client_session_) {
+          bubbles = &client_session_->engine().bubbles();
+        }
+        if (bubbles && bubbles->size() > 0 && renderer_) {
+          if (!bubble_viz_) {
+            bubble_viz_ = std::make_unique<net::BubbleVisualizer>();
+            bubble_viz_->Init(*renderer_);  // stays inert off the vulkan backend
+          }
+          bubble_viz_->Emit(view, *bubbles);
+        }
+      }
+#endif
       if (editor_) editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
       if (streamer_) streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
       if (streamer_) {

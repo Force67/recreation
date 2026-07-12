@@ -28,7 +28,8 @@
 #include "world/quest_world.h"
 
 #if RECREATION_HAS_NET
-#include "net/session.h"
+#include "gamenet/session.h"
+#include "net/bubble_debug.h"
 #endif
 
 namespace rx {
@@ -130,8 +131,8 @@ struct EngineContext {
   rx::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
   script::host::ManagedHost* managed = nullptr;  // null when C# scripting is off
 #if RECREATION_HAS_NET
-  net::ServerSession* server_session = nullptr;
-  net::ClientSession* client_session = nullptr;
+  net::GameServerSession* server_session = nullptr;
+  net::GameClientSession* client_session = nullptr;
 #endif
 
   // Walk-mode player view, written by the engine each frame and read by the

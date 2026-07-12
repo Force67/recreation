@@ -9,7 +9,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "net/actor_sync.h"
+#include "gamenet/actor_sync.h"
 #include "net/replication.h"
 #include "world/components.h"
 #include "world/quest_world.h"

@@ -22,9 +22,9 @@
 #include "modstream/content_provider.h"
 #include "modstream/content_store.h"
 #include "modstream/mod_catalog.h"
-#include "net/asset_stream.h"
+#include "gamenet/asset_stream.h"
 #include "net/rpc_channel.h"
-#include "net/session.h"
+#include "gamenet/session.h"
 #include "rpc/rpc_value.h"
 
 namespace fs = std::filesystem;
@@ -51,8 +51,8 @@ void WriteFile(const fs::path& path, const std::string& contents) {
 
 // Pumps both sessions one fixed step and yields briefly so the threaded
 // transport makes progress.
-void Pump(net::ServerSession& server, ecs::World& sworld,
-          net::ClientSession& client, ecs::World& cworld) {
+void Pump(net::GameServerSession& server, ecs::World& sworld,
+          net::GameClientSession& client, ecs::World& cworld) {
   const float dt = 1.0f / 60.0f;
   server.Tick(sworld, dt);
   client.Tick(cworld, dt);
@@ -86,18 +86,18 @@ int main() {
   std::optional<modstream::ModCatalog> reload_catalog;
 
   // --- bring up a loopback server and client ---
-  net::SessionConfig server_cfg;
+  net::GameSessionConfig server_cfg;
   server_cfg.port = 29751;
   server_cfg.mod_catalog = &*catalog;
   server_cfg.client_timeout_seconds = 1.0f;  // so the leave hook is testable quickly
-  net::ServerSession server(server_cfg);
+  net::GameServerSession server(server_cfg);
   Check("server starts", server.Start());
 
-  net::SessionConfig client_cfg;
+  net::GameSessionConfig client_cfg;
   client_cfg.port = 29751;
   client_cfg.address = base::String("127.0.0.1");
   client_cfg.content_store = &store;
-  net::ClientSession client(client_cfg);
+  net::GameClientSession client(client_cfg);
   Check("client starts", client.Start());
 
   // Register RPC handlers before any traffic flows. The server echoes back to

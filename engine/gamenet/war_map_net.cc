@@ -1,4 +1,4 @@
-#include "net/war_map_net.h"
+#include "gamenet/war_map_net.h"
 
 #include <algorithm>
 

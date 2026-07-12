@@ -1,4 +1,4 @@
-#include "net/quest_replication.h"
+#include "gamenet/quest_replication.h"
 
 #include <nanobuf.h>
 

@@ -214,6 +214,9 @@ void Engine::OnShutdown() {
     game_ui_.Shutdown();
     debug_ui_.Shutdown();
   }
+#if RECREATION_HAS_NET
+  bubble_viz_.reset();  // owns a raw pipeline; drop it while the device lives
+#endif
 }
 
 }  // namespace rx

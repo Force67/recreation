@@ -17,7 +17,7 @@
 #include "modstream/content_provider.h"
 #include "modstream/content_store.h"
 #include "modstream/mod_catalog.h"
-#include "net/asset_stream.h"
+#include "gamenet/asset_stream.h"
 #endif
 
 // Engine network bringup: opens the authoritative server or replica client
@@ -29,15 +29,22 @@ namespace rx {
 
 #if RECREATION_HAS_NET
 static base::Option<bool> NetQuestLog{"net.quest.log", false, "RX_NET_QUEST_LOG"};
+// Streaming-bubble radius in world units. Every joining player gets an
+// interest bubble of this size and the server streams each client only the
+// replicated entities inside it (per-peer delta streams instead of a
+// broadcast) -- the bandwidth lever that scales the player count. 0 restores
+// full-visibility broadcasting.
+static base::Option<int> NetBubbleRadius{"net.bubble.radius", 128, "REC_NET_BUBBLE_RADIUS"};
 
 bool StartNetworking(Engine& engine) {
   Engine* const self = &engine;
-  net::SessionConfig net_config;
+  net::GameSessionConfig net_config;
   net_config.port = self->config_.port;
   net_config.player_name = base::NameString(self->config_.player_name.c_str());
   net_config.max_clients = self->config_.max_clients;
   // Joining players replicate as cubes until there are real actor assets.
   net_config.player_mesh = asset::MakeAssetId("builtin/cube").hash;
+  net_config.bubble_radius = static_cast<f32>(NetBubbleRadius.get());
 
   // Asset streaming endpoints: the host catalogs its mods directory to offer, a
   // connecting client opens the content cache it streams into. A configured but
@@ -69,7 +76,7 @@ bool StartNetworking(Engine& engine) {
   }
 
   if (self->config_.host_server) {
-    auto server = std::make_unique<net::ServerSession>(std::move(net_config));
+    auto server = std::make_unique<net::GameServerSession>(std::move(net_config));
     if (!server->Start()) return false;
     self->server_session_ = server.get();
     self->ctx_.server_session = self->server_session_;
@@ -170,7 +177,7 @@ bool StartNetworking(Engine& engine) {
     });
   } else if (!self->config_.connect_address.empty()) {
     net_config.address = base::String(self->config_.connect_address.c_str());
-    auto client = std::make_unique<net::ClientSession>(std::move(net_config));
+    auto client = std::make_unique<net::GameClientSession>(std::move(net_config));
     if (!client->Start()) return false;
     self->client_session_ = client.get();
     self->ctx_.client_session = self->client_session_;
