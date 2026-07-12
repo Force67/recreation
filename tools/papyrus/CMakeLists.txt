@@ -258,23 +258,23 @@ recreation_set_warnings(dialoguetest)
 # Quest replication lives in the net module, so this only builds with networking.
 if(RECREATION_NET)
   add_executable(quest_nettest quest_nettest.cc)
-  target_link_libraries(quest_nettest PRIVATE recreation::net recreation::quest)
+  target_link_libraries(quest_nettest PRIVATE recreation::gamenet recreation::quest)
   recreation_set_warnings(quest_nettest)
 
   add_executable(world_nettest world_nettest.cc)
-  target_link_libraries(world_nettest PRIVATE recreation::net recreation::world)
+  target_link_libraries(world_nettest PRIVATE recreation::gamenet recreation::world)
   recreation_set_warnings(world_nettest)
 
   add_executable(actor_synctest actor_synctest.cc)
-  target_link_libraries(actor_synctest PRIVATE recreation::net recreation::world)
+  target_link_libraries(actor_synctest PRIVATE recreation::gamenet recreation::world)
   recreation_set_warnings(actor_synctest)
 
   add_executable(stage_requesttest stage_requesttest.cc)
-  target_link_libraries(stage_requesttest PRIVATE recreation::net)
+  target_link_libraries(stage_requesttest PRIVATE recreation::gamenet)
   recreation_set_warnings(stage_requesttest)
 
   add_executable(asset_streamtest asset_streamtest.cc)
-  target_link_libraries(asset_streamtest PRIVATE recreation::net recreation::modstream rx::asset)
+  target_link_libraries(asset_streamtest PRIVATE recreation::gamenet recreation::modstream rx::asset)
   recreation_set_warnings(asset_streamtest)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # GCC mis-fires -Warray-bounds inside the fortified memcpy when it cannot
@@ -284,15 +284,19 @@ if(RECREATION_NET)
   endif()
 
   add_executable(objective_marker_nettest objective_marker_nettest.cc)
-  target_link_libraries(objective_marker_nettest PRIVATE recreation::net)
+  target_link_libraries(objective_marker_nettest PRIVATE recreation::gamenet)
   recreation_set_warnings(objective_marker_nettest)
 
   add_executable(war_map_nettest war_map_nettest.cc)
-  target_link_libraries(war_map_nettest PRIVATE recreation::net)
+  target_link_libraries(war_map_nettest PRIVATE recreation::gamenet)
   recreation_set_warnings(war_map_nettest)
 
+  add_executable(bubble_nettest bubble_nettest.cc)
+  target_link_libraries(bubble_nettest PRIVATE recreation::gamenet)
+  recreation_set_warnings(bubble_nettest)
+
   add_executable(quest_net_progressiontest quest_net_progressiontest.cc)
-  target_link_libraries(quest_net_progressiontest PRIVATE recreation::net recreation::quest)
+  target_link_libraries(quest_net_progressiontest PRIVATE recreation::gamenet recreation::quest)
   recreation_set_warnings(quest_net_progressiontest)
 endif()
 
@@ -376,6 +380,7 @@ if(RECREATION_NET)
   add_test(NAME war_map_nettest COMMAND war_map_nettest)
   add_test(NAME quest_net_progressiontest COMMAND quest_net_progressiontest)
   add_test(NAME asset_streamtest COMMAND asset_streamtest)
+  add_test(NAME bubble_nettest COMMAND bubble_nettest)
 endif()
 
 # Managed (C#) scripting gates, wired only when a .NET SDK is on the configure

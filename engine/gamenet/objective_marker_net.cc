@@ -1,4 +1,4 @@
-#include "net/objective_marker_net.h"
+#include "gamenet/objective_marker_net.h"
 
 #include <nanobuf.h>
 

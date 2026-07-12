@@ -1,4 +1,4 @@
-#include "net/stage_request.h"
+#include "gamenet/stage_request.h"
 
 #include <nanobuf.h>
 

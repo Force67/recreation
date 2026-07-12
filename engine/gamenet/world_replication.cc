@@ -1,4 +1,4 @@
-#include "net/world_replication.h"
+#include "gamenet/world_replication.h"
 
 #include <cstring>
 

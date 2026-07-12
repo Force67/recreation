@@ -1,4 +1,4 @@
-#include "net/actor_sync.h"
+#include "gamenet/actor_sync.h"
 
 #include <cmath>
 #include <cstring>

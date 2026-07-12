@@ -4,18 +4,16 @@
 #include "asset/asset_id.h"
 #include "bethesda/form_id.h"
 #include "core/types.h"
+#include "scene/components.h"
 
 namespace rx::world {
 
-struct Transform {
-  f32 position[3] = {0, 0, 0};
-  f32 rotation[4] = {0, 0, 0, 1};  // quaternion
-  f32 scale = 1.0f;
-};
-
-struct Renderable {
-  asset::AssetId mesh;
-};
+// Recreation predates rx's scene module; its Transform/Renderable/Hidden were
+// field-for-field the same structs. Aliased (not redefined) so they are the
+// SAME components: the engine's replication (rx::net), Host draw gathering and
+// recreation's world systems all address one component id.
+using Transform = scene::Transform;
+using Renderable = scene::Renderable;
 
 // Links an entity back to the record that spawned it. Scripts and the savegame
 // layer address entities by form id, everything else uses Entity.
@@ -38,8 +36,7 @@ struct Npc {
 };
 
 // Tag marking an entity disabled (Papyrus Disable()); the render pass skips it.
-// A tag carries no data, its presence is the state.
-struct Hidden {};
+using Hidden = scene::Hidden;
 
 // A combatant's allegiance for the melee combat driver. Actors with different
 // non-zero teams auto-engage when they come within range; team 0 is a

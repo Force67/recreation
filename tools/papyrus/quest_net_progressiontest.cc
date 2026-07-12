@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "net/quest_replication.h"
+#include "gamenet/quest_replication.h"
 #include "quest/quest_def.h"
 #include "quest/quest_system.h"
 

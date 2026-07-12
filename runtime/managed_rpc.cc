@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "net/rpc_channel.h"
-#include "net/session.h"
+#include "gamenet/session.h"
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_value.h"
 #include "script/host/bridge.h"
@@ -99,7 +99,7 @@ void RegisterForwardingOn(rpc::RpcRegistry* registry, script::host::ManagedHost*
 
 // The active session's RPC registry, server role preferred, or null in single
 // player / before the session opens.
-rpc::RpcRegistry* ActiveRegistry(net::ServerSession* server, net::ClientSession* client) {
+rpc::RpcRegistry* ActiveRegistry(net::GameServerSession* server, net::GameClientSession* client) {
   if (server && server->rpc()) return &server->rpc()->registry();
   if (client && client->rpc()) return &client->rpc()->registry();
   return nullptr;

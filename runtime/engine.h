@@ -512,8 +512,8 @@ class Engine : public app::Application {
 #if RECREATION_HAS_NET
   std::unique_ptr<net::Session> session_;
   // Typed views into session_, null unless that role is active.
-  net::ServerSession* server_session_ = nullptr;
-  net::ClientSession* client_session_ = nullptr;
+  net::GameServerSession* server_session_ = nullptr;
+  net::GameClientSession* client_session_ = nullptr;
   // Asset streaming: the host's catalogued mods directory, and the client's
   // content cache. The session holds pointers into these, so they outlive it.
   std::unique_ptr<modstream::ModCatalog> mod_catalog_;
@@ -525,6 +525,9 @@ class Engine : public app::Application {
   // Set from a signal handler to ask for a live mod reload; drained on the main
   // thread at the top of the frame, where the Vfs is not being read.
   std::atomic<bool> mod_reload_requested_{false};
+  // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
+  // Built lazily on the first frame that has bubbles to draw.
+  std::unique_ptr<net::BubbleVisualizer> bubble_viz_;
 #endif
 
   // Shared service bundle handed to the subsystems, plus the subsystems

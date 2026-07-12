@@ -1,4 +1,4 @@
-#include "net/asset_stream.h"
+#include "gamenet/asset_stream.h"
 
 #include <algorithm>
 #include <utility>
@@ -10,7 +10,8 @@
 #include "modstream/manifest_chunk.h"
 #include "modstream/manifest_codec.h"
 #include "modstream/transfer_plan.h"
-#include "net/protocol.h"
+#include "gamenet/protocol.h"
+#include "net/znet_util.h"
 
 namespace rx::net {
 namespace {
@@ -60,7 +61,7 @@ void AssetStreamServer::SendManifest(u32 peer) {
   for (u32 i = 0; i < chunks; ++i) {
     const u32 offset = i * modstream::kManifestChunkPayload;
     const u32 len = std::min<u32>(modstream::kManifestChunkPayload, total - offset);
-    server_.Push(MakePacket(peer, MessageType::kAssetManifest,
+    server_.Push(MakePacket(peer, static_cast<u16>(GameMessage::kAssetManifest),
                             modstream::EncodeManifestChunk(manifest_generation_, total, chunks, i,
                                                            bytes.data() + offset, len),
                             /*reliable=*/true, tx::network::PacketPriority::High));
@@ -218,7 +219,7 @@ void AssetStreamClient::OnManifestComplete() {
     std::vector<modstream::ContentHash> batch;
     batch.reserve(end - base);
     for (size_t i = base; i < end; ++i) batch.push_back(plan[i].hash);
-    client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kAssetRequest,
+    client_.Push(MakePacket(tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetRequest),
                             modstream::EncodeHashRequest(batch), /*reliable=*/true,
                             tx::network::PacketPriority::High));
   }
@@ -291,7 +292,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
 }
 
 void AssetStreamClient::SendReady() {
-  client_.Push(MakePacket(tx::network::ZPeerId::to_server, MessageType::kAssetReady,
+  client_.Push(MakePacket(tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetReady),
                           std::vector<u8>{}, /*reliable=*/true,
                           tx::network::PacketPriority::High));
 }

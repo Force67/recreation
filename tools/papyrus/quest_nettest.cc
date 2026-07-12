@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "net/quest_replication.h"
+#include "gamenet/quest_replication.h"
 #include "quest/quest_system.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
