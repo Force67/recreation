@@ -121,25 +121,52 @@ the resolution reaches the render path.
 Captured this session (deterministic `RX_CAM`, `RX_DISTANT_LOD=1`, frozen noon),
 under the session scratchpad:
 
+CDB object-graph fix (single-material surfaces):
 - `na_after_ground.png` - ground close-up: the plaza/hardscape paving renders with
-  real textured, normal-mapped detail (single-material architecture surfaces).
-- `na_plaza.png` - auto-placed plaza spawn over the city core.
-- `na_after_aerial.png` - the report's aerial pose (`RX_CAM="150,180,480,5.8,-0.35"`).
+  real textured, normal-mapped detail.
+
+Per-submesh material fix (multi-material buildings), aerial `RX_CAM="150,180,480,5.8,-0.35"`:
+- `na_after_aerial.png` (before, CDB fix only) - city buildings uniform white/grey.
+- `na_multimat_aerial.png` (after) - buildings show base-color/material variation.
+- `crop_before.png` / `crop_after.png` - the same building-cluster crop, before/after.
+- `na_core_buildings.png`, `na_overview.png` - ground/overview of the city core with
+  textured tanks, walls and structures.
+- `skyrim_whiterun.png` - Skyrim sanity: Whiterun streams and textures unchanged.
+
+## Per-submesh (multi-material NIF) binding
+
+The CDB fix resolves a material's textures, but `ConvertStarfieldNif` bound one
+shared material per NIF via `SingleMaterialPath`, which returns nothing when a NIF
+references more than one distinct `.mat`. 78% of New Atlantis architecture NIFs are
+multi-material (the large composite buildings), so they bound no material at all
+and stayed grey regardless of the CDB fix.
+
+Each BSGeometry names its own material through its `Shader Property` block: the
+BSGeometry (STF layout, from nifskope `nif.xml`) has `Bounding Sphere`,
+`Bounding Box`, then `Skin`/`Shader Property`/`Alpha Property` block refs, then the
+`Meshes` LOD array. The `Shader Property` ref points at a `BSLightingShaderProperty`
+whose `NiObjectNET` Name (its first field, a header string-table index) is the
+`.mat` path. `ReadBsGeometry` now returns that shader ref (it already read the value
+- it was mislabeled `lod_count`); `ParseStarfieldNif` resolves it to the `.mat`
+path per geometry; `ConvertStarfieldNif` builds one `asset::Material` per distinct
+`.mat` (deduped by path hash) and assigns it per submesh.
+
+Result: on the multi-material wall `stnintdividermedwallmid03.nif`, the 8 submeshes
+now carry 6 distinct materials, 6 of which load their own 1024/2048 textures
+(previously all 8 shared one gray material with no textures). Sampling 50 New
+Atlantis architecture NIFs, **48 (96%) now bind at least one textured material**,
+up from ~22% (only the single-material ones) before. The aerial and ground shots
+show the city buildings textured instead of flat white (see screenshots above).
+
+Files: `engine/bethesda/starfield_mesh.{h,cc}` (shader ref -> per-geometry
+`material_path`), `engine/bethesda/converters.cc` (per-submesh material binding).
+The skinned converter (`ConvertStarfieldSkinnedNif`) keeps its single material (a
+body part is one material). Skyrim/FO4 use `ConvertNifScene`, untouched.
 
 ## What still is not textured
 
-The material database now resolves architecture/ship textures. The remaining grey
-in the New Atlantis city core is a separate NIF-binding limitation, not the
-material db: `ConvertStarfieldNif` binds one shared material per NIF via
-`SingleMaterialPath`, which returns nothing when a NIF references more than one
-distinct `.mat` (ambiguous). Sampling 60 New Atlantis architecture NIFs, 47
-(78%) are multi-material - the large composite buildings - so they get no
-material bound at all regardless of the CDB fix, while the 13 single-material ones
-(ground, hardscape, some props) are now correctly textured. Making the city core
-fully textured needs per-BSGeometry material binding (each submesh gets its own
-`.mat` from the NIF, resolved through this database), a NIF-format change in
-`ParseStarfieldNif` / `ConvertStarfieldNif`, not a material-db change.
-
-Also unchanged: only the base color / normal / emissive slots are used (roughness,
-metalness, AO, height are resolved by the graph but the engine material has no
-slots for them); dense-city perf (2-3 fps, RT-forced LOD0) is untouched.
+A couple of NA architecture NIFs (~4% of the sample) still bind no texture - their
+materials are decals or resolve to no base color. Only the base color / normal /
+emissive slots are used (roughness, metalness, AO, height are resolved by the graph
+but the engine material has no slots for them). Dense-city perf (2-3 fps, RT-forced
+LOD0) is untouched.
