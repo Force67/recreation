@@ -452,12 +452,15 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
     for (const asset::Vertex& src : geometry.vertices) {
       asset::Vertex v = src;
       // Bake the node-chain transform: p' = rotation * p * scale + translation.
+      // The NIF authors translations in metres while the parsed vertices were
+      // lifted to game units, so the translation lifts by the same factor
+      // (unscaled it collapses multi-part NIFs 70x toward their origin).
       for (int i = 0; i < 3; ++i) {
         v.position[i] = (ref.rotation[i * 3] * src.position[0] +
                          ref.rotation[i * 3 + 1] * src.position[1] +
                          ref.rotation[i * 3 + 2] * src.position[2]) *
                             ref.scale +
-                        ref.translation[i];
+                        ref.translation[i] * kStarfieldMetresToGameUnits;
         v.normal[i] = ref.rotation[i * 3] * src.normal[0] +
                       ref.rotation[i * 3 + 1] * src.normal[1] +
                       ref.rotation[i * 3 + 2] * src.normal[2];

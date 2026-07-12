@@ -25,6 +25,11 @@ struct GameProfile {
   // std::ifstream in the loaders.
   base::Vector<std::string> base_masters;
   std::string exterior_worldspace;  // editor id of the main outdoor worldspace
+  // World-position units. Skyrim/Fallout author REFR positions in game units
+  // (~70 per metre) on a 4096-unit exterior cell grid; Starfield authors them
+  // in metres on a 100 m grid (meshes still convert into game-unit space).
+  f32 cell_size = 4096.0f;        // record units per exterior cell edge
+  f32 units_to_meters = 0.01428f; // record position units -> engine metres
   // Localized string file language token: Skyrim ships "english", the Fallout
   // games "en" (strings/<plugin>_<token>.strings).
   std::string string_language = "english";

@@ -10,6 +10,11 @@
 
 namespace rx::bethesda {
 
+// Starfield authors NIF node transforms and ".mesh" positions in metres; the
+// rigid conversion lifts both to Bethesda game-unit object space (~70/m) so
+// the shared streamer's fixed unit->metre mesh scale applies unchanged.
+inline constexpr f32 kStarfieldMetresToGameUnits = 70.0f;
+
 // Starfield (BS stream 173) replaced the inline BSTriShape geometry with the
 // BSGeometry block: it carries only a node transform, bounds, and a list of LOD
 // references to external ".mesh" files (keyed by hash). The geometry itself
@@ -65,6 +70,26 @@ struct StarfieldGeometryRef {
 // geometry reference with its baked world transform and resolved mesh path.
 // Returns false when the header does not parse or no geometry is found.
 bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out);
+
+// One placement of a base form inside a Starfield terrain-instance NIF
+// (meshes/terrain/<worldspace>/objects/<worldspace>.<level>.<x>.<y>.nif).
+// Hand-built Starfield worldspaces have no LAND records: their natural ground
+// (cliffs, rock fields) ships as these per-cell BSWeakReferenceNode instance
+// lists, each entry a STAT form id + BA2-style file hashes + a run of world
+// space placements (rotation rows, translation in metres, uniform scale).
+struct StarfieldTerrainInstance {
+  f32 rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // row-major, p' = R * p
+  f32 translation[3] = {0, 0, 0};                 // worldspace metres
+  f32 scale = 1.0f;
+};
+struct StarfieldTerrainGroup {
+  u32 form_id = 0;  // raw base form id (resolve against the owning plugin)
+  base::Vector<StarfieldTerrainInstance> instances;
+};
+
+// Decodes the BSWeakReferenceNode instance lists of a Starfield terrain NIF.
+// Returns false when the header does not parse or no instance list is found.
+bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGroup>* out);
 
 }  // namespace rx::bethesda
 

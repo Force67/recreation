@@ -10,6 +10,7 @@
 
 #include <base/option.h>
 
+#include "bethesda/starfield_mesh.h"
 #include "core/log.h"
 #include "world/components.h"
 
@@ -35,11 +36,14 @@ base::Option<bool> PlacedLights{"placed.lights", true, "RX_PLACED_LIGHTS"};
 // through the clustered decal system. On by default.
 base::Option<bool> PlacedDecals{"placed.decals", true, "RX_PLACED_DECALS"};
 
+// Converted meshes are always in Bethesda game-unit object space (~70/m), so
+// mesh transforms scale by this fixed constant. World positions and lengths
+// read from records use the per-game units_to_meters_/cell_size_ members
+// instead (Starfield authors those in metres on a 100 m cell grid).
 constexpr f32 kUnitsToMeters = 0.01428f;
 // Mirrors Renderer::kMaxFrameLights (private): the renderer clamps the bound
 // light buffer to this, so past it we keep the streamed lights nearest the camera.
 constexpr u32 kMaxFrameLights = 256;
-constexpr f32 kCellSize = 4096.0f;
 constexpr u32 kLandGridPoints = 33;
 
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
@@ -47,6 +51,8 @@ constexpr u32 kName = FourCc('N', 'A', 'M', 'E');
 constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
 constexpr u32 kXscl = FourCc('X', 'S', 'C', 'L');
 constexpr u32 kAchr = FourCc('A', 'C', 'H', 'R');  // placed actor (NPC) reference
+constexpr u32 kPkin = FourCc('P', 'K', 'I', 'N');  // Starfield pack-in (prefab) base
+constexpr u32 kCnam = FourCc('C', 'N', 'A', 'M');  // PKIN template cell (form id)
 constexpr u32 kVmad = FourCc('V', 'M', 'A', 'D');  // attached script(s)
 constexpr u32 kXprm = FourCc('X', 'P', 'R', 'M');  // primitive bound (trigger box)
 constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
@@ -57,6 +63,7 @@ constexpr u32 kDnam = FourCc('D', 'N', 'A', 'M');
 constexpr u32 kXclw = FourCc('X', 'C', 'L', 'W');
 constexpr u32 kXcwt = FourCc('X', 'C', 'W', 'T');  // CELL water type (WATR form id)
 constexpr u32 kNam2 = FourCc('N', 'A', 'M', '2');  // WRLD default water (WATR form id)
+constexpr u32 kWhgt = FourCc('W', 'H', 'G', 'T');  // WRLD water heights (Starfield, pairs XCLW)
 constexpr u32 kLigh = FourCc('L', 'I', 'G', 'H');  // placed light base record
 constexpr u32 kFnam = FourCc('F', 'N', 'A', 'M');  // LIGH fade value (float)
 constexpr u32 kXrds = FourCc('X', 'R', 'D', 'S');  // REFR radius override (game units)
@@ -85,13 +92,9 @@ constexpr f32 kDistantTerrainSink = 2.0f;
 constexpr size_t kWatrShallowColor = 40;
 
 // The one and only Bethesda -> engine conversion (see the class comment):
-// engine = (x, z, -y) * kUnitsToMeters. As a quaternion the axis change is a
+// engine = (x, z, -y) * units_to_meters. As a quaternion the axis change is a
 // -90 degree rotation about X.
 constexpr f32 kAxisChange[4] = {-0.70710678f, 0.0f, 0.0f, 0.70710678f};
-
-Vec3 ToEngine(f32 x, f32 y, f32 z) {
-  return {x * kUnitsToMeters, z * kUnitsToMeters, -y * kUnitsToMeters};
-}
 
 void QuatMultiply(const f32 a[4], const f32 b[4], f32 out[4]) {
   out[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
@@ -100,17 +103,67 @@ void QuatMultiply(const f32 a[4], const f32 b[4], f32 out[4]) {
   out[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
 }
 
-// REFR rotations are radians about each axis, applied z, then y, then x,
-// with the angles negated (the games count clockwise).
-void RefrRotationToEngine(const f32 euler[3], f32 out[4]) {
+// Bethesda-space rotation quaternion from a REFR's euler angles: radians about
+// each axis, applied z, then y, then x, with the angles negated (the games
+// count clockwise).
+void BethQuatFromEuler(const f32 euler[3], f32 out[4]) {
   f32 hx = -euler[0] * 0.5f, hy = -euler[1] * 0.5f, hz = -euler[2] * 0.5f;
   f32 qx[4] = {std::sin(hx), 0, 0, std::cos(hx)};
   f32 qy[4] = {0, std::sin(hy), 0, std::cos(hy)};
   f32 qz[4] = {0, 0, std::sin(hz), std::cos(hz)};
-  f32 yz[4], beth[4];
+  f32 yz[4];
   QuatMultiply(qy, qz, yz);
-  QuatMultiply(qx, yz, beth);
+  QuatMultiply(qx, yz, out);
+}
+
+// Rotates v by unit quaternion q: v' = v + 2*cross(q.xyz, cross(q.xyz, v) + w*v).
+void QuatRotate(const f32 q[4], const f32 v[3], f32 out[3]) {
+  const f32 cx = q[1] * v[2] - q[2] * v[1] + q[3] * v[0];
+  const f32 cy = q[2] * v[0] - q[0] * v[2] + q[3] * v[1];
+  const f32 cz = q[0] * v[1] - q[1] * v[0] + q[3] * v[2];
+  out[0] = v[0] + 2.0f * (q[1] * cz - q[2] * cy);
+  out[1] = v[1] + 2.0f * (q[2] * cx - q[0] * cz);
+  out[2] = v[2] + 2.0f * (q[0] * cy - q[1] * cx);
+}
+
+void RefrRotationToEngine(const f32 euler[3], f32 out[4]) {
+  f32 beth[4];
+  BethQuatFromEuler(euler, beth);
   QuatMultiply(kAxisChange, beth, out);
+}
+
+// Row-major Bethesda rotation matrix (p' = R * p, the NIF node convention) to
+// the engine-space entity quaternion, composed with the axis change like
+// RefrRotationToEngine.
+void Mat3RotationToEngine(const f32 r[9], f32 out[4]) {
+  f32 q[4];  // x, y, z, w
+  const f32 trace = r[0] + r[4] + r[8];
+  if (trace > 0.0f) {
+    f32 s = std::sqrt(trace + 1.0f) * 2.0f;
+    q[3] = 0.25f * s;
+    q[0] = (r[7] - r[5]) / s;
+    q[1] = (r[2] - r[6]) / s;
+    q[2] = (r[3] - r[1]) / s;
+  } else if (r[0] > r[4] && r[0] > r[8]) {
+    f32 s = std::sqrt(1.0f + r[0] - r[4] - r[8]) * 2.0f;
+    q[3] = (r[7] - r[5]) / s;
+    q[0] = 0.25f * s;
+    q[1] = (r[1] + r[3]) / s;
+    q[2] = (r[2] + r[6]) / s;
+  } else if (r[4] > r[8]) {
+    f32 s = std::sqrt(1.0f + r[4] - r[0] - r[8]) * 2.0f;
+    q[3] = (r[2] - r[6]) / s;
+    q[0] = (r[1] + r[3]) / s;
+    q[1] = 0.25f * s;
+    q[2] = (r[5] + r[7]) / s;
+  } else {
+    f32 s = std::sqrt(1.0f + r[8] - r[0] - r[4]) * 2.0f;
+    q[3] = (r[3] - r[1]) / s;
+    q[0] = (r[2] + r[6]) / s;
+    q[1] = (r[5] + r[7]) / s;
+    q[2] = 0.25f * s;
+  }
+  QuatMultiply(kAxisChange, q, out);
 }
 
 u32 CellKey(i16 x, i16 y) {
@@ -342,6 +395,8 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
   // worldspace default water type (a WATR form), used by cells with no XCWT.
   default_water_form_ = {};
   default_water_height_ = fallback_water_height_;
+  water_table_.clear();
+  has_water_table_ = false;
   bethesda::Record wrld;
   if (records_.Parse(worldspace_, &wrld)) {
     if (const bethesda::Subrecord* dnam = wrld.Find(kDnam); dnam && dnam->data.size() >= 8) {
@@ -354,9 +409,28 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
       if (raw != 0 && ws)
         default_water_form_ = records_.ResolveFrom(bethesda::RawFormId{raw}, ws->winning_plugin);
     }
+    // Starfield worldspaces carry a WRLD-level water table: an XCLW of
+    // (i16 x, i16 y) grid pairs and a WHGT of matching f32 heights. Listed
+    // cells override the default water height (New Atlantis' upper lake at
+    // 242 over the 41 the spaceport lake uses).
+    const bethesda::Subrecord* cells = wrld.Find(kXclw);
+    const bethesda::Subrecord* heights = wrld.Find(kWhgt);
+    if (cells && heights && !cells->data.empty() && cells->data.size() == heights->data.size() &&
+        cells->data.size() % 4 == 0) {
+      const size_t count = cells->data.size() / 4;
+      for (size_t i = 0; i < count; ++i) {
+        i16 x, y;
+        f32 h;
+        std::memcpy(&x, cells->data.data() + i * 4, 2);
+        std::memcpy(&y, cells->data.data() + i * 4 + 2, 2);
+        std::memcpy(&h, heights->data.data() + i * 4, 4);
+        *water_table_.emplace(bethesda::RecordStore::GridKey(x, y)).first = h;
+      }
+      has_water_table_ = true;
+    }
   }
-  RX_INFO("streaming worldspace {} ({} exterior cells, default water {})", editor_id,
-           grid_->size(), default_water_height_);
+  RX_INFO("streaming worldspace {} ({} exterior cells, default water {}, water table {})",
+           editor_id, grid_->size(), default_water_height_, water_table_.size());
   return true;
 }
 
@@ -379,7 +453,8 @@ void CellStreamer::EnsureLandMaterial() {
 }
 
 Vec3 CellStreamer::ToWorld(f32 bethesda_x, f32 bethesda_y, f32 bethesda_z) const {
-  Vec3 e = ToEngine(bethesda_x, bethesda_y, bethesda_z);
+  Vec3 e{bethesda_x * units_to_meters_, bethesda_z * units_to_meters_,
+         -bethesda_y * units_to_meters_};
   return {e.x + world_offset_.x, e.y + world_offset_.y, e.z + world_offset_.z};
 }
 
@@ -402,10 +477,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
                           : Vec3{camera_position.x - world_offset_.x,
                                  camera_position.y - world_offset_.y,
                                  camera_position.z - world_offset_.z};
-  f32 beth_x = anchor.x / kUnitsToMeters;
-  f32 beth_y = -anchor.z / kUnitsToMeters;
-  i16 center_x = static_cast<i16>(std::floor(beth_x / kCellSize));
-  i16 center_y = static_cast<i16>(std::floor(beth_y / kCellSize));
+  f32 beth_x = anchor.x / units_to_meters_;
+  f32 beth_y = -anchor.z / units_to_meters_;
+  i16 center_x = static_cast<i16>(std::floor(beth_x / cell_size_));
+  i16 center_y = static_cast<i16>(std::floor(beth_y / cell_size_));
   // RX_LOAD_RADIUS extends the streamed cell ring for greater draw distance;
   // affordable on the mesh-shader lod path (gpu cluster cull + distance lods).
   i32 radius = LoadRadius > 0 ? LoadRadius.get() : settings_.load_radius;
@@ -479,10 +554,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
       covered = r;
     }
     if (covered >= 0) {
-      Vec3 a = ToWorld(static_cast<f32>(center_x - covered) * kCellSize,
-                       static_cast<f32>(center_y - covered) * kCellSize, 0.0f);
-      Vec3 b = ToWorld(static_cast<f32>(center_x + covered + 1) * kCellSize,
-                       static_cast<f32>(center_y + covered + 1) * kCellSize, 0.0f);
+      Vec3 a = ToWorld(static_cast<f32>(center_x - covered) * cell_size_,
+                       static_cast<f32>(center_y - covered) * cell_size_, 0.0f);
+      Vec3 b = ToWorld(static_cast<f32>(center_x + covered + 1) * cell_size_,
+                       static_cast<f32>(center_y + covered + 1) * cell_size_, 0.0f);
       detail_rect_[0] = std::min(a.x, b.x);
       detail_rect_[1] = std::min(a.z, b.z);
       detail_rect_[2] = std::max(a.x, b.x);
@@ -498,9 +573,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     announced_idle_ = true;
     RX_INFO(
         "streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped, "
-        "{} land bakes, {} water planes, {} grass instances ({} verts)",
+        "{} land bakes, {} terrain instances, {} water planes, {} grass instances ({} verts)",
         loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_, baker_.baked_count(),
-        water_planes_, grass_baker_.total_instances(), grass_baker_.total_vertices());
+        terrain_instances_, water_planes_, grass_baker_.total_instances(),
+        grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
   }
@@ -561,7 +637,7 @@ void CellStreamer::UnloadCell(ecs::World& world, u32 key) {
 }
 
 bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell) {
-  if (cell.source->land == 0) return false;
+  if (cell.source->land == 0) return SpawnInstancedTerrain(world, grid_x, grid_y, cell);
   bethesda::GlobalFormId land_id{static_cast<u16>(cell.source->land >> 32),
                                  static_cast<u32>(cell.source->land)};
 
@@ -631,7 +707,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     built.id = mesh_id;
     built.lods.emplace_back();
     asset::MeshLod& lod = built.lods[0];
-    constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
+    const f32 spacing = cell_size_ / (kLandGridPoints - 1);
     const bethesda::Subrecord* vnml = land.Find(kVnml);
     const bethesda::Subrecord* vclr = land.Find(kVclr);
     bool has_normals = vnml && vnml->data.size() >= kLandGridPoints * kLandGridPoints * 3;
@@ -643,8 +719,8 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
       for (u32 c = 0; c < kLandGridPoints; ++c) {
         u32 i = r * kLandGridPoints + c;
         asset::Vertex v;
-        v.position[0] = static_cast<f32>(c) * kSpacing;
-        v.position[1] = static_cast<f32>(r) * kSpacing;
+        v.position[0] = static_cast<f32>(c) * spacing;
+        v.position[1] = static_cast<f32>(r) * spacing;
         v.position[2] = heights[i];
         min_h = std::min(min_h, heights[i]);
         max_h = std::max(max_h, heights[i]);
@@ -670,8 +746,8 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
         }
         // The baked albedo covers the cell exactly; tiling of the source
         // land textures happens inside the bake.
-        v.uv[0] = v.position[0] / kCellSize;
-        v.uv[1] = v.position[1] / kCellSize;
+        v.uv[0] = v.position[0] / cell_size_;
+        v.uv[1] = v.position[1] / cell_size_;
         lod.vertices.push_back(v);
       }
     }
@@ -694,10 +770,10 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     submesh.index_count = static_cast<u32>(lod.indices.size());
     submesh.material = material_id;
     lod.submeshes.push_back(submesh);
-    built.bounds_center[0] = kCellSize * 0.5f;
-    built.bounds_center[1] = kCellSize * 0.5f;
+    built.bounds_center[0] = cell_size_ * 0.5f;
+    built.bounds_center[1] = cell_size_ * 0.5f;
     built.bounds_center[2] = (min_h + max_h) * 0.5f;
-    built.bounds_radius = std::sqrt(2 * kCellSize * 0.5f * kCellSize * 0.5f +
+    built.bounds_radius = std::sqrt(2 * cell_size_ * 0.5f * cell_size_ * 0.5f +
                                     (max_h - min_h) * 0.5f * (max_h - min_h) * 0.5f);
     mesh = assets_.AddMesh(std::move(built));
   }
@@ -706,12 +782,12 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   ecs::Entity entity = world.Create();
   Transform transform;
   Vec3 position =
-      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, 0.0f);
+      ToWorld(static_cast<f32>(grid_x) * cell_size_, static_cast<f32>(grid_y) * cell_size_, 0.0f);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
   std::memcpy(transform.rotation, kAxisChange, sizeof(transform.rotation));
-  transform.scale = kUnitsToMeters;
+  transform.scale = units_to_meters_;
   world.Add(entity, transform);
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
@@ -803,8 +879,8 @@ bool CellStreamer::SpawnDistantQuad(ecs::World& world, size_t index) {
   // touch so the full-detail LAND wins the depth test in the overlap region.
   Vec3 position = quad.object
                       ? ToWorld(0.0f, 0.0f, 0.0f)
-                      : ToWorld(static_cast<f32>(quad.cell_x) * kCellSize,
-                                static_cast<f32>(quad.cell_y) * kCellSize, 0.0f);
+                      : ToWorld(static_cast<f32>(quad.cell_x) * cell_size_,
+                                static_cast<f32>(quad.cell_y) * cell_size_, 0.0f);
   if (!quad.object) position.y -= kDistantTerrainSink;
   transform.position[0] = position.x;
   transform.position[1] = position.y;
@@ -890,14 +966,14 @@ const asset::Mesh* CellStreamer::EnsureWaterMesh(u64 form_key, const f32 tint[3]
   asset::MeshLod& lod = built.lods[0];
   for (u32 i = 0; i < 4; ++i) {
     asset::Vertex v;
-    v.position[0] = (i & 1) ? kCellSize : 0.0f;
-    v.position[1] = (i & 2) ? kCellSize : 0.0f;
+    v.position[0] = (i & 1) ? cell_size_ : 0.0f;
+    v.position[1] = (i & 2) ? cell_size_ : 0.0f;
     v.position[2] = 0.0f;
     v.normal[2] = 1;
     v.tangent[0] = 1;
     v.tangent[3] = 1;
-    v.uv[0] = v.position[0] / kCellSize;
-    v.uv[1] = v.position[1] / kCellSize;
+    v.uv[0] = v.position[0] / cell_size_;
+    v.uv[1] = v.position[1] / cell_size_;
     lod.vertices.push_back(v);
   }
   for (u32 index : {0u, 1u, 2u, 1u, 3u, 2u}) lod.indices.push_back(index);
@@ -905,9 +981,9 @@ const asset::Mesh* CellStreamer::EnsureWaterMesh(u64 form_key, const f32 tint[3]
   submesh.index_count = 6;
   submesh.material = material.id;
   lod.submeshes.push_back(submesh);
-  built.bounds_center[0] = kCellSize * 0.5f;
-  built.bounds_center[1] = kCellSize * 0.5f;
-  built.bounds_radius = kCellSize * 0.7072f;
+  built.bounds_center[0] = cell_size_ * 0.5f;
+  built.bounds_center[1] = cell_size_ * 0.5f;
+  built.bounds_radius = cell_size_ * 0.7072f;
   return assets_.AddMesh(std::move(built));
 }
 
@@ -920,26 +996,26 @@ void CellStreamer::AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell,
   for (u32 j = 0; j < kLandGridPoints; ++j) {
     for (u32 i = 0; i < kLandGridPoints; ++i) {
       u32 row = kLandGridPoints - 1 - j;
-      engine_heights[j * kLandGridPoints + i] = heights[row * kLandGridPoints + i] * kUnitsToMeters;
+      engine_heights[j * kLandGridPoints + i] = heights[row * kLandGridPoints + i] * units_to_meters_;
     }
   }
-  Vec3 origin{static_cast<f32>(grid_x) * kCellSize * kUnitsToMeters + world_offset_.x,
+  Vec3 origin{static_cast<f32>(grid_x) * cell_size_ * units_to_meters_ + world_offset_.x,
               world_offset_.y,
-              -(static_cast<f32>(grid_y) + 1.0f) * kCellSize * kUnitsToMeters + world_offset_.z};
+              -(static_cast<f32>(grid_y) + 1.0f) * cell_size_ * units_to_meters_ + world_offset_.z};
   cell.terrain_body =
-      physics_->AddHeightField(origin, engine_heights, kLandGridPoints, kCellSize * kUnitsToMeters);
+      physics_->AddHeightField(origin, engine_heights, kLandGridPoints, cell_size_ * units_to_meters_);
 }
 
 bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) {
-  f32 beth_x = position.x / kUnitsToMeters;
-  f32 beth_y = -position.z / kUnitsToMeters;
-  i16 grid_x = static_cast<i16>(std::floor(beth_x / kCellSize));
-  i16 grid_y = static_cast<i16>(std::floor(beth_y / kCellSize));
+  f32 beth_x = position.x / units_to_meters_;
+  f32 beth_y = -position.z / units_to_meters_;
+  i16 grid_x = static_cast<i16>(std::floor(beth_x / cell_size_));
+  i16 grid_y = static_cast<i16>(std::floor(beth_y / cell_size_));
   const LoadedCell* cell = loaded_.find(CellKey(grid_x, grid_y));
   if (!cell || !cell->source) return false;
   f32 game_height = 0;
-  if (!CellWaterHeight(*cell, &game_height)) return false;
-  *height = game_height * kUnitsToMeters;
+  if (!CellWaterHeight(grid_x, grid_y, *cell, &game_height)) return false;
+  *height = game_height * units_to_meters_;
 
   // Rivers descend cell to cell; the water height gradient between loaded
   // neighbors gives the downstream direction. Lakes are level and stay
@@ -950,11 +1026,14 @@ bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) 
       const LoadedCell* neighbor = loaded_.find(CellKey(grid_x + dx, grid_y + dy));
       if (!neighbor || !neighbor->source) return false;
       f32 h = 0;
-      if (!CellWaterHeight(*neighbor, &h)) return false;
-      *out = h * kUnitsToMeters;
+      if (!CellWaterHeight(static_cast<i16>(grid_x + dx), static_cast<i16>(grid_y + dy), *neighbor,
+                           &h)) {
+        return false;
+      }
+      *out = h * units_to_meters_;
       return true;
     };
-    f32 cell_meters = kCellSize * kUnitsToMeters;
+    f32 cell_meters = cell_size_ * units_to_meters_;
     f32 east = *height, west = *height, north = *height, south = *height;
     neighbor_height(1, 0, &east);
     neighbor_height(-1, 0, &west);
@@ -973,7 +1052,18 @@ bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) 
   return true;
 }
 
-bool CellStreamer::CellWaterHeight(const LoadedCell& cell, f32* height) const {
+bool CellStreamer::CellWaterHeight(i16 grid_x, i16 grid_y, const LoadedCell& cell,
+                                   f32* height) const {
+  // Worldspace water table (Starfield WRLD XCLW/WHGT): listed cells override
+  // the default height (New Atlantis' upper lake sits at 242 over the 41
+  // default the spaceport lake uses).
+  if (has_water_table_) {
+    if (const f32* h = water_table_.find(bethesda::RecordStore::GridKey(grid_x, grid_y))) {
+      *height = *h;
+      return true;
+    }
+  }
+
   if (cell.source->cell == 0) return false;
   bethesda::Record record;
   if (!records_.Parse(
@@ -999,9 +1089,139 @@ bool CellStreamer::CellWaterHeight(const LoadedCell& cell, f32* height) const {
   return true;
 }
 
+bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
+                               bethesda::GlobalFormId pkin_id, const f32 position[3],
+                               const f32 rotation[4], f32 scale, LoadedCell& cell, bool interior,
+                               int depth) {
+  if (depth > 2) return false;  // nested prefabs exist; cycles should not
+  bethesda::Record pkin;
+  if (!records_.Parse(pkin_id, &pkin)) return false;
+  const bethesda::Subrecord* cnam = pkin.Find(kCnam);
+  if (!cnam || cnam->data.size() < 4) return false;
+  u32 raw;
+  std::memcpy(&raw, cnam->data.data(), 4);
+  const bethesda::RecordStore::StoredRecord* pkin_stored = records_.Find(pkin_id);
+  if (!pkin_stored || raw == 0) return false;
+  bethesda::GlobalFormId template_cell =
+      records_.ResolveFrom(bethesda::RawFormId{raw}, pkin_stored->winning_plugin);
+  const base::Vector<u64>* children = records_.InteriorRefs(template_cell);
+  if (!children) return false;
+
+  bool spawned = false;
+  for (u64 packed : *children) {
+    bethesda::GlobalFormId child_id{static_cast<u16>(packed >> 32), static_cast<u32>(packed)};
+    const bethesda::RecordStore::StoredRecord* child_stored = records_.Find(child_id);
+    if (!child_stored || (child_stored->header.flags & kRecordFlagInitiallyDisabled)) continue;
+    bethesda::Record child;
+    if (!records_.Parse(child_id, &child)) continue;
+    const bethesda::Subrecord* name = child.Find(kName);
+    const bethesda::Subrecord* data = child.Find(kData);
+    if (!name || name->data.size() < 4 || !data || data->data.size() < 24) continue;
+    u32 base_raw;
+    std::memcpy(&base_raw, name->data.data(), 4);
+    bethesda::GlobalFormId base_id =
+        records_.ResolveFrom(bethesda::RawFormId{base_raw}, child_stored->winning_plugin);
+
+    f32 placement[6];
+    std::memcpy(placement, data->data.data(), 24);
+    f32 child_scale = 1.0f;
+    if (const bethesda::Subrecord* xscl = child.Find(kXscl); xscl && xscl->data.size() >= 4) {
+      std::memcpy(&child_scale, xscl->data.data(), 4);
+    }
+    // Compose in Bethesda space: prefab-local placement scaled and rotated
+    // into the pack-in reference's frame.
+    f32 local[3] = {placement[0] * scale, placement[1] * scale, placement[2] * scale};
+    f32 world_pos[3];
+    QuatRotate(rotation, local, world_pos);
+    for (int k = 0; k < 3; ++k) world_pos[k] += position[k];
+    f32 child_q[4], world_q[4];
+    BethQuatFromEuler(placement + 3, child_q);
+    QuatMultiply(rotation, child_q, world_q);
+    const f32 world_scale = scale * child_scale;
+
+    const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(base_id);
+    if (base_stored && base_stored->header.type == kPkin) {
+      spawned |= SpawnPackIn(world, grid_x, grid_y, base_id, world_pos, world_q, world_scale, cell,
+                             interior, depth + 1);
+      continue;
+    }
+
+    const Vec3 engine_pos = ToWorld(world_pos[0], world_pos[1], world_pos[2]);
+    AddPlacedLight(base_id, child, engine_pos, cell);
+
+    // Prefab meshes repeat heavily across placements, so conversions amortize;
+    // a local budget keeps one pack-in whole instead of splitting it.
+    u32 budget = 64;
+    bool budget_exceeded = false;
+    const asset::Mesh* mesh = MeshForBase(base_id, budget, budget_exceeded);
+    if (!mesh || !EnsureUploaded(*mesh)) continue;
+
+    ecs::Entity entity = world.Create();
+    Transform transform;
+    transform.position[0] = engine_pos.x;
+    transform.position[1] = engine_pos.y;
+    transform.position[2] = engine_pos.z;
+    QuatMultiply(kAxisChange, world_q, transform.rotation);
+    transform.scale = world_scale * kUnitsToMeters;
+    world.Add(entity, transform);
+    world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+    world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    cell.entities.push_back(entity);
+    ++spawned_entities_;
+    spawned = true;
+  }
+  return spawned;
+}
+
+bool CellStreamer::SpawnInstancedTerrain(ecs::World& world, i16 grid_x, i16 grid_y,
+                                         LoadedCell& cell) {
+  // Level 1 is the finest authored level (levels 2/4/8 are coarser LOD merges).
+  std::string path = "meshes/terrain/" + worldspace_edid_ + "/objects/" + worldspace_edid_ + ".1." +
+                     std::to_string(grid_x) + "." + std::to_string(grid_y) + ".nif";
+  auto bytes = assets_.vfs().Read(path);
+  if (!bytes) return false;
+  base::Vector<bethesda::StarfieldTerrainGroup> groups;
+  if (!bethesda::ParseStarfieldInstancedNif(ByteSpan(bytes->data(), bytes->size()), &groups)) {
+    return false;
+  }
+
+  const bethesda::RecordStore::StoredRecord* ws = records_.Find(worldspace_);
+  const u16 plugin = ws ? ws->winning_plugin : 0;
+  bool spawned = false;
+  for (const bethesda::StarfieldTerrainGroup& group : groups) {
+    bethesda::GlobalFormId base_id =
+        records_.ResolveFrom(bethesda::RawFormId{group.form_id}, plugin);
+    // The handful of rock/cliff STATs repeat across cells, so the conversions
+    // amortize; a generous local budget keeps one cell's terrain whole.
+    u32 budget = 64;
+    bool budget_exceeded = false;
+    const asset::Mesh* mesh = MeshForBase(base_id, budget, budget_exceeded);
+    if (!mesh || !EnsureUploaded(*mesh)) continue;
+
+    for (const bethesda::StarfieldTerrainInstance& inst : group.instances) {
+      ecs::Entity entity = world.Create();
+      Transform transform;
+      Vec3 position = ToWorld(inst.translation[0], inst.translation[1], inst.translation[2]);
+      transform.position[0] = position.x;
+      transform.position[1] = position.y;
+      transform.position[2] = position.z;
+      Mat3RotationToEngine(inst.rotation, transform.rotation);
+      transform.scale = inst.scale * kUnitsToMeters;
+      world.Add(entity, transform);
+      world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+      world.Add(entity, CellMembership{grid_x, grid_y, false});
+      cell.entities.push_back(entity);
+      ++spawned_entities_;
+      ++terrain_instances_;
+      spawned = true;
+    }
+  }
+  return spawned;
+}
+
 bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell) {
   f32 height;
-  if (!CellWaterHeight(cell, &height)) return false;
+  if (!CellWaterHeight(grid_x, grid_y, cell, &height)) return false;
 
   // Skip cells whose terrain sits entirely above the water level.
   if (cell.source->land != 0) {
@@ -1023,12 +1243,12 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   ecs::Entity entity = world.Create();
   Transform transform;
   Vec3 position =
-      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, height);
+      ToWorld(static_cast<f32>(grid_x) * cell_size_, static_cast<f32>(grid_y) * cell_size_, height);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
   std::memcpy(transform.rotation, kAxisChange, sizeof(transform.rotation));
-  transform.scale = kUnitsToMeters;
+  transform.scale = units_to_meters_;
   world.Add(entity, transform);
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
@@ -1047,7 +1267,7 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
 
   // Dry cells read as far above water so only the "above" grasses grow.
   f32 water_height = -kNoCellWater;
-  CellWaterHeight(cell, &water_height);
+  CellWaterHeight(grid_x, grid_y, cell, &water_height);
 
   const asset::Mesh* mesh =
       grass_baker_.BuildCell(land, records_.Find(land_id)->winning_plugin, grid_x, grid_y,
@@ -1059,12 +1279,12 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   ecs::Entity entity = world.Create();
   Transform transform;
   Vec3 position =
-      ToWorld(static_cast<f32>(grid_x) * kCellSize, static_cast<f32>(grid_y) * kCellSize, 0.0f);
+      ToWorld(static_cast<f32>(grid_x) * cell_size_, static_cast<f32>(grid_y) * cell_size_, 0.0f);
   transform.position[0] = position.x;
   transform.position[1] = position.y;
   transform.position[2] = position.z;
   std::memcpy(transform.rotation, kAxisChange, sizeof(transform.rotation));
-  transform.scale = kUnitsToMeters;
+  transform.scale = units_to_meters_;
   world.Add(entity, transform);
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
@@ -1125,6 +1345,22 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     const Vec3 position = ToWorld(pos[0], pos[1], pos[2]);
     AddPlacedLight(base_id, refr, position, cell);
     AddPlacedDecal(base_id, id, refr, position, cell);
+  }
+
+  // A pack-in (Starfield PKIN) is a prefab: its CNAM cell's refs instantiate
+  // at this reference's transform (retaining walls, spaceport buildings).
+  if (const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(base_id);
+      base_stored && base_stored->header.type == kPkin) {
+    f32 placement[6];
+    std::memcpy(placement, data->data.data(), 24);
+    f32 scale = 1.0f;
+    if (const bethesda::Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4) {
+      std::memcpy(&scale, xscl->data.data(), 4);
+    }
+    f32 rotation[4];
+    BethQuatFromEuler(placement + 3, rotation);
+    SpawnPackIn(world, grid_x, grid_y, base_id, placement, rotation, scale, cell, interior, 0);
+    return true;
   }
 
   bool budget_exceeded = false;
@@ -1227,7 +1463,7 @@ void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda
   if (const bethesda::Subrecord* d = light.Find(kData); d && d->data.size() >= 12) {
     u32 radius_units;
     std::memcpy(&radius_units, d->data.data() + 4, 4);
-    if (radius_units > 0 && radius_units < 20000) l.pos_radius[3] = radius_units * kUnitsToMeters;
+    if (radius_units > 0 && radius_units < 20000) l.pos_radius[3] = radius_units * units_to_meters_;
     const u8* c = d->data.data() + 8;
     const f32 r = c[0] / 255.0f, g = c[1] / 255.0f, b = c[2] / 255.0f;
     if (r + g + b >= 0.05f) {  // a black record reads as the warm default
@@ -1250,7 +1486,7 @@ void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda
     f32 radius_units;
     std::memcpy(&radius_units, x->data.data(), 4);
     if (radius_units > 0.0f && radius_units < 20000.0f)
-      l.pos_radius[3] = radius_units * kUnitsToMeters;
+      l.pos_radius[3] = radius_units * units_to_meters_;
   }
 
   cell.lights.push_back(l);
@@ -1397,11 +1633,11 @@ void CellStreamer::EnsureDecalAtlas() {
     DecalBase base;
     f32 v[5];
     std::memcpy(v, dodt->data.data(), 20);
-    base.half_w = 0.25f * (v[0] + v[1]) * kUnitsToMeters;
-    base.half_h = 0.25f * (v[2] + v[3]) * kUnitsToMeters;
+    base.half_w = 0.25f * (v[0] + v[1]) * units_to_meters_;
+    base.half_h = 0.25f * (v[2] + v[3]) * units_to_meters_;
     if (base.half_w <= 0.01f || base.half_h <= 0.01f) return;
     // A generous depth floor keeps wide splats attached on uneven terrain.
-    base.half_d = std::max(v[4] * kUnitsToMeters, 0.4f);
+    base.half_d = std::max(v[4] * units_to_meters_, 0.4f);
     const u8* tint = dodt->data.data() + 32;
     base.tint[0] = tint[0] / 255.0f;
     base.tint[1] = tint[1] / 255.0f;
@@ -1670,10 +1906,10 @@ ecs::Entity CellStreamer::PlaceObject(ecs::World& world, bethesda::GlobalFormId 
 
 bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const {
   if (!grid_) return false;
-  f32 beth_x = engine_x / kUnitsToMeters;
-  f32 beth_y = -engine_z / kUnitsToMeters;
-  i16 cell_x = static_cast<i16>(std::floor(beth_x / kCellSize));
-  i16 cell_y = static_cast<i16>(std::floor(beth_y / kCellSize));
+  f32 beth_x = engine_x / units_to_meters_;
+  f32 beth_y = -engine_z / units_to_meters_;
+  i16 cell_x = static_cast<i16>(std::floor(beth_x / cell_size_));
+  i16 cell_y = static_cast<i16>(std::floor(beth_y / cell_size_));
   const u32 grid_key = bethesda::RecordStore::GridKey(cell_x, cell_y);
   const bethesda::RecordStore::ExteriorCell* cell = grid_->find(grid_key);
   if (!cell) return false;
@@ -1699,12 +1935,12 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   }
   const f32* heights = slot->data();
 
-  constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
-  f32 local_x = beth_x - static_cast<f32>(cell_x) * kCellSize;
-  f32 local_y = beth_y - static_cast<f32>(cell_y) * kCellSize;
-  u32 c = std::min(kLandGridPoints - 1, static_cast<u32>(local_x / kSpacing));
-  u32 r = std::min(kLandGridPoints - 1, static_cast<u32>(local_y / kSpacing));
-  *engine_y = heights[r * kLandGridPoints + c] * kUnitsToMeters;
+  const f32 spacing = cell_size_ / (kLandGridPoints - 1);
+  f32 local_x = beth_x - static_cast<f32>(cell_x) * cell_size_;
+  f32 local_y = beth_y - static_cast<f32>(cell_y) * cell_size_;
+  u32 c = std::min(kLandGridPoints - 1, static_cast<u32>(local_x / spacing));
+  u32 r = std::min(kLandGridPoints - 1, static_cast<u32>(local_y / spacing));
+  *engine_y = heights[r * kLandGridPoints + c] * units_to_meters_;
   return true;
 }
 
@@ -1736,8 +1972,26 @@ bool CellStreamer::RefsGroundHeight(u32 grid_key,
     refs_ground_cache_.emplace(grid_key, std::numeric_limits<f32>::quiet_NaN());
     return false;
   }
+  // With water in the cell, only refs above the surface count as ground:
+  // submerged harbor props otherwise drag the percentile (and the camera)
+  // under the lake.
+  f32 water = -kNoCellWater;
+  {
+    LoadedCell probe;
+    probe.source = &cell;
+    CellWaterHeight(static_cast<i16>(grid_key >> 16), static_cast<i16>(grid_key & 0xffff), probe,
+                    &water);
+  }
+  if (water > -kNoCellWater) {
+    base::Vector<f32> dry;
+    dry.reserve(zs.size());
+    for (f32 z : zs) {
+      if (z >= water) dry.push_back(z);
+    }
+    if (dry.size() >= 8) zs = std::move(dry);
+  }
   std::sort(zs.begin(), zs.end());
-  const f32 ground = zs[zs.size() / 10] * kUnitsToMeters;
+  const f32 ground = zs[zs.size() / 10] * units_to_meters_;
   refs_ground_cache_.emplace(grid_key, ground);
   *engine_y = ground;
   return true;
@@ -1833,8 +2087,8 @@ void CellStreamer::ResolveInteriorLighting(bethesda::GlobalFormId cell_id) {
   const f32 fog_pow = pickf(0x100, cellb.fog_pow, tmpl.fog_pow);
   const f32 fog_max = pickf(0x200, cellb.fog_max, tmpl.fog_max);
 
-  L.fog_near = near_units * kUnitsToMeters;
-  L.fog_far = far_units * kUnitsToMeters;
+  L.fog_near = near_units * units_to_meters_;
+  L.fog_far = far_units * units_to_meters_;
   L.fog_power = fog_pow > 0.01f ? fog_pow : 1.0f;
   L.fog_max = fog_max > 0.0f ? std::min(fog_max, 1.0f) : 1.0f;
 

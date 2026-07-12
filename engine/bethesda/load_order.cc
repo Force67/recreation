@@ -67,7 +67,7 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
   constexpr u32 kXclc = FourCc('X', 'C', 'L', 'C');
   constexpr u32 kData = FourCc('D', 'A', 'T', 'A');
   constexpr u32 kInfo = FourCc('I', 'N', 'F', 'O');
-  constexpr f32 kCellSize = 4096.0f;
+  const f32 cell_size = profile.cell_size;
 
   size_t persistent_refs = 0;
   order_ = order;
@@ -153,8 +153,8 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
         if (!data || data->data.size() < 24) return;
         f32 position[3];
         std::memcpy(position, data->data.data(), 12);
-        i16 grid_x = static_cast<i16>(std::floor(position[0] / kCellSize));
-        i16 grid_y = static_cast<i16>(std::floor(position[1] / kCellSize));
+        i16 grid_x = static_cast<i16>(std::floor(position[0] / cell_size));
+        i16 grid_y = static_cast<i16>(std::floor(position[1] / cell_size));
         u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
         exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
         ++persistent_refs;

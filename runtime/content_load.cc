@@ -398,7 +398,7 @@ bool LoadGameData(Engine& engine) {
     return true;
   }
 
-  self->streamer_ = std::make_unique<world::CellStreamer>(self->records_, *self->assets_);
+  self->streamer_ = std::make_unique<world::CellStreamer>(self->records_, profile, *self->assets_);
   self->ctx_.streamer = self->streamer_.get();
   // Forward load-door cell transitions to the managed world (LocationChanged), so
   // mods react to where the player is. Runs on the main thread; drained next frame.
@@ -478,11 +478,9 @@ bool LoadGameData(Engine& engine) {
   }
 
   // Drop the camera a bit above the terrain at the middle of the start cell.
-  constexpr f32 kUnitsToMeters = 0.01428f;
-  constexpr f32 kCellSize = 4096.0f;
-  f32 beth_x = (static_cast<f32>(self->config_.start_cell_x) + 0.5f) * kCellSize;
-  f32 beth_y = (static_cast<f32>(self->config_.start_cell_y) + 0.5f) * kCellSize;
-  Vec3 start{beth_x * kUnitsToMeters, 0.0f, -beth_y * kUnitsToMeters};
+  f32 beth_x = (static_cast<f32>(self->config_.start_cell_x) + 0.5f) * profile.cell_size;
+  f32 beth_y = (static_cast<f32>(self->config_.start_cell_y) + 0.5f) * profile.cell_size;
+  Vec3 start{beth_x * profile.units_to_meters, 0.0f, -beth_y * profile.units_to_meters};
   f32 ground = 0;
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {
     start.y = ground + 10.0f;  // a little above the terrain for a view
@@ -541,8 +539,6 @@ bool LoadGameData(Engine& engine) {
 void SetupExtraStreamers(Engine& engine) {
   Engine* const self = &engine;
   if (self->config_.headless || self->extra_domains_.empty()) return;
-  constexpr f32 kUnitsToMeters = 0.01428f;
-  constexpr f32 kCellSize = 4096.0f;
 
   // Each secondary worldspace is a fixed diorama placed this far east of the
   // primary camera, stepped per domain so several never overlap. RX_DOMAIN_OFFSET
@@ -578,7 +574,8 @@ void SetupExtraStreamers(Engine& engine) {
       region_x = forced_x;
       region_y = forced_y;
     }
-    auto streamer = std::make_unique<world::CellStreamer>(domain.records(), domain.assets());
+    auto streamer =
+        std::make_unique<world::CellStreamer>(domain.records(), domain.profile(), domain.assets());
 
     // Namespace this domain's mesh ids so they cannot collide with the primary
     // game's (shared asset paths hash the same). A large odd multiplier keeps
@@ -588,9 +585,10 @@ void SetupExtraStreamers(Engine& engine) {
     streamer->set_mesh_id_salt(salt);
 
     // The region's center in the secondary world's own (pre-offset) engine space.
-    f32 region_bx = (static_cast<f32>(region_x) + 0.5f) * kCellSize;
-    f32 region_by = (static_cast<f32>(region_y) + 0.5f) * kCellSize;
-    Vec3 anchor{region_bx * kUnitsToMeters, 0.0f, -region_by * kUnitsToMeters};
+    f32 region_bx = (static_cast<f32>(region_x) + 0.5f) * domain.profile().cell_size;
+    f32 region_by = (static_cast<f32>(region_y) + 0.5f) * domain.profile().cell_size;
+    Vec3 anchor{region_bx * domain.profile().units_to_meters, 0.0f,
+                -region_by * domain.profile().units_to_meters};
     streamer->set_fixed_anchor(anchor);
     // Offset so the region center lands `step*(i+1)` from the primary camera,
     // at the camera's height by default so the secondary world sits beside the

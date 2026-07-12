@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include "asset/asset_database.h"
+#include "bethesda/game_profile.h"
 #include "bethesda/load_order.h"
 #include "core/math.h"
 #include "ecs/world.h"
@@ -80,11 +81,14 @@ class CellStreamer {
     bool terrain_splat = true; // splat real land textures (off -> per-cell albedo bake)
   };
 
-  CellStreamer(const bethesda::RecordStore& records, asset::AssetDatabase& assets)
+  CellStreamer(const bethesda::RecordStore& records, const bethesda::GameProfile& profile,
+               asset::AssetDatabase& assets)
       : records_(records),
         assets_(assets),
         baker_(records, assets),
-        grass_baker_(records, assets) {}
+        grass_baker_(records, assets),
+        cell_size_(profile.cell_size),
+        units_to_meters_(profile.units_to_meters) {}
 
   void Configure(const Settings& settings) {
     settings_ = settings;
@@ -254,10 +258,20 @@ class CellStreamer {
   // whole map cheaply (a few dozen quads) so the mesh-shader cull does the rest.
   void DiscoverDistantQuads();
   bool SpawnDistantQuad(ecs::World& world, size_t index);
+  // Starfield hand-built worldspaces carry no LAND: their natural ground ships
+  // as per-cell instance NIFs (meshes/terrain/<worldspace>/objects/), each a
+  // list of STAT form placements. Spawns every instance like a placed ref.
+  bool SpawnInstancedTerrain(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
+  // Instantiates a pack-in (Starfield PKIN prefab): the refs of its template
+  // cell spawn composed onto the given Bethesda-space transform (position,
+  // rotation quaternion, uniform scale). Recurses into nested pack-ins.
+  bool SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y, bethesda::GlobalFormId pkin_id,
+                   const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
+                   bool interior, int depth);
   bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
-  // Water level of the cell in game units; false when the cell has none.
-  bool CellWaterHeight(const LoadedCell& cell, f32* height) const;
+  // Water level of the cell in record units; false when the cell has none.
+  bool CellWaterHeight(i16 grid_x, i16 grid_y, const LoadedCell& cell, f32* height) const;
   void AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell, const f32* heights);
   // Floor estimate (engine y) for a cell with no LAND, from its placed refs.
   bool RefsGroundHeight(u32 grid_key, const bethesda::RecordStore::ExteriorCell& cell,
@@ -345,14 +359,25 @@ class CellStreamer {
   mutable base::UnorderedMap<u32, f32> refs_ground_cache_;
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
-  f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units
+  // Per-game world units (GameProfile): record units per cell edge and record
+  // position units -> engine metres. Mesh-space scaling stays the fixed game
+  // unit -> metre constant (converted meshes are always in game-unit space).
+  f32 cell_size_ = 4096.0f;
+  f32 units_to_meters_ = 0.01428f;
+  f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, record units
   f32 fallback_water_height_ = -3.0e38f;  // when the WRLD has no DNAM (Oblivion)
   bethesda::GlobalFormId default_water_form_;  // worldspace WRLD NAM2 (WATR), else invalid
+  // Starfield worldspaces carry a WRLD-level water table (XCLW cell pairs +
+  // WHGT heights): listed cells hold water at their own height instead of the
+  // worldspace default (New Atlantis' upper lake vs the spaceport lake).
+  base::UnorderedMap<u32, f32> water_table_;  // GridKey -> height, record units
+  bool has_water_table_ = false;
   // WATR form (packed) -> tinted water quad mesh id; key 0 is the untinted
   // fallback plane. Cached so each water type is parsed and built once.
   base::UnorderedMap<u64, asset::AssetId> water_meshes_;
   size_t spawned_entities_ = 0;
   size_t spawned_npcs_ = 0;
+  size_t terrain_instances_ = 0;  // Starfield instanced-terrain placements
   size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;

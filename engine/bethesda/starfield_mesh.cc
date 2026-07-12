@@ -20,7 +20,7 @@ namespace {
 // (0.01428 == 1/70) to place them. Scaling Starfield positions up by the
 // reciprocal lands them on the same game-unit convention the rest of the
 // pipeline expects.
-constexpr f32 kMetresToGameUnits = 70.0f;
+constexpr f32 kMetresToGameUnits = kStarfieldMetresToGameUnits;
 
 struct Reader {
   ByteSpan data;
@@ -296,13 +296,11 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
       out->vertices[i].uv[1] = HalfToFloat(h[1]);
     }
   });
-  read_stream(4, nullptr);                          // uv2, unused
-  read_stream(4, [&](u32 count, const u8* bytes) {  // vertex color, RGBA8
-    for (u32 i = 0; i < count; ++i) {
-      std::memcpy(&out->vertices[i].color, bytes + i * 4, 4);
-      out->vertices[i].color |= 0xff000000u;  // drop wind-weight alpha
-    }
-  });
+  read_stream(4, nullptr);  // uv2, unused
+  // Vertex color RGBA8: Starfield uses it as a layered-material blend mask
+  // (and wind weight in alpha), not an albedo tint. Multiplying it into
+  // shading paints whole facades cyan/green, so leave vertices white.
+  read_stream(4, nullptr);
   read_stream(4, nullptr);  // packed normals, format undecoded
   read_stream(4, nullptr);  // packed tangents, format undecoded
   if (!r.ok) return false;
@@ -387,13 +385,8 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
       out->vertices[i].uv[1] = HalfToFloat(h[1]);
     }
   });
-  read_stream(4, nullptr);                          // uv2, unused
-  read_stream(4, [&](u32 count, const u8* bytes) {  // vertex color, RGBA8
-    for (u32 i = 0; i < count; ++i) {
-      std::memcpy(&out->vertices[i].color, bytes + i * 4, 4);
-      out->vertices[i].color |= 0xff000000u;
-    }
-  });
+  read_stream(4, nullptr);  // uv2, unused
+  read_stream(4, nullptr);  // vertex color, a blend mask in Starfield (see rigid path)
   read_stream(4, nullptr);  // packed normals, format undecoded
   read_stream(4, nullptr);  // packed tangents, format undecoded
   if (!r.ok) return false;
@@ -535,6 +528,65 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
     ref.scale = world.s;
     ref.mesh_path = geo->mesh_path;
     out->push_back(std::move(ref));
+  }
+  return !out->empty();
+}
+
+bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGroup>* out) {
+  auto header = ParseNifHeader(data);
+  if (!header) return false;
+  u32 block_count = static_cast<u32>(header->block_sizes.size());
+
+  for (u32 i = 0; i < block_count; ++i) {
+    const std::string& type = header->block_types[header->block_type_index[i]];
+    if (type != "BSWeakReferenceNode") continue;
+    Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
+
+    // NiNode prefix: the NiAVObject fields, then the (typically empty)
+    // child list, then the instance table.
+    ReadAvObject(r, nullptr);
+    u32 child_count = r.Read<u32>();
+    if (!r.ok || child_count > 65536) continue;
+    r.Skip(4 * child_count);
+
+    // Per entry: u32 base form id, u32 name hash, char[4] extension ("nif"),
+    // u32 directory hash, u32 instance count, count x 64 bytes (3x4 rotation
+    // rows padded with 0, then translation xyz + uniform scale), then a u32
+    // count of extra 16-byte material-swap file records. Verified byte-exact
+    // against newatlantis.{1,4,8}.*.nif.
+    u32 entry_count = r.Read<u32>();
+    if (!r.ok || entry_count > 4096) continue;
+    for (u32 e = 0; e < entry_count && r.ok; ++e) {
+      StarfieldTerrainGroup group;
+      group.form_id = r.Read<u32>();
+      r.Skip(4);  // file name hash, the form id resolves the model instead
+      const u8* ext = r.Bytes(4);
+      r.Skip(4);  // directory hash
+      u32 instance_count = r.Read<u32>();
+      if (!r.ok || !ext || std::memcmp(ext, "nif", 3) != 0 || instance_count > 65536) {
+        r.ok = false;
+        break;
+      }
+      group.instances.reserve(instance_count);
+      for (u32 k = 0; k < instance_count; ++k) {
+        f32 m[16];
+        for (f32& v : m) v = r.Read<f32>();
+        if (!r.ok) break;
+        StarfieldTerrainInstance inst;
+        for (int row = 0; row < 3; ++row) {
+          for (int col = 0; col < 3; ++col) inst.rotation[row * 3 + col] = m[row * 4 + col];
+        }
+        inst.translation[0] = m[12];
+        inst.translation[1] = m[13];
+        inst.translation[2] = m[14];
+        inst.scale = m[15];
+        group.instances.push_back(inst);
+      }
+      u32 extra_count = r.Read<u32>();
+      if (!r.ok || extra_count > 64) break;
+      r.Skip(16 * extra_count);  // material swap refs, unused
+      if (r.ok && !group.instances.empty()) out->push_back(std::move(group));
+    }
   }
   return !out->empty();
 }

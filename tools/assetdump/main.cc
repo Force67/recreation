@@ -114,11 +114,16 @@ int main(int argc, char** argv) {
       return found ? found->c_str() : "";
     };
 
-    if (!conversion.mesh || conversion.mesh->lods.empty()) {
+    const asset::Mesh* mesh = conversion.mesh ? &*conversion.mesh : nullptr;
+    if (!mesh || mesh->lods.empty()) {
+      // The generic BSTriShape path came up empty; try the profile-registered
+      // converter (Starfield BSGeometry NIFs only convert through it).
+      mesh = database.LoadMesh(path);
+    }
+    if (!mesh || mesh->lods.empty()) {
       std::printf("mesh conversion failed\n");
       return 1;
     }
-    const asset::Mesh* mesh = &*conversion.mesh;
     const asset::MeshLod& lod = mesh->lods[0];
     std::printf("mesh: %zu vertices, %zu indices, %zu submeshes, bounds r=%.1f center=%.1f,%.1f,%.1f\n",
                 lod.vertices.size(), lod.indices.size(), lod.submeshes.size(),

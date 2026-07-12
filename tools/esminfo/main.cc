@@ -23,6 +23,52 @@ constexpr rx::u32 kName = rx::FourCc('N', 'A', 'M', 'E');
 constexpr rx::u32 kData = rx::FourCc('D', 'A', 'T', 'A');
 constexpr rx::u32 kModl = rx::FourCc('M', 'O', 'D', 'L');
 
+// Dumps the raw subrecords of one exterior CELL record (plus the worldspace
+// DNAM/NAM2) so per-game DATA/XCLW layouts can be checked byte-for-byte.
+int DumpCellRecord(const std::string& data_dir, int x, int y) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
+  Record wrld;
+  if (records.Parse(world, &wrld)) {
+    std::printf("WRLD %04x:%06x %s\n", world.plugin, world.local_id,
+                wrld.GetString(kEdid).c_str());
+    for (const Subrecord& sub : wrld.subrecords) {
+      char t[5] = {};
+      std::memcpy(t, &sub.type, 4);
+      std::printf("  %s %4zu ", t, static_cast<size_t>(sub.data.size()));
+      for (size_t i = 0; i < sub.data.size() && i < 160; ++i)
+        std::printf("%02x", sub.data[i]);
+      std::printf("\n");
+    }
+  }
+  const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world);
+  if (!grid) return 1;
+  const RecordStore::ExteriorCell* cell =
+      grid->find(RecordStore::GridKey(static_cast<rx::i16>(x), static_cast<rx::i16>(y)));
+  if (!cell || cell->cell == 0) {
+    std::printf("no cell at %d,%d\n", x, y);
+    return 1;
+  }
+  GlobalFormId cell_id{static_cast<rx::u16>(cell->cell >> 32), static_cast<rx::u32>(cell->cell)};
+  Record record;
+  if (!records.Parse(cell_id, &record)) return 1;
+  std::printf("CELL %04x:%06x %s (%d,%d)\n", cell_id.plugin, cell_id.local_id,
+              record.GetString(kEdid).c_str(), x, y);
+  for (const Subrecord& sub : record.subrecords) {
+    char t[5] = {};
+    std::memcpy(t, &sub.type, 4);
+    std::printf("  %s %4zu ", t, static_cast<size_t>(sub.data.size()));
+    for (size_t i = 0; i < sub.data.size() && i < 48; ++i)
+      std::printf("%02x", sub.data[i]);
+    std::printf("\n");
+  }
+  return 0;
+}
+
 // Lists the refs of one exterior cell with their base record info, for
 // chasing down "what is that thing on screen" questions.
 int DumpCellRefs(const std::string& data_dir, int x, int y) {
@@ -848,6 +894,43 @@ int main(int argc, char** argv) {
     if (comma == std::string::npos) return 1;
     return DumpLand(argv[1], std::stoi(coords.substr(0, comma)),
                     std::stoi(coords.substr(comma + 1)));
+  }
+
+  if (argc >= 4 && std::string(argv[2]) == "form") {
+    const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(argv[1]));
+    auto order = LoadOrder::FromPluginsTxt(std::string(argv[1]) + "/../plugins.txt", profile);
+    RecordStore records;
+    if (!records.LoadAll(argv[1], order, profile)) return 1;
+    GlobalFormId id{0, static_cast<rx::u32>(std::stoul(argv[3], nullptr, 16))};
+    const RecordStore::StoredRecord* stored = records.Find(id);
+    if (!stored) {
+      std::printf("not found\n");
+      return 1;
+    }
+    char t[5] = {};
+    std::memcpy(t, &stored->header.type, 4);
+    Record r;
+    if (!records.Parse(id, &r)) return 1;
+    std::printf("%s %04x:%06x %s\n", t, id.plugin, id.local_id, r.GetString(kEdid).c_str());
+    for (const Subrecord& sub : r.subrecords) {
+      char st[5] = {};
+      std::memcpy(st, &sub.type, 4);
+      std::string ascii;
+      for (size_t i = 0; i < sub.data.size() && i < 64; ++i) {
+        char c = static_cast<char>(sub.data[i]);
+        ascii.push_back((c >= 32 && c < 127) ? c : '.');
+      }
+      std::printf("  %s %4zu %s\n", st, static_cast<size_t>(sub.data.size()), ascii.c_str());
+    }
+    return 0;
+  }
+
+  if (argc >= 4 && std::string(argv[2]) == "cellrec") {
+    std::string coords = argv[3];
+    size_t comma = coords.find(',');
+    if (comma == std::string::npos) return 1;
+    return DumpCellRecord(argv[1], std::stoi(coords.substr(0, comma)),
+                          std::stoi(coords.substr(comma + 1)));
   }
 
   if (argc >= 4 && std::string(argv[2]) == "cell") {

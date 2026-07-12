@@ -44,6 +44,10 @@ const GameProfile& GameProfile::For(Game game) {
       .plugin_version = 0.96f,
       .base_masters = {"Starfield.esm"},
       .exterior_worldspace = "NewAtlantis",
+      // Starfield worlds are metric: REFR positions in metres, 100 m cells
+      // (verified against New Atlantis ref clusters per XCLC grid slot).
+      .cell_size = 100.0f,
+      .units_to_meters = 1.0f,
       .string_language = "en",
   };
   // Classic Oblivion (2006 Gamebryo): BSA v103 archives, 20 byte record
