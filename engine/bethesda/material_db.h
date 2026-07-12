@@ -27,10 +27,28 @@ class StarfieldMaterialDb {
   // empty span leaves the database empty (every Lookup misses).
   void Build(ByteSpan cdb);
 
-  // Resolves the base-color, normal and emissive texture vfs paths
-  // ("textures/...dds") for a material path ("Materials\X\Y.mat"). Outputs are
-  // left untouched when a map is absent. Returns false when the material is not
-  // in the database.
+  // Resolved texture vfs paths ("textures/...dds") for a material, plus the
+  // scalar PBR hint the reader can infer. Absent maps stay empty.
+  struct Resolved {
+    std::string base_color;
+    std::string normal;
+    std::string emissive;
+    std::string roughness;  // TextureSet slot 3
+    std::string metallic;   // TextureSet slot 4
+    std::string ao;         // TextureSet slot 5 (ambient occlusion)
+    // The CDB does not expose a scalar metalness through the TextureFile leaves
+    // this reader follows, so a bound metallic map is the metal signal: with a
+    // slot-4 map present the surface is treated as a metal (factor 1); the
+    // per-texel map then modulates it. No map = dielectric.
+    bool metallic_hint = false;
+  };
+
+  // Resolves a material path ("Materials\X\Y.mat"). Returns false when the
+  // material is not in the database. `out` is only written on a hit.
+  bool Lookup(std::string_view mat_path, Resolved* out) const;
+
+  // Legacy 3-slot lookup kept for callers that only need color/normal/emissive.
+  // Outputs are left untouched when a map is absent.
   bool Lookup(std::string_view mat_path, std::string* base_color, std::string* normal,
               std::string* emissive) const;
 
@@ -56,6 +74,9 @@ class StarfieldMaterialDb {
     std::string base_color;
     std::string normal;
     std::string emissive;
+    std::string roughness;
+    std::string metallic;
+    std::string ao;
   };
   struct ResourceIdHash {
     size_t operator()(const ResourceId& id) const {

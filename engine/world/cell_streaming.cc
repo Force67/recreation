@@ -1848,9 +1848,10 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
           RX_WARN("texture missing for material {:x}: {:x}", material->id.hash, texture_id.hash);
         }
       };
-      const asset::AssetId textures[] = {material->base_color, material->normal,
+      const asset::AssetId textures[] = {material->base_color,  material->normal,
                                          material->metallic_roughness, material->emissive,
-                                         material->height};
+                                         material->height,      material->metallic_map,
+                                         material->occlusion_map};
       for (asset::AssetId texture_id : textures) upload_texture(texture_id);
       // Terrain splat v2 palette: layer diffuses + normals resolve to bindless
       // indices at material upload, so they must be resident first.
