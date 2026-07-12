@@ -46,6 +46,21 @@ const GameProfile& GameProfile::For(Game game) {
       .exterior_worldspace = "NewAtlantis",
       .string_language = "en",
   };
+  // Classic Oblivion (2006 Gamebryo): BSA v103 archives, 20 byte record
+  // headers, strings inline in the records (no localization files), old
+  // NiTriShape/NiTriStrips NIFs. The main worldspace is also called Tamriel.
+  static const GameProfile oblivion{
+      .game = Game::kOblivion,
+      .name = "Oblivion",
+      .archive_format = ArchiveFormat::kBsa,
+      .plugin_version = 1.0f,
+      .base_masters = {"Oblivion.esm"},
+      .exterior_worldspace = "Tamriel",
+      .string_language = "",
+      .supports_esl = false,
+      .has_loose_script_source = false,
+      .record_header_size = 20,
+  };
   static const GameProfile unknown{};
 
   switch (game) {
@@ -53,6 +68,7 @@ const GameProfile& GameProfile::For(Game game) {
     case Game::kFallout4: return fallout4;
     case Game::kFallout76: return fallout76;
     case Game::kStarfield: return starfield;
+    case Game::kOblivion: return oblivion;
     case Game::kUnknown: return unknown;
   }
   return unknown;
@@ -64,6 +80,7 @@ Game GameProfile::DetectFromDataDir(const std::string& data_dir) {
   if (fs::exists(fs::path(data_dir) / "Starfield.esm")) return Game::kStarfield;
   if (fs::exists(fs::path(data_dir) / "Fallout4.esm")) return Game::kFallout4;
   if (fs::exists(fs::path(data_dir) / "Skyrim.esm")) return Game::kSkyrimSe;
+  if (fs::exists(fs::path(data_dir) / "Oblivion.esm")) return Game::kOblivion;
   return Game::kUnknown;
 }
 

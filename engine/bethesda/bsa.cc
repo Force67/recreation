@@ -23,7 +23,7 @@ constexpr u32 kFileSizeCompressionToggle = 0x40000000;
 
 struct BsaHeader {
   u32 magic;
-  u32 version;  // 104 LE/Skyrim, 105 SSE
+  u32 version;  // 103 Oblivion, 104 LE/Skyrim, 105 SSE
   u32 folder_records_offset;
   u32 archive_flags;
   u32 folder_count;
@@ -115,7 +115,9 @@ class BsaProvider final : public asset::FileProvider {
 
     std::ifstream file(path_, std::ios::binary);
     file.seekg(entry.offset);
-    if (header_.archive_flags & kFlagEmbedFileNames) {
+    // v103 (Oblivion) reuses the 0x100 flag bit for something else and never
+    // prefixes file data with a name; consuming one corrupts the stream.
+    if (header_.version >= 104 && (header_.archive_flags & kFlagEmbedFileNames)) {
       u8 length = 0;
       file.read(reinterpret_cast<char*>(&length), 1);
       file.seekg(length, std::ios::cur);
@@ -169,7 +171,7 @@ base::UniquePointer<asset::FileProvider> OpenBsa(const std::string& path) {
     RX_ERROR("not a bsa: {}", path);
     return nullptr;
   }
-  if (header.version != 104 && header.version != 105) {
+  if (header.version != 103 && header.version != 104 && header.version != 105) {
     RX_ERROR("unsupported bsa version {} in {}", header.version, path);
     return nullptr;
   }

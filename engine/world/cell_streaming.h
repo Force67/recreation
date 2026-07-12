@@ -96,6 +96,11 @@ class CellStreamer {
   }
   void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
 
+  // Water height for cells with the has-water flag when neither the cell
+  // (XCLW) nor the worldspace (WRLD DNAM) provides one. Oblivion WRLDs carry
+  // no DNAM at all; its exterior sea level is 0.
+  void set_fallback_water_height(f32 height) { fallback_water_height_ = height; }
+
   // Translates all spawned content (and the camera anchor) by a fixed engine
   // space vector. Zero for the primary game; a secondary content domain
   // (a Fallout 4 worldspace streamed next to Skyrim) is offset so the two
@@ -341,6 +346,7 @@ class CellStreamer {
   base::UnorderedMap<u64, bool> uploaded_;  // mesh/texture/material id set
   asset::AssetId land_material_;
   f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, game units
+  f32 fallback_water_height_ = -3.0e38f;  // when the WRLD has no DNAM (Oblivion)
   bethesda::GlobalFormId default_water_form_;  // worldspace WRLD NAM2 (WATR), else invalid
   // WATR form (packed) -> tinted water quad mesh id; key 0 is the untinted
   // fallback plane. Cached so each water type is parsed and built once.

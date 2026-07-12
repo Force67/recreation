@@ -265,6 +265,8 @@ const LandBaker::Layer* LandBaker::DefaultLayer() {
   EnsureBakeSize();
   if (default_layer_.size == 0) {
     const asset::Texture* texture = assets_.LoadTexture("textures/landscape/tundra01.dds");
+    // Oblivion's stand-in for untextured land.
+    if (!texture) texture = assets_.LoadTexture("textures/landscape/default.dds");
     if (!texture || !DecodeTexture(*texture, &default_layer_)) {
       default_layer_.size = 1;
       default_layer_.rgb.resize(3);
@@ -277,6 +279,8 @@ const LandBaker::Layer* LandBaker::DefaultLayer() {
 }
 
 // LTEX -> TNAM -> TXST -> TX<slot> texture path (TX00 diffuse, TX01 normal).
+// Oblivion LTEX records have no TNAM/TXST; the ICON subrecord names the
+// diffuse relative to textures/landscape/, with "_n.dds" siblings for normals.
 static std::string TxstPath(const bethesda::RecordStore& records, u64 ltex_packed, u32 tx_type) {
   if (ltex_packed == 0) return {};
   bethesda::GlobalFormId ltex_id{static_cast<u16>(ltex_packed >> 32),
@@ -292,6 +296,11 @@ static std::string TxstPath(const bethesda::RecordStore& records, u64 ltex_packe
             records.ResolveFrom(bethesda::RawFormId{raw}, found->winning_plugin);
         bethesda::Record txst;
         if (records.Parse(txst_id, &txst)) path = txst.GetString(tx_type);
+      }
+    } else if (std::string icon = ltex.GetString(FourCc('I', 'C', 'O', 'N')); !icon.empty()) {
+      path = "landscape/" + asset::NormalizePath(icon);
+      if (tx_type == kTx01 && path.ends_with(".dds")) {
+        path = path.substr(0, path.size() - 4) + "_n.dds";
       }
     }
   }
@@ -310,6 +319,10 @@ asset::AssetId LandBaker::LayerAsset(u64 ltex_packed) {
   std::string path = LayerDiffusePath(ltex_packed);
   if (path.empty()) path = "textures/landscape/tundra01.dds";
   if (const asset::Texture* texture = assets_.LoadTexture(path)) return texture->id;
+  // Oblivion's stand-in for untextured land.
+  if (const asset::Texture* texture = assets_.LoadTexture("textures/landscape/default.dds")) {
+    return texture->id;
+  }
   return {};
 }
 
