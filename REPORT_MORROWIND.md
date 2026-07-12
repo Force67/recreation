@@ -65,11 +65,20 @@ Screenshots (RX_SCREENSHOT, pinned pose, streaming idle before capture) at
 `build/shots-morrowind/`:
 
 - Bitter Coast: swamp terrain and shoreline, VTEX splat over the real
-  `Tx_*.dds` land textures.
-- Seyda Neen: the arrival ship, docks, and shacks render.
-- Balmora: Hlaalu adobe housing plus the Temple.
+  `Tx_*.dds` land textures (`morrowind_bittercoast.png`, re-verified after the
+  final rebuild as `morrowind_final_verify.png`: swamp pools, emperor
+  parasols, thatched shacks).
+- Seyda Neen: the arrival ship, docks, and shacks render
+  (`morrowind_seyda_neen.png`).
+- Balmora: Hlaalu adobe housing plus the Temple (`morrowind_balmora.png`).
 - Oblivion Weye regression: identical to the Oblivion report vantage,
-  unchanged.
+  unchanged (`oblivion_weye_regression.png`).
+
+Skyrim non-regression (shared code touched: plugin walk, BSA dispatch, NIF
+version dispatch): boots on the SSE data dir, streams Whiterun to idle
+(49 cells, 3430 entities, 100 land bakes, 14 water planes, 14151 grass
+instances) and renders the city with distant LOD
+(`skyrim_whiterun_regression.png`, RX_CAM 321.7,60,400,0,-0.38).
 
 ## Remaining gaps / next steps
 
