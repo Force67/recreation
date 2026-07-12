@@ -2,6 +2,7 @@
 #define RECREATION_BETHESDA_PLUGIN_H_
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -12,6 +13,8 @@
 #include "core/types.h"
 
 namespace rx::bethesda {
+
+struct Tes3Translation;
 
 constexpr u32 kPluginFlagMaster = 0x00000001;
 constexpr u32 kPluginFlagLocalized = 0x00000080;
@@ -36,6 +39,11 @@ bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* ou
 class PluginFile {
  public:
   static std::optional<PluginFile> Open(const std::string& path, const GameProfile& profile);
+
+  // Out of line: the unique Tes3Translation member is incomplete here.
+  PluginFile(PluginFile&&) noexcept;
+  PluginFile& operator=(PluginFile&&) noexcept;
+  ~PluginFile();
 
   using RecordVisitor = std::function<void(Record& record)>;
   using RawRecordVisitor =
@@ -76,6 +84,10 @@ class PluginFile {
   // On disk record/group header size (GameProfile::record_header_size).
   // Oblivion headers are 20 bytes, Skyrim and later 24.
   u32 header_size_ = 24;
+  // Morrowind: the flat TES3 file translated into modern records at load;
+  // when set, the raw walk iterates the synthesized records instead of the
+  // file bytes (which are dropped after translation).
+  std::unique_ptr<Tes3Translation> tes3_;
 };
 
 }  // namespace rx::bethesda

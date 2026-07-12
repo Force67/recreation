@@ -1,6 +1,7 @@
 recreation_add_module(bethesda
   game_profile.cc
   plugin.cc
+  tes3.cc
   writer.cc
   edit_session.cc
   raw_rewriter.cc

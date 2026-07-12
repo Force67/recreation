@@ -426,7 +426,10 @@ bool LoadGameData(Engine& engine) {
   self->streamer_->Configure(settings);
   // Oblivion worldspaces carry no default water height (WRLD has no DNAM);
   // the game's exterior sea level is 0 (Lake Rumare, the Niben, the coast).
-  if (self->game_ == bethesda::Game::kOblivion) self->streamer_->set_fallback_water_height(0.0f);
+  // Morrowind's synthesized worldspace likewise: the Inner Sea is at 0.
+  if (self->game_ == bethesda::Game::kOblivion || self->game_ == bethesda::Game::kMorrowind) {
+    self->streamer_->set_fallback_water_height(0.0f);
+  }
   if (!self->config_.headless) {
     world::CellStreamer::Uploads uploads;
     uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
@@ -457,6 +460,12 @@ bool LoadGameData(Engine& engine) {
   if (!self->config_.start_cell_explicit && self->game_ == bethesda::Game::kOblivion) {
     self->config_.start_cell_x = 3;
     self->config_.start_cell_y = 10;
+  }
+  // Morrowind: Seyda Neen (TES3 cell -2,-9; the translator splits each cell
+  // 2x2, so virtual grid coordinates are doubled).
+  if (!self->config_.start_cell_explicit && self->game_ == bethesda::Game::kMorrowind) {
+    self->config_.start_cell_x = -4;
+    self->config_.start_cell_y = -18;
   }
   // The Civil War battle showcases stage two armies in the open, so without an
   // explicit --cell drop them onto a flat, dry patch of the Whiterun tundra
@@ -593,7 +602,8 @@ void SetupExtraStreamers(Engine& engine) {
     world::CellStreamer::Settings settings;
     settings.grass_density = self->config_.grass_density;
     streamer->Configure(settings);
-    if (domain.profile().game == bethesda::Game::kOblivion) {
+    if (domain.profile().game == bethesda::Game::kOblivion ||
+        domain.profile().game == bethesda::Game::kMorrowind) {
       streamer->set_fallback_water_height(0.0f);
     }
     world::CellStreamer::Uploads uploads;

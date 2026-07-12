@@ -25,6 +25,7 @@
 namespace rx::bethesda {
 namespace {
 
+constexpr u32 kV4_0_0_2 = 0x04000002;  // Morrowind (NetImmerse)
 constexpr u32 kV10_0_1_2 = 0x0A000102;
 constexpr u32 kV10_1_0_0 = 0x0A010000;
 constexpr u32 kV10_1_0_103 = 0x0A010067;
@@ -79,6 +80,11 @@ std::string ReadSizedString(Reader& r) {
   const u8* bytes = r.Bytes(length);
   if (!bytes) return {};
   return std::string(reinterpret_cast<const char*>(bytes), length);
+}
+
+// Booleans are 4 bytes up to 4.0.0.2, 1 byte from 4.1 on.
+bool ReadBool(Reader& r, u32 version) {
+  return version <= kV4_0_0_2 ? r.Read<u32>() != 0 : r.Read<u8>() != 0;
 }
 
 // Same convention as the 20.2.0.7 reader: rotation rows in file order.
@@ -190,41 +196,77 @@ struct AvObjectPrefix {
   bool hidden = false;
 };
 
-void ReadObjectNet(Reader& r, std::string* name, base::Vector<i32>* extra) {
+void ReadObjectNet(Reader& r, u32 version, std::string* name, base::Vector<i32>* extra) {
   std::string n = ReadSizedString(r);
   if (name) *name = std::move(n);
-  u32 extra_count = r.Read<u32>();
-  if (extra_count > 4096) {
-    r.ok = false;
-    return;
-  }
-  for (u32 i = 0; i < extra_count && r.ok; ++i) {
+  if (version <= kV4_0_0_2) {
+    // Pre-10.x extra data is a single chained ref, not a list.
     i32 ref = r.Read<i32>();
     if (extra) extra->push_back(ref);
+  } else {
+    u32 extra_count = r.Read<u32>();
+    if (extra_count > 4096) {
+      r.ok = false;
+      return;
+    }
+    for (u32 i = 0; i < extra_count && r.ok; ++i) {
+      i32 ref = r.Read<i32>();
+      if (extra) extra->push_back(ref);
+    }
   }
   r.Skip(4);  // controller
 }
 
-AvObjectPrefix ReadAvObject(Reader& r) {
+// 4.x bounding volume: a type-tagged union (union type recurses).
+void SkipBoundingVolume(Reader& r, int depth = 0) {
+  if (depth > 4) {
+    r.ok = false;
+    return;
+  }
+  u32 type = r.Read<u32>();
+  switch (type) {
+    case 0: r.Skip(12 + 4); break;       // sphere: center, radius
+    case 1: r.Skip(12 + 36 + 12); break;  // box: center, axes, extents
+    case 2: r.Skip(12 + 12 + 4 + 4); break;  // capsule
+    case 4: {                             // union
+      u32 count = r.Read<u32>();
+      if (count > 64) {
+        r.ok = false;
+        return;
+      }
+      for (u32 i = 0; i < count && r.ok; ++i) SkipBoundingVolume(r, depth + 1);
+      break;
+    }
+    case 5: r.Skip(16 + 12); break;  // half space: plane, center
+    default: r.ok = false; break;
+  }
+}
+
+AvObjectPrefix ReadAvObject(Reader& r, u32 version) {
   AvObjectPrefix out;
-  ReadObjectNet(r, &out.name, &out.extra);
+  ReadObjectNet(r, version, &out.name, &out.extra);
   u16 flags = r.Read<u16>();
   out.hidden = (flags & 1) != 0;
   for (f32& v : out.local.t) v = r.Read<f32>();
   for (f32& v : out.local.r) v = r.Read<f32>();
   out.local.s = r.Read<f32>();
+  if (version <= kV4_0_0_2) r.Skip(12);  // velocity
   u32 property_count = r.Read<u32>();
   if (property_count > 4096) {
     r.ok = false;
     return out;
   }
   for (u32 i = 0; i < property_count && r.ok; ++i) out.properties.push_back(r.Read<i32>());
-  r.Skip(4);  // collision object ref
+  if (version <= kV4_0_0_2) {
+    if (ReadBool(r, version)) SkipBoundingVolume(r);
+  } else {
+    r.Skip(4);  // collision object ref
+  }
   return out;
 }
 
 // NiProperty has no fields beyond NiObjectNET.
-void SkipProperty(Reader& r) { ReadObjectNet(r, nullptr, nullptr); }
+void SkipProperty(Reader& r, u32 version) { ReadObjectNet(r, version, nullptr, nullptr); }
 
 // TexDesc: source ref, clamp/filter/uv set, PS2 shorts on 10.x, optional
 // texture transform.
@@ -232,6 +274,7 @@ i32 ReadTexDesc(Reader& r, u32 version) {
   i32 source = r.Read<i32>();
   r.Skip(12);  // clamp mode, filter mode, uv set
   if (version < kV20_0_0_3) r.Skip(4);  // PS2 L/K shorts (until 10.4.0.1)
+  if (version <= kV4_0_0_2) r.Skip(2);  // unknown short (until 4.1.0.12)
   if (version >= kV10_1_0_0) {
     if (r.Read<u8>()) r.Skip(8 + 8 + 4 + 4 + 8);  // texture transform
   }
@@ -284,8 +327,52 @@ void SkipConstraintBase(Reader& r) {
   r.Skip(4 + 4 + 4);  // entity a, entity b, priority
 }
 
+// NiGeometryData, 4.0.0.2 layout: u32 bools, explicit uv set count, no data
+// flags, no tangents, no consistency flags.
+bool ReadGeometryDataV4(Reader& r, GbGeometry* out) {
+  u32 vertex_count = r.Read<u16>();
+  bool has_vertices = r.Read<u32>() != 0;
+  if (!r.ok || vertex_count == 0 || !has_vertices) return false;
+  out->vertices.resize(vertex_count);
+  const u8* positions = r.Bytes(12 * vertex_count);
+  if (!positions) return false;
+  for (u32 i = 0; i < vertex_count; ++i) {
+    std::memcpy(out->vertices[i].position, positions + 12 * i, 12);
+  }
+  if (r.Read<u32>() != 0) {  // has normals
+    const u8* normals = r.Bytes(12 * vertex_count);
+    if (!normals) return false;
+    for (u32 i = 0; i < vertex_count; ++i) {
+      std::memcpy(out->vertices[i].normal, normals + 12 * i, 12);
+    }
+  }
+  r.Skip(16);  // bounding sphere
+  if (r.Read<u32>() != 0) {  // has vertex colors
+    const u8* colors = r.Bytes(16 * vertex_count);
+    if (!colors) return false;
+    for (u32 i = 0; i < vertex_count; ++i) {
+      f32 c[4];
+      std::memcpy(c, colors + 16 * i, 16);
+      auto pack = [](f32 v) { return static_cast<u32>(std::clamp(v, 0.0f, 1.0f) * 255.0f); };
+      out->vertices[i].color = pack(c[0]) | pack(c[1]) << 8 | pack(c[2]) << 16 | pack(c[3]) << 24;
+    }
+  }
+  u32 uv_sets = r.Read<u16>();
+  bool has_uv = r.Read<u32>() != 0;
+  if (has_uv && uv_sets > 0) {
+    const u8* uvs = r.Bytes(8 * vertex_count);  // first set only
+    if (!uvs) return false;
+    for (u32 i = 0; i < vertex_count; ++i) {
+      std::memcpy(out->vertices[i].uv, uvs + 8 * i, 8);
+    }
+    if (uv_sets > 1) r.Skip(8 * static_cast<size_t>(vertex_count) * (uv_sets - 1));
+  }
+  return r.ok;
+}
+
 // NiGeometryData subset shared by NiTriShapeData/NiTriStripsData.
 bool ReadGeometryData(Reader& r, u32 version, GbGeometry* out) {
+  if (version <= kV4_0_0_2) return ReadGeometryDataV4(r, out);
   if (version >= kV10_1_0_114) r.Skip(4);  // group id
   u32 vertex_count = r.Read<u16>();
   if (version >= kV10_1_0_0) r.Skip(2);  // keep/compress flags
@@ -348,11 +435,14 @@ bool ReadGeometryData(Reader& r, u32 version, GbGeometry* out) {
 bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
   const u32 version = scene.version;
 
-  if (type == "NiNode" || type == "NiBillboardNode" || type == "BSFadeNode") {
-    AvObjectPrefix av = ReadAvObject(r);
+  if (type == "NiNode" || type == "NiBillboardNode" || type == "BSFadeNode" ||
+      type == "RootCollisionNode" || type == "AvoidNode" || type == "NiBSAnimationNode" ||
+      type == "NiBSParticleNode") {
+    AvObjectPrefix av = ReadAvObject(r, version);
     GbNode node;
     node.local = av.local;
-    node.hidden = av.hidden;
+    // Collision-only subtrees never draw.
+    node.hidden = av.hidden || type == "RootCollisionNode" || type == "AvoidNode";
     node.properties = std::move(av.properties);
     u32 child_count = r.Read<u32>();
     if (!r.ok || child_count > 65536) return false;
@@ -361,12 +451,12 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     u32 effect_count = r.Read<u32>();
     if (effect_count > 4096) return false;
     r.Skip(4 * effect_count);
-    if (type == "NiBillboardNode") r.Skip(2);  // billboard mode
+    if (type == "NiBillboardNode" && version > kV4_0_0_2) r.Skip(2);  // billboard mode
     if (r.ok) scene.nodes.emplace(index, std::move(node));
     return r.ok;
   }
   if (type == "NiTriShape" || type == "NiTriStrips") {
-    AvObjectPrefix av = ReadAvObject(r);
+    AvObjectPrefix av = ReadAvObject(r, version);
     GbShape shape;
     shape.local = av.local;
     shape.name = std::move(av.name);
@@ -375,11 +465,29 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     shape.hidden = av.hidden;
     shape.data = r.Read<i32>();
     shape.skin = r.Read<i32>();
-    if (r.Read<u8>()) {  // has shader
+    if (version > kV4_0_0_2 && r.Read<u8>()) {  // has shader (10.x+)
       ReadSizedString(r);
       r.Skip(4);
     }
     if (r.ok) scene.shapes.emplace(index, std::move(shape));
+    return r.ok;
+  }
+  // Particle emitters: geometry-shaped blocks whose data we do not render yet;
+  // parsed so the walk continues (the shape is not registered).
+  if (type == "NiAutoNormalParticles" || type == "NiRotatingParticles") {
+    ReadAvObject(r, version);
+    r.Skip(8);  // data ref, skin ref
+    return r.ok;
+  }
+  if (type == "NiAutoNormalParticlesData" || type == "NiRotatingParticlesData") {
+    GbGeometry ignored;
+    if (!ReadGeometryDataV4(r, &ignored) && !r.ok) return false;
+    u32 vertex_count = static_cast<u32>(ignored.vertices.size());
+    r.Skip(2 + 4 + 2);  // num particles, radius, num active
+    if (r.Read<u32>() != 0) r.Skip(4 * vertex_count);  // sizes
+    if (type == "NiRotatingParticlesData") {
+      if (r.Read<u32>() != 0) r.Skip(16 * vertex_count);  // rotations
+    }
     return r.ok;
   }
   if (type == "NiTriShapeData") {
@@ -443,32 +551,34 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   if (type == "NiTexturingProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     if (version <= kV10_0_1_2) r.Skip(2);  // property flags (until 10.0.1.2)
     r.Skip(4);  // apply mode
     u32 texture_count = r.Read<u32>();
     if (!r.ok || texture_count > 32) return false;
     GbTexturing tex;
     // base, dark, detail, gloss, glow
-    for (int slot = 0; slot < 5 && r.ok; ++slot) {
-      if (!r.Read<u8>()) continue;
+    for (u32 slot = 0; slot < 5 && slot < texture_count && r.ok; ++slot) {
+      if (!ReadBool(r, version)) continue;
       i32 source = ReadTexDesc(r, version);
       if (slot == 0) tex.base_source = source;
       if (slot == 4) tex.glow_source = source;
     }
-    if (texture_count > 5 && r.Read<u8>()) {  // bump map
+    if (texture_count > 5 && ReadBool(r, version)) {  // bump map
       ReadTexDesc(r, version);
       r.Skip(4 + 4 + 16);  // luma scale/offset, 2x2 matrix
     }
     for (u32 slot = 6; slot < texture_count && slot < 10 && r.ok; ++slot) {  // decals
-      if (r.Read<u8>()) ReadTexDesc(r, version);
+      if (ReadBool(r, version)) ReadTexDesc(r, version);
     }
-    u32 shader_textures = r.Read<u32>();
-    if (shader_textures > 256) return false;
-    for (u32 i = 0; i < shader_textures && r.ok; ++i) {
-      if (r.Read<u8>()) {
-        ReadTexDesc(r, version);
-        r.Skip(4);  // map id
+    if (version > kV4_0_0_2) {  // shader textures (10.x+)
+      u32 shader_textures = r.Read<u32>();
+      if (shader_textures > 256) return false;
+      for (u32 i = 0; i < shader_textures && r.ok; ++i) {
+        if (r.Read<u8>()) {
+          ReadTexDesc(r, version);
+          r.Skip(4);  // map id
+        }
       }
     }
     if (r.ok) scene.texturing.emplace(index, tex);
@@ -476,7 +586,7 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
   }
   if (type == "NiSourceTexture") {
     std::string name;
-    ReadObjectNet(r, &name, nullptr);
+    ReadObjectNet(r, version, &name, nullptr);
     bool external = r.Read<u8>() != 0;
     std::string file;
     if (version >= kV10_1_0_0) {
@@ -494,7 +604,7 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   if (type == "NiMaterialProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     if (version <= kV10_0_1_2) r.Skip(2);  // property flags (until 10.0.1.2)
     GbMaterial material;
     r.Skip(24);  // ambient, diffuse
@@ -506,7 +616,7 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   if (type == "NiAlphaProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     GbAlpha alpha;
     alpha.flags = r.Read<u16>();
     alpha.threshold = r.Read<u8>();
@@ -514,7 +624,7 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   if (type == "NiStencilProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     if (version <= kV10_0_1_2) r.Skip(2);  // property flags (until 10.0.1.2)
     r.Skip(1 + 4 * 6);  // enabled, function, ref, mask, fail/zfail/pass
     u32 draw_mode = r.Read<u32>();
@@ -523,22 +633,23 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
   }
   if (type == "NiSpecularProperty" || type == "NiShadeProperty" || type == "NiDitherProperty" ||
       type == "NiWireframeProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     r.Skip(2);
     return r.ok;
   }
   if (type == "NiVertexColorProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     r.Skip(2 + 4 + 4);
     return r.ok;
   }
   if (type == "NiZBufferProperty") {
-    SkipProperty(r);
-    r.Skip(2 + 4);
+    SkipProperty(r, version);
+    r.Skip(2);
+    if (version > kV4_0_0_2) r.Skip(4);  // z compare function (4.1.0.12+)
     return r.ok;
   }
   if (type == "NiFogProperty") {
-    SkipProperty(r);
+    SkipProperty(r, version);
     r.Skip(2 + 4 + 12);
     return r.ok;
   }
@@ -554,8 +665,18 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return true;
   }
   if (type == "NiStringExtraData") {
+    if (version <= kV4_0_0_2) {
+      r.Skip(4 + 4);  // next extra data ref, bytes remaining
+    } else {
+      ReadSizedString(r);  // name
+    }
     ReadSizedString(r);
-    ReadSizedString(r);
+    return r.ok;
+  }
+  if (type == "NiVertWeightsExtraData") {  // 4.x only
+    r.Skip(4 + 4 + 4);  // next ref, bytes remaining, num bytes
+    u32 count = r.Read<u16>();
+    r.Skip(4 * count);
     return r.ok;
   }
   if (type == "BSXFlags" || type == "NiIntegerExtraData") {
@@ -576,7 +697,11 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   if (type == "NiTextKeyExtraData") {
-    ReadSizedString(r);
+    if (version <= kV4_0_0_2) {
+      r.Skip(4 + 4);  // next extra data ref, bytes remaining
+    } else {
+      ReadSizedString(r);
+    }
     u32 count = r.Read<u32>();
     if (count > 4096) return false;
     for (u32 i = 0; i < count && r.ok; ++i) {
@@ -715,15 +840,147 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     r.Skip(8 * 16 + 3 * 4);
     return r.ok;
   }
+  // ---- 4.x animation, particles, effects, skinning (structural skip) ----
+  if (type == "NiKeyframeController" || type == "NiVisController" || type == "NiUVController" ||
+      type == "NiPathController" || type == "NiGeomMorpherController" ||
+      type == "NiLookAtController" || type == "NiRollController") {
+    SkipController(r);
+    if (type == "NiUVController") r.Skip(2);  // unknown short
+    if (type == "NiPathController") {
+      // bank dir, max bank angle, smoothing, follow axis, then two data refs.
+      r.Skip(4 + 4 + 4 + 2 + 4 + 4);
+      return r.ok;
+    }
+    if (type == "NiRollController") {
+      r.Skip(4);  // float data ref
+      return r.ok;
+    }
+    r.Skip(4);  // data ref
+    if (type == "NiGeomMorpherController") r.Skip(1);  // always update
+    return r.ok;
+  }
+  if (type == "NiKeyframeData") {
+    u32 rotations = r.Read<u32>();
+    if (rotations) {
+      u32 rotation_type = r.Read<u32>();
+      if (rotation_type == 4) {
+        r.Skip(4);  // axis order / unknown float (until 10.1)
+        for (int k = 0; k < 3; ++k) SkipFloatKeyGroup(r);
+      } else {
+        size_t per = rotation_type == 1 || rotation_type == 2 ? 20
+                     : rotation_type == 3 ? 32 : 0;
+        if (per == 0) return false;
+        r.Skip(per * rotations);
+      }
+    }
+    SkipKeyGroup(r, 16, 40, 28);  // translations
+    SkipFloatKeyGroup(r);         // scales
+    return r.ok;
+  }
+  if (type == "NiUVData") {
+    for (int k = 0; k < 4; ++k) SkipFloatKeyGroup(r);
+    return r.ok;
+  }
+  if (type == "NiVisData") {
+    u32 count = r.Read<u32>();
+    if (count > 65536) return false;
+    r.Skip(5 * count);  // time f32 + value u8
+    return r.ok;
+  }
+  if (type == "NiMorphData") {
+    u32 morphs = r.Read<u32>();
+    u32 vertices = r.Read<u32>();
+    r.Skip(1);  // relative targets
+    if (!r.ok || morphs > 1024 || vertices > (1u << 20)) return false;
+    for (u32 m = 0; m < morphs && r.ok; ++m) {
+      u32 keys = r.Read<u32>();
+      u32 interpolation = r.Read<u32>();
+      size_t per = interpolation == 1 ? 8 : interpolation == 2 ? 16 : interpolation == 3 ? 20 : 0;
+      if (keys > 0 && per == 0) return false;
+      r.Skip(per * keys);
+      r.Skip(12 * static_cast<size_t>(vertices));
+    }
+    return r.ok;
+  }
+  if (type == "NiParticleSystemController" || type == "NiBSPArrayController") {
+    SkipController(r);
+    r.Skip(6 * 4);       // speed/randoms, directions, angles
+    r.Skip(12 + 16);     // unknown normal, unknown color
+    r.Skip(4 + 4 + 4);   // size, emit start, emit stop
+    r.Skip(1);           // unknown byte (4.0.0.2+)
+    r.Skip(4 + 4 + 4);   // emit rate, lifetime, lifetime random
+    r.Skip(2 + 12 + 4);  // emit flags, start random, emitter ref
+    r.Skip(2 + 4 + 4 + 4 + 2);  // unknown shorts/floats/ints
+    u32 particles = r.Read<u16>();
+    r.Skip(2);  // num valid
+    r.Skip(40 * static_cast<size_t>(particles));
+    r.Skip(4 + 4 + 4 + 1);  // unknown ref, modifier ref, unknown ref, trailer
+    return r.ok;
+  }
+  if (type == "NiGravity") {
+    r.Skip(8 + 4 + 4 + 4 + 12 + 12);  // modifier base, decay, force, type, position, direction
+    return r.ok;
+  }
+  if (type == "NiParticleGrowFade") {
+    r.Skip(8 + 4 + 4);
+    return r.ok;
+  }
+  if (type == "NiParticleColorModifier") {
+    r.Skip(8 + 4);
+    return r.ok;
+  }
+  if (type == "NiParticleRotation") {
+    r.Skip(8 + 1 + 12 + 4);
+    return r.ok;
+  }
+  if (type == "NiTextureEffect") {
+    ReadAvObject(r, version);
+    // NiDynamicEffect (4.x): affected node list pointers (raw memory values).
+    if (version <= kV4_0_0_2) {
+      u32 affected = r.Read<u32>();
+      if (affected > 4096) return false;
+      r.Skip(4 * affected);
+    }
+    r.Skip(36 + 12);          // model projection matrix + translation
+    r.Skip(4 + 4 + 4 + 4);    // filtering, clamping, type, coordinate generation
+    r.Skip(4);                // source texture ref
+    r.Skip(1);                // clipping plane enable (a byte in every version)
+    r.Skip(12 + 4);           // plane normal + constant
+    if (version < kV20_0_0_3) r.Skip(4);   // PS2 L/K
+    if (version <= kV4_0_0_2) r.Skip(2);   // unknown short
+    return r.ok;
+  }
+  if (type == "NiSkinInstance") {
+    r.Skip(4);  // data ref
+    if (version > kV4_0_0_2) r.Skip(4);  // skin partition ref (10.1+)
+    r.Skip(4);  // skeleton root ref
+    u32 bones = r.Read<u32>();
+    if (bones > 1024) return false;
+    r.Skip(4 * bones);
+    return r.ok;
+  }
+  if (type == "NiSkinData" && version <= kV4_0_0_2) {
+    r.Skip(52);  // overall transform
+    u32 bones = r.Read<u32>();
+    r.Skip(4);   // skin partition ref (4.0.0.2 .. 10.1)
+    if (!r.ok || bones > 1024) return false;
+    for (u32 b = 0; b < bones && r.ok; ++b) {
+      r.Skip(52 + 16);  // bone transform, bounding sphere
+      u32 weights = r.Read<u16>();
+      r.Skip(6 * weights);
+    }
+    return r.ok;
+  }
   // ---- animation (structural skip so animated statics still render) ----
   if (type == "NiTransformController" || type == "NiAlphaController") {
     SkipController(r);
-    r.Skip(4);  // interpolator
+    r.Skip(4);  // interpolator (10.x) / float data ref (4.x)
     return r.ok;
   }
   if (type == "NiMaterialColorController") {
     SkipController(r);
-    r.Skip(4 + 2);  // interpolator, target color
+    r.Skip(4);  // interpolator (10.x) / color data ref (4.x)
+    if (version > kV4_0_0_2) r.Skip(2);  // target color
     return r.ok;
   }
   if (type == "NiTextureTransformController") {
@@ -855,14 +1112,16 @@ bool ParseBlock(Reader& r, GbScene& scene, u32 index, const std::string& type) {
     return r.ok;
   }
   // ---- lights ----
-  if (type == "NiDirectionalLight" || type == "NiAmbientLight" || type == "NiPointLight") {
-    ReadAvObject(r);
+  if (type == "NiDirectionalLight" || type == "NiAmbientLight" || type == "NiPointLight" ||
+      type == "NiSpotLight") {
+    ReadAvObject(r, version);
     if (version >= kV10_1_0_106) r.Skip(1);  // switch state
     u32 affected = r.Read<u32>();
     if (affected > 4096) return false;
     r.Skip(4 * affected);
     r.Skip(4 + 36);  // dimmer, ambient/diffuse/specular
-    if (type == "NiPointLight") r.Skip(12);  // attenuation
+    if (type == "NiPointLight" || type == "NiSpotLight") r.Skip(12);  // attenuation
+    if (type == "NiSpotLight") r.Skip(4 + 4);  // cutoff angle, exponent
     return r.ok;
   }
   return false;  // unknown block type: the walk cannot continue
@@ -876,6 +1135,28 @@ bool ParseScene(ByteSpan data, std::string_view source_path, GbScene* scene) {
 
   Reader r{data, newline + 1};
   scene->version = r.Read<u32>();
+
+  // NetImmerse 4.x (Morrowind): no type table, no user version, no separators;
+  // every block is inline-typed with a sized string.
+  if (scene->version <= kV4_0_0_2) {
+    u32 block_count = r.Read<u32>();
+    if (!r.ok || block_count > 65536) return false;
+    scene->block_types.reserve(block_count);
+    for (u32 i = 0; i < block_count; ++i) {
+      std::string type = ReadSizedString(r);
+      if (!r.ok) return false;
+      scene->block_types.push_back(type);
+      if (!ParseBlock(r, *scene, i, type) || !r.ok) {
+        RX_DEBUG("netimmerse nif: stopped at block {} ({}) in {}", i, type, source_path);
+        return false;
+      }
+    }
+    u32 root_count = r.Read<u32>();
+    if (!r.ok || root_count > 4096) return false;
+    for (u32 i = 0; i < root_count; ++i) scene->roots.push_back(r.Read<i32>());
+    return r.ok;
+  }
+
   if (scene->version >= kV20_0_0_3) r.Skip(1);  // endian
   u32 user_version = 0;
   if (scene->version > kV10_0_1_2) user_version = r.Read<u32>();  // since 10.0.1.8
@@ -966,13 +1247,23 @@ NifConversion ConvertGamebryoNif(ByteSpan data, asset::AssetId id, std::string_v
     material.id = asset::MakeAssetId(name);
     material.metallic_factor = 0;
 
+    // Morrowind NIFs reference .tga/.bmp sources, but the archives ship every
+    // texture converted to .dds; swap the extension so the vfs lookup hits.
+    auto texture_path = [&](const std::string& file) {
+      std::string path = NormalizeTexturePath(file);
+      if (scene.version <= 0x04000002 &&
+          (path.ends_with(".tga") || path.ends_with(".bmp"))) {
+        path = path.substr(0, path.size() - 4) + ".dds";
+      }
+      return path;
+    };
     std::string diffuse, glow;
     if (const GbTexturing* tex = scene.texturing.find(static_cast<u32>(props.texturing))) {
       if (const std::string* file = scene.textures.find(static_cast<u32>(tex->base_source))) {
-        diffuse = NormalizeTexturePath(*file);
+        diffuse = texture_path(*file);
       }
       if (const std::string* file = scene.textures.find(static_cast<u32>(tex->glow_source))) {
-        glow = NormalizeTexturePath(*file);
+        glow = texture_path(*file);
       }
     }
     if (!diffuse.empty()) {
@@ -1139,6 +1430,7 @@ bool IsGamebryoNifVersion(ByteSpan data) {
   if (newline == std::string_view::npos || newline + 5 > data.size()) return false;
   u32 version;
   std::memcpy(&version, data.data() + newline + 1, 4);
+  if (version == kV4_0_0_2) return true;   // Morrowind (NetImmerse)
   if (version == kV10_0_1_2) return true;  // Oblivion groundcover plants
   return version >= kV10_1_0_106 && version < 0x14010000;  // 10.1.0.106 .. 20.0.0.x
 }

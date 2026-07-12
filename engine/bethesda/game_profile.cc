@@ -61,6 +61,22 @@ const GameProfile& GameProfile::For(Game game) {
       .has_loose_script_source = false,
       .record_header_size = 20,
   };
+  // Classic Morrowind (2002 NetImmerse): flat TES3 records translated into the
+  // modern model at load, BSA v0x100 archives, NetImmerse 4.0.0.2 NIFs. The one
+  // exterior worldspace has no WRLD record; the translator synthesizes it.
+  static const GameProfile morrowind{
+      .game = Game::kMorrowind,
+      .name = "Morrowind",
+      .archive_format = ArchiveFormat::kBsa,
+      .plugin_version = 1.3f,
+      .base_masters = {"Morrowind.esm"},
+      .exterior_worldspace = "Vvardenfell",
+      .string_language = "",
+      .supports_esl = false,
+      .has_loose_script_source = false,
+      .record_header_size = 16,
+      .flat_tes3 = true,
+  };
   static const GameProfile unknown{};
 
   switch (game) {
@@ -69,6 +85,7 @@ const GameProfile& GameProfile::For(Game game) {
     case Game::kFallout76: return fallout76;
     case Game::kStarfield: return starfield;
     case Game::kOblivion: return oblivion;
+    case Game::kMorrowind: return morrowind;
     case Game::kUnknown: return unknown;
   }
   return unknown;
@@ -81,6 +98,7 @@ Game GameProfile::DetectFromDataDir(const std::string& data_dir) {
   if (fs::exists(fs::path(data_dir) / "Fallout4.esm")) return Game::kFallout4;
   if (fs::exists(fs::path(data_dir) / "Skyrim.esm")) return Game::kSkyrimSe;
   if (fs::exists(fs::path(data_dir) / "Oblivion.esm")) return Game::kOblivion;
+  if (fs::exists(fs::path(data_dir) / "Morrowind.esm")) return Game::kMorrowind;
   return Game::kUnknown;
 }
 

@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "bethesda/compression.h"
+#include "bethesda/tes3.h"
 #include "core/log.h"
 
 namespace rx::bethesda {
@@ -98,6 +99,10 @@ bool ReadGroupHeader(Reader& reader, u32 header_size, GroupHeader* out) {
 
 }  // namespace
 
+PluginFile::PluginFile(PluginFile&&) noexcept = default;
+PluginFile& PluginFile::operator=(PluginFile&&) noexcept = default;
+PluginFile::~PluginFile() = default;
+
 bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* out) {
   out->header = header;
   if (header.flags & kRecordFlagCompressed) {
@@ -146,6 +151,15 @@ std::optional<PluginFile> PluginFile::Open(const std::string& path, const GamePr
 }
 
 bool PluginFile::ParseHeader(const GameProfile& profile) {
+  if (profile.flat_tes3) {
+    tes3_ = std::make_unique<Tes3Translation>();
+    if (!TranslateTes3(ByteSpan(data_.data(), data_.size()), tes3_.get())) return false;
+    version_ = tes3_->version;
+    record_count_ = tes3_->record_count;
+    header_flags_ = kPluginFlagMaster;
+    data_ = base::Vector<u8>{};  // the synthesized arena replaces the file bytes
+    return true;
+  }
   if (profile.record_header_size != 0) header_size_ = profile.record_header_size;
   Reader reader{ByteSpan(data_.data(), data_.size())};
   RecordHeader header;
@@ -177,6 +191,13 @@ bool PluginFile::ParseHeader(const GameProfile& profile) {
 }
 
 bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
+  if (tes3_) {
+    for (const Tes3Translation::Rec& rec : tes3_->records) {
+      visitor(rec.header, ByteSpan(tes3_->arena.data() + rec.payload_offset, rec.payload_size),
+              rec.ctx);
+    }
+    return true;
+  }
   Reader reader{ByteSpan(data_.data(), data_.size())};
   reader.pos = records_begin_;
   GroupContext ctx;
