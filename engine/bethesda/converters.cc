@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <string>
+
+#include <base/containers/unordered_map.h>
 
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
@@ -411,9 +414,10 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
 
 // Starfield NIFs reference external ".mesh" geometry by hash rather than
 // inlining vertices, so its converter loads each referenced mesh from the vfs,
-// bakes the node transform into the vertices, and assigns one material with the
-// convention-derived textures when they exist (gray otherwise). Returns null
-// when nothing converts.
+// bakes the node transform into the vertices, and binds each geometry's own
+// ".mat" (from its shader property) through the material database. Distinct
+// materials in one NIF stay distinct per submesh. Returns null when nothing
+// converts.
 base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& database,
                                                      const StarfieldMaterialDb& mat_db,
                                                      ByteSpan data, asset::AssetId id,
@@ -426,18 +430,25 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
   mesh->lods.emplace_back();
   asset::MeshLod& lod = mesh->lods[0];
 
-  // One shared material: mid gray, with the .mat's textures bound from the
-  // material database (or the path convention); an unset base_color falls back
-  // to the gray factor.
-  asset::Material material;
-  material.id = asset::MakeAssetId(std::string(path) + "#m0");
-  for (int k = 0; k < 3; ++k) material.base_color_factor[k] = 0.5f;
-  material.roughness_factor = 0.8f;
-  material.metallic_factor = 0;
-  if (std::string mat_path = SingleMaterialPath(data); !mat_path.empty()) {
-    BindStarfieldMaterial(database, mat_db, mat_path, &material);
-  }
-  database.AddMaterial(material);
+  // One asset::Material per distinct .mat path in this NIF (many geometries
+  // share the same material), keyed by the material path hash so a submesh binds
+  // its own textures. Geometries without a resolved .mat share a mid-gray
+  // default (key 0).
+  base::UnorderedMap<u64, asset::AssetId> materials_by_path;
+  auto material_for = [&](const std::string& mat_path) -> asset::AssetId {
+    u64 key = mat_path.empty() ? 0 : asset::MakeAssetId(mat_path).hash;
+    if (const asset::AssetId* found = materials_by_path.find(key)) return *found;
+    asset::Material material;
+    material.id = asset::MakeAssetId(std::string(path) + "#m" +
+                                     std::to_string(materials_by_path.size()));
+    for (int k = 0; k < 3; ++k) material.base_color_factor[k] = 0.5f;
+    material.roughness_factor = 0.8f;
+    material.metallic_factor = 0;
+    if (!mat_path.empty()) BindStarfieldMaterial(database, mat_db, mat_path, &material);
+    database.AddMaterial(material);
+    materials_by_path.emplace(key, material.id);
+    return material.id;
+  };
 
   f32 bounds_min[3] = {1e30f, 1e30f, 1e30f};
   f32 bounds_max[3] = {-1e30f, -1e30f, -1e30f};
@@ -476,7 +487,7 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
     asset::Submesh submesh;
     submesh.index_offset = index_offset;
     submesh.index_count = static_cast<u32>(geometry.indices.size());
-    submesh.material = material.id;
+    submesh.material = material_for(ref.material_path);
     lod.submeshes.push_back(submesh);
   }
 

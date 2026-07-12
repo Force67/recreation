@@ -55,8 +55,10 @@ struct StarfieldSkinnedMeshData {
 bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out);
 
 // One BSGeometry resolved from a Starfield NIF: the full node-chain transform
-// baked from the parents down to the geometry, and the normalized vfs path of
-// its highest detail ".mesh" ("geometries/<dir>/<file>.mesh").
+// baked from the parents down to the geometry, the normalized vfs path of its
+// highest detail ".mesh" ("geometries/<dir>/<file>.mesh"), and the ".mat"
+// material path from its shader property (each geometry has its own, so a
+// multi-material NIF binds a distinct material per submesh).
 struct StarfieldGeometryRef {
   // Row-major 3x3 rotation, translation, uniform scale, matching the NIF
   // transform convention. Applied as rotation * p * scale + translation.
@@ -64,6 +66,7 @@ struct StarfieldGeometryRef {
   f32 translation[3] = {0, 0, 0};
   f32 scale = 1.0f;
   std::string mesh_path;
+  std::string material_path;  // normalized "materials/...mat", empty if none
 };
 
 // Walks a Starfield NIF node graph and collects every visible BSGeometry as a

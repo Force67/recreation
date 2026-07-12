@@ -8,6 +8,7 @@
 
 #include <base/containers/unordered_map.h>
 
+#include "asset/asset_id.h"
 #include "bethesda/nif.h"
 #include "core/log.h"
 
@@ -149,16 +150,23 @@ bool IsHashPath(std::string_view s) {
 }
 
 // Reads a BSGeometry block: the NiAVObject prefix (gives the node transform),
-// bounds, then the LOD table referencing external ".mesh" files. Returns the
-// highest detail (first) mesh path, or empty if none. The LOD table format
-// varies for skinned geometry, so the structured parse falls back to scanning
-// the block for the hash-path pattern, which is unambiguous.
-std::string ReadBsGeometry(Reader& r, Transform* local) {
+// bounds, the Skin/ShaderProperty/AlphaProperty refs, then the LOD table
+// referencing external ".mesh" files. Returns the highest detail (first) mesh
+// path, or empty if none, and writes the shader-property block ref (the block
+// that names the material) to `shader_ref` (-1 when absent). The LOD table
+// format varies for skinned geometry, so the structured parse falls back to
+// scanning the block for the hash-path pattern, which is unambiguous.
+std::string ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
+  *shader_ref = -1;
   *local = ReadAvObject(r, nullptr);
   r.Skip(10 * 4);  // bounding sphere (center + radius) and box (center + half extents)
-  r.Read<u32>();   // 0xffffffff sentinel
-  u32 lod_count = r.Read<u32>();
-  r.Read<u32>();   // material slot count
+  r.Read<i32>();   // Skin ref (-1 when not skinned)
+  i32 shader = r.Read<i32>();  // Shader Property ref -> the block naming the .mat
+  r.Read<i32>();   // Alpha Property ref
+  if (r.ok) *shader_ref = shader;
+  // The LOD table (BSMeshArray) followed; the shader ref doubles as a rough LOD
+  // count guard for the structured path since a valid ref exceeds 64 here.
+  u32 lod_count = static_cast<u32>(shader);
   if (r.ok && lod_count <= 64) {
     for (u32 i = 0; i < lod_count; ++i) {
       u8 present = r.Read<u8>();
@@ -192,6 +200,7 @@ struct Node {
 struct GeometryRef {
   Transform local;
   std::string mesh_path;
+  std::string material_path;
   bool hidden = false;
 };
 
@@ -472,8 +481,23 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
       if (r.ok) nodes.emplace(i, std::move(node));
     } else if (type == "BSGeometry") {
       GeometryRef geo;
-      geo.mesh_path = ReadBsGeometry(r, &geo.local);
+      i32 shader_ref = -1;
+      geo.mesh_path = ReadBsGeometry(r, &geo.local, &shader_ref);
       geo.hidden = false;
+      // The shader-property block names the material: its NiObjectNET Name (the
+      // block's first field, a header string-table index) is the ".mat" path.
+      if (shader_ref >= 0 && static_cast<u32>(shader_ref) < block_count) {
+        ByteSpan block = data.subspan(header->block_offsets[shader_ref],
+                                      header->block_sizes[shader_ref]);
+        if (block.size() >= 4) {
+          i32 name_index;
+          std::memcpy(&name_index, block.data(), 4);
+          if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
+            std::string norm = asset::NormalizePath(header->strings[name_index]);
+            if (norm.ends_with(".mat")) geo.material_path = std::move(norm);
+          }
+        }
+      }
       if (!geo.mesh_path.empty()) geometries.emplace(i, std::move(geo));
     }
   }
@@ -527,6 +551,7 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
     std::memcpy(ref.translation, world.t, sizeof(ref.translation));
     ref.scale = world.s;
     ref.mesh_path = geo->mesh_path;
+    ref.material_path = geo->material_path;
     out->push_back(std::move(ref));
   }
   return !out->empty();
