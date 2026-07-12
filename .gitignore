@@ -35,6 +35,7 @@ editor_layout.reclayout
 # Local launch helpers (machine-specific Steam paths)
 /run-common.sh
 /run-skyrim.sh
+/run-morrowind.sh
 /run-fallout.sh
 /run-starfield.sh
 /run-trailer.sh

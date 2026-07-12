@@ -1,6 +1,9 @@
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
+
+#include "core/log.h"
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
@@ -18,6 +21,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   using namespace rx;
+  if (std::getenv("RX_LOG_DEBUG")) rx::SetLogLevel(rx::LogLevel::kDebug);
 
   asset::Vfs vfs;
   std::error_code ec;
@@ -43,6 +47,37 @@ int main(int argc, char** argv) {
       }
     });
     std::printf("# %u entries\n", count);
+    return 0;
+  }
+  if (path == "--nifscan") {
+    // Convert every NIF in the vfs and report the failures: the coverage
+    // oracle for the sequential (no block-size-table) readers.
+    std::string filter = argc > 3 ? argv[3] : "";
+    base::Vector<std::string> nifs;
+    vfs.Enumerate([&](std::string_view p) {
+      if (!p.ends_with(".nif")) return;
+      if (!filter.empty() && p.find(filter) == std::string_view::npos) return;
+      nifs.push_back(std::string(p));
+    });
+    u32 ok = 0, failed = 0, printed = 0;
+    for (const std::string& nif : nifs) {
+      auto bytes = vfs.Read(nif);
+      if (!bytes) continue;
+      bethesda::NifConversion conversion = bethesda::ConvertNifScene(
+          rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(nif), nif);
+      if (conversion.mesh && !conversion.mesh->lods.empty() &&
+          !conversion.mesh->lods[0].vertices.empty()) {
+        ++ok;
+      } else {
+        ++failed;
+        if (printed < 1000) {
+          std::printf("failed: %s\n", nif.c_str());
+          ++printed;
+        }
+      }
+    }
+    std::printf("# nifscan: %u ok, %u failed of %zu\n", ok, failed,
+                static_cast<size_t>(nifs.size()));
     return 0;
   }
   if (argc > 3) {
