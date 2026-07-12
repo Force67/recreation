@@ -21,6 +21,8 @@ recreation_add_module(bethesda
   animation_data.cc
   starfield_mesh.cc
   material_db.cc
+  biom.cc
+  planet.cc
   converters.cc
   strings.cc
   script_attachment.cc
