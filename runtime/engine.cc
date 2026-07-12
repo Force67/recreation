@@ -11,6 +11,13 @@
 #include "core/log.h"
 #include "world/components.h"
 
+#if defined(RECREATION_HAS_UGUI)
+#include <string>
+
+#include "asset/pack.h"
+#include "shader_pack.h"
+#endif
+
 // Engine lifecycle and service wiring: construction (renderer/UI/physics bringup
 // and the shared EngineContext), the resolved render preset, the front-door
 // content dispatch, and ordered teardown. The frame loop, networking, content
@@ -25,6 +32,24 @@ namespace {
 // (RX_WIN_W/H, RX_TIMESCALE, RX_GAME_HOUR, RX_NO_OCCLUSION, RX_FIXED_DT), so the
 // game must not re-register them.
 base::Option<const char*> SunDir{"sun.dir", nullptr, "RX_SUN_DIR"};
+
+#if defined(RECREATION_HAS_UGUI)
+// The recreation-owned HUD/thumbnail shaders live in shaders.rxp (built from
+// runtime/shaders). RECREATION_SHADER_PACK overrides the compiled-in path;
+// RECREATION_SHADER_DIR points at a loose directory of freshly compiled .spv
+// that overrides the pack (later Vfs mounts win) for shader iteration.
+base::Option<const char*> ShaderPackOpt{"shader.pack", nullptr, "RECREATION_SHADER_PACK"};
+base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER_DIR"};
+
+std::string ShaderPackPath() {
+  if (const char* env = ShaderPackOpt.get(); env && *env) return env;
+#ifdef RECREATION_SHADER_PACK_DEFAULT
+  return RECREATION_SHADER_PACK_DEFAULT;
+#else
+  return "shaders.rxp";
+#endif
+}
+#endif
 }  // namespace
 
 bool Engine::OnInitialize(app::Services& services) {
@@ -41,6 +66,26 @@ bool Engine::OnInitialize(app::Services& services) {
   audio_ = services.audio;
   input_map_ = services.input_map;
   actions_ = services.actions;
+
+#if defined(RECREATION_HAS_UGUI)
+  // Mount recreation's compiled HUD/thumbnail shaders under the shaders:// scheme
+  // before any pipeline is built, then route shader-blob lookup through the Vfs.
+  // Missing/partial archives fall through to the blobs embedded in the binary.
+  if (vfs_) {
+    const std::string pack = ShaderPackPath();
+    if (auto provider = asset::MakePackFileProvider(pack)) {
+      vfs_->Mount("shaders", std::move(provider));
+      RX_INFO("shaders: mounted {} under shaders://", pack);
+    } else {
+      RX_WARN("shaders: {} unavailable, using embedded shader blobs", pack);
+    }
+    if (const char* dir = ShaderDirOpt.get(); dir && *dir) {
+      vfs_->Mount("shaders", asset::MakeLooseFileProvider(dir));
+      RX_INFO("shaders: loose override dir {} shadows the archive", dir);
+    }
+    shaderpack::SetVfs(vfs_);
+  }
+#endif
 
   // Quest-driven world effects hold a World&, so build them now the world exists.
   quest_world_ = std::make_unique<world::QuestWorld>(*world_);

@@ -17,10 +17,20 @@ function(recreation_embed_shaders target)
   foreach(dir ${RECREATION_SHADER_INCLUDE_DIRS})
     list(APPEND include_flags -I ${dir})
   endforeach()
+  # Compiled blobs are also aggregated into ${CMAKE_BINARY_DIR}/shaders.rxp so
+  # they can be shipped in (and loaded from) an rx game archive instead of the
+  # binary. Each shader is staged into pack_dir under a clean virtual name
+  # (<stem>.spv, plus <stem>.dxil on the d3d12 backend) and rxpack packs the
+  # tree. The embedded C arrays above stay the runtime fallback.
+  set(pack_dir ${CMAKE_CURRENT_BINARY_DIR}/${target}_shader_pack)
+  set(pack_staged)
   set(headers)
   foreach(shader ${ARGN})
     get_filename_component(name ${shader} NAME)
     string(MAKE_C_IDENTIFIER ${name} symbol)
+    # Virtual stem: source name with the trailing .hlsl dropped (ugui_quad.vs).
+    string(REGEX REPLACE "\\.hlsl$" "" stem ${name})
+    set(staged_dxil)
     if(name MATCHES "\\.vs\\.hlsl$")
       set(stage vs)
     elseif(name MATCHES "\\.ps\\.hlsl$")
@@ -71,6 +81,7 @@ function(recreation_embed_shaders target)
         COMMENT "dxil ${name}")
       list(APPEND embed_args -DDXIL=${dxil})
       list(APPEND embed_deps ${dxil})
+      set(staged_dxil ${dxil})
     endif()
     add_custom_command(OUTPUT ${header}
       COMMAND ${CMAKE_COMMAND} -DSPV=${spv} -DHEADER=${header} -DSYMBOL=${symbol}
@@ -78,8 +89,37 @@ function(recreation_embed_shaders target)
       DEPENDS ${embed_deps} ${CMAKE_SOURCE_DIR}/cmake/embed_spv.cmake
       COMMENT "embed ${name}")
     list(APPEND headers ${header})
+
+    # Stage the compiled blobs under clean virtual names for the archive.
+    set(staged_spv ${pack_dir}/${stem}.spv)
+    add_custom_command(OUTPUT ${staged_spv}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${pack_dir}
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${spv} ${staged_spv}
+      DEPENDS ${spv}
+      COMMENT "stage ${stem}.spv")
+    list(APPEND pack_staged ${staged_spv})
+    if(staged_dxil)
+      set(staged_dxil_out ${pack_dir}/${stem}.dxil)
+      add_custom_command(OUTPUT ${staged_dxil_out}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${pack_dir}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${staged_dxil} ${staged_dxil_out}
+        DEPENDS ${staged_dxil}
+        COMMENT "stage ${stem}.dxil")
+      list(APPEND pack_staged ${staged_dxil_out})
+    endif()
   endforeach()
   add_custom_target(${target}_shaders DEPENDS ${headers})
   add_dependencies(${target} ${target}_shaders)
   target_include_directories(${target} PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
+  # Pack the staged blobs into shaders.rxp with the rxpack tool (an rx target
+  # brought in via add_subdirectory). The archive rebuilds whenever any staged
+  # blob changes; the game mounts it under the shaders:// scheme at startup.
+  set(pack_archive ${CMAKE_BINARY_DIR}/shaders.rxp)
+  add_custom_command(OUTPUT ${pack_archive}
+    COMMAND $<TARGET_FILE:rxpack> create ${pack_archive} ${pack_dir}
+    DEPENDS ${pack_staged} rxpack
+    COMMENT "pack ${target} shaders -> shaders.rxp")
+  add_custom_target(${target}_shader_pack DEPENDS ${pack_archive})
+  add_dependencies(${target} ${target}_shader_pack)
 endfunction()

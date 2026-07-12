@@ -6,6 +6,7 @@
 #include <ugui/render/vertex.h>
 
 #include "render/util/shader_util.h"
+#include "shader_pack.h"
 #include "shaders/ugui_frost_ps_hlsl.h"
 #include "shaders/ugui_frost_vs_hlsl.h"
 #include "shaders/ugui_quad_ps_hlsl.h"
@@ -368,14 +369,28 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
   linear_sampler_ = MakeSampler(VK_FILTER_LINEAR);
   nearest_sampler_ = MakeSampler(VK_FILTER_NEAREST);
 
-  quad_pipeline_ = CreatePipeline(k_ugui_quad_vs_hlsl, sizeof(k_ugui_quad_vs_hlsl),
-                                  k_ugui_quad_ps_hlsl, sizeof(k_ugui_quad_ps_hlsl), 9);
-  text_pipeline_ = CreatePipeline(k_ugui_text_vs_hlsl, sizeof(k_ugui_text_vs_hlsl),
-                                  k_ugui_text_ps_hlsl, sizeof(k_ugui_text_ps_hlsl), 3);
+  // Shader blobs come from the mounted shaders:// archive, falling back to the
+  // bytes embedded in the binary when the pack is missing (shaderpack::Load).
+  const base::Vector<u8> quad_vs =
+      shaderpack::Load("ugui_quad.vs", k_ugui_quad_vs_hlsl, sizeof(k_ugui_quad_vs_hlsl));
+  const base::Vector<u8> quad_ps =
+      shaderpack::Load("ugui_quad.ps", k_ugui_quad_ps_hlsl, sizeof(k_ugui_quad_ps_hlsl));
+  const base::Vector<u8> text_vs =
+      shaderpack::Load("ugui_text.vs", k_ugui_text_vs_hlsl, sizeof(k_ugui_text_vs_hlsl));
+  const base::Vector<u8> text_ps =
+      shaderpack::Load("ugui_text.ps", k_ugui_text_ps_hlsl, sizeof(k_ugui_text_ps_hlsl));
+  const base::Vector<u8> frost_vs =
+      shaderpack::Load("ugui_frost.vs", k_ugui_frost_vs_hlsl, sizeof(k_ugui_frost_vs_hlsl));
+  const base::Vector<u8> frost_ps =
+      shaderpack::Load("ugui_frost.ps", k_ugui_frost_ps_hlsl, sizeof(k_ugui_frost_ps_hlsl));
+  quad_pipeline_ = CreatePipeline(quad_vs.data(), quad_vs.size(),
+                                  quad_ps.data(), quad_ps.size(), 9);
+  text_pipeline_ = CreatePipeline(text_vs.data(), text_vs.size(),
+                                  text_ps.data(), text_ps.size(), 3);
   // The frosted-glass pipeline shares the quad vertex layout and pipeline layout
   // (one combined image sampler = the blurred backdrop; vertex push constant).
-  frost_pipeline_ = CreatePipeline(k_ugui_frost_vs_hlsl, sizeof(k_ugui_frost_vs_hlsl),
-                                   k_ugui_frost_ps_hlsl, sizeof(k_ugui_frost_ps_hlsl), 9);
+  frost_pipeline_ = CreatePipeline(frost_vs.data(), frost_vs.size(),
+                                   frost_ps.data(), frost_ps.size(), 9);
   if (!quad_pipeline_ || !text_pipeline_ || !frost_pipeline_) return false;
 
   uint32_t white = 0xFFFFFFFFu;

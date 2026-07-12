@@ -17,6 +17,7 @@
 #include "render/rhi/device.h"
 #include "render/rhi/vulkan_interop.h"
 #include "render/util/shader_util.h"
+#include "shader_pack.h"
 #include "shaders/thumb_ps_hlsl.h"
 #include "shaders/thumb_vs_hlsl.h"
 
@@ -133,8 +134,14 @@ struct Thumbnailer::Impl {
     li.pPushConstantRanges = &pc;
     if (vkCreatePipelineLayout(device, &li, nullptr, &layout) != VK_SUCCESS) return false;
 
-    VkShaderModule vs = render::CreateShaderModule(device, k_thumb_vs_hlsl, sizeof(k_thumb_vs_hlsl));
-    VkShaderModule fs = render::CreateShaderModule(device, k_thumb_ps_hlsl, sizeof(k_thumb_ps_hlsl));
+    // Blobs come from the mounted shaders:// archive, falling back to the bytes
+    // embedded in the binary when the pack is missing (shaderpack::Load).
+    const base::Vector<u8> vs_blob =
+        shaderpack::Load("thumb.vs", k_thumb_vs_hlsl, sizeof(k_thumb_vs_hlsl));
+    const base::Vector<u8> fs_blob =
+        shaderpack::Load("thumb.ps", k_thumb_ps_hlsl, sizeof(k_thumb_ps_hlsl));
+    VkShaderModule vs = render::CreateShaderModule(device, vs_blob.data(), vs_blob.size());
+    VkShaderModule fs = render::CreateShaderModule(device, fs_blob.data(), fs_blob.size());
     if (!vs || !fs) return false;
 
     VkPipelineShaderStageCreateInfo stages[2]{};
