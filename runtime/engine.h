@@ -37,7 +37,9 @@
 #include "quest_director.h"
 #include "showcase_camera.h"
 #include "trailer.h"
+#include "bethesda/planet.h"
 #include "world/combat.h"
+#include "world/planet_tile.h"
 
 #if RECREATION_HAS_NET
 #include "modstream/content_store.h"
@@ -189,6 +191,7 @@ class Engine : public app::Application {
   friend bool LoadGameData(Engine&);
   friend void MountArchives(Engine&);
   friend bool LoadInterior(Engine&);
+  friend bool LoadPlanetTile(Engine&, const std::string&);
   friend void LoadExtraDomains(Engine&);
   friend void SetupExtraStreamers(Engine&);
   friend void BootManagedScripting(Engine&);
@@ -364,6 +367,11 @@ class Engine : public app::Application {
   // DIAL topics indexed by quest, for NPC dialogue.
   dialogue::DialogueDb dialogue_;
   std::unique_ptr<world::CellStreamer> streamer_;
+  // Procedural Starfield planet tile (RX_STARFIELD_PLANET): the generator plus
+  // the resolved surface it reads from, kept alive for the session (the ground
+  // query and any later regeneration reference them). Null in every other mode.
+  std::unique_ptr<bethesda::PlanetSurface> planet_surface_;
+  std::unique_ptr<world::PlanetTile> planet_tile_;
   // One streamer per --add-game that renders, each streaming its own worldspace
   // into the shared scene at a fixed offset (so Fallout 4's Commonwealth sits
   // beside Skyrim's Tamriel instead of overlapping it). Parallel to the matching
@@ -542,6 +550,8 @@ class Engine : public app::Application {
 bool LoadGameData(Engine& engine);
 void MountArchives(Engine& engine);
 bool LoadInterior(Engine& engine);
+// Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
+bool LoadPlanetTile(Engine& engine, const std::string& biom_name);
 void LoadExtraDomains(Engine& engine);
 void SetupExtraStreamers(Engine& engine);
 // Boots the managed (C#) scripting world over the live guest, if a .NET runtime

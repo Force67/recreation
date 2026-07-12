@@ -16,12 +16,15 @@
 #include "asset/primitives.h"
 #include "bethesda/archive.h"
 #include "bethesda/converters.h"
+#include "bethesda/material_db.h"
+#include "bethesda/planet.h"
 #include "bethesda/record.h"
 #include "core/log.h"
 #include "engine_internal.h"
 #include "script/papyrus/value.h"
 #include "weather/weather_loader.h"
 #include "world/components.h"
+#include "world/planet_tile.h"
 
 // Bringing a universe online: mounts archives, loads the record/string/dialogue
 // data, stands up the Papyrus guest and Skyrim bindings, then builds the cell
@@ -53,6 +56,11 @@ static base::Option<bool> AudioDump{"audio.dump", false, "RX_AUDIO_DUMP",
 // preview head, no world streaming), like the faces demo.
 static base::Option<bool> CharGenBoot{"chargen", false, "RX_CHARGEN",
                                       "boot into the character-creation screen"};
+// RX_STARFIELD_PLANET=<.biom stem> boots into a procedural landing tile
+// generated from that planet's biome map instead of the authored NewAtlantis
+// worldspace (e.g. "zeta ophiuchi ii", a barren single-biome moon).
+static base::Option<const char*> PlanetBoot{"starfield.planet", nullptr, "RX_STARFIELD_PLANET",
+                                            "boot a procedural Starfield planet tile"};
 
 bool LoadGameData(Engine& engine) {
   Engine* const self = &engine;
@@ -442,6 +450,11 @@ bool LoadGameData(Engine& engine) {
     self->streamer_->SetUploads(std::move(uploads));
   }
 
+  // RX_STARFIELD_PLANET=<planet> boots into a synthesized procedural landing
+  // tile from that planet's .biom biome map instead of streaming NewAtlantis.
+  if (PlanetBoot.get() && self->game_ == bethesda::Game::kStarfield)
+    return LoadPlanetTile(engine, PlanetBoot.get());
+
   // RX_INTERIOR=<editor id or 0x form id> boots straight into that interior
   // cell with the flycam placed inside, for testing authored interior lighting.
   // --interior takes precedence when both are given.
@@ -630,6 +643,54 @@ void SetupExtraStreamers(Engine& engine) {
     // place this game's assets (PlaceObject needs the per-domain streamer/salt).
     self->extra_streamers_.push_back(std::move(streamer));
   }
+}
+
+bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
+  Engine* const self = &engine;
+
+  // Resolve real biome ground textures through the compiled material database
+  // (the same materialsbeta.cdb the NIF converters use). Built here once; a miss
+  // just leaves the ground on its BMC tint.
+  bethesda::StarfieldMaterialDb mat_db;
+  if (auto cdb = self->vfs_->Read("materials/materialsbeta.cdb"))
+    mat_db.Build(ByteSpan(cdb->data(), cdb->size()));
+
+  // The .biom biome ids are base-game FormIDs (Starfield.esm, load index 0).
+  self->planet_surface_ = std::make_unique<bethesda::PlanetSurface>(
+      bethesda::LoadPlanetSurface(*self->vfs_, self->records_, mat_db, biom_name, /*biom_plugin=*/0));
+  if (!self->planet_surface_->valid) {
+    RX_ERROR("planet tile: could not load '{}'", biom_name);
+    return false;
+  }
+
+  world::PlanetTile::Config config;
+  config.cell_size = bethesda::GameProfile::For(self->game_).cell_size;
+  config.units_to_meters = bethesda::GameProfile::For(self->game_).units_to_meters;
+  self->planet_tile_ =
+      std::make_unique<world::PlanetTile>(*self->assets_, *self->planet_surface_, config);
+  if (!self->config_.headless) {
+    world::PlanetTile::Uploads uploads;
+    uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
+    uploads.texture = [self](const asset::Texture& t) { return self->renderer_->UploadTexture(t); };
+    uploads.material = [self](const asset::Material& m) { return self->renderer_->UploadMaterial(m); };
+    self->planet_tile_->SetUploads(std::move(uploads));
+  }
+  if (self->physics_->initialized()) self->planet_tile_->set_physics(self->physics_);
+
+  const u32 cells = self->planet_tile_->Generate(*self->world_);
+  if (cells == 0) {
+    RX_ERROR("planet tile: generated no terrain for '{}'", biom_name);
+    return false;
+  }
+
+  const Vec3 start = self->planet_tile_->CameraSpawn();
+  self->camera_.set_position(start);
+  self->camera_.set_yaw_pitch(0.0f, -0.15f);
+  self->camera_.speed = 30.0f;
+  RX_INFO("planet '{}': {} tiles, camera at ({:.1f}, {:.1f}, {:.1f})", biom_name, cells, start.x,
+           start.y, start.z);
+  self->actors_->MaybeSpawnWorldPlayer(start);
+  return true;
 }
 
 bool LoadInterior(Engine& engine) {
