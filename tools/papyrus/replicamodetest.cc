@@ -33,6 +33,9 @@ int main() {
     b.StartQuest(quest);
     b.SetStage(quest, 10);
     b.SetObjectiveDisplayed(quest, 1, true);
+    const ObjectRef door{0x01001234};
+    b.SetLocked(door, true);
+    b.SetOpen(door, true);
     Check("authoritative SetStage applies", b.GetStage(quest) == 10);
     Check("authoritative StartQuest runs the quest", b.IsRunning(quest));
     Check("authoritative objective change applies", b.IsObjectiveDisplayed(quest, 1));
@@ -42,12 +45,17 @@ int main() {
   {
     RecordBackedSkyrimBindings b;
     b.set_replica_mode(true);
+    const ObjectRef door{0x01001234};
     b.StartQuest(quest);
     b.SetStage(quest, 10);
     b.SetObjectiveDisplayed(quest, 1, true);
+    b.SetLocked(door, true);
+    b.SetOpen(door, true);
     Check("replica SetStage is a no-op", b.GetStage(quest) == 0);
     Check("replica StartQuest is a no-op", !b.IsRunning(quest));
     Check("replica objective change is a no-op", !b.IsObjectiveDisplayed(quest, 1));
+    Check("replica SetLocked is a no-op", !b.IsLocked(door));
+    Check("replica SetOpen is a no-op", b.GetOpenState(door) == 3);
 
     // ...yet the client still mirrors the server's authoritative state.
     QuestStatus status;

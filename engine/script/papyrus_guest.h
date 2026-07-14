@@ -72,6 +72,10 @@ class PapyrusGuest {
   std::future<papyrus::ObjectRef> CreateInstance(std::string type);
   void RaiseEvent(papyrus::ObjectRef target, std::string event,
                   std::vector<papyrus::Value> args = {});
+  void RaiseScriptEvent(papyrus::ObjectRef target, std::string script_type, std::string event,
+                        std::vector<papyrus::Value> args = {});
+  void RaiseEventAll(papyrus::ObjectRef target, std::string event,
+                     std::vector<papyrus::Value> args = {});
   // Advances the guest clock by dt seconds and fires any due update events.
   void Tick(f32 dt);
 

@@ -5,6 +5,7 @@
 #include <base/containers/vector.h>
 
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -14,7 +15,9 @@
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
+#include "render/geometry/instance_store.h"
 #include "render/pipeline/mesh_pipeline.h"
+#include "world/components.h"
 #include "world/grass_baker.h"
 #include "world/land_baker.h"
 #include "world/quest_world.h"
@@ -69,16 +72,18 @@ class CellStreamer {
     std::function<bool(const asset::Mesh&)> mesh;
     std::function<bool(const asset::Texture&)> texture;
     std::function<bool(const asset::Material&)> material;
+    std::function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
+    std::function<void(render::InstanceGroupHandle)> remove_instances;
   };
 
   struct Settings {
-    i32 load_radius = 3;       // cells around the camera cell
-    u32 mesh_budget = 6;       // new mesh conversions/uploads per update
-    u32 ref_budget = 192;      // reference instantiations per update
-    f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
-    bool distant_lod = false;  // load Bethesda .btr/.bto distant LOD for the horizon
-    u32 distant_budget = 2;    // distant LOD quads loaded per update
-    bool terrain_splat = true; // splat real land textures (off -> per-cell albedo bake)
+    i32 load_radius = 3;        // cells around the camera cell
+    u32 mesh_budget = 6;        // new mesh conversions/uploads per update
+    u32 ref_budget = 192;       // reference instantiations per update
+    f32 grass_density = 1.0f;   // multiplies every GRAS density, 0 disables
+    bool distant_lod = false;   // load Bethesda .btr/.bto distant LOD for the horizon
+    u32 distant_budget = 2;     // distant LOD quads loaded per update
+    bool terrain_splat = true;  // splat real land textures (off -> per-cell albedo bake)
   };
 
   CellStreamer(const bethesda::RecordStore& records, const bethesda::GameProfile& profile,
@@ -155,6 +160,11 @@ class CellStreamer {
   bool EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_id, Vec3* camera_position);
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
+  void SyncReference(ecs::World& world, u64 handle);
+  u64 RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
+                              bethesda::GlobalFormId source) const;
+  u64 RuntimeHandleForInstanceChild(ecs::World& world, u64 instance_handle,
+                                    bethesda::GlobalFormId source) const;
 
   // The authored lighting of the active interior (XCLL/LGTM resolved), valid only
   // while in_interior(). The frame loop feeds it to the renderer each frame.
@@ -217,15 +227,25 @@ class CellStreamer {
 
   size_t loaded_cell_count() const { return loaded_.size(); }
   size_t spawned_entity_count() const { return spawned_entities_; }
+  size_t spawned_instance_count() const { return spawned_instances_; }
   size_t spawned_npc_count() const { return spawned_npcs_; }
   size_t converted_mesh_count() const { return base_meshes_.size(); }
 
  private:
+  struct PendingInstanceBatch {
+    base::Vector<Transform> transforms;
+    u8 failed_attempts = 0;
+  };
   struct LoadedCell {
     base::Vector<ecs::Entity> entities;
     // Point lights from this cell's placed LIGH refs, baked at spawn (statics
     // never move) so they drop out when the cell unloads.
-    base::Vector<render::PointLight> lights;
+    struct PlacedLight {
+      render::PointLight light;
+      u64 handle = 0;
+      bool active = true;
+    };
+    base::Vector<PlacedLight> lights;
     // Projected decals from this cell's placed TXST refs, baked at spawn like
     // the lights. The world position rides along for the nearest-to-camera cut
     // (the packed Decal only carries the inverse box rows).
@@ -237,7 +257,11 @@ class CellStreamer {
     const bethesda::RecordStore::ExteriorCell* source = nullptr;
     physics::BodyId terrain_body = 0;
     base::Vector<physics::BodyId> bodies;  // static ref colliders
+    base::UnorderedMap<u64, PendingInstanceBatch> pending_instances;
+    base::Vector<render::InstanceGroupHandle> instance_groups;
+    size_t instance_count = 0;
     u32 next_ref = 0;
+    bool addressability_done = false;
     bool terrain_done = false;
     bool grass_done = false;
     bool done = false;
@@ -249,6 +273,11 @@ class CellStreamer {
   void UnloadCell(ecs::World& world, u32 key);
   // Destroys the active interior's entities and colliders (see interior_cell_).
   void UnloadInterior(ecs::World& world);
+  bool CommitInstances(ecs::World& world, LoadedCell& cell);
+  void QueueInstance(LoadedCell& cell, asset::AssetId mesh, const Transform& transform);
+  void SyncProps(ecs::World& world, LoadedCell& cell);
+  void SyncProp(ecs::World& world, ecs::Entity entity, LoadedCell& cell);
+  void PersistPropState(ecs::World& world, ecs::Entity entity);
   // Resolves the active interior's authored lighting into interior_lighting_ from
   // the cell's XCLL and its LGTM template per the inherit flags.
   void ResolveInteriorLighting(bethesda::GlobalFormId cell_id);
@@ -266,8 +295,9 @@ class CellStreamer {
   // cell spawn composed onto the given Bethesda-space transform (position,
   // rotation quaternion, uniform scale). Recurses into nested pack-ins.
   bool SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y, bethesda::GlobalFormId pkin_id,
-                   const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
-                   bool interior, int depth);
+                    const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
+                    bool interior, int depth, u64 instance_handle, u64 root_owner = 0);
+  void ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 handle, LoadedCell& cell);
   bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   // Water level of the cell in record units; false when the cell has none.
@@ -281,7 +311,7 @@ class CellStreamer {
   // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
   // REFR XRDS radius override into a point light at `position` and records it on
   // the cell. No-op for other base types or when RX_PLACED_LIGHTS is off.
-  void AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda::Record& refr,
+  void AddPlacedLight(bethesda::GlobalFormId base_id, u64 handle, const bethesda::Record& refr,
                       const Vec3& position, LoadedCell& cell);
   // When `base_id` is a TXST, builds a projected decal box from the REFR
   // placement (rotation/XSCL) and the TXST's DODT extents/tint, uv'd into the
@@ -298,6 +328,8 @@ class CellStreamer {
                                  bool& budget_exceeded);
   bool EnsureUploaded(const asset::Mesh& mesh);
   void EnsureLandMaterial();
+  void BuildAddressableRefs();
+  void IndexAddressableRecord(bethesda::GlobalFormId id);
   // Water plane tinted by the cell's WATR type (XCWT, else the worldspace NAM2
   // default). ResolveCellWaterForm picks the form; WaterMeshForCell caches a
   // shallow-colour-tinted quad per WATR form; EnsureWaterMesh builds it.
@@ -364,8 +396,8 @@ class CellStreamer {
   // unit -> metre constant (converted meshes are always in game-unit space).
   f32 cell_size_ = 4096.0f;
   f32 units_to_meters_ = 0.01428f;
-  f32 default_water_height_ = -3.0e38f;  // worldspace WRLD DNAM, record units
-  f32 fallback_water_height_ = -3.0e38f;  // when the WRLD has no DNAM (Oblivion)
+  f32 default_water_height_ = -3.0e38f;        // worldspace WRLD DNAM, record units
+  f32 fallback_water_height_ = -3.0e38f;       // when the WRLD has no DNAM (Oblivion)
   bethesda::GlobalFormId default_water_form_;  // worldspace WRLD NAM2 (WATR), else invalid
   // Starfield worldspaces carry a WRLD-level water table (XCLW cell pairs +
   // WHGT heights): listed cells hold water at their own height instead of the
@@ -376,13 +408,27 @@ class CellStreamer {
   // fallback plane. Cached so each water type is parsed and built once.
   base::UnorderedMap<u64, asset::AssetId> water_meshes_;
   size_t spawned_entities_ = 0;
+  size_t spawned_instances_ = 0;
   size_t spawned_npcs_ = 0;
+  struct PropState {
+    bool door = false;
+    bool door_open = false;
+    bool door_locked = false;
+    bool disabled = false;
+    bool deleted = false;
+    bool moved = false;
+    f32 position_offset[3] = {};
+  };
+  base::UnorderedMap<u64, PropState> prop_states_;
+  base::UnorderedMap<u64, bool> addressable_refs_;
+  base::UnorderedMap<u64, bool> addressable_records_indexed_;
+  bool addressable_refs_built_ = false;
   size_t terrain_instances_ = 0;  // Starfield instanced-terrain placements
   size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;
-  f32 detail_rect_[4] = {0, 0, 0, 0};  // see detail_rect()
-  Vec3 last_camera_{0.0f, 0.0f, 0.0f};  // last Update anchor, for nearest-light culling
+  f32 detail_rect_[4] = {0, 0, 0, 0};               // see detail_rect()
+  Vec3 last_camera_{0.0f, 0.0f, 0.0f};              // last Update anchor, for nearest-light culling
   mutable size_t logged_light_count_ = ~size_t{0};  // last CollectLights count logged
 
   // Placed-decal state (see EnsureDecalAtlas). A base's entry carries the

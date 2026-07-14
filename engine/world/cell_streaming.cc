@@ -1,5 +1,7 @@
 #include "world/cell_streaming.h"
 
+#include <base/option.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -8,8 +10,7 @@
 #include <limits>
 #include <string>
 
-#include <base/option.h>
-
+#include "bethesda/script_attachment.h"
 #include "bethesda/starfield_mesh.h"
 #include "core/log.h"
 #include "world/components.h"
@@ -55,6 +56,11 @@ constexpr u32 kPkin = FourCc('P', 'K', 'I', 'N');  // Starfield pack-in (prefab)
 constexpr u32 kCnam = FourCc('C', 'N', 'A', 'M');  // PKIN template cell (form id)
 constexpr u32 kVmad = FourCc('V', 'M', 'A', 'D');  // attached script(s)
 constexpr u32 kXprm = FourCc('X', 'P', 'R', 'M');  // primitive bound (trigger box)
+constexpr u32 kXtel = FourCc('X', 'T', 'E', 'L');  // load-door teleport destination
+constexpr u32 kXloc = FourCc('X', 'L', 'O', 'C');  // lock data
+constexpr u32 kXesp = FourCc('X', 'E', 'S', 'P');  // enable-parent state
+constexpr u32 kXlkr = FourCc('X', 'L', 'K', 'R');  // linked reference
+constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // quest alias forced reference
 constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
 constexpr u32 kVhgt = FourCc('V', 'H', 'G', 'T');
 constexpr u32 kVnml = FourCc('V', 'N', 'M', 'L');
@@ -101,6 +107,41 @@ void QuatMultiply(const f32 a[4], const f32 b[4], f32 out[4]) {
   out[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
   out[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
   out[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+}
+
+void ApplyDoorRotation(Transform& transform, const DoorState& door) {
+  if (!door.open) {
+    std::memcpy(transform.rotation, door.closed_rotation, sizeof(transform.rotation));
+    return;
+  }
+  constexpr f32 kOpenRotation[4] = {0.0f, 0.70710678f, 0.0f, 0.70710678f};
+  QuatMultiply(kOpenRotation, door.closed_rotation, transform.rotation);
+}
+
+bool IsInstanceCompatible(const asset::Mesh& mesh, const asset::AssetDatabase& assets) {
+  if (mesh.skinned || !mesh.morph_targets.empty() || !mesh.emitters.empty() || mesh.lods.empty()) {
+    return false;
+  }
+  for (const asset::MeshLod& lod : mesh.lods) {
+    for (const asset::Submesh& submesh : lod.submeshes) {
+      const asset::Material* material = assets.FindMaterial(submesh.material);
+      if (material && (material->is_water || material->alpha_mode == asset::AlphaMode::kBlend ||
+                       material->normal_model_space)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool IsCollidable(const asset::Mesh& mesh, const asset::AssetDatabase& assets) {
+  if (mesh.exclude_from_rt || mesh.lods.empty()) return false;
+  for (const asset::Submesh& submesh : mesh.lods[0].submeshes) {
+    const asset::Material* material = assets.FindMaterial(submesh.material);
+    if (material && (material->is_water || material->alpha_mode == asset::AlphaMode::kBlend))
+      return false;
+  }
+  return true;
 }
 
 // Bethesda-space rotation quaternion from a REFR's euler angles: radians about
@@ -234,7 +275,8 @@ void DecodeDecalBlock(const u8* block, asset::TextureFormat format, u8 out[16][4
   for (u32 i = 0; i < 16; ++i) std::memcpy(out[i], palette[(bits >> (i * 2)) & 3], 4);
 
   if (format == asset::TextureFormat::kBc2) {
-    for (u32 i = 0; i < 16; ++i) out[i][3] = static_cast<u8>(((block[i / 2] >> ((i & 1) * 4)) & 0xf) * 17);
+    for (u32 i = 0; i < 16; ++i)
+      out[i][3] = static_cast<u8>(((block[i / 2] >> ((i & 1) * 4)) & 0xf) * 17);
   } else if (format == asset::TextureFormat::kBc3) {
     u8 alpha[8] = {block[0], block[1]};
     if (alpha[0] > alpha[1]) {
@@ -331,7 +373,8 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
           for (u32 sx = 0; sx < 2; ++sx) {
             const u8* s = texture.data.data() + src_offset +
                           (static_cast<size_t>(std::min(y * 2 + sy, h - 1)) * w +
-                           std::min(x * 2 + sx, w - 1)) * 4;
+                           std::min(x * 2 + sx, w - 1)) *
+                              4;
             for (int k = 0; k < 4; ++k) sums[k] += s[k];
             for (int k = 0; k < 3; ++k) weighted[k] += s[k] * s[3];
           }
@@ -355,8 +398,8 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
 }
 
 // Nearest-resamples a source region into an atlas tile.
-void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src, u32 src_w,
-                   u32 rx, u32 ry, u32 rw, u32 rh) {
+void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src, u32 src_w, u32 rx,
+                   u32 ry, u32 rw, u32 rh) {
   u32 ox = (tile % kDecalTilesPerRow) * kDecalTile;
   u32 oy = (tile / kDecalTilesPerRow) * kDecalTile;
   for (u32 y = 0; y < kDecalTile; ++y) {
@@ -372,6 +415,7 @@ void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src,
 }  // namespace
 
 bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
+  BuildAddressableRefs();
   worldspace_ = records_.FindWorldspace(editor_id);
   if (worldspace_.plugin == 0xffff) {
     RX_ERROR("worldspace not found: {}", editor_id);
@@ -430,8 +474,79 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
     }
   }
   RX_INFO("streaming worldspace {} ({} exterior cells, default water {}, water table {})",
-           editor_id, grid_->size(), default_water_height_, water_table_.size());
+          editor_id, grid_->size(), default_water_height_, water_table_.size());
   return true;
+}
+
+void CellStreamer::BuildAddressableRefs() {
+  if (addressable_refs_built_) return;
+  addressable_refs_built_ = true;
+  constexpr u32 kTypes[] = {FourCc('Q', 'U', 'S', 'T'), FourCc('L', 'C', 'T', 'N'),
+                            FourCc('S', 'C', 'E', 'N'), FourCc('I', 'N', 'F', 'O')};
+  for (u32 type : kTypes)
+    records_.EachOfType(type,
+                        [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+                          IndexAddressableRecord(id);
+                        });
+}
+
+void CellStreamer::IndexAddressableRecord(bethesda::GlobalFormId id) {
+  if (addressable_records_indexed_.find(id.packed())) return;
+  addressable_records_indexed_.insert(id.packed(), true);
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
+  bethesda::Record record;
+  if (!stored || !records_.Parse(id, &record)) return;
+  auto remember = [&](u32 raw) {
+    if (raw == 0) return;
+    const bethesda::GlobalFormId resolved =
+        records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
+    if (resolved.plugin != 0xffff) addressable_refs_.insert(resolved.packed(), true);
+  };
+  for (const bethesda::Subrecord& subrecord : record.subrecords) {
+    if (subrecord.type == kAlfr && subrecord.data.size() >= 4) {
+      u32 raw;
+      std::memcpy(&raw, subrecord.data.data(), sizeof(raw));
+      remember(raw);
+    } else if (subrecord.type == FourCc('L', 'C', 'S', 'R')) {
+      for (size_t offset = 0; offset + 8 <= subrecord.data.size(); offset += 8) {
+        u32 raw;
+        std::memcpy(&raw, subrecord.data.data() + offset + 4, sizeof(raw));
+        remember(raw);
+      }
+    } else if ((subrecord.type == kXesp || subrecord.type == kXlkr) && subrecord.data.size() >= 4) {
+      const size_t offset = subrecord.type == kXlkr && subrecord.data.size() >= 8 ? 4 : 0;
+      u32 raw;
+      std::memcpy(&raw, subrecord.data.data() + offset, sizeof(raw));
+      remember(raw);
+    }
+  }
+  const bethesda::Subrecord* vmad = record.Find(kVmad);
+  if (vmad) {
+    auto index_attachment = [&](bethesda::ScriptAttachment& attachment) {
+      bethesda::ResolveScriptObjectForms(&attachment, [&](u32 raw) {
+        const bethesda::GlobalFormId resolved =
+            records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
+        if (resolved.plugin != 0xffff) addressable_refs_.insert(resolved.packed(), true);
+        return resolved.packed();
+      });
+    };
+    bethesda::ScriptAttachment attachment;
+    if (stored->header.type == FourCc('Q', 'U', 'S', 'T')) {
+      std::vector<bethesda::QuestStageFragment> fragments;
+      std::vector<bethesda::QuestAliasScripts> aliases;
+      if (bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments, &aliases)) {
+        index_attachment(attachment);
+        for (bethesda::QuestAliasScripts& alias : aliases) index_attachment(alias.scripts);
+      }
+    } else if (bethesda::ParseScriptAttachment(vmad->data, &attachment)) {
+      index_attachment(attachment);
+    }
+  }
+  if (const bethesda::Subrecord* name = record.Find(kName); name && name->data.size() >= 4) {
+    u32 raw;
+    std::memcpy(&raw, name->data.data(), sizeof(raw));
+    IndexAddressableRecord(records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin));
+  }
 }
 
 void CellStreamer::EnsureLandMaterial() {
@@ -458,8 +573,256 @@ Vec3 CellStreamer::ToWorld(f32 bethesda_x, f32 bethesda_y, f32 bethesda_z) const
   return {e.x + world_offset_.x, e.y + world_offset_.y, e.z + world_offset_.z};
 }
 
+u64 CellStreamer::RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
+                                          bethesda::GlobalFormId source) const {
+  if (!quest_world_) return source.packed();
+  const ecs::Entity owner = quest_world_->Find(owner_handle);
+  if (!world.IsAlive(owner)) return source.packed();
+  const SourceForm* owner_source = world.Get<SourceForm>(owner);
+  if (!owner_source || owner_source->instance_parent == 0) return source.packed();
+  return RuntimeHandleForInstanceChild(world, owner_source->instance_parent, source);
+}
+
+u64 CellStreamer::RuntimeHandleForInstanceChild(ecs::World& world, u64 instance_handle,
+                                                 bethesda::GlobalFormId source) const {
+  if (!quest_world_ || instance_handle == 0) return source.packed();
+  const u64 candidate = rx::world::PackInChildHandle(instance_handle, source.packed());
+  return world.IsAlive(quest_world_->Find(candidate)) ? candidate : source.packed();
+}
+
+void CellStreamer::QueueInstance(LoadedCell& cell, asset::AssetId mesh,
+                                 const Transform& transform) {
+  PendingInstanceBatch* batch = cell.pending_instances.find(mesh.hash);
+  if (!batch) batch = cell.pending_instances.emplace(mesh.hash).first;
+  batch->transforms.push_back(transform);
+  ++cell.instance_count;
+  ++spawned_instances_;
+}
+
+bool CellStreamer::CommitInstances(ecs::World& world, LoadedCell& cell) {
+  if (cell.pending_instances.empty()) return true;
+  if (!uploads_.instances) return false;
+
+  constexpr u8 kMaxAttempts = 3;
+  base::Vector<u64> committed;
+  for (auto entry : cell.pending_instances) {
+    base::Vector<Mat4> matrices;
+    matrices.reserve(entry.value.transforms.size());
+    for (const Transform& transform : entry.value.transforms) {
+      matrices.push_back(MakeTransform(
+          {transform.position[0], transform.position[1], transform.position[2]},
+          {transform.rotation[0], transform.rotation[1], transform.rotation[2],
+           transform.rotation[3]},
+          transform.scale));
+    }
+    render::InstanceGroupHandle handle = uploads_.instances(
+        entry.key, std::span<const Mat4>(matrices.data(), matrices.size()));
+    if (handle) {
+      cell.instance_groups.push_back(handle);
+      committed.push_back(entry.key);
+      continue;
+    }
+
+    ++entry.value.failed_attempts;
+    if (entry.value.failed_attempts < kMaxAttempts) {
+      RX_WARN("instance group creation failed for mesh 0x{:x}; retry {}/{}", entry.key,
+              entry.value.failed_attempts, kMaxAttempts - 1);
+      continue;
+    }
+
+    RX_WARN("instance group creation failed for mesh 0x{:x}; using ECS fallback", entry.key);
+    for (const Transform& transform : entry.value.transforms) {
+      const ecs::Entity entity = world.Create();
+      world.Add(entity, transform);
+      world.Add(entity, Renderable{asset::AssetId{entry.key}});
+      cell.entities.push_back(entity);
+      ++spawned_entities_;
+    }
+    cell.instance_count -= entry.value.transforms.size();
+    spawned_instances_ -= entry.value.transforms.size();
+    committed.push_back(entry.key);
+  }
+  for (u64 key : committed) cell.pending_instances.erase(key);
+  return cell.pending_instances.empty();
+}
+
+void CellStreamer::PersistPropState(ecs::World& world, ecs::Entity entity) {
+  if (!world.IsAlive(entity)) return;
+  const Prop* prop = world.Get<Prop>(entity);
+  if (!prop) return;
+  const FormLink* link = world.Get<FormLink>(entity);
+  const Transform* transform = world.Get<Transform>(entity);
+  if (!link || !transform) return;
+
+  PropState& state = prop_states_[link->form.packed()];
+  const PackInOwner* owner = world.Get<PackInOwner>(entity);
+  state.disabled = owner ? owner->independently_hidden : world.Has<Hidden>(entity);
+  state.deleted = world.Has<Deleted>(entity);
+  state.moved = false;
+  for (u32 axis = 0; axis < 3; ++axis) {
+    const f32 inherited = owner ? owner->inherited_position_offset[axis] : 0.0f;
+    state.position_offset[axis] =
+        transform->position[axis] - prop->authored_position[axis] - inherited;
+    state.moved |= std::abs(state.position_offset[axis]) > 1e-5f;
+  }
+  if (const DoorState* door = world.Get<DoorState>(entity)) {
+    state.door = true;
+    state.door_open = door->open;
+    state.door_locked = door->locked;
+  }
+}
+
+void CellStreamer::SyncProps(ecs::World& world, LoadedCell& cell) {
+  for (ecs::Entity entity : cell.entities) {
+    SyncProp(world, entity, cell);
+  }
+}
+
+void CellStreamer::SyncProp(ecs::World& world, ecs::Entity entity, LoadedCell& cell) {
+  if (!world.IsAlive(entity) || !world.Has<Prop>(entity)) return;
+  Transform* transform = world.Get<Transform>(entity);
+  if (!transform) return;
+  if (const DoorState* door = world.Get<DoorState>(entity)) ApplyDoorRotation(*transform, *door);
+
+  const bool disabled = world.Has<Hidden>(entity) || world.Has<Deleted>(entity);
+  if (physics_) {
+    if (PropPhysics* body = world.Get<PropPhysics>(entity)) {
+      if (disabled && body->body) {
+        physics_->RemoveBody(body->body);
+        body->body = 0;
+      } else if (!disabled && body->body) {
+        physics_->SetBodyPosition(
+            body->body, {transform->position[0], transform->position[1], transform->position[2]},
+            transform->rotation);
+      } else if (!disabled) {
+        const Renderable* renderable = world.Get<Renderable>(entity);
+        if (renderable && physics_->has_mesh_shape(renderable->mesh.hash)) {
+          body->body = physics_->AddStaticMeshInstance(
+              renderable->mesh.hash,
+              {transform->position[0], transform->position[1], transform->position[2]},
+              transform->rotation, transform->scale);
+        }
+      }
+    }
+  }
+  if (const FormLink* link = world.Get<FormLink>(entity)) {
+    for (LoadedCell::PlacedLight& light : cell.lights) {
+      if (light.handle != link->form.packed()) continue;
+      light.active = !disabled;
+      light.light.pos_radius[0] = transform->position[0];
+      light.light.pos_radius[1] = transform->position[1];
+      light.light.pos_radius[2] = transform->position[2];
+    }
+  }
+  PersistPropState(world, entity);
+}
+
+void CellStreamer::ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 handle,
+                                    LoadedCell& cell) {
+  PackInRoot* root = world.Get<PackInRoot>(entity);
+  if (!root || root->spawned || world.Has<Hidden>(entity) || world.Has<Deleted>(entity)) return;
+  const CellMembership* membership = world.Get<CellMembership>(entity);
+  if (!membership) return;
+  root->spawned = true;
+  const Prop* prop = world.Get<Prop>(entity);
+  f32 placement[3] = {};
+  f32 rotation[4] = {0, 0, 0, 1};
+  f32 scale = 1.0f;
+  bool have_placement = false;
+  if (root->has_composed_transform) {
+    std::memcpy(placement, root->position, sizeof(placement));
+    std::memcpy(rotation, root->rotation, sizeof(rotation));
+    scale = root->scale;
+    have_placement = true;
+  } else if (const FormLink* link = world.Get<FormLink>(entity)) {
+    bethesda::Record record;
+    if (records_.Parse(link->form, &record)) {
+      const bethesda::Subrecord* data = record.Find(kData);
+      if (data && data->data.size() >= 24) {
+        f32 authored[6];
+        std::memcpy(authored, data->data.data(), sizeof(authored));
+        std::memcpy(placement, authored, sizeof(placement));
+        if (const bethesda::Subrecord* xscl = record.Find(kXscl);
+            xscl && xscl->data.size() >= 4) {
+          std::memcpy(&scale, xscl->data.data(), sizeof(scale));
+        }
+        BethQuatFromEuler(authored + 3, rotation);
+        have_placement = true;
+      }
+    }
+  }
+  const Transform* transform = world.Get<Transform>(entity);
+  if (have_placement && prop && transform) {
+    placement[0] += (transform->position[0] - prop->authored_position[0]) / units_to_meters_;
+    placement[1] -= (transform->position[2] - prop->authored_position[2]) / units_to_meters_;
+    placement[2] += (transform->position[1] - prop->authored_position[1]) / units_to_meters_;
+    SpawnPackIn(world, membership->grid_x, membership->grid_y, prop->base, placement, rotation,
+                scale, cell, membership->interior, root->depth, handle, handle);
+  }
+}
+
+void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
+  if (!quest_world_) return;
+  const ecs::Entity entity = quest_world_->Find(handle);
+  if (!world.IsAlive(entity)) return;
+  const CellMembership* membership = world.Get<CellMembership>(entity);
+  if (!membership) return;
+  LoadedCell* cell = membership->interior
+                          ? &interior_cell_
+                          : loaded_.find(CellKey(membership->grid_x, membership->grid_y));
+  if (!cell) return;
+  SyncProp(world, entity, *cell);
+
+  if (PackInOwner* owner = world.Get<PackInOwner>(entity)) {
+    const ecs::Entity root = quest_world_->Find(owner->root);
+    if (world.IsAlive(root) && !world.Has<Hidden>(root) && !world.Has<Deleted>(root)) {
+      owner->independently_hidden = world.Has<Hidden>(entity);
+    } else if (!world.Has<Hidden>(entity)) {
+      owner->independently_hidden = false;
+      world.Add(entity, Hidden{});
+      SyncProp(world, entity, *cell);
+    }
+  }
+
+  ExpandPackInRoot(world, entity, handle, *cell);
+  PackInRoot* root = world.Get<PackInRoot>(entity);
+  if (!root) return;
+  const bool root_hidden = world.Has<Hidden>(entity) || world.Has<Deleted>(entity);
+  const Transform* root_transform = world.Get<Transform>(entity);
+  const Prop* root_prop = world.Get<Prop>(entity);
+  f32 root_offset[3] = {};
+  if (root_transform && root_prop)
+    for (u32 axis = 0; axis < 3; ++axis)
+      root_offset[axis] = root_transform->position[axis] - root_prop->authored_position[axis];
+  for (size_t child_index = 0; child_index < cell->entities.size(); ++child_index) {
+    const ecs::Entity child = cell->entities[child_index];
+    PackInOwner* owner = world.Get<PackInOwner>(child);
+    if (!owner || owner->root != handle || !world.IsAlive(child)) continue;
+    if (Transform* child_transform = world.Get<Transform>(child)) {
+      for (u32 axis = 0; axis < 3; ++axis) {
+        const f32 delta = root_offset[axis] - owner->observed_root_offset[axis];
+        child_transform->position[axis] += delta;
+        owner->inherited_position_offset[axis] += delta;
+        owner->observed_root_offset[axis] = root_offset[axis];
+      }
+    }
+    const bool hidden = world.Has<Hidden>(child);
+    const bool want_hidden = root_hidden || owner->independently_hidden;
+    if (want_hidden && !hidden) world.Add(child, Hidden{});
+    if (!want_hidden && hidden) world.Remove<Hidden>(child);
+    if (world.Has<PackInRoot>(child)) {
+      if (const FormLink* link = world.Get<FormLink>(child))
+        SyncReference(world, link->form.packed());
+    } else {
+      SyncProp(world, child, *cell);
+    }
+  }
+}
+
 void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   last_camera_ = camera_position;  // tracked even in interiors, for light culling
+  for (auto entry : loaded_) SyncProps(world, entry.value);
+  if (interior_active_) SyncProps(world, interior_cell_);
   if (interior_active_ || !grid_) return;
 
   // The anchor selects which cells load (by this domain's own cell coordinates);
@@ -472,11 +835,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   // so the anchor lands in the domain's own cell coordinates: zero for the primary
   // game, but a trailer domain recentered onto the shared camera maps its region
   // back to its real cells here.
-  const Vec3 anchor = has_fixed_anchor_
-                          ? fixed_anchor_
-                          : Vec3{camera_position.x - world_offset_.x,
-                                 camera_position.y - world_offset_.y,
-                                 camera_position.z - world_offset_.z};
+  const Vec3 anchor = has_fixed_anchor_ ? fixed_anchor_
+                                        : Vec3{camera_position.x - world_offset_.x,
+                                               camera_position.y - world_offset_.y,
+                                               camera_position.z - world_offset_.z};
   f32 beth_x = anchor.x / units_to_meters_;
   f32 beth_y = -anchor.z / units_to_meters_;
   i16 center_x = static_cast<i16>(std::floor(beth_x / cell_size_));
@@ -572,10 +934,11 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
     RX_INFO(
-        "streaming idle: {} cells, {} entities, {} meshes converted, {} refs skipped, "
+        "streaming idle: {} cells, {} entities, {} instances, {} meshes converted, {} refs "
+        "skipped, "
         "{} land bakes, {} terrain instances, {} water planes, {} grass instances ({} verts)",
-        loaded_.size(), spawned_entities_, base_meshes_.size(), skipped_refs_, baker_.baked_count(),
-        terrain_instances_, water_planes_, grass_baker_.total_instances(),
+        loaded_.size(), spawned_entities_, spawned_instances_, base_meshes_.size(), skipped_refs_,
+        baker_.baked_count(), terrain_instances_, water_planes_, grass_baker_.total_instances(),
         grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
@@ -587,6 +950,12 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
   if (!cell.source) {
     cell.done = true;
     return true;
+  }
+  if (!cell.addressability_done) {
+    for (u64 packed : cell.source->refs) {
+      IndexAddressableRecord({static_cast<u16>(packed >> 32), static_cast<u32>(packed)});
+    }
+    cell.addressability_done = true;
   }
   if (!cell.terrain_done) {
     if (mesh_budget == 0) return false;
@@ -604,18 +973,23 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     cell.grass_done = true;
   }
   while (cell.next_ref < cell.source->refs.size()) {
-    if (mesh_budget == 0 || ref_budget == 0) return false;
+    if (mesh_budget == 0 || ref_budget == 0) {
+      CommitInstances(world, cell);
+      return false;
+    }
     u64 ref_id = cell.source->refs[cell.next_ref];
     --ref_budget;
     if (!SpawnReference(world, grid_x, grid_y, ref_id, cell, mesh_budget, false)) {
       // Budget ran out mid-reference; retry the same ref next tick.
+      CommitInstances(world, cell);
       return false;
     }
     ++cell.next_ref;
   }
+  if (!CommitInstances(world, cell)) return false;
   cell.done = true;
-  RX_DEBUG("cell {},{}: {} refs, {} entities", grid_x, grid_y, cell.source->refs.size(),
-            cell.entities.size());
+  RX_DEBUG("cell {},{}: {} refs, {} entities, {} instances", grid_x, grid_y,
+           cell.source->refs.size(), cell.entities.size(), cell.instance_count);
   return true;
 }
 
@@ -623,16 +997,26 @@ void CellStreamer::UnloadCell(ecs::World& world, u32 key) {
   LoadedCell* cell = loaded_.find(key);
   if (!cell) return;
   for (ecs::Entity entity : cell->entities) {
+    PersistPropState(world, entity);
+    if (physics_)
+      if (const PropPhysics* body = world.Get<PropPhysics>(entity); body && body->body)
+        physics_->RemoveBody(body->body);
     if (quest_world_)
       if (const FormLink* link = world.Get<FormLink>(entity))
         quest_world_->Unregister(link->form.packed());
     world.Destroy(entity);
+  }
+  if (uploads_.remove_instances) {
+    for (render::InstanceGroupHandle handle : cell->instance_groups) {
+      uploads_.remove_instances(handle);
+    }
   }
   if (physics_) {
     if (cell->terrain_body) physics_->RemoveBody(cell->terrain_body);
     for (physics::BodyId body : cell->bodies) physics_->RemoveBody(body);
   }
   spawned_entities_ -= cell->entities.size();
+  spawned_instances_ -= cell->instance_count;
   loaded_.erase(key);
 }
 
@@ -861,7 +1245,7 @@ void CellStreamer::DiscoverDistantQuads() {
     if (f.level == want) distant_quads_.push_back({f.path, f.x, f.y, f.object});
   }
   RX_INFO("distant lod: {} quads for {} (terrain lvl {}, object lvl {})", distant_quads_.size(),
-           worldspace_edid_, max_terrain, max_object);
+          worldspace_edid_, max_terrain, max_object);
 }
 
 bool CellStreamer::SpawnDistantQuad(ecs::World& world, size_t index) {
@@ -877,10 +1261,9 @@ bool CellStreamer::SpawnDistantQuad(ecs::World& world, size_t index) {
   // .bto object verts are absolute world units (place at the origin); .btr
   // terrain verts are quad-local (place at the quad's SW cell). Sink terrain a
   // touch so the full-detail LAND wins the depth test in the overlap region.
-  Vec3 position = quad.object
-                      ? ToWorld(0.0f, 0.0f, 0.0f)
-                      : ToWorld(static_cast<f32>(quad.cell_x) * cell_size_,
-                                static_cast<f32>(quad.cell_y) * cell_size_, 0.0f);
+  Vec3 position = quad.object ? ToWorld(0.0f, 0.0f, 0.0f)
+                              : ToWorld(static_cast<f32>(quad.cell_x) * cell_size_,
+                                        static_cast<f32>(quad.cell_y) * cell_size_, 0.0f);
   if (!quad.object) position.y -= kDistantTerrainSink;
   transform.position[0] = position.x;
   transform.position[1] = position.y;
@@ -929,8 +1312,8 @@ const asset::Mesh* CellStreamer::WaterMeshForCell(const LoadedCell& cell) {
         if (c[0] || c[1] || c[2]) {  // 0,0,0 = unset -> keep the fallback
           for (int i = 0; i < 3; ++i) tint[i] = static_cast<f32>(c[i]) / 255.0f;
           RX_INFO("water: WATR {:04x}:{:06x} {} shallow {},{},{} -> tint {:.3f},{:.3f},{:.3f}",
-                   form.plugin, form.local_id, watr.GetString(kEdid), c[0], c[1], c[2], tint[0],
-                   tint[1], tint[2]);
+                  form.plugin, form.local_id, watr.GetString(kEdid), c[0], c[1], c[2], tint[0],
+                  tint[1], tint[2]);
         }
       }
     }
@@ -996,14 +1379,15 @@ void CellStreamer::AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell,
   for (u32 j = 0; j < kLandGridPoints; ++j) {
     for (u32 i = 0; i < kLandGridPoints; ++i) {
       u32 row = kLandGridPoints - 1 - j;
-      engine_heights[j * kLandGridPoints + i] = heights[row * kLandGridPoints + i] * units_to_meters_;
+      engine_heights[j * kLandGridPoints + i] =
+          heights[row * kLandGridPoints + i] * units_to_meters_;
     }
   }
   Vec3 origin{static_cast<f32>(grid_x) * cell_size_ * units_to_meters_ + world_offset_.x,
               world_offset_.y,
               -(static_cast<f32>(grid_y) + 1.0f) * cell_size_ * units_to_meters_ + world_offset_.z};
-  cell.terrain_body =
-      physics_->AddHeightField(origin, engine_heights, kLandGridPoints, cell_size_ * units_to_meters_);
+  cell.terrain_body = physics_->AddHeightField(origin, engine_heights, kLandGridPoints,
+                                               cell_size_ * units_to_meters_);
 }
 
 bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) {
@@ -1092,7 +1476,7 @@ bool CellStreamer::CellWaterHeight(i16 grid_x, i16 grid_y, const LoadedCell& cel
 bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
                                bethesda::GlobalFormId pkin_id, const f32 position[3],
                                const f32 rotation[4], f32 scale, LoadedCell& cell, bool interior,
-                               int depth) {
+                               int depth, u64 instance_handle, u64 root_owner) {
   if (depth > 2) return false;  // nested prefabs exist; cycles should not
   bethesda::Record pkin;
   if (!records_.Parse(pkin_id, &pkin)) return false;
@@ -1106,12 +1490,16 @@ bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
       records_.ResolveFrom(bethesda::RawFormId{raw}, pkin_stored->winning_plugin);
   const base::Vector<u64>* children = records_.InteriorRefs(template_cell);
   if (!children) return false;
+  for (u64 packed : *children)
+    IndexAddressableRecord({static_cast<u16>(packed >> 32), static_cast<u32>(packed)});
 
   bool spawned = false;
   for (u64 packed : *children) {
     bethesda::GlobalFormId child_id{static_cast<u16>(packed >> 32), static_cast<u32>(packed)};
     const bethesda::RecordStore::StoredRecord* child_stored = records_.Find(child_id);
-    if (!child_stored || (child_stored->header.flags & kRecordFlagInitiallyDisabled)) continue;
+    if (!child_stored) continue;
+    const bool initially_disabled =
+        (child_stored->header.flags & kRecordFlagInitiallyDisabled) != 0;
     bethesda::Record child;
     if (!records_.Parse(child_id, &child)) continue;
     const bethesda::Subrecord* name = child.Find(kName);
@@ -1140,33 +1528,178 @@ bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
     const f32 world_scale = scale * child_scale;
 
     const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(base_id);
+    const u64 packed_child_handle =
+        rx::world::PackInChildHandle(instance_handle, child_id.packed());
+    const bethesda::GlobalFormId child_handle{static_cast<u16>(packed_child_handle >> 32),
+                                              static_cast<u32>(packed_child_handle)};
+    bethesda::Record base_record;
+    const bool base_script = records_.Parse(base_id, &base_record) && base_record.Find(kVmad);
+    const PropClassification classification = ClassifyProp(
+        {.base_type = base_stored ? base_stored->header.type : 0,
+         .placed_script = child.Find(kVmad) != nullptr,
+         .base_script = base_script,
+         .primitive = child.Find(kXprm) != nullptr,
+         .teleport = child.Find(kXtel) != nullptr,
+         .stateful = initially_disabled || child.Find(kXesp) != nullptr ||
+                      child.Find(kXlkr) != nullptr ||
+                      addressable_refs_.find(child_id.packed()) != nullptr || root_owner != 0});
+    const PropState* saved_state = prop_states_.find(child_handle.packed());
+    if (saved_state && saved_state->deleted) continue;
     if (base_stored && base_stored->header.type == kPkin) {
-      spawned |= SpawnPackIn(world, grid_x, grid_y, base_id, world_pos, world_q, world_scale, cell,
-                             interior, depth + 1);
+      const bool logical_root = classification.capabilities != kPropNone || initially_disabled ||
+                                child.Find(kXprm) || child.Find(kXtel) || child.Find(kXesp) ||
+                                child.Find(kXlkr) ||
+                                addressable_refs_.find(child_id.packed()) != nullptr;
+      if (!logical_root) {
+        spawned |= SpawnPackIn(world, grid_x, grid_y, base_id, world_pos, world_q, world_scale,
+                               cell, interior, depth + 1, child_handle.packed(), root_owner);
+        continue;
+      }
+
+      const Vec3 engine_pos = ToWorld(world_pos[0], world_pos[1], world_pos[2]);
+      Transform transform;
+      transform.position[0] = engine_pos.x;
+      transform.position[1] = engine_pos.y;
+      transform.position[2] = engine_pos.z;
+      QuatMultiply(kAxisChange, world_q, transform.rotation);
+      transform.scale = world_scale * kUnitsToMeters;
+      const f32 authored_position[3] = {transform.position[0], transform.position[1],
+                                        transform.position[2]};
+      if (saved_state && saved_state->moved)
+        for (u32 axis = 0; axis < 3; ++axis)
+          transform.position[axis] = authored_position[axis] + saved_state->position_offset[axis];
+
+      ecs::Entity entity = world.Create();
+      world.Add(entity, transform);
+      world.Add(entity, FormLink{child_handle});
+      world.Add(entity, SourceForm{child_id, instance_handle});
+      world.Add(entity, CellMembership{grid_x, grid_y, interior});
+      Prop prop{base_id, classification.capabilities};
+      std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
+      world.Add(entity, prop);
+      PackInRoot nested_root;
+      nested_root.has_composed_transform = true;
+      nested_root.depth = static_cast<u8>(depth + 1);
+      std::memcpy(nested_root.position, world_pos, sizeof(nested_root.position));
+      std::memcpy(nested_root.rotation, world_q, sizeof(nested_root.rotation));
+      nested_root.scale = world_scale;
+      world.Add(entity, nested_root);
+      if ((saved_state && saved_state->disabled) || (!saved_state && initially_disabled))
+        world.Add(entity, Hidden{});
+      if (root_owner) {
+        PackInOwner owner;
+        owner.root = root_owner;
+        owner.independently_hidden = world.Has<Hidden>(entity);
+        const ecs::Entity root =
+            quest_world_ ? quest_world_->Find(root_owner) : ecs::kInvalidEntity;
+        const Transform* root_transform = world.Get<Transform>(root);
+        const Prop* root_prop = world.Get<Prop>(root);
+        if (root_transform && root_prop)
+          for (u32 axis = 0; axis < 3; ++axis)
+            owner.observed_root_offset[axis] =
+                root_transform->position[axis] - root_prop->authored_position[axis];
+        world.Add(entity, owner);
+      }
+      cell.entities.push_back(entity);
+      if (quest_world_) quest_world_->Register(child_handle.packed(), entity);
+      if (quest_world_)
+        SyncReference(world, child_handle.packed());
+      else {
+        SyncProp(world, entity, cell);
+        ExpandPackInRoot(world, entity, child_handle.packed(), cell);
+      }
+      ++spawned_entities_;
+      spawned = true;
       continue;
     }
 
     const Vec3 engine_pos = ToWorld(world_pos[0], world_pos[1], world_pos[2]);
-    AddPlacedLight(base_id, child, engine_pos, cell);
+    AddPlacedLight(base_id, child_handle.packed(), child, engine_pos, cell);
 
-    // Prefab meshes repeat heavily across placements, so conversions amortize;
-    // a local budget keeps one pack-in whole instead of splitting it.
-    u32 budget = 64;
-    bool budget_exceeded = false;
-    const asset::Mesh* mesh = MeshForBase(base_id, budget, budget_exceeded);
-    if (!mesh || !EnsureUploaded(*mesh)) continue;
-
-    ecs::Entity entity = world.Create();
     Transform transform;
     transform.position[0] = engine_pos.x;
     transform.position[1] = engine_pos.y;
     transform.position[2] = engine_pos.z;
     QuatMultiply(kAxisChange, world_q, transform.rotation);
     transform.scale = world_scale * kUnitsToMeters;
+    // Prefab meshes repeat heavily across placements, so conversions amortize;
+    // a local budget keeps one pack-in whole instead of splitting it.
+    u32 budget = 64;
+    bool budget_exceeded = false;
+    const asset::Mesh* mesh = MeshForBase(base_id, budget, budget_exceeded);
+    if (mesh && !EnsureUploaded(*mesh)) continue;
+    const bool logical = classification.capabilities != kPropNone || initially_disabled ||
+                         child.Find(kXprm) || child.Find(kXtel) || child.Find(kXesp) ||
+                         child.Find(kXlkr) ||
+                         addressable_refs_.find(child_id.packed()) != nullptr || root_owner != 0;
+    if (!mesh && !logical) continue;
+    if (mesh && uploads_.instances && classification.batchable &&
+        IsInstanceCompatible(*mesh, assets_)) {
+      QueueInstance(cell, RenderMeshId(mesh->id), transform);
+      spawned = true;
+      continue;
+    }
+
+    const f32 authored_position[3] = {transform.position[0], transform.position[1],
+                                      transform.position[2]};
+    if (saved_state && saved_state->moved)
+      for (u32 axis = 0; axis < 3; ++axis)
+        transform.position[axis] = authored_position[axis] + saved_state->position_offset[axis];
+    DoorState door;
+    const bool is_door = (classification.capabilities & kPropDoor) != 0;
+    if (is_door) {
+      door.locked = child.Find(kXloc) != nullptr;
+      if (saved_state) {
+        door.open = saved_state->door_open;
+        door.locked = saved_state->door_locked;
+      }
+      std::memcpy(door.closed_rotation, transform.rotation, sizeof(door.closed_rotation));
+      ApplyDoorRotation(transform, door);
+    }
+
+    ecs::Entity entity = world.Create();
     world.Add(entity, transform);
-    world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+    if (mesh) world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+    world.Add(entity, FormLink{child_handle});
+    world.Add(entity, SourceForm{child_id, instance_handle});
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    Prop prop{base_id, classification.capabilities};
+    std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
+    world.Add(entity, prop);
+    if (is_door) world.Add(entity, door);
+    if ((saved_state && saved_state->disabled) || (!saved_state && initially_disabled))
+      world.Add(entity, Hidden{});
+    if (root_owner) {
+      PackInOwner owner;
+      owner.root = root_owner;
+      owner.independently_hidden = world.Has<Hidden>(entity);
+      const ecs::Entity root = quest_world_ ? quest_world_->Find(root_owner) : ecs::kInvalidEntity;
+      const Transform* root_transform = world.Get<Transform>(root);
+      const Prop* root_prop = world.Get<Prop>(root);
+      if (root_transform && root_prop)
+        for (u32 axis = 0; axis < 3; ++axis)
+          owner.observed_root_offset[axis] =
+              root_transform->position[axis] - root_prop->authored_position[axis];
+      world.Add(entity, owner);
+    }
     cell.entities.push_back(entity);
+
+    if (physics_ && mesh && IsCollidable(*mesh, assets_)) {
+      const u64 physics_key = RenderMeshId(mesh->id).hash;
+      if (physics_->has_mesh_shape(physics_key) ||
+          physics_->RegisterMeshShape(physics_key, *mesh)) {
+        const Vec3 body_position{transform.position[0], transform.position[1],
+                                 transform.position[2]};
+        physics::BodyId body = 0;
+        if (!world.Has<Hidden>(entity))
+          body = physics_->AddStaticMeshInstance(physics_key, body_position, transform.rotation,
+                                                 transform.scale);
+        world.Add(entity, PropPhysics{body, PropMotion::kStatic});
+        world.Get<Prop>(entity)->capabilities |= kPropPhysics;
+      }
+    }
+    if (quest_world_) quest_world_->Register(child_handle.packed(), entity);
+    SyncProp(world, entity, cell);
     ++spawned_entities_;
     spawned = true;
   }
@@ -1199,7 +1732,6 @@ bool CellStreamer::SpawnInstancedTerrain(ecs::World& world, i16 grid_x, i16 grid
     if (!mesh || !EnsureUploaded(*mesh)) continue;
 
     for (const bethesda::StarfieldTerrainInstance& inst : group.instances) {
-      ecs::Entity entity = world.Create();
       Transform transform;
       Vec3 position = ToWorld(inst.translation[0], inst.translation[1], inst.translation[2]);
       transform.position[0] = position.x;
@@ -1207,6 +1739,14 @@ bool CellStreamer::SpawnInstancedTerrain(ecs::World& world, i16 grid_x, i16 grid
       transform.position[2] = position.z;
       Mat3RotationToEngine(inst.rotation, transform.rotation);
       transform.scale = inst.scale * kUnitsToMeters;
+      if (uploads_.instances && IsInstanceCompatible(*mesh, assets_)) {
+        QueueInstance(cell, RenderMeshId(mesh->id), transform);
+        ++terrain_instances_;
+        spawned = true;
+        continue;
+      }
+
+      ecs::Entity entity = world.Create();
       world.Add(entity, transform);
       world.Add(entity, Renderable{RenderMeshId(mesh->id)});
       world.Add(entity, CellMembership{grid_x, grid_y, false});
@@ -1298,7 +1838,7 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   bethesda::GlobalFormId id{static_cast<u16>(ref_id >> 32), static_cast<u32>(ref_id)};
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   if (!stored) return true;
-  if (stored->header.flags & kRecordFlagInitiallyDisabled) return true;
+  const bool initially_disabled = (stored->header.flags & kRecordFlagInitiallyDisabled) != 0;
 
   bethesda::Record refr;
   if (!records_.Parse(id, &refr)) return true;
@@ -1310,6 +1850,23 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   std::memcpy(&base_raw, name->data.data(), 4);
   bethesda::GlobalFormId base_id =
       records_.ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
+  const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(base_id);
+  bethesda::Record base_record;
+  const bool base_script = records_.Parse(base_id, &base_record) && base_record.Find(kVmad);
+  const bool addressable = addressable_refs_.find(id.packed()) != nullptr;
+  const PropClassification classification =
+      ClassifyProp({.base_type = base_stored ? base_stored->header.type : 0,
+                    .placed_script = refr.Find(kVmad) != nullptr,
+                    .base_script = base_script,
+                    .primitive = refr.Find(kXprm) != nullptr,
+                    .teleport = refr.Find(kXtel) != nullptr,
+                    .stateful = initially_disabled || refr.Find(kXesp) != nullptr ||
+                                refr.Find(kXlkr) != nullptr || addressable});
+  const bool logical = classification.capabilities != kPropNone || initially_disabled ||
+                       addressable || refr.Find(kXprm) || refr.Find(kXtel) || refr.Find(kXesp) ||
+                       refr.Find(kXlkr);
+  const PropState* saved_state = prop_states_.find(id.packed());
+  if (saved_state && saved_state->deleted) return true;
 
   // Placed actors (ACHR) have no static model -- their visuals come from the base
   // NPC's race/skeleton, rendered separately. Create an interactable actor entity
@@ -1324,14 +1881,25 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     transform.position[1] = position.y;
     transform.position[2] = position.z;
     RefrRotationToEngine(placement + 3, transform.rotation);
+    const f32 authored_position[3] = {transform.position[0], transform.position[1],
+                                      transform.position[2]};
+    if (saved_state && saved_state->moved)
+      for (u32 axis = 0; axis < 3; ++axis)
+        transform.position[axis] = authored_position[axis] + saved_state->position_offset[axis];
     world.Add(entity, transform);
     world.Add(entity, FormLink{id});
     world.Add(entity, Npc{base_id});
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    Prop prop{base_id, classification.capabilities};
+    std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
+    world.Add(entity, prop);
+    if ((saved_state && saved_state->disabled) || (!saved_state && initially_disabled))
+      world.Add(entity, Hidden{});
     cell.entities.push_back(entity);
     // Map form -> entity so quests can target this NPC and clients can apply its
     // replicated transform by form id.
     if (quest_world_) quest_world_->Register(id.packed(), entity);
+    SyncProp(world, entity, cell);
     ++spawned_entities_;
     ++spawned_npcs_;
     return true;
@@ -1343,14 +1911,13 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     f32 pos[3];
     std::memcpy(pos, data->data.data(), 12);
     const Vec3 position = ToWorld(pos[0], pos[1], pos[2]);
-    AddPlacedLight(base_id, refr, position, cell);
+    AddPlacedLight(base_id, id.packed(), refr, position, cell);
     AddPlacedDecal(base_id, id, refr, position, cell);
   }
 
   // A pack-in (Starfield PKIN) is a prefab: its CNAM cell's refs instantiate
   // at this reference's transform (retaining walls, spaceport buildings).
-  if (const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(base_id);
-      base_stored && base_stored->header.type == kPkin) {
+  if (base_stored && base_stored->header.type == kPkin && !logical) {
     f32 placement[6];
     std::memcpy(placement, data->data.data(), 24);
     f32 scale = 1.0f;
@@ -1359,7 +1926,8 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     }
     f32 rotation[4];
     BethQuatFromEuler(placement + 3, rotation);
-    SpawnPackIn(world, grid_x, grid_y, base_id, placement, rotation, scale, cell, interior, 0);
+    SpawnPackIn(world, grid_x, grid_y, base_id, placement, rotation, scale, cell, interior, 0,
+                id.packed());
     return true;
   }
 
@@ -1367,28 +1935,57 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   const asset::Mesh* mesh = MeshForBase(base_id, mesh_budget, budget_exceeded);
   if (budget_exceeded) return false;
   if (!mesh) {
-    // A meshless reference carrying a script and a primitive bound is a trigger
-    // box: keep it as an invisible entity so the interaction layer can fire its
-    // OnTriggerEnter when the player walks in (world-driven quest progression).
-    if (refr.Find(kXprm) && refr.Find(kVmad)) {
-      f32 placement[6];
-      std::memcpy(placement, data->data.data(), 24);
-      ecs::Entity entity = world.Create();
-      Transform transform;
-      Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
-      transform.position[0] = position.x;
-      transform.position[1] = position.y;
-      transform.position[2] = position.z;
-      RefrRotationToEngine(placement + 3, transform.rotation);
-      world.Add(entity, transform);
-      world.Add(entity, FormLink{id});
-      world.Add(entity, CellMembership{grid_x, grid_y, interior});
-      cell.entities.push_back(entity);
-      if (quest_world_) quest_world_->Register(id.packed(), entity);
-      ++spawned_entities_;
+    if (!logical) {
+      ++skipped_refs_;
       return true;
     }
-    ++skipped_refs_;
+
+    f32 placement[6];
+    std::memcpy(placement, data->data.data(), 24);
+    Transform transform;
+    Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
+    transform.position[0] = position.x;
+    transform.position[1] = position.y;
+    transform.position[2] = position.z;
+    RefrRotationToEngine(placement + 3, transform.rotation);
+    const f32 authored_position[3] = {transform.position[0], transform.position[1],
+                                      transform.position[2]};
+    if (saved_state && saved_state->moved)
+      for (u32 axis = 0; axis < 3; ++axis)
+        transform.position[axis] = authored_position[axis] + saved_state->position_offset[axis];
+
+    DoorState door;
+    const bool is_door = (classification.capabilities & kPropDoor) != 0;
+    if (is_door) {
+      door.locked = refr.Find(kXloc) != nullptr;
+      if (saved_state) {
+        door.open = saved_state->door_open;
+        door.locked = saved_state->door_locked;
+      }
+      std::memcpy(door.closed_rotation, transform.rotation, sizeof(door.closed_rotation));
+      ApplyDoorRotation(transform, door);
+    }
+
+    ecs::Entity entity = world.Create();
+    world.Add(entity, transform);
+    world.Add(entity, FormLink{id});
+    world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    Prop prop{base_id, classification.capabilities};
+    std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
+    world.Add(entity, prop);
+    if (base_stored && base_stored->header.type == kPkin) world.Add(entity, PackInRoot{});
+    if (is_door) world.Add(entity, door);
+    if ((saved_state && saved_state->disabled) || (!saved_state && initially_disabled))
+      world.Add(entity, Hidden{});
+    cell.entities.push_back(entity);
+    if (quest_world_) quest_world_->Register(id.packed(), entity);
+    if (quest_world_)
+      SyncReference(world, id.packed());
+    else {
+      SyncProp(world, entity, cell);
+      if (world.Has<PackInRoot>(entity)) ExpandPackInRoot(world, entity, id.packed(), cell);
+    }
+    ++spawned_entities_;
     return true;
   }
   if (!EnsureUploaded(*mesh)) {
@@ -1403,7 +2000,7 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     std::memcpy(&scale, xscl->data.data(), 4);
   }
 
-  ecs::Entity entity = world.Create();
+  ecs::Entity entity = ecs::kInvalidEntity;
   Transform transform;
   Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
   transform.position[0] = position.x;
@@ -1411,37 +2008,82 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   transform.position[2] = position.z;
   RefrRotationToEngine(placement + 3, transform.rotation);
   transform.scale = scale * kUnitsToMeters;
-  world.Add(entity, transform);
-  world.Add(entity, Renderable{RenderMeshId(mesh->id)});
-  world.Add(entity, FormLink{id});
-  world.Add(entity, CellMembership{grid_x, grid_y, interior});
-  cell.entities.push_back(entity);
-  ++spawned_entities_;
+
+  const bool batched =
+      uploads_.instances && classification.batchable && IsInstanceCompatible(*mesh, assets_);
+  const f32 authored_position[3] = {transform.position[0], transform.position[1],
+                                    transform.position[2]};
+  if (!batched && saved_state && saved_state->moved) {
+    for (u32 axis = 0; axis < 3; ++axis)
+      transform.position[axis] = authored_position[axis] + saved_state->position_offset[axis];
+    position = {transform.position[0], transform.position[1], transform.position[2]};
+  }
+  if (batched) {
+    QueueInstance(cell, RenderMeshId(mesh->id), transform);
+  } else {
+    DoorState door;
+    const bool is_door = (classification.capabilities & kPropDoor) != 0;
+    if (is_door) {
+      door.locked = refr.Find(kXloc) != nullptr;
+      if (saved_state) {
+        door.open = saved_state->door_open;
+        door.locked = saved_state->door_locked;
+      }
+      std::memcpy(door.closed_rotation, transform.rotation, sizeof(door.closed_rotation));
+      ApplyDoorRotation(transform, door);
+    }
+    entity = world.Create();
+    world.Add(entity, transform);
+    world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+    world.Add(entity, FormLink{id});
+    world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    Prop prop{base_id, classification.capabilities};
+    std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
+    world.Add(entity, prop);
+    if (base_stored && base_stored->header.type == kPkin) world.Add(entity, PackInRoot{});
+    if (is_door) world.Add(entity, door);
+    if ((saved_state && saved_state->disabled) || (!saved_state && initially_disabled))
+      world.Add(entity, Hidden{});
+    cell.entities.push_back(entity);
+    ++spawned_entities_;
+  }
 
   // Solid statics only: grass fill and water/blend planes don't collide.
-  bool collidable = physics_ && !mesh->exclude_from_rt && !mesh->lods.empty();
+  const bool collidable = physics_ && IsCollidable(*mesh, assets_);
   if (collidable) {
-    for (const asset::Submesh& submesh : mesh->lods[0].submeshes) {
-      const asset::Material* material = assets_.FindMaterial(submesh.material);
-      if (material && (material->is_water || material->alpha_mode == asset::AlphaMode::kBlend)) {
-        collidable = false;
-        break;
+    const u64 physics_key = RenderMeshId(mesh->id).hash;
+    if (physics_->has_mesh_shape(physics_key) || physics_->RegisterMeshShape(physics_key, *mesh)) {
+      physics::BodyId body = 0;
+      if (batched || !world.Has<Hidden>(entity))
+        body = physics_->AddStaticMeshInstance(physics_key, position, transform.rotation,
+                                               transform.scale);
+      if (batched) {
+        if (body) cell.bodies.push_back(body);
+      } else {
+        world.Add(entity, PropPhysics{body, PropMotion::kStatic});
+        world.Get<Prop>(entity)->capabilities |= kPropPhysics;
       }
     }
   }
-  if (collidable) {
-    if (physics_->has_mesh_shape(mesh->id.hash) ||
-        physics_->RegisterMeshShape(mesh->id.hash, *mesh)) {
-      physics::BodyId body = physics_->AddStaticMeshInstance(mesh->id.hash, position,
-                                                             transform.rotation, transform.scale);
-      if (body) cell.bodies.push_back(body);
+  if (!batched) {
+    if (quest_world_) quest_world_->Register(id.packed(), entity);
+    if (world.Has<PackInRoot>(entity)) {
+      if (quest_world_)
+        SyncReference(world, id.packed());
+      else {
+        SyncProp(world, entity, cell);
+        ExpandPackInRoot(world, entity, id.packed(), cell);
+      }
+    } else {
+      SyncProp(world, entity, cell);
     }
   }
   return true;
 }
 
-void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda::Record& refr,
-                                  const Vec3& position, LoadedCell& cell) {
+void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, u64 handle,
+                                  const bethesda::Record& refr, const Vec3& position,
+                                  LoadedCell& cell) {
   if (!PlacedLights) return;
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(base_id);
   if (!stored || stored->header.type != kLigh) return;
@@ -1489,15 +2131,18 @@ void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, const bethesda
       l.pos_radius[3] = radius_units * units_to_meters_;
   }
 
-  cell.lights.push_back(l);
+  cell.lights.push_back({l, handle, true});
 }
 
 void CellStreamer::CollectLights(base::Vector<render::PointLight>& out) const {
   if (!PlacedLights) return;
 
   size_t total = 0;
-  for (auto kv : loaded_) total += kv.value.lights.size();
-  if (interior_active_) total += interior_cell_.lights.size();
+  for (auto kv : loaded_)
+    for (const LoadedCell::PlacedLight& light : kv.value.lights) total += light.active ? 1 : 0;
+  if (interior_active_)
+    for (const LoadedCell::PlacedLight& light : interior_cell_.lights)
+      total += light.active ? 1 : 0;
 
   if (total != logged_light_count_) {
     logged_light_count_ = total;
@@ -1512,9 +2157,11 @@ void CellStreamer::CollectLights(base::Vector<render::PointLight>& out) const {
 
   if (total <= budget) {
     for (auto kv : loaded_)
-      for (const render::PointLight& l : kv.value.lights) out.push_back(l);
+      for (const LoadedCell::PlacedLight& light : kv.value.lights)
+        if (light.active) out.push_back(light.light);
     if (interior_active_)
-      for (const render::PointLight& l : interior_cell_.lights) out.push_back(l);
+      for (const LoadedCell::PlacedLight& light : interior_cell_.lights)
+        if (light.active) out.push_back(light.light);
     return;
   }
 
@@ -1522,9 +2169,11 @@ void CellStreamer::CollectLights(base::Vector<render::PointLight>& out) const {
   base::Vector<const render::PointLight*> all;
   all.reserve(total);
   for (auto kv : loaded_)
-    for (const render::PointLight& l : kv.value.lights) all.push_back(&l);
+    for (const LoadedCell::PlacedLight& light : kv.value.lights)
+      if (light.active) all.push_back(&light.light);
   if (interior_active_)
-    for (const render::PointLight& l : interior_cell_.lights) all.push_back(&l);
+    for (const LoadedCell::PlacedLight& light : interior_cell_.lights)
+      if (light.active) all.push_back(&light.light);
   const Vec3 cam = last_camera_;
   auto dist2 = [&](const render::PointLight* p) {
     const f32 dx = p->pos_radius[0] - cam.x, dy = p->pos_radius[1] - cam.y,
@@ -1759,8 +2408,7 @@ void CellStreamer::CollectDecals(base::Vector<render::Decal>& out) const {
     for (const LoadedCell::PlacedDecal& d : interior_cell_.decals) all.push_back(&d);
   const Vec3 cam = last_camera_;
   auto dist2 = [&](const LoadedCell::PlacedDecal* p) {
-    const f32 dx = p->position.x - cam.x, dy = p->position.y - cam.y,
-              dz = p->position.z - cam.z;
+    const f32 dx = p->position.x - cam.x, dy = p->position.y - cam.y, dz = p->position.z - cam.z;
     return dx * dx + dy * dy + dz * dz;
   };
   std::nth_element(all.begin(), all.begin() + budget, all.end(),
@@ -1848,10 +2496,10 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
           RX_WARN("texture missing for material {:x}: {:x}", material->id.hash, texture_id.hash);
         }
       };
-      const asset::AssetId textures[] = {material->base_color,  material->normal,
-                                         material->metallic_roughness, material->emissive,
-                                         material->height,      material->metallic_map,
-                                         material->occlusion_map};
+      const asset::AssetId textures[] = {
+          material->base_color,   material->normal, material->metallic_roughness,
+          material->emissive,     material->height, material->metallic_map,
+          material->occlusion_map};
       for (asset::AssetId texture_id : textures) upload_texture(texture_id);
       // Terrain splat v2 palette: layer diffuses + normals resolve to bindless
       // indices at material upload, so they must be resident first.
@@ -1870,7 +2518,8 @@ bool CellStreamer::EnsureUploaded(const asset::Mesh& mesh) {
   for (const asset::ParticleEmitter& emitter : mesh.emitters) {
     if (emitter.texture == 0 || uploaded_.contains(emitter.texture)) continue;
     if (const asset::Texture* texture = assets_.FindTexture(asset::AssetId{emitter.texture})) {
-      if (!uploads_.texture(*texture)) RX_WARN("emitter texture upload failed: {:x}", emitter.texture);
+      if (!uploads_.texture(*texture))
+        RX_WARN("emitter texture upload failed: {:x}", emitter.texture);
     }
     uploaded_.emplace(emitter.texture, true);
   }
@@ -1945,8 +2594,7 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   return true;
 }
 
-bool CellStreamer::RefsGroundHeight(u32 grid_key,
-                                    const bethesda::RecordStore::ExteriorCell& cell,
+bool CellStreamer::RefsGroundHeight(u32 grid_key, const bethesda::RecordStore::ExteriorCell& cell,
                                     f32* engine_y) const {
   if (const f32* cached = refs_ground_cache_.find(grid_key)) {
     if (std::isnan(*cached)) return false;
@@ -2102,17 +2750,19 @@ void CellStreamer::ResolveInteriorLighting(bethesda::GlobalFormId cell_id) {
   const f32 lum = L.directional_color.x + L.directional_color.y + L.directional_color.z;
   L.directional_intensity = lum > 0.001f ? (3.0f + dir_fade) : 0.0f;
 
-  RX_INFO("interior lighting {:04x}:{:06x}: ambient ({:.2f},{:.2f},{:.2f}) directional "
-           "({:.2f},{:.2f},{:.2f}) i={:.1f} fog {:.1f}..{:.1f}m col ({:.2f},{:.2f},{:.2f}) "
-           "pow {:.2f} max {:.2f}",
-           cell_id.plugin, cell_id.local_id, L.ambient.x, L.ambient.y, L.ambient.z,
-           L.directional_color.x, L.directional_color.y, L.directional_color.z,
-           L.directional_intensity, L.fog_near, L.fog_far, L.fog_near_color.x,
-           L.fog_near_color.y, L.fog_near_color.z, L.fog_power, L.fog_max);
+  RX_INFO(
+      "interior lighting {:04x}:{:06x}: ambient ({:.2f},{:.2f},{:.2f}) directional "
+      "({:.2f},{:.2f},{:.2f}) i={:.1f} fog {:.1f}..{:.1f}m col ({:.2f},{:.2f},{:.2f}) "
+      "pow {:.2f} max {:.2f}",
+      cell_id.plugin, cell_id.local_id, L.ambient.x, L.ambient.y, L.ambient.z,
+      L.directional_color.x, L.directional_color.y, L.directional_color.z, L.directional_intensity,
+      L.fog_near, L.fog_far, L.fog_near_color.x, L.fog_near_color.y, L.fog_near_color.z,
+      L.fog_power, L.fog_max);
 }
 
 bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_id,
                                 Vec3* camera_position) {
+  BuildAddressableRefs();
   const base::Vector<u64>* refs = records_.InteriorRefs(cell_id);
   if (!refs) {
     RX_ERROR("interior cell has no indexed refs: {:04x}:{:06x}", cell_id.plugin, cell_id.local_id);
@@ -2127,6 +2777,9 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
   ResolveInteriorLighting(cell_id);
   LoadedCell& cell = interior_cell_;
   u32 mesh_budget = 0xffffffff;
+  for (u64 ref_id : *refs)
+    IndexAddressableRecord({static_cast<u16>(ref_id >> 32), static_cast<u32>(ref_id)});
+  cell.addressability_done = true;
   for (u64 ref_id : *refs) {
     SpawnReference(world, 0, 0, ref_id, cell, mesh_budget, true);
   }
@@ -2134,6 +2787,14 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
   // Spawn slightly above the centroid of what was placed.
   Vec3 centroid{};
   u32 count = 0;
+  for (auto entry : cell.pending_instances) {
+    for (const Transform& transform : entry.value.transforms) {
+      centroid.x += transform.position[0];
+      centroid.y += transform.position[1];
+      centroid.z += transform.position[2];
+      ++count;
+    }
+  }
   for (ecs::Entity entity : cell.entities) {
     if (const Transform* transform = world.Get<Transform>(entity)) {
       centroid.x += transform->position[0];
@@ -2141,6 +2802,12 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
       centroid.z += transform->position[2];
       ++count;
     }
+  }
+  if (!CommitInstances(world, cell)) {
+    UnloadInterior(world);
+    interior_active_ = false;
+    interior_lighting_ = InteriorLighting{};
+    return false;
   }
   if (count > 0) {
     f32 inv = 1.0f / static_cast<f32>(count);
@@ -2151,21 +2818,37 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
   centroid.y += 1.5f;
   *camera_position = centroid;
 
-  RX_INFO("interior {:04x}:{:06x}: {} refs, {} entities", cell_id.plugin, cell_id.local_id,
-           refs->size(), cell.entities.size());
-  return !cell.entities.empty();
+  RX_INFO("interior {:04x}:{:06x}: {} refs, {} entities, {} instances", cell_id.plugin,
+          cell_id.local_id, refs->size(), cell.entities.size(), cell.instance_count);
+  if (cell.entities.empty() && cell.instance_count == 0) {
+    UnloadInterior(world);
+    interior_active_ = false;
+    interior_lighting_ = InteriorLighting{};
+    return false;
+  }
+  return true;
 }
 
 void CellStreamer::UnloadInterior(ecs::World& world) {
   for (ecs::Entity entity : interior_cell_.entities) {
+    PersistPropState(world, entity);
+    if (physics_)
+      if (const PropPhysics* body = world.Get<PropPhysics>(entity); body && body->body)
+        physics_->RemoveBody(body->body);
     if (quest_world_)
       if (const FormLink* link = world.Get<FormLink>(entity))
         quest_world_->Unregister(link->form.packed());
     world.Destroy(entity);
   }
+  if (uploads_.remove_instances) {
+    for (render::InstanceGroupHandle handle : interior_cell_.instance_groups) {
+      uploads_.remove_instances(handle);
+    }
+  }
   if (physics_)
     for (physics::BodyId body : interior_cell_.bodies) physics_->RemoveBody(body);
   spawned_entities_ -= interior_cell_.entities.size();
+  spawned_instances_ -= interior_cell_.instance_count;
   interior_cell_ = LoadedCell{};
 }
 

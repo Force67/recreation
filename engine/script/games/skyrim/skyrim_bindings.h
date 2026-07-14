@@ -3,8 +3,8 @@
 
 #include <array>
 #include <functional>
-#include <memory>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -23,8 +23,8 @@
 namespace rx::audio {
 class AudioSystem;
 }
-#include "quest/scene_player.h"
 #include "quest/quest_system.h"
+#include "quest/scene_player.h"
 #include "script/games/skyrim/skyrim_natives.h"
 #include "script/host/bridge.h"
 #include "script/world_effect_sink.h"
@@ -55,6 +55,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   explicit RecordBackedSkyrimBindings(const bethesda::RecordStore* records) : records_(records) {}
 
   void set_records(const bethesda::RecordStore* records) { records_ = records; }
+  void SetSourceForm(u64 handle, u64 source);
+  // Records an instantiated-template translation for one owner. ObjectReference
+  // natives such as GetLinkedRef use the same mapping as baked VMAD properties.
+  void SetRuntimeForm(u64 owner, u64 source, u64 runtime);
+  void SetDoorStateLocal(u64 handle, bool locked, bool open);
   void set_strings(const bethesda::StringTable* strings) { strings_ = strings; }
   void set_player(papyrus::ObjectRef player) { player_ = player; }
   void set_audio(audio::AudioSystem* audio) { audio_ = audio; }
@@ -439,7 +444,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     u64 workbench = 0;  // BNAM keyword (the station type that crafts it)
     std::vector<CraftingInput> inputs;
   };
-  void BuildRecipes();  // fills recipe_cache_ from every COBJ record
+  void BuildRecipes();                      // fills recipe_cache_ from every COBJ record
   const Recipe* RecipeAt(i32 index) const;  // bounds-checked, nullptr if out of range
   // A leveled list (LVLI) parsed into the cache GetLeveledListCount fills.
   struct LeveledEntry {
@@ -472,8 +477,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::unordered_map<u64, std::unordered_map<std::string, ActorValue>> actor_values_;
   std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
   std::unordered_map<u64, std::unordered_set<u64>> equipped_;  // actor -> equipped item forms
-  std::unordered_map<u64, std::array<f32, 3>> positions_;  // SetPosition/MoveTo overrides
-  std::unordered_map<u64, f32> scales_;                    // SetScale overrides (default 1.0)
+  std::unordered_map<u64, std::array<f32, 3>> positions_;      // SetPosition/MoveTo overrides
+  std::unordered_map<u64, f32> scales_;                        // SetScale overrides (default 1.0)
   struct LockState {
     bool locked = false;
     i32 level = 0;
@@ -481,6 +486,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::unordered_map<u64, LockState> locks_;
   std::unordered_map<u64, bool> open_;
   std::unordered_map<u64, bool> disabled_;  // Disable() state, for IsDisabled
+  mutable std::mutex source_forms_mutex_;
+  std::unordered_map<u64, u64> source_forms_;
+  std::unordered_map<u64, std::unordered_map<u64, u64>> runtime_forms_;
   std::unordered_map<u64, u64> alias_fills_;  // alias handle -> ForceRefTo override ref
   // Reverse index: a filled ref -> the alias handles it fills, so a dying actor's
   // death dispatches to its alias scripts (CWReinforcementAliasScript.OnDeath).
@@ -488,7 +496,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
-  std::function<void(std::function<void()>)> fiber_runner_;  // engine-triggered fragments onto a fiber
+  std::function<void(std::function<void()>)>
+      fiber_runner_;  // engine-triggered fragments onto a fiber
   std::function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above
   // Emits a gameplay event to the managed world, if a sink is set.
   void EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i);
@@ -507,8 +516,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   struct QuestRuntime {
     quest::QuestGraph graph;
     quest::QuestInstance instance;
-    explicit QuestRuntime(quest::QuestGraph g)
-        : graph(std::move(g)), instance(&graph) {}
+    explicit QuestRuntime(quest::QuestGraph g) : graph(std::move(g)), instance(&graph) {}
   };
   std::unordered_map<u64, std::unique_ptr<QuestRuntime>> quest_runtime_;
   QuestRuntime& Runtime(u64 quest);
@@ -546,12 +554,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // fills, so both the ref's own script and its alias scripts handle it. This is
   // the routing OnDeath uses (a soldier's death reaches its reinforcement alias);
   // OnHit and OnCombatStateChanged share it.
-  void RaiseFormAndAliasEvent(u64 target, const char* event,
-                              std::vector<papyrus::Value> args);
+  void RaiseFormAndAliasEvent(u64 target, const char* event, std::vector<papyrus::Value> args);
   // Fires OnDying/OnDeath once when an actor's health first reaches zero, and
   // re-arms if it is healed back above zero.
   void MaybeNotifyDeath(papyrus::ObjectRef actor);
-  std::unordered_set<u64> dead_;  // actors that have already announced OnDeath
+  std::unordered_set<u64> dead_;                // actors that have already announced OnDeath
   std::unordered_map<u64, u64> combat_target_;  // attacker -> target it is fighting
   // The actor whose swing is currently being resolved, so MaybeNotifyDeath can
   // attribute the kill (OnDeath's killer arg, the kActorDied event's b field).
@@ -560,13 +567,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Last GetFactionCount result (authored faction handle + rank), read by the
   // GetNthFaction* accessors.
   std::vector<std::pair<u64, i32>> faction_cache_;
-  std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;      // faction -> other
-  std::unordered_map<u64, i32> crime_gold_;                             // faction -> gold
-  std::array<bool, SkyrimBindings::kControlCount> player_controls_{};   // true = enabled
+  std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;    // faction -> other
+  std::unordered_map<u64, i32> crime_gold_;                            // faction -> gold
+  std::array<bool, SkyrimBindings::kControlCount> player_controls_{};  // true = enabled
   bool player_controls_init_ = false;
-  std::unordered_map<u64, f32> global_values_;  // GlobalVariable overrides
+  std::unordered_map<u64, f32> global_values_;             // GlobalVariable overrides
   std::map<std::pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
-  std::unordered_map<u64, u64> location_fills_;  // location-alias handle -> location handle
+  std::unordered_map<u64, u64> location_fills_;      // location-alias handle -> location handle
   std::map<std::pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
   // The day/night clock and the packed handles of the globals that proxy it.
   // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).

@@ -12,8 +12,9 @@ namespace rx::net {
 // v6 moves the session substrate into rx::net: the engine messages
 // (join/snapshot/input/rpc/bubbles) ride rx's hand-rolled wire codec, game
 // ids renumbered into the >= kFirstGameMessage range, and the server streams
-// per-peer interest bubbles instead of broadcasting.
-inline constexpr u32 kGameProtocolVersion = 6;
+// per-peer interest bubbles instead of broadcasting. v7 adds replicated door
+// lock/open world commands.
+inline constexpr u32 kGameProtocolVersion = 7;
 
 // Recreation's application messages. Everything below kFirstGameMessage
 // belongs to rx::net (transport ids < 100, engine session ids 101..127);

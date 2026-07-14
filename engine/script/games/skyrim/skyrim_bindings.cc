@@ -1,5 +1,7 @@
 #include "script/games/skyrim/skyrim_bindings.h"
 
+#include <base/option.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -7,8 +9,6 @@
 #include <cstring>
 #include <functional>
 #include <string_view>
-
-#include <base/option.h>
 
 #include "bethesda/record.h"
 #include "core/log.h"
@@ -50,35 +50,64 @@ std::string Lower(std::string s) {
 // A common subset; unmapped records report 0 (None).
 i32 FormTypeFromSignature(u32 type) {
   switch (type) {
-    case FourCc('K', 'Y', 'W', 'D'): return 4;
-    case FourCc('F', 'A', 'C', 'T'): return 11;
-    case FourCc('R', 'A', 'C', 'E'): return 15;
-    case FourCc('M', 'G', 'E', 'F'): return 19;
-    case FourCc('S', 'P', 'E', 'L'): return 23;
-    case FourCc('S', 'C', 'R', 'L'): return 24;
-    case FourCc('A', 'C', 'T', 'I'): return 25;
-    case FourCc('A', 'R', 'M', 'O'): return 27;
-    case FourCc('B', 'O', 'O', 'K'): return 28;
-    case FourCc('C', 'O', 'N', 'T'): return 29;
-    case FourCc('D', 'O', 'O', 'R'): return 30;
-    case FourCc('I', 'N', 'G', 'R'): return 31;
-    case FourCc('L', 'I', 'G', 'H'): return 32;
-    case FourCc('M', 'I', 'S', 'C'): return 33;
-    case FourCc('S', 'T', 'A', 'T'): return 35;
-    case FourCc('F', 'L', 'O', 'R'): return 40;
-    case FourCc('F', 'U', 'R', 'N'): return 41;
-    case FourCc('W', 'E', 'A', 'P'): return 42;
-    case FourCc('A', 'M', 'M', 'O'): return 43;
-    case FourCc('N', 'P', 'C', '_'): return 44;
-    case FourCc('K', 'E', 'Y', 'M'): return 46;
-    case FourCc('A', 'L', 'C', 'H'): return 47;
-    case FourCc('S', 'L', 'G', 'M'): return 53;
-    case FourCc('W', 'T', 'H', 'R'): return 55;
-    case FourCc('C', 'E', 'L', 'L'): return 61;
-    case FourCc('R', 'E', 'F', 'R'): return 62;
-    case FourCc('A', 'C', 'H', 'R'): return 63;
-    case FourCc('Q', 'U', 'S', 'T'): return 78;
-    default: return 0;
+    case FourCc('K', 'Y', 'W', 'D'):
+      return 4;
+    case FourCc('F', 'A', 'C', 'T'):
+      return 11;
+    case FourCc('R', 'A', 'C', 'E'):
+      return 15;
+    case FourCc('M', 'G', 'E', 'F'):
+      return 19;
+    case FourCc('S', 'P', 'E', 'L'):
+      return 23;
+    case FourCc('S', 'C', 'R', 'L'):
+      return 24;
+    case FourCc('A', 'C', 'T', 'I'):
+      return 25;
+    case FourCc('A', 'R', 'M', 'O'):
+      return 27;
+    case FourCc('B', 'O', 'O', 'K'):
+      return 28;
+    case FourCc('C', 'O', 'N', 'T'):
+      return 29;
+    case FourCc('D', 'O', 'O', 'R'):
+      return 30;
+    case FourCc('I', 'N', 'G', 'R'):
+      return 31;
+    case FourCc('L', 'I', 'G', 'H'):
+      return 32;
+    case FourCc('M', 'I', 'S', 'C'):
+      return 33;
+    case FourCc('S', 'T', 'A', 'T'):
+      return 35;
+    case FourCc('F', 'L', 'O', 'R'):
+      return 40;
+    case FourCc('F', 'U', 'R', 'N'):
+      return 41;
+    case FourCc('W', 'E', 'A', 'P'):
+      return 42;
+    case FourCc('A', 'M', 'M', 'O'):
+      return 43;
+    case FourCc('N', 'P', 'C', '_'):
+      return 44;
+    case FourCc('K', 'E', 'Y', 'M'):
+      return 46;
+    case FourCc('A', 'L', 'C', 'H'):
+      return 47;
+    case FourCc('S', 'L', 'G', 'M'):
+      return 53;
+    case FourCc('W', 'T', 'H', 'R'):
+      return 55;
+    case FourCc('C', 'E', 'L', 'L'):
+      return 61;
+    case FourCc('R', 'E', 'F', 'R'):
+      return 62;
+    case FourCc('A', 'C', 'H', 'R'):
+      return 63;
+    case FourCc('Q', 'U', 'S', 'T'):
+      return 78;
+    default:
+      return 0;
   }
 }
 
@@ -103,19 +132,41 @@ u32 AcbsFlags(const bethesda::RecordStore* records, bethesda::GlobalFormId id) {
 }  // namespace
 
 bethesda::GlobalFormId RecordBackedSkyrimBindings::ToFormId(ObjectRef ref) const {
-  return bethesda::GlobalFormId{static_cast<u16>(ref.handle >> 32),
-                                static_cast<u32>(ref.handle)};
+  u64 handle = ref.handle;
+  {
+    std::lock_guard<std::mutex> lock(source_forms_mutex_);
+    auto source = source_forms_.find(handle);
+    if (source != source_forms_.end()) handle = source->second;
+  }
+  return bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)};
 }
 
-u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) {
-  return static_cast<u32>(form.handle);
+void RecordBackedSkyrimBindings::SetSourceForm(u64 handle, u64 source) {
+  std::lock_guard<std::mutex> lock(source_forms_mutex_);
+  source_forms_[handle] = source;
 }
+
+void RecordBackedSkyrimBindings::SetRuntimeForm(u64 owner, u64 source, u64 runtime) {
+  if (owner == 0 || source == 0 || runtime == 0 || source == runtime) return;
+  std::lock_guard<std::mutex> lock(source_forms_mutex_);
+  source_forms_[runtime] = source;
+  runtime_forms_[owner][source] = runtime;
+}
+
+void RecordBackedSkyrimBindings::SetDoorStateLocal(u64 handle, bool locked, bool open) {
+  locks_[handle].locked = locked;
+  open_[handle] = open;
+}
+
+u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) { return static_cast<u32>(form.handle); }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, ObjectRef keyword) {
   if (!records_ || ref.handle == 0) return {};
   bethesda::GlobalFormId id = ToFormId(ref);
   bethesda::Record rec;
   if (!records_->Parse(id, &rec)) return {};
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
+  const u16 plugin = stored ? stored->winning_plugin : id.plugin;
   // XLKR is an optional keyword form id (4 bytes) followed by the linked ref form
   // id (4); older entries carry only the ref. Match the keyword when one is asked.
   for (const bethesda::Subrecord& sub : rec.subrecords) {
@@ -130,11 +181,20 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, Objec
       continue;
     }
     if (keyword.handle != 0) {
-      bethesda::GlobalFormId kw_id = records_->ResolveFrom(bethesda::RawFormId{kw}, id.plugin);
+      bethesda::GlobalFormId kw_id = records_->ResolveFrom(bethesda::RawFormId{kw}, plugin);
       if (kw_id.packed() != keyword.handle) continue;
     }
-    bethesda::GlobalFormId tgt = records_->ResolveFrom(bethesda::RawFormId{target}, id.plugin);
-    return tgt.packed() ? papyrus::ObjectRef{tgt.packed()} : papyrus::ObjectRef{};
+    bethesda::GlobalFormId tgt = records_->ResolveFrom(bethesda::RawFormId{target}, plugin);
+    u64 handle = tgt.packed();
+    if (handle != 0) {
+      std::lock_guard<std::mutex> lock(source_forms_mutex_);
+      auto owner = runtime_forms_.find(ref.handle);
+      if (owner != runtime_forms_.end()) {
+        auto runtime = owner->second.find(handle);
+        if (runtime != owner->second.end()) handle = runtime->second;
+      }
+    }
+    return handle ? papyrus::ObjectRef{handle} : papyrus::ObjectRef{};
   }
   return {};
 }
@@ -216,7 +276,8 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
       u32 rt = 0, ref = 0;
       std::memcpy(&rt, s.data.data() + i, 4);
       std::memcpy(&ref, s.data.data() + i + 4, 4);
-      const bethesda::GlobalFormId rt_id = records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
+      const bethesda::GlobalFormId rt_id =
+          records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
       const bethesda::GlobalFormId ref_id =
           records_->ResolveFrom(bethesda::RawFormId{ref}, loc_id.plugin);
       if (rt_id.plugin != 0xffff && ref_id.plugin != 0xffff)
@@ -307,7 +368,7 @@ bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const std::string& typ
   if (!records_) return false;
   if (const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(ref))) {
     if (!want_actor) return stored->header.type == FourCc('N', 'P', 'C', '_');  // ActorBase
-    if (stored->header.type == FourCc('A', 'C', 'H', 'R')) return true;  // placed actor ref
+    if (stored->header.type == FourCc('A', 'C', 'H', 'R')) return true;         // placed actor ref
   }
   // A placed REFR whose base object is an NPC is an actor as well.
   if (want_actor) {
@@ -379,7 +440,7 @@ f32 RecordBackedSkyrimBindings::GetPositionY(ObjectRef ref) { return Position(re
 f32 RecordBackedSkyrimBindings::GetPositionZ(ObjectRef ref) { return Position(ref)[2]; }
 
 void RecordBackedSkyrimBindings::SetPosition(ObjectRef ref, f32 x, f32 y, f32 z) {
-  if (replica_mode_) return;  // server-authoritative: positions arrive replicated
+  if (replica_mode_) return;           // server-authoritative: positions arrive replicated
   positions_[ref.handle] = {x, y, z};  // logical position for script reads
   if (!world_sink_) return;
   if (ref.handle == player_.handle)
@@ -459,17 +520,20 @@ f32 RecordBackedSkyrimBindings::GetScale(ObjectRef ref) {
   return it == scales_.end() ? 1.0f : it->second;
 }
 
-void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) {
-  scales_[ref.handle] = scale;
-}
+void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) { scales_[ref.handle] = scale; }
 
 bool RecordBackedSkyrimBindings::IsLocked(ObjectRef ref) {
   auto it = locks_.find(ref.handle);
-  return it != locks_.end() && it->second.locked;
+  if (it != locks_.end()) return it->second.locked;
+  bethesda::Record record;
+  return records_ && records_->Parse(ToFormId(ref), &record) &&
+         record.Find(FourCc('X', 'L', 'O', 'C'));
 }
 
 void RecordBackedSkyrimBindings::SetLocked(ObjectRef ref, bool locked) {
+  if (replica_mode_) return;
   locks_[ref.handle].locked = locked;
+  if (world_sink_) world_sink_->SetLocked(active_quest_, ref.handle, locked);
 }
 
 i32 RecordBackedSkyrimBindings::GetLockLevel(ObjectRef ref) {
@@ -487,7 +551,11 @@ i32 RecordBackedSkyrimBindings::GetOpenState(ObjectRef ref) {
   return it->second ? 1 : 3;
 }
 
-void RecordBackedSkyrimBindings::SetOpen(ObjectRef ref, bool open) { open_[ref.handle] = open; }
+void RecordBackedSkyrimBindings::SetOpen(ObjectRef ref, bool open) {
+  if (replica_mode_) return;
+  open_[ref.handle] = open;
+  if (world_sink_) world_sink_->SetOpen(active_quest_, ref.handle, open);
+}
 
 i32 RecordBackedSkyrimBindings::GetFactionRank(ObjectRef actor, ObjectRef faction) {
   // A runtime override (Add/Remove/SetFactionRank) wins; otherwise fall back to
@@ -750,8 +818,7 @@ void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target, const char* event,
   // RX_EVENT_TRACE logs every raised form event and whether a handler ran, so a
   // headless quest run shows which events the stage fragments actually produce.
   const bool trace = bool(EventTrace);
-  if (trace)
-    RX_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
+  if (trace) RX_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
 }
 
 void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* event,
@@ -760,8 +827,7 @@ void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* 
   // Also dispatch to every alias the ref fills. Copy the list: a handler may
   // refill/clear the alias and mutate ref_to_aliases_ mid-iteration.
   if (auto it = ref_to_aliases_.find(target); it != ref_to_aliases_.end())
-    for (u64 alias_handle : std::vector<u64>(it->second))
-      RaiseFormEvent(alias_handle, event, args);
+    for (u64 alias_handle : std::vector<u64>(it->second)) RaiseFormEvent(alias_handle, event, args);
 }
 
 std::vector<papyrus::ObjectRef> RecordBackedSkyrimBindings::AliasesFilledBy(
@@ -946,9 +1012,8 @@ std::string RecordBackedSkyrimBindings::ResolveQuestText(u64 quest, const std::s
     }
     const size_t end = raw.find('>', i);
     std::string repl;
-    if (end != std::string::npos &&
-        ExpandToken(std::string_view(raw).substr(i + 1, end - i - 1), &repl, alias_name,
-                    global_value)) {
+    if (end != std::string::npos && ExpandToken(std::string_view(raw).substr(i + 1, end - i - 1),
+                                                &repl, alias_name, global_value)) {
       out += repl;
       i = end + 1;
     } else {
@@ -965,7 +1030,8 @@ void RecordBackedSkyrimBindings::SetActorValue(ObjectRef actor, const std::strin
   if (Lower(av) == "health") MaybeNotifyDeath(actor);
 }
 
-void RecordBackedSkyrimBindings::ForceActorValue(ObjectRef actor, const std::string& av, f32 value) {
+void RecordBackedSkyrimBindings::ForceActorValue(ObjectRef actor, const std::string& av,
+                                                 f32 value) {
   SetActorValue(actor, av, value);
 }
 
@@ -1179,8 +1245,7 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
   active_quest_ = owning_quest;
   u64 before = vm_->native_call_count();
   vm_->Call(papyrus::ObjectRef{scene}, function, {});
-  RX_DEBUG("scene fragment {} ran, {} native calls", function,
-            vm_->native_call_count() - before);
+  RX_DEBUG("scene fragment {} ran, {} native calls", function, vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
 }
@@ -1237,7 +1302,7 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   u64 before = vm_->native_call_count();
   vm_->Call(quest, fit->second, {});
   RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", fit->second, stage,
-            vm_->native_call_count() - before);
+           vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
 }
@@ -1269,7 +1334,8 @@ void RecordBackedSkyrimBindings::ApplyReplicatedStatus(const quest::QuestStatus&
   // gameplay (XP rewards and the rest) the same as single-player.
   const bool fresh = !quest_system_.GetStageDone(status.handle, status.stage);
   quest_system_.ApplyStatus(status);
-  if (fresh) EmitManagedEvent(host::ManagedEventId::kQuestStageChanged, status.handle, 0, status.stage);
+  if (fresh)
+    EmitManagedEvent(host::ManagedEventId::kQuestStageChanged, status.handle, 0, status.stage);
 }
 
 void RecordBackedSkyrimBindings::SetHudGauge(const std::string& id, f32 fraction,
@@ -1290,10 +1356,9 @@ void RecordBackedSkyrimBindings::SetHudGauge(const std::string& id, f32 fraction
 
 void RecordBackedSkyrimBindings::ClearHudGauge(const std::string& id) {
   std::lock_guard<std::mutex> lock(hud_gauges_mutex_);
-  hud_gauges_.erase(
-      std::remove_if(hud_gauges_.begin(), hud_gauges_.end(),
-                     [&](const HudGauge& g) { return g.id == id; }),
-      hud_gauges_.end());
+  hud_gauges_.erase(std::remove_if(hud_gauges_.begin(), hud_gauges_.end(),
+                                   [&](const HudGauge& g) { return g.id == id; }),
+                    hud_gauges_.end());
 }
 
 void RecordBackedSkyrimBindings::SnapshotHudGauges(std::vector<HudGauge>& out) const {

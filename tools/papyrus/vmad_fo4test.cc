@@ -55,8 +55,8 @@ void TestScriptSectionType17() {
   PutU32(b, 1);  // one element
   PutU32(b, 1);  // one member
   PutStr(b, "x");
-  PutU8(b, 3);   // member type int
-  PutU8(b, 1);   // member status
+  PutU8(b, 3);    // member type int
+  PutU8(b, 1);    // member status
   PutU32(b, 42);  // member int value
 
   rx::bethesda::ScriptAttachment att;
@@ -82,8 +82,8 @@ void TestQuestFragmentHeader() {
   PutU16(b, 0);  // no properties
 
   // Quest fragment section.
-  PutU8(b, 0);   // flags/version
-  PutU16(b, 1);  // fragment count
+  PutU8(b, 0);                     // flags/version
+  PutU16(b, 1);                    // fragment count
   PutStr(b, "QF_Quest_01000800");  // shared file name
   // FO4 fragment header: unknown byte + property count + properties.
   PutU8(b, 0);   // unknown
@@ -98,8 +98,7 @@ void TestQuestFragmentHeader() {
 
   rx::bethesda::ScriptAttachment att;
   std::vector<rx::bethesda::QuestStageFragment> frags;
-  const bool ok =
-      rx::bethesda::ParseQuestFragments(rx::ByteSpan(b.data(), b.size()), &att, &frags);
+  const bool ok = rx::bethesda::ParseQuestFragments(rx::ByteSpan(b.data(), b.size()), &att, &frags);
   Check("parses", ok);
   Check("one fragment", frags.size() == 1);
   if (frags.size() == 1) {
@@ -108,11 +107,29 @@ void TestQuestFragmentHeader() {
   }
 }
 
+void TestObjectResolution() {
+  std::puts("vmad object resolution:");
+  rx::bethesda::ScriptAttachment attachment;
+  rx::bethesda::ScriptEntry script;
+  rx::bethesda::ScriptProperty object;
+  object.type = 1;
+  object.object_value.form_id = 0x01001234;
+  object.object_value.alias_id = 0xffff;
+  script.properties.push_back(object);
+  attachment.scripts.push_back(script);
+  rx::bethesda::ResolveScriptObjectForms(
+      &attachment, [](rx::u32 raw) { return 0x0000000700000000ull | (raw & 0xffffff); },
+      [](rx::u64 handle) { return handle + 1; });
+  Check("raw object form resolves and remaps",
+        attachment.scripts[0].properties[0].object_value.form_id == 0x0000000700001235ull);
+}
+
 }  // namespace
 
 int main() {
   TestScriptSectionType17();
   TestQuestFragmentHeader();
+  TestObjectResolution();
   if (g_failures == 0) {
     std::puts("vmad_fo4: all checks passed");
     return 0;

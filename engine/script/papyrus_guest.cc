@@ -99,6 +99,30 @@ void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<V
   });
 }
 
+void PapyrusGuest::RaiseScriptEvent(ObjectRef target, std::string script_type, std::string event,
+                                    std::vector<Value> args) {
+  Submit([this, target, script_type = std::move(script_type), event = std::move(event),
+          args = std::move(args)](VirtualMachine& vm) mutable {
+    RunScript([this, &vm, target, script_type = std::move(script_type),
+               event = std::move(event), args = std::move(args)]() mutable {
+      vm.TryCallScript(target, script_type, event, args);
+      if (alias_resolver_)
+        for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
+    });
+  });
+}
+
+void PapyrusGuest::RaiseEventAll(ObjectRef target, std::string event, std::vector<Value> args) {
+  Submit([this, target, event = std::move(event),
+          args = std::move(args)](VirtualMachine& vm) mutable {
+    RunScript([this, &vm, target, event = std::move(event), args = std::move(args)]() mutable {
+      vm.TryCallAll(target, event, args);
+      if (alias_resolver_)
+        for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
+    });
+  });
+}
+
 void PapyrusGuest::Tick(f32 dt) {
   Submit([this, dt](VirtualMachine&) { AdvanceUpdates(dt); });
 }

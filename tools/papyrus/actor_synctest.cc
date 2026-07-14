@@ -66,6 +66,11 @@ int main() {
   Check("a second build with no movement emits nothing",
         rep.Build(rx::net::CollectActorStates(host)).empty());
 
+  host.Add(npc, rx::world::Hidden{});
+  Check("hidden NPCs are absent from replication snapshots",
+        rx::net::CollectActorStates(host).empty());
+  host.Remove<rx::world::Hidden>(npc);
+
   // --- wire ---
   std::vector<rx::u8> blob = rx::net::EncodeActorStates(changed);
   auto decoded = rx::net::DecodeActorStates(rx::ByteSpan(blob.data(), blob.size()));
@@ -84,6 +89,15 @@ int main() {
   rx::net::TickInterpolation(client, 0.2f);  // past the lerp duration
   Check("client NPC reaches the authoritative position",
         client.Get<Transform>(cnpc)->position[0] == 5.0f);
+
+  client.Add(cnpc, rx::world::Hidden{});
+  const float hidden_x = client.Get<Transform>(cnpc)->position[0];
+  ActorState hidden_update = decoded->front();
+  hidden_update.pos[0] = 50.0f;
+  rx::net::ApplyActorStates(client, client_qw, {hidden_update}, 0.1f);
+  rx::net::TickInterpolation(client, 0.2f);
+  Check("hidden NPCs ignore replicated simulation updates",
+        client.Get<Transform>(cnpc)->position[0] == hidden_x);
 
   // Unknown form is ignored (not yet streamed / different cell).
   std::vector<ActorState> stray(1);

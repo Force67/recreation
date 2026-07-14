@@ -1410,6 +1410,7 @@ void ActorSystem::SyncNpcActors() {
   // team) instance from their faction's armoured template instead of the bare
   // civilian body, so the two armies read as soldiers.
   world_.Each<world::Npc, world::Transform>([&](ecs::Entity e, world::Npc& npc, world::Transform&) {
+    if (world_.Has<world::Hidden>(e) || world_.Has<world::Deleted>(e)) return;
     const u64 key = static_cast<u64>(e.generation) << 32 | e.index;
     if (npc_actors_.find(key)) return;
     const Actor* tmpl = &*npc_template_;
@@ -1431,7 +1432,9 @@ void ActorSystem::SyncNpcActors() {
   // Drop actors whose NPC entity streamed out, so none render at the origin.
   scratch_dead_actors_.clear();
   for (auto entry : npc_actors_)
-    if (!world_.IsAlive(entry.value.entity)) scratch_dead_actors_.push_back(entry.key);
+    if (!world_.IsAlive(entry.value.entity) || world_.Has<world::Hidden>(entry.value.entity) ||
+        world_.Has<world::Deleted>(entry.value.entity))
+      scratch_dead_actors_.push_back(entry.key);
   for (u64 key : scratch_dead_actors_) {
     if (Actor* a = npc_actors_.find(key); a && a->hair_groom) renderer_.DestroyHairGroom(a->hair_groom);
     npc_actors_.erase(key);
@@ -1456,7 +1459,10 @@ void ActorSystem::SyncSolidBodies() {
   };
 
   world_.Each<world::Npc, world::Transform>(
-      [&](ecs::Entity e, world::Npc&, world::Transform& t) { ensure(e, t); });
+      [&](ecs::Entity e, world::Npc&, world::Transform& t) {
+        if (world_.Has<world::Hidden>(e) || world_.Has<world::Deleted>(e)) return;
+        ensure(e, t);
+      });
   // Other (networked) players are solid too; never block the local player itself.
 #if RECREATION_HAS_NET
   world_.Each<net::NetworkId, world::Transform>(
@@ -1470,7 +1476,8 @@ void ActorSystem::SyncSolidBodies() {
   scratch_dead_actors_.clear();
   for (auto entry : solid_bodies_) {
     const ecs::Entity e{static_cast<u32>(entry.key & 0xffffffffu), static_cast<u32>(entry.key >> 32)};
-    if (!world_.IsAlive(e)) scratch_dead_actors_.push_back(entry.key);
+    if (!world_.IsAlive(e) || world_.Has<world::Hidden>(e) || world_.Has<world::Deleted>(e))
+      scratch_dead_actors_.push_back(entry.key);
   }
   for (u64 key : scratch_dead_actors_) {
     if (physics::BodyId* body = solid_bodies_.find(key)) physics_.RemoveBody(*body);

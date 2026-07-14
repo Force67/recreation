@@ -92,7 +92,9 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
   if (pushers.empty()) return;
 
   constexpr f32 kPushRadius = 0.6f;  // ~capsule radius in meters
-  world_->Each<world::Npc, world::Transform>([&](ecs::Entity, world::Npc&, world::Transform& nt) {
+  world_->Each<world::Npc, world::Transform>([&](ecs::Entity entity, world::Npc&,
+                                                 world::Transform& nt) {
+    if (world_->Has<world::Hidden>(entity) || world_->Has<world::Deleted>(entity)) return;
     for (const Vec3& p : pushers) {
       const float pusher[3] = {p.x, p.y, p.z};
       float out[3];

@@ -1,4 +1,4 @@
-#include "engine.h"
+#include <base/option.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -6,11 +6,10 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
-
-#include <base/option.h>
 
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
@@ -20,6 +19,7 @@
 #include "bethesda/planet.h"
 #include "bethesda/record.h"
 #include "core/log.h"
+#include "engine.h"
 #include "engine_internal.h"
 #include "script/papyrus/value.h"
 #include "weather/weather_loader.h"
@@ -50,8 +50,9 @@ static base::Option<const char*> ScenePlay{"scene.play", nullptr, "RX_SCENE_PLAY
 static base::Option<const char*> SceneLive{"scene.live", nullptr, "RX_SCENE_LIVE"};
 static base::Option<const char*> DomainOffset{"domain.offset", nullptr, "RX_DOMAIN_OFFSET"};
 static base::Option<const char*> DomainCell{"domain.cell", nullptr, "RX_DOMAIN_CELL"};
-static base::Option<bool> AudioDump{"audio.dump", false, "RX_AUDIO_DUMP",
-                                    "resolve and decode each region's ambient bed at load and log it"};
+static base::Option<bool> AudioDump{
+    "audio.dump", false, "RX_AUDIO_DUMP",
+    "resolve and decode each region's ambient bed at load and log it"};
 // RX_CHARGEN boots straight into the character-creation screen (a standalone
 // preview head, no world streaming), like the faces demo.
 static base::Option<bool> CharGenBoot{"chargen", false, "RX_CHARGEN",
@@ -65,8 +66,8 @@ static base::Option<const char*> PlanetBoot{"starfield.planet", nullptr, "RX_STA
 bool LoadGameData(Engine& engine) {
   Engine* const self = &engine;
   self->game_ = self->config_.game != bethesda::Game::kUnknown
-              ? self->config_.game
-              : bethesda::GameProfile::DetectFromDataDir(self->config_.data_dir);
+                    ? self->config_.game
+                    : bethesda::GameProfile::DetectFromDataDir(self->config_.data_dir);
   if (self->game_ == bethesda::Game::kUnknown) {
     RX_ERROR("could not detect a supported game in {}", self->config_.data_dir);
     return false;
@@ -102,7 +103,8 @@ bool LoadGameData(Engine& engine) {
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
-  self->script_bindings_ = std::make_unique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
+  self->script_bindings_ =
+      std::make_unique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
   self->ctx_.bindings = self->script_bindings_.get();
   self->script_bindings_->set_strings(&self->strings_);
   self->script_bindings_->set_player(rx::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
@@ -126,10 +128,10 @@ bool LoadGameData(Engine& engine) {
         rx::script::papyrus::ObjectRef{timescale_glob.packed()});
   }
   self->host_->ConfigureClock(authored_timescale);
-  self->script_bindings_->set_time_globals(game_hour.plugin == 0xffff ? 0 : game_hour.packed(),
-                                           days_passed.plugin == 0xffff ? 0 : days_passed.packed(),
-                                           timescale_glob.plugin == 0xffff ? 0
-                                                                           : timescale_glob.packed());
+  self->script_bindings_->set_time_globals(
+      game_hour.plugin == 0xffff ? 0 : game_hour.packed(),
+      days_passed.plugin == 0xffff ? 0 : days_passed.packed(),
+      timescale_glob.plugin == 0xffff ? 0 : timescale_glob.packed());
 
   // Weather: parse the game's WTHR/CLMT into a climate and drive our physical
   // sky/clouds/atmosphere from it (no baked skydome). RX_WEATHER forces a kind.
@@ -139,9 +141,9 @@ bool LoadGameData(Engine& engine) {
     int kinds[4] = {};
     for (auto& [id, def] : weathers) kinds[static_cast<int>(def.kind)]++;
     RX_INFO("weather: WTHR kinds -- pleasant {} cloudy {} rainy {} snow {}", kinds[0], kinds[1],
-             kinds[2], kinds[3]);
+            kinds[2], kinds[3]);
     const bool starfield = self->game_ == bethesda::Game::kStarfield;
-    const char* worldspace = self->game_ == bethesda::Game::kSkyrimSe  ? "Tamriel"
+    const char* worldspace = self->game_ == bethesda::Game::kSkyrimSe   ? "Tamriel"
                              : self->game_ == bethesda::Game::kFallout4 ? "Commonwealth"
                              : starfield                                ? "NewAtlantis"
                                                                         : "";
@@ -196,13 +198,13 @@ bool LoadGameData(Engine& engine) {
   // Built only when an audio device is live, so a muted run or a dedicated server
   // skips the scan.
   if (self->audio_ && self->audio_->active()) {
-    const char* ambient_worldspace = self->game_ == bethesda::Game::kSkyrimSe  ? "Tamriel"
-                                     : self->game_ == bethesda::Game::kFallout4 ? "Commonwealth"
+    const char* ambient_worldspace = self->game_ == bethesda::Game::kSkyrimSe    ? "Tamriel"
+                                     : self->game_ == bethesda::Game::kFallout4  ? "Commonwealth"
                                      : self->game_ == bethesda::Game::kStarfield ? "NewAtlantis"
                                                                                  : "";
-    const bethesda::GlobalFormId ws =
-        *ambient_worldspace ? self->records_.FindWorldspace(ambient_worldspace)
-                            : bethesda::GlobalFormId{};
+    const bethesda::GlobalFormId ws = *ambient_worldspace
+                                          ? self->records_.FindWorldspace(ambient_worldspace)
+                                          : bethesda::GlobalFormId{};
     self->sound_catalog_.Build(self->records_);
     self->region_ambience_.Build(self->records_, ws);
     self->ambient_director_.Configure(self->audio_, &self->sound_catalog_,
@@ -221,13 +223,14 @@ bool LoadGameData(Engine& engine) {
           const std::string path = self->sound_catalog_.PathFor(snd);
           if (path.empty()) continue;
           if (!self->audio_->HasAsset(path)) {
-            RX_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(), path);
+            RX_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(),
+                    path);
             ++missing;
             continue;
           }
           const u32 voice = self->audio_->PlayLoop(path, {});
           RX_INFO("audio dump: region {:x} -> {} ({})", region, path,
-                   voice ? "decoded" : "decode failed");
+                  voice ? "decoded" : "decode failed");
           if (voice) {
             self->audio_->Stop(voice, 0.0f);
             ++ok;
@@ -238,7 +241,7 @@ bool LoadGameData(Engine& engine) {
         }
       }
       RX_INFO("audio dump: {} regions playable, {} missing files, {} undecodable", ok, missing,
-               undecodable);
+              undecodable);
     }
   }
 
@@ -266,7 +269,7 @@ bool LoadGameData(Engine& engine) {
         Vec3 spawn;
         if (self->streamer_->EnterInterior(*self->world_, interior, &spawn))
           RX_INFO("quest: entered interior {:04x}:{:06x} to move the player", interior.plugin,
-                   interior.local_id);
+                  interior.local_id);
       } else if (self->streamer_->in_interior()) {
         self->streamer_->EnterExterior(*self->world_);  // a move back out to the worldspace
       }
@@ -281,8 +284,16 @@ bool LoadGameData(Engine& engine) {
   self->script_bindings_->set_replica_mode(!self->config_.connect_address.empty());
   if (self->script_bindings_->replica_mode())
     RX_INFO("multiplayer client: quests run server-authoritative (replica mode)");
-  self->scripts_ = std::make_unique<rx::script::ScriptSystem>(self->game_, self->vfs_, self->script_bindings_.get());
+  self->scripts_ = std::make_unique<rx::script::ScriptSystem>(self->game_, self->vfs_,
+                                                              self->script_bindings_.get());
   self->ctx_.scripts = self->scripts_.get();
+  self->quest_world_->set_on_door_state([self](u64 handle, bool locked, bool open) {
+    auto* bindings = self->script_bindings_.get();
+    self->scripts_->guest().Submit(
+        [bindings, handle, locked, open](rx::script::papyrus::VirtualMachine&) {
+          bindings->SetDoorStateLocal(handle, locked, open);
+        });
+  });
   // Run engine-triggered stage fragments on a fiber, so a latent Wait inside one
   // suspends like a script-triggered fragment instead of returning at once.
   self->script_bindings_->set_fiber_runner(
@@ -340,11 +351,10 @@ bool LoadGameData(Engine& engine) {
         return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
                                               rx::script::papyrus::ObjectRef{target});
       });
-      guest->set_on_platform_hud(
-          [self](const std::string& type, const std::string& func,
-                 const std::vector<rx::script::papyrus::Value>& args) {
-            self->platform_hud_.Submit(type, func, args);
-          });
+      guest->set_on_platform_hud([self](const std::string& type, const std::string& func,
+                                        const std::vector<rx::script::papyrus::Value>& args) {
+        self->platform_hud_.Submit(type, func, args);
+      });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
   }
@@ -357,6 +367,17 @@ bool LoadGameData(Engine& engine) {
   // Bring up the managed (C#) scripting world over the same guest, so user mods
   // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
   BootManagedScripting(engine);
+  {
+    auto* scripts = self->scripts_.get();
+    auto* managed = self->managed_.get();
+    self->quest_world_->set_on_register(
+        [scripts](u64 form) { scripts->NotifyFormReloaded(form); });
+    self->quest_world_->set_on_unregister([scripts, managed](u64 form) {
+      scripts->RaiseFormUnloadEvent(form);
+      if (managed)
+        managed->QueueEvent({rx::script::host::ManagedEventId::kFormUnloaded, form, 0, 0, 0.0f});
+    });
+  }
 
   // RX_QUEST_REPORT=<EDID> drives a quest through its stages to completion and
   // prints the journey, then quits; RX_DIALOGUE_REPORT dumps its dialogue.
@@ -433,6 +454,9 @@ bool LoadGameData(Engine& engine) {
   // Register streamed NPCs in the quest world so quests can target them and
   // clients can apply replicated actor transforms by form id.
   self->streamer_->set_quest_world(self->quest_world_.get());
+  self->quest_world_->set_on_reference_changed([self](u64 handle) {
+    if (self->streamer_) self->streamer_->SyncReference(*self->world_, handle);
+  });
   if (self->physics_->initialized()) {
     self->streamer_->set_physics(self->physics_);
     self->physics_->set_water_height([self](const Vec3& position, f32* height, Vec3* flow) {
@@ -459,6 +483,12 @@ bool LoadGameData(Engine& engine) {
     };
     uploads.material = [self](const asset::Material& material) {
       return self->renderer_->UploadMaterial(material);
+    };
+    uploads.instances = [self](u64 mesh, std::span<const Mat4> transforms) {
+      return self->renderer_->CreateInstanceGroup(mesh, transforms);
+    };
+    uploads.remove_instances = [self](render::InstanceGroupHandle handle) {
+      self->renderer_->DestroyInstanceGroup(handle);
     };
     self->streamer_->SetUploads(std::move(uploads));
   }
@@ -511,13 +541,14 @@ bool LoadGameData(Engine& engine) {
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {
     start.y = ground + 10.0f;  // a little above the terrain for a view
   } else {
-    RX_WARN("no terrain at start cell {},{}", self->config_.start_cell_x, self->config_.start_cell_y);
+    RX_WARN("no terrain at start cell {},{}", self->config_.start_cell_x,
+            self->config_.start_cell_y);
   }
   self->camera_.set_position(start);
   self->camera_.set_yaw_pitch(0.0f, -0.1f);
   self->camera_.speed = 30.0f;
   RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
-           self->config_.start_cell_y, start.x, start.y, start.z);
+          self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
   self->showcase_regions_.push_back(
       {{start.x, ground, start.z}, std::string(profile.name), self->streamer_.get()});
@@ -541,8 +572,8 @@ bool LoadGameData(Engine& engine) {
       if (self->streamer_->WaterHeightAt({px, h, pz}, &wh, &flow) && h < wh - 0.5f) ++submerged;
     }
     RX_INFO("venue probe cell {},{}: base_y={:.1f} max_drop={:.1f}m submerged={}/12 sampled={}",
-             self->config_.start_cell_x, self->config_.start_cell_y, ground, max_drop, submerged,
-             sampled);
+            self->config_.start_cell_x, self->config_.start_cell_y, ground, max_drop, submerged,
+            sampled);
   }
   SetupExtraStreamers(engine);
 
@@ -550,8 +581,8 @@ bool LoadGameData(Engine& engine) {
   // secondary content domain (so a Fallout 4 prop can be dropped into Skyrim).
   if (self->editor_) {
     std::vector<EditorPlaceDomain> domains;
-    domains.push_back(
-        {std::string(profile.name), GameSlug(self->game_), &self->records_, &self->strings_, self->streamer_.get()});
+    domains.push_back({std::string(profile.name), GameSlug(self->game_), &self->records_,
+                       &self->strings_, self->streamer_.get()});
     for (size_t i = 0; i < self->extra_domains_.size() && i < self->extra_streamers_.size(); ++i) {
       ContentDomain& d = *self->extra_domains_[i];
       domains.push_back({std::string(d.profile().name), GameSlug(d.profile().game), &d.records(),
@@ -580,8 +611,7 @@ void SetupExtraStreamers(Engine& engine) {
   // coordinates usually land in empty ocean in the secondary world).
   i32 forced_x = 0, forced_y = 0;
   const bool forced =
-      DomainCell.get() &&
-      std::sscanf(DomainCell.get(), "%d,%d", &forced_x, &forced_y) == 2;
+      DomainCell.get() && std::sscanf(DomainCell.get(), "%d,%d", &forced_x, &forced_y) == 2;
   const Vec3 cam = self->camera_.position();
 
   for (size_t i = 0; i < self->extra_domains_.size(); ++i) {
@@ -640,17 +670,24 @@ void SetupExtraStreamers(Engine& engine) {
     uploads.material = [self, salt](const asset::Material& material) {
       return self->renderer_->UploadMaterial(material, salt);
     };
+    uploads.instances = [self](u64 mesh, std::span<const Mat4> transforms) {
+      return self->renderer_->CreateInstanceGroup(mesh, transforms);
+    };
+    uploads.remove_instances = [self](render::InstanceGroupHandle handle) {
+      self->renderer_->DestroyInstanceGroup(handle);
+    };
     streamer->SetUploads(std::move(uploads));
     if (streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
       RX_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
-               domain.profile().name, region_x, region_y, place.x, place.y, place.z);
+              domain.profile().name, region_x, region_y, place.x, place.y, place.z);
       // The showcase flies over each rendered region; its ground baseline sits the
       // same 10m below the placed camera-height anchor as the primary's does.
-      self->showcase_regions_.push_back(
-          {{place.x, place.y - 10.0f, place.z}, std::string(domain.profile().name), streamer.get()});
+      self->showcase_regions_.push_back({{place.x, place.y - 10.0f, place.z},
+                                         std::string(domain.profile().name),
+                                         streamer.get()});
     } else {
       RX_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
-               domain.profile().name, domain.profile().exterior_worldspace);
+              domain.profile().name, domain.profile().exterior_worldspace);
     }
     // Kept parallel to extra_domains_ even when not rendered, so the editor can
     // place this game's assets (PlaceObject needs the per-domain streamer/salt).
@@ -669,8 +706,8 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
     mat_db.Build(ByteSpan(cdb->data(), cdb->size()));
 
   // The .biom biome ids are base-game FormIDs (Starfield.esm, load index 0).
-  self->planet_surface_ = std::make_unique<bethesda::PlanetSurface>(
-      bethesda::LoadPlanetSurface(*self->vfs_, self->records_, mat_db, biom_name, /*biom_plugin=*/0));
+  self->planet_surface_ = std::make_unique<bethesda::PlanetSurface>(bethesda::LoadPlanetSurface(
+      *self->vfs_, self->records_, mat_db, biom_name, /*biom_plugin=*/0));
   if (!self->planet_surface_->valid) {
     RX_ERROR("planet tile: could not load '{}'", biom_name);
     return false;
@@ -685,7 +722,9 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
     world::PlanetTile::Uploads uploads;
     uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
     uploads.texture = [self](const asset::Texture& t) { return self->renderer_->UploadTexture(t); };
-    uploads.material = [self](const asset::Material& m) { return self->renderer_->UploadMaterial(m); };
+    uploads.material = [self](const asset::Material& m) {
+      return self->renderer_->UploadMaterial(m);
+    };
     self->planet_tile_->SetUploads(std::move(uploads));
   }
   if (self->physics_->initialized()) self->planet_tile_->set_physics(self->physics_);
@@ -701,7 +740,7 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
   self->camera_.set_yaw_pitch(0.0f, -0.15f);
   self->camera_.speed = 30.0f;
   RX_INFO("planet '{}': {} tiles, camera at ({:.1f}, {:.1f}, {:.1f})", biom_name, cells, start.x,
-           start.y, start.z);
+          start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer(start);
   return true;
 }
@@ -727,8 +766,9 @@ bool LoadInterior(Engine& engine) {
   self->camera_.set_yaw_pitch(0.0f, 0.0f);
   self->camera_.speed = 5.0f;
   RX_INFO("camera start: interior {} at ({:.1f}, {:.1f}, {:.1f})", self->config_.interior, start.x,
-           start.y, start.z);
-  RX_INFO("interior {}: {} npcs loaded", self->config_.interior, self->streamer_->spawned_npc_count());
+          start.y, start.z);
+  RX_INFO("interior {}: {} npcs loaded", self->config_.interior,
+          self->streamer_->spawned_npc_count());
   self->actors_->MaybeSpawnWorldPlayer(start);
   return true;
 }
@@ -760,17 +800,16 @@ void LoadExtraDomains(Engine& engine) {
         return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
                                               rx::script::papyrus::ObjectRef{target});
       });
-      guest->set_on_platform_hud(
-          [self](const std::string& type, const std::string& func,
-                 const std::vector<rx::script::papyrus::Value>& args) {
-            self->platform_hud_.Submit(type, func, args);
-          });
+      guest->set_on_platform_hud([self](const std::string& type, const std::string& func,
+                                        const std::vector<rx::script::papyrus::Value>& args) {
+        self->platform_hud_.Submit(type, func, args);
+      });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
     // Run that game's quests inside its own microvm (capped like the primary).
     domain->AttachQuestScripts(self->config_.max_quest_scripts);
     RX_INFO("secondary domain live: {} ({} records, isolated microvm)", domain->profile().name,
-             domain->records().record_count());
+            domain->records().record_count());
     self->extra_domains_.push_back(std::move(domain));
   }
 }

@@ -99,7 +99,8 @@ std::optional<std::vector<ActorState>> DecodeActorStates(ByteSpan data) {
 std::vector<ActorState> CollectActorStates(ecs::World& world) {
   std::vector<ActorState> out;
   world.Each<world::Npc, world::Transform, world::FormLink>(
-      [&](ecs::Entity, world::Npc&, world::Transform& t, world::FormLink& link) {
+      [&](ecs::Entity entity, world::Npc&, world::Transform& t, world::FormLink& link) {
+        if (world.Has<world::Hidden>(entity) || world.Has<world::Deleted>(entity)) return;
         ActorState a;
         a.form = link.form.packed();
         for (int i = 0; i < 3; ++i) a.pos[i] = t.position[i];
@@ -129,7 +130,9 @@ void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
                       const std::vector<ActorState>& actors, f32 lerp_duration) {
   for (const ActorState& a : actors) {
     ecs::Entity entity = registry.Find(a.form);
-    if (!world.IsAlive(entity)) continue;
+    if (!world.IsAlive(entity) || world.Has<world::Hidden>(entity) ||
+        world.Has<world::Deleted>(entity))
+      continue;
     const world::Transform* current = world.Get<world::Transform>(entity);
     if (!current) continue;
 

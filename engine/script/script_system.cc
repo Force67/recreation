@@ -43,12 +43,11 @@ std::string ScriptSystem::EnsureScriptLoaded(const std::string& name) {
     return "";
   }
   std::vector<u8> bytes(blob->begin(), blob->end());
-  std::string type =
-      guest_
-          .SubmitFor([b = std::move(bytes)](VirtualMachine& vm) {
-            return vm.LoadScript(ByteSpan(b.data(), b.size()));
-          })
-          .get();
+  std::string type = guest_
+                         .SubmitFor([b = std::move(bytes)](VirtualMachine& vm) {
+                           return vm.LoadScript(ByteSpan(b.data(), b.size()));
+                         })
+                         .get();
   if (type.empty()) return "";
 
   // Load the parent chain so inherited natives and members resolve.
@@ -130,31 +129,60 @@ void SeedProperty(VirtualMachine& vm, ObjectRef inst, const bethesda::ScriptProp
 
 std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
                                                    const bethesda::ScriptAttachment& att) {
-  std::vector<ObjectRef> instances;
+  return AttachScriptsWithStatus(form_id, att).created;
+}
+
+ScriptSystem::AttachmentResult ScriptSystem::AttachScriptsWithStatus(
+    u64 form_id, const bethesda::ScriptAttachment& att) {
+  AttachmentResult result;
   for (const bethesda::ScriptEntry& entry : att.scripts) {
     std::string type = EnsureScriptLoaded(entry.name);
     if (type.empty()) {
+      result.complete = false;
       if (warned_unloadable_.insert(entry.name).second)
         RX_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
       continue;
     }
-    ObjectRef inst =
+    auto [inst, attached] =
         guest_
             .SubmitFor([type, form_id](VirtualMachine& vm) {
-              return vm.CreateInstanceWithHandle(type, form_id);
+              ObjectRef created = vm.CreateInstanceWithHandle(type, form_id);
+              return std::pair{
+                  created, created.handle != 0 || vm.HasAttachedScript(ObjectRef{form_id}, type)};
             })
             .get();
+    if (!attached) {
+      result.complete = false;
+      continue;
+    }
+    result.any_attached = true;
     if (inst.handle == 0) continue;  // already instantiated on this form
 
     guest_.Submit([inst, props = entry.properties](VirtualMachine& vm) {
       for (const bethesda::ScriptProperty& p : props) SeedProperty(vm, inst, p);
     });
-    guest_.RaiseEvent(inst, "OnInit");
-    instances.push_back(inst);
+    guest_.RaiseScriptEvent(inst, type, "OnInit");
+    result.created.push_back(inst);
   }
   // Signal the form went live so the managed world can react (FormLoaded).
-  if (on_attach_ && !instances.empty()) on_attach_(form_id);
-  return instances;
+  if (on_attach_ && !result.created.empty()) on_attach_(form_id);
+  return result;
+}
+
+void ScriptSystem::RaiseFormLoadEvent(u64 form_id) {
+  guest_.RaiseEventAll(ObjectRef{form_id}, "OnLoad", {});
+}
+
+void ScriptSystem::RaiseFormUnloadEvent(u64 form_id) {
+  guest_.RaiseEventAll(ObjectRef{form_id}, "OnUnload", {});
+}
+
+void ScriptSystem::NotifyFormReloaded(u64 form_id) {
+  if (!guest_.SubmitFor([form_id](VirtualMachine& vm) { return vm.IsAlive(ObjectRef{form_id}); })
+           .get())
+    return;
+  RaiseFormLoadEvent(form_id);
+  if (on_attach_) on_attach_(form_id);
 }
 
 void ScriptSystem::Tick(f32 dt) { guest_.Tick(dt); }

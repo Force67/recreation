@@ -1,11 +1,11 @@
 #ifndef RECREATION_RUNTIME_INTERACTION_SYSTEM_H_
 #define RECREATION_RUNTIME_INTERACTION_SYSTEM_H_
 
-#include <string>
-#include <vector>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+
+#include <string>
+#include <vector>
 
 #include "bethesda/record.h"
 #include "core/input_actions.h"
@@ -56,6 +56,9 @@ class InteractionSystem {
   // non-zero, is registered so the fragment's GetOwningQuest() resolves.
   void RunInfoFragment(u64 info, u64 owning_quest = 0);
   void RaiseActivate(u64 handle);
+  bool RaiseRemoteActivate(u32 peer, ecs::Entity player, u64 handle);
+  bool AttachReferenceScripts(u64 handle);
+  bethesda::GlobalFormId ReferenceForm(u64 handle) const;
 
   // Activation prompt state, surfaced to the quest debugger.
   u64 activate_target() const { return activate_target_; }
@@ -121,6 +124,12 @@ class InteractionSystem {
   // examined (so each ref's record is parsed for a primitive/script only once).
   base::UnorderedMap<u64, TriggerVolume> triggers_;
   base::UnorderedMap<u64, u8> trigger_examined_;
+  struct ScriptAttachmentState {
+    ecs::Entity entity = ecs::kInvalidEntity;
+    bool attached = false;
+    bool complete = false;
+  };
+  base::UnorderedMap<u64, ScriptAttachmentState> scripts_examined_;
   base::Vector<u64> trigger_scratch_;
 };
 
