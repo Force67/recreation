@@ -33,7 +33,7 @@ std::optional<RawRewriter> RawRewriter::Open(const std::string& path) {
   bytes.resize(static_cast<size_t>(file.tellg()));
   file.seekg(0);
   file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-  return RawRewriter(std::move(bytes));
+  return std::optional<RawRewriter>{std::in_place, std::move(bytes)};
 }
 
 void RawRewriter::Replace(u32 raw_form_id, base::Vector<u8> encoded) {
