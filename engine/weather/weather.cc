@@ -20,6 +20,17 @@ f32 Smooth(f32 t) {
 }
 f32 LerpF(f32 a, f32 b, f32 t) { return a + (b - a) * t; }
 
+// Yaw interpolation goes the short way around the circle, so a transition from
+// 350 degrees to 10 degrees swings 20 degrees through north, not 340 back.
+f32 LerpYaw(f32 a, f32 b, f32 t) {
+  constexpr f32 kTau = 6.28318530718f;
+  f32 delta = std::fmod(b - a, kTau);
+  if (delta > kTau * 0.5f) delta -= kTau;
+  if (delta < -kTau * 0.5f) delta += kTau;
+  f32 yaw = std::fmod(a + delta * t, kTau);
+  return yaw < 0 ? yaw + kTau : yaw;
+}
+
 const WeatherDef kDefault;  // pleasant, returned when the climate is empty
 
 }  // namespace
@@ -34,6 +45,9 @@ void WeatherDef::DeriveFromKind() {
       light_tint = {1, 1, 1};
       precipitation = 0.0f;
       snow = false;
+      gustiness = 0.10f;
+      thunder_period = -1.0f;
+      aurora = 1.0f;  // clear Skyrim nights show the full curtains (game-gated)
       break;
     case Kind::kCloudy:
       cloud_coverage = 0.55f;
@@ -43,6 +57,9 @@ void WeatherDef::DeriveFromKind() {
       light_tint = {0.95f, 0.96f, 1.0f};
       precipitation = 0.0f;
       snow = false;
+      gustiness = 0.25f;
+      thunder_period = -1.0f;
+      aurora = 0.35f;  // a faint shimmer through the gaps
       break;
     case Kind::kRainy:
       cloud_coverage = 0.92f;
@@ -53,6 +70,9 @@ void WeatherDef::DeriveFromKind() {
       precipitation = 0.85f;
       snow = false;
       thunder = true;
+      gustiness = 0.70f;  // storms squall
+      thunder_period = 12.0f;
+      aurora = 0.0f;
       break;
     case Kind::kSnow:
       cloud_coverage = 0.85f;
@@ -62,6 +82,9 @@ void WeatherDef::DeriveFromKind() {
       light_tint = {0.92f, 0.95f, 1.0f};
       precipitation = 0.80f;
       snow = true;
+      gustiness = 0.55f;  // driving snow; a real blizzard raises this via wind
+      thunder_period = -1.0f;
+      aurora = 0.0f;
       break;
   }
 }
@@ -77,6 +100,11 @@ WeatherState ToState(const WeatherDef& d) {
   s.precipitation = d.precipitation;
   s.snow = d.snow;
   s.thunder = d.thunder;
+  s.wind_yaw = d.wind_yaw;
+  s.gustiness = d.gustiness;
+  s.lightning_color = d.lightning_color;
+  s.thunder_period = d.thunder_period;
+  s.aurora = d.aurora;
   return s;
 }
 
@@ -93,6 +121,15 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t) {
   s.precipitation = LerpF(a.precipitation, b.precipitation, t);
   s.snow = t < 0.5f ? a.snow : b.snow;
   s.thunder = t < 0.5f ? a.thunder : b.thunder;
+  s.wind_yaw = LerpYaw(a.wind_yaw, b.wind_yaw, t);
+  s.gustiness = LerpF(a.gustiness, b.gustiness, t);
+  s.lightning_color = {LerpF(a.lightning_color.x, b.lightning_color.x, t),
+                       LerpF(a.lightning_color.y, b.lightning_color.y, t),
+                       LerpF(a.lightning_color.z, b.lightning_color.z, t)};
+  // The strike cadence follows the dominant side whole: blending toward a
+  // non-thundery weather (period < 0) must not produce nonsense periods.
+  s.thunder_period = t < 0.5f ? a.thunder_period : b.thunder_period;
+  s.aurora = LerpF(a.aurora, b.aurora, t);
   return s;
 }
 

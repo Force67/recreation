@@ -29,6 +29,18 @@ struct WeatherDef {
   f32 precipitation = 0.0f;  // 0 none .. 1 heavy
   bool snow = false;         // precipitation is snow vs rain
   bool thunder = false;      // lightning strikes (heavy rain, FO4 radstorms)
+  f32 wind_yaw = 0.0f;       // radians, direction the wind blows toward (XZ)
+  f32 gustiness = 0.15f;     // 0 steady .. 1 squally
+  Vec3 lightning_color{0.86f, 0.88f, 1.0f};  // normalized flash tint
+  // Seconds between lightning strikes; < 0 means the weather never thunders
+  // (the WTHR thunder-frequency byte maps LOWER = MORE frequent).
+  f32 thunder_period = -1.0f;
+  f32 aurora = 0.0f;  // northern-lights strength 0..1 (the game gates by title)
+  // Authored weather sounds (SNAM): looping precipitation / wind beds and the
+  // thunder one-shot pool, as packed sound form ids a SoundCatalog resolves.
+  u64 sound_precip = 0;
+  u64 sound_wind = 0;
+  std::vector<u64> sound_thunder;
 
   // Fills the physical knobs from the classification. A record loader can refine
   // these afterwards from the weather's authored fog / colour data.
@@ -46,6 +58,11 @@ struct WeatherState {
   f32 precipitation = 0.0f;
   bool snow = false;
   bool thunder = false;
+  f32 wind_yaw = 0.0f;
+  f32 gustiness = 0.15f;
+  Vec3 lightning_color{0.86f, 0.88f, 1.0f};
+  f32 thunder_period = -1.0f;  // < 0 = never thunders
+  f32 aurora = 0.0f;
 };
 
 WeatherState ToState(const WeatherDef& def);

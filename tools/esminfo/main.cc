@@ -263,6 +263,38 @@ int DumpWeather(const std::string& data_dir, int limit) {
         std::printf(" %3u/%3u/%3u", d[k * 4], d[k * 4 + 1], d[k * 4 + 2]);
       std::printf("\n");
     }
+    // DATA holds the gameplay knobs: wind speed, trans delta, sun glare/damage,
+    // precip fade in/out, thunder fade in/out + frequency, the classification
+    // flags byte, the lightning colour and the wind direction/range.
+    constexpr rx::u32 kData = rx::FourCc('D', 'A', 'T', 'A');
+    if (const Subrecord* data = w.Find(kData); data && data->data.size() >= 15) {
+      const rx::u8* d = data->data.data();
+      std::printf("  DATA: wind %u trans %u glare %u dmg %u precip fade %u/%u"
+                  " thunder fade %u/%u freq %u flags 0x%02x lightning %u/%u/%u",
+                  d[0], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11], d[12], d[13],
+                  d[14]);
+      if (data->data.size() >= 19)
+        std::printf(" fx %u winddir %u dirrange %u", d[15], d[16], d[17]);
+      std::printf("\n");
+    }
+    // SNAM entries: (sound formid, type) pairs - 0 default, 1 precip, 2 wind, 3 thunder.
+    constexpr rx::u32 kSnam = rx::FourCc('S', 'N', 'A', 'M');
+    for (const Subrecord& sub : w.subrecords) {
+      if (sub.type != kSnam || sub.data.size() < 8) continue;
+      rx::u32 snd = 0, kind = 0;
+      std::memcpy(&snd, sub.data.data(), 4);
+      std::memcpy(&kind, sub.data.data() + 4, 4);
+      static const char* kSnamKind[] = {"default", "precip", "wind", "thunder"};
+      std::printf("  SNAM: %08x %s\n", snd, kind < 4 ? kSnamKind[kind] : "?");
+    }
+    // FNAM: fog distances (day near/far, night near/far, then pow/max pairs).
+    constexpr rx::u32 kFnam = rx::FourCc('F', 'N', 'A', 'M');
+    if (const Subrecord* fnam = w.Find(kFnam); fnam && fnam->data.size() >= 16) {
+      const float* f = reinterpret_cast<const float*>(fnam->data.data());
+      std::printf("  FNAM: day %.0f..%.0f night %.0f..%.0f", f[0], f[2], f[1], f[3]);
+      if (fnam->data.size() >= 32) std::printf(" pow %.2f/%.2f max %.2f/%.2f", f[4], f[5], f[6], f[7]);
+      std::printf("\n");
+    }
     if (const Subrecord* nam0 = w.Find(kNam0); nam0 && nam0->data.size() % 16 == 0) {
       const rx::u8* d = nam0->data.data();
       size_t quads = nam0->data.size() / 4;  // RGBA bytes; 4 times-of-day per type
