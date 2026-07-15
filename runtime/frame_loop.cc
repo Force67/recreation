@@ -296,6 +296,9 @@ void Engine::OnUpdate(f32 frame_delta) {
           s.sun_color = {sky.sun_color.x * w.light_tint.x, sky.sun_color.y * w.light_tint.y,
                          sky.sun_color.z * w.light_tint.z};
           s.ambient = sky.ambient + (has_weather ? w.cloud_coverage * 0.05f : 0.0f);
+          // The clock's night hands the light over to a downward moon, so the
+          // sky needs the explicit night factor for stars/moon/aurora to show.
+          s.night = sky.night;
         }
       }
       // Interior cells author their own ambience (XCLL/LGTM): override the
