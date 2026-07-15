@@ -578,6 +578,11 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
     ImGui::Checkbox("Snow (vs rain)", &w.snow);
     ImGui::SliderFloat("Haze", &w.aerosol, 0.0f, 1.0f);
     ImGui::SliderFloat("Light dimming", &w.light_scale, 0.1f, 1.0f);
+    ImGui::SliderFloat("Wind speed", &w.wind, 0.0f, 30.0f, "%.1f m/s");
+    ImGui::SliderFloat("Gustiness", &w.gustiness, 0.0f, 1.0f);
+    ImGui::SliderFloat("Aurora intensity", &w.aurora, 0.0f, 1.0f);
+    // Fires a bolt ~300 m out on the next update, whatever the weather.
+    if (weather_strike_ && ImGui::Button("Strike now")) weather_strike_();
   }
 }
 

@@ -124,11 +124,15 @@ class DebugUi {
   // The day/night clock, so the Lighting panel can scrub the time of day and the
   // timescale. Null leaves those controls out.
   void set_clock(WorldClock* clock) { clock_ = clock; }
-  // The engine's weather override: when `*enable` is set, the loop uses `*state`
-  // instead of the climate, so the Weather panel can drive the sky live.
-  void set_weather(bool* enable, weather::WeatherState* state) {
+  // The engine's weather override: when `*enable` is set, the director uses
+  // `*state` instead of the climate, so the Weather panel can drive the sky
+  // live. `strike_now` (optional) asks the director to fire a lightning strike
+  // near the camera, for testing the bolt/flash/thunder without waiting.
+  void set_weather(bool* enable, weather::WeatherState* state,
+                   std::function<void()> strike_now = {}) {
     weather_enable_ = enable;
     weather_state_ = state;
+    weather_strike_ = std::move(strike_now);
   }
   // The trailer's per-frame chrome (letterbox, fades, title cards, render-mode
   // badge), drawn onto the foreground draw list. Null disables it.
@@ -187,6 +191,7 @@ class DebugUi {
   WorldClock* clock_ = nullptr;  // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel
   weather::WeatherState* weather_state_ = nullptr;
+  std::function<void()> weather_strike_;  // director test hook: force a strike
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row

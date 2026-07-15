@@ -257,8 +257,7 @@ void Engine::DriveCamera(f32 dt) {
         }
       }
       TrailerState ts = trailer_.At(cam_time_);
-      weather_override_ = true;
-      weather_override_state_ = ts.weather;
+      director_.SetOverride(&ts.weather);  // the trailer owns the weather
       if (!trailer_mode_applied_ || ts.mode != applied_trailer_mode_) {
         ApplyTrailerRenderMode(ts.mode);
         applied_trailer_mode_ = ts.mode;

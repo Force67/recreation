@@ -21,6 +21,7 @@
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "script/host/managed_host.h"
+#include "weather/director.h"
 #include "weather/weather.h"
 
 #include "audio/ambient.h"
@@ -308,33 +309,15 @@ class Engine : public app::Application {
   WorldClock* clock_ = nullptr;
   bool drive_sun_from_clock_ = true;
   f32 last_sky_hour_ = -1000.0f;
-  // Weather, parsed from the game's WTHR/CLMT and driven off the world clock; it
-  // modulates the renderer's cloud/aerial/sun knobs (not the game's old skydome).
-  // ap_base_ is the aerial-perspective baseline weather scales; last_weather_* let
-  // the throttled sun update re-fire when the weather light changes.
-  weather::WeatherSystem weather_;
-  f32 ap_base_ = 1.0f;
+  // Weather, parsed from the game's WTHR/CLMT/REGN and driven off the world
+  // clock through one system: selection, region overrides, cross-fades,
+  // lightning strikes, thunder audio and the wetness/snow integrators all live
+  // in the director; the frame loop gathers a Tick and consumes the blended
+  // state for sun tinting. last_weather_* let the throttled sun update re-fire
+  // when the weather light changes.
+  weather::Director director_;
   f32 last_weather_scale_ = 1.0f;
   Vec3 last_weather_tint_{1, 1, 1};
-  // Per-region weather (Skyrim REGN): the region the player stands in overrides
-  // the worldspace default climate. default_climate_ is restored outside regions.
-  weather::RegionWeather regions_;
-  std::vector<std::pair<weather::WeatherDef, u32>> default_climate_;
-  u64 active_region_ = 0;
-  // Cross-fade the weather over a few seconds when the region changes, instead
-  // of snapping. region_blend_t_ is 1 once settled.
-  weather::WeatherState region_blend_from_;
-  f32 region_blend_t_ = 1.0f;
-  // Debug-UI weather playground: when set, the loop uses weather_override_state_
-  // instead of the climate, so the Weather panel can drive the sky live.
-  bool weather_override_ = false;
-  weather::WeatherState weather_override_state_;
-  // Thunderstorm lightning: a decaying flash scheduled at random intervals while
-  // heavy rain falls. lightning_ is this frame's flash; the rest is the schedule.
-  f32 lightning_ = 0.0f;
-  f32 next_strike_ = 0.0f;
-  f32 strike_time_ = -100.0f;
-  u32 lightning_seed_ = 0x1234567u;
 
   // ECS world + scheduler, owned by the host; non-owning views cached here.
   ecs::World* world_ = nullptr;

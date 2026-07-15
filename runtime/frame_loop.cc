@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstring>
 #include <cmath>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -231,31 +232,28 @@ void Engine::OnSimulate(f32 frame_delta) {
 void Engine::OnUpdate(f32 frame_delta) {
   {
     {
-      // Weather, parsed from the game's WTHR/CLMT, drives our physical sky/clouds
-      // (never its baked skydome). Cloud coverage + aerial-perspective haze update
-      // every frame (cheap, no IBL rebuild); the sun tint/dimming folds into the
-      // throttled day/night update below.
-      // Region weather: the REGN area the player stands in overrides the
-      // worldspace climate (Skyrim's per-region weather). Swapped only when the
-      // active region changes; skipped while the debug panel overrides weather.
-      if (!weather_override_ && !regions_.empty()) {
+      // Weather, parsed from the game's WTHR/CLMT/REGN, drives our physical
+      // sky/clouds (never its baked skydome). The director owns all of it --
+      // region resolve + cross-fade, precipitation, the strike scheduler with
+      // thunder audio, the wetness/snow integrators and the rain/wind beds; the
+      // loop only gathers the frame inputs and hands over the settings structs.
+      // The sun tint/dimming folds into the throttled day/night update below.
+      {
+        weather::Tick wt;
+        wt.game_days = clock_->game_days();
+        wt.real_seconds = clock_->real_hours() * 3600.0f;
+        wt.frame_delta = frame_delta;
+        wt.timescale = clock_->timescale();
         Vec3 anchor = camera_.position();
         Vec3 ppos;
         if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
-        constexpr f32 kEngineToGame = 1.0f / 0.01428f;  // metres -> Bethesda units
-        u64 region = 0;
-        const auto* climate =
-            regions_.ClimateAt(anchor.x * kEngineToGame, -anchor.z * kEngineToGame, &region);
-        if (region != active_region_) {
-          // Capture the weather we are leaving (old climate) to cross-fade from.
-          region_blend_from_ =
-              weather_.empty() ? weather::WeatherState{} : weather_.At(clock_->game_days());
-          region_blend_t_ = 0.0f;
-          active_region_ = region;
-          weather_.SetClimate(climate ? *climate : default_climate_);
-          RX_INFO("weather: region {:x} ({} weathers)", region,
-                   climate ? climate->size() : default_climate_.size());
-        }
+        wt.anchor = anchor;
+        wt.listener = anchor;
+        wt.indoors = streamer_ && streamer_->in_interior();
+        // RX_LIGHTNING holds the flash at a fixed level (testing the strike).
+        director_.set_flash_pin(Lightning.overridden() ? std::optional<f32>(Lightning.get())
+                                                       : std::nullopt);
+        director_.Update(wt, &renderer_->settings().weather, &renderer_->settings());
       }
       // Ambient audio bed: resolve the REGN region the player stands in (its own
       // point-in-polygon test, independent of the weather system which may be
@@ -273,55 +271,9 @@ void Engine::OnUpdate(f32 frame_delta) {
         ambient_director_.Update(ambient);
       }
 
-      // The debug Weather panel can override the climate live; otherwise the
-      // loaded game's weather drives the sky.
-      const bool has_weather = weather_override_ || !weather_.empty();
-      weather::WeatherState w;
-      if (weather_override_)
-        w = weather_override_state_;
-      else if (!weather_.empty())
-        w = weather_.At(clock_->game_days());
-      // Cross-fade over ~5 s when the region changed, so weather eases in.
-      if (!weather_override_ && region_blend_t_ < 1.0f) {
-        region_blend_t_ =
-            std::min(1.0f, region_blend_t_ + frame_delta / 5.0f);
-        const f32 s = region_blend_t_ * region_blend_t_ * (3.0f - 2.0f * region_blend_t_);
-        w = weather::Lerp(region_blend_from_, w, s);
-      }
-      if (has_weather) {
-        renderer_->settings().cloud_coverage = w.cloud_coverage;
-        renderer_->settings().aerial_perspective = ap_base_ * (1.0f + w.aerosol * 2.0f);
-        // No rain/snow (or wetness) indoors: interior cells have no sky overhead.
-        const bool indoors = streamer_ && streamer_->in_interior();
-        renderer_->settings().precipitation = indoors ? 0.0f : w.precipitation;
-        renderer_->settings().precip_snow = w.snow;
-      }
-      // Thunderstorm lightning: a decaying flash (with a flicker) scheduled at
-      // random intervals while a thundery weather is active (heavy rain, FO4
-      // radstorms). The weather sets w.thunder; rain isn't required (dust storms).
-      {
-        const bool indoors = streamer_ && streamer_->in_interior();
-        const bool storm = has_weather && !indoors && w.thunder;
-        const f32 now = clock_->real_hours() * 3600.0f;
-        if (!storm) {
-          lightning_ = 0.0f;
-          next_strike_ = now + 3.0f;  // first possible strike once a storm begins
-        } else {
-          if (now >= next_strike_) {
-            strike_time_ = now;
-            lightning_seed_ = lightning_seed_ * 1664525u + 1013904223u;
-            const f32 r = static_cast<f32>(lightning_seed_ >> 8) / 16777216.0f;
-            next_strike_ = now + 4.0f + r * 13.0f;  // 4-17 s apart
-          }
-          const f32 e = now - strike_time_;
-          const f32 a = std::exp(-e * 9.0f);                                       // main flash
-          const f32 b = e > 0.12f ? 0.65f * std::exp(-(e - 0.12f) * 12.0f) : 0.0f;  // flicker
-          lightning_ = std::min(1.0f, a + b);
-        }
-        // RX_LIGHTNING holds the flash at a fixed level (testing the brief, random strike).
-        if (Lightning.overridden()) lightning_ = Lightning.get();
-        renderer_->settings().lightning = lightning_;
-      }
+      // The director's blended state feeds the sun tint/dim driving below.
+      const bool has_weather = director_.active();
+      const weather::WeatherState& w = director_.current();
       // Day/night: derive the sun direction/intensity/color/ambient from the
       // clock's time of day (unless RX_SUN_DIR pinned a fixed sun), tinted and
       // dimmed by the weather. Throttled to ~0.02-hour steps so the IBL

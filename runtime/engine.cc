@@ -52,7 +52,10 @@ bool Engine::OnInitialize(app::Services& services) {
       RX_WARN("debug ui unavailable");
     }
     debug_ui_.set_clock(clock_);  // Lighting panel scrubs the day/night cycle
-    debug_ui_.set_weather(&weather_override_, &weather_override_state_);  // Weather playground
+    // Weather playground: the panel edits the director's override in place, and
+    // "Strike now" forces a test bolt ~300 m from the camera.
+    debug_ui_.set_weather(director_.debug_override_enable(), director_.debug_override_state(),
+                          [this] { director_.RequestStrike(300.0f); });
     if (!game_ui_.Initialize(*window_, *renderer_)) {
       RX_WARN("game ui unavailable");
     }

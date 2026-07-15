@@ -149,35 +149,44 @@ bool LoadGameData(Engine& engine) {
     // single-weather CLMT is the real answer (don't fall through to synthetic).
     auto climate =
         rx::weather::BuildClimate(self->records_, weathers, worldspace, starfield ? 1 : 4);
-    // For now, always spawn under clear weather: pin a single weather kind (clear
-    // by default; RX_WEATHER overrides) and suppress the dynamic per-region
-    // cycle. Set kPinClearWeather to false to restore BuildClimate's dynamic
-    // weather + regions (RX_WEATHER then only pins when explicitly set).
-    constexpr bool kPinClearWeather = true;
-    if (kPinClearWeather || Weather.get()) {
+    // Dynamic weather is the default (kPinClearWeather spawns under a pinned
+    // clear sky instead, the old behaviour). RX_WEATHER forces a kind: the
+    // climate narrows to the real WTHRs of that kind -- keeping their authored
+    // sounds/lightning -- with a synthetic def only when none exist.
+    constexpr bool kPinClearWeather = false;
+    const bool forced_kind = kPinClearWeather || Weather.get() != nullptr;
+    if (forced_kind) {
       std::string s = Weather.get() ? Weather.get() : "clear";
-      rx::weather::WeatherDef forced;
-      forced.kind = (s == "rain" || s == "rainy")    ? rx::weather::WeatherDef::Kind::kRainy
-                    : (s == "snow")                  ? rx::weather::WeatherDef::Kind::kSnow
-                    : (s == "cloud" || s == "cloudy") ? rx::weather::WeatherDef::Kind::kCloudy
-                                                      : rx::weather::WeatherDef::Kind::kPleasant;
-      forced.DeriveFromKind();
-      climate = {{forced, 1}};
-      RX_INFO("weather: pinned to '{}' (clear by default; RX_WEATHER overrides)", s);
+      const rx::weather::WeatherDef::Kind kind =
+          (s == "rain" || s == "rainy")    ? rx::weather::WeatherDef::Kind::kRainy
+          : (s == "snow")                  ? rx::weather::WeatherDef::Kind::kSnow
+          : (s == "cloud" || s == "cloudy") ? rx::weather::WeatherDef::Kind::kCloudy
+                                            : rx::weather::WeatherDef::Kind::kPleasant;
+      climate.clear();
+      for (const auto& [id, def] : weathers)
+        if (def.kind == kind) climate.push_back({def, 1});
+      if (climate.empty()) {
+        rx::weather::WeatherDef forced;
+        forced.kind = kind;
+        forced.DeriveFromKind();
+        climate = {{forced, 1}};
+      }
+      RX_INFO("weather: pinned to '{}' ({} real weathers of that kind)", s, climate.size());
     }
-    self->default_climate_ = climate;  // restored when the player leaves all regions
-    self->weather_.SetClimate(std::move(climate));
-    self->weather_.set_seed(0xBEE71Eull ^ static_cast<u64>(self->game_));
-    self->ap_base_ = self->renderer_->settings().aerial_perspective;
-    RX_INFO("weather: {} WTHR records, climate {} entries", n, self->weather_.size());
 
     // Per-region weather: the REGN areas override the worldspace climate where
-    // the player stands (skipped while a single weather is pinned).
-    if (!kPinClearWeather && !Weather && *worldspace) {
+    // the player stands (skipped while a single kind is forced).
+    rx::weather::RegionWeather regions;
+    if (!forced_kind && *worldspace) {
       const bethesda::GlobalFormId ws = self->records_.FindWorldspace(worldspace);
-      const int rn = rx::weather::LoadRegions(self->records_, weathers, ws, &self->regions_);
+      const int rn = rx::weather::LoadRegions(self->records_, weathers, ws, &regions);
       RX_INFO("weather: {} weather regions in {}", rn, worldspace);
     }
+    const size_t climate_size = climate.size();
+    self->director_.SetContent(std::move(climate), std::move(regions),
+                               0xBEE71Eull ^ static_cast<u64>(self->game_));
+    self->director_.set_ap_base(self->renderer_->settings().aerial_perspective);
+    RX_INFO("weather: {} WTHR records, climate {} entries", n, climate_size);
   }
 
   // Ambient audio: catalogue the game's sound files (SOUN/SNDR) and the regions'
@@ -198,6 +207,9 @@ bool LoadGameData(Engine& engine) {
     self->region_ambience_.Build(self->records_, ws);
     self->ambient_director_.Configure(self->audio_, &self->sound_catalog_,
                                       &self->region_ambience_);
+    // Weather audio (rain/wind beds, thunder claps) resolves its WTHR sound
+    // forms through the same catalog.
+    self->director_.BindAudio(self->audio_, &self->sound_catalog_);
 
     // audio.dump (RX_AUDIO_DUMP): resolve and decode each region's ambient bed
     // up front and log the result. A no-GPU way to confirm the SOUN/SNDR/REGN
@@ -231,7 +243,8 @@ bool LoadGameData(Engine& engine) {
   }
 
   // Skyrim's northern lights: the night-sky aurora (other games don't have it).
-  self->renderer_->settings().aurora = self->game_ == bethesda::Game::kSkyrimSe;
+  // The director carries per-weather aurora strength; this is the game gate.
+  self->director_.set_aurora_allowed(self->game_ == bethesda::Game::kSkyrimSe);
 
   self->quest_world_->set_on_move_player([self](u64 dest_ref, f32 x, f32 y, f32 z) {
     // The open-field battle demo anchors the player on its staged dry venue, so a
