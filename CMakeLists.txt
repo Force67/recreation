@@ -267,7 +267,7 @@ set(RX_SANITIZE ${RECREATION_SANITIZE} CACHE BOOL "" FORCE)
 set(RX_MIMALLOC OFF CACHE BOOL "" FORCE)
 # RX discovers a sibling zetanet independently, so mirror recreation's network gate.
 if(NOT RECREATION_NET)
-  set(RX_MODULES core ecs asset scene edit render physics anim audio rpc nav app)
+  set(RX_MODULES core ecs asset scene edit render physics anim audio rpc nav character inventory app)
 endif()
 add_subdirectory(${RECREATION_RX_DIR} rx)
 
