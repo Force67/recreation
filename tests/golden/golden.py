@@ -38,6 +38,9 @@ SCENES = [
     ("lights", "lights", 90, {}),   # clustered + shadowed local lights, froxel
     ("water", "water", 90, {}),     # animated water, wboit, particles
     ("fire", "fire", 90, {}),       # emissive particles, froxel scattering
+    # Skin subsurface scattering: per-material Burley diffusion + blood flow.
+    # Fixed perfusion (dynamics off) so the pulse doesn't drift the reference.
+    ("sss", "sss", 90, {"RX_SKIN_DYNAMICS": "0"}),
 ]
 
 PROFILES = {

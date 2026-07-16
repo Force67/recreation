@@ -536,6 +536,16 @@ f32 FaceState::BakeFaceTint() {
   m.roughness_factor = 0.55f;  // skin
   m.skin = true;
   m.subsurface = 0.16f;  // gentle analytic transmit; screen-space sss does the rest
+  // Physically based skin scattering: reddish multiple-scatter colour with red
+  // reaching furthest under the surface (3-layer skin dmfp). Face skin is a bit
+  // thinner than the generic default. The blood-flow system drives perfusion.
+  m.skin_params.scatter_color[0] = 0.87f;
+  m.skin_params.scatter_color[1] = 0.57f;
+  m.skin_params.scatter_color[2] = 0.43f;
+  m.skin_params.mfp[0] = 0.9f;   // mm, red
+  m.skin_params.mfp[1] = 0.32f;  // green
+  m.skin_params.mfp[2] = 0.18f;  // blue
+  m.skin_params.perfusion = 0.5f;
   builder_->ctx_.assets->AddMaterial(m);
   renderer.UploadMaterial(m);
 

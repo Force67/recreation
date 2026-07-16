@@ -1142,7 +1142,7 @@ void DemoScenes::CreateSssDemoScene() {
   world_.Add(floor, world::Transform{.position = {0, -0.15f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
 
-  auto spawn_sphere = [&](Vec3 pos, f32 radius, bool skin, const char* tag) {
+  auto spawn_sphere = [&](Vec3 pos, f32 radius, bool skin, f32 perfusion, const char* tag) {
     asset::Material mat;
     mat.id = asset::MakeAssetId(std::string("builtin/sss/mat_") + tag);
     mat.base_color_factor[0] = 0.62f;
@@ -1154,6 +1154,16 @@ void DemoScenes::CreateSssDemoScene() {
     mat.subsurface_color[1] = 0.25f;
     mat.subsurface_color[2] = 0.15f;
     mat.skin = skin;
+    // Physical skin scattering: reddish diffuse colour, red mfp furthest under
+    // the surface. `perfusion` shows the blood-flow response (0.5 rest, higher
+    // = flushed/redder, lower = blanched/pale).
+    mat.skin_params.scatter_color[0] = 0.85f;
+    mat.skin_params.scatter_color[1] = 0.55f;
+    mat.skin_params.scatter_color[2] = 0.40f;
+    mat.skin_params.mfp[0] = 1.0f;
+    mat.skin_params.mfp[1] = 0.35f;
+    mat.skin_params.mfp[2] = 0.20f;
+    mat.skin_params.perfusion = perfusion;
     asset::Mesh sphere =
         asset::MakeSphere(radius, 48, 64, asset::MakeAssetId(std::string("builtin/sss/") + tag));
     sphere.lods[0].submeshes[0].material = mat.id;
@@ -1165,11 +1175,15 @@ void DemoScenes::CreateSssDemoScene() {
     world_.Add(e, world::Transform{.position = {pos.x, pos.y, pos.z}});
     world_.Add(e, world::Renderable{sphere.id});
   };
-  spawn_sphere({-0.75f, 0.6f, 0.0f}, 0.55f, false, "control");
-  spawn_sphere({0.75f, 0.6f, 0.0f}, 0.55f, true, "skin");
+  spawn_sphere({-0.75f, 0.6f, 0.0f}, 0.55f, false, 0.5f, "control");
+  spawn_sphere({0.75f, 0.6f, 0.0f}, 0.55f, true, 0.5f, "skin");
   // A small pair further back: the blur radius must shrink with distance.
-  spawn_sphere({-0.35f, 0.25f, -1.6f}, 0.22f, false, "control_far");
-  spawn_sphere({0.35f, 0.25f, -1.6f}, 0.22f, true, "skin_far");
+  spawn_sphere({-0.35f, 0.25f, -1.6f}, 0.22f, false, 0.5f, "control_far");
+  spawn_sphere({0.35f, 0.25f, -1.6f}, 0.22f, true, 0.5f, "skin_far");
+  // Blood-flow A/B: a flushed (high perfusion) and a blanched (low) skin sphere
+  // read redder / paler than the resting pair above.
+  spawn_sphere({-1.35f, 0.35f, -0.8f}, 0.28f, true, 0.9f, "skin_flush");
+  spawn_sphere({1.35f, 0.35f, -0.8f}, 0.28f, true, 0.1f, "skin_blanch");
 
   // Hair pair on the flanks: dark spheres whose latitude tangents act as
   // strands. The right one carries the hair flag (dual anisotropic bands);
