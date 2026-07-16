@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Build against the companion rx branch when this repo's PR carries the matching
+# feature branch (the RTGI/AC-Shadows game side depends on rx feature/rt-ship);
+# otherwise track rx main.
+env:
+  RX_REF: ${{ github.event_name == 'pull_request' && github.head_ref == 'feature/rt-ship' && github.head_ref || 'main' }}
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -30,6 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -126,6 +133,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -207,6 +215,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -303,6 +312,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -383,6 +393,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
