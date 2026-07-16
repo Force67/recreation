@@ -593,6 +593,13 @@ void DebugUi::DrawGiTab(render::RenderSettings& settings, const render::DeviceCa
     ImGui::SliderFloat("IBL intensity", &settings.ibl_intensity, 0.0f, 4.0f);
   }
   ImGui::BeginDisabled(!ray_query || !settings.ibl);
+  // RCGI (idTech8-style radiance-cached GI, the AC-Shadows adoption) supersedes
+  // DDGI when on; they are mutually exclusive in the renderer (rcgi wins), and
+  // ddgi stays checked as the automatic fallback when rcgi is unavailable.
+  ImGui::Checkbox("RCGI (radiance-cached GI)", &settings.rcgi);
+  if (settings.rcgi) {
+    ImGui::SliderFloat("RCGI intensity", &settings.rcgi_intensity, 0.0f, 4.0f);
+  }
   ImGui::Checkbox("DDGI probes", &settings.ddgi);
   if (settings.ddgi) {
     ImGui::SliderFloat("Probe spacing", &settings.ddgi_spacing, 0.5f, 5.0f);

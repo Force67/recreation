@@ -433,10 +433,14 @@ void Engine::ApplyTrailerRenderMode(TrailerRenderMode mode) {
       s.water_reflections = false;
       s.ssr = true;
       s.ddgi = false;
+      s.rcgi = false;  // no ray query in the raster fallback
       s.ssgi = true;
       break;
     case TrailerRenderMode::kRayTracing:
-      // Full ray-traced hybrid: rt shadows, AO, reflections and probe GI.
+      // Full ray-traced hybrid: rt shadows, AO, reflections and RCGI (idTech8-style
+      // radiance-cached GI, the AC-Shadows adoption). ddgi stays enabled as the
+      // automatic fallback: the renderer's rcgi_active predicate runs whichever
+      // is available (rcgi when the system is up, ddgi otherwise).
       s.path_trace = false;
       s.rt_shadows = true;
       s.shadow_maps = false;
@@ -446,6 +450,7 @@ void Engine::ApplyTrailerRenderMode(TrailerRenderMode mode) {
       s.water_reflections = true;
       s.ssr = false;
       s.ddgi = true;
+      s.rcgi = true;
       s.ssgi = false;
       break;
     case TrailerRenderMode::kPathTracing:
@@ -457,6 +462,8 @@ void Engine::ApplyTrailerRenderMode(TrailerRenderMode mode) {
       s.rt_reflections = true;
       s.water_reflections = true;
       s.ddgi = true;
+      s.rcgi = true;  // inert while path_trace is on (rcgi_world gates it off), so
+                      // toggling PT off in this mode falls back to RCGI, not flat GI
       s.path_trace = true;
       break;
   }
