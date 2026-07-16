@@ -43,8 +43,10 @@ function(recreation_enable_mimalloc target)
   endif()
   target_compile_definitions(${target} PRIVATE RECREATION_MIMALLOC=1)
   if(WIN32)
-    # Layer 1: operator new/delete override compiled into this binary.
-    target_sources(${target} PRIVATE ${RECREATION_RX_DIR}/engine/core/mimalloc_override.cc)
+    # Layer 1: operator new/delete override compiled into this binary (rx's
+    # tracked operator layer; mimalloc_override.cc was folded into it when the
+    # memory-pool tracker landed).
+    target_sources(${target} PRIVATE ${RECREATION_RX_DIR}/engine/core/memory/new_override.cc)
     # Layer 2: dynamic override via the DLL, whose redirect patches the CRT.
     target_link_libraries(${target} PRIVATE mimalloc)
     add_custom_command(TARGET ${target} POST_BUILD
