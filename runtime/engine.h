@@ -525,6 +525,9 @@ class Engine : public app::Application {
   std::unique_ptr<net::BubbleVisualizer> bubble_viz_;
 #endif
 
+  // REC_NAV_DEBUG overlay storage: rebuilt each frame, spanned into the view.
+  base::Vector<render::DebugLine> nav_debug_lines_;
+
   // Shared service bundle handed to the subsystems, plus the subsystems
   // themselves (built in Initialize once the context is populated).
   EngineContext ctx_;

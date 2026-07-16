@@ -19,6 +19,7 @@ set(RECREATION_RUNTIME_SOURCES
   chargen.cc
   demo_scenes.cc
   interaction_system.cc
+  nav_service.cc
   npc_director.cc
   platform_hud.cc
   quest_director.cc
@@ -42,6 +43,8 @@ set(RECREATION_RUNTIME_MODULES
   rx::render
   rx::physics
   rx::anim
+  rx::nav
+  rx::nav_viz
   recreation::bethesda
   recreation::world
   recreation::quest

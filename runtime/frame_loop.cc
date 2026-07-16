@@ -15,6 +15,7 @@
 #include "core/math.h"
 #include "core/types.h"
 #include "engine_internal.h"
+#include "nav/nav_debug.h"
 #include "script/papyrus/value.h"
 #include "world/cell_streaming.h"
 #include "world/components.h"
@@ -43,6 +44,8 @@ static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
 static base::Option<float> Lightning{"lightning", 0.0f, "RX_LIGHTNING"};
 static base::Option<bool> AuthoredInterior{"interior.lighting", true, "RX_INTERIOR_LIGHTING"};
 static base::Option<const char*> UiShot{"ui.shot", nullptr, "RX_UI_SHOT"};
+static base::Option<bool> NavDebug{"nav.debug", false, "REC_NAV_DEBUG"};
+static base::Option<float> NavDebugRadius{"nav.debug.radius", 16.0f, "REC_NAV_DEBUG_RADIUS"};
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "RX_UI_SHOT_FRAMES"};
 // RX_FIXED_DT (golden-image capture) is owned by app::Host now.
 
@@ -191,7 +194,9 @@ void Engine::OnSimulate(f32 frame_delta) {
     ServerSimulateActors(frame_delta);
 #endif
     // Steer follower NPCs toward the player and scene guides toward their
-    // targets (host authoritative; streams to clients via actor sync).
+    // targets (host authoritative; streams to clients via actor sync). The
+    // navmesh bubble around the player fills first (time-sliced tile builds).
+    npc_->UpdateNav(frame_delta);
     npc_->UpdateFollowers(frame_delta);
     npc_->UpdateGuides(frame_delta);
     npc_->UpdateAmbient(frame_delta);  // idle sandbox for streamed NPCs
@@ -388,6 +393,23 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         }
       }
 #endif
+      // REC_NAV_DEBUG=1: overlay the exterior navmesh around the player (cells
+      // colored by area, cost hatching) and every live NPC corridor.
+      if (NavDebug.get() && npc_ && actors_) {
+        // Same anchor rule as the bubble itself: the camera, or the walking
+        // player when there is one.
+        Vec3 focus = camera_.position();
+        Vec3 ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) focus = ppos;
+        nav_debug_lines_.clear();
+        const NavService& nav = npc_->nav();
+        nav::AppendNavMeshLines(nav.mesh(), focus, NavDebugRadius.get(), &nav_debug_lines_);
+        nav.ForEachCorridor([&](u64, const nav::Corridor& corridor) {
+          nav::AppendCorridorLines(nav.mesh(), corridor, &nav_debug_lines_);
+        });
+        view.debug_lines =
+            std::span<const render::DebugLine>(nav_debug_lines_.begin(), nav_debug_lines_.size());
+      }
       if (editor_) editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
       if (streamer_) streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
       if (streamer_) {

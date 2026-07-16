@@ -30,7 +30,17 @@ bool IsActorInactive(ecs::World& world, ecs::Entity entity) {
 static base::Option<float> CwBattleDelay{"cw.battle.delay", 0.f, "RX_CW_BATTLE_DELAY"};
 
 NpcDirector::NpcDirector(EngineContext& ctx, ActorSystem* actors)
-    : ctx_(ctx), actors_(actors), world_(*ctx.world), physics_(*ctx.physics) {}
+    : ctx_(ctx), actors_(actors), world_(*ctx.world), physics_(*ctx.physics), nav_(ctx) {}
+
+void NpcDirector::UpdateNav(f32 dt) {
+  // The navmesh bubble follows the same anchor the cell streamer uses (the
+  // camera, or the walking player), so tiles are only ever sampled where
+  // terrain is actually resident.
+  Vec3 anchor = ctx_.camera ? ctx_.camera->position() : Vec3{};
+  Vec3 ppos;
+  if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+  nav_.Update(anchor, dt);
+}
 
 void NpcDirector::ArmMq101Demo(u64 quest_handle) {
   mq101_demo_quest_ = quest_handle;
@@ -206,8 +216,17 @@ void NpcDirector::UpdateAmbient(f32 dt) {
     if (state.walking) {
       if (steps < kMaxStepsPerFrame) {  // over the cap: stay walking, resume next frame
         ++steps;
-        const float goal[3] = {state.goal.x, state.goal.y, state.goal.z};
-        if (!StepNpcSteering(n.e, goal, n.t->position, n.t->rotation, kWalkSpeed, 0.6f, 0.4f, dt)) {
+        // Route the wander over the navmesh so idlers keep off steep banks and
+        // out of the river; interiors fall back to the straight steer.
+        const Vec3 self{n.t->position[0], n.t->position[1], n.t->position[2]};
+        const Vec3 wp = NavigateTo(n.handle, self, state.goal);
+        const float goal[3] = {wp.x, wp.y, wp.z};
+        const bool at_waypoint =
+            !StepNpcSteering(n.e, goal, n.t->position, n.t->rotation, kWalkSpeed, 0.6f, 0.4f, dt);
+        // Only an arrival at the actual wander goal ends the walk; reaching an
+        // intermediate funnel corner just continues along the corridor.
+        const f32 gdx = wp.x - state.goal.x, gdz = wp.z - state.goal.z;
+        if (at_waypoint && gdx * gdx + gdz * gdz < 1.0f) {
           state.walking = false;
           state.idle_timer = AmbientRand(kIdleMin, kIdleMax);
         }
@@ -258,6 +277,7 @@ void NpcDirector::LeaveCombat(u64 attacker) { combat_.erase(attacker); }
 
 void NpcDirector::OnActorDied(u64 actor) {
   combat_.erase(actor);  // the dead actor stops fighting
+  nav_.Forget(actor);    // and stops holding a corridor
   // Anyone fighting the dead actor disengages (their target is now a corpse).
   base::Vector<u64> idle;
   combat_.ForEach([&](u64 attacker, CombatState& cs) {
@@ -914,6 +934,7 @@ void NpcDirector::UpdateFollowers(f32 dt) {
     ecs::Entity entity;
     i32 slot;
     world::Transform* transform;
+    u64 form;  // corridor identity for the navmesh
   };
   base::Vector<Follower> followers;
   base::Vector<float> positions;  // xyz per follower, parallel to `followers`
@@ -922,7 +943,7 @@ void NpcDirector::UpdateFollowers(f32 dt) {
         if (IsActorInactive(world_, e)) return;
         const i32* slot = followers_.find(link.form.packed());
         if (!slot) return;
-        followers.push_back({e, *slot, &t});
+        followers.push_back({e, *slot, &t, link.form.packed()});
         positions.push_back(t.position[0]);
         positions.push_back(t.position[1]);
         positions.push_back(t.position[2]);
@@ -965,14 +986,17 @@ void NpcDirector::UpdateFollowers(f32 dt) {
     // Route the slot through pathfinding so a follower behind a wall rounds it
     // instead of pressing into it; close, clear slots resolve to a straight line.
     const Vec3 self{t->position[0], t->position[1], t->position[2]};
-    const Vec3 wp = NavigateTo(self, Vec3{goal[0], goal[1], goal[2]});
+    const Vec3 wp = NavigateTo(followers[i].form, self, Vec3{goal[0], goal[1], goal[2]});
     const float nav_goal[3] = {wp.x, wp.y, wp.z};
     StepNpcSteering(followers[i].entity, nav_goal, t->position, t->rotation, params.speed,
                     params.arrive_radius, params.stop_radius, dt);
   }
 }
 
-Vec3 NpcDirector::NavigateTo(const Vec3& from, const Vec3& goal) {
+Vec3 NpcDirector::NavigateTo(u64 nav_id, const Vec3& from, const Vec3& goal) {
+  // Streamed exterior terrain: the cost-aware navmesh corridor (slopes and
+  // water priced in, event-based repathing, funnel steering).
+  if (nav_.Covers(from)) return nav_.Step(nav_id, from, goal);
   if (!physics_.initialized()) return goal;
   // Route over a cached, cell-spanning navgrid (built from downward floor rays)
   // so an NPC or the player rounds interior walls toward the goal. The grid is
@@ -992,7 +1016,9 @@ Vec3 NpcDirector::NavigateTo(const Vec3& from, const Vec3& goal) {
   return navgrid_.Next(from, goal);
 }
 
-Vec3 NpcDirector::PathToward(const Vec3& from, const Vec3& goal) { return NavigateTo(from, goal); }
+Vec3 NpcDirector::PathToward(const Vec3& from, const Vec3& goal) {
+  return NavigateTo(kPlayerNavId, from, goal);
+}
 
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
@@ -1006,7 +1032,9 @@ void NpcDirector::UpdateGuides(f32 dt) {
         if (IsActorInactive(world_, e)) return;
         const Vec3* target = guides_.find(link.form.packed());
         if (!target) return;
-        const Vec3 wp = NavigateTo(Vec3{t.position[0], t.position[1], t.position[2]}, *target);
+        const Vec3 wp =
+            NavigateTo(link.form.packed(), Vec3{t.position[0], t.position[1], t.position[2]},
+                       *target);
         const float goal[3] = {wp.x, wp.y, wp.z};
         StepNpcSteering(e, goal, t.position, t.rotation, 2.8f, 2.0f, 1.0f, dt);
       });

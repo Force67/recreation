@@ -13,6 +13,7 @@
 #include "quest/scene.h"
 #include "world/combat.h"
 #include "world/components.h"
+#include "nav_service.h"
 #include "world/navgrid.h"
 #include "world/quest_world.h"
 
@@ -71,9 +72,13 @@ class NpcDirector {
   // so it flows through the normal OnDeath path). Returns true if it connected.
   bool PlayerMeleeStrike(const Vec3& pos, f32 yaw);
   // A reachable waypoint from `from` toward `goal` that rounds interior walls
-  // (grid A* over a downward-ray floor map). Lets the engine route the walking
-  // player through the keep instead of pressing it straight into geometry.
+  // (grid A* over a downward-ray floor map) or, on streamed exterior terrain,
+  // follows the cost-aware navmesh corridor. Routes the walking player.
   Vec3 PathToward(const Vec3& from, const Vec3& goal);
+  // Per-tick navmesh bubble maintenance around the player (time-sliced tile
+  // builds, corridor budgets). Call once per sim tick, before the NPC updates.
+  void UpdateNav(f32 dt);
+  NavService& nav() { return nav_; }
   void Mq101DemoTick(f32 dt);
   void Mq101SceneTick(f32 dt);
 
@@ -165,7 +170,11 @@ class NpcDirector {
   void AvoidObstacles(const float self_pos[3], const float goal_dir[3], float out_dir[3]);
   bool StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3], float rot[4],
                        float speed, float arrive_radius, float stop_radius, f32 dt);
-  Vec3 NavigateTo(const Vec3& from, const Vec3& goal);
+  // The next waypoint from `from` toward `goal` for actor `nav_id` (a form
+  // handle; kPlayerNavId for the player). Exterior streamed terrain routes
+  // over the cost-aware rx::nav corridor (event-based repathing); interiors
+  // fall back to the cached raycast navgrid.
+  Vec3 NavigateTo(u64 nav_id, const Vec3& from, const Vec3& goal);
   // Resolves a form handle to its live world entity and transform (the player,
   // streamed NPCs, and quest-spawned refs). False if it has no body in the world
   // yet (e.g. an actor in an unstreamed cell), in which case the combatant stays
@@ -186,6 +195,7 @@ class NpcDirector {
   physics::PhysicsWorld& physics_;
 
   world::NavGrid navgrid_;  // cached interior routing for followers/guides/player
+  NavService nav_;          // exterior cost-aware navmesh (streamed terrain)
   base::UnorderedMap<u64, i32> followers_;
   base::UnorderedMap<u64, Vec3> guides_;
   // Ambient-wander state per nearby NPC (keyed by its form handle), pruned each
