@@ -32,6 +32,17 @@ jobs:
           repository: Force67/rx
           path: rx
           submodules: recursive
+      - name: companion rx branch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: rx
+        env:
+          RX_COMPANION_REF: ${{ github.head_ref }}
+        run: |
+          if git fetch origin "$RX_COMPANION_REF"; then
+            git checkout --detach FETCH_HEAD
+            git submodule update --init --recursive
+          fi
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -128,6 +139,17 @@ jobs:
           repository: Force67/rx
           path: rx
           submodules: recursive
+      - name: companion rx branch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: rx
+        env:
+          RX_COMPANION_REF: ${{ github.head_ref }}
+        run: |
+          if git fetch origin "$RX_COMPANION_REF"; then
+            git checkout --detach FETCH_HEAD
+            git submodule update --init --recursive
+          fi
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -209,6 +231,17 @@ jobs:
           repository: Force67/rx
           path: rx
           submodules: recursive
+      - name: companion rx branch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: rx
+        env:
+          RX_COMPANION_REF: ${{ github.head_ref }}
+        run: |
+          if git fetch origin "$RX_COMPANION_REF"; then
+            git checkout --detach FETCH_HEAD
+            git submodule update --init --recursive
+          fi
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -305,6 +338,17 @@ jobs:
           repository: Force67/rx
           path: rx
           submodules: recursive
+      - name: companion rx branch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: rx
+        env:
+          RX_COMPANION_REF: ${{ github.head_ref }}
+        run: |
+          if git fetch origin "$RX_COMPANION_REF"; then
+            git checkout --detach FETCH_HEAD
+            git submodule update --init --recursive
+          fi
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -385,6 +429,17 @@ jobs:
           repository: Force67/rx
           path: rx
           submodules: recursive
+      - name: companion rx branch
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: rx
+        env:
+          RX_COMPANION_REF: ${{ github.head_ref }}
+        run: |
+          if git fetch origin "$RX_COMPANION_REF"; then
+            git checkout --detach FETCH_HEAD
+            git submodule update --init --recursive
+          fi
       - name: kinema
         uses: actions/checkout@v4
         with:
