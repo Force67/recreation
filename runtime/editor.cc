@@ -1,5 +1,7 @@
 #include "editor.h"
 
+#include <base/option.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -8,8 +10,6 @@
 #include <cstring>
 #include <filesystem>
 #include <utility>
-
-#include <base/option.h>
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
@@ -29,6 +29,7 @@ namespace {
 // Config overrides, populated from the environment by
 // base::InitOptionsFromEnv() at startup.
 base::Option<bool> EditorDemo{"editor.demo", false, "RX_EDITOR_DEMO"};
+base::Option<bool> EditorTerrain{"editor.terrain", false, "RX_EDITOR_TERRAIN"};
 base::Option<bool> Cam{"cam", false, "RX_CAM"};
 
 constexpr f32 kFovY = 1.0472f;           // matches CameraPose::fov_y (60 degrees)
@@ -71,9 +72,17 @@ void MapEditor::Toggle() {
     if (!layout_loaded_) {
       layout_loaded_ = true;
       LoadLayout();
+      LoadTerrain();
       if (EditorDemo) PlaceDemoBuild();
+    } else if (terrain_load_failed_) {
+      LoadTerrain();
+    }
+    if (EditorTerrain) {
+      EnterTerrainMode(world::TerrainBrushMode::kRaise);
+      if (!terrain_load_failed_) SetStatus("Terrain sculpt: drag to raise, Shift lowers");
     }
   } else {
+    ExitTerrainMode();
     selected_.clear();
     moving_ = false;
     brush_ = -1;
@@ -174,7 +183,9 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
 
     // A move gesture rigidly drags the whole selection so it follows the aim
     // point until a click confirms it (or Esc cancels and restores).
-    if (moving_) {
+    if (terrain_mode_) {
+      UpdateTerrainStroke(input);
+    } else if (moving_) {
       Vec3 aim;
       if (AimPoint(input, &aim)) {
         const Vec3 delta{aim.x - move_pivot_.x, aim.y - move_pivot_.y, aim.z - move_pivot_.z};
@@ -225,9 +236,17 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
         marquee_dragging_ = true;
         marquee_x0_ = marquee_x1_ = input.mouse_x;
         marquee_y0_ = marquee_y1_ = input.mouse_y;
+        if (ctx_.game_ui) {
+          ctx_.game_ui->ScalePointer(marquee_x0_, marquee_y0_, &marquee_x0_, &marquee_y0_);
+          marquee_x1_ = marquee_x0_;
+          marquee_y1_ = marquee_y0_;
+        }
       } else if (lmb && marquee_dragging_) {
         marquee_x1_ = input.mouse_x;
         marquee_y1_ = input.mouse_y;
+        if (ctx_.game_ui) {
+          ctx_.game_ui->ScalePointer(marquee_x1_, marquee_y1_, &marquee_x1_, &marquee_y1_);
+        }
       } else if (!lmb && marquee_dragging_) {
         marquee_dragging_ = false;
         const f32 ddx = marquee_x1_ - marquee_x0_, ddy = marquee_y1_ - marquee_y0_;
@@ -290,7 +309,7 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
     return;
   }
   if (input.key_pressed(Key::kF5)) {
-    SaveLayout();
+    SaveEditorData();
     return;
   }
   if (input.key_pressed(Key::kB)) {
@@ -300,7 +319,11 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
   PruneDeadSelection();
 
   if (input.key_pressed(Key::kEscape)) {
-    if (brush_ >= 0) {
+    if (terrain_mode_) {
+      ExitTerrainMode();
+      tool_ = 0;
+      SetStatus("Select mode");
+    } else if (brush_ >= 0) {
       brush_ = -1;
       SetStatus("Brush cleared");
     } else if (prefab_armed_) {
@@ -343,10 +366,147 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
 
 void MapEditor::ArmBrush(int catalog_index) {
   if (catalog_index < 0 || catalog_index >= static_cast<int>(catalog_.size())) return;
+  ExitTerrainMode();
   brush_ = catalog_index;
   moving_ = false;
   marquee_dragging_ = false;
   SetStatus("Placing: " + catalog_[brush_].name + "  (click to drop, Esc to clear)");
+}
+
+void MapEditor::EnterTerrainMode(world::TerrainBrushMode mode, int toolbar_tool) {
+  if (terrain_mode_) ExitTerrainMode();
+  terrain_mode_ = true;
+  terrain_brush_mode_ = mode;
+  terrain_stroke_active_ = false;
+  terrain_stroke_ = {};
+  terrain_stroke_cells_.clear();
+  brush_ = -1;
+  prefab_armed_ = false;
+  moving_ = false;
+  marquee_dragging_ = false;
+  selected_.clear();
+  tool_ = toolbar_tool;
+  ClearGhost();
+}
+
+void MapEditor::ExitTerrainMode() {
+  FinishTerrainStroke();
+  terrain_mode_ = false;
+  terrain_has_aim_ = false;
+  terrain_debug_lines_.clear();
+}
+
+void MapEditor::FinishTerrainStroke() {
+  if (!terrain_stroke_active_) return;
+  terrain_stroke_active_ = false;
+  world::TerrainEditChange refresh = terrain_stroke_;
+  refresh.cells.insert(refresh.cells.end(), terrain_stroke_cells_.begin(),
+                       terrain_stroke_cells_.end());
+  std::sort(refresh.cells.begin(), refresh.cells.end());
+  refresh.cells.erase(std::unique(refresh.cells.begin(), refresh.cells.end()), refresh.cells.end());
+  if (!refresh.cells.empty() && ctx_.streamer && ctx_.world)
+    ctx_.streamer->RefreshTerrainDerived(*ctx_.world, refresh);
+  if (!terrain_stroke_.empty()) {
+    UndoOp op;
+    op.kind = UndoKind::kTerrain;
+    op.terrain = std::move(terrain_stroke_);
+    op.terrain_applied = true;
+    PushEdit(op);
+    SetStatus("Terrain stroke: " + std::to_string(op.terrain.samples.size()) + " samples");
+  }
+  terrain_stroke_ = {};
+  terrain_stroke_cells_.clear();
+}
+
+void MapEditor::UpdateTerrainStroke(const InputState& input) {
+  if (!ctx_.streamer || !ctx_.world) return;
+  const bool lmb = input.button(MouseButton::kLeft);
+  const bool can_paint = !PointerOverUi(input) && !ctx_.camera->looking();
+  Vec3 aim;
+  terrain_has_aim_ = can_paint && TerrainAimPoint(input, &aim);
+  if (terrain_has_aim_) terrain_aim_ = aim;
+
+  if (lmb && can_paint && terrain_has_aim_) {
+    world::TerrainEditChange frame_change;
+    auto record_dab = [&](world::TerrainEditChange change) {
+      world::TerrainEditChange merged_stroke = terrain_stroke_;
+      world::TerrainEditChange merged_frame = frame_change;
+      if (!world::MergeTerrainEditChanges(&merged_stroke, change) ||
+          !world::MergeTerrainEditChanges(&merged_frame, change)) {
+        ctx_.streamer->RevertTerrainChange(*ctx_.world, change);
+        SetStatus("Terrain stroke merge rejected");
+        return false;
+      }
+      terrain_stroke_ = std::move(merged_stroke);
+      frame_change = std::move(merged_frame);
+      terrain_stroke_cells_.insert(terrain_stroke_cells_.end(), change.cells.begin(),
+                                   change.cells.end());
+      return true;
+    };
+    world::TerrainBrushMode mode = terrain_brush_mode_;
+    if (input.key(Key::kLeftShift)) {
+      if (mode == world::TerrainBrushMode::kRaise)
+        mode = world::TerrainBrushMode::kLower;
+      else if (mode == world::TerrainBrushMode::kLower)
+        mode = world::TerrainBrushMode::kRaise;
+    }
+    if (!terrain_stroke_active_) {
+      terrain_stroke_active_ = true;
+      terrain_stroke_ = {};
+      terrain_stroke_cells_.clear();
+      terrain_last_dab_ = terrain_aim_;
+      terrain_flatten_y_ = terrain_aim_.y;
+      world::TerrainEditChange change = ctx_.streamer->ApplyTerrainBrush(
+          *ctx_.world, mode, terrain_aim_.x, terrain_aim_.z, terrain_radius_, terrain_strength_,
+          terrain_flatten_y_, false);
+      record_dab(std::move(change));
+    } else {
+      const f32 dx = terrain_aim_.x - terrain_last_dab_.x;
+      const f32 dz = terrain_aim_.z - terrain_last_dab_.z;
+      const f32 spacing =
+          std::max(ctx_.streamer->terrain_sample_spacing() * 0.75f, terrain_radius_ * 0.2f);
+      const f32 distance = std::hypot(dx, dz);
+      if (distance >= spacing) {
+        const Vec3 start = terrain_last_dab_;
+        const int steps = std::min(64, static_cast<int>(distance / spacing));
+        for (int i = 1; i <= steps; ++i) {
+          const Vec3 position =
+              start + (terrain_aim_ - start) * (static_cast<f32>(i) * spacing / distance);
+          world::TerrainEditChange change = ctx_.streamer->ApplyTerrainBrush(
+              *ctx_.world, mode, position.x, position.z, terrain_radius_, terrain_strength_,
+              terrain_flatten_y_, false);
+          if (!record_dab(std::move(change))) break;
+          terrain_last_dab_ = position;
+        }
+        SetStatus("Sculpting terrain");
+      }
+    }
+    if (!frame_change.empty()) ctx_.streamer->RefreshTerrainGeometry(*ctx_.world, frame_change);
+  }
+
+  if (!lmb && terrain_stroke_active_) {
+    FinishTerrainStroke();
+  }
+}
+
+void MapEditor::EmitTerrainBrush(render::FrameView& view) {
+  terrain_debug_lines_.clear();
+  if (!active_ || !terrain_mode_ || !terrain_has_aim_ || !ctx_.streamer) return;
+  constexpr int kSegments = 64;
+  constexpr f32 kTau = 6.28318530718f;
+  constexpr u32 kColor = 0x7c8cffff;
+  Vec3 previous;
+  for (int i = 0; i <= kSegments; ++i) {
+    const f32 angle = static_cast<f32>(i) * kTau / kSegments;
+    Vec3 point{terrain_aim_.x + std::cos(angle) * terrain_radius_, terrain_aim_.y + 0.06f,
+               terrain_aim_.z + std::sin(angle) * terrain_radius_};
+    f32 ground = 0;
+    if (ctx_.streamer->GroundHeight(point.x, point.z, &ground)) point.y = ground + 0.06f;
+    if (i > 0) terrain_debug_lines_.push_back({previous, point, kColor});
+    previous = point;
+  }
+  view.debug_lines_overlay =
+      std::span<const render::DebugLine>(terrain_debug_lines_.data(), terrain_debug_lines_.size());
 }
 
 ecs::Entity MapEditor::PlaceArmedAt(const Vec3& pos, f32 yaw) {
@@ -599,7 +759,8 @@ void MapEditor::DuplicateSelection() {
     Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
     ecs::Entity copy = streamer->PlaceObject(*ctx_.world, src.base, pos, t->rotation, user_scale);
     if (copy == ecs::kInvalidEntity) continue;
-    placed_.push_back({copy, src.base, src.name, src.domain, src.category, src.type, src.editor_id});
+    placed_.push_back(
+        {copy, src.base, src.name, src.domain, src.category, src.type, src.editor_id});
     PushEdit({UndoKind::kPlace, copy, src.base, {}, src.name, src.domain});
     copies.push_back(copy);
   }
@@ -704,7 +865,7 @@ void MapEditor::StampPrefab(const Vec3& at) {
   }
 }
 
-MapEditor::UndoOp MapEditor::ApplyAndInvert(const UndoOp& op) {
+std::optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
   UndoOp inv = op;
   switch (op.kind) {
     case UndoKind::kPlace: {
@@ -712,7 +873,8 @@ MapEditor::UndoOp MapEditor::ApplyAndInvert(const UndoOp& op) {
       inv.kind = UndoKind::kDelete;
       if (const world::Transform* t = ctx_.world->Get<world::Transform>(op.entity))
         inv.transform = *t;
-      if (ctx_.world->IsAlive(op.entity)) ctx_.world->Destroy(op.entity);
+      if (!ctx_.world->IsAlive(op.entity)) return std::nullopt;
+      ctx_.world->Destroy(op.entity);
       placed_.erase(std::remove_if(placed_.begin(), placed_.end(),
                                    [&](const PlacedObject& p) { return p.entity == op.entity; }),
                     placed_.end());
@@ -733,6 +895,7 @@ MapEditor::UndoOp MapEditor::ApplyAndInvert(const UndoOp& op) {
         placed_.push_back({e, op.base, op.name, op.domain});
         selected_ = {e};
       }
+      if (e == ecs::kInvalidEntity) return std::nullopt;
       inv.kind = UndoKind::kPlace;
       inv.entity = e;
       break;
@@ -743,7 +906,21 @@ MapEditor::UndoOp MapEditor::ApplyAndInvert(const UndoOp& op) {
       if (world::Transform* t = ctx_.world->Get<world::Transform>(op.entity)) {
         inv.transform = *t;
         *t = op.transform;
+      } else {
+        return std::nullopt;
       }
+      break;
+    }
+    case UndoKind::kTerrain: {
+      if (!ctx_.streamer || !ctx_.world) return std::nullopt;
+      const bool ok = op.terrain_applied
+                          ? ctx_.streamer->RevertTerrainChange(*ctx_.world, op.terrain)
+                          : ctx_.streamer->ApplyTerrainChange(*ctx_.world, op.terrain);
+      if (!ok) {
+        SetStatus("Terrain undo rejected: edit state changed");
+        return std::nullopt;
+      }
+      inv.terrain_applied = !op.terrain_applied;
       break;
     }
   }
@@ -751,24 +928,30 @@ MapEditor::UndoOp MapEditor::ApplyAndInvert(const UndoOp& op) {
 }
 
 void MapEditor::Undo() {
+  FinishTerrainStroke();
   if (undo_.empty()) {
     SetStatus("Nothing to undo");
     return;
   }
   UndoOp op = undo_.back();
+  std::optional<UndoOp> inverse = ApplyAndInvert(op);
+  if (!inverse) return;
   undo_.pop_back();
-  redo_.push_back(ApplyAndInvert(op));
+  redo_.push_back(std::move(*inverse));
   SetStatus("Undid");
 }
 
 void MapEditor::Redo() {
+  FinishTerrainStroke();
   if (redo_.empty()) {
     SetStatus("Nothing to redo");
     return;
   }
   UndoOp op = redo_.back();
+  std::optional<UndoOp> inverse = ApplyAndInvert(op);
+  if (!inverse) return;
   redo_.pop_back();
-  undo_.push_back(ApplyAndInvert(op));
+  undo_.push_back(std::move(*inverse));
   SetStatus("Redid");
 }
 
@@ -821,11 +1004,12 @@ world::Transform* MapEditor::SelectedTransform() {
 bool MapEditor::PointerOverUi(const InputState& input) const {
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
-  const f32 x = input.mouse_x, y = input.mouse_y;
-  if (y < kEdToolbarH) return true;          // toolbar
-  if (y > h - kEdStatusH) return true;       // status bar
-  if (x < kEdSceneW) return true;            // left scene/assets dock
-  if (x > w - kEdInspectorW) return true;    // inspector dock (always shown)
+  f32 x = input.mouse_x, y = input.mouse_y;
+  if (ctx_.game_ui) ctx_.game_ui->ScalePointer(x, y, &x, &y);
+  if (y < kEdToolbarH) return true;        // toolbar
+  if (y > h - kEdStatusH) return true;     // status bar
+  if (x < kEdSceneW) return true;          // left scene/assets dock
+  if (x > w - kEdInspectorW) return true;  // inspector dock (always shown)
   // Bottom asset-browser dock, between the side docks above the status bar.
   if (y > h - kEdStatusH - kEdBrowserH) return true;
   return false;
@@ -840,14 +1024,23 @@ Vec3 MapEditor::CursorRayDir(const InputState& input) const {
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
   const f32 aspect = h > 0 ? w / h : 1.0f;
   const f32 tan_half = std::tan(kFovY * 0.5f);
-  const f32 ndc_x = w > 0 ? (2.0f * input.mouse_x / w - 1.0f) : 0.0f;
-  const f32 ndc_y = h > 0 ? (1.0f - 2.0f * input.mouse_y / h) : 0.0f;
+  f32 pointer_x = input.mouse_x, pointer_y = input.mouse_y;
+  if (ctx_.game_ui) ctx_.game_ui->ScalePointer(pointer_x, pointer_y, &pointer_x, &pointer_y);
+  const f32 ndc_x = w > 0 ? (2.0f * pointer_x / w - 1.0f) : 0.0f;
+  const f32 ndc_y = h > 0 ? (1.0f - 2.0f * pointer_y / h) : 0.0f;
   Vec3 dir = fwd + right * (ndc_x * aspect * tan_half) + up * (ndc_y * tan_half);
   (void)eye;
   return Normalize(dir);
 }
 
 bool MapEditor::AimPoint(const InputState& input, Vec3* out) const {
+  if (TerrainAimPoint(input, out)) return true;
+  // No ground (interior, or aimed at the sky): drop it a fixed distance ahead.
+  *out = Snap(ctx_.camera->position() + CursorRayDir(input) * kFallbackDist);
+  return true;
+}
+
+bool MapEditor::TerrainAimPoint(const InputState& input, Vec3* out) const {
   const Vec3 eye = ctx_.camera->position();
   const Vec3 dir = CursorRayDir(input);
   // March the cursor ray until it dips below the streamed terrain.
@@ -863,9 +1056,7 @@ bool MapEditor::AimPoint(const InputState& input, Vec3* out) const {
       }
     }
   }
-  // No ground (interior, or aimed at the sky): drop it a fixed distance ahead.
-  *out = Snap(eye + dir * kFallbackDist);
-  return true;
+  return false;
 }
 
 Vec3 MapEditor::Snap(const Vec3& p) const {
@@ -952,20 +1143,50 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
   switch (e.kind) {
     case K::kTool:
       switch (e.index) {
-        case 0: brush_ = -1; moving_ = false; tool_ = 0; SetStatus("Select mode"); break;
-        case 1: tool_ = 1; BeginMove(); break;
-        case 2: tool_ = 2; RotateSelection(kRotateStep); break;
-        case 3: SetStatus("Terrain sculpting is not available yet"); break;
-        case 4: SetStatus("Paint: arm an asset, hold and drag to scatter"); break;
-        case 5: Toggle(); break;  // Play leaves the editor and resumes play
-        case 6: SaveLayout(); break;
-        case 7: Undo(); break;
-        case 8: Redo(); break;
-        default: break;
+        case 0:
+          ExitTerrainMode();
+          brush_ = -1;
+          moving_ = false;
+          tool_ = 0;
+          SetStatus("Select mode");
+          break;
+        case 1:
+          ExitTerrainMode();
+          tool_ = 1;
+          BeginMove();
+          break;
+        case 2:
+          ExitTerrainMode();
+          tool_ = 2;
+          RotateSelection(kRotateStep);
+          break;
+        case 3:
+          EnterTerrainMode(world::TerrainBrushMode::kRaise);
+          SetStatus("Terrain sculpt: drag to raise, Shift lowers");
+          break;
+        case 4:
+          EnterTerrainMode(world::TerrainBrushMode::kSmooth, 4);
+          SetStatus("Smooth terrain selected. Texture paint remains in generic rx terrain.");
+          break;
+        case 5:
+          Toggle();
+          break;  // Play leaves the editor and resumes play
+        case 6:
+          SaveEditorData();
+          break;
+        case 7:
+          Undo();
+          break;
+        case 8:
+          Redo();
+          break;
+        default:
+          break;
       }
       break;
     case K::kGizmo:
       if (e.index >= 0 && e.index < 4) {
+        ExitTerrainMode();
         tool_ = e.index;
         if (e.index == 1)
           BeginMove();
@@ -1012,7 +1233,9 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       if (n.kind == 2)
         toggle(n.entity);
       else if (n.kind == 1)
-        for (const PlacedObject& p : placed_) { if (p.category == n.category) toggle(p.entity); }
+        for (const PlacedObject& p : placed_) {
+          if (p.category == n.category) toggle(p.entity);
+        }
       else
         for (const PlacedObject& p : placed_) toggle(p.entity);
       break;
@@ -1062,6 +1285,34 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       grid_index_ = (grid_index_ + 1) % kGridCount;
       snap_grid_ = kGridSizes[grid_index_];
       SetStatus(std::string("Grid ") + kGridLabels[grid_index_]);
+      break;
+    case K::kTerrainMode:
+      if (e.index >= 0 && e.index < 4) {
+        EnterTerrainMode(static_cast<world::TerrainBrushMode>(e.index));
+        static const char* names[] = {"Raise", "Lower", "Smooth", "Flatten"};
+        SetStatus(std::string("Terrain brush: ") + names[e.index]);
+      }
+      break;
+    case K::kTerrainRadius:
+      terrain_radius_ = std::clamp(terrain_radius_ * (e.index < 0 ? 0.8f : 1.25f), 0.5f, 100.0f);
+      break;
+    case K::kTerrainStrength:
+      terrain_strength_ =
+          std::clamp(terrain_strength_ * (e.index < 0 ? 0.8f : 1.25f), 0.01f, 10.0f);
+      break;
+    case K::kTerrainReset:
+      if (ctx_.streamer && ctx_.world) {
+        FinishTerrainStroke();
+        world::TerrainEditChange change = ctx_.streamer->ResetTerrainEdits(*ctx_.world);
+        if (!change.empty()) {
+          UndoOp op;
+          op.kind = UndoKind::kTerrain;
+          op.terrain = std::move(change);
+          op.terrain_applied = true;
+          PushEdit(op);
+          SetStatus("Terrain edits reset (undo available)");
+        }
+      }
       break;
   }
 }
@@ -1121,7 +1372,8 @@ void MapEditor::GenerateThumbnails() {
       thumb_failed_.insert(key);
       return;
     }
-    const u64 tex = ctx_.game_ui->CreateUiTexture(thumber_->size(), thumber_->size(), pixels.data());
+    const u64 tex =
+        ctx_.game_ui->CreateUiTexture(thumber_->size(), thumber_->size(), pixels.data());
     if (tex)
       thumb_tex_[key] = tex;
     else
@@ -1173,9 +1425,18 @@ void MapEditor::PushView() {
 
   // Toolbar highlight (Select/Move/Rotate map to buttons 0..2); gizmo bar mirrors
   // the gizmo mode 0..3.
-  v.tool = (tool_ <= 2) ? tool_ : -1;
+  v.tool = terrain_mode_ ? tool_ : ((tool_ <= 2) ? tool_ : -1);
   if (moving_) v.tool = 1;
-  v.gizmo = tool_;
+  v.gizmo = terrain_mode_ ? 0 : tool_;
+  v.terrain_mode = terrain_mode_;
+  v.terrain_brush_mode = static_cast<int>(terrain_brush_mode_);
+  v.terrain_radius = terrain_radius_;
+  v.terrain_strength = terrain_strength_;
+  v.terrain_path = terrain_path_;
+  if (ctx_.streamer) {
+    v.terrain_sample_count = ctx_.streamer->terrain_edit_sample_count();
+    v.terrain_dirty = ctx_.streamer->terrain_edits_dirty();
+  }
   v.left_tab = left_tab_;
   v.scene_search = scene_search_;
   v.scene_search_focused = scene_search_focused_;
@@ -1219,8 +1480,7 @@ void MapEditor::PushView() {
         leaf.depth = 2;
         leaf.icon = (cat == 6) ? 2 : 3;  // lights vs meshes
         leaf.name = clip(p->name, 22);
-        leaf.selected =
-            std::find(selected_.begin(), selected_.end(), p->entity) != selected_.end();
+        leaf.selected = std::find(selected_.begin(), selected_.end(), p->entity) != selected_.end();
         leaf.hidden = ctx_.world->Has<world::Hidden>(p->entity);
         rows.push_back(leaf);
         flat.push_back({2, cat, p->entity});
@@ -1228,7 +1488,8 @@ void MapEditor::PushView() {
     }
   }
   v.tree_total = static_cast<int>(rows.size());
-  tree_scroll_ = std::clamp(tree_scroll_, 0, std::max(0, static_cast<int>(rows.size()) - kEdTreeRows));
+  tree_scroll_ =
+      std::clamp(tree_scroll_, 0, std::max(0, static_cast<int>(rows.size()) - kEdTreeRows));
   tree_targets_.clear();
   for (int i = 0; i < kEdTreeRows && tree_scroll_ + i < static_cast<int>(rows.size()); ++i) {
     v.tree.push_back(rows[tree_scroll_ + i]);
@@ -1288,11 +1549,9 @@ void MapEditor::PushView() {
       Quat q{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
       const f32 sinp = std::clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f);
       v.rot[0] = std::asin(sinp) * 57.29578f;
-      v.rot[1] = std::atan2(2.0f * (q.w * q.y + q.z * q.x),
-                            1.0f - 2.0f * (q.x * q.x + q.y * q.y)) *
+      v.rot[1] = std::atan2(2.0f * (q.w * q.y + q.z * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y)) *
                  57.29578f;
-      v.rot[2] = std::atan2(2.0f * (q.w * q.z + q.x * q.y),
-                            1.0f - 2.0f * (q.z * q.z + q.x * q.x)) *
+      v.rot[2] = std::atan2(2.0f * (q.w * q.z + q.x * q.y), 1.0f - 2.0f * (q.z * q.z + q.x * q.x)) *
                  57.29578f;
       const f32 us = t->scale / kUnitsToMeters;
       v.scale[0] = v.scale[1] = v.scale[2] = us;
@@ -1319,7 +1578,8 @@ void MapEditor::PushView() {
         v.material_name = (v.sel_type.empty() ? std::string("Default") : v.sel_type) + "_mat";
         v.model_thumb = ThumbTexFor(po->base.packed());
         v.tags.push_back(GroupName(po->category));
-        if (domains_.size() > 1 && po->domain >= 0 && po->domain < static_cast<int>(domains_.size()))
+        if (domains_.size() > 1 && po->domain >= 0 &&
+            po->domain < static_cast<int>(domains_.size()))
           v.tags.push_back(domains_[po->domain].name);
       } else {
         v.tags.push_back("Object");

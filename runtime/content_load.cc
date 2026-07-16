@@ -478,6 +478,15 @@ bool LoadGameData(Engine& engine) {
   if (!self->config_.headless) {
     world::CellStreamer::Uploads uploads;
     uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
+    uploads.dynamic_mesh = [self](const asset::Mesh& mesh) {
+      return self->renderer_->UpdateDynamicMesh(mesh);
+    };
+    uploads.remove_dynamic_mesh = [self](asset::AssetId mesh) {
+      return self->renderer_->RemoveDynamicMesh(mesh);
+    };
+    uploads.sync_dynamic_mesh = [self](const asset::Mesh& mesh) {
+      return self->renderer_->SyncDynamicMeshRayTracing(mesh);
+    };
     uploads.texture = [self](const asset::Texture& texture) {
       return self->renderer_->UploadTexture(texture);
     };
@@ -663,6 +672,15 @@ void SetupExtraStreamers(Engine& engine) {
     world::CellStreamer::Uploads uploads;
     uploads.mesh = [self, salt](const asset::Mesh& mesh) {
       return self->renderer_->UploadMesh(mesh, salt);
+    };
+    uploads.dynamic_mesh = [self, salt](const asset::Mesh& mesh) {
+      return self->renderer_->UpdateDynamicMesh(mesh, salt);
+    };
+    uploads.remove_dynamic_mesh = [self, salt](asset::AssetId mesh) {
+      return self->renderer_->RemoveDynamicMesh(mesh, salt);
+    };
+    uploads.sync_dynamic_mesh = [self, salt](const asset::Mesh& mesh) {
+      return self->renderer_->SyncDynamicMeshRayTracing(mesh, salt);
     };
     uploads.texture = [self, salt](const asset::Texture& texture) {
       return self->renderer_->UploadTexture(texture, salt);

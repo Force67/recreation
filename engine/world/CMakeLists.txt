@@ -6,6 +6,7 @@ recreation_add_module(world
   prop_streaming.cc
   quest_world.cc
   navgrid.cc
+  terrain_edits.cc
 )
 
 target_link_libraries(recreation_world PUBLIC rx::physics)

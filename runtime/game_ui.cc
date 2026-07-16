@@ -4,6 +4,7 @@
 
 #if defined(RECREATION_HAS_UGUI)
 
+#include <base/option.h>
 #include <ugui/core/color.h>
 #include <ugui/style/style.h>
 #include <ugui/ultragui.h>
@@ -21,8 +22,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
-#include <base/option.h>
 
 #include "core/log.h"
 #include "core/window.h"
@@ -109,32 +108,102 @@ std::string Glyph(const std::string& k, const char* col) {
                   x, y, w, h, cc, bw, r);
     c += b;
   };
-  if (k == "select") { R(4, 3, 2, 11, col); R(4, 3, 8, 2, col); R(8, 8, 5, 2, col); }
-  else if (k == "move") { R(8, 2, 2, 14, col, 1); R(2, 8, 14, 2, col, 1); }
-  else if (k == "rotate") { O(3, 3, 12, 12, col, 2, 6); R(13, 1, 4, 2, col); }
-  else if (k == "scale") { O(3, 7, 8, 8, col, 1.5f, 2); R(11, 3, 4, 4, col, 1); }
-  else if (k == "hand") { R(6, 7, 6, 8, col, 2); R(6, 4, 2, 5, col, 1); R(9, 3, 2, 6, col, 1); R(12, 5, 2, 4, col, 1); }
-  else if (k == "terrain") { R(2, 11, 4, 5, col, 1); R(7, 7, 4, 9, col, 1); R(12, 9, 4, 7, col, 1); }
-  else if (k == "paint") { R(4, 3, 9, 5, col, 2); R(8, 8, 2, 7, col, 1); }
-  else if (k == "play") { R(5, 4, 3, 10, col); R(8, 6, 3, 6, col); R(11, 8, 2, 2, col); }
-  else if (k == "save") { O(3, 3, 12, 12, col, 1.5f, 2); R(6, 3, 6, 3, col); R(6, 10, 6, 2, col); }
-  else if (k == "undo") { R(5, 8, 9, 2, col); R(5, 5, 2, 3, col); R(5, 10, 2, 3, col); R(12, 5, 2, 4, col); }
-  else if (k == "redo") { R(4, 8, 9, 2, col); R(11, 5, 2, 3, col); R(11, 10, 2, 3, col); R(4, 5, 2, 4, col); }
-  else if (k == "gear") { O(4, 4, 10, 10, col, 2, 5); R(8, 1, 2, 3, col); R(8, 14, 2, 3, col); R(1, 8, 3, 2, col); R(14, 8, 3, 2, col); }
-  else if (k == "cube") { O(4, 5, 10, 9, col, 1.5f, 1); R(4, 5, 10, 3, col); }
-  else if (k == "folder") { R(3, 6, 12, 8, col, 1); R(3, 4, 6, 3, col, 1); }
-  else if (k == "sphere") { O(3, 3, 12, 12, col, 1.5f, 6); R(6, 5, 3, 3, "#ffffff66", 2); }
-  else if (k == "magnify") { O(3, 3, 9, 9, col, 1.5f, 5); R(11, 11, 4, 2, col, 1); }
-  else if (k == "caret") { R(5, 7, 8, 2, col); R(6, 9, 6, 2, col); R(8, 11, 2, 2, col); }
-  else if (k == "triup") { R(8, 7, 2, 2, col); R(6, 9, 6, 2, col); R(5, 11, 8, 2, col); }
-  else if (k == "tridown") { R(5, 7, 8, 2, col); R(6, 9, 6, 2, col); R(8, 11, 2, 2, col); }
-  else if (k == "lock") { R(4, 8, 10, 7, col, 1); O(6, 4, 6, 6, col, 1.5f, 3); }
-  else if (k == "grid") { R(4, 4, 4, 4, col, 1); R(10, 4, 4, 4, col, 1); R(4, 10, 4, 4, col, 1); R(10, 10, 4, 4, col, 1); }
-  else if (k == "plus") { R(8, 4, 2, 10, col); R(4, 8, 10, 2, col); }
-  else if (k == "kebab") { R(8, 3, 2, 2, col, 1); R(8, 8, 2, 2, col, 1); R(8, 13, 2, 2, col, 1); }
-  else if (k == "eye") { O(3, 6, 12, 7, col, 1.5f, 4); R(7, 8, 4, 4, col, 2); }
-  else if (k == "minwin") { R(4, 9, 10, 2, col); }
-  else if (k == "maxwin") { O(4, 4, 10, 10, col, 1.5f, 1); }
+  if (k == "select") {
+    R(4, 3, 2, 11, col);
+    R(4, 3, 8, 2, col);
+    R(8, 8, 5, 2, col);
+  } else if (k == "move") {
+    R(8, 2, 2, 14, col, 1);
+    R(2, 8, 14, 2, col, 1);
+  } else if (k == "rotate") {
+    O(3, 3, 12, 12, col, 2, 6);
+    R(13, 1, 4, 2, col);
+  } else if (k == "scale") {
+    O(3, 7, 8, 8, col, 1.5f, 2);
+    R(11, 3, 4, 4, col, 1);
+  } else if (k == "hand") {
+    R(6, 7, 6, 8, col, 2);
+    R(6, 4, 2, 5, col, 1);
+    R(9, 3, 2, 6, col, 1);
+    R(12, 5, 2, 4, col, 1);
+  } else if (k == "terrain") {
+    R(2, 11, 4, 5, col, 1);
+    R(7, 7, 4, 9, col, 1);
+    R(12, 9, 4, 7, col, 1);
+  } else if (k == "paint") {
+    R(4, 3, 9, 5, col, 2);
+    R(8, 8, 2, 7, col, 1);
+  } else if (k == "play") {
+    R(5, 4, 3, 10, col);
+    R(8, 6, 3, 6, col);
+    R(11, 8, 2, 2, col);
+  } else if (k == "save") {
+    O(3, 3, 12, 12, col, 1.5f, 2);
+    R(6, 3, 6, 3, col);
+    R(6, 10, 6, 2, col);
+  } else if (k == "undo") {
+    R(5, 8, 9, 2, col);
+    R(5, 5, 2, 3, col);
+    R(5, 10, 2, 3, col);
+    R(12, 5, 2, 4, col);
+  } else if (k == "redo") {
+    R(4, 8, 9, 2, col);
+    R(11, 5, 2, 3, col);
+    R(11, 10, 2, 3, col);
+    R(4, 5, 2, 4, col);
+  } else if (k == "gear") {
+    O(4, 4, 10, 10, col, 2, 5);
+    R(8, 1, 2, 3, col);
+    R(8, 14, 2, 3, col);
+    R(1, 8, 3, 2, col);
+    R(14, 8, 3, 2, col);
+  } else if (k == "cube") {
+    O(4, 5, 10, 9, col, 1.5f, 1);
+    R(4, 5, 10, 3, col);
+  } else if (k == "folder") {
+    R(3, 6, 12, 8, col, 1);
+    R(3, 4, 6, 3, col, 1);
+  } else if (k == "sphere") {
+    O(3, 3, 12, 12, col, 1.5f, 6);
+    R(6, 5, 3, 3, "#ffffff66", 2);
+  } else if (k == "magnify") {
+    O(3, 3, 9, 9, col, 1.5f, 5);
+    R(11, 11, 4, 2, col, 1);
+  } else if (k == "caret") {
+    R(5, 7, 8, 2, col);
+    R(6, 9, 6, 2, col);
+    R(8, 11, 2, 2, col);
+  } else if (k == "triup") {
+    R(8, 7, 2, 2, col);
+    R(6, 9, 6, 2, col);
+    R(5, 11, 8, 2, col);
+  } else if (k == "tridown") {
+    R(5, 7, 8, 2, col);
+    R(6, 9, 6, 2, col);
+    R(8, 11, 2, 2, col);
+  } else if (k == "lock") {
+    R(4, 8, 10, 7, col, 1);
+    O(6, 4, 6, 6, col, 1.5f, 3);
+  } else if (k == "grid") {
+    R(4, 4, 4, 4, col, 1);
+    R(10, 4, 4, 4, col, 1);
+    R(4, 10, 4, 4, col, 1);
+    R(10, 10, 4, 4, col, 1);
+  } else if (k == "plus") {
+    R(8, 4, 2, 10, col);
+    R(4, 8, 10, 2, col);
+  } else if (k == "kebab") {
+    R(8, 3, 2, 2, col, 1);
+    R(8, 8, 2, 2, col, 1);
+    R(8, 13, 2, 2, col, 1);
+  } else if (k == "eye") {
+    O(3, 6, 12, 7, col, 1.5f, 4);
+    R(7, 8, 4, 4, col, 2);
+  } else if (k == "minwin") {
+    R(4, 9, 10, 2, col);
+  } else if (k == "maxwin") {
+    O(4, 4, 10, 10, col, 1.5f, 1);
+  }
   return "panel { position: relative; width: 18; height: 18; " + c + " }\n";
 }
 
@@ -211,16 +280,24 @@ std::string BuildEditorSection() {
                 kEdInspectorW + 16.0f, kEdToolbarH + 14.0f, TXS, Glyph("caret", TXS).c_str());
   s += buf;
 
-  std::snprintf(buf, sizeof(buf),
-                "\n    panel ed_axis { position: absolute; right: %g; top: %g; width: 60; height: 60;\n"
-                "      panel { position: absolute; left: 28; top: 8; width: 2; height: 22; background: #57bd6a; }\n"
-                "      text { position: absolute; left: 25; top: 0; font-size: 11; color: #57bd6a; text: \"Y\"; }\n"
-                "      panel { position: absolute; left: 29; top: 28; width: 22; height: 2; background: #e5564b; }\n"
-                "      text { position: absolute; left: 50; top: 22; font-size: 11; color: #e5564b; text: \"X\"; }\n"
-                "      panel { position: absolute; left: 8; top: 28; width: 22; height: 2; background: #4d8df0; }\n"
-                "      text { position: absolute; left: 1; top: 33; font-size: 11; color: #4d8df0; text: \"Z\"; }\n"
-                "      panel { position: absolute; left: 26; top: 26; width: 6; height: 6; corner-radius: 3; background: #cfd6e6; }\n    }\n",
-                kEdInspectorW + 26.0f, kEdToolbarH + 50.0f);
+  std::snprintf(
+      buf, sizeof(buf),
+      "\n    panel ed_axis { position: absolute; right: %g; top: %g; width: 60; height: 60;\n"
+      "      panel { position: absolute; left: 28; top: 8; width: 2; height: 22; background: "
+      "#57bd6a; }\n"
+      "      text { position: absolute; left: 25; top: 0; font-size: 11; color: #57bd6a; text: "
+      "\"Y\"; }\n"
+      "      panel { position: absolute; left: 29; top: 28; width: 22; height: 2; background: "
+      "#e5564b; }\n"
+      "      text { position: absolute; left: 50; top: 22; font-size: 11; color: #e5564b; text: "
+      "\"X\"; }\n"
+      "      panel { position: absolute; left: 8; top: 28; width: 22; height: 2; background: "
+      "#4d8df0; }\n"
+      "      text { position: absolute; left: 1; top: 33; font-size: 11; color: #4d8df0; text: "
+      "\"Z\"; }\n"
+      "      panel { position: absolute; left: 26; top: 26; width: 6; height: 6; corner-radius: 3; "
+      "background: #cfd6e6; }\n    }\n",
+      kEdInspectorW + 26.0f, kEdToolbarH + 50.0f);
   s += buf;
 
   // --- top toolbar ---
@@ -246,7 +323,8 @@ std::string BuildEditorSection() {
       s += "        panel { width: 1; height: 28; background: #ffffff1c; margin: 0 6; }\n";
     s += "        panel btn_tool" + std::to_string(i) +
          " { layout: column; align: center; justify: center; gap: 3; padding: 5 8;"
-         " corner-radius: 9; cursor: pointer; background: #ffffff00; :hover { background: #ffffff12; }\n          " +
+         " corner-radius: 9; cursor: pointer; background: #ffffff00; :hover { background: "
+         "#ffffff12; }\n          " +
          Glyph(tkind[i], TXP) + "          text btn_tool" + std::to_string(i) + "_lbl { text: \"" +
          tlabel[i] + "\"; font-size: 10; color: " + TXS + "; }\n        }\n";
   }
@@ -260,8 +338,9 @@ std::string BuildEditorSection() {
   s += "        panel { padding: 6; corner-radius: 7; background: #ffffff00; cursor: pointer;"
        " :hover { background: #ffffff12; }\n          " +
        Glyph("gear", TXS) + "        }\n";
-  s += "        button { text: \"?\"; font-size: 15; color: #9aa3b5; padding: 4 9; corner-radius: 7;"
-       " background: #ffffff00; cursor: pointer; :hover { background: #ffffff12; } }\n";
+  s +=
+      "        button { text: \"?\"; font-size: 15; color: #9aa3b5; padding: 4 9; corner-radius: 7;"
+      " background: #ffffff00; cursor: pointer; :hover { background: #ffffff12; } }\n";
   s += "        panel { layout: row; align: center; gap: 2; margin: 0 0 0 4;\n          " +
        Glyph("minwin", TXM) + "          " + Glyph("maxwin", TXM) +
        "          text { text: \"x\"; font-size: 14; color: #9aa3b5; padding: 0 4; }\n        }\n";
@@ -290,11 +369,13 @@ std::string BuildEditorSection() {
           corner-radius: 8; padding: 7 10; border-color: #ffffff14; border-width: 1; cursor: text;
 )";
   s += "          " + Glyph("magnify", TXM) +
-       "          text ed_scene_search_text { text: \"Search scene...\"; font-size: 12; color: #6b7488; flex-grow: 1; }\n"
+       "          text ed_scene_search_text { text: \"Search scene...\"; font-size: 12; color: "
+       "#6b7488; flex-grow: 1; }\n"
        "          button ed_scene_clear { text: \"x\"; font-size: 12; color: #6b7488; padding: 0 2;"
        " background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n        }\n";
   s += "        panel ed_scene_filter { padding: 7; corner-radius: 8; background: #0e1016;"
-       " border-color: #ffffff14; border-width: 1; cursor: pointer; :hover { background: #ffffff12; }\n          " +
+       " border-color: #ffffff14; border-width: 1; cursor: pointer; :hover { background: "
+       "#ffffff12; }\n          " +
        Glyph("caret", TXM) + "        }\n      }\n";
   // Tree rows (pooled).
   s += "      panel ed_tree { layout: column; align: start; gap: 1; padding: 2 6; width: 100%;"
@@ -304,29 +385,51 @@ std::string BuildEditorSection() {
     s += "        panel ed_trow" + id +
          " { layout: row; align: center; gap: 5; padding: 4 6; width: 100%; corner-radius: 6;"
          " cursor: pointer; background: #ffffff00; :hover { background: #ffffff10; }\n"
-         "          panel ed_trow" + id + "_pad { width: 2; height: 1; }\n"
-         "          button ed_trow" + id + "_exp { text: \"\"; font-size: 13; color: #9aa3b5;"
+         "          panel ed_trow" +
+         id +
+         "_pad { width: 2; height: 1; }\n"
+         "          button ed_trow" +
+         id +
+         "_exp { text: \"\"; font-size: 13; color: #9aa3b5;"
          " width: 14; text-align: center; background: #ffffff00; cursor: pointer; }\n"
-         "          panel ed_trow" + id + "_ico { width: 11; height: 11; corner-radius: 3; background: #6b7488; }\n"
-         "          text ed_trow" + id + "_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n"
-         "          panel ed_trow" + id + "_eye { width: 12; height: 12; corner-radius: 6; background: #c8cfdd; cursor: pointer; }\n"
+         "          panel ed_trow" +
+         id +
+         "_ico { width: 11; height: 11; corner-radius: 3; background: #6b7488; }\n"
+         "          text ed_trow" +
+         id +
+         "_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n"
+         "          panel ed_trow" +
+         id +
+         "_eye { width: 12; height: 12; corner-radius: 6; background: #c8cfdd; cursor: pointer; }\n"
          "        }\n";
   }
   s += "      }\n";  // close ed_tree
   // Footer: add buttons + tree pager.
-  s += "      panel { layout: row; align: center; justify: space-between; padding: 6 10; width: 100%;\n"
+  s += "      panel { layout: row; align: center; justify: space-between; padding: 6 10; width: "
+       "100%;\n"
        "        panel { layout: row; align: center; gap: 6;\n";
-  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("plus", TXS) + "          }\n";
-  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("folder", TXS) + "          }\n";
-  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("grid", TXS) + "          }\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; "
+       ":hover { background: #ffffff18; }\n            " +
+       Glyph("plus", TXS) + "          }\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; "
+       ":hover { background: #ffffff18; }\n            " +
+       Glyph("folder", TXS) + "          }\n";
+  s += "          panel { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; "
+       ":hover { background: #ffffff18; }\n            " +
+       Glyph("grid", TXS) + "          }\n";
   s += "        }\n        panel { layout: row; align: center; gap: 4;\n";
-  s += "          panel btn_treeup { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("triup", TXS) + "          }\n";
-  s += "          panel btn_treedn { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; }\n            " + Glyph("tridown", TXS) + "          }\n";
+  s += "          panel btn_treeup { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: "
+       "pointer; :hover { background: #ffffff18; }\n            " +
+       Glyph("triup", TXS) + "          }\n";
+  s += "          panel btn_treedn { padding: 6; corner-radius: 7; background: #ffffff0c; cursor: "
+       "pointer; :hover { background: #ffffff18; }\n            " +
+       Glyph("tridown", TXS) + "          }\n";
   s += "        }\n      }\n    }\n";  // close footer, editor_scene
 
   // --- right dock: inspector ---
   auto section = [&](const char* title) {
-    s += "        panel { layout: row; align: center; gap: 6; width: 100%; margin: 4 0 0 0;\n          " +
+    s += "        panel { layout: row; align: center; gap: 6; width: 100%; margin: 4 0 0 0;\n      "
+         "    " +
          Glyph("caret", TXS) + "          text { text: \"" + title +
          "\"; font-size: 12; color: " + TXP + "; letter-spacing: 1; flex-grow: 1; }\n          " +
          Glyph("kebab", TXM) + "        }\n";
@@ -334,27 +437,40 @@ std::string BuildEditorSection() {
   auto chip = [&](const char* letter, const char* lcol, const std::string& valname) {
     s += "          panel { layout: row; align: center; gap: 4; flex-grow: 1; background: #0e1016;"
          " corner-radius: 6; padding: 5 6; border-color: #ffffff12; border-width: 1;\n"
-         "            text { text: \"" + std::string(letter) + "\"; font-size: 11; color: " + lcol + "; }\n"
-         "            text " + valname + " { text: \"0\"; font-size: 11; color: #d6dbe7; flex-grow: 1; }\n          }\n";
+         "            text { text: \"" +
+         std::string(letter) + "\"; font-size: 11; color: " + lcol +
+         "; }\n"
+         "            text " +
+         valname + " { text: \"0\"; font-size: 11; color: #d6dbe7; flex-grow: 1; }\n          }\n";
   };
   auto xyzrow = [&](const char* label, const std::string& px, const std::string& py,
                     const std::string& pz, bool lock) {
     s += "        panel { layout: row; align: center; gap: 8; width: 100%;\n"
-         "          text { text: \"" + std::string(label) + "\"; font-size: 12; color: " + TXS + "; width: 56; }\n"
+         "          text { text: \"" +
+         std::string(label) + "\"; font-size: 12; color: " + TXS +
+         "; width: 56; }\n"
          "          panel { layout: row; align: center; gap: 5; flex-grow: 1;\n";
     chip("X", "#e5564b", px);
     chip("Y", "#57bd6a", py);
     chip("Z", "#4d8df0", pz);
     if (lock)
-      s += "          panel { width: 18; height: 18; layout: column; justify: center; align: center; " +
+      s += "          panel { width: 18; height: 18; layout: column; justify: center; align: "
+           "center; " +
            Glyph("lock", TXM) + "          }\n";
     s += "          }\n        }\n";
   };
   auto toggle = [&](const char* label, const std::string& name) {
     s += "        panel { layout: row; align: center; justify: space-between; width: 100%;\n"
-         "          text { text: \"" + std::string(label) + "\"; font-size: 12; color: #c2c9d6; }\n"
-         "          panel " + name + " { width: 34; height: 18; corner-radius: 9; background: " + AC + "; position: relative;\n"
-         "            panel " + name + "_k { position: absolute; left: 18; top: 2; width: 14; height: 14; corner-radius: 7; background: #ffffff; }\n          }\n        }\n";
+         "          text { text: \"" +
+         std::string(label) +
+         "\"; font-size: 12; color: #c2c9d6; }\n"
+         "          panel " +
+         name + " { width: 34; height: 18; corner-radius: 9; background: " + AC +
+         "; position: relative;\n"
+         "            panel " +
+         name +
+         "_k { position: absolute; left: 18; top: 2; width: 14; height: 14; corner-radius: 7; "
+         "background: #ffffff; }\n          }\n        }\n";
   };
   std::snprintf(buf, sizeof(buf),
                 "\n    panel editor_inspector { position: absolute; right: 0; top: %g; width: %g;"
@@ -362,21 +478,93 @@ std::string BuildEditorSection() {
                 " border-color: #ffffff12; border-width: 1; overflow: hidden;\n",
                 kEdToolbarH, kEdInspectorW, kEdStatusH);
   s += buf;
-  s += "      panel { layout: row; align: center; justify: space-between; padding: 12 14; width: 100%;\n"
-       "        text { text: \"Inspector\"; font-size: 13; color: #e6e9f2; letter-spacing: 1; }\n        " +
+  s += "      panel { layout: row; align: center; justify: space-between; padding: 12 14; width: "
+       "100%;\n"
+       "        text { text: \"Inspector\"; font-size: 13; color: #e6e9f2; letter-spacing: 1; }\n  "
+       "      " +
        Glyph("kebab", TXM) + "      }\n";
   s += "      panel { width: 100%; height: 1; background: #ffffff10; }\n";
-  s += "      panel ed_insp_empty { layout: column; align: center; justify: center; padding: 40 0; width: 100%;\n"
+  s += "      panel ed_insp_empty { layout: column; align: center; justify: center; padding: 40 0; "
+       "width: 100%;\n"
        "        text { text: \"No object selected\"; font-size: 12; color: #6b7488; } }\n";
-  s += "      panel ed_insp_body { layout: column; align: start; padding: 12 14; gap: 11; width: 100%;\n";
+  s +=
+      R"(      panel ed_terrain_body { layout: column; align: start; padding: 14; gap: 14; width: 100%;
+        panel { layout: column; align: start; gap: 5; width: 100%; background: #6c7bf51c;
+          border-color: #6c7bf552; border-width: 1; corner-radius: 10; padding: 12;
+          text { text: "LAND HEIGHT EDIT"; font-size: 11; color: #b9c0ff; letter-spacing: 1; }
+          text { text: "Non-destructive worldspace delta"; font-size: 12; color: #e6e9f2; }
+          text { text: "Shared borders rebuild as one lattice."; font-size: 10; color: #7f899e; }
+        }
+        text { text: "BRUSH MODE"; font-size: 10; color: #6b7488; letter-spacing: 1; }
+        panel { layout: row; align: center; gap: 6; width: 100%;
+          panel ed_terrain_mode0 { flex-grow: 1; layout: column; align: center; padding: 8 4; corner-radius: 7; background: #6c7bf5; cursor: pointer;
+            text ed_terrain_mode0_t { text: "Raise"; font-size: 11; color: #ffffff; } }
+          panel ed_terrain_mode1 { flex-grow: 1; layout: column; align: center; padding: 8 4; corner-radius: 7; background: #0e1016; cursor: pointer;
+            text ed_terrain_mode1_t { text: "Lower"; font-size: 11; color: #9aa3b5; } }
+        }
+        panel { layout: row; align: center; gap: 6; width: 100%;
+          panel ed_terrain_mode2 { flex-grow: 1; layout: column; align: center; padding: 8 4; corner-radius: 7; background: #0e1016; cursor: pointer;
+            text ed_terrain_mode2_t { text: "Smooth"; font-size: 11; color: #9aa3b5; } }
+          panel ed_terrain_mode3 { flex-grow: 1; layout: column; align: center; padding: 8 4; corner-radius: 7; background: #0e1016; cursor: pointer;
+            text ed_terrain_mode3_t { text: "Flatten"; font-size: 11; color: #9aa3b5; } }
+        }
+        panel { width: 100%; height: 1; background: #ffffff10; }
+        panel { layout: row; align: center; justify: space-between; width: 100%;
+          panel { layout: column; align: start; gap: 2;
+            text { text: "Radius"; font-size: 12; color: #d6dbe7; }
+            text { text: "World-space metres"; font-size: 10; color: #6b7488; } }
+          panel { layout: row; align: center; gap: 5;
+            panel ed_terrain_radius_dec { width: 27; height: 27; corner-radius: 6; background: #0e1016; layout: column; align: center; justify: center; cursor: pointer;
+              text { text: "-"; font-size: 15; color: #9aa3b5; } }
+            panel { width: 62; padding: 6 9; corner-radius: 6; background: #0e1016; text ed_terrain_radius { text: "4.0 m"; font-size: 11; color: #e6e9f2; text-align: center; } }
+            panel ed_terrain_radius_inc { width: 27; height: 27; corner-radius: 6; background: #0e1016; layout: column; align: center; justify: center; cursor: pointer;
+              text { text: "+"; font-size: 15; color: #9aa3b5; } }
+          }
+        }
+        panel { layout: row; align: center; justify: space-between; width: 100%;
+          panel { layout: column; align: start; gap: 2;
+            text { text: "Strength"; font-size: 12; color: #d6dbe7; }
+            text { text: "Per spaced dab"; font-size: 10; color: #6b7488; } }
+          panel { layout: row; align: center; gap: 5;
+            panel ed_terrain_strength_dec { width: 27; height: 27; corner-radius: 6; background: #0e1016; layout: column; align: center; justify: center; cursor: pointer;
+              text { text: "-"; font-size: 15; color: #9aa3b5; } }
+            panel { width: 62; padding: 6 9; corner-radius: 6; background: #0e1016; text ed_terrain_strength { text: "0.25"; font-size: 11; color: #e6e9f2; text-align: center; } }
+            panel ed_terrain_strength_inc { width: 27; height: 27; corner-radius: 6; background: #0e1016; layout: column; align: center; justify: center; cursor: pointer;
+              text { text: "+"; font-size: 15; color: #9aa3b5; } }
+          }
+        }
+        panel { width: 100%; height: 1; background: #ffffff10; }
+        panel { layout: row; align: center; justify: space-between; width: 100%;
+          text { text: "Diff samples"; font-size: 11; color: #9aa3b5; }
+          text ed_terrain_samples { text: "0"; font-size: 12; color: #e6e9f2; } }
+        panel { layout: row; align: center; justify: space-between; width: 100%;
+          text { text: "State"; font-size: 11; color: #9aa3b5; }
+          panel ed_terrain_dirty_chip { corner-radius: 6; padding: 4 8; background: #46c46324;
+            text ed_terrain_dirty { text: "Saved"; font-size: 10; color: #70d88a; } } }
+        panel { layout: column; align: start; gap: 4; width: 100%;
+          text { text: "DIFF FILE"; font-size: 10; color: #6b7488; letter-spacing: 1; }
+          panel { width: 100%; background: #0e1016; corner-radius: 6; padding: 7 8; overflow: hidden;
+            text ed_terrain_path { text: "editor_layout.recterrain"; font-size: 10; color: #9aa3b5; } }
+        }
+        panel ed_terrain_reset { width: 100%; layout: column; align: center; padding: 9; corner-radius: 7;
+          background: #e5564b18; border-color: #e5564b55; border-width: 1; cursor: pointer;
+          text { text: "Reset terrain diff"; font-size: 11; color: #ef918a; } }
+        text { text: "LMB drag to sculpt. Shift inverts raise/lower."; font-size: 10; color: #7f899e; }
+      }
+)";
+  s += "      panel ed_insp_body { layout: column; align: start; padding: 12 14; gap: 11; width: "
+       "100%;\n";
   // Object row.
   s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
-       "          panel { width: 26; height: 26; corner-radius: 6; background: #0e1016; layout: column; justify: center; align: center; " +
-       Glyph("cube", TXS) + "          }\n"
+       "          panel { width: 26; height: 26; corner-radius: 6; background: #0e1016; layout: "
+       "column; justify: center; align: center; " +
+       Glyph("cube", TXS) +
+       "          }\n"
        "          text ed_insp_name { text: \"\"; font-size: 15; color: #f2f4fb; flex-grow: 1; }\n"
        "          panel { layout: row; align: center; gap: 6;\n"
        "            text { text: \"Static\"; font-size: 11; color: #9aa3b5; }\n"
-       "            panel ed_insp_static { width: 14; height: 14; corner-radius: 4; background: #0e1016; border-color: #ffffff24; border-width: 1; }\n          }\n        }\n";
+       "            panel ed_insp_static { width: 14; height: 14; corner-radius: 4; background: "
+       "#0e1016; border-color: #ffffff24; border-width: 1; }\n          }\n        }\n";
   // Transform.
   section("Transform");
   s += "        panel { layout: column; gap: 7; width: 100%;\n";
@@ -387,15 +575,19 @@ std::string BuildEditorSection() {
   // Model.
   section("Model");
   s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
-       "          panel { width: 40; height: 40; corner-radius: 7; background: #0e1016; overflow: hidden;"
+       "          panel { width: 40; height: 40; corner-radius: 7; background: #0e1016; overflow: "
+       "hidden;"
        " image ed_model_thumb { width: 40; height: 40; } }\n"
        "          panel { layout: row; align: center; gap: 7; flex-grow: 1; background: #0e1016;"
        " corner-radius: 7; padding: 9 10; border-color: #ffffff14; border-width: 1;\n"
-       "            text ed_model_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n            " +
+       "            text ed_model_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; "
+       "}\n            " +
        Glyph("folder", TXM) + "          }\n        }\n";
   s += "        panel { layout: row; align: center; gap: 9; width: 100%;\n"
-       "          panel { width: 28; height: 28; corner-radius: 14; background: #0e1016; layout: column; justify: center; align: center; " +
-       Glyph("sphere", TXS) + "          }\n"
+       "          panel { width: 28; height: 28; corner-radius: 14; background: #0e1016; layout: "
+       "column; justify: center; align: center; " +
+       Glyph("sphere", TXS) +
+       "          }\n"
        "          panel { layout: row; align: center; gap: 7; flex-grow: 1; background: #0e1016;"
        " corner-radius: 7; padding: 9 10; border-color: #ffffff14; border-width: 1;\n"
        "            text ed_mat_name { text: \"\"; font-size: 12; color: #d6dbe7; flex-grow: 1; }\n"
@@ -411,61 +603,97 @@ std::string BuildEditorSection() {
   for (int i = 0; i < kEdTags; ++i)
     s += "          panel ed_tag" + std::to_string(i) +
          " { background: #6c7bf52e; corner-radius: 6; padding: 5 9;"
-         " text ed_tag" + std::to_string(i) + "_t { text: \"\"; font-size: 11; color: #b9c0ff; } }\n";
-  s += "          panel { padding: 5; corner-radius: 6; background: #ffffff0c; cursor: pointer; :hover { background: #ffffff18; } " +
+         " text ed_tag" +
+         std::to_string(i) + "_t { text: \"\"; font-size: 11; color: #b9c0ff; } }\n";
+  s += "          panel { padding: 5; corner-radius: 6; background: #ffffff0c; cursor: pointer; "
+       ":hover { background: #ffffff18; } " +
        Glyph("plus", TXM) + "          }\n";
   s += "        }\n";
   s += "      }\n    }\n";  // close ed_insp_body, editor_inspector
 
   // --- bottom dock: asset browser (width/left overridden each frame in C++) ---
-  std::snprintf(buf, sizeof(buf),
-                "\n    panel editor_browser { position: absolute; left: %g; bottom: %g; width: 1000;"
-                " height: %g; layout: column; align: start; background: #171a22f8;"
-                " border-color: #ffffff12; border-width: 1;\n",
-                kEdSceneW, kEdStatusH, kEdBrowserH);
+  std::snprintf(
+      buf, sizeof(buf),
+      "\n    panel editor_browser { position: absolute; left: %g; bottom: %g; width: 1000;"
+      " height: %g; layout: column; align: start; background: #171a22f8;"
+      " border-color: #ffffff12; border-width: 1;\n",
+      kEdSceneW, kEdStatusH, kEdBrowserH);
   s += buf;
   // Tab bar.
-  s += "      panel { layout: row; align: center; justify: space-between; width: 100%; padding: 0 12; height: 40;\n"
+  s += "      panel { layout: row; align: center; justify: space-between; width: 100%; padding: 0 "
+       "12; height: 40;\n"
        "        panel ed_btabs { layout: row; align: center; gap: 2;\n";
   for (int i = 0; i < kEdTabs; ++i)
     s += "          panel btn_btab" + std::to_string(i) +
-         " { layout: column; align: center; gap: 6; padding: 9 9; cursor: pointer; background: #ffffff00;\n"
-         "            text btn_btab" + std::to_string(i) + "_t { text: \"\"; font-size: 12; color: #9aa3b5; }\n"
-         "            panel btn_btab" + std::to_string(i) + "_ul { width: 100%; height: 2; corner-radius: 1; background: #6c7bf500; }\n          }\n";
-  s += "          panel { padding: 8; background: #ffffff00; cursor: pointer; :hover { background: #ffffff12; } " +
+         " { layout: column; align: center; gap: 6; padding: 9 9; cursor: pointer; background: "
+         "#ffffff00;\n"
+         "            text btn_btab" +
+         std::to_string(i) +
+         "_t { text: \"\"; font-size: 12; color: #9aa3b5; }\n"
+         "            panel btn_btab" +
+         std::to_string(i) +
+         "_ul { width: 100%; height: 2; corner-radius: 1; background: #6c7bf500; }\n          }\n";
+  s += "          panel { padding: 8; background: #ffffff00; cursor: pointer; :hover { background: "
+       "#ffffff12; } " +
        Glyph("plus", TXM) + "          }\n        }\n";
   s += "        panel { layout: row; align: center; gap: 12;\n          " + Glyph("magnify", TXM);
-  s += "          panel { width: 90; height: 4; corner-radius: 2; background: #2a2f3a; position: relative;\n"
-       "            panel { position: absolute; left: 54; top: -3; width: 10; height: 10; corner-radius: 5; background: #6c7bf5; } }\n          " +
+  s += "          panel { width: 90; height: 4; corner-radius: 2; background: #2a2f3a; position: "
+       "relative;\n"
+       "            panel { position: absolute; left: 54; top: -3; width: 10; height: 10; "
+       "corner-radius: 5; background: #6c7bf5; } }\n          " +
        Glyph("grid", TXS);
-  s += "          panel ed_cardprev { padding: 5 8; background: #ffffff0c; corner-radius: 6; cursor: pointer; :hover { background: #ffffff18; } text { text: \"<\"; font-size: 13; color: #c2c9d6; } }\n";
-  s += "          panel ed_cardnext { padding: 5 8; background: #ffffff0c; corner-radius: 6; cursor: pointer; :hover { background: #ffffff18; } text { text: \">\"; font-size: 13; color: #c2c9d6; } }\n          " +
+  s += "          panel ed_cardprev { padding: 5 8; background: #ffffff0c; corner-radius: 6; "
+       "cursor: pointer; :hover { background: #ffffff18; } text { text: \"<\"; font-size: 13; "
+       "color: #c2c9d6; } }\n";
+  s += "          panel ed_cardnext { padding: 5 8; background: #ffffff0c; corner-radius: 6; "
+       "cursor: pointer; :hover { background: #ffffff18; } text { text: \">\"; font-size: 13; "
+       "color: #c2c9d6; } }\n          " +
        Glyph("kebab", TXM) + "        }\n      }\n";
   s += "      panel { width: 100%; height: 1; background: #ffffff10; }\n";
   // Body: category list + cards.
   s += "      panel { layout: row; align: start; width: 100%; flex-grow: 1;\n"
        "        panel { layout: column; align: start; gap: 2; width: 156; padding: 10 10;\n"
-       "          panel ed_asset_search { layout: row; align: center; gap: 7; width: 100%; background: #0e1016;"
-       " corner-radius: 7; padding: 6 9; border-color: #ffffff14; border-width: 1; cursor: text; margin: 0 0 6 0;\n            " +
+       "          panel ed_asset_search { layout: row; align: center; gap: 7; width: 100%; "
+       "background: #0e1016;"
+       " corner-radius: 7; padding: 6 9; border-color: #ffffff14; border-width: 1; cursor: text; "
+       "margin: 0 0 6 0;\n            " +
        Glyph("magnify", TXM) +
-       "            text ed_asset_search_text { text: \"Search props...\"; font-size: 11; color: #6b7488; flex-grow: 1; }\n"
-       "            button ed_asset_clear { text: \"x\"; font-size: 11; color: #6b7488; background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n          }\n";
+       "            text ed_asset_search_text { text: \"Search props...\"; font-size: 11; color: "
+       "#6b7488; flex-grow: 1; }\n"
+       "            button ed_asset_clear { text: \"x\"; font-size: 11; color: #6b7488; "
+       "background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n          }\n";
   for (int i = 0; i < kEdCatRows; ++i)
     s += "          panel cl_row" + std::to_string(i) +
          " { layout: row; align: center; justify: space-between; width: 100%; padding: 5 8;"
-         " corner-radius: 6; background: #ffffff00; cursor: pointer; :hover { background: #ffffff0e; }\n"
-         "            text cl_row" + std::to_string(i) + "_n { text: \"\"; font-size: 12; color: #c2c9d6; }\n"
-         "            text cl_row" + std::to_string(i) + "_c { text: \"\"; font-size: 11; color: #6b7488; }\n          }\n";
+         " corner-radius: 6; background: #ffffff00; cursor: pointer; :hover { background: "
+         "#ffffff0e; }\n"
+         "            text cl_row" +
+         std::to_string(i) +
+         "_n { text: \"\"; font-size: 12; color: #c2c9d6; }\n"
+         "            text cl_row" +
+         std::to_string(i) + "_c { text: \"\"; font-size: 11; color: #6b7488; }\n          }\n";
   s += "        }\n        panel { width: 1; height: 100%; background: #ffffff0c; }\n";
-  s += "        panel ed_cards { layout: row; align: start; gap: 12; flex-grow: 1; padding: 12 14; overflow: hidden;\n";
+  s += "        panel ed_cards { layout: row; align: start; gap: 12; flex-grow: 1; padding: 12 14; "
+       "overflow: hidden;\n";
   for (int i = 0; i < kEdCards; ++i) {
     const std::string id = std::to_string(i);
-    s += "          panel card" + id + " { layout: column; align: center; gap: 6; width: 86; cursor: pointer;\n"
-         "            panel card" + id + "_box { width: 86; height: 86; corner-radius: 8; background: #1f232e;"
+    s += "          panel card" + id +
+         " { layout: column; align: center; gap: 6; width: 86; cursor: pointer;\n"
+         "            panel card" +
+         id +
+         "_box { width: 86; height: 86; corner-radius: 8; background: #1f232e;"
          " border-color: #ffffff14; border-width: 1; overflow: hidden; position: relative;\n"
-         "              panel card" + id + "_sw { position: absolute; left: 18; top: 18; width: 50; height: 50; corner-radius: 8; background: #2a2f3a; }\n"
-         "              image card" + id + "_img { position: absolute; left: 0; top: 0; width: 86; height: 86; }\n            }\n"
-         "            text card" + id + "_name { text: \"\"; font-size: 11; color: #c2c9d6; text-align: center; width: 86; }\n          }\n";
+         "              panel card" +
+         id +
+         "_sw { position: absolute; left: 18; top: 18; width: 50; height: 50; corner-radius: 8; "
+         "background: #2a2f3a; }\n"
+         "              image card" +
+         id +
+         "_img { position: absolute; left: 0; top: 0; width: 86; height: 86; }\n            }\n"
+         "            text card" +
+         id +
+         "_name { text: \"\"; font-size: 11; color: #c2c9d6; text-align: center; width: 86; }\n    "
+         "      }\n";
   }
   s += "        }\n      }\n    }\n";  // close cards, body, editor_browser
 
@@ -486,8 +714,9 @@ std::string BuildEditorSection() {
           panel ed_grid { layout: row; align: center; gap: 5; background: #0e1016; corner-radius: 6;
             padding: 4 8; border-color: #ffffff14; border-width: 1; cursor: pointer;
 )";
-  s += "            text ed_grid_t { text: \"1 m\"; font-size: 11; color: #c2c9d6; }\n            " +
-       Glyph("caret", TXM) + "          }\n        }\n";
+  s +=
+      "            text ed_grid_t { text: \"1 m\"; font-size: 11; color: #c2c9d6; }\n            " +
+      Glyph("caret", TXM) + "          }\n        }\n";
   s += R"(        panel { layout: row; align: center; gap: 7;
           text { text: "Snapping"; font-size: 11; color: #6b7488; }
           panel ed_snap { width: 32; height: 16; corner-radius: 8; background: #2a2f3a; position: relative; cursor: pointer;
@@ -508,11 +737,11 @@ std::string BuildEditorSection() {
 // Everything is pooled (fixed widget counts, filled and toggled each frame) and
 // starts hidden; the engine collapses cg_root until chargen is entered.
 std::string BuildCharGenSection() {
-  const char* FLD = "#0e1016";   // sunken field
-  const char* AC = "#6c7bf5";    // accent indigo
-  const char* TXP = "#e6e9f2";   // primary text
-  const char* TXS = "#9aa3b5";   // secondary text
-  const char* TXM = "#6b7488";   // muted text
+  const char* FLD = "#0e1016";  // sunken field
+  const char* AC = "#6c7bf5";   // accent indigo
+  const char* TXP = "#e6e9f2";  // primary text
+  const char* TXS = "#9aa3b5";  // secondary text
+  const char* TXM = "#6b7488";  // muted text
   std::string s;
   char buf[1400];
 
@@ -553,17 +782,18 @@ std::string BuildCharGenSection() {
                 " letter-spacing: 1; text: \"SEX\"; }\n",
                 kCgPad, kCgSexY - 24.0f, TXM);
   s += buf;
-  std::snprintf(buf, sizeof(buf),
-                "      panel cg_sexm { position: absolute; left: %g; top: %g; width: %g; height: %g;"
-                " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
-                " layout: column; justify: center; align: center; cursor: pointer;"
-                " text cg_sexm_t { font-size: 13; color: %s; text: \"Male\"; } }\n"
-                "      panel cg_sexf { position: absolute; left: %g; top: %g; width: %g; height: %g;"
-                " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
-                " layout: column; justify: center; align: center; cursor: pointer;"
-                " text cg_sexf_t { font-size: 13; color: %s; text: \"Female\"; } }\n",
-                kCgPad, kCgSexY, sexW, kCgBtnH, FLD, TXP, kCgPad + sexW + 8.0f, kCgSexY, sexW,
-                kCgBtnH, FLD, TXS);
+  std::snprintf(
+      buf, sizeof(buf),
+      "      panel cg_sexm { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+      " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
+      " layout: column; justify: center; align: center; cursor: pointer;"
+      " text cg_sexm_t { font-size: 13; color: %s; text: \"Male\"; } }\n"
+      "      panel cg_sexf { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+      " corner-radius: 7; background: %s; border-color: #ffffff14; border-width: 1;"
+      " layout: column; justify: center; align: center; cursor: pointer;"
+      " text cg_sexf_t { font-size: 13; color: %s; text: \"Female\"; } }\n",
+      kCgPad, kCgSexY, sexW, kCgBtnH, FLD, TXP, kCgPad + sexW + 8.0f, kCgSexY, sexW, kCgBtnH, FLD,
+      TXS);
   s += buf;
   // Preset cycler.
   std::snprintf(buf, sizeof(buf),
@@ -571,19 +801,20 @@ std::string BuildCharGenSection() {
                 " letter-spacing: 1; text: \"PRESET\"; }\n",
                 kCgPad, kCgPresetY - 24.0f, TXM);
   s += buf;
-  std::snprintf(buf, sizeof(buf),
-                "      panel cg_pprev { position: absolute; left: %g; top: %g; width: 40; height: %g;"
-                " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
-                " cursor: pointer; :hover { background: #ffffff18; }"
-                " text { font-size: 15; color: %s; text: \"<\"; } }\n"
-                "      text cg_plabel { position: absolute; left: %g; top: %g; width: %g;"
-                " text-align: center; font-size: 12; color: %s; text: \"Preset 1\"; }\n"
-                "      panel cg_pnext { position: absolute; left: %g; top: %g; width: 40; height: %g;"
-                " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
-                " cursor: pointer; :hover { background: #ffffff18; }"
-                " text { font-size: 15; color: %s; text: \">\"; } }\n",
-                kCgPad, kCgPresetY, kCgBtnH, FLD, TXP, kCgPad + 46.0f, kCgPresetY + 8.0f,
-                contentW - 92.0f, TXP, kCgPad + contentW - 40.0f, kCgPresetY, kCgBtnH, FLD, TXP);
+  std::snprintf(
+      buf, sizeof(buf),
+      "      panel cg_pprev { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+      " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 15; color: %s; text: \"<\"; } }\n"
+      "      text cg_plabel { position: absolute; left: %g; top: %g; width: %g;"
+      " text-align: center; font-size: 12; color: %s; text: \"Preset 1\"; }\n"
+      "      panel cg_pnext { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+      " corner-radius: 7; background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 15; color: %s; text: \">\"; } }\n",
+      kCgPad, kCgPresetY, kCgBtnH, FLD, TXP, kCgPad + 46.0f, kCgPresetY + 8.0f, contentW - 92.0f,
+      TXP, kCgPad + contentW - 40.0f, kCgPresetY, kCgBtnH, FLD, TXP);
   s += buf;
   // Page tabs.
   const char* pages[3] = {"Face", "Advanced", "Look"};
@@ -619,44 +850,46 @@ std::string BuildCharGenSection() {
   s += buf;
 
   // Right dock: page title + pager + pooled control rows.
-  std::snprintf(buf, sizeof(buf),
-                "    panel cg_right { position: absolute; right: 0; top: %g; width: %g; bottom: %g;"
-                " background: #171a22ff; border-color: #ffffff12; border-width: 1;\n"
-                "      text cg_ptitle { position: absolute; left: 16; top: 16; font-size: 15;"
-                " color: %s; letter-spacing: 1; text: \"FACE\"; }\n"
-                "      text cg_scinfo { position: absolute; left: 16; top: 40; font-size: 11;"
-                " color: %s; text: \"\"; }\n"
-                "      panel cg_scup { position: absolute; right: 52; top: 14; width: 30; height: 26;"
-                " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
-                " cursor: pointer; :hover { background: #ffffff18; }"
-                " text { font-size: 13; color: %s; text: \"^\"; } }\n"
-                "      panel cg_scdn { position: absolute; right: 16; top: 14; width: 30; height: 26;"
-                " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
-                " cursor: pointer; :hover { background: #ffffff18; }"
-                " text { font-size: 13; color: %s; text: \"v\"; } }\n",
-                kCgTop, kCgRightW, kCgTop, TXP, TXM, FLD, TXP, FLD, TXP);
+  std::snprintf(
+      buf, sizeof(buf),
+      "    panel cg_right { position: absolute; right: 0; top: %g; width: %g; bottom: %g;"
+      " background: #171a22ff; border-color: #ffffff12; border-width: 1;\n"
+      "      text cg_ptitle { position: absolute; left: 16; top: 16; font-size: 15;"
+      " color: %s; letter-spacing: 1; text: \"FACE\"; }\n"
+      "      text cg_scinfo { position: absolute; left: 16; top: 40; font-size: 11;"
+      " color: %s; text: \"\"; }\n"
+      "      panel cg_scup { position: absolute; right: 52; top: 14; width: 30; height: 26;"
+      " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 13; color: %s; text: \"^\"; } }\n"
+      "      panel cg_scdn { position: absolute; right: 16; top: 14; width: 30; height: 26;"
+      " corner-radius: 6; background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 13; color: %s; text: \"v\"; } }\n",
+      kCgTop, kCgRightW, kCgTop, TXP, TXM, FLD, TXP, FLD, TXP);
   s += buf;
   for (int i = 0; i < kCgSliderRows; ++i) {
     const std::string id = std::to_string(i);
-    std::snprintf(buf, sizeof(buf),
-                  "      panel cg_row%s { position: absolute; left: 8; top: %g; width: %g;"
-                  " height: %g; corner-radius: 6; background: #ffffff00; cursor: pointer;"
-                  " :hover { background: #ffffff0c; }\n"
-                  "        text cg_row%s_lbl { position: absolute; left: 10; top: 9; font-size: 12;"
-                  " color: #c9cfdb; text: \"\"; }\n"
-                  "        panel cg_row%s_sw { position: absolute; left: %g; top: 8; width: 14;"
-                  " height: 14; corner-radius: 3; background: #000000; }\n"
-                  "        panel cg_row%s_trk { position: absolute; left: %g; top: %g; width: %g;"
-                  " height: 8; corner-radius: 4; background: %s; border-color: #ffffff14;"
-                  " border-width: 1;\n"
-                  "          panel cg_row%s_fill { position: absolute; left: 0; top: 0; width: 50%%;"
-                  " height: 8; corner-radius: 4; background: %s; }\n        }\n"
-                  "        text cg_row%s_val { position: absolute; left: %g; top: 9; font-size: 11;"
-                  " color: %s; text: \"\"; }\n      }\n",
-                  id.c_str(), kCgRowsY0 + i * kCgRowH, kCgRightW - 16.0f, kCgRowH - 6.0f,
-                  id.c_str(), id.c_str(), kCgTrackX - 8.0f - 20.0f, id.c_str(), kCgTrackX - 8.0f,
-                  (kCgRowH - 6.0f) / 2.0f - 4.0f, kCgTrackW, FLD, id.c_str(), AC, id.c_str(),
-                  kCgTrackX - 8.0f + kCgTrackW + 10.0f, TXS);
+    std::snprintf(
+        buf, sizeof(buf),
+        "      panel cg_row%s { position: absolute; left: 8; top: %g; width: %g;"
+        " height: %g; corner-radius: 6; background: #ffffff00; cursor: pointer;"
+        " :hover { background: #ffffff0c; }\n"
+        "        text cg_row%s_lbl { position: absolute; left: 10; top: 9; font-size: 12;"
+        " color: #c9cfdb; text: \"\"; }\n"
+        "        panel cg_row%s_sw { position: absolute; left: %g; top: 8; width: 14;"
+        " height: 14; corner-radius: 3; background: #000000; }\n"
+        "        panel cg_row%s_trk { position: absolute; left: %g; top: %g; width: %g;"
+        " height: 8; corner-radius: 4; background: %s; border-color: #ffffff14;"
+        " border-width: 1;\n"
+        "          panel cg_row%s_fill { position: absolute; left: 0; top: 0; width: 50%%;"
+        " height: 8; corner-radius: 4; background: %s; }\n        }\n"
+        "        text cg_row%s_val { position: absolute; left: %g; top: 9; font-size: 11;"
+        " color: %s; text: \"\"; }\n      }\n",
+        id.c_str(), kCgRowsY0 + i * kCgRowH, kCgRightW - 16.0f, kCgRowH - 6.0f, id.c_str(),
+        id.c_str(), kCgTrackX - 8.0f - 20.0f, id.c_str(), kCgTrackX - 8.0f,
+        (kCgRowH - 6.0f) / 2.0f - 4.0f, kCgTrackW, FLD, id.c_str(), AC, id.c_str(),
+        kCgTrackX - 8.0f + kCgTrackW + 10.0f, TXS);
     s += buf;
   }
   s += "    }\n  }\n";
@@ -673,10 +906,10 @@ std::string BuildCharGenSection() {
 // The .ugui fragments composed into root, in draw order. Also the hot-reload
 // watch list.
 const char* const kUiFragments[] = {
-    "hud.ugui",       "vitals.ugui",  "readout.ugui",  "quest.ugui",
-    "hud_gauge.ugui", "chat.ugui", "scoreboard.ugui", "mp_prompt.ugui", "nametag.ugui",
-    "journal.ugui", "war_map.ugui", "dialogue.ugui", "container.ugui",
-    "pause_menu.ugui", "main_menu.ugui", "first_run.ugui",
+    "hud.ugui",       "vitals.ugui",     "readout.ugui",    "quest.ugui",
+    "hud_gauge.ugui", "chat.ugui",       "scoreboard.ugui", "mp_prompt.ugui",
+    "nametag.ugui",   "journal.ugui",    "war_map.ugui",    "dialogue.ugui",
+    "container.ugui", "pause_menu.ugui", "main_menu.ugui",  "first_run.ugui",
 };
 
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
@@ -743,7 +976,8 @@ std::string BuildTopbarSection() {
   for (int i = 0; i < kCompassBlips; ++i) {
     s += "      panel blip_pip" + std::to_string(i) +
          " { position: absolute; top: 11; left: 0; width: 7; height: 7; corner-radius: 4;"
-         " background: #ffffff; border-color: #000000aa; border-width: 1; visibility: collapsed; }\n";
+         " background: #ffffff; border-color: #000000aa; border-width: 1; visibility: collapsed; "
+         "}\n";
   }
   s += R"(
     }
@@ -758,8 +992,8 @@ std::string BuildTopbarSection() {
 // concatenated last so they overlay everything.
 std::string BuildUi() {
   std::string s = "\npanel root {\n  width: 100vw; height: 100vh; position: relative;\n";
-  s += BuildTopbarSection();              // procedural: scrolling compass
-  s += LoadUiFragment("hud.ugui");        // crosshair
+  s += BuildTopbarSection();        // procedural: scrolling compass
+  s += LoadUiFragment("hud.ugui");  // crosshair
   s += LoadUiFragment("vitals.ugui");
   s += LoadUiFragment("readout.ugui");
   s += LoadUiFragment("quest.ugui");
@@ -772,8 +1006,8 @@ std::string BuildUi() {
   s += LoadUiFragment("war_map.ugui");
   s += LoadUiFragment("dialogue.ugui");
   s += LoadUiFragment("container.ugui");
-  s += BuildEditorSection();              // procedural: Glyph icons; before the menu
-  s += BuildCharGenSection();             // procedural: character creation docks
+  s += BuildEditorSection();   // procedural: Glyph icons; before the menu
+  s += BuildCharGenSection();  // procedural: character creation docks
   s += LoadUiFragment("pause_menu.ugui");
   s += LoadUiFragment("main_menu.ugui");
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
@@ -882,6 +1116,8 @@ struct GameUi::Impl {
   bool quit_requested = false;
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   bool prev_mouse[3] = {};
+  float pointer_scale_x = 1.0f;
+  float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking
   float stamina = 1.0f;
   int last_fps = 0;  // last computed fps, shown in the editor status bar
@@ -894,13 +1130,13 @@ struct GameUi::Impl {
 
   // Quest HUD state, set by the engine and applied each frame.
   HudQuest quest;
-  std::vector<HudGauge> hud_gauges;  // managed gameplay bars (oxygen, rads, ...)
+  std::vector<HudGauge> hud_gauges;     // managed gameplay bars (oxygen, rads, ...)
   std::vector<std::string> chat_lines;  // multiplayer chat box, newest last
   bool scoreboard_open = false;         // multiplayer scoreboard (hold-Tab list)
   std::string scoreboard_title;
   std::string scoreboard_header;
   std::vector<std::string> scoreboard_rows;
-  std::vector<std::string> mp_prompts;  // multiplayer interaction prompts
+  std::vector<std::string> mp_prompts;             // multiplayer interaction prompts
   std::vector<GameUi::CompassBlip> compass_blips;  // map blips on the compass
   std::vector<GameUi::Nametag> nametags;           // floating world-space labels
   std::string toast_text;
@@ -954,10 +1190,10 @@ struct GameUi::Impl {
   // interactive selections (dropdowns, toggles); the engine pushes the located
   // games / mods dir into fr_view and consumes the request raised below.
   bool first_run_open = false;
-  int fr_step = 0;            // 0 welcome .. 4 ready
-  int fr_mode = 0;           // default-mode dropdown selection
-  int fr_diff = 1;           // difficulty dropdown selection
-  int fr_dropdown = -1;      // open popover: -1 none, 0 mode, 1 difficulty
+  int fr_step = 0;                        // 0 welcome .. 4 ready
+  int fr_mode = 0;                        // default-mode dropdown selection
+  int fr_diff = 1;                        // difficulty dropdown selection
+  int fr_dropdown = -1;                   // open popover: -1 none, 0 mode, 1 difficulty
   bool fr_check[3] = {true, true, true};  // enable mods / diagnostics / updates
   FirstRunView fr_view;
   FirstRunRequest fr_request;
@@ -1130,8 +1366,7 @@ void GameUi::Impl::ApplyEditorView() {
         n.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); }, v);
   };
   auto setWidth = [&](const std::string& n, float v) {
-    SetStyleField(
-        n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Px(v); }, v);
+    SetStyleField(n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Px(v); }, v);
   };
 
   // Keep the bottom browser spanning between the side docks at any window width.
@@ -1147,7 +1382,8 @@ void GameUi::Impl::ApplyEditorView() {
     SetTextColor((id + "_lbl").c_str(), on ? kEdTxP : kEdTxS);
   }
   for (int i = 0; i < 4; ++i)
-    SetBackground(("btn_giz" + std::to_string(i)).c_str(), i == editor.gizmo ? kEdAccent : kEdClear);
+    SetBackground(("btn_giz" + std::to_string(i)).c_str(),
+                  i == editor.gizmo ? kEdAccent : kEdClear);
 
   // Left dock tabs.
   SetTextColor("btn_ltab0_t", editor.left_tab == 0 ? kEdTxP : kEdTxM);
@@ -1158,9 +1394,9 @@ void GameUi::Impl::ApplyEditorView() {
   // Scene tree search box.
   {
     const bool ph = editor.scene_search.empty() && !editor.scene_search_focused;
-    setText("ed_scene_search_text",
-            ph ? "Search scene..."
-               : editor.scene_search + (editor.scene_search_focused ? "|" : ""));
+    setText(
+        "ed_scene_search_text",
+        ph ? "Search scene..." : editor.scene_search + (editor.scene_search_focused ? "|" : ""));
     SetTextColor("ed_scene_search_text", ph ? kEdTxM : kEdTxP);
   }
 
@@ -1187,9 +1423,32 @@ void GameUi::Impl::ApplyEditorView() {
   }
 
   // Inspector: live selection or the empty state.
-  SetVisible("ed_insp_empty", !editor.has_selection);
-  SetVisible("ed_insp_body", editor.has_selection);
-  if (editor.has_selection) {
+  SetVisible("ed_insp_empty", !editor.has_selection && !editor.terrain_mode);
+  SetVisible("ed_insp_body", editor.has_selection && !editor.terrain_mode);
+  SetVisible("ed_terrain_body", editor.terrain_mode);
+  if (editor.terrain_mode) {
+    static const char* mode_ids[] = {"ed_terrain_mode0", "ed_terrain_mode1", "ed_terrain_mode2",
+                                     "ed_terrain_mode3"};
+    for (int i = 0; i < 4; ++i) {
+      const bool active = i == editor.terrain_brush_mode;
+      SetBackground(mode_ids[i], active ? kEdAccent : kEdField);
+      SetTextColor((std::string(mode_ids[i]) + "_t").c_str(), active ? kEdTxP : kEdTxS);
+    }
+    char value[64];
+    std::snprintf(value, sizeof(value), "%.1f m", editor.terrain_radius);
+    setText("ed_terrain_radius", value);
+    std::snprintf(value, sizeof(value), "%.2f", editor.terrain_strength);
+    setText("ed_terrain_strength", value);
+    setText("ed_terrain_samples", std::to_string(editor.terrain_sample_count));
+    setText("ed_terrain_dirty", editor.terrain_dirty ? "Unsaved" : "Saved");
+    SetBackground("ed_terrain_dirty_chip",
+                  editor.terrain_dirty ? Rgba(0xe8b54a2eu) : Rgba(0x46c46324u));
+    SetTextColor("ed_terrain_dirty", editor.terrain_dirty ? Rgba(0xf0c86affu) : Rgba(0x70d88affu));
+    std::string path = editor.terrain_path;
+    if (path.size() > 38) path = "..." + path.substr(path.size() - 35);
+    setText("ed_terrain_path", path.empty() ? "editor_layout.recterrain" : path);
+  }
+  if (editor.has_selection && !editor.terrain_mode) {
     setText("ed_insp_name", editor.sel_name);
     char b[48];
     const char* pn[3] = {"ed_pos_x", "ed_pos_y", "ed_pos_z"};
@@ -1243,9 +1502,9 @@ void GameUi::Impl::ApplyEditorView() {
   // Asset-browser search box.
   {
     const bool ph = editor.asset_search.empty() && !editor.asset_search_focused;
-    setText("ed_asset_search_text",
-            ph ? "Search props..."
-               : editor.asset_search + (editor.asset_search_focused ? "|" : ""));
+    setText(
+        "ed_asset_search_text",
+        ph ? "Search props..." : editor.asset_search + (editor.asset_search_focused ? "|" : ""));
     SetTextColor("ed_asset_search_text", ph ? kEdTxM : kEdTxP);
   }
 
@@ -1314,8 +1573,9 @@ void GameUi::Impl::ApplyEditorView() {
   if (bracket) {
     constexpr float kHalf = 32.0f;
     setLeft("ed_select", editor.sel_screen[0] - kHalf);
-    SetStyleField("ed_select", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
-                  editor.sel_screen[1] - kHalf);
+    SetStyleField(
+        "ed_select", [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
+        editor.sel_screen[1] - kHalf);
   }
 
   // Status bar.
@@ -1348,8 +1608,7 @@ void GameUi::Impl::ApplyCharGenView() {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
   auto setFill = [&](const std::string& n, float pct) {
-    SetStyleField(
-        n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); }, pct);
+    SetStyleField(n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); }, pct);
   };
 
   // Race list.
@@ -1385,7 +1644,8 @@ void GameUi::Impl::ApplyCharGenView() {
   if (chargen.row_total > kCgSliderRows) {
     char b[64];
     std::snprintf(b, sizeof(b), "%d-%d / %d", chargen.row_first + 1,
-                  std::min(chargen.row_first + kCgSliderRows, chargen.row_total), chargen.row_total);
+                  std::min(chargen.row_first + kCgSliderRows, chargen.row_total),
+                  chargen.row_total);
     setText("cg_scinfo", b);
   } else {
     setText("cg_scinfo", "");
@@ -1430,22 +1690,119 @@ bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
         editor_sink(e);
         return true;
       }
-      if (int i = pref("btn_tool"); i >= 0) { e.kind = K::kTool; e.index = i; editor_sink(e); return true; }
-      if (int i = pref("btn_giz"); i >= 0) { e.kind = K::kGizmo; e.index = i; editor_sink(e); return true; }
-      if (int i = pref("btn_ltab"); i >= 0) { e.kind = K::kLeftTab; e.index = i; editor_sink(e); return true; }
-      if (int i = pref("btn_btab"); i >= 0) { e.kind = K::kCategory; e.index = i; editor_sink(e); return true; }
-      if (int i = pref("cl_row"); i >= 0) { e.kind = K::kCategory; e.index = i; editor_sink(e); return true; }
-      if (int i = pref("card"); i >= 0) { e.kind = K::kPickCard; e.index = i; editor_sink(e); return true; }
-      if (name == "ed_scene_clear") { e.kind = K::kClearScene; editor_sink(e); return true; }
-      if (name == "ed_scene_search" || name == "ed_scene_search_text") { e.kind = K::kFocusScene; editor_sink(e); return true; }
-      if (name == "ed_asset_clear") { e.kind = K::kClearAsset; editor_sink(e); return true; }
-      if (name == "ed_asset_search" || name == "ed_asset_search_text") { e.kind = K::kFocusAsset; editor_sink(e); return true; }
-      if (name == "ed_cardprev") { e.kind = K::kCardScroll; e.index = -1; editor_sink(e); return true; }
-      if (name == "ed_cardnext") { e.kind = K::kCardScroll; e.index = 1; editor_sink(e); return true; }
-      if (name == "btn_treeup") { e.kind = K::kTreeScroll; e.index = -1; editor_sink(e); return true; }
-      if (name == "btn_treedn") { e.kind = K::kTreeScroll; e.index = 1; editor_sink(e); return true; }
-      if (name == "ed_snap") { e.kind = K::kSnapToggle; editor_sink(e); return true; }
-      if (name == "ed_grid") { e.kind = K::kGridCycle; editor_sink(e); return true; }
+      if (int i = pref("btn_tool"); i >= 0) {
+        e.kind = K::kTool;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("btn_giz"); i >= 0) {
+        e.kind = K::kGizmo;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("btn_ltab"); i >= 0) {
+        e.kind = K::kLeftTab;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("btn_btab"); i >= 0) {
+        e.kind = K::kCategory;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("cl_row"); i >= 0) {
+        e.kind = K::kCategory;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("card"); i >= 0) {
+        e.kind = K::kPickCard;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_scene_clear") {
+        e.kind = K::kClearScene;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_scene_search" || name == "ed_scene_search_text") {
+        e.kind = K::kFocusScene;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_asset_clear") {
+        e.kind = K::kClearAsset;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_asset_search" || name == "ed_asset_search_text") {
+        e.kind = K::kFocusAsset;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_cardprev") {
+        e.kind = K::kCardScroll;
+        e.index = -1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_cardnext") {
+        e.kind = K::kCardScroll;
+        e.index = 1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "btn_treeup") {
+        e.kind = K::kTreeScroll;
+        e.index = -1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "btn_treedn") {
+        e.kind = K::kTreeScroll;
+        e.index = 1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_snap") {
+        e.kind = K::kSnapToggle;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_grid") {
+        e.kind = K::kGridCycle;
+        editor_sink(e);
+        return true;
+      }
+      if (int i = pref("ed_terrain_mode"); i >= 0) {
+        e.kind = K::kTerrainMode;
+        e.index = i;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_terrain_radius_dec" || name == "ed_terrain_radius_inc") {
+        e.kind = K::kTerrainRadius;
+        e.index = has("_dec") ? -1 : 1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_terrain_strength_dec" || name == "ed_terrain_strength_inc") {
+        e.kind = K::kTerrainStrength;
+        e.index = has("_dec") ? -1 : 1;
+        editor_sink(e);
+        return true;
+      }
+      if (name == "ed_terrain_reset") {
+        e.kind = K::kTerrainReset;
+        editor_sink(e);
+        return true;
+      }
     }
     const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
     w = h ? h->parent : ugui::wid{};
@@ -1477,11 +1834,12 @@ void GameUi::Impl::ApplyMainMenu() {
       ugui::SetImageTexture(ui.FindWidget(("mm_bg" + id).c_str()), mm_backdrop[i], 1.0f, 1.0f);
     SetVisible(("mm_bg" + id).c_str(), has_bg);
     SetVisible(("mm_sel" + id).c_str(), i == mm_universe);
-    if (i < static_cast<int>(mm_universe_names.size())) setText("mm_labt" + id, mm_universe_names[i]);
+    if (i < static_cast<int>(mm_universe_names.size()))
+      setText("mm_labt" + id, mm_universe_names[i]);
     const bool avail = i >= static_cast<int>(mm_available.size()) || mm_available[i];
     SetTextColor(("mm_labt" + id).c_str(), i == mm_universe ? Rgba(0xffffffffu)
-                                           : avail            ? Rgba(0xdfe4efffu)
-                                                              : Rgba(0x596071ffu));
+                                           : avail          ? Rgba(0xdfe4efffu)
+                                                            : Rgba(0x596071ffu));
   }
 
   // Left nav: caret + highlight on the selected row (QUIT reads red). The row's
@@ -1493,8 +1851,8 @@ void GameUi::Impl::ApplyMainMenu() {
     ugui::SetSelected(ui.world(), ui.FindWidget(("mm_nav" + id).c_str()), on);
     SetVisible(("mm_caret" + id).c_str(), on);
     const bool quit = i == kMenuNavItems - 1;
-    SetTextColor(("mm_navt" + id).c_str(), on ? (quit ? Rgba(0xff9a8affu) : Rgba(0xffcc55ffu))
-                                              : Rgba(0xc2c9d8ffu));
+    SetTextColor(("mm_navt" + id).c_str(),
+                 on ? (quit ? Rgba(0xff9a8affu) : Rgba(0xffcc55ffu)) : Rgba(0xc2c9d8ffu));
     SetTextColor(("mm_navs" + id).c_str(), on ? Rgba(0xb6bdccffu) : Rgba(0x808a9effu));
   }
 
@@ -1591,11 +1949,21 @@ void GameUi::Impl::ActivateNav() {
       mm_request.universe = mm_universe;
       mm_request.multiplayer = false;
       break;
-    case 1: mm_screen = 1; break;  // MULTIPLAYER
-    case 2: mm_screen = 2; break;  // MODS
-    case 3: mm_screen = 3; break;  // SETTINGS
-    case 4: mm_screen = 4; break;  // PROFILE
-    case 5: mm_request.kind = MainMenuRequest::Kind::kQuit; break;  // QUIT
+    case 1:
+      mm_screen = 1;
+      break;  // MULTIPLAYER
+    case 2:
+      mm_screen = 2;
+      break;  // MODS
+    case 3:
+      mm_screen = 3;
+      break;  // SETTINGS
+    case 4:
+      mm_screen = 4;
+      break;  // PROFILE
+    case 5:
+      mm_request.kind = MainMenuRequest::Kind::kQuit;
+      break;  // QUIT
   }
 }
 
@@ -1614,11 +1982,29 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         return -1;
       };
       using K = MainMenuRequest::Kind;
-      if (name == "mm_back") { mm_screen = 0; return true; }
-      if (name == "act_gear") { mm_screen = 3; return true; }          // settings
-      if (name == "act_globe") { mm_request.kind = K::kOpenUrl; mm_request.url = "https://github.com/"; return true; }
-      if (name == "act_discord") { mm_request.kind = K::kOpenUrl; mm_request.url = "https://discord.com/"; return true; }
-      if (name == "act_changelog" || name == "act_news") { mm_request.kind = K::kOpenUrl; mm_request.url = "https://github.com/"; return true; }
+      if (name == "mm_back") {
+        mm_screen = 0;
+        return true;
+      }
+      if (name == "act_gear") {
+        mm_screen = 3;
+        return true;
+      }  // settings
+      if (name == "act_globe") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://github.com/";
+        return true;
+      }
+      if (name == "act_discord") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://discord.com/";
+        return true;
+      }
+      if (name == "act_changelog" || name == "act_news") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://github.com/";
+        return true;
+      }
       if (name == "mm_mp_host") {
         mm_mp_mode = 0;
         mm_request.kind = K::kHostServer;
@@ -1631,10 +2017,18 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         mm_request.universe = mm_universe;
         return true;
       }
-      if (int i = pref("mm_nav"); i >= 0) { mm_nav = i; ActivateNav(); return true; }
+      if (int i = pref("mm_nav"); i >= 0) {
+        mm_nav = i;
+        ActivateNav();
+        return true;
+      }
       if (int i = pref("mm_col"); i >= 0) {
-        if (mm_universe == i && mm_screen == 0) { mm_nav = 0; ActivateNav(); }  // re-click = play
-        else mm_universe = i;
+        if (mm_universe == i && mm_screen == 0) {
+          mm_nav = 0;
+          ActivateNav();
+        }  // re-click = play
+        else
+          mm_universe = i;
         return true;
       }
     }
@@ -1701,8 +2095,8 @@ void GameUi::Impl::ApplyFirstRun() {
   }
 
   // Page 4: mods dir + recommended space.
-  setText("fr_modspath_t", fr_view.mods_dir.empty() ? std::string("~/.recreation/mods")
-                                                     : fr_view.mods_dir);
+  setText("fr_modspath_t",
+          fr_view.mods_dir.empty() ? std::string("~/.recreation/mods") : fr_view.mods_dir);
   if (!fr_view.space_label.empty()) setText("fr_space", fr_view.space_label);
 
   // Page 5: a check badge on each located universe.
@@ -1749,7 +2143,10 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         return -1;
       };
       using K = FirstRunRequest::Kind;
-      if (name == "fr_begin") { AdvanceFirstRun(); return true; }
+      if (name == "fr_begin") {
+        AdvanceFirstRun();
+        return true;
+      }
       if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4") {
         RetreatFirstRun();
         return true;
@@ -1762,17 +2159,37 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         AdvanceFirstRun();  // shares the launch path (already on the last page)
         return true;
       }
-      if (name == "fr_browse_mods") { fr_request.kind = K::kBrowseMods; return true; }
+      if (name == "fr_browse_mods") {
+        fr_request.kind = K::kBrowseMods;
+        return true;
+      }
       if (int i = pref("fr_browse"); i >= 0) {
         fr_request.kind = K::kBrowseGame;
         fr_request.index = i;
         return true;
       }
-      if (name == "fr_modesel") { fr_dropdown = fr_dropdown == 0 ? -1 : 0; return true; }
-      if (name == "fr_diffsel") { fr_dropdown = fr_dropdown == 1 ? -1 : 1; return true; }
-      if (int k = pref("fr_modeopt"); k >= 0) { fr_mode = k; fr_dropdown = -1; return true; }
-      if (int k = pref("fr_diffopt"); k >= 0) { fr_diff = k; fr_dropdown = -1; return true; }
-      if (int i = pref("fr_chk"); i >= 0 && i < 3) { fr_check[i] = !fr_check[i]; return true; }
+      if (name == "fr_modesel") {
+        fr_dropdown = fr_dropdown == 0 ? -1 : 0;
+        return true;
+      }
+      if (name == "fr_diffsel") {
+        fr_dropdown = fr_dropdown == 1 ? -1 : 1;
+        return true;
+      }
+      if (int k = pref("fr_modeopt"); k >= 0) {
+        fr_mode = k;
+        fr_dropdown = -1;
+        return true;
+      }
+      if (int k = pref("fr_diffopt"); k >= 0) {
+        fr_diff = k;
+        fr_dropdown = -1;
+        return true;
+      }
+      if (int i = pref("fr_chk"); i >= 0 && i < 3) {
+        fr_check[i] = !fr_check[i];
+        return true;
+      }
     }
     const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
     w = h ? h->parent : ugui::wid{};
@@ -2140,8 +2557,7 @@ void GameUi::SetContainer(const ContainerView& container) {
   if (impl_->initialized) impl_->container = container;
 }
 
-void GameUi::SetWarMap(bool open, const std::vector<WarHoldEntry>& holds,
-                       float imperial_fraction) {
+void GameUi::SetWarMap(bool open, const std::vector<WarHoldEntry>& holds, float imperial_fraction) {
   if (!impl_->initialized) return;
   impl_->war_map_open = open;
   impl_->war_holds = holds;
@@ -2161,6 +2577,11 @@ void GameUi::SetEditorView(const EditorView& view) {
 
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink) {
   if (impl_->initialized) impl_->editor_sink = std::move(sink);
+}
+
+void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
+  if (canvas_x) *canvas_x = window_x * impl_->pointer_scale_x;
+  if (canvas_y) *canvas_y = window_y * impl_->pointer_scale_y;
 }
 
 void GameUi::SetCharGenView(const CharGenView& view) {
@@ -2203,6 +2624,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   ugui::InputQueue& q = impl->ui.platform()->input_queue();
   const float msx = window.width() > 0 ? fb_w / static_cast<float>(window.width()) : 1.f;
   const float msy = window.height() > 0 ? fb_h / static_cast<float>(window.height()) : 1.f;
+  impl->pointer_scale_x = msx;
+  impl->pointer_scale_y = msy;
   q.PushMove({in.mouse_x * msx, in.mouse_y * msy});
   const ugui::MouseButton buttons[3] = {ugui::MouseButton::kLeft, ugui::MouseButton::kRight,
                                         ugui::MouseButton::kMiddle};
@@ -2224,23 +2647,38 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     static constexpr int kNoUgui = -1;
     auto to_ugui = [](GamepadButton b) -> int {
       switch (b) {
-        case GamepadButton::kSouth: return static_cast<int>(ugui::GamepadButton::kA);
-        case GamepadButton::kEast: return static_cast<int>(ugui::GamepadButton::kB);
-        case GamepadButton::kWest: return static_cast<int>(ugui::GamepadButton::kX);
-        case GamepadButton::kNorth: return static_cast<int>(ugui::GamepadButton::kY);
-        case GamepadButton::kBack: return static_cast<int>(ugui::GamepadButton::kBack);
-        case GamepadButton::kGuide: return static_cast<int>(ugui::GamepadButton::kGuide);
-        case GamepadButton::kStart: return static_cast<int>(ugui::GamepadButton::kStart);
-        case GamepadButton::kLeftStick: return static_cast<int>(ugui::GamepadButton::kLeftThumb);
-        case GamepadButton::kRightStick: return static_cast<int>(ugui::GamepadButton::kRightThumb);
-        case GamepadButton::kLeftShoulder: return static_cast<int>(ugui::GamepadButton::kLeftBumper);
+        case GamepadButton::kSouth:
+          return static_cast<int>(ugui::GamepadButton::kA);
+        case GamepadButton::kEast:
+          return static_cast<int>(ugui::GamepadButton::kB);
+        case GamepadButton::kWest:
+          return static_cast<int>(ugui::GamepadButton::kX);
+        case GamepadButton::kNorth:
+          return static_cast<int>(ugui::GamepadButton::kY);
+        case GamepadButton::kBack:
+          return static_cast<int>(ugui::GamepadButton::kBack);
+        case GamepadButton::kGuide:
+          return static_cast<int>(ugui::GamepadButton::kGuide);
+        case GamepadButton::kStart:
+          return static_cast<int>(ugui::GamepadButton::kStart);
+        case GamepadButton::kLeftStick:
+          return static_cast<int>(ugui::GamepadButton::kLeftThumb);
+        case GamepadButton::kRightStick:
+          return static_cast<int>(ugui::GamepadButton::kRightThumb);
+        case GamepadButton::kLeftShoulder:
+          return static_cast<int>(ugui::GamepadButton::kLeftBumper);
         case GamepadButton::kRightShoulder:
           return static_cast<int>(ugui::GamepadButton::kRightBumper);
-        case GamepadButton::kDpadUp: return static_cast<int>(ugui::GamepadButton::kDPadUp);
-        case GamepadButton::kDpadDown: return static_cast<int>(ugui::GamepadButton::kDPadDown);
-        case GamepadButton::kDpadLeft: return static_cast<int>(ugui::GamepadButton::kDPadLeft);
-        case GamepadButton::kDpadRight: return static_cast<int>(ugui::GamepadButton::kDPadRight);
-        default: return kNoUgui;
+        case GamepadButton::kDpadUp:
+          return static_cast<int>(ugui::GamepadButton::kDPadUp);
+        case GamepadButton::kDpadDown:
+          return static_cast<int>(ugui::GamepadButton::kDPadDown);
+        case GamepadButton::kDpadLeft:
+          return static_cast<int>(ugui::GamepadButton::kDPadLeft);
+        case GamepadButton::kDpadRight:
+          return static_cast<int>(ugui::GamepadButton::kDPadRight);
+        default:
+          return kNoUgui;
       }
     };
     for (int b = 0; b < static_cast<int>(GamepadButton::kCount); ++b) {
@@ -2331,9 +2769,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
       const HudGauge& g = impl->hud_gauges[i];
       impl->SetVisible(row.c_str(), true);
       ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), g.label.c_str());
-      impl->SetStyleField(
-          (row + "_fill").c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
-          std::clamp(g.fraction, 0.0f, 1.0f) * 100.0f);
+      impl->SetStyleField((row + "_fill").c_str(),
+                          [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
+                          std::clamp(g.fraction, 0.0f, 1.0f) * 100.0f);
       impl->SetBackground((row + "_fill").c_str(), Rgba(g.color ? g.color : 0x5d92e8ffu));
     } else {
       impl->SetVisible(row.c_str(), false);
@@ -2537,7 +2975,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
       }
     }
     char sub[96];
-    std::snprintf(sub, sizeof(sub), "Imperial Legion %d   |   Stormcloaks %d", imperial, stormcloak);
+    std::snprintf(sub, sizeof(sub), "Imperial Legion %d   |   Stormcloaks %d", imperial,
+                  stormcloak);
     ugui::SetText(impl->ui.FindWidget("war_map_sub"), sub);
     impl->SetStyleField(
         "war_bar_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
@@ -2588,8 +3027,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     // pass) with the blurred backdrop for frosted panels; null disables frost.
     impl->backend.SetBackdrop(render::GetVkImageView(view->blur_source),
                               render::GetVkSampler(view->blur_sampler));
-    if (impl->draw_data)
-      impl->backend.Render(*impl->draw_data, render::GetVkCommandBuffer(cmd));
+    if (impl->draw_data) impl->backend.Render(*impl->draw_data, render::GetVkCommandBuffer(cmd));
   };
 }
 
@@ -2623,6 +3061,10 @@ void GameUi::SetJournal(bool, const std::vector<HudQuest>&, int) {}
 void GameUi::SetWarMap(bool, const std::vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
+void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
+  if (canvas_x) *canvas_x = window_x;
+  if (canvas_y) *canvas_y = window_y;
+}
 void GameUi::SetCharGenView(const CharGenView&) {}
 u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
 void GameUi::ToggleMenu() {}

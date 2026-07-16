@@ -87,8 +87,8 @@ struct EditorView {
   std::string scene_search;
   bool scene_search_focused = false;
   struct TreeRow {
-    int depth = 0;          // indent level (0 root, 1 group, 2 leaf)
-    int icon = 0;           // 0 root, 1 group, 2 light, 3 mesh
+    int depth = 0;  // indent level (0 root, 1 group, 2 leaf)
+    int icon = 0;   // 0 root, 1 group, 2 light, 3 mesh
     std::string name;
     bool selected = false;  // part of the editor selection
     bool hidden = false;    // eye toggled off (world::Hidden)
@@ -102,13 +102,13 @@ struct EditorView {
 
   // --- right dock: inspector ---
   bool has_selection = false;
-  std::string sel_name;   // object display name
-  std::string sel_type;   // record fourcc, e.g. "STAT"
+  std::string sel_name;  // object display name
+  std::string sel_type;  // record fourcc, e.g. "STAT"
   std::string model_name;
   std::string material_name;
   u64 model_thumb = 0;  // rendered preview of the selected model (0 = none)
   float pos[3] = {0, 0, 0};
-  float rot[3] = {0, 0, 0};    // euler degrees (pitch, yaw, roll)
+  float rot[3] = {0, 0, 0};  // euler degrees (pitch, yaw, roll)
   float scale[3] = {1, 1, 1};
   bool sel_static = false;
   bool cast_shadow = true;
@@ -119,6 +119,15 @@ struct EditorView {
   // Screen-space selection bracket (window pixels).
   bool sel_on_screen = false;
   float sel_screen[2] = {0, 0};
+
+  // Terrain inspector replaces the object inspector while sculpt mode is live.
+  bool terrain_mode = false;
+  int terrain_brush_mode = 0;  // Raise, Lower, Smooth, Flatten
+  float terrain_radius = 4.0f;
+  float terrain_strength = 0.25f;
+  size_t terrain_sample_count = 0;
+  bool terrain_dirty = false;
+  std::string terrain_path;
 
   // Marquee box-select rectangle (window pixels). Inactive hides it.
   bool marquee_active = false;
@@ -137,8 +146,8 @@ struct EditorView {
   std::vector<CatRow> cats;
   struct Card {
     std::string name;
-    u64 thumb = 0;   // ugui TextureId for the rendered preview (0 = none yet)
-    u32 color = 0;   // placeholder swatch colour (rgba8) until the thumb is ready
+    u64 thumb = 0;  // ugui TextureId for the rendered preview (0 = none yet)
+    u32 color = 0;  // placeholder swatch colour (rgba8) until the thumb is ready
     bool armed = false;
   };
   std::vector<Card> cards;
@@ -146,10 +155,10 @@ struct EditorView {
   int card_first = 0;  // index of cards[0] within the filtered set
 
   // --- status bar ---
-  std::string status;          // "Ready" / transient confirmation
+  std::string status;  // "Ready" / transient confirmation
   std::string grid_label = "1 m";
   bool snapping = false;
-  int object_count = 0;        // editor-placed objects so far
+  int object_count = 0;  // editor-placed objects so far
 };
 
 // Character-creation overlay geometry, shared by the layout (game_ui.cc) and the
@@ -157,26 +166,26 @@ struct EditorView {
 // Both panels are absolute-positioned at fixed pixel offsets (not flex), so the
 // two files agree on every control's rect. Left panel = race / sex / preset /
 // page tabs / actions; right panel = the scrollable slider list for the page.
-constexpr float kCgTop = 10.0f;         // both panels' top (px)
-constexpr float kCgLeftW = 322.0f;      // left panel width
-constexpr float kCgRightW = 396.0f;     // right panel width
-constexpr float kCgPad = 16.0f;         // panel inner padding
+constexpr float kCgTop = 10.0f;      // both panels' top (px)
+constexpr float kCgLeftW = 322.0f;   // left panel width
+constexpr float kCgRightW = 396.0f;  // right panel width
+constexpr float kCgPad = 16.0f;      // panel inner padding
 // Left panel: interactive elements at fixed offsets from the panel top.
-constexpr float kCgRaceY0 = 86.0f;      // first race row (rel to panel top)
-constexpr float kCgRaceRowH = 27.0f;    // race row height
-constexpr int kCgRaceRows = 10;         // pooled race rows
-constexpr float kCgSexY = 392.0f;       // sex Male/Female buttons (rel)
-constexpr float kCgPresetY = 458.0f;    // preset prev/label/next bar (rel)
-constexpr float kCgPageY = 524.0f;      // page tabs (rel)
-constexpr float kCgActY = 578.0f;       // first action button (rel)
-constexpr float kCgActH = 34.0f;        // action button height + gap
-constexpr float kCgBtnH = 30.0f;        // small control height
+constexpr float kCgRaceY0 = 86.0f;    // first race row (rel to panel top)
+constexpr float kCgRaceRowH = 27.0f;  // race row height
+constexpr int kCgRaceRows = 10;       // pooled race rows
+constexpr float kCgSexY = 392.0f;     // sex Male/Female buttons (rel)
+constexpr float kCgPresetY = 458.0f;  // preset prev/label/next bar (rel)
+constexpr float kCgPageY = 524.0f;    // page tabs (rel)
+constexpr float kCgActY = 578.0f;     // first action button (rel)
+constexpr float kCgActH = 34.0f;      // action button height + gap
+constexpr float kCgBtnH = 30.0f;      // small control height
 // Right panel: the pooled slider/cycler rows.
-constexpr float kCgRowsY0 = 66.0f;      // first row (rel to panel top)
-constexpr float kCgRowH = 40.0f;        // one control row height
-constexpr int kCgSliderRows = 11;       // pooled slider/cycler rows
-constexpr float kCgTrackX = 158.0f;     // track left (rel to right panel left)
-constexpr float kCgTrackW = 164.0f;     // track width
+constexpr float kCgRowsY0 = 66.0f;   // first row (rel to panel top)
+constexpr float kCgRowH = 40.0f;     // one control row height
+constexpr int kCgSliderRows = 11;    // pooled slider/cycler rows
+constexpr float kCgTrackX = 158.0f;  // track left (rel to right panel left)
+constexpr float kCgTrackW = 164.0f;  // track width
 
 // The character-creation screen state, rebuilt each frame by CharGen and mirrored
 // into the overlay (mirrors EditorView). Empty / !active hides every panel.
@@ -193,10 +202,10 @@ struct CharGenView {
   std::string page_title;
   struct Row {
     std::string label;
-    std::string value;    // formatted value / index text
-    float fill = 0;       // 0..1 track fill (sliders); cyclers centre at 0.5
-    int kind = 0;         // 0 slider, 1 cycler
-    u32 swatch = 0;       // small colour chip (rgba8); 0 = none
+    std::string value;  // formatted value / index text
+    float fill = 0;     // 0..1 track fill (sliders); cyclers centre at 0.5
+    int kind = 0;       // 0 slider, 1 cycler
+    u32 swatch = 0;     // small colour chip (rgba8); 0 = none
   };
   std::vector<Row> rows;  // the visible window of the page's controls
   int row_total = 0;      // total controls on the page (for the pager)
@@ -207,23 +216,23 @@ struct CharGenView {
 // the network status line, and the per-column "available" flags. Read by the
 // menu's profile/multiplayer/status widgets; all optional, sensible defaults.
 struct MainMenuStats {
-  std::string player_name;     // the local profile handle (account or --name)
+  std::string player_name;  // the local profile handle (account or --name)
   int level = 0;
-  bool in_game = false;        // a universe is loaded and being played
-  std::string universe;        // loaded game's display name (empty = none yet)
-  std::string location;        // current cell/region, when in game
+  bool in_game = false;                        // a universe is loaded and being played
+  std::string universe;                        // loaded game's display name (empty = none yet)
+  std::string location;                        // current cell/region, when in game
   float health = 1, magicka = 1, stamina = 1;  // 0..1 vitals, when in game
   int gold = 0;
   int active_quests = 0;
-  int players_online = 0;      // connected peers (host or client), 0 = offline
-  std::string net_status;      // "Offline" / "Hosting :29700" / "Connected ..."
+  int players_online = 0;  // connected peers (host or client), 0 = offline
+  std::string net_status;  // "Offline" / "Hosting :29700" / "Connected ..."
 
   // Real local-profile / system identity, shown on the front screen before any
   // universe is loaded (the profile is the machine account, not an RPG hero).
-  std::string account;         // OS login name
-  std::string machine;         // hostname
-  std::string build;           // engine version string
-  int universes_available = 0; // detected, playable universes
+  std::string account;          // OS login name
+  std::string machine;          // hostname
+  std::string build;            // engine version string
+  int universes_available = 0;  // detected, playable universes
 };
 
 // One entry on the menu's NEWS rail, parsed from CHANGELOG.md: a short headline
@@ -240,10 +249,10 @@ struct MenuNewsItem {
 struct MainMenuRequest {
   enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit, kOpenUrl };
   Kind kind = Kind::kNone;
-  int universe = 0;         // 0 Skyrim, 1 Fallout 4, 2 Starfield
-  std::string address;      // join target ("ip[:port]"), for kJoinServer
-  std::string url;          // external link to open, for kOpenUrl
-  bool multiplayer = false; // kEnterUniverse also opened a session
+  int universe = 0;          // 0 Skyrim, 1 Fallout 4, 2 Starfield
+  std::string address;       // join target ("ip[:port]"), for kJoinServer
+  std::string url;           // external link to open, for kOpenUrl
+  bool multiplayer = false;  // kEnterUniverse also opened a session
 };
 
 // Live data the engine feeds the first-run setup wizard each frame: the three
@@ -252,12 +261,12 @@ struct MainMenuRequest {
 // step and selection state. This only mirrors what the engine resolved or browsed.
 struct FirstRunView {
   struct Game {
-    std::string name;     // display name (e.g. "Skyrim Special Edition")
-    std::string path;     // located data dir, empty if not found
+    std::string name;  // display name (e.g. "Skyrim Special Edition")
+    std::string path;  // located data dir, empty if not found
     bool located = false;
   };
-  std::vector<Game> games;        // up to three, column order
-  std::string mods_dir;           // current mods directory
+  std::vector<Game> games;  // up to three, column order
+  std::string mods_dir;     // current mods directory
   std::string space_label = "50 GB";
 };
 
@@ -267,11 +276,11 @@ struct FirstRunView {
 struct FirstRunRequest {
   enum class Kind { kNone, kBrowseGame, kBrowseMods, kLaunch, kCancel };
   Kind kind = Kind::kNone;
-  int index = 0;                  // game column, for kBrowseGame
+  int index = 0;  // game column, for kBrowseGame
   // Snapshot of the wizard's selections, filled on kLaunch so the engine can
   // persist them (these have no effect on the other request kinds).
-  int mode = 0;                   // 0 Exploration, 1 Story, 2 Survival, 3 Sandbox
-  int difficulty = 1;             // 0 Novice, 1 Normal, 2 Hard, 3 Legendary
+  int mode = 0;        // 0 Exploration, 1 Story, 2 Survival, 3 Sandbox
+  int difficulty = 1;  // 0 Novice, 1 Normal, 2 Hard, 3 Legendary
   bool enable_mods = true;
   bool share_diagnostics = true;
   bool check_updates = true;
@@ -288,10 +297,10 @@ struct ControlsRow {
 };
 struct ControlsView {
   std::vector<ControlsRow> rows;
-  std::string sens_kbm;     // formatted mouse look sensitivity
-  std::string sens_pad;     // formatted gamepad look sensitivity
+  std::string sens_kbm;  // formatted mouse look sensitivity
+  std::string sens_pad;  // formatted gamepad look sensitivity
   bool invert_y = false;
-  bool gamepad = false;     // a pad is connected (drives glyph hints)
+  bool gamepad = false;  // a pad is connected (drives glyph hints)
 };
 
 // A request the Settings sub-view raises for the engine (which owns the
@@ -324,6 +333,10 @@ struct EditorUiEvent {
     kClearAsset,
     kSnapToggle,
     kGridCycle,
+    kTerrainMode,      // index = Raise/Lower/Smooth/Flatten
+    kTerrainRadius,    // index = -1/+1
+    kTerrainStrength,  // index = -1/+1
+    kTerrainReset,
   };
   Kind kind = Kind::kTool;
   int index = 0;
@@ -420,6 +433,8 @@ class GameUi {
   // registers the callback that receives clicks/scrolls on the editor widgets.
   void SetEditorView(const EditorView& view);
   void SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink);
+  // Converts raw window-space input to the framebuffer-sized editor canvas.
+  void ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const;
 
   // Character-creation overlay: the race / sex / preset / page controls and the
   // scrollable slider list. CharGen owns all the interaction (it hit-tests its own

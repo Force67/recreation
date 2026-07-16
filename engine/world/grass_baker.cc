@@ -71,7 +71,12 @@ bool DecodeLandHeights(const bethesda::Record& land, f32 out[kLandGridPoints * k
   return true;
 }
 
-f32 SampleHeight(const f32* heights, f32 x, f32 y) {
+struct SurfaceSample {
+  f32 height = 0;
+  f32 slope_degrees = 0;
+};
+
+SurfaceSample SampleSurface(const f32* heights, f32 x, f32 y) {
   constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
   f32 gx = std::clamp(x / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
   f32 gy = std::clamp(y / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
@@ -80,9 +85,26 @@ f32 SampleHeight(const f32* heights, f32 x, f32 y) {
   f32 fx = gx - static_cast<f32>(c);
   f32 fy = gy - static_cast<f32>(r);
   const f32* row = heights + r * kLandGridPoints + c;
-  f32 h0 = row[0] * (1 - fx) + row[1] * fx;
-  f32 h1 = row[kLandGridPoints] * (1 - fx) + row[kLandGridPoints + 1] * fx;
-  return h0 * (1 - fy) + h1 * fy;
+  const f32 southwest = row[0];
+  const f32 southeast = row[1];
+  const f32 northwest = row[kLandGridPoints];
+  const f32 northeast = row[kLandGridPoints + 1];
+  Vec3 normal;
+  SurfaceSample result;
+  if (fx + fy <= 1.0f) {
+    result.height = southwest + fx * (southeast - southwest) +
+                    fy * (northwest - southwest);
+    normal = Normalize(Cross(Vec3{kSpacing, 0, southeast - southwest},
+                             Vec3{0, kSpacing, northwest - southwest}));
+  } else {
+    result.height = northeast + (1.0f - fx) * (northwest - northeast) +
+                    (1.0f - fy) * (southeast - northeast);
+    normal = Normalize(Cross(Vec3{-kSpacing, 0, northwest - northeast},
+                             Vec3{0, -kSpacing, southeast - northeast}));
+  }
+  result.slope_degrees =
+      std::acos(std::clamp(normal.z, -1.0f, 1.0f)) * 57.29578f;
+  return result;
 }
 
 // Slope in degrees from the VNML normal nearest to the point. Flat when the
@@ -103,15 +125,24 @@ f32 SlopeDegrees(const bethesda::Subrecord* vnml, f32 x, f32 y) {
 // xEdit "Units From Water Type" semantics; distance is positive above water.
 bool WaterOk(u32 type, f32 units, f32 distance) {
   switch (type) {
-    case 0: return distance >= units;                       // above - at least
-    case 1: return distance >= 0 && distance <= units;      // above - at most
-    case 2: return -distance >= units;                      // below - at least
-    case 3: return distance <= 0 && -distance <= units;     // below - at most
-    case 4: return std::abs(distance) >= units;             // either - at least
-    case 5: return std::abs(distance) <= units;             // either - at most
-    case 6: return distance <= units;                       // either - at most above
-    case 7: return -distance <= units;                      // either - at most below
-    default: return true;
+    case 0:
+      return distance >= units;  // above - at least
+    case 1:
+      return distance >= 0 && distance <= units;  // above - at most
+    case 2:
+      return -distance >= units;  // below - at least
+    case 3:
+      return distance <= 0 && -distance <= units;  // below - at most
+    case 4:
+      return std::abs(distance) >= units;  // either - at least
+    case 5:
+      return std::abs(distance) <= units;  // either - at most
+    case 6:
+      return distance <= units;  // either - at most above
+    case 7:
+      return -distance <= units;  // either - at most below
+    default:
+      return true;
   }
 }
 
@@ -202,15 +233,24 @@ const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
   return type;
 }
 
-const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_plugin,
-                                         i16 grid_x, i16 grid_y, f32 water_height,
-                                         f32 density_scale) {
+const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
+                                         i16 grid_y, f32 water_height, f32 density_scale,
+                                         std::span<const f32> height_override) {
   std::string name = "grass/" + std::to_string(grid_x) + "_" + std::to_string(grid_y);
   asset::AssetId mesh_id = asset::MakeAssetId(name);
-  if (const asset::Mesh* cached = assets_.FindMesh(mesh_id)) return cached;
+  if (height_override.empty()) {
+    if (const asset::Mesh* cached = assets_.FindMesh(mesh_id)) return cached;
+  } else if (height_override.size() != kLandGridPoints * kLandGridPoints) {
+    return nullptr;
+  }
 
   f32 heights[kLandGridPoints * kLandGridPoints];
-  if (!DecodeLandHeights(land, heights)) return nullptr;
+  if (height_override.empty()) {
+    if (!DecodeLandHeights(land, heights)) return nullptr;
+  } else {
+    std::memcpy(heights, height_override.data(), sizeof(heights));
+  }
+  const bool edited_heights = !height_override.empty();
   const bethesda::Subrecord* vnml = land.Find(kVnml);
 
   // Texture layers like the albedo bake: BTXT sets a quadrant base, ATXT
@@ -281,6 +321,7 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
   asset::Mesh built;
   built.id = mesh_id;
   built.exclude_from_rt = !RtGrassOpt;
+  built.dynamic_vertices = true;
   built.lods.emplace_back();
   asset::MeshLod& lod = built.lods[0];
 
@@ -333,12 +374,14 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
 
       for (const GrassType* type : *best) {
         if (rng.Uniform() >= type->density * density_scale) continue;
-        f32 slope = SlopeDegrees(vnml, px, py);
+        const f32 slope = edited_heights
+                              ? SampleSurface(heights, px, py).slope_degrees
+                              : SlopeDegrees(vnml, px, py);
         if (slope < type->min_slope || slope > type->max_slope) continue;
 
         f32 wx = px + (rng.Uniform() * 2 - 1) * type->position_range;
         f32 wy = py + (rng.Uniform() * 2 - 1) * type->position_range;
-        f32 wz = SampleHeight(heights, wx, wy) +
+        f32 wz = SampleSurface(heights, wx, wy).height +
                  (rng.Uniform() * 2 - 1) * type->height_range;
         if (!WaterOk(type->water_type, type->units_from_water, wz - water_height)) continue;
 
@@ -402,14 +445,14 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
   built.bounds_center[1] = kCellSize * 0.5f;
   built.bounds_center[2] = (min_z + max_z) * 0.5f;
   f32 half_z = (max_z - min_z) * 0.5f;
-  built.bounds_radius =
-      std::sqrt(2 * kCellSize * 0.5f * kCellSize * 0.5f + half_z * half_z);
+  built.bounds_radius = std::sqrt(2 * kCellSize * 0.5f * kCellSize * 0.5f + half_z * half_z);
 
   total_instances_ += instances;
   total_vertices_ += lod.vertices.size();
   RX_INFO("grass {},{}: {} instances, {} verts, {} submeshes", grid_x, grid_y, instances,
-           lod.vertices.size(), lod.submeshes.size());
-  return assets_.AddMesh(std::move(built));
+          lod.vertices.size(), lod.submeshes.size());
+  return height_override.empty() ? assets_.AddMesh(std::move(built))
+                                 : assets_.ReplaceMesh(std::move(built));
 }
 
 }  // namespace rx::world

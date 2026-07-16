@@ -5,6 +5,11 @@ shows the most recent entries (the first bullet of each release is its headline)
 
 ## [Unreleased]
 ### Added
+- The in-game map editor now sculpts Bethesda LAND non-destructively with live
+  raise, lower, smooth, and flatten strokes. Sparse canonical-border deltas save
+  as checksummed, source-fingerprinted `.recterrain` files; streamed meshes,
+  ground queries, and colliders refresh per touched cell, and a whole drag is one
+  undo operation.
 - Quest scripts now react to more of the world through engine-raised Papyrus
   events. Combat drives `OnHit` (with the aggressor) and `OnCombatStateChanged` as
   an actor enters and leaves combat, including when its target dies. Stepping out
