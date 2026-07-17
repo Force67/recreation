@@ -9,6 +9,7 @@
 #include "bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
+#include "gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
 #include "gamenet/actor_sync.h"
 #include "net/replication.h"
 #include "world/components.h"
@@ -105,6 +106,27 @@ int main() {
   stray[0].pos[0] = 99.0f;
   rx::net::ApplyActorStates(client, client_qw, stray, 0.1f);  // must not crash
   Check("unknown form is ignored", client_qw.Find(stray[0].form).index == rx::ecs::kInvalidEntity.index);
+
+  // --- anti foot-slide gait playback rate (GaitPlaybackRate) ---
+  // Authored gait speeds (vanilla character clips ~1.4 walk / ~4.0 run m/s).
+  const float kWalk = 1.4f, kRun = 4.0f;
+  auto approx = [](float a, float b) { return a > b ? a - b < 1e-4f : b - a < 1e-4f; };
+  // Identity across the authored [walk, run] blend range: the blend space already
+  // authors the pose for that speed, so the clock is the natural speed/walk cadence.
+  Check("rate == speed/walk at the walk clip", approx(rx::GaitPlaybackRate(kWalk, kWalk, kRun), 1.0f));
+  Check("rate == speed/walk mid-blend",
+        approx(rx::GaitPlaybackRate(2.8f, kWalk, kRun), 2.8f / kWalk));
+  Check("rate == run/walk at the run clip",
+        approx(rx::GaitPlaybackRate(kRun, kWalk, kRun), kRun / kWalk));
+  // Sprint sits above the run clip: the correction clamps at 1.4x the run cadence
+  // (chipmunk cap) instead of blowing up to sprint/walk.
+  Check("sprint caps at 1.4x run cadence",
+        approx(rx::GaitPlaybackRate(7.0f, kWalk, kRun), 1.4f * kRun / kWalk));
+  // A slow sub-walk shuffle floors at 0.7x the walk cadence (no slow-mo slide).
+  Check("sub-walk floors at 0.7x walk cadence",
+        approx(rx::GaitPlaybackRate(0.5f, kWalk, kRun), 0.7f));
+  // Degenerate authored speeds must not divide by zero / invert.
+  Check("degenerate speeds stay finite and positive", rx::GaitPlaybackRate(3.0f, 0.0f, 0.0f) > 0.0f);
 
   if (g_failures) {
     std::printf("FAILED: %d check(s)\n", g_failures);

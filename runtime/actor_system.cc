@@ -21,6 +21,7 @@
 #include "core/log.h"
 #include "core/math.h"
 #include "engine_internal.h"
+#include "gait_rate.h"
 #include "scene/components.h"
 #include "fp_equipment.h"
 #include "world/components.h"
@@ -606,6 +607,24 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
   actor.capsule_offset = 0.85f;
   actor.character = physics_.CreateCharacter({pos.x, pos.y + actor.capsule_offset, pos.z}, 0.3f, 0.55f);
 
+  // Bind the player to the shared idle/walk/run locomotion machine (real Skyrim
+  // clips + walk<->run blend space + foot-sync markers) so the gait reads off the
+  // actual planar speed and the feet plant instead of sliding. Capsule-driven: the
+  // machine only POSES the body (loco_apply_root stays false) -- position is owned
+  // by the rx character controller (PlayerController). The per-actor anti-slide
+  // playback-rate sync (GaitPlaybackRate) keys on loco_apply_root==false, so it
+  // applies to the player but not the root-motion showcase actor. Falls back to the
+  // procedural gait when the clips are absent (BuildCharacterLocomotion -> null ->
+  // AttachLocomotion no-ops), so a missing-data session keeps the old behaviour.
+  if (ctx_.game == bethesda::Game::kSkyrimSe) {
+    const std::string skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
+    if (auto arch = BuildCharacterLocomotion(actor, skel_hkx, "character")) {
+      AttachLocomotion(actor, arch);
+      actor.foot_ik = true;  // AttachLocomotion clears it; keep ground-adaptive feet on stairs
+      RX_INFO("player: bound to the idle/walk/run locomotion machine (anti foot-slide rate sync on)");
+    }
+  }
+
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(std::move(actor));
   return true;
@@ -998,20 +1017,35 @@ void ActorSystem::UpdateLocomotion(Actor& actor, f32 dt) {
   actor.loco_params[arch.speed_param] = speed;
 
   // Shared normalized locomotion phase [0,1): foot-synced when the gaits share
-  // markers, else a plain clock whose cadence scales with speed.
+  // markers, else a plain clock whose cadence scales with speed. Capsule-driven
+  // gameplay actors (the player, loco_apply_root==false) route the clock through
+  // GaitPlaybackRate so the gait clip's stride cadence tracks the ground and the
+  // feet stop sliding when the speed sits off the authored walk/run clips (slow
+  // analog / speed-blend, or sprint above the run clip). Identity inside [walk,run]
+  // so the root-motion showcase actor is unchanged.
+  const bool rate_sync = !actor.loco_apply_root;
   f32 phase;
   if (actor.loco_synced) {
-    f32 play_rate = (speed > 0.05f ? speed : 0.0f) / std::max(arch.walk_speed, 0.05f);
+    f32 play_rate = speed > 0.05f
+                        ? (rate_sync ? GaitPlaybackRate(speed, arch.walk_speed, arch.run_speed)
+                                     : speed / std::max(arch.walk_speed, 0.05f))
+                        : 0.0f;
     actor.loco_sync.Advance(dt, /*leader=*/0, play_rate);
     u32 markers = actor.loco_sync.marker_count();
     phase = markers > 0 ? actor.loco_sync.phase() / static_cast<f32>(markers) : 0.0f;
   } else {
-    f32 cadence = (speed > 0.05f ? speed : arch.walk_speed) / std::max(arch.walk_speed, 0.05f);
+    f32 cadence = rate_sync
+                      ? GaitPlaybackRate(speed > 0.05f ? speed : arch.walk_speed, arch.walk_speed,
+                                         arch.run_speed)
+                      : (speed > 0.05f ? speed : arch.walk_speed) / std::max(arch.walk_speed, 0.05f);
     actor.loco_phase += dt * cadence / arch.walk_duration;
     actor.loco_phase -= std::floor(actor.loco_phase);
     phase = actor.loco_phase;
   }
   actor.loco_params[arch.phase_param] = phase;
+  // Keep the procedural foot-IK stance weighting (UpdateOneActor) in step with the
+  // machine's gait phase so the planted/swing foot classification stays correct.
+  actor.locomotion.phase = phase;
 
   kinema::PoseParams pp{actor.loco_params.data(), static_cast<u32>(actor.loco_params.size())};
   kinema::PoseView out = KinPoseView(actor.pose);

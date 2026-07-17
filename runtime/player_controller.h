@@ -74,7 +74,7 @@ class PlayerController {
   // body/look heading directly through the character intent. Pitch is shared.
   f32 cam_yaw_ = 0;      // third-person free-orbit yaw (radians)
   f32 cam_pitch_ = 0;    // camera pitch, both modes (radians)
-  f32 facing_yaw_ = 0;   // eased biped facing (turns toward movement direction)
+  f32 loco_debug_t_ = 0; // RX_LOCO_DEBUG trace throttle accumulator (seconds)
   bool was_third_person_ = true;
 
   Vec3 eye_position_{};

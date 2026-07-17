@@ -87,13 +87,36 @@ bool PlayerController::Assemble() {
   move.run_speed = speed_units("NPC_Default_MT", true, kDefaultRunUnits) * kUnit;      // MOVT
   move.sprint_speed = speed_units("NPC_Sprinting_MT", true, kDefaultSprintUnits) * kUnit;  // MOVT
   move.crouch_speed = speed_units("NPC_Sneaking_MT", true, kDefaultSneakUnits) * kUnit;    // MOVT
-  move.ground_acceleration = 45.0f;  // TUNED: Skyrim reaches full speed in ~0.12 s
-  move.ground_deceleration = 55.0f;  // TUNED
+  move.ground_acceleration = 45.0f;  // TUNED: Skyrim reaches full speed in ~0.12 s; keeps
+                                     // starts snappy under the engine's 0.18 s gait blend.
+  move.ground_deceleration = 55.0f;  // TUNED: > accel so stops read crisp (stop epsilon zeroes)
   move.air_control = 0.2f;           // TUNED: Skyrim has near-zero air control
-  move.jump_height = 76.0f * kUnit;  // GMST fJumpHeightMin = 76 u -> 1.086 m apex
-  move.gravity = 9.81f;              // TUNED (Skyrim jump falling is Havok-driven)
+  move.jump_height = 76.0f * kUnit;  // GMST fJumpHeightMin = 76 u -> 1.086 m apex (arc timing
+                                     // set by gravity below; apex height is gravity-independent)
+  // GRAVITY DECISION: the engine default is 16.0 m/s^2 (~1.6 g, brisk). Real Skyrim's
+  // jump reads slightly floaty (its fall is Havok-driven, ~9.8), but the priority here is
+  // "responsive and nice to control". At 1.086 m apex, 16.0 gives a ~0.37 s rise / ~0.74 s
+  // total arc versus ~0.47 s / ~0.94 s at 9.81 -- noticeably snappier without changing the
+  // jump height or the Skyrim silhouette. In-game the brisk arc reads better; the floaty
+  // 9.81 arc felt mushy on landings. Set EXPLICITLY (not inherited) so the choice is visible.
+  move.gravity = 16.0f;              // TUNED: brisk, responsive jump/fall arc (was 9.81)
   move.step_height = 0.4f;           // TUNED
   move.max_slope_angle = 0.9599311f;  // ~55 deg, TUNED
+
+  // --- Game-feel: body-yaw turn smoothing (engine-driven, third person only) ---
+  // StepCharacters eases CharacterState.facing_yaw toward the movement direction when the
+  // entity carries CharacterViewMode{ThirdPerson}; first person hard-locks it to the raw
+  // look yaw. Started from the engine defaults; observed in the Bannered Mare, they read
+  // responsive yet weighty for a humanoid, so they stay.
+  move.turn_half_life = 0.09f;        // TUNED (engine default): eased facing chase
+  move.pivot_turn_half_life = 0.05f;  // TUNED (engine default): faster chase for ~180 reversals
+  move.pivot_angle = 2.4434610f;      // ~140 deg: beyond this the pivot rate applies
+  // --- Game-feel: gait target-speed blend + crisp stop --------------------------
+  move.speed_blend_time = 0.18f;      // TUNED (engine default): walk<->run<->sprint target blend
+  move.stop_speed_epsilon = 0.05f;    // TUNED (engine default): zero horizontal vel below this
+  // --- Game-feel: jump forgiveness (invisible responsiveness, no authenticity cost) ---
+  move.jump_buffer_time = 0.12f;      // TUNED (engine default): pre-land buffered jump window
+  move.coyote_time = 0.12f;           // TUNED (engine default): post-ledge grace window
 
   RX_INFO(
       "player: MOVT types={} -> walk {:.3f} run {:.3f} sprint {:.3f} sneak {:.3f} m/s, jump {:.3f} m",
@@ -109,7 +132,16 @@ bool PlayerController::Assemble() {
   shape.crouched_height = 1.25f;       // TUNED: Skyrim sneak crouch
   shape.standing_eye_height = 1.715f;  // GMST-adjacent: ~120 u FP eye (matches prior 1.7 m)
   shape.crouched_eye_height = 1.05f;   // TUNED: sneak eye drop (animation-driven in Skyrim)
-  shape.crouch_blend_speed = 9.0f;
+  shape.crouch_blend_speed = 9.0f;     // TUNED: smooth sneak enter/exit blend
+  // --- Game-feel: eye vertical smoothing + landing dip (Skyrim itself dips) ------
+  // The camera anchor's vertical eases over stairs/steps so the eye glides; horizontal
+  // stays raw. A subtle, fast-recovering dip on real landings. Engine defaults read right
+  // on the Bannered Mare stairs (eye glides, no head-pop) so they stay explicit.
+  shape.eye_step_half_life = 0.06f;    // TUNED (engine default): grounded vertical eye smoothing
+  shape.landing_dip_min_speed = 2.5f;  // TUNED (engine default): no dip below this impact speed
+  shape.landing_dip_scale = 0.03f;     // TUNED (engine default): metres of dip per m/s over min
+  shape.landing_dip_max = 0.14f;       // TUNED (engine default): subtle hard cap
+  shape.landing_dip_half_life = 0.09f; // TUNED (engine default): fast recovery
 
   // --- Third-person camera rig (INI-sourced offsets/zoom) ---------------------
   view_settings_.fp_pitch_limit = 1.4835f;      // ~85 deg
@@ -148,7 +180,6 @@ bool PlayerController::Assemble() {
   if (auto* st = world.Get<character::CharacterState>(player_)) st->yaw = spawn_yaw;
   cam_yaw_ = spawn_yaw;
   cam_pitch_ = 0.0f;
-  facing_yaw_ = spawn_yaw;
 
   // Debug/capture hook: RX_PLAYER_VIEW=fp|tp forces the initial view mode.
   if (const char* v = std::getenv("RX_PLAYER_VIEW")) {
@@ -368,9 +399,11 @@ void PlayerController::Update(f32 dt, const InputState& input, const ActionState
   PublishCamera();
 
   // Feed the actor: feet position (skeleton placement), planar speed (gait blend)
-  // and body facing. The biped mesh faces +Z, so its facing yaw uses the movement
-  // direction directly (atan2(x, z)); it eases toward the target so the body
-  // turns to face movement instead of snapping (Skyrim third-person behaviour).
+  // and body facing. Body facing is now the ENGINE's smoothed facing: StepCharacters
+  // eases CharacterState.facing_yaw toward the movement direction in third person (with
+  // the quick-pivot latch for ~180 reversals) and hard-locks it to the raw look yaw in
+  // first person. No manual easing here anymore. rx heading convention has forward =
+  // (sin,0,-cos); the biped mesh faces +Z (rotated about +Y), so biped_yaw = pi - facing_yaw.
   auto* state = world.Get<character::CharacterState>(player_);
   auto* tr = world.Get<scene::Transform>(player_);
   if (state && tr) {
@@ -378,12 +411,24 @@ void PlayerController::Update(f32 dt, const InputState& input, const ActionState
     const f32 planar =
         std::sqrt(state->velocity.x * state->velocity.x + state->velocity.z * state->velocity.z);
     const bool moving = planar > 0.15f;
-    if (moving) {
-      const f32 target = std::atan2(state->velocity.x, state->velocity.z);  // biped +Z faces move
-      facing_yaw_ = WrapPi(facing_yaw_ + WrapPi(target - facing_yaw_) * std::min(1.0f, dt * 12.0f));
-    }
-    actors_.MovePlayer(feet, planar, facing_yaw_, moving, state->grounded);
+    const f32 biped_facing = WrapPi(3.14159265f - state->facing_yaw);
+    actors_.MovePlayer(feet, planar, biped_facing, moving, state->grounded);
     if (out_feet) *out_feet = feet;
+
+    // Debug/verify hook (RX_LOCO_DEBUG=1): throttled trace of the game-feel state so a
+    // scripted GPU run can confirm the body faces movement (biped_facing vs the velocity
+    // heading), the gait speed blends, and jumps/grounding read right. Off by default.
+    if (std::getenv("RX_LOCO_DEBUG")) {
+      loco_debug_t_ += dt;
+      if (loco_debug_t_ >= 0.25f && moving) {
+        loco_debug_t_ = 0.0f;
+        const f32 vel_heading = std::atan2(state->velocity.x, state->velocity.z);  // biped conv.
+        const f32 face_err = WrapPi(biped_facing - vel_heading) * 180.0f / 3.14159265f;
+        RX_INFO("loco: spd {:.2f} gait {:.2f} face {:+.0f} vel {:+.0f} err {:+.0f} deg grounded {} pivot {}",
+                planar, state->gait_speed, biped_facing * 57.29578f, vel_heading * 57.29578f,
+                face_err, state->grounded ? 1 : 0, state->pivoting ? 1 : 0);
+      }
+    }
   }
 }
 
