@@ -23,6 +23,7 @@ recreation_add_module(bethesda
   material_db.cc
   biom.cc
   planet.cc
+  movement_type.cc
   converters.cc
   strings.cc
   script_attachment.cc

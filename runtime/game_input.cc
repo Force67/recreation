@@ -43,6 +43,7 @@ void RegisterGameInput(InputMap& map) {
   map.RegisterAction(Action::kMenuTab, "menu_tab");
   map.RegisterAction(Action::kMenuPageLeft, "menu_page_left");
   map.RegisterAction(Action::kMenuPageRight, "menu_page_right");
+  map.RegisterAction(Action::kEquipWeapon, "equip_weapon");
 
   map.RegisterAxis(Axis::kMoveX, "move_x");
   map.RegisterAxis(Axis::kMoveY, "move_y");
@@ -123,6 +124,11 @@ void RegisterGameInput(InputMap& map) {
     m.AddBinding(Action::kMenuTab, key(Key::kTab));
     m.AddBinding(Action::kMenuPageLeft, pad(GamepadButton::kLeftShoulder));
     m.AddBinding(Action::kMenuPageRight, pad(GamepadButton::kRightShoulder));
+
+    // Draw / sheathe a weapon in first person (X is otherwise unbound; pad Y is
+    // shared with Ready Weapon, the natural equivalent).
+    m.AddBinding(Action::kEquipWeapon, key(Key::kX));
+    m.AddBinding(Action::kEquipWeapon, pad(GamepadButton::kNorth));
 
     // Analog axes: left stick drives movement, right stick drives the look.
     m.AddAxisBinding(Axis::kMoveX, axis(GamepadAxis::kLeftX, 0));

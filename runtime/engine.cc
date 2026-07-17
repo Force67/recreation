@@ -10,6 +10,7 @@
 #include "core/feature_registry.h"
 #include "core/log.h"
 #include "item_bridge.h"
+#include "player_controller.h"
 #include "world/components.h"
 
 #if defined(RECREATION_HAS_UGUI)
@@ -130,6 +131,7 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
   ctx_.audio = audio_;
+  ctx_.actions = actions_;  // resolved input for the first-person equip key
   actors_ = std::make_unique<ActorSystem>(ctx_);
   interaction_ = std::make_unique<InteractionSystem>(ctx_, actors_.get());
   items_ = std::make_unique<ItemBridge>(ctx_, actors_.get());

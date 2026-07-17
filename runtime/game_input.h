@@ -52,6 +52,9 @@ enum class Action : ActionId {
   kMenuTab,
   kMenuPageLeft,
   kMenuPageRight,
+  // Draw / sheathe the most recently picked-up weapon in first person (X).
+  // Appended last to keep the numeric ids append-only.
+  kEquipWeapon,
   kCount,
 };
 
