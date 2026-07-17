@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Feature branches that need a companion rx branch pin it here; everything else
+# builds against rx main. feature/carriage rides rx feature/vehicle-realism
+# (the wheeled-vehicle stack the carriage physics is built on, rx#26).
+env:
+  RX_REF: ${{ github.event_name == 'pull_request' && github.head_ref == 'feature/carriage' && 'feature/vehicle-realism' || 'main' }}
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -30,6 +36,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -126,6 +133,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -207,6 +215,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -303,6 +312,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
@@ -383,6 +393,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
