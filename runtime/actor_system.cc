@@ -1090,7 +1090,8 @@ void ActorSystem::UpdateLocomotion(Actor& actor, f32 dt) {
 
 // Spawns a creature rig (its own skeleton.nif + skinned mesh + skeleton.hkx)
 // on the bringup stage and plays a clip from its animation set.
-bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string& clip_override) {
+bool ActorSystem::LoadCreatureRig(const std::string& name, const std::string& clip_override,
+                                  Actor* out) {
   const std::string base = "meshes/actors/" + name + "/";
   const std::string skel_path = base + "character assets/skeleton.nif";
   auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
@@ -1098,7 +1099,7 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
     RX_ERROR("{} not found in the mounted archives", skel_path);
     return false;
   }
-  Actor actor;
+  Actor& actor = *out;
   if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
                                     asset::MakeAssetId(skel_path), &actor.skeleton)) {
     RX_ERROR("failed to parse {}", skel_path);
@@ -1114,9 +1115,6 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
   actor.skeleton_to_local = basis;
   anim::ComputeModelMatrices(actor.skeleton, actor.pose, &actor.bone_model);
   if (!LoadActorPart(base + "character assets/" + name + ".nif", actor)) return false;
-
-  actor.entity = world_.Create();
-  world_.Add(actor.entity, world::Transform{.position = {0, 0, 0}});
   actor.animate = true;
   actor.foot_ik = false;
 
@@ -1137,11 +1135,43 @@ bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string
     }
   }
   if (!playing) RX_WARN("{}: no playable clip found, holding bind pose", name);
-
-  RX_INFO("creature actor '{}': {} bones, {} parts", name, actor.skeleton.bones.size(),
+  RX_INFO("creature rig '{}': {} bones, {} parts", name, actor.skeleton.bones.size(),
            actor.parts.size());
+  return true;
+}
+
+bool ActorSystem::CreateCreatureActor(const std::string& name, const std::string& clip_override) {
+  Actor actor;
+  if (!LoadCreatureRig(name, clip_override, &actor)) return false;
+  actor.entity = world_.Create();
+  world_.Add(actor.entity, world::Transform{.position = {0, 0, 0}});
   actors_.push_back(std::move(actor));
   return true;
+}
+
+ecs::Entity ActorSystem::SpawnCreatureNpc(const std::string& name, const std::string& clip_override,
+                                          const Vec3& position, f32 yaw) {
+  Actor actor;
+  if (!LoadCreatureRig(name, clip_override, &actor)) return ecs::Entity{};
+  const ecs::Entity entity = world_.Create();
+  const f32 h = yaw * 0.5f;
+  world::Transform t;
+  t.position[0] = position.x;
+  t.position[1] = position.y;
+  t.position[2] = position.z;
+  t.rotation[0] = 0;
+  t.rotation[1] = std::sin(h);
+  t.rotation[2] = 0;
+  t.rotation[3] = std::cos(h);
+  world_.Add(entity, t);
+  actor.entity = entity;
+  actor.yaw = yaw;
+  // The caller (carriage director) owns the position; the walk clip animates the
+  // legs in place while the entity transform is driven along the route.
+  actor.external_position = true;
+  const u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
+  npc_actors_.insert(key, std::move(actor));
+  return entity;
 }
 
 bool ActorSystem::CreateSkyrimActor() {
@@ -1278,7 +1308,7 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
     // Root motion: the sidecar's cumulative offsets become a per-tick world
     // delta, through the same Z-up-game-units -> Y-up-metres basis the mesh
     // uses, then the actor's facing.
-    if (clip.has_motion && !PinRoot) {
+    if (clip.has_motion && !PinRoot && !actor.external_position) {
       Vec3 d;
       if (kin) {
         kinema::Vec3 kd = clip.kinema->RootDelta(prev_time, actor.havok_time);

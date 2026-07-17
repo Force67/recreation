@@ -139,6 +139,7 @@ bool Engine::OnInitialize(app::Services& services) {
   npc_ = std::make_unique<NpcDirector>(ctx_, actors_.get());
   quest_ = std::make_unique<QuestDirector>(ctx_, actors_.get());
   demos_ = std::make_unique<DemoScenes>(ctx_, actors_.get());
+  carriage_ = std::make_unique<CarriageSystem>(ctx_, actors_.get());
   npc_->set_siblings(interaction_.get(), quest_.get());
   quest_->set_siblings(npc_.get(), interaction_.get());
   // The live map editor (windowed client only). Constructed after game_ui_ is up
@@ -152,6 +153,14 @@ bool Engine::OnInitialize(app::Services& services) {
   // them where they are this frame.
   scheduler_->AddSystem(ecs::Stage::kPreSim, "sync_solid_bodies",
                         [this](ecs::World&, f32) { actors_->SyncSolidBodies(); });
+
+  // The carriage horse + hitch tow/steer are staged before the physics step
+  // (DriveVehicle input and the tow force must land before Jolt integrates);
+  // the wheel render transforms are read back after it.
+  scheduler_->AddSystem(ecs::Stage::kPreSim, "carriage_step",
+                        [this](ecs::World&, f32 dt) { carriage_->Step(dt); });
+  scheduler_->AddSystem(ecs::Stage::kPostSim, "carriage_render",
+                        [this](ecs::World&, f32) { carriage_->SyncRender(); });
 
   if (physics_->initialized()) {
     // A small wooden cube every scene can throw around (F key).

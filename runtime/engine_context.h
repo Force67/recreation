@@ -1,6 +1,7 @@
 #ifndef RECREATION_RUNTIME_ENGINE_CONTEXT_H_
 #define RECREATION_RUNTIME_ENGINE_CONTEXT_H_
 
+#include <functional>
 #include <string>
 
 #include <base/containers/vector.h>
@@ -165,6 +166,16 @@ struct EngineContext {
   // blindly forward into whatever happens to be ahead.
   bool auto_walk_has_goal = false;
   Vec3 auto_walk_goal{};
+
+  // Carriage ride (RX_CARRIAGE). ride_active seats the player as a passenger:
+  // the walk-mode locomotion driver stands down while the carriage system pins
+  // the player to the seat. carriage_activate handles a kActivateRef on the
+  // carriage (board / dismount, returns true when it owned the handle) and
+  // carriage_label supplies its activation prompt; both are set by the carriage
+  // system and null when no carriage is spawned.
+  bool ride_active = false;
+  std::function<bool(u64)> carriage_activate;
+  std::function<const char*(u64)> carriage_label;
 
   // Demo scenes that stage their own lighting set this so the day/night clock
   // stops re-driving sun direction/intensity/ambient every frame (RX_SUN_DIR

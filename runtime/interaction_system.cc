@@ -68,6 +68,10 @@ std::string InteractionSystem::RecordName(bethesda::GlobalFormId id) {
 }
 
 std::string InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
+  // The carriage is a synthetic (record-less) ref; its prompt comes from the
+  // carriage system, not the record store.
+  if (ctx_.carriage_label)
+    if (const char* l = ctx_.carriage_label(refr.packed())) return l;
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(refr);
   if (!stored) return "Activate";
   bethesda::Record record;
@@ -202,6 +206,8 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
 #endif
     } else if (TryOpenContainer(handle)) {
       // Opened a container's loot view.
+    } else if (ctx_.carriage_activate && ctx_.carriage_activate(handle)) {
+      // Boarded or left the carriage (host-authoritative seating).
 #if RECREATION_HAS_NET
       if (ctx_.client_session && ctx_.client_session->joined())
         ctx_.client_session->SendActivate(handle);

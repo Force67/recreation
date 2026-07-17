@@ -16,6 +16,7 @@ set(RECREATION_RUNTIME_SOURCES
   content_domain.cc
   actor_system.cc
   player_controller.cc
+  carriage.cc
   face.cc
   chargen.cc
   demo_scenes.cc
