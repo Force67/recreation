@@ -28,6 +28,7 @@
 #include "editor.h"
 #include "engine_context.h"
 #include "interaction_system.h"
+#include "item_bridge.h"
 #include "npc_director.h"
 #include "platform_hud.h"
 #include "quest_director.h"
@@ -533,6 +534,7 @@ class Engine : public app::Application {
   EngineContext ctx_;
   std::unique_ptr<ActorSystem> actors_;
   std::unique_ptr<InteractionSystem> interaction_;
+  std::unique_ptr<ItemBridge> items_;  // item pickup/drop/persistence
   std::unique_ptr<NpcDirector> npc_;
   std::unique_ptr<QuestDirector> quest_;
   std::unique_ptr<DemoScenes> demos_;

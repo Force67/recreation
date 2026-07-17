@@ -34,6 +34,8 @@
 
 namespace rx {
 
+class ItemBridge;
+
 // An additional game loaded as a live secondary content domain alongside the
 // primary (rendered) game. Each runs its own isolated Papyrus microvm, so
 // Skyrim and Fallout 4 content stay live in one process at the same time.
@@ -130,6 +132,7 @@ struct EngineContext {
   script::ScriptSystem* scripts = nullptr;
   rx::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
   script::host::ManagedHost* managed = nullptr;  // null when C# scripting is off
+  ItemBridge* items = nullptr;  // item pickup/drop/persistence (built after data loads)
 #if RECREATION_HAS_NET
   net::GameServerSession* server_session = nullptr;
   net::GameClientSession* client_session = nullptr;

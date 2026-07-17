@@ -31,6 +31,7 @@ enum class Action : ActionId {
   kAttack,
   kReady,
   kThrowDebug,
+  kDropItem,  // drop the most recently picked-up inventory stack (G)
   // Mode toggles.
   kToggleWalk,
   kToggleThirdPerson,

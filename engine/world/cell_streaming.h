@@ -147,6 +147,22 @@ class CellStreamer {
     on_location_change_ = std::move(cb);
   }
 
+  // Consulted before a placed reference is instantiated: returns true to skip a
+  // ref by its form handle (GlobalFormId::packed()). The item system installs
+  // this so a picked-up world item stays gone after the cell streams out and
+  // back in (persistent ref removal). Unset = nothing is suppressed.
+  void set_ref_suppressor(std::function<bool(u64 ref_handle)> fn) {
+    ref_suppressor_ = std::move(fn);
+  }
+
+  // Converts + uploads a base form's world model to the shared renderer (salted
+  // for this domain), exactly like a placed ref, but WITHOUT spawning an entity,
+  // and returns the render mesh id used. The returned asset::Mesh (also cached in
+  // MeshForBase) exposes the geometry bounds a caller needs to build a collision
+  // shape. Null when the base resolves to no usable model. The item system uses
+  // this to give a dropped item its real visual + a box shape from its bounds.
+  const asset::Mesh* PrepareItemModel(bethesda::GlobalFormId base_id, asset::AssetId* out_render_id);
+
   // Picks the worldspace to stream, e.g. "Tamriel". False if missing.
   bool SelectWorldspace(std::string_view editor_id);
 
@@ -423,6 +439,7 @@ class CellStreamer {
   LoadedCell interior_cell_;
   InteriorLighting interior_lighting_;
   std::function<void(u64, bool)> on_location_change_;  // load-door transition hook
+  std::function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;

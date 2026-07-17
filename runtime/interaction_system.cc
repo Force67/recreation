@@ -10,6 +10,7 @@
 #include "actor_system.h"
 #include "bethesda/script_attachment.h"
 #include "core/log.h"
+#include "item_bridge.h"
 #include "core/math.h"
 #include "script/games/skyrim/skyrim_condition_context.h"
 #include "script/papyrus/value.h"
@@ -92,8 +93,20 @@ std::string InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
         case FourCc('C', 'O', 'N', 'T'):
           verb = "Open";
           break;
+        case FourCc('W', 'E', 'A', 'P'):
+        case FourCc('A', 'R', 'M', 'O'):
+        case FourCc('M', 'I', 'S', 'C'):
+        case FourCc('B', 'O', 'O', 'K'):
+        case FourCc('I', 'N', 'G', 'R'):
+        case FourCc('A', 'L', 'C', 'H'):
+        case FourCc('A', 'M', 'M', 'O'):
+        case FourCc('K', 'E', 'Y', 'M'):
+        case FourCc('S', 'L', 'G', 'M'):
+          verb = "Take";
+          break;
         default:
           break;
+
       }
       name = RecordName(base);
     }
@@ -199,8 +212,12 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
 #endif
 #if RECREATION_HAS_NET
     } else if (ctx_.client_session && ctx_.client_session->joined()) {
+      // A client is not authoritative for removing a world ref; it asks the
+      // server, which runs the pickup (and every other OnActivate response).
       ctx_.client_session->SendActivate(handle);
 #endif
+    } else if (ctx_.items && ctx_.items->TryPickUp(handle)) {
+      // Loose item picked up into the inventory (host / single-player).
     } else {
       RaiseActivate(handle);
     }
@@ -373,6 +390,10 @@ void InteractionSystem::UpdateDialogueInput(const InputState& input, const Actio
 }
 
 void InteractionSystem::RaiseActivate(u64 handle) {
+  // Authoritative pickup: a client's activation request lands here on the server,
+  // so try the item pickup first (idempotent, host/single-player already handled
+  // it in UpdateInteraction, so this only fires for a routed client request).
+  if (ctx_.items && ctx_.items->TryPickUp(handle)) return;
   if (!ctx_.scripts) return;
   AttachReferenceScripts(handle);
   const ecs::Entity entity = quest_world_.Find(handle);
