@@ -30,7 +30,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
-          ref: feature/navigation  # companion rx branch: engine/nav module
           path: rx
           submodules: recursive
       - name: kinema
@@ -127,7 +126,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
-          ref: feature/navigation  # companion rx branch: engine/nav module
           path: rx
           submodules: recursive
       - name: kinema
@@ -209,7 +207,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
-          ref: feature/navigation  # companion rx branch: engine/nav module
           path: rx
           submodules: recursive
       - name: kinema
@@ -306,7 +303,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
-          ref: feature/navigation  # companion rx branch: engine/nav module
           path: rx
           submodules: recursive
       - name: kinema
@@ -387,7 +383,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
-          ref: feature/navigation  # companion rx branch: engine/nav module
           path: rx
           submodules: recursive
       - name: kinema
