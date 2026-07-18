@@ -19,6 +19,7 @@
 #include "app/host.h"
 #include "audio/ambient.h"
 #include "bethesda/planet.h"
+#include "carriage.h"
 #include "chargen.h"
 #include "content_domain.h"
 #include "core/input_bindings.h"
@@ -542,6 +543,7 @@ class Engine : public app::Application {
   std::unique_ptr<NpcDirector> npc_;
   std::unique_ptr<QuestDirector> quest_;
   std::unique_ptr<DemoScenes> demos_;
+  std::unique_ptr<CarriageSystem> carriage_;
   // Live map editor (windowed client only); F4 toggles it. Null in headless.
   std::unique_ptr<MapEditor> editor_;
   // Character-creation screen (RX_CHARGEN boot mode). Null in headless.

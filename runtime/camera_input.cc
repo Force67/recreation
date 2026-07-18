@@ -116,6 +116,11 @@ void Engine::UpdateCamera(f32 frame_delta) {
       if (input.key_pressed(num[i])) quest_->PinJournalSlot(i);
     if (actions_->pressed(Action::kMenuCancel)) quest_->ToggleJournal();
     interaction_->UpdateInteraction(false);
+  } else if (carriage_ && carriage_->riding()) {
+    // Seated as a carriage passenger: locomotion stands down, the carriage pins
+    // the player to the seat and frames the camera; activate again to dismount.
+    carriage_->UpdateRide(frame_delta);
+    interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
   } else if (ctx_.walk_mode && actors_->HasPlayer()) {
     WalkUpdate(frame_delta, !menu && !kb);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);

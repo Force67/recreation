@@ -77,6 +77,13 @@ class ActorSystem {
   void MaybeSpawnWorldPlayer(const Vec3& ground_pos);
   bool CreateSkyrimActor();
   void CreateTestCharacter();
+  // Spawns a creature rig (meshes/actors/<name>/...) as a scripted mover: it
+  // renders through the NPC actor path (its walk clip loops to animate the
+  // legs) but the caller owns its world position, driving the returned entity's
+  // world::Transform each step. Returns a dead entity if the rig data is
+  // absent, so callers fall back to a graybox. Used by the carriage horse.
+  ecs::Entity SpawnCreatureNpc(const std::string& name, const std::string& clip_override,
+                               const Vec3& position, f32 yaw);
 
   // --- Per-frame ---
   void Update(f32 dt);                      // advance gaits + bone matrices
@@ -176,6 +183,10 @@ class ActorSystem {
     base::Vector<Mat4> bone_model;  // model-space per skeleton bone
     base::Vector<ActorPart> parts;
     bool animate = true;  // false = hold the bind pose
+    // The caller owns this actor's world position (a scripted mover, e.g. the
+    // carriage horse): the looping clip still animates the legs in place, but
+    // its extracted root motion is not integrated into the entity transform.
+    bool external_position = false;
     f32 speed = 0;        // planar speed feeding the gait
     Mat4 skeleton_to_local = Mat4::Identity();  // skeleton space -> entity local
     Mat4 prev_model = Mat4::Identity();
@@ -201,6 +212,10 @@ class ActorSystem {
   // procedural gait). Resolves tracks to bones through the character
   // skeleton.hkx (cached). False when the file is missing or undecodable.
   bool CreateCreatureActor(const std::string& name, const std::string& clip_override);
+  // Loads a creature's skeleton + skinned body + a looping clip into `out`
+  // without creating an entity; the shared rig-load behind CreateCreatureActor
+  // and SpawnCreatureNpc.
+  bool LoadCreatureRig(const std::string& name, const std::string& clip_override, Actor* out);
   bool PlayHavokClip(Actor& actor, const std::string& animation_path,
                      const std::string& skeleton_hkx_path, const std::string& actor_name);
   // Decodes + transcodes a clip against the actor's skeleton without touching
