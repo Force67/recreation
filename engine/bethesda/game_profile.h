@@ -9,7 +9,17 @@
 
 namespace rx::bethesda {
 
-enum class Game : u8 { kUnknown, kSkyrimSe, kFallout4, kFallout76, kStarfield, kOblivion, kMorrowind };
+enum class Game : u8 {
+  kUnknown,
+  kSkyrimSe,
+  kFallout4,
+  kFallout76,
+  kStarfield,
+  kOblivion,
+  kMorrowind,
+  kFallout3,
+  kFalloutNv
+};
 
 enum class ArchiveFormat : u8 { kBsa, kBa2 };
 

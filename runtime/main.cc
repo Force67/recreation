@@ -41,6 +41,8 @@ rx::bethesda::Game ParseGame(const std::string& id) {
   if (id == "starfield") return rx::bethesda::Game::kStarfield;
   if (id == "oblivion") return rx::bethesda::Game::kOblivion;
   if (id == "morrowind") return rx::bethesda::Game::kMorrowind;
+  if (id == "fo3") return rx::bethesda::Game::kFallout3;
+  if (id == "fnv") return rx::bethesda::Game::kFalloutNv;
   return rx::bethesda::Game::kUnknown;
 }
 

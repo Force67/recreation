@@ -1,4 +1,6 @@
 recreation_add_module(script
+  obscript/obscript.cc
+  obscript/obscript_runtime.cc
   papyrus/opcode.cc
   papyrus/pex.cc
   papyrus/value.cc
