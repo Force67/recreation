@@ -81,6 +81,36 @@ const GameProfile& GameProfile::For(Game game) {
       .record_header_size = 16,
       .flat_tes3 = true,
   };
+  // Fallout 3 (2008 Gamebryo): the bridge between Oblivion and Skyrim. BSA v104
+  // archives, 24 byte record headers (HEDR 0.94), strings inline in the records
+  // (the base game is not localized), NIF 20.2.0.7 with BSShaderPPLighting /
+  // BSShaderTextureSet blocks. The Capital Wasteland worldspace is "Wasteland".
+  // Gameplay scripts are compiled Obscript (SCPT), not Papyrus.
+  static const GameProfile fallout3{
+      .game = Game::kFallout3,
+      .name = "Fallout 3",
+      .archive_format = ArchiveFormat::kBsa,
+      .plugin_version = 0.94f,
+      .base_masters = {"Fallout3.esm"},
+      .exterior_worldspace = "Wasteland",
+      .string_language = "",
+      .supports_esl = false,
+      .has_loose_script_source = false,
+  };
+  // Fallout New Vegas (2010 Gamebryo): same engine generation as Fallout 3
+  // (BSA v104, 24 byte headers, NIF 20.2.0.7), HEDR 1.34. The Mojave worldspace
+  // editor id is "WastelandNV".
+  static const GameProfile fallout_nv{
+      .game = Game::kFalloutNv,
+      .name = "Fallout: New Vegas",
+      .archive_format = ArchiveFormat::kBsa,
+      .plugin_version = 1.34f,
+      .base_masters = {"FalloutNV.esm"},
+      .exterior_worldspace = "WastelandNV",
+      .string_language = "",
+      .supports_esl = false,
+      .has_loose_script_source = false,
+  };
   static const GameProfile unknown{};
 
   switch (game) {
@@ -90,6 +120,8 @@ const GameProfile& GameProfile::For(Game game) {
     case Game::kStarfield: return starfield;
     case Game::kOblivion: return oblivion;
     case Game::kMorrowind: return morrowind;
+    case Game::kFallout3: return fallout3;
+    case Game::kFalloutNv: return fallout_nv;
     case Game::kUnknown: return unknown;
   }
   return unknown;
@@ -100,6 +132,8 @@ Game GameProfile::DetectFromDataDir(const std::string& data_dir) {
   if (fs::exists(fs::path(data_dir) / "SeventySix.esm")) return Game::kFallout76;
   if (fs::exists(fs::path(data_dir) / "Starfield.esm")) return Game::kStarfield;
   if (fs::exists(fs::path(data_dir) / "Fallout4.esm")) return Game::kFallout4;
+  if (fs::exists(fs::path(data_dir) / "FalloutNV.esm")) return Game::kFalloutNv;
+  if (fs::exists(fs::path(data_dir) / "Fallout3.esm")) return Game::kFallout3;
   if (fs::exists(fs::path(data_dir) / "Skyrim.esm")) return Game::kSkyrimSe;
   if (fs::exists(fs::path(data_dir) / "Oblivion.esm")) return Game::kOblivion;
   if (fs::exists(fs::path(data_dir) / "Morrowind.esm")) return Game::kMorrowind;
