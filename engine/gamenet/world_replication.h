@@ -9,6 +9,9 @@
 
 namespace rx::net {
 
+inline constexpr size_t kMaxWorldCommandsPerMessage = 1024;
+inline constexpr size_t kMaxWorldCommandPayload = 256 * 1024;
+
 // Replication for quest-driven world commands (spawn / move / enable / delete /
 // cleanup). The host drains its WorldCommandQueue each tick and ships the list
 // on the reliable channel; every client applies the identical list to its own

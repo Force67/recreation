@@ -1,34 +1,29 @@
 #ifndef RECREATION_RUNTIME_ENGINE_H_
 #define RECREATION_RUNTIME_ENGINE_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+
 #include <array>
 #include <atomic>
 #include <cstdio>
 #include <memory>
-#include <array>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <base/containers/unordered_map.h>
-#include <base/containers/vector.h>
-
+#include "actor_system.h"
 #include "app/application.h"
 #include "app/host.h"
+#include "audio/ambient.h"
+#include "bethesda/planet.h"
+#include "chargen.h"
+#include "content_domain.h"
 #include "core/input_bindings.h"
 #include "core/window.h"
 #include "core/world_clock.h"
-#include "script/host/managed_host.h"
-#include "weather/director.h"
-#include "weather/weather.h"
-
-#include "audio/ambient.h"
-
-#include "actor_system.h"
-#include "chargen.h"
-#include "content_domain.h"
 #include "demo_scenes.h"
 #include "editor.h"
 #include "engine_context.h"
@@ -36,9 +31,11 @@
 #include "npc_director.h"
 #include "platform_hud.h"
 #include "quest_director.h"
+#include "script/host/managed_host.h"
 #include "showcase_camera.h"
 #include "trailer.h"
-#include "bethesda/planet.h"
+#include "weather/director.h"
+#include "weather/weather.h"
 #include "world/combat.h"
 #include "world/planet_tile.h"
 
@@ -85,6 +82,12 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     c.enabled = enabled;
     queue_->Push(c);
   }
+  void SetLocked(u64 quest, u64 handle, bool locked) override {
+    EmitState(world::WorldOp::kSetLocked, quest, handle, locked);
+  }
+  void SetOpen(u64 quest, u64 handle, bool open) override {
+    EmitState(world::WorldOp::kSetOpen, quest, handle, open);
+  }
   void DeleteReference(u64 quest, u64 handle) override {
     Emit(world::WorldOp::kDelete, quest, handle, 0, 0, 0);
   }
@@ -117,6 +120,15 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     c.quest = quest;
     c.handle = handle;
     c.pos = ToEngine(x, y, z);
+    queue_->Push(c);
+  }
+
+  void EmitState(world::WorldOp op, u64 quest, u64 handle, bool value) {
+    world::WorldCommand c;
+    c.op = op;
+    c.quest = quest;
+    c.handle = handle;
+    c.enabled = value;
     queue_->Push(c);
   }
 
@@ -389,14 +401,14 @@ class Engine : public app::Application {
   InputMap* input_map_ = nullptr;
   const ActionState* actions_ = nullptr;
   // Controls config persistence + in-game rebinding (controls_settings.cc).
-  void LoadControls();   // read controls.ini into input_map_, then ApplyControls
-  void SaveControls();   // write input_map_ back to controls.ini
-  void ApplyControls();  // push sensitivity/invert to the camera, LED to the pad
-  void UpdateSettings(); // drive the settings panel: rebind capture + sliders
+  void LoadControls();    // read controls.ini into input_map_, then ApplyControls
+  void SaveControls();    // write input_map_ back to controls.ini
+  void ApplyControls();   // push sensitivity/invert to the camera, LED to the pad
+  void UpdateSettings();  // drive the settings panel: rebind capture + sliders
   std::string controls_path_;
-  int capturing_row_ = -1;          // settings: row awaiting an input (-1 = idle)
-  bool capture_prev_mouse_[3] = {}; // mouse-button edge tracking during capture
-  bool weapon_trigger_ = false;     // DualSense adaptive-trigger weapon state
+  int capturing_row_ = -1;           // settings: row awaiting an input (-1 = idle)
+  bool capture_prev_mouse_[3] = {};  // mouse-button edge tracking during capture
+  bool weapon_trigger_ = false;      // DualSense adaptive-trigger weapon state
 
   // Camera record/replay state, lazily armed from env on the first frame.
   struct CamKey {

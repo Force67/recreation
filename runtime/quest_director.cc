@@ -1,5 +1,7 @@
 #include "quest_director.h"
 
+#include <base/option.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -9,8 +11,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-#include <base/option.h>
 
 #include "actor_system.h"
 #include "bethesda/script_attachment.h"
@@ -29,6 +29,13 @@
 namespace rx {
 
 namespace {
+
+void ResolveAttachmentForms(bethesda::RecordStore& records, u16 plugin,
+                            bethesda::ScriptAttachment* attachment) {
+  bethesda::ResolveScriptObjectForms(attachment, [&](u32 raw) {
+    return records.ResolveFrom(bethesda::RawFormId{raw}, plugin).packed();
+  });
+}
 
 // Config options (formerly RX_* env vars; populated by InitOptionsFromEnv()).
 base::Option<bool> NoAutostart{"no.autostart", false, "RX_NO_AUTOSTART"};
@@ -58,7 +65,7 @@ std::vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
   std::vector<SceneJob> jobs;
   records.EachOfType(
       FourCc('S', 'C', 'E', 'N'),
-      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
         bethesda::Record rec;
         if (!records.Parse(id, &rec)) return;
         quest::SceneDef def = quest::ParseSceneRecord(id.packed(), rec, &records);
@@ -70,6 +77,7 @@ std::vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
         if (!bethesda::ParseSceneFragments(vmad->data, &att, &frags) || att.scripts.empty()) return;
         if (frags.begin.function.empty() && frags.end.function.empty() && frags.phases.empty())
           return;
+        ResolveAttachmentForms(records, stored.winning_plugin, &att);
         scripts->AttachScripts(id.packed(), att);
         jobs.push_back({id.packed(), rec.GetString(FourCc('E', 'D', 'I', 'D')), std::move(frags)});
       });
@@ -123,78 +131,75 @@ void QuestDirector::AttachQuestScripts() {
   // Start-Game-Enabled quests come online at load (RX_NO_AUTOSTART disables it).
   const bool no_autostart_ = bool(NoAutostart);
   int autostarted = 0;
-  records_.EachOfType(FourCc('Q', 'U', 'S', 'T'),
-                      [&](bethesda::GlobalFormId id,
-                          const bethesda::RecordStore::StoredRecord& stored) {
-                        if (limit > 0 && quests >= limit) return;
-                        bethesda::Record record;
-                        if (!records_.Parse(id, &record)) return;
-                        const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
-                        if (!vmad) return;
-                        bethesda::ScriptAttachment attachment;
-                        std::vector<bethesda::QuestStageFragment> fragments;
-                        std::vector<bethesda::QuestAliasScripts> alias_scripts;
-                        if (!bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments,
-                                                           &alias_scripts) ||
-                            attachment.scripts.empty())
-                          return;
-                        u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
-                        // Attaching the Papyrus scripts is best effort: the stage
-                        // machine, objectives and the debugger are driven by the
-                        // QUST record, not the bytecode. Starfield ships PEX the VM
-                        // does not yet execute, so its scripts fail to load; the
-                        // quest must still register so SetStage and the debugger
-                        // work. Only the stage fragments' side effects are lost.
-                        auto created = ctx_.scripts->AttachScripts(handle, attachment);
-                        ++quests;
-                        instances += static_cast<int>(created.size());
-                        // Attach the per-alias scripts on their alias handles, so
-                        // an alias's events (OnInit, and OnDeath once the alias is
-                        // filled) run, e.g. the Civil War reinforcement soldiers.
-                        for (const bethesda::QuestAliasScripts& a : alias_scripts) {
-                          const u64 alias_handle =
-                              script::papyrus::EncodeAliasHandle(handle, a.alias_id);
-                          instances += static_cast<int>(
-                              ctx_.scripts->AttachScripts(alias_handle, a.scripts).size());
-                        }
-                        // Parse the quest's stages and objectives (log text,
-                        // objective text, compass targets) for the HUD/debugger.
-                        quest::QuestDef def =
-                            quest::ParseQuestDefinition(handle, record, &strings_);
-                        // Resolve its objective compass targets from forced-ref
-                        // aliases now, while the records are at hand.
-                        IndexObjectiveTargets(def, stored.winning_plugin);
-                        // Key the record list by editor id: it is the stable
-                        // handle RX_START_QUEST and the debugger match on. The
-                        // panel's display name comes from the quest definition.
-                        std::string edid =
-                            !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
-                        quest_records_.push_back({handle, std::move(edid)});
-                        // Register the stage->fragment map and definition on the
-                        // guest thread (the bindings' only caller) so SetStage runs
-                        // the quest's authored logic and snapshots carry its text.
-                        // Start-Game-Enabled quests (DNAM 0x01) are the game's
-                        // always-on controllers and intro quests, start them so
-                        // their dialogue topics and start logic come online, the
-                        // way the story manager would (e.g. CW00A's join lines).
-                        const bool sge = def.start_game_enabled && !no_autostart_;
-                        if (sge) ++autostarted;
-                        auto* binds = ctx_.bindings;
-                        ctx_.scripts->guest().Submit(
-                            [binds, handle, sge, def = std::move(def),
-                             fragments = std::move(fragments)](
-                                rx::script::papyrus::VirtualMachine&) mutable {
-                              binds->quest_system().SetDefinition(std::move(def));
-                              for (const auto& f : fragments)
-                                binds->SetStageFragment(handle, f.stage, f.function);
-                              if (sge) binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
-                            });
-                      });
+  records_.EachOfType(
+      FourCc('Q', 'U', 'S', 'T'),
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
+        if (limit > 0 && quests >= limit) return;
+        bethesda::Record record;
+        if (!records_.Parse(id, &record)) return;
+        const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
+        if (!vmad) return;
+        bethesda::ScriptAttachment attachment;
+        std::vector<bethesda::QuestStageFragment> fragments;
+        std::vector<bethesda::QuestAliasScripts> alias_scripts;
+        if (!bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments, &alias_scripts) ||
+            attachment.scripts.empty())
+          return;
+        ResolveAttachmentForms(records_, stored.winning_plugin, &attachment);
+        for (bethesda::QuestAliasScripts& alias : alias_scripts)
+          ResolveAttachmentForms(records_, stored.winning_plugin, &alias.scripts);
+        u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
+        // Attaching the Papyrus scripts is best effort: the stage
+        // machine, objectives and the debugger are driven by the
+        // QUST record, not the bytecode. Starfield ships PEX the VM
+        // does not yet execute, so its scripts fail to load; the
+        // quest must still register so SetStage and the debugger
+        // work. Only the stage fragments' side effects are lost.
+        auto created = ctx_.scripts->AttachScripts(handle, attachment);
+        ++quests;
+        instances += static_cast<int>(created.size());
+        // Attach the per-alias scripts on their alias handles, so
+        // an alias's events (OnInit, and OnDeath once the alias is
+        // filled) run, e.g. the Civil War reinforcement soldiers.
+        for (const bethesda::QuestAliasScripts& a : alias_scripts) {
+          const u64 alias_handle = script::papyrus::EncodeAliasHandle(handle, a.alias_id);
+          instances +=
+              static_cast<int>(ctx_.scripts->AttachScripts(alias_handle, a.scripts).size());
+        }
+        // Parse the quest's stages and objectives (log text,
+        // objective text, compass targets) for the HUD/debugger.
+        quest::QuestDef def = quest::ParseQuestDefinition(handle, record, &strings_);
+        // Resolve its objective compass targets from forced-ref
+        // aliases now, while the records are at hand.
+        IndexObjectiveTargets(def, stored.winning_plugin);
+        // Key the record list by editor id: it is the stable
+        // handle RX_START_QUEST and the debugger match on. The
+        // panel's display name comes from the quest definition.
+        std::string edid = !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
+        quest_records_.push_back({handle, std::move(edid)});
+        // Register the stage->fragment map and definition on the
+        // guest thread (the bindings' only caller) so SetStage runs
+        // the quest's authored logic and snapshots carry its text.
+        // Start-Game-Enabled quests (DNAM 0x01) are the game's
+        // always-on controllers and intro quests, start them so
+        // their dialogue topics and start logic come online, the
+        // way the story manager would (e.g. CW00A's join lines).
+        const bool sge = def.start_game_enabled && !no_autostart_;
+        if (sge) ++autostarted;
+        auto* binds = ctx_.bindings;
+        ctx_.scripts->guest().Submit(
+            [binds, handle, sge, def = std::move(def),
+             fragments = std::move(fragments)](rx::script::papyrus::VirtualMachine&) mutable {
+              binds->quest_system().SetDefinition(std::move(def));
+              for (const auto& f : fragments) binds->SetStageFragment(handle, f.stage, f.function);
+              if (sge) binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
+            });
+      });
   RX_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
-           quests, ctx_.scripts->loaded_script_count());
+          quests, ctx_.scripts->loaded_script_count());
   RX_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
   RX_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
-           objective_targets_.size());
+          objective_targets_.size());
 
   // RX_START_QUEST=<EDID>[:<stage>] starts a quest at load (runs its opening
   // stage fragment) so quest logic can be exercised without the UI. The optional
@@ -212,11 +217,12 @@ void QuestDirector::AttachQuestScripts() {
     int started = 0;
     for (const auto& [handle, name] : quest_records_) {
       if (edid != "all" && name != edid) continue;
-      ctx_.scripts->guest().Submit([binds, h = handle, start_stage](rx::script::papyrus::VirtualMachine&) {
-        rx::script::papyrus::ObjectRef ref{h};
-        binds->StartQuest(ref);
-        if (start_stage >= 0) binds->SetStage(ref, start_stage);
-      });
+      ctx_.scripts->guest().Submit(
+          [binds, h = handle, start_stage](rx::script::papyrus::VirtualMachine&) {
+            rx::script::papyrus::ObjectRef ref{h};
+            binds->StartQuest(ref);
+            if (start_stage >= 0) binds->SetStage(ref, start_stage);
+          });
       // Open the debugger on the started quest so its stages/objectives show.
       if (edid != "all") quest_panel_.selected = handle;
       ++started;
@@ -330,7 +336,6 @@ void QuestDirector::AttachQuestScripts() {
   // RX_JOURNAL opens the quest journal at load (it is normally toggled with J),
   // for screenshots (cf. RECREATION_UI_MENU / RX_HIDE_DEBUG_UI).
   if (Journal) journal_open_ = true;
-
 }
 
 void QuestDirector::ReportDialogue(const std::string& edid) {
@@ -362,6 +367,8 @@ void QuestDirector::ReportDialogue(const std::string& edid) {
     bethesda::InfoFragments frags;
     if (!bethesda::ParseInfoFragments(vmad->data, &att, &frags) || frags.begin.function.empty())
       return false;
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
+    if (stored) ResolveAttachmentForms(records_, stored->winning_plugin, &att);
     ctx_.scripts->AttachScripts(info, att);
     std::string fn = frags.begin.function;
     return ctx_.scripts->guest()
@@ -377,8 +384,8 @@ void QuestDirector::ReportDialogue(const std::string& edid) {
   for (dialogue::Handle t : topics) {
     bethesda::GlobalFormId dial{static_cast<u16>(t >> 32), static_cast<u32>(t & 0xffffffffu)};
     dialogue::Topic topic = dialogue::ParseTopic(records_, dial, &strings_);
-    std::printf("topic [%s] \"%s\" (%zu responses)\n", topic.editor_id.c_str(),
-                topic.text.c_str(), topic.responses.size());
+    std::printf("topic [%s] \"%s\" (%zu responses)\n", topic.editor_id.c_str(), topic.text.c_str(),
+                topic.responses.size());
     for (const dialogue::Response& r : topic.responses) {
       std::printf("  player: \"%s\"\n  npc:    \"%s\"\n", r.player_line.c_str(),
                   r.npc_line.c_str());
@@ -458,8 +465,7 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
               binds->SetStage(ref, stage);
               std::string shown;
               for (const quest::ObjectiveDef& o : def->objectives)
-                if (qs.IsObjectiveDisplayed(handle, o.index))
-                  shown += Fmt(" [%d]", o.index);
+                if (qs.IsObjectiveDisplayed(handle, o.index)) shown += Fmt(" [%d]", o.index);
               emit(Fmt("  set stage %d -> stage=%d complete=%d displayed:%s", stage,
                        qs.GetStage(handle), qs.IsComplete(handle),
                        shown.empty() ? " none" : shown.c_str()));
@@ -494,11 +500,14 @@ void QuestDirector::ReportQuestList(const std::string& prefix) {
   std::vector<std::pair<u64, std::string>> records(quest_records_.begin(), quest_records_.end());
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, records = std::move(records), lower_prefix](
-                         rx::script::papyrus::VirtualMachine&) mutable {
+          .SubmitFor([binds, records = std::move(records),
+                      lower_prefix](rx::script::papyrus::VirtualMachine&) mutable {
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
-            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+            auto emit = [&](const std::string& line) {
+              r += line;
+              r += '\n';
+            };
 
             std::vector<const quest::QuestDef*> defs;
             for (const auto& [h, name] : records) {
@@ -516,10 +525,10 @@ void QuestDirector::ReportQuestList(const std::string& prefix) {
                      lower_prefix.c_str()));
             for (const quest::QuestDef* def : defs)
               emit(Fmt("  %-28s 0x%08llx  pri=%-3d stages=%-3zu obj=%-2zu complete@%-4d %s %s",
-                       def->editor_id.c_str(),
-                       static_cast<unsigned long long>(def->handle), def->priority,
-                       def->stages.size(), def->objectives.size(), def->CompletionStage(),
-                       def->start_game_enabled ? "SGE" : "   ", def->name.c_str()));
+                       def->editor_id.c_str(), static_cast<unsigned long long>(def->handle),
+                       def->priority, def->stages.size(), def->objectives.size(),
+                       def->CompletionStage(), def->start_game_enabled ? "SGE" : "   ",
+                       def->name.c_str()));
             return r;
           })
           .get();
@@ -578,10 +587,14 @@ void QuestDirector::ReportReinforcementTest() {
   const u64 cw_master = FindQuestHandle("CW");
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, siege, pct_atk, pool_atk, cw_master](rx::script::papyrus::VirtualMachine& vm) {
+          .SubmitFor([binds, siege, pct_atk, pool_atk,
+                      cw_master](rx::script::papyrus::VirtualMachine& vm) {
             using rx::script::papyrus::ObjectRef;
             std::string r;
-            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+            auto emit = [&](const std::string& line) {
+              r += line;
+              r += '\n';
+            };
 
             // Find an alias that actually carries the reinforcement script (its
             // OnDeath is what drives the pool), scanning the encoded handles.
@@ -661,15 +674,16 @@ void QuestDirector::ReportReinforcementTest() {
                 if (vm.TypeOf(ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, id)})
                         .find("Reinforcement") != std::string::npos) {
                   gen_ref = binds
-                                ->AliasReference(ObjectRef{
-                                    rx::script::papyrus::EncodeAliasHandle(siege, id)})
+                                ->AliasReference(
+                                    ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, id)})
                                 .handle;
                   if (gen_ref) break;
                 }
-              emit(Fmt("after Fragment_0: Fort alias=%d ::PoolAttacker_var=%s; a generic "
-                       "reinforcement slot -> ref 0x%llx",
-                       fort_alias, memo("::PoolAttacker_var").c_str(),
-                       static_cast<unsigned long long>(gen_ref)));
+              emit(
+                  Fmt("after Fragment_0: Fort alias=%d ::PoolAttacker_var=%s; a generic "
+                      "reinforcement slot -> ref 0x%llx",
+                      fort_alias, memo("::PoolAttacker_var").c_str(),
+                      static_cast<unsigned long long>(gen_ref)));
 
               // Dump the live member names so we can locate the A1..A20
               // registration slots and the attack-point / owner state the
@@ -742,8 +756,8 @@ void QuestDirector::ReportReinforcementTest() {
               // it brings the dead soldier back (full health, no longer dead).
               vm.Call(ObjectRef{soldier}, "Reset", {});
               emit(Fmt("killed soldier filling alias 0x%llx (%s); dead=%d -> Reset -> dead=%d",
-                       static_cast<unsigned long long>(alias_h), vm.TypeOf(ObjectRef{alias_h}).c_str(),
-                       dead, binds->IsDead(soldier)));
+                       static_cast<unsigned long long>(alias_h),
+                       vm.TypeOf(ObjectRef{alias_h}).c_str(), dead, binds->IsDead(soldier)));
               binds->ModActorValue(soldier, "health", -200.0f);  // re-down for the pool check below
             }
 
@@ -759,7 +773,9 @@ void QuestDirector::ReportReinforcementTest() {
             const f32 g = gv(pool_atk), m = memf("::PoolAttacker_var");
             emit(Fmt("after ModifyPool(true,-1): PoolAttacker_var=%.1f global=%.1f", m, g));
             if (g == m && g < member_before) {
-              emit("=> the real reinforcement ModifyPool Papyrus writes CWReinforcementPoolAttacker");
+              emit(
+                  "=> the real reinforcement ModifyPool Papyrus writes "
+                  "CWReinforcementPoolAttacker");
               emit("   end to end (controller member -> CWs property -> GlobalVariable.SetValue).");
             } else {
               emit("=> ModifyPool did not write the global (regression!).");
@@ -787,11 +803,12 @@ void QuestDirector::ReportReinforcementTest() {
               const u64 owner_kw = handle(cwm("::CWOwner_var"));
               const u64 sons_fac = handle(cwm("::CWSonsFaction_var"));
               const u64 imp_fac = handle(cwm("::CWImperialFaction_var"));
-              emit(Fmt("campaign constants: iImperials=%d iSons=%d cost=%d CWOwner=0x%llx "
-                       "ImperialFaction=0x%llx SonsFaction=0x%llx",
-                       iImperials, iSons, cost, static_cast<unsigned long long>(owner_kw),
-                       static_cast<unsigned long long>(imp_fac),
-                       static_cast<unsigned long long>(sons_fac)));
+              emit(
+                  Fmt("campaign constants: iImperials=%d iSons=%d cost=%d CWOwner=0x%llx "
+                      "ImperialFaction=0x%llx SonsFaction=0x%llx",
+                      iImperials, iSons, cost, static_cast<unsigned long long>(owner_kw),
+                      static_cast<unsigned long long>(imp_fac),
+                      static_cast<unsigned long long>(sons_fac)));
 
               if (owner_kw && sons_fac) {
                 // Stage the battle: the Imperials own (defend) the fort, the
@@ -820,15 +837,16 @@ void QuestDirector::ReportReinforcementTest() {
                 // is a Stormcloak (not an Imperial), the fort's owner is Imperial,
                 // so the attacking side is the Sons, which is what should make a
                 // Stormcloak count as an attacker.
-                emit(Fmt("  classifier inputs: alias->0x%llx in_sons=%d in_imp=%d owner=%.0f "
-                         "GetAttacker=%d (want iSons=%d) AttackPoint=0x%llx",
-                         static_cast<unsigned long long>(
-                             binds->AliasReference(ObjectRef{slot_h}).handle),
-                         binds->IsInFaction(trooper, ObjectRef{sons_fac}),
-                         binds->IsInFaction(trooper, ObjectRef{imp_fac}),
-                         binds->GetKeywordData(point, ObjectRef{owner_kw}),
-                         vm.Call(ObjectRef{cw_master}, "GetAttacker", {Value::Object(point)}).as_int(),
-                         iSons, static_cast<unsigned long long>(handle(ctl("AttackPoint")))));
+                emit(Fmt(
+                    "  classifier inputs: alias->0x%llx in_sons=%d in_imp=%d owner=%.0f "
+                    "GetAttacker=%d (want iSons=%d) AttackPoint=0x%llx",
+                    static_cast<unsigned long long>(
+                        binds->AliasReference(ObjectRef{slot_h}).handle),
+                    binds->IsInFaction(trooper, ObjectRef{sons_fac}),
+                    binds->IsInFaction(trooper, ObjectRef{imp_fac}),
+                    binds->GetKeywordData(point, ObjectRef{owner_kw}),
+                    vm.Call(ObjectRef{cw_master}, "GetAttacker", {Value::Object(point)}).as_int(),
+                    iSons, static_cast<unsigned long long>(handle(ctl("AttackPoint")))));
 
                 auto find_slot = [&]() -> std::string {
                   for (int i = 1; i <= 20; ++i)
@@ -858,7 +876,8 @@ void QuestDirector::ReportReinforcementTest() {
                 if (pool_after == pool_before - static_cast<f32>(cost) && g2 == pool_after) {
                   emit("=> a registered soldier's DEATH self-drove the reinforcement pool down by");
                   emit("   one through the controller's own Papyrus (tryToRespawnAliass ->");
-                  emit("   TryToRespawnAlias -> SubtractFromAttackerPool -> ModifyPool -> global),");
+                  emit(
+                      "   TryToRespawnAlias -> SubtractFromAttackerPool -> ModifyPool -> global),");
                   emit("   with no manual ModifyPool: the siege loop runs itself.");
                 } else {
                   emit("=> respawn dispatcher ran but the pool held (regression: check the staged");
@@ -885,12 +904,15 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
   auto* binds = ctx_.bindings;
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, handle, edid, jobs = std::move(jobs)](
-                         rx::script::papyrus::VirtualMachine&) mutable {
+          .SubmitFor([binds, handle, edid,
+                      jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
-            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+            auto emit = [&](const std::string& line) {
+              r += line;
+              r += '\n';
+            };
 
             binds->StartQuest(ObjectRef{handle});
             emit(Fmt("=== scene fragments for %s (0x%llx): %zu scene(s), start stage=%d ===",
@@ -968,7 +990,10 @@ void QuestDirector::ReportSceneLive(const std::string& edid) {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
-            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+            auto emit = [&](const std::string& line) {
+              r += line;
+              r += '\n';
+            };
 
             binds->StartQuest(ObjectRef{handle});
             const quest::QuestDef* def = qs.Definition(handle);
@@ -1026,12 +1051,15 @@ void QuestDirector::ReportScenePlay(const std::string& edid) {
   // only legal caller, so the player's cues can call the fragment runners.
   std::string report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, handle, edid, jobs = std::move(jobs)](
-                         rx::script::papyrus::VirtualMachine&) mutable {
+          .SubmitFor([binds, handle, edid,
+                      jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             std::string r;
-            auto emit = [&](const std::string& line) { r += line; r += '\n'; };
+            auto emit = [&](const std::string& line) {
+              r += line;
+              r += '\n';
+            };
 
             binds->StartQuest(ObjectRef{handle});
             emit(Fmt("=== scene play: %s (0x%llx): %zu scene(s), start stage=%d ===", edid.c_str(),
@@ -1114,9 +1142,10 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
       }
 #endif
       auto* binds = ctx_.bindings;
-      ctx_.scripts->guest().Submit([binds, handle, objective, displayed](script::papyrus::VirtualMachine&) {
-        binds->SetObjectiveDisplayed(script::papyrus::ObjectRef{handle}, objective, displayed);
-      });
+      ctx_.scripts->guest().Submit(
+          [binds, handle, objective, displayed](script::papyrus::VirtualMachine&) {
+            binds->SetObjectiveDisplayed(script::papyrus::ObjectRef{handle}, objective, displayed);
+          });
     };
     quest_panel_.set_objective_completed = [this](u64 handle, i32 objective, bool completed) {
 #if RECREATION_HAS_NET
@@ -1127,9 +1156,10 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
       }
 #endif
       auto* binds = ctx_.bindings;
-      ctx_.scripts->guest().Submit([binds, handle, objective, completed](script::papyrus::VirtualMachine&) {
-        binds->SetObjectiveCompleted(script::papyrus::ObjectRef{handle}, objective, completed);
-      });
+      ctx_.scripts->guest().Submit(
+          [binds, handle, objective, completed](script::papyrus::VirtualMachine&) {
+            binds->SetObjectiveCompleted(script::papyrus::ObjectRef{handle}, objective, completed);
+          });
     };
     quest_panel_.set_follower = [this](u64 npc, bool follow) { npc_->SetFollower(npc, follow); };
     quest_panel_.place_marker = [this](u64 quest, i32 objective, i32 advance_stage) {
@@ -1141,7 +1171,7 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
       if (actors_->PlayerWorldPos(&pp)) m.pos = pp;
       quest_markers_.push_back(m);
       RX_INFO("quest: placed marker for objective {} of 0x{:x} -> advance to stage {}", objective,
-               quest, advance_stage);
+              quest, advance_stage);
     };
     quest_panel_.clear_markers = [this] { quest_markers_.clear(); };
   }
@@ -1170,8 +1200,9 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
             for (const auto& [handle, edid] : src) {
               const quest::QuestDef* def = qs.Definition(handle);
               std::string name = (def && !def->name.empty()) ? def->name : edid;
-              out.panel.push_back({binds->ResolveQuestText(handle, name), handle, qs.IsRunning(handle),
-                                   qs.IsActive(handle), qs.IsComplete(handle), qs.GetStage(handle)});
+              out.panel.push_back({binds->ResolveQuestText(handle, name), handle,
+                                   qs.IsRunning(handle), qs.IsActive(handle), qs.IsComplete(handle),
+                                   qs.GetStage(handle)});
             }
             out.running = qs.RunningStatuses();
             // Expand <Alias=>/<Global=> tokens in the live HUD text against the
@@ -1189,7 +1220,8 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
                 out.detail.editor_id = def->editor_id;
                 out.detail.completion_stage = def->CompletionStage();
                 for (const quest::StageDef& s : def->stages)
-                  out.detail.stages.push_back({s.index, s.log_entry, qs.GetStageDone(selected, s.index)});
+                  out.detail.stages.push_back(
+                      {s.index, s.log_entry, qs.GetStageDone(selected, s.index)});
               }
               quest::QuestStatus st = qs.Status(selected);
               for (const quest::ObjectiveStatus& o : st.objectives)
@@ -1242,7 +1274,8 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
     hq.title = q->name;
     for (const quest::ObjectiveStatus& o : q->objectives)
       if (o.displayed || o.completed) hq.objectives.push_back({o.text, o.completed});
-    if (tracked && q->handle == tracked->handle) journal_selected = static_cast<int>(journal.size());
+    if (tracked && q->handle == tracked->handle)
+      journal_selected = static_cast<int>(journal.size());
     journal_handles_.push_back(q->handle);
     journal.push_back(std::move(hq));
   }
@@ -1335,7 +1368,7 @@ void QuestDirector::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>
         binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
       });
       RX_INFO("quest: reached objective {} marker, advancing 0x{:x} to stage {}", armed->objective,
-               quest, stage);
+              quest, stage);
     }
   }
 
@@ -1387,11 +1420,10 @@ void QuestDirector::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>
   // changes (the 0.1 m guard keeps float jitter off the reliable channel).
   if (ctx_.server_session) {
     const u64 quest = marker_quest;
-    const bool changed =
-        active != sent_marker_active_ || quest != sent_marker_quest_ ||
-        (active && (std::fabs(pos.x - sent_marker_pos_.x) > 0.1f ||
-                    std::fabs(pos.y - sent_marker_pos_.y) > 0.1f ||
-                    std::fabs(pos.z - sent_marker_pos_.z) > 0.1f));
+    const bool changed = active != sent_marker_active_ || quest != sent_marker_quest_ ||
+                         (active && (std::fabs(pos.x - sent_marker_pos_.x) > 0.1f ||
+                                     std::fabs(pos.y - sent_marker_pos_.y) > 0.1f ||
+                                     std::fabs(pos.z - sent_marker_pos_.z) > 0.1f));
     if (changed) {
       net::ObjectiveMarkerState m;
       m.active = active;
@@ -1519,7 +1551,8 @@ void QuestDirector::RefreshNativeTrace(f32 dt) {
   std::unordered_map<std::string, u32> counts;
   for (const NativeCall& c : log) ++counts[c.script_type + "." + c.function];
   std::vector<std::pair<std::string, u32>> top(counts.begin(), counts.end());
-  std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+  std::sort(top.begin(), top.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
   if (top.size() > 40) top.resize(40);
   native_trace_panel_.top = std::move(top);
 }

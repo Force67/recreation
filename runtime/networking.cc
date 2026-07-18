@@ -1,4 +1,4 @@
-#include "engine.h"
+#include <base/option.h>
 
 #include <cstdlib>
 #include <optional>
@@ -6,18 +6,17 @@
 #include <utility>
 #include <vector>
 
-#include <base/option.h>
-
 #include "asset/primitives.h"
 #include "core/log.h"
+#include "engine.h"
 #include "quest/quest_def.h"
 #include "script/papyrus/value.h"
 
 #if RECREATION_HAS_NET
+#include "gamenet/asset_stream.h"
 #include "modstream/content_provider.h"
 #include "modstream/content_store.h"
 #include "modstream/mod_catalog.h"
-#include "gamenet/asset_stream.h"
 #endif
 
 // Engine network bringup: opens the authoritative server or replica client
@@ -57,9 +56,8 @@ bool StartNetworking(Engine& engine) {
         RX_ERROR("net: could not catalog mods directory '{}'", self->config_.mods_dir);
         return false;
       }
-      RX_INFO("net: offering {} mod files ({} bytes) from {}",
-               catalog->manifest().TotalFiles(), catalog->manifest().TotalBytes(),
-               self->config_.mods_dir);
+      RX_INFO("net: offering {} mod files ({} bytes) from {}", catalog->manifest().TotalFiles(),
+              catalog->manifest().TotalBytes(), self->config_.mods_dir);
       self->mod_catalog_ = std::make_unique<modstream::ModCatalog>(std::move(*catalog));
       net_config.mod_catalog = self->mod_catalog_.get();
       // Mount the host's own mods so a listen server (and headless physics/nav)
@@ -77,10 +75,10 @@ bool StartNetworking(Engine& engine) {
 
   if (self->config_.host_server) {
     auto server = std::make_unique<net::GameServerSession>(std::move(net_config));
-    if (!server->Start()) return false;
     self->server_session_ = server.get();
     self->ctx_.server_session = self->server_session_;
-    self->session_ = std::move(server);
+    self->server_session_->SetWorldCommandSource(
+        [self]() { return self->quest_world_->SnapshotDoorStates(); });
     // Replicate the authoritative quest journal. The source is only called when
     // clients are connected, so the guest round-trip costs nothing while idle.
     // Quest state lives on the guest thread, so we marshal the read onto it.
@@ -120,10 +118,14 @@ bool StartNetworking(Engine& engine) {
       });
       // A client activating a reference runs OnActivate authoritatively here; the
       // resulting quest/world changes replicate back through the usual channels.
-      self->server_session_->SetActivateSink([self](u64 handle) { self->interaction_->RaiseActivate(handle); });
+      self->server_session_->SetActivateSink([self](u32 peer, u64 handle) {
+        const ecs::Entity player = self->server_session_->engine().PlayerOf(peer);
+        self->interaction_->RaiseRemoteActivate(peer, player, handle);
+      });
       // A client picking a dialogue topic runs that INFO's fragment here, so the
       // quest advances on the server and replicates to everyone.
-      self->server_session_->SetDialogueSink([self](u64 info) { self->interaction_->RunInfoFragment(info); });
+      self->server_session_->SetDialogueSink(
+          [self](u64 info) { self->interaction_->RunInfoFragment(info); });
       // A client's quest debugger acts through the server: apply the requested
       // stage/objective/running change on the guest, which replicates back as a
       // normal quest update.
@@ -154,47 +156,39 @@ bool StartNetworking(Engine& engine) {
     }
     // Stream authoritative NPC transforms; the session deltas them so only the
     // NPCs that actually moved this tick go out.
-    self->server_session_->SetActorSource([self]() { return net::CollectActorStates(*self->world_); });
+    self->server_session_->SetActorSource(
+        [self]() { return net::CollectActorStates(*self->world_); });
     // When a client finishes streaming the mods, raise a managed event so
     // server-side C# scripts can react (gate spawn, greet the player).
     self->server_session_->SetClientReadySink([self](u32 peer) {
       RX_INFO("net: peer {} finished streaming the server's mods", peer);
       if (self->managed_)
-        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientAssetsReady,
-                                    peer, 0, 0, 0.0f});
+        self->managed_->QueueEvent(
+            {rx::script::host::ManagedEventId::kClientAssetsReady, peer, 0, 0, 0.0f});
     });
     // The fundamental multiplayer hooks: a player joined, a player left. Raised
     // for every peer so server-side scripts work even without streamed mods.
     self->server_session_->SetClientJoinedSink([self](u32 peer) {
       if (self->managed_)
-        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientJoined,
-                                    peer, 0, 0, 0.0f});
+        self->managed_->QueueEvent(
+            {rx::script::host::ManagedEventId::kClientJoined, peer, 0, 0, 0.0f});
     });
     self->server_session_->SetClientLeftSink([self](u32 peer) {
       if (self->managed_)
-        self->managed_->QueueEvent({rx::script::host::ManagedEventId::kClientLeft,
-                                    peer, 0, 0, 0.0f});
+        self->managed_->QueueEvent(
+            {rx::script::host::ManagedEventId::kClientLeft, peer, 0, 0, 0.0f});
     });
+    if (!server->Start()) {
+      self->server_session_ = nullptr;
+      self->ctx_.server_session = nullptr;
+      return false;
+    }
+    self->session_ = std::move(server);
   } else if (!self->config_.connect_address.empty()) {
     net_config.address = base::String(self->config_.connect_address.c_str());
     auto client = std::make_unique<net::GameClientSession>(std::move(net_config));
-    if (!client->Start()) return false;
     self->client_session_ = client.get();
     self->ctx_.client_session = self->client_session_;
-    self->session_ = std::move(client);
-    // Mount the streamed mods into the asset Vfs once the whole manifest has
-    // landed in the cache, so the host's custom content resolves like loose files.
-    if (self->content_store_ && self->client_session_->asset_stream()) {
-      self->client_session_->asset_stream()->set_on_ready(
-          [self](const modstream::ModManifest& manifest) {
-            // Replace any previous mount (a live reload re-fires this), on the main
-            // thread where nothing is reading the Vfs.
-            self->vfs_->UnmountByPrefix("modstream:");
-            modstream::MountManifest(*self->vfs_, manifest, *self->content_store_);
-            RX_INFO("net: mounted {} streamed mod files into the asset vfs",
-                     manifest.TotalFiles());
-          });
-    }
     // Mirror the server's journal onto our quest system. ApplyStatus mutates
     // quest state, so it has to run on the guest thread like every other write.
     if (self->scripts_ && self->script_bindings_) {
@@ -218,14 +212,16 @@ bool StartNetworking(Engine& engine) {
           binds->ApplyReplicatedStatus(status);
         });
         if (NetQuestLog)
-          RX_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain,
-                   status.handle, status.stage, status.complete ? 1 : 0);
+          RX_INFO("net: applied domain {} quest 0x{:x} stage {} complete {}", domain, status.handle,
+                  status.stage, status.complete ? 1 : 0);
       });
       // Mirror the host's quest-driven world effects (spawns/moves/disables/
       // cleanup). Runs in the net sim stage on the main thread, which owns the
       // ECS, so applying straight to QuestWorld is safe.
       self->client_session_->SetWorldCommandSink(
-          [self](const std::vector<world::WorldCommand>& cmds) { self->quest_world_->Apply(cmds); });
+          [self](const std::vector<world::WorldCommand>& cmds) {
+            self->quest_world_->Apply(cmds);
+          });
       // Mirror authoritative NPC movement onto our existing (cell-loaded) NPC
       // entities, interpolated between updates.
       self->client_session_->SetActorSink([self](const std::vector<net::ActorState>& actors) {
@@ -247,18 +243,38 @@ bool StartNetworking(Engine& engine) {
         self->script_bindings_->SetWarProgress(board.imperial_fraction);
       });
     }
+    if (!client->Start()) {
+      self->client_session_ = nullptr;
+      self->ctx_.client_session = nullptr;
+      return false;
+    }
+    self->session_ = std::move(client);
+    // Mount the streamed mods into the asset Vfs once the whole manifest has
+    // landed in the cache, so the host's custom content resolves like loose files.
+    if (self->content_store_ && self->client_session_->asset_stream()) {
+      self->client_session_->asset_stream()->set_on_ready(
+          [self](const modstream::ModManifest& manifest) {
+            // Replace any previous mount (a live reload re-fires this), on the main
+            // thread where nothing is reading the Vfs.
+            self->vfs_->UnmountByPrefix("modstream:");
+            modstream::MountManifest(*self->vfs_, manifest, *self->content_store_);
+            RX_INFO("net: mounted {} streamed mod files into the asset vfs", manifest.TotalFiles());
+          });
+    }
   } else {
     return true;
   }
 
-  self->scheduler_->AddSystem(ecs::Stage::kSim, "net",
-                       [self](ecs::World& world, f32 dt) { self->session_->Tick(world, dt); });
+  self->scheduler_->AddSystem(ecs::Stage::kSim, "net", [self](ecs::World& world, f32 dt) {
+    self->session_->Tick(world, dt);
+  });
   if (self->client_session_) {
     // Remote transforms blend between snapshots. With a renderer that runs
     // per frame; headless clients smooth at the fixed step instead.
     const ecs::Stage stage = self->config_.headless ? ecs::Stage::kPostSim : ecs::Stage::kPreRender;
-    self->scheduler_->AddSystem(stage, "net_interpolation",
-                         [](ecs::World& world, f32 dt) { net::TickInterpolation(world, dt); });
+    self->scheduler_->AddSystem(stage, "net_interpolation", [](ecs::World& world, f32 dt) {
+      net::TickInterpolation(world, dt);
+    });
   }
   // The managed world booted before the session, so forward any RPC names its
   // mods subscribed to into the live session's registry now.
@@ -271,15 +287,14 @@ void ReloadMods(Engine& engine) {
   if (self->config_.mods_dir.empty() || !self->server_session_ || !self->mod_catalog_) {
     return;  // not hosting a mods directory; nothing to reload
   }
-  std::optional<modstream::ModCatalog> fresh =
-      modstream::ModCatalog::Build(self->config_.mods_dir);
+  std::optional<modstream::ModCatalog> fresh = modstream::ModCatalog::Build(self->config_.mods_dir);
   if (!fresh) {
     RX_ERROR("net: mod reload failed to catalog '{}', keeping the current set",
-              self->config_.mods_dir);
+             self->config_.mods_dir);
     return;  // a broken edit must not take down the running server
   }
-  RX_INFO("net: reloaded mods, now offering {} files ({} bytes)",
-           fresh->manifest().TotalFiles(), fresh->manifest().TotalBytes());
+  RX_INFO("net: reloaded mods, now offering {} files ({} bytes)", fresh->manifest().TotalFiles(),
+          fresh->manifest().TotalBytes());
 
   // Point the session at the new catalog before the old one is destroyed, then
   // swap ownership: the new catalog object's address is stable across the move.

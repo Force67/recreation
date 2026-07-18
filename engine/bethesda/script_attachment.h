@@ -1,6 +1,7 @@
 #ifndef RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_
 #define RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -15,13 +16,13 @@ namespace rx::bethesda {
 
 // A scripted reference to another form, resolved later against the load order.
 struct ScriptObjectValue {
-  u32 form_id = 0;   // raw form id (plugin-local high byte), 0 = none
+  u64 form_id = 0;   // raw u32 until ResolveScriptObjectForms, then a runtime handle
   u16 alias_id = 0;  // quest alias index, 0xffff = none
 };
 
 struct ScriptProperty {
   std::string name;
-  u8 type = 0;     // 1 object, 2 string, 3 int, 4 float, 5 bool, 11-15 arrays
+  u8 type = 0;  // 1 object, 2 string, 3 int, 4 float, 5 bool, 11-15 arrays
   u8 status = 0;
 
   i32 int_value = 0;
@@ -62,6 +63,13 @@ struct QuestStageFragment {
 // fragment data that can follow it is record-type specific and skipped).
 // Returns false on a malformed or truncated body.
 bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out);
+
+// Resolves every non-alias object property through the record that owns the
+// VMAD. The optional second step lets instantiated templates (pack-ins) replace
+// a resolved source form with that particular instance's runtime handle.
+void ResolveScriptObjectForms(ScriptAttachment* attachment,
+                              const std::function<u64(u32 raw_form_id)>& resolve,
+                              const std::function<u64(u64 resolved_handle)>& remap = {});
 
 // The Papyrus scripts attached to one quest alias (ALST/ALLS), e.g. the
 // CWReinforcementAliasScript whose OnDeath drives the Civil War reinforcement
@@ -109,8 +117,8 @@ struct SceneFragment {
   std::string function;
 };
 struct ScenePhaseFragment {
-  u32 phase = 0;          // phase number this fragment runs at
-  bool on_begin = true;   // true: run when the phase begins; false: when it ends
+  u32 phase = 0;         // phase number this fragment runs at
+  bool on_begin = true;  // true: run when the phase begins; false: when it ends
   SceneFragment fragment;
 };
 struct SceneFragments {

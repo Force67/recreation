@@ -26,6 +26,12 @@ namespace rx::script {
 // feeds it the forms it streams in, and ticks it each frame.
 class ScriptSystem {
  public:
+  struct AttachmentResult {
+    std::vector<papyrus::ObjectRef> created;
+    bool any_attached = false;
+    bool complete = true;
+  };
+
   // bindings supplies the engine side of the Skyrim native surface (may be
   // null for neutral defaults). vfs provides scripts/<name>.pex.
   ScriptSystem(bethesda::Game game, asset::Vfs* vfs, skyrim::SkyrimBindings* bindings);
@@ -39,6 +45,20 @@ class ScriptSystem {
   // OnInit, and returns the created instance handles. Re-attaching to a form
   // that already has instances is a no-op for the already-present scripts.
   std::vector<papyrus::ObjectRef> AttachScripts(u64 form_id, const bethesda::ScriptAttachment& att);
+
+  // As above, but also reports whether every named script is now attached. A
+  // missing script leaves complete=false so streamed references can retry only
+  // the missing entries without reinitializing those already present.
+  AttachmentResult AttachScriptsWithStatus(u64 form_id, const bethesda::ScriptAttachment& att);
+
+  // Queues the reference-level OnLoad after newly-created scripts' OnInit events.
+  // Managed FormLoaded is already emitted by AttachScripts in this case.
+  void RaiseFormLoadEvent(u64 form_id);
+  void RaiseFormUnloadEvent(u64 form_id);
+
+  // A streamed form whose VM instance already exists became live again. Papyrus
+  // keeps the instance state, but OnLoad and managed FormLoaded must repeat.
+  void NotifyFormReloaded(u64 form_id);
 
   // Advances guest time, firing any due update events.
   void Tick(f32 dt);

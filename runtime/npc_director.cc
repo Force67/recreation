@@ -19,6 +19,14 @@
 
 namespace rx {
 
+namespace {
+
+bool IsActorInactive(ecs::World& world, ecs::Entity entity) {
+  return world.Has<world::Hidden>(entity) || world.Has<world::Deleted>(entity);
+}
+
+}  // namespace
+
 static base::Option<float> CwBattleDelay{"cw.battle.delay", 0.f, "RX_CW_BATTLE_DELAY"};
 
 NpcDirector::NpcDirector(EngineContext& ctx, ActorSystem* actors)
@@ -174,6 +182,7 @@ void NpcDirector::UpdateAmbient(f32 dt) {
   base::Vector<Nearby> nearby;
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+        if (IsActorInactive(world_, e)) return;
         const u64 handle = link.form.packed();
         if (followers_.find(handle) || guides_.find(handle)) return;  // driven elsewhere
         if (combat_.find(handle) || world_.Has<world::Dead>(e)) return;  // fighting / downed
@@ -287,7 +296,7 @@ void NpcDirector::AcquireTargets() {
   world_.Each<world::Npc, world::CombatTeam, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::CombatTeam& ct, world::FormLink& link,
           world::Transform& t) {
-        if (ct.team == 0 || world_.Has<world::Dead>(e)) return;
+        if (ct.team == 0 || world_.Has<world::Dead>(e) || IsActorInactive(world_, e)) return;
         cands.push_back({link.form.packed(), ct.team, {t.position[0], t.position[1], t.position[2]}});
       });
   // The player can fight on a side (so NPCs target it); it is a target only, never
@@ -322,7 +331,7 @@ bool NpcDirector::ResolveCombatant(u64 handle, ecs::Entity* entity, world::Trans
   } else {
     e = ctx_.quest_world ? ctx_.quest_world->Find(handle) : ecs::Entity{};
   }
-  if (!world_.IsAlive(e)) return false;
+  if (!world_.IsAlive(e) || IsActorInactive(world_, e)) return false;
   world::Transform* t = world_.Get<world::Transform>(e);
   if (!t) return false;
   *entity = e;
@@ -423,7 +432,7 @@ bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
   f32 best_d2 = kReach * kReach;
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (world_.Has<world::Dead>(e)) return;
+        if (world_.Has<world::Dead>(e) || IsActorInactive(world_, e)) return;
         if (!world::InMeleeArc(self, t.position, fwd, kReach, kArcCos)) return;
         const f32 dx = t.position[0] - self[0], dz = t.position[2] - self[2];
         const f32 d2 = dx * dx + dz * dz;
@@ -446,6 +455,7 @@ bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
   if (!cw_battle_active_ && !cw_field_active_) return false;
   int a = 0, b = 0, d = 0;
   world_.Each<world::CombatTeam>([&](ecs::Entity e, world::CombatTeam& ct) {
+    if (IsActorInactive(world_, e)) return;
     if (world_.Has<world::Dead>(e)) {
       ++d;
       return;
@@ -492,6 +502,7 @@ void NpcDirector::CwBattleTick(f32 dt) {
     int foes = 0;
     world_.Each<world::Npc, world::FormLink, world::Transform>(
         [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+          if (IsActorInactive(world_, e)) return;
           const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
           if (dx * dx + dz * dz > 200.0f * 200.0f) return;  // grab the whole garrison
           if (world_.Has<world::Dead>(e)) return;
@@ -845,7 +856,7 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     cw_field_resync_ = 3.0f;
     for (u64 h : cw_field_soldiers_) {
       ecs::Entity e = ctx_.quest_world ? ctx_.quest_world->Find(h) : ecs::kInvalidEntity;
-      if (!world_.IsAlive(e)) continue;
+      if (!world_.IsAlive(e) || IsActorInactive(world_, e)) continue;
       const world::Transform* t = world_.Get<world::Transform>(e);
       if (!t) continue;
       world::WorldCommand c;
@@ -908,6 +919,7 @@ void NpcDirector::UpdateFollowers(f32 dt) {
   base::Vector<float> positions;  // xyz per follower, parallel to `followers`
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+        if (IsActorInactive(world_, e)) return;
         const i32* slot = followers_.find(link.form.packed());
         if (!slot) return;
         followers.push_back({e, *slot, &t});
@@ -991,6 +1003,7 @@ void NpcDirector::UpdateGuides(f32 dt) {
 #endif
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
+        if (IsActorInactive(world_, e)) return;
         const Vec3* target = guides_.find(link.form.packed());
         if (!target) return;
         const Vec3 wp = NavigateTo(Vec3{t.position[0], t.position[1], t.position[2]}, *target);
@@ -1067,7 +1080,8 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
     };
     std::vector<Cand> cands;
     world_.Each<world::Npc, world::FormLink, world::Transform>(
-        [&](ecs::Entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+        [&](ecs::Entity entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+          if (IsActorInactive(world_, entity)) return;
           const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
           cands.push_back({link.form.packed(), dx * dx + dz * dz});
         });
@@ -1105,8 +1119,9 @@ void NpcDirector::Mq101Sink::SetStage(u64 quest, i32 stage) {
 bool NpcDirector::Mq101Sink::ActorAt(u64 actor, const float pos[3], float radius) {
   bool found = false, reached = false;
   d->world_.Each<world::FormLink, world::Transform>(
-      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+      [&](ecs::Entity entity, world::FormLink& link, world::Transform& t) {
         if (link.form.packed() != actor) return;
+        if (IsActorInactive(d->world_, entity)) return;
         found = true;
         const float dx = t.position[0] - pos[0], dz = t.position[2] - pos[2];
         reached = dx * dx + dz * dz <= radius * radius;
@@ -1150,7 +1165,8 @@ bool NpcDirector::StartMq101Scene() {
   u64 guide = 0;
   float best = 30.0f * 30.0f;  // ignore actors across the cell
   world_.Each<world::Npc, world::FormLink, world::Transform>(
-      [&](ecs::Entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+      [&](ecs::Entity entity, world::Npc&, world::FormLink& link, world::Transform& t) {
+        if (IsActorInactive(world_, entity)) return;
         const float dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
         const float d = dx * dx + dz * dz;
         if (d < best) {
@@ -1229,8 +1245,9 @@ void NpcDirector::Mq101SceneTick(f32 dt) {
     if (a.kind == quest::SceneAction::Kind::kGuideTo) {
       const float wx = a.pos[0], wy = a.pos[1], wz = a.pos[2];
       world_.Each<world::FormLink, world::Transform>(
-          [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
+          [&](ecs::Entity entity, world::FormLink& link, world::Transform& t) {
             if (link.form.packed() != a.actor) return;
+            if (IsActorInactive(world_, entity)) return;
             t.position[0] = wx;
             t.position[1] = wy;
             t.position[2] = wz;

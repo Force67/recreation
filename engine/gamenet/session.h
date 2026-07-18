@@ -10,6 +10,7 @@
 
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "ecs/world.h"
@@ -58,6 +59,8 @@ struct GameSessionConfig {
 
 class GameServerSession final : public Session {
  public:
+  static constexpr u32 kMaxActivationRequestsPerSecond = 32;
+
   explicit GameServerSession(GameSessionConfig config);
   ~GameServerSession() override;
 
@@ -84,16 +87,21 @@ class GameServerSession final : public Session {
 
   // The Civil War campaign board to replicate (host-only C# state), shipped on
   // change or when a client joins.
-  void SetWarMapSource(std::function<WarMapState()> source) {
-    war_map_source_ = std::move(source);
-  }
+  void SetWarMapSource(std::function<WarMapState()> source) { war_map_source_ = std::move(source); }
 
   // Broadcasts a batch of quest-driven world commands (already drained and
   // applied locally by the host) to every client on the reliable channel.
   void SendWorldCommands(const std::vector<world::WorldCommand>& commands);
+  void SetWorldCommandSource(std::function<std::vector<world::WorldCommand>()> source) {
+    world_command_source_ = std::move(source);
+  }
 
-  // Sink invoked with the form handle each time a client activates a reference.
-  void SetActivateSink(std::function<void(u64)> sink) { activate_sink_ = std::move(sink); }
+  // Sink invoked with the admitted peer and form handle each time a client
+  // activates a reference. The game validates that peer's authoritative player
+  // against the target before running any script.
+  void SetActivateSink(std::function<void(u32 peer, u64 handle)> sink) {
+    activate_sink_ = std::move(sink);
+  }
 
   // Sink invoked with the INFO handle each time a client picks a dialogue topic.
   void SetDialogueSink(std::function<void(u64)> sink) { dialogue_sink_ = std::move(sink); }
@@ -106,13 +114,11 @@ class GameServerSession final : public Session {
 
   // Sink invoked with the peer id when a client reports it finished streaming
   // the server's mods.
-  void SetClientReadySink(std::function<void(u32)> sink) {
-    client_ready_sink_ = std::move(sink);
-  }
+  void SetClientReadySink(std::function<void(u32)> sink) { client_ready_sink_ = std::move(sink); }
 
   // Join/leave hooks, forwarded from the engine session.
   void SetClientJoinedSink(std::function<void(u32)> sink);
-  void SetClientLeftSink(std::function<void(u32)> sink) { inner_.SetClientLeftSink(std::move(sink)); }
+  void SetClientLeftSink(std::function<void(u32)> sink) { client_left_sink_ = std::move(sink); }
 
   // The server's scripting RPC channel. Always present once Start succeeds.
   RpcServerChannel* rpc() { return inner_.rpc(); }
@@ -137,15 +143,24 @@ class GameServerSession final : public Session {
   GameSessionConfig config_;
   ServerSession inner_;
   std::function<std::vector<DomainQuestStatus>()> quest_source_;
+  std::function<std::vector<world::WorldCommand>()> world_command_source_;
   std::function<WarMapState()> war_map_source_;
   std::vector<u8> last_war_map_blob_;  // last board sent, to skip unchanged ticks
   size_t last_war_map_clients_ = 0;    // re-send the board when a new client joins
   std::function<void(const StageRequest&)> stage_request_sink_;
-  std::function<void(u64)> activate_sink_;
+  std::function<void(u32, u64)> activate_sink_;
   std::function<void(u64)> dialogue_sink_;
   std::function<std::vector<ActorState>()> actor_source_;
   std::function<void(u32)> client_ready_sink_;
   std::function<void(u32)> client_joined_sink_;
+  std::function<void(u32)> client_left_sink_;
+  struct ActivationWindow {
+    u64 start_tick = 0;
+    u32 requests = 0;
+    bool initialized = false;
+    bool warned = false;
+  };
+  std::unordered_map<u32, ActivationWindow> activation_windows_;
   QuestReplicator quest_replicator_;
   ActorReplicator actor_replicator_;
   std::unique_ptr<AssetStreamServer> asset_stream_;
@@ -177,8 +192,7 @@ class GameClientSession final : public Session {
   }
 
   // Sink invoked with the command list from every kWorldCommands received.
-  void SetWorldCommandSink(
-      std::function<void(const std::vector<world::WorldCommand>&)> sink) {
+  void SetWorldCommandSink(std::function<void(const std::vector<world::WorldCommand>&)> sink) {
     world_command_sink_ = std::move(sink);
   }
 

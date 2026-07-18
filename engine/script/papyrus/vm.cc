@@ -121,6 +121,15 @@ ObjectRef VirtualMachine::CreateInstanceWithHandle(const std::string& type, u64 
   return ObjectRef{handle};
 }
 
+bool VirtualMachine::HasAttachedScript(ObjectRef instance, const std::string& type) const {
+  auto it = instances_.find(instance.handle);
+  if (it == instances_.end()) return false;
+  const std::string want = Lower(type);
+  for (const std::string& attached : it->second.types)
+    if (Lower(attached) == want) return true;
+  return false;
+}
+
 std::string VirtualMachine::ParentClassOf(const std::string& type) {
   LoadedScript* s = FindScript(type);
   return s ? s->parent : "";
@@ -259,6 +268,34 @@ bool VirtualMachine::TryCall(ObjectRef self, const std::string& method, std::vec
   if (!ResolveMethodAny(*inst, method, &r)) return false;  // no handler: silent
   Invoke(r, self, std::move(args), method);
   return true;
+}
+
+bool VirtualMachine::TryCallScript(ObjectRef self, const std::string& script_type,
+                                   const std::string& method, std::vector<Value> args) {
+  Instance* inst = FindInstance(self);
+  if (!inst || !HasAttachedScript(self, script_type)) return false;
+  Resolved resolved;
+  if (!ResolveMethod(*inst, method, script_type, &resolved)) return false;
+  Invoke(resolved, self, std::move(args), method);
+  return true;
+}
+
+bool VirtualMachine::TryCallAll(ObjectRef self, const std::string& method,
+                                const std::vector<Value>& args) {
+  Instance* inst = FindInstance(self);
+  if (!inst) return false;
+  bool dispatched = false;
+  // An event may attach another script; it joins only the next event.
+  const std::vector<std::string> types = inst->types;
+  for (const std::string& type : types) {
+    inst = FindInstance(self);
+    if (!inst) break;
+    Resolved resolved;
+    if (!ResolveMethod(*inst, method, type, &resolved)) continue;
+    Invoke(resolved, self, args, method);
+    dispatched = true;
+  }
+  return dispatched;
 }
 
 Value VirtualMachine::CallGlobal(const std::string& script_type, const std::string& function,

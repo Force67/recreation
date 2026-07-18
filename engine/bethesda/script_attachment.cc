@@ -83,9 +83,9 @@ void SkipPropertyValue(Reader& r, i16 object_format, u8 type);
 // Reads one property's name, type, status and value. Shared by the script
 // section and (skipping the value) the FO4 fragment-header property blocks.
 void SkipProperty(Reader& r, i16 object_format) {
-  r.Str();          // name
+  r.Str();  // name
   u8 type = r.U8();
-  r.U8();           // status
+  r.U8();  // status
   SkipPropertyValue(r, object_format, type);
 }
 
@@ -248,6 +248,23 @@ bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out) {
   return ReadScriptsSection(r, out);
 }
 
+void ResolveScriptObjectForms(ScriptAttachment* attachment, const std::function<u64(u32)>& resolve,
+                              const std::function<u64(u64)>& remap) {
+  if (!attachment || !resolve) return;
+  auto resolve_object = [&](ScriptObjectValue& object) {
+    if (object.alias_id != 0xffff || object.form_id == 0) return;
+    u64 handle = resolve(static_cast<u32>(object.form_id));
+    object.form_id = remap ? remap(handle) : handle;
+  };
+  for (ScriptEntry& script : attachment->scripts) {
+    for (ScriptProperty& property : script.properties) {
+      if (property.type == 1) resolve_object(property.object_value);
+      if (property.type == 11)
+        for (ScriptObjectValue& object : property.object_array) resolve_object(object);
+    }
+  }
+}
+
 bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
                          std::vector<QuestStageFragment>* fragments,
                          std::vector<QuestAliasScripts>* alias_scripts) {
@@ -257,16 +274,16 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
   // Quest fragment section (SSE): a flags/version byte, the fragment count, the
   // QF script file name, then one entry per stage-with-a-fragment. FO4 (v6) adds
   // a property block after the file name (skipped); the entries match v5.
-  r.U8();                       // flags/version, unused
+  r.U8();  // flags/version, unused
   u16 fragment_count = r.U16();
-  r.Str();                      // shared fragment file name, unused (per-entry name below)
+  r.Str();  // shared fragment file name, unused (per-entry name below)
   SkipFalloutFragmentHeader(r, *out);
   for (u16 i = 0; i < fragment_count && r.ok(); ++i) {
     QuestStageFragment f;
     f.stage = r.U16();
-    r.I16();                    // unknown
-    r.I32();                    // log entry / stage index, unused
-    r.U8();                     // per-fragment flags, unused
+    r.I16();  // unknown
+    r.I32();  // log entry / stage index, unused
+    r.U8();   // per-fragment flags, unused
     f.script_name = r.Str();
     f.function = r.Str();
     if (r.ok()) fragments->push_back(std::move(f));
@@ -303,17 +320,17 @@ bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* fra
   // fragment is present, bit 1 = an end fragment), the shared TIF file name,
   // then the present fragments, each an unknown byte plus its script and
   // function names.
-  r.U8();                  // version, unused
+  r.U8();  // version, unused
   u8 flags = r.U8();
-  r.Str();                 // shared fragment file name, unused
+  r.Str();                             // shared fragment file name, unused
   SkipFalloutFragmentHeader(r, *out);  // FO4 (v6) only
   if (flags & 0x01) {
-    r.U8();                // unknown
+    r.U8();  // unknown
     frags->begin.script_name = r.Str();
     frags->begin.function = r.Str();
   }
   if (flags & 0x02) {
-    r.U8();                // unknown
+    r.U8();  // unknown
     frags->end.script_name = r.Str();
     frags->end.function = r.Str();
   }
@@ -333,26 +350,26 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
   // present begin/end fragments (each an unknown byte plus its script and
   // function names, like INFO), then a phase count and one entry per phase that
   // has a fragment.
-  r.U8();                  // version, unused
+  r.U8();  // version, unused
   u8 flags = r.U8();
-  r.Str();                 // shared fragment file name, unused
+  r.Str();                             // shared fragment file name, unused
   SkipFalloutFragmentHeader(r, *out);  // FO4 (v6) only
   if (flags & 0x01) {
-    r.U8();                // unknown
+    r.U8();  // unknown
     frags->begin.script_name = r.Str();
     frags->begin.function = r.Str();
   }
   if (flags & 0x02) {
-    r.U8();                // unknown
+    r.U8();  // unknown
     frags->end.script_name = r.Str();
     frags->end.function = r.Str();
   }
   u16 phase_count = r.U16();
   for (u16 i = 0; i < phase_count && r.ok(); ++i) {
     ScenePhaseFragment p;
-    u8 kind = r.U8();      // 1 = a phase-begin fragment, 2 = a phase-end fragment
+    u8 kind = r.U8();  // 1 = a phase-begin fragment, 2 = a phase-end fragment
     p.phase = r.U32();
-    r.U8();                // unknown
+    r.U8();  // unknown
     p.on_begin = kind != 2;
     p.fragment.script_name = r.Str();
     p.fragment.function = r.Str();

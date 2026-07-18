@@ -24,6 +24,8 @@ class WorldEffectSink {
   // that warps the player indoors (e.g. into the Helgen keep) lands them there.
   virtual void MovePlayer(u64 quest, u64 dest_ref, f32 x, f32 y, f32 z) = 0;
   virtual void SetEnabled(u64 quest, u64 handle, bool enabled) = 0;
+  virtual void SetLocked(u64 quest, u64 handle, bool locked) {}
+  virtual void SetOpen(u64 quest, u64 handle, bool open) {}
   virtual void DeleteReference(u64 quest, u64 handle) = 0;
   virtual void CleanupQuest(u64 quest) = 0;
 

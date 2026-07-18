@@ -1,8 +1,8 @@
 #include "gamenet/world_replication.h"
 
-#include <cstring>
-
 #include <nanobuf.h>
+
+#include <cstring>
 
 namespace rx::net {
 namespace {
@@ -68,7 +68,7 @@ bool DecodeRecord(const u8* data, size_t size, world::WorldCommand* out) {
   };
 
   const u8 op = u8at();
-  if (op > static_cast<u8>(world::WorldOp::kCleanupQuest)) return false;
+  if (op > static_cast<u8>(world::WorldOp::kSetOpen)) return false;
   out->op = static_cast<world::WorldOp>(op);
   out->quest = u64at();
   out->handle = u64at();
@@ -95,10 +95,12 @@ std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& comm
 }
 
 std::optional<std::vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data) {
+  if (data.size() > kMaxWorldCommandPayload) return std::nullopt;
   std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
   if (!view) return std::nullopt;
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
   if (!records) return std::nullopt;
+  if (records->size() > kMaxWorldCommandsPerMessage) return std::nullopt;
 
   std::vector<world::WorldCommand> out;
   out.reserve(records->size());

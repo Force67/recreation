@@ -73,9 +73,10 @@ class VirtualMachine : public VmInterface {
   // script's declared defaults. Returns None for an unknown type.
   ObjectRef CreateInstance(const std::string& type);
   // Same, but with a caller-chosen handle (the engine uses a form id, so an
-  // object reference between scripts resolves to the same instance). Returns
-  // None on unknown type or if the handle is taken.
+  // object reference between scripts resolves to the same instance). A handle
+  // may carry multiple script types; adding an already-present type is a no-op.
   ObjectRef CreateInstanceWithHandle(const std::string& type, u64 handle);
+  bool HasAttachedScript(ObjectRef instance, const std::string& type) const;
   void DestroyInstance(ObjectRef instance);
 
   // The parent class name of a loaded type, "" if none or unknown. Used to
@@ -96,6 +97,10 @@ class VirtualMachine : public VmInterface {
   // events (OnDeath, OnItemAdded, ...) to forms whose script may not handle
   // them, without log spam.
   bool TryCall(ObjectRef self, const std::string& method, std::vector<Value> args);
+  // Event dispatch variants for forms carrying several independent scripts.
+  bool TryCallScript(ObjectRef self, const std::string& script_type, const std::string& method,
+                     std::vector<Value> args);
+  bool TryCallAll(ObjectRef self, const std::string& method, const std::vector<Value>& args);
 
   // Suspends the script activation currently running, which must be on a Fiber:
   // the whole interpreter call chain freezes and control returns to whoever

@@ -50,6 +50,16 @@ int main() {
   disable.enabled = false;
   cmds.push_back(disable);
 
+  WorldCommand lock;
+  lock.op = WorldOp::kSetLocked;
+  lock.handle = 0x00012345;
+  lock.enabled = true;
+  cmds.push_back(lock);
+
+  WorldCommand open = lock;
+  open.op = WorldOp::kSetOpen;
+  cmds.push_back(open);
+
   WorldCommand cleanup;
   cleanup.op = WorldOp::kCleanupQuest;
   cleanup.quest = 0x0100ABCD;
@@ -64,17 +74,18 @@ int main() {
     const auto& d = *decoded;
     Check("command count preserved", d.size() == cmds.size());
     if (d.size() == cmds.size()) {
-      Check("spawn op/handle/base preserved", d[0].op == WorldOp::kSpawn &&
-                                                  d[0].handle == 0xFFFF0001 &&
-                                                  d[0].base == 0x0001A2B3);
+      Check("spawn op/handle/base preserved",
+            d[0].op == WorldOp::kSpawn && d[0].handle == 0xFFFF0001 && d[0].base == 0x0001A2B3);
       Check("spawn position preserved",
             d[0].pos[0] == 12.5f && d[0].pos[1] == -3.0f && d[0].pos[2] == 100.25f);
       Check("spawn is_actor flag preserved", d[0].is_actor == true && d[1].is_actor == false);
       Check("spawn team preserved", d[0].team == 2 && d[1].team == 0);
       Check("move quest+handle preserved", d[1].op == WorldOp::kMove && d[1].handle == 0x00012345);
       Check("disable flag preserved", d[2].op == WorldOp::kSetEnabled && d[2].enabled == false);
+      Check("door state ops preserved", d[3].op == WorldOp::kSetLocked && d[3].enabled &&
+                                            d[4].op == WorldOp::kSetOpen && d[4].enabled);
       Check("cleanup op+quest preserved",
-            d[3].op == WorldOp::kCleanupQuest && d[3].quest == 0x0100ABCD);
+            d[5].op == WorldOp::kCleanupQuest && d[5].quest == 0x0100ABCD);
     }
   }
 
@@ -84,6 +95,12 @@ int main() {
     auto bad = rx::net::DecodeWorldCommands(rx::ByteSpan(truncated.data(), truncated.size()));
     Check("rejects a truncated blob", !bad.has_value());
   }
+
+  std::vector<WorldCommand> oversized(rx::net::kMaxWorldCommandsPerMessage + 1);
+  std::vector<rx::u8> oversized_blob = rx::net::EncodeWorldCommands(oversized);
+  Check("rejects an oversized command list",
+        !rx::net::DecodeWorldCommands(rx::ByteSpan(oversized_blob.data(), oversized_blob.size()))
+             .has_value());
 
   if (g_failures) {
     std::printf("FAILED: %d check(s)\n", g_failures);

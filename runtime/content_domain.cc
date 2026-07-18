@@ -1,5 +1,6 @@
 #include "content_domain.h"
 
+#include <filesystem>
 #include <vector>
 
 #include "bethesda/archive.h"
@@ -10,14 +11,12 @@
 #include "quest/quest_def.h"
 #include "script/papyrus/value.h"
 
-#include <filesystem>
-
 namespace rx {
 
 bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
                          const std::string& plugins_txt, bool replica_mode) {
-  game_ = game != bethesda::Game::kUnknown ? game
-                                           : bethesda::GameProfile::DetectFromDataDir(data_dir);
+  game_ =
+      game != bethesda::Game::kUnknown ? game : bethesda::GameProfile::DetectFromDataDir(data_dir);
   if (game_ == bethesda::Game::kUnknown) {
     RX_ERROR("could not detect a supported game in {}", data_dir);
     return false;
@@ -29,7 +28,8 @@ bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
   // Archives first, then loose files so they win over archives.
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec)) {
-    if (auto provider = bethesda::OpenArchive(entry.path().string())) vfs_.Mount(std::move(provider));
+    if (auto provider = bethesda::OpenArchive(entry.path().string()))
+      vfs_.Mount(std::move(provider));
   }
   vfs_.Mount(asset::MakeLooseFileProvider(data_dir));
 
@@ -39,13 +39,13 @@ bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
   auto order = bethesda::LoadOrder::FromPluginsTxt(plugins_txt, *profile_);
   if (!records_.LoadAll(data_dir, order, *profile_)) return false;
   RX_INFO("domain {}: {} plugins, {} records", profile_->name, order.plugins().size(),
-           records_.record_count());
+          records_.record_count());
 
   for (const std::string& plugin : order.plugins())
     strings_.Load(vfs_, plugin, profile_->string_language);
   dialogue_.Build(records_);
   RX_INFO("domain {}: {} strings, {} dialogue topics", profile_->name, strings_.size(),
-           dialogue_.topic_count());
+          dialogue_.topic_count());
 
   bindings_ = std::make_unique<script::skyrim::RecordBackedSkyrimBindings>(&records_);
   bindings_->set_strings(&strings_);
@@ -55,8 +55,7 @@ bool ContentDomain::Load(bethesda::Game game, const std::string& data_dir,
   scripts_ = std::make_unique<script::ScriptSystem>(game_, &vfs_, bindings_.get());
   // Hand the guest its VM so quest stage fragments can run on the guest thread.
   auto* binds = bindings_.get();
-  scripts_->guest().Submit(
-      [binds](script::papyrus::VirtualMachine& vm) { binds->set_vm(&vm); });
+  scripts_->guest().Submit([binds](script::papyrus::VirtualMachine& vm) { binds->set_vm(&vm); });
   return true;
 }
 
@@ -66,7 +65,7 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
   int instances = 0;
   records_.EachOfType(
       FourCc('Q', 'U', 'S', 'T'),
-      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
         if (max_quests > 0 && quests >= max_quests) return;
         bethesda::Record record;
         if (!records_.Parse(id, &record)) return;
@@ -77,6 +76,9 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
         if (!bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments) ||
             attachment.scripts.empty())
           return;
+        bethesda::ResolveScriptObjectForms(&attachment, [&](u32 raw) {
+          return records_.ResolveFrom(bethesda::RawFormId{raw}, stored.winning_plugin).packed();
+        });
         u64 handle = static_cast<u64>(id.plugin) << 32 | id.local_id;
         // Best effort: a quest registers even when its Papyrus fails to load
         // (Starfield PEX is not executed yet) so its stage machine still runs
@@ -87,14 +89,13 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
         quest::QuestDef def = quest::ParseQuestDefinition(handle, record, &strings_);
         auto* binds = bindings_.get();
         scripts_->guest().Submit(
-            [binds, handle, def = std::move(def), fragments = std::move(fragments)](
-                script::papyrus::VirtualMachine&) mutable {
+            [binds, handle, def = std::move(def),
+             fragments = std::move(fragments)](script::papyrus::VirtualMachine&) mutable {
               binds->quest_system().SetDefinition(std::move(def));
               for (const auto& f : fragments) binds->SetStageFragment(handle, f.stage, f.function);
             });
       });
-  RX_INFO("domain {}: instantiated {} scripts across {} quests", profile_->name, instances,
-           quests);
+  RX_INFO("domain {}: instantiated {} scripts across {} quests", profile_->name, instances, quests);
   return quests;
 }
 

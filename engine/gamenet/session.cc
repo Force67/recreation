@@ -2,6 +2,8 @@
 
 #include <nanobuf.h>
 
+#include <algorithm>
+
 #include "bethesda/form_id.h"
 #include "core/log.h"
 #include "gamenet/asset_stream.h"
@@ -40,10 +42,20 @@ ReplicationHooks GameHooks() {
     return 0;
   };
   hooks.on_replica_spawned = [](ecs::World& world, ecs::Entity entity, u64 tag) {
-    world.Add(entity, world::FormLink{bethesda::GlobalFormId{
-                          static_cast<u16>(tag >> 32), static_cast<u32>(tag)}});
+    world.Add(entity, world::FormLink{bethesda::GlobalFormId{static_cast<u16>(tag >> 32),
+                                                             static_cast<u32>(tag)}});
   };
   return hooks;
+}
+
+template <typename Send>
+void SendWorldCommandChunks(const std::vector<world::WorldCommand>& commands, Send&& send) {
+  for (size_t begin = 0; begin < commands.size(); begin += kMaxWorldCommandsPerMessage) {
+    const size_t end = std::min(commands.size(), begin + kMaxWorldCommandsPerMessage);
+    std::vector<world::WorldCommand> chunk(commands.begin() + begin, commands.begin() + end);
+    std::vector<u8> payload = EncodeWorldCommands(chunk);
+    if (payload.size() <= kMaxWorldCommandPayload) send(std::move(payload));
+  }
 }
 
 }  // namespace
@@ -61,10 +73,20 @@ GameServerSession::GameServerSession(GameSessionConfig config)
     // peer, but resending all of them is cheap and the only way a fresh
     // client gets quests it already missed.
     quest_replicator_.ForceFull();
+    if (world_command_source_) {
+      SendWorldCommandChunks(world_command_source_(), [this, peer](std::vector<u8> payload) {
+        inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldCommands), payload,
+                      /*reliable=*/true, tx::network::PacketPriority::Medium);
+      });
+    }
     // Offer the mod manifest right after admitting the peer, so it can start
     // streaming whatever content it is missing.
     if (asset_stream_) asset_stream_->SendManifest(peer);
     if (client_joined_sink_) client_joined_sink_(peer);
+  });
+  inner_.SetClientLeftSink([this](u32 peer) {
+    activation_windows_.erase(peer);
+    if (client_left_sink_) client_left_sink_(peer);
   });
 }
 
@@ -96,8 +118,25 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
   switch (static_cast<GameMessage>(type)) {
     case GameMessage::kActivateRef: {
       // The payload is a single little-endian u64 form handle.
-      if (!activate_sink_ || size < 8) break;
-      activate_sink_(nanobuf::LoadLe<u64>(data));
+      if (!activate_sink_ || size != sizeof(u64) || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
+        break;
+      const u64 handle = nanobuf::LoadLe<u64>(data);
+      if (handle == 0) break;
+
+      ActivationWindow& window = activation_windows_[peer];
+      const u64 window_ticks = std::max<u64>(1, config_.tick_rate);
+      if (!window.initialized || tick_ - window.start_tick >= window_ticks) {
+        window = {.start_tick = tick_, .requests = 0, .initialized = true, .warned = false};
+      }
+      if (window.requests >= kMaxActivationRequestsPerSecond) {
+        if (!window.warned) {
+          RX_WARN("net: activation rate limit reached for peer {}", peer);
+          window.warned = true;
+        }
+        break;
+      }
+      ++window.requests;
+      activate_sink_(peer, handle);
       break;
     }
     case GameMessage::kDialogueSelect: {
@@ -162,8 +201,10 @@ void GameServerSession::SendWorldCommands(const std::vector<world::WorldCommand>
   if (inner_.client_count() == 0 || commands.empty()) return;
   // Reliable, like quests: a dropped spawn or cleanup would desync a client's
   // world from the host's permanently.
-  inner_.Broadcast(static_cast<u16>(GameMessage::kWorldCommands), EncodeWorldCommands(commands),
-                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+  SendWorldCommandChunks(commands, [this](std::vector<u8> payload) {
+    inner_.Broadcast(static_cast<u16>(GameMessage::kWorldCommands), payload,
+                     /*reliable=*/true, tx::network::PacketPriority::Medium);
+  });
 }
 
 void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
@@ -187,9 +228,8 @@ void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
 GameClientSession::GameClientSession(GameSessionConfig config)
     : config_(std::move(config)), inner_(EngineConfig(config_)) {
   inner_.SetReplicationHooks(GameHooks());
-  inner_.SetGameMessageSink([this](u16 type, const u8* data, size_t size) {
-    OnGameMessage(type, data, size);
-  });
+  inner_.SetGameMessageSink(
+      [this](u16 type, const u8* data, size_t size) { OnGameMessage(type, data, size); });
 }
 
 GameClientSession::~GameClientSession() = default;
@@ -198,11 +238,9 @@ bool GameClientSession::Start() {
   if (!inner_.Start()) return false;
   if (config_.content_store) {
     asset_stream_ = std::make_unique<AssetStreamClient>(
-        inner_.raw(), *config_.content_store,
-        config_.content_store->root() / ".incoming");
-    inner_.SetFilePacketSink([this](const tx::network::IncomingPacket& packet) {
-      asset_stream_->OnFilePacket(packet);
-    });
+        inner_.raw(), *config_.content_store, config_.content_store->root() / ".incoming");
+    inner_.SetFilePacketSink(
+        [this](const tx::network::IncomingPacket& packet) { asset_stream_->OnFilePacket(packet); });
   }
   return true;
 }
