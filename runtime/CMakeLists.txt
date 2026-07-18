@@ -102,9 +102,14 @@ endif()
 # compiles game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
 # with engine-embedded shaders.
 if(RECREATION_HAS_UGUI)
-  target_sources(recreation PRIVATE gui_backend.cc)
+  target_sources(recreation PRIVATE gui_backend.cc shader_pack.cc)
   target_link_libraries(recreation PRIVATE ultragui recreation::stb)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
+  # The recreation-owned HUD/thumbnail shaders ship in this archive; the engine
+  # mounts it under shaders:// at startup (override the path with the env var
+  # RECREATION_SHADER_PACK). Absolute so the dev build finds the build output.
+  target_compile_definitions(recreation PRIVATE
+    RECREATION_SHADER_PACK_DEFAULT="${CMAKE_BINARY_DIR}/shaders.rxp")
   # Default location of the editable .ugui screen fragments (runtime/ui). The
   # client reads them at startup and hot-reloads them; override with the env var
   # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
