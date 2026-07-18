@@ -25,6 +25,24 @@ networking) only knows engine formats.
 | `runtime` | entry point and main loop |
 | `tools` | offline tooling |
 
+### Terrain editing
+
+The in-game map editor's Terrain tool writes a compact non-destructive
+`.recterrain` height diff; Bethesda plugins and archives are never rewritten.
+Raise, lower, smooth, and flatten strokes update streamed LAND meshes, ground
+queries, and colliders live, with each drag grouped into one undo operation.
+
+![Recreation LAND height editing over streamed Skyrim content](docs/images/terrain-editor.png)
+
+Terrain and object layout data load on first editor entry and save together with
+F5 or the Save toolbar button. Set `REC_TERRAIN_EDITS` to choose the diff path;
+otherwise it sits beside `editor_layout.reclayout` with a world-specific
+`editor_layout.<world>_<hash>.recterrain` name. The binary format and
+source-fingerprint rules are documented in
+[`engine/world/README.md`](engine/world/README.md). For automated captures or a
+terrain-first authoring session, `RX_EDITOR=1` opens the editor at startup and
+`RX_EDITOR_TERRAIN=1` selects the Raise tool.
+
 ## Building
 
 New box? The setup scripts take an unknown machine to a buildable state:

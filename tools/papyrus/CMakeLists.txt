@@ -260,6 +260,14 @@ add_executable(navgridtest navgridtest.cc)
 target_link_libraries(navgridtest PRIVATE recreation::world)
 recreation_set_warnings(navgridtest)
 
+add_executable(terrain_edittest
+  terrain_edittest.cc
+  ${CMAKE_SOURCE_DIR}/engine/world/terrain_edits.cc)
+target_include_directories(terrain_edittest PRIVATE
+  ${CMAKE_SOURCE_DIR}/engine
+  ${RECREATION_RX_DIR}/engine)
+recreation_set_warnings(terrain_edittest)
+
 add_executable(dialoguetest dialoguetest.cc)
 target_link_libraries(dialoguetest PRIVATE recreation::dialogue recreation::bethesda)
 recreation_set_warnings(dialoguetest)
@@ -385,6 +393,7 @@ add_test(NAME pathfindtest COMMAND pathfindtest)
 add_test(NAME quest_worldtest COMMAND quest_worldtest)
 add_test(NAME replicamodetest COMMAND replicamodetest)
 add_test(NAME navgridtest COMMAND navgridtest)
+add_test(NAME terrain_edittest COMMAND terrain_edittest)
 add_test(NAME dialoguetest COMMAND dialoguetest)
 if(RECREATION_NET)
   add_test(NAME quest_nettest COMMAND quest_nettest)

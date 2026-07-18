@@ -1,19 +1,18 @@
-#include "engine.h"
+#include <base/option.h>
 
 #include <cctype>
 #include <chrono>
-#include <cstring>
 #include <cmath>
+#include <cstring>
 #include <optional>
 #include <thread>
 #include <utility>
-
-#include <base/option.h>
 
 #include "bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/types.h"
+#include "engine.h"
 #include "engine_internal.h"
 #include "nav/nav_debug.h"
 #include "script/papyrus/value.h"
@@ -33,7 +32,8 @@ namespace rx {
 static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
   if (a.size() != b.size()) return false;
   for (size_t i = 0; i < a.size(); ++i) {
-    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+    if (std::tolower(static_cast<unsigned char>(a[i])) !=
+        std::tolower(static_cast<unsigned char>(b[i])))
       return false;
   }
   return true;
@@ -204,12 +204,24 @@ void Engine::OnSimulate(f32 frame_delta) {
     // then drive the melee simulation (host/single-player authoritative).
     for (const world::CombatEvent& e : combat_event_queue_.Drain()) {
       switch (e.op) {
-        case world::CombatOp::kEngage: npc_->EnterCombat(e.actor, e.target); break;
-        case world::CombatOp::kDisengage: npc_->LeaveCombat(e.actor); break;
-        case world::CombatOp::kDied: npc_->OnActorDied(e.actor); break;
-        case world::CombatOp::kResurrected: npc_->OnActorResurrected(e.actor); break;
-        case world::CombatOp::kFollow: npc_->SetFollower(e.actor, true); break;
-        case world::CombatOp::kUnfollow: npc_->SetFollower(e.actor, false); break;
+        case world::CombatOp::kEngage:
+          npc_->EnterCombat(e.actor, e.target);
+          break;
+        case world::CombatOp::kDisengage:
+          npc_->LeaveCombat(e.actor);
+          break;
+        case world::CombatOp::kDied:
+          npc_->OnActorDied(e.actor);
+          break;
+        case world::CombatOp::kResurrected:
+          npc_->OnActorResurrected(e.actor);
+          break;
+        case world::CombatOp::kFollow:
+          npc_->SetFollower(e.actor, true);
+          break;
+        case world::CombatOp::kUnfollow:
+          npc_->SetFollower(e.actor, false);
+          break;
       }
     }
     npc_->Cw00DemoTick(frame_delta);
@@ -332,7 +344,7 @@ void Engine::OnUpdate(f32 frame_delta) {
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
-      UpdateSettings();  // pause-menu controls: rebind capture + sensitivity
+      UpdateSettings();          // pause-menu controls: rebind capture + sensitivity
       actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
       actors_->Update(frame_delta);
     }
@@ -373,6 +385,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       prev_transforms_ = std::move(transforms);
       actors_->EmitDraws(view);
       demos_->EmitToView(frame_delta, view);
+      if (editor_) editor_->EmitTerrainBrush(view);
 #if RECREATION_HAS_NET
       // Overlay the session's streaming bubbles: the host draws its live
       // interest map, a client the server-replicated mirror (kBubbleSync).
@@ -417,8 +430,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         // Keep the clustered decal sampler on the streamer's atlas once built
         // (cheap texture lookup; a fresh streamer re-points it on its own).
         if (streamer_->decal_atlas_version() > 0) {
-          renderer_->SetDecalAtlas(streamer_->decal_atlas_id(),
-                                  streamer_->decal_atlas_normal_id());
+          renderer_->SetDecalAtlas(streamer_->decal_atlas_id(), streamer_->decal_atlas_normal_id());
         }
       }
       quest_->RefreshQuestPanel(frame_delta);
@@ -561,7 +573,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
               if (!modl || modl->data.empty()) return;
               std::string path(reinterpret_cast<const char*>(modl->data.data()), modl->data.size());
               if (size_t z = path.find('\0'); z != std::string::npos) path.resize(z);
-              for (char& c : path) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+              for (char& c : path)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
               // Need a real world mesh; skip markers, effects and the non-world art
               // (load screens, UI) that carry a model but never render in the cell.
               if (path.find(".nif") == std::string::npos) return;
@@ -574,8 +587,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
                                 path.find("crate") != std::string::npos ||
                                 path.find("rock") != std::string::npos ||
                                 path.find("boulder") != std::string::npos;
-              if (!nice && net_entity_base_fallback_.local_id == 0)
-                net_entity_base_fallback_ = id;
+              if (!nice && net_entity_base_fallback_.local_id == 0) net_entity_base_fallback_ = id;
               if (nice) net_entity_base_ = id;
             });
         if (net_entity_base_.local_id == 0) net_entity_base_ = net_entity_base_fallback_;
@@ -600,7 +612,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
                                               const bethesda::RecordStore::StoredRecord&) {
                   if (resolved.local_id != 0) return;
                   bethesda::Record r;
-                  if (records_.Parse(id, &r) && EqualsIgnoreCase(r.GetString(FourCc('E', 'D', 'I', 'D')), op.model))
+                  if (records_.Parse(id, &r) &&
+                      EqualsIgnoreCase(r.GetString(FourCc('E', 'D', 'I', 'D')), op.model))
                     resolved = id;
                 });
               }
@@ -645,8 +658,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         // own staged battles.
         f32 f1, f2;
         if (npc_->BattleGauges(&f1, &f2)) {
-          hud.push_back({"cw_team1", "Imperial line", f1, 0x4f7fd8ffu});      // blue
-          hud.push_back({"cw_team2", "Stormcloak line", f2, 0xd84f4fffu});    // red
+          hud.push_back({"cw_team1", "Imperial line", f1, 0x4f7fd8ffu});    // blue
+          hud.push_back({"cw_team2", "Stormcloak line", f2, 0xd84f4fffu});  // red
         }
         game_ui_.SetHudGauges(hud);
 

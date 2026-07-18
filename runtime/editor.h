@@ -15,8 +15,10 @@
 #include "core/types.h"
 #include "ecs/entity.h"
 #include "game_ui.h"
+#include "render/core/renderer.h"
 #include "thumbnailer.h"
 #include "world/components.h"
+#include "world/terrain_edits.h"
 
 namespace rx::bethesda {
 class RecordStore;
@@ -107,6 +109,9 @@ class MapEditor {
   // lights stay lit during play. A no-op when nothing light-shaped was placed.
   void CollectLights(base::Vector<render::PointLight>& out) const;
 
+  // Adds the terrain brush ring to rx's world-space debug-line path.
+  void EmitTerrainBrush(render::FrameView& view);
+
  private:
   // One placeable base form discovered in the load order.
   struct CatalogEntry {
@@ -151,7 +156,7 @@ class MapEditor {
   };
 
   // The inverse of one edit, for the undo stack.
-  enum class UndoKind { kPlace, kDelete, kTransform };
+  enum class UndoKind { kPlace, kDelete, kTransform, kTerrain };
   struct UndoOp {
     UndoKind kind;
     ecs::Entity entity;           // kPlace/kTransform target
@@ -159,6 +164,10 @@ class MapEditor {
     world::Transform transform;   // kTransform: prior transform; kDelete: where it was
     std::string name;
     int domain = 0;  // kDelete: the game to re-place from
+    world::TerrainEditChange terrain;
+    // kTerrain: true when terrain currently holds new_delta (undo reverts it),
+    // false when it holds old_delta (redo applies it).
+    bool terrain_applied = true;
   };
 
   // --- catalog (editor_catalog.cc) ---
@@ -190,14 +199,21 @@ class MapEditor {
   // engine-space transform), so a building survives a restart. SaveLayout writes
   // placed_; LoadLayout re-places each line through the streamer. Both report a
   // status message and return the count written/read.
-  int SaveLayout();
+  std::optional<int> SaveLayout();
   int LoadLayout();
+  bool SaveTerrain();
+  bool LoadTerrain();
+  void SaveEditorData();
 
   // --- input / ops (editor.cc) ---
   void UpdateSearchInput(const InputState& input);  // text entry while focused
   void ApplyKeyboard(const InputState& input);
   void ArmBrush(int catalog_index);
   void PlaceBrush(const InputState& input);
+  void UpdateTerrainStroke(const InputState& input);
+  void FinishTerrainStroke();
+  void EnterTerrainMode(world::TerrainBrushMode mode, int toolbar_tool = 3);
+  void ExitTerrainMode();
   // Spawns the armed asset at an engine-space point facing `yaw`, tracking it for
   // save/undo. Shared by single placement and paint-scatter.
   ecs::Entity PlaceArmedAt(const Vec3& pos, f32 yaw);
@@ -225,7 +241,7 @@ class MapEditor {
   // Performs one undo/redo step's action and returns the op that reverses it, so
   // undo and redo share one symmetric path (the inverse just moves to the other
   // stack). Mutates the world / placed_ / selected_.
-  UndoOp ApplyAndInvert(const UndoOp& op);
+  std::optional<UndoOp> ApplyAndInvert(const UndoOp& op);
   void PushEdit(const UndoOp& op);           // record an edit; clears the redo stack
   void RecordTransform(ecs::Entity entity);  // push a kTransform undo snapshot
   void SetStatus(std::string message);
@@ -234,7 +250,8 @@ class MapEditor {
   // --- picking / placement geometry ---
   bool PointerOverUi(const InputState& input) const;
   Vec3 CursorRayDir(const InputState& input) const;
-  bool AimPoint(const InputState& input, Vec3* out) const;            // ray vs ground
+  bool AimPoint(const InputState& input, Vec3* out) const;  // ray vs ground
+  bool TerrainAimPoint(const InputState& input, Vec3* out) const;
   Vec3 Snap(const Vec3& p) const;                                     // grid-snap x/z when snap_
   ecs::Entity PickEntity(const InputState& input, f32* out_t) const;  // ray vs spheres
   bool ProjectToScreen(const Vec3& world, f32* sx, f32* sy) const;    // world -> window px
@@ -296,6 +313,21 @@ class MapEditor {
   Vec3 move_pivot_{};                           // primary's position at grab start
   bool prev_lmb_ = false;                       // left-button edge detection (clicks, not holds)
 
+  // Terrain sculpt mode. A drag merges its live dabs into terrain_stroke_, then
+  // contributes exactly one reversible operation to the shared undo stack.
+  bool terrain_mode_ = false;
+  world::TerrainBrushMode terrain_brush_mode_ = world::TerrainBrushMode::kRaise;
+  f32 terrain_radius_ = 4.0f;
+  f32 terrain_strength_ = 0.25f;
+  bool terrain_stroke_active_ = false;
+  world::TerrainEditChange terrain_stroke_;
+  std::vector<world::TerrainCellKey> terrain_stroke_cells_;
+  Vec3 terrain_last_dab_{};
+  Vec3 terrain_aim_{};
+  f32 terrain_flatten_y_ = 0.0f;
+  bool terrain_has_aim_ = false;
+  base::Vector<render::DebugLine> terrain_debug_lines_;
+
   // Marquee box-select: a click-drag in empty space; on release everything whose
   // screen projection falls in the rect is selected.
   bool marquee_dragging_ = false;
@@ -322,8 +354,10 @@ class MapEditor {
   f32 status_age_ = 0;
   u32 next_synth_id_ = 1;  // local id for placed objects' synthetic form links
 
-  std::string layout_path_;     // where SaveLayout/LoadLayout read and write
-  bool layout_loaded_ = false;  // auto-load the saved layout once, on first entry
+  std::string layout_path_;           // where SaveLayout/LoadLayout read and write
+  std::string terrain_path_;          // REC_TERRAIN_EDITS or layout-adjacent default
+  bool layout_loaded_ = false;        // auto-load the saved layout once, on first entry
+  bool terrain_load_failed_ = false;  // preserve a rejected diff until a retry succeeds
 };
 
 }  // namespace rx

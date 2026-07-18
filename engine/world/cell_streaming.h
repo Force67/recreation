@@ -21,6 +21,7 @@
 #include "world/grass_baker.h"
 #include "world/land_baker.h"
 #include "world/quest_world.h"
+#include "world/terrain_edits.h"
 
 namespace rx::world {
 
@@ -70,6 +71,11 @@ class CellStreamer {
 
   struct Uploads {
     std::function<bool(const asset::Mesh&)> mesh;
+    // Fast path for a same-topology mesh marked dynamic_vertices. When absent
+    // or rejected, terrain rebuilding falls back to mesh.
+    std::function<bool(const asset::Mesh&)> dynamic_mesh;
+    std::function<bool(asset::AssetId)> remove_dynamic_mesh;
+    std::function<bool(const asset::Mesh&)> sync_dynamic_mesh;
     std::function<bool(const asset::Texture&)> texture;
     std::function<bool(const asset::Material&)> material;
     std::function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
@@ -213,6 +219,28 @@ class CellStreamer {
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
 
+  // Bethesda LAND sculpting. Radius/strength/flatten target are engine metres;
+  // the adapter converts them onto the canonical 32-quad game-height lattice.
+  // Each call is one live dab; the editor merges a drag's dabs into one change.
+  TerrainEditChange ApplyTerrainBrush(ecs::World& world, TerrainBrushMode mode, f32 engine_x,
+                                      f32 engine_z, f32 radius_meters, f32 strength,
+                                      f32 flatten_engine_y = 0.0f,
+                                      bool rebuild = true);
+  void RefreshTerrainGeometry(ecs::World& world,
+                              const TerrainEditChange& change);
+  bool ApplyTerrainChange(ecs::World& world, const TerrainEditChange& change);
+  bool RevertTerrainChange(ecs::World& world, const TerrainEditChange& change);
+  // Rebuilds terrain-derived grass and water after a complete stroke. Terrain
+  // geometry itself refreshes live per dab; expensive scatter work is deferred.
+  void RefreshTerrainDerived(ecs::World& world, const TerrainEditChange& change);
+  TerrainEditChange ResetTerrainEdits(ecs::World& world);
+  bool SaveTerrainEdits(const std::string& path, std::string* error = nullptr);
+  bool LoadTerrainEdits(ecs::World& world, const std::string& path, std::string* error = nullptr);
+  size_t terrain_edit_sample_count() const { return terrain_edits_.sample_count(); }
+  bool terrain_edits_dirty() const { return terrain_edits_.dirty(); }
+  const std::string& terrain_world_identity() const { return terrain_edits_.world_identity(); }
+  f32 terrain_sample_spacing() const { return cell_size_ * units_to_meters_ / 32.0f; }
+
   // World-space rect (min_x, min_z, max_x, max_z) of the contiguous cell ring
   // around the camera whose full-detail terrain is spawned; all zeros while
   // none is. Distant terrain-LOD draws sink their vertices inside it (see
@@ -238,6 +266,12 @@ class CellStreamer {
   };
   struct LoadedCell {
     base::Vector<ecs::Entity> entities;
+    // LAND terrain is tracked separately from the cell's refs so a sculpt can
+    // replace exactly this mesh and collider without disturbing material state.
+    ecs::Entity terrain_entity = ecs::kInvalidEntity;
+    ecs::Entity grass_entity = ecs::kInvalidEntity;
+    ecs::Entity water_entity = ecs::kInvalidEntity;
+    asset::AssetId terrain_mesh;
     // Point lights from this cell's placed LIGH refs, baked at spawn (statics
     // never move) so they drop out when the cell unloads.
     struct PlacedLight {
@@ -282,6 +316,18 @@ class CellStreamer {
   // the cell's XCLL and its LGTM template per the inherit flags.
   void ResolveInteriorLighting(bethesda::GlobalFormId cell_id);
   bool SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
+  bool DecodeBaseTerrain(i32 grid_x, i32 grid_y, f32* heights) const;
+  bool ComposeTerrain(i32 grid_x, i32 grid_y, f32* heights) const;
+  bool TerrainNormalsAffected(TerrainCellKey cell) const;
+  std::optional<f32> BaseTerrainSample(i32 global_x, i32 global_y) const;
+  u64 TerrainBaseFingerprint(TerrainCellKey cell) const;
+  void RegisterTerrainFingerprints(const std::vector<TerrainCellKey>& cells);
+  void RebuildTerrainCells(ecs::World& world, const std::vector<TerrainCellKey>& cells);
+  void RebuildTerrainDerivedCells(ecs::World& world, const std::vector<TerrainCellKey>& cells);
+  void SyncTerrainRayTracing(const std::vector<TerrainCellKey>& cells);
+  bool RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
+  void UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heights,
+                                 i32 grid_x, i32 grid_y) const;
   // Distant LOD: discovers the coarsest .btr (terrain) + .bto (object) quads of
   // the streamed worldspace once, then drains them under a budget. They cover the
   // whole map cheaply (a few dozen quads) so the mesh-shader cull does the rest.
@@ -299,7 +345,8 @@ class CellStreamer {
                     bool interior, int depth, u64 instance_handle, u64 root_owner = 0);
   void ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 handle, LoadedCell& cell);
   bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
-  bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
+  bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
+                  bool refresh = false);
   // Water level of the cell in record units; false when the cell has none.
   bool CellWaterHeight(i16 grid_x, i16 grid_y, const LoadedCell& cell, f32* height) const;
   void AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell, const f32* heights);
@@ -384,6 +431,7 @@ class CellStreamer {
   // instead of re-parsing the LAND record on every sample. Cleared when the
   // streamed worldspace changes; LAND data is immutable so entries never go stale.
   mutable base::UnorderedMap<u32, base::Vector<f32>> ground_cache_;
+  TerrainEdits terrain_edits_;
   // Estimated floor height (engine y) for cells with no LAND record, the city
   // worldspaces (New Atlantis) where the ground is the building meshes, not a
   // heightfield. Derived once from the cell's placed refs and cached like the

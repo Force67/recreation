@@ -211,6 +211,20 @@ u32 CellKey(i16 x, i16 y) {
   return static_cast<u32>(static_cast<u16>(x)) << 16 | static_cast<u16>(y);
 }
 
+void FingerprintByte(u64* hash, u8 value) {
+  *hash ^= value;
+  *hash *= 0x100000001b3ull;
+}
+
+void FingerprintU32(u64* hash, u32 value) {
+  for (u32 shift = 0; shift < 32; shift += 8)
+    FingerprintByte(hash, static_cast<u8>(value >> shift));
+}
+
+void FingerprintString(u64* hash, std::string_view value) {
+  for (char byte : value) FingerprintByte(hash, static_cast<u8>(byte));
+}
+
 // VHGT: a float offset then 33x33 i8 deltas, row major from the south west
 // corner. Each value is a delta from the previous point in the row; the
 // first column accumulates down the rows. Heights are in units of 8.
@@ -429,6 +443,16 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
   ground_cache_.clear();  // heights are per worldspace
   worldspace_edid_.assign(editor_id);
   for (char& c : worldspace_edid_) c = static_cast<char>(std::tolower(c));
+  // Bind diffs to a stable world identifier, not a load-order index. Including
+  // the winning source plugin distinguishes same-named worlds from other games.
+  std::string terrain_world = worldspace_edid_;
+  if (const bethesda::RecordStore::StoredRecord* stored = records_.Find(worldspace_)) {
+    if (const bethesda::PluginFile* plugin = records_.PluginAt(stored->winning_plugin)) {
+      terrain_world += "@" + plugin->file_name();
+    }
+  }
+  for (char& c : terrain_world) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  terrain_edits_.BindWorld(std::move(terrain_world));
   distant_quads_.clear();
   distant_entities_.clear();
   distant_next_ = 0;
@@ -1031,6 +1055,14 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   if (!records_.Parse(land_id, &land)) return false;
   f32 heights[kLandGridPoints * kLandGridPoints];
   if (!DecodeLandHeights(land, heights)) return false;
+  if (!terrain_edits_.ComposeCell({grid_x, grid_y},
+                                  std::span<const f32>(heights, kLandGridPoints * kLandGridPoints),
+                                  std::span<f32>(heights, kLandGridPoints * kLandGridPoints))) {
+    return false;
+  }
+  const TerrainCellKey terrain_cell{grid_x, grid_y};
+  const bool edited = terrain_edits_.AffectsCell(terrain_cell);
+  const bool derived_normals_edited = TerrainNormalsAffected(terrain_cell);
   AddTerrainCollider(grid_x, grid_y, cell, heights);
 
   const asset::Mesh* mesh = assets_.FindMesh(mesh_id);
@@ -1040,8 +1072,8 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     // shared default material.
     asset::AssetId material_id = land_material_;
     u16 plugin = records_.Find(land_id)->winning_plugin;
-    bool splat = LandSplat.overridden() ? LandSplat.get() : settings_.terrain_splat;
-    if (splat) {
+    bool use_splat = LandSplat.overridden() ? LandSplat.get() : settings_.terrain_splat;
+    if (use_splat) {
       // v2: the full LTEX palette (up to 8 layers + per-layer normals) blended
       // by two weight maps, sampled through the bindless table. The legacy
       // 3-layer slots are still filled from a v1 bake: they are the fallback
@@ -1089,6 +1121,10 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
 
     asset::Mesh built;
     built.id = mesh_id;
+    // Untouched LAND keeps authored normals and meshlets/LODs. An edited cell
+    // transitions to the dynamic path, whose BLAS is rebuilt with its vertices.
+    built.dynamic_vertices = edited || derived_normals_edited;
+    built.exclude_from_rt = false;
     built.lods.emplace_back();
     asset::MeshLod& lod = built.lods[0];
     const f32 spacing = cell_size_ / (kLandGridPoints - 1);
@@ -1159,7 +1195,24 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
     built.bounds_center[2] = (min_h + max_h) * 0.5f;
     built.bounds_radius = std::sqrt(2 * cell_size_ * 0.5f * cell_size_ * 0.5f +
                                     (max_h - min_h) * 0.5f * (max_h - min_h) * 0.5f);
+    if (edited || derived_normals_edited)
+      UpdateTerrainMeshVertices(&built, heights, grid_x, grid_y);
     mesh = assets_.AddMesh(std::move(built));
+  } else if (edited || derived_normals_edited || mesh->dynamic_vertices) {
+    // A cell can unload while its diff changes. Refresh its cached procedural
+    // mesh on the next spawn even though only loaded cells rebuild immediately.
+    asset::Mesh refreshed = *mesh;
+    if (edited || derived_normals_edited) {
+      refreshed.dynamic_vertices = true;
+      refreshed.exclude_from_rt = false;
+    }
+    UpdateTerrainMeshVertices(&refreshed, heights, grid_x, grid_y);
+    mesh = assets_.ReplaceMesh(std::move(refreshed));
+    if (mesh && uploaded_.contains(mesh->id.hash) && uploads_.mesh) {
+      if ((!uploads_.dynamic_mesh || !uploads_.dynamic_mesh(*mesh)) && !uploads_.mesh(*mesh)) {
+        return false;
+      }
+    }
   }
   if (!mesh || !EnsureUploaded(*mesh)) return false;
 
@@ -1176,7 +1229,470 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
   cell.entities.push_back(entity);
+  cell.terrain_entity = entity;
+  cell.terrain_mesh = mesh->id;
   ++spawned_entities_;
+  return true;
+}
+
+bool CellStreamer::DecodeBaseTerrain(i32 grid_x, i32 grid_y, f32* heights) const {
+  if (!grid_ || !heights || grid_x < std::numeric_limits<i16>::min() ||
+      grid_x > std::numeric_limits<i16>::max() || grid_y < std::numeric_limits<i16>::min() ||
+      grid_y > std::numeric_limits<i16>::max()) {
+    return false;
+  }
+  const i16 x = static_cast<i16>(grid_x);
+  const i16 y = static_cast<i16>(grid_y);
+  const u32 key = bethesda::RecordStore::GridKey(x, y);
+  if (const base::Vector<f32>* cached = ground_cache_.find(key)) {
+    if (cached->size() != kLandGridPoints * kLandGridPoints) return false;
+    std::memcpy(heights, cached->data(), cached->size() * sizeof(f32));
+    return true;
+  }
+  const bethesda::RecordStore::ExteriorCell* cell = grid_->find(key);
+  if (!cell || cell->land == 0) return false;
+  bethesda::Record land;
+  if (!records_.Parse({static_cast<u16>(cell->land >> 32), static_cast<u32>(cell->land)}, &land) ||
+      !DecodeLandHeights(land, heights)) {
+    return false;
+  }
+  base::Vector<f32> decoded;
+  decoded.reserve(kLandGridPoints * kLandGridPoints);
+  for (u32 i = 0; i < kLandGridPoints * kLandGridPoints; ++i) decoded.push_back(heights[i]);
+  ground_cache_.emplace(key, std::move(decoded));
+  return true;
+}
+
+bool CellStreamer::ComposeTerrain(i32 grid_x, i32 grid_y, f32* heights) const {
+  if (!DecodeBaseTerrain(grid_x, grid_y, heights)) return false;
+  return terrain_edits_.ComposeCell(
+      {grid_x, grid_y}, std::span<const f32>(heights, kLandGridPoints * kLandGridPoints),
+      std::span<f32>(heights, kLandGridPoints * kLandGridPoints));
+}
+
+bool CellStreamer::TerrainNormalsAffected(TerrainCellKey cell) const {
+  const i64 base_x = static_cast<i64>(cell.x) * 32;
+  const i64 base_y = static_cast<i64>(cell.y) * 32;
+  for (i32 sample = 0; sample <= 32; ++sample) {
+    const i64 y = base_y + sample;
+    const i64 x = base_x + sample;
+    if (terrain_edits_.SampleDelta(static_cast<i32>(base_x - 1), static_cast<i32>(y)) != 0 ||
+        terrain_edits_.SampleDelta(static_cast<i32>(base_x + 33), static_cast<i32>(y)) != 0 ||
+        terrain_edits_.SampleDelta(static_cast<i32>(x), static_cast<i32>(base_y - 1)) != 0 ||
+        terrain_edits_.SampleDelta(static_cast<i32>(x), static_cast<i32>(base_y + 33)) != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<f32> CellStreamer::BaseTerrainSample(i32 global_x, i32 global_y) const {
+  auto floor_div = [](i64 value) {
+    i64 quotient = value / 32;
+    if (value % 32 < 0) --quotient;
+    return quotient;
+  };
+  const i64 owner_x = floor_div(global_x);
+  const i64 owner_y = floor_div(global_y);
+  const bool edge_x = global_x % 32 == 0;
+  const bool edge_y = global_y % 32 == 0;
+  // Prefer canonical owner, then fall back to a sharing west/south LAND when a
+  // sparse exterior grid omits the owner cell at its boundary.
+  for (i64 cell_y : {owner_y, owner_y - 1}) {
+    if (cell_y != owner_y && !edge_y) continue;
+    for (i64 cell_x : {owner_x, owner_x - 1}) {
+      if (cell_x != owner_x && !edge_x) continue;
+      if (cell_x < std::numeric_limits<i16>::min() || cell_x > std::numeric_limits<i16>::max() ||
+          cell_y < std::numeric_limits<i16>::min() || cell_y > std::numeric_limits<i16>::max()) {
+        continue;
+      }
+      const u32 key =
+          bethesda::RecordStore::GridKey(static_cast<i16>(cell_x), static_cast<i16>(cell_y));
+      const base::Vector<f32>* heights = ground_cache_.find(key);
+      if (!heights) {
+        f32 decoded[kLandGridPoints * kLandGridPoints];
+        if (!DecodeBaseTerrain(static_cast<i32>(cell_x), static_cast<i32>(cell_y), decoded)) {
+          continue;
+        }
+        heights = ground_cache_.find(key);
+      }
+      if (!heights || heights->size() != kLandGridPoints * kLandGridPoints) {
+        continue;
+      }
+      const i64 local_x = static_cast<i64>(global_x) - cell_x * 32;
+      const i64 local_y = static_cast<i64>(global_y) - cell_y * 32;
+      if (local_x < 0 || local_x > 32 || local_y < 0 || local_y > 32) continue;
+      return (
+          *heights)[static_cast<size_t>(local_y) * kLandGridPoints + static_cast<size_t>(local_x)];
+    }
+  }
+  return std::nullopt;
+}
+
+u64 CellStreamer::TerrainBaseFingerprint(TerrainCellKey cell) const {
+  if (!grid_ || cell.x < std::numeric_limits<i16>::min() ||
+      cell.x > std::numeric_limits<i16>::max() || cell.y < std::numeric_limits<i16>::min() ||
+      cell.y > std::numeric_limits<i16>::max()) {
+    return 0;
+  }
+  u64 hash = 0xcbf29ce484222325ull;
+  FingerprintString(&hash, terrain_edits_.world_identity());
+  const auto* source = grid_->find(
+      bethesda::RecordStore::GridKey(static_cast<i16>(cell.x), static_cast<i16>(cell.y)));
+  if (!source || source->land == 0) {
+    FingerprintString(&hash, "no-land");
+    return hash == 0 ? 1 : hash;
+  }
+  const bethesda::GlobalFormId land_id{static_cast<u16>(source->land >> 32),
+                                       static_cast<u32>(source->land)};
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(land_id);
+  bethesda::Record land;
+  if (!stored || !records_.Parse(land_id, &land)) {
+    FingerprintString(&hash, "unreadable-land");
+    FingerprintU32(&hash, land_id.local_id);
+    return hash == 0 ? 1 : hash;
+  }
+  const bethesda::Subrecord* vhgt = land.Find(kVhgt);
+  if (!vhgt) {
+    FingerprintString(&hash, "no-vhgt");
+    FingerprintU32(&hash, land_id.local_id);
+    return hash == 0 ? 1 : hash;
+  }
+  if (const bethesda::PluginFile* plugin = records_.PluginAt(stored->winning_plugin)) {
+    FingerprintString(&hash, plugin->file_name());
+  }
+  FingerprintU32(&hash, land_id.local_id);
+  for (u8 byte : vhgt->data) FingerprintByte(&hash, byte);
+  return hash == 0 ? 1 : hash;
+}
+
+void CellStreamer::RegisterTerrainFingerprints(const std::vector<TerrainCellKey>& cells) {
+  for (TerrainCellKey cell : cells)
+    terrain_edits_.SetCellFingerprint(cell, TerrainBaseFingerprint(cell));
+}
+
+void CellStreamer::UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heights, i32 grid_x,
+                                             i32 grid_y) const {
+  if (!mesh || !heights || mesh->lods.empty() ||
+      mesh->lods[0].vertices.size() != kLandGridPoints * kLandGridPoints) {
+    return;
+  }
+  asset::MeshLod& lod = mesh->lods[0];
+  const f32 spacing = cell_size_ / (kLandGridPoints - 1);
+  f32 minimum = std::numeric_limits<f32>::max();
+  f32 maximum = std::numeric_limits<f32>::lowest();
+  const TerrainCellKey cell{grid_x, grid_y};
+  const bool authored_normals = !terrain_edits_.AffectsCell(cell) && !TerrainNormalsAffected(cell);
+  bethesda::Record land;
+  const bethesda::Subrecord* vnml = nullptr;
+  if (authored_normals && grid_) {
+    const auto* source = grid_->find(
+        bethesda::RecordStore::GridKey(static_cast<i16>(grid_x), static_cast<i16>(grid_y)));
+    if (source && source->land != 0 &&
+        records_.Parse({static_cast<u16>(source->land >> 32), static_cast<u32>(source->land)},
+                       &land)) {
+      vnml = land.Find(kVnml);
+      if (vnml && vnml->data.size() < kLandGridPoints * kLandGridPoints * 3) vnml = nullptr;
+    }
+  }
+  auto composed_sample = [&](i32 global_x, i32 global_y) -> std::optional<f32> {
+    const std::optional<f32> base = BaseTerrainSample(global_x, global_y);
+    if (!base) return std::nullopt;
+    const double height =
+        static_cast<double>(*base) + terrain_edits_.SampleDelta(global_x, global_y);
+    if (!std::isfinite(height) || std::abs(height) > std::numeric_limits<f32>::max()) {
+      return std::nullopt;
+    }
+    return static_cast<f32>(height);
+  };
+  for (u32 row = 0; row < kLandGridPoints; ++row) {
+    for (u32 col = 0; col < kLandGridPoints; ++col) {
+      const u32 index = row * kLandGridPoints + col;
+      asset::Vertex& vertex = lod.vertices[index];
+      vertex.position[2] = heights[index];
+      minimum = std::min(minimum, heights[index]);
+      maximum = std::max(maximum, heights[index]);
+      if (authored_normals) {
+        vertex.normal[0] = 0;
+        vertex.normal[1] = 0;
+        vertex.normal[2] = 1;
+        if (vnml) {
+          const i8* normal = reinterpret_cast<const i8*>(vnml->data.data() + index * 3);
+          const f32 length = std::sqrt(static_cast<f32>(normal[0]) * normal[0] +
+                                       static_cast<f32>(normal[1]) * normal[1] +
+                                       static_cast<f32>(normal[2]) * normal[2]);
+          if (length > 0) {
+            vertex.normal[0] = normal[0] / length;
+            vertex.normal[1] = normal[1] / length;
+            vertex.normal[2] = normal[2] / length;
+          }
+        }
+        vertex.tangent[0] = 1;
+        vertex.tangent[1] = 0;
+        vertex.tangent[2] = 0;
+        vertex.tangent[3] = 1;
+        continue;
+      }
+      const i32 global_x = grid_x * 32 + static_cast<i32>(col);
+      const i32 global_y = grid_y * 32 + static_cast<i32>(row);
+      const std::optional<f32> left = composed_sample(global_x - 1, global_y);
+      const std::optional<f32> right = composed_sample(global_x + 1, global_y);
+      const std::optional<f32> south = composed_sample(global_x, global_y - 1);
+      const std::optional<f32> north = composed_sample(global_x, global_y + 1);
+      const f32 dx = left && right ? (*right - *left) / (spacing * 2)
+                     : right       ? (*right - heights[index]) / spacing
+                     : left        ? (heights[index] - *left) / spacing
+                                   : 0;
+      const f32 dy = south && north ? (*north - *south) / (spacing * 2)
+                     : north        ? (*north - heights[index]) / spacing
+                     : south        ? (heights[index] - *south) / spacing
+                                    : 0;
+      const Vec3 normal = Normalize(Vec3{-dx, -dy, 1.0f});
+      const Vec3 tangent = Normalize(Vec3{1.0f, 0.0f, dx});
+      vertex.normal[0] = normal.x;
+      vertex.normal[1] = normal.y;
+      vertex.normal[2] = normal.z;
+      vertex.tangent[0] = tangent.x;
+      vertex.tangent[1] = tangent.y;
+      vertex.tangent[2] = tangent.z;
+      vertex.tangent[3] = 1.0f;
+    }
+  }
+  mesh->bounds_center[0] = cell_size_ * 0.5f;
+  mesh->bounds_center[1] = cell_size_ * 0.5f;
+  mesh->bounds_center[2] = (minimum + maximum) * 0.5f;
+  const f32 half_height = (maximum - minimum) * 0.5f;
+  mesh->bounds_radius = std::sqrt(cell_size_ * cell_size_ * 0.5f + half_height * half_height);
+}
+
+bool CellStreamer::RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell) {
+  (void)world;
+  if (!cell.source || cell.source->land == 0 || !cell.terrain_mesh) return false;
+  f32 heights[kLandGridPoints * kLandGridPoints];
+  if (!ComposeTerrain(grid_x, grid_y, heights)) return false;
+  const asset::Mesh* current = assets_.FindMesh(cell.terrain_mesh);
+  if (!current) return false;
+  asset::Mesh replacement = *current;
+  replacement.dynamic_vertices = true;
+  replacement.exclude_from_rt = false;
+  UpdateTerrainMeshVertices(&replacement, heights, grid_x, grid_y);
+  const asset::Mesh* mesh = assets_.ReplaceMesh(std::move(replacement));
+  if (!mesh) return false;
+  bool uploaded = true;
+  if (uploads_.mesh) {
+    uploaded = uploads_.dynamic_mesh && uploads_.dynamic_mesh(*mesh);
+    if (!uploaded) uploaded = uploads_.mesh(*mesh);
+  }
+  if (physics_) {
+    if (cell.terrain_body) physics_->RemoveBody(cell.terrain_body);
+    cell.terrain_body = 0;
+    AddTerrainCollider(grid_x, grid_y, cell, heights);
+  }
+  return uploaded;
+}
+
+void CellStreamer::RebuildTerrainCells(ecs::World& world,
+                                       const std::vector<TerrainCellKey>& cells) {
+  std::vector<TerrainCellKey> refresh = cells;
+  for (TerrainCellKey key : cells) {
+    for (const TerrainCellKey offset : {TerrainCellKey{-1, 0}, TerrainCellKey{1, 0},
+                                        TerrainCellKey{0, -1}, TerrainCellKey{0, 1}}) {
+      const i64 x = static_cast<i64>(key.x) + offset.x;
+      const i64 y = static_cast<i64>(key.y) + offset.y;
+      if (x >= std::numeric_limits<i16>::min() && x <= std::numeric_limits<i16>::max() &&
+          y >= std::numeric_limits<i16>::min() && y <= std::numeric_limits<i16>::max()) {
+        refresh.push_back({static_cast<i32>(x), static_cast<i32>(y)});
+      }
+    }
+  }
+  std::sort(refresh.begin(), refresh.end());
+  refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
+  for (TerrainCellKey key : refresh) {
+    if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
+        key.y < std::numeric_limits<i16>::min() || key.y > std::numeric_limits<i16>::max()) {
+      continue;
+    }
+    const i16 x = static_cast<i16>(key.x);
+    const i16 y = static_cast<i16>(key.y);
+    // Ground queries may have decoded an unloaded cell. Drop that source cache
+    // entry too; it remains immutable, but repopulating it keeps cache lifecycle
+    // aligned with the edited cell and avoids stale assumptions by future users.
+    ground_cache_.erase(bethesda::RecordStore::GridKey(x, y));
+    LoadedCell* cell = loaded_.find(CellKey(x, y));
+    if (!cell || !cell->terrain_done || cell->terrain_entity == ecs::kInvalidEntity) {
+      continue;
+    }
+    if (!RebuildTerrainCell(world, x, y, *cell))
+      RX_WARN("terrain edit: failed to rebuild loaded cell {},{}", x, y);
+  }
+}
+
+void CellStreamer::RebuildTerrainDerivedCells(ecs::World& world,
+                                              const std::vector<TerrainCellKey>& cells) {
+  for (TerrainCellKey key : cells) {
+    if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
+        key.y < std::numeric_limits<i16>::min() || key.y > std::numeric_limits<i16>::max()) {
+      continue;
+    }
+    const i16 x = static_cast<i16>(key.x);
+    const i16 y = static_cast<i16>(key.y);
+    const asset::AssetId grass_id =
+        asset::MakeAssetId("grass/" + std::to_string(x) + "_" + std::to_string(y));
+    if (uploads_.remove_dynamic_mesh) uploads_.remove_dynamic_mesh(grass_id);
+    uploaded_.erase(grass_id.hash);
+    assets_.RemoveMesh(grass_id);
+    LoadedCell* cell = loaded_.find(CellKey(x, y));
+    if (!cell || !cell->terrain_done) continue;
+
+    auto remove_entity = [&](ecs::Entity* entity) {
+      if (!entity || *entity == ecs::kInvalidEntity) return;
+      if (world.IsAlive(*entity)) world.Destroy(*entity);
+      for (size_t i = 0; i < cell->entities.size(); ++i) {
+        if (cell->entities[i] == *entity) {
+          cell->entities.erase(i);
+          if (spawned_entities_ > 0) --spawned_entities_;
+          break;
+        }
+      }
+      *entity = ecs::kInvalidEntity;
+    };
+
+    if (cell->water_entity != ecs::kInvalidEntity && water_planes_ > 0) --water_planes_;
+    remove_entity(&cell->water_entity);
+    if (cell->grass_done) remove_entity(&cell->grass_entity);
+    SpawnWater(world, x, y, *cell);
+    if (cell->grass_done) SpawnGrass(world, x, y, *cell, true);
+  }
+}
+
+void CellStreamer::SyncTerrainRayTracing(const std::vector<TerrainCellKey>& cells) {
+  if (!uploads_.sync_dynamic_mesh) return;
+  std::vector<TerrainCellKey> refresh = cells;
+  for (TerrainCellKey key : cells) {
+    for (TerrainCellKey offset : {TerrainCellKey{-1, 0}, TerrainCellKey{1, 0},
+                                  TerrainCellKey{0, -1}, TerrainCellKey{0, 1}}) {
+      const i64 x = static_cast<i64>(key.x) + offset.x;
+      const i64 y = static_cast<i64>(key.y) + offset.y;
+      if (x >= std::numeric_limits<i32>::min() && x <= std::numeric_limits<i32>::max() &&
+          y >= std::numeric_limits<i32>::min() && y <= std::numeric_limits<i32>::max()) {
+        refresh.push_back({static_cast<i32>(x), static_cast<i32>(y)});
+      }
+    }
+  }
+  std::sort(refresh.begin(), refresh.end());
+  refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
+  for (TerrainCellKey key : refresh) {
+    if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
+        key.y < std::numeric_limits<i16>::min() || key.y > std::numeric_limits<i16>::max()) {
+      continue;
+    }
+    LoadedCell* cell = loaded_.find(CellKey(static_cast<i16>(key.x), static_cast<i16>(key.y)));
+    if (!cell || !cell->terrain_mesh) continue;
+    const asset::Mesh* mesh = assets_.FindMesh(cell->terrain_mesh);
+    if (mesh && !uploads_.sync_dynamic_mesh(*mesh)) {
+      RX_WARN("terrain edit: failed to synchronize RT for cell {},{}", key.x, key.y);
+    }
+  }
+}
+
+TerrainEditChange CellStreamer::ApplyTerrainBrush(ecs::World& world, TerrainBrushMode mode,
+                                                  f32 engine_x, f32 engine_z, f32 radius_meters,
+                                                  f32 strength, f32 flatten_engine_y,
+                                                  bool rebuild) {
+  TerrainBrush brush;
+  const f32 game_spacing = cell_size_ / (kLandGridPoints - 1);
+  const f32 bethesda_x = (engine_x - world_offset_.x) / units_to_meters_;
+  const f32 bethesda_y = -(engine_z - world_offset_.z) / units_to_meters_;
+  brush.center_x = bethesda_x / game_spacing;
+  brush.center_y = bethesda_y / game_spacing;
+  brush.radius = radius_meters / (units_to_meters_ * game_spacing);
+  brush.mode = mode;
+  brush.strength = (mode == TerrainBrushMode::kRaise || mode == TerrainBrushMode::kLower)
+                       ? strength / units_to_meters_
+                       : std::clamp(strength, 0.0f, 1.0f);
+  brush.flatten_target = (flatten_engine_y - world_offset_.y) / units_to_meters_;
+  TerrainEditChange change =
+      terrain_edits_.ApplyBrush(brush, [this](i32 x, i32 y) { return BaseTerrainSample(x, y); });
+  RegisterTerrainFingerprints(change.cells);
+  if (rebuild) {
+    RebuildTerrainCells(world, change.cells);
+    SyncTerrainRayTracing(change.cells);
+  }
+  return change;
+}
+
+void CellStreamer::RefreshTerrainGeometry(ecs::World& world, const TerrainEditChange& change) {
+  RebuildTerrainCells(world, change.cells);
+}
+
+bool CellStreamer::ApplyTerrainChange(ecs::World& world, const TerrainEditChange& change) {
+  if (!terrain_edits_.ApplyChange(change)) return false;
+  RegisterTerrainFingerprints(change.cells);
+  RebuildTerrainCells(world, change.cells);
+  RebuildTerrainDerivedCells(world, change.cells);
+  SyncTerrainRayTracing(change.cells);
+  return true;
+}
+
+bool CellStreamer::RevertTerrainChange(ecs::World& world, const TerrainEditChange& change) {
+  if (!terrain_edits_.RevertChange(change)) return false;
+  RegisterTerrainFingerprints(change.cells);
+  RebuildTerrainCells(world, change.cells);
+  RebuildTerrainDerivedCells(world, change.cells);
+  SyncTerrainRayTracing(change.cells);
+  return true;
+}
+
+TerrainEditChange CellStreamer::ResetTerrainEdits(ecs::World& world) {
+  TerrainEditChange change = terrain_edits_.Clear();
+  RegisterTerrainFingerprints(change.cells);
+  RebuildTerrainCells(world, change.cells);
+  RebuildTerrainDerivedCells(world, change.cells);
+  SyncTerrainRayTracing(change.cells);
+  return change;
+}
+
+void CellStreamer::RefreshTerrainDerived(ecs::World& world, const TerrainEditChange& change) {
+  RebuildTerrainDerivedCells(world, change.cells);
+  SyncTerrainRayTracing(change.cells);
+}
+
+bool CellStreamer::SaveTerrainEdits(const std::string& path, std::string* error) {
+  RegisterTerrainFingerprints(terrain_edits_.touched_cells());
+  if (!::rx::world::SaveTerrainEdits(terrain_edits_, path, error)) return false;
+  terrain_edits_.MarkSaved();
+  return true;
+}
+
+bool CellStreamer::LoadTerrainEdits(ecs::World& world, const std::string& path,
+                                    std::string* error) {
+  TerrainEdits loaded;
+  if (!::rx::world::LoadTerrainEdits(
+          path, terrain_edits_.world_identity(),
+          [this](TerrainCellKey cell) -> std::optional<u64> {
+            const u64 fingerprint = TerrainBaseFingerprint(cell);
+            return fingerprint == 0 ? std::nullopt : std::optional<u64>(fingerprint);
+          },
+          &loaded, error)) {
+    return false;
+  }
+  std::vector<TerrainCellKey> refresh = terrain_edits_.touched_cells();
+  const std::vector<TerrainCellKey> loaded_cells = loaded.touched_cells();
+  refresh.insert(refresh.end(), loaded_cells.begin(), loaded_cells.end());
+  std::sort(refresh.begin(), refresh.end());
+  refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
+  terrain_edits_ = std::move(loaded);
+  for (TerrainCellKey cell : refresh) {
+    if (cell.x < std::numeric_limits<i16>::min() || cell.x > std::numeric_limits<i16>::max() ||
+        cell.y < std::numeric_limits<i16>::min() || cell.y > std::numeric_limits<i16>::max()) {
+      continue;
+    }
+    ground_cache_.erase(
+        bethesda::RecordStore::GridKey(static_cast<i16>(cell.x), static_cast<i16>(cell.y)));
+  }
+  RebuildTerrainCells(world, refresh);
+  RebuildTerrainDerivedCells(world, refresh);
+  SyncTerrainRayTracing(refresh);
   return true;
 }
 
@@ -1765,12 +2281,8 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
 
   // Skip cells whose terrain sits entirely above the water level.
   if (cell.source->land != 0) {
-    bethesda::Record land;
     f32 heights[kLandGridPoints * kLandGridPoints];
-    if (records_.Parse(
-            {static_cast<u16>(cell.source->land >> 32), static_cast<u32>(cell.source->land)},
-            &land) &&
-        DecodeLandHeights(land, heights)) {
+    if (ComposeTerrain(grid_x, grid_y, heights)) {
       f32 min_h = heights[0];
       for (f32 h : heights) min_h = std::min(min_h, h);
       if (min_h >= height) return false;
@@ -1793,12 +2305,14 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
   cell.entities.push_back(entity);
+  cell.water_entity = entity;
   ++spawned_entities_;
   ++water_planes_;
   return true;
 }
 
-bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell) {
+bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
+                              bool refresh) {
   if (settings_.grass_density <= 0.0f || cell.source->land == 0) return false;
   bethesda::GlobalFormId land_id{static_cast<u16>(cell.source->land >> 32),
                                  static_cast<u32>(cell.source->land)};
@@ -1809,10 +2323,33 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   f32 water_height = -kNoCellWater;
   CellWaterHeight(grid_x, grid_y, cell, &water_height);
 
+  f32 composed[kLandGridPoints * kLandGridPoints];
+  const bool edited = terrain_edits_.AffectsCell({grid_x, grid_y});
+  const std::span<const f32> height_override =
+      edited && ComposeTerrain(grid_x, grid_y, composed)
+          ? std::span<const f32>(composed, kLandGridPoints * kLandGridPoints)
+          : std::span<const f32>();
   const asset::Mesh* mesh =
       grass_baker_.BuildCell(land, records_.Find(land_id)->winning_plugin, grid_x, grid_y,
-                             water_height, settings_.grass_density);
-  if (!mesh || !EnsureUploaded(*mesh)) return false;
+                             water_height, settings_.grass_density, height_override);
+  const asset::AssetId grass_id =
+      asset::MakeAssetId("grass/" + std::to_string(grid_x) + "_" + std::to_string(grid_y));
+  if (!mesh) {
+    if (refresh || !height_override.empty()) {
+      if (uploads_.remove_dynamic_mesh) uploads_.remove_dynamic_mesh(grass_id);
+      uploaded_.erase(grass_id.hash);
+      assets_.RemoveMesh(grass_id);
+    }
+    return false;
+  }
+  if (!height_override.empty() && uploaded_.contains(mesh->id.hash) && uploads_.mesh) {
+    if ((!uploads_.remove_dynamic_mesh || !uploads_.remove_dynamic_mesh(mesh->id)) ||
+        !uploads_.mesh(*mesh)) {
+      return false;
+    }
+  } else if (!EnsureUploaded(*mesh)) {
+    return false;
+  }
 
   // Same cell-origin transform as the terrain: instances are merged in
   // cell-local Bethesda space.
@@ -1829,6 +2366,7 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
   world.Add(entity, Renderable{RenderMeshId(mesh->id)});
   world.Add(entity, CellMembership{grid_x, grid_y, false});
   cell.entities.push_back(entity);
+  cell.grass_entity = entity;
   ++spawned_entities_;
   return true;
 }
@@ -2555,42 +3093,50 @@ ecs::Entity CellStreamer::PlaceObject(ecs::World& world, bethesda::GlobalFormId 
 }
 
 bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const {
-  if (!grid_) return false;
-  f32 beth_x = engine_x / units_to_meters_;
-  f32 beth_y = -engine_z / units_to_meters_;
+  if (!grid_ || !engine_y) return false;
+  const f32 beth_x = (engine_x - world_offset_.x) / units_to_meters_;
+  const f32 beth_y = -(engine_z - world_offset_.z) / units_to_meters_;
   i16 cell_x = static_cast<i16>(std::floor(beth_x / cell_size_));
   i16 cell_y = static_cast<i16>(std::floor(beth_y / cell_size_));
   const u32 grid_key = bethesda::RecordStore::GridKey(cell_x, cell_y);
   const bethesda::RecordStore::ExteriorCell* cell = grid_->find(grid_key);
   if (!cell) return false;
-  if (cell->land == 0) return RefsGroundHeight(grid_key, *cell, engine_y);
-
-  // Decode the cell's heightfield once and keep it; a placement sweep samples the
-  // same few cells hundreds of times per frame.
-  base::Vector<f32>* slot = ground_cache_.find(grid_key);
-  if (!slot) {
-    bethesda::Record land;
-    if (!records_.Parse({static_cast<u16>(cell->land >> 32), static_cast<u32>(cell->land)},
-                        &land)) {
-      return false;
-    }
-    f32 heights[kLandGridPoints * kLandGridPoints];
-    if (!DecodeLandHeights(land, heights)) return false;
-    base::Vector<f32> decoded;
-    decoded.reserve(kLandGridPoints * kLandGridPoints);
-    for (u32 i = 0; i < kLandGridPoints * kLandGridPoints; ++i) decoded.push_back(heights[i]);
-    ground_cache_.emplace(grid_key, std::move(decoded));
-    slot = ground_cache_.find(grid_key);
-    if (!slot) return false;
+  if (cell->land == 0) {
+    f32 estimated = 0;
+    if (!RefsGroundHeight(grid_key, *cell, &estimated)) return false;
+    *engine_y = estimated + world_offset_.y;
+    return true;
   }
-  const f32* heights = slot->data();
+
+  // Decode immutable source heights once. Deltas are sampled separately from
+  // the canonical lattice, so edits are immediately visible without ever
+  // modifying or duplicating the plugin's VHGT data.
+  f32 decoded[kLandGridPoints * kLandGridPoints];
+  if (!DecodeBaseTerrain(cell_x, cell_y, decoded)) return false;
 
   const f32 spacing = cell_size_ / (kLandGridPoints - 1);
-  f32 local_x = beth_x - static_cast<f32>(cell_x) * cell_size_;
-  f32 local_y = beth_y - static_cast<f32>(cell_y) * cell_size_;
-  u32 c = std::min(kLandGridPoints - 1, static_cast<u32>(local_x / spacing));
-  u32 r = std::min(kLandGridPoints - 1, static_cast<u32>(local_y / spacing));
-  *engine_y = heights[r * kLandGridPoints + c] * units_to_meters_;
+  const f32 local_x = std::clamp((beth_x - static_cast<f32>(cell_x) * cell_size_) / spacing, 0.0f,
+                                 static_cast<f32>(kLandGridPoints - 1));
+  const f32 local_y = std::clamp((beth_y - static_cast<f32>(cell_y) * cell_size_) / spacing, 0.0f,
+                                 static_cast<f32>(kLandGridPoints - 1));
+  const u32 col = std::min(static_cast<u32>(local_x), kLandGridPoints - 2);
+  const u32 row = std::min(static_cast<u32>(local_y), kLandGridPoints - 2);
+  const f32 tx = local_x - col;
+  const f32 ty = local_y - row;
+  auto height = [&](u32 x, u32 y) {
+    const i32 global_x = static_cast<i32>(cell_x) * 32 + static_cast<i32>(x);
+    const i32 global_y = static_cast<i32>(cell_y) * 32 + static_cast<i32>(y);
+    return decoded[y * kLandGridPoints + x] + terrain_edits_.SampleDelta(global_x, global_y);
+  };
+  const f32 southwest = height(col, row);
+  const f32 southeast = height(col + 1, row);
+  const f32 northwest = height(col, row + 1);
+  const f32 northeast = height(col + 1, row + 1);
+  const f32 game_height =
+      tx + ty <= 1.0f ? southwest + tx * (southeast - southwest) + ty * (northwest - southwest)
+                      : northeast + (1.0f - tx) * (northwest - northeast) +
+                            (1.0f - ty) * (southeast - northeast);
+  *engine_y = game_height * units_to_meters_ + world_offset_.y;
   return true;
 }
 

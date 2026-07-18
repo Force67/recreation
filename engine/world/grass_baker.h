@@ -4,6 +4,8 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <span>
+
 #include "asset/asset_database.h"
 #include "bethesda/load_order.h"
 #include "bethesda/record.h"
@@ -29,7 +31,8 @@ class GrassBaker {
   // `water_height` is the cell's water level in game units (very negative
   // when the cell is dry), `density_scale` multiplies every GRAS density.
   const asset::Mesh* BuildCell(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
-                               i16 grid_y, f32 water_height, f32 density_scale);
+                               i16 grid_y, f32 water_height, f32 density_scale,
+                               std::span<const f32> height_override = {});
 
   size_t total_instances() const { return total_instances_; }
   size_t total_vertices() const { return total_vertices_; }
@@ -39,7 +42,7 @@ class GrassBaker {
   // missing, no MODL, conversion failed) means the form never spawns.
   struct GrassType {
     const asset::Mesh* model = nullptr;
-    f32 density = 0;  // spawn probability per sample point
+    f32 density = 0;    // spawn probability per sample point
     f32 min_slope = 0;  // degrees from horizontal
     f32 max_slope = 90;
     f32 units_from_water = 0;
@@ -54,7 +57,7 @@ class GrassBaker {
 
   const bethesda::RecordStore& records_;
   asset::AssetDatabase& assets_;
-  base::UnorderedMap<u64, GrassType> types_;            // GRAS id -> parsed form
+  base::UnorderedMap<u64, GrassType> types_;               // GRAS id -> parsed form
   base::UnorderedMap<u64, base::Vector<u64>> ltex_grass_;  // LTEX id -> GNAM links
   base::Vector<u64> empty_list_;
   size_t total_instances_ = 0;
