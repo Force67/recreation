@@ -21,6 +21,7 @@
 #include "core/log.h"
 #include "engine.h"
 #include "engine_internal.h"
+#include "script/obscript/obscript_runtime.h"
 #include "script/papyrus/value.h"
 #include "weather/weather_loader.h"
 #include "world/components.h"
@@ -35,6 +36,9 @@ namespace rx {
 // Load-time env overrides, declared at file scope so they register before
 // InitOptionsFromEnv() populates them; see each use site for behaviour.
 static base::Option<const char*> Weather{"weather", nullptr, "RX_WEATHER"};
+// RX_OBSCRIPT_REPORT parses every Fallout 3 / New Vegas SCPT and runs a sample
+// through the Obscript interpreter, logging the effects (a headless check).
+static base::Option<bool> ObscriptReport{"obscript.report", false, "RX_OBSCRIPT_REPORT"};
 static base::Option<const char*> Interior{"interior", nullptr, "RX_INTERIOR"};
 static base::Option<bool> CwFieldBattle{"cw.field.battle", false, "RX_CW_FIELD_BATTLE"};
 static base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "RX_CW_SIEGE_DEMO"};
@@ -99,6 +103,16 @@ bool LoadGameData(Engine& engine) {
   // rescanning every DIAL.
   self->dialogue_.Build(self->records_);
   RX_INFO("dialogue: {} topics indexed", self->dialogue_.topic_count());
+
+  // Fallout 3 / New Vegas predate Papyrus: their gameplay logic is compiled
+  // Obscript kept as source (SCTX) in the SCPT records. Parse and catalog it so
+  // the classic-game script runtime has the script model in hand. RX_OBSCRIPT_
+  // REPORT additionally interprets a sample and logs the effects.
+  if (self->game_ == bethesda::Game::kFallout3 || self->game_ == bethesda::Game::kFalloutNv) {
+    rx::script::obscript::Runtime obscript;
+    obscript.Build(self->records_);
+    if (ObscriptReport) obscript.Report();
+  }
 
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
