@@ -166,8 +166,11 @@ Mat4 ToMat4(const Transform& t) {
 
 // NiAVObject prefix shared by nodes and shapes: name, extra data list,
 // controller, flags, transform, collision object. Flag bit 0 is "hidden",
-// which collision proxy meshes rely on.
-Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr) {
+// which collision proxy meshes rely on. On Fallout 3 / New Vegas (legacy) the
+// transform is followed by the classic Properties list (num + refs) before the
+// collision object; those property refs carry the shader/material/alpha.
+Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr, bool legacy = false,
+                       base::Vector<i32>* properties = nullptr) {
   i32 name = r.Read<i32>();  // index into the header string table
   if (name_index) *name_index = name;
   u32 extra_count = r.Read<u32>();
@@ -182,6 +185,17 @@ Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr) {
   for (f32& v : local.t) v = r.Read<f32>();
   for (f32& v : local.r) v = r.Read<f32>();
   local.s = r.Read<f32>();
+  if (legacy) {
+    u32 property_count = r.Read<u32>();
+    if (property_count > 4096) {
+      r.ok = false;
+      return local;
+    }
+    for (u32 i = 0; i < property_count; ++i) {
+      i32 ref = r.Read<i32>();
+      if (properties) properties->push_back(ref);
+    }
+  }
   r.Skip(4);  // collision object ref
   return local;
 }
@@ -660,17 +674,21 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
   return true;
 }
 
-// NiTriShapeData for 20.2.0.7 / BS 100 (the material CRC u32 is SSE only).
-bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
+// NiGeometryData common prefix (positions/normals/tangents/colors/uvs) shared
+// by NiTriShapeData and NiTriStripsData for 20.2.0.7. On return the reader sits
+// at Num Triangles; the caller reads the topology (triangle list vs strips).
+// BS 100 (SSE) inserts a material CRC after the vector flags; FO3/NV (BS 34)
+// and legacy do not. Returns the vertex count, 0 on failure.
+u32 ReadGeometryDataCommon(Reader& r, u32 bs_version, Geometry* out) {
   r.Skip(4);  // group id
   u32 vertex_count = r.Read<u16>();
   r.Skip(2);  // keep/compress flags
   bool has_vertices = r.Read<u8>() != 0;
-  if (!r.ok || vertex_count == 0 || !has_vertices) return false;
+  if (!r.ok || vertex_count == 0 || !has_vertices) return 0;
 
   out->vertices.resize(vertex_count);
   const u8* positions = r.Bytes(12 * vertex_count);
-  if (!positions) return false;
+  if (!positions) return 0;
   for (u32 i = 0; i < vertex_count; ++i) {
     std::memcpy(out->vertices[i].position, positions + 12 * i, 12);
   }
@@ -680,14 +698,14 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   bool has_normals = r.Read<u8>() != 0;
   if (has_normals) {
     const u8* normals = r.Bytes(12 * vertex_count);
-    if (!normals) return false;
+    if (!normals) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       std::memcpy(out->vertices[i].normal, normals + 12 * i, 12);
     }
     if (vector_flags & 0x1000) {
       const u8* tangents = r.Bytes(12 * vertex_count);
       r.Skip(12 * vertex_count);  // bitangents
-      if (!tangents) return false;
+      if (!tangents) return 0;
       for (u32 i = 0; i < vertex_count; ++i) {
         std::memcpy(out->vertices[i].tangent, tangents + 12 * i, 12);
         out->vertices[i].tangent[3] = 1;
@@ -698,7 +716,7 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   bool has_colors = r.Read<u8>() != 0;
   if (has_colors) {
     const u8* colors = r.Bytes(16 * vertex_count);
-    if (!colors) return false;
+    if (!colors) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       f32 c[4];
       std::memcpy(c, colors + 16 * i, 16);
@@ -710,13 +728,20 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   u32 uv_sets = vector_flags & 0x3f;
   if (uv_sets > 0) {
     const u8* uvs = r.Bytes(8 * vertex_count);  // first set only
-    if (!uvs) return false;
+    if (!uvs) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       std::memcpy(out->vertices[i].uv, uvs + 8 * i, 8);
     }
     if (uv_sets > 1) r.Skip(8 * vertex_count * (uv_sets - 1));
   }
   r.Skip(2 + 4);  // consistency flags, additional data ref
+  return r.ok ? vertex_count : 0;
+}
+
+// NiTriShapeData for 20.2.0.7 (the material CRC u32 is SSE only).
+bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
+  u32 vertex_count = ReadGeometryDataCommon(r, bs_version, out);
+  if (vertex_count == 0) return false;
   u32 triangle_count = r.Read<u16>();
   r.Skip(4);  // num triangle points
   bool has_triangles = r.Read<u8>() != 0;
@@ -731,6 +756,50 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
     out->indices[i] = index;
   }
   return true;
+}
+
+// NiTriStripsData (Fallout 3 / New Vegas statics): the geometry is stored as
+// triangle strips. Each strip of length L expands to L-2 triangles with the
+// winding flipping every step; degenerate (repeated-index) triangles that stitch
+// strips together are dropped.
+bool ReadNiTriStripsData(Reader& r, u32 bs_version, Geometry* out) {
+  u32 vertex_count = ReadGeometryDataCommon(r, bs_version, out);
+  if (vertex_count == 0) return false;
+  r.Skip(2);  // num triangles (derived from the strips below)
+  u32 strip_count = r.Read<u16>();
+  if (!r.ok || strip_count == 0 || strip_count > 65536) return false;
+  base::Vector<u16> lengths(strip_count);
+  u32 total_points = 0;
+  for (u16& l : lengths) {
+    l = r.Read<u16>();
+    total_points += l;
+  }
+  bool has_points = r.Read<u8>() != 0;
+  if (!r.ok || !has_points) return false;
+  const u8* points = r.Bytes(2 * total_points);
+  if (!points) return false;
+  size_t offset = 0;
+  for (u16 length : lengths) {
+    for (u16 k = 0; k + 2 < length; ++k) {
+      u16 a, b, c;
+      std::memcpy(&a, points + (offset + k) * 2, 2);
+      std::memcpy(&b, points + (offset + k + 1) * 2, 2);
+      std::memcpy(&c, points + (offset + k + 2) * 2, 2);
+      if (a == b || b == c || a == c) continue;  // degenerate stitch
+      if (a >= vertex_count || b >= vertex_count || c >= vertex_count) return false;
+      if (k & 1) {  // odd triangles flip winding
+        out->indices.push_back(a);
+        out->indices.push_back(c);
+        out->indices.push_back(b);
+      } else {
+        out->indices.push_back(a);
+        out->indices.push_back(b);
+        out->indices.push_back(c);
+      }
+    }
+    offset += length;
+  }
+  return !out->indices.empty();
 }
 
 std::string ReadSizedString(Reader& r) {
@@ -770,11 +839,16 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   if (r.Read<u8>() != 1) return std::nullopt;  // little endian only
   header.user_version = r.Read<u32>();
   u32 block_count = r.Read<u32>();
-  if (header.user_version >= 12) {
+  // The Bethesda stream header (BS version + export author/process/export
+  // strings) is present from user version 11 on. Fallout 3 / New Vegas ship
+  // user version 11 / BS 34; Skyrim and later 12 / 83+. Classic Oblivion NIFs
+  // (user version < 11) route to the sequential Gamebryo reader instead.
+  if (header.user_version >= 11) {
     header.bs_version = r.Read<u32>();
     int export_strings = header.bs_version >= 130 ? 4 : 3;
     for (int i = 0; i < export_strings; ++i) r.Skip(r.Read<u8>());
   }
+  header.legacy_geometry = header.user_version <= 11;
   u16 type_count = r.Read<u16>();
   if (!r.ok || block_count > 200000 || type_count > 4096) return std::nullopt;
   header.block_types.reserve(type_count);
@@ -844,7 +918,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     if (type.ends_with("Node")) {
       Node node;
       i32 name_index = -1;
-      node.local = ReadAvObject(r, &node.hidden, &name_index);
+      node.local = ReadAvObject(r, &node.hidden, &name_index, header->legacy_geometry);
       if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
         node.name = header->strings[name_index];
       }
@@ -903,16 +977,30 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (!r.ok) continue;
       if (!ReadBsDynamicTriShape(r, header->bs_version, &shape.geometry)) shape.skipped = true;
       shapes.emplace(i, std::move(shape));
-    } else if (type == "NiTriShape") {
+    } else if (type == "NiTriShape" || type == "NiTriStrips") {
+      // Both are NiTriBasedGeom: identical shape header, the referenced data
+      // block (NiTriShapeData vs NiTriStripsData) differs. Skyrim NiTriShape
+      // (tree trunks) trails shader/alpha refs; Fallout 3 / New Vegas (legacy)
+      // resolve them from the AVObject property list instead.
       Shape shape;
-      shape.local = ReadAvObject(r, &shape.hidden);
+      base::Vector<i32> properties;
+      shape.local = ReadAvObject(r, &shape.hidden, nullptr, header->legacy_geometry, &properties);
       shape.data = r.Read<i32>();
       shape.skin = r.Read<i32>();  // kept so the rigid path can fall back to it
       u32 material_count = r.Read<u32>();
       if (!r.ok || material_count > 4096) continue;
       r.Skip(8 * material_count + 4 + 1);  // names+extra, active material, needs update
-      shape.shader = r.Read<i32>();
-      shape.alpha = r.Read<i32>();
+      if (header->legacy_geometry) {
+        for (i32 ref : properties) {
+          if (ref < 0 || static_cast<u32>(ref) >= block_count) continue;
+          const std::string& pt = header->block_types[header->block_type_index[ref]];
+          if (pt == "NiAlphaProperty") shape.alpha = ref;
+          else if (pt.find("Shader") != std::string::npos) shape.shader = ref;
+        }
+      } else {
+        shape.shader = r.Read<i32>();
+        shape.alpha = r.Read<i32>();
+      }
       if (!r.ok) continue;
       shapes.emplace(i, std::move(shape));
     } else if (type == "NiTriShapeData") {
@@ -920,8 +1008,11 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (ReadNiTriShapeData(r, header->bs_version, &geometry)) {
         geometry_blocks.emplace(i, std::move(geometry));
       }
-    } else if (type == "NiTriStrips") {
-      ++result.skipped_shapes;
+    } else if (type == "NiTriStripsData") {
+      Geometry geometry;
+      if (ReadNiTriStripsData(r, header->bs_version, &geometry)) {
+        geometry_blocks.emplace(i, std::move(geometry));
+      }
     } else if (type == "NiSkinInstance" || type == "BSDismemberSkinInstance") {
       SkinInstanceBlock skin;
       if (ReadSkinInstance(r, &skin)) skin_instances.emplace(i, std::move(skin));
@@ -964,6 +1055,22 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         if (r.ok) info.env_map_scale = scale;
       }
       if (base_ok) shaders.emplace(i, info);
+    } else if (type == "BSShaderPPLightingProperty") {
+      // Fallout 3 / New Vegas lighting shader: NiObjectNET + BSShaderProperty
+      // (flags u16, shader type, two shader-flag words, env map scale), the
+      // BSShaderLightingProperty clamp mode, then the texture set ref. The FO3
+      // shader-type and flag-bit meanings differ from Skyrim's lighting shader,
+      // so it is normalized to the engine default (diffuse + normal via slots).
+      ShaderInfo info;
+      info.shader_type = 0;
+      r.Skip(4);  // name
+      u32 extra = r.Read<u32>();
+      if (!r.ok || extra > 4096) continue;
+      r.Skip(4 * extra + 4);  // extra refs, controller
+      r.Skip(2 + 4 + 4 + 4 + 4);  // flags(u16), type, shader flags 1/2, env map scale
+      r.Skip(4);  // texture clamp mode
+      info.texture_set = r.Read<i32>();
+      if (r.ok) shaders.emplace(i, info);
     } else if (type == "BSWaterShaderProperty") {
       // Placed water (river rapids, waterfalls pools): routed to the
       // engine's water pipeline through a synthesized water material.
