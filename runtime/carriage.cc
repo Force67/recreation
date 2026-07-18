@@ -183,6 +183,11 @@ CarriageSystem::CarriageSystem(EngineContext& ctx, ActorSystem* actors)
   carriage_form_ = bethesda::GlobalFormId{0x00FE, 0x00CA5717};
   carriage_handle_ = carriage_form_.packed();
   label_ = "Ride carriage";
+  // Route the carriage's activation and prompt through the interaction system:
+  // without these the board/dismount path is never reached (kActivateRef on the
+  // carriage falls through) and no "Ride carriage" prompt shows.
+  ctx_.carriage_activate = [this](u64 handle) { return Activate(handle); };
+  ctx_.carriage_label = [this](u64 handle) { return Label(handle); };
 }
 
 void CarriageSystem::Step(f32 dt) {
