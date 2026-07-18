@@ -2377,6 +2377,9 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   if (!stored) return true;
   const bool initially_disabled = (stored->header.flags & kRecordFlagInitiallyDisabled) != 0;
+  // Persistently removed refs (e.g. an item the player picked up) never re-place,
+  // even after their cell streams out and back in.
+  if (ref_suppressor_ && ref_suppressor_(id.packed())) return true;
 
   bethesda::Record refr;
   if (!records_.Parse(id, &refr)) return true;
@@ -3090,6 +3093,19 @@ ecs::Entity CellStreamer::PlaceObject(ecs::World& world, bethesda::GlobalFormId 
   world.Add(entity, Renderable{render_id});
   if (out_mesh) *out_mesh = render_id;
   return entity;
+}
+
+const asset::Mesh* CellStreamer::PrepareItemModel(bethesda::GlobalFormId base_id,
+                                                  asset::AssetId* out_render_id) {
+  // Convert/upload synchronously (a dropped item is a deliberate action, like an
+  // editor placement) and hand back the renderer mesh id plus the mesh so the
+  // caller can read its bounds. MeshForBase caches, so repeated drops are cheap.
+  u32 budget = 256;
+  bool budget_exceeded = false;
+  const asset::Mesh* mesh = MeshForBase(base_id, budget, budget_exceeded);
+  if (!mesh || !EnsureUploaded(*mesh)) return nullptr;
+  if (out_render_id) *out_render_id = RenderMeshId(mesh->id);
+  return mesh;
 }
 
 bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const {

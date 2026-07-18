@@ -11,6 +11,8 @@
 
 #include "core/log.h"
 #include "core/math.h"
+#include "item_bridge.h"
+#include "player_controller.h"
 #include "world/components.h"
 
 // Camera and player input: routes per-frame input to the right consumer (pause
@@ -117,6 +119,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
   } else if (ctx_.walk_mode && actors_->HasPlayer()) {
     WalkUpdate(frame_delta, !menu && !kb);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
+    // Drop the most recent inventory item into the world (walk mode only).
+    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb) ctx_.items->DropLast();
   } else {
     bool allow_mouse = !menu && (!debug_ui_.wants_mouse() || camera_.looking());
     bool allow_keyboard = !menu && !kb;
@@ -538,58 +542,36 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   const InputState& input = window_->input();
   window_->SetRelativeMouseMode(true);  // FPS-style mouse look in walk mode
 
-  if (allow) {
-    // Mouse look plus right-stick look (rate based; invert/sensitivity from config).
-    ctx_.cam_yaw += input.mouse_dx * camera_.sensitivity;
-    cam_pitch_ = std::clamp(cam_pitch_ - input.mouse_dy * camera_.sensitivity, -1.4f, 1.4f);
-    const f32 inv = input_map_->invert_y ? -1.0f : 1.0f;
-    ctx_.cam_yaw += actions_->axis(Axis::kLookX) * input_map_->look_sens_pad * dt;
-    cam_pitch_ = std::clamp(
-        cam_pitch_ - actions_->axis(Axis::kLookY) * input_map_->look_sens_pad * dt * inv, -1.4f, 1.4f);
-  }
+  // Lazily assemble the rx character + camera rig onto the player actor entity
+  // the first walk-mode frame after the player spawns. Skyrim-authentic
+  // locomotion + FP/TP camera live in the controller; this function is now input
+  // gathering (auto-walk, melee, battle cam) plus delegation.
+  if (!player_controller_)
+    player_controller_ = std::make_unique<PlayerController>(ctx_, *actors_, *input_map_);
+  if (!player_controller_->assembled() && !player_controller_->Assemble()) return;
 
-  // Move relative to where the camera faces (flattened to the ground plane).
-  // The move axes blend keyboard and the analog left stick (stick-down = back).
-  Vec3 fwd{std::sin(ctx_.cam_yaw), 0, -std::cos(ctx_.cam_yaw)};
-  Vec3 right{std::cos(ctx_.cam_yaw), 0, std::sin(ctx_.cam_yaw)};
-  Vec3 move{};
-  if (allow) {
-    move = move + fwd * (-actions_->axis(Axis::kMoveY));
-    move = move + right * actions_->axis(Axis::kMoveX);
-  }
-  f32 speed = (allow && actions_->down(Action::kSprint)) ? 4.8f : 1.8f;
-  if (ctx_.auto_walk) {
-    // Test hook: head for the active quest marker / guide mark when one is set,
-    // so the guided playthrough follows the quest; otherwise coast forward.
-    // Route through pathfinding so the player rounds interior walls (the keep)
-    // toward the goal rather than pressing straight into them.
+  // Auto-walk test hook: head for the active quest marker / guide mark when one is
+  // set (routed through pathfinding so the player rounds interior walls), else
+  // coast along the current camera facing.
+  Vec3 auto_move{};
+  const bool auto_walk = ctx_.auto_walk;
+  if (auto_walk) {
+    const Vec3 facing{std::sin(ctx_.cam_yaw), 0, -std::cos(ctx_.cam_yaw)};
     Vec3 ppos;
     if (ctx_.auto_walk_has_goal && actors_->PlayerWorldPos(&ppos)) {
       const Vec3 wp = npc_->PathToward(ppos, ctx_.auto_walk_goal);
       Vec3 to{wp.x - ppos.x, 0, wp.z - ppos.z};
       const f32 len = Length(to);
-      move = len > 0.5f ? to * (1.0f / len) : fwd;
+      auto_move = len > 0.5f ? to * (1.0f / len) : facing;
     } else {
-      move = fwd;
+      auto_move = facing;
     }
   }
-  f32 move_len = Length(move);
-  Vec3 velocity{};
-  f32 yaw = 0;
-  const bool moving = move_len > 0.01f;
-  if (moving) {
-    // Clamp (not normalize) so partial stick deflection keeps its analog speed
-    // while keyboard diagonals stay capped at full speed.
-    if (move_len > 1.0f) move = move * (1.0f / move_len);
-    velocity = move * speed;
-    yaw = std::atan2(move.x, move.z);  // the biped's +Z faces movement
-  }
-  bool jump = allow && actions_->pressed(Action::kJump);
 
-  // The actor system owns the player capsule; it steps the character controller
-  // and returns the body (feet) position for the follow camera.
+  // Step locomotion + camera. Writes ctx_.walk_eye / walk_target / cam_yaw and
+  // feeds the actor; `body` is the player feet for the melee / battle systems.
   Vec3 body{};
-  actors_->MovePlayer(velocity, jump, yaw, moving, speed, dt, &body);
+  player_controller_->Update(dt, input, *actions_, allow, auto_walk, auto_move, &body);
 
   // Melee: a left-click / right-trigger swing strikes the NPC the player faces,
   // so the player can fight (clear a fort, join a battle). Aim is the camera yaw.
@@ -604,28 +586,6 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
     }
   }
   if (swing) npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
-
-  Vec3 cam_fwd{std::cos(cam_pitch_) * std::sin(ctx_.cam_yaw), std::sin(cam_pitch_),
-               -std::cos(cam_pitch_) * std::cos(ctx_.cam_yaw)};
-  if (ctx_.third_person) {
-    Vec3 pivot = body + Vec3{0, 1.5f, 0};
-    // Inside interiors, pull the boom in when it would punch through a wall so the
-    // camera never wedges into stone (cast from the pivot back toward the eye and
-    // stop a small margin short of the hit). Scoped to interiors: outdoors the
-    // boom rarely clips solid geometry, and a terrain/foliage hit there would
-    // wrongly yank the camera onto the player's back.
-    f32 boom = 3.2f;
-    if (physics_->initialized() && streamer_ && streamer_->in_interior()) {
-      physics::PhysicsWorld::RayHit hit;
-      if (physics_->Raycast(pivot, cam_fwd * -1.0f, boom + 0.3f, &hit))
-        boom = std::max(hit.distance - 0.3f, 0.5f);
-    }
-    ctx_.walk_eye = pivot - cam_fwd * boom;
-    ctx_.walk_target = pivot;
-  } else {
-    ctx_.walk_eye = body + Vec3{0, 1.7f, 0};
-    ctx_.walk_target = ctx_.walk_eye + cam_fwd;
-  }
 
   // A staged field battle takes over the view with an elevated spectator framing,
   // so the clash is visible even when the player wedged against terrain.

@@ -28,11 +28,13 @@
 #include "editor.h"
 #include "engine_context.h"
 #include "interaction_system.h"
+#include "item_bridge.h"
 #include "npc_director.h"
 #include "platform_hud.h"
 #include "quest_director.h"
 #include "script/host/managed_host.h"
 #include "showcase_camera.h"
+#include "player_controller.h"
 #include "trailer.h"
 #include "weather/director.h"
 #include "weather/weather.h"
@@ -532,7 +534,11 @@ class Engine : public app::Application {
   // themselves (built in Initialize once the context is populated).
   EngineContext ctx_;
   std::unique_ptr<ActorSystem> actors_;
+  // Skyrim player locomotion + FP/TP camera (rx character + camera-rig pipeline).
+  // Built lazily on the first walk-mode frame once the player actor exists.
+  std::unique_ptr<PlayerController> player_controller_;
   std::unique_ptr<InteractionSystem> interaction_;
+  std::unique_ptr<ItemBridge> items_;  // item pickup/drop/persistence
   std::unique_ptr<NpcDirector> npc_;
   std::unique_ptr<QuestDirector> quest_;
   std::unique_ptr<DemoScenes> demos_;

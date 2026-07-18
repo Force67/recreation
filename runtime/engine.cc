@@ -9,6 +9,8 @@
 #include "asset/primitives.h"
 #include "core/feature_registry.h"
 #include "core/log.h"
+#include "item_bridge.h"
+#include "player_controller.h"
 #include "world/components.h"
 
 #if defined(RECREATION_HAS_UGUI)
@@ -129,8 +131,11 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
   ctx_.audio = audio_;
+  ctx_.actions = actions_;  // resolved input for the first-person equip key
   actors_ = std::make_unique<ActorSystem>(ctx_);
   interaction_ = std::make_unique<InteractionSystem>(ctx_, actors_.get());
+  items_ = std::make_unique<ItemBridge>(ctx_, actors_.get());
+  ctx_.items = items_.get();
   npc_ = std::make_unique<NpcDirector>(ctx_, actors_.get());
   quest_ = std::make_unique<QuestDirector>(ctx_, actors_.get());
   demos_ = std::make_unique<DemoScenes>(ctx_, actors_.get());
@@ -248,6 +253,7 @@ void Engine::OnShutdown() {
   // host has already stopped the audio device. The host owns the renderer/jobs
   // teardown; here the game drops its own state in the order its threads need.
   SaveControls();  // persist any in-session rebinds / sensitivity changes
+  if (items_) items_->Save();  // persist inventory + world items + removed refs
   // Run managed teardown while the guest is still alive (its shutdown callbacks
   // dispatch through the bridge), then stop the guest so no more events reach the
   // host, then destroy the host. This exact order keeps the event sink, which

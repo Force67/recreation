@@ -34,6 +34,9 @@
 
 namespace rx {
 
+class ItemBridge;
+struct ActionState;  // core/input_actions.h; resolved device-agnostic input
+
 // An additional game loaded as a live secondary content domain alongside the
 // primary (rendered) game. Each runs its own isolated Papyrus microvm, so
 // Skyrim and Fallout 4 content stay live in one process at the same time.
@@ -123,6 +126,9 @@ struct EngineContext {
   DebugUi* debug_ui = nullptr;
   GameUi* game_ui = nullptr;
   base::Vector<PhysicsEntity>* physics_entities = nullptr;
+  // Resolved per-frame action state (owned by the host); gameplay subsystems poll
+  // it for their verbs. Used by the first-person equip key.
+  const ActionState* actions = nullptr;
 
   // Late-built services, null until the engine creates them.
   asset::AssetDatabase* assets = nullptr;
@@ -130,6 +136,7 @@ struct EngineContext {
   script::ScriptSystem* scripts = nullptr;
   rx::script::skyrim::RecordBackedSkyrimBindings* bindings = nullptr;
   script::host::ManagedHost* managed = nullptr;  // null when C# scripting is off
+  ItemBridge* items = nullptr;  // item pickup/drop/persistence (built after data loads)
 #if RECREATION_HAS_NET
   net::GameServerSession* server_session = nullptr;
   net::GameClientSession* client_session = nullptr;
@@ -141,7 +148,15 @@ struct EngineContext {
   bool walk_mode = false;
   bool third_person = true;
   bool auto_walk = false;
+  // Player is sneaking (rx crouch). Written by the player controller each frame;
+  // read by future stealth gameplay / HUD. CharacterState.stance is the ECS-side
+  // source of truth on the player entity.
+  bool sneaking = false;
   f32 cam_yaw = 0;
+  // Debug/capture hook: when finite, the player controller forces the first-person
+  // look pitch to this value (radians, negative = looking down) so a scripted
+  // capture can aim at the floor. 1e9 = unset (normal mouse-driven pitch).
+  f32 debug_look_pitch = 1e9f;
   Vec3 walk_eye{};
   Vec3 walk_target{};
   // Where the auto-walk test player should head: the active quest marker / guide

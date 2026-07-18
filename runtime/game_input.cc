@@ -25,6 +25,7 @@ void RegisterGameInput(InputMap& map) {
   map.RegisterAction(Action::kAttack, "attack");
   map.RegisterAction(Action::kReady, "ready");
   map.RegisterAction(Action::kThrowDebug, "throw_debug");
+  map.RegisterAction(Action::kDropItem, "drop_item");
   map.RegisterAction(Action::kToggleWalk, "toggle_walk");
   map.RegisterAction(Action::kToggleThirdPerson, "toggle_third_person");
   map.RegisterAction(Action::kToggleJournal, "toggle_journal");
@@ -42,6 +43,7 @@ void RegisterGameInput(InputMap& map) {
   map.RegisterAction(Action::kMenuTab, "menu_tab");
   map.RegisterAction(Action::kMenuPageLeft, "menu_page_left");
   map.RegisterAction(Action::kMenuPageRight, "menu_page_right");
+  map.RegisterAction(Action::kEquipWeapon, "equip_weapon");
 
   map.RegisterAxis(Axis::kMoveX, "move_x");
   map.RegisterAxis(Axis::kMoveY, "move_y");
@@ -87,6 +89,8 @@ void RegisterGameInput(InputMap& map) {
     m.AddBinding(Action::kReady, key(Key::kR));
     m.AddBinding(Action::kReady, pad(GamepadButton::kNorth));
     m.AddBinding(Action::kThrowDebug, key(Key::kF));
+    // Drop the last picked-up item into the world (G is otherwise unbound).
+    m.AddBinding(Action::kDropItem, key(Key::kG));
 
     // Mode toggles.
     m.AddBinding(Action::kToggleWalk, key(Key::kT));
@@ -120,6 +124,11 @@ void RegisterGameInput(InputMap& map) {
     m.AddBinding(Action::kMenuTab, key(Key::kTab));
     m.AddBinding(Action::kMenuPageLeft, pad(GamepadButton::kLeftShoulder));
     m.AddBinding(Action::kMenuPageRight, pad(GamepadButton::kRightShoulder));
+
+    // Draw / sheathe a weapon in first person (X is otherwise unbound; pad Y is
+    // shared with Ready Weapon, the natural equivalent).
+    m.AddBinding(Action::kEquipWeapon, key(Key::kX));
+    m.AddBinding(Action::kEquipWeapon, pad(GamepadButton::kNorth));
 
     // Analog axes: left stick drives movement, right stick drives the look.
     m.AddAxisBinding(Axis::kMoveX, axis(GamepadAxis::kLeftX, 0));

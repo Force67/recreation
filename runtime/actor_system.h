@@ -39,6 +39,10 @@ class StarfieldMaterialDb;
 // through a shared_ptr, so a forward declaration is all the header needs.
 struct LocomotionArchetype;
 
+// First-person weapon policy (runtime/fp_equipment.*). ActorSystem owns one and
+// drives it each frame; it in turn commands the FP-rig primitives below.
+class FpEquipment;
+
 // Owns the engine's skinned, animated characters: the walkable player, the test
 // bringup biped, and the per-NPC instances that mirror streamed-in ECS actors.
 // Kept engine-side (not ECS components) because the renderer needs the CPU skin
@@ -47,6 +51,7 @@ struct LocomotionArchetype;
 class ActorSystem {
  public:
   explicit ActorSystem(EngineContext& ctx);
+  ~ActorSystem();  // out-of-line: owns a unique_ptr to the incomplete FpEquipment
 
   // --- Player query / command surface used by the other subsystems ---
   bool HasPlayer() const { return player_actor_ >= 0; }
@@ -58,11 +63,12 @@ class ActorSystem {
   f32 PlayerYaw() const;  // facing of the player biped, radians about engine up
   // Teleports the player (capsule + ECS transform); the target of a quest MoveTo.
   void TeleportPlayer(f32 x, f32 y, f32 z);
-  // Drives the player capsule from walk input: faces `yaw` while moving, steps
-  // the character controller, mirrors the capsule into the entity transform, and
-  // returns the body (feet) position for the follow camera.
-  void MovePlayer(const Vec3& velocity, bool jump, f32 yaw, bool moving, f32 speed, f32 dt,
-                  Vec3* out_body);
+  // Mirrors the result of the rx character controller (owned by PlayerController)
+  // onto the biped: `feet` position drives skeleton placement, `facing_yaw`
+  // (biped +Z faces movement) sets the body rotation while `moving`, `planar_speed`
+  // feeds the gait blend, and `grounded` is available for jump/land animation.
+  // The capsule itself is stepped by the rx character module, not here.
+  void MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving, bool grounded);
   // Sets a streamed NPC instance's render gait (planar speed; yaw when moving).
   void SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw);
 
@@ -77,6 +83,25 @@ class ActorSystem {
   void EmitDraws(render::FrameView& view);  // append skinned draws + palettes
   void SyncNpcActors();                     // add/remove NPC actor instances
   void SyncSolidBodies();                   // kinematic capsules for NPCs/players
+
+  // --- First-person weapon rig primitives (driven by FpEquipment) ---
+  // The one-handed first-person clip set (meshes/actors/character/_1stperson/
+  // animations/1hm_*.hkx). Idle loops; the rest play once (FpClipDone() latches).
+  enum class FpClip { kIdle, kEquip, kUnequip, kAttack };
+  // Lazily loads the _1stperson skeleton + arm/hand meshes + the 1hm clip set the
+  // first time a weapon is drawn. False (cached) when the assets are missing.
+  bool EnsureFpRig();
+  // Attaches a weapon hand mesh (already uploaded, e.g. an ItemDef::world_mesh)
+  // to the rig's WEAPON node; a 0 id clears it.
+  void SetFpWeapon(asset::AssetId mesh);
+  void ClearFpWeapon();
+  void PlayFpClip(FpClip clip);       // (re)starts a clip on the FP rig
+  bool FpClipDone() const { return fp_clip_done_; }
+  // Roots the FP skeleton to the camera so the arms sit in the lower frame.
+  void SetFpRootView(const Vec3& eye, const Vec3& target);
+  // engaged = advance the pose this frame; visible = emit draws + hide the TP
+  // player body. Set once per frame by FpEquipment.
+  void SetFpFlags(bool engaged, bool visible);
 
  private:
   // One part of an actor: a skinned mesh sharing the skeleton pose, or a rigid
@@ -233,6 +258,11 @@ class ActorSystem {
   void UpdateOneActor(Actor& actor, f32 dt);
   void EmitOneActor(Actor& actor, render::FrameView& view);
 
+  // First-person rig internals (see the FpClip primitives in the public block).
+  const HavokClip* CurrentFpClip() const;
+  void AdvanceFpRig(f32 dt);                 // sample the active clip into the pose
+  void EmitFpRig(render::FrameView& view);   // append arm/hand + weapon draws
+
   EngineContext& ctx_;
   ecs::World& world_;
   render::Renderer& renderer_;
@@ -263,6 +293,28 @@ class ActorSystem {
   base::Vector<u64> scratch_dead_actors_;
   base::UnorderedMap<u64, physics::BodyId> solid_bodies_;
   std::unique_ptr<FaceBuilder> face_builder_;  // lazily built; owns the head caches
+
+  // First-person weapon rig: its own _1stperson skeleton actor (arms/hands +
+  // a weapon riding the WEAPON node), played through the 1hm first-person clip
+  // set and rooted to the camera each frame. Built lazily on the first draw.
+  std::unique_ptr<FpEquipment> fp_;            // equip state machine + input
+  std::optional<Actor> fp_actor_;              // the FP arms rig (null until built)
+  bool fp_ready_ = false;                      // rig + clips loaded
+  bool fp_engaged_ = false;                    // advance the pose this frame
+  bool fp_visible_ = false;                    // emit draws + hide the TP body
+  bool fp_clip_done_ = false;                  // active one-shot clip finished
+  bool fp_clip_loop_ = true;                   // idle loops; one-shots don't
+  FpClip fp_current_ = FpClip::kIdle;
+  f32 fp_clip_time_ = 0;
+  i32 fp_weapon_bone_ = -1;                    // "WEAPON" node in the FP skeleton
+  Mat4 fp_weapon_inv_bind_ = Mat4::Identity(); // inverse bind of the WEAPON node
+  i32 fp_cam_bone_ = -1;                       // "Camera1st [Cam1]" node
+  Vec3 fp_cam_offset_{};                       // bind Cam1 position, local metres
+  bool fp_has_weapon_ = false;                 // a weapon part is attached
+  Mat4 fp_view_ = Mat4::Identity();            // camera-to-world for this frame
+  Mat4 fp_prev_model_ = Mat4::Identity();      // previous FP model (motion vectors)
+  Mat4 fp_prev_weapon_ = Mat4::Identity();     // previous weapon transform (motion vectors)
+  std::shared_ptr<const HavokClip> fp_idle_, fp_equip_, fp_unequip_, fp_attack_;
 };
 
 }  // namespace rx

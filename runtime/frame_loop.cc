@@ -242,6 +242,10 @@ void Engine::OnSimulate(f32 frame_delta) {
     // World-driven progression: the player walking into a scripted trigger box
     // fires its OnTriggerEnter, the native way Skyrim advances a quest.
     interaction_->UpdateTriggers();
+    // Dropped-item upkeep: mirror settled body transforms, hibernate/wake the
+    // loot field around the player, and autosave. Loads persisted items lazily on
+    // the first frame the player exists.
+    if (items_) items_->Update(frame_delta);
   }
 }
 

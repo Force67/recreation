@@ -284,6 +284,7 @@ if(RECREATION_NET)
 
   add_executable(actor_synctest actor_synctest.cc)
   target_link_libraries(actor_synctest PRIVATE recreation::gamenet recreation::world)
+  target_include_directories(actor_synctest PRIVATE ${CMAKE_SOURCE_DIR}/runtime)  # gait_rate.h (header-only)
   recreation_set_warnings(actor_synctest)
 
   add_executable(stage_requesttest stage_requesttest.cc)

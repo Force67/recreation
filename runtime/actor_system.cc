@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -15,9 +17,13 @@
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
+#include "character/character.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "engine_internal.h"
+#include "gait_rate.h"
+#include "scene/components.h"
+#include "fp_equipment.h"
 #include "world/components.h"
 #if RECREATION_HAS_NET
 #include "net/replication.h"
@@ -85,7 +91,11 @@ ActorSystem::ActorSystem(EngineContext& ctx)
       camera_(*ctx.camera),
       config_(*ctx.config),
       vfs_(*ctx.vfs),
-      records_(*ctx.records) {}
+      records_(*ctx.records) {
+  fp_ = std::make_unique<FpEquipment>(ctx_, *this);
+}
+
+ActorSystem::~ActorSystem() = default;
 
 ecs::Entity ActorSystem::PlayerEntity() const {
   return player_actor_ >= 0 ? actors_[player_actor_].entity : ecs::kInvalidEntity;
@@ -120,32 +130,27 @@ void ActorSystem::SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw) 
   }
 }
 
-void ActorSystem::MovePlayer(const Vec3& velocity, bool jump, f32 yaw, bool moving, f32 speed,
-                             f32 dt, Vec3* out_body) {
-  if (std::getenv("RX_SKEL_DUMP")) {
-    static int calls = 0;
-    if (calls++ < 3) RX_INFO("MovePlayer called (vel {:.2f} {:.2f} {:.2f})", velocity.x, velocity.y, velocity.z);
-  }
+void ActorSystem::MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving,
+                             bool grounded) {
   if (player_actor_ < 0) return;
   Actor& actor = actors_[player_actor_];
-  if (moving) actor.yaw = yaw;  // the biped's +Z faces movement
-  Vec3 char_pos{};
-  bool grounded = false;
-  physics_.MoveCharacter(actor.character, velocity, jump, dt, &char_pos, &grounded);
-  actor.speed = moving ? speed : 0.0f;
-  (void)grounded;
-  // Drive the entity from the capsule; the biped's body sits below the centre.
+  // The rx character module (PlayerController) owns the capsule + movement now;
+  // this mirrors its result onto the biped. `feet` is the capsule's feet (the
+  // entity origin the skeleton is authored around), so the transform takes it
+  // directly rather than deriving it from a capsule centre.
+  if (moving) actor.yaw = facing_yaw;  // the biped's +Z faces movement
+  actor.speed = moving ? planar_speed : 0.0f;
+  (void)grounded;  // available for jump/land animation once the anim layer wants it
   if (world::Transform* t = world_.Get<world::Transform>(actor.entity)) {
-    t->position[0] = char_pos.x;
-    t->position[1] = char_pos.y - actor.capsule_offset;
-    t->position[2] = char_pos.z;
-    f32 h = actor.yaw * 0.5f;
+    t->position[0] = feet.x;
+    t->position[1] = feet.y;
+    t->position[2] = feet.z;
+    const f32 h = actor.yaw * 0.5f;
     t->rotation[0] = 0;
     t->rotation[1] = std::sin(h);
     t->rotation[2] = 0;
     t->rotation[3] = std::cos(h);
   }
-  *out_body = Vec3{char_pos.x, char_pos.y - actor.capsule_offset, char_pos.z};
 }
 
 void ActorSystem::CreateTestCharacter() {
@@ -222,6 +227,18 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     t->position[0] = x;
     t->position[1] = y;
     t->position[2] = z;
+  }
+  // If the rx character controller is live on this entity, reset its velocity and
+  // flag the teleport so the follow camera cuts (SyncCharacterCameraAnchors bumps
+  // the anchor revision) instead of swinging across the worldspace.
+  if (auto* st = world_.Get<character::CharacterState>(a.entity)) {
+    st->velocity = {0, 0, 0};
+    st->teleported = true;
+  }
+  if (auto* tr = world_.Get<scene::Transform>(a.entity)) {
+    tr->position[0] = x;
+    tr->position[1] = y;
+    tr->position[2] = z;
   }
   RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
 }
@@ -589,6 +606,24 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
   // so the entity origin (feet) rests at pos.y on the ground.
   actor.capsule_offset = 0.85f;
   actor.character = physics_.CreateCharacter({pos.x, pos.y + actor.capsule_offset, pos.z}, 0.3f, 0.55f);
+
+  // Bind the player to the shared idle/walk/run locomotion machine (real Skyrim
+  // clips + walk<->run blend space + foot-sync markers) so the gait reads off the
+  // actual planar speed and the feet plant instead of sliding. Capsule-driven: the
+  // machine only POSES the body (loco_apply_root stays false) -- position is owned
+  // by the rx character controller (PlayerController). The per-actor anti-slide
+  // playback-rate sync (GaitPlaybackRate) keys on loco_apply_root==false, so it
+  // applies to the player but not the root-motion showcase actor. Falls back to the
+  // procedural gait when the clips are absent (BuildCharacterLocomotion -> null ->
+  // AttachLocomotion no-ops), so a missing-data session keeps the old behaviour.
+  if (ctx_.game == bethesda::Game::kSkyrimSe) {
+    const std::string skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
+    if (auto arch = BuildCharacterLocomotion(actor, skel_hkx, "character")) {
+      AttachLocomotion(actor, arch);
+      actor.foot_ik = true;  // AttachLocomotion clears it; keep ground-adaptive feet on stairs
+      RX_INFO("player: bound to the idle/walk/run locomotion machine (anti foot-slide rate sync on)");
+    }
+  }
 
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(std::move(actor));
@@ -982,20 +1017,35 @@ void ActorSystem::UpdateLocomotion(Actor& actor, f32 dt) {
   actor.loco_params[arch.speed_param] = speed;
 
   // Shared normalized locomotion phase [0,1): foot-synced when the gaits share
-  // markers, else a plain clock whose cadence scales with speed.
+  // markers, else a plain clock whose cadence scales with speed. Capsule-driven
+  // gameplay actors (the player, loco_apply_root==false) route the clock through
+  // GaitPlaybackRate so the gait clip's stride cadence tracks the ground and the
+  // feet stop sliding when the speed sits off the authored walk/run clips (slow
+  // analog / speed-blend, or sprint above the run clip). Identity inside [walk,run]
+  // so the root-motion showcase actor is unchanged.
+  const bool rate_sync = !actor.loco_apply_root;
   f32 phase;
   if (actor.loco_synced) {
-    f32 play_rate = (speed > 0.05f ? speed : 0.0f) / std::max(arch.walk_speed, 0.05f);
+    f32 play_rate = speed > 0.05f
+                        ? (rate_sync ? GaitPlaybackRate(speed, arch.walk_speed, arch.run_speed)
+                                     : speed / std::max(arch.walk_speed, 0.05f))
+                        : 0.0f;
     actor.loco_sync.Advance(dt, /*leader=*/0, play_rate);
     u32 markers = actor.loco_sync.marker_count();
     phase = markers > 0 ? actor.loco_sync.phase() / static_cast<f32>(markers) : 0.0f;
   } else {
-    f32 cadence = (speed > 0.05f ? speed : arch.walk_speed) / std::max(arch.walk_speed, 0.05f);
+    f32 cadence = rate_sync
+                      ? GaitPlaybackRate(speed > 0.05f ? speed : arch.walk_speed, arch.walk_speed,
+                                         arch.run_speed)
+                      : (speed > 0.05f ? speed : arch.walk_speed) / std::max(arch.walk_speed, 0.05f);
     actor.loco_phase += dt * cadence / arch.walk_duration;
     actor.loco_phase -= std::floor(actor.loco_phase);
     phase = actor.loco_phase;
   }
   actor.loco_params[arch.phase_param] = phase;
+  // Keep the procedural foot-IK stance weighting (UpdateOneActor) in step with the
+  // machine's gait phase so the planted/swing foot classification stays correct.
+  actor.locomotion.phase = phase;
 
   kinema::PoseParams pp{actor.loco_params.data(), static_cast<u32>(actor.loco_params.size())};
   kinema::PoseView out = KinPoseView(actor.pose);
@@ -1191,6 +1241,11 @@ bool ActorSystem::CreateSkyrimActor() {
 void ActorSystem::Update(f32 dt) {
   for (Actor& actor : actors_) UpdateOneActor(actor, dt);
   for (auto entry : npc_actors_) UpdateOneActor(entry.value, dt);
+  // First-person weapon: run the equip state machine (reads last frame's clip
+  // completion), then advance the rig's pose. The camera has already published
+  // this frame's walk eye/target before ActorSystem::Update runs.
+  if (fp_) fp_->Update(dt);
+  if (fp_engaged_) AdvanceFpRig(dt);
 }
 
 void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
@@ -1305,8 +1360,16 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
 }
 
 void ActorSystem::EmitDraws(render::FrameView& view) {
-  for (Actor& actor : actors_) EmitOneActor(actor, view);
+  // In first person the player's own third-person body must not render (it would
+  // clip the near plane and self-shadow the FP arms). Suppress just the player
+  // actor; NPCs and other players still draw.
+  const bool first_person = ctx_.walk_mode && !ctx_.third_person && player_actor_ >= 0;
+  for (i32 i = 0; i < static_cast<i32>(actors_.size()); ++i) {
+    if (first_person && i == player_actor_) continue;
+    EmitOneActor(actors_[i], view);
+  }
   for (auto entry : npc_actors_) EmitOneActor(entry.value, view);
+  if (fp_visible_) EmitFpRig(view);
 }
 
 void ActorSystem::EmitOneActor(Actor& actor, render::FrameView& view) {
@@ -1364,6 +1427,217 @@ void ActorSystem::EmitOneActor(Actor& actor, render::FrameView& view) {
     renderer_.SetHairGroomTransform(actor.hair_groom, head * Inverse(actor.skeleton_to_local));
   }
   actor.prev_model = model;
+}
+
+// ---------------------------------------------------------------------------
+// First-person weapon rig: its own _1stperson skeleton actor (arms/hands + a
+// weapon riding the WEAPON node), driven by FpEquipment and rooted to the camera
+// each frame. Reuses the same NIF/clip/skin machinery as the body actors.
+// ---------------------------------------------------------------------------
+
+// RX_FP_OFFSET="x,y,z" nudges the rig in camera-local metres (x right, y up,
+// z toward the viewer) for framing the arms. Default lifts them slightly so the
+// hands read in the lower frame at the 60-degree world FOV (Skyrim uses a wider
+// dedicated viewmodel FOV we do not have a separate value for yet).
+static Vec3 FpViewOffset() {
+  static Vec3 off = [] {
+    Vec3 v{0.0f, 0.09f, 0.02f};
+    if (const char* s = std::getenv("RX_FP_OFFSET")) std::sscanf(s, "%f,%f,%f", &v.x, &v.y, &v.z);
+    return v;
+  }();
+  return off;
+}
+
+bool ActorSystem::EnsureFpRig() {
+  if (fp_ready_) return true;
+  if (fp_actor_) return false;  // a prior attempt failed; don't retry on every draw
+  if (config_.headless || ctx_.game != bethesda::Game::kSkyrimSe) return false;
+
+  const std::string skel_path = "meshes/actors/character/_1stperson/skeleton.nif";
+  auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
+  if (!skel_bytes) {
+    RX_WARN("fp: {} not found in the mounted archives", skel_path);
+    fp_actor_.emplace();  // mark attempted so we don't retry
+    return false;
+  }
+  Actor actor;
+  if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
+                                    asset::MakeAssetId(skel_path), &actor.skeleton)) {
+    RX_WARN("fp: failed to parse {}", skel_path);
+    fp_actor_.emplace();
+    return false;
+  }
+  actor.entity = ecs::kInvalidEntity;  // no ECS entity: the rig is rooted to the camera
+  actor.pose.ResetToBind(actor.skeleton);
+  // Same Bethesda Z-up game-units -> engine Y-up metres basis as the body rig.
+  constexpr f32 s = 0.01428f;
+  Mat4 basis{};
+  basis.m[0] = s;
+  basis.m[6] = -s;
+  basis.m[9] = s;
+  basis.m[15] = 1.0f;
+  actor.skeleton_to_local = basis;
+  actor.animate = true;
+  actor.foot_ik = false;
+  anim::ComputeModelMatrices(actor.skeleton, actor.pose, &actor.bone_model);
+  fp_actor_.emplace(std::move(actor));
+  Actor& a = *fp_actor_;
+
+  // Weight-1 first-person arm/hand morph meshes (matches the body rig's choice).
+  bool any = LoadActorPart("meshes/actors/character/character assets/1stpersonmalebody_1.nif", a);
+  any = LoadActorPart("meshes/actors/character/character assets/1stpersonmalehands_1.nif", a) || any;
+  if (!any) {
+    RX_WARN("fp: no first-person arm meshes loaded");
+    return false;
+  }
+
+  fp_weapon_bone_ = a.skeleton.Find("WEAPON");
+  if (fp_weapon_bone_ >= 0 && fp_weapon_bone_ < static_cast<i32>(a.bone_model.size()))
+    fp_weapon_inv_bind_ = Inverse(a.bone_model[fp_weapon_bone_]);
+  fp_cam_bone_ = a.skeleton.Find("Camera1st [Cam1]");
+  // Pin the camera node at the eye: its bind position in local metres becomes a
+  // fixed offset so the arms sit steady in the lower frame while the clips play.
+  fp_cam_offset_ = Vec3{};
+  if (fp_cam_bone_ >= 0 && fp_cam_bone_ < static_cast<i32>(a.bone_model.size()))
+    fp_cam_offset_ = Translation(basis * a.bone_model[fp_cam_bone_]);
+  RX_INFO("fp: rig loaded ({} bones, {} parts, WEAPON bone {}, Cam1 bone {})",
+          a.skeleton.bones.size(), a.parts.size(), fp_weapon_bone_, fp_cam_bone_);
+
+  // First-person one-handed clip set. Track names resolve through the FP behavior
+  // skeleton, falling back to the third-person one (shared arm bone names).
+  const char* fp_skel_hkx =
+      "meshes/actors/character/_1stperson/characterassets/skeletonfirst.hkx";
+  const char* tp_skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
+  const std::string dir = "meshes/actors/character/_1stperson/animations/";
+  auto load = [&](const char* file) -> std::shared_ptr<HavokClip> {
+    if (auto c = LoadHavokClip(a, dir + file, fp_skel_hkx, "character")) return c;
+    return LoadHavokClip(a, dir + file, tp_skel_hkx, "character");
+  };
+  fp_idle_ = load("1hm_idle.hkx");
+  fp_equip_ = load("1hm_equip.hkx");
+  fp_unequip_ = load("1hm_unequip.hkx");
+  fp_attack_ = load("1hm_attackright.hkx");
+  if (!fp_idle_) {
+    RX_WARN("fp: 1hm_idle.hkx failed to load; rig unusable");
+    return false;
+  }
+  RX_INFO("fp: clips loaded (idle {}, equip {}, unequip {}, attack {})",
+          static_cast<bool>(fp_idle_), static_cast<bool>(fp_equip_),
+          static_cast<bool>(fp_unequip_), static_cast<bool>(fp_attack_));
+
+  fp_current_ = FpClip::kIdle;
+  fp_clip_time_ = 0;
+  fp_clip_done_ = false;
+  fp_clip_loop_ = true;
+  fp_ready_ = true;
+  return true;
+}
+
+void ActorSystem::SetFpWeapon(asset::AssetId mesh) {
+  ClearFpWeapon();
+  if (!fp_actor_ || mesh.hash == 0 || fp_weapon_bone_ < 0) {
+    if (mesh.hash == 0) RX_WARN("fp: equipped weapon has no world mesh; arms drawn empty");
+    return;
+  }
+  ActorPart part;
+  part.mesh = mesh;
+  part.attach_bone = fp_weapon_bone_;
+  part.attach_inverse_bind = fp_weapon_inv_bind_;
+  fp_actor_->parts.push_back(std::move(part));
+  fp_has_weapon_ = true;
+}
+
+void ActorSystem::ClearFpWeapon() {
+  if (!fp_actor_ || !fp_has_weapon_) return;
+  Actor& a = *fp_actor_;
+  if (!a.parts.empty() && a.parts.back().attach_bone == fp_weapon_bone_) a.parts.pop_back();
+  fp_has_weapon_ = false;
+}
+
+void ActorSystem::PlayFpClip(FpClip clip) {
+  fp_current_ = clip;
+  fp_clip_time_ = 0;
+  fp_clip_done_ = false;
+  fp_clip_loop_ = (clip == FpClip::kIdle);
+}
+
+const ActorSystem::HavokClip* ActorSystem::CurrentFpClip() const {
+  switch (fp_current_) {
+    case FpClip::kIdle: return fp_idle_.get();
+    case FpClip::kEquip: return fp_equip_ ? fp_equip_.get() : fp_idle_.get();
+    case FpClip::kUnequip: return fp_unequip_ ? fp_unequip_.get() : fp_idle_.get();
+    case FpClip::kAttack: return fp_attack_ ? fp_attack_.get() : fp_idle_.get();
+  }
+  return fp_idle_.get();
+}
+
+void ActorSystem::SetFpRootView(const Vec3& eye, const Vec3& target) {
+  Vec3 f = Normalize(target - eye);
+  Vec3 up{0, 1, 0};
+  Vec3 r = Normalize(Cross(f, up));
+  Vec3 u = Cross(r, f);
+  Mat4 c = Mat4::Identity();  // camera-to-world (columns: right, up, -forward, eye)
+  c.m[0] = r.x; c.m[1] = r.y; c.m[2] = r.z;
+  c.m[4] = u.x; c.m[5] = u.y; c.m[6] = u.z;
+  c.m[8] = -f.x; c.m[9] = -f.y; c.m[10] = -f.z;
+  c.m[12] = eye.x; c.m[13] = eye.y; c.m[14] = eye.z;
+  fp_view_ = c;
+}
+
+void ActorSystem::SetFpFlags(bool engaged, bool visible) {
+  fp_engaged_ = engaged && fp_ready_;
+  fp_visible_ = visible && fp_ready_;
+}
+
+void ActorSystem::AdvanceFpRig(f32 dt) {
+  if (!fp_ready_ || !fp_actor_) return;
+  Actor& a = *fp_actor_;
+  if (const HavokClip* clip = CurrentFpClip()) {
+    const f32 dur = std::max(clip->animation.duration, 1.0f / 30.0f);
+    fp_clip_time_ += dt;
+    if (fp_clip_loop_) {
+      if (fp_clip_time_ >= dur) fp_clip_time_ = std::fmod(fp_clip_time_, dur);
+    } else if (fp_clip_time_ >= dur) {
+      fp_clip_time_ = dur;
+      fp_clip_done_ = true;
+    }
+    SampleHavokClipToPose(a, *clip, fp_clip_time_, &a.pose);
+  } else {
+    a.pose.ResetToBind(a.skeleton);
+  }
+  anim::ComputeModelMatrices(a.skeleton, a.pose, &a.bone_model);
+}
+
+void ActorSystem::EmitFpRig(render::FrameView& view) {
+  if (!fp_ready_ || !fp_actor_) return;
+  Actor& a = *fp_actor_;
+  // Root the rig so its Camera1st node lands at the eye, oriented to the view,
+  // with the optional RX_FP_OFFSET nudge in camera-local metres.
+  const Vec3 back{-fp_cam_offset_.x, -fp_cam_offset_.y, -fp_cam_offset_.z};
+  const Mat4 model =
+      fp_view_ * MakeTranslation(FpViewOffset()) * MakeTranslation(back) * a.skeleton_to_local;
+  for (ActorPart& part : a.parts) {
+    render::DrawItem item;
+    item.mesh = part.mesh.hash;
+    if (part.attach_bone >= 0 && part.attach_bone < static_cast<i32>(a.bone_model.size())) {
+      // Weapon: ride the WEAPON bone's animated delta from its bind transform.
+      // Real motion vectors (previous frame's transform) so the swing does not
+      // ghost under TAA like a plain rigid attach would.
+      item.transform = model * a.bone_model[part.attach_bone] * part.attach_inverse_bind;
+      item.prev_transform = fp_prev_weapon_;
+      item.skin_offset = -1;
+      fp_prev_weapon_ = item.transform;
+    } else {
+      item.transform = model;
+      item.prev_transform = fp_prev_model_;
+      item.skin_offset = static_cast<i32>(view.bone_matrices.size());
+      base::Vector<Mat4> palette;
+      anim::BuildSkinPalette(a.bone_model, part.skin, part.remap, &palette);
+      for (const Mat4& m : palette) view.bone_matrices.push_back(m);
+    }
+    view.draws.push_back(item);
+  }
+  fp_prev_model_ = model;
 }
 
 const ActorSystem::Actor* ActorSystem::SoldierTemplate(int team) {

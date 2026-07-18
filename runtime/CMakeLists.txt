@@ -15,10 +15,13 @@ set(RECREATION_RUNTIME_SOURCES
   game_input.cc
   content_domain.cc
   actor_system.cc
+  player_controller.cc
   face.cc
   chargen.cc
   demo_scenes.cc
   interaction_system.cc
+  item_bridge.cc
+  fp_equipment.cc
   nav_service.cc
   npc_director.cc
   platform_hud.cc
@@ -45,6 +48,10 @@ set(RECREATION_RUNTIME_MODULES
   rx::anim
   rx::nav
   rx::nav_viz
+  rx::scene
+  rx::character
+  rx::inventory
+  rx::inventory_world
   recreation::bethesda
   recreation::world
   recreation::quest
