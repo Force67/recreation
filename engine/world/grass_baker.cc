@@ -5,10 +5,20 @@
 #include <cstring>
 #include <string>
 
+#include <base/option.h>
+
 #include "core/log.h"
 
 namespace rx::world {
 namespace {
+
+// Include baked grass in the ray-traced scene. Off by default: grass is dense
+// clutter that bloats the TLAS and, until the engine's opaque-approximation
+// vegetation path (RX_RT_VEG) is measured on it, is cheaper left out. When on,
+// grass enters the realtime TLAS like any other mesh and its alpha-masked
+// submeshes pick up the vegetation opaque approximation automatically. Measure
+// before enabling by default; pair with RT-scene instance culling (Phase 2).
+base::Option<bool> RtGrassOpt{"rt.grass", false, "RX_RT_GRASS"};
 
 constexpr f32 kCellSize = 4096.0f;
 constexpr u32 kLandGridPoints = 33;
@@ -270,7 +280,7 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
 
   asset::Mesh built;
   built.id = mesh_id;
-  built.exclude_from_rt = true;
+  built.exclude_from_rt = !RtGrassOpt;
   built.lods.emplace_back();
   asset::MeshLod& lod = built.lods[0];
 
