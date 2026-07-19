@@ -14,6 +14,8 @@
 namespace rx {
 
 class ActorSystem;
+class FeatureGym;
+class ShowcaseCamera;
 
 // Builds the engine's standalone demo / bring-up scenes (selected by
 // --demo-scene) and owns the CPU-side effect state (the particle fountain, the
@@ -22,6 +24,7 @@ class ActorSystem;
 class DemoScenes {
  public:
   DemoScenes(EngineContext& ctx, ActorSystem* actors);
+  ~DemoScenes();
 
   // Dispatches on config.demo_scene; the default spins a cube + test biped.
   void CreateDemoScene();
@@ -32,6 +35,10 @@ class DemoScenes {
   // Appends the live demo effects (particles, gaussians, oit, lights, fur, gpu
   // particles) into this frame's render view.
   void EmitToView(f32 dt, render::FrameView& view);
+  // The feature gym supplies its own area-by-area regression path and the
+  // renderer/weather mode associated with the current tour time.
+  bool BuildFeatureGymTour(ShowcaseCamera& camera);
+  void SetFeatureGymTourTime(f32 seconds);
 
  private:
   void CreateWaterDemoScene();
@@ -102,6 +109,8 @@ class DemoScenes {
   u32 hair_orbit_groom_ = 0;           // the groom driven on a slow orbit
   Vec3 hair_orbit_center_{0, 0, 0};
   f32 hair_time_ = 0;
+
+  std::unique_ptr<FeatureGym> feature_gym_;
 };
 
 }  // namespace rx

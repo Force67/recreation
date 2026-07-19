@@ -41,6 +41,9 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        getByName("main").assets.srcDir("../../runtime/feature_gym/assets")
+    }
     // The engine and validation layer .so files are staged into jniLibs by
     // android/build_native.sh; keep them uncompressed and unstripped so the
     // Vulkan loader can mmap them and crash dumps stay symbolicated.

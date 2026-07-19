@@ -362,7 +362,9 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
             u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
             Mat4 current = TransformMatrix(transform);
             const Mat4* prev = prev_transforms_.find(key);
-            view.draws.push_back({renderable.mesh.hash, current, prev ? *prev : current});
+            render::DrawItem draw{renderable.mesh.hash, current, prev ? *prev : current};
+            if (const scene::Tint* tint = world_->Get<scene::Tint>(entity)) draw.tint = tint->rgb;
+            view.draws.push_back(draw);
             transforms.insert(key, current);
           });
       prev_transforms_ = std::move(transforms);

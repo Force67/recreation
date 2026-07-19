@@ -257,6 +257,10 @@ void Engine::OnShutdown() {
   extra_streamers_.clear();  // reference domain records/assets; drop before the domains
   extra_domains_.clear();    // joins each secondary guest thread before teardown
   managed_.reset();
+  // Demo scenes may own renderer and physics handles (feature-gym instance
+  // groups, strand grooms, and debug pipelines). Release them while both
+  // services are still alive rather than from Engine's post-host destructor.
+  demos_.reset();
   // GPU-dependent UI resources, released while the renderer is still alive.
   if (!config_.headless) {
     game_ui_.Shutdown();

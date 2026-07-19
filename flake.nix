@@ -131,6 +131,7 @@
             mkdir -p $out/bin
             cp runtime/recreation $out/bin/
             cp runtime/recreation-server $out/bin/
+            cp -r runtime/feature_gym-assets $out/bin/
             cp tools/esminfo/esminfo $out/bin/
             runHook postInstall
           '';

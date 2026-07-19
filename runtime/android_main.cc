@@ -19,6 +19,7 @@
 #include "core/log.h"
 #include "core/window.h"
 #include "engine.h"
+#include "feature_gym/feature_gym.h"
 #include "render/core/presets.h"
 
 namespace {
@@ -272,6 +273,7 @@ int32_t HandleInput(android_app* app, AInputEvent* event) {
 }  // namespace
 
 void android_main(android_app* app) {
+  rx::SetFeatureGymAssetManager(app->activity->assetManager);
   AppState state;
   app->userData = &state;
   app->onAppCmd = HandleCmd;

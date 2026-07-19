@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <utility>
 
 #include <base/option.h>
@@ -190,18 +191,31 @@ void Engine::DriveCamera(f32 dt) {
     // RX_SHOWCASE flies a smooth cinematic pass over every loaded worldspace in
     // one take. RX_SHOWCASE_SHOTS=<dir> writes a regression PNG at each marked
     // beat; RX_SHOWCASE_QUIT exits when the pass ends (headless benchmark).
-    if (Showcase || Trailer) {
+    if (Showcase || Trailer || config_.feature_tour) {
       // Multi-game trailer: collapse the side-by-side regions onto one shared
       // center and stream the games one at a time. Must run before BuildShowcase
       // so the camera path is built over the collapsed regions.
       if (Trailer) SetupTrailerStreaming();
       BuildShowcase();
       cam_showcase_ = !showcase_.empty();
-      if (const char* d = ShowcaseShots.get()) showcase_shot_dir_ = d;
-      showcase_quit_ = bool(ShowcaseQuit);
+      if (!config_.feature_tour_shots.empty())
+        showcase_shot_dir_ = config_.feature_tour_shots;
+      else if (const char* d = ShowcaseShots.get())
+        showcase_shot_dir_ = d;
+      showcase_quit_ = bool(ShowcaseQuit) || config_.feature_tour_quit;
+      if (!showcase_shot_dir_.empty()) {
+        std::error_code error;
+        std::filesystem::create_directories(showcase_shot_dir_, error);
+        if (error) {
+          RX_WARN("showcase: cannot create capture directory {}: {}", showcase_shot_dir_,
+                  error.message());
+          showcase_shot_dir_.clear();
+        }
+      }
       if (cam_showcase_) {
         ctx_.walk_mode = false;         // the cinematic owns the camera
         game_ui_.SetHudVisible(false);  // clean frames: no crosshair / compass / bars
+        if (config_.feature_tour) debug_ui_.SetAllVisible(false);
         RX_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
                  showcase_regions_.size(), showcase_.duration(),
                  showcase_shot_dir_.empty() ? "" : " (capturing)");
@@ -219,7 +233,7 @@ void Engine::DriveCamera(f32 dt) {
           }
         }
       } else {
-        RX_WARN("RX_SHOWCASE/RX_TRAILER set but no worldspaces to fly over");
+        RX_WARN("automatic showcase requested but no camera path was built");
       }
     }
   }
@@ -232,6 +246,7 @@ void Engine::DriveCamera(f32 dt) {
 
   if (cam_showcase_) {
     f32 prev = cam_time_ - dt;
+    demos_->SetFeatureGymTourTime(cam_time_);
     ShowcasePose p = showcase_.Sample(cam_time_);
     LookCameraAt(p.eye, p.target);
     // Trailer: drive the weather, render mode and on-screen chrome off the same
@@ -342,6 +357,7 @@ void Engine::DriveCamera(f32 dt) {
 }
 
 void Engine::BuildShowcase() {
+  if (demos_->BuildFeatureGymTour(showcase_)) return;
   // Per-worldspace drone beats, as offsets in metres from the region centre C
   // (ground level). Regions are placed along +X (east), so each pass enters from
   // the west and exits east, which keeps the glide between worldspaces short.

@@ -2,6 +2,8 @@ build/
 out/
 .cache/
 compile_commands.json
+__pycache__/
+*.pyc
 # .NET managed build artifacts (library and test project, any depth)
 sdk/**/obj/
 sdk/**/bin/
@@ -10,6 +12,8 @@ sdk/**/bin/
 .direnv/
 result
 assets/
+!runtime/feature_gym/assets/
+!runtime/feature_gym/assets/*
 third_party/FidelityFX-SDK/
 third_party/JoltPhysics/
 third_party/DLSS/

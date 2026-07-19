@@ -18,6 +18,7 @@ set(RECREATION_RUNTIME_SOURCES
   face.cc
   chargen.cc
   demo_scenes.cc
+  feature_gym/feature_gym.cc
   interaction_system.cc
   npc_director.cc
   platform_hud.cc
@@ -37,6 +38,7 @@ set(RECREATION_RUNTIME_MODULES
   rx::core
   rx::ecs
   rx::asset
+  rx::scene
   rx::app
   recreation::audio
   rx::render
@@ -79,7 +81,17 @@ endif()
 
 add_executable(recreation main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation PRIVATE ${RECREATION_RUNTIME_MODULES})
-target_compile_definitions(recreation PRIVATE RECREATION_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(recreation PRIVATE
+  RECREATION_VERSION="${PROJECT_VERSION}")
+file(GLOB RECREATION_FEATURE_GYM_ASSETS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/feature_gym/assets/*")
+add_custom_target(recreation_feature_gym_assets ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/feature_gym/assets"
+          "${CMAKE_CURRENT_BINARY_DIR}/feature_gym-assets"
+  DEPENDS ${RECREATION_FEATURE_GYM_ASSETS}
+  COMMENT "Copying feature-gym assets")
+add_dependencies(recreation recreation_feature_gym_assets)
 recreation_set_warnings(recreation)
 recreation_enable_mimalloc(recreation)
 
@@ -131,6 +143,7 @@ endif()
 # renderer module since the engine owns one; it never initializes vulkan.
 add_executable(recreation-server server_main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation-server PRIVATE ${RECREATION_RUNTIME_MODULES})
+add_dependencies(recreation-server recreation_feature_gym_assets)
 recreation_set_warnings(recreation-server)
 recreation_enable_mimalloc(recreation-server)
 

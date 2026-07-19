@@ -12,7 +12,10 @@ void PrintUsage() {
   RX_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
   RX_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
   RX_INFO("  --menu                open the NEXUS main menu (pick a universe to play)");
-  RX_INFO("  --demo <id>           builtin scene: water | materials | gaussian");
+  RX_INFO("  --demo <id>           builtin scene: featuregym | water | materials | gaussian");
+  RX_INFO("  --feature-tour        automatically visit every feature-gym district");
+  RX_INFO("  --feature-tour-shots <dir> capture every tour stop as a PNG");
+  RX_INFO("  --feature-tour-quit   quit when the feature tour completes");
   RX_INFO("  --game <id>           skyrimse | fo4 | fo76 | starfield | oblivion | morrowind (default: autodetect)");
   RX_INFO("  --add-game <spec>     load another game's content live alongside the");
   RX_INFO("                        primary, as <game>:<data-dir>[:<plugins.txt>]");
@@ -63,6 +66,15 @@ int main(int argc, char** argv) {
     if (arg == "--data-dir") config.data_dir = next();
     else if (arg == "--gltf") config.gltf_path = next();
     else if (arg == "--demo") config.demo_scene = next();
+    else if (arg == "--feature-tour") config.feature_tour = true;
+    else if (arg == "--feature-tour-shots") {
+      config.feature_tour = true;
+      config.feature_tour_shots = next();
+    }
+    else if (arg == "--feature-tour-quit") {
+      config.feature_tour = true;
+      config.feature_tour_quit = true;
+    }
     else if (arg == "--plugins") config.plugins_txt = next();
     else if (arg == "--game") config.game = ParseGame(next());
     else if (arg == "--add-game") {
@@ -127,6 +139,12 @@ int main(int argc, char** argv) {
   if (config.plugins_txt.empty() && !config.data_dir.empty()) {
     config.plugins_txt = config.data_dir + "/../plugins.txt";
   }
+  if (config.feature_tour && config.demo_scene.empty()) config.demo_scene = "featuregym";
+  // SDF mesh data must be captured while meshes are uploaded. Seed it before
+  // Host initializes the renderer when --no-rt selects RCGI's software path.
+  if ((config.demo_scene == "featuregym" || config.demo_scene == "feature-gym") &&
+      !config.renderer.enable_raytracing)
+    config.renderer.software_gi = true;
 
   // The app::Host owns the generic subsystems and the fixed-step loop; the game
   // is its Application. The renderer/preset/headless choices cross over; the game

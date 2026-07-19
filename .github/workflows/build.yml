@@ -60,6 +60,7 @@ jobs:
           name: recreation-linux-x64
           path: |
             build/runtime/recreation
+            build/runtime/feature_gym-assets
             build/tools/esminfo/esminfo
 
   # Boots the renderer headlessly on lavapipe and captures the golden scenes
@@ -93,11 +94,23 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x720x24"
           python3 tests/golden/golden.py --binary build/runtime/recreation
           --profile loose --timeout 600
+      - name: feature-gym smoke
+        if: always()
+        env:
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          SDL_AUDIODRIVER: dummy
+          LP_NUM_THREADS: "1"
+        run: >
+          xvfb-run -a -s "-screen 0 1280x720x24"
+          python3 tests/feature_gym/tour.py --binary build/runtime/recreation
+          --no-rt --out build/feature-gym --timeout 900
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: golden-captures
-          path: build/golden
+          path: |
+            build/golden
+            build/feature-gym
 
   linux-arm:
     runs-on: ubuntu-24.04-arm
@@ -182,6 +195,7 @@ jobs:
           name: recreation-linux-arm64
           path: |
             build/runtime/recreation
+            build/runtime/feature_gym-assets
             build/tools/esminfo/esminfo
 
   windows:
@@ -271,6 +285,7 @@ jobs:
           name: recreation-windows-x64
           path: |
             build/runtime/recreation.exe
+            build/runtime/feature_gym-assets
             build/runtime/mimalloc.dll
             build/runtime/mimalloc-redirect.dll
             build/tools/esminfo/esminfo.exe
@@ -364,6 +379,7 @@ jobs:
           name: recreation-macos-arm64
           path: |
             build/runtime/recreation
+            build/runtime/feature_gym-assets
             build/tools/esminfo/esminfo
 
   android:

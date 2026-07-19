@@ -20,6 +20,7 @@
 #include "bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "feature_gym/feature_gym.h"
 #include "render/geometry/hair_groom.h"
 #include "world/components.h"
 
@@ -49,7 +50,10 @@ DemoScenes::DemoScenes(EngineContext& ctx, ActorSystem* actors)
       physics_(*ctx.physics),
       config_(*ctx.config) {}
 
+DemoScenes::~DemoScenes() = default;
+
 void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
+  if (feature_gym_) feature_gym_->Emit(dt, view);
   UpdateParticles(dt, view);
   if (gpu_particle_count_ > 0) {
     view.gpu_particle_count = gpu_particle_count_;
@@ -99,6 +103,14 @@ void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
     Mat4 m = MakeTranslation(pos) * MakeFromQuat(QuatFromAxisAngle({0, 1, 0}, 0.8f * std::sin(a)));
     renderer_.SetHairGroomTransform(hair_orbit_groom_, m);
   }
+}
+
+bool DemoScenes::BuildFeatureGymTour(ShowcaseCamera& camera) {
+  return feature_gym_ && feature_gym_->BuildTour(camera);
+}
+
+void DemoScenes::SetFeatureGymTourTime(f32 seconds) {
+  if (feature_gym_) feature_gym_->SetTourTime(seconds);
 }
 
 namespace {
@@ -1879,6 +1891,11 @@ void DemoScenes::CreateMaterialXDemoScene() {
 }
 
 void DemoScenes::CreateDemoScene() {
+  if (config_.demo_scene == "featuregym" || config_.demo_scene == "feature-gym") {
+    feature_gym_ = std::make_unique<FeatureGym>(ctx_);
+    feature_gym_->Create();
+    return;
+  }
   if (config_.demo_scene == "water") {
     CreateWaterDemoScene();
     return;

@@ -49,6 +49,11 @@ struct EngineConfig {
   base::Vector<ExtraDomainConfig> extra_domains;
   std::string gltf_path;  // standalone gltf/glb scene (e.g. sponza)
   std::string demo_scene;  // "water" = empty map with a water sheet
+  // Deterministic area-by-area pass for --demo featuregym. Shots are optional;
+  // quit makes the pass suitable for unattended visual regression jobs.
+  bool feature_tour = false;
+  std::string feature_tour_shots;
+  bool feature_tour_quit = false;
   // Open the NEXUS main menu instead of loading content directly; the player
   // picks a universe there and the engine loads it on demand (EnterUniverse).
   // Defaults on for a bare windowed launch with no content source.
