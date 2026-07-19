@@ -315,6 +315,8 @@ class Engine : public app::Application {
   // these are non-owning views cached from Services at OnInitialize.
   app::Host* host_ = nullptr;
   Window* window_ = nullptr;  // null when headless
+  // Host-owned worker pool; the cell streamers prefetch mesh conversion on it.
+  JobSystem* jobs_ = nullptr;
   // The in-world clock driving the day/night cycle, owned and advanced by the
   // host; the Papyrus time natives read it through the bindings, and the render
   // loop derives the sun/sky from it. drive_sun_from_clock_ is false when

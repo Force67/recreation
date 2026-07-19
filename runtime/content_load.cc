@@ -465,6 +465,8 @@ bool LoadGameData(Engine& engine) {
           {rx::script::host::ManagedEventId::kLocationChanged, cell, 0, interior ? 1 : 0, 0.0f});
     });
   }
+  // Background prefetch of cell mesh conversion on the host's worker pool.
+  self->streamer_->set_job_system(self->jobs_);
   // Register streamed NPCs in the quest world so quests can target them and
   // clients can apply replicated actor transforms by form id.
   self->streamer_->set_quest_world(self->quest_world_.get());
@@ -664,6 +666,7 @@ void SetupExtraStreamers(Engine& engine) {
     // the upload callback below salts the matching renderer/BLAS keys.
     const u64 salt = 0x9E3779B97F4A7C15ull * static_cast<u64>(i + 1);
     streamer->set_mesh_id_salt(salt);
+    streamer->set_job_system(self->jobs_);
 
     // The region's center in the secondary world's own (pre-offset) engine space.
     f32 region_bx = (static_cast<f32>(region_x) + 0.5f) * domain.profile().cell_size;

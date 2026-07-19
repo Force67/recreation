@@ -32,6 +32,13 @@ base::Option<bool> DistantLod{"distant.lod", false, "RX_DISTANT_LOD"};
 // the budget is spent and resumes next frame from the per-cell incremental
 // state, trading a little pop-in for a smooth frame. 0 disables the cap.
 base::Option<int> StreamBudgetMs{"stream.budget_ms", 4, "RX_STREAM_BUDGET_MS"};
+// Prefetch cell mesh conversion on the job system: every in-range cell submits
+// a background job that resolves its refs to their base model paths and warms
+// the asset cache, so by the time the budgeted main-thread walk reaches the
+// cell only the (batched) GPU upload remains. Workers touch nothing but the
+// read-only record store and the mutex-guarded asset database.
+// RX_STREAM_PREFETCH=0 disables all jobs, restoring the synchronous behavior.
+base::Option<bool> StreamPrefetch{"stream.prefetch", true, "RX_STREAM_PREFETCH"};
 // Logs the wall-clock time each streaming Update spent converting cells (and
 // how many meshes/refs it drained) whenever it did work, for tuning the budget.
 base::Option<bool> StreamProfile{"stream.profile", false, "RX_STREAM_PROFILE"};
@@ -424,6 +431,39 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
   texture.mip_count = mips;
 }
 
+bool BaseTypeHasWorldModel(u32 type);  // defined below MeshForBase
+
+// Background prefetch job body: resolves every ref of one cell to its base
+// form's world model and warms the asset cache, mirroring the base lookup
+// SpawnReference/MeshForBase do. Runs on a job system worker, so it may only
+// read the (post-load immutable) record store and call the mutex-guarded
+// asset database; all CellStreamer state stays main-thread-owned.
+void PrefetchCellMeshes(const bethesda::RecordStore& records, asset::AssetDatabase& assets,
+                        const bethesda::RecordStore::ExteriorCell& source) {
+  for (u64 packed : source.refs) {
+    bethesda::GlobalFormId id{static_cast<u16>(packed >> 32), static_cast<u32>(packed)};
+    const bethesda::RecordStore::StoredRecord* stored = records.Find(id);
+    if (!stored || stored->header.type == kAchr) continue;  // actors have no static model
+    bethesda::Record refr;
+    if (!records.Parse(id, &refr)) continue;
+    const bethesda::Subrecord* name = refr.Find(kName);
+    if (!name || name->data.size() < 4) continue;
+    u32 base_raw;
+    std::memcpy(&base_raw, name->data.data(), 4);
+    bethesda::GlobalFormId base_id =
+        records.ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
+    const bethesda::RecordStore::StoredRecord* base_stored = records.Find(base_id);
+    if (!base_stored || !BaseTypeHasWorldModel(base_stored->header.type)) continue;
+    bethesda::Record base;
+    if (!records.Parse(base_id, &base)) continue;
+    std::string model = base.GetString(kModl);
+    if (model.empty()) continue;
+    std::string path = asset::NormalizePath(model);
+    if (!path.starts_with("meshes/")) path = "meshes/" + path;
+    assets.LoadMesh(path);
+  }
+}
+
 // Nearest-resamples a source region into an atlas tile.
 void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src, u32 src_w, u32 rx,
                    u32 ry, u32 rw, u32 rh) {
@@ -454,6 +494,7 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
     return false;
   }
   ground_cache_.clear();  // heights are per worldspace
+  prefetched_cells_.clear();
   worldspace_edid_.assign(editor_id);
   for (char& c : worldspace_edid_) c = static_cast<char>(std::tolower(c));
   // Bind diffs to a stable world identifier, not a load-order index. Including
@@ -856,6 +897,40 @@ void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
   }
 }
 
+void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
+  if (!job_system_ || !StreamPrefetch.get() || !grid_) return;
+  // Near to far, like the main walk, so nearby cells convert first. Enqueued
+  // independently of the budgeted walk below: that walk truncates at the time
+  // budget, which would serialize prefetch behind the very work it hides.
+  for (i32 ring = 0; ring <= radius; ++ring) {
+    for (i32 dy = -ring; dy <= ring; ++dy) {
+      for (i32 dx = -ring; dx <= ring; ++dx) {
+        if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
+        const i16 x = static_cast<i16>(center_x + dx);
+        const i16 y = static_cast<i16>(center_y + dy);
+        const u32 key = CellKey(x, y);
+        if (prefetched_cells_.contains(key)) continue;
+        const bethesda::RecordStore::ExteriorCell* source =
+            grid_->find(bethesda::RecordStore::GridKey(x, y));
+        if (!source || source->refs.empty()) {
+          prefetched_cells_.emplace(key, std::shared_ptr<std::atomic<bool>>());
+          continue;
+        }
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        prefetched_cells_.emplace(key, done);
+        // The exterior grid, records and assets are stable for the streamer's
+        // lifetime; the job only reads them (see PrefetchCellMeshes).
+        const bethesda::RecordStore* records = &records_;
+        asset::AssetDatabase* assets = &assets_;
+        job_system_->Submit([records, assets, source, done] {
+          PrefetchCellMeshes(*records, *assets, *source);
+          done->store(true, std::memory_order_release);
+        });
+      }
+    }
+  }
+}
+
 void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   last_camera_ = camera_position;  // tracked even in interiors, for light culling
   for (auto entry : loaded_) SyncProps(world, entry.value);
@@ -897,6 +972,8 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   // RX_LOAD_RADIUS extends the streamed cell ring for greater draw distance;
   // affordable on the mesh-shader lod path (gpu cluster cull + distance lods).
   i32 radius = LoadRadius > 0 ? LoadRadius.get() : settings_.load_radius;
+
+  PrefetchCells(center_x, center_y, radius);
 
   base::Vector<u32> to_unload;
   for (auto kv : loaded_) {
@@ -1040,6 +1117,16 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     --mesh_budget;
     SpawnGrass(world, grid_x, grid_y, cell);
     cell.grass_done = true;
+  }
+  if (cell.next_ref < cell.source->refs.size()) {
+    // Defer ref spawning until this cell's prefetch job (if any) has finished:
+    // spawning earlier would convert the same meshes cold on the main thread,
+    // racing the worker under full CPU contention, which is exactly the hitch
+    // prefetch exists to remove. Jobs always drain, so the wait is bounded;
+    // terrain, water and grass above are not held back.
+    const std::shared_ptr<std::atomic<bool>>* pending =
+        prefetched_cells_.find(CellKey(grid_x, grid_y));
+    if (pending && *pending && !(*pending)->load(std::memory_order_acquire)) return false;
   }
   while (cell.next_ref < cell.source->refs.size()) {
     if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) {
@@ -3469,6 +3556,7 @@ bool CellStreamer::EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_
   for (u32 key : keys) UnloadCell(world, key);
   UnloadInterior(world);
   announced_idle_ = false;
+  prefetched_cells_.clear();  // exterior re-entry re-prefetches (warm caches)
   const bool ok = LoadInterior(world, cell_id, camera_position);
   if (ok && on_location_change_) on_location_change_(cell_id.packed(), true);
   return ok;
@@ -3501,6 +3589,7 @@ void CellStreamer::UnloadAllCells(ecs::World& world) {
   distant_next_ = 0;
   distant_discovered_ = false;  // re-discovered if this domain becomes active again
   announced_idle_ = false;
+  prefetched_cells_.clear();
 }
 
 }  // namespace rx::world

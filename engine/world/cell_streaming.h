@@ -4,8 +4,10 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -13,6 +15,7 @@
 #include "asset/asset_database.h"
 #include "bethesda/game_profile.h"
 #include "bethesda/load_order.h"
+#include "core/job_system.h"
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
@@ -65,6 +68,12 @@ class CellStreamer {
   // mapping here so quests can target them and clients can apply replicated
   // actor transforms by form id.
   void set_quest_world(QuestWorld* quest_world) { quest_world_ = quest_world; }
+
+  // Optional job system: in-range cells then prefetch their base-model
+  // conversions on worker threads (see RX_STREAM_PREFETCH), so the main-thread
+  // streamer mostly finds warm asset caches and only does the GPU upload. The
+  // job system must outlive this streamer's records/assets (jobs read both).
+  void set_job_system(JobSystem* jobs) { job_system_ = jobs; }
 
   // Water surface height and flow at an engine-space position, for
   // buoyancy. Flow derives from the height gradient of neighboring cells.
@@ -416,6 +425,11 @@ class CellStreamer {
   // The renderer-side mesh key for a converted asset, salted for this domain.
   asset::AssetId RenderMeshId(asset::AssetId id) const { return {id.hash ^ mesh_id_salt_}; }
 
+  // Submits background prefetch jobs for in-range cells (see PrefetchCells);
+  // enqueue and the dedupe set stay main-thread-only, the jobs themselves only
+  // read records_ and warm assets_.
+  void PrefetchCells(i16 center_x, i16 center_y, i32 radius);
+
   const bethesda::RecordStore& records_;
   asset::AssetDatabase& assets_;
   LandBaker baker_;
@@ -424,6 +438,14 @@ class CellStreamer {
   Uploads uploads_;
   physics::PhysicsWorld* physics_ = nullptr;
   QuestWorld* quest_world_ = nullptr;
+  JobSystem* job_system_ = nullptr;
+  // Cell key -> completion flag of its submitted prefetch job (null when the
+  // cell needed none). The flag is shared with the job closure so it can never
+  // dangle; set with release order at job end, read with acquire on the main
+  // thread (LoadCellIncremental defers ref spawning until it flips). Cleared
+  // on worldspace and interior transitions so re-entry re-prefetches (cheap:
+  // warm caches).
+  base::UnorderedMap<u32, std::shared_ptr<std::atomic<bool>>> prefetched_cells_;
   Vec3 world_offset_{0.0f, 0.0f, 0.0f};  // engine-space shift of all spawned content
   Vec3 fixed_anchor_{0.0f, 0.0f, 0.0f};  // streaming center when has_fixed_anchor_
   bool has_fixed_anchor_ = false;
