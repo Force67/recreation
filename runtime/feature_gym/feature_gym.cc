@@ -805,9 +805,9 @@ void FeatureGym::Impl::Create() {
   settings.sun_color = {1.0f, 0.96f, 0.90f};
   settings.ambient = 0.10f;
   settings.dof = false;
-  settings.precipitation = 0;
-  settings.lightning = 0;
-  settings.aurora = false;
+  settings.weather.precipitation = 0;
+  settings.weather.lightning = 0;
+  settings.weather.aurora = false;
   settings.interior = false;
   settings.ibl = true;
   settings.rcgi = false;
@@ -2259,23 +2259,23 @@ void FeatureGym::Impl::Emit(f32 dt, render::FrameView& view) {
   if (!activations.empty()) {
     render::RenderSettings& settings = renderer.settings();
     if (active_mode == TourMode::kWeatherRain) {
-      settings.precipitation = 0.88f;
-      settings.precip_snow = false;
-      settings.lightning = 0.55f;
-      settings.aurora = false;
+      settings.weather.precipitation = 0.88f;
+      settings.weather.snow = false;
+      settings.weather.lightning = 0.55f;
+      settings.weather.aurora = false;
     } else if (active_mode == TourMode::kWeatherSnowAurora) {
-      settings.precipitation = 0.88f;
-      settings.precip_snow = true;
-      settings.lightning = 0;
-      settings.aurora = true;
+      settings.weather.precipitation = 0.88f;
+      settings.weather.snow = true;
+      settings.weather.lightning = 0;
+      settings.weather.aurora = true;
     } else if (active_mode == TourMode::kInteriorFog) {
       settings.interior = true;
     }
   } else if (active == Area::kAtmosphere) {
     render::RenderSettings& settings = renderer.settings();
-    settings.precipitation = 0.88f;
-    settings.precip_snow = false;
-    settings.lightning = 0.55f;
+    settings.weather.precipitation = 0.88f;
+    settings.weather.snow = false;
+    settings.weather.lightning = 0.55f;
   }
   UpdateInstanceExhibit();
   EmitCameraExhibit(dt, view);
@@ -2419,9 +2419,9 @@ void FeatureGym::Impl::ApplyArea(Area area) {
   settings.path_trace = false;
   settings.path_trace_recon = false;
   settings.interior = false;
-  settings.precipitation = 0;
-  settings.lightning = 0;
-  settings.aurora = false;
+  settings.weather.precipitation = 0;
+  settings.weather.lightning = 0;
+  settings.weather.aurora = false;
   settings.fog = false;
   settings.upscaler = render::UpscalerKind::kNone;
   settings.aa_mode = render::AntiAliasingMode::kTaa;
@@ -2473,9 +2473,9 @@ void FeatureGym::Impl::ApplyArea(Area area) {
     case Area::kAtmosphere:
       settings.clouds = true;
       settings.cloud_coverage = 0.82f;
-      settings.precipitation = 0.88f;
-      settings.precip_snow = false;
-      settings.lightning = 0.55f;
+      settings.weather.precipitation = 0.88f;
+      settings.weather.snow = false;
+      settings.weather.lightning = 0.55f;
       settings.froxel_fog = true;
       settings.froxel_density = 0.022f;
       settings.aerial_perspective = 1.7f;
@@ -2583,9 +2583,9 @@ void FeatureGym::Impl::ApplyTourMode(TourMode mode) {
       prop_lifecycle_phase = 0;
       break;
     case TourMode::kWeatherSnowAurora:
-      settings.precip_snow = true;
-      settings.lightning = 0;
-      settings.aurora = true;
+      settings.weather.snow = true;
+      settings.weather.lightning = 0;
+      settings.weather.aurora = true;
       settings.sun_direction = Normalize(Vec3{0.1f, -0.04f, -0.99f});
       settings.sun_intensity = 0.18f;
       settings.ambient = 0.018f;
