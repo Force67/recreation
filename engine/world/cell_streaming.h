@@ -4,6 +4,7 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <chrono>
 #include <functional>
 #include <span>
 #include <string>
@@ -320,6 +321,12 @@ class CellStreamer {
   // Returns false when the budget ran out before the cell completed.
   bool LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
                            u32& mesh_budget, u32& ref_budget);
+  // True once this Update has spent its wall-clock streaming budget (see
+  // stream_deadline_): cell loading then bails and resumes next frame. Always
+  // false when the time cap is disabled (RX_STREAM_BUDGET_MS <= 0).
+  bool StreamBudgetExpired() const {
+    return stream_time_limited_ && std::chrono::steady_clock::now() >= stream_deadline_;
+  }
   void UnloadCell(ecs::World& world, u32 key);
   // Destroys the active interior's entities and colliders (see interior_cell_).
   void UnloadInterior(ecs::World& world);
@@ -492,6 +499,12 @@ class CellStreamer {
   size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;
+  // Wall-clock deadline for the synchronous cell conversion this Update may do
+  // (see StreamBudgetExpired / RX_STREAM_BUDGET_MS). Set at the top of each
+  // Update; caps a burst of new cells so their heavy NIF/texture conversions
+  // spread over frames instead of hitching one.
+  std::chrono::steady_clock::time_point stream_deadline_{};
+  bool stream_time_limited_ = false;
   f32 detail_rect_[4] = {0, 0, 0, 0};               // see detail_rect()
   Vec3 last_camera_{0.0f, 0.0f, 0.0f};              // last Update anchor, for nearest-light culling
   mutable size_t logged_light_count_ = ~size_t{0};  // last CollectLights count logged

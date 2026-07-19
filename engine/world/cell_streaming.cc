@@ -22,6 +22,19 @@ namespace {
 // base::InitOptionsFromEnv() at startup.
 base::Option<int> LoadRadius{"load.radius", -1, "RX_LOAD_RADIUS"};
 base::Option<bool> DistantLod{"distant.lod", false, "RX_DISTANT_LOD"};
+// Wall-clock cap (milliseconds) on the synchronous cell conversion done per
+// streaming Update. Cell loading runs on the main thread; a fast-moving camera
+// crossing several new cells would otherwise convert many meshes + textures in
+// one frame and hitch. The classic Gamebryo NIFs of Fallout 3 / New Vegas are
+// especially heavy per mesh (CPU strip triangulation, per-shape property scans,
+// a dozen BSA-inflated textures each), so a plain count budget, blind to that
+// cost, spikes badly. This caps the per-frame work by time: loading bails when
+// the budget is spent and resumes next frame from the per-cell incremental
+// state, trading a little pop-in for a smooth frame. 0 disables the cap.
+base::Option<int> StreamBudgetMs{"stream.budget_ms", 4, "RX_STREAM_BUDGET_MS"};
+// Logs the wall-clock time each streaming Update spent converting cells (and
+// how many meshes/refs it drained) whenever it did work, for tuning the budget.
+base::Option<bool> StreamProfile{"stream.profile", false, "RX_STREAM_PROFILE"};
 // Runtime terrain splatting: tile the real land textures at native resolution
 // and blend by a small weight map, instead of the lower-res per-cell albedo
 // bake. On for the higher presets; RX_LAND_SPLAT forces it either way.
@@ -849,6 +862,16 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (interior_active_) SyncProps(world, interior_cell_);
   if (interior_active_ || !grid_) return;
 
+  // Cap the synchronous conversion work this frame so a burst of newly entered
+  // cells spreads over frames instead of hitching one (see StreamBudgetMs).
+  const auto stream_start = std::chrono::steady_clock::now();
+  const int budget_ms = StreamBudgetMs.get();
+  stream_time_limited_ = budget_ms > 0;
+  if (stream_time_limited_)
+    stream_deadline_ = stream_start + std::chrono::milliseconds(budget_ms);
+  const size_t meshes_before = base_meshes_.size();
+  const size_t entities_before = spawned_entities_ + spawned_instances_;
+
   // The anchor selects which cells load (by this domain's own cell coordinates);
   // world_offset_ then shifts where they spawn, so a secondary worldspace sits
   // beside the primary rather than on top of it. A secondary domain streams a
@@ -885,7 +908,8 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   u32 mesh_budget = settings_.mesh_budget;
   u32 ref_budget = settings_.ref_budget;
   bool all_done = true;
-  for (i32 ring = 0; ring <= radius && mesh_budget > 0 && ref_budget > 0; ++ring) {
+  for (i32 ring = 0; ring <= radius && mesh_budget > 0 && ref_budget > 0 && !StreamBudgetExpired();
+       ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
         if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
@@ -899,10 +923,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
         }
         if (!LoadCellIncremental(world, x, y, *cell, mesh_budget, ref_budget)) {
           all_done = false;
-          if (mesh_budget == 0 || ref_budget == 0) break;
+          if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) break;
         }
       }
-      if (mesh_budget == 0 || ref_budget == 0) break;
+      if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) break;
     }
   }
 
@@ -913,7 +937,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (distant_on) {
     if (!distant_discovered_) DiscoverDistantQuads();
     u32 distant_budget = settings_.distant_budget;
-    while (distant_budget > 0 && distant_next_ < distant_quads_.size()) {
+    while (distant_budget > 0 && distant_next_ < distant_quads_.size() && !StreamBudgetExpired()) {
       if (SpawnDistantQuad(world, distant_next_)) --distant_budget;
       ++distant_next_;
     }
@@ -953,8 +977,9 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     }
   }
 
-  // Exhausted budgets may have cut the ring walk short of unvisited cells.
-  if (mesh_budget == 0 || ref_budget == 0) all_done = false;
+  // Exhausted budgets (count or time) may have cut the ring walk short of
+  // unvisited cells, so keep streaming next frame instead of announcing idle.
+  if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) all_done = false;
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
     RX_INFO(
@@ -966,6 +991,18 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
         grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
+  }
+
+  if (StreamProfile) {
+    const size_t new_meshes = base_meshes_.size() - meshes_before;
+    const size_t new_entities = (spawned_entities_ + spawned_instances_) - entities_before;
+    if (new_meshes || new_entities) {
+      const f32 ms = std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() -
+                                                            stream_start)
+                         .count();
+      RX_INFO("stream: {:.2f} ms this frame, {} new meshes, {} new refs{}", ms, new_meshes,
+              new_entities, StreamBudgetExpired() ? " (time-capped)" : "");
+    }
   }
 }
 
@@ -982,7 +1019,7 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     cell.addressability_done = true;
   }
   if (!cell.terrain_done) {
-    if (mesh_budget == 0) return false;
+    if (mesh_budget == 0 || StreamBudgetExpired()) return false;
     --mesh_budget;
     SpawnTerrain(world, grid_x, grid_y, cell);
     SpawnWater(world, grid_x, grid_y, cell);
@@ -991,13 +1028,13 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
   if (!cell.grass_done) {
     // The merge (and the one-time GRAS model conversions) costs like a mesh
     // conversion, so it takes a budget slot of its own.
-    if (mesh_budget == 0) return false;
+    if (mesh_budget == 0 || StreamBudgetExpired()) return false;
     --mesh_budget;
     SpawnGrass(world, grid_x, grid_y, cell);
     cell.grass_done = true;
   }
   while (cell.next_ref < cell.source->refs.size()) {
-    if (mesh_budget == 0 || ref_budget == 0) {
+    if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) {
       CommitInstances(world, cell);
       return false;
     }
