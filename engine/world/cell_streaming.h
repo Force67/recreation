@@ -439,17 +439,23 @@ class CellStreamer {
   physics::PhysicsWorld* physics_ = nullptr;
   QuestWorld* quest_world_ = nullptr;
   JobSystem* job_system_ = nullptr;
-  // Cell key -> completion flag of its submitted prefetch job (null when the
-  // cell needed none). The flag is shared with the job closure so it can never
-  // dangle; set with release order at job end, read with acquire on the main
-  // thread (LoadCellIncremental defers ref spawning until it flips). Cleared
+  // A cell's prefetch progress, shared with its job closure so it can never
+  // dangle. `land` flips (release) once the job warmed the cell's land textures
+  // (done first), `done` once it also warmed every ref mesh; the main thread
+  // reads them (acquire) to defer the terrain bake until land textures are warm
+  // and ref spawning until meshes are. Both start false.
+  struct PrefetchFlags {
+    std::atomic<bool> land{false};
+    std::atomic<bool> done{false};
+  };
+  // Cell key -> its prefetch flags (null when the cell needed no job). Cleared
   // on worldspace and interior transitions so re-entry re-prefetches (cheap:
   // warm caches).
-  base::UnorderedMap<u32, std::shared_ptr<std::atomic<bool>>> prefetched_cells_;
-  // Concurrent prefetch jobs in flight. Capped (see PrefetchCells) so the
-  // worker pool leaves cores for the main-thread land bake, whose own thread
-  // pool would otherwise oversubscribe and roughly double a cell's bake time.
-  // Shared with job closures (streamer outlives them, drained at shutdown).
+  base::UnorderedMap<u32, std::shared_ptr<PrefetchFlags>> prefetched_cells_;
+  // Concurrent prefetch jobs in flight. Capped (see PrefetchCells) so the worker
+  // pool leaves cores for the main thread instead of saturating every core with
+  // texture decodes while it bakes/uploads. Shared with job closures (streamer
+  // outlives them, drained at shutdown).
   std::shared_ptr<std::atomic<i32>> prefetch_inflight_ = std::make_shared<std::atomic<i32>>(0);
   Vec3 world_offset_{0.0f, 0.0f, 0.0f};  // engine-space shift of all spawned content
   Vec3 fixed_anchor_{0.0f, 0.0f, 0.0f};  // streaming center when has_fixed_anchor_

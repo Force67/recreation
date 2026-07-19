@@ -61,6 +61,14 @@ class LandBaker {
 
   size_t baked_count() const { return baked_; }
 
+  // Loads (converting + caching) every LTEX diffuse + normal a cell's LAND
+  // references, so a later BakeSplat/BakeSplatV2 on the streaming thread finds
+  // them warm instead of inflating + decoding them itself (the dominant land-
+  // bake cost). Only reads the record store and calls the thread-safe asset
+  // database, touching no baker state, so a background prefetch worker may run
+  // it concurrently with a main-thread bake.
+  void WarmLandTextures(const bethesda::Record& land, u16 land_plugin);
+
  private:
   // An LTEX diffuse decoded to a small linear RGB float mip for sampling.
   struct Layer {

@@ -9,7 +9,6 @@
 #include <cstring>
 #include <limits>
 #include <string>
-#include <thread>
 
 #include "bethesda/script_attachment.h"
 #include "bethesda/starfield_mesh.h"
@@ -40,11 +39,10 @@ base::Option<int> StreamBudgetMs{"stream.budget_ms", 4, "RX_STREAM_BUDGET_MS"};
 // read-only record store and the mutex-guarded asset database.
 // RX_STREAM_PREFETCH=0 disables all jobs, restoring the synchronous behavior.
 base::Option<bool> StreamPrefetch{"stream.prefetch", true, "RX_STREAM_PREFETCH"};
-// Max prefetch jobs in flight at once. The land bake runs its own thread pool
-// on the main thread; letting prefetch saturate every worker oversubscribes the
-// cores and roughly doubles a cell's bake time. Capping prefetch leaves cores
-// for the bake (which is on the critical path; prefetch is latency-tolerant).
-// 0 = auto (hardware threads minus a land-bake pool's worth). RX_STREAM_PREFETCH_JOBS overrides.
+// Optional cap on prefetch jobs in flight. The terrain and ref gates keep the
+// main thread from doing heavy conversion itself (it waits on warm caches), so
+// prefetch can use the whole pool without starving it; 0 (default) = uncapped.
+// A positive RX_STREAM_PREFETCH_JOBS bounds concurrency on core-starved boxes.
 base::Option<int> StreamPrefetchJobs{"stream.prefetch_jobs", 0, "RX_STREAM_PREFETCH_JOBS"};
 // Logs the wall-clock time each streaming Update spent converting cells (and
 // how many meshes/refs it drained) whenever it did work, for tuning the budget.
@@ -440,11 +438,25 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
 
 bool BaseTypeHasWorldModel(u32 type);  // defined below MeshForBase
 
-// Background prefetch job body: resolves every ref of one cell to its base
-// form's world model and warms the asset cache, mirroring the base lookup
-// SpawnReference/MeshForBase do. Runs on a job system worker, so it may only
-// read the (post-load immutable) record store and call the mutex-guarded
-// asset database; all CellStreamer state stays main-thread-owned.
+// Warms one cell's land textures (the dominant land-bake cost) on a worker, so
+// the streaming thread's terrain bake finds them cached. Reads the record store
+// and the thread-safe LandBaker texture path only.
+void PrefetchLandTextures(const bethesda::RecordStore& records, LandBaker& baker,
+                          const bethesda::RecordStore::ExteriorCell& source) {
+  if (source.land == 0) return;
+  bethesda::GlobalFormId land_id{static_cast<u16>(source.land >> 32),
+                                 static_cast<u32>(source.land)};
+  bethesda::Record land;
+  if (!records.Parse(land_id, &land)) return;
+  const bethesda::RecordStore::StoredRecord* stored = records.Find(land_id);
+  baker.WarmLandTextures(land, stored ? stored->winning_plugin : 0);
+}
+
+// Background prefetch job body: resolves every ref to its base form's world
+// model and warms the asset cache, mirroring the base lookup SpawnReference/
+// MeshForBase do. Runs on a job system worker, so it may only read the
+// (post-load immutable) record store and call the mutex-guarded asset database;
+// all CellStreamer state stays main-thread-owned.
 void PrefetchCellMeshes(const bethesda::RecordStore& records, asset::AssetDatabase& assets,
                         const bethesda::RecordStore::ExteriorCell& source) {
   for (u64 packed : source.refs) {
@@ -906,18 +918,12 @@ void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
 
 void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
   if (!job_system_ || !StreamPrefetch.get() || !grid_) return;
-  // Cap concurrent prefetch jobs so the pool leaves cores for the main-thread
-  // land bake (its own 8-thread pool otherwise oversubscribes and ~doubles the
-  // bake). Auto = hardware threads minus a bake pool's worth, floored at 2.
-  i32 cap = StreamPrefetchJobs.get();
-  if (cap <= 0) {
-    const i32 hw = static_cast<i32>(std::thread::hardware_concurrency());
-    cap = std::max(2, hw - 8);
-  }
+  // Optional in-flight cap (0 = uncapped; the gates keep the main thread light).
+  const i32 cap = StreamPrefetchJobs.get();
   // Near to far, like the main walk, so nearby cells convert first. Enqueued
   // independently of the budgeted walk below: that walk truncates at the time
   // budget, which would serialize prefetch behind the very work it hides.
-  // Over-cap cells stay unmarked and are retried on a later tick as jobs drain.
+  // When capped, over-cap cells stay unmarked and retry on a later tick.
   for (i32 ring = 0; ring <= radius; ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
@@ -928,23 +934,27 @@ void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
         if (prefetched_cells_.contains(key)) continue;
         const bethesda::RecordStore::ExteriorCell* source =
             grid_->find(bethesda::RecordStore::GridKey(x, y));
-        if (!source || source->refs.empty()) {
-          prefetched_cells_.emplace(key, std::shared_ptr<std::atomic<bool>>());
+        if (!source || (source->refs.empty() && source->land == 0)) {
+          prefetched_cells_.emplace(key, std::shared_ptr<PrefetchFlags>());
           continue;
         }
-        if (prefetch_inflight_->load(std::memory_order_acquire) >= cap) return;
-        auto done = std::make_shared<std::atomic<bool>>(false);
-        prefetched_cells_.emplace(key, done);
+        if (cap > 0 && prefetch_inflight_->load(std::memory_order_acquire) >= cap) return;
+        auto flags = std::make_shared<PrefetchFlags>();
+        prefetched_cells_.emplace(key, flags);
         prefetch_inflight_->fetch_add(1, std::memory_order_relaxed);
-        // The exterior grid, records and assets are stable for the streamer's
-        // lifetime; the job only reads them (see PrefetchCellMeshes). The
-        // inflight counter is shared so it survives past this streamer.
+        // The exterior grid, records, assets and baker are stable for the
+        // streamer's lifetime and only read here (land textures warmed first so
+        // the ungated terrain bake can proceed, then ref meshes). The flags and
+        // inflight counter are shared so they survive past this streamer.
         const bethesda::RecordStore* records = &records_;
         asset::AssetDatabase* assets = &assets_;
+        LandBaker* baker = &baker_;
         auto inflight = prefetch_inflight_;
-        job_system_->Submit([records, assets, source, done, inflight] {
+        job_system_->Submit([records, assets, baker, source, flags, inflight] {
+          PrefetchLandTextures(*records, *baker, *source);
+          flags->land.store(true, std::memory_order_release);
           PrefetchCellMeshes(*records, *assets, *source);
-          done->store(true, std::memory_order_release);
+          flags->done.store(true, std::memory_order_release);
           inflight->fetch_sub(1, std::memory_order_release);
         });
       }
@@ -1124,7 +1134,13 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     }
     cell.addressability_done = true;
   }
+  const std::shared_ptr<PrefetchFlags>* prefetch = prefetched_cells_.find(CellKey(grid_x, grid_y));
   if (!cell.terrain_done) {
+    // Defer the terrain bake until the prefetch job warmed this cell's land
+    // textures, so the bake finds them cached instead of inflating + decoding
+    // them on the streaming thread (the dominant land-bake cost). Ground shows a
+    // frame or two later on a cell whose job is still pending; jobs always drain.
+    if (prefetch && *prefetch && !(*prefetch)->land.load(std::memory_order_acquire)) return false;
     if (mesh_budget == 0 || StreamBudgetExpired()) return false;
     --mesh_budget;
     SpawnTerrain(world, grid_x, grid_y, cell);
@@ -1145,9 +1161,7 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     // racing the worker under full CPU contention, which is exactly the hitch
     // prefetch exists to remove. Jobs always drain, so the wait is bounded;
     // terrain, water and grass above are not held back.
-    const std::shared_ptr<std::atomic<bool>>* pending =
-        prefetched_cells_.find(CellKey(grid_x, grid_y));
-    if (pending && *pending && !(*pending)->load(std::memory_order_acquire)) return false;
+    if (prefetch && *prefetch && !(*prefetch)->done.load(std::memory_order_acquire)) return false;
   }
   while (cell.next_ref < cell.source->refs.size()) {
     if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) {
