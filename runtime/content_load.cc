@@ -513,6 +513,8 @@ bool LoadGameData(Engine& engine) {
     uploads.remove_instances = [self](render::InstanceGroupHandle handle) {
       self->renderer_->DestroyInstanceGroup(handle);
     };
+    uploads.begin_batch = [self] { self->renderer_->BeginUploadBatch(); };
+    uploads.end_batch = [self] { self->renderer_->FlushUploadBatch(); };
     self->streamer_->SetUploads(std::move(uploads));
   }
 
@@ -708,6 +710,8 @@ void SetupExtraStreamers(Engine& engine) {
     uploads.remove_instances = [self](render::InstanceGroupHandle handle) {
       self->renderer_->DestroyInstanceGroup(handle);
     };
+    uploads.begin_batch = [self] { self->renderer_->BeginUploadBatch(); };
+    uploads.end_batch = [self] { self->renderer_->FlushUploadBatch(); };
     streamer->SetUploads(std::move(uploads));
     if (streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
       RX_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",

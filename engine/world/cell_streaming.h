@@ -81,6 +81,11 @@ class CellStreamer {
     std::function<bool(const asset::Material&)> material;
     std::function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
     std::function<void(render::InstanceGroupHandle)> remove_instances;
+    // Optional: brackets a frame's mesh/buffer uploads so the renderer coalesces
+    // their GPU transfers into one submit instead of a blocking round-trip per
+    // buffer. Both set or both unset; unset = every upload submits on its own.
+    std::function<void()> begin_batch;
+    std::function<void()> end_batch;
   };
 
   struct Settings {

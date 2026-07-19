@@ -872,6 +872,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   const size_t meshes_before = base_meshes_.size();
   const size_t entities_before = spawned_entities_ + spawned_instances_;
 
+  // Coalesce this frame's mesh/buffer uploads into one GPU submit instead of a
+  // blocking round-trip per created buffer (the dominant per-mesh upload cost).
+  if (uploads_.begin_batch) uploads_.begin_batch();
+
   // The anchor selects which cells load (by this domain's own cell coordinates);
   // world_offset_ then shifts where they spawn, so a secondary worldspace sits
   // beside the primary rather than on top of it. A secondary domain streams a
@@ -992,6 +996,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   } else if (!all_done) {
     announced_idle_ = false;
   }
+
+  // Submit the frame's coalesced uploads (before measuring, so the profile
+  // includes the flush cost).
+  if (uploads_.end_batch) uploads_.end_batch();
 
   if (StreamProfile) {
     const size_t new_meshes = base_meshes_.size() - meshes_before;
