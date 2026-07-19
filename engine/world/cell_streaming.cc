@@ -9,6 +9,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <thread>
 
 #include "bethesda/script_attachment.h"
 #include "bethesda/starfield_mesh.h"
@@ -39,6 +40,12 @@ base::Option<int> StreamBudgetMs{"stream.budget_ms", 4, "RX_STREAM_BUDGET_MS"};
 // read-only record store and the mutex-guarded asset database.
 // RX_STREAM_PREFETCH=0 disables all jobs, restoring the synchronous behavior.
 base::Option<bool> StreamPrefetch{"stream.prefetch", true, "RX_STREAM_PREFETCH"};
+// Max prefetch jobs in flight at once. The land bake runs its own thread pool
+// on the main thread; letting prefetch saturate every worker oversubscribes the
+// cores and roughly doubles a cell's bake time. Capping prefetch leaves cores
+// for the bake (which is on the critical path; prefetch is latency-tolerant).
+// 0 = auto (hardware threads minus a land-bake pool's worth). RX_STREAM_PREFETCH_JOBS overrides.
+base::Option<int> StreamPrefetchJobs{"stream.prefetch_jobs", 0, "RX_STREAM_PREFETCH_JOBS"};
 // Logs the wall-clock time each streaming Update spent converting cells (and
 // how many meshes/refs it drained) whenever it did work, for tuning the budget.
 base::Option<bool> StreamProfile{"stream.profile", false, "RX_STREAM_PROFILE"};
@@ -899,9 +906,18 @@ void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
 
 void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
   if (!job_system_ || !StreamPrefetch.get() || !grid_) return;
+  // Cap concurrent prefetch jobs so the pool leaves cores for the main-thread
+  // land bake (its own 8-thread pool otherwise oversubscribes and ~doubles the
+  // bake). Auto = hardware threads minus a bake pool's worth, floored at 2.
+  i32 cap = StreamPrefetchJobs.get();
+  if (cap <= 0) {
+    const i32 hw = static_cast<i32>(std::thread::hardware_concurrency());
+    cap = std::max(2, hw - 8);
+  }
   // Near to far, like the main walk, so nearby cells convert first. Enqueued
   // independently of the budgeted walk below: that walk truncates at the time
   // budget, which would serialize prefetch behind the very work it hides.
+  // Over-cap cells stay unmarked and are retried on a later tick as jobs drain.
   for (i32 ring = 0; ring <= radius; ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
@@ -916,15 +932,20 @@ void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
           prefetched_cells_.emplace(key, std::shared_ptr<std::atomic<bool>>());
           continue;
         }
+        if (prefetch_inflight_->load(std::memory_order_acquire) >= cap) return;
         auto done = std::make_shared<std::atomic<bool>>(false);
         prefetched_cells_.emplace(key, done);
+        prefetch_inflight_->fetch_add(1, std::memory_order_relaxed);
         // The exterior grid, records and assets are stable for the streamer's
-        // lifetime; the job only reads them (see PrefetchCellMeshes).
+        // lifetime; the job only reads them (see PrefetchCellMeshes). The
+        // inflight counter is shared so it survives past this streamer.
         const bethesda::RecordStore* records = &records_;
         asset::AssetDatabase* assets = &assets_;
-        job_system_->Submit([records, assets, source, done] {
+        auto inflight = prefetch_inflight_;
+        job_system_->Submit([records, assets, source, done, inflight] {
           PrefetchCellMeshes(*records, *assets, *source);
           done->store(true, std::memory_order_release);
+          inflight->fetch_sub(1, std::memory_order_release);
         });
       }
     }

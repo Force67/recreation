@@ -446,6 +446,11 @@ class CellStreamer {
   // on worldspace and interior transitions so re-entry re-prefetches (cheap:
   // warm caches).
   base::UnorderedMap<u32, std::shared_ptr<std::atomic<bool>>> prefetched_cells_;
+  // Concurrent prefetch jobs in flight. Capped (see PrefetchCells) so the
+  // worker pool leaves cores for the main-thread land bake, whose own thread
+  // pool would otherwise oversubscribe and roughly double a cell's bake time.
+  // Shared with job closures (streamer outlives them, drained at shutdown).
+  std::shared_ptr<std::atomic<i32>> prefetch_inflight_ = std::make_shared<std::atomic<i32>>(0);
   Vec3 world_offset_{0.0f, 0.0f, 0.0f};  // engine-space shift of all spawned content
   Vec3 fixed_anchor_{0.0f, 0.0f, 0.0f};  // streaming center when has_fixed_anchor_
   bool has_fixed_anchor_ = false;
