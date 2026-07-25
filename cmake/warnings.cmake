@@ -1,4 +1,14 @@
+# rx and recreation both use `engine/` as their header root, so a module name
+# present in both (weather/) resolves by -I order, and rx's root lands first for
+# any target that links an rx module. recreation's own headers must win in
+# recreation's build: prepend its root so "weather/weather.h" is the game
+# weather module, not rx's cloudscape weather-state layer.
+function(recreation_prefer_own_headers target)
+  target_include_directories(${target} BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/engine)
+endfunction()
+
 function(recreation_set_warnings target)
+  recreation_prefer_own_headers(${target})
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive-)
   else()
