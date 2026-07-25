@@ -5,7 +5,7 @@ recreation_set_warnings(esminfo)
 # assetdump lives next door; registered here because the top level only pulls
 # in this tools directory.
 add_executable(assetdump ../assetdump/main.cc)
-target_link_libraries(assetdump PRIVATE recreation::bethesda rx::asset)
+target_link_libraries(assetdump PRIVATE recreation::bethesda rx::asset rx::anim)
 recreation_set_warnings(assetdump)
 
 add_executable(hkxinfo ../hkxinfo/main.cc)

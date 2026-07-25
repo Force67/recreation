@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -5,6 +7,7 @@
 
 #include "core/log.h"
 
+#include "anim/pose.h"
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
 #include "bethesda/archive.h"
@@ -78,6 +81,115 @@ int main(int argc, char** argv) {
     }
     std::printf("# nifscan: %u ok, %u failed of %zu\n", ok, failed,
                 static_cast<size_t>(nifs.size()));
+    return 0;
+  }
+  if (path == "--skin") {
+    // Dump a skinned body part and, with a skeleton, the bind agreement between
+    // the two: palette[i] = bone_model[remap[i]] * inverse_bind[i] must come out
+    // near identity or the mesh renders exploded.
+    if (argc < 4) {
+      std::printf("usage: assetdump <data-dir> --skin <mesh.nif> [skeleton.nif]\n");
+      return 1;
+    }
+    std::string mesh_path = argv[3];
+    auto bytes = vfs.Read(asset::NormalizePath(mesh_path));
+    if (!bytes) {
+      std::printf("not in vfs: %s\n", mesh_path.c_str());
+      return 1;
+    }
+    bethesda::NifConversion conv = bethesda::ConvertNifSkinnedMesh(
+        rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(mesh_path), mesh_path);
+    if (!conv.mesh || conv.mesh->lods.empty()) {
+      std::printf("skinned conversion failed (skinned=%d)\n", conv.skinned);
+      return 1;
+    }
+    const asset::MeshLod& lod = conv.mesh->lods[0];
+    std::printf("skinned=%d bones=%zu vertices=%zu indices=%zu skinning=%zu submeshes=%zu\n",
+                conv.skinned, conv.mesh->skin.bones.size(), lod.vertices.size(),
+                lod.indices.size(), lod.skinning.size(), lod.submeshes.size());
+    for (const asset::Submesh& s : lod.submeshes)
+      std::printf("  submesh +%u x%u\n", s.index_offset, s.index_count);
+    auto bbox = [](const base::Vector<asset::Vertex>& v, const char* label) {
+      if (v.empty()) return;
+      f32 mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+      for (const asset::Vertex& x : v)
+        for (int k = 0; k < 3; ++k) {
+          mn[k] = std::min(mn[k], x.position[k]);
+          mx[k] = std::max(mx[k], x.position[k]);
+        }
+      std::printf("%s bbox (%.1f %.1f %.1f) - (%.1f %.1f %.1f)\n", label, mn[0], mn[1], mn[2], mx[0],
+                  mx[1], mx[2]);
+    };
+    bbox(lod.vertices, "bind");
+
+    if (argc < 5) {
+      for (size_t i = 0; i < conv.mesh->skin.bones.size(); ++i) {
+        const Mat4& ib = conv.mesh->skin.inverse_bind[i];
+        std::printf("  bone[%2zu] %-28s inv_bind t=(%.1f %.1f %.1f)\n", i,
+                    conv.mesh->skin.bones[i].c_str(), ib.m[12], ib.m[13], ib.m[14]);
+      }
+      return 0;
+    }
+
+    std::string skel_path = argv[4];
+    auto skel_bytes = vfs.Read(asset::NormalizePath(skel_path));
+    if (!skel_bytes) {
+      std::printf("not in vfs: %s\n", skel_path.c_str());
+      return 1;
+    }
+    asset::Skeleton skeleton;
+    if (!bethesda::ConvertNifSkeleton(rx::ByteSpan(skel_bytes->data(), skel_bytes->size()),
+                                      asset::MakeAssetId(skel_path), &skeleton)) {
+      std::printf("skeleton parse failed\n");
+      return 1;
+    }
+    anim::SkeletonPose pose;
+    pose.ResetToBind(skeleton);
+    base::Vector<Mat4> bone_model;
+    anim::ComputeModelMatrices(skeleton, pose, &bone_model);
+    base::Vector<i32> remap = anim::BuildBoneRemap(skeleton, conv.mesh->skin);
+    std::printf("skeleton %s: %zu bones\n", skel_path.c_str(), skeleton.bones.size());
+
+    base::Vector<Mat4> palette;
+    anim::BuildSkinPalette(bone_model, conv.mesh->skin, remap, &palette);
+    u32 missing = 0, off = 0;
+    for (size_t i = 0; i < conv.mesh->skin.bones.size(); ++i) {
+      if (remap[i] < 0) ++missing;
+      // Deviation of palette[i] from identity: a correct bind pairing cancels.
+      const Mat4& p = palette[i];
+      f32 dev = 0;
+      for (int k = 0; k < 16; ++k) dev = std::max(dev, std::abs(p.m[k] - Mat4::Identity().m[k]));
+      if (dev > 0.5f) ++off;
+      if (i < 40)
+        std::printf("  bone[%2zu] %-28s remap=%3d dev=%7.2f palette_t=(%.1f %.1f %.1f)\n", i,
+                    conv.mesh->skin.bones[i].c_str(), remap[i], dev, p.m[12], p.m[13], p.m[14]);
+    }
+    std::printf("bones: %zu total, %u unmatched, %u far from identity\n",
+                conv.mesh->skin.bones.size(), missing, off);
+
+    // Apply the palette exactly like the GPU does, so the printed bbox is what
+    // the renderer would actually draw at bind pose.
+    if (!lod.skinning.empty()) {
+      base::Vector<asset::Vertex> posed = lod.vertices;
+      for (size_t v = 0; v < posed.size() && v < lod.skinning.size(); ++v) {
+        const asset::SkinnedVertexExtra& e = lod.skinning[v];
+        f32 acc[3] = {0, 0, 0}, total = 0;
+        for (int j = 0; j < 4; ++j) {
+          f32 w = e.bone_weights[j] / 255.0f;
+          if (w <= 0) continue;
+          u32 b = e.bone_indices[j];
+          if (b >= palette.size()) continue;
+          const Mat4& m = palette[b];
+          const f32* s = lod.vertices[v].position;
+          for (int k = 0; k < 3; ++k)
+            acc[k] += w * (m.m[k] * s[0] + m.m[4 + k] * s[1] + m.m[8 + k] * s[2] + m.m[12 + k]);
+          total += w;
+        }
+        if (total > 1e-4f)
+          for (int k = 0; k < 3; ++k) posed[v].position[k] = acc[k] / total;
+      }
+      bbox(posed, "posed");
+    }
     return 0;
   }
   if (argc > 3) {
