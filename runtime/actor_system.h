@@ -256,6 +256,8 @@ class ActorSystem {
   // imperial, team 2 stormcloak), falling back to the bare body template.
   const Actor* SoldierTemplate(int team);
   bool LoadStarfieldActorTemplate(Actor* out);
+  // Fallout 3 / New Vegas body: the classic skeleton + skinned upperbody/hands.
+  bool LoadFalloutActorTemplate(Actor* out);
   void LoadBuiltinActorTemplate(Actor* out);
   bool LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone = -1);
   // Attaches head-part meshes riding the head bone. With a valid `npc` it
