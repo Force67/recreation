@@ -13,6 +13,7 @@
 #include "bethesda/archive.h"
 #include "bethesda/converters.h"
 #include "bethesda/game_profile.h"
+#include "bethesda/kf_anim.h"
 #include "bethesda/nif.h"
 
 // Loads one asset through the real Vfs + converter pipeline and dumps what
@@ -81,6 +82,55 @@ int main(int argc, char** argv) {
     }
     std::printf("# nifscan: %u ok, %u failed of %zu\n", ok, failed,
                 static_cast<size_t>(nifs.size()));
+    return 0;
+  }
+  if (path == "--kf") {
+    // Convert a Gamebryo .kf clip against a skeleton and report the tracks, so
+    // the B-spline decode can be checked without booting the engine.
+    if (argc < 5) {
+      std::printf("usage: assetdump <data-dir> --kf <clip.kf> <skeleton.nif>\n");
+      return 1;
+    }
+    auto skel_bytes = vfs.Read(asset::NormalizePath(argv[4]));
+    if (!skel_bytes) {
+      std::printf("not in vfs: %s\n", argv[4]);
+      return 1;
+    }
+    asset::Skeleton skeleton;
+    if (!bethesda::ConvertNifSkeleton(rx::ByteSpan(skel_bytes->data(), skel_bytes->size()),
+                                      asset::MakeAssetId(argv[4]), &skeleton)) {
+      std::printf("skeleton parse failed\n");
+      return 1;
+    }
+    auto bytes = vfs.Read(asset::NormalizePath(argv[3]));
+    if (!bytes) {
+      std::printf("not in vfs: %s\n", argv[3]);
+      return 1;
+    }
+    asset::AnimationClip clip;
+    if (!bethesda::ConvertKfAnimation(rx::ByteSpan(bytes->data(), bytes->size()),
+                                      asset::MakeAssetId(argv[3]), skeleton, &clip)) {
+      std::printf("kf conversion failed\n");
+      return 1;
+    }
+    std::printf("clip %s: %.3fs loop=%d tracks=%zu (skeleton %zu bones)\n", argv[3], clip.duration,
+                clip.loop, clip.tracks.size(), skeleton.bones.size());
+    for (size_t i = 0; i < clip.tracks.size() && i < 12; ++i) {
+      const asset::BoneTrack& t = clip.tracks[i];
+      const char* name = t.bone >= 0 && t.bone < static_cast<i32>(skeleton.bones.size())
+                             ? skeleton.bones[t.bone].name.c_str()
+                             : "?";
+      std::printf("  %-24s rot=%-4zu pos=%-4zu", name, t.rot.size(), t.pos.size());
+      if (!t.rot.empty()) {
+        const asset::RotKey& k = t.rot[t.rot.size() / 2];
+        std::printf("  midq=(%.3f %.3f %.3f %.3f)", k.q[0], k.q[1], k.q[2], k.q[3]);
+      }
+      if (!t.pos.empty()) {
+        const asset::PosKey& k = t.pos[t.pos.size() / 2];
+        std::printf("  midp=(%.1f %.1f %.1f)", k.p[0], k.p[1], k.p[2]);
+      }
+      std::printf("\n");
+    }
     return 0;
   }
   if (path == "--skin") {
