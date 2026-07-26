@@ -40,6 +40,8 @@ rx::bethesda::Game ParseGame(const std::string& id) {
   if (id == "fo4") return rx::bethesda::Game::kFallout4;
   if (id == "fo76") return rx::bethesda::Game::kFallout76;
   if (id == "starfield") return rx::bethesda::Game::kStarfield;
+  if (id == "fo3") return rx::bethesda::Game::kFallout3;
+  if (id == "fnv") return rx::bethesda::Game::kFalloutNv;
   return rx::bethesda::Game::kUnknown;
 }
 

@@ -138,6 +138,14 @@ class ActorSystem {
     // fallback and decode-time reference.
     kinema::OwnedClip kinema;
   };
+  // The three Gamebryo .kf clips a Fallout 3 / New Vegas actor walks around on.
+  // Shared immutably so every NPC instanced from the template reuses one decode;
+  // playback time lives per actor.
+  struct KfLocomotion {
+    asset::AnimationClip idle;
+    asset::AnimationClip walk;
+    asset::AnimationClip run;
+  };
   // A behavior project's animation data: the parsed sidecar text files plus
   // the hkbCharacterStringData animation list (creature clip ids index it).
   struct ProjectAnimData {
@@ -151,6 +159,11 @@ class ActorSystem {
     anim::SkeletonPose pose;
     std::shared_ptr<const HavokClip> havok_clip;  // when set, replaces the gait
     f32 havok_time = 0;
+    // Gamebryo .kf locomotion (Fallout 3 / New Vegas, which ship no Havok
+    // clips). Selected by speed and sampled straight into the pose; takes over
+    // from the procedural gait when present.
+    std::shared_ptr<const KfLocomotion> kf_loco;
+    f32 kf_time = 0;
     // Locomotion state machine (RX_KINEMA path): the shared archetype (idle /
     // walk / run + 1D speed blend space + inertialized transitions) plus this
     // actor's own instance/arena/foot-sync. When bound it drives the pose from
@@ -256,6 +269,11 @@ class ActorSystem {
   // imperial, team 2 stormcloak), falling back to the bare body template.
   const Actor* SoldierTemplate(int team);
   bool LoadStarfieldActorTemplate(Actor* out);
+  // Fallout 3 / New Vegas body: the classic skeleton + skinned upperbody/hands.
+  bool LoadFalloutActorTemplate(Actor* out);
+  // Decodes the FO3/NV idle/walk/run .kf clips against the actor's skeleton.
+  // Null when none of them parse, leaving the procedural gait in charge.
+  std::shared_ptr<const KfLocomotion> LoadFalloutLocomotion(const Actor& actor);
   void LoadBuiltinActorTemplate(Actor* out);
   bool LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone = -1);
   // Attaches head-part meshes riding the head bone. With a valid `npc` it

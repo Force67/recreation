@@ -14,6 +14,7 @@
 #include "bethesda/converters.h"
 #include "bethesda/hkx_character.h"
 #include "bethesda/hkx_to_kinema.h"
+#include "bethesda/kf_anim.h"
 #include "bethesda/material_db.h"
 #include "bethesda/nif.h"
 #include "bethesda/record.h"
@@ -562,6 +563,62 @@ bool ActorSystem::LoadStarfieldActorTemplate(Actor* out) {
   return true;
 }
 
+bool ActorSystem::LoadFalloutActorTemplate(Actor* out) {
+  // Fallout 3 / New Vegas keep the classic Gamebryo character layout: a
+  // NiNode skeleton under characters/_male and skinned upperbody/hand meshes
+  // (NiSkinData weights), authored in game units like Skyrim.
+  const std::string skel_path = "meshes/characters/_male/skeleton.nif";
+  auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
+  if (!skel_bytes) {
+    RX_ERROR("fallout skeleton.nif not found in the mounted archives");
+    return false;
+  }
+  asset::Skeleton skeleton;
+  if (!bethesda::ConvertNifSkeleton(ByteSpan(skel_bytes->data(), skel_bytes->size()),
+                                    asset::MakeAssetId(skel_path), &skeleton)) {
+    RX_ERROR("failed to parse fallout skeleton.nif");
+    return false;
+  }
+  out->skeleton = std::move(skeleton);
+  if (std::getenv("RX_SKEL_DUMP")) {
+    for (u32 i = 0; i < out->skeleton.bones.size(); ++i) {
+      const asset::Bone& bone = out->skeleton.bones[i];
+      RX_INFO("nif bone [{:3}] parent {:3} t({:7.2f} {:7.2f} {:7.2f}) {}", i, bone.parent,
+               bone.bind_translation.x, bone.bind_translation.y, bone.bind_translation.z,
+               bone.name);
+    }
+  }
+  out->pose.ResetToBind(out->skeleton);
+  constexpr f32 s = 0.01428f;  // game units -> metres, like Skyrim
+  Mat4 basis{};
+  basis.m[0] = s;
+  basis.m[6] = -s;
+  basis.m[9] = s;
+  basis.m[15] = 1.0f;
+  out->skeleton_to_local = basis;
+  out->ik_up = {0, 0, 1};       // Bethesda up
+  out->ik_forward = {0, 1, 0};  // Bethesda forward
+  // Bind pose up front so rigid parts (the head) capture their bone's bind.
+  anim::ComputeModelMatrices(out->skeleton, out->pose, &out->bone_model);
+
+  // Torso/arms/legs in one file, hands separate; all skinned against the same
+  // Bip01 rig, so they share the skeleton and deform under animation.
+  bool any = LoadActorPart("meshes/characters/_male/upperbody.nif", *out);
+  any = LoadActorPart("meshes/characters/_male/lefthand.nif", *out) || any;
+  any = LoadActorPart("meshes/characters/_male/righthand.nif", *out) || any;
+  if (!any) {
+    RX_ERROR("no fallout body parts loaded");
+    return false;
+  }
+  // The head is a static mesh riding the head bone, like Skyrim's.
+  i32 head_bone = out->skeleton.Find("Bip01 Head");
+  if (head_bone >= 0) LoadActorPart("meshes/characters/head/headhuman.nif", *out, head_bone);
+  // These games ship Gamebryo .kf clips rather than Havok, so the actor drives
+  // its pose from those instead of the procedural gait.
+  out->kf_loco = LoadFalloutLocomotion(*out);
+  return true;
+}
+
 void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
   // Fallback rig for games with no dedicated body loader (Fallout 4): a
   // procedural biped so their NPCs are visible placeholders rather than
@@ -587,7 +644,12 @@ void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
 bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
   Actor actor;
   const bool starfield = ctx_.game == bethesda::Game::kStarfield;
-  if (!(starfield ? LoadStarfieldActorTemplate(&actor) : LoadActorTemplate(&actor))) return false;
+  const bool fallout =
+      ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
+  bool loaded = starfield ? LoadStarfieldActorTemplate(&actor)
+                : fallout ? LoadFalloutActorTemplate(&actor)
+                          : LoadActorTemplate(&actor);
+  if (!loaded) return false;
   // Skyrim bodies carry no head; give the player the default head + hair.
   if (ctx_.game == bethesda::Game::kSkyrimSe)
     AttachHead(actor, bethesda::GlobalFormId{0xffff, 0});
@@ -847,6 +909,82 @@ bool ActorSystem::PlayHavokClip(Actor& actor, const std::string& animation_path,
   actor.havok_time = 0;
   actor.havok_clip = std::move(clip);
   return true;
+}
+
+namespace {
+
+// Samples a keyframed clip into a pose. Bones the clip does not drive keep
+// whatever the pose already held (the bind, after ResetToBind), so a partial
+// clip composes with the rest of the skeleton instead of collapsing it.
+void SampleAnimationClip(const asset::AnimationClip& clip, f32 time, anim::SkeletonPose* pose) {
+  for (const asset::BoneTrack& track : clip.tracks) {
+    if (track.bone < 0 || static_cast<u32>(track.bone) >= pose->size()) continue;
+    if (!track.rot.empty()) {
+      size_t i = 0;
+      while (i + 1 < track.rot.size() && track.rot[i + 1].time <= time) ++i;
+      const asset::RotKey& a = track.rot[i];
+      Quat qa{a.q[0], a.q[1], a.q[2], a.q[3]};
+      if (i + 1 < track.rot.size()) {
+        const asset::RotKey& b = track.rot[i + 1];
+        f32 span = b.time - a.time;
+        f32 t = span > 1e-6f ? (time - a.time) / span : 0.0f;
+        pose->rotation[track.bone] = Slerp(qa, Quat{b.q[0], b.q[1], b.q[2], b.q[3]}, t);
+      } else {
+        pose->rotation[track.bone] = qa;
+      }
+    }
+    if (!track.pos.empty()) {
+      size_t i = 0;
+      while (i + 1 < track.pos.size() && track.pos[i + 1].time <= time) ++i;
+      const asset::PosKey& a = track.pos[i];
+      Vec3 pa{a.p[0], a.p[1], a.p[2]};
+      if (i + 1 < track.pos.size()) {
+        const asset::PosKey& b = track.pos[i + 1];
+        f32 span = b.time - a.time;
+        f32 t = span > 1e-6f ? (time - a.time) / span : 0.0f;
+        pose->translation[track.bone] = {pa.x + (b.p[0] - pa.x) * t, pa.y + (b.p[1] - pa.y) * t,
+                                         pa.z + (b.p[2] - pa.z) * t};
+      } else {
+        pose->translation[track.bone] = pa;
+      }
+    }
+  }
+}
+
+}  // namespace
+
+std::shared_ptr<const ActorSystem::KfLocomotion> ActorSystem::LoadFalloutLocomotion(
+    const Actor& actor) {
+  // The three clips every humanoid walks around on. mtidle is shared; the
+  // forward clips are per body type and the male set is the one the shipped
+  // skeleton matches.
+  struct Entry {
+    const char* path;
+    asset::AnimationClip KfLocomotion::*field;
+  };
+  const Entry entries[] = {
+      {"meshes/characters/_male/locomotion/mtidle.kf", &KfLocomotion::idle},
+      {"meshes/characters/_male/locomotion/male/mtforward.kf", &KfLocomotion::walk},
+      {"meshes/characters/_male/locomotion/male/mtfastforward.kf", &KfLocomotion::run},
+  };
+  auto loco = std::make_shared<KfLocomotion>();
+  u32 loaded = 0;
+  for (const Entry& entry : entries) {
+    auto bytes = vfs_.Read(asset::NormalizePath(entry.path));
+    if (!bytes) continue;
+    if (bethesda::ConvertKfAnimation(ByteSpan(bytes->data(), bytes->size()),
+                                     asset::MakeAssetId(entry.path), actor.skeleton,
+                                     &((*loco).*entry.field))) {
+      ++loaded;
+    }
+  }
+  if (loaded == 0) {
+    RX_WARN("fallout locomotion: no .kf clips decoded, falling back to the procedural gait");
+    return nullptr;
+  }
+  RX_INFO("fallout locomotion: {}/3 kf clips (idle {:.1f}s, walk {:.1f}s, run {:.1f}s)", loaded,
+           loco->idle.duration, loco->walk.duration, loco->run.duration);
+  return loco;
 }
 
 void ActorSystem::SampleHavokClipToPose(const Actor& actor, const HavokClip& clip, f32 time,
@@ -1339,6 +1477,24 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
       }
     }
     SampleHavokClipToPose(actor, clip, actor.havok_time, &actor.pose);
+  } else if (actor.kf_loco) {
+    // Fallout 3 / New Vegas: pick the .kf clip the actor's speed calls for and
+    // sample it. The clips are authored in place (their root translation is the
+    // cycle's own travel), so the pose is reset to bind first and the engine
+    // keeps owning where the actor actually stands.
+    const KfLocomotion& loco = *actor.kf_loco;
+    // Walk and run cycles cover roughly 1.4 and 4.2 m/s; below the walk
+    // threshold the actor is standing still.
+    const asset::AnimationClip* clip = &loco.idle;
+    if (actor.speed > 2.6f && !loco.run.tracks.empty()) clip = &loco.run;
+    else if (actor.speed > 0.15f && !loco.walk.tracks.empty()) clip = &loco.walk;
+    if (clip->tracks.empty()) clip = &loco.idle;
+    if (!clip->tracks.empty()) {
+      f32 duration = std::max(clip->duration, 1.0f / 30.0f);
+      actor.kf_time = std::fmod(actor.kf_time + dt, duration);
+      actor.pose.ResetToBind(actor.skeleton);
+      SampleAnimationClip(*clip, actor.kf_time, &actor.pose);
+    }
   } else {
     actor.locomotion.phase = anim::AdvancePhase(actor.locomotion.phase, actor.speed, dt);
     actor.locomotion.Apply(actor.skeleton, actor.speed, &actor.pose);
@@ -1693,7 +1849,10 @@ void ActorSystem::SyncNpcActors() {
   // Build the shared rig once; every NPC actor is instanced from it.
   if (!npc_template_) {
     Actor tmpl;
+    const bool fallout =
+        ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
     bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
+                  : fallout                               ? LoadFalloutActorTemplate(&tmpl)
                                                           : LoadActorTemplate(&tmpl);
     if (!loaded) {
       // The game's skinned body assets are absent or did not parse (e.g. a

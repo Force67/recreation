@@ -116,6 +116,22 @@ Transform Compose(const Transform& parent, const Transform& local) {
   return out;
 }
 
+// Inverse of a rigid NIF transform (orthonormal rotation, uniform scale):
+// Apply(v) = s*R*v + t inverts to (1/s)*R^T*v - (1/s)*R^T*t.
+Transform Inverse(const Transform& in) {
+  Transform out;
+  f32 inv_scale = in.s != 0 ? 1.0f / in.s : 1.0f;
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) out.r[i * 3 + j] = in.r[j * 3 + i];
+  }
+  out.s = inv_scale;
+  for (int i = 0; i < 3; ++i) {
+    out.t[i] = -inv_scale *
+               (out.r[i * 3] * in.t[0] + out.r[i * 3 + 1] * in.t[1] + out.r[i * 3 + 2] * in.t[2]);
+  }
+  return out;
+}
+
 // Rotation part of a NIF Transform to a quaternion, consistent with the
 // engine MakeFromQuat (r[i*3+j] is row i, col j). Shoemake's branchy form.
 Quat QuatFromTransform(const Transform& t) {
@@ -166,8 +182,11 @@ Mat4 ToMat4(const Transform& t) {
 
 // NiAVObject prefix shared by nodes and shapes: name, extra data list,
 // controller, flags, transform, collision object. Flag bit 0 is "hidden",
-// which collision proxy meshes rely on.
-Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr) {
+// which collision proxy meshes rely on. On Fallout 3 / New Vegas (legacy) the
+// transform is followed by the classic Properties list (num + refs) before the
+// collision object; those property refs carry the shader/material/alpha.
+Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr, bool legacy = false,
+                       base::Vector<i32>* properties = nullptr) {
   i32 name = r.Read<i32>();  // index into the header string table
   if (name_index) *name_index = name;
   u32 extra_count = r.Read<u32>();
@@ -182,6 +201,17 @@ Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr) {
   for (f32& v : local.t) v = r.Read<f32>();
   for (f32& v : local.r) v = r.Read<f32>();
   local.s = r.Read<f32>();
+  if (legacy) {
+    u32 property_count = r.Read<u32>();
+    if (property_count > 4096) {
+      r.ok = false;
+      return local;
+    }
+    for (u32 i = 0; i < property_count; ++i) {
+      i32 ref = r.Read<i32>();
+      if (properties) properties->push_back(ref);
+    }
+  }
   r.Skip(4);  // collision object ref
   return local;
 }
@@ -568,10 +598,21 @@ Transform ReadSkinTransform(Reader& r) {
   return t;
 }
 
-// NiSkinData: per bone skin-to-bone bind transforms. The per bone vertex
-// weight lists are skipped; SSE keeps the authoritative weights in the
-// partition vertex data.
-bool ReadSkinData(Reader& r, base::Vector<Transform>* skin_to_bone) {
+// One vertex's influence from a skin bone (index into the skin instance's bone
+// list). NiSkinData stores these per bone; the classic skin path inverts them
+// into per vertex lists.
+struct BoneWeight {
+  u16 bone = 0;
+  f32 weight = 0;
+};
+using SkinVertexWeights = base::Vector<base::Vector<BoneWeight>>;  // by global vertex
+
+// NiSkinData: per bone skin-to-bone bind transforms, then per bone vertex weight
+// lists (ushort vertex index + float weight). SSE keeps the authoritative
+// weights in the partition vertex data, so `vertex_weights` is optional; the
+// classic (Fallout 3 / New Vegas) path needs them.
+bool ReadSkinData(Reader& r, base::Vector<Transform>* skin_to_bone,
+                  SkinVertexWeights* vertex_weights = nullptr) {
   r.Skip(52);  // overall skin transform, folded into the per bone transforms
   u32 bone_count = r.Read<u32>();
   bool has_weights = r.Read<u8>() != 0;
@@ -581,7 +622,17 @@ bool ReadSkinData(Reader& r, base::Vector<Transform>* skin_to_bone) {
     skin_to_bone->push_back(ReadSkinTransform(r));
     r.Skip(16);  // bounding sphere
     u32 vertex_count = r.Read<u16>();
-    if (has_weights) r.Skip(6 * vertex_count);
+    if (has_weights && vertex_weights) {
+      for (u32 v = 0; v < vertex_count; ++v) {
+        u16 index = r.Read<u16>();
+        f32 weight = r.Read<f32>();
+        if (!r.ok) return false;
+        if (index >= vertex_weights->size()) vertex_weights->resize(index + 1);
+        if (weight > 0) (*vertex_weights)[index].push_back({static_cast<u16>(i), weight});
+      }
+    } else if (has_weights) {
+      r.Skip(6 * vertex_count);
+    }
     if (!r.ok) return false;
   }
   return true;
@@ -660,17 +711,21 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
   return true;
 }
 
-// NiTriShapeData for 20.2.0.7 / BS 100 (the material CRC u32 is SSE only).
-bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
+// NiGeometryData common prefix (positions/normals/tangents/colors/uvs) shared
+// by NiTriShapeData and NiTriStripsData for 20.2.0.7. On return the reader sits
+// at Num Triangles; the caller reads the topology (triangle list vs strips).
+// BS 100 (SSE) inserts a material CRC after the vector flags; FO3/NV (BS 34)
+// and legacy do not. Returns the vertex count, 0 on failure.
+u32 ReadGeometryDataCommon(Reader& r, u32 bs_version, Geometry* out) {
   r.Skip(4);  // group id
   u32 vertex_count = r.Read<u16>();
   r.Skip(2);  // keep/compress flags
   bool has_vertices = r.Read<u8>() != 0;
-  if (!r.ok || vertex_count == 0 || !has_vertices) return false;
+  if (!r.ok || vertex_count == 0 || !has_vertices) return 0;
 
   out->vertices.resize(vertex_count);
   const u8* positions = r.Bytes(12 * vertex_count);
-  if (!positions) return false;
+  if (!positions) return 0;
   for (u32 i = 0; i < vertex_count; ++i) {
     std::memcpy(out->vertices[i].position, positions + 12 * i, 12);
   }
@@ -680,14 +735,14 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   bool has_normals = r.Read<u8>() != 0;
   if (has_normals) {
     const u8* normals = r.Bytes(12 * vertex_count);
-    if (!normals) return false;
+    if (!normals) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       std::memcpy(out->vertices[i].normal, normals + 12 * i, 12);
     }
     if (vector_flags & 0x1000) {
       const u8* tangents = r.Bytes(12 * vertex_count);
       r.Skip(12 * vertex_count);  // bitangents
-      if (!tangents) return false;
+      if (!tangents) return 0;
       for (u32 i = 0; i < vertex_count; ++i) {
         std::memcpy(out->vertices[i].tangent, tangents + 12 * i, 12);
         out->vertices[i].tangent[3] = 1;
@@ -698,7 +753,7 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   bool has_colors = r.Read<u8>() != 0;
   if (has_colors) {
     const u8* colors = r.Bytes(16 * vertex_count);
-    if (!colors) return false;
+    if (!colors) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       f32 c[4];
       std::memcpy(c, colors + 16 * i, 16);
@@ -710,13 +765,20 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
   u32 uv_sets = vector_flags & 0x3f;
   if (uv_sets > 0) {
     const u8* uvs = r.Bytes(8 * vertex_count);  // first set only
-    if (!uvs) return false;
+    if (!uvs) return 0;
     for (u32 i = 0; i < vertex_count; ++i) {
       std::memcpy(out->vertices[i].uv, uvs + 8 * i, 8);
     }
     if (uv_sets > 1) r.Skip(8 * vertex_count * (uv_sets - 1));
   }
   r.Skip(2 + 4);  // consistency flags, additional data ref
+  return r.ok ? vertex_count : 0;
+}
+
+// NiTriShapeData for 20.2.0.7 (the material CRC u32 is SSE only).
+bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
+  u32 vertex_count = ReadGeometryDataCommon(r, bs_version, out);
+  if (vertex_count == 0) return false;
   u32 triangle_count = r.Read<u16>();
   r.Skip(4);  // num triangle points
   bool has_triangles = r.Read<u8>() != 0;
@@ -731,6 +793,50 @@ bool ReadNiTriShapeData(Reader& r, u32 bs_version, Geometry* out) {
     out->indices[i] = index;
   }
   return true;
+}
+
+// NiTriStripsData (Fallout 3 / New Vegas statics): the geometry is stored as
+// triangle strips. Each strip of length L expands to L-2 triangles with the
+// winding flipping every step; degenerate (repeated-index) triangles that stitch
+// strips together are dropped.
+bool ReadNiTriStripsData(Reader& r, u32 bs_version, Geometry* out) {
+  u32 vertex_count = ReadGeometryDataCommon(r, bs_version, out);
+  if (vertex_count == 0) return false;
+  r.Skip(2);  // num triangles (derived from the strips below)
+  u32 strip_count = r.Read<u16>();
+  if (!r.ok || strip_count == 0 || strip_count > 65536) return false;
+  base::Vector<u16> lengths(strip_count);
+  u32 total_points = 0;
+  for (u16& l : lengths) {
+    l = r.Read<u16>();
+    total_points += l;
+  }
+  bool has_points = r.Read<u8>() != 0;
+  if (!r.ok || !has_points) return false;
+  const u8* points = r.Bytes(2 * total_points);
+  if (!points) return false;
+  size_t offset = 0;
+  for (u16 length : lengths) {
+    for (u16 k = 0; k + 2 < length; ++k) {
+      u16 a, b, c;
+      std::memcpy(&a, points + (offset + k) * 2, 2);
+      std::memcpy(&b, points + (offset + k + 1) * 2, 2);
+      std::memcpy(&c, points + (offset + k + 2) * 2, 2);
+      if (a == b || b == c || a == c) continue;  // degenerate stitch
+      if (a >= vertex_count || b >= vertex_count || c >= vertex_count) return false;
+      if (k & 1) {  // odd triangles flip winding
+        out->indices.push_back(a);
+        out->indices.push_back(c);
+        out->indices.push_back(b);
+      } else {
+        out->indices.push_back(a);
+        out->indices.push_back(b);
+        out->indices.push_back(c);
+      }
+    }
+    offset += length;
+  }
+  return !out->indices.empty();
 }
 
 std::string ReadSizedString(Reader& r) {
@@ -770,11 +876,16 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   if (r.Read<u8>() != 1) return std::nullopt;  // little endian only
   header.user_version = r.Read<u32>();
   u32 block_count = r.Read<u32>();
-  if (header.user_version >= 12) {
+  // The Bethesda stream header (BS version + export author/process/export
+  // strings) is present from user version 11 on. Fallout 3 / New Vegas ship
+  // user version 11 / BS 34; Skyrim and later 12 / 83+. Classic Oblivion NIFs
+  // (user version < 11) route to the sequential Gamebryo reader instead.
+  if (header.user_version >= 11) {
     header.bs_version = r.Read<u32>();
     int export_strings = header.bs_version >= 130 ? 4 : 3;
     for (int i = 0; i < export_strings; ++i) r.Skip(r.Read<u8>());
   }
+  header.legacy_geometry = header.user_version <= 11;
   u16 type_count = r.Read<u16>();
   if (!r.ok || block_count > 200000 || type_count > 4096) return std::nullopt;
   header.block_types.reserve(type_count);
@@ -820,6 +931,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   base::UnorderedMap<u32, base::Vector<std::string>> texture_sets;
   base::UnorderedMap<u32, SkinInstanceBlock> skin_instances;
   base::UnorderedMap<u32, base::Vector<Transform>> skin_datas;
+  base::UnorderedMap<u32, SkinVertexWeights> skin_weights;  // classic per-vertex weights
   base::UnorderedMap<u32, SkinPartitionBlock> skin_partitions;
   base::UnorderedMap<u32, FloatController> controllers;
   base::UnorderedMap<u32, FloatInterp> interp_data;  // NiFloatInterpolator blocks
@@ -844,7 +956,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     if (type.ends_with("Node")) {
       Node node;
       i32 name_index = -1;
-      node.local = ReadAvObject(r, &node.hidden, &name_index);
+      node.local = ReadAvObject(r, &node.hidden, &name_index, header->legacy_geometry);
       if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
         node.name = header->strings[name_index];
       }
@@ -903,16 +1015,30 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (!r.ok) continue;
       if (!ReadBsDynamicTriShape(r, header->bs_version, &shape.geometry)) shape.skipped = true;
       shapes.emplace(i, std::move(shape));
-    } else if (type == "NiTriShape") {
+    } else if (type == "NiTriShape" || type == "NiTriStrips") {
+      // Both are NiTriBasedGeom: identical shape header, the referenced data
+      // block (NiTriShapeData vs NiTriStripsData) differs. Skyrim NiTriShape
+      // (tree trunks) trails shader/alpha refs; Fallout 3 / New Vegas (legacy)
+      // resolve them from the AVObject property list instead.
       Shape shape;
-      shape.local = ReadAvObject(r, &shape.hidden);
+      base::Vector<i32> properties;
+      shape.local = ReadAvObject(r, &shape.hidden, nullptr, header->legacy_geometry, &properties);
       shape.data = r.Read<i32>();
       shape.skin = r.Read<i32>();  // kept so the rigid path can fall back to it
       u32 material_count = r.Read<u32>();
       if (!r.ok || material_count > 4096) continue;
       r.Skip(8 * material_count + 4 + 1);  // names+extra, active material, needs update
-      shape.shader = r.Read<i32>();
-      shape.alpha = r.Read<i32>();
+      if (header->legacy_geometry) {
+        for (i32 ref : properties) {
+          if (ref < 0 || static_cast<u32>(ref) >= block_count) continue;
+          const std::string& pt = header->block_types[header->block_type_index[ref]];
+          if (pt == "NiAlphaProperty") shape.alpha = ref;
+          else if (pt.find("Shader") != std::string::npos) shape.shader = ref;
+        }
+      } else {
+        shape.shader = r.Read<i32>();
+        shape.alpha = r.Read<i32>();
+      }
       if (!r.ok) continue;
       shapes.emplace(i, std::move(shape));
     } else if (type == "NiTriShapeData") {
@@ -920,14 +1046,23 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (ReadNiTriShapeData(r, header->bs_version, &geometry)) {
         geometry_blocks.emplace(i, std::move(geometry));
       }
-    } else if (type == "NiTriStrips") {
-      ++result.skipped_shapes;
+    } else if (type == "NiTriStripsData") {
+      Geometry geometry;
+      if (ReadNiTriStripsData(r, header->bs_version, &geometry)) {
+        geometry_blocks.emplace(i, std::move(geometry));
+      }
     } else if (type == "NiSkinInstance" || type == "BSDismemberSkinInstance") {
       SkinInstanceBlock skin;
       if (ReadSkinInstance(r, &skin)) skin_instances.emplace(i, std::move(skin));
     } else if (type == "NiSkinData") {
       base::Vector<Transform> skin_to_bone;
-      if (ReadSkinData(r, &skin_to_bone)) skin_datas.emplace(i, std::move(skin_to_bone));
+      SkinVertexWeights weights;
+      // Classic (Fallout 3 / New Vegas) skinning keeps the weights here; SSE
+      // leaves them empty (they live in the packed partition buffer instead).
+      if (ReadSkinData(r, &skin_to_bone, header->legacy_geometry ? &weights : nullptr)) {
+        skin_datas.emplace(i, std::move(skin_to_bone));
+        if (!weights.empty()) skin_weights.emplace(i, std::move(weights));
+      }
     } else if (type == "NiSkinPartition") {
       SkinPartitionBlock partition;
       if (ReadSkinPartition(r, header->bs_version, &partition)) {
@@ -964,6 +1099,22 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         if (r.ok) info.env_map_scale = scale;
       }
       if (base_ok) shaders.emplace(i, info);
+    } else if (type == "BSShaderPPLightingProperty") {
+      // Fallout 3 / New Vegas lighting shader: NiObjectNET + BSShaderProperty
+      // (flags u16, shader type, two shader-flag words, env map scale), the
+      // BSShaderLightingProperty clamp mode, then the texture set ref. The FO3
+      // shader-type and flag-bit meanings differ from Skyrim's lighting shader,
+      // so it is normalized to the engine default (diffuse + normal via slots).
+      ShaderInfo info;
+      info.shader_type = 0;
+      r.Skip(4);  // name
+      u32 extra = r.Read<u32>();
+      if (!r.ok || extra > 4096) continue;
+      r.Skip(4 * extra + 4);  // extra refs, controller
+      r.Skip(2 + 4 + 4 + 4 + 4);  // flags(u16), type, shader flags 1/2, env map scale
+      r.Skip(4);  // texture clamp mode
+      info.texture_set = r.Read<i32>();
+      if (r.ok) shaders.emplace(i, info);
     } else if (type == "BSWaterShaderProperty") {
       // Placed water (river rapids, waterfalls pools): routed to the
       // engine's water pipeline through a synthesized water material.
@@ -1633,6 +1784,148 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     return true;
   };
 
+  // Classic (Fallout 3 / New Vegas) runtime skinning: the geometry lives in the
+  // shape's NiTriShapeData/NiTriStripsData block and the weights in NiSkinData
+  // (per-vertex bone/weight lists), not a packed partition buffer. Otherwise it
+  // feeds mesh->skin like emit_runtime_skin: bones merged by node name and
+  // per-vertex indices/weights emitted.
+  //
+  // Unlike Skyrim, a classic body is dismembered into several shapes that each
+  // sit at their own node transform, and NiSkinData's skin-to-bone matrices are
+  // relative to their own shape. `shape_world` is that shape's world transform
+  // M: baking it into the vertices puts every shape in one model space, and
+  // pairing it out of the bind (inverse_bind = skin_to_bone * M^-1) keeps the
+  // per-bone matrix shape-independent, so merging bones by name is sound.
+  // Skipping both (Skyrim's shapes are all at identity) is what scattered the
+  // body across the origin.
+  auto emit_classic_skin = [&](const Shape& shape, const Transform& shape_world, Geometry* out,
+                               base::Vector<asset::SkinnedVertexExtra>* out_skin) -> bool {
+    const SkinInstanceBlock* skin = skin_instances.find(static_cast<u32>(shape.skin));
+    if (!skin) return false;
+    const base::Vector<Transform>* skin_to_bone = skin_datas.find(static_cast<u32>(skin->data));
+    const SkinVertexWeights* weights = skin_weights.find(static_cast<u32>(skin->data));
+    const Geometry* geom = shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data))
+                                           : nullptr;
+    if (!skin_to_bone || !weights || !geom) return false;
+    if (skin_to_bone->size() != skin->bones.size() || geom->vertices.empty()) return false;
+
+    Transform to_shape = Inverse(shape_world);
+    base::Vector<u32> bone_remap(skin->bones.size());
+    for (size_t b = 0; b < skin->bones.size(); ++b) {
+      i32 bone_block = skin->bones[b];
+      const Node* bone_node = bone_block >= 0 ? nodes.find(static_cast<u32>(bone_block)) : nullptr;
+      std::string bone_name = bone_node ? bone_node->name : std::string();
+      if (bone_name.empty()) bone_name = "Bone" + std::to_string(bone_block);
+      u64 h = name_hash(bone_name);
+      if (u32* known = skin_bone_lookup.find(h)) {
+        bone_remap[b] = *known;
+      } else {
+        u32 idx = static_cast<u32>(mesh->skin.bones.size());
+        mesh->skin.bones.push_back(bone_name);
+        mesh->skin.inverse_bind.push_back(ToMat4(Compose((*skin_to_bone)[b], to_shape)));
+        skin_bone_lookup.emplace(h, idx);
+        bone_remap[b] = idx;
+      }
+    }
+
+    *out = *geom;
+    for (size_t v = 0; v < out->vertices.size(); ++v) {
+      const asset::Vertex& src = geom->vertices[v];
+      asset::Vertex& dst = out->vertices[v];
+      shape_world.Apply(src.position, dst.position);
+      shape_world.Rotate(src.normal, dst.normal);
+      shape_world.Rotate(src.tangent, dst.tangent);
+    }
+    out_skin->resize(geom->vertices.size());
+    for (size_t v = 0; v < geom->vertices.size(); ++v) {
+      asset::SkinnedVertexExtra& extra = (*out_skin)[v];
+      const base::Vector<BoneWeight>* list = v < weights->size() ? &(*weights)[v] : nullptr;
+      // Keep the four strongest influences (a vertex can list more).
+      BoneWeight top[4] = {};
+      u32 kept = 0;
+      if (list) {
+        for (const BoneWeight& bw : *list) {
+          if (kept < 4) {
+            top[kept++] = bw;
+          } else {
+            u32 weakest = 0;
+            for (u32 j = 1; j < 4; ++j)
+              if (top[j].weight < top[weakest].weight) weakest = j;
+            if (bw.weight > top[weakest].weight) top[weakest] = bw;
+          }
+        }
+      }
+      f32 total = 0;
+      for (u32 j = 0; j < kept; ++j) total += top[j].weight;
+      if (kept == 0) {  // an unweighted vertex rides bone 0 fully
+        extra.bone_indices[0] = 0;
+        extra.bone_weights[0] = 255;
+        continue;
+      }
+      for (u32 j = 0; j < 4; ++j) {
+        u32 global = j < kept ? top[j].bone : 0;
+        extra.bone_indices[j] = global < bone_remap.size() ? static_cast<u8>(bone_remap[global]) : 0;
+        f32 norm = j < kept && total > 1e-5f ? top[j].weight / total : 0.0f;
+        extra.bone_weights[j] = static_cast<u8>(std::lround(norm * 255.0f));
+      }
+    }
+    return true;
+  };
+
+  // Classic (Fallout 3 / New Vegas) bind-pose bake: the dismembered body's
+  // NiTriShapeData vertices sit in per-bone local spaces, so a plain rigid read
+  // scatters them. Pose each vertex to bind space with the body's own internal
+  // skeleton (node_world * skin-to-bone, weighted by NiSkinData), producing a
+  // coherent static body the caller renders rigidly.
+  auto bake_classic_skin = [&](const Shape& shape, Geometry* out) -> bool {
+    const SkinInstanceBlock* skin = skin_instances.find(static_cast<u32>(shape.skin));
+    if (!skin) return false;
+    const base::Vector<Transform>* skin_to_bone = skin_datas.find(static_cast<u32>(skin->data));
+    const SkinVertexWeights* weights = skin_weights.find(static_cast<u32>(skin->data));
+    const Geometry* geom = shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data))
+                                           : nullptr;
+    if (!skin_to_bone || !weights || !geom) return false;
+    if (skin_to_bone->size() != skin->bones.size() || geom->vertices.empty()) return false;
+
+    base::Vector<Transform> bone_world(skin->bones.size());
+    for (size_t b = 0; b < skin->bones.size(); ++b) {
+      const Transform* w =
+          skin->bones[b] >= 0 ? node_world.find(static_cast<u32>(skin->bones[b])) : nullptr;
+      if (!w) return false;  // external skeleton, cannot bake here
+      bone_world[b] = Compose(*w, (*skin_to_bone)[b]);
+    }
+
+    *out = *geom;
+    for (size_t v = 0; v < geom->vertices.size(); ++v) {
+      const base::Vector<BoneWeight>* list = v < weights->size() ? &(*weights)[v] : nullptr;
+      if (!list || list->empty()) continue;  // keep the bind vertex as-is
+      f32 pos[3] = {0, 0, 0}, nrm[3] = {0, 0, 0}, tan[3] = {0, 0, 0}, total = 0;
+      for (const BoneWeight& bw : *list) {
+        if (bw.bone >= bone_world.size()) continue;
+        const Transform& t = bone_world[bw.bone];
+        f32 p[3], n[3], tg[3];
+        t.Apply(geom->vertices[v].position, p);
+        t.Rotate(geom->vertices[v].normal, n);
+        t.Rotate(geom->vertices[v].tangent, tg);
+        for (int k = 0; k < 3; ++k) {
+          pos[k] += bw.weight * p[k];
+          nrm[k] += bw.weight * n[k];
+          tan[k] += bw.weight * tg[k];
+        }
+        total += bw.weight;
+      }
+      if (total > 1e-4f) {
+        f32 inv = 1.0f / total;
+        for (int k = 0; k < 3; ++k) {
+          out->vertices[v].position[k] = pos[k] * inv;
+          out->vertices[v].normal[k] = nrm[k] * inv;
+          out->vertices[v].tangent[k] = tan[k] * inv;
+        }
+      }
+    }
+    return true;
+  };
+
   // Folds one particle system's modifier list into asset emitters on the mesh,
   // in mesh-local (NIF object) space; the instance transform maps them to
   // engine world space at draw time. The billboard renderer has no texture
@@ -1897,8 +2190,12 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       }
     }
     if (shape->skin >= 0 && geometry->vertices.empty()) {
-      bool ok = keep_skin ? emit_runtime_skin(*shape, &baked, &baked_skin)
-                          : bake_skinned(*shape, &baked);
+      bool ok = keep_skin ? (header->legacy_geometry
+                                 ? emit_classic_skin(*shape, Compose(entry.world, shape->local),
+                                                     &baked, &baked_skin)
+                                 : emit_runtime_skin(*shape, &baked, &baked_skin))
+                          : (header->legacy_geometry ? bake_classic_skin(*shape, &baked)
+                                                     : bake_skinned(*shape, &baked));
       if (ok) {
         geometry = &baked;
         skinned = true;
@@ -2042,7 +2339,7 @@ bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) 
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
     RawNode node;
     i32 name_index = -1;
-    node.local = ReadAvObject(r, nullptr, &name_index);
+    node.local = ReadAvObject(r, nullptr, &name_index, header->legacy_geometry);
     if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
       node.name = header->strings[name_index];
     }

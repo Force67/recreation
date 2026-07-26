@@ -44,6 +44,11 @@ target_link_libraries(fibertest PRIVATE recreation::script)
 recreation_set_warnings(fibertest)
 add_test(NAME fibertest COMMAND fibertest)
 
+add_executable(obscripttest obscripttest.cc)
+target_link_libraries(obscripttest PRIVATE recreation::script)
+recreation_set_warnings(obscripttest)
+add_test(NAME obscripttest COMMAND obscripttest)
+
 add_executable(proximitytest proximitytest.cc)
 target_link_libraries(proximitytest PRIVATE recreation::script)
 recreation_set_warnings(proximitytest)

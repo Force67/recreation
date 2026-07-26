@@ -59,6 +59,7 @@ bool Engine::OnInitialize(app::Services& services) {
   // preset / seeded the day/night clock; cache non-owning views of them.
   host_ = services.host;
   window_ = services.window;
+  jobs_ = services.jobs;
   clock_ = services.clock;
   world_ = services.world;
   scheduler_ = services.scheduler;
@@ -269,6 +270,9 @@ void Engine::OnShutdown() {
   // the guest thread holds, valid until the guest is joined.
   if (managed_) managed_->Shutdown();
   scripts_.reset();
+  // Streaming prefetch jobs read domain records/assets; drain them before the
+  // domains go away (the host's own WaitIdle runs only after OnShutdown).
+  if (jobs_) jobs_->WaitIdle();
   extra_streamers_.clear();  // reference domain records/assets; drop before the domains
   extra_domains_.clear();    // joins each secondary guest thread before teardown
   managed_.reset();

@@ -4,7 +4,10 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 
+#include <atomic>
+#include <chrono>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -12,6 +15,7 @@
 #include "asset/asset_database.h"
 #include "bethesda/game_profile.h"
 #include "bethesda/load_order.h"
+#include "core/job_system.h"
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
@@ -65,6 +69,12 @@ class CellStreamer {
   // actor transforms by form id.
   void set_quest_world(QuestWorld* quest_world) { quest_world_ = quest_world; }
 
+  // Optional job system: in-range cells then prefetch their base-model
+  // conversions on worker threads (see RX_STREAM_PREFETCH), so the main-thread
+  // streamer mostly finds warm asset caches and only does the GPU upload. The
+  // job system must outlive this streamer's records/assets (jobs read both).
+  void set_job_system(JobSystem* jobs) { job_system_ = jobs; }
+
   // Water surface height and flow at an engine-space position, for
   // buoyancy. Flow derives from the height gradient of neighboring cells.
   bool WaterHeightAt(const Vec3& position, f32* height, Vec3* flow);
@@ -80,6 +90,11 @@ class CellStreamer {
     std::function<bool(const asset::Material&)> material;
     std::function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
     std::function<void(render::InstanceGroupHandle)> remove_instances;
+    // Optional: brackets a frame's mesh/buffer uploads so the renderer coalesces
+    // their GPU transfers into one submit instead of a blocking round-trip per
+    // buffer. Both set or both unset; unset = every upload submits on its own.
+    std::function<void()> begin_batch;
+    std::function<void()> end_batch;
   };
 
   struct Settings {
@@ -320,6 +335,12 @@ class CellStreamer {
   // Returns false when the budget ran out before the cell completed.
   bool LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
                            u32& mesh_budget, u32& ref_budget);
+  // True once this Update has spent its wall-clock streaming budget (see
+  // stream_deadline_): cell loading then bails and resumes next frame. Always
+  // false when the time cap is disabled (RX_STREAM_BUDGET_MS <= 0).
+  bool StreamBudgetExpired() const {
+    return stream_time_limited_ && std::chrono::steady_clock::now() >= stream_deadline_;
+  }
   void UnloadCell(ecs::World& world, u32 key);
   // Destroys the active interior's entities and colliders (see interior_cell_).
   void UnloadInterior(ecs::World& world);
@@ -404,6 +425,11 @@ class CellStreamer {
   // The renderer-side mesh key for a converted asset, salted for this domain.
   asset::AssetId RenderMeshId(asset::AssetId id) const { return {id.hash ^ mesh_id_salt_}; }
 
+  // Submits background prefetch jobs for in-range cells (see PrefetchCells);
+  // enqueue and the dedupe set stay main-thread-only, the jobs themselves only
+  // read records_ and warm assets_.
+  void PrefetchCells(i16 center_x, i16 center_y, i32 radius);
+
   const bethesda::RecordStore& records_;
   asset::AssetDatabase& assets_;
   LandBaker baker_;
@@ -412,6 +438,25 @@ class CellStreamer {
   Uploads uploads_;
   physics::PhysicsWorld* physics_ = nullptr;
   QuestWorld* quest_world_ = nullptr;
+  JobSystem* job_system_ = nullptr;
+  // A cell's prefetch progress, shared with its job closure so it can never
+  // dangle. `land` flips (release) once the job warmed the cell's land textures
+  // (done first), `done` once it also warmed every ref mesh; the main thread
+  // reads them (acquire) to defer the terrain bake until land textures are warm
+  // and ref spawning until meshes are. Both start false.
+  struct PrefetchFlags {
+    std::atomic<bool> land{false};
+    std::atomic<bool> done{false};
+  };
+  // Cell key -> its prefetch flags (null when the cell needed no job). Cleared
+  // on worldspace and interior transitions so re-entry re-prefetches (cheap:
+  // warm caches).
+  base::UnorderedMap<u32, std::shared_ptr<PrefetchFlags>> prefetched_cells_;
+  // Concurrent prefetch jobs in flight. Capped (see PrefetchCells) so the worker
+  // pool leaves cores for the main thread instead of saturating every core with
+  // texture decodes while it bakes/uploads. Shared with job closures (streamer
+  // outlives them, drained at shutdown).
+  std::shared_ptr<std::atomic<i32>> prefetch_inflight_ = std::make_shared<std::atomic<i32>>(0);
   Vec3 world_offset_{0.0f, 0.0f, 0.0f};  // engine-space shift of all spawned content
   Vec3 fixed_anchor_{0.0f, 0.0f, 0.0f};  // streaming center when has_fixed_anchor_
   bool has_fixed_anchor_ = false;
@@ -492,6 +537,12 @@ class CellStreamer {
   size_t water_planes_ = 0;
   u32 skipped_refs_ = 0;
   bool announced_idle_ = false;
+  // Wall-clock deadline for the synchronous cell conversion this Update may do
+  // (see StreamBudgetExpired / RX_STREAM_BUDGET_MS). Set at the top of each
+  // Update; caps a burst of new cells so their heavy NIF/texture conversions
+  // spread over frames instead of hitching one.
+  std::chrono::steady_clock::time_point stream_deadline_{};
+  bool stream_time_limited_ = false;
   f32 detail_rect_[4] = {0, 0, 0, 0};               // see detail_rect()
   Vec3 last_camera_{0.0f, 0.0f, 0.0f};              // last Update anchor, for nearest-light culling
   mutable size_t logged_light_count_ = ~size_t{0};  // last CollectLights count logged

@@ -29,6 +29,10 @@ inline std::string GameSlug(bethesda::Game game) {
       return "starfield";
     case bethesda::Game::kMorrowind:
       return "morrowind";
+    case bethesda::Game::kFallout3:
+      return "fallout3";
+    case bethesda::Game::kFalloutNv:
+      return "falloutnv";
     default:
       return "game";
   }

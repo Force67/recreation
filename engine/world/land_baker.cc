@@ -682,4 +682,21 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
   return out;
 }
 
+void LandBaker::WarmLandTextures(const bethesda::Record& land, u16 land_plugin) {
+  u64 base[4] = {};
+  base::Vector<QuadLayer> layers;
+  ParseLandLayers(records_, land, land_plugin, base, layers);
+  // Load each referenced LTEX's diffuse + normal (deduped by the asset cache).
+  // A superset of whatever the top-N palette bake will pick, so its LoadTexture
+  // calls all hit. These resolvers read records_ and hit the thread-safe asset
+  // cache only; nothing here mutates baker state (baked_ is bumped by the bakes,
+  // never here), so it is safe off the main thread.
+  auto warm = [&](u64 ltex) {
+    LayerAsset(ltex);
+    LayerNormalAsset(ltex);
+  };
+  for (u32 q = 0; q < 4; ++q) warm(base[q]);
+  for (const QuadLayer& l : layers) warm(l.ltex);
+}
+
 }  // namespace rx::world

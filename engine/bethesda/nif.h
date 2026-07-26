@@ -25,6 +25,10 @@ struct NifHeader {
   u32 version = 0;
   u32 user_version = 0;
   u32 bs_version = 0;
+  // Fallout 3 / New Vegas (user version 11): NiAVObject still carries the
+  // classic Properties list and NiTriShape/NiTriStrips reference their shader,
+  // material and alpha through it (no trailing shader/alpha refs like Skyrim).
+  bool legacy_geometry = false;
   base::Vector<std::string> block_types;
   base::Vector<u16> block_type_index;
   base::Vector<u32> block_sizes;

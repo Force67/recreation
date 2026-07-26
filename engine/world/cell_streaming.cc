@@ -22,6 +22,31 @@ namespace {
 // base::InitOptionsFromEnv() at startup.
 base::Option<int> LoadRadius{"load.radius", -1, "RX_LOAD_RADIUS"};
 base::Option<bool> DistantLod{"distant.lod", false, "RX_DISTANT_LOD"};
+// Wall-clock cap (milliseconds) on the synchronous cell conversion done per
+// streaming Update. Cell loading runs on the main thread; a fast-moving camera
+// crossing several new cells would otherwise convert many meshes + textures in
+// one frame and hitch. The classic Gamebryo NIFs of Fallout 3 / New Vegas are
+// especially heavy per mesh (CPU strip triangulation, per-shape property scans,
+// a dozen BSA-inflated textures each), so a plain count budget, blind to that
+// cost, spikes badly. This caps the per-frame work by time: loading bails when
+// the budget is spent and resumes next frame from the per-cell incremental
+// state, trading a little pop-in for a smooth frame. 0 disables the cap.
+base::Option<int> StreamBudgetMs{"stream.budget_ms", 4, "RX_STREAM_BUDGET_MS"};
+// Prefetch cell mesh conversion on the job system: every in-range cell submits
+// a background job that resolves its refs to their base model paths and warms
+// the asset cache, so by the time the budgeted main-thread walk reaches the
+// cell only the (batched) GPU upload remains. Workers touch nothing but the
+// read-only record store and the mutex-guarded asset database.
+// RX_STREAM_PREFETCH=0 disables all jobs, restoring the synchronous behavior.
+base::Option<bool> StreamPrefetch{"stream.prefetch", true, "RX_STREAM_PREFETCH"};
+// Optional cap on prefetch jobs in flight. The terrain and ref gates keep the
+// main thread from doing heavy conversion itself (it waits on warm caches), so
+// prefetch can use the whole pool without starving it; 0 (default) = uncapped.
+// A positive RX_STREAM_PREFETCH_JOBS bounds concurrency on core-starved boxes.
+base::Option<int> StreamPrefetchJobs{"stream.prefetch_jobs", 0, "RX_STREAM_PREFETCH_JOBS"};
+// Logs the wall-clock time each streaming Update spent converting cells (and
+// how many meshes/refs it drained) whenever it did work, for tuning the budget.
+base::Option<bool> StreamProfile{"stream.profile", false, "RX_STREAM_PROFILE"};
 // Runtime terrain splatting: tile the real land textures at native resolution
 // and blend by a small weight map, instead of the lower-res per-cell albedo
 // bake. On for the higher presets; RX_LAND_SPLAT forces it either way.
@@ -411,6 +436,53 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
   texture.mip_count = mips;
 }
 
+bool BaseTypeHasWorldModel(u32 type);  // defined below MeshForBase
+
+// Warms one cell's land textures (the dominant land-bake cost) on a worker, so
+// the streaming thread's terrain bake finds them cached. Reads the record store
+// and the thread-safe LandBaker texture path only.
+void PrefetchLandTextures(const bethesda::RecordStore& records, LandBaker& baker,
+                          const bethesda::RecordStore::ExteriorCell& source) {
+  if (source.land == 0) return;
+  bethesda::GlobalFormId land_id{static_cast<u16>(source.land >> 32),
+                                 static_cast<u32>(source.land)};
+  bethesda::Record land;
+  if (!records.Parse(land_id, &land)) return;
+  const bethesda::RecordStore::StoredRecord* stored = records.Find(land_id);
+  baker.WarmLandTextures(land, stored ? stored->winning_plugin : 0);
+}
+
+// Background prefetch job body: resolves every ref to its base form's world
+// model and warms the asset cache, mirroring the base lookup SpawnReference/
+// MeshForBase do. Runs on a job system worker, so it may only read the
+// (post-load immutable) record store and call the mutex-guarded asset database;
+// all CellStreamer state stays main-thread-owned.
+void PrefetchCellMeshes(const bethesda::RecordStore& records, asset::AssetDatabase& assets,
+                        const bethesda::RecordStore::ExteriorCell& source) {
+  for (u64 packed : source.refs) {
+    bethesda::GlobalFormId id{static_cast<u16>(packed >> 32), static_cast<u32>(packed)};
+    const bethesda::RecordStore::StoredRecord* stored = records.Find(id);
+    if (!stored || stored->header.type == kAchr) continue;  // actors have no static model
+    bethesda::Record refr;
+    if (!records.Parse(id, &refr)) continue;
+    const bethesda::Subrecord* name = refr.Find(kName);
+    if (!name || name->data.size() < 4) continue;
+    u32 base_raw;
+    std::memcpy(&base_raw, name->data.data(), 4);
+    bethesda::GlobalFormId base_id =
+        records.ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
+    const bethesda::RecordStore::StoredRecord* base_stored = records.Find(base_id);
+    if (!base_stored || !BaseTypeHasWorldModel(base_stored->header.type)) continue;
+    bethesda::Record base;
+    if (!records.Parse(base_id, &base)) continue;
+    std::string model = base.GetString(kModl);
+    if (model.empty()) continue;
+    std::string path = asset::NormalizePath(model);
+    if (!path.starts_with("meshes/")) path = "meshes/" + path;
+    assets.LoadMesh(path);
+  }
+}
+
 // Nearest-resamples a source region into an atlas tile.
 void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src, u32 src_w, u32 rx,
                    u32 ry, u32 rw, u32 rh) {
@@ -441,6 +513,7 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
     return false;
   }
   ground_cache_.clear();  // heights are per worldspace
+  prefetched_cells_.clear();
   worldspace_edid_.assign(editor_id);
   for (char& c : worldspace_edid_) c = static_cast<char>(std::tolower(c));
   // Bind diffs to a stable world identifier, not a load-order index. Including
@@ -843,11 +916,71 @@ void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
   }
 }
 
+void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
+  if (!job_system_ || !StreamPrefetch.get() || !grid_) return;
+  // Optional in-flight cap (0 = uncapped; the gates keep the main thread light).
+  const i32 cap = StreamPrefetchJobs.get();
+  // Near to far, like the main walk, so nearby cells convert first. Enqueued
+  // independently of the budgeted walk below: that walk truncates at the time
+  // budget, which would serialize prefetch behind the very work it hides.
+  // When capped, over-cap cells stay unmarked and retry on a later tick.
+  for (i32 ring = 0; ring <= radius; ++ring) {
+    for (i32 dy = -ring; dy <= ring; ++dy) {
+      for (i32 dx = -ring; dx <= ring; ++dx) {
+        if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
+        const i16 x = static_cast<i16>(center_x + dx);
+        const i16 y = static_cast<i16>(center_y + dy);
+        const u32 key = CellKey(x, y);
+        if (prefetched_cells_.contains(key)) continue;
+        const bethesda::RecordStore::ExteriorCell* source =
+            grid_->find(bethesda::RecordStore::GridKey(x, y));
+        if (!source || (source->refs.empty() && source->land == 0)) {
+          prefetched_cells_.emplace(key, std::shared_ptr<PrefetchFlags>());
+          continue;
+        }
+        if (cap > 0 && prefetch_inflight_->load(std::memory_order_acquire) >= cap) return;
+        auto flags = std::make_shared<PrefetchFlags>();
+        prefetched_cells_.emplace(key, flags);
+        prefetch_inflight_->fetch_add(1, std::memory_order_relaxed);
+        // The exterior grid, records, assets and baker are stable for the
+        // streamer's lifetime and only read here (land textures warmed first so
+        // the ungated terrain bake can proceed, then ref meshes). The flags and
+        // inflight counter are shared so they survive past this streamer.
+        const bethesda::RecordStore* records = &records_;
+        asset::AssetDatabase* assets = &assets_;
+        LandBaker* baker = &baker_;
+        auto inflight = prefetch_inflight_;
+        job_system_->Submit([records, assets, baker, source, flags, inflight] {
+          PrefetchLandTextures(*records, *baker, *source);
+          flags->land.store(true, std::memory_order_release);
+          PrefetchCellMeshes(*records, *assets, *source);
+          flags->done.store(true, std::memory_order_release);
+          inflight->fetch_sub(1, std::memory_order_release);
+        });
+      }
+    }
+  }
+}
+
 void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   last_camera_ = camera_position;  // tracked even in interiors, for light culling
   for (auto entry : loaded_) SyncProps(world, entry.value);
   if (interior_active_) SyncProps(world, interior_cell_);
   if (interior_active_ || !grid_) return;
+
+  // Cap the synchronous conversion work this frame so a burst of newly entered
+  // cells spreads over frames instead of hitching one (see StreamBudgetMs).
+  const auto stream_start = std::chrono::steady_clock::now();
+  const int budget_ms = StreamBudgetMs.get();
+  stream_time_limited_ = budget_ms > 0;
+  if (stream_time_limited_)
+    stream_deadline_ = stream_start + std::chrono::milliseconds(budget_ms);
+  const size_t meshes_before = base_meshes_.size();
+  const size_t entities_before = spawned_entities_ + spawned_instances_;
+
+  // Coalesce this frame's mesh/buffer uploads into one GPU submit instead of a
+  // blocking round-trip per created buffer (the dominant per-mesh upload cost).
+  if (uploads_.begin_batch) uploads_.begin_batch();
 
   // The anchor selects which cells load (by this domain's own cell coordinates);
   // world_offset_ then shifts where they spawn, so a secondary worldspace sits
@@ -871,6 +1004,8 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   // affordable on the mesh-shader lod path (gpu cluster cull + distance lods).
   i32 radius = LoadRadius > 0 ? LoadRadius.get() : settings_.load_radius;
 
+  PrefetchCells(center_x, center_y, radius);
+
   base::Vector<u32> to_unload;
   for (auto kv : loaded_) {
     i16 x = static_cast<i16>(kv.key >> 16);
@@ -885,7 +1020,8 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   u32 mesh_budget = settings_.mesh_budget;
   u32 ref_budget = settings_.ref_budget;
   bool all_done = true;
-  for (i32 ring = 0; ring <= radius && mesh_budget > 0 && ref_budget > 0; ++ring) {
+  for (i32 ring = 0; ring <= radius && mesh_budget > 0 && ref_budget > 0 && !StreamBudgetExpired();
+       ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
         if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
@@ -899,10 +1035,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
         }
         if (!LoadCellIncremental(world, x, y, *cell, mesh_budget, ref_budget)) {
           all_done = false;
-          if (mesh_budget == 0 || ref_budget == 0) break;
+          if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) break;
         }
       }
-      if (mesh_budget == 0 || ref_budget == 0) break;
+      if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) break;
     }
   }
 
@@ -913,7 +1049,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (distant_on) {
     if (!distant_discovered_) DiscoverDistantQuads();
     u32 distant_budget = settings_.distant_budget;
-    while (distant_budget > 0 && distant_next_ < distant_quads_.size()) {
+    while (distant_budget > 0 && distant_next_ < distant_quads_.size() && !StreamBudgetExpired()) {
       if (SpawnDistantQuad(world, distant_next_)) --distant_budget;
       ++distant_next_;
     }
@@ -953,8 +1089,9 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     }
   }
 
-  // Exhausted budgets may have cut the ring walk short of unvisited cells.
-  if (mesh_budget == 0 || ref_budget == 0) all_done = false;
+  // Exhausted budgets (count or time) may have cut the ring walk short of
+  // unvisited cells, so keep streaming next frame instead of announcing idle.
+  if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) all_done = false;
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
     RX_INFO(
@@ -966,6 +1103,22 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
         grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
+  }
+
+  // Submit the frame's coalesced uploads (before measuring, so the profile
+  // includes the flush cost).
+  if (uploads_.end_batch) uploads_.end_batch();
+
+  if (StreamProfile) {
+    const size_t new_meshes = base_meshes_.size() - meshes_before;
+    const size_t new_entities = (spawned_entities_ + spawned_instances_) - entities_before;
+    if (new_meshes || new_entities) {
+      const f32 ms = std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() -
+                                                            stream_start)
+                         .count();
+      RX_INFO("stream: {:.2f} ms this frame, {} new meshes, {} new refs{}", ms, new_meshes,
+              new_entities, StreamBudgetExpired() ? " (time-capped)" : "");
+    }
   }
 }
 
@@ -981,8 +1134,14 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
     }
     cell.addressability_done = true;
   }
+  const std::shared_ptr<PrefetchFlags>* prefetch = prefetched_cells_.find(CellKey(grid_x, grid_y));
   if (!cell.terrain_done) {
-    if (mesh_budget == 0) return false;
+    // Defer the terrain bake until the prefetch job warmed this cell's land
+    // textures, so the bake finds them cached instead of inflating + decoding
+    // them on the streaming thread (the dominant land-bake cost). Ground shows a
+    // frame or two later on a cell whose job is still pending; jobs always drain.
+    if (prefetch && *prefetch && !(*prefetch)->land.load(std::memory_order_acquire)) return false;
+    if (mesh_budget == 0 || StreamBudgetExpired()) return false;
     --mesh_budget;
     SpawnTerrain(world, grid_x, grid_y, cell);
     SpawnWater(world, grid_x, grid_y, cell);
@@ -991,13 +1150,21 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
   if (!cell.grass_done) {
     // The merge (and the one-time GRAS model conversions) costs like a mesh
     // conversion, so it takes a budget slot of its own.
-    if (mesh_budget == 0) return false;
+    if (mesh_budget == 0 || StreamBudgetExpired()) return false;
     --mesh_budget;
     SpawnGrass(world, grid_x, grid_y, cell);
     cell.grass_done = true;
   }
+  if (cell.next_ref < cell.source->refs.size()) {
+    // Defer ref spawning until this cell's prefetch job (if any) has finished:
+    // spawning earlier would convert the same meshes cold on the main thread,
+    // racing the worker under full CPU contention, which is exactly the hitch
+    // prefetch exists to remove. Jobs always drain, so the wait is bounded;
+    // terrain, water and grass above are not held back.
+    if (prefetch && *prefetch && !(*prefetch)->done.load(std::memory_order_acquire)) return false;
+  }
   while (cell.next_ref < cell.source->refs.size()) {
-    if (mesh_budget == 0 || ref_budget == 0) {
+    if (mesh_budget == 0 || ref_budget == 0 || StreamBudgetExpired()) {
       CommitInstances(world, cell);
       return false;
     }
@@ -3424,6 +3591,7 @@ bool CellStreamer::EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_
   for (u32 key : keys) UnloadCell(world, key);
   UnloadInterior(world);
   announced_idle_ = false;
+  prefetched_cells_.clear();  // exterior re-entry re-prefetches (warm caches)
   const bool ok = LoadInterior(world, cell_id, camera_position);
   if (ok && on_location_change_) on_location_change_(cell_id.packed(), true);
   return ok;
@@ -3456,6 +3624,7 @@ void CellStreamer::UnloadAllCells(ecs::World& world) {
   distant_next_ = 0;
   distant_discovered_ = false;  // re-discovered if this domain becomes active again
   announced_idle_ = false;
+  prefetched_cells_.clear();
 }
 
 }  // namespace rx::world
