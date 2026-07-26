@@ -16,6 +16,7 @@ recreation_add_module(bethesda
   hkx_physics.cc
   hkx_to_physics.cc
   hkx_anim.cc
+  kf_anim.cc
   hkx_character.cc
   hkx_to_kinema.cc
   animation_data.cc
