@@ -131,6 +131,19 @@ void ActorSystem::SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw) 
   }
 }
 
+bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  Actor* a = npc_actors_.find(key);
+  if (!a) return false;
+  const i32 bone = a->skeleton.Find("NPC Head [Head]");
+  if (bone < 0 || bone >= static_cast<i32>(a->bone_model.size())) return false;
+  const world::Transform* t = world_.Get<world::Transform>(npc);
+  if (!t) return false;
+  const Mat4 model = TransformMatrix(*t) * a->skeleton_to_local * a->bone_model[bone];
+  *out = {model.m[12], model.m[13], model.m[14]};
+  return true;
+}
+
 void ActorSystem::MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving,
                              bool grounded) {
   if (player_actor_ < 0) return;
@@ -1844,30 +1857,68 @@ const ActorSystem::Actor* ActorSystem::SoldierTemplate(int team) {
   return &*slot;
 }
 
+bool ActorSystem::EnsureNpcTemplate() {
+  if (npc_template_) return true;
+  Actor tmpl;
+  const bool fallout =
+      ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
+  bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
+                : fallout                               ? LoadFalloutActorTemplate(&tmpl)
+                                                        : LoadActorTemplate(&tmpl);
+  if (!loaded) {
+    // The game's skinned body assets are absent or did not parse (e.g. a
+    // Fallout 4 session): fall back to the builtin biped so NPCs still
+    // populate the world.
+    tmpl = Actor{};
+    LoadBuiltinActorTemplate(&tmpl);
+    RX_INFO("npc rendering: using the builtin biped (game body assets absent)");
+  }
+  tmpl.animate = true;
+  tmpl.speed = 0.0f;     // idle
+  tmpl.foot_ik = false;  // skip per-NPC ground raycasts
+  npc_template_ = std::move(tmpl);
+  RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
+  return true;
+}
+
+ecs::Entity ActorSystem::SpawnScriptedNpc(bethesda::GlobalFormId base, const std::string& clip_path,
+                                          const Vec3& position, f32 yaw, int outfit) {
+  if (config_.headless || !EnsureNpcTemplate()) return ecs::Entity{};
+  Actor actor;
+  // A dressed rider loads its own body (the shared template is the bare one);
+  // there are only a handful, so they are built on the spot rather than cached.
+  if (outfit == 0 || !LoadActorTemplate(&actor, outfit)) actor = *npc_template_;
+  actor.animate = true;
+  actor.speed = 0.0f;
+  actor.foot_ik = false;
+  actor.pose.ResetToBind(actor.skeleton);
+  if (ctx_.game == bethesda::Game::kSkyrimSe) AttachHead(actor, base);
+  if (!clip_path.empty()) {
+    PlayHavokClip(actor, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
+                  "character");
+  }
+  const ecs::Entity entity = world_.Create();
+  const f32 h = yaw * 0.5f;
+  world::Transform t;
+  t.position[0] = position.x;
+  t.position[1] = position.y;
+  t.position[2] = position.z;
+  t.rotation[0] = 0;
+  t.rotation[1] = std::sin(h);
+  t.rotation[2] = 0;
+  t.rotation[3] = std::cos(h);
+  world_.Add(entity, t);
+  actor.entity = entity;
+  actor.yaw = yaw;
+  actor.external_position = true;  // the caller drives the transform
+  const u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
+  npc_actors_.insert(key, std::move(actor));
+  return entity;
+}
+
 void ActorSystem::SyncNpcActors() {
   if (config_.headless) return;  // dedicated server doesn't render NPCs
-  // Build the shared rig once; every NPC actor is instanced from it.
-  if (!npc_template_) {
-    Actor tmpl;
-    const bool fallout =
-        ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
-    bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
-                  : fallout                               ? LoadFalloutActorTemplate(&tmpl)
-                                                          : LoadActorTemplate(&tmpl);
-    if (!loaded) {
-      // The game's skinned body assets are absent or did not parse (e.g. a
-      // Fallout 4 session): fall back to the builtin biped so NPCs still
-      // populate the world.
-      tmpl = Actor{};
-      LoadBuiltinActorTemplate(&tmpl);
-      RX_INFO("npc rendering: using the builtin biped (game body assets absent)");
-    }
-    tmpl.animate = true;
-    tmpl.speed = 0.0f;     // idle
-    tmpl.foot_ik = false;  // skip per-NPC ground raycasts
-    npc_template_ = std::move(tmpl);
-    RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
-  }
+  EnsureNpcTemplate();  // the shared rig every NPC actor is instanced from
   // Give every NPC entity without one a skinned actor instance (own pose, GPU
   // meshes shared by hash with the template). Battle actors (those on a combat
   // team) instance from their faction's armoured template instead of the bare

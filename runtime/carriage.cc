@@ -5,9 +5,7 @@
 #include <cstdlib>
 
 #include "actor_system.h"
-#include "asset/asset_database.h"
-#include "asset/mesh.h"
-#include "asset/primitives.h"
+#include "cart_visuals.h"
 #include "core/log.h"
 #include "engine_context.h"
 #include "fly_camera.h"
@@ -16,149 +14,6 @@
 
 namespace rx {
 namespace {
-
-// The Skyrim fast-travel carriage body (CartFurniture, 0x00090048). One baked
-// mesh; the wheels are drawn separately at the physics wheel transforms.
-constexpr const char* kCarriageMesh = "meshes/furniture/cart/cartfurnstatic01.nif";
-// Bethesda Z-up game units -> engine Y-up metres, matching the actor rigs.
-constexpr f32 kBethScale = 0.01428f;
-
-Vec3 BethToEngine(f32 x, f32 y, f32 z) { return {x * kBethScale, z * kBethScale, -y * kBethScale}; }
-
-// A flat-shaded box mesh with one material, for graybox parts.
-asset::Mesh ColoredBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b,
-                       bool upload) {
-  asset::Material mat;
-  mat.id = asset::MakeAssetId(std::string(id) + "/mat");
-  mat.base_color_factor[0] = r;
-  mat.base_color_factor[1] = g;
-  mat.base_color_factor[2] = b;
-  mat.roughness_factor = 0.8f;
-  asset::Mesh mesh = asset::MakeBox(half.x, half.y, half.z, asset::MakeAssetId(id));
-  for (asset::MeshLod& lod : mesh.lods) {
-    if (lod.submeshes.empty())
-      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), mat.id});
-    else
-      for (asset::Submesh& sm : lod.submeshes) sm.material = mat.id;
-  }
-  if (upload && renderer) {
-    renderer->UploadMaterial(mat);
-    renderer->UploadMesh(mesh);
-  }
-  return mesh;
-}
-
-// An X-axis cylinder (a wheel: axle along local +X, disc in the Y-Z plane), so
-// GetVehicleWheel's transform (right = X, up = Y) spins it about the axle.
-asset::Mesh WheelCylinder(render::Renderer* renderer, const char* id, f32 radius, f32 half_width,
-                          bool upload) {
-  asset::Material mat;
-  mat.id = asset::MakeAssetId(std::string(id) + "/mat");
-  mat.base_color_factor[0] = 0.12f;
-  mat.base_color_factor[1] = 0.09f;
-  mat.base_color_factor[2] = 0.07f;
-  mat.roughness_factor = 0.9f;
-
-  asset::Mesh mesh;
-  mesh.id = asset::MakeAssetId(id);
-  asset::MeshLod lod;
-  constexpr u32 kSeg = 20;
-  auto push = [&](f32 x, f32 y, f32 z, f32 nx, f32 ny, f32 nz) {
-    asset::Vertex v{};
-    v.position[0] = x;
-    v.position[1] = y;
-    v.position[2] = z;
-    v.normal[0] = nx;
-    v.normal[1] = ny;
-    v.normal[2] = nz;
-    v.tangent[0] = 0;
-    v.tangent[1] = 0;
-    v.tangent[2] = 1;
-    v.tangent[3] = 1;
-    lod.vertices.push_back(v);
-  };
-  // Side ring (two rings of kSeg, quads between them).
-  for (u32 k = 0; k < kSeg; ++k) {
-    const f32 a = 6.2831853f * static_cast<f32>(k) / kSeg;
-    const f32 cy = std::cos(a), sz = std::sin(a);
-    push(-half_width, radius * cy, radius * sz, 0, cy, sz);
-    push(half_width, radius * cy, radius * sz, 0, cy, sz);
-  }
-  for (u32 k = 0; k < kSeg; ++k) {
-    const u32 a0 = k * 2, a1 = ((k + 1) % kSeg) * 2;
-    lod.indices.push_back(a0);
-    lod.indices.push_back(a1);
-    lod.indices.push_back(a0 + 1);
-    lod.indices.push_back(a1);
-    lod.indices.push_back(a1 + 1);
-    lod.indices.push_back(a0 + 1);
-  }
-  // Two caps.
-  for (int side = 0; side < 2; ++side) {
-    const f32 x = side ? half_width : -half_width;
-    const f32 nx = side ? 1.0f : -1.0f;
-    const u32 center = static_cast<u32>(lod.vertices.size());
-    push(x, 0, 0, nx, 0, 0);
-    const u32 ring0 = static_cast<u32>(lod.vertices.size());
-    for (u32 k = 0; k < kSeg; ++k) {
-      const f32 a = 6.2831853f * static_cast<f32>(k) / kSeg;
-      push(x, radius * std::cos(a), radius * std::sin(a), nx, 0, 0);
-    }
-    for (u32 k = 0; k < kSeg; ++k) {
-      const u32 v0 = ring0 + k, v1 = ring0 + (k + 1) % kSeg;
-      if (side) {
-        lod.indices.push_back(center);
-        lod.indices.push_back(v0);
-        lod.indices.push_back(v1);
-      } else {
-        lod.indices.push_back(center);
-        lod.indices.push_back(v1);
-        lod.indices.push_back(v0);
-      }
-    }
-  }
-  lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), mat.id});
-  mesh.bounds_radius = std::sqrt(radius * radius + half_width * half_width);
-  mesh.lods.push_back(std::move(lod));
-  if (upload && renderer) {
-    renderer->UploadMaterial(mat);
-    renderer->UploadMesh(mesh);
-  }
-  return mesh;
-}
-
-// Bakes a Bethesda-space carriage NIF into engine space (axis swap + metre
-// scale) recentred on its bounds, so a plain world::Transform (the mirrored
-// chassis pose) places it. Returns false when the mesh is unavailable.
-bool BakeCarriageMesh(asset::AssetDatabase* assets, render::Renderer* renderer,
-                      asset::AssetId* out_id) {
-  if (!assets) return false;
-  const char* path = std::getenv("RX_CARRIAGE_MESH");
-  const asset::Mesh* src = assets->LoadMesh(path && path[0] ? path : kCarriageMesh);
-  if (!src || src->lods.empty()) return false;
-  const Vec3 c = BethToEngine(src->bounds_center[0], src->bounds_center[1], src->bounds_center[2]);
-  asset::Mesh baked = *src;
-  baked.id = asset::MakeAssetId("carriage/body_baked");
-  baked.skinned = false;
-  baked.skin = {};
-  for (asset::MeshLod& lod : baked.lods) {
-    for (asset::Vertex& v : lod.vertices) {
-      const Vec3 p = BethToEngine(v.position[0], v.position[1], v.position[2]);
-      v.position[0] = p.x - c.x;
-      v.position[1] = p.y - c.y;
-      v.position[2] = p.z - c.z;
-      const Vec3 n = BethToEngine(v.normal[0], v.normal[1], v.normal[2]);
-      v.normal[0] = n.x;
-      v.normal[1] = n.y;
-      v.normal[2] = n.z;
-    }
-  }
-  baked.bounds_center[0] = baked.bounds_center[1] = baked.bounds_center[2] = 0;
-  baked.bounds_radius = src->bounds_radius * kBethScale;
-  if (renderer) renderer->UploadMesh(baked);
-  *out_id = baked.id;
-  return true;
-}
 
 world::Transform TransformAt(const Vec3& p, const f32 rot[4]) {
   world::Transform t;
@@ -272,9 +127,12 @@ void CarriageSystem::Spawn(const Vec3& origin) {
   // present, else a graybox chassis box. Its pose is mirrored from the physics
   // chassis via ctx_.physics_entities.
   asset::AssetId body_mesh;
-  if (!(draw && BakeCarriageMesh(ctx_.assets, renderer, &body_mesh))) {
-    asset::Mesh box = ColoredBox(renderer, "carriage/body", cfg.half_extent, 0.35f, 0.22f, 0.12f,
-                                 draw);
+  const char* mesh_override = std::getenv("RX_CARRIAGE_MESH");
+  if (!(draw && cart::BakeBody(ctx_.assets, renderer,
+                               mesh_override && mesh_override[0] ? mesh_override : cart::kBodyMesh,
+                               true, "carriage/body_baked", &body_mesh))) {
+    asset::Mesh box =
+        cart::MakeBox(renderer, "carriage/body", cfg.half_extent, 0.35f, 0.22f, 0.12f, draw);
     body_mesh = box.id;
   }
   body_entity_ = ctx_.world->Create();
@@ -285,8 +143,7 @@ void CarriageSystem::Spawn(const Vec3& origin) {
   if (ctx_.physics_entities) ctx_.physics_entities->push_back({rig_.body(), body_entity_});
 
   // Four engine-drawn wheels at the physics wheel transforms.
-  asset::Mesh wheel = WheelCylinder(renderer, "carriage/wheel", cfg.wheel_radius,
-                                    0.12f, draw);
+  asset::Mesh wheel = cart::MakeWheel(renderer, "carriage/wheel", cfg.wheel_radius, 0.12f, draw);
   for (u32 i = 0; i < 4; ++i) {
     wheel_entity_[i] = ctx_.world->Create();
     ctx_.world->Add(wheel_entity_[i], world::Transform{});
@@ -302,10 +159,10 @@ void CarriageSystem::Spawn(const Vec3& origin) {
     horse_is_rig_ = ctx_.world->IsAlive(horse_entity_);
   }
   if (!horse_is_rig_) {
-    asset::Mesh body = ColoredBox(renderer, "carriage/horse_body", {0.35f, 0.7f, 1.1f}, 0.30f,
-                                  0.20f, 0.14f, draw);
-    asset::Mesh head = ColoredBox(renderer, "carriage/horse_head", {0.22f, 0.35f, 0.5f}, 0.30f,
-                                  0.20f, 0.14f, draw);
+    asset::Mesh body = cart::MakeBox(renderer, "carriage/horse_body", {0.35f, 0.7f, 1.1f}, 0.30f,
+                                     0.20f, 0.14f, draw);
+    asset::Mesh head = cart::MakeBox(renderer, "carriage/horse_head", {0.22f, 0.35f, 0.5f}, 0.30f,
+                                     0.20f, 0.14f, draw);
     horse_entity_ = ctx_.world->Create();
     f32 hr[4] = {0, std::sin(yaw * 0.5f), 0, std::cos(yaw * 0.5f)};
     ctx_.world->Add(horse_entity_, TransformAt(Vec3{horse_start.x, ground + 0.9f, horse_start.z},

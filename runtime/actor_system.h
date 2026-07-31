@@ -71,6 +71,10 @@ class ActorSystem {
   void MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving, bool grounded);
   // Sets a streamed NPC instance's render gait (planar speed; yaw when moving).
   void SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw);
+  // World position of an NPC instance's head bone, as of the last pose update.
+  // False when the entity has no actor or the rig has no head. What a camera
+  // frames a conversation on, rather than guessing at the body's origin.
+  bool NpcHeadWorld(ecs::Entity npc, Vec3* out);
 
   // --- Spawning ---
   bool SpawnPlayerActor(const Vec3& pos);
@@ -84,6 +88,16 @@ class ActorSystem {
   // absent, so callers fall back to a graybox. Used by the carriage horse.
   ecs::Entity SpawnCreatureNpc(const std::string& name, const std::string& clip_override,
                                const Vec3& position, f32 yaw);
+  // Spawns a human NPC the caller drives: a full actor wearing `base`'s
+  // assembled FaceGen head and holding `clip_path` on a loop. `outfit` is a
+  // LoadActorTemplate soldier kind (0 bare, 1 imperial, 2 stormcloak). Like
+  // SpawnCreatureNpc the caller owns the entity's world transform and the clip
+  // poses the body around it -- including whatever offset the clip was authored
+  // with, which is how a furniture animation seats an actor. Used by the Helgen
+  // intro to fill the cart with the game's own cart-prisoner idles. Returns a
+  // dead entity when the body assets are unavailable.
+  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base, const std::string& clip_path,
+                               const Vec3& position, f32 yaw, int outfit = 0);
 
   // --- Per-frame ---
   void Update(f32 dt);                      // advance gaits + bone matrices
@@ -218,6 +232,9 @@ class ActorSystem {
     Mat4 hair_inverse_bind = Mat4::Identity();
   };
 
+  // Builds the shared NPC rig template on first use (the body every streamed and
+  // scripted NPC is instanced from). False when no body assets could be loaded.
+  bool EnsureNpcTemplate();
   // soldier_kind: 0 = bare civilian body, 1 = imperial-side soldier (worn
   // cuirass in the body slot), 2 = stormcloak-side soldier.
   bool LoadActorTemplate(Actor* out, int soldier_kind = 0);
