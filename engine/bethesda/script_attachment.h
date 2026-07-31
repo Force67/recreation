@@ -55,6 +55,11 @@ struct ScriptAttachment {
 // script) as `function` (e.g. "Fragment_3").
 struct QuestStageFragment {
   u16 stage = 0;
+  // Which of the stage's log entries this fragment belongs to. A stage can carry
+  // several conditioned entries (QSDT + its CTDAs) and the game runs only the
+  // one whose conditions pass, so a dispatcher that ignores this picks a
+  // fragment at random -- which is how MQ101's opening ends up jumping stages.
+  i32 log_entry = 0;
   std::string script_name;
   std::string function;
 };
@@ -131,6 +136,28 @@ struct SceneFragments {
 // per-phase fragments (into `frags`). Returns false if the script section is
 // malformed; a malformed fragment tail leaves whatever parsed cleanly.
 bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* frags);
+
+// A PACK's fragments: the Papyrus that runs as an AI package starts, ends or is
+// changed out from under the actor. `on_end` is the one that matters for a
+// journey -- Skyrim's cart-horse patrol packages set the next quest stage there,
+// which is what lets the following package take over.
+struct PackageFragment {
+  std::string script_name;
+  std::string function;
+
+  bool valid() const { return !script_name.empty() && !function.empty(); }
+};
+
+struct PackageFragments {
+  PackageFragment on_begin;
+  PackageFragment on_end;
+  PackageFragment on_change;
+};
+
+// Parses a PACK record's VMAD into its script attachment and fragments. Same
+// shape as the INFO/SCEN parsers: the scripts section, then a fragment section
+// whose flag bits say which of the three fragments are present.
+bool ParsePackageFragments(ByteSpan vmad, ScriptAttachment* out, PackageFragments* frags);
 
 }  // namespace rx::bethesda
 

@@ -1,7 +1,11 @@
 #ifndef RECREATION_QUEST_PACKAGE_RECORD_H_
 #define RECREATION_QUEST_PACKAGE_RECORD_H_
 
+#include <vector>
+
 #include "core/types.h"
+#include "quest/condition.h"
+#include "quest/quest_def.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -74,7 +78,18 @@ struct PackageDef {
   u32 flags = 0;         // PKDT flags
   bool is_travel = false;  // the package moves the actor to a distinct target
   PackageTarget target;
+  // The CTDA gate on this package. An actor runs the highest-priority package
+  // whose conditions pass, so this is what decides which leg of a journey is
+  // live -- Skyrim's cart-horse patrols gate on the quest's stage. Form ids are
+  // resolved when the parse had a record store.
+  ConditionList conditions;
 };
+
+// Picks the package an actor should be running: the first in `packages` whose
+// conditions pass. Bethesda stores an alias's packages highest-priority first,
+// so pass them in record order and the winner is the game's own choice. Returns
+// -1 when none qualify (the actor falls back to its base AI).
+int SelectActivePackage(const std::vector<PackageDef>& packages, const ConditionContext& ctx);
 
 // Parses one already-decoded PACK record into a PackageDef. `handle` is the
 // package's packed form id. `records` resolves the plugin-relative form ids the
@@ -88,6 +103,25 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record,
 // Overload for callers without a store (synthetic data / unit tests): leaves a
 // reference target as its raw plugin-relative form id.
 PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record);
+
+// One leg of a route: walk to `marker`, then the package's fragment runs (which
+// is how the game advances the quest on arrival).
+struct RouteStop {
+  u64 package = 0;              // packed PACK form id
+  u64 marker = 0;               // packed target REFR form id
+  f32 position[3] = {0, 0, 0};  // the marker's placement, game units
+};
+
+// The route an alias's AI packages send its actor along: its ALPC list filtered
+// to travel packages that name a concrete reference, in the order they run.
+// Bethesda stores alias packages highest-priority first and gates each on quest
+// stage, so the earliest leg is last in the list and this returns them reversed.
+//
+// This is how a quest encodes a journey without scripting any motion: MQ101's
+// cart horse walks five patrol packages in turn, each package's fragment setting
+// the stage that lets the next one take over.
+std::vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
+                                               const AliasDef& alias, u16 quest_plugin);
 
 }  // namespace rx::quest
 

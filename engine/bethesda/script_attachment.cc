@@ -282,8 +282,8 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
     QuestStageFragment f;
     f.stage = r.U16();
     r.I16();  // unknown
-    r.I32();  // log entry / stage index, unused
-    r.U8();   // per-fragment flags, unused
+    f.log_entry = r.I32();
+    r.U8();  // per-fragment flags, unused
     f.script_name = r.Str();
     f.function = r.Str();
     if (r.ok()) fragments->push_back(std::move(f));
@@ -380,6 +380,29 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
     frags->end = SceneFragment{};
     frags->phases.clear();
   }
+  return true;
+}
+
+bool ParsePackageFragments(ByteSpan vmad, ScriptAttachment* out, PackageFragments* frags) {
+  Reader r(vmad);
+  if (!ReadScriptsSection(r, out)) return false;
+
+  // PACK fragment section: a version byte, a u32 of flags (bit 0 on-begin,
+  // bit 1 on-end, bit 2 on-change), the shared PF_ file name, then the present
+  // fragments in that order, each an unknown byte plus script and function name.
+  r.U8();  // version, unused
+  const u32 flags = r.U32();
+  r.Str();                             // shared fragment file name, unused
+  SkipFalloutFragmentHeader(r, *out);  // FO4 (v6) only
+  auto read = [&](PackageFragment* into) {
+    r.U8();  // unknown
+    into->script_name = r.Str();
+    into->function = r.Str();
+  };
+  if (flags & 0x01) read(&frags->on_begin);
+  if (flags & 0x02) read(&frags->on_end);
+  if (flags & 0x04) read(&frags->on_change);
+  if (!r.ok()) *frags = PackageFragments{};
   return true;
 }
 

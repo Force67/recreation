@@ -197,6 +197,53 @@ void TestLocationAlias() {
   Check("is travel", def.is_travel);
 }
 
+// A context that answers GetStage for one quest, which is what a journey's
+// packages gate on.
+class StageContext : public ConditionContext {
+ public:
+  explicit StageContext(float stage) : stage_(stage) {}
+  float GetStage(rx::u64) const override { return stage_; }
+
+ private:
+  float stage_;
+};
+
+// An actor runs the highest-priority package whose conditions pass. Alias
+// packages are stored highest-priority first, so a journey's legs are listed
+// last-to-first and the selector walks them in that order.
+void TestSelectActivePackage() {
+  auto leg = [](float at_least_stage) {
+    PackageDef def;
+    Comparison c;
+    c.func = Func::kGetStage;
+    c.param1 = 0x1234u;
+    c.op = CompareOp::kGreaterOrEqual;
+    c.value = at_least_stage;
+    def.conditions.comparisons.push_back(c);
+    return def;
+  };
+  // Listed highest priority first: the last leg outranks the earlier ones.
+  std::vector<PackageDef> packages = {leg(40), leg(30), leg(20), leg(10)};
+
+  StageContext before(0);
+  Check("no package qualifies before the quest starts", SelectActivePackage(packages, before) == -1);
+
+  StageContext early(10);
+  Check("the first leg runs at its stage", SelectActivePackage(packages, early) == 3);
+
+  StageContext mid(30);
+  Check("a later stage promotes the higher-priority leg", SelectActivePackage(packages, mid) == 1);
+
+  StageContext late(99);
+  Check("the last leg wins once every gate passes", SelectActivePackage(packages, late) == 0);
+
+  // An unconditional package is vacuously true, so it always qualifies.
+  std::vector<PackageDef> fallback = {leg(40), PackageDef{}};
+  Check("an unconditional package is the fallback",
+        SelectActivePackage(fallback, before) == 1);
+  Check("empty list selects nothing", SelectActivePackage({}, before) == -1);
+}
+
 void TestEmptyAndTruncated() {
   std::puts("package: empty/truncated does not crash:");
   bethesda::Record empty;
@@ -265,6 +312,7 @@ int main(int argc, char** argv) {
   TestHoldPosition();
   TestLocationAlias();
   TestEmptyAndTruncated();
+  TestSelectActivePackage();
 
   int rc = 0;
   if (argc >= 2) rc = DumpReal(argv[1]);

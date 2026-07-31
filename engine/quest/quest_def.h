@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "core/types.h"
+#include "quest/condition.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -20,6 +21,12 @@ struct StageDef {
   i32 index = 0;
   std::string log_entry;     // CNAM journal text for this log entry
   bool complete_quest = false;  // QSDT flag 0x01
+  // Which log entry of this stage it is (QSDT order within the INDX), and the
+  // CTDAs gating it. A stage often has several entries and the game runs only
+  // the first whose conditions pass -- both the journal text and the Papyrus
+  // fragment come from that one.
+  i32 entry = 0;
+  ConditionList conditions;
 };
 
 // One quest objective: its index, the displayed text, and the placed
@@ -47,6 +54,12 @@ struct AliasDef {
   bool find_matching = false;  // ALFA present
   u32 ref_type_raw = 0;        // ALRT LocationRefType form id, 0 when none
   i32 find_in_parent = -1;     // ALFI parent alias id to search within, -1 when none
+  // ALPC: the AI packages this alias stacks onto whatever actor fills it, in
+  // declaration order (highest priority first, the way the game evaluates them).
+  // This is where a scripted actor gets told to walk somewhere -- the Helgen
+  // cart horse's route legs are alias packages, not anything in the base NPC.
+  // Plugin-relative form ids; resolve against the quest's plugin.
+  std::vector<u32> package_raw;
 };
 
 // The static, display-facing shape of a quest, parsed once from its QUST
