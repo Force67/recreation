@@ -292,6 +292,18 @@ int main(int argc, char** argv) {
                 mesh->bounds_radius, mesh->bounds_center[0], mesh->bounds_center[1],
                 mesh->bounds_center[2]);
     if (!lod.vertices.empty()) {
+      // Axis-aligned extent, which is what you need to place anything in a
+      // model's own local space (seats on a cart, say) rather than by eye.
+      f32 lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+      for (const asset::Vertex& v : lod.vertices)
+        for (int k = 0; k < 3; ++k) {
+          lo[k] = std::min(lo[k], v.position[k]);
+          hi[k] = std::max(hi[k], v.position[k]);
+        }
+      std::printf("  aabb x[%.1f %.1f] y[%.1f %.1f] z[%.1f %.1f]\n", lo[0], hi[0], lo[1], hi[1],
+                  lo[2], hi[2]);
+    }
+    if (!lod.vertices.empty()) {
       const asset::Vertex& v0 = lod.vertices.front();
       const asset::Vertex& vn = lod.vertices.back();
       std::printf("  v[0]=%.1f,%.1f,%.1f  v[last]=%.1f,%.1f,%.1f\n", v0.position[0], v0.position[1],

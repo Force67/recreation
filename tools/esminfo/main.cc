@@ -12,7 +12,12 @@
 #include "bethesda/facegen.h"
 #include "bethesda/load_order.h"
 #include "bethesda/plugin.h"
+#include "bethesda/strings.h"
 #include "bethesda/tri.h"
+#include "dialogue/dialogue.h"
+#include "quest/package_record.h"
+#include "quest/quest_def.h"
+#include "quest/scene_record.h"
 
 namespace {
 
@@ -65,6 +70,237 @@ int DumpCellRecord(const std::string& data_dir, int x, int y) {
     for (size_t i = 0; i < sub.data.size() && i < 48; ++i)
       std::printf("%02x", sub.data[i]);
     std::printf("\n");
+  }
+  return 0;
+}
+
+// Lists placed references whose editor id contains `match`, with their base,
+// world placement and the links that make them behave: the linked references
+// (XLKR) that chain markers into a path or bind a cart to its horse, and the
+// enable parent (XESP) that switches them on. The reverse-engineering entry
+// point for anything scripted out of placed refs.
+int DumpRefs(const std::string& data_dir, const std::string& match) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  constexpr rx::u32 kXlkr = rx::FourCc('X', 'L', 'K', 'R');
+  constexpr rx::u32 kXesp = rx::FourCc('X', 'E', 'S', 'P');
+  constexpr rx::u32 kXscl = rx::FourCc('X', 'S', 'C', 'L');
+
+  auto edid_of = [&](GlobalFormId id) {
+    Record r;
+    return records.Parse(id, &r) ? r.GetString(kEdid) : std::string();
+  };
+
+  // A bare hex id selects one reference; anything else is an editor-id substring
+  // (the anonymous markers a path chains through carry no editor id at all).
+  rx::u32 want_id = 0;
+  if (match.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos && match.size() >= 4)
+    want_id = static_cast<rx::u32>(std::stoul(match, nullptr, 16));
+
+  int shown = 0;
+  for (rx::u32 type : {rx::FourCc('R', 'E', 'F', 'R'), rx::FourCc('A', 'C', 'H', 'R')}) {
+    records.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
+      Record refr;
+      if (!records.Parse(id, &refr)) return;
+      const std::string edid = refr.GetString(kEdid);
+      if (want_id ? id.local_id != want_id : edid.find(match) == std::string::npos) return;
+      ++shown;
+
+      std::string base_edid;
+      char base_type[5] = {};
+      if (const Subrecord* name = refr.Find(kName); name && name->data.size() >= 4) {
+        rx::u32 raw;
+        std::memcpy(&raw, name->data.data(), 4);
+        const GlobalFormId base = records.ResolveFrom(RawFormId{raw}, stored.winning_plugin);
+        if (const RecordStore::StoredRecord* bs = records.Find(base))
+          std::memcpy(base_type, &bs->header.type, 4);
+        base_edid = edid_of(base);
+      }
+      float placement[6] = {};
+      if (const Subrecord* data = refr.Find(kData); data && data->data.size() >= 24)
+        std::memcpy(placement, data->data.data(), 24);
+      float scale = 1.0f;
+      if (const Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4)
+        std::memcpy(&scale, xscl->data.data(), 4);
+
+      std::printf("%s %04x:%06x %-34s base=%s %-26s pos=(%.0f,%.0f,%.0f) rotZ=%.2f scale=%.2f\n",
+                  base_type[0] ? "REF" : "REF", id.plugin, id.local_id, edid.c_str(), base_type,
+                  base_edid.c_str(), placement[0], placement[1], placement[2], placement[5], scale);
+
+      // XLKR is (keyword, reference); either half may be zero.
+      for (const Subrecord& sub : refr.subrecords) {
+        if (sub.type != kXlkr || sub.data.size() < 8) continue;
+        rx::u32 keyword_raw, ref_raw;
+        std::memcpy(&keyword_raw, sub.data.data(), 4);
+        std::memcpy(&ref_raw, sub.data.data() + 4, 4);
+        const GlobalFormId keyword = records.ResolveFrom(RawFormId{keyword_raw},
+                                                        stored.winning_plugin);
+        const GlobalFormId target = records.ResolveFrom(RawFormId{ref_raw},
+                                                        stored.winning_plugin);
+        std::printf("    -> linked %04x:%06x %s (keyword %04x:%06x %s)\n", target.plugin,
+                    target.local_id, edid_of(target).c_str(), keyword.plugin, keyword.local_id,
+                    edid_of(keyword).c_str());
+      }
+      if (const Subrecord* xesp = refr.Find(kXesp); xesp && xesp->data.size() >= 8) {
+        rx::u32 parent_raw, flags;
+        std::memcpy(&parent_raw, xesp->data.data(), 4);
+        std::memcpy(&flags, xesp->data.data() + 4, 4);
+        const GlobalFormId parent = records.ResolveFrom(RawFormId{parent_raw},
+                                                        stored.winning_plugin);
+        std::printf("    -> enable parent %s (flags %u)\n", edid_of(parent).c_str(), flags);
+      }
+    });
+  }
+  std::printf("# %d refs matching '%s'\n", shown, match.c_str());
+  return 0;
+}
+
+// Lists a quest's reference aliases: what fills each one and the AI packages it
+// stacks on whoever does. Alias packages (ALPC) are how a quest tells a scripted
+// actor where to walk, so this is the read-out for anything that moves.
+int DumpQuestAliases(const std::string& data_dir, const std::string& which) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  GlobalFormId quest{};
+  records.EachOfType(rx::FourCc('Q', 'U', 'S', 'T'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (quest.local_id != 0) return;
+                       Record r;
+                       if (records.Parse(id, &r) && r.GetString(kEdid) == which) quest = id;
+                     });
+  Record record;
+  if (quest.local_id == 0 || !records.Parse(quest, &record)) {
+    std::printf("no QUST '%s'\n", which.c_str());
+    return 1;
+  }
+  const RecordStore::StoredRecord* stored = records.Find(quest);
+  const rx::quest::QuestDef def = rx::quest::ParseQuestDefinition(quest.packed(), record, nullptr);
+  std::printf("QUST %04x:%06x %s: %zu aliases\n", quest.plugin, quest.local_id, which.c_str(),
+              def.aliases.size());
+
+  auto describe = [&](rx::u32 raw) {
+    if (!raw) return std::string();
+    const GlobalFormId id = records.ResolveFrom(RawFormId{raw}, stored->winning_plugin);
+    Record r;
+    return records.Parse(id, &r) ? r.GetString(kEdid) : std::string();
+  };
+
+  for (const rx::quest::AliasDef& alias : def.aliases) {
+    if (alias.package_raw.empty() && !alias.forced_ref_raw && !alias.unique_actor_raw) continue;
+    std::printf("  alias %3d %-30s fill=%s%s\n", alias.id, alias.name.c_str(),
+                describe(alias.forced_ref_raw).c_str(), describe(alias.unique_actor_raw).c_str());
+    for (rx::u32 raw : alias.package_raw) {
+      const GlobalFormId pack = records.ResolveFrom(RawFormId{raw}, stored->winning_plugin);
+      Record prec;
+      if (!records.Parse(pack, &prec)) continue;
+      const rx::quest::PackageDef pd = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
+      std::string target;
+      if (pd.target.kind == rx::quest::PackageTarget::Kind::kReference && pd.target.ref) {
+        const GlobalFormId t{static_cast<rx::u16>(pd.target.ref >> 32),
+                             static_cast<rx::u32>(pd.target.ref)};
+        Record tr;
+        if (records.Parse(t, &tr)) target = "-> " + tr.GetString(kEdid);
+      } else if (pd.target.kind == rx::quest::PackageTarget::Kind::kLinkedRef) {
+        target = "-> linked ref";
+      }
+      std::printf("      package %-40s type=%u travel=%d %-34s conds=%zu\n",
+                  prec.GetString(kEdid).c_str(), pd.type, pd.is_travel, target.c_str(),
+                  pd.conditions.comparisons.size());
+      for (const rx::quest::Comparison& c : pd.conditions.comparisons) {
+        std::printf("          if fn%u(%llx) op%d %.0f%s\n", c.raw_function,
+                    static_cast<unsigned long long>(c.param1), static_cast<int>(c.op), c.value,
+                    c.or_next ? " OR" : "");
+      }
+    }
+  }
+  return 0;
+}
+
+// Lists an actor's AI packages (the NPC_'s PKID run) with each package's
+// decoded destination, which is how a scripted actor is told where to walk.
+int DumpNpcPackages(const std::string& data_dir, const std::string& which) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  // A PACK editor id dumps that one package instead of an actor's whole list,
+  // for packages an alias assigns rather than the base actor carrying.
+  {
+    GlobalFormId pack{};
+    records.EachOfType(rx::FourCc('P', 'A', 'C', 'K'),
+                       [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                         if (pack.local_id != 0) return;
+                         Record r;
+                         if (records.Parse(id, &r) && r.GetString(kEdid) == which) pack = id;
+                       });
+    Record prec;
+    if (pack.local_id != 0 && records.Parse(pack, &prec)) {
+      const rx::quest::PackageDef def = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
+      std::printf("PACK %04x:%06x %s type=%u flags=%08x travel=%d target_kind=%d raw_kind=%u "
+                  "ref=%016llx alias=%d radius=%.0f\n",
+                  pack.plugin, pack.local_id, which.c_str(), def.type, def.flags, def.is_travel,
+                  static_cast<int>(def.target.kind), def.target.raw_kind,
+                  static_cast<unsigned long long>(def.target.ref), def.target.alias,
+                  def.target.radius);
+      for (const Subrecord& sub : prec.subrecords) {
+        char t[5] = {};
+        std::memcpy(t, &sub.type, 4);
+        std::printf("  %s %4zu\n", t, static_cast<size_t>(sub.data.size()));
+      }
+      return 0;
+    }
+  }
+
+  GlobalFormId npc{};
+  records.EachOfType(rx::FourCc('N', 'P', 'C', '_'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (npc.local_id != 0) return;
+                       Record r;
+                       if (records.Parse(id, &r) && r.GetString(kEdid) == which) npc = id;
+                     });
+  Record record;
+  if (npc.local_id == 0 || !records.Parse(npc, &record)) {
+    std::printf("no NPC_ '%s'\n", which.c_str());
+    return 1;
+  }
+  const RecordStore::StoredRecord* stored = records.Find(npc);
+  std::printf("NPC_ %04x:%06x %s\n", npc.plugin, npc.local_id, which.c_str());
+
+  constexpr rx::u32 kPkid = rx::FourCc('P', 'K', 'I', 'D');
+  for (const Subrecord& sub : record.subrecords) {
+    if (sub.type != kPkid || sub.data.size() < 4) continue;
+    rx::u32 raw;
+    std::memcpy(&raw, sub.data.data(), 4);
+    const GlobalFormId pack = records.ResolveFrom(RawFormId{raw}, stored->winning_plugin);
+    Record prec;
+    if (!records.Parse(pack, &prec)) continue;
+    const rx::quest::PackageDef def = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
+    const char* kind = "none";
+    switch (def.target.kind) {
+      case rx::quest::PackageTarget::Kind::kReference: kind = "reference"; break;
+      case rx::quest::PackageTarget::Kind::kAlias: kind = "alias"; break;
+      case rx::quest::PackageTarget::Kind::kLinkedRef: kind = "linked-ref"; break;
+      case rx::quest::PackageTarget::Kind::kSelf: kind = "self"; break;
+      case rx::quest::PackageTarget::Kind::kLocation: kind = "location"; break;
+      case rx::quest::PackageTarget::Kind::kNone: break;
+    }
+    std::string target_edid;
+    if (def.target.kind == rx::quest::PackageTarget::Kind::kReference && def.target.ref) {
+      const GlobalFormId t{static_cast<rx::u16>(def.target.ref >> 32),
+                           static_cast<rx::u32>(def.target.ref)};
+      Record tr;
+      if (records.Parse(t, &tr)) target_edid = tr.GetString(kEdid);
+    }
+    std::printf("  PACK %04x:%06x %-34s type=%u travel=%d target=%s %s radius=%.0f raw_kind=%u\n",
+                pack.plugin, pack.local_id, prec.GetString(kEdid).c_str(), def.type, def.is_travel,
+                kind, target_edid.c_str(), def.target.radius, def.target.raw_kind);
   }
   return 0;
 }
@@ -664,6 +900,112 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
   return 0;
 }
 
+// Dumps a SCEN scene as the runtime reads it: the owning quest, its aliases,
+// and every phase's dialogue beat with the speaker's alias name and the real
+// response text. esminfo <data-dir> scene <SCEN editor id or hex form id>.
+int DumpScene(const std::string& data_dir, const std::string& which) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile)) return 1;
+
+  // Localized text lives in the .strings files, reached through a vfs over the
+  // archives, same as the engine's own load.
+  rx::asset::Vfs vfs;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
+    if (auto provider = OpenArchive(entry.path().string())) vfs.Mount(std::move(provider));
+  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir));
+  StringTable strings;
+  for (const std::string& plugin : order.plugins())
+    strings.Load(vfs, plugin, profile.string_language);
+
+  GlobalFormId scene{};
+  if (which.rfind("0x", 0) == 0 || which.find_first_not_of("0123456789abcdefABCDEF") ==
+                                       std::string::npos) {
+    scene = GlobalFormId{0, static_cast<rx::u32>(std::stoul(which, nullptr, 16))};
+  } else {
+    records.EachOfType(rx::FourCc('S', 'C', 'E', 'N'),
+                       [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                         if (scene.local_id != 0) return;
+                         Record r;
+                         if (records.Parse(id, &r) && r.GetString(kEdid) == which) scene = id;
+                       });
+  }
+  Record record;
+  if (scene.local_id == 0 || !records.Parse(scene, &record)) {
+    std::printf("no SCEN '%s'\n", which.c_str());
+    return 1;
+  }
+  const rx::quest::SceneDef def =
+      rx::quest::ParseSceneRecord(scene.packed(), record, &records);
+  std::printf("SCEN %04x:%06x %s: quest %016llx, %zu actors, %zu phases, %zu actions\n",
+              scene.plugin, scene.local_id, record.GetString(kEdid).c_str(),
+              static_cast<unsigned long long>(def.quest), def.actors.size(), def.phases.size(),
+              def.actions.size());
+
+  rx::quest::QuestDef quest;
+  if (def.quest != 0) {
+    const GlobalFormId qid{static_cast<rx::u16>(def.quest >> 32),
+                           static_cast<rx::u32>(def.quest)};
+    Record qrec;
+    if (records.Parse(qid, &qrec)) {
+      quest = rx::quest::ParseQuestDefinition(def.quest, qrec, &strings);
+      std::printf("quest %s (%s), %zu aliases\n", quest.editor_id.c_str(), quest.name.c_str(),
+                  quest.aliases.size());
+    }
+  }
+  auto alias_name = [&](int alias) {
+    const rx::quest::AliasDef* a = quest.FindAlias(alias);
+    return a && !a->name.empty() ? a->name : std::string("alias") + std::to_string(alias);
+  };
+
+  for (const rx::quest::SceneActionDef& action : def.actions) {
+    if (action.kind == rx::quest::SceneActionDef::Kind::kPackage) {
+      // Which package, and where it sends the actor: this is what actually moves
+      // anything in a scene.
+      const GlobalFormId pack{static_cast<rx::u16>(action.package >> 32),
+                              static_cast<rx::u32>(action.package)};
+      Record prec;
+      std::string name, target;
+      if (records.Parse(pack, &prec)) {
+        name = prec.GetString(kEdid);
+        const rx::quest::PackageDef def =
+            rx::quest::ParsePackageRecord(pack.packed(), prec, records);
+        if (def.target.kind == rx::quest::PackageTarget::Kind::kReference && def.target.ref) {
+          const GlobalFormId t{static_cast<rx::u16>(def.target.ref >> 32),
+                               static_cast<rx::u32>(def.target.ref)};
+          Record tr;
+          if (records.Parse(t, &tr)) target = "-> " + tr.GetString(kEdid);
+        } else if (def.target.kind == rx::quest::PackageTarget::Kind::kLinkedRef) {
+          target = "-> linked ref";
+        } else if (def.target.kind == rx::quest::PackageTarget::Kind::kAlias) {
+          target = "-> alias " + alias_name(def.target.alias);
+        }
+        std::printf("  phase %2d  %-14s package %-40s type=%u %s\n", action.start_phase,
+                    alias_name(action.actor_alias).c_str(), name.c_str(), def.type, target.c_str());
+        continue;
+      }
+    }
+    if (action.kind != rx::quest::SceneActionDef::Kind::kDialogue) {
+      std::printf("  phase %2d  %-14s <timer>\n", action.start_phase,
+                  alias_name(action.actor_alias).c_str());
+      continue;
+    }
+    const GlobalFormId dial{static_cast<rx::u16>(action.topic >> 32),
+                            static_cast<rx::u32>(action.topic)};
+    const rx::dialogue::Topic topic = rx::dialogue::ParseTopic(records, dial, &strings);
+    for (const rx::dialogue::Response& r : topic.responses) {
+      std::printf("  phase %2d  %-14s \"%s\"\n", action.start_phase,
+                  alias_name(action.actor_alias).c_str(), r.npc_line.c_str());
+    }
+    if (topic.responses.empty())
+      std::printf("  phase %2d  %-14s <topic %s, no response text>\n", action.start_phase,
+                  alias_name(action.actor_alias).c_str(), topic.editor_id.c_str());
+  }
+  return 0;
+}
+
 // Generic: dumps each record of a four-character type with its editor id and
 // subrecord (type, size) list, for reverse-engineering an unfamiliar record.
 // esminfo <data-dir> dump <TYPE> [limit].
@@ -919,6 +1261,14 @@ int main(int argc, char** argv) {
 
   if (argc >= 4 && std::string(argv[2]) == "dump")
     return DumpType(argv[1], argv[3], argc >= 5 ? std::stoi(argv[4]) : 0);
+
+  if (argc >= 4 && std::string(argv[2]) == "scene") return DumpScene(argv[1], argv[3]);
+
+  if (argc >= 4 && std::string(argv[2]) == "refs") return DumpRefs(argv[1], argv[3]);
+
+  if (argc >= 4 && std::string(argv[2]) == "packages") return DumpNpcPackages(argv[1], argv[3]);
+
+  if (argc >= 4 && std::string(argv[2]) == "aliases") return DumpQuestAliases(argv[1], argv[3]);
 
   if (argc >= 4 && std::string(argv[2]) == "land") {
     std::string coords = argv[3];

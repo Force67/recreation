@@ -1,5 +1,6 @@
 add_executable(esminfo main.cc)
-target_link_libraries(esminfo PRIVATE recreation::bethesda)
+target_link_libraries(esminfo PRIVATE recreation::bethesda recreation::dialogue recreation::quest
+                                     rx::asset)
 recreation_set_warnings(esminfo)
 
 # assetdump lives next door; registered here because the top level only pulls
