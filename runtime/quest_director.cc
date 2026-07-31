@@ -14,6 +14,7 @@
 
 #include "actor_system.h"
 #include "bethesda/script_attachment.h"
+#include "quest/ctda.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "engine_internal.h"
@@ -186,12 +187,24 @@ void QuestDirector::AttachQuestScripts() {
         // way the story manager would (e.g. CW00A's join lines).
         const bool sge = def.start_game_enabled && !no_autostart_;
         if (sge) ++autostarted;
+        // The per-log-entry condition gates, taken before the definition moves
+        // to the guest and with their form ids resolved so they can evaluate.
+        std::vector<quest::StageDef> stage_gates = def.stages;
+        for (quest::StageDef& s : stage_gates)
+          quest::ResolveConditionForms(s.conditions, *ctx_.records, id.plugin);
         auto* binds = ctx_.bindings;
         ctx_.scripts->guest().Submit(
-            [binds, handle, sge, def = std::move(def),
+            [binds, handle, sge, stage_gates = std::move(stage_gates), def = std::move(def),
              fragments = std::move(fragments)](rx::script::papyrus::VirtualMachine&) mutable {
               binds->quest_system().SetDefinition(std::move(def));
-              for (const auto& f : fragments) binds->SetStageFragment(handle, f.stage, f.function);
+              for (const auto& f : fragments) {
+                // A stage's log entries are conditioned; hand each fragment the
+                // gate of the entry it belongs to so only the right one runs.
+                quest::ConditionList gate;
+                for (const quest::StageDef& s : stage_gates)
+                  if (s.index == f.stage && s.entry == f.log_entry) gate = s.conditions;
+                binds->SetStageFragment(handle, f.stage, f.log_entry, f.function, std::move(gate));
+              }
               if (sge) binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
             });
       });

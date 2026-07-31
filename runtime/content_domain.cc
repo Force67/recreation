@@ -92,7 +92,8 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
             [binds, handle, def = std::move(def),
              fragments = std::move(fragments)](script::papyrus::VirtualMachine&) mutable {
               binds->quest_system().SetDefinition(std::move(def));
-              for (const auto& f : fragments) binds->SetStageFragment(handle, f.stage, f.function);
+              for (const auto& f : fragments)
+                binds->SetStageFragment(handle, f.stage, f.log_entry, f.function, {});
             });
       });
   RX_INFO("domain {}: instantiated {} scripts across {} quests", profile_->name, instances, quests);

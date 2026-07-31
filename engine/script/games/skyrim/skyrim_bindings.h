@@ -23,6 +23,7 @@
 namespace rx::audio {
 class AudioSystem;
 }
+#include "quest/condition.h"
 #include "quest/quest_system.h"
 #include "quest/scene_player.h"
 #include "script/games/skyrim/skyrim_natives.h"
@@ -134,8 +135,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::vector<papyrus::ObjectRef> AliasesFilledBy(papyrus::ObjectRef ref) const;
 
   // Registers the Papyrus function a quest runs when it reaches `stage` (from
-  // the QUST VMAD fragments). Populated at quest attach.
-  void SetStageFragment(u64 quest, i32 stage, std::string function);
+  // the QUST VMAD fragments). A stage can carry several conditioned log entries
+  // and the game runs only the one whose conditions pass, so register each with
+  // its entry index and gate; `conditions` must already have its form ids
+  // resolved. The 3-argument form registers an unconditional single entry.
+  void SetStageFragment(u64 quest, i32 stage, i32 entry, std::string function,
+                        quest::ConditionList conditions);
+  void SetStageFragment(u64 quest, i32 stage, std::string function) {
+    SetStageFragment(quest, stage, 0, std::move(function), {});
+  }
 
   // Registers a scene's Papyrus fragments (from its SCEN VMAD): the begin/end and
   // per-phase functions that call SetStage as the scene plays. `scene` is the
@@ -508,7 +516,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   u64 active_quest_ = 0;
   quest::QuestSystem quest_system_;
   // quest handle -> stage -> Papyrus fragment function name (from the QUST VMAD).
-  std::unordered_map<u64, std::unordered_map<i32, std::string>> stage_fragments_;
+  // One stage's Papyrus fragments, one per conditioned log entry, in record
+  // order. RunStageFragmentBody runs the first whose conditions pass.
+  struct StageFragment {
+    i32 entry = 0;
+    std::string function;
+    quest::ConditionList conditions;
+  };
+  std::unordered_map<u64, std::unordered_map<i32, std::vector<StageFragment>>> stage_fragments_;
   // The native graph for a quest plus its live traversal. Built lazily from the
   // quest's definition + fragments the first time it is started/advanced, so by
   // then both are registered. Heap-held so the instance's graph pointer is

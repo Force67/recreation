@@ -1,5 +1,7 @@
 #include "script/games/skyrim/skyrim_bindings.h"
 
+#include "script/games/skyrim/skyrim_condition_context.h"
+
 #include <base/option.h>
 
 #include <algorithm>
@@ -1173,8 +1175,17 @@ i32 RecordBackedSkyrimBindings::GetStage(ObjectRef quest) {
   return quest_system_.GetStage(quest.handle);
 }
 
-void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, std::string function) {
-  stage_fragments_[quest][stage] = std::move(function);
+void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, i32 entry,
+                                                  std::string function,
+                                                  quest::ConditionList conditions) {
+  auto& entries = stage_fragments_[quest][stage];
+  for (StageFragment& existing : entries) {
+    if (existing.entry != entry) continue;
+    existing.function = std::move(function);
+    existing.conditions = std::move(conditions);
+    return;
+  }
+  entries.push_back({entry, std::move(function), std::move(conditions)});
 }
 
 void RecordBackedSkyrimBindings::SetSceneFragments(u64 scene, u64 owning_quest,
@@ -1288,10 +1299,23 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   if (qit == stage_fragments_.end()) return;
   auto fit = qit->second.find(stage);
   if (fit == qit->second.end() || fit->second.empty()) return;
+  // A stage's log entries are conditioned; the game runs the first whose gate
+  // passes. Falling back to the last entry keeps stages whose conditions we
+  // cannot yet evaluate behaving as they did before conditions were read.
+  const StageFragment* chosen = nullptr;
+  SkyrimConditionContext conditions(this);
+  for (const StageFragment& candidate : fit->second) {
+    if (!quest::Evaluate(candidate.conditions, conditions)) continue;
+    chosen = &candidate;
+    break;
+  }
+  if (!chosen) chosen = &fit->second.back();
+  const std::string& function = chosen->function;
+  if (function.empty()) return;
   // Stage fragments call SetStage on themselves and other quests; cap the depth
   // so a cyclic chain in the data cannot blow the guest stack.
   if (fragment_depth_ >= 32) {
-    RX_WARN("quest fragment recursion too deep at {}.{}", quest.handle, fit->second);
+    RX_WARN("quest fragment recursion too deep at {}.{}", quest.handle, function);
     return;
   }
   ++fragment_depth_;
@@ -1300,8 +1324,8 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   u64 prev_quest = active_quest_;
   active_quest_ = quest.handle;
   u64 before = vm_->native_call_count();
-  vm_->Call(quest, fit->second, {});
-  RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", fit->second, stage,
+  vm_->Call(quest, function, {});
+  RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", function, stage,
            vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
@@ -1309,9 +1333,12 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
 
 RecordBackedSkyrimBindings::QuestRuntime& RecordBackedSkyrimBindings::Runtime(u64 quest) {
   if (auto it = quest_runtime_.find(quest); it != quest_runtime_.end()) return *it->second;
-  static const std::unordered_map<i32, std::string> kNoFragments;
-  auto fit = stage_fragments_.find(quest);
-  const auto& fragments = fit != stage_fragments_.end() ? fit->second : kNoFragments;
+  // The graph only needs to know which stages carry a fragment at all, so
+  // collapse each stage's conditioned entries to its first function name.
+  std::unordered_map<i32, std::string> fragments;
+  if (auto fit = stage_fragments_.find(quest); fit != stage_fragments_.end())
+    for (const auto& [stage, entries] : fit->second)
+      if (!entries.empty()) fragments.emplace(stage, entries.front().function);
   quest::QuestDef empty;
   empty.handle = quest;
   const quest::QuestDef* def = quest_system_.Definition(quest);
