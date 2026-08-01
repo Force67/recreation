@@ -1332,7 +1332,18 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
   // still running, otherwise the most recently changed.
   const quest::QuestStatus* tracked = nullptr;
   const quest::QuestStatus* pinned = nullptr;
+  // Only real journal quests belong on the HUD. Most of what is running at any
+  // moment is a dialogue or scene container with no name and no journal (the games
+  // hide those too); tracking one puts its raw form id on screen.
+  auto in_journal = [](const quest::QuestStatus& q) {
+    if (q.name.empty()) return false;
+    if (!q.log_entry.empty()) return true;
+    for (const quest::ObjectiveStatus& o : q.objectives)
+      if (o.displayed || o.completed) return true;
+    return false;
+  };
   for (const quest::QuestStatus& q : running) {
+    if (!in_journal(q)) continue;
     if (!tracked || q.revision > tracked->revision) tracked = &q;
     if (pinned_quest_ != 0 && q.handle == pinned_quest_) pinned = &q;
   }
@@ -1342,7 +1353,8 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
   // row pool; the tracked quest is the highlighted entry.
   std::vector<const quest::QuestStatus*> sorted;
   sorted.reserve(running.size());
-  for (const quest::QuestStatus& q : running) sorted.push_back(&q);
+  for (const quest::QuestStatus& q : running)
+    if (in_journal(q)) sorted.push_back(&q);
   std::sort(sorted.begin(), sorted.end(),
             [](const quest::QuestStatus* a, const quest::QuestStatus* b) {
               return a->revision > b->revision;
