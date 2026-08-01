@@ -7,3 +7,5 @@ recreation_add_module(weather
 # The director resolves WTHR sound forms through the audio catalog and writes
 # the renderer's settings structs (header-only from rx::core's include root).
 target_link_libraries(recreation_weather PUBLIC rx::core recreation::bethesda recreation::audio)
+
+recreation_add_test(weathertest recreation::weather)

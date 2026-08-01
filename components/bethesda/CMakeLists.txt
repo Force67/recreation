@@ -34,3 +34,15 @@ recreation_add_module(bethesda
 )
 
 target_link_libraries(recreation_bethesda PUBLIC rx::core rx::asset rx::physics kinema::kinema)
+
+# Format-reader regression tests: each parses a synthesised archive/record/mesh
+# and asserts the decoded fields, so none of them needs game data on disk.
+foreach(t
+    ba2test biomtest writertest edit_sessiontest deflatetest string_writertest
+    roundtriptest raw_rewritertest nif_fo4test nif_starfieldtest
+    starfield_skinned_meshtest material_dbtest facemorphtest bgsm_fo4test
+    dds_srgb_fo4test)
+  recreation_add_test(${t} recreation::bethesda rx::asset)
+endforeach()
+recreation_add_test(tritest recreation::bethesda)
+recreation_add_test(vmad_fo4test recreation::bethesda)

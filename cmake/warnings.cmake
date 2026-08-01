@@ -20,3 +20,31 @@ function(recreation_add_module name)
   target_include_directories(recreation_${name} PUBLIC ${CMAKE_SOURCE_DIR})
   recreation_set_warnings(recreation_${name})
 endfunction()
+
+# A regression test that sits beside the code it exercises: builds <name>.cc from
+# the current directory and registers it with ctest. Extra positional arguments
+# are the libraries to link.
+#   NO_REGISTER  build it but keep it out of ctest (corpus / manual harness)
+#   AS <name>    register under a ctest name other than the executable's
+#   SRCS <...>   additional translation units to compile in
+# The name may carry a subdirectory ("demo/trailertest"); the target takes the
+# last segment, so the test still sits in the component directory it covers.
+function(recreation_add_test path)
+  if(NOT RECREATION_BUILD_TOOLS)
+    return()
+  endif()
+  cmake_parse_arguments(T "NO_REGISTER" "AS" "SRCS" ${ARGN})
+  get_filename_component(name ${path} NAME)
+  add_executable(${name} ${path}.cc ${T_SRCS})
+  if(T_UNPARSED_ARGUMENTS)
+    target_link_libraries(${name} PRIVATE ${T_UNPARSED_ARGUMENTS})
+  endif()
+  recreation_set_warnings(${name})
+  if(NOT T_NO_REGISTER)
+    if(T_AS)
+      add_test(NAME ${T_AS} COMMAND ${name})
+    else()
+      add_test(NAME ${name} COMMAND ${name})
+    endif()
+  endif()
+endfunction()

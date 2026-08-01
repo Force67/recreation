@@ -7,3 +7,5 @@ recreation_add_module(audio
 
 target_link_libraries(recreation_audio PUBLIC
   rx::audio recreation::bethesda)
+
+recreation_add_test(audiotest recreation::audio)

@@ -328,7 +328,8 @@ if(RECREATION_NET)
 endif()
 
 if(RECREATION_BUILD_TOOLS)
-  enable_testing()  # papyrus vm regression suite, run with `ctest`
+  # Every component registers its own tests; `ctest` runs the lot.
+  enable_testing()
 endif()
 
 foreach(module ${RECREATION_MODULES})
@@ -338,8 +339,9 @@ endforeach()
 add_subdirectory(runtime)
 
 if(RECREATION_BUILD_TOOLS)
-  enable_testing()  # papyrus vm regression suite, run with `ctest`
   add_subdirectory(tools/esminfo)
   add_subdirectory(tools/modtool)
   add_subdirectory(tools/papyrus)
+  add_subdirectory(tests/upstream)
+  add_subdirectory(sdk)  # managed (C#) build fixture and its gates
 endif()

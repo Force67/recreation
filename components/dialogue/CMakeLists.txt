@@ -9,3 +9,6 @@ target_link_libraries(recreation_dialogue PUBLIC
   rx::core
   recreation::bethesda
   recreation::quest)
+
+recreation_add_test(dialoguetest recreation::dialogue recreation::bethesda)
+recreation_add_test(voicetest recreation::dialogue recreation::bethesda)

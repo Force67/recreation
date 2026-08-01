@@ -55,3 +55,18 @@ target_link_libraries(recreation_script PUBLIC
 target_include_directories(recreation_script PRIVATE ${CMAKE_SOURCE_DIR}/third_party/minicoro)
 set_source_files_properties(papyrus/minicoro_impl.cc PROPERTIES
   COMPILE_OPTIONS $<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>)
+
+foreach(t transpiletest nativesexttest fibertest obscripttest proximitytest
+          pexfo4test alias_handletest)
+  recreation_add_test(${t} recreation::script)
+endforeach()
+recreation_add_test(script_lifecycletest recreation::script rx::asset)
+recreation_add_test(daycycletest recreation::script rx::core)
+recreation_add_test(replicamodetest recreation::script recreation::bethesda)
+
+# Corpus harnesses: these want a real Skyrim data directory, so they are built
+# for manual runs but stay out of the ctest gate.
+recreation_add_test(scripttest NO_REGISTER
+  recreation::script recreation::bethesda rx::asset)
+recreation_add_test(bindingstest NO_REGISTER
+  recreation::script recreation::bethesda rx::asset)

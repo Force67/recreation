@@ -17,3 +17,12 @@ recreation_add_module(quest
 target_link_libraries(recreation_quest PUBLIC
   rx::core
   recreation::bethesda)
+
+recreation_add_test(questtest AS quest_systemtest recreation::quest recreation::bethesda)
+foreach(t conditiontest questgraphtest questimporttest package_recordtest
+          quest_aliastest scene_recordtest)
+  recreation_add_test(${t} recreation::quest recreation::bethesda)
+endforeach()
+foreach(t scenetest scene_compiletest scene_playertest scene_runtimetest)
+  recreation_add_test(${t} recreation::quest)
+endforeach()

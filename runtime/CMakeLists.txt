@@ -153,3 +153,12 @@ if(RECREATION_NET)
   target_link_libraries(recreation-server PRIVATE recreation::gamenet rx::net_viz)
   target_compile_definitions(recreation-server PRIVATE RECREATION_HAS_NET=1)
 endif()
+
+# Component tests, beside the code they exercise. Each is a plain executable
+# over the pure-data parts of a runtime component, so none of them boots the
+# engine or needs a window.
+if(RECREATION_BUILD_TOOLS)
+  recreation_add_test(demo/trailertest recreation::weather rx::core SRCS demo/trailer.cc)
+  recreation_add_test(editor/editor_layouttest rx::core)
+  recreation_add_test(character/chargen_presettest rx::core)
+endif()
