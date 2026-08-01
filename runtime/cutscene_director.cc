@@ -35,6 +35,10 @@ base::Option<bool> SceneCamera{"scene.camera", true, "RX_SCENE_CAMERA"};
 base::Option<bool> SceneVoice{"scene.voice", true, "RX_SCENE_VOICE"};
 // Letterbox bars while a scene owns the view.
 base::Option<bool> SceneLetterbox{"scene.letterbox", true, "RX_SCENE_LETTERBOX"};
+// RX_SCENE_SHOT pins every shot to one kind (0 over-shoulder, 1 reverse, 2 two-shot,
+// 3 close-up, 4 wide), for framing work and for checking a staged scene from a known
+// distance. -1 leaves the shot director in charge.
+base::Option<int> SceneShot{"scene.shot", -1, "RX_SCENE_SHOT"};
 
 constexpr u64 kPlayerHandle = 0x14;
 constexpr f32 kUnitsToMeters = 0.01428f;
@@ -219,10 +223,15 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
     // instance that actually exists rather than to whichever placement the records
     // scan happened to pick.
     const quest::AliasDef* adef = qdef->FindAlias(actor.alias);
-    if (adef && adef->unique_actor_raw != 0 && ctx_.records) {
+    // A unique actor names one NPC; a created alias names the base the quest makes
+    // its reference from. Either way the base is the identity, so bind to whichever
+    // instance of it is in the world.
+    const u32 base_raw = adef ? (adef->unique_actor_raw ? adef->unique_actor_raw
+                                                        : adef->created_base_raw)
+                              : 0;
+    if (base_raw != 0 && ctx_.records) {
       const u64 base =
-          ctx_.records->ResolveFrom(bethesda::RawFormId{adef->unique_actor_raw}, entry.plugin)
-              .packed();
+          ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, entry.plugin).packed();
       if (const u64 live = LiveRefForBase(base)) {
         live_alias_refs_[key] = live;
         continue;
@@ -362,6 +371,23 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
   if (voice_type.empty()) return line;
   line.had_voice_type = true;
 
+  // The archive index is the reliable route: it keys every recording by the INFO it
+  // belongs to, so a line whose clip was exported under some other quest's name
+  // still resolves. The name-building path below stays as the fallback.
+  if (ctx_.vfs) {
+    voices_.Build(*ctx_.vfs);
+    const std::string indexed = voices_.Find(static_cast<u32>(info & 0xffffffffu), voice_type);
+    if (!indexed.empty()) {
+      line.path = indexed;
+      if (auto bytes = ctx_.vfs->Read(indexed)) {
+        const f32 seconds = dialogue::ClipSeconds(ByteSpan{bytes->data(), bytes->size()});
+        if (seconds > 0.1f) line.seconds = seconds;
+      }
+      return line;
+    }
+  }
+
+  if (voice_type.empty()) return line;  // nothing to build a name from
   // The file is named after the quest that owns the TOPIC, which is not always the
   // quest that owns the scene: scenes borrow each other's dialogue (a town's shared
   // topics, a questline's greetings), and the recording stays filed under its own.
@@ -739,9 +765,18 @@ bool CutsceneDirector::HeadOf(u64 handle, Vec3* out) const {
   if (!ctx_.quest_world || !ctx_.world) return false;
   const ecs::Entity e = ctx_.quest_world->Find(handle);
   if (ctx_.world->IsAlive(e)) {
-    if (actors_->NpcHeadWorld(e, out)) return true;
-    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e)) {
-      *out = Vec3{t->position[0], t->position[1] + 1.6f, t->position[2]};
+    const world::Transform* t = ctx_.world->Get<world::Transform>(e);
+    const Vec3 body = t ? Vec3{t->position[0], t->position[1] + 1.6f, t->position[2]} : Vec3{};
+    Vec3 head;
+    // The head bone is the better framing point, but only if it is where the body
+    // is: a rig whose pose has not settled can report a head metres away, and a
+    // camera aimed there frames empty ground.
+    if (actors_->NpcHeadWorld(e, &head) && (!t || Length(head - body) < 2.5f)) {
+      *out = head;
+      return true;
+    }
+    if (t) {
+      *out = body;
       return true;
     }
   }
@@ -810,6 +845,8 @@ void CutsceneDirector::DriveCamera(f32 dt) {
         // skinned instance would frame an empty spot.
         const ecs::Entity e = ctx_.quest_world->Find(ref);
         if (!actors_->HasNpcInstance(e)) continue;
+        RX_INFO("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
+                actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
         subject = p.get();
         establishing = true;
         break;
@@ -834,7 +871,9 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   const world::ShotParams params;
   const f32 sp[3] = {speaker_head.x, speaker_head.y, speaker_head.z};
   const f32 lp[3] = {listener_head.x, listener_head.y, listener_head.z};
-  const world::ShotKind kind = establishing ? world::ShotKind::kWide : shots_.kind();
+  world::ShotKind kind = establishing ? world::ShotKind::kWide : shots_.kind();
+  if (const int forced = SceneShot; forced >= 0 && forced <= 4)
+    kind = static_cast<world::ShotKind>(forced);
   world::CineFraming want_framing = world::SolveShot(kind, sp, lp, speaker_yaw, params);
   // Keep the lens out of the ground: a shot solved off two heads can end up inside
   // a slope on Skyrim's terrain.

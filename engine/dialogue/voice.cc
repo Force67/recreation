@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "asset/vfs.h"
 #include "bethesda/load_order.h"
 #include "bethesda/record.h"
 
@@ -102,6 +103,58 @@ bool TagAt(ByteSpan bytes, size_t offset, const char* tag) {
 }
 
 }  // namespace
+
+bool VoiceIndex::ParsePath(std::string_view path, u32* info_local_id, std::string* voice_type) {
+  // sound/voice/<plugin>/<voice type>/<quest>_<topic>_<info hex8>_<n>.fuz
+  if (path.size() < 8 || path.rfind(".fuz") != path.size() - 4) return false;
+  const size_t slash = path.rfind('/');
+  if (slash == std::string_view::npos || slash == 0) return false;
+  const size_t voice_start = path.rfind('/', slash - 1);
+  if (voice_start == std::string_view::npos) return false;
+  const std::string_view name = path.substr(slash + 1, path.size() - slash - 5);  // drop ".fuz"
+  // The id is the second-to-last underscore-separated field.
+  const size_t last = name.rfind('_');
+  if (last == std::string_view::npos || last == 0) return false;
+  const size_t prev = name.rfind('_', last - 1);
+  if (prev == std::string_view::npos) return false;
+  const std::string_view id = name.substr(prev + 1, last - prev - 1);
+  if (id.size() != 8) return false;
+  u32 value = 0;
+  for (char c : id) {
+    const int digit = (c >= '0' && c <= '9')   ? c - '0'
+                      : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                      : (c >= 'A' && c <= 'F') ? c - 'A' + 10
+                                              : -1;
+    if (digit < 0) return false;
+    value = value * 16 + static_cast<u32>(digit);
+  }
+  *info_local_id = value;
+  voice_type->assign(path.substr(voice_start + 1, slash - voice_start - 1));
+  return true;
+}
+
+void VoiceIndex::Build(const asset::Vfs& vfs) {
+  if (built_) return;
+  built_ = true;
+  vfs.Enumerate([&](std::string_view path) {
+    if (path.rfind("sound/voice/", 0) != 0) return;
+    u32 info = 0;
+    std::string voice_type;
+    if (!ParsePath(path, &info, &voice_type)) return;
+    by_info_[info].push_back({std::move(voice_type), std::string(path)});
+  });
+}
+
+std::string VoiceIndex::Find(u32 info_local_id, const std::string& voice_type) const {
+  auto it = by_info_.find(info_local_id);
+  if (it == by_info_.end()) return {};
+  const std::string want = Lower(voice_type);
+  for (const Clip& clip : it->second)
+    if (clip.voice_type == want) return clip.path;
+  // A line recorded for one voice type only (a unique actor) still belongs to this
+  // INFO, so it is the right recording even when the speaker's type does not match.
+  return it->second.front().path;
+}
 
 f32 ClipSeconds(ByteSpan bytes) {
   size_t at = 0;

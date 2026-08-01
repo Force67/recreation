@@ -108,6 +108,27 @@ void TestClipSeconds() {
   Check("an empty buffer reports nothing", ClipSeconds(rx::ByteSpan{}) == 0.0f);
 }
 
+void TestIndexParse() {
+  std::puts("voice (archive index naming):");
+  rx::u32 info = 0;
+  std::string voice;
+  Check("a scene line parses to its info id and voice type",
+        VoiceIndex::ParsePath("sound/voice/skyrim.esm/malenord/mq101__0003374b_1.fuz", &info,
+                              &voice) &&
+            info == 0x0003374b && voice == "malenord");
+  Check("so does a line with a topic segment",
+        VoiceIndex::ParsePath(
+            "sound/voice/skyrim.esm/maleeventonedaccented/"
+            "mq101_mq101soldierblocking_000648fc_1.fuz",
+            &info, &voice) &&
+            info == 0x000648fc && voice == "maleeventonedaccented");
+  Check("a lip file is not a clip",
+        !VoiceIndex::ParsePath("sound/voice/skyrim.esm/malenord/mq101__0003374b_1.lip", &info,
+                               &voice));
+  Check("a name with no id is skipped",
+        !VoiceIndex::ParsePath("sound/voice/skyrim.esm/malenord/hello.fuz", &info, &voice));
+}
+
 void TestEstimate() {
   std::puts("voice (fallback length):");
   const f32 short_line = EstimateLineSeconds("Yes.");
@@ -125,6 +146,7 @@ int main() {
   TestPaths();
   TestCandidates();
   TestClipSeconds();
+  TestIndexParse();
   TestEstimate();
   if (g_failures) {
     std::printf("voice: %d check(s) FAILED\n", g_failures);

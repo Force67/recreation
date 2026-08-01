@@ -2,10 +2,16 @@
 #define RECREATION_DIALOGUE_VOICE_H_
 
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "bethesda/form_id.h"
 #include "core/types.h"
+
+namespace rx::asset {
+class Vfs;
+}
 
 namespace rx::bethesda {
 class RecordStore;
@@ -46,6 +52,39 @@ std::string VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::Gl
 // estimate, clamped so a one-word line still registers and a long one does not
 // stall a scene.
 f32 EstimateLineSeconds(const std::string& text);
+
+// An index of the voice archive, keyed by the INFO the recording belongs to.
+//
+// Guessing a clip's name from the records only works when the quest and topic
+// segments match what the audio was exported against, and often they do not: a
+// scene borrows another quest's topics, a line is voiced under a shared dialogue
+// quest, an exporter dropped the topic. The one part of the name that is always
+// the truth is the INFO's form id, so the index reads the archive once and looks a
+// line up by (INFO, voice type). Everything after that is exact.
+class VoiceIndex {
+ public:
+  // Enumerates `sound/voice/...` through the Vfs. Cheap (string work only) and
+  // idempotent: the second call does nothing.
+  void Build(const asset::Vfs& vfs);
+  bool built() const { return built_; }
+  size_t size() const { return by_info_.size(); }
+
+  // The clip for a line, preferring the speaker's voice type and otherwise any
+  // recording of that INFO. Empty when the archive has none.
+  std::string Find(u32 info_local_id, const std::string& voice_type) const;
+
+  // Parses one voice path into the INFO id and voice type it belongs to. False when
+  // the name does not carry an id (a lip file, an unrelated asset).
+  static bool ParsePath(std::string_view path, u32* info_local_id, std::string* voice_type);
+
+ private:
+  struct Clip {
+    std::string voice_type;
+    std::string path;
+  };
+  std::unordered_map<u32, std::vector<Clip>> by_info_;
+  bool built_ = false;
+};
 
 // Playing time of a voice asset, read out of its header rather than by decoding it.
 // A .fuz is a lipsync block in front of an xWMA RIFF, and xWMA carries a `dpds`

@@ -150,6 +150,12 @@ bool ActorSystem::HasNpcInstance(ecs::Entity npc) const {
   return npc_actors_.find(key) != nullptr;
 }
 
+int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  const Actor* a = npc_actors_.find(key);
+  return a ? static_cast<int>(a->parts.size()) : 0;
+}
+
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);

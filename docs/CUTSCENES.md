@@ -15,7 +15,7 @@ So the engine plays cutscenes by running that machinery, not by scripting scenes
 | --- | --- | --- |
 | Scene phase machine | `engine/quest/scene_runtime.{h,cc}` | Lowers a parsed SCEN into a `ScenePlan` and drives it: phases in order, one line at a time for its full length, packages held across their phase window, phase completion gated on the record's CTDA (with a timeout so an unreachable gate cannot wedge a scene). Pure, unit tested (`scene_runtimetest`). |
 | Dialogue camera | `engine/world/cine_camera.{h,cc}` | The shot language: over-shoulder, reverse, two-shot, close-up, wide, solved from the speaker's and listener's head positions, plus a cutting policy that cuts on a new speaker, holds a minimum, and breaks up a long speech. Pure, unit tested (`cine_cameratest`). |
-| Voice + pacing | `engine/dialogue/voice.{h,cc}` | Resolves a line's `.fuz` from the records (`sound/voice/<plugin>/<voice type>/<quest>_<topic>_<info>_<n>.fuz`) and reads its exact length out of the xWMA header, so a scene is paced by the recording rather than a guess. Unit tested (`voicetest`). |
+| Voice + pacing | `engine/dialogue/voice.{h,cc}` | Indexes the voice archive by the INFO id every file name carries, so a line finds its recording even when the clip was exported under another quest's name, and reads the clip's exact length out of the xWMA header, so a scene is paced by the recording. Unit tested (`voicetest`). |
 | AI packages | `runtime/ai_package_director.{h,cc}` | Runs the alias package stacks: picks the first package whose conditions pass, walks travel packages to their target, fires the package's Papyrus fragment on arrival, tows objects behind the actor they are enable-parented to, and carries riders (with the vehicle's seated idles) on a moving cart. |
 | Cutscene director | `runtime/cutscene_director.{h,cc}` | The live layer: indexes every SCEN by owning quest, starts scenes the way the game does, plays their lines (voice + caption + the INFO's own Papyrus fragment), fires the SCEN phase fragments that advance the journal, hands scene packages to the package driver, switches on cast that is still disabled, and drives the camera. |
 | Quest mirror | `runtime/quest_state_cache.h` | A main-thread mirror of live quest state (stage, running, stages done) so the systems that own the world can evaluate the records' condition gates without marshalling onto the Papyrus guest thread. |
@@ -58,8 +58,9 @@ Esc hands the camera back mid-scene; the scene keeps playing.
 
 ```
 2130 scene(s) over 1281 quest(s), 956 begin with their quest
-8329 spoken line(s), 3589 with a voice clip
-  1371 unvoiced for want of a voice type, 3369 for want of the file
+8329 spoken line(s), 6947 with a voice clip (83%)
+  12 of the rest name a clip the archives do not hold; the other 1371 have no
+  recording at all
 ```
 
 Every one of those 2130 scenes lowers to a runnable plan: phases sorted, cast
@@ -85,6 +86,7 @@ clips, packages all resolved) without a live playthrough of that quest.
 | --- | --- | --- | --- | --- | --- | --- |
 | MQ101 | Unbound | 17 | 197 | 152 | Played live | `MQ101Scene1` (29 phases) speaks the whole cart ride in order, from "Hey, you. You're finally awake." to "Sovngarde awaits."; journal runs 0 -> 10 -> 15; the cart horse runs its patrol packages and tows the cart |
 | DialogueRiftenKeepScene11 | Riften Keep Scene 11 | 1 | 10 | 10 | Played live | Laila and Maven's audience plays on entering Mistveil Keep, voiced |
+| DialogueRiftenBeeAndBarbScene01 | Bee and Barb Scene 01 | 1 | 4 | 4 | Played live | Talen-Jei and Keerava behind the bar, framed and voiced (screenshot below) |
 | MG01 | First Lessons | 7 | 43 | 43 | Played live | Mirabelle/Ancano scene starts with the quest and speaks its lines |
 | DialogueMorthalInitialScene | Morthal | 1 | 7 | 0 | Played live | Jorgen/Thonnir/Aslfur argue in Highmoon Hall (unvoiced, reading-time paced) |
 | DialogueRiftenSS02Scene | Riften | 1 | 4 | 4 | Played live | Mjoll and Aerin on the Thieves Guild |
@@ -111,6 +113,11 @@ clips, packages all resolved) without a live playthrough of that quest.
 still runs; it spawns its own cart, horse and riders instead of using the placed
 references. It goes away once the staging gap below is closed.
 
+![Bee and Barb](cutscene-bee-and-barb.png)
+
+`RiftenBeeAndBarbScene01`: Talen-Jei mid-line in the inn, on the shot the director
+picked. His four lines were unvoiced until the archive index went in.
+
 ## Fixed along the way
 
 Every placed actor in every game was lying on its back. A REFR's rotation was
@@ -123,21 +130,20 @@ procedural gait, which is authored against the builtin biped's bones.
 
 ## Known gaps
 
-* **Voice coverage is 43%.** 3369 lines name a clip that is not in the archives
-  under the naming this resolves; most of those are Bethesda's shared "response
-  data" INFOs, where the recording is filed under the INFO that owns the response
-  rather than the one that plays it. Those lines still play, paced by reading time.
-* **The camera only frames a cast that resolves to live references.** A scene whose
-  aliases are forced references or unique actors binds to the instance in the world
-  (including the right one when a unique actor is placed in several cells) and the
-  dialogue camera cuts between its speakers. Scenes whose aliases are find-matching
-  or created (much of the ambient town dialogue) have no reference to point at yet,
-  so they play as voices and subtitles in the gameplay view. Filling those alias
-  kinds is the remaining work.
-* **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled,
-  are streamed and have skinned instances, but do not draw at their staged positions
-  on the mountain, so the ride's establishing shot is an empty road. The scene itself
-  (dialogue, packages, journal) runs.
+* **17% of spoken lines have no recording.** 1371 of 8329 are lines Bethesda never
+  voiced, and 12 name a file the archives do not hold. They play, paced by their
+  reading length.
+* **Find-matching aliases still do not bind.** Forced references, unique actors and
+  created objects (ALCO) bind to the instance in the world, so their scenes get a
+  camera. A find-matching alias (ALFA, "any reference of this ref type inside this
+  location") needs the location's ref-type table walked before it can point at
+  anyone; until then those scenes play as voice and subtitles in the gameplay view.
+* **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled, are
+  streamed, hold seven drawable parts and report a transform on the mountain road, yet
+  nothing draws there even from a metre away (checked with `RX_SCENE_SHOT=3`). The
+  scene itself (dialogue, packages, journal) runs. Something about a persistent
+  reference the quest teleports renders elsewhere than its transform; that is an
+  actor/streaming defect to chase on its own.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as

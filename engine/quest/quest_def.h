@@ -52,6 +52,11 @@ struct AliasDef {
   // points at it). This binds the Civil War siege's Attacker*/Defender*/Marker*
   // slots to the fort's placed refs.
   bool find_matching = false;  // ALFA present
+  // "Create Reference to Object" aliases (ALCO): the quest makes a new reference of
+  // this base at runtime (a generic bandit, a summoned actor). The base is what
+  // identifies the performer, so an engine that has one of them in the world can
+  // bind the alias to it.
+  u32 created_base_raw = 0;    // ALCO base object form id, 0 when none
   u32 ref_type_raw = 0;        // ALRT LocationRefType form id, 0 when none
   i32 find_in_parent = -1;     // ALFI parent alias id to search within, -1 when none
   // ALPC: the AI packages this alias stacks onto whatever actor fills it, in

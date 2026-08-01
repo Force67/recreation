@@ -9,6 +9,7 @@
 
 #include "bethesda/form_id.h"
 #include "core/math.h"
+#include "dialogue/voice.h"
 #include "engine_context.h"
 #include "quest/quest_def.h"
 #include "quest/scene_runtime.h"
@@ -204,6 +205,7 @@ class CutsceneDirector {
   std::unordered_map<u64, std::vector<size_t>> by_quest_;
   std::unordered_map<u64, quest::QuestDef> quest_defs_;  // parsed on demand
   std::unordered_map<u64, VoiceLine> voice_cache_;       // INFO handle -> clip
+  dialogue::VoiceIndex voices_;  // the voice archive, keyed by INFO (built on demand)
   // Alias fills the records could not resolve, keyed by (quest, alias), as the live
   // alias system reports them.
   std::unordered_map<u64, u64> live_alias_refs_;

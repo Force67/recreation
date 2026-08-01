@@ -81,6 +81,9 @@ class ActorSystem {
   // being drawn at all. What tells a scene director that its cast is really on
   // screen rather than merely present in the ECS.
   bool HasNpcInstance(ecs::Entity npc) const;
+  // How many drawable parts a streamed NPC's instance has. 0 means it has an actor
+  // but nothing to render, which is invisible rather than missing.
+  int NpcInstanceParts(ecs::Entity npc) const;
   // World position of an NPC instance's head bone, as of the last pose update.
   // False when the entity has no actor or the rig has no head. What a camera
   // frames a conversation on, rather than guessing at the body's origin.
