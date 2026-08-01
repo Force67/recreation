@@ -121,6 +121,14 @@ picked. His four lines were unvoiced until the archive index went in.
 
 ## Fixed along the way
 
+The frame's skinning palette is a fixed budget (8192 matrices) and a dense exterior
+holds more actors than fits; whoever overflowed it drew from memory nothing had
+written. Actors are now emitted nearest-camera-first and the loop stops at the
+budget, so the ones on screen are the ones that get skinned.
+
+The cutscene camera also lifts until its line to the subject is clear, so a shot
+solved off two heads on a slope does not frame the hillside in front of them.
+
 Every placed actor in every game was lying on its back. A REFR's rotation was
 converted with the axis change that turns Bethesda's Z-up space into the engine's
 Y-up, but a skinned actor already converts its Bethesda-space skeleton itself, so the
@@ -141,12 +149,16 @@ procedural gait, which is authored against the builtin biped's bones.
   anyone; the director now hands the scene's location to the quest system's
   find-matching fill, which covers the ones whose location carries a ref-type table,
   and the rest still play as voice and subtitles in the gameplay view.
-* **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled, are
-  streamed, hold seven drawable parts and report a transform on the mountain road, yet
-  nothing draws there even from a metre away (checked with `RX_SCENE_SHOT=3`). The
-  scene itself (dialogue, packages, journal) runs. Something about a persistent
-  reference the quest teleports renders elsewhere than its transform; that is an
-  actor/streaming defect to chase on its own.
+* **MQ101's staged cast does not draw.** The scene runs (dialogue, packages,
+  journal), and the actor it stages on the mountain road resolves, is enabled, is
+  streamed, is upright, holds seven drawable parts with a valid mesh, sits on the
+  ground and is handed to the renderer with the right model matrix
+  (`RX_ACTOR_DUMP=1` / `RX_SKEL_DUMP=1` print it: `model t=(324.39 199.06 1361.98)`),
+  yet nothing appears there, from a metre away, from above, or from any angle. Ruled
+  out along the way: the pose, the rotation, burial in the terrain, duplicate
+  entities, physics occlusion, the entity/instance mapping, and the renderer's
+  per-frame bone budget. What is left is inside the renderer's handling of that
+  draw, which lives in the `rx` repository rather than this one.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as

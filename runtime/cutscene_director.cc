@@ -556,18 +556,35 @@ void CutsceneDirector::EnableCast(u64 quest, const std::string& editor_id,
 }
 
 void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
-  if (!ctx_.streamer || !ctx_.quest_world || !ctx_.world || ctx_.streamer->in_interior()) return;
+  if (!ctx_.quest_world || !ctx_.world) return;
   for (u64 ref : cast) {
     const ecs::Entity e = ctx_.quest_world->Find(ref);
     if (!ctx_.world->IsAlive(e) || ctx_.world->Has<world::Hidden>(e)) continue;
     world::Transform* t = ctx_.world->Get<world::Transform>(e);
     if (!t) continue;
+    // The terrain heightfield where there is one, else a short downward ray onto
+    // whatever collision is under the actor (floors, roads, an interior). A quest
+    // stages its cast by teleporting it onto markers authored against the game's
+    // own ground, so where ours sits higher they end up buried and invisible.
     f32 ground = 0;
-    if (!ctx_.streamer->GroundHeight(t->position[0], t->position[2], &ground)) continue;
-    // Only lift, and only a real burial: nudging every actor onto the heightfield
-    // would drop the ones standing on a floor, a bridge or a cart.
+    bool found = ctx_.streamer && !ctx_.streamer->in_interior() &&
+                 ctx_.streamer->GroundHeight(t->position[0], t->position[2], &ground);
+    if (!found && ctx_.physics && ctx_.physics->initialized()) {
+      physics::PhysicsWorld::RayHit hit;
+      if (ctx_.physics->Raycast(Vec3{t->position[0], t->position[1] + 2.0f, t->position[2]},
+                                Vec3{0, -1, 0}, 12.0f, &hit)) {
+        ground = hit.position.y;
+        found = true;
+      }
+    }
+    if (!found) continue;
+    // Only lift, and only a real burial: nudging every actor onto the ground would
+    // drop the ones standing on a floor above it, a bridge or a cart.
     const f32 sunk = ground - t->position[1];
-    if (sunk > 0.5f && sunk < 8.0f) t->position[1] = ground;
+    if (sunk > 0.5f && sunk < 8.0f) {
+      RX_INFO("cutscene: lifted 0x{:x} {:.1f} m onto the ground", ref, sunk);
+      t->position[1] = ground;
+    }
   }
 }
 
@@ -920,10 +937,25 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   world::CineFraming want_framing = world::SolveShot(kind, sp, lp, speaker_yaw, params);
   // Keep the lens out of the ground: a shot solved off two heads can end up inside
   // a slope on Skyrim's terrain.
-  if (ctx_.streamer) {
+  if (ctx_.streamer && !ctx_.streamer->in_interior()) {
     f32 ground = 0;
     if (ctx_.streamer->GroundHeight(want_framing.eye[0], want_framing.eye[2], &ground))
       want_framing.eye[1] = std::max(want_framing.eye[1], ground + 0.6f);
+  }
+  // And keep the subject in sight: on a slope the ground between camera and actor
+  // rises into the shot, which frames an empty hillside with the performance behind
+  // it. Lift the lens until the line to the subject is clear.
+  if (ctx_.physics && ctx_.physics->initialized()) {
+    const Vec3 target{want_framing.target[0], want_framing.target[1], want_framing.target[2]};
+    for (int lift = 0; lift < 5; ++lift) {
+      const Vec3 eye{want_framing.eye[0], want_framing.eye[1], want_framing.eye[2]};
+      const Vec3 to = eye - target;
+      const f32 distance = Length(to);
+      if (distance < 0.2f) break;
+      physics::PhysicsWorld::RayHit hit;
+      if (!ctx_.physics->Raycast(target, to * (1.0f / distance), distance - 0.15f, &hit)) break;
+      want_framing.eye[1] += 1.5f;
+    }
   }
   if (cut || !framing_valid_) {
     framing_ = want_framing;

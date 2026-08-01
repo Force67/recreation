@@ -369,7 +369,8 @@ class ActorSystem {
   bool fp_ready_ = false;                      // rig + clips loaded
   bool fp_engaged_ = false;                    // advance the pose this frame
   bool fp_visible_ = false;                    // emit draws + hide the TP body
-  bool fp_clip_done_ = false;                  // active one-shot clip finished
+  bool fp_clip_done_ = false;
+  bool actor_dump_done_ = false;  // RX_ACTOR_DUMP fires once                  // active one-shot clip finished
   bool fp_clip_loop_ = true;                   // idle loops; one-shots don't
   FpClip fp_current_ = FpClip::kIdle;
   f32 fp_clip_time_ = 0;

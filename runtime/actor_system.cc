@@ -47,6 +47,16 @@ static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "RX_
 // for demos/screenshots of the pose.
 static base::Option<bool> PinRoot{"anim.pin_root", false, "RX_PIN_ROOT"};
 static base::Option<bool> Player{"player", false, "RX_PLAYER"};
+// RX_ACTOR_DUMP logs, once, what the renderer is handed for every NPC actor: which
+// entity, where its model matrix puts it, how many parts and the first mesh. The way
+// to tell "not drawn" from "drawn somewhere else".
+static base::Option<bool> ActorDump{"actor.dump", false, "RX_ACTOR_DUMP"};
+
+// The renderer uploads one skinning palette per frame and it is a fixed size
+// (render::Renderer::kMaxFrameBones, private to it). Actors whose matrices land past
+// the end draw from memory that was never written, which looks like an actor that is
+// not there at all, so the emit loop stops before it overflows.
+constexpr size_t kFrameBoneBudget = 8192;
 // Strand hair on actors: build a simulated groom from the NPC's hair nif and ride
 // it on the head bone. Off falls back to the flat card the hair part uploads.
 static base::Option<bool> StrandHair{"strand_hair", true, "RX_STRAND_HAIR"};
@@ -1596,7 +1606,44 @@ void ActorSystem::EmitDraws(render::FrameView& view) {
     if (first_person && i == player_actor_) continue;
     EmitOneActor(actors_[i], view);
   }
-  for (auto entry : npc_actors_) EmitOneActor(entry.value, view);
+  // The renderer's per-frame skinning palette is a fixed budget, and a dense
+  // exterior holds far more actors than fits: whoever overflows it draws with a
+  // palette that was never uploaded, which reads as an actor that is simply not
+  // there. Spend the budget on the actors nearest the camera, which are the ones
+  // the player (or a cutscene) is looking at.
+  const Vec3 eye = view.camera.eye;
+  base::Vector<std::pair<f32, Actor*>> by_distance;
+  by_distance.reserve(npc_actors_.size());
+  for (auto entry : npc_actors_) {
+    Actor& a = entry.value;
+    f32 distance = 0;
+    if (const world::Transform* t = world_.Get<world::Transform>(a.entity)) {
+      const Vec3 to{t->position[0] - eye.x, t->position[1] - eye.y, t->position[2] - eye.z};
+      distance = Length(to);
+    }
+    by_distance.push_back({distance, &a});
+  }
+  std::sort(by_distance.begin(), by_distance.end(),
+            [](const auto& l, const auto& r) { return l.first < r.first; });
+  for (auto& [distance, actor] : by_distance) {
+    size_t cost = 0;
+    for (const ActorPart& part : actor->parts)
+      if (part.attach_bone < 0) cost += part.skin.bones.size();
+    if (view.bone_matrices.size() + cost > kFrameBoneBudget) continue;
+    EmitOneActor(*actor, view);
+  }
+  if (ActorDump && !actor_dump_done_) {
+    actor_dump_done_ = true;
+    for (auto entry : npc_actors_) {
+      const Actor& a = entry.value;
+      const world::Transform* t = world_.Get<world::Transform>(a.entity);
+      RX_INFO("actor dump: entity {}:{} transform {} parts {} mesh {:x} animate {}", a.entity.index,
+              a.entity.generation,
+              t ? Fmt("(%.0f, %.0f, %.0f)", t->position[0], t->position[1], t->position[2])
+                : std::string("none"),
+              a.parts.size(), a.parts.empty() ? 0 : a.parts[0].mesh.hash, a.animate);
+    }
+  }
   if (fp_visible_) EmitFpRig(view);
 }
 
