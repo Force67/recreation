@@ -16,7 +16,7 @@ bridge and the persistence store.
   serialization (`SaveInventories`/`SaveWorldItems`). The engine owns no item
   taxonomy — an `ItemDef` is just `{name_hash, world_mesh, shape, mass, weight,
   flags, payload}`.
-- **`runtime/item_bridge.{h,cc}` (`ItemBridge`).** The game side: it lazily
+- **`runtime/interaction/item_bridge.{h,cc}` (`ItemBridge`).** The game side: it lazily
   builds the `ItemCatalog` from Bethesda base records, routes activation into
   pickups, binds the drop keybind, runs the per-frame world-item upkeep, and owns
   the per-profile save file.

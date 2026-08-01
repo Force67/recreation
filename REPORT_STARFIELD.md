@@ -31,7 +31,7 @@ geometry, flat water flooding the whole plaza, no ground terrain. All fixed in c
 
 - `engine/bethesda/game_profile.{h,cc}`: per-game `cell_size` / `units_to_meters`
   (Starfield: 100 m cells, metre positions).
-- `engine/world/cell_streaming.{h,cc}`: constructor takes the GameProfile; all
+- `components/world/cell_streaming.{h,cc}`: constructor takes the GameProfile; all
   record-position math (ToWorld, cell grid mapping, water/land/light-radius/decal/fog/
   ground conversions, water plane span) uses the per-game members while converted-mesh
   scaling keeps the fixed game-unit constant. WRLD XCLW/WHGT water-table parse with
@@ -48,7 +48,7 @@ geometry, flat water flooding the whole plaza, no ground terrain. All fixed in c
   vertex lift.
 - `engine/bethesda/load_order.cc`: persistent worldspace refs binned by
   `profile.cell_size` (were all misbinned near the origin for Starfield).
-- `runtime/content_load.cc`: streamer construction passes the profile; camera-start and
+- `runtime/app/content_load.cc`: streamer construction passes the profile; camera-start and
   secondary-domain anchors use the profile cell size/scale.
 - `tools/esminfo/main.cc`: new `cellrec` (dump WRLD+CELL subrecords hex) and `form`
   (dump any record's subrecords by hex id) probe modes used for the diagnosis.

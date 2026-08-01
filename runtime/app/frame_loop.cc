@@ -440,7 +440,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         Vec3 ppos;
         if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) focus = ppos;
         nav_debug_lines_.clear();
-        const NavService& nav = npc_->nav();
+        const NavBubble& nav = npc_->nav();
         nav::AppendNavMeshLines(nav.mesh(), focus, NavDebugRadius.get(), &nav_debug_lines_);
         nav.ForEachCorridor([&](u64, const nav::Corridor& corridor) {
           nav::AppendCorridorLines(nav.mesh(), corridor, &nav_debug_lines_);

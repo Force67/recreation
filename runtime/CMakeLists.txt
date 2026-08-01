@@ -18,7 +18,7 @@ set(RECREATION_RUNTIME_SOURCES
   camera/showcase_camera.cc
   actor/actor_system.cc
   actor/player_controller.cc
-  actor/nav_service.cc
+  actor/nav_bubble.cc
   actor/ai_package_director.cc
   actor/npc_director.cc
   character/face.cc

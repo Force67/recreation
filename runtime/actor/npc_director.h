@@ -13,7 +13,7 @@
 #include "components/quest/scene.h"
 #include "components/world/combat.h"
 #include "components/world/components.h"
-#include "runtime/actor/nav_service.h"
+#include "runtime/actor/nav_bubble.h"
 #include "components/world/navgrid.h"
 #include "components/world/quest_world.h"
 
@@ -85,7 +85,7 @@ class NpcDirector {
   // Per-tick navmesh bubble maintenance around the player (time-sliced tile
   // builds, corridor budgets). Call once per sim tick, before the NPC updates.
   void UpdateNav(f32 dt);
-  NavService& nav() { return nav_; }
+  NavBubble& nav() { return nav_; }
   void Mq101DemoTick(f32 dt);
   void Mq101SceneTick(f32 dt);
 
@@ -202,7 +202,7 @@ class NpcDirector {
   physics::PhysicsWorld& physics_;
 
   world::NavGrid navgrid_;  // cached interior routing for followers/guides/player
-  NavService nav_;          // exterior cost-aware navmesh (streamed terrain)
+  NavBubble nav_;          // exterior cost-aware navmesh (streamed terrain)
   base::UnorderedMap<u64, i32> followers_;
   base::UnorderedMap<u64, Vec3> guides_;
   // Ambient-wander state per nearby NPC (keyed by its form handle), pruned each

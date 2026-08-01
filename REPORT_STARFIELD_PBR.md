@@ -81,7 +81,7 @@ new IBL/probe system required.
   roughness map lets `roughness_factor` pass through at 1.0 instead of the gray-
   default 0.8. `PathIsLinearData` extended so `_rough`/`_metal`/`_ao` UNORM DDS are
   sampled linear, not sRGB. `RX_STARFIELD_PBR=0` pins the old gray-matte look for A/B.
-- `engine/world/cell_streaming.cc`: upload the metallic + occlusion textures so they
+- `components/world/cell_streaming.cc`: upload the metallic + occlusion textures so they
   are resident before the material-record flags (gated on texture presence) resolve.
 
 ## 4. Screenshots (before/after)

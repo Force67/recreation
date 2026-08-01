@@ -39,7 +39,7 @@ F5 or the Save toolbar button. Set `REC_TERRAIN_EDITS` to choose the diff path;
 otherwise it sits beside `editor_layout.reclayout` with a world-specific
 `editor_layout.<world>_<hash>.recterrain` name. The binary format and
 source-fingerprint rules are documented in
-[`engine/world/README.md`](engine/world/README.md). For automated captures or a
+[`components/world/README.md`](components/world/README.md). For automated captures or a
 terrain-first authoring session, `RX_EDITOR=1` opens the editor at startup and
 `RX_EDITOR_TERRAIN=1` selects the Raise tool.
 

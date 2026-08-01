@@ -47,7 +47,7 @@ All on `feature/morrowind-support` (commit 00b601a):
   NiTextureEffect / particle / keyframe / skin layouts, `.tga`/`.bmp` refs
   swapped to the `.dds` the BSA ships. Includes the NiDynamicEffect
   affected-node list and the byte clipping-plane fix.
-- `runtime/content_load.cc`: sea-level 0 fallback water, Seyda Neen default
+- `runtime/app/content_load.cc`: sea-level 0 fallback water, Seyda Neen default
   start cell.
 - `tools/esminfo/main.cc` (assetdump): `--nifscan` coverage oracle.
 

@@ -38,9 +38,9 @@ inline constexpr nav::AreaId kNavAreaDeep = 4;    // swimming depth
 // Corridor identity of the walking player (form handles start well above it).
 inline constexpr u64 kPlayerNavId = 1;
 
-class NavService {
+class NavBubble {
  public:
-  explicit NavService(EngineContext& ctx);
+  explicit NavBubble(EngineContext& ctx);
 
   // Per-tick bubble maintenance around the player: builds a few missing tiles
   // (time-sliced), retries tiles that were sampled before their cell streamed

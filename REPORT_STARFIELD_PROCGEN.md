@@ -50,7 +50,7 @@ works across dirt/snow/sand, and the biome-map sampler picks different ground pe
   passes, and the biome ids inside it fully drive the ground; the PNDT would only add
   radius/gravity/parent-star metadata the surface MVP doesn't consume. Noted as a gap.
 
-## Tile-gen pipeline (`engine/world/planet_tile.{h,cc}`)
+## Tile-gen pipeline (`components/world/planet_tile.{h,cc}`)
 
 `PlanetTile::Generate(world)`:
 - **Heightfield**: `HeightBethesda(bx,by)` = 4-octave FBM value noise (hash-lattice,
@@ -75,7 +75,7 @@ rotation, `scale = units_to_meters`.
 
 ## Entry point / wiring
 
-- `RX_STARFIELD_PLANET=<.biom stem>` (`runtime/content_load.cc`, `LoadPlanetTile`) —
+- `RX_STARFIELD_PLANET=<.biom stem>` (`runtime/app/content_load.cc`, `LoadPlanetTile`) —
   when set and the game is Starfield, boots the tile instead of `SelectWorldspace`.
   The primary CellStreamer is still constructed but never selects a worldspace, so its
   `Update` returns early (no interference). Camera is set from the generated ground.

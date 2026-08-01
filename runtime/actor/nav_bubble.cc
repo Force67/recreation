@@ -1,4 +1,4 @@
-#include "runtime/actor/nav_service.h"
+#include "runtime/actor/nav_bubble.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,7 +18,7 @@ constexpr f32 kAgentIdleSeconds = 6.0f;   // corridor state dropped after this
 
 }  // namespace
 
-NavService::NavService(EngineContext& ctx)
+NavBubble::NavBubble(EngineContext& ctx)
     : ctx_(ctx), mesh_(nav::NavMeshConfig{.cell_size = 0.5f, .tile_cells = 16}) {
   // Terrain economics: stumble-grade slopes cost extra to walk; water costs
   // more and charges a one-time entry toll (prefer fords, but commit once
@@ -28,7 +28,7 @@ NavService::NavService(EngineContext& ctx)
   mesh_.SetAreaCost(kNavAreaDeep, 5.0f, 4.0f);
 }
 
-bool NavService::SampleTerrain(f32 x, f32 z, nav::Sample& out) const {
+bool NavBubble::SampleTerrain(f32 x, f32 z, nav::Sample& out) const {
   world::CellStreamer* streamer = ctx_.streamer;
   if (!streamer) return false;
   f32 height = 0;
@@ -61,7 +61,7 @@ bool NavService::SampleTerrain(f32 x, f32 z, nav::Sample& out) const {
   return true;
 }
 
-void NavService::BuildAround(const Vec3& focus) {
+void NavBubble::BuildAround(const Vec3& focus) {
   const f32 tile_m = mesh_.config().cell_size * static_cast<f32>(mesh_.config().tile_cells);
   const i32 span = static_cast<i32>(std::ceil(kBubbleRadius / tile_m));
   const i32 fx = static_cast<i32>(std::floor(focus.x / tile_m));
@@ -100,7 +100,7 @@ void NavService::BuildAround(const Vec3& focus) {
   }
 }
 
-void NavService::Update(const Vec3& focus, f32 dt) {
+void NavBubble::Update(const Vec3& focus, f32 dt) {
   repath_budget_ = kRepathsPerTick;
 
   // Empty-tile retries: an expired entry resamples its tile in place (the
@@ -139,11 +139,11 @@ void NavService::Update(const Vec3& focus, f32 dt) {
   }
 }
 
-bool NavService::Covers(const Vec3& pos) const {
+bool NavBubble::Covers(const Vec3& pos) const {
   return mesh_.ClampToWalkable(pos, 1.2f).valid();
 }
 
-Vec3 NavService::Step(u64 id, const Vec3& from, const Vec3& goal) {
+Vec3 NavBubble::Step(u64 id, const Vec3& from, const Vec3& goal) {
   Agent& agent = agents_[id];
   agent.idle = 0;
 
@@ -167,6 +167,6 @@ Vec3 NavService::Step(u64 id, const Vec3& from, const Vec3& goal) {
   return corner;
 }
 
-void NavService::Forget(u64 id) { agents_.erase(id); }
+void NavBubble::Forget(u64 id) { agents_.erase(id); }
 
 }  // namespace rx
