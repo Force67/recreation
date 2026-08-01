@@ -5,17 +5,20 @@
 # (Microsoft ships no macOS binary), fetches third-party deps and the sibling
 # repos, then reports anything still missing. Safe to re-run.
 #
-# Usage: scripts/setup-macos.sh [--check] [--system] [--dxc] [--deps] [-y]
+# Usage: scripts/setup-macos.sh [--check] [--system] [--dxc] [--slang] [--deps] [-y]
 #   (no flags)   do everything
 #   --check      report only, change nothing
 #   --system     install Homebrew packages
 #   --dxc        build + install the DirectX Shader Compiler
+#   --slang      install the Slang shader compiler (rx embeds .slang shaders)
 #   --deps       fetch third-party deps + clone sibling repos
 #   -y           assume yes / non-interactive (implied under CI)
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 DXC_TAG="${DXC_TAG:-v1.9.2602.24}"
+SLANG_TAG="${SLANG_TAG:-v2026.14.1}"
+SLANG_PREFIX="${SLANG_PREFIX:-$HOME/.local/slang}"
 DXC_PREFIX="${DXC_PREFIX:-$HOME/.local/dxc}"   # dev install location, on PATH below
 BREW_PKGS="cmake ninja git pkg-config freetype harfbuzz"
 
@@ -58,6 +61,34 @@ do_dxc() {
   ok "dxc installed to $DXC_PREFIX - add to your shell: export PATH=\"$DXC_PREFIX/bin:\$PATH\""
 }
 
+# rx compiles its .slang shaders with slangc (CMake finds it as RX_SLANGC), so
+# configure fails outright without it. Upstream ships prebuilt macOS binaries,
+# so unlike dxc there is nothing to build here.
+do_slang() {
+  if have slangc; then ok "slangc already on PATH ($(command -v slangc))"; return 0; fi
+  if [ -x "$SLANG_PREFIX/bin/slangc" ]; then
+    ok "slangc present at $SLANG_PREFIX (add $SLANG_PREFIX/bin to PATH)"
+    return 0
+  fi
+  local slang_arch
+  case "$(uname -m)" in
+    arm64|aarch64) slang_arch=aarch64 ;;
+    x86_64)        slang_arch=x86_64 ;;
+    *) blocker "unknown arch '$(uname -m)' - install slangc manually"; return 0 ;;
+  esac
+  log "installing prebuilt slang $SLANG_TAG"
+  mkdir -p "$SLANG_PREFIX"
+  curl -fsSL \
+    "https://github.com/shader-slang/slang/releases/download/$SLANG_TAG/slang-${SLANG_TAG#v}-macos-$slang_arch.tar.gz" \
+    | tar -xz -C "$SLANG_PREFIX"
+  chmod +x "$SLANG_PREFIX/bin/slangc"
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "$SLANG_PREFIX/bin" >> "$GITHUB_PATH"
+    echo "DYLD_FALLBACK_LIBRARY_PATH=$SLANG_PREFIX/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+  fi
+  ok "slangc installed to $SLANG_PREFIX - add to your shell: export PATH=\"$SLANG_PREFIX/bin:\$PATH\""
+}
+
 do_thirdparty() {
   log "fetching third-party dependencies"
   # DLSS/FSR3/NRD are off on Apple (MoltenVK), so only these are needed.
@@ -91,6 +122,8 @@ do_doctor() {
   check_tool pkg-config "pkg-config" "brew install pkg-config"
   if have dxc || [ -x "$DXC_PREFIX/bin/dxc" ]; then ok "dxc"
   else blocker "dxc missing - run: scripts/setup-macos.sh --dxc"; fi
+  if have slangc || [ -x "$SLANG_PREFIX/bin/slangc" ]; then ok "slangc"
+  else blocker "slangc missing - run: scripts/setup-macos.sh --slang"; fi
   if have pkg-config && pkg-config --exists freetype2 harfbuzz; then ok "freetype + harfbuzz"
   else warn "freetype/harfbuzz not on pkg-config path - configure with -DCMAKE_PREFIX_PATH=\$(brew --prefix)"; fi
   brew list molten-vk >/dev/null 2>&1 && ok "MoltenVK (Vulkan runtime)" \
@@ -101,12 +134,13 @@ do_doctor() {
     || warn "libultragui missing - HUD/menus compile out (scripts/setup-macos.sh --deps)"
 }
 
-DO_SYS=0 DO_DXC=0 DO_TP=0 DO_SIB=0 CHECK_ONLY=0 ANY=0
+DO_SYS=0 DO_DXC=0 DO_SLANG=0 DO_TP=0 DO_SIB=0 CHECK_ONLY=0 ANY=0
 for a in "$@"; do
   case "$a" in
     --check)   CHECK_ONLY=1 ;;
     --system)  DO_SYS=1; ANY=1 ;;
     --dxc)     DO_DXC=1; ANY=1 ;;
+    --slang)   DO_SLANG=1; ANY=1 ;;
     --deps)    DO_TP=1; DO_SIB=1; ANY=1 ;;
     -y|--yes)  ASSUME_YES=1 ;;
     -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
@@ -115,9 +149,10 @@ for a in "$@"; do
 done
 if [ "$CHECK_ONLY" = "1" ]; then do_doctor; print_report; exit $?; fi
 DEFAULT_ALL=0
-if [ "$ANY" = "0" ]; then DO_SYS=1 DO_DXC=1 DO_TP=1 DO_SIB=1; DEFAULT_ALL=1; fi
+if [ "$ANY" = "0" ]; then DO_SYS=1 DO_DXC=1 DO_SLANG=1 DO_TP=1 DO_SIB=1; DEFAULT_ALL=1; fi
 [ "$DO_SYS" = "1" ] && do_system
 [ "$DO_DXC" = "1" ] && do_dxc
+[ "$DO_SLANG" = "1" ] && do_slang
 [ "$DO_TP"  = "1" ] && do_thirdparty
 [ "$DO_SIB" = "1" ] && do_siblings
 if [ "$DEFAULT_ALL" = "1" ]; then do_doctor; print_report || true; fi
