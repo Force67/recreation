@@ -98,6 +98,9 @@ class CutsceneDirector {
   u32 lines_spoken() const { return lines_spoken_; }
   const std::string& last_line() const { return last_line_; }
   std::vector<std::string> Report() const;
+  // One line per quest that spoke, for a run's verification record. Sorted by
+  // editor id; empty when nothing played.
+  std::vector<std::string> LiveCoverage();
 
  private:
   // One scene, with the plan its runtime is walking. Held by pointer because the
@@ -230,6 +233,16 @@ class CutsceneDirector {
   f32 caption_fade_ = 0;
   TrailerOverlay overlay_;
   u32 lines_spoken_ = 0;
+  // What this session actually played, for the verification table: every scene that
+  // started, every scene that got a line out, and the quests they belong to.
+  std::unordered_set<u64> live_started_;
+  std::unordered_set<u64> live_spoken_;
+  std::unordered_set<u64> live_quests_;
+  std::unordered_set<u64> live_with_text_;  // started scenes that have a line to speak
+  size_t soak_cursor_ = 0;  // RX_CUTSCENE_SOAK: next scene to put in flight
+  int soak_failed_ = 0;
+  bool soak_done_ = false;
+  f32 shot_held_ = 0;  // seconds the current shot has been on screen
   std::string last_line_;
 };
 

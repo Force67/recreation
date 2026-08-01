@@ -48,6 +48,7 @@ RX_CUTSCENE_REPORT=MQ1 ./build/nix/runtime/recreation --headless --data-dir <Dat
 | `RX_SCENE_CAMERA` | on | The dialogue camera. Off leaves scenes playing in the gameplay view. |
 | `RX_SCENE_VOICE` | on | Voice playback. Off falls back to reading-time pacing. |
 | `RX_SCENE_LETTERBOX` | on | Cinematic bars while a scene owns the view. |
+| `RX_CUTSCENE_SOAK=<n>` | off | Plays **every** scene in the game live, n at a time, on a short clock (no clips): the sweep reports how many started, how many spoke, and which had a line and never said it. This is the whole-game verification pass. |
 | `RX_CAPTURE_OFFSCREEN=1` | off | Renders captures offscreen, for screenshots on an unattended desktop (a compositor that stops compositing the window otherwise hands back a garbage frame). |
 
 Esc hands the camera back mid-scene; the scene keeps playing.
@@ -69,6 +70,20 @@ Every one of those 2130 scenes lowers to a runnable plan: phases sorted, cast
 resolved through the quest's alias table, dialogue resolved to real INFO records and
 subtitle text, packages resolved to PACK handles, phase gates transpiled from CTDA.
 An unvoiced line still plays, timed by its reading length.
+
+And every one of them has been **played**, not just lowered. `RX_CUTSCENE_SOAK=24`
+runs the whole game's scenes through the live director, 24 at a time:
+
+```
+this run started 2130 scene(s), 1919 spoke a line, over 1226 quest(s)
+2 scene(s) had a line and did not speak it: DLC1VQ08PostGaranScene, DLC1VQ08PostIsranScene
+```
+
+209 of the 211 that stay silent have no dialogue at all: they are package or timer
+scenes (an actor walks somewhere, a scene waits). The other two are Dawnguard scenes
+that stop themselves through their own Papyrus a beat after they start, which is the
+game's own logic running, not a scene that failed to play. Nothing crashed, and the
+sweep exits on its own.
 
 ![Mistveil Keep](cutscene-mistveil-keep.png)
 
@@ -150,6 +165,15 @@ packages that walk an actor across a cell boundary rest on the same rule.
 The camera also sticks to the scene it is already on while that scene is still
 speaking; a quest with seventeen simultaneous scenes (MQ101) otherwise cuts between
 them mid-line and drags the streamed world across the map with it.
+
+Localized text was resolved from one flat table for the whole load order, but a
+string id is only unique inside its own plugin, so every Dawnguard, HearthFires and
+Dragonborn string collided with a base-game id and lost. Captions attributed lines to
+"Glass Greatsword of Expelling" and read back item names and race descriptions. The
+string table is keyed per plugin now, and a record's text resolves against the plugin
+that wrote it; that fixes DLC naming everywhere, not only in cutscenes. Alongside it,
+a speaker name only comes from a placed actor or an NPC record, so an alias filled
+with an object cannot caption a line.
 
 Every placed actor in every game was lying on its back. A REFR's rotation was
 converted with the axis change that turns Bethesda's Z-up space into the engine's

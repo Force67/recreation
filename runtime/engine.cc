@@ -129,6 +129,7 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.dialogue = &dialogue_;
   ctx_.quest_world = quest_world_.get();
   ctx_.debug_ui = &debug_ui_;
+  ctx_.request_quit = [this] { RequestQuit(); };
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
   ctx_.audio = audio_;
