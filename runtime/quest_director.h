@@ -11,10 +11,13 @@
 #include "engine_context.h"
 #include "quest/quest_def.h"
 #include "quest/quest_system.h"
+#include "quest_state_cache.h"
 
 namespace rx {
 
 class ActorSystem;
+class AiPackageDirector;
+class CutsceneDirector;
 class NpcDirector;
 class InteractionSystem;
 
@@ -43,6 +46,17 @@ class QuestDirector {
     npc_ = npc;
     interaction_ = interaction;
   }
+  // The AI package driver and cutscene director are fed from here: quest arming
+  // happens where the quest definitions are parsed, and both need the live quest
+  // mirror this director refreshes.
+  void set_cutscenes(AiPackageDirector* packages, CutsceneDirector* cutscene) {
+    packages_ = packages;
+    cutscene_ = cutscene;
+  }
+  // Main-thread mirror of live quest state (stage, running, stages done),
+  // refreshed with the panel snapshot. Read by anything that has to evaluate the
+  // records' condition gates off the guest thread.
+  const QuestStateCache& quest_state() const { return quest_state_; }
 
   // Instantiates the attached quest scripts and applies the RX_START_QUEST /
   // RX_MQ101_* / RX_JOURNAL load-time hooks.
@@ -117,6 +131,9 @@ class QuestDirector {
 
   EngineContext& ctx_;
   ActorSystem* actors_;
+  QuestStateCache quest_state_;
+  AiPackageDirector* packages_ = nullptr;
+  CutsceneDirector* cutscene_ = nullptr;
   NpcDirector* npc_ = nullptr;
   InteractionSystem* interaction_ = nullptr;
   const EngineConfig& config_;

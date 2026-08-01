@@ -26,6 +26,8 @@ set(RECREATION_RUNTIME_SOURCES
   item_bridge.cc
   fp_equipment.cc
   nav_service.cc
+  ai_package_director.cc
+  cutscene_director.cc
   npc_director.cc
   platform_hud.cc
   quest_director.cc

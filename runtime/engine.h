@@ -28,6 +28,8 @@
 #include "demo_scenes.h"
 #include "editor.h"
 #include "engine_context.h"
+#include "ai_package_director.h"
+#include "cutscene_director.h"
 #include "helgen_intro.h"
 #include "interaction_system.h"
 #include "item_bridge.h"
@@ -545,6 +547,11 @@ class Engine : public app::Application {
   std::unique_ptr<ItemBridge> items_;  // item pickup/drop/persistence
   std::unique_ptr<NpcDirector> npc_;
   std::unique_ptr<QuestDirector> quest_;
+  // AI packages (actors walking their authored routes) and the cutscene director
+  // that plays the games' SCEN scenes over them.
+  std::unique_ptr<AiPackageDirector> packages_;
+  std::unique_ptr<CutsceneDirector> cutscene_;
+  bool cutscene_active_ = false;  // a scene currently owns the camera + the HUD
   std::unique_ptr<DemoScenes> demos_;
   std::unique_ptr<CarriageSystem> carriage_;
   // Skyrim's opening cart ride into Helgen (RX_HELGEN_INTRO). While it runs it

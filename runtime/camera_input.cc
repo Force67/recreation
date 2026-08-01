@@ -77,6 +77,27 @@ void Engine::UpdateCamera(f32 frame_delta) {
     if (active) return;
   }
 
+  // A cutscene in progress frames itself: the camera goes to the scene's dialogue
+  // framing and the player's own input stands down, the way the game plays a scene
+  // the player is part of. Esc hands the view back if they would rather walk.
+  if (cutscene_) {
+    Vec3 eye, target;
+    const bool owns = cutscene_->CameraOverride(&eye, &target);
+    if (owns != cutscene_active_) {
+      cutscene_active_ = owns;
+      debug_ui_.SetTrailerOverlay(owns ? &cutscene_->overlay() : nullptr);
+      game_ui_.SetHudVisible(!owns);
+    }
+    if (owns) {
+      LookCameraAt(eye, target);
+      ctx_.walk_eye = eye;
+      ctx_.walk_target = target;
+      if (actions_->pressed(Action::kToggleMenu)) cutscene_->ReleaseView();
+      interaction_->UpdateInteraction(false);  // no activation while it plays
+      return;
+    }
+  }
+
   const InputState& input = window_->input();
 
   // The pause menu freezes the camera and frees the cursor so it can click.

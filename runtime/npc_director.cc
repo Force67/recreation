@@ -1020,6 +1020,15 @@ Vec3 NpcDirector::PathToward(const Vec3& from, const Vec3& goal) {
   return NavigateTo(kPlayerNavId, from, goal);
 }
 
+void NpcDirector::SetGuide(u64 npc, const Vec3& goal) {
+  if (Vec3* g = guides_.find(npc))
+    *g = goal;
+  else
+    guides_.insert(npc, goal);
+}
+
+void NpcDirector::ClearGuide(u64 npc) { guides_.erase(npc); }
+
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
 #if RECREATION_HAS_NET

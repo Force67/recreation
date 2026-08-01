@@ -239,6 +239,11 @@ void Engine::OnSimulate(f32 frame_delta) {
     }
     npc_->Mq101DemoTick(frame_delta);
     npc_->Mq101SceneTick(frame_delta);
+    // Actors run their authored AI packages (the quest mirror the quest director
+    // refreshes is what their condition gates read), and the cutscene director
+    // plays whatever scenes are live over them.
+    packages_->Tick(frame_delta, quest_->quest_state());
+    cutscene_->Tick(frame_delta, quest_->quest_state());
     // World-driven progression: the player walking into a scripted trigger box
     // fires its OnTriggerEnter, the native way Skyrim advances a quest.
     interaction_->UpdateTriggers();

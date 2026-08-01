@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "actor_system.h"
+#include "ai_package_director.h"
+#include "cutscene_director.h"
 #include "bethesda/script_attachment.h"
 #include "quest/ctda.h"
 #include "core/log.h"
@@ -50,6 +52,15 @@ base::Option<bool> CwDemo{"cw.demo", false, "RX_CW_DEMO"};
 base::Option<bool> CwSiegeDemo{"cw.siege.demo", false, "RX_CW_SIEGE_DEMO"};
 base::Option<const char*> CwSide{"cw.side", nullptr, "RX_CW_SIDE"};
 base::Option<bool> Journal{"journal", false, "RX_JOURNAL"};
+// RX_CUTSCENE=<QuestEDID> starts a quest at load so its cutscenes play: the scenes
+// flagged to begin with their quest start at once, and its stage fragments start the
+// rest as the journal moves. The way to watch any quest's scenes without playing to
+// them.
+base::Option<const char*> Cutscene{"cutscene", nullptr, "RX_CUTSCENE"};
+// RX_CUTSCENE_REPORT=<quest edid prefix> reports what every matching quest's scenes
+// resolve to (cast, phases, lines, voice clips, running time) and exits the load
+// path having touched no GPU: the headless coverage check for cutscene support.
+base::Option<const char*> CutsceneReport{"cutscene.report", nullptr, "RX_CUTSCENE_REPORT"};
 
 // One of a quest's scenes: its handle, editor id, and parsed Papyrus fragments.
 struct SceneJob {
@@ -173,6 +184,9 @@ void QuestDirector::AttachQuestScripts() {
         // Resolve its objective compass targets from forced-ref
         // aliases now, while the records are at hand.
         IndexObjectiveTargets(def, stored.winning_plugin);
+        // Index the quest's alias AI packages (and the rig attachments they
+        // imply) so its actors run their authored routes once it is running.
+        if (packages_) packages_->ArmQuest(handle, stored.winning_plugin, def);
         // Key the record list by editor id: it is the stable
         // handle RX_START_QUEST and the debugger match on. The
         // panel's display name comes from the quest definition.
@@ -213,6 +227,10 @@ void QuestDirector::AttachQuestScripts() {
   RX_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
   RX_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
           objective_targets_.size());
+  RX_INFO("quest: {} alias package stack(s) armed", packages_ ? packages_->armed_count() : 0);
+  // Index the game's scenes so Scene.Start (and the begin-with-quest flag) can
+  // play them in the world.
+  if (cutscene_) cutscene_->IndexScenes();
 
   // RX_START_QUEST=<EDID>[:<stage>] starts a quest at load (runs its opening
   // stage fragment) so quest logic can be exercised without the UI. The optional
@@ -242,6 +260,29 @@ void QuestDirector::AttachQuestScripts() {
       if (edid != "all") break;
     }
     RX_INFO("debug: started {} quest(s) matching '{}'", started, edid);
+  }
+
+  if (const char* prefix = CutsceneReport.get())
+    if (cutscene_) cutscene_->ReportQuestCutscenes(prefix);
+
+  // RX_CUTSCENE=<EDID> starts a quest so its scenes play in the world.
+  if (const char* want = Cutscene.get()) {
+    u64 handle = FindQuestHandle(want);
+    // Most conversation scenes belong to script-less dialogue quests, which never
+    // enter the script host's quest list; the cutscene index knows them.
+    if (handle == 0 && cutscene_) handle = cutscene_->FindQuestByEditorId(want);
+    if (handle == 0) {
+      RX_WARN("cutscene: no quest matching '{}'", want);
+    } else {
+      quest_panel_.selected = handle;
+      AttachQuestScenes(handle);
+      if (cutscene_) cutscene_->set_armed_quest(handle);
+      auto* binds = ctx_.bindings;
+      ctx_.scripts->guest().Submit([binds, handle](rx::script::papyrus::VirtualMachine&) {
+        binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
+      });
+      RX_INFO("cutscene: started {} (0x{:x}); its scenes play as the quest runs", want, handle);
+    }
   }
 
   // The scripted MQ101 playthroughs run host-authoritatively: they drive quest
@@ -1203,6 +1244,13 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
     std::vector<QuestPanel::Quest> panel;
     std::vector<quest::QuestStatus> running;
     QuestPanel::Detail detail;
+    // Every quest the system has touched, which is wider than the panel list: the
+    // panel only lists quests with Papyrus attached, while the game's conversation
+    // scenes belong to script-less dialogue quests that still start and run.
+    std::vector<quest::QuestStatus> all;
+    // Stages already set, per running quest: the other half (with the current
+    // stage) of what a records condition gate reads.
+    std::vector<std::pair<u64, std::vector<i32>>> stages_done;
   };
   Snapshot snap =
       ctx_.scripts->guest()
@@ -1218,6 +1266,16 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
                                    qs.GetStage(handle)});
             }
             out.running = qs.RunningStatuses();
+            out.all = qs.AllStatuses();
+            // Mirror the done-stage set of every running quest for the main
+            // thread's condition evaluation (AI packages, scene phase gates).
+            for (const quest::QuestStatus& q : out.running) {
+              std::vector<i32> done;
+              if (const quest::QuestDef* def = qs.Definition(q.handle))
+                for (const quest::StageDef& st : def->stages)
+                  if (qs.GetStageDone(q.handle, st.index)) done.push_back(st.index);
+              out.stages_done.push_back({q.handle, std::move(done)});
+            }
             // Expand <Alias=>/<Global=> tokens in the live HUD text against the
             // filled aliases and global values (guest thread owns both).
             for (quest::QuestStatus& q : out.running) {
@@ -1244,6 +1302,17 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
             return out;
           })
           .get();
+  // Refresh the main-thread quest mirror before anything reads it this frame.
+  quest_state_.Clear();
+  for (const quest::QuestStatus& q : snap.all) {
+    QuestStateCache::Entry e;
+    e.stage = q.stage;
+    e.running = q.running;
+    e.complete = q.complete;
+    for (auto& [handle, done] : snap.stages_done)
+      if (handle == q.handle) e.done = done;
+    quest_state_.Set(q.handle, std::move(e));
+  }
   quest_panel_.quests = std::move(snap.panel);
   quest_panel_.detail = std::move(snap.detail);
   // Surface the look-target and counts so the debugger can toggle follow and

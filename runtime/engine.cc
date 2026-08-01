@@ -142,8 +142,13 @@ bool Engine::OnInitialize(app::Services& services) {
   demos_ = std::make_unique<DemoScenes>(ctx_, actors_.get());
   carriage_ = std::make_unique<CarriageSystem>(ctx_, actors_.get());
   helgen_ = std::make_unique<HelgenIntro>(ctx_, actors_.get());
+  packages_ = std::make_unique<AiPackageDirector>(ctx_, actors_.get(), npc_.get());
+  cutscene_ =
+      std::make_unique<CutsceneDirector>(ctx_, actors_.get(), npc_.get(), packages_.get());
+  cutscene_->set_interaction(interaction_.get());
   npc_->set_siblings(interaction_.get(), quest_.get());
   quest_->set_siblings(npc_.get(), interaction_.get());
+  quest_->set_cutscenes(packages_.get(), cutscene_.get());
   // The live map editor (windowed client only). Constructed after game_ui_ is up
   // so it can register its overlay event sink; ticked from UpdateCamera.
   if (!config_.headless) editor_ = std::make_unique<MapEditor>(ctx_);

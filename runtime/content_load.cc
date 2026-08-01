@@ -568,6 +568,19 @@ bool LoadGameData(Engine& engine) {
             self->config_.start_cell_y);
   }
 
+  // A cutscene run (RX_CUTSCENE=<quest>) boots where that quest's scene plays, so
+  // its cast is streamed in and the camera opens on it.
+  Vec3 cutscene_at{};
+  const bool cutscene_start = self->cutscene_ && self->cutscene_->ArmedSceneLocation(&cutscene_at);
+  if (cutscene_start && !self->config_.start_cell_explicit) {
+    self->config_.start_cell_x =
+        static_cast<i32>(std::floor(cutscene_at.x / profile.units_to_meters / profile.cell_size));
+    self->config_.start_cell_y =
+        static_cast<i32>(std::floor(-cutscene_at.z / profile.units_to_meters / profile.cell_size));
+    RX_INFO("cutscene: starting in cell {},{}", self->config_.start_cell_x,
+            self->config_.start_cell_y);
+  }
+
   // Drop the camera a bit above the terrain at the middle of the start cell.
   f32 beth_x = (static_cast<f32>(self->config_.start_cell_x) + 0.5f) * profile.cell_size;
   f32 beth_y = (static_cast<f32>(self->config_.start_cell_y) + 0.5f) * profile.cell_size;
@@ -575,6 +588,10 @@ bool LoadGameData(Engine& engine) {
   if (Vec3 eye, target; self->helgen_ && self->helgen_->StartView(&eye, &target)) {
     start.x = eye.x;
     start.z = eye.z;
+  }
+  if (cutscene_start) {
+    start.x = cutscene_at.x;
+    start.z = cutscene_at.z;
   }
   f32 ground = 0;
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {

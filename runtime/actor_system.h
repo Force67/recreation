@@ -71,6 +71,16 @@ class ActorSystem {
   void MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving, bool grounded);
   // Sets a streamed NPC instance's render gait (planar speed; yaw when moving).
   void SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw);
+  // Puts a streamed NPC on one looping clip and hands its world transform to the
+  // caller. This is what seats an actor: Bethesda's furniture animations carry the
+  // seat as a baked COM offset, so planting the actor on the furniture origin and
+  // holding the clip puts them in the chair (or the cart bed). False when the entity
+  // has no actor instance or the clip is missing.
+  bool PlayNpcClip(ecs::Entity npc, const std::string& clip_path);
+  // Whether a streamed NPC entity has a skinned actor instance, i.e. whether it is
+  // being drawn at all. What tells a scene director that its cast is really on
+  // screen rather than merely present in the ECS.
+  bool HasNpcInstance(ecs::Entity npc) const;
   // World position of an NPC instance's head bone, as of the last pose update.
   // False when the entity has no actor or the rig has no head. What a camera
   // frames a conversation on, rather than guessing at the body's origin.

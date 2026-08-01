@@ -131,6 +131,25 @@ void ActorSystem::SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw) 
   }
 }
 
+bool ActorSystem::PlayNpcClip(ecs::Entity npc, const std::string& clip_path) {
+  if (config_.headless || clip_path.empty()) return false;
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  Actor* a = npc_actors_.find(key);
+  if (!a) return false;
+  if (!PlayHavokClip(*a, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
+                     "character"))
+    return false;
+  a->animate = true;
+  a->speed = 0.0f;
+  a->external_position = true;  // the seat comes from the clip, the place from us
+  return true;
+}
+
+bool ActorSystem::HasNpcInstance(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  return npc_actors_.find(key) != nullptr;
+}
+
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);
