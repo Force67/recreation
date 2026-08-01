@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "core/types.h"
+#include "quest/condition.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -20,6 +21,12 @@ struct StageDef {
   i32 index = 0;
   std::string log_entry;     // CNAM journal text for this log entry
   bool complete_quest = false;  // QSDT flag 0x01
+  // Which log entry of this stage it is (QSDT order within the INDX), and the
+  // CTDAs gating it. A stage often has several entries and the game runs only
+  // the first whose conditions pass -- both the journal text and the Papyrus
+  // fragment come from that one.
+  i32 entry = 0;
+  ConditionList conditions;
 };
 
 // One quest objective: its index, the displayed text, and the placed
@@ -45,8 +52,24 @@ struct AliasDef {
   // points at it). This binds the Civil War siege's Attacker*/Defender*/Marker*
   // slots to the fort's placed refs.
   bool find_matching = false;  // ALFA present
+  // "Create Reference to Object" aliases (ALCO): the quest makes a new reference of
+  // this base at runtime (a generic bandit, a summoned actor). The base is what
+  // identifies the performer, so an engine that has one of them in the world can
+  // bind the alias to it.
+  u32 created_base_raw = 0;    // ALCO base object form id, 0 when none
   u32 ref_type_raw = 0;        // ALRT LocationRefType form id, 0 when none
   i32 find_in_parent = -1;     // ALFI parent alias id to search within, -1 when none
+  // "External Alias Reference" (ALEQ + ALEA): whatever alias `external_alias` of
+  // quest `external_quest_raw` is filled with. Half the game's conversation quests
+  // point their cast at a shared dialogue quest this way.
+  u32 external_quest_raw = 0;  // ALEQ quest form id, 0 when none
+  i32 external_alias = -1;     // ALEA alias id in that quest, -1 when none
+  // ALPC: the AI packages this alias stacks onto whatever actor fills it, in
+  // declaration order (highest priority first, the way the game evaluates them).
+  // This is where a scripted actor gets told to walk somewhere -- the Helgen
+  // cart horse's route legs are alias packages, not anything in the base NPC.
+  // Plugin-relative form ids; resolve against the quest's plugin.
+  std::vector<u32> package_raw;
 };
 
 // The static, display-facing shape of a quest, parsed once from its QUST

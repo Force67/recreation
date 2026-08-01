@@ -95,8 +95,9 @@ bool LoadGameData(Engine& engine) {
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
-  for (const std::string& plugin : order.plugins())
-    self->strings_.Load(*self->vfs_, plugin, profile.string_language);
+  for (size_t i = 0; i < order.plugins().size(); ++i)
+    self->strings_.Load(*self->vfs_, order.plugins()[i], profile.string_language,
+                        static_cast<u16>(i));
   RX_INFO("loaded {} localized strings", self->strings_.size());
 
   // Index dialogue topics by quest so an NPC conversation opens without
@@ -560,10 +561,39 @@ bool LoadGameData(Engine& engine) {
     self->config_.start_cell_y = 1;
   }
 
+  // The Helgen intro starts up the road above the town, wherever the default
+  // start cell would have been.
+  if (self->game_ == bethesda::Game::kSkyrimSe && self->helgen_ &&
+      self->helgen_->StartCell(&self->config_.start_cell_x, &self->config_.start_cell_y)) {
+    RX_INFO("helgen intro: starting in cell {},{}", self->config_.start_cell_x,
+            self->config_.start_cell_y);
+  }
+
+  // A cutscene run (RX_CUTSCENE=<quest>) boots where that quest's scene plays, so
+  // its cast is streamed in and the camera opens on it.
+  Vec3 cutscene_at{};
+  const bool cutscene_start = self->cutscene_ && self->cutscene_->ArmedSceneLocation(&cutscene_at);
+  if (cutscene_start && !self->config_.start_cell_explicit) {
+    self->config_.start_cell_x =
+        static_cast<i32>(std::floor(cutscene_at.x / profile.units_to_meters / profile.cell_size));
+    self->config_.start_cell_y =
+        static_cast<i32>(std::floor(-cutscene_at.z / profile.units_to_meters / profile.cell_size));
+    RX_INFO("cutscene: starting in cell {},{}", self->config_.start_cell_x,
+            self->config_.start_cell_y);
+  }
+
   // Drop the camera a bit above the terrain at the middle of the start cell.
   f32 beth_x = (static_cast<f32>(self->config_.start_cell_x) + 0.5f) * profile.cell_size;
   f32 beth_y = (static_cast<f32>(self->config_.start_cell_y) + 0.5f) * profile.cell_size;
   Vec3 start{beth_x * profile.units_to_meters, 0.0f, -beth_y * profile.units_to_meters};
+  if (Vec3 eye, target; self->helgen_ && self->helgen_->StartView(&eye, &target)) {
+    start.x = eye.x;
+    start.z = eye.z;
+  }
+  if (cutscene_start) {
+    start.x = cutscene_at.x;
+    start.z = cutscene_at.z;
+  }
   f32 ground = 0;
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {
     start.y = ground + 10.0f;  // a little above the terrain for a view

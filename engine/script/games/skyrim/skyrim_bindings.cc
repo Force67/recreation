@@ -1,5 +1,7 @@
 #include "script/games/skyrim/skyrim_bindings.h"
 
+#include "script/games/skyrim/skyrim_condition_context.h"
+
 #include <base/option.h>
 
 #include <algorithm>
@@ -262,28 +264,39 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
   if (!records_ || replica_mode_) return 0;
   const quest::QuestDef* def = quest_system_.Definition(quest.handle);
   if (!def) return 0;
-  const bethesda::GlobalFormId loc_id = ToFormId(location);
-  bethesda::Record loc;
-  if (!records_->Parse(loc_id, &loc)) return 0;
-
   // The Location's LCSR is one packed array of {LocationRefType:u32, Reference:u32}
-  // (stride 8). Group the placed refs (resolved to engine handles) by ref-type.
+  // (stride 8). Group the placed refs (resolved to engine handles) by ref-type,
+  // walking up the parent chain (LCTN PNAM): a room or dungeon location inherits
+  // the refs its city or hold lists, which is where most casts are tagged.
   std::unordered_map<u64, std::vector<u64>> by_type;
   constexpr u32 kLcsr = FourCc('L', 'C', 'S', 'R');
-  for (const bethesda::Subrecord& s : loc.subrecords) {
-    if (s.type != kLcsr) continue;
-    for (size_t i = 0; i + 8 <= s.data.size(); i += 8) {
-      u32 rt = 0, ref = 0;
-      std::memcpy(&rt, s.data.data() + i, 4);
-      std::memcpy(&ref, s.data.data() + i + 4, 4);
-      const bethesda::GlobalFormId rt_id =
-          records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
-      const bethesda::GlobalFormId ref_id =
-          records_->ResolveFrom(bethesda::RawFormId{ref}, loc_id.plugin);
-      if (rt_id.plugin != 0xffff && ref_id.plugin != 0xffff)
-        by_type[rt_id.packed()].push_back(ref_id.packed());
+  constexpr u32 kPnam = FourCc('P', 'N', 'A', 'M');
+  bethesda::GlobalFormId loc_id = ToFormId(location);
+  for (int level = 0; level < 4 && loc_id.plugin != 0xffff; ++level) {
+    bethesda::Record loc;
+    if (!records_->Parse(loc_id, &loc)) break;
+    for (const bethesda::Subrecord& s : loc.subrecords) {
+      if (s.type != kLcsr) continue;
+      for (size_t i = 0; i + 8 <= s.data.size(); i += 8) {
+        u32 rt = 0, ref = 0;
+        std::memcpy(&rt, s.data.data() + i, 4);
+        std::memcpy(&ref, s.data.data() + i + 4, 4);
+        const bethesda::GlobalFormId rt_id =
+            records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
+        const bethesda::GlobalFormId ref_id =
+            records_->ResolveFrom(bethesda::RawFormId{ref}, loc_id.plugin);
+        if (rt_id.plugin != 0xffff && ref_id.plugin != 0xffff)
+          by_type[rt_id.packed()].push_back(ref_id.packed());
+      }
     }
+    const bethesda::Subrecord* parent = loc.Find(kPnam);
+    if (!parent || parent->data.size() < 4) break;
+    u32 raw = 0;
+    std::memcpy(&raw, parent->data.data(), 4);
+    if (raw == 0) break;
+    loc_id = records_->ResolveFrom(bethesda::RawFormId{raw}, loc_id.plugin);
   }
+  if (by_type.empty()) return 0;
 
   // Alias ALRT form ids resolve against the quest record's plugin.
   const bethesda::RecordStore::StoredRecord* qstored = records_->Find(ToFormId(quest));
@@ -341,6 +354,19 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
     const bethesda::GlobalFormId base =
         records_->ResolveFrom(bethesda::RawFormId{a->unique_actor_raw}, plugin);
     ref = records_->PlacedRefForBase(base);
+  } else if (a->external_quest_raw != 0 && a->external_alias >= 0) {
+    // An external alias reference (ALEQ + ALEA) is whatever that alias of that
+    // other quest holds; the conversation quests share their cast this way. Two
+    // quests can name each other, so the hop is bounded.
+    static thread_local int hops = 0;
+    if (hops >= 4) return {};
+    const bethesda::GlobalFormId other =
+        records_->ResolveFrom(bethesda::RawFormId{a->external_quest_raw}, plugin);
+    ++hops;
+    const ObjectRef out = AliasReference(ObjectRef{papyrus::EncodeAliasHandle(
+        other.packed(), static_cast<u32>(a->external_alias))});
+    --hops;
+    return out;
   } else {
     return {};
   }
@@ -1173,8 +1199,17 @@ i32 RecordBackedSkyrimBindings::GetStage(ObjectRef quest) {
   return quest_system_.GetStage(quest.handle);
 }
 
-void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, std::string function) {
-  stage_fragments_[quest][stage] = std::move(function);
+void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, i32 entry,
+                                                  std::string function,
+                                                  quest::ConditionList conditions) {
+  auto& entries = stage_fragments_[quest][stage];
+  for (StageFragment& existing : entries) {
+    if (existing.entry != entry) continue;
+    existing.function = std::move(function);
+    existing.conditions = std::move(conditions);
+    return;
+  }
+  entries.push_back({entry, std::move(function), std::move(conditions)});
 }
 
 void RecordBackedSkyrimBindings::SetSceneFragments(u64 scene, u64 owning_quest,
@@ -1192,9 +1227,50 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::InfoOwningQuest(papyrus::ObjectRe
   return papyrus::ObjectRef{it != info_owning_quest_.end() ? it->second : 0};
 }
 
+papyrus::ObjectRef RecordBackedSkyrimBindings::PackageOwningQuest(papyrus::ObjectRef package) {
+  auto it = package_owning_quest_.find(package.handle);
+  return papyrus::ObjectRef{it != package_owning_quest_.end() ? it->second : 0};
+}
+
+void RecordBackedSkyrimBindings::RunPackageFragment(u64 package, const std::string& function) {
+  if (replica_mode_ || !vm_ || function.empty()) return;
+  if (fragment_depth_ >= 32) {
+    RX_WARN("package fragment recursion too deep at {}.{}", package, function);
+    return;
+  }
+  ++fragment_depth_;
+  const u64 prev_quest = active_quest_;
+  auto owner = package_owning_quest_.find(package);
+  active_quest_ = owner != package_owning_quest_.end() ? owner->second : 0;
+  vm_->Call(papyrus::ObjectRef{package}, function, {});
+  active_quest_ = prev_quest;
+  --fragment_depth_;
+}
+
+void RecordBackedSkyrimBindings::DrainSceneRequests(std::vector<SceneRequest>& out) {
+  std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+  out.insert(out.end(), scene_requests_.begin(), scene_requests_.end());
+  scene_requests_.clear();
+}
+
+void RecordBackedSkyrimBindings::SetScenePlayingLive(u64 scene, bool playing) {
+  std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+  if (playing)
+    scenes_playing_live_.insert(scene);
+  else
+    scenes_playing_live_.erase(scene);
+}
+
 void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
   // Server-authoritative: a client mirrors quest progress via replication.
   if (replica_mode_) return;
+  // With the runtime playing scenes in the world, hand the call over: the director
+  // needs the main thread to move actors, speak the lines and frame the camera.
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    scene_requests_.push_back({scene.handle, true});
+    return;
+  }
   // Only scenes whose SCEN was parsed + SF_ script attached (by the runtime) can
   // play; an unregistered scene is a silent no-op rather than a crash.
   auto it = scene_fragments_.find(scene.handle);
@@ -1209,12 +1285,21 @@ void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
 }
 
 void RecordBackedSkyrimBindings::SceneStop(papyrus::ObjectRef scene) {
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    scene_requests_.push_back({scene.handle, false});
+    return;
+  }
   SceneCueSink sink;
   sink.b = this;
   scene_player_.Stop(scene.handle, sink);
 }
 
 bool RecordBackedSkyrimBindings::SceneIsPlaying(papyrus::ObjectRef scene) {
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    return scenes_playing_live_.count(scene.handle) != 0;
+  }
   return scene_player_.IsPlaying(scene.handle);
 }
 
@@ -1288,10 +1373,23 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   if (qit == stage_fragments_.end()) return;
   auto fit = qit->second.find(stage);
   if (fit == qit->second.end() || fit->second.empty()) return;
+  // A stage's log entries are conditioned; the game runs the first whose gate
+  // passes. Falling back to the last entry keeps stages whose conditions we
+  // cannot yet evaluate behaving as they did before conditions were read.
+  const StageFragment* chosen = nullptr;
+  SkyrimConditionContext conditions(this);
+  for (const StageFragment& candidate : fit->second) {
+    if (!quest::Evaluate(candidate.conditions, conditions)) continue;
+    chosen = &candidate;
+    break;
+  }
+  if (!chosen) chosen = &fit->second.back();
+  const std::string& function = chosen->function;
+  if (function.empty()) return;
   // Stage fragments call SetStage on themselves and other quests; cap the depth
   // so a cyclic chain in the data cannot blow the guest stack.
   if (fragment_depth_ >= 32) {
-    RX_WARN("quest fragment recursion too deep at {}.{}", quest.handle, fit->second);
+    RX_WARN("quest fragment recursion too deep at {}.{}", quest.handle, function);
     return;
   }
   ++fragment_depth_;
@@ -1300,8 +1398,8 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
   u64 prev_quest = active_quest_;
   active_quest_ = quest.handle;
   u64 before = vm_->native_call_count();
-  vm_->Call(quest, fit->second, {});
-  RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", fit->second, stage,
+  vm_->Call(quest, function, {});
+  RX_DEBUG("quest fragment {} (stage {}) ran, {} native calls", function, stage,
            vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
@@ -1309,9 +1407,12 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
 
 RecordBackedSkyrimBindings::QuestRuntime& RecordBackedSkyrimBindings::Runtime(u64 quest) {
   if (auto it = quest_runtime_.find(quest); it != quest_runtime_.end()) return *it->second;
-  static const std::unordered_map<i32, std::string> kNoFragments;
-  auto fit = stage_fragments_.find(quest);
-  const auto& fragments = fit != stage_fragments_.end() ? fit->second : kNoFragments;
+  // The graph only needs to know which stages carry a fragment at all, so
+  // collapse each stage's conditioned entries to its first function name.
+  std::unordered_map<i32, std::string> fragments;
+  if (auto fit = stage_fragments_.find(quest); fit != stage_fragments_.end())
+    for (const auto& [stage, entries] : fit->second)
+      if (!entries.empty()) fragments.emplace(stage, entries.front().function);
   quest::QuestDef empty;
   empty.handle = quest;
   const quest::QuestDef* def = quest_system_.Definition(quest);

@@ -342,6 +342,14 @@ class CellStreamer {
     return stream_time_limited_ && std::chrono::steady_clock::now() >= stream_deadline_;
   }
   void UnloadCell(ecs::World& world, u32 key);
+  // Tears one streamed entity down: saved state, collider, registration, entity.
+  void ReleaseEntity(ecs::World& world, ecs::Entity entity);
+  // The exterior cell a world position falls in, in this domain's own grid.
+  void GridForPosition(const f32 position[3], i16* grid_x, i16* grid_y) const;
+  // True while that cell is inside the ring this Update streamed around.
+  bool CellInRing(i16 grid_x, i16 grid_y) const;
+  // Releases carried references that have drifted out of the streamed ring.
+  void SweepCarriedRefs(ecs::World& world);
   // Destroys the active interior's entities and colliders (see interior_cell_).
   void UnloadInterior(ecs::World& world);
   bool CommitInstances(ecs::World& world, LoadedCell& cell);
@@ -465,6 +473,15 @@ class CellStreamer {
   std::string worldspace_edid_;  // lowercased, for building distant LOD paths
   const bethesda::RecordStore::ExteriorGrid* grid_ = nullptr;
   base::UnorderedMap<u32, LoadedCell> loaded_;
+  // References that outlived the cell they were authored in, because something
+  // moved them elsewhere in the world (a scene stages its cast, a travel package
+  // walks an actor across the grid). They belong to no cell: the streamer carries
+  // them until they leave the ring. Bethesda's persistent references work the same
+  // way, and a cutscene whose actors were deleted under it plays to an empty road.
+  base::Vector<ecs::Entity> carried_refs_;
+  i16 ring_center_x_ = 0;
+  i16 ring_center_y_ = 0;
+  i32 ring_radius_ = 0;
 
   // Distant LOD quads (the coarsest .btr/.bto of the worldspace). Discovered once
   // on first Update, then drained: each becomes a persistent renderable proxy.

@@ -47,6 +47,12 @@ static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "RX_
 // for demos/screenshots of the pose.
 static base::Option<bool> PinRoot{"anim.pin_root", false, "RX_PIN_ROOT"};
 static base::Option<bool> Player{"player", false, "RX_PLAYER"};
+
+// The renderer uploads one skinning palette per frame and it is a fixed size
+// (render::Renderer::kMaxFrameBones, private to it). Actors whose matrices land past
+// the end draw from memory that was never written, which looks like an actor that is
+// not there at all, so the emit loop stops before it overflows.
+constexpr size_t kFrameBoneBudget = 8192;
 // Strand hair on actors: build a simulated groom from the NPC's hair nif and ride
 // it on the head bone. Off falls back to the flat card the hair part uploads.
 static base::Option<bool> StrandHair{"strand_hair", true, "RX_STRAND_HAIR"};
@@ -129,6 +135,44 @@ void ActorSystem::SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw) 
     a->speed = speed;
     if (set_yaw) a->yaw = yaw;
   }
+}
+
+bool ActorSystem::PlayNpcClip(ecs::Entity npc, const std::string& clip_path) {
+  if (config_.headless || clip_path.empty()) return false;
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  Actor* a = npc_actors_.find(key);
+  if (!a) return false;
+  if (!PlayHavokClip(*a, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
+                     "character"))
+    return false;
+  a->animate = true;
+  a->speed = 0.0f;
+  a->external_position = true;  // the seat comes from the clip, the place from us
+  return true;
+}
+
+bool ActorSystem::HasNpcInstance(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  return npc_actors_.find(key) != nullptr;
+}
+
+int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  const Actor* a = npc_actors_.find(key);
+  return a ? static_cast<int>(a->parts.size()) : 0;
+}
+
+bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  Actor* a = npc_actors_.find(key);
+  if (!a) return false;
+  const i32 bone = a->skeleton.Find("NPC Head [Head]");
+  if (bone < 0 || bone >= static_cast<i32>(a->bone_model.size())) return false;
+  const world::Transform* t = world_.Get<world::Transform>(npc);
+  if (!t) return false;
+  const Mat4 model = TransformMatrix(*t) * a->skeleton_to_local * a->bone_model[bone];
+  *out = {model.m[12], model.m[13], model.m[14]};
+  return true;
 }
 
 void ActorSystem::MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving,
@@ -620,6 +664,7 @@ bool ActorSystem::LoadFalloutActorTemplate(Actor* out) {
 }
 
 void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
+  out->procedural_gait = true;  // the gait code is authored against these bones
   // Fallback rig for games with no dedicated body loader (Fallout 4): a
   // procedural biped so their NPCs are visible placeholders rather than
   // invisible markers. Skyrim and Starfield load real skinned bodies; this
@@ -1495,9 +1540,12 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
       actor.pose.ResetToBind(actor.skeleton);
       SampleAnimationClip(*clip, actor.kf_time, &actor.pose);
     }
-  } else {
+  } else if (actor.procedural_gait) {
     actor.locomotion.phase = anim::AdvancePhase(actor.locomotion.phase, actor.speed, dt);
     actor.locomotion.Apply(actor.skeleton, actor.speed, &actor.pose);
+  } else {
+    // A game rig with nothing playing on it stands in its bind pose.
+    actor.pose.ResetToBind(actor.skeleton);
   }
 
   // Additive layer (RX_KINEMA path): compose the baked additive (delta) clip onto
@@ -1554,7 +1602,66 @@ void ActorSystem::EmitDraws(render::FrameView& view) {
     if (first_person && i == player_actor_) continue;
     EmitOneActor(actors_[i], view);
   }
-  for (auto entry : npc_actors_) EmitOneActor(entry.value, view);
+  // The renderer's per-frame skinning palette is a fixed budget, and a dense
+  // exterior holds far more actors than fits: whoever overflows it draws with a
+  // palette that was never uploaded, which reads as an actor that is simply not
+  // there. Spend the budget on the actors nearest the camera, which are the ones
+  // the player (or a cutscene) is looking at.
+  const Vec3 eye = view.camera.eye;
+  base::Vector<std::pair<f32, Actor*>> by_distance;
+  by_distance.reserve(npc_actors_.size());
+  for (auto entry : npc_actors_) {
+    Actor& a = entry.value;
+    f32 distance = 0;
+    if (const world::Transform* t = world_.Get<world::Transform>(a.entity)) {
+      const Vec3 to{t->position[0] - eye.x, t->position[1] - eye.y, t->position[2] - eye.z};
+      distance = Length(to);
+    }
+    by_distance.push_back({distance, &a});
+  }
+  std::sort(by_distance.begin(), by_distance.end(),
+            [](const auto& l, const auto& r) { return l.first < r.first; });
+  for (auto& [distance, actor] : by_distance) {
+    size_t cost = 0;
+    for (const ActorPart& part : actor->parts)
+      if (part.attach_bone < 0) cost += part.skin.bones.size();
+    if (view.bone_matrices.size() + cost > kFrameBoneBudget) continue;
+    EmitOneActor(*actor, view);
+  }
+  // Only latch once there is something to report: the first frames have no NPC
+  // instances yet, and a one-shot dump that fires then prints nothing. The value is
+  // how many instances to wait for, so a dump can be aimed at a streamed-in crowd.
+  const char* dump_at = std::getenv("RX_ACTOR_DUMP");
+  const size_t dump_min = dump_at && std::atoi(dump_at) > 1 ? size_t(std::atoi(dump_at)) : 8;
+  if (dump_at && !actor_dump_done_ && npc_actors_.size() >= dump_min) {
+    actor_dump_done_ = true;
+    for (auto entry : npc_actors_) {
+      Actor& a = entry.value;
+      const world::Transform* t = world_.Get<world::Transform>(a.entity);
+      // The pose is what decides whether a healthy-looking instance draws anything:
+      // a palette of degenerate matrices collapses every vertex to a point.
+      std::string pose = "no skin";
+      for (ActorPart& part : a.parts) {
+        if (part.attach_bone >= 0) continue;
+        base::Vector<Mat4> palette;
+        anim::BuildSkinPalette(a.bone_model, part.skin, part.remap, &palette);
+        if (palette.empty()) break;
+        const Mat4& m = palette[0];
+        pose = Fmt("palette %zu [0] t=(%.2f %.2f %.2f) col0=(%.3f %.3f %.3f)", palette.size(),
+                   m.m[12], m.m[13], m.m[14], m.m[0], m.m[1], m.m[2]);
+        break;
+      }
+      RX_INFO(
+          "actor dump: entity {}:{} at {} parts {} mesh {:x} bones {} bone_model {} skin {} "
+          "remap {} animate {} clip {} {}",
+          a.entity.index, a.entity.generation,
+          t ? Fmt("(%.0f, %.0f, %.0f)", t->position[0], t->position[1], t->position[2])
+            : std::string("none"),
+          a.parts.size(), a.parts.empty() ? 0 : a.parts[0].mesh.hash, a.skeleton.bones.size(),
+          a.bone_model.size(), a.parts.empty() ? 0 : a.parts[0].skin.bones.size(),
+          a.parts.empty() ? 0 : a.parts[0].remap.size(), a.animate, a.havok_clip != nullptr, pose);
+    }
+  }
   if (fp_visible_) EmitFpRig(view);
 }
 
@@ -1844,30 +1951,85 @@ const ActorSystem::Actor* ActorSystem::SoldierTemplate(int team) {
   return &*slot;
 }
 
+bool ActorSystem::EnsureNpcTemplate() {
+  if (npc_template_) return true;
+  Actor tmpl;
+  const bool fallout =
+      ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
+  bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
+                : fallout                               ? LoadFalloutActorTemplate(&tmpl)
+                                                        : LoadActorTemplate(&tmpl);
+  if (!loaded) {
+    // The game's skinned body assets are absent or did not parse (e.g. a
+    // Fallout 4 session): fall back to the builtin biped so NPCs still
+    // populate the world.
+    tmpl = Actor{};
+    LoadBuiltinActorTemplate(&tmpl);
+    RX_INFO("npc rendering: using the builtin biped (game body assets absent)");
+  }
+  tmpl.animate = true;
+  tmpl.speed = 0.0f;     // idle
+  tmpl.foot_ik = false;  // skip per-NPC ground raycasts
+  // The game's own standing idle, so a streamed NPC breathes instead of holding a
+  // bind-pose T. Candidates in order: the movement idle every actor falls back to,
+  // then the variants shipped beside it.
+  if (!tmpl.procedural_gait) {
+    static constexpr const char* kIdleClips[] = {
+        "meshes/actors/character/animations/mt_idle_a_base.hkx",
+        "meshes/actors/character/animations/mt_idle_b_base.hkx",
+        "meshes/actors/character/animations/idlestop.hkx",
+    };
+    for (const char* clip : kIdleClips) {
+      if (!PlayHavokClip(tmpl, clip, "meshes/actors/character/character assets/skeleton.hkx",
+                         "character"))
+        continue;
+      RX_INFO("npc rendering: standing idle from {}", clip);
+      break;
+    }
+  }
+  npc_template_ = std::move(tmpl);
+  RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
+  return true;
+}
+
+ecs::Entity ActorSystem::SpawnScriptedNpc(bethesda::GlobalFormId base, const std::string& clip_path,
+                                          const Vec3& position, f32 yaw, int outfit) {
+  if (config_.headless || !EnsureNpcTemplate()) return ecs::Entity{};
+  Actor actor;
+  // A dressed rider loads its own body (the shared template is the bare one);
+  // there are only a handful, so they are built on the spot rather than cached.
+  if (outfit == 0 || !LoadActorTemplate(&actor, outfit)) actor = *npc_template_;
+  actor.animate = true;
+  actor.speed = 0.0f;
+  actor.foot_ik = false;
+  actor.pose.ResetToBind(actor.skeleton);
+  if (ctx_.game == bethesda::Game::kSkyrimSe) AttachHead(actor, base);
+  if (!clip_path.empty()) {
+    PlayHavokClip(actor, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
+                  "character");
+  }
+  const ecs::Entity entity = world_.Create();
+  const f32 h = yaw * 0.5f;
+  world::Transform t;
+  t.position[0] = position.x;
+  t.position[1] = position.y;
+  t.position[2] = position.z;
+  t.rotation[0] = 0;
+  t.rotation[1] = std::sin(h);
+  t.rotation[2] = 0;
+  t.rotation[3] = std::cos(h);
+  world_.Add(entity, t);
+  actor.entity = entity;
+  actor.yaw = yaw;
+  actor.external_position = true;  // the caller drives the transform
+  const u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
+  npc_actors_.insert(key, std::move(actor));
+  return entity;
+}
+
 void ActorSystem::SyncNpcActors() {
   if (config_.headless) return;  // dedicated server doesn't render NPCs
-  // Build the shared rig once; every NPC actor is instanced from it.
-  if (!npc_template_) {
-    Actor tmpl;
-    const bool fallout =
-        ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
-    bool loaded = ctx_.game == bethesda::Game::kStarfield ? LoadStarfieldActorTemplate(&tmpl)
-                  : fallout                               ? LoadFalloutActorTemplate(&tmpl)
-                                                          : LoadActorTemplate(&tmpl);
-    if (!loaded) {
-      // The game's skinned body assets are absent or did not parse (e.g. a
-      // Fallout 4 session): fall back to the builtin biped so NPCs still
-      // populate the world.
-      tmpl = Actor{};
-      LoadBuiltinActorTemplate(&tmpl);
-      RX_INFO("npc rendering: using the builtin biped (game body assets absent)");
-    }
-    tmpl.animate = true;
-    tmpl.speed = 0.0f;     // idle
-    tmpl.foot_ik = false;  // skip per-NPC ground raycasts
-    npc_template_ = std::move(tmpl);
-    RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
-  }
+  EnsureNpcTemplate();  // the shared rig every NPC actor is instanced from
   // Give every NPC entity without one a skinned actor instance (own pose, GPU
   // meshes shared by hash with the template). Battle actors (those on a combat
   // team) instance from their faction's armoured template instead of the bare
@@ -1899,7 +2061,8 @@ void ActorSystem::SyncNpcActors() {
         world_.Has<world::Deleted>(entry.value.entity))
       scratch_dead_actors_.push_back(entry.key);
   for (u64 key : scratch_dead_actors_) {
-    if (Actor* a = npc_actors_.find(key); a && a->hair_groom) renderer_.DestroyHairGroom(a->hair_groom);
+    if (Actor* a = npc_actors_.find(key); a && a->hair_groom)
+      renderer_.DestroyHairGroom(a->hair_groom);
     npc_actors_.erase(key);
   }
 }

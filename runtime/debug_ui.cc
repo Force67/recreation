@@ -915,6 +915,28 @@ void DebugUi::DrawTrailerOverlay() {
     draw_text(ts, {tx, y}, kWhite, t.title_alpha, t.title.c_str());
   }
 
+  // Spoken-line caption, centered just above the bottom bar with the speaker's
+  // name over it. Wrapped to a readable measure rather than the full width.
+  if (t.caption_alpha > 0.003f && !t.caption.empty()) {
+    const f32 cs = H * 0.026f;
+    const f32 ns = H * 0.021f;
+    const f32 wrap = W * 0.62f;
+    const ImVec2 tz = font->CalcTextSizeA(cs, FLT_MAX, wrap, t.caption.c_str());
+    const f32 x = (W - tz.x) * 0.5f;
+    const f32 y = H - bar - H * 0.06f - tz.y;
+    const int a = static_cast<int>(t.caption_alpha * 255.0f + 0.5f);
+    if (!t.caption_speaker.empty()) {
+      const ImVec2 nz = measure(ns, t.caption_speaker.c_str());
+      draw_text(ns, {(W - nz.x) * 0.5f, y - ns * 1.5f}, kGold, t.caption_alpha,
+                t.caption_speaker.c_str());
+    }
+    const ImU32 shadow = IM_COL32(0, 0, 0, static_cast<int>(t.caption_alpha * 170.0f));
+    const f32 o = std::max(1.0f, cs * 0.045f);
+    dl->AddText(font, cs, {x + o, y + o}, shadow, t.caption.c_str(), nullptr, wrap);
+    dl->AddText(font, cs, {x, y}, (kWhite & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24),
+                t.caption.c_str(), nullptr, wrap);
+  }
+
   // Render-mode badge, top-left below the top bar, with the live weather under it.
   if (t.badge_alpha > 0.003f && !t.badge.empty()) {
     const f32 bs = H * 0.024f;

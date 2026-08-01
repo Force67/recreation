@@ -177,6 +177,9 @@ struct EngineContext {
   std::function<bool(u64)> carriage_activate;
   std::function<const char*(u64)> carriage_label;
 
+  // Ends the run from inside a subsystem (a verification sweep that has finished).
+  std::function<void()> request_quit;
+
   // Demo scenes that stage their own lighting set this so the day/night clock
   // stops re-driving sun direction/intensity/ambient every frame (RX_SUN_DIR
   // has the same effect globally).

@@ -5,6 +5,7 @@
 #include "bethesda/record.h"
 #include "bethesda/strings.h"
 #include "core/types.h"
+#include "quest/ctda.h"
 
 namespace rx::quest {
 namespace {
@@ -84,9 +85,14 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
   constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // forced reference form id
   constexpr u32 kAlua = FourCc('A', 'L', 'U', 'A');  // unique-actor NPC_ base
   constexpr u32 kAlfa = FourCc('A', 'L', 'F', 'A');  // find-matching-reference flag
+  constexpr u32 kAlco = FourCc('A', 'L', 'C', 'O');  // created-object base form id
   constexpr u32 kAlrt = FourCc('A', 'L', 'R', 'T');  // LocationRefType to match
   constexpr u32 kAlfi = FourCc('A', 'L', 'F', 'I');  // find-in-parent alias id
+  constexpr u32 kAleq = FourCc('A', 'L', 'E', 'Q');  // external-alias quest
+  constexpr u32 kAlea = FourCc('A', 'L', 'E', 'A');  // external-alias alias id
+  constexpr u32 kAlpc = FourCc('A', 'L', 'P', 'C');  // alias AI package
   constexpr u32 kAled = FourCc('A', 'L', 'E', 'D');  // alias block end
+  constexpr u32 kCtda = FourCc('C', 'T', 'D', 'A');  // condition, scoped to the block above it
 
   QuestDef def;
   def.handle = handle;
@@ -123,6 +129,10 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         if (!in_stage) break;
         StageDef stage;
         stage.index = cur_stage;
+        // QSDT order within this INDX is the log entry index the VMAD fragments
+        // key on.
+        for (const StageDef& existing : def.stages)
+          if (existing.index == cur_stage) ++stage.entry;
         if (sub.data.size() >= 1) stage.complete_quest = (sub.data.data()[0] & 0x01) != 0;
         def.stages.push_back(std::move(stage));
         break;
@@ -175,6 +185,10 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         if (in_alias && !def.aliases.empty())
           def.aliases.back().unique_actor_raw = ReadLe<u32>(sub);
         break;
+      case kAlco:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().created_base_raw = ReadLe<u32>(sub);
+        break;
       case kAlfa:
         if (in_alias && !def.aliases.empty()) def.aliases.back().find_matching = true;
         break;
@@ -185,6 +199,26 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kAlfi:
         if (in_alias && !def.aliases.empty())
           def.aliases.back().find_in_parent = ReadLe<i32>(sub);
+        break;
+      case kAleq:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().external_quest_raw = ReadLe<u32>(sub);
+        break;
+      case kAlea:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().external_alias = ReadLe<i32>(sub);
+        break;
+      case kAlpc:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().package_raw.push_back(ReadLe<u32>(sub));
+        break;
+      case kCtda:
+        // A CTDA belongs to the block it follows. Only stage entries are wired
+        // through here; objective and alias conditions are not modelled yet.
+        if (in_stage && !def.stages.empty()) {
+          Comparison c;
+          if (ParseCtda(sub.data, &c)) def.stages.back().conditions.comparisons.push_back(c);
+        }
         break;
       case kAled:
         in_alias = false;

@@ -1,5 +1,6 @@
 recreation_add_module(dialogue
   dialogue.cc
+  voice.cc
 )
 
 # Reads DIAL/INFO records and their VMAD fragments through bethesda; conditions

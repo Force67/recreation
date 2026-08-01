@@ -335,6 +335,12 @@ class SkyrimBindings {
   // The quest a dialogue INFO belongs to (TopicInfo.GetOwningQuest), so a TIF_
   // fragment's GetOwningQuest().SetStage advances the right quest.
   virtual papyrus::ObjectRef InfoOwningQuest(papyrus::ObjectRef info) { return papyrus::ObjectRef{0}; }
+  // The quest a PACK belongs to (Package.GetOwningQuest), so a travel package's
+  // arrival fragment advances the journal (this is what walks Skyrim's cart ride
+  // from stage to stage).
+  virtual papyrus::ObjectRef PackageOwningQuest(papyrus::ObjectRef package) {
+    return papyrus::ObjectRef{0};
+  }
   // Scene.Start/ForceStart begin playing a scene (a quest fragment calls this);
   // Stop ends it; IsPlaying queries it. Default no-ops for the neutral bindings.
   virtual void SceneStart(papyrus::ObjectRef scene) {}

@@ -264,7 +264,18 @@ GlobalFormId RecordStore::PlacedRefForBase(GlobalFormId base) const {
       u32 raw;
       std::memcpy(&raw, name->data.data(), 4);
       const u64 key = ResolveFrom(RawFormId{raw}, stored.winning_plugin).packed();
-      if (!base_to_achr_.find(key)) base_to_achr_[key] = id.packed();  // first placement wins
+      // A unique actor can be placed several times (a keep interior, a set piece,
+      // a spare); the one quests bind to is the PERSISTENT reference, so it wins
+      // over whichever placement happens to be scanned first.
+      constexpr u32 kPersistent = 0x00000400;
+      const bool persistent = (stored.header.flags & kPersistent) != 0;
+      if (const u64* existing = base_to_achr_.find(key)) {
+        if (!persistent) return;
+        const StoredRecord* prev =
+            Find(GlobalFormId{static_cast<u16>(*existing >> 32), static_cast<u32>(*existing)});
+        if (prev && (prev->header.flags & kPersistent) != 0) return;  // already the good one
+      }
+      base_to_achr_[key] = id.packed();
     });
   }
   if (const u64* ref = base_to_achr_.find(base.packed()))

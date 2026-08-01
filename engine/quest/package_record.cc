@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "bethesda/load_order.h"
+#include "quest/ctda.h"
 #include "bethesda/record.h"
 #include "core/types.h"
 
@@ -146,6 +147,14 @@ PackageDef ParseImpl(u64 handle, const bethesda::Record& record,
     }
   }
 
+  // PACK conditions are record-scoped, so a plain sweep is correct here.
+  def.conditions = ParseConditions(record);
+  if (records) {
+    if (const bethesda::RecordStore::StoredRecord* stored = records->Find(
+            bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)})) {
+      ResolveConditionForms(def.conditions, *records, stored->winning_plugin);
+    }
+  }
   def.is_travel = IsTravelTarget(def.target.kind);
   return def;
 }
@@ -159,6 +168,68 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record,
 
 PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record) {
   return ParseImpl(handle, record, nullptr);
+}
+
+int SelectActivePackage(const std::vector<PackageDef>& packages, const ConditionContext& ctx) {
+  for (size_t i = 0; i < packages.size(); ++i)
+    if (Evaluate(packages[i].conditions, ctx)) return static_cast<int>(i);
+  return -1;
+}
+
+std::vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
+                                               const AliasDef& alias, u16 quest_plugin) {
+  std::vector<RouteStop> route;
+  // Highest priority first in the record, so the first leg to run is the last
+  // one listed; walk the list backwards to get travel order.
+  for (size_t i = alias.package_raw.size(); i-- > 0;) {
+    const bethesda::GlobalFormId pack =
+        records.ResolveFrom(bethesda::RawFormId{alias.package_raw[i]}, quest_plugin);
+    bethesda::Record record;
+    if (!records.Parse(pack, &record)) continue;
+    const PackageDef def = ParsePackageRecord(pack.packed(), record, records);
+    // Only legs that name a concrete destination are part of a route; the
+    // stay-put packages bracketing the list are the actor's idle states.
+    if (!def.is_travel || def.target.kind != PackageTarget::Kind::kReference || !def.target.ref)
+      continue;
+    const bethesda::GlobalFormId marker{static_cast<u16>(def.target.ref >> 32),
+                                        static_cast<u32>(def.target.ref)};
+    bethesda::Record marker_record;
+    if (!records.Parse(marker, &marker_record)) continue;
+    const bethesda::Subrecord* data = marker_record.Find(FourCc('D', 'A', 'T', 'A'));
+    if (!data || data->data.size() < 12) continue;
+    RouteStop stop;
+    stop.package = pack.packed();
+    stop.marker = marker.packed();
+    std::memcpy(stop.position, data->data.data(), 12);
+    route.push_back(stop);
+
+    // A leg's marker usually heads a chain of unnamed markers linked by XLKR --
+    // the shape of the path between destinations. Follow it so the actor curves
+    // along the authored route instead of cutting straight to the next leg.
+    constexpr u32 kXlkr = FourCc('X', 'L', 'K', 'R');
+    bethesda::GlobalFormId link = marker;
+    for (int hop = 0; hop < 64; ++hop) {
+      bethesda::Record current;
+      if (!records.Parse(link, &current)) break;
+      const bethesda::Subrecord* xlkr = current.Find(kXlkr);
+      if (!xlkr || xlkr->data.size() < 8) break;
+      u32 next_raw;
+      std::memcpy(&next_raw, xlkr->data.data() + 4, 4);
+      if (!next_raw) break;
+      const bethesda::RecordStore::StoredRecord* stored = records.Find(link);
+      link = records.ResolveFrom(bethesda::RawFormId{next_raw},
+                                 stored ? stored->winning_plugin : quest_plugin);
+      bethesda::Record next;
+      if (!records.Parse(link, &next)) break;
+      const bethesda::Subrecord* next_data = next.Find(FourCc('D', 'A', 'T', 'A'));
+      if (!next_data || next_data->data.size() < 12) break;
+      RouteStop via;  // no package: passing through, nothing fires here
+      via.marker = link.packed();
+      std::memcpy(via.position, next_data->data.data(), 12);
+      route.push_back(via);
+    }
+  }
+  return route;
 }
 
 }  // namespace rx::quest

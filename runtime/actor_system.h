@@ -71,6 +71,23 @@ class ActorSystem {
   void MovePlayer(const Vec3& feet, f32 planar_speed, f32 facing_yaw, bool moving, bool grounded);
   // Sets a streamed NPC instance's render gait (planar speed; yaw when moving).
   void SetNpcGait(ecs::Entity npc, f32 speed, bool set_yaw, f32 yaw);
+  // Puts a streamed NPC on one looping clip and hands its world transform to the
+  // caller. This is what seats an actor: Bethesda's furniture animations carry the
+  // seat as a baked COM offset, so planting the actor on the furniture origin and
+  // holding the clip puts them in the chair (or the cart bed). False when the entity
+  // has no actor instance or the clip is missing.
+  bool PlayNpcClip(ecs::Entity npc, const std::string& clip_path);
+  // Whether a streamed NPC entity has a skinned actor instance, i.e. whether it is
+  // being drawn at all. What tells a scene director that its cast is really on
+  // screen rather than merely present in the ECS.
+  bool HasNpcInstance(ecs::Entity npc) const;
+  // How many drawable parts a streamed NPC's instance has. 0 means it has an actor
+  // but nothing to render, which is invisible rather than missing.
+  int NpcInstanceParts(ecs::Entity npc) const;
+  // World position of an NPC instance's head bone, as of the last pose update.
+  // False when the entity has no actor or the rig has no head. What a camera
+  // frames a conversation on, rather than guessing at the body's origin.
+  bool NpcHeadWorld(ecs::Entity npc, Vec3* out);
 
   // --- Spawning ---
   bool SpawnPlayerActor(const Vec3& pos);
@@ -84,6 +101,16 @@ class ActorSystem {
   // absent, so callers fall back to a graybox. Used by the carriage horse.
   ecs::Entity SpawnCreatureNpc(const std::string& name, const std::string& clip_override,
                                const Vec3& position, f32 yaw);
+  // Spawns a human NPC the caller drives: a full actor wearing `base`'s
+  // assembled FaceGen head and holding `clip_path` on a loop. `outfit` is a
+  // LoadActorTemplate soldier kind (0 bare, 1 imperial, 2 stormcloak). Like
+  // SpawnCreatureNpc the caller owns the entity's world transform and the clip
+  // poses the body around it -- including whatever offset the clip was authored
+  // with, which is how a furniture animation seats an actor. Used by the Helgen
+  // intro to fill the cart with the game's own cart-prisoner idles. Returns a
+  // dead entity when the body assets are unavailable.
+  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base, const std::string& clip_path,
+                               const Vec3& position, f32 yaw, int outfit = 0);
 
   // --- Per-frame ---
   void Update(f32 dt);                      // advance gaits + bone matrices
@@ -196,6 +223,10 @@ class ActorSystem {
     base::Vector<Mat4> bone_model;  // model-space per skeleton bone
     base::Vector<ActorPart> parts;
     bool animate = true;  // false = hold the bind pose
+    // The hand-rolled procedural gait (anim::Locomotion) is authored against the
+    // builtin biped's bones. A real game skeleton with no clip holds its bind pose
+    // instead: running the procedural pose on a Bethesda rig lays the body out flat.
+    bool procedural_gait = false;
     // The caller owns this actor's world position (a scripted mover, e.g. the
     // carriage horse): the looping clip still animates the legs in place, but
     // its extracted root motion is not integrated into the entity transform.
@@ -218,6 +249,9 @@ class ActorSystem {
     Mat4 hair_inverse_bind = Mat4::Identity();
   };
 
+  // Builds the shared NPC rig template on first use (the body every streamed and
+  // scripted NPC is instanced from). False when no body assets could be loaded.
+  bool EnsureNpcTemplate();
   // soldier_kind: 0 = bare civilian body, 1 = imperial-side soldier (worn
   // cuirass in the body slot), 2 = stormcloak-side soldier.
   bool LoadActorTemplate(Actor* out, int soldier_kind = 0);
@@ -335,7 +369,8 @@ class ActorSystem {
   bool fp_ready_ = false;                      // rig + clips loaded
   bool fp_engaged_ = false;                    // advance the pose this frame
   bool fp_visible_ = false;                    // emit draws + hide the TP body
-  bool fp_clip_done_ = false;                  // active one-shot clip finished
+  bool fp_clip_done_ = false;
+  bool actor_dump_done_ = false;  // RX_ACTOR_DUMP fires once                  // active one-shot clip finished
   bool fp_clip_loop_ = true;                   // idle loops; one-shots don't
   FpClip fp_current_ = FpClip::kIdle;
   f32 fp_clip_time_ = 0;

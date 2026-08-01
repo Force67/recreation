@@ -48,8 +48,12 @@ struct Topic {
 // Parses one already-decoded INFO record into a Response. `topic_text` is the
 // fallback player line when the INFO has no RNAM prompt. Pure, so it is unit
 // testable without a record store.
+// `plugin` is the load-order index the record came from: string ids are only
+// unique within a plugin, so a DLC line needs its own table or it reads back as
+// whatever the base game wrote at that id.
 Response ParseInfoRecord(const bethesda::Record& record, Handle info,
-                         const std::string& topic_text, const bethesda::StringTable* strings);
+                         const std::string& topic_text, const bethesda::StringTable* strings,
+                         u16 plugin = 0xffff);
 
 // Parses one DIAL topic and its INFO children. `strings` resolves localized
 // text (may be null). Returns a topic with dial == 0 if `dial` is not a DIAL.

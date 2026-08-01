@@ -23,6 +23,7 @@
 namespace rx::audio {
 class AudioSystem;
 }
+#include "quest/condition.h"
 #include "quest/quest_system.h"
 #include "quest/scene_player.h"
 #include "script/games/skyrim/skyrim_natives.h"
@@ -134,8 +135,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   std::vector<papyrus::ObjectRef> AliasesFilledBy(papyrus::ObjectRef ref) const;
 
   // Registers the Papyrus function a quest runs when it reaches `stage` (from
-  // the QUST VMAD fragments). Populated at quest attach.
-  void SetStageFragment(u64 quest, i32 stage, std::string function);
+  // the QUST VMAD fragments). A stage can carry several conditioned log entries
+  // and the game runs only the one whose conditions pass, so register each with
+  // its entry index and gate; `conditions` must already have its form ids
+  // resolved. The 3-argument form registers an unconditional single entry.
+  void SetStageFragment(u64 quest, i32 stage, i32 entry, std::string function,
+                        quest::ConditionList conditions);
+  void SetStageFragment(u64 quest, i32 stage, std::string function) {
+    SetStageFragment(quest, stage, 0, std::move(function), {});
+  }
 
   // Registers a scene's Papyrus fragments (from its SCEN VMAD): the begin/end and
   // per-phase functions that call SetStage as the scene plays. `scene` is the
@@ -154,6 +162,31 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // guest thread; cheap when nothing is playing.
   void TickScenes(f32 dt);
   bool AnyScenePlaying() const { return scene_player_.playing_count() > 0; }
+
+  // Scene playback the runtime owns. Scene.Start runs on the guest thread, but a
+  // scene in the world has to be played by the main thread (it moves actors, plays
+  // voice lines and drives the camera), so the call is queued for the cutscene
+  // director instead of the fallback timer player. Headless drivers leave live
+  // playback off and keep the timer player.
+  struct SceneRequest {
+    u64 scene = 0;
+    bool start = true;
+  };
+  void set_live_scene_playback(bool on) { live_scene_playback_ = on; }
+  bool live_scene_playback() const { return live_scene_playback_; }
+  void DrainSceneRequests(std::vector<SceneRequest>& out);
+  // Reported back by the director so Scene.IsPlaying answers truthfully while the
+  // main thread owns playback.
+  void SetScenePlayingLive(u64 scene, bool playing);
+
+  // The quest a PACK belongs to, so its fragment's GetOwningQuest().SetStage(N)
+  // resolves. Registered by the AI package driver when it attaches the PF_ script,
+  // mirroring the scene and dialogue fragments' owning quest.
+  void SetPackageOwningQuest(u64 package, u64 quest) { package_owning_quest_[package] = quest; }
+  // Runs one of a package's fragments (on-begin / on-end / on-change) through the
+  // VM, attributed to its owning quest. This is how a travel package advances the
+  // journal when its actor arrives.
+  void RunPackageFragment(u64 package, const std::string& function);
   // How many scene begin-fragments have run (scenes that have played). Lets a
   // driver confirm the Scene.Start path actually fired.
   u32 scenes_begun() const { return scenes_begun_; }
@@ -405,6 +438,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // topic's quest), mirroring the scene fragments' owning quest.
   void SetInfoOwningQuest(u64 info, u64 quest) { info_owning_quest_[info] = quest; }
   papyrus::ObjectRef InfoOwningQuest(papyrus::ObjectRef info) override;
+  papyrus::ObjectRef PackageOwningQuest(papyrus::ObjectRef package) override;
   void SceneStart(papyrus::ObjectRef scene) override;
   void SceneStop(papyrus::ObjectRef scene) override;
   bool SceneIsPlaying(papyrus::ObjectRef scene) override;
@@ -508,7 +542,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   u64 active_quest_ = 0;
   quest::QuestSystem quest_system_;
   // quest handle -> stage -> Papyrus fragment function name (from the QUST VMAD).
-  std::unordered_map<u64, std::unordered_map<i32, std::string>> stage_fragments_;
+  // One stage's Papyrus fragments, one per conditioned log entry, in record
+  // order. RunStageFragmentBody runs the first whose conditions pass.
+  struct StageFragment {
+    i32 entry = 0;
+    std::string function;
+    quest::ConditionList conditions;
+  };
+  std::unordered_map<u64, std::unordered_map<i32, std::vector<StageFragment>>> stage_fragments_;
   // The native graph for a quest plus its live traversal. Built lazily from the
   // quest's definition + fragments the first time it is started/advanced, so by
   // then both are registered. Heap-held so the instance's graph pointer is
@@ -537,7 +578,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     bethesda::SceneFragments frags;
   };
   std::unordered_map<u64, SceneFragmentSet> scene_fragments_;
-  std::unordered_map<u64, u64> info_owning_quest_;  // INFO handle -> owning quest
+  std::unordered_map<u64, u64> info_owning_quest_;     // INFO handle -> owning quest
+  std::unordered_map<u64, u64> package_owning_quest_;  // PACK handle -> owning quest
+  // Scene.Start/Stop calls waiting for the main-thread cutscene director, and the
+  // set it reports as playing. Crosses threads, so both are mutex guarded.
+  bool live_scene_playback_ = false;
+  mutable std::mutex scene_requests_mutex_;
+  std::vector<SceneRequest> scene_requests_;
+  std::unordered_set<u64> scenes_playing_live_;
   // Runs one scene fragment function via the VM, attributed to its owning quest.
   void RunSceneFragment(u64 scene, u64 owning_quest, const std::string& function);
   // Plays the scenes a quest fragment Started, firing their phase fragments over

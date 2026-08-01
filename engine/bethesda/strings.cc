@@ -7,12 +7,12 @@
 namespace rx::bethesda {
 
 bool StringTable::Load(const asset::Vfs& vfs, const std::string& plugin_name,
-                       const std::string& language) {
+                       const std::string& language, u16 plugin) {
   std::string base = plugin_name.substr(0, plugin_name.rfind('.'));
   std::string prefix = "strings/" + base + "_" + language;
-  bool any = LoadFile(vfs, prefix + ".strings", false);
-  any |= LoadFile(vfs, prefix + ".dlstrings", true);
-  any |= LoadFile(vfs, prefix + ".ilstrings", true);
+  bool any = LoadFile(vfs, prefix + ".strings", false, plugin);
+  any |= LoadFile(vfs, prefix + ".dlstrings", true, plugin);
+  any |= LoadFile(vfs, prefix + ".ilstrings", true, plugin);
   return any;
 }
 
@@ -20,7 +20,15 @@ const base::String* StringTable::Find(u32 string_id) const {
   return strings_.find(string_id);
 }
 
-bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool length_prefixed) {
+const base::String* StringTable::Find(u32 string_id, u16 plugin) const {
+  if (plugin != kAnyPlugin)
+    if (const base::String* s = by_plugin_.find(static_cast<u64>(plugin) << 32 | string_id))
+      return s;
+  return strings_.find(string_id);
+}
+
+bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool length_prefixed,
+                           u16 plugin) {
   auto bytes = vfs.Read(path);
   if (!bytes || bytes->size() < 8) return false;
 
@@ -48,10 +56,16 @@ bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool 
       std::memcpy(&length, start, 4);
       if (pos + 4 + length > bytes->size()) continue;
       // Length includes the terminator.
-      strings_.emplace(id, start + 4, static_cast<size_t>(length > 0 ? length - 1 : 0));
+      const size_t chars = static_cast<size_t>(length > 0 ? length - 1 : 0);
+      strings_.emplace(id, start + 4, chars);
+      if (plugin != kAnyPlugin)
+        by_plugin_.emplace(static_cast<u64>(plugin) << 32 | id, base::String(start + 4, chars));
     } else {
       size_t max_length = bytes->size() - pos;
-      strings_.emplace(id, start, strnlen(start, max_length));
+      const size_t chars = strnlen(start, max_length);
+      strings_.emplace(id, start, chars);
+      if (plugin != kAnyPlugin)
+        by_plugin_.emplace(static_cast<u64>(plugin) << 32 | id, base::String(start, chars));
     }
   }
   return true;

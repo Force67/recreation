@@ -36,6 +36,13 @@ class NpcDirector {
   }
 
   void SetFollower(u64 npc, bool follow);
+  // Walk an NPC to a world goal: the guide steering routes it (navmesh corridor
+  // outdoors, raycast grid indoors) and drives its gait each tick. This is the
+  // motion primitive the AI package driver and the cutscene director use, so a
+  // travel package and a scene beat move an actor exactly the same way.
+  void SetGuide(u64 npc, const Vec3& goal);
+  void ClearGuide(u64 npc);
+  bool HasGuide(u64 npc) const { return guides_.find(npc) != nullptr; }
   int follower_count() const { return static_cast<int>(followers_.size()); }
   bool is_follower(u64 npc) const { return followers_.find(npc) != nullptr; }
   // True while a scripted MQ101 playthrough is driving the auto-walk goal, so

@@ -239,6 +239,11 @@ void Engine::OnSimulate(f32 frame_delta) {
     }
     npc_->Mq101DemoTick(frame_delta);
     npc_->Mq101SceneTick(frame_delta);
+    // Actors run their authored AI packages (the quest mirror the quest director
+    // refreshes is what their condition gates read), and the cutscene director
+    // plays whatever scenes are live over them.
+    packages_->Tick(frame_delta, quest_->quest_state());
+    cutscene_->Tick(frame_delta, quest_->quest_state());
     // World-driven progression: the player walking into a scripted trigger box
     // fires its OnTriggerEnter, the native way Skyrim advances a quest.
     interaction_->UpdateTriggers();
@@ -387,7 +392,23 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
             transforms.insert(key, current);
           });
       prev_transforms_ = std::move(transforms);
+      const size_t draws_before_actors = view.draws.size();
       actors_->EmitDraws(view);
+      // RX_ACTOR_DUMP: how much of the frame's draw list the indirect-draw build
+      // actually covered last frame. A dense cell that overflows it drops the tail,
+      // and the tail is where the actors are.
+      if (std::getenv("RX_ACTOR_DUMP")) {
+        static f32 log_timer = 0;
+        log_timer -= frame_delta;
+        if (log_timer <= 0) {
+          log_timer = 2.0f;
+          RX_INFO(
+              "draws: {} world + {} actor = {} items, renderer covered {} commands, {} bone "
+              "matrices",
+              draws_before_actors, view.draws.size() - draws_before_actors, view.draws.size(),
+              renderer_->draws_total(), view.bone_matrices.size());
+        }
+      }
       demos_->EmitToView(frame_delta, view);
       if (editor_) editor_->EmitTerrainBrush(view);
 #if RECREATION_HAS_NET
