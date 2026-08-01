@@ -18,6 +18,7 @@
 #include "quest/package_record.h"
 #include "quest/quest_def.h"
 #include "quest/scene_record.h"
+#include "quest/scene_runtime.h"
 
 namespace {
 
@@ -943,6 +944,12 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
               scene.plugin, scene.local_id, record.GetString(kEdid).c_str(),
               static_cast<unsigned long long>(def.quest), def.actors.size(), def.phases.size(),
               def.actions.size());
+  // Flags decide whether the scene needs a Scene.Start at all: one flagged "begin
+  // on quest start" plays as soon as its quest comes online.
+  std::printf("flags 0x%08x%s%s%s\n", def.flags,
+              (def.flags & rx::quest::kSceneBeginOnQuestStart) ? " begin-on-quest-start" : "",
+              (def.flags & rx::quest::kSceneStopOnQuestEnd) ? " stop-on-quest-end" : "",
+              (def.flags & rx::quest::kSceneInterruptible) ? " interruptible" : "");
 
   rx::quest::QuestDef quest;
   if (def.quest != 0) {

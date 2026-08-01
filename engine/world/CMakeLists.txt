@@ -1,6 +1,7 @@
 recreation_add_module(world
   carriage_rig.cc
   cell_streaming.cc
+  cine_camera.cc
   grass_baker.cc
   land_baker.cc
   planet_tile.cc
