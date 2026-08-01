@@ -1006,6 +1006,11 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
 
   PrefetchCells(center_x, center_y, radius);
 
+  // The ring this Update streams: what a carried reference has to stay inside.
+  ring_center_x_ = center_x;
+  ring_center_y_ = center_y;
+  ring_radius_ = radius;
+
   base::Vector<u32> to_unload;
   for (auto kv : loaded_) {
     i16 x = static_cast<i16>(kv.key >> 16);
@@ -1015,6 +1020,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     }
   }
   for (u32 key : to_unload) UnloadCell(world, key);
+  SweepCarriedRefs(world);
 
   // Near to far so the ground under the camera appears first.
   u32 mesh_budget = settings_.mesh_budget;
@@ -1184,18 +1190,75 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y
   return true;
 }
 
+void CellStreamer::ReleaseEntity(ecs::World& world, ecs::Entity entity) {
+  PersistPropState(world, entity);
+  if (physics_)
+    if (const PropPhysics* body = world.Get<PropPhysics>(entity); body && body->body)
+      physics_->RemoveBody(body->body);
+  if (quest_world_)
+    if (const FormLink* link = world.Get<FormLink>(entity))
+      quest_world_->Unregister(link->form.packed());
+  world.Destroy(entity);
+}
+
+bool CellStreamer::CellInRing(i16 grid_x, i16 grid_y) const {
+  return std::abs(grid_x - ring_center_x_) <= ring_radius_ &&
+         std::abs(grid_y - ring_center_y_) <= ring_radius_;
+}
+
+void CellStreamer::SweepCarriedRefs(ecs::World& world) {
+  size_t keep = 0;
+  for (size_t i = 0; i < carried_refs_.size(); ++i) {
+    const ecs::Entity entity = carried_refs_[i];
+    if (!world.IsAlive(entity)) continue;  // destroyed by whoever owns it now
+    i16 host_x = 0, host_y = 0;
+    if (const Transform* t = world.Get<Transform>(entity)) GridForPosition(t->position, &host_x,
+                                                                          &host_y);
+    if (!CellInRing(host_x, host_y)) {
+      ReleaseEntity(world, entity);
+      --spawned_entities_;
+      continue;
+    }
+    if (CellMembership* member = world.Get<CellMembership>(entity)) {
+      member->grid_x = host_x;
+      member->grid_y = host_y;
+    }
+    carried_refs_[keep++] = entity;
+  }
+  carried_refs_.resize(keep);
+}
+
+void CellStreamer::GridForPosition(const f32 position[3], i16* grid_x, i16* grid_y) const {
+  const f32 beth_x = (position[0] - world_offset_.x) / units_to_meters_;
+  const f32 beth_y = -(position[2] - world_offset_.z) / units_to_meters_;
+  *grid_x = static_cast<i16>(std::floor(beth_x / cell_size_));
+  *grid_y = static_cast<i16>(std::floor(beth_y / cell_size_));
+}
+
 void CellStreamer::UnloadCell(ecs::World& world, u32 key) {
   LoadedCell* cell = loaded_.find(key);
   if (!cell) return;
+  size_t rehomed = 0;
   for (ecs::Entity entity : cell->entities) {
-    PersistPropState(world, entity);
-    if (physics_)
-      if (const PropPhysics* body = world.Get<PropPhysics>(entity); body && body->body)
-        physics_->RemoveBody(body->body);
-    if (quest_world_)
-      if (const FormLink* link = world.Get<FormLink>(entity))
-        quest_world_->Unregister(link->form.packed());
-    world.Destroy(entity);
+    // A reference that has moved out of this cell belongs where it is now: a scene
+    // stages its cast on a marker in the next cell, a travel package walks an actor
+    // across the grid. Unloading the cell it was authored in must not delete it out
+    // from under whoever moved it, so the streamer carries it instead, for as long
+    // as it is inside the streamed ring.
+    if (CellMembership* member = world.Get<CellMembership>(entity); member && !member->interior) {
+      if (const Transform* t = world.Get<Transform>(entity)) {
+        i16 host_x = 0, host_y = 0;
+        GridForPosition(t->position, &host_x, &host_y);
+        if (CellKey(host_x, host_y) != key && CellInRing(host_x, host_y)) {
+          member->grid_x = host_x;
+          member->grid_y = host_y;
+          carried_refs_.push_back(entity);
+          ++rehomed;
+          continue;
+        }
+      }
+    }
+    ReleaseEntity(world, entity);
   }
   if (uploads_.remove_instances) {
     for (render::InstanceGroupHandle handle : cell->instance_groups) {
@@ -1206,7 +1269,7 @@ void CellStreamer::UnloadCell(ecs::World& world, u32 key) {
     if (cell->terrain_body) physics_->RemoveBody(cell->terrain_body);
     for (physics::BodyId body : cell->bodies) physics_->RemoveBody(body);
   }
-  spawned_entities_ -= cell->entities.size();
+  spawned_entities_ -= cell->entities.size() - rehomed;
   spawned_instances_ -= cell->instance_count;
   loaded_.erase(key);
 }
@@ -2547,6 +2610,10 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
   // Persistently removed refs (e.g. an item the player picked up) never re-place,
   // even after their cell streams out and back in.
   if (ref_suppressor_ && ref_suppressor_(id.packed())) return true;
+  // Nor does one that is already in the world: a reference moved out of this cell
+  // was re-homed rather than deleted (see UnloadCell), and placing it again from
+  // the record would leave two of the same actor standing in Skyrim.
+  if (quest_world_ && world.IsAlive(quest_world_->Find(id.packed()))) return true;
 
   bethesda::Record refr;
   if (!records_.Parse(id, &refr)) return true;
@@ -3572,14 +3639,7 @@ bool CellStreamer::LoadInterior(ecs::World& world, bethesda::GlobalFormId cell_i
 
 void CellStreamer::UnloadInterior(ecs::World& world) {
   for (ecs::Entity entity : interior_cell_.entities) {
-    PersistPropState(world, entity);
-    if (physics_)
-      if (const PropPhysics* body = world.Get<PropPhysics>(entity); body && body->body)
-        physics_->RemoveBody(body->body);
-    if (quest_world_)
-      if (const FormLink* link = world.Get<FormLink>(entity))
-        quest_world_->Unregister(link->form.packed());
-    world.Destroy(entity);
+    ReleaseEntity(world, entity);
   }
   if (uploads_.remove_instances) {
     for (render::InstanceGroupHandle handle : interior_cell_.instance_groups) {
@@ -3625,6 +3685,14 @@ void CellStreamer::UnloadAllCells(ecs::World& world) {
   base::Vector<u32> keys;
   for (auto kv : loaded_) keys.push_back(kv.key);
   for (u32 key : keys) UnloadCell(world, key);
+  // A full teardown takes the carried references with it: nothing of this domain
+  // stays behind.
+  for (ecs::Entity entity : carried_refs_)
+    if (world.IsAlive(entity)) {
+      ReleaseEntity(world, entity);
+      --spawned_entities_;
+    }
+  carried_refs_.clear();
   if (interior_active_) {
     UnloadInterior(world);
     interior_active_ = false;

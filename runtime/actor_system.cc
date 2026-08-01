@@ -162,13 +162,6 @@ int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
   return a ? static_cast<int>(a->parts.size()) : 0;
 }
 
-void ActorSystem::DropNpcInstance(ecs::Entity npc) {
-  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
-  if (Actor* a = npc_actors_.find(key); a && a->hair_groom)
-    renderer_.DestroyHairGroom(a->hair_groom);
-  npc_actors_.erase(key);
-}
-
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);
@@ -1636,21 +1629,37 @@ void ActorSystem::EmitDraws(render::FrameView& view) {
     EmitOneActor(*actor, view);
   }
   // Only latch once there is something to report: the first frames have no NPC
-  // instances yet, and a one-shot dump that fires then prints nothing.
-  if (std::getenv("RX_ACTOR_DUMP") && !actor_dump_done_ && npc_actors_.size() >= 8) {
+  // instances yet, and a one-shot dump that fires then prints nothing. The value is
+  // how many instances to wait for, so a dump can be aimed at a streamed-in crowd.
+  const char* dump_at = std::getenv("RX_ACTOR_DUMP");
+  const size_t dump_min = dump_at && std::atoi(dump_at) > 1 ? size_t(std::atoi(dump_at)) : 8;
+  if (dump_at && !actor_dump_done_ && npc_actors_.size() >= dump_min) {
     actor_dump_done_ = true;
     for (auto entry : npc_actors_) {
-      const Actor& a = entry.value;
+      Actor& a = entry.value;
       const world::Transform* t = world_.Get<world::Transform>(a.entity);
+      // The pose is what decides whether a healthy-looking instance draws anything:
+      // a palette of degenerate matrices collapses every vertex to a point.
+      std::string pose = "no skin";
+      for (ActorPart& part : a.parts) {
+        if (part.attach_bone >= 0) continue;
+        base::Vector<Mat4> palette;
+        anim::BuildSkinPalette(a.bone_model, part.skin, part.remap, &palette);
+        if (palette.empty()) break;
+        const Mat4& m = palette[0];
+        pose = Fmt("palette %zu [0] t=(%.2f %.2f %.2f) col0=(%.3f %.3f %.3f)", palette.size(),
+                   m.m[12], m.m[13], m.m[14], m.m[0], m.m[1], m.m[2]);
+        break;
+      }
       RX_INFO(
           "actor dump: entity {}:{} at {} parts {} mesh {:x} bones {} bone_model {} skin {} "
-          "remap {}",
+          "remap {} animate {} clip {} {}",
           a.entity.index, a.entity.generation,
           t ? Fmt("(%.0f, %.0f, %.0f)", t->position[0], t->position[1], t->position[2])
             : std::string("none"),
           a.parts.size(), a.parts.empty() ? 0 : a.parts[0].mesh.hash, a.skeleton.bones.size(),
           a.bone_model.size(), a.parts.empty() ? 0 : a.parts[0].skin.bones.size(),
-          a.parts.empty() ? 0 : a.parts[0].remap.size());
+          a.parts.empty() ? 0 : a.parts[0].remap.size(), a.animate, a.havok_clip != nullptr, pose);
     }
   }
   if (fp_visible_) EmitFpRig(view);
@@ -2052,7 +2061,8 @@ void ActorSystem::SyncNpcActors() {
         world_.Has<world::Deleted>(entry.value.entity))
       scratch_dead_actors_.push_back(entry.key);
   for (u64 key : scratch_dead_actors_) {
-    if (Actor* a = npc_actors_.find(key); a && a->hair_groom) renderer_.DestroyHairGroom(a->hair_groom);
+    if (Actor* a = npc_actors_.find(key); a && a->hair_groom)
+      renderer_.DestroyHairGroom(a->hair_groom);
     npc_actors_.erase(key);
   }
 }

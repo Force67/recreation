@@ -35,12 +35,6 @@ base::Option<bool> SceneCamera{"scene.camera", true, "RX_SCENE_CAMERA"};
 base::Option<bool> SceneVoice{"scene.voice", true, "RX_SCENE_VOICE"};
 // Letterbox bars while a scene owns the view.
 base::Option<bool> SceneLetterbox{"scene.letterbox", true, "RX_SCENE_LETTERBOX"};
-// RX_SCENE_STANDIN gives every performer a freshly built body that the director
-// drives at the performer's transform. A streamed NPC's own instance sometimes draws
-// nothing at all on the streamer's entity (see docs/CUTSCENES.md), and this makes
-// those casts visible; it is off by default because building a body mid-scene can
-// evict what the cell already had resident.
-base::Option<bool> SceneStandIn{"scene.standin", false, "RX_SCENE_STANDIN"};
 // RX_SCENE_SHOT pins every shot to one kind (0 over-shoulder, 1 reverse, 2 two-shot,
 // 3 close-up, 4 wide), for framing work and for checking a staged scene from a known
 // distance. -1 leaves the shot director in charge.
@@ -597,64 +591,6 @@ void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
   }
 }
 
-void CutsceneDirector::StandInCast(const std::vector<u64>& cast) {
-  if (!SceneStandIn || !ctx_.quest_world || !ctx_.world || !ctx_.records) return;
-  static constexpr const char* kIdleClip = "meshes/actors/character/animations/mt_idle_a_base.hkx";
-  for (u64 ref : cast) {
-    if (stand_ins_.count(ref)) continue;
-    const ecs::Entity e = ctx_.quest_world->Find(ref);
-    if (!ctx_.world->IsAlive(e) || ctx_.world->Has<world::Hidden>(e)) continue;
-    const world::Transform* t = ctx_.world->Get<world::Transform>(e);
-    if (!t) continue;
-    // The performer's NPC record is what the stand-in is built from, so it is the
-    // same character with the same head.
-    const bethesda::GlobalFormId id{static_cast<u16>(ref >> 32), static_cast<u32>(ref)};
-    bethesda::Record achr;
-    if (!ctx_.records->Parse(id, &achr)) continue;
-    const u32 base_raw = FormAt(achr.Find(FourCc('N', 'A', 'M', 'E')));
-    if (!base_raw) continue;
-    const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(id);
-    const bethesda::GlobalFormId base = ctx_.records->ResolveFrom(
-        bethesda::RawFormId{base_raw}, stored ? stored->winning_plugin : 0);
-    const Vec3 at{t->position[0], t->position[1], t->position[2]};
-    const ecs::Entity body = actors_->SpawnScriptedNpc(base, kIdleClip, at, 0.0f, 0);
-    if (!ctx_.world->IsAlive(body)) continue;
-    actors_->DropNpcInstance(e);  // only one body per performer
-    stand_ins_[ref] = body;
-    RX_INFO("cutscene: {} stands in for 0x{:x}", body.index, ref);
-  }
-}
-
-void CutsceneDirector::DriveStandIns() {
-  if (stand_ins_.empty()) return;
-  for (auto& [ref, body] : stand_ins_) {
-    const ecs::Entity performer = ctx_.quest_world->Find(ref);
-    const world::Transform* from = ctx_.world->Get<world::Transform>(performer);
-    world::Transform* to = ctx_.world->Get<world::Transform>(body);
-    if (!from || !to) continue;  // streamed out: the stand-in holds its last mark
-    for (int axis = 0; axis < 3; ++axis) to->position[axis] = from->position[axis];
-    for (int axis = 0; axis < 4; ++axis) to->rotation[axis] = from->rotation[axis];
-    // Streaming the performer back in gives it a new instance; the stand-in is the
-    // one body that draws, so keep it the only one.
-    if (actors_->HasNpcInstance(performer)) actors_->DropNpcInstance(performer);
-  }
-}
-
-void CutsceneDirector::ClearStandIns() {
-  if (stand_ins_.empty()) return;
-  for (auto& [ref, body] : stand_ins_) {
-    actors_->DropNpcInstance(body);
-    if (ctx_.world->IsAlive(body)) ctx_.world->Destroy(body);
-  }
-  stand_ins_.clear();
-}
-
-ecs::Entity CutsceneDirector::BodyOf(u64 ref) const {
-  const auto it = stand_ins_.find(ref);
-  if (it != stand_ins_.end()) return it->second;
-  return ctx_.quest_world ? ctx_.quest_world->Find(ref) : ecs::Entity{};
-}
-
 void CutsceneDirector::PoseCast(const std::vector<u64>& cast) {
   // The game's standing movement idle: the clip every actor holds when it is doing
   // nothing else, and the one that puts a talking actor on its feet.
@@ -862,7 +798,7 @@ void CutsceneDirector::OnQuestStarted(u64 quest) {
 bool CutsceneDirector::LiveActor(u64 handle) const {
   if (handle == kPlayerHandle) return actors_->HasPlayer();
   if (!ctx_.quest_world || !ctx_.world) return false;
-  const ecs::Entity e = BodyOf(handle);
+  const ecs::Entity e = ctx_.quest_world->Find(handle);
   return ctx_.world->IsAlive(e) && !ctx_.world->Has<world::Hidden>(e);
 }
 
@@ -879,7 +815,7 @@ bool CutsceneDirector::HeadOf(u64 handle, Vec3* out) const {
     return true;
   }
   if (!ctx_.quest_world || !ctx_.world) return false;
-  const ecs::Entity e = BodyOf(handle);
+  const ecs::Entity e = ctx_.quest_world->Find(handle);
   if (ctx_.world->IsAlive(e)) {
     const world::Transform* t = ctx_.world->Get<world::Transform>(e);
     const Vec3 body = t ? Vec3{t->position[0], t->position[1] + 1.6f, t->position[2]} : Vec3{};
@@ -947,6 +883,20 @@ void CutsceneDirector::DriveCamera(f32 dt) {
     speaker_head = head;
     best = distance;
   }
+  // Stay with the scene already on camera while it is still speaking. Several scenes
+  // of one quest play at once (MQ101 runs seventeen), and cutting away mid-line also
+  // drags the streamed world back and forth across the map.
+  if (subject && subject->scene != subject_scene_) {
+    for (const auto& p : playing_) {
+      if (p->scene != subject_scene_ || p->caption.empty()) continue;
+      Vec3 head;
+      if (!LiveActor(p->speaker) || !HeadOf(p->speaker, &head)) break;
+      if (Length(head - viewer) > kWatchRadius && p->quest != armed_quest_) break;
+      subject = p.get();
+      speaker_head = head;
+      break;
+    }
+  }
   bool have = subject != nullptr;
   bool establishing = false;
   // Nobody speaking yet (a scene walks its cast to their marks before the first
@@ -958,9 +908,8 @@ void CutsceneDirector::DriveCamera(f32 dt) {
       for (u64 ref : p->cast) {
         if (!LiveActor(ref) || !HeadOf(ref, &speaker_head)) continue;
         // Prefer a performer that is actually being drawn: an ECS entity with no
-        // skinned instance would frame an empty spot. A performer with a stand-in is
-        // drawn by the stand-in's body, not its own.
-        const ecs::Entity e = BodyOf(ref);
+        // skinned instance would frame an empty spot.
+        const ecs::Entity e = ctx_.quest_world->Find(ref);
         if (!actors_->HasNpcInstance(e)) continue;
         RX_DEBUG("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
                  actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
@@ -1109,7 +1058,6 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
       EnableCast(p.quest, p.editor_id, p.cast);
       GroundCast(p.cast);
       PoseCast(p.cast);
-      StandInCast(p.cast);
     }
     Sink sink(*this, p);
     p.runtime.Tick(dt, sink);
@@ -1123,8 +1071,6 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
   }
   if (playing_.empty()) view_released_ = false;
 
-  DriveStandIns();
-  if (playing_.empty()) ClearStandIns();
   DriveCamera(dt);
   UpdateOverlay(dt);
   // The armed quest's journal is the thing a cutscene is supposed to move, so log

@@ -77,9 +77,6 @@ class ActorSystem {
   // holding the clip puts them in the chair (or the cart bed). False when the entity
   // has no actor instance or the clip is missing.
   bool PlayNpcClip(ecs::Entity npc, const std::string& clip_path);
-  // Drops a streamed NPC's actor instance so nothing draws for that entity. Used
-  // when something else takes over its body (see the cutscene director's stand-ins).
-  void DropNpcInstance(ecs::Entity npc);
   // Whether a streamed NPC entity has a skinned actor instance, i.e. whether it is
   // being drawn at all. What tells a scene director that its cast is really on
   // screen rather than merely present in the ECS.
