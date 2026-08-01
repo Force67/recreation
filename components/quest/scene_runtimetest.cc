@@ -23,7 +23,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 struct RecordingSink : SceneRuntimeSink {
@@ -157,7 +158,8 @@ void TestCompletionGate() {
   RecordingSink s2;
   s2.gate_passes = false;
   stuck.Start(&plan, s2);
-  for (int i = 0; i < 40 && stuck.playing(); ++i) stuck.Tick(0.2f, s2);
+  for (int i = 0; i < 40 && stuck.playing(); ++i)
+    stuck.Tick(0.2f, s2);
   Check("a gate that never passes gives way to the timeout", !stuck.playing());
 }
 
@@ -207,7 +209,8 @@ void TestStopAndBuild() {
   };
   b.line = [](i32 alias, rx::u64 topic, rx::u64 speaker, rx::u64* info, base::String* text,
               f32* seconds) {
-    if (speaker == 0 || alias < 0) return false;
+    if (speaker == 0 || alias < 0)
+      return false;
     *info = topic | 0xf0000;
     *text = topic == 0xaaa ? "first" : "last";
     *seconds = 3.0f;

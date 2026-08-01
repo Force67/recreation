@@ -22,9 +22,12 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
-bool Near(float a, float b, float eps = 0.01f) { return std::fabs(a - b) < eps; }
+bool Near(float a, float b, float eps = 0.01f) {
+  return std::fabs(a - b) < eps;
+}
 
 // Records the death notifications routed to the world sink, so we can assert the
 // main-thread driver would be told to drop the dead actor.
@@ -91,7 +94,8 @@ void TestBindingsCombat() {
 
   rx::u64 killer = 0;
   binds.set_event_sink([&](const rx::script::host::ManagedEvent& e) {
-    if (e.id == rx::script::host::ManagedEventId::kActorDied) killer = e.b;
+    if (e.id == rx::script::host::ManagedEventId::kActorDied)
+      killer = e.b;
   });
 
   const ObjectRef soldier{0x100};

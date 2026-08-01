@@ -3,8 +3,8 @@
 
 #include <base/containers/unordered_map.h>
 
-#include "components/bethesda/movement_type.h"
 #include "character/character.h"
+#include "components/bethesda/movement_type.h"
 #include "core/math.h"
 #include "ecs/entity.h"
 
@@ -43,8 +43,13 @@ class PlayerController {
   // direction (world-space, unit length) for quest-guided auto-walk. Fills
   // intent, runs the pipeline, writes ctx_.walk_eye/walk_target/cam_yaw and feeds
   // the actor. `out_feet` receives the player feet position (melee / battle cam).
-  void Update(f32 dt, const InputState& input, const ActionState& actions, bool allow,
-              bool auto_walk_active, const Vec3& auto_move, Vec3* out_feet);
+  void Update(f32 dt,
+              const InputState& input,
+              const ActionState& actions,
+              bool allow,
+              bool auto_walk_active,
+              const Vec3& auto_move,
+              Vec3* out_feet);
 
   // The camera-space eye transform (world position + orientation) the first-person
   // equipment layer attaches arms to. Valid after the first Update.
@@ -52,8 +57,12 @@ class PlayerController {
   const Quat& eye_orientation() const { return eye_orientation_; }
 
  private:
-  void FillIntent(const InputState& input, const ActionState& actions, bool allow,
-                  bool auto_walk_active, const Vec3& auto_move, f32 dt);
+  void FillIntent(const InputState& input,
+                  const ActionState& actions,
+                  bool allow,
+                  bool auto_walk_active,
+                  const Vec3& auto_move,
+                  f32 dt);
   void ReconcileViewMode();  // sync rx view kind to ctx_.third_person (smooth toggle)
   void ApplyZoom(f32 wheel);
   void PublishCamera();

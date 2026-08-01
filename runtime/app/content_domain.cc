@@ -11,14 +11,16 @@
 #include "components/bethesda/converters.h"
 #include "components/bethesda/record.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/log.h"
 #include "components/quest/quest_def.h"
 #include "components/script/papyrus/value.h"
+#include "core/log.h"
 
 namespace rx {
 
-bool ContentDomain::Load(bethesda::Game game, const base::String& data_dir,
-                         const base::String& plugins_txt, bool replica_mode) {
+bool ContentDomain::Load(bethesda::Game game,
+                         const base::String& data_dir,
+                         const base::String& plugins_txt,
+                         bool replica_mode) {
   game_ =
       game != bethesda::Game::kUnknown ? game : bethesda::GameProfile::DetectFromDataDir(data_dir);
   if (game_ == bethesda::Game::kUnknown) {
@@ -41,7 +43,8 @@ bool ContentDomain::Load(bethesda::Game game, const base::String& data_dir,
   bethesda::RegisterConverters(*assets_, *profile_);
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(plugins_txt, *profile_);
-  if (!records_.LoadAll(data_dir, order, *profile_)) return false;
+  if (!records_.LoadAll(data_dir, order, *profile_))
+    return false;
   RX_INFO("domain {}: {} plugins, {} records", profile_->name, order.plugins().size(),
           records_.record_count());
 
@@ -65,17 +68,21 @@ bool ContentDomain::Load(bethesda::Game game, const base::String& data_dir,
 }
 
 int ContentDomain::AttachQuestScripts(int max_quests) {
-  if (!scripts_) return 0;
+  if (!scripts_)
+    return 0;
   int quests = 0;
   int instances = 0;
   records_.EachOfType(
       FourCc('Q', 'U', 'S', 'T'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
-        if (max_quests > 0 && quests >= max_quests) return;
+        if (max_quests > 0 && quests >= max_quests)
+          return;
         bethesda::Record record;
-        if (!records_.Parse(id, &record)) return;
+        if (!records_.Parse(id, &record))
+          return;
         const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
-        if (!vmad) return;
+        if (!vmad)
+          return;
         bethesda::ScriptAttachment attachment;
         base::Vector<bethesda::QuestStageFragment> fragments;
         if (!bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments) ||
@@ -106,7 +113,8 @@ int ContentDomain::AttachQuestScripts(int max_quests) {
 }
 
 void ContentDomain::Tick(f32 dt) {
-  if (scripts_) scripts_->Tick(dt);
+  if (scripts_)
+    scripts_->Tick(dt);
 }
 
 }  // namespace rx

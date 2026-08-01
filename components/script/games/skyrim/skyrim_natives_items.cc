@@ -3,12 +3,14 @@
 
 namespace rx::script::skyrim {
 
+using ext::ArgB;
+using ext::ArgI;
+using ext::ArgO;
+using ext::Args;
+using ext::Resolve;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
-using ext::ArgB; using ext::ArgI; using ext::ArgO;
-using ext::Resolve;
 namespace st = state;
 
 void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -29,23 +31,27 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   });
   reg.Register("FormList", "HasForm", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     ObjectRef form = ArgO(a, 0);
-    if (st::HasMember(self, "list", form)) return Value::Bool(true);
+    if (st::HasMember(self, "list", form))
+      return Value::Bool(true);
     auto& b = Resolve(bindings);
     for (i32 i = 0, n = b.GetFormListSize(self); i < n; ++i)
-      if (b.GetNthListForm(i).handle == form.handle) return Value::Bool(true);
+      if (b.GetNthListForm(i).handle == form.handle)
+        return Value::Bool(true);
     return Value::Bool(false);
   });
   reg.Register("FormList", "GetAt", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     i32 index = ArgI(a, 0);
     i32 base = Resolve(bindings).GetFormListSize(self);
-    if (index >= 0 && index < base) return Value::Object(Resolve(bindings).GetNthListForm(index));
+    if (index >= 0 && index < base)
+      return Value::Object(Resolve(bindings).GetNthListForm(index));
     return Value::Object(ObjectRef{});  // a runtime-added form, which the set store cannot order
   });
   reg.Register("FormList", "Find", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     ObjectRef form = ArgO(a, 0);
     auto& b = Resolve(bindings);
     for (i32 i = 0, n = b.GetFormListSize(self); i < n; ++i)
-      if (b.GetNthListForm(i).handle == form.handle) return Value::Int(i);
+      if (b.GetNthListForm(i).handle == form.handle)
+        return Value::Int(i);
     return Value::Int(-1);
   });
   reg.Register("FormList", "Revert", noop);  // no wipe API, runtime additions stay
@@ -70,7 +76,8 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   auto hostile = [bindings](VirtualMachine&, ObjectRef self, Args&) {
     auto& b = Resolve(bindings);
     for (i32 i = 0, n = b.GetMagicEffectCount(self); i < n; ++i)
-      if (b.GetMagicEffectDetrimental(b.GetNthMagicEffectId(i))) return Value::Bool(true);
+      if (b.GetMagicEffectDetrimental(b.GetNthMagicEffectId(i)))
+        return Value::Bool(true);
     return Value::Bool(false);
   };
   reg.Register("Spell", "IsHostile", hostile);
@@ -85,28 +92,24 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Ingredient", "LearnAllEffects", learned);
 
   // The actor value the effect modifies is the closest available skill.
-  reg.Register("MagicEffect", "GetAssociatedSkill", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Str(Resolve(bindings).GetMagicEffectActorValue(self));
-  });
+  reg.Register("MagicEffect", "GetAssociatedSkill",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Str(Resolve(bindings).GetMagicEffectActorValue(self));
+               });
 
-  reg.Register("Armor", "GetWarmthRating", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Float(0.0f);
-  });
-  reg.Register("Light", "GetWarmthRating", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Float(0.0f);
-  });
+  reg.Register("Armor", "GetWarmthRating",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Float(0.0f); });
+  reg.Register("Light", "GetWarmthRating",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Float(0.0f); });
 
-  reg.Register("Keyword", "SendStoryEvent", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
-  reg.Register("Keyword", "SendStoryEventAndWait", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
+  reg.Register("Keyword", "SendStoryEvent",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
+  reg.Register("Keyword", "SendStoryEventAndWait",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 
   reg.Register("Topic", "Add", noop);
-  reg.Register("Scene", "IsActionComplete", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
+  reg.Register("Scene", "IsActionComplete",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 }
 
 }  // namespace rx::script::skyrim

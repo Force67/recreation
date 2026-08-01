@@ -3,34 +3,63 @@
 
 namespace rx::script::skyrim {
 
-using papyrus::ObjectRef;
-using papyrus::Value;
-using papyrus::VirtualMachine;
-using ext::Args;
 using ext::ArgB;
 using ext::ArgF;
 using ext::ArgI;
 using ext::ArgO;
+using ext::Args;
 using ext::ArgS;
 using ext::Resolve;
+using papyrus::ObjectRef;
+using papyrus::Value;
+using papyrus::VirtualMachine;
 namespace st = state;
 
 void RegisterObjectRefExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   // Pure engine commands with no observable script state: wired no-ops until the
   // animation, physics, translation and ragdoll subsystems exist.
   auto noop = [](VirtualMachine&, ObjectRef, Args&) { return Value(); };
-  for (const char* fn :
-       {"AddDependentAnimatedObjectReference", "AddInventoryEventFilter", "AddToMap",
-        "ApplyHavokImpulse", "CreateDetectionEvent", "DamageObject", "DisableNoWait", "DropObject",
-        "EnableFastTravel", "EnableNoWait", "ForceAddRagdollToWorld", "ForceRemoveRagdollFromWorld",
-        "InterruptCast", "KnockAreaEffect", "MoveToInteractionLocation", "MoveToMyEditorLocation",
-        "MoveToNode", "PlayAnimation", "PlayAnimationAndWait", "PlayGamebryoAnimation",
-        "PlayImpactEffect", "PlaySyncedAnimationAndWaitSS", "PlaySyncedAnimationSS",
-        "PlayTerrainEffect", "ProcessTrapHit", "PushActorAway", "RemoveAllInventoryEventFilters",
-        "RemoveAllStolenItems", "RemoveDependentAnimatedObjectReference", "RemoveInventoryEventFilter",
-        "Say", "SendStealAlarm", "SetActorCause", "SetContainerAllowStolenItems", "SetNoFavorAllowed",
-        "SplineTranslateTo", "SplineTranslateToRefNode", "StopTranslation", "TetherToHorse",
-        "TranslateTo", "WaitForAnimationEvent"})
+  for (const char* fn : {"AddDependentAnimatedObjectReference",
+                         "AddInventoryEventFilter",
+                         "AddToMap",
+                         "ApplyHavokImpulse",
+                         "CreateDetectionEvent",
+                         "DamageObject",
+                         "DisableNoWait",
+                         "DropObject",
+                         "EnableFastTravel",
+                         "EnableNoWait",
+                         "ForceAddRagdollToWorld",
+                         "ForceRemoveRagdollFromWorld",
+                         "InterruptCast",
+                         "KnockAreaEffect",
+                         "MoveToInteractionLocation",
+                         "MoveToMyEditorLocation",
+                         "MoveToNode",
+                         "PlayAnimation",
+                         "PlayAnimationAndWait",
+                         "PlayGamebryoAnimation",
+                         "PlayImpactEffect",
+                         "PlaySyncedAnimationAndWaitSS",
+                         "PlaySyncedAnimationSS",
+                         "PlayTerrainEffect",
+                         "ProcessTrapHit",
+                         "PushActorAway",
+                         "RemoveAllInventoryEventFilters",
+                         "RemoveAllStolenItems",
+                         "RemoveDependentAnimatedObjectReference",
+                         "RemoveInventoryEventFilter",
+                         "Say",
+                         "SendStealAlarm",
+                         "SetActorCause",
+                         "SetContainerAllowStolenItems",
+                         "SetNoFavorAllowed",
+                         "SplineTranslateTo",
+                         "SplineTranslateToRefNode",
+                         "StopTranslation",
+                         "TetherToHorse",
+                         "TranslateTo",
+                         "WaitForAnimationEvent"})
     reg.Register("ObjectReference", fn, noop);
 
   // PlaceActorAtMe makes a new actor; with no spawn path yet it yields None.
@@ -46,19 +75,22 @@ void RegisterObjectRefExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindin
 
   // Linked ref and parent cell read the placed REFR record. GetLinkedRef takes an
   // optional keyword to pick among several links.
-  reg.Register("ObjectReference", "GetLinkedRef", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Object(Resolve(bindings).GetLinkedRef(self, ArgO(a, 0)));
-  });
-  reg.Register("ObjectReference", "GetParentCell", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Object(Resolve(bindings).GetParentCell(self));
-  });
+  reg.Register("ObjectReference", "GetLinkedRef",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Object(Resolve(bindings).GetLinkedRef(self, ArgO(a, 0)));
+               });
+  reg.Register("ObjectReference", "GetParentCell",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Object(Resolve(bindings).GetParentCell(self));
+               });
 
   // Boolean queries with no backing state: the neutral false keeps script
   // branches that test them behaving.
   auto false_query = [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); };
-  for (const char* fn : {"CanFastTravelToMarker", "HasEffectKeyword", "HasNode", "HasRefType",
-                         "IsActivateChild", "IsDeleted", "IsFurnitureInUse", "IsFurnitureMarkerInUse",
-                         "IsInDialogueWithPlayer", "IsLockBroken", "IsMapMarkerVisible"})
+  for (const char* fn :
+       {"CanFastTravelToMarker", "HasEffectKeyword", "HasNode", "HasRefType", "IsActivateChild",
+        "IsDeleted", "IsFurnitureInUse", "IsFurnitureMarkerInUse", "IsInDialogueWithPlayer",
+        "IsLockBroken", "IsMapMarkerVisible"})
     reg.Register("ObjectReference", fn, false_query);
 
   // Fixed-value queries: no dimensions or destruction model yet.
@@ -112,15 +144,17 @@ void RegisterObjectRefExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindin
     st::SetFlag(self, "activationBlocked", ArgB(a, 0, true));
     return Value();
   });
-  reg.Register("ObjectReference", "IsActivationBlocked", [](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Bool(st::GetFlag(self, "activationBlocked"));
-  });
+  reg.Register("ObjectReference", "IsActivationBlocked",
+               [](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Bool(st::GetFlag(self, "activationBlocked"));
+               });
 
   // Friendly-hit immunity flag.
-  reg.Register("ObjectReference", "IgnoreFriendlyHits", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::SetFlag(self, "ignoreFriendlyHits", ArgB(a, 0, true));
-    return Value();
-  });
+  reg.Register("ObjectReference", "IgnoreFriendlyHits",
+               [](VirtualMachine&, ObjectRef self, Args& a) {
+                 st::SetFlag(self, "ignoreFriendlyHits", ArgB(a, 0, true));
+                 return Value();
+               });
   reg.Register("ObjectReference", "IsIgnoringFriendlyHits",
                [](VirtualMachine&, ObjectRef self, Args&) {
                  return Value::Bool(st::GetFlag(self, "ignoreFriendlyHits"));

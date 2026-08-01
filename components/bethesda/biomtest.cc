@@ -20,26 +20,36 @@ using rx::u8;
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
+void PutU16(base::Vector<u8>& b, u16 v) {
+  b.insert(b.end(), {u8(v), u8(v >> 8)});
+}
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 
 constexpr u32 kDim = 256, kCells = kDim * kDim;
 
 // Fills a hemisphere's biome grid: cells 0..half are biome A, the rest biome B.
-void PutHemisphere(base::Vector<u8>& b, bool with_num_grids, u32 biome_a, u32 biome_b,
+void PutHemisphere(base::Vector<u8>& b,
+                   bool with_num_grids,
+                   u32 biome_a,
+                   u32 biome_b,
                    u32 a_cells) {
-  if (with_num_grids) PutU32(b, 2);  // numGrids (both regions counted)
+  if (with_num_grids)
+    PutU32(b, 2);  // numGrids (both regions counted)
   PutU32(b, kDim);
   PutU32(b, kDim);
   PutU32(b, kCells);
-  for (u32 i = 0; i < kCells; ++i) PutU32(b, i < a_cells ? biome_a : biome_b);
+  for (u32 i = 0; i < kCells; ++i)
+    PutU32(b, i < a_cells ? biome_a : biome_b);
   PutU32(b, kCells);  // resource sub-header (flat)
-  for (u32 i = 0; i < kCells; ++i) b.push_back(static_cast<u8>(i & 0x07));
+  for (u32 i = 0; i < kCells; ++i)
+    b.push_back(static_cast<u8>(i & 0x07));
 }
 
 }  // namespace

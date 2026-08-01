@@ -360,7 +360,10 @@ class GameUi {
 
   // Feed input, drive HUD values from engine state, produce the draw list and
   // fill view->hud_draw. Call once per frame after PumpEvents.
-  void Build(Window& window, render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
+  void Build(Window& window,
+             render::Renderer& renderer,
+             FlyCamera& camera,
+             f32 frame_delta,
              render::FrameView* view);
 
   // Quest HUD, fed by the engine each frame. SetQuest replaces the tracked
@@ -377,7 +380,9 @@ class GameUi {
   // The multiplayer scoreboard (hold-Tab player list). `open` shows the centered
   // panel; `header` is the column header line and `rows` the pre-formatted player
   // rows. Fed from the platform scoreboard channel each frame.
-  void SetScoreboard(bool open, const base::String& title, const base::String& header,
+  void SetScoreboard(bool open,
+                     const base::String& title,
+                     const base::String& header,
                      const base::Vector<base::String>& rows);
   // Multiplayer interaction prompts (already formatted, e.g. "[E]  Open"), shown
   // as a bottom-centre stack. Fed from the platform prompt channel each frame.

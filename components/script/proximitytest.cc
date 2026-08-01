@@ -27,7 +27,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // 400 game units * 0.01428 ~= 5.7 m: includes the 3 m and 4 m refs, not the far.
@@ -43,7 +44,8 @@ int main() {
     saw_102 |= h == 0x102;
     saw_center |= h == 0x14;
     // Distance is reported in game units: 3 m engine -> ~210 game units.
-    if (h == 0x100) check("3 m ref reports ~210 game units", d > 205.0f && d < 215.0f);
+    if (h == 0x100)
+      check("3 m ref reports ~210 game units", d > 205.0f && d < 215.0f);
   }
   check("includes the close refs", saw_100 && saw_101);
   check("excludes the far ref", !saw_102);

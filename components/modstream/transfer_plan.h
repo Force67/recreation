@@ -19,8 +19,7 @@ struct NeededFile {
 // several resources is fetched once. Order is the manifest's, by first
 // appearance, so the plan is deterministic. An up-to-date client gets an empty
 // plan and downloads nothing.
-std::vector<NeededFile> ComputeMissing(const ModManifest& manifest,
-                                       const ContentStore& store);
+std::vector<NeededFile> ComputeMissing(const ModManifest& manifest, const ContentStore& store);
 
 // Total bytes a plan will transfer, for progress reporting and join budgeting.
 u64 PlannedBytes(const std::vector<NeededFile>& plan);

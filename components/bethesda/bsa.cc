@@ -1,6 +1,6 @@
-#include <functional>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,7 +52,8 @@ class BsaProvider final : public asset::FileProvider {
 
   bool Parse() {
     std::ifstream file(path_.c_str(), std::ios::binary);
-    if (!file) return false;
+    if (!file)
+      return false;
     file.seekg(header_.folder_records_offset);
 
     // v105: u64 hash, u32 count, u32 pad, u64 offset. v104: u64, u32, u32.
@@ -76,7 +77,8 @@ class BsaProvider final : public asset::FileProvider {
         file.read(reinterpret_cast<char*>(&length), 1);
         folder_name.resize(length);
         file.read(folder_name.data(), length);
-        while (!folder_name.empty() && folder_name.back() == '\0') folder_name.pop_back();
+        while (!folder_name.empty() && folder_name.back() == '\0')
+          folder_name.pop_back();
       }
       folder_names.push_back(asset::NormalizePath(folder_name));
       for (u32 j = 0; j < folder_file_counts[i]; ++j) {
@@ -89,19 +91,23 @@ class BsaProvider final : public asset::FileProvider {
         file_folder.push_back(i);
       }
     }
-    if (!file || !(header_.archive_flags & kFlagIncludeFileNames)) return false;
+    if (!file || !(header_.archive_flags & kFlagIncludeFileNames))
+      return false;
 
     // The file name block: file_count zero terminated strings.
     base::String names(header_.total_file_name_length, '\0');
     file.read(names.data(), static_cast<std::streamsize>(names.size()));
-    if (!file) return false;
+    if (!file)
+      return false;
     size_t pos = 0;
     for (size_t i = 0; i < files.size(); ++i) {
-      if (pos >= names.size()) return false;
+      if (pos >= names.size())
+        return false;
       base::StringRef name(names.c_str() + pos);
       pos += name.size() + 1;
       base::String full = folder_names[file_folder[i]];
-      if (!full.empty()) full += '/';
+      if (!full.empty())
+        full += '/';
       full += asset::NormalizePath(name);
       entries_.emplace(base::move(full), files[i]);
     }
@@ -114,11 +120,13 @@ class BsaProvider final : public asset::FileProvider {
 
   std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
     auto* it = entries_.find(base::String(normalized_path));
-    if (it == nullptr) return std::nullopt;
+    if (it == nullptr)
+      return std::nullopt;
     const FileEntry& entry = *it;
 
     bool compressed = header_.archive_flags & kFlagCompressedByDefault;
-    if (entry.size & kFileSizeCompressionToggle) compressed = !compressed;
+    if (entry.size & kFileSizeCompressionToggle)
+      compressed = !compressed;
     u32 size = entry.size & ~kFileSizeCompressionToggle;
 
     std::ifstream file(path_.c_str(), std::ios::binary);
@@ -134,7 +142,8 @@ class BsaProvider final : public asset::FileProvider {
     if (!compressed) {
       base::Vector<u8> data(size);
       file.read(reinterpret_cast<char*>(data.data()), size);
-      if (!file) return std::nullopt;
+      if (!file)
+        return std::nullopt;
       return data;
     }
 
@@ -143,7 +152,8 @@ class BsaProvider final : public asset::FileProvider {
     base::Vector<u8> compressed_data(size - 4);
     file.read(reinterpret_cast<char*>(compressed_data.data()),
               static_cast<std::streamsize>(compressed_data.size()));
-    if (!file) return std::nullopt;
+    if (!file)
+      return std::nullopt;
     base::Vector<u8> data(uncompressed_size);
     ByteSpan src(compressed_data.data(), compressed_data.size());
     bool ok = header_.version >= 105 ? Lz4FrameDecompress(src, data.data(), data.size())
@@ -156,7 +166,8 @@ class BsaProvider final : public asset::FileProvider {
   }
 
   void Enumerate(const std::function<void(std::string_view)>& fn) const override {
-    for (const auto& [name, entry] : entries_) fn(name);
+    for (const auto& [name, entry] : entries_)
+      fn(name);
   }
 
   std::string name() const override { return path_.c_str(); }
@@ -177,27 +188,33 @@ class LegacyBsaProvider final : public asset::FileProvider {
 
   bool Parse() {
     std::ifstream file(path_.c_str(), std::ios::binary);
-    if (!file) return false;
+    if (!file)
+      return false;
     u32 header[3];  // version, hash table offset (from byte 12), file count
     file.read(reinterpret_cast<char*>(header), 12);
-    if (!file || header[0] != 0x100) return false;
+    if (!file || header[0] != 0x100)
+      return false;
     const u32 hash_offset = header[1];
     const u32 count = header[2];
-    if (count == 0 || count > 1'000'000) return false;
+    if (count == 0 || count > 1'000'000)
+      return false;
 
     base::Vector<FileEntry> files(count);
     base::Vector<u32> name_offsets(count);
     file.read(reinterpret_cast<char*>(files.data()), 8ull * count);
     file.read(reinterpret_cast<char*>(name_offsets.data()), 4ull * count);
     const size_t names_size = hash_offset - 12ull * count;
-    if (hash_offset < 12ull * count) return false;
+    if (hash_offset < 12ull * count)
+      return false;
     base::String names(names_size, '\0');
     file.read(names.data(), static_cast<std::streamsize>(names.size()));
-    if (!file) return false;
+    if (!file)
+      return false;
 
     data_offset_ = 12ull + hash_offset + 8ull * count;
     for (u32 i = 0; i < count; ++i) {
-      if (name_offsets[i] >= names.size()) return false;
+      if (name_offsets[i] >= names.size())
+        return false;
       base::StringRef name(names.c_str() + name_offsets[i]);
       entries_.emplace(asset::NormalizePath(name), files[i]);
     }
@@ -210,17 +227,20 @@ class LegacyBsaProvider final : public asset::FileProvider {
 
   std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
     auto* it = entries_.find(base::String(normalized_path));
-    if (it == nullptr) return std::nullopt;
+    if (it == nullptr)
+      return std::nullopt;
     std::ifstream file(path_.c_str(), std::ios::binary);
     file.seekg(static_cast<std::streamoff>(data_offset_ + it->offset));
     base::Vector<u8> data(it->size);
     file.read(reinterpret_cast<char*>(data.data()), it->size);
-    if (!file) return std::nullopt;
+    if (!file)
+      return std::nullopt;
     return data;
   }
 
   void Enumerate(const std::function<void(std::string_view)>& fn) const override {
-    for (const auto& [name, entry] : entries_) fn(name);
+    for (const auto& [name, entry] : entries_)
+      fn(name);
   }
 
   std::string name() const override { return path_.c_str(); }
@@ -235,7 +255,8 @@ class LegacyBsaProvider final : public asset::FileProvider {
 
 base::UniquePointer<asset::FileProvider> OpenBsa(const base::String& path) {
   std::ifstream file(path.c_str(), std::ios::binary);
-  if (!file) return nullptr;
+  if (!file)
+    return nullptr;
   BsaHeader header{};
   file.read(reinterpret_cast<char*>(&header), sizeof(header));
   if (file && header.magic == 0x100) {

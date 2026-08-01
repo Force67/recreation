@@ -26,7 +26,8 @@ struct Builder {
 
   StringIndex S(const base::String& s) {
     auto* it = table.find(s);
-    if (it != nullptr) return *it;
+    if (it != nullptr)
+      return *it;
     auto idx = static_cast<StringIndex>(pex.string_table.size());
     pex.string_table.push_back(s);
     table[s] = idx;
@@ -37,7 +38,9 @@ struct Builder {
 VariableData Id(Builder& b, const base::String& n) {
   return {VariableData::Type::kIdentifier, b.S(n), 0, 0.0f, false};
 }
-VariableData IntV(int v) { return {VariableData::Type::kInteger, kInvalidString, v, 0.0f, false}; }
+VariableData IntV(int v) {
+  return {VariableData::Type::kInteger, kInvalidString, v, 0.0f, false};
+}
 VariableData StrV(Builder& b, const base::String& s) {
   return {VariableData::Type::kString, b.S(s), 0, 0.0f, false};
 }
@@ -57,7 +60,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-52s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // int Foo(int n):  if (n > 0) return n  else return 0
@@ -180,8 +184,8 @@ int main() {
   check("if/elseif/else: first compare", Has(cs, "(n == 1)"));
   check("if/elseif/else: nested compare", Has(cs, "(n == 2)"));
   check("if/elseif/else: trace A/B/C", Has(cs, "Debug.Trace(\"A\");") &&
-                                            Has(cs, "Debug.Trace(\"B\");") &&
-                                            Has(cs, "Debug.Trace(\"C\");"));
+                                           Has(cs, "Debug.Trace(\"B\");") &&
+                                           Has(cs, "Debug.Trace(\"C\");"));
   check("auto-prop backing field suppressed", !Has(cs, "MyRef_var"));
   check("backing read routed to property", Has(cs, "MyRef.Enable();"));
   check("multi-line doc fully commented", Has(cs, "// line one") && Has(cs, "// line two"));

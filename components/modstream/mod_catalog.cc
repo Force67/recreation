@@ -20,7 +20,8 @@ namespace fs = std::filesystem;
 
 // Builds one ModResource from a resource directory. Returns nullopt if any file
 // underneath cannot be hashed, propagating the failure up to Build.
-base::Optional<ModResource> ScanResource(const fs::path& root, const base::String& name,
+base::Optional<ModResource> ScanResource(const fs::path& root,
+                                         const base::String& name,
                                          base::UnorderedMap<ContentHash, fs::path>& by_hash) {
   ModResource resource;
   resource.name = name;
@@ -38,22 +39,27 @@ base::Optional<ModResource> ScanResource(const fs::path& root, const base::Strin
        it.increment(ec)) {
     const fs::directory_entry& entry = *it;
     if (!entry.is_regular_file(ec) || ec) {
-      if (ec) return base::nullopt;
+      if (ec)
+        return base::nullopt;
       continue;
     }
     const fs::path rel = fs::relative(entry.path(), root, ec);
-    if (ec) return base::nullopt;
+    if (ec)
+      return base::nullopt;
     const base::String norm = asset::NormalizePath(rel.generic_string());
 
     // Excluded and server-only files never enter the catalog, so the server
     // cannot serve them and clients never learn they exist.
-    if (norm == ".streamignore" || filter.Excludes(norm)) continue;
+    if (norm == ".streamignore" || filter.Excludes(norm))
+      continue;
 
     const base::Optional<ContentHash> hash = HashFile(entry.path());
-    if (!hash) return base::nullopt;
+    if (!hash)
+      return base::nullopt;
 
     const u64 file_size = entry.file_size(ec);
-    if (ec) return base::nullopt;
+    if (ec)
+      return base::nullopt;
 
     ResourceFile file;
     file.path = norm;
@@ -62,7 +68,8 @@ base::Optional<ModResource> ScanResource(const fs::path& root, const base::Strin
     by_hash.emplace(*hash, entry.path());
     resource.files.push_back(base::move(file));
   }
-  if (ec) return base::nullopt;
+  if (ec)
+    return base::nullopt;
 
   base::Sort(resource.files.begin(), resource.files.end(),
              [](const ResourceFile& a, const ResourceFile& b) { return a.path < b.path; });
@@ -73,14 +80,17 @@ base::Optional<ModResource> ScanResource(const fs::path& root, const base::Strin
 
 base::Optional<ModCatalog> ModCatalog::Build(const fs::path& mods_dir) {
   std::error_code ec;
-  if (!fs::is_directory(mods_dir, ec) || ec) return base::nullopt;
+  if (!fs::is_directory(mods_dir, ec) || ec)
+    return base::nullopt;
 
   ModCatalog catalog;
   base::Vector<fs::directory_entry> entries;
   for (const fs::directory_entry& entry : fs::directory_iterator(mods_dir.c_str(), ec)) {
-    if (entry.is_directory()) entries.push_back(entry);
+    if (entry.is_directory())
+      entries.push_back(entry);
   }
-  if (ec) return base::nullopt;
+  if (ec)
+    return base::nullopt;
 
   // Sort resources by directory name so the manifest is stable across runs.
   base::Sort(entries.begin(), entries.end(),
@@ -91,7 +101,8 @@ base::Optional<ModCatalog> ModCatalog::Build(const fs::path& mods_dir) {
   for (const fs::directory_entry& entry : entries) {
     base::Optional<ModResource> resource =
         ScanResource(entry.path(), entry.path().filename().string(), catalog.by_hash_);
-    if (!resource) return base::nullopt;
+    if (!resource)
+      return base::nullopt;
     catalog.manifest_.resources.push_back(base::move(*resource));
   }
   return catalog;
@@ -99,7 +110,8 @@ base::Optional<ModCatalog> ModCatalog::Build(const fs::path& mods_dir) {
 
 base::Optional<fs::path> ModCatalog::PathForHash(ContentHash hash) const {
   const auto* it = by_hash_.find(hash);
-  if (it == nullptr) return base::nullopt;
+  if (it == nullptr)
+    return base::nullopt;
   return *it;
 }
 

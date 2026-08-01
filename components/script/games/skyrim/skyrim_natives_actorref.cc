@@ -4,11 +4,11 @@
 
 namespace rx::script::skyrim {
 
+using ext::Args;
+using ext::Resolve;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
-using ext::Resolve;
 
 void RegisterActorRefGetters(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetActorValueMax", [bindings](VirtualMachine&, ObjectRef self, Args& a) {

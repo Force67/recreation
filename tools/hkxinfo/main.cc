@@ -29,10 +29,9 @@
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
 #include "components/bethesda/hkx.h"
-#include "components/bethesda/hkx_physics.h"
-#include "components/bethesda/hkx_to_physics.h"
 #include "components/bethesda/hkx_anim.h"
 #include "components/bethesda/hkx_character.h"
+#include "components/bethesda/hkx_physics.h"
 #include "components/bethesda/hkx_to_kinema.h"
 #include "components/bethesda/hkx_to_physics.h"
 #include "physics/physics_world.h"
@@ -44,11 +43,16 @@ using rx::bethesda::HkxFile;
 // Transcodes an animation to kinema and compares against the reference
 // spline sampler at `samples` deterministic pseudo-random times. Returns the
 // worst deltas through the out params; false when the file has no animation.
-bool CompareKinema(const rx::bethesda::HkxAnimation& anim, int samples, float* worst_t,
-                   float* worst_q, float* worst_s, size_t* blob_size) {
+bool CompareKinema(const rx::bethesda::HkxAnimation& anim,
+                   int samples,
+                   float* worst_t,
+                   float* worst_q,
+                   float* worst_s,
+                   size_t* blob_size) {
   auto blob = rx::bethesda::TranscodeToKinema(anim, nullptr, nullptr);
   auto clip = kinema::Clip::FromBlob(blob.data(), blob.size());
-  if (!clip) return false;
+  if (!clip)
+    return false;
   *blob_size = blob.size();
   kinema::PoseArena arena(anim.num_tracks, 1);
   kinema::PoseView pose = arena.Acquire();
@@ -84,7 +88,8 @@ bool CompareKinema(const rx::bethesda::HkxAnimation& anim, int samples, float* w
 
 base::Vector<rx::u8> ReadFileBytes(const base::String& path) {
   std::ifstream in(path.c_str(), std::ios::binary);
-  if (!in) return {};
+  if (!in)
+    return {};
   return base::Vector<rx::u8>((std::istreambuf_iterator<char>(in)),
                               std::istreambuf_iterator<char>());
 }
@@ -99,7 +104,8 @@ void PrintObjects(const HkxFile& hkx) {
 
 void PrintClasses(const HkxFile& hkx) {
   base::Map<base::String, int> histogram;
-  for (const auto& obj : hkx.objects()) histogram[base::String(obj.class_name)]++;
+  for (const auto& obj : hkx.objects())
+    histogram[base::String(obj.class_name)]++;
   for (const auto& [name, count] : histogram) {
     std::printf("  %4d %s\n", count, name.c_str());
   }
@@ -178,11 +184,14 @@ int main(int argc, char** argv) {
       int scanned = 0, additive = 0;
       for (const base::String& path : paths) {
         auto data = vfs.Read(path);
-        if (!data) continue;
+        if (!data)
+          continue;
         auto file = HkxFile::Parse(data->data(), data->size());
-        if (!file) continue;
+        if (!file)
+          continue;
         auto anim = rx::bethesda::DecodeAnimation(*file);
-        if (!anim) continue;
+        if (!anim)
+          continue;
         ++scanned;
         if (anim->additive) {
           ++additive;
@@ -211,25 +220,34 @@ int main(int argc, char** argv) {
       base::String worst_t_file, worst_q_file, worst_s_file;
       for (const base::String& path : paths) {
         auto data = vfs.Read(path);
-        if (!data) continue;
+        if (!data)
+          continue;
         auto file = HkxFile::Parse(data->data(), data->size());
-        if (!file) continue;
+        if (!file)
+          continue;
         auto anim = rx::bethesda::DecodeAnimation(*file);
-        if (!anim) continue;
+        if (!anim)
+          continue;
         float wt = 0, wq = 0, ws = 0;
         size_t blob = 0;
-        if (!CompareKinema(*anim, 32, &wt, &wq, &ws, &blob)) continue;
+        if (!CompareKinema(*anim, 32, &wt, &wq, &ws, &blob))
+          continue;
         ++scanned;
         total_hkx += data->size();
         total_blob += blob;
-        if (wt > corpus_t) worst_t_file = path;
-        if (wq > corpus_q) worst_q_file = path;
-        if (ws > corpus_s) worst_s_file = path;
+        if (wt > corpus_t)
+          worst_t_file = path;
+        if (wq > corpus_q)
+          worst_q_file = path;
+        if (ws > corpus_s)
+          worst_s_file = path;
         corpus_t = base::Max(corpus_t, wt);
         corpus_q = base::Max(corpus_q, wq);
         corpus_s = base::Max(corpus_s, ws);
-        if (wt > 0.1f) ++outlier_t;
-        if (wq > 1e-3f) ++outlier_q;
+        if (wt > 0.1f)
+          ++outlier_t;
+        if (wq > 1e-3f)
+          ++outlier_q;
       }
       std::printf(
           "kinema corpus: %d clips\n  worst dt %.5f gu (%s)\n  worst dq %.2e (%s)\n"
@@ -359,7 +377,8 @@ int main(int argc, char** argv) {
       std::printf("  sample cost: kinema %lld ns/pose, spline sampler %lld ns/pose (%.1fx)\n",
                   static_cast<long long>(ns(t0, t1) / kIters),
                   static_cast<long long>(ns(t1, t2) / kIters),
-                  static_cast<double>(ns(t1, t2)) / static_cast<double>(std::max<long long>(ns(t0, t1), 1)));
+                  static_cast<double>(ns(t1, t2)) /
+                      static_cast<double>(std::max<long long>(ns(t0, t1), 1)));
     } else if (args[i] == "--animnames") {
       auto names = rx::bethesda::DecodeAnimationNames(*hkx);
       std::printf("%zu animation names:\n", names.size());
@@ -458,7 +477,8 @@ int main(int argc, char** argv) {
       for (const auto& p : pose) {
         rx::f32 len = std::sqrt(p.rotation[0] * p.rotation[0] + p.rotation[1] * p.rotation[1] +
                                 p.rotation[2] * p.rotation[2] + p.rotation[3] * p.rotation[3]);
-        if (std::fabs(len - 1.0f) > 0.02f) ++bad_quats;
+        if (std::fabs(len - 1.0f) > 0.02f)
+          ++bad_quats;
       }
       std::printf("sampled t=%.2f: %d non-unit quats\n", at_time, bad_quats);
       for (size_t t = 0; t < pose.size() && t < 8; ++t) {
@@ -489,7 +509,8 @@ int main(int argc, char** argv) {
       int spawned = 0;
       for (size_t b = 0; b < physics.bodies.size(); ++b) {
         const auto& body = physics.bodies[b];
-        if (body.mass <= 0.0f) continue;  // keyframed helpers (CharacterBumper)
+        if (body.mass <= 0.0f)
+          continue;  // keyframed helpers (CharacterBumper)
         rx::physics::ShapeDesc desc = rx::bethesda::ToShapeDesc(body.shape);
         rx::Vec3 pos = rx::Rotate(kZupToYup, body.position * kScale);
         pos.y += 1.0f;  // drop height
@@ -498,7 +519,8 @@ int main(int argc, char** argv) {
         rx::f32 rot4[4] = {rot.x, rot.y, rot.z, rot.w};
         ids[b] = world.AddDynamicShape(desc, pos, rot4, kScale, body.mass, body.friction,
                                        body.restitution, filter, static_cast<rx::u32>(b));
-        if (ids[b] != 0) ++spawned;
+        if (ids[b] != 0)
+          ++spawned;
       }
       // Skyrim's authored per-shape collision filter info governs ragdoll
       // self-collision; until that is decoded, disable it wholesale (folded
@@ -510,8 +532,10 @@ int main(int argc, char** argv) {
       }
       int joints = 0;
       for (const auto& c : physics.constraints) {
-        if (c.body_a < 0 || c.body_b < 0) continue;
-        if (ids[c.body_a] == 0 || ids[c.body_b] == 0) continue;
+        if (c.body_a < 0 || c.body_b < 0)
+          continue;
+        if (ids[c.body_a] == 0 || ids[c.body_b] == 0)
+          continue;
         bool ok = false;
         if (c.kind == rx::bethesda::HkxConstraint::Kind::kRagdoll) {
           ok = world.AddSwingTwistJoint(ids[c.body_a], ids[c.body_b], c.frame_a, c.frame_b, kScale,
@@ -521,9 +545,11 @@ int main(int argc, char** argv) {
           ok = world.AddHingeJoint(ids[c.body_a], ids[c.body_b], c.frame_a, c.frame_b, kScale,
                                    c.hinge_min, c.hinge_max);
         }
-        if (ok) ++joints;
+        if (ok)
+          ++joints;
       }
-      for (int step = 0; step < 240; ++step) world.Update(1.0f / 60.0f);
+      for (int step = 0; step < 240; ++step)
+        world.Update(1.0f / 60.0f);
 
       auto world_pivot = [&](int body, const rx::f32 frame[12]) {
         rx::Vec3 pos;
@@ -536,17 +562,21 @@ int main(int argc, char** argv) {
       rx::f32 max_separation = 0.0f, min_y = 1e9f, max_y = -1e9f;
       bool nan = false;
       for (size_t b = 0; b < physics.bodies.size(); ++b) {
-        if (ids[b] == 0) continue;
+        if (ids[b] == 0)
+          continue;
         rx::Vec3 pos;
         rx::f32 rot4[4];
         world.GetBodyTransform(ids[b], &pos, rot4);
-        if (pos.x != pos.x || pos.y != pos.y || pos.z != pos.z) nan = true;
+        if (pos.x != pos.x || pos.y != pos.y || pos.z != pos.z)
+          nan = true;
         min_y = base::Min(min_y, pos.y);
         max_y = base::Max(max_y, pos.y);
       }
       for (const auto& c : physics.constraints) {
-        if (c.kind == rx::bethesda::HkxConstraint::Kind::kOther) continue;
-        if (c.body_a < 0 || c.body_b < 0 || ids[c.body_a] == 0 || ids[c.body_b] == 0) continue;
+        if (c.kind == rx::bethesda::HkxConstraint::Kind::kOther)
+          continue;
+        if (c.body_a < 0 || c.body_b < 0 || ids[c.body_a] == 0 || ids[c.body_b] == 0)
+          continue;
         rx::Vec3 pa = world_pivot(c.body_a, c.frame_a);
         rx::Vec3 pb = world_pivot(c.body_b, c.frame_b);
         rx::Vec3 d = pa - pb;
@@ -559,7 +589,8 @@ int main(int argc, char** argv) {
           "rest height %.2f..%.2f m, nan %s -> %s\n",
           spawned, joints, max_separation * 1000.0f, min_y, max_y, nan ? "YES" : "no",
           pass ? "PASS" : "FAIL");
-      if (!pass) return 1;
+      if (!pass)
+        return 1;
     } else if (args[i] == "--ragdolldrive") {
       // Powered-ragdoll motor drive test (the "physical hit reaction"
       // primitive): build the same character ragdoll as --ragdoll, pin the
@@ -595,7 +626,8 @@ int main(int argc, char** argv) {
       int spawned = 0;
       for (size_t b = 0; b < physics.bodies.size(); ++b) {
         const auto& body = physics.bodies[b];
-        if (body.mass <= 0.0f) continue;  // keyframed helpers (CharacterBumper)
+        if (body.mass <= 0.0f)
+          continue;  // keyframed helpers (CharacterBumper)
         rx::physics::ShapeDesc desc = rx::bethesda::ToShapeDesc(body.shape);
         rx::Vec3 pos = rx::Rotate(kZupToYup, body.position * kScale);
         pos.y += 2.0f;  // hang height, clear of the floor
@@ -604,7 +636,8 @@ int main(int argc, char** argv) {
         rx::f32 rot4[4] = {rot.x, rot.y, rot.z, rot.w};
         ids[b] = world.AddDynamicShape(desc, pos, rot4, kScale, body.mass, body.friction,
                                        body.restitution, filter, static_cast<rx::u32>(b));
-        if (ids[b] != 0) ++spawned;
+        if (ids[b] != 0)
+          ++spawned;
       }
       // Full intra-ragdoll no-collide, as in --ragdoll.
       for (size_t x = 0; x < physics.bodies.size(); ++x) {
@@ -623,8 +656,10 @@ int main(int argc, char** argv) {
       int joints = 0;
       for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
         const auto& c = physics.constraints[ci];
-        if (c.body_a < 0 || c.body_b < 0) continue;
-        if (ids[c.body_a] == 0 || ids[c.body_b] == 0) continue;
+        if (c.body_a < 0 || c.body_b < 0)
+          continue;
+        if (ids[c.body_a] == 0 || ids[c.body_b] == 0)
+          continue;
         rx::physics::JointId jid = 0;
         if (c.kind == rx::bethesda::HkxConstraint::Kind::kRagdoll) {
           jid = world.AddSwingTwistJoint(ids[c.body_a], ids[c.body_b], c.frame_a, c.frame_b, kScale,
@@ -657,7 +692,8 @@ int main(int argc, char** argv) {
       // constraint-space orientation).
       base::Vector<base::Array<rx::f32, 4>> target(physics.constraints.size(), {0, 0, 0, 1});
       for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
-        if (joint_ids[ci] == 0) continue;
+        if (joint_ids[ci] == 0)
+          continue;
         world.EnableJointMotors(joint_ids[ci], kFrequency, kDamping);
         world.GetJointOrientation(joint_ids[ci], target[ci].data());
         world.SetJointMotorTarget(joint_ids[ci], target[ci].data());
@@ -665,7 +701,8 @@ int main(int argc, char** argv) {
 
       auto joint_error_deg = [&](size_t ci) -> float {
         rx::f32 cur[4];
-        if (!world.GetJointOrientation(joint_ids[ci], cur)) return 0.0f;
+        if (!world.GetJointOrientation(joint_ids[ci], cur))
+          return 0.0f;
         float dot = std::abs(cur[0] * target[ci][0] + cur[1] * target[ci][1] +
                              cur[2] * target[ci][2] + cur[3] * target[ci][3]);
         dot = base::Min(1.0f, dot);
@@ -675,7 +712,8 @@ int main(int argc, char** argv) {
         float sum = 0, mx = 0;
         int n = 0;
         for (size_t ci = 0; ci < physics.constraints.size(); ++ci) {
-          if (joint_ids[ci] == 0) continue;
+          if (joint_ids[ci] == 0)
+            continue;
           float e = joint_error_deg(ci);
           sum += e;
           mx = base::Max(mx, e);
@@ -686,11 +724,13 @@ int main(int argc, char** argv) {
       };
       auto any_nan = [&]() {
         for (size_t b = 0; b < physics.bodies.size(); ++b) {
-          if (ids[b] == 0) continue;
+          if (ids[b] == 0)
+            continue;
           rx::Vec3 pos;
           rx::f32 rot4[4];
           world.GetBodyTransform(ids[b], &pos, rot4);
-          if (pos.x != pos.x || pos.y != pos.y || pos.z != pos.z) return true;
+          if (pos.x != pos.x || pos.y != pos.y || pos.z != pos.z)
+            return true;
         }
         return false;
       };
@@ -700,7 +740,8 @@ int main(int argc, char** argv) {
       bool nan = false;
       for (int step = 0; step < 240; ++step) {
         world.Update(1.0f / 60.0f);
-        if (step == 119) pose_error(&meanA, &maxA);
+        if (step == 119)
+          pose_error(&meanA, &maxA);
         nan = nan || any_nan();
       }
       float mean_settled = 0, max_settled = 0;
@@ -727,13 +768,15 @@ int main(int argc, char** argv) {
       base::Vector<size_t> arm_joints;
       for (int cur = hit_body; cur >= 0 && arm_joints.size() < 3;) {
         int ci = parent_joint[cur];
-        if (ci < 0 || joint_ids[ci] == 0) break;
+        if (ci < 0 || joint_ids[ci] == 0)
+          break;
         arm_joints.push_back(static_cast<size_t>(ci));
         cur = physics.constraints[ci].body_b;
       }
       auto arm_error = [&](float* max) {
         float mx = 0;
-        for (size_t ci : arm_joints) mx = base::Max(mx, joint_error_deg(ci));
+        for (size_t ci : arm_joints)
+          mx = base::Max(mx, joint_error_deg(ci));
         *max = mx;
       };
 
@@ -766,7 +809,8 @@ int main(int argc, char** argv) {
           spawned, joints, frozen, kFrequency, kDamping, meanA, mean_settled, max_settled,
           passA ? "PASS" : "FAIL", hit_name, arm_joints.size(), arm_before, arm_peak, arm_final,
           nan ? "YES" : "no", passB ? "PASS" : "FAIL");
-      if (!passA || !passB) return 1;
+      if (!passA || !passB)
+        return 1;
     } else if (args[i] == "--jolt") {
       // Smoke test: lower every decoded body's shape into a live Jolt world
       // (game-unit scale) and report what stuck.
@@ -793,7 +837,8 @@ int main(int argc, char** argv) {
           std::printf("  FAILED '%s' (%s)\n", body.name.c_str(), body.shape.class_name.c_str());
         }
       }
-      for (int step = 0; step < 60; ++step) world.Update(1.0f / 60.0f);
+      for (int step = 0; step < 60; ++step)
+        world.Update(1.0f / 60.0f);
       std::printf("jolt: %d bodies created, %d failed, 60 steps simulated\n", ok, failed);
     } else if (args[i] == "--sections") {
       // Header line above already covers the summary.
@@ -801,6 +846,7 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "unknown mode %s\n", args[i].c_str());
     }
   }
-  if (!any_mode) PrintClasses(*hkx);
+  if (!any_mode)
+    PrintClasses(*hkx);
   return 0;
 }

@@ -5,8 +5,8 @@
 
 #include <filesystem>
 
-#include "core/types.h"
 #include "components/modstream/mod_resource.h"
+#include "core/types.h"
 
 namespace rx::modstream {
 

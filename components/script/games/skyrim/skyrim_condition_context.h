@@ -1,8 +1,8 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_CONDITION_CONTEXT_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_CONDITION_CONTEXT_H_
 
-#include "core/types.h"
 #include "components/quest/condition.h"
+#include "core/types.h"
 
 namespace rx::script::skyrim {
 

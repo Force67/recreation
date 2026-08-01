@@ -14,8 +14,8 @@
 #include "asset/subdivide.h"
 #include "components/bethesda/nif.h"
 #include "core/log.h"
-#include "runtime/app/engine_context.h"
 #include "render/core/renderer.h"
+#include "runtime/app/engine_context.h"
 
 namespace rx {
 
@@ -30,15 +30,18 @@ namespace {
 // HDPT model paths are stored backslashed and without the meshes/ root.
 base::String ModelPath(const base::String& model) {
   base::String path = asset::NormalizePath(model);
-  if (!path.starts_with("meshes/")) path = "meshes/" + path;
+  if (!path.starts_with("meshes/"))
+    path = "meshes/" + path;
   return path;
 }
 
 // TXST/NIF texture paths are stored backslashed without the textures/ root.
 base::String TexturePath(const base::String& tex) {
-  if (tex.empty()) return {};
+  if (tex.empty())
+    return {};
   base::String path = asset::NormalizePath(tex);
-  if (!path.starts_with("textures/")) path = "textures/" + path;
+  if (!path.starts_with("textures/"))
+    path = "textures/" + path;
   return path;
 }
 
@@ -81,7 +84,8 @@ void DecodeBc1Block(const u8* block, bool always_four, u8 out[16][3]) {
   }
   u32 bits;
   std::memcpy(&bits, block + 4, 4);
-  for (u32 i = 0; i < 16; ++i) std::memcpy(out[i], pal[(bits >> (i * 2)) & 3], 3);
+  for (u32 i = 0; i < 16; ++i)
+    std::memcpy(out[i], pal[(bits >> (i * 2)) & 3], 3);
 }
 
 size_t MipOffset(const asset::Texture& t, u32 mip, u32* w, u32* h) {
@@ -101,7 +105,10 @@ size_t MipOffset(const asset::Texture& t, u32 mip, u32* w, u32* h) {
 
 // Decodes the texture at the finest mip whose largest side is <= max_dim into a
 // tight sRGB rgb8 grid. Returns false for unsupported formats (BC4/5/7).
-bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
+bool DecodeToRgb8(const asset::Texture& t,
+                  u32 max_dim,
+                  u32* out_w,
+                  u32* out_h,
                   base::Vector<u8>* out) {
   if (t.format != asset::TextureFormat::kBc1 && t.format != asset::TextureFormat::kBc2 &&
       t.format != asset::TextureFormat::kBc3 && t.format != asset::TextureFormat::kRgba8) {
@@ -109,7 +116,8 @@ bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
   }
   u32 mip = 0;
   for (u32 m = 0; m + 1 < t.mip_count; ++m) {
-    if (base::Max(t.width >> (m + 1), t.height >> (m + 1)) < max_dim) break;
+    if (base::Max(t.width >> (m + 1), t.height >> (m + 1)) < max_dim)
+      break;
     mip = m + 1;
   }
   u32 w, h;
@@ -117,14 +125,16 @@ bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
   out->resize(static_cast<size_t>(w) * h * 3);
   if (t.format == asset::TextureFormat::kRgba8) {
     size_t need = static_cast<size_t>(w) * h * 4;
-    if (offset + need > t.data.size()) return false;
+    if (offset + need > t.data.size())
+      return false;
     for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
       std::memcpy(out->data() + i * 3, t.data.data() + offset + i * 4, 3);
   } else {
     bool alpha_block = t.format != asset::TextureFormat::kBc1;
     size_t block_size = alpha_block ? 16 : 8;
     u32 bw = (w + 3) / 4, bh = (h + 3) / 4;
-    if (offset + static_cast<size_t>(bw) * bh * block_size > t.data.size()) return false;
+    if (offset + static_cast<size_t>(bw) * bh * block_size > t.data.size())
+      return false;
     for (u32 by = 0; by < bh; ++by)
       for (u32 bx = 0; bx < bw; ++bx) {
         const u8* block = t.data.data() + offset + (static_cast<size_t>(by) * bw + bx) * block_size;
@@ -133,7 +143,8 @@ bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
         for (u32 py = 0; py < 4; ++py)
           for (u32 px = 0; px < 4; ++px) {
             u32 x = bx * 4 + px, y = by * 4 + py;
-            if (x >= w || y >= h) continue;
+            if (x >= w || y >= h)
+              continue;
             std::memcpy(out->data() + (static_cast<size_t>(y) * w + x) * 3, colors[py * 4 + px], 3);
           }
       }
@@ -154,7 +165,8 @@ bool IsSkinPart(bethesda::HeadPartType t) {
 }
 
 void RecomputeBounds(asset::Mesh& mesh) {
-  if (mesh.lods.empty() || mesh.lods[0].vertices.empty()) return;
+  if (mesh.lods.empty() || mesh.lods[0].vertices.empty())
+    return;
   f32 lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
   for (const asset::Vertex& v : mesh.lods[0].vertices)
     for (int k = 0; k < 3; ++k) {
@@ -177,7 +189,8 @@ FaceBuilder::FaceBuilder(EngineContext& ctx) : ctx_(ctx) {}
 const bethesda::TriMorphSet* FaceBuilder::Tri(const base::String& vfs_path) {
   base::String path = ModelPath(vfs_path);
   u64 key = asset::MakeAssetId(path).hash;
-  if (auto* cached = tri_cache_.find(key)) return (*cached)->vertex_count ? &**cached : nullptr;
+  if (auto* cached = tri_cache_.find(key))
+    return (*cached)->vertex_count ? &**cached : nullptr;
   auto set = base::MakeUnique<bethesda::TriMorphSet>();  // 0 verts == absent
   if (auto bytes = ctx_.vfs->Read(path)) {
     if (auto parsed = bethesda::ParseTri(ByteSpan(bytes->data(), bytes->size())))
@@ -193,7 +206,8 @@ const bethesda::TriMorphSet* FaceBuilder::Tri(const base::String& vfs_path) {
 const asset::Mesh* FaceBuilder::BasePartMesh(const base::String& model_path) {
   base::String path = ModelPath(model_path);
   u64 key = asset::MakeAssetId(path).hash;
-  if (auto* cached = mesh_cache_.find(key)) return (*cached)->lods.empty() ? nullptr : &**cached;
+  if (auto* cached = mesh_cache_.find(key))
+    return (*cached)->lods.empty() ? nullptr : &**cached;
 
   auto mesh = base::MakeUnique<asset::Mesh>();  // empty lods == absent
   if (auto bytes = ctx_.vfs->Read(path)) {
@@ -213,7 +227,8 @@ const asset::Mesh* FaceBuilder::BasePartMesh(const base::String& model_path) {
         PartTextures pt;
         auto path_of = [&](asset::AssetId id) -> base::String {
           for (const base::String& tp : conv.texture_paths)
-            if (asset::MakeAssetId(tp).hash == id.hash) return tp;
+            if (asset::MakeAssetId(tp).hash == id.hash)
+              return tp;
           return {};
         };
         pt.diffuse = path_of(conv.materials[0].base_color);
@@ -237,7 +252,8 @@ const FaceBuilder::PartTextures* FaceBuilder::Textures(const base::String& model
 
 const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const base::String& path) {
   u64 key = asset::MakeAssetId(path).hash;
-  if (auto* cached = decoded_cache_.find(key)) return (*cached)->w ? &**cached : nullptr;
+  if (auto* cached = decoded_cache_.find(key))
+    return (*cached)->w ? &**cached : nullptr;
   auto dec = base::MakeUnique<Decoded>();  // w==0 == absent
   if (const asset::Texture* t = ctx_.assets->LoadTexture(path)) {
     DecodeToRgb8(*t, 512, &dec->w, &dec->h, &dec->rgb);
@@ -267,9 +283,11 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   out->race_morph_ = race->editor_id;  // race tri morphs are named by race EDID
   for (u32 i = 0; i < bethesda::kNam9Count; ++i)
     out->nam9_[i] = face->has_face_morph ? face->face_morph[i] : 0.0f;
-  for (int i = 0; i < 4; ++i) out->nama_[i] = face->has_face_parts ? face->face_parts[i] : -1;
+  for (int i = 0; i < 4; ++i)
+    out->nama_[i] = face->has_face_parts ? face->face_parts[i] : -1;
   if (face->has_skin_tone)
-    for (int k = 0; k < 3; ++k) out->skin_tone_[k] = face->skin_tone[k];
+    for (int k = 0; k < 3; ++k)
+      out->skin_tone_[k] = face->skin_tone[k];
 
   // The NPC's PNAM parts override the race defaults of the same type; every
   // race default of a type the NPC does not touch is kept.
@@ -278,27 +296,34 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   for (bethesda::GlobalFormId hp : face->head_parts) {
     if (auto part = bethesda::ResolveHeadPart(*ctx_.records, hp)) {
       u32 t = static_cast<u32>(part->type);
-      if (t < 7) overrides[t] = true;
+      if (t < 7)
+        overrides[t] = true;
       npc_parts.push_back(base::move(*part));
     }
   }
   base::Vector<bethesda::HeadPart> merged;
   for (const bethesda::RaceHeadPart& rp : sex.parts) {
-    if (rp.head_part.plugin == 0xffff) continue;
+    if (rp.head_part.plugin == 0xffff)
+      continue;
     if (auto part = bethesda::ResolveHeadPart(*ctx_.records, rp.head_part)) {
       u32 t = static_cast<u32>(part->type);
-      if (t < 7 && overrides[t]) continue;
+      if (t < 7 && overrides[t])
+        continue;
       merged.push_back(base::move(*part));
     }
   }
-  for (bethesda::HeadPart& p : npc_parts) merged.push_back(base::move(p));
+  for (bethesda::HeadPart& p : npc_parts)
+    merged.push_back(base::move(p));
 
   const base::String npc_tag = base::ToString(npc.plugin) + "_" + base::ToString(npc.local_id);
   for (const bethesda::HeadPart& hp : merged) {
-    if (hp.model.empty()) continue;
-    if (hp.type == bethesda::HeadPartType::kHair) out->hair_model_ = hp.model;
+    if (hp.model.empty())
+      continue;
+    if (hp.type == bethesda::HeadPartType::kHair)
+      out->hair_model_ = hp.model;
     const asset::Mesh* base = BasePartMesh(hp.model);
-    if (!base) continue;
+    if (!base)
+      continue;
     FaceState::Part part;
     part.type = hp.type;
     part.base = base;
@@ -326,7 +351,8 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   // replace with our own composite so a chargen slider can re-tint live.
   out->npc_tag_ = npc_tag;
   for (const bethesda::HeadPart& hp : merged) {
-    if (hp.type != bethesda::HeadPartType::kFace || hp.model.empty()) continue;
+    if (hp.type != bethesda::HeadPartType::kFace || hp.model.empty())
+      continue;
     if (const PartTextures* pt = Textures(hp.model)) {
       out->face_diffuse_ = pt->diffuse;
       out->face_normal_ = pt->normal;
@@ -336,13 +362,15 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   if (out->face_diffuse_.empty()) {
     if (auto ts = bethesda::ResolveTextureSet(*ctx_.records, sex.default_face_texture_set)) {
       out->face_diffuse_ = TexturePath(ts->diffuse);
-      if (out->face_normal_.empty()) out->face_normal_ = TexturePath(ts->normal);
+      if (out->face_normal_.empty())
+        out->face_normal_ = TexturePath(ts->normal);
     }
   }
   // Resolve each NPC tint layer to its race mask + colour. An absent mask means
   // full-face coverage (the base skin-tone layer).
   for (const bethesda::NpcTintLayer& nl : face->tint_layers) {
-    if (nl.interpolation == 0) continue;
+    if (nl.interpolation == 0)
+      continue;
     const bethesda::RaceTintLayer* rl = nullptr;
     for (const bethesda::RaceTintLayer& cand : sex.tint_layers)
       if (cand.index == nl.index) {
@@ -354,7 +382,8 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
       layer.mask = TexturePath(rl->mask_texture);
       layer.type = rl->mask_type;
     }
-    for (int k = 0; k < 3; ++k) layer.color[k] = nl.color[k] / 255.0f;
+    for (int k = 0; k < 3; ++k)
+      layer.color[k] = nl.color[k] / 255.0f;
     layer.alpha = base::Clamp(static_cast<f32>(nl.interpolation) / 100.0f, 0.0f, 1.0f);
     out->tint_layers_.push_back(base::move(layer));
   }
@@ -366,12 +395,15 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   // dark metal ball without a cubemap), brows/beard tinted to the hair colour.
   f32 hair_col[3] = {0.32f, 0.24f, 0.18f};
   if (auto clfm = bethesda::ResolveColorForm(*ctx_.records, face->hair_color))
-    for (int k = 0; k < 3; ++k) hair_col[k] = clfm->rgba[k] / 255.0f;
-  for (int k = 0; k < 3; ++k) out->hair_color_[k] = hair_col[k];
+    for (int k = 0; k < 3; ++k)
+      hair_col[k] = clfm->rgba[k] / 255.0f;
+  for (int k = 0; k < 3; ++k)
+    out->hair_color_[k] = hair_col[k];
   for (FaceState::Part& p : out->parts_) {
     const PartTextures* pt = Textures(p.model);
     if (p.type == bethesda::HeadPartType::kEyes) {
-      if (!pt || pt->diffuse.empty()) continue;
+      if (!pt || pt->diffuse.empty())
+        continue;
       asset::Material m;
       m.id = asset::MakeAssetId("facegen/eye/" + npc_tag + "/" + p.label);
       m.base_color = asset::MakeAssetId(pt->diffuse);
@@ -384,7 +416,8 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
       // as the head turns to 3/4 (a near-mirror highlight slides off and the eye
       // reads dead), and a higher albedo lifts the sclera/iris out of the socket.
       m.roughness_factor = 0.18f;
-      for (int k = 0; k < 3; ++k) m.base_color_factor[k] = 1.5f;
+      for (int k = 0; k < 3; ++k)
+        m.base_color_factor[k] = 1.5f;
       ctx_.assets->AddMaterial(m);
       ctx_.renderer->UploadMaterial(m);
       p.material_override = m.id;
@@ -392,12 +425,14 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
                p.type == bethesda::HeadPartType::kFacialHair) {
       asset::Material m;
       m.id = asset::MakeAssetId("facegen/brow/" + npc_tag + "/" + p.label);
-      if (pt && !pt->diffuse.empty()) m.base_color = asset::MakeAssetId(pt->diffuse);
+      if (pt && !pt->diffuse.empty())
+        m.base_color = asset::MakeAssetId(pt->diffuse);
       if (pt && !pt->normal.empty()) {
         m.normal = asset::MakeAssetId(pt->normal);
         m.normal_model_space = IsModelSpaceNormal(pt->normal);
       }
-      for (int k = 0; k < 3; ++k) m.base_color_factor[k] = hair_col[k];
+      for (int k = 0; k < 3; ++k)
+        m.base_color_factor[k] = hair_col[k];
       m.roughness_factor = 0.6f;
       m.alpha_mode = asset::AlphaMode::kMask;
       m.alpha_cutoff = 0.25f;
@@ -416,11 +451,13 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
 }
 
 void FaceState::SetNam9(u32 index, f32 value) {
-  if (index < bethesda::kNam9Count) nam9_[index] = value;
+  if (index < bethesda::kNam9Count)
+    nam9_[index] = value;
 }
 
 void FaceState::SetNama(u32 slot, i32 index) {
-  if (slot < 4) nama_[slot] = index;
+  if (slot < 4)
+    nama_[slot] = index;
 }
 
 void FaceState::SetMorph(const base::String& chargen_morph, f32 weight) {
@@ -430,12 +467,17 @@ void FaceState::SetMorph(const base::String& chargen_morph, f32 weight) {
       return;
     }
   }
-  if (weight != 0.0f) extra_.push_back({chargen_morph, weight});
+  if (weight != 0.0f)
+    extra_.push_back({chargen_morph, weight});
 }
 
-void FaceState::SetRaceBlend(const base::String& race_morph) { race_morph_ = race_morph; }
+void FaceState::SetRaceBlend(const base::String& race_morph) {
+  race_morph_ = race_morph;
+}
 
-void FaceState::SetSubdivLevels(u32 levels) { subdiv_levels_ = base::Min(levels, 3u); }
+void FaceState::SetSubdivLevels(u32 levels) {
+  subdiv_levels_ = base::Min(levels, 3u);
+}
 
 void FaceState::SetSkinTone(f32 r, f32 g, f32 b) {
   skin_tone_[0] = r;
@@ -453,12 +495,14 @@ void FaceState::SetSkinTone(f32 r, f32 g, f32 b) {
 }
 
 f32 FaceState::BakeFaceTint() {
-  if (!builder_ || face_diffuse_.empty() || !tint_dirty_) return 0;
+  if (!builder_ || face_diffuse_.empty() || !tint_dirty_)
+    return 0;
   auto t0 = std::chrono::steady_clock::now();
   render::Renderer& renderer = *builder_->ctx_.renderer;
 
   const FaceBuilder::Decoded* base = builder_->DecodedTexture(face_diffuse_);
-  if (!base || base->w == 0) return 0;
+  if (!base || base->w == 0)
+    return 0;
   const u32 w = base->w, h = base->h;
 
   // Pre-decode the tint masks (cached in the builder; shared across a race). The
@@ -477,10 +521,13 @@ f32 FaceState::BakeFaceTint() {
     l.mask = tl.mask.empty() ? nullptr : builder_->DecodedTexture(tl.mask);
     // A layer that names a mask we could not decode must be dropped, not smeared
     // across the whole face (its localized colour would crush the albedo).
-    if (!tl.mask.empty() && !l.mask) continue;
-    for (int k = 0; k < 3; ++k) l.color[k] = tl.color[k];
+    if (!tl.mask.empty() && !l.mask)
+      continue;
+    for (int k = 0; k < 3; ++k)
+      l.color[k] = tl.color[k];
     l.alpha = tl.alpha;
-    if (tl.type == 6) has_skin_layer = true;
+    if (tl.type == 6)
+      has_skin_layer = true;
     layers.push_back(l);
   }
 
@@ -509,7 +556,8 @@ f32 FaceState::BakeFaceTint() {
       f32 c[3];
       for (int k = 0; k < 3; ++k) {
         c[k] = base->rgb[i * 3 + k] / 255.0f;
-        if (!has_skin_layer) c[k] *= skin_tone_[k];
+        if (!has_skin_layer)
+          c[k] *= skin_tone_[k];
         c[k] = base::Clamp(c[k], 0.0f, 1.0f);
       }
       for (const Layer& l : layers) {
@@ -520,11 +568,14 @@ f32 FaceState::BakeFaceTint() {
           cov = (m[0] + m[1] + m[2]) / (3.0f * 255.0f);
         }
         f32 a = cov * l.alpha;
-        if (a <= 0.0f) continue;
-        for (int k = 0; k < 3; ++k) c[k] = c[k] + (Overlay(c[k], l.color[k]) - c[k]) * a;
+        if (a <= 0.0f)
+          continue;
+        for (int k = 0; k < 3; ++k)
+          c[k] = c[k] + (Overlay(c[k], l.color[k]) - c[k]) * a;
       }
       u8* dst = &tex.data[i * 4];
-      for (int k = 0; k < 3; ++k) dst[k] = static_cast<u8>(base::Clamp(c[k], 0.0f, 1.0f) * 255.0f);
+      for (int k = 0; k < 3; ++k)
+        dst[k] = static_cast<u8>(base::Clamp(c[k], 0.0f, 1.0f) * 255.0f);
       dst[3] = 255;
     }
   }
@@ -555,7 +606,8 @@ f32 FaceState::BakeFaceTint() {
   renderer.UploadMaterial(m);
 
   for (Part& p : parts_)
-    if (p.type == bethesda::HeadPartType::kFace) p.material_override = face_material_;
+    if (p.type == bethesda::HeadPartType::kFace)
+      p.material_override = face_material_;
 
   ++tint_version_;
   tint_dirty_ = false;
@@ -565,8 +617,10 @@ f32 FaceState::BakeFaceTint() {
 base::Vector<base::String> FaceState::ChargenMorphNames() const {
   base::Vector<base::String> names;
   for (const Part& p : parts_) {
-    if (p.type != bethesda::HeadPartType::kFace || !p.chargen_tri) continue;
-    for (const bethesda::TriMorph& m : p.chargen_tri->morphs) names.push_back(m.name);
+    if (p.type != bethesda::HeadPartType::kFace || !p.chargen_tri)
+      continue;
+    for (const bethesda::TriMorph& m : p.chargen_tri->morphs)
+      names.push_back(m.name);
     break;
   }
   return names;
@@ -574,19 +628,22 @@ base::Vector<base::String> FaceState::ChargenMorphNames() const {
 
 f32 FaceState::RebuildAndUpload() {
   auto t0 = std::chrono::steady_clock::now();
-  if (!builder_) return 0;
+  if (!builder_)
+    return 0;
   render::Renderer& renderer = *builder_->ctx_.renderer;
 
   base::Vector<bethesda::MorphWeight> chargen;
   bethesda::CollectFaceMorphs(nam9_, nama_, &chargen);
-  for (const bethesda::MorphWeight& w : extra_) chargen.push_back(w);
+  for (const bethesda::MorphWeight& w : extra_)
+    chargen.push_back(w);
 
   built_.clear();
   for (Part& part : parts_) {
     asset::Mesh mesh = *part.base;  // copy the cached base (Bethesda object space)
     if (part.material_override) {
       for (asset::MeshLod& lod : mesh.lods)
-        for (asset::Submesh& sm : lod.submeshes) sm.material = part.material_override;
+        for (asset::Submesh& sm : lod.submeshes)
+          sm.material = part.material_override;
     }
     if (!mesh.lods.empty()) {
       bethesda::ApplyHeadMorphs(mesh.lods[0], part.race_tri, race_morph_, part.chargen_tri,
@@ -599,7 +656,8 @@ f32 FaceState::RebuildAndUpload() {
     mesh.id = part.out_id;
     RecomputeBounds(mesh);
     if (part.type == bethesda::HeadPartType::kFace) {
-      for (int k = 0; k < 3; ++k) head_center_[k] = mesh.bounds_center[k];
+      for (int k = 0; k < 3; ++k)
+        head_center_[k] = mesh.bounds_center[k];
       head_radius_ = mesh.bounds_radius;
     }
     renderer.UploadMesh(mesh);

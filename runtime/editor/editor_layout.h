@@ -38,12 +38,14 @@ inline base::String FormatPlaceLine(const LayoutEntry& e) {
 // starting with '#') and any line that is not a well-formed "place" record, so
 // the loader can skip them.
 inline bool ParsePlaceLine(const base::String& line, LayoutEntry* out) {
-  if (line.empty() || line[0] == '#') return false;
+  if (line.empty() || line[0] == '#')
+    return false;
   // istringstream extracts into std::string; the fields land in base::String.
   std::istringstream ss(line.c_str());
   std::string tag;
   ss >> tag;
-  if (tag != "place") return false;
+  if (tag != "place")
+    return false;
   unsigned plugin = 0, local = 0;
   LayoutEntry e;
   std::string domain;

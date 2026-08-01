@@ -1,5 +1,5 @@
-#include "core/log.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
+#include "core/log.h"
 
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
@@ -23,15 +23,21 @@ using Args = base::Vector<Value>;
 constexpr f64 kDegToRad = std::numbers::pi / 180.0;
 constexpr f64 kRadToDeg = 180.0 / std::numbers::pi;
 
-f32 ArgF(const Args& a, size_t i) { return i < a.size() ? a[i].ToFloat() : 0.0f; }
-i32 ArgI(const Args& a, size_t i) { return i < a.size() ? a[i].ToInt() : 0; }
+f32 ArgF(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToFloat() : 0.0f;
+}
+i32 ArgI(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToInt() : 0;
+}
 bool ArgB(const Args& a, size_t i, bool fallback) {
   return i < a.size() ? a[i].ToBool() : fallback;
 }
 base::String ArgS(const Args& a, size_t i) {
   return i < a.size() ? a[i].ToString() : base::String();
 }
-ObjectRef ArgO(const Args& a, size_t i) { return i < a.size() ? a[i].as_object() : ObjectRef{}; }
+ObjectRef ArgO(const Args& a, size_t i) {
+  return i < a.size() ? a[i].as_object() : ObjectRef{};
+}
 
 // Small deterministic PRNG for Utility.Random*. Determinism makes scripted
 // randomness reproducible across runs, which the engine wants for replication.
@@ -135,7 +141,8 @@ void RegisterGameControls(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   auto toggle = [](SkyrimBindings& b, Args& a, bool enable) {
     static constexpr bool kDefault[8] = {true, true, false, true, false, true, true, true};
     for (i32 c = 0; c < 8; ++c)
-      if (ArgB(a, c, kDefault[c])) b.SetPlayerControl(c, enable);
+      if (ArgB(a, c, kDefault[c]))
+        b.SetPlayerControl(c, enable);
   };
   reg.Register("Game", "DisablePlayerControls",
                [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
@@ -186,7 +193,8 @@ void RegisterUtility(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Utility", "RandomInt", [](VirtualMachine&, ObjectRef, Args& a) {
     i32 lo = a.size() > 0 ? ArgI(a, 0) : 0;
     i32 hi = a.size() > 1 ? ArgI(a, 1) : 100;
-    if (hi < lo) base::Swap(lo, hi);
+    if (hi < lo)
+      base::Swap(lo, hi);
     u32 span = static_cast<u32>(hi - lo) + 1;
     return Value::Int(lo + static_cast<i32>(NextRandom() % span));
   });
@@ -750,7 +758,8 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   // drops off the tracker. We don't model the struck-through "failed" styling yet;
   // resolving it keeps the CW siege/mission objective flow correct.
   reg.Register("Quest", "SetObjectiveFailed", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    if (ArgB(a, 1, true)) Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), true);
+    if (ArgB(a, 1, true))
+      Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), true);
     return Value();
   });
   reg.Register("Quest", "IsObjectiveDisplayed",

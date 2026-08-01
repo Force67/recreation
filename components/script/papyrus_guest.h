@@ -1,10 +1,10 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 #define RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 
-#include <mutex>
-#include <thread>
 #include <condition_variable>
 #include <future>
+#include <mutex>
+#include <thread>
 #include <utility>
 
 #include <base/containers/array.h>
@@ -15,12 +15,12 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/game_profile.h"
-#include "core/move_only_function.h"
-#include "core/types.h"
 #include "components/script/papyrus/fiber_scheduler.h"
 #include "components/script/papyrus/native.h"
 #include "components/script/papyrus/value.h"
 #include "components/script/papyrus/vm.h"
+#include "core/move_only_function.h"
+#include "core/types.h"
 
 namespace rx::script {
 
@@ -65,18 +65,23 @@ class PapyrusGuest {
   // SubmitFor().get() from the guest thread would self-deadlock; Dispatch cannot.
   template <typename Fn>
   auto Dispatch(Fn fn) -> decltype(fn(std::declval<papyrus::VirtualMachine&>())) {
-    if (OnGuestThread()) return fn(vm_);
+    if (OnGuestThread())
+      return fn(vm_);
     return SubmitFor(base::move(fn)).get();
   }
 
   // Thread-safe convenience wrappers over Submit/SubmitFor.
   std::future<base::String> LoadScript(base::Vector<u8> pex);
   std::future<papyrus::ObjectRef> CreateInstance(base::String type);
-  void RaiseEvent(papyrus::ObjectRef target, base::String event,
+  void RaiseEvent(papyrus::ObjectRef target,
+                  base::String event,
                   base::Vector<papyrus::Value> args = {});
-  void RaiseScriptEvent(papyrus::ObjectRef target, base::String script_type, base::String event,
+  void RaiseScriptEvent(papyrus::ObjectRef target,
+                        base::String script_type,
+                        base::String event,
                         base::Vector<papyrus::Value> args = {});
-  void RaiseEventAll(papyrus::ObjectRef target, base::String event,
+  void RaiseEventAll(papyrus::ObjectRef target,
+                     base::String event,
                      base::Vector<papyrus::Value> args = {});
   // Advances the guest clock by dt seconds and fires any due update events.
   void Tick(f32 dt);
@@ -120,9 +125,9 @@ class PapyrusGuest {
   // PlatformHud, drained onto the on-screen HUD). Game-agnostic: these natives are
   // bound for every guest, so a server's UI works in any universe. Without a
   // handler the calls are inert. Set and read on the guest thread.
-  void set_on_platform_hud(base::Function<void(const base::String&, const base::String&,
-                                              const base::Vector<papyrus::Value>&)>
-                               fn) {
+  void set_on_platform_hud(
+      base::Function<
+          void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)> fn) {
     on_platform_hud_ = base::move(fn);
   }
 
@@ -187,7 +192,8 @@ class PapyrusGuest {
   void CancelGameUpdate(papyrus::ObjectRef target);
   void AdvanceGameUpdates(f64 now);  // guest thread only
   void AddLosWatch(LosWatch watch);
-  void RemoveLosWatch(papyrus::ObjectRef registrant, papyrus::ObjectRef viewer,
+  void RemoveLosWatch(papyrus::ObjectRef registrant,
+                      papyrus::ObjectRef viewer,
                       papyrus::ObjectRef target);
   void AdvanceLosWatches();  // guest thread only
   f64 GameNow() const { return game_time_provider_ ? game_time_provider_() : 0.0; }
@@ -237,7 +243,8 @@ class PapyrusGuest {
 
   // Set once on the guest thread (see set_on_platform_hud); read by the platform
   // HUD/Net natives, also on the guest thread.
-  base::Function<void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)>
+  base::Function<
+      void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)>
       on_platform_hud_;
 
   // Set once on the guest thread (see set_local_pos_provider); read by the

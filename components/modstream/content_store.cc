@@ -56,25 +56,30 @@ bool ContentStore::Has(ContentHash hash) const {
 base::Optional<fs::path> ContentStore::PathFor(ContentHash hash) const {
   const fs::path path = PathOf(hash);
   std::error_code ec;
-  if (fs::is_regular_file(path, ec) && !ec) return path;
+  if (fs::is_regular_file(path, ec) && !ec)
+    return path;
   return base::nullopt;
 }
 
 base::Optional<fs::path> ContentStore::Store(ContentHash expected, const base::Vector<u8>& bytes) {
-  if (HashBytes(bytes.data(), bytes.size()) != expected) return base::nullopt;
-  if (!EnsureShard(expected)) return base::nullopt;
+  if (HashBytes(bytes.data(), bytes.size()) != expected)
+    return base::nullopt;
+  if (!EnsureShard(expected))
+    return base::nullopt;
 
   const fs::path final_path = PathOf(expected);
   const fs::path temp_path = final_path.string() + ".part";
   {
     std::ofstream out(temp_path.c_str(), std::ios::binary | std::ios::trunc);
-    if (!out) return base::nullopt;
+    if (!out)
+      return base::nullopt;
     if (!bytes.empty()) {
       out.write(reinterpret_cast<const char*>(bytes.data()),
                 static_cast<std::streamsize>(bytes.size()));
     }
     out.flush();
-    if (!out) return base::nullopt;
+    if (!out)
+      return base::nullopt;
   }
 
   std::error_code ec;
@@ -93,7 +98,8 @@ base::Optional<fs::path> ContentStore::Adopt(ContentHash expected, const fs::pat
     fs::remove(source.c_str(), ec);
     return base::nullopt;
   }
-  if (!EnsureShard(expected)) return base::nullopt;
+  if (!EnsureShard(expected))
+    return base::nullopt;
 
   const fs::path final_path = PathOf(expected);
   fs::rename(source, final_path, ec);
@@ -104,14 +110,16 @@ base::Optional<fs::path> ContentStore::Adopt(ContentHash expected, const fs::pat
     fs::copy_file(source, final_path, fs::copy_options::overwrite_existing, ec);
     std::error_code rm_ec;
     fs::remove(source.c_str(), rm_ec);
-    if (ec) return base::nullopt;
+    if (ec)
+      return base::nullopt;
   }
   return final_path;
 }
 
 base::Optional<ContentHash> ContentStore::Ingest(const fs::path& source) {
   const base::Optional<ContentHash> hash = HashFile(source);
-  if (!hash) return base::nullopt;
+  if (!hash)
+    return base::nullopt;
 
   std::error_code ec;
   if (Has(*hash)) {
@@ -119,7 +127,8 @@ base::Optional<ContentHash> ContentStore::Ingest(const fs::path& source) {
     fs::remove(source.c_str(), ec);
     return hash;
   }
-  if (!EnsureShard(*hash)) return base::nullopt;
+  if (!EnsureShard(*hash))
+    return base::nullopt;
 
   const fs::path final_path = PathOf(*hash);
   fs::rename(source, final_path, ec);
@@ -127,7 +136,8 @@ base::Optional<ContentHash> ContentStore::Ingest(const fs::path& source) {
     fs::copy_file(source, final_path, fs::copy_options::overwrite_existing, ec);
     std::error_code rm_ec;
     fs::remove(source.c_str(), rm_ec);
-    if (ec) return base::nullopt;
+    if (ec)
+      return base::nullopt;
   }
   return hash;
 }

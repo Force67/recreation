@@ -27,15 +27,18 @@ int LoadWeathers(const bethesda::RecordStore& records, base::UnorderedMap<u64, W
 // (its thin Tamriel CLMT yields to synthetic + REGN region overrides); Starfield
 // passes 1 because each planet authors a single characteristic surface weather.
 base::Vector<base::Pair<WeatherDef, u32>> BuildClimate(
-    const bethesda::RecordStore& records, const base::UnorderedMap<u64, WeatherDef>& weathers,
-    const char* worldspace_edid, int min_worldspace_weathers = 4);
+    const bethesda::RecordStore& records,
+    const base::UnorderedMap<u64, WeatherDef>& weathers,
+    const char* worldspace_edid,
+    int min_worldspace_weathers = 4);
 
 // Parses the REGN weather regions of `worldspace` (their area polygons + weather
 // lists) into `out`. Returns the count. The active region's climate overrides
 // the worldspace default where the player stands.
 int LoadRegions(const bethesda::RecordStore& records,
                 const base::UnorderedMap<u64, WeatherDef>& weathers,
-                bethesda::GlobalFormId worldspace, RegionWeather* out);
+                bethesda::GlobalFormId worldspace,
+                RegionWeather* out);
 
 }  // namespace rx::weather
 

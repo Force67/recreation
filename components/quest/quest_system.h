@@ -7,8 +7,8 @@
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/quest/quest_def.h"
+#include "core/types.h"
 
 namespace rx::quest {
 

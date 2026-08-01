@@ -6,14 +6,14 @@
 
 namespace rx::script::skyrim {
 
-using papyrus::ObjectRef;
-using papyrus::Value;
-using papyrus::VirtualMachine;
-using ext::Args;
 using ext::ArgF;
 using ext::ArgI;
 using ext::ArgO;
+using ext::Args;
 using ext::Resolve;
+using papyrus::ObjectRef;
+using papyrus::Value;
+using papyrus::VirtualMachine;
 namespace st = state;
 
 void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -32,8 +32,7 @@ void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bind
 
   // Message: Show/ShowAsHelpMessage return the pressed-button index (0).
   reg.Register("Message", "ResetHelpMessage", noop);
-  reg.Register("Message", "Show",
-               [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
+  reg.Register("Message", "Show", [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
   reg.Register("Message", "ShowAsHelpMessage",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
 

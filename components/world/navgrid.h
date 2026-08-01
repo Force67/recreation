@@ -31,7 +31,11 @@ class NavGrid {
   // half_extent] at `cell_m` resolution. A cell is walkable when the probe finds
   // a floor within `step_tolerance` meters of `walk_height` (the actor's foot
   // height, typically center.y). Sampling is one probe per cell, paid once.
-  void Build(const Vec3& center, f32 half_extent_m, f32 cell_m, f32 walk_height, f32 step_tolerance,
+  void Build(const Vec3& center,
+             f32 half_extent_m,
+             f32 cell_m,
+             f32 walk_height,
+             f32 step_tolerance,
              const FloorProbe& probe);
 
   // True when `p` lies inside the built region shrunk by one cell, so a query

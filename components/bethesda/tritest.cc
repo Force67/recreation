@@ -23,11 +23,13 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutI16(base::Vector<u8>& b, i16 v) {
   auto u = static_cast<rx::u16>(v);
@@ -41,39 +43,48 @@ void PutF32(base::Vector<u8>& b, f32 v) {
 void PutName(base::Vector<u8>& b, const char* s) {
   u32 len = static_cast<u32>(std::strlen(s)) + 1;  // includes null terminator
   PutU32(b, len);
-  for (const char* p = s; *p; ++p) b.push_back(static_cast<u8>(*p));
+  for (const char* p = s; *p; ++p)
+    b.push_back(static_cast<u8>(*p));
   b.push_back(0);
 }
 
 base::Vector<u8> BuildTri() {
   constexpr u32 kV = 3, kF = 1;
   base::Vector<u8> b;
-  for (char c : {'F', 'R', 'T', 'R', 'I', '0', '0', '3'}) b.push_back(static_cast<u8>(c));
-  PutU32(b, kV);                             // vertex_count
-  PutU32(b, kF);                             // face_count
-  PutU32(b, 0);                              // unknown_0c
-  PutU32(b, 0);                              // unknown_10
-  PutU32(b, 0);                              // unknown_14
-  PutU32(b, kV);                             // uv_count
-  PutU32(b, 1);                              // flags: has UVs
-  PutU32(b, 2);                              // morph_count
-  PutU32(b, 0);                              // modifier_count
-  PutU32(b, 0);                              // modifier_vertex_count
-  for (int i = 0; i < 4; ++i) PutU32(b, 0);  // unknown_30..3c
+  for (char c : {'F', 'R', 'T', 'R', 'I', '0', '0', '3'})
+    b.push_back(static_cast<u8>(c));
+  PutU32(b, kV);  // vertex_count
+  PutU32(b, kF);  // face_count
+  PutU32(b, 0);   // unknown_0c
+  PutU32(b, 0);   // unknown_10
+  PutU32(b, 0);   // unknown_14
+  PutU32(b, kV);  // uv_count
+  PutU32(b, 1);   // flags: has UVs
+  PutU32(b, 2);   // morph_count
+  PutU32(b, 0);   // modifier_count
+  PutU32(b, 0);   // modifier_vertex_count
+  for (int i = 0; i < 4; ++i)
+    PutU32(b, 0);  // unknown_30..3c
 
-  for (u32 v = 0; v < kV * 3; ++v) PutF32(b, static_cast<f32>(v));  // base vertices
-  for (u32 i = 0; i < kF * 3; ++i) PutU32(b, i);                    // vertex indices
-  for (u32 i = 0; i < kV * 2; ++i) PutF32(b, 0.25f);                // uvs
-  for (u32 i = 0; i < kF * 3; ++i) PutU32(b, i);                    // uv indices
+  for (u32 v = 0; v < kV * 3; ++v)
+    PutF32(b, static_cast<f32>(v));  // base vertices
+  for (u32 i = 0; i < kF * 3; ++i)
+    PutU32(b, i);  // vertex indices
+  for (u32 i = 0; i < kV * 2; ++i)
+    PutF32(b, 0.25f);  // uvs
+  for (u32 i = 0; i < kF * 3; ++i)
+    PutU32(b, i);  // uv indices
 
   // morph 0: "TestA", scale 0.5, deltas 1,2,3, 4,5,6, 7,8,9
   PutName(b, "TestA");
   PutF32(b, 0.5f);
-  for (i16 d = 1; d <= 9; ++d) PutI16(b, d);
+  for (i16 d = 1; d <= 9; ++d)
+    PutI16(b, d);
   // morph 1: "B", scale 2.0, deltas all -10
   PutName(b, "B");
   PutF32(b, 2.0f);
-  for (int i = 0; i < 9; ++i) PutI16(b, -10);
+  for (int i = 0; i < 9; ++i)
+    PutI16(b, -10);
   return b;
 }
 

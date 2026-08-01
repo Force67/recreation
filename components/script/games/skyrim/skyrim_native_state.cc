@@ -36,7 +36,8 @@ Store<base::Set<u64>>& Members() {
 template <typename T>
 T Get(const Store<T>& store, ObjectRef owner, const base::String& key, T fallback) {
   auto* o = store.find(owner.handle);
-  if (o == nullptr) return fallback;
+  if (o == nullptr)
+    return fallback;
   auto* k = o->find(key);
   return k == nullptr ? fallback : *k;
 }
@@ -73,7 +74,8 @@ void SetRef(ObjectRef owner, const base::String& key, ObjectRef value) {
 
 bool HasMember(ObjectRef owner, const base::String& key, ObjectRef member) {
   auto* o = Members().find(owner.handle);
-  if (o == nullptr) return false;
+  if (o == nullptr)
+    return false;
   auto* k = o->find(key);
   return k != nullptr && k->count(member.handle) != 0;
 }
@@ -82,13 +84,16 @@ void AddMember(ObjectRef owner, const base::String& key, ObjectRef member) {
 }
 void RemoveMember(ObjectRef owner, const base::String& key, ObjectRef member) {
   auto* o = Members().find(owner.handle);
-  if (o == nullptr) return;
+  if (o == nullptr)
+    return;
   auto* k = o->find(key);
-  if (k != nullptr) k->erase(member.handle);
+  if (k != nullptr)
+    k->erase(member.handle);
 }
 i32 MemberCount(ObjectRef owner, const base::String& key) {
   auto* o = Members().find(owner.handle);
-  if (o == nullptr) return 0;
+  if (o == nullptr)
+    return 0;
   auto* k = o->find(key);
   return k == nullptr ? 0 : static_cast<i32>(k->size());
 }

@@ -21,8 +21,9 @@ float SkyrimConditionContext::GetGlobal(u64 global) const {
 float SkyrimConditionContext::GetItemCount(quest::RunOn run_on, u64 reference, u64 item) const {
   // Most dialogue item checks run on the player; an explicit reference run-on
   // names the container directly.
-  const ObjectRef container =
-      (run_on == quest::RunOn::kReference && reference) ? ObjectRef{reference} : bindings_->GetPlayer();
+  const ObjectRef container = (run_on == quest::RunOn::kReference && reference)
+                                  ? ObjectRef{reference}
+                                  : bindings_->GetPlayer();
   return static_cast<float>(bindings_->GetItemCount(container, ObjectRef{item}));
 }
 
@@ -39,7 +40,8 @@ bool SkyrimConditionContext::Understood(quest::Func func) {
 
 bool SkyrimConditionContext::Supports(const quest::ConditionList& conditions) const {
   for (const quest::Comparison& c : conditions.comparisons)
-    if (!Understood(c.func)) return false;
+    if (!Understood(c.func))
+      return false;
   return true;
 }
 
@@ -56,10 +58,13 @@ bool SkyrimConditionContext::Allows(const quest::ConditionList& conditions) cons
     size_t j = i;
     for (;; ++j) {
       const quest::Comparison& c = cs[j];
-      if (!Understood(c.func) || quest::EvaluateOne(c, *this)) group_ok = true;
-      if (!c.or_next || j + 1 >= cs.size()) break;
+      if (!Understood(c.func) || quest::EvaluateOne(c, *this))
+        group_ok = true;
+      if (!c.or_next || j + 1 >= cs.size())
+        break;
     }
-    if (!group_ok) return false;
+    if (!group_ok)
+      return false;
     i = j + 1;
   }
   return true;

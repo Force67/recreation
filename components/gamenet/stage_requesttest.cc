@@ -5,8 +5,8 @@
 #include <optional>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/stage_request.h"
+#include "core/types.h"
 
 // zetanet headers (pulled in transitively elsewhere) inject their own scalar
 // aliases, so the scalar types stay fully qualified as rx:: throughout.
@@ -22,7 +22,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 bool Same(const StageRequest& a, const StageRequest& b) {
@@ -43,19 +44,16 @@ int main() {
 
   TestRoundTrip("set stage (negative survives)",
                 {0x000a1234ull, StageOp::kSetStage, /*a=*/-1, /*b=*/0});
-  TestRoundTrip("set running on",
-                {0x000b5678ull, StageOp::kSetRunning, /*a=*/0, /*b=*/1});
+  TestRoundTrip("set running on", {0x000b5678ull, StageOp::kSetRunning, /*a=*/0, /*b=*/1});
   TestRoundTrip("objective displayed off",
                 {0xffffffffull, StageOp::kSetObjectiveDisplayed, /*a=*/3, /*b=*/0});
-  TestRoundTrip("objective completed on",
-                {0xdeadbeefcafef00dull, StageOp::kSetObjectiveCompleted,
-                 /*a=*/7, /*b=*/1});
+  TestRoundTrip("objective completed on", {0xdeadbeefcafef00dull, StageOp::kSetObjectiveCompleted,
+                                           /*a=*/7, /*b=*/1});
 
   std::puts("rejection:");
 
   // Wrong size in either direction is rejected, never read out of bounds.
-  std::vector<rx::u8> good = EncodeStageRequest(
-      {0x10ull, StageOp::kSetStage, /*a=*/5, /*b=*/0});
+  std::vector<rx::u8> good = EncodeStageRequest({0x10ull, StageOp::kSetStage, /*a=*/5, /*b=*/0});
   Check("empty buffer rejected", !DecodeStageRequest(ByteSpan()).has_value());
   for (size_t cut = 0; cut < good.size(); ++cut) {
     std::vector<rx::u8> shorter(good.begin(), good.begin() + cut);

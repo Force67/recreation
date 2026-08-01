@@ -1,8 +1,8 @@
 #ifndef RECREATION_QUEST_CTDA_H_
 #define RECREATION_QUEST_CTDA_H_
 
-#include "core/types.h"
 #include "components/quest/condition.h"
+#include "core/types.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -23,7 +23,8 @@ bool ParseCtda(ByteSpan data, Comparison* out);
 // plugin the conditions were read from) as the resolution base. Only fields
 // that are form ids for the comparison's function are touched; AV indices and
 // literal params are left alone.
-void ResolveConditionForms(ConditionList& conditions, const bethesda::RecordStore& records,
+void ResolveConditionForms(ConditionList& conditions,
+                           const bethesda::RecordStore& records,
                            u16 plugin);
 
 // Collects every CTDA subrecord in `record`, in order, into a ConditionList.

@@ -26,9 +26,10 @@ struct SunDir {
 SunDir ComputeSunDirection(f32 game_time_days) {
   const f32 time_of_day = game_time_days - std::floor(game_time_days);
   const f32 hour_angle = (time_of_day - 0.5f) * 2.0f * std::numbers::pi_v<f32>;
-  const f32 elevation = std::cos(hour_angle);  // +1 up at noon, -1 down at midnight
+  const f32 elevation = std::cos(hour_angle);   // +1 up at noon, -1 down at midnight
   const f32 horizontal = std::sin(hour_angle);  // -1 at sunrise, +1 at sunset
-  return SunDir{horizontal * std::cos(kSunTrackTilt), horizontal * std::sin(kSunTrackTilt), elevation};
+  return SunDir{horizontal * std::cos(kSunTrackTilt), horizontal * std::sin(kSunTrackTilt),
+                elevation};
 }
 
 }  // namespace
@@ -45,7 +46,8 @@ void RegisterGameEnvironment(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   });
 
   reg.Register("Game", "GetGameSettingInt", [bindings](VirtualMachine&, ObjectRef, ext::Args& a) {
-    return Value::Int(static_cast<i32>(ext::Resolve(bindings).GetGameSettingFloat(ext::ArgS(a, 0))));
+    return Value::Int(
+        static_cast<i32>(ext::Resolve(bindings).GetGameSettingFloat(ext::ArgS(a, 0))));
   });
 }
 

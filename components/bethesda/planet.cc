@@ -20,7 +20,8 @@ constexpr u32 kBmc1 = FourCc('B', 'M', 'C', '1');
 // The BIOM LNAM material-layer block carries the referenced LTEX FormID at
 // offset 4 (a leading u32 index precedes it). Zero when absent/short.
 u32 LnamLtexRef(const Subrecord& lnam) {
-  if (lnam.data.size() < 8) return 0;
+  if (lnam.data.size() < 8)
+    return 0;
   u32 raw;
   std::memcpy(&raw, lnam.data.data() + 4, 4);
   return raw;
@@ -30,7 +31,8 @@ u32 LnamLtexRef(const Subrecord& lnam) {
 // good enough as a fallback ground tint).
 void ReadTint(const Record& biom, f32 tint[3]) {
   const Subrecord* bmc = biom.Find(kBmc1);
-  if (!bmc || bmc->data.size() < 4) return;
+  if (!bmc || bmc->data.size() < 4)
+    return;
   const u8* c = bmc->data.data();
   tint[0] = c[0] / 255.0f;
   tint[1] = c[1] / 255.0f;
@@ -39,14 +41,17 @@ void ReadTint(const Record& biom, f32 tint[3]) {
 
 }  // namespace
 
-BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMaterialDb& mat_db,
-                               u32 raw_biome_id, u16 biom_plugin) {
+BiomeGround ResolveBiomeGround(const RecordStore& records,
+                               const StarfieldMaterialDb& mat_db,
+                               u32 raw_biome_id,
+                               u16 biom_plugin) {
   BiomeGround out;
   out.form_id = raw_biome_id;
 
   const GlobalFormId biome_id = records.ResolveFrom(RawFormId{raw_biome_id}, biom_plugin);
   Record biom;
-  if (biome_id.plugin == 0xffff || !records.Parse(biome_id, &biom)) return out;
+  if (biome_id.plugin == 0xffff || !records.Parse(biome_id, &biom))
+    return out;
 
   out.editor_id = biom.GetString(kEdid);
   out.surface = biom.GetString(kSnam);
@@ -55,14 +60,18 @@ BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMateri
   // First LNAM -> LTEX -> its BNAM .mat -> textures.
   u16 biome_owner = records.Find(biome_id) ? records.Find(biome_id)->winning_plugin : biom_plugin;
   for (const Subrecord& sub : biom.subrecords) {
-    if (sub.type != kLnam) continue;
+    if (sub.type != kLnam)
+      continue;
     u32 ltex_raw = LnamLtexRef(sub);
-    if (ltex_raw == 0) continue;
+    if (ltex_raw == 0)
+      continue;
     const GlobalFormId ltex_id = records.ResolveFrom(RawFormId{ltex_raw}, biome_owner);
     Record ltex;
-    if (ltex_id.plugin == 0xffff || !records.Parse(ltex_id, &ltex)) continue;
+    if (ltex_id.plugin == 0xffff || !records.Parse(ltex_id, &ltex))
+      continue;
     base::String mat = ltex.GetString(kBnam);  // "Materials\Terrain\...mat"
-    if (mat.empty()) continue;
+    if (mat.empty())
+      continue;
     out.ground_mat = mat;
     StarfieldMaterialDb::Resolved r;
     if (mat_db.Lookup(mat, &r)) {
@@ -76,8 +85,10 @@ BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMateri
   return out;
 }
 
-PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs, const RecordStore& records,
-                                const StarfieldMaterialDb& mat_db, const base::String& biom_name,
+PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs,
+                                const RecordStore& records,
+                                const StarfieldMaterialDb& mat_db,
+                                const base::String& biom_name,
                                 u16 biom_plugin) {
   PlanetSurface surface;
   surface.name = biom_name;
@@ -93,7 +104,8 @@ PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs, const RecordStore& record
   std::optional<base::Vector<u8>> bytes;
   for (const base::String& path : candidates) {
     bytes = vfs.Read(path);
-    if (bytes) break;
+    if (bytes)
+      break;
   }
   if (!bytes) {
     RX_WARN("planet: no .biom for '{}'", biom_name);

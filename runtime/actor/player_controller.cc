@@ -6,7 +6,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "runtime/actor/actor_system.h"
 #include "character/character.h"
 #include "core/input.h"
 #include "core/input_actions.h"
@@ -14,6 +13,7 @@
 #include "core/log.h"
 #include "core/math.h"
 #include "ecs/world.h"
+#include "runtime/actor/actor_system.h"
 #include "runtime/app/engine_context.h"
 #include "runtime/input/game_input.h"
 #include "scene/camera.h"
@@ -47,30 +47,38 @@ constexpr f32 kDefaultSprintUnits = 500.0f;  // MOVT NPC_Sprinting_MT forward
 constexpr f32 kDefaultSneakUnits = 222.0f;   // MOVT NPC_Sneaking_MT forward run
 
 f32 WrapPi(f32 a) {
-  while (a > 3.14159265f) a -= 6.2831853f;
-  while (a < -3.14159265f) a += 6.2831853f;
+  while (a > 3.14159265f)
+    a -= 6.2831853f;
+  while (a < -3.14159265f)
+    a += 6.2831853f;
   return a;
 }
 
 // Camera-space forward heading (rx convention): forward(yaw) = (sin, 0, -cos).
-Vec3 ForwardFromYaw(f32 yaw) { return {std::sin(yaw), 0.0f, -std::cos(yaw)}; }
+Vec3 ForwardFromYaw(f32 yaw) {
+  return {std::sin(yaw), 0.0f, -std::cos(yaw)};
+}
 
 }  // namespace
 
-PlayerController::PlayerController(EngineContext& ctx, ActorSystem& actors,
+PlayerController::PlayerController(EngineContext& ctx,
+                                   ActorSystem& actors,
                                    const InputMap& input_map)
     : ctx_(ctx), actors_(actors), input_map_(input_map) {}
 
 PlayerController::~PlayerController() = default;
 
 bool PlayerController::Assemble() {
-  if (assembled_) return true;
-  if (!actors_.HasPlayer()) return false;
+  if (assembled_)
+    return true;
+  if (!actors_.HasPlayer())
+    return false;
   ecs::World& world = *ctx_.world;
 
   player_ = actors_.PlayerEntity();
   const physics::CharacterId cid = actors_.PlayerCharacter();
-  if (player_ == ecs::kInvalidEntity || cid == 0) return false;
+  if (player_ == ecs::kInvalidEntity || cid == 0)
+    return false;
 
   // --- Movement settings: MOVT-decoded speeds, documented defaults elsewhere --
   const int n = bethesda::LoadMovementTypes(*ctx_.records, &movement_types_);
@@ -78,7 +86,8 @@ bool PlayerController::Assemble() {
     if (const bethesda::MovementType* mt = bethesda::FindMovementType(movement_types_, editor_id);
         mt && mt->has_speeds) {
       const f32 v = run ? mt->forward_run : mt->forward_walk;
-      if (v > 1.0f) return v;
+      if (v > 1.0f)
+        return v;
     }
     return fallback;
   };
@@ -178,7 +187,8 @@ bool PlayerController::Assemble() {
   // scripted capture can face the player into the room instead of the exit door.
   if (const char* y = std::getenv("RX_PLAYER_YAW"))
     spawn_yaw = std::atof(y) * 3.14159265358979323846f / 180.0f;
-  if (auto* st = world.Get<character::CharacterState>(player_)) st->yaw = spawn_yaw;
+  if (auto* st = world.Get<character::CharacterState>(player_))
+    st->yaw = spawn_yaw;
   cam_yaw_ = spawn_yaw;
   cam_pitch_ = 0.0f;
 
@@ -211,18 +221,22 @@ bool PlayerController::Assemble() {
 void PlayerController::ReconcileViewMode() {
   ecs::World& world = *ctx_.world;
   auto* vm = world.Get<character::CharacterViewMode>(player_);
-  if (!vm) return;
+  if (!vm)
+    return;
   const bool is_tp = vm->kind == character::CharacterViewKind::kThirdPerson;
-  if (is_tp == ctx_.third_person) return;  // already in sync
+  if (is_tp == ctx_.third_person)
+    return;  // already in sync
 
   // Seed the free-orbit / look heading so the FP<->TP cut does not jump.
   auto* st = world.Get<character::CharacterState>(player_);
   if (ctx_.third_person) {
     // FP -> TP: carry the FP look yaw into the free-orbit yaw.
-    if (st) cam_yaw_ = st->yaw;
+    if (st)
+      cam_yaw_ = st->yaw;
   } else {
     // TP -> FP: face the body/look where the third-person camera pointed.
-    if (st) st->yaw = cam_yaw_;
+    if (st)
+      st->yaw = cam_yaw_;
   }
   character::ToggleCharacterViewMode(world, player_, camera_output_, player_, view_settings_,
                                      {.duration = 0.25f});
@@ -232,13 +246,15 @@ void PlayerController::ReconcileViewMode() {
 void PlayerController::ApplyZoom(f32 wheel) {
   ecs::World& world = *ctx_.world;
   auto* vm = world.Get<character::CharacterViewMode>(player_);
-  if (!vm || wheel == 0.0f) return;
+  if (!vm || wheel == 0.0f)
+    return;
   const f32 range = view_settings_.tp_max_distance - view_settings_.tp_min_distance;
   const f32 step = wheel * 0.075f * range;  // INI fMouseWheelZoomIncrement = 0.075 of range/tick
 
   if (vm->kind == character::CharacterViewKind::kThirdPerson) {
     auto* boom = world.Get<scene::CameraBoom>(player_);
-    if (!boom) return;
+    if (!boom)
+      return;
     const f32 desired = boom->distance - step;  // scroll up (wheel>0) zooms in
     if (desired < view_settings_.tp_min_distance - 1e-3f && wheel > 0.0f) {
       ctx_.third_person =
@@ -255,13 +271,18 @@ void PlayerController::ApplyZoom(f32 wheel) {
   }
 }
 
-void PlayerController::FillIntent(const InputState& input, const ActionState& actions, bool allow,
-                                  bool auto_walk_active, const Vec3& auto_move, f32 dt) {
+void PlayerController::FillIntent(const InputState& input,
+                                  const ActionState& actions,
+                                  bool allow,
+                                  bool auto_walk_active,
+                                  const Vec3& auto_move,
+                                  f32 dt) {
   ecs::World& world = *ctx_.world;
   auto* intent = world.Get<character::CharacterIntent>(player_);
   auto* state = world.Get<character::CharacterState>(player_);
   auto* vm = world.Get<character::CharacterViewMode>(player_);
-  if (!intent || !state || !vm) return;
+  if (!intent || !state || !vm)
+    return;
   const bool tp = vm->kind == character::CharacterViewKind::kThirdPerson;
 
   // --- Look ------------------------------------------------------------------
@@ -319,7 +340,8 @@ void PlayerController::FillIntent(const InputState& input, const ActionState& ac
   const Vec3 r{-f.z, 0.0f, f.x};  // right = forward rotated -90 about +Y
   Vec3 move = f * fwd + r * right;
   const f32 len = Length(move);
-  if (len > 1.0f) move = move * (1.0f / len);
+  if (len > 1.0f)
+    move = move * (1.0f / len);
   const bool moving = len > 0.05f;
 
   // Sprint only when actually pressing forward and not sneaking (Skyrim rule).
@@ -328,7 +350,8 @@ void PlayerController::FillIntent(const InputState& input, const ActionState& ac
   intent->move = move;
   intent->gait = can_sprint ? character::CharacterGait::kSprint : character::CharacterGait::kRun;
   intent->crouch = crouch;
-  if (jump) intent->jump = true;
+  if (jump)
+    intent->jump = true;
 
   // In FP the mouse turns the body/look heading (StepCharacters accumulates it,
   // and the eye-anchored camera follows). In TP the body heading is decoupled:
@@ -350,7 +373,8 @@ void PlayerController::FillIntent(const InputState& input, const ActionState& ac
 void PlayerController::PublishCamera() {
   ecs::World& world = *ctx_.world;
   auto* out = world.Get<scene::CameraOutput>(camera_output_);
-  if (!out || !out->valid) return;
+  if (!out || !out->valid)
+    return;
   const scene::CameraView& v = out->view;
   const Vec3 forward = Rotate(v.orientation, Vec3{0, 0, -1});
   ctx_.walk_eye = v.position;
@@ -360,15 +384,21 @@ void PlayerController::PublishCamera() {
   eye_orientation_ = v.orientation;
 }
 
-void PlayerController::Update(f32 dt, const InputState& input, const ActionState& actions,
-                              bool allow, bool auto_walk_active, const Vec3& auto_move,
+void PlayerController::Update(f32 dt,
+                              const InputState& input,
+                              const ActionState& actions,
+                              bool allow,
+                              bool auto_walk_active,
+                              const Vec3& auto_move,
                               Vec3* out_feet) {
-  if (!assembled_ || dt <= 0.0f) return;
+  if (!assembled_ || dt <= 0.0f)
+    return;
   ecs::World& world = *ctx_.world;
   physics::PhysicsWorld& phys = *ctx_.physics;
 
   // Scroll zoom (may request a mode switch by flipping ctx_.third_person).
-  if (allow && input.wheel != 0.0f) ApplyZoom(input.wheel);
+  if (allow && input.wheel != 0.0f)
+    ApplyZoom(input.wheel);
   // Keep the rx view kind in lockstep with ctx_.third_person (C key / zoom).
   ReconcileViewMode();
 
@@ -419,7 +449,8 @@ void PlayerController::Update(f32 dt, const InputState& input, const ActionState
     const bool moving = planar > 0.15f;
     const f32 biped_facing = WrapPi(3.14159265f - state->facing_yaw);
     actors_.MovePlayer(feet, planar, biped_facing, moving, state->grounded);
-    if (out_feet) *out_feet = feet;
+    if (out_feet)
+      *out_feet = feet;
 
     // Debug/verify hook (RX_LOCO_DEBUG=1): throttled trace of the game-feel state so a
     // scripted GPU run can confirm the body faces movement (biped_facing vs the velocity

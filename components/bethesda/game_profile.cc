@@ -140,14 +140,22 @@ const GameProfile& GameProfile::For(Game game) {
 
 Game GameProfile::DetectFromDataDir(const base::String& data_dir) {
   namespace fs = std::filesystem;
-  if (fs::exists(fs::path(data_dir.c_str()) / "SeventySix.esm")) return Game::kFallout76;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Starfield.esm")) return Game::kStarfield;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Fallout4.esm")) return Game::kFallout4;
-  if (fs::exists(fs::path(data_dir.c_str()) / "FalloutNV.esm")) return Game::kFalloutNv;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Fallout3.esm")) return Game::kFallout3;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Skyrim.esm")) return Game::kSkyrimSe;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Oblivion.esm")) return Game::kOblivion;
-  if (fs::exists(fs::path(data_dir.c_str()) / "Morrowind.esm")) return Game::kMorrowind;
+  if (fs::exists(fs::path(data_dir.c_str()) / "SeventySix.esm"))
+    return Game::kFallout76;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Starfield.esm"))
+    return Game::kStarfield;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Fallout4.esm"))
+    return Game::kFallout4;
+  if (fs::exists(fs::path(data_dir.c_str()) / "FalloutNV.esm"))
+    return Game::kFalloutNv;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Fallout3.esm"))
+    return Game::kFallout3;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Skyrim.esm"))
+    return Game::kSkyrimSe;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Oblivion.esm"))
+    return Game::kOblivion;
+  if (fs::exists(fs::path(data_dir.c_str()) / "Morrowind.esm"))
+    return Game::kMorrowind;
   return Game::kUnknown;
 }
 

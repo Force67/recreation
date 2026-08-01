@@ -32,9 +32,9 @@
 
 #include "core/log.h"
 #include "core/window.h"
-#include "runtime/ui/gui_backend.h"
 #include "render/core/renderer.h"
 #include "render/rhi/vulkan_interop.h"
+#include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
 
 namespace rx {
@@ -922,7 +922,8 @@ const char* const kUiFragments[] = {
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
 // source path, else a cwd-relative fallback.
 fs::path UiDir() {
-  if (const char* env = UiDirOpt.get(); env && *env) return env;
+  if (const char* env = UiDirOpt.get(); env && *env)
+    return env;
 #ifdef RECREATION_UI_DIR_DEFAULT
   return fs::path(RECREATION_UI_DIR_DEFAULT);
 #else
@@ -1038,7 +1039,8 @@ const char* FindFont() {
     if (n > 0) {
       buf[n] = '\0';
       base::String path(buf);
-      while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
+      while (!path.empty() && (path.back() == '\n' || path.back() == '\r'))
+        path.pop_back();
       if (!path.empty() && fs::exists(path.c_str())) {
         resolved = path;
         return resolved.c_str();
@@ -1082,7 +1084,8 @@ const char* FindMonoFont() {
     if (n > 0) {
       buf[n] = '\0';
       base::String path(buf);
-      while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
+      while (!path.empty() && (path.back() == '\n' || path.back() == '\r'))
+        path.pop_back();
       if (!path.empty() && fs::exists(path.c_str())) {
         resolved = path;
         return resolved.c_str();
@@ -1223,15 +1226,18 @@ struct GameUi::Impl {
   int fr_located() const {
     int n = 0;
     for (const auto& g : fr_view.games)
-      if (g.located) ++n;
+      if (g.located)
+        ++n;
     return n;
   }
 
   void SetStyleField(const char* name, void (*mutate)(ugui::Style&, float), float arg) {
     ugui::wid w = ui.FindWidget(name);
-    if (!w.valid()) return;
+    if (!w.valid())
+      return;
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
-    if (!sc) return;
+    if (!sc)
+      return;
     ugui::Style s = sc->style;
     mutate(s, arg);
     ugui::SetStyle(ui.world(), w, s);
@@ -1248,9 +1254,11 @@ struct GameUi::Impl {
 
   void SetBackground(const char* name, ugui::Color color) {
     ugui::wid w = ui.FindWidget(name);
-    if (!w.valid()) return;
+    if (!w.valid())
+      return;
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
-    if (!sc) return;
+    if (!sc)
+      return;
     ugui::Style style = sc->style;
     style.background = color;
     ugui::SetStyle(ui.world(), w, style);
@@ -1258,9 +1266,11 @@ struct GameUi::Impl {
 
   void SetTextColor(const char* name, ugui::Color color) {
     ugui::wid w = ui.FindWidget(name);
-    if (!w.valid()) return;
+    if (!w.valid())
+      return;
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
-    if (!sc) return;
+    if (!sc)
+      return;
     ugui::Style style = sc->style;
     style.text_color = color;
     ugui::SetStyle(ui.world(), w, style);
@@ -1303,7 +1313,8 @@ struct GameUi::Impl {
     for (size_t i = 0; i < n && i < fragment_mtimes.size(); ++i) {
       std::error_code ec;
       const auto t = fs::last_write_time(UiDir() / kUiFragments[i], ec);
-      if (!ec && t != fragment_mtimes[i]) return true;
+      if (!ec && t != fragment_mtimes[i])
+        return true;
     }
     return false;
   }
@@ -1363,7 +1374,8 @@ void GameUi::Impl::ApplyEditorView() {
     editor_prev_active = editor.active;
   }
   SetVisible("editor_root", editor.active);
-  if (!editor.active) return;
+  if (!editor.active)
+    return;
 
   auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
@@ -1452,7 +1464,8 @@ void GameUi::Impl::ApplyEditorView() {
                   editor.terrain_dirty ? Rgba(0xe8b54a2eu) : Rgba(0x46c46324u));
     SetTextColor("ed_terrain_dirty", editor.terrain_dirty ? Rgba(0xf0c86affu) : Rgba(0x70d88affu));
     base::String path = editor.terrain_path;
-    if (path.size() > 38) path = "..." + path.substr(path.size() - 35);
+    if (path.size() > 38)
+      path = "..." + path.substr(path.size() - 35);
     setText("ed_terrain_path", path.empty() ? "editor_layout.recterrain" : path);
   }
   if (editor.has_selection && !editor.terrain_mode) {
@@ -1609,7 +1622,8 @@ void GameUi::Impl::ApplyCharGenView() {
     chargen_prev_active = chargen.active;
   }
   SetVisible("cg_root", chargen.active);
-  if (!chargen.active) return;
+  if (!chargen.active)
+    return;
 
   auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
@@ -1667,7 +1681,8 @@ void GameUi::Impl::ApplyCharGenView() {
       setFill(row + "_fill", base::Clamp(r.fill, 0.0f, 1.0f) * 100.0f);
       const bool sw = r.swatch != 0;
       SetVisible((row + "_sw").c_str(), sw);
-      if (sw) SetBackground((row + "_sw").c_str(), Rgba(r.swatch));
+      if (sw)
+        SetBackground((row + "_sw").c_str(), Rgba(r.swatch));
     } else {
       SetVisible(row.c_str(), false);
     }
@@ -1675,7 +1690,8 @@ void GameUi::Impl::ApplyCharGenView() {
 }
 
 bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
-  if (!editor_sink || !editor.active) return false;
+  if (!editor_sink || !editor.active)
+    return false;
   // Climb from the clicked widget (the deepest hit) to the nearest editor-handled
   // name. Tree rows distinguish the eye / expand children by name suffix.
   ugui::wid w = target;
@@ -1685,7 +1701,8 @@ bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
       const base::String name = n->name.c_str();
       auto pref = [&](const char* p) -> int {
         const size_t pl = std::strlen(p);
-        if (name.size() >= pl && name.compare(0, pl, p) == 0) return std::atoi(name.c_str() + pl);
+        if (name.size() >= pl && name.compare(0, pl, p) == 0)
+          return std::atoi(name.c_str() + pl);
         return -1;
       };
       auto has = [&](const char* sub) { return name.find(sub) != base::String::npos; };
@@ -1830,7 +1847,8 @@ void GameUi::Impl::ApplyMainMenu() {
 
   // Emblems: rebind each frame so they survive a hot-reload tree rebuild.
   for (const auto& [name, tex] : mm_glyphs)
-    if (tex) ugui::SetImageTexture(ui.FindWidget(name.c_str()), tex, 1.0f, 1.0f);
+    if (tex)
+      ugui::SetImageTexture(ui.FindWidget(name.c_str()), tex, 1.0f, 1.0f);
 
   // Columns: live backdrop image (only when a texture is set), selection accent,
   // label text + availability dimming.
@@ -1910,7 +1928,8 @@ void GameUi::Impl::ApplyMainMenu() {
       const base::String id = base::ToString(i);
       const bool row = i < static_cast<int>(mm_mods.size());
       SetVisible(("mm_mod" + id).c_str(), row);
-      if (row) setText("mm_modt" + id, mm_mods[i]);
+      if (row)
+        setText("mm_modt" + id, mm_mods[i]);
     }
     SetVisible("mm_mods_empty", mm_mods.empty());
   }
@@ -1951,7 +1970,8 @@ void GameUi::Impl::ApplyMainMenu() {
 void GameUi::Impl::ActivateNav() {
   switch (mm_nav) {
     case 0:  // PLAY: enter the selected universe (skip if its data is missing)
-      if (mm_universe < static_cast<int>(mm_available.size()) && !mm_available[mm_universe]) return;
+      if (mm_universe < static_cast<int>(mm_available.size()) && !mm_available[mm_universe])
+        return;
       mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
       mm_request.universe = mm_universe;
       mm_request.multiplayer = false;
@@ -1975,7 +1995,8 @@ void GameUi::Impl::ActivateNav() {
 }
 
 bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
-  if (!main_menu_open) return false;
+  if (!main_menu_open)
+    return false;
   ugui::wid w = target;
   for (int depth = 0; depth < 10 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
@@ -2050,7 +2071,8 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
 // raises a request the engine consumes (browse, launch, cancel).
 void GameUi::Impl::ApplyFirstRun() {
   SetVisible("firstrun", first_run_open);
-  if (!first_run_open) return;
+  if (!first_run_open)
+    return;
   auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
@@ -2104,7 +2126,8 @@ void GameUi::Impl::ApplyFirstRun() {
   // Page 4: mods dir + recommended space.
   setText("fr_modspath_t",
           fr_view.mods_dir.empty() ? base::String("~/.recreation/mods") : fr_view.mods_dir);
-  if (!fr_view.space_label.empty()) setText("fr_space", fr_view.space_label);
+  if (!fr_view.space_label.empty())
+    setText("fr_space", fr_view.space_label);
 
   // Page 5: a check badge on each located universe.
   for (int i = 0; i < kFirstRunGames; ++i)
@@ -2114,7 +2137,8 @@ void GameUi::Impl::ApplyFirstRun() {
 
 void GameUi::Impl::AdvanceFirstRun() {
   fr_dropdown = -1;
-  if (fr_step == 1 && fr_located() == 0) return;  // locate page: need one game
+  if (fr_step == 1 && fr_located() == 0)
+    return;  // locate page: need one game
   if (fr_step < kFirstRunSteps - 1) {
     ++fr_step;
     return;
@@ -2137,7 +2161,8 @@ void GameUi::Impl::RetreatFirstRun() {
 }
 
 bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
-  if (!first_run_open) return false;
+  if (!first_run_open)
+    return false;
   ugui::wid w = target;
   for (int depth = 0; depth < 10 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
@@ -2208,14 +2233,18 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
 }
 
 GameUi::GameUi() : impl_(base::MakeUnique<Impl>()) {}
-GameUi::~GameUi() { Shutdown(); }
+GameUi::~GameUi() {
+  Shutdown();
+}
 
 bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   render::Device* device = renderer.device();
-  if (!device || device->is_stub()) return false;
+  if (!device || device->is_stub())
+    return false;
   // The HUD backend records raw Vulkan; on other backends the HUD is unavailable.
   const render::VulkanHandles vk = render::GetVulkanHandles(*device);
-  if (vk.device == VK_NULL_HANDLE) return false;
+  if (vk.device == VK_NULL_HANDLE)
+    return false;
 
   impl_->host.window_width = static_cast<float>(window.width());
   impl_->host.window_height = static_cast<float>(window.height());
@@ -2268,16 +2297,22 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);
   impl_->CaptureFragmentMtimes();
-  if (impl_->hot_reload) RX_INFO("ui: hot reload on, watching {}", UiDir().string());
+  if (impl_->hot_reload)
+    RX_INFO("ui: hot reload on, watching {}", UiDir().string());
 
   Impl* impl = (impl_ ? &*impl_ : nullptr);
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
-    if (btn != ugui::MouseButton::kLeft) return;
-    if (impl->RouteFirstRunClick(w)) return;  // the setup wizard owns this click
-    if (impl->RouteMainMenuClick(w)) return;  // the front menu owns this click
-    if (impl->RouteEditorClick(w)) return;    // editor overlay owns this click
+    if (btn != ugui::MouseButton::kLeft)
+      return;
+    if (impl->RouteFirstRunClick(w))
+      return;  // the setup wizard owns this click
+    if (impl->RouteMainMenuClick(w))
+      return;  // the front menu owns this click
+    if (impl->RouteEditorClick(w))
+      return;  // editor overlay owns this click
     ugui::WidgetNode* n = impl->ui.world().Get<ugui::WidgetNode>(w);
-    if (!n) return;
+    if (!n)
+      return;
     if (n->name == "btn_resume") {
       impl->menu_open = false;
       impl->settings_open = false;
@@ -2315,13 +2350,16 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->SetVisible("cg_root", false);
 
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
-  if (UiMenu) impl_->menu_open = true;
+  if (UiMenu)
+    impl_->menu_open = true;
   impl_->ApplyMenuVisibility();  // menu starts hidden unless forced open
   // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
-  if (MainMenu) impl_->main_menu_open = true;
+  if (MainMenu)
+    impl_->main_menu_open = true;
   impl_->ApplyMainMenu();
   // Debug aid: RECREATION_FIRST_RUN opens the setup wizard at startup.
-  if (FirstRun) impl_->first_run_open = true;
+  if (FirstRun)
+    impl_->first_run_open = true;
   impl_->ApplyFirstRun();
   impl_->initialized = true;
   RX_INFO("ultragui hud initialized (draw-data mode)");
@@ -2329,50 +2367,65 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
 }
 
 void GameUi::Shutdown() {
-  if (!impl_ || !impl_->initialized) return;
+  if (!impl_ || !impl_->initialized)
+    return;
   impl_->backend.Shutdown();
   impl_->ui.Shutdown();
   impl_->initialized = false;
 }
 
 void GameUi::ToggleMenu() {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->menu_open = !impl_->menu_open;
   impl_->settings_open = false;  // always reopen on the main pause screen
   impl_->ApplyMenuVisibility();
 }
 
-bool GameUi::menu_open() const { return impl_->initialized && impl_->menu_open; }
-bool GameUi::quit_requested() const { return impl_->initialized && impl_->quit_requested; }
+bool GameUi::menu_open() const {
+  return impl_->initialized && impl_->menu_open;
+}
+bool GameUi::quit_requested() const {
+  return impl_->initialized && impl_->quit_requested;
+}
 
 void GameUi::OpenMainMenu() {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->main_menu_open = true;
   impl_->mm_screen = 0;
   impl_->ApplyMainMenu();
 }
 
 void GameUi::CloseMainMenu() {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->main_menu_open = false;
   impl_->ApplyMainMenu();
 }
 
-bool GameUi::main_menu_open() const { return impl_->initialized && impl_->main_menu_open; }
+bool GameUi::main_menu_open() const {
+  return impl_->initialized && impl_->main_menu_open;
+}
 
 void GameUi::MainMenuMove(int dx, int dy) {
-  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0) return;
-  if (dy) impl_->mm_nav = (impl_->mm_nav + dy + kMenuNavItems) % kMenuNavItems;
-  if (dx) impl_->mm_universe = base::Clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
+  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
+    return;
+  if (dy)
+    impl_->mm_nav = (impl_->mm_nav + dy + kMenuNavItems) % kMenuNavItems;
+  if (dx)
+    impl_->mm_universe = base::Clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
 }
 
 void GameUi::MainMenuActivate() {
-  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0) return;
+  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
+    return;
   impl_->ActivateNav();
 }
 
 bool GameUi::MainMenuBack() {
-  if (!impl_->initialized || !impl_->main_menu_open) return false;
+  if (!impl_->initialized || !impl_->main_menu_open)
+    return false;
   if (impl_->mm_screen != 0) {
     impl_->mm_screen = 0;
     return true;
@@ -2386,18 +2439,23 @@ bool GameUi::MainMenuAtRoot() const {
 
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>& names,
                                   const base::Vector<bool>& available) {
-  if (!impl_->initialized) return;
-  if (!names.empty()) impl_->mm_universe_names = names;
-  if (!available.empty()) impl_->mm_available = available;
+  if (!impl_->initialized)
+    return;
+  if (!names.empty())
+    impl_->mm_universe_names = names;
+  if (!available.empty())
+    impl_->mm_available = available;
 }
 
 void GameUi::SetMainMenuBackdrop(int universe, u64 texture) {
-  if (!impl_->initialized || universe < 0 || universe >= kMenuUniverses) return;
+  if (!impl_->initialized || universe < 0 || universe >= kMenuUniverses)
+    return;
   impl_->mm_backdrop[universe] = texture;
 }
 
 void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   for (auto& [name, tex] : impl_->mm_glyphs)
     if (name == widget) {
       tex = texture;
@@ -2407,18 +2465,23 @@ void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
 }
 
 void GameUi::SetMainMenuStats(const MainMenuStats& stats) {
-  if (impl_->initialized) impl_->mm_stats = stats;
+  if (impl_->initialized)
+    impl_->mm_stats = stats;
 }
 
 void GameUi::SetMainMenuMods(const base::Vector<base::String>& mods) {
-  if (impl_->initialized) impl_->mm_mods = mods;
+  if (impl_->initialized)
+    impl_->mm_mods = mods;
 }
 
 void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>& news) {
-  if (impl_->initialized) impl_->mm_news = news;
+  if (impl_->initialized)
+    impl_->mm_news = news;
 }
 
-int GameUi::selected_universe() const { return impl_->initialized ? impl_->mm_universe : 0; }
+int GameUi::selected_universe() const {
+  return impl_->initialized ? impl_->mm_universe : 0;
+}
 
 MainMenuRequest GameUi::PollMainMenuRequest() {
   MainMenuRequest r;
@@ -2430,7 +2493,8 @@ MainMenuRequest GameUi::PollMainMenuRequest() {
 }
 
 void GameUi::OpenFirstRun() {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->first_run_open = true;
   impl_->fr_step = 0;
   impl_->fr_dropdown = -1;
@@ -2438,29 +2502,36 @@ void GameUi::OpenFirstRun() {
   // (so a headless capture can grab any page, not just the welcome screen).
   if (const char* s = FirstRunStep.get()) {
     const int v = std::atoi(s);
-    if (v >= 0 && v < kFirstRunSteps) impl_->fr_step = v;
+    if (v >= 0 && v < kFirstRunSteps)
+      impl_->fr_step = v;
   }
   impl_->ApplyFirstRun();
 }
 
 void GameUi::CloseFirstRun() {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->first_run_open = false;
   impl_->ApplyFirstRun();
 }
 
-bool GameUi::first_run_open() const { return impl_->initialized && impl_->first_run_open; }
+bool GameUi::first_run_open() const {
+  return impl_->initialized && impl_->first_run_open;
+}
 
 void GameUi::FirstRunNext() {
-  if (impl_->initialized && impl_->first_run_open) impl_->AdvanceFirstRun();
+  if (impl_->initialized && impl_->first_run_open)
+    impl_->AdvanceFirstRun();
 }
 
 void GameUi::FirstRunBack() {
-  if (impl_->initialized && impl_->first_run_open) impl_->RetreatFirstRun();
+  if (impl_->initialized && impl_->first_run_open)
+    impl_->RetreatFirstRun();
 }
 
 void GameUi::SetFirstRunView(const FirstRunView& view) {
-  if (impl_->initialized) impl_->fr_view = view;
+  if (impl_->initialized)
+    impl_->fr_view = view;
 }
 
 FirstRunRequest GameUi::PollFirstRunRequest() {
@@ -2472,10 +2543,13 @@ FirstRunRequest GameUi::PollFirstRunRequest() {
   return r;
 }
 
-bool GameUi::settings_open() const { return impl_->initialized && impl_->settings_open; }
+bool GameUi::settings_open() const {
+  return impl_->initialized && impl_->settings_open;
+}
 
 void GameUi::SetControlsView(const ControlsView& view) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   Impl* impl = (impl_ ? &*impl_ : nullptr);
   for (size_t i = 0; i < view.rows.size(); ++i) {
     const base::String base = "rebind_" + base::ToString(i);
@@ -2499,16 +2573,21 @@ SettingsRequest GameUi::PollSettingsRequest() {
 }
 
 void GameUi::SetQuest(const HudQuest& quest) {
-  if (impl_->initialized) impl_->quest = quest;
+  if (impl_->initialized)
+    impl_->quest = quest;
 }
 
 void GameUi::SetChatLines(const base::Vector<base::String>& lines) {
-  if (impl_->initialized) impl_->chat_lines = lines;
+  if (impl_->initialized)
+    impl_->chat_lines = lines;
 }
 
-void GameUi::SetScoreboard(bool open, const base::String& title, const base::String& header,
+void GameUi::SetScoreboard(bool open,
+                           const base::String& title,
+                           const base::String& header,
                            const base::Vector<base::String>& rows) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->scoreboard_open = open;
   impl_->scoreboard_title = title;
   impl_->scoreboard_header = header;
@@ -2516,33 +2595,40 @@ void GameUi::SetScoreboard(bool open, const base::String& title, const base::Str
 }
 
 void GameUi::SetPrompts(const base::Vector<base::String>& prompts) {
-  if (impl_->initialized) impl_->mp_prompts = prompts;
+  if (impl_->initialized)
+    impl_->mp_prompts = prompts;
 }
 
 void GameUi::SetCompassBlips(const base::Vector<CompassBlip>& blips) {
-  if (impl_->initialized) impl_->compass_blips = blips;
+  if (impl_->initialized)
+    impl_->compass_blips = blips;
 }
 
 void GameUi::SetNametags(const base::Vector<Nametag>& nametags) {
-  if (impl_->initialized) impl_->nametags = nametags;
+  if (impl_->initialized)
+    impl_->nametags = nametags;
 }
 
 void GameUi::SetHudGauges(const base::Vector<HudGauge>& gauges) {
-  if (impl_->initialized) impl_->hud_gauges = gauges;
+  if (impl_->initialized)
+    impl_->hud_gauges = gauges;
 }
 
 void GameUi::FlashQuestUpdate(const base::String& message) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->toast_text = message;
   impl_->toast_age = 0.0f;
 }
 
 void GameUi::SetActivatePrompt(const base::String& prompt) {
-  if (impl_->initialized) impl_->activate_prompt = prompt;
+  if (impl_->initialized)
+    impl_->activate_prompt = prompt;
 }
 
 void GameUi::SetHudVisible(bool visible) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->SetVisible("topbar", visible);  // compass
   impl_->SetVisible("crosshair", visible);
   impl_->SetVisible("vitals", visible);   // health / magicka / stamina bars
@@ -2550,61 +2636,77 @@ void GameUi::SetHudVisible(bool visible) {
 }
 
 void GameUi::SetObjectiveMarker(bool active, float bearing_deg, float distance_m) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->marker_active = active;
   impl_->marker_bearing = bearing_deg;
   impl_->marker_distance = distance_m;
 }
 
 void GameUi::SetDialogue(const DialogueView& dialogue) {
-  if (impl_->initialized) impl_->dialogue = dialogue;
+  if (impl_->initialized)
+    impl_->dialogue = dialogue;
 }
 
 void GameUi::SetContainer(const ContainerView& container) {
-  if (impl_->initialized) impl_->container = container;
+  if (impl_->initialized)
+    impl_->container = container;
 }
 
-void GameUi::SetWarMap(bool open, const base::Vector<WarHoldEntry>& holds,
+void GameUi::SetWarMap(bool open,
+                       const base::Vector<WarHoldEntry>& holds,
                        float imperial_fraction) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->war_map_open = open;
   impl_->war_holds = holds;
   impl_->war_progress = imperial_fraction;
 }
 
 void GameUi::SetJournal(bool open, const base::Vector<HudQuest>& quests, int selected) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   impl_->journal_open = open;
   impl_->journal = quests;
   impl_->journal_selected = selected;
 }
 
 void GameUi::SetEditorView(const EditorView& view) {
-  if (impl_->initialized) impl_->editor = view;
+  if (impl_->initialized)
+    impl_->editor = view;
 }
 
 void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)> sink) {
-  if (impl_->initialized) impl_->editor_sink = base::move(sink);
+  if (impl_->initialized)
+    impl_->editor_sink = base::move(sink);
 }
 
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
-  if (canvas_x) *canvas_x = window_x * impl_->pointer_scale_x;
-  if (canvas_y) *canvas_y = window_y * impl_->pointer_scale_y;
+  if (canvas_x)
+    *canvas_x = window_x * impl_->pointer_scale_x;
+  if (canvas_y)
+    *canvas_y = window_y * impl_->pointer_scale_y;
 }
 
 void GameUi::SetCharGenView(const CharGenView& view) {
-  if (impl_->initialized) impl_->chargen = view;
+  if (impl_->initialized)
+    impl_->chargen = view;
 }
 
 u64 GameUi::CreateUiTexture(int width, int height, const u8* rgba) {
-  if (!impl_->initialized || !rgba || width <= 0 || height <= 0) return 0;
+  if (!impl_->initialized || !rgba || width <= 0 || height <= 0)
+    return 0;
   return impl_->backend.CreateTexture(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
                                       ugui::RHIFormat::kRgba8Unorm, rgba, ugui::RHIFilter::kLinear);
 }
 
-void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
+void GameUi::Build(Window& window,
+                   render::Renderer& renderer,
+                   FlyCamera& camera,
+                   f32 frame_delta,
                    render::FrameView* view) {
-  if (!impl_->initialized) return;
+  if (!impl_->initialized)
+    return;
   Impl* impl = (impl_ ? &*impl_ : nullptr);
 
   // Hot reload: poll the .ugui fragments a few times a second and rebuild the
@@ -2613,7 +2715,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     impl->reload_timer += frame_delta;
     if (impl->reload_timer >= 0.25f) {
       impl->reload_timer = 0.0f;
-      if (impl->FragmentsChanged()) impl->ReloadUi();
+      if (impl->FragmentsChanged())
+        impl->ReloadUi();
     }
   }
 
@@ -2641,10 +2744,12 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
                                       MouseButton::kMiddle};
   for (int i = 0; i < 3; ++i) {
     bool down = in.button(rec_buttons[i]);
-    if (down != impl->prev_mouse[i]) q.PushButton(buttons[i], down);
+    if (down != impl->prev_mouse[i])
+      q.PushButton(buttons[i], down);
     impl->prev_mouse[i] = down;
   }
-  if (in.wheel != 0.0f) q.PushScroll({0.0f, in.wheel});
+  if (in.wheel != 0.0f)
+    q.PushScroll({0.0f, in.wheel});
 
   // Feed gamepad + keyboard navigation into ugui's focus ring so menus with
   // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.
@@ -2691,10 +2796,12 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     };
     for (int b = 0; b < static_cast<int>(GamepadButton::kCount); ++b) {
       bool down = pad.buttons[b];
-      if (down == impl->prev_pad[b]) continue;
+      if (down == impl->prev_pad[b])
+        continue;
       impl->prev_pad[b] = down;
       int u = to_ugui(static_cast<GamepadButton>(b));
-      if (u != kNoUgui) q.PushGamepadButton(static_cast<ugui::GamepadButton>(u), down);
+      if (u != kNoUgui)
+        q.PushGamepadButton(static_cast<ugui::GamepadButton>(u), down);
     }
     // The stick axes drive repeat navigation; our GamepadAxis order matches ugui's.
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftX, pad.axis(GamepadAxis::kLeftX));
@@ -2702,14 +2809,17 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   }
   // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (in.key_pressed(Key::kTab)) q.PushKey(258, 0, true, false, shift_mod);
-  if (in.key_pressed(Key::kReturn)) q.PushKey(257, 0, true, false, 0);
+  if (in.key_pressed(Key::kTab))
+    q.PushKey(258, 0, true, false, shift_mod);
+  if (in.key_pressed(Key::kReturn))
+    q.PushKey(257, 0, true, false, 0);
 
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
   Vec3 fwd = camera.forward();
   float heading = std::atan2(fwd.x, -fwd.z) * 57.29578f;
-  if (heading < 0.0f) heading += 360.0f;
+  if (heading < 0.0f)
+    heading += 360.0f;
   impl->SetStyleField(
       "compass_strip", [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
       CompassStripLeft(heading));
@@ -2861,7 +2971,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // --- Quest HUD ---
   const bool has_quest = !impl->quest.title.empty();
   impl->SetVisible("questtracker", has_quest);
-  if (has_quest) ugui::SetText(impl->ui.FindWidget("quest_title"), impl->quest.title.c_str());
+  if (has_quest)
+    ugui::SetText(impl->ui.FindWidget("quest_title"), impl->quest.title.c_str());
   for (int i = 0; i < kQuestObjectiveRows; ++i) {
     base::String row = "quest_obj" + base::ToString(i);
     if (has_quest && static_cast<size_t>(i) < impl->quest.objectives.size()) {
@@ -2879,7 +2990,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->toast_age += frame_delta;
   const bool toast_on = impl->toast_age < kToastSeconds && !impl->toast_text.empty();
   impl->SetVisible("quest_toast_box", toast_on);
-  if (toast_on) ugui::SetText(impl->ui.FindWidget("quest_toast"), impl->toast_text.c_str());
+  if (toast_on)
+    ugui::SetText(impl->ui.FindWidget("quest_toast"), impl->toast_text.c_str());
 
   // Centered activation prompt ("Talk to Ralof", "Open the gate", ...).
   const bool prompt_on = !impl->activate_prompt.empty();
@@ -2914,7 +3026,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
       const base::String row = "container_item" + base::ToString(i);
       if (i < static_cast<int>(cont.items.size())) {
         base::String line = cont.items[i].name;
-        if (cont.items[i].count > 1) line += "  x" + base::ToString(cont.items[i].count);
+        if (cont.items[i].count > 1)
+          line += "  x" + base::ToString(cont.items[i].count);
         ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
         impl->SetVisible(row.c_str(), true);
       } else {
@@ -2976,8 +3089,10 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
         ugui::SetText(impl->ui.FindWidget(row.c_str()), (h.name + "  --  " + owner).c_str());
         impl->SetTextColor(row.c_str(), col);
         impl->SetVisible(row.c_str(), true);
-        if (h.owner == 1) ++imperial;
-        if (h.owner == 2) ++stormcloak;
+        if (h.owner == 1)
+          ++imperial;
+        if (h.owner == 2)
+          ++stormcloak;
       } else {
         impl->SetVisible(row.c_str(), false);
       }
@@ -3035,7 +3150,8 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     // pass) with the blurred backdrop for frosted panels; null disables frost.
     impl->backend.SetBackdrop(render::GetVkImageView(view->blur_source),
                               render::GetVkSampler(view->blur_sampler));
-    if (impl->draw_data) impl->backend.Render(*impl->draw_data, render::GetVkCommandBuffer(cmd));
+    if (impl->draw_data)
+      impl->backend.Render(*impl->draw_data, render::GetVkCommandBuffer(cmd));
   };
 }
 
@@ -3048,12 +3164,16 @@ namespace rx {
 struct GameUi::Impl {};
 GameUi::GameUi() = default;
 GameUi::~GameUi() = default;
-bool GameUi::Initialize(Window&, render::Renderer&) { return false; }
+bool GameUi::Initialize(Window&, render::Renderer&) {
+  return false;
+}
 void GameUi::Shutdown() {}
 void GameUi::Build(Window&, render::Renderer&, FlyCamera&, f32, render::FrameView*) {}
 void GameUi::SetQuest(const HudQuest&) {}
 void GameUi::SetChatLines(const base::Vector<base::String>&) {}
-void GameUi::SetScoreboard(bool, const base::String&, const base::String&,
+void GameUi::SetScoreboard(bool,
+                           const base::String&,
+                           const base::String&,
                            const base::Vector<base::String>&) {}
 void GameUi::SetPrompts(const base::Vector<base::String>&) {}
 void GameUi::SetCompassBlips(const base::Vector<CompassBlip>&) {}
@@ -3070,39 +3190,65 @@ void GameUi::SetWarMap(bool, const base::Vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)>) {}
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
-  if (canvas_x) *canvas_x = window_x;
-  if (canvas_y) *canvas_y = window_y;
+  if (canvas_x)
+    *canvas_x = window_x;
+  if (canvas_y)
+    *canvas_y = window_y;
 }
 void GameUi::SetCharGenView(const CharGenView&) {}
-u64 GameUi::CreateUiTexture(int, int, const u8*) { return 0; }
+u64 GameUi::CreateUiTexture(int, int, const u8*) {
+  return 0;
+}
 void GameUi::ToggleMenu() {}
-bool GameUi::menu_open() const { return false; }
-bool GameUi::settings_open() const { return false; }
+bool GameUi::menu_open() const {
+  return false;
+}
+bool GameUi::settings_open() const {
+  return false;
+}
 void GameUi::SetControlsView(const ControlsView&) {}
-SettingsRequest GameUi::PollSettingsRequest() { return {}; }
-bool GameUi::quit_requested() const { return false; }
+SettingsRequest GameUi::PollSettingsRequest() {
+  return {};
+}
+bool GameUi::quit_requested() const {
+  return false;
+}
 void GameUi::OpenMainMenu() {}
 void GameUi::CloseMainMenu() {}
-bool GameUi::main_menu_open() const { return false; }
+bool GameUi::main_menu_open() const {
+  return false;
+}
 void GameUi::MainMenuMove(int, int) {}
 void GameUi::MainMenuActivate() {}
-bool GameUi::MainMenuBack() { return false; }
-bool GameUi::MainMenuAtRoot() const { return false; }
+bool GameUi::MainMenuBack() {
+  return false;
+}
+bool GameUi::MainMenuAtRoot() const {
+  return false;
+}
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
 void GameUi::SetMainMenuMods(const base::Vector<base::String>&) {}
 void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>&) {}
 void GameUi::SetMainMenuGlyph(const base::String&, u64) {}
-int GameUi::selected_universe() const { return 0; }
-MainMenuRequest GameUi::PollMainMenuRequest() { return {}; }
+int GameUi::selected_universe() const {
+  return 0;
+}
+MainMenuRequest GameUi::PollMainMenuRequest() {
+  return {};
+}
 void GameUi::OpenFirstRun() {}
 void GameUi::CloseFirstRun() {}
-bool GameUi::first_run_open() const { return false; }
+bool GameUi::first_run_open() const {
+  return false;
+}
 void GameUi::FirstRunNext() {}
 void GameUi::FirstRunBack() {}
 void GameUi::SetFirstRunView(const FirstRunView&) {}
-FirstRunRequest GameUi::PollFirstRunRequest() { return {}; }
+FirstRunRequest GameUi::PollFirstRunRequest() {
+  return {};
+}
 
 }  // namespace rx
 

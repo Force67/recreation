@@ -3,16 +3,16 @@
 
 namespace rx::script::skyrim {
 
-using papyrus::ObjectRef;
-using papyrus::Value;
-using papyrus::VirtualMachine;
-using ext::Args;
 using ext::ArgB;
 using ext::ArgF;
 using ext::ArgI;
 using ext::ArgO;
+using ext::Args;
 using ext::ArgS;
 using ext::Resolve;
+using papyrus::ObjectRef;
+using papyrus::Value;
+using papyrus::VirtualMachine;
 namespace st = state;
 
 void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -58,9 +58,7 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 
   // Lookups with no data source behind them yet resolve to None.
-  auto none_obj = [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Object(ObjectRef{});
-  };
+  auto none_obj = [](VirtualMachine&, ObjectRef, Args&) { return Value::Object(ObjectRef{}); };
   reg.Register("Game", "GetFormFromFile", none_obj);
   reg.Register("Game", "GetPlayerGrabbedRef", none_obj);
   reg.Register("Game", "GetPlayersLastRiddenHorse", none_obj);

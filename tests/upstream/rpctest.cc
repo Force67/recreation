@@ -20,7 +20,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 using rx::rpc::DecodeCall;
@@ -86,14 +87,16 @@ void TestCodec() {
   CheckRoundTrip("int arg", {"a.int", {RpcValue(rx::i64{-1234567890123})}});
   CheckRoundTrip("float arg", {"a.float", {RpcValue(rx::f64{-2.718281828})}});
   CheckRoundTrip("string arg", {"a.string", {RpcValue(std::string("a\0b", 3))}});
-  CheckRoundTrip("blob arg",
-                 {"a.blob", {RpcValue(std::vector<rx::u8>{0, 255, 16, 32})}});
+  CheckRoundTrip("blob arg", {"a.blob", {RpcValue(std::vector<rx::u8>{0, 255, 16, 32})}});
   CheckRoundTrip("empty args", {"a.noargs", {}});
 
   RpcCall mixed;
   mixed.name = "spell.cast";
-  mixed.args = {RpcValue(rx::i64{7}), RpcValue(std::string("Fireball")),
-                RpcValue(rx::f64{1.5}), RpcValue(true), RpcValue(),
+  mixed.args = {RpcValue(rx::i64{7}),
+                RpcValue(std::string("Fireball")),
+                RpcValue(rx::f64{1.5}),
+                RpcValue(true),
+                RpcValue(),
                 RpcValue(std::vector<rx::u8>{9, 8, 7})};
   CheckRoundTrip("mixed args", mixed);
 }
@@ -110,7 +113,8 @@ void TestCodecRejects() {
   // Truncated at every length short of the full buffer must fail, never crash.
   bool any_truncation_ok = false;
   for (size_t n = 0; n < good.size(); ++n) {
-    if (DecodeCall(good.data(), n).has_value()) any_truncation_ok = true;
+    if (DecodeCall(good.data(), n).has_value())
+      any_truncation_ok = true;
   }
   Check("all truncations rejected", !any_truncation_ok);
 
@@ -120,23 +124,23 @@ void TestCodecRejects() {
 
   std::vector<rx::u8> trailing = good;
   trailing.push_back(0x00);
-  Check("trailing garbage rejected",
-        !DecodeCall(trailing.data(), trailing.size()).has_value());
+  Check("trailing garbage rejected", !DecodeCall(trailing.data(), trailing.size()).has_value());
 
   // An over-limit string length (> 16 MiB) in the header must be rejected before
   // any allocation, even though the buffer itself is tiny.
   std::vector<rx::u8> over;
   auto put_u32 = [&](rx::u32 v) {
-    for (int i = 0; i < 4; ++i) over.push_back(rx::u8(v >> (8 * i)));
+    for (int i = 0; i < 4; ++i)
+      over.push_back(rx::u8(v >> (8 * i)));
   };
   auto put_u16 = [&](rx::u16 v) {
     over.push_back(rx::u8(v));
     over.push_back(rx::u8(v >> 8));
   };
   put_u32(rx::FourCc('R', 'P', 'C', '1'));
-  put_u16(1);          // name length
+  put_u16(1);  // name length
   over.push_back('n');
-  put_u16(1);          // arg count
+  put_u16(1);  // arg count
   over.push_back(static_cast<rx::u8>(RpcValue::Type::kString));
   put_u32(0x7FFFFFFF);  // ~2 GiB declared length
   Check("over-limit length rejected", !DecodeCall(over.data(), over.size()).has_value());
@@ -144,11 +148,12 @@ void TestCodecRejects() {
   // An unknown type tag means the stream is corrupt.
   std::vector<rx::u8> bad_tag;
   bad_tag.insert(bad_tag.end(), over.begin(), over.begin() + 4);  // magic
-  bad_tag.push_back(0); bad_tag.push_back(0);  // name length 0
-  bad_tag.push_back(1); bad_tag.push_back(0);  // arg count 1
-  bad_tag.push_back(200);                      // unknown tag
-  Check("unknown type tag rejected",
-        !DecodeCall(bad_tag.data(), bad_tag.size()).has_value());
+  bad_tag.push_back(0);
+  bad_tag.push_back(0);  // name length 0
+  bad_tag.push_back(1);
+  bad_tag.push_back(0);    // arg count 1
+  bad_tag.push_back(200);  // unknown tag
+  Check("unknown type tag rejected", !DecodeCall(bad_tag.data(), bad_tag.size()).has_value());
 }
 
 void TestRegistry() {

@@ -16,14 +16,16 @@ namespace {
 rx::Engine* g_engine = nullptr;
 
 void HandleSignal(int) {
-  if (g_engine) g_engine->RequestQuit();
+  if (g_engine)
+    g_engine->RequestQuit();
 }
 
 #ifndef _WIN32
 // SIGHUP asks the running server to re-scan its mods directory and re-offer the
 // updated set to joining clients, so an author can iterate without a restart.
 void HandleReload(int) {
-  if (g_engine) g_engine->RequestModReload();
+  if (g_engine)
+    g_engine->RequestModReload();
 }
 #endif
 
@@ -38,12 +40,18 @@ void PrintUsage() {
 }
 
 rx::bethesda::Game ParseGame(const base::String& id) {
-  if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
-  if (id == "fo4") return rx::bethesda::Game::kFallout4;
-  if (id == "fo76") return rx::bethesda::Game::kFallout76;
-  if (id == "starfield") return rx::bethesda::Game::kStarfield;
-  if (id == "fo3") return rx::bethesda::Game::kFallout3;
-  if (id == "fnv") return rx::bethesda::Game::kFalloutNv;
+  if (id == "skyrimse")
+    return rx::bethesda::Game::kSkyrimSe;
+  if (id == "fo4")
+    return rx::bethesda::Game::kFallout4;
+  if (id == "fo76")
+    return rx::bethesda::Game::kFallout76;
+  if (id == "starfield")
+    return rx::bethesda::Game::kStarfield;
+  if (id == "fo3")
+    return rx::bethesda::Game::kFallout3;
+  if (id == "fnv")
+    return rx::bethesda::Game::kFalloutNv;
   return rx::bethesda::Game::kUnknown;
 }
 

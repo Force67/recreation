@@ -3,12 +3,16 @@
 
 namespace rx::script::skyrim {
 
+using ext::ArgB;
+using ext::ArgF;
+using ext::ArgI;
+using ext::ArgO;
+using ext::Args;
+using ext::ArgS;
+using ext::Resolve;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
-using ext::ArgB; using ext::ArgF; using ext::ArgI; using ext::ArgO; using ext::ArgS;
-using ext::Resolve;
 namespace st = state;
 
 void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -165,7 +169,8 @@ void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
     return Value::Bool(st::HasMember(self, "spells", ArgO(a, 0)));
   });
   // No member set is exposed to wipe wholesale, so these clear nothing observable.
-  reg.Register("Actor", "DispelAllSpells", [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
+  reg.Register("Actor", "DispelAllSpells",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
   reg.Register("Actor", "RemoveFromAllFactions",
                [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
 
@@ -328,10 +333,11 @@ void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Actor", "ClearExpressionOverride", noop);
   reg.Register("Actor", "ClearExtraArrows", noop);
   reg.Register("Actor", "ClearForcedMovement", noop);
-  reg.Register("Actor", "ClearKeepOffsetFromActor", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    Resolve(bindings).SetActorFollowing(self, false);
-    return Value();
-  });
+  reg.Register("Actor", "ClearKeepOffsetFromActor",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 Resolve(bindings).SetActorFollowing(self, false);
+                 return Value();
+               });
   reg.Register("Actor", "ClearLookAt", noop);
   reg.Register("Actor", "DoCombatSpellApply", noop);
   reg.Register("Actor", "EndDeferredKill", noop);

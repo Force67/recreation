@@ -29,33 +29,43 @@ constexpr const char* kHostFxrName = "hostfxr.dll";
 void* OsLoadLibrary(const char* utf8_path) {
   const int n = ::MultiByteToWideChar(CP_UTF8, 0, utf8_path, -1, nullptr, 0);
   std::wstring wide(n > 0 ? n : 1, L'\0');
-  if (n > 0) ::MultiByteToWideChar(CP_UTF8, 0, utf8_path, -1, wide.data(), n);
+  if (n > 0)
+    ::MultiByteToWideChar(CP_UTF8, 0, utf8_path, -1, wide.data(), n);
   return reinterpret_cast<void*>(::LoadLibraryW(wide.c_str()));
 }
 void* OsGetSymbol(void* lib, const char* name) {
   return reinterpret_cast<void*>(::GetProcAddress(reinterpret_cast<HMODULE>(lib), name));
 }
-base::String OsLoadError() { return "error " + base::ToString(::GetLastError()); }
+base::String OsLoadError() {
+  return "error " + base::ToString(::GetLastError());
+}
 
 // hostfxr's UTF-16 entry points need the UTF-8 std::strings widened; the
 // returned temporary outlives the call expression it is passed into.
 std::wstring ToCharT(const base::String& s) {
   const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
   std::wstring wide(n > 1 ? n - 1 : 0, L'\0');
-  if (n > 1) ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, wide.data(), n);
+  if (n > 1)
+    ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, wide.data(), n);
   return wide;
 }
 #else
 using char_t = char;
 constexpr const char* kHostFxrName = "libhostfxr.so";
 
-void* OsLoadLibrary(const char* path) { return ::dlopen(path, RTLD_LAZY | RTLD_GLOBAL); }
-void* OsGetSymbol(void* lib, const char* name) { return ::dlsym(lib, name); }
+void* OsLoadLibrary(const char* path) {
+  return ::dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
+}
+void* OsGetSymbol(void* lib, const char* name) {
+  return ::dlsym(lib, name);
+}
 base::String OsLoadError() {
   const char* e = ::dlerror();
   return e ? e : "unknown error";
 }
-const base::String& ToCharT(const base::String& s) { return s; }
+const base::String& ToCharT(const base::String& s) {
+  return s;
+}
 #endif
 
 using hostfxr_handle = void*;
@@ -66,9 +76,8 @@ using init_for_runtime_config_fn = int (*)(const char_t*, const void*, hostfxr_h
 using get_runtime_delegate_fn = int (*)(hostfxr_handle, int, void**);
 using set_runtime_property_fn = int (*)(hostfxr_handle, const char_t*, const char_t*);
 using close_fn = int (*)(hostfxr_handle);
-using load_assembly_and_get_function_pointer_fn = int (*)(const char_t*, const char_t*,
-                                                          const char_t*, const char_t*, void*,
-                                                          void**);
+using load_assembly_and_get_function_pointer_fn =
+    int (*)(const char_t*, const char_t*, const char_t*, const char_t*, void*, void**);
 
 // Picks the newest host/fxr/<version>/libhostfxr.so under a .NET root, choosing
 // by version directory name (lexicographic, good enough for the x.y.z layout).
@@ -79,7 +88,8 @@ base::String FindHostFxr(const base::String& dotnet_root) {
   base::String best_path;
   for (const auto& entry :
        fs::directory_iterator(fs::path(dotnet_root.c_str()) / "host" / "fxr", ec)) {
-    if (!entry.is_directory()) continue;
+    if (!entry.is_directory())
+      continue;
     fs::path candidate = entry.path() / kHostFxrName;
     base::String version = entry.path().filename().string();
     if (fs::exists(candidate.c_str()) && version > best_version) {
@@ -92,15 +102,20 @@ base::String FindHostFxr(const base::String& dotnet_root) {
 
 }  // namespace
 
-ClrHost::~ClrHost() { Shutdown(); }
+ClrHost::~ClrHost() {
+  Shutdown();
+}
 
-bool ClrHost::Initialize(const base::String& dotnet_root, const base::String& runtime_config_path,
-                         const base::String& assembly_path, const base::String& type_name,
+bool ClrHost::Initialize(const base::String& dotnet_root,
+                         const base::String& runtime_config_path,
+                         const base::String& assembly_path,
+                         const base::String& type_name,
                          const base::String& method_name,
                          const base::Vector<base::Pair<base::String, base::String>>& properties) {
   base::String root = dotnet_root;
   if (root.empty()) {
-    if (const char* env = std::getenv("DOTNET_ROOT")) root = env;
+    if (const char* env = std::getenv("DOTNET_ROOT"))
+      root = env;
   }
   if (root.empty()) {
     RX_INFO("clr: no .NET root (set DOTNET_ROOT), managed scripting disabled");
@@ -119,8 +134,10 @@ bool ClrHost::Initialize(const base::String& dotnet_root, const base::String& ru
     return false;
   }
 
-  auto init = reinterpret_cast<init_for_runtime_config_fn>(OsGetSymbol(library_, "hostfxr_initialize_for_runtime_config"));
-  auto get_delegate = reinterpret_cast<get_runtime_delegate_fn>(OsGetSymbol(library_, "hostfxr_get_runtime_delegate"));
+  auto init = reinterpret_cast<init_for_runtime_config_fn>(
+      OsGetSymbol(library_, "hostfxr_initialize_for_runtime_config"));
+  auto get_delegate = reinterpret_cast<get_runtime_delegate_fn>(
+      OsGetSymbol(library_, "hostfxr_get_runtime_delegate"));
   close_fn_ = OsGetSymbol(library_, "hostfxr_close");
   if (!init || !get_delegate || !close_fn_) {
     RX_WARN("clr: hostfxr symbols missing");
@@ -172,7 +189,7 @@ bool ClrHost::Initialize(const base::String& dotnet_root, const base::String& ru
             ToCharT(method_name).c_str(), kUnmanagedCallersOnly, nullptr, &entry);
   if (rc != 0 || !entry) {
     RX_WARN("clr: resolving {}::{} failed: 0x{:x}", type_name, method_name,
-             static_cast<unsigned>(rc));
+            static_cast<unsigned>(rc));
     return false;
   }
   entry_ = reinterpret_cast<int (*)(void*)>(entry);
@@ -180,10 +197,13 @@ bool ClrHost::Initialize(const base::String& dotnet_root, const base::String& ru
   return true;
 }
 
-int ClrHost::Invoke(void* arg) { return entry_ ? entry_(arg) : -1; }
+int ClrHost::Invoke(void* arg) {
+  return entry_ ? entry_(arg) : -1;
+}
 
 void ClrHost::Shutdown() {
-  if (host_handle_ && close_fn_) reinterpret_cast<close_fn>(close_fn_)(host_handle_);
+  if (host_handle_ && close_fn_)
+    reinterpret_cast<close_fn>(close_fn_)(host_handle_);
   host_handle_ = nullptr;
   entry_ = nullptr;
   // libhostfxr is intentionally left loaded: the CLR cannot be re-hosted in a

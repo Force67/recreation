@@ -12,7 +12,8 @@ base::String NativeRegistry::Key(base::StringRef script_type, base::StringRef fu
   base::String key;
   key.reserve(script_type.size() + 1 + function.size());
   auto lower = [&](base::StringRef s) {
-    for (char c : s) key.push_back(static_cast<char>(std::tolower((unsigned char)c)));
+    for (char c : s)
+      key.push_back(static_cast<char>(std::tolower((unsigned char)c)));
   };
   lower(script_type);
   key.push_back('.');
@@ -20,7 +21,8 @@ base::String NativeRegistry::Key(base::StringRef script_type, base::StringRef fu
   return key;
 }
 
-void NativeRegistry::Register(base::StringRef script_type, base::StringRef function,
+void NativeRegistry::Register(base::StringRef script_type,
+                              base::StringRef function,
                               NativeFunction fn) {
   table_[Key(script_type, function)] = base::move(fn);
 }

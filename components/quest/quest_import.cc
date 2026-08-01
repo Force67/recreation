@@ -21,10 +21,13 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
   // SetStage always lands on a real node.
   base::Vector<i32> indices;
   auto add_index = [&](i32 index) {
-    if (std::find(indices.begin(), indices.end(), index) == indices.end()) indices.push_back(index);
+    if (std::find(indices.begin(), indices.end(), index) == indices.end())
+      indices.push_back(index);
   };
-  for (const StageDef& s : def.stages) add_index(s.index);
-  for (const auto& [stage, fn] : stage_fragments) add_index(stage);
+  for (const StageDef& s : def.stages)
+    add_index(s.index);
+  for (const auto& [stage, fn] : stage_fragments)
+    add_index(stage);
   base::Sort(indices.begin(), indices.end());
 
   // CompletionStage() is the lowest stage flagged complete; mark its node so the
@@ -34,7 +37,8 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
     QuestNode node;
     node.id = index;
     node.kind = NodeKind::kPhase;
-    if (const StageDef* sd = def.FindStage(index)) node.log_entry = sd->log_entry;
+    if (const StageDef* sd = def.FindStage(index))
+      node.log_entry = sd->log_entry;
 
     if (auto* it = stage_fragments.find(index); it != nullptr && !it->empty()) {
       Action frag;
@@ -46,7 +50,8 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
     // A stage index is "completing" if any of its QSDT entries set the flag.
     bool completes = false;
     for (const StageDef& s : def.stages)
-      if (s.index == index && s.complete_quest) completes = true;
+      if (s.index == index && s.complete_quest)
+        completes = true;
     if (completes) {
       Action done;
       done.kind = ActionKind::kCompleteQuest;

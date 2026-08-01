@@ -21,7 +21,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void TestPaths() {
@@ -120,10 +121,9 @@ void TestIndexParse() {
                               &voice) &&
             info == 0x0003374b && voice == "malenord");
   Check("so does a line with a topic segment",
-        VoiceIndex::ParsePath(
-            "sound/voice/skyrim.esm/maleeventonedaccented/"
-            "mq101_mq101soldierblocking_000648fc_1.fuz",
-            &info, &voice) &&
+        VoiceIndex::ParsePath("sound/voice/skyrim.esm/maleeventonedaccented/"
+                              "mq101_mq101soldierblocking_000648fc_1.fuz",
+                              &info, &voice) &&
             info == 0x000648fc && voice == "maleeventonedaccented");
   Check("a lip file is not a clip",
         !VoiceIndex::ParsePath("sound/voice/skyrim.esm/malenord/mq101__0003374b_1.lip", &info,

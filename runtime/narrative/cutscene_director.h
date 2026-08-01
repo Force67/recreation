@@ -8,14 +8,14 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
-#include "core/math.h"
 #include "components/dialogue/voice.h"
-#include "runtime/app/engine_context.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/scene_runtime.h"
-#include "runtime/narrative/quest_state_cache.h"
-#include "runtime/demo/trailer.h"
 #include "components/world/cine_camera.h"
+#include "core/math.h"
+#include "runtime/app/engine_context.h"
+#include "runtime/demo/trailer.h"
+#include "runtime/narrative/quest_state_cache.h"
 
 namespace rx {
 
@@ -44,7 +44,9 @@ class NpcDirector;
 // Nothing here knows about a specific quest.
 class CutsceneDirector {
  public:
-  CutsceneDirector(EngineContext& ctx, ActorSystem* actors, NpcDirector* npc,
+  CutsceneDirector(EngineContext& ctx,
+                   ActorSystem* actors,
+                   NpcDirector* npc,
                    AiPackageDirector* packages);
   ~CutsceneDirector();
   void set_interaction(InteractionSystem* interaction) { interaction_ = interaction; }
@@ -177,10 +179,21 @@ class CutsceneDirector {
   // to one, else the alias name with the modeller's "Alias" suffix taken off.
   base::String SpeakerName(const quest::QuestDef& def, i32 alias, u16 plugin);
   // The line a speaker says under a topic: the INFO, its subtitle and its length.
-  bool ResolveLine(const SceneEntry& entry, i32 alias, u64 topic, u64 speaker, u64* info,
-                   base::String* text, f32* seconds);
-  VoiceLine ResolveVoice(const SceneEntry& entry, i32 alias, u64 topic, u64 topic_quest,
-                         u64 speaker, u64 info, int response_index, const base::String& text);
+  bool ResolveLine(const SceneEntry& entry,
+                   i32 alias,
+                   u64 topic,
+                   u64 speaker,
+                   u64* info,
+                   base::String* text,
+                   f32* seconds);
+  VoiceLine ResolveVoice(const SceneEntry& entry,
+                         i32 alias,
+                         u64 topic,
+                         u64 topic_quest,
+                         u64 speaker,
+                         u64 info,
+                         int response_index,
+                         const base::String& text);
   // The voice type a scene actor's lines are filed under: the placed reference's
   // base NPC when it has one, else the NPC the alias names directly.
   base::String VoiceTypeFor(const SceneEntry& entry, i32 alias, u64 speaker);

@@ -28,7 +28,8 @@ inline float MarkerCompassBearingDeg(const float view_fwd[3], const float to_mar
   float tx = to_marker[0], tz = to_marker[2];
   const float fl = std::sqrt(fx * fx + fz * fz);
   const float tl = std::sqrt(tx * tx + tz * tz);
-  if (fl < 1e-6f || tl < 1e-6f) return 0.0f;
+  if (fl < 1e-6f || tl < 1e-6f)
+    return 0.0f;
   fx /= fl;
   fz /= fl;
   tx /= tl;

@@ -17,17 +17,17 @@
 #include "asset/asset_database.h"
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/load_order.h"
+#include "components/world/components.h"
+#include "components/world/grass_baker.h"
+#include "components/world/land_baker.h"
+#include "components/world/quest_world.h"
+#include "components/world/terrain_edits.h"
 #include "core/job_system.h"
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
 #include "render/geometry/instance_store.h"
 #include "render/pipeline/mesh_pipeline.h"
-#include "components/world/components.h"
-#include "components/world/grass_baker.h"
-#include "components/world/land_baker.h"
-#include "components/world/quest_world.h"
-#include "components/world/terrain_edits.h"
 
 namespace rx::world {
 
@@ -109,7 +109,8 @@ class CellStreamer {
     bool terrain_splat = true;  // splat real land textures (off -> per-cell albedo bake)
   };
 
-  CellStreamer(const bethesda::RecordStore& records, const bethesda::GameProfile& profile,
+  CellStreamer(const bethesda::RecordStore& records,
+               const bethesda::GameProfile& profile,
                asset::AssetDatabase& assets)
       : records_(records),
         assets_(assets),
@@ -201,9 +202,11 @@ class CellStreamer {
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
   void SyncReference(ecs::World& world, u64 handle);
-  u64 RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
+  u64 RuntimeHandleForSource(ecs::World& world,
+                             u64 owner_handle,
                              bethesda::GlobalFormId source) const;
-  u64 RuntimeHandleForInstanceChild(ecs::World& world, u64 instance_handle,
+  u64 RuntimeHandleForInstanceChild(ecs::World& world,
+                                    u64 instance_handle,
                                     bethesda::GlobalFormId source) const;
 
   // The authored lighting of the active interior (XCLL/LGTM resolved), valid only
@@ -224,8 +227,12 @@ class CellStreamer {
   // kInvalidEntity when the base resolves to no usable model. `out_mesh`, when
   // given, receives the renderer mesh id used. The runtime map editor drops
   // assets onto the world through this.
-  ecs::Entity PlaceObject(ecs::World& world, bethesda::GlobalFormId base_id, const Vec3& position,
-                          const f32 rotation[4], f32 scale, asset::AssetId* out_mesh = nullptr);
+  ecs::Entity PlaceObject(ecs::World& world,
+                          bethesda::GlobalFormId base_id,
+                          const Vec3& position,
+                          const f32 rotation[4],
+                          f32 scale,
+                          asset::AssetId* out_mesh = nullptr);
 
   // Appends the point lights from every loaded cell's placed LIGH refs (torches,
   // sconces, lamps) to `out`, so dungeons and night scenes get local lighting.
@@ -256,9 +263,14 @@ class CellStreamer {
   // Bethesda LAND sculpting. Radius/strength/flatten target are engine metres;
   // the adapter converts them onto the canonical 32-quad game-height lattice.
   // Each call is one live dab; the editor merges a drag's dabs into one change.
-  TerrainEditChange ApplyTerrainBrush(ecs::World& world, TerrainBrushMode mode, f32 engine_x,
-                                      f32 engine_z, f32 radius_meters, f32 strength,
-                                      f32 flatten_engine_y = 0.0f, bool rebuild = true);
+  TerrainEditChange ApplyTerrainBrush(ecs::World& world,
+                                      TerrainBrushMode mode,
+                                      f32 engine_x,
+                                      f32 engine_z,
+                                      f32 radius_meters,
+                                      f32 strength,
+                                      f32 flatten_engine_y = 0.0f,
+                                      bool rebuild = true);
   void RefreshTerrainGeometry(ecs::World& world, const TerrainEditChange& change);
   bool ApplyTerrainChange(ecs::World& world, const TerrainEditChange& change);
   bool RevertTerrainChange(ecs::World& world, const TerrainEditChange& change);
@@ -334,8 +346,12 @@ class CellStreamer {
   };
 
   // Returns false when the budget ran out before the cell completed.
-  bool LoadCellIncremental(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
-                           u32& mesh_budget, u32& ref_budget);
+  bool LoadCellIncremental(ecs::World& world,
+                           i16 grid_x,
+                           i16 grid_y,
+                           LoadedCell& cell,
+                           u32& mesh_budget,
+                           u32& ref_budget);
   // True once this Update has spent its wall-clock streaming budget (see
   // stream_deadline_): cell loading then bails and resumes next frame. Always
   // false when the time cap is disabled (RX_STREAM_BUDGET_MS <= 0).
@@ -372,7 +388,9 @@ class CellStreamer {
   void RebuildTerrainDerivedCells(ecs::World& world, const base::Vector<TerrainCellKey>& cells);
   void SyncTerrainRayTracing(const base::Vector<TerrainCellKey>& cells);
   bool RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
-  void UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heights, i32 grid_x,
+  void UpdateTerrainMeshVertices(asset::Mesh* mesh,
+                                 const f32* heights,
+                                 i32 grid_x,
                                  i32 grid_y) const;
   // Distant LOD: discovers the coarsest .btr (terrain) + .bto (object) quads of
   // the streamed worldspace once, then drains them under a budget. They cover the
@@ -386,38 +404,63 @@ class CellStreamer {
   // Instantiates a pack-in (Starfield PKIN prefab): the refs of its template
   // cell spawn composed onto the given Bethesda-space transform (position,
   // rotation quaternion, uniform scale). Recurses into nested pack-ins.
-  bool SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y, bethesda::GlobalFormId pkin_id,
-                   const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
-                   bool interior, int depth, u64 instance_handle, u64 root_owner = 0);
+  bool SpawnPackIn(ecs::World& world,
+                   i16 grid_x,
+                   i16 grid_y,
+                   bethesda::GlobalFormId pkin_id,
+                   const f32 position[3],
+                   const f32 rotation[4],
+                   f32 scale,
+                   LoadedCell& cell,
+                   bool interior,
+                   int depth,
+                   u64 instance_handle,
+                   u64 root_owner = 0);
   void ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 handle, LoadedCell& cell);
   bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
-  bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
+  bool SpawnGrass(ecs::World& world,
+                  i16 grid_x,
+                  i16 grid_y,
+                  LoadedCell& cell,
                   bool refresh = false);
   // Water level of the cell in record units; false when the cell has none.
   bool CellWaterHeight(i16 grid_x, i16 grid_y, const LoadedCell& cell, f32* height) const;
   void AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell, const f32* heights);
   // Floor estimate (engine y) for a cell with no LAND, from its placed refs.
-  bool RefsGroundHeight(u32 grid_key, const bethesda::RecordStore::ExteriorCell& cell,
+  bool RefsGroundHeight(u32 grid_key,
+                        const bethesda::RecordStore::ExteriorCell& cell,
                         f32* engine_y) const;
-  bool SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64 ref_id, LoadedCell& cell,
-                      u32& mesh_budget, bool interior);
+  bool SpawnReference(ecs::World& world,
+                      i16 grid_x,
+                      i16 grid_y,
+                      u64 ref_id,
+                      LoadedCell& cell,
+                      u32& mesh_budget,
+                      bool interior);
   // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
   // REFR XRDS radius override into a point light at `position` and records it on
   // the cell. No-op for other base types or when RX_PLACED_LIGHTS is off.
-  void AddPlacedLight(bethesda::GlobalFormId base_id, u64 handle, const bethesda::Record& refr,
-                      const Vec3& position, LoadedCell& cell);
+  void AddPlacedLight(bethesda::GlobalFormId base_id,
+                      u64 handle,
+                      const bethesda::Record& refr,
+                      const Vec3& position,
+                      LoadedCell& cell);
   // When `base_id` is a TXST, builds a projected decal box from the REFR
   // placement (rotation/XSCL) and the TXST's DODT extents/tint, uv'd into the
   // shared decal atlas, and records it on the cell. Builds the atlas on first
   // use. No-op for other base types or when RX_PLACED_DECALS is off.
-  void AddPlacedDecal(bethesda::GlobalFormId base_id, bethesda::GlobalFormId ref_id,
-                      const bethesda::Record& refr, const Vec3& position, LoadedCell& cell);
+  void AddPlacedDecal(bethesda::GlobalFormId base_id,
+                      bethesda::GlobalFormId ref_id,
+                      const bethesda::Record& refr,
+                      const Vec3& position,
+                      LoadedCell& cell);
   // Builds the decal atlas once: every TXST with decal data (DODT) gets its
   // TX00/TX01 decoded into 256px tiles (subtexture sheets split into one tile
   // per variant, textures shared across TXSTs deduped), then uploads both
   // atlas pages and records per-base extents/uv info in decal_bases_.
   void EnsureDecalAtlas();
-  const asset::Mesh* MeshForBase(bethesda::GlobalFormId base_id, u32& mesh_budget,
+  const asset::Mesh* MeshForBase(bethesda::GlobalFormId base_id,
+                                 u32& mesh_budget,
                                  bool& budget_exceeded);
   bool EnsureUploaded(const asset::Mesh& mesh);
   void EnsureLandMaterial();

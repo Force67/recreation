@@ -13,15 +13,23 @@ namespace {
 // Bethesda Z-up game units -> engine Y-up metres, matching the actor rigs.
 constexpr f32 kBethScale = 0.01428f;
 
-Vec3 BethToEngine(f32 x, f32 y, f32 z) { return {x * kBethScale, z * kBethScale, -y * kBethScale}; }
+Vec3 BethToEngine(f32 x, f32 y, f32 z) {
+  return {x * kBethScale, z * kBethScale, -y * kBethScale};
+}
 
 }  // namespace
 
-bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const char* path,
-              bool recenter, const char* id, asset::AssetId* out) {
-  if (!assets) return false;
+bool BakeBody(asset::AssetDatabase* assets,
+              render::Renderer* renderer,
+              const char* path,
+              bool recenter,
+              const char* id,
+              asset::AssetId* out) {
+  if (!assets)
+    return false;
   const asset::Mesh* src = assets->LoadMesh(path && path[0] ? path : kBodyMesh);
-  if (!src || src->lods.empty()) return false;
+  if (!src || src->lods.empty())
+    return false;
   const Vec3 c =
       recenter ? BethToEngine(src->bounds_center[0], src->bounds_center[1], src->bounds_center[2])
                : Vec3{};
@@ -54,10 +62,12 @@ bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const ch
     for (const asset::MeshLod& lod : baked.lods) {
       for (const asset::Submesh& submesh : lod.submeshes) {
         const asset::Material* material = assets->FindMaterial(submesh.material);
-        if (!material) continue;
+        if (!material)
+          continue;
         for (asset::AssetId texture_id : {material->base_color, material->normal,
                                           material->metallic_roughness, material->emissive}) {
-          if (!texture_id) continue;
+          if (!texture_id)
+            continue;
           if (const asset::Texture* texture = assets->FindTexture(texture_id))
             renderer->UploadTexture(*texture);
         }
@@ -70,7 +80,10 @@ bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const ch
   return true;
 }
 
-asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f32 half_width,
+asset::Mesh MakeWheel(render::Renderer* renderer,
+                      const char* id,
+                      f32 radius,
+                      f32 half_width,
                       bool upload) {
   asset::Material mat;
   mat.id = asset::MakeAssetId(base::String(id) + "/mat");
@@ -147,8 +160,8 @@ asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f3
   return mesh;
 }
 
-asset::Mesh MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b,
-                    bool upload) {
+asset::Mesh
+MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b, bool upload) {
   asset::Material mat;
   mat.id = asset::MakeAssetId(base::String(id) + "/mat");
   mat.base_color_factor[0] = r;
@@ -160,7 +173,8 @@ asset::Mesh MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), mat.id});
     else
-      for (asset::Submesh& sm : lod.submeshes) sm.material = mat.id;
+      for (asset::Submesh& sm : lod.submeshes)
+        sm.material = mat.id;
   }
   if (upload && renderer) {
     renderer->UploadMaterial(mat);

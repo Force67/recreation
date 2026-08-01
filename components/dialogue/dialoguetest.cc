@@ -4,15 +4,15 @@
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 
-#include <cstdio>
-#include <cstring>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
+#include <cstdio>
+#include <cstring>
 
 #include "components/bethesda/record.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/types.h"
 #include "components/dialogue/dialogue.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -25,7 +25,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Backing store for synthetic subrecord spans.
@@ -33,7 +34,8 @@ struct Buffers {
   base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
-    if (n) std::memcpy(b.data(), p, n);
+    if (n)
+      std::memcpy(b.data(), p, n);
     return ByteSpan(b.data(), b.size());
   }
   ByteSpan Str(const char* s) { return Bytes(s, std::strlen(s) + 1); }

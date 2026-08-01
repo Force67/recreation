@@ -12,12 +12,12 @@
 
 #include <cstdint>
 
-#include "net/rpc_channel.h"
 #include "components/gamenet/session.h"
-#include "rpc/rpc_message.h"
-#include "rpc/rpc_value.h"
 #include "components/script/host/bridge.h"
 #include "components/script/host/managed_host.h"
+#include "net/rpc_channel.h"
+#include "rpc/rpc_message.h"
+#include "rpc/rpc_value.h"
 
 namespace rx {
 namespace {
@@ -85,13 +85,16 @@ ApiValue ToApi(const rpc::RpcValue& v) {
 // Registers a forwarding handler so an inbound call of `name` reaches managed
 // code. Pure of Engine internals (takes the registry and host directly), so it
 // can live outside the friend functions.
-void RegisterForwardingOn(rpc::RpcRegistry* registry, script::host::ManagedHost* managed,
+void RegisterForwardingOn(rpc::RpcRegistry* registry,
+                          script::host::ManagedHost* managed,
                           base::String name) {
-  if (!registry || !managed) return;
+  if (!registry || !managed)
+    return;
   registry->On(name.c_str(), [managed, name](const rpc::RpcContext& ctx, const rpc::RpcArgs& args) {
     base::Vector<ApiValue> api;
     api.reserve(args.size());
-    for (const rpc::RpcValue& v : args) api.push_back(ToApi(v));
+    for (const rpc::RpcValue& v : args)
+      api.push_back(ToApi(v));
     managed->DispatchRpc(name.c_str(), static_cast<std::int32_t>(ctx.sender),
                          ctx.from_server ? 1 : 0, api.data(),
                          static_cast<std::int32_t>(api.size()));
@@ -101,8 +104,10 @@ void RegisterForwardingOn(rpc::RpcRegistry* registry, script::host::ManagedHost*
 // The active session's RPC registry, server role preferred, or null in single
 // player / before the session opens.
 rpc::RpcRegistry* ActiveRegistry(net::GameServerSession* server, net::GameClientSession* client) {
-  if (server && server->rpc()) return &server->rpc()->registry();
-  if (client && client->rpc()) return &client->rpc()->registry();
+  if (server && server->rpc())
+    return &server->rpc()->registry();
+  if (client && client->rpc())
+    return &client->rpc()->registry();
   return nullptr;
 }
 
@@ -110,12 +115,18 @@ rpc::RpcRegistry* ActiveRegistry(net::GameServerSession* server, net::GameClient
 
 // Sends a managed RPC over the live session. A target the current role cannot
 // satisfy (a broadcast with no server, say) silently drops.
-void EngineRpcEmitImpl(Engine& e, std::int32_t target, std::uint64_t peer, const char* name,
-                       const ApiValue* args, std::int32_t argc) {
+void EngineRpcEmitImpl(Engine& e,
+                       std::int32_t target,
+                       std::uint64_t peer,
+                       const char* name,
+                       const ApiValue* args,
+                       std::int32_t argc) {
   rpc::RpcCall call;
   call.name = name ? name : "";
-  if (argc > 0) call.args.reserve(static_cast<size_t>(argc));
-  for (std::int32_t i = 0; i < argc; ++i) call.args.push_back(FromApi(args[i]));
+  if (argc > 0)
+    call.args.reserve(static_cast<size_t>(argc));
+  for (std::int32_t i = 0; i < argc; ++i)
+    call.args.push_back(FromApi(args[i]));
 
   switch (static_cast<script::host::RpcTarget>(target)) {
     case script::host::RpcTarget::kToServer:
@@ -127,7 +138,8 @@ void EngineRpcEmitImpl(Engine& e, std::int32_t target, std::uint64_t peer, const
         e.server_session_->rpc()->EmitToClient(static_cast<u32>(peer), call);
       break;
     case script::host::RpcTarget::kBroadcast:
-      if (e.server_session_ && e.server_session_->rpc()) e.server_session_->rpc()->Broadcast(call);
+      if (e.server_session_ && e.server_session_->rpc())
+        e.server_session_->rpc()->Broadcast(call);
       break;
   }
 }
@@ -135,10 +147,12 @@ void EngineRpcEmitImpl(Engine& e, std::int32_t target, std::uint64_t peer, const
 // Records a managed subscription. Forwards from the session immediately when one
 // is already live; otherwise StartNetworking forwards it once the session opens.
 void EngineRpcSubscribeImpl(Engine& e, const char* name) {
-  if (!name || !*name) return;
+  if (!name || !*name)
+    return;
   base::String n(name);
   for (const base::String& existing : e.managed_rpc_names_) {
-    if (existing == n) return;  // already subscribed
+    if (existing == n)
+      return;  // already subscribed
   }
   e.managed_rpc_names_.push_back(n);
   RegisterForwardingOn(ActiveRegistry(e.server_session_, e.client_session_),
@@ -147,8 +161,12 @@ void EngineRpcSubscribeImpl(Engine& e, const char* name) {
 
 namespace {
 
-void RpcEmitThunk(void* ctx, std::int32_t target, std::uint64_t peer, const char* name,
-                  const ApiValue* args, std::int32_t argc) {
+void RpcEmitThunk(void* ctx,
+                  std::int32_t target,
+                  std::uint64_t peer,
+                  const char* name,
+                  const ApiValue* args,
+                  std::int32_t argc) {
   EngineRpcEmitImpl(*static_cast<Engine*>(ctx), target, peer, name, args, argc);
 }
 
@@ -164,7 +182,8 @@ script::host::RpcBridge MakeManagedRpcBridge(Engine& engine) {
 
 void RegisterManagedRpcForwarding(Engine& e) {
   rpc::RpcRegistry* registry = ActiveRegistry(e.server_session_, e.client_session_);
-  if (!registry) return;
+  if (!registry)
+    return;
   for (const base::String& name : e.managed_rpc_names_) {
     RegisterForwardingOn(registry, (e.managed_ ? &*e.managed_ : nullptr), name);
   }

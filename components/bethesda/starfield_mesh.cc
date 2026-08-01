@@ -121,10 +121,13 @@ Transform ReadAvObject(Reader& r, bool* hidden) {
   }
   r.Skip(4 * extra_count + 4);  // extra refs, controller
   u32 flags = r.Read<u32>();
-  if (hidden) *hidden = (flags & 1) != 0;
+  if (hidden)
+    *hidden = (flags & 1) != 0;
   Transform local;
-  for (f32& v : local.t) v = r.Read<f32>();
-  for (f32& v : local.r) v = r.Read<f32>();
+  for (f32& v : local.t)
+    v = r.Read<f32>();
+  for (f32& v : local.r)
+    v = r.Read<f32>();
   local.s = r.Read<f32>();
   r.Skip(4);  // collision object ref
   return local;
@@ -134,19 +137,23 @@ Transform ReadAvObject(Reader& r, bool* hidden) {
 base::String MeshPathFromHash(base::StringRef raw) {
   base::String path = "geometries/";
   path.reserve(raw.size() + 17);
-  for (char c : raw) path.push_back(c == '\\' ? '/' : static_cast<char>(std::tolower(c)));
+  for (char c : raw)
+    path.push_back(c == '\\' ? '/' : static_cast<char>(std::tolower(c)));
   path += ".mesh";
   return path;
 }
 
 // True for a 40-char "<20 hex>\<20 hex>" geometry hash reference.
 bool IsHashPath(base::StringRef s) {
-  if (s.size() != 41 || s[20] != '\\') return false;
+  if (s.size() != 41 || s[20] != '\\')
+    return false;
   for (size_t i = 0; i < s.size(); ++i) {
-    if (i == 20) continue;
+    if (i == 20)
+      continue;
     char c = s[i];
     bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-    if (!hex) return false;
+    if (!hex)
+      return false;
   }
   return true;
 }
@@ -165,21 +172,26 @@ base::String ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
   r.Read<i32>();               // Skin ref (-1 when not skinned)
   i32 shader = r.Read<i32>();  // Shader Property ref -> the block naming the .mat
   r.Read<i32>();               // Alpha Property ref
-  if (r.ok) *shader_ref = shader;
+  if (r.ok)
+    *shader_ref = shader;
   // The LOD table (BSMeshArray) followed; the shader ref doubles as a rough LOD
   // count guard for the structured path since a valid ref exceeds 64 here.
   u32 lod_count = static_cast<u32>(shader);
   if (r.ok && lod_count <= 64) {
     for (u32 i = 0; i < lod_count; ++i) {
       u8 present = r.Read<u8>();
-      if (present == 0) continue;
+      if (present == 0)
+        continue;
       r.Skip(12);  // per-lod meshlet/vertex counts and a constant
       u32 path_len = r.Read<u32>();
-      if (!r.ok || path_len > 256) break;
+      if (!r.ok || path_len > 256)
+        break;
       const u8* bytes = r.Bytes(path_len);
-      if (!bytes) break;
+      if (!bytes)
+        break;
       base::StringRef path(reinterpret_cast<const char*>(bytes), path_len);
-      if (IsHashPath(path)) return MeshPathFromHash(path);
+      if (IsHashPath(path))
+        return MeshPathFromHash(path);
     }
   }
 
@@ -188,7 +200,8 @@ base::String ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
   base::StringRef block(reinterpret_cast<const char*>(r.data.data()), r.data.size());
   for (size_t i = 0; i + 41 <= block.size(); ++i) {
     base::StringRef candidate = block.substr(i, 41);
-    if (IsHashPath(candidate)) return MeshPathFromHash(candidate);
+    if (IsHashPath(candidate))
+      return MeshPathFromHash(candidate);
   }
   return {};
 }
@@ -227,14 +240,16 @@ void ComputeNormals(StarfieldMeshData* mesh) {
     f32 n[3] = {e0[1] * e1[2] - e0[2] * e1[1], e0[2] * e1[0] - e0[0] * e1[2],
                 e0[0] * e1[1] - e0[1] * e1[0]};
     for (u32 idx : {a, b, c}) {
-      for (int k = 0; k < 3; ++k) mesh->vertices[idx].normal[k] += n[k];
+      for (int k = 0; k < 3; ++k)
+        mesh->vertices[idx].normal[k] += n[k];
     }
   }
   for (asset::Vertex& v : mesh->vertices) {
     f32 len = std::sqrt(v.normal[0] * v.normal[0] + v.normal[1] * v.normal[1] +
                         v.normal[2] * v.normal[2]);
     if (len > 1e-8f) {
-      for (int k = 0; k < 3; ++k) v.normal[k] /= len;
+      for (int k = 0; k < 3; ++k)
+        v.normal[k] /= len;
     } else {
       v.normal[0] = v.normal[1] = 0;
       v.normal[2] = 1;
@@ -248,27 +263,32 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
   *out = StarfieldMeshData{};
   Reader r{data};
   u32 version = r.Read<u32>();
-  if (!r.ok || (version != 1 && version != 2)) return false;
+  if (!r.ok || (version != 1 && version != 2))
+    return false;
 
   u32 index_count = r.Read<u32>();
   if (!r.ok || index_count == 0 || index_count % 3 != 0 || index_count > 64'000'000) {
     return false;
   }
   const u8* index_bytes = r.Bytes(static_cast<size_t>(index_count) * 2);
-  if (!index_bytes) return false;
+  if (!index_bytes)
+    return false;
 
   f32 scale = r.Read<f32>();
   r.Read<u32>();  // weights per vertex, geometry is baked rigid here
   u32 vertex_count = r.Read<u32>();
-  if (!r.ok || vertex_count == 0 || vertex_count > 16'000'000) return false;
+  if (!r.ok || vertex_count == 0 || vertex_count > 16'000'000)
+    return false;
   const u8* position_bytes = r.Bytes(static_cast<size_t>(vertex_count) * 6);
-  if (!position_bytes) return false;
+  if (!position_bytes)
+    return false;
 
   out->indices.resize(index_count);
   for (u32 i = 0; i < index_count; ++i) {
     u16 index;
     std::memcpy(&index, index_bytes + i * 2, 2);
-    if (index >= vertex_count) return false;
+    if (index >= vertex_count)
+      return false;
     out->indices[i] = index;
   }
 
@@ -280,7 +300,8 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
     i16 p[3];
     std::memcpy(p, position_bytes + i * 6, 6);
     asset::Vertex& v = out->vertices[i];
-    for (int k = 0; k < 3; ++k) v.position[k] = static_cast<f32>(p[k]) * kQuant * scale;
+    for (int k = 0; k < 3; ++k)
+      v.position[k] = static_cast<f32>(p[k]) * kQuant * scale;
     v.tangent[0] = 1;
     v.tangent[3] = 1;
   }
@@ -291,11 +312,15 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
   // from geometry because the packed format is not yet decoded.
   auto read_stream = [&](u32 stride, const base::Function<void(u32, const u8*)>& consume) {
     u32 count = r.Read<u32>();
-    if (!r.ok) return;
-    if (count == 0) return;
+    if (!r.ok)
+      return;
+    if (count == 0)
+      return;
     const u8* bytes = r.Bytes(static_cast<size_t>(count) * stride);
-    if (!bytes) return;
-    if (count == vertex_count && consume) consume(count, bytes);
+    if (!bytes)
+      return;
+    if (count == vertex_count && consume)
+      consume(count, bytes);
   };
 
   read_stream(4, [&](u32 count, const u8* bytes) {  // uv1, two float16
@@ -313,7 +338,8 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
   read_stream(4, nullptr);
   read_stream(4, nullptr);  // packed normals, format undecoded
   read_stream(4, nullptr);  // packed tangents, format undecoded
-  if (!r.ok) return false;
+  if (!r.ok)
+    return false;
 
   ComputeNormals(out);
   return true;
@@ -337,28 +363,34 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
   *out = StarfieldSkinnedMeshData{};
   Reader r{data};
   u32 version = r.Read<u32>();
-  if (!r.ok || (version != 1 && version != 2)) return false;
+  if (!r.ok || (version != 1 && version != 2))
+    return false;
 
   u32 index_count = r.Read<u32>();
   if (!r.ok || index_count == 0 || index_count % 3 != 0 || index_count > 64'000'000) {
     return false;
   }
   const u8* index_bytes = r.Bytes(static_cast<size_t>(index_count) * 2);
-  if (!index_bytes) return false;
+  if (!index_bytes)
+    return false;
 
   f32 scale = r.Read<f32>();
   u32 weights_per_vertex = r.Read<u32>();
   u32 vertex_count = r.Read<u32>();
-  if (!r.ok || vertex_count == 0 || vertex_count > 16'000'000) return false;
-  if (weights_per_vertex == 0 || weights_per_vertex > 8) return false;  // rigid mesh
+  if (!r.ok || vertex_count == 0 || vertex_count > 16'000'000)
+    return false;
+  if (weights_per_vertex == 0 || weights_per_vertex > 8)
+    return false;  // rigid mesh
   const u8* position_bytes = r.Bytes(static_cast<size_t>(vertex_count) * 6);
-  if (!position_bytes) return false;
+  if (!position_bytes)
+    return false;
 
   out->indices.resize(index_count);
   for (u32 i = 0; i < index_count; ++i) {
     u16 index;
     std::memcpy(&index, index_bytes + i * 2, 2);
-    if (index >= vertex_count) return false;
+    if (index >= vertex_count)
+      return false;
     out->indices[i] = index;
   }
 
@@ -371,7 +403,8 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
     i16 p[3];
     std::memcpy(p, position_bytes + i * 6, 6);
     asset::Vertex& v = out->vertices[i];
-    for (int k = 0; k < 3; ++k) v.position[k] = static_cast<f32>(p[k]) * quant;
+    for (int k = 0; k < 3; ++k)
+      v.position[k] = static_cast<f32>(p[k]) * quant;
     v.tangent[0] = 1;
     v.tangent[3] = 1;
   }
@@ -381,11 +414,15 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
   // when unused, to leave the reader at the weight stream.
   auto read_stream = [&](u32 stride, const base::Function<void(u32, const u8*)>& consume) {
     u32 count = r.Read<u32>();
-    if (!r.ok) return;
-    if (count == 0) return;
+    if (!r.ok)
+      return;
+    if (count == 0)
+      return;
     const u8* bytes = r.Bytes(static_cast<size_t>(count) * stride);
-    if (!bytes) return;
-    if (count == vertex_count && consume) consume(count, bytes);
+    if (!bytes)
+      return;
+    if (count == vertex_count && consume)
+      consume(count, bytes);
   };
   read_stream(4, [&](u32 count, const u8* bytes) {  // uv1, two float16
     for (u32 i = 0; i < count; ++i) {
@@ -399,16 +436,19 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
   read_stream(4, nullptr);  // vertex color, a blend mask in Starfield (see rigid path)
   read_stream(4, nullptr);  // packed normals, format undecoded
   read_stream(4, nullptr);  // packed tangents, format undecoded
-  if (!r.ok) return false;
+  if (!r.ok)
+    return false;
 
   // Weight stream: u32 influenceCount == vertexCount * weightsPerVertex, then
   // that many (u16 boneIndex, u16 weight) entries grouped per vertex. Reduce
   // each vertex's influences to its four largest, renormalized to u8 weights
   // summing to 255 (the engine SkinnedVertexExtra holds four influences).
   u32 influence_count = r.Read<u32>();
-  if (!r.ok || influence_count != vertex_count * weights_per_vertex) return false;
+  if (!r.ok || influence_count != vertex_count * weights_per_vertex)
+    return false;
   const u8* influence_bytes = r.Bytes(static_cast<size_t>(influence_count) * 4);
-  if (!influence_bytes) return false;
+  if (!influence_bytes)
+    return false;
 
   out->skinning.resize(vertex_count);
   for (u32 v = 0; v < vertex_count; ++v) {
@@ -422,7 +462,8 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
       int best = -1;
       u16 best_weight = 0;
       for (u32 j = 0; j < weights_per_vertex; ++j) {
-        if (used[j]) continue;
+        if (used[j])
+          continue;
         u16 weight;
         std::memcpy(&weight, group + j * 4 + 2, 2);
         if (best < 0 || weight > best_weight) {
@@ -430,7 +471,8 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
           best_weight = weight;
         }
       }
-      if (best < 0) break;
+      if (best < 0)
+        break;
       used[best] = true;
       std::memcpy(&picked_bone[slot], group + best * 4, 2);
       picked_weight[slot] = best_weight;
@@ -464,7 +506,8 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
 
 bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
   auto header = ParseNifHeader(data);
-  if (!header) return false;
+  if (!header)
+    return false;
   u32 block_count = static_cast<u32>(header->block_sizes.size());
 
   base::UnorderedMap<u32, Node> nodes;
@@ -476,10 +519,13 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
       Node node;
       node.local = ReadAvObject(r, &node.hidden);
       u32 child_count = r.Read<u32>();
-      if (!r.ok || child_count > 65536) continue;
+      if (!r.ok || child_count > 65536)
+        continue;
       node.children.reserve(child_count);
-      for (u32 c = 0; c < child_count; ++c) node.children.push_back(r.Read<i32>());
-      if (r.ok) nodes.emplace(i, base::move(node));
+      for (u32 c = 0; c < child_count; ++c)
+        node.children.push_back(r.Read<i32>());
+      if (r.ok)
+        nodes.emplace(i, base::move(node));
     } else if (type == "BSGeometry") {
       GeometryRef geo;
       i32 shader_ref = -1;
@@ -495,14 +541,17 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
           std::memcpy(&name_index, block.data(), 4);
           if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
             base::String norm = asset::NormalizePath(header->strings[name_index]);
-            if (norm.ends_with(".mat")) geo.material_path = base::move(norm);
+            if (norm.ends_with(".mat"))
+              geo.material_path = base::move(norm);
           }
         }
       }
-      if (!geo.mesh_path.empty()) geometries.emplace(i, base::move(geo));
+      if (!geo.mesh_path.empty())
+        geometries.emplace(i, base::move(geo));
     }
   }
-  if (geometries.empty()) return false;
+  if (geometries.empty())
+    return false;
 
   base::Vector<u32> roots;
   {
@@ -514,10 +563,12 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
     if (r.ok && root_count < 256) {
       for (u32 i = 0; i < root_count; ++i) {
         i32 root = r.Read<i32>();
-        if (r.ok && root >= 0) roots.push_back(static_cast<u32>(root));
+        if (r.ok && root >= 0)
+          roots.push_back(static_cast<u32>(root));
       }
     }
-    if (roots.empty()) roots.push_back(0);
+    if (roots.empty())
+      roots.push_back(0);
   }
 
   // Depth first from the roots, baking the node-chain transform down to each
@@ -527,24 +578,29 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
     Transform world;
   };
   base::Vector<StackEntry> stack;
-  for (u32 root : roots) stack.push_back({root, Transform{}});
+  for (u32 root : roots)
+    stack.push_back({root, Transform{}});
   base::Vector<u8> visited(block_count);
   while (!stack.empty()) {
     StackEntry entry = stack.back();
     stack.pop_back();
-    if (entry.block >= block_count || visited[entry.block]) continue;
+    if (entry.block >= block_count || visited[entry.block])
+      continue;
     visited[entry.block] = true;
 
     if (const Node* node = nodes.find(entry.block)) {
-      if (node->hidden) continue;
+      if (node->hidden)
+        continue;
       Transform world = Compose(entry.world, node->local);
       for (i32 child : node->children) {
-        if (child >= 0) stack.push_back({static_cast<u32>(child), world});
+        if (child >= 0)
+          stack.push_back({static_cast<u32>(child), world});
       }
       continue;
     }
     const GeometryRef* geo = geometries.find(entry.block);
-    if (!geo || geo->hidden) continue;
+    if (!geo || geo->hidden)
+      continue;
     Transform world = Compose(entry.world, geo->local);
     StarfieldGeometryRef ref;
     std::memcpy(ref.rotation, world.r, sizeof(ref.rotation));
@@ -559,19 +615,22 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
 
 bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGroup>* out) {
   auto header = ParseNifHeader(data);
-  if (!header) return false;
+  if (!header)
+    return false;
   u32 block_count = static_cast<u32>(header->block_sizes.size());
 
   for (u32 i = 0; i < block_count; ++i) {
     const base::String& type = header->block_types[header->block_type_index[i]];
-    if (type != "BSWeakReferenceNode") continue;
+    if (type != "BSWeakReferenceNode")
+      continue;
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
 
     // NiNode prefix: the NiAVObject fields, then the (typically empty)
     // child list, then the instance table.
     ReadAvObject(r, nullptr);
     u32 child_count = r.Read<u32>();
-    if (!r.ok || child_count > 65536) continue;
+    if (!r.ok || child_count > 65536)
+      continue;
     r.Skip(4 * child_count);
 
     // Per entry: u32 base form id, u32 name hash, char[4] extension ("nif"),
@@ -580,7 +639,8 @@ bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGrou
     // count of extra 16-byte material-swap file records. Verified byte-exact
     // against newatlantis.{1,4,8}.*.nif.
     u32 entry_count = r.Read<u32>();
-    if (!r.ok || entry_count > 4096) continue;
+    if (!r.ok || entry_count > 4096)
+      continue;
     for (u32 e = 0; e < entry_count && r.ok; ++e) {
       StarfieldTerrainGroup group;
       group.form_id = r.Read<u32>();
@@ -595,11 +655,14 @@ bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGrou
       group.instances.reserve(instance_count);
       for (u32 k = 0; k < instance_count; ++k) {
         f32 m[16];
-        for (f32& v : m) v = r.Read<f32>();
-        if (!r.ok) break;
+        for (f32& v : m)
+          v = r.Read<f32>();
+        if (!r.ok)
+          break;
         StarfieldTerrainInstance inst;
         for (int row = 0; row < 3; ++row) {
-          for (int col = 0; col < 3; ++col) inst.rotation[row * 3 + col] = m[row * 4 + col];
+          for (int col = 0; col < 3; ++col)
+            inst.rotation[row * 3 + col] = m[row * 4 + col];
         }
         inst.translation[0] = m[12];
         inst.translation[1] = m[13];
@@ -608,9 +671,11 @@ bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGrou
         group.instances.push_back(inst);
       }
       u32 extra_count = r.Read<u32>();
-      if (!r.ok || extra_count > 64) break;
+      if (!r.ok || extra_count > 64)
+        break;
       r.Skip(16 * extra_count);  // material swap refs, unused
-      if (r.ok && !group.instances.empty()) out->push_back(base::move(group));
+      if (r.ok && !group.instances.empty())
+        out->push_back(base::move(group));
     }
   }
   return !out->empty();

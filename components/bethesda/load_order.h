@@ -23,7 +23,8 @@ class LoadOrder {
 
   // Resolves a raw form id from `referencing_plugin` against its master list
   // into a load order independent id.
-  GlobalFormId Resolve(RawFormId raw, u16 referencing_plugin,
+  GlobalFormId Resolve(RawFormId raw,
+                       u16 referencing_plugin,
                        const base::Vector<base::String>& masters) const;
 
   u16 IndexOf(const base::String& file_name) const;

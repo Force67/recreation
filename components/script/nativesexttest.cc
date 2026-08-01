@@ -59,7 +59,8 @@ class MockBindings : public SkyrimBindings {
   }
   bool GetMagicEffectDetrimental(ObjectRef effect) override {
     for (const auto& [e, det] : effects)
-      if (e.handle == effect.handle) return det;
+      if (e.handle == effect.handle)
+        return det;
     return false;
   }
   i32 PlaySound(ObjectRef sound, ObjectRef) override {
@@ -102,7 +103,8 @@ class MockBindings : public SkyrimBindings {
   }
   i32 GetItemCount(ObjectRef, ObjectRef item) override {
     for (const auto& [form, count] : inventory)
-      if (form.handle == item.handle) return count;
+      if (form.handle == item.handle)
+        return count;
     return 0;
   }
   void RemoveItem(ObjectRef, ObjectRef item, i32) override {
@@ -125,7 +127,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   auto callOn = [&](ObjectRef self, const char* type, const char* fn, base::Vector<Value> args) {
     const NativeFunction* f = reg.Find(type, fn);
@@ -297,7 +300,8 @@ int main() {
     VirtualMachine gvm(&guest.natives());
     auto dbg = [&](const char* fn, base::Vector<Value> a) {
       const NativeFunction* f = guest.natives().Find("Debug", fn);
-      if (f) (*f)(gvm, ObjectRef{0x14}, a);
+      if (f)
+        (*f)(gvm, ObjectRef{0x14}, a);
     };
     dbg("QuitGame", {});
     dbg("TakeScreenshot", {});

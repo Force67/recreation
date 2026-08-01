@@ -16,10 +16,10 @@
 #include <znet/z_file_transporter.h>
 #include <znet/z_server.h>
 
-#include "core/types.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
 #include "components/modstream/mod_resource.h"
+#include "core/types.h"
 
 namespace rx::net {
 
@@ -88,7 +88,8 @@ class AssetStreamServer {
 // the engine can mount it.
 class AssetStreamClient {
  public:
-  AssetStreamClient(tx::network::ZClient& client, modstream::ContentStore& store,
+  AssetStreamClient(tx::network::ZClient& client,
+                    modstream::ContentStore& store,
                     std::filesystem::path incoming_dir);
   ~AssetStreamClient();
 
@@ -150,7 +151,7 @@ class AssetStreamClient {
 
   std::vector<u8> manifest_buffer_;
   std::unordered_map<u32, bool> manifest_chunks_;  // received chunk indices
-  u32 manifest_generation_ = 0;  // generation being assembled or last completed
+  u32 manifest_generation_ = 0;                    // generation being assembled or last completed
   u32 manifest_total_size_ = 0;
   u32 manifest_total_chunks_ = 0;
   bool manifest_started_ = false;

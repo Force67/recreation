@@ -8,9 +8,9 @@
 #include <cstring>
 
 #include "components/bethesda/record.h"
-#include "core/types.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_system.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -24,7 +24,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Backing store for the synthetic record's subrecord spans; the spans point
@@ -33,7 +34,8 @@ struct Buffers {
   base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
-    if (n) std::memcpy(b.data(), p, n);
+    if (n)
+      std::memcpy(b.data(), p, n);
     return ByteSpan(b.data(), b.size());
   }
   ByteSpan Str(const char* s) {
@@ -98,8 +100,8 @@ void TestParse() {
   Check("two objectives", def.objectives.size() == 2);
   const ObjectiveDef* o10 = def.FindObjective(10);
   Check("objective 10 text", o10 && o10->text == "Escape Helgen Keep");
-  Check("objective 10 target alias", o10 && o10->target_aliases.size() == 1 &&
-                                          o10->target_aliases[0] == 5);
+  Check("objective 10 target alias",
+        o10 && o10->target_aliases.size() == 1 && o10->target_aliases[0] == 5);
 }
 
 void TestState() {
@@ -113,9 +115,12 @@ void TestState() {
 
   int started = 0, stage_changes = 0, objective_changes = 0;
   qs.AddListener([&](QuestHandle, QuestEvent e) {
-    if (e == QuestEvent::kStarted) ++started;
-    if (e == QuestEvent::kStageChanged) ++stage_changes;
-    if (e == QuestEvent::kObjectiveChanged) ++objective_changes;
+    if (e == QuestEvent::kStarted)
+      ++started;
+    if (e == QuestEvent::kStageChanged)
+      ++stage_changes;
+    if (e == QuestEvent::kObjectiveChanged)
+      ++objective_changes;
   });
 
   Check("untouched quest not running", !qs.IsRunning(h));
@@ -179,7 +184,8 @@ void TestApplyRemote() {
   client.SetDefinition(ParseQuestDefinition(h, r, nullptr));
   int applied = 0;
   client.AddListener([&](QuestHandle, QuestEvent e) {
-    if (e == QuestEvent::kApplied) ++applied;
+    if (e == QuestEvent::kApplied)
+      ++applied;
   });
   client.ApplyStatus(server.Status(h));
 
@@ -223,7 +229,8 @@ void TestRemoteCompleteAndOrphanObjective() {
   QuestStatus st = qs.Status(h);
   bool found = false;
   for (const ObjectiveStatus& o : st.objectives)
-    if (o.index == 999 && o.completed && !o.displayed) found = true;
+    if (o.index == 999 && o.completed && !o.displayed)
+      found = true;
   Check("completed-but-undisplayed orphan objective surfaces", found);
 }
 

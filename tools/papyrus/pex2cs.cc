@@ -48,13 +48,15 @@ void MountArchives(asset::Vfs& vfs, const base::String& data_dir) {
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec)) {
     base::String path = entry.path().string();
-    if (auto provider = bethesda::OpenArchive(path)) vfs.Mount(base::move(provider));
+    if (auto provider = bethesda::OpenArchive(path))
+      vfs.Mount(base::move(provider));
   }
 }
 
 bool ReadFile(const base::String& path, base::Vector<u8>* out) {
   std::ifstream f(path.c_str(), std::ios::binary | std::ios::ate);
-  if (!f) return false;
+  if (!f)
+    return false;
   std::streamsize n = f.tellg();
   f.seekg(0);
   out->resize(static_cast<size_t>(n));
@@ -96,7 +98,8 @@ int Audit(const base::String& data_dir) {
   size_t parsed = 0, failed = 0, funcs = 0, fallback = 0, unsupported = 0, fully = 0;
   for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
-    if (!data) continue;
+    if (!data)
+      continue;
     PexFile pex;
     if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) {
       ++failed;
@@ -123,7 +126,8 @@ int Audit(const base::String& data_dir) {
     funcs += fn;
     fallback += fb;
     unsupported += un;
-    if (fb == 0 && un == 0) ++fully;
+    if (fb == 0 && un == 0)
+      ++fully;
   }
 
   std::printf("\n==== pex2cs audit: %s ====\n", data_dir.c_str());
@@ -156,12 +160,15 @@ int DumpAll(const base::String& data_dir, const base::String& out_dir) {
   size_t written = 0;
   for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
-    if (!data) continue;
+    if (!data)
+      continue;
     PexFile pex;
-    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) continue;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex))
+      continue;
     base::String stem = path.substr(8, path.size() - 12);  // strip "scripts/" + ".pex"
     std::ofstream f((out_dir + "/" + stem + ".cs").c_str(), std::ios::binary);
-    if (!f) continue;
+    if (!f)
+      continue;
     f << TranspileToCSharp(pex).c_str();
     ++written;
   }
@@ -194,12 +201,15 @@ int CompileCheck(const base::String& data_dir, const base::String& out_dir) {
   size_t written = 0;
   for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
-    if (!data) continue;
+    if (!data)
+      continue;
     PexFile pex;
-    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) continue;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex))
+      continue;
     base::String stem = path.substr(8, path.size() - 12);
     std::ofstream f((out_dir + "/" + stem + ".cs").c_str(), std::ios::binary);
-    if (!f) continue;
+    if (!f)
+      continue;
     f << TranspileToCSharp(pex, opts).c_str();
     ++written;
   }
@@ -221,20 +231,24 @@ int CompileCheck(const base::String& data_dir, const base::String& out_dir) {
 }
 
 base::String LowerStr(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 bool IsPrimType(const base::String& t) {
   base::String b = LowerStr(t);
-  if (b.size() >= 2 && b.compare(b.size() - 2, 2, "[]") == 0) b.resize(b.size() - 2);
+  if (b.size() >= 2 && b.compare(b.size() - 2, 2, "[]") == 0)
+    b.resize(b.size() - 2);
   return b == "int" || b == "float" || b == "bool" || b == "string";
 }
 // A minimal C# identifier sanitizer matching the transpiler's (enough for a
 // class name): non-alnum -> '_', leading digit prefixed.
 base::String CsIdent(const base::String& n) {
   base::String out;
-  for (char c : n) out.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
-  if (out.empty() || std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(0, 1, '_');
+  for (char c : n)
+    out.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+  if (out.empty() || std::isdigit(static_cast<unsigned char>(out[0])))
+    out.insert(0, 1, '_');
   return out;
 }
 
@@ -270,7 +284,8 @@ base::String FormatArg(const rx::script::papyrus::Value& v) {
 // the corpus, so any engine call the quest makes resolves and is logged with its
 // arguments into `trace`. Each returns a fresh object handle (deterministic by
 // `counter`) so chained calls keep dispatching and both sides stay in lockstep.
-void RegisterRecorders(asset::Vfs& vfs, rx::script::papyrus::NativeRegistry& reg,
+void RegisterRecorders(asset::Vfs& vfs,
+                       rx::script::papyrus::NativeRegistry& reg,
                        std::shared_ptr<std::uint64_t> counter,
                        std::shared_ptr<base::Vector<base::String>> trace) {
   using namespace rx::script::papyrus;
@@ -279,13 +294,16 @@ void RegisterRecorders(asset::Vfs& vfs, rx::script::papyrus::NativeRegistry& reg
     if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
       return;
     auto data = vfs.Read(p);
-    if (!data) return;
+    if (!data)
+      return;
     PexFile pex;
-    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) return;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex))
+      return;
     for (const Object& o : pex.objects)
       for (const State& s : o.states)
         for (const NamedFunction& nf : s.functions)
-          if (nf.function.is_native) seen.insert({pex.Str(o.name), pex.Str(nf.name)});
+          if (nf.function.is_native)
+            seen.insert({pex.Str(o.name), pex.Str(nf.name)});
   });
   for (const auto& [type, func] : seen) {
     base::String fn = func;
@@ -362,7 +380,8 @@ namespace Recreation.Decompiled {
 }
 )CS";
 
-int RunTest(const base::String& data_dir, const base::String& script_name,
+int RunTest(const base::String& data_dir,
+            const base::String& script_name,
             const base::String& out_dir) {
   using namespace rx::script::papyrus;
   asset::Vfs vfs;
@@ -393,7 +412,8 @@ int RunTest(const base::String& data_dir, const base::String& script_name,
   vm.LoadScript(ByteSpan(blob->data(), blob->size()));
   for (base::String parent = vm.ParentClassOf(type_name); !parent.empty();) {
     auto pb = vfs.Read("scripts/" + parent + ".pex");
-    if (!pb) break;
+    if (!pb)
+      break;
     base::String loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
     parent = loaded.empty() ? "" : vm.ParentClassOf(loaded);
   }
@@ -401,7 +421,8 @@ int RunTest(const base::String& data_dir, const base::String& script_name,
   // Seed object-typed members with handles so calls on them resolve and log.
   for (const MemberVariable& v : obj.variables) {
     base::String vt = LowerStr(pex.Str(v.type));
-    if (IsPrimType(vt)) continue;
+    if (IsPrimType(vt))
+      continue;
     if (Value* slot = vm.MemberVar(inst, pex.Str(v.name)))
       *slot = Value::Object(ObjectRef{(*counter)++});
   }
@@ -409,7 +430,8 @@ int RunTest(const base::String& data_dir, const base::String& script_name,
   // Collect the quest's fragment functions (default state, no params).
   base::Vector<base::String> fragments;
   for (const State& s : obj.states) {
-    if (s.name != kInvalidString && !pex.Str(s.name).empty()) continue;
+    if (s.name != kInvalidString && !pex.Str(s.name).empty())
+      continue;
     for (const NamedFunction& nf : s.functions) {
       const base::String& fname = pex.Str(nf.name);
       if (fname.rfind("Fragment_", 0) == 0 && nf.function.params.empty())
@@ -422,7 +444,8 @@ int RunTest(const base::String& data_dir, const base::String& script_name,
     trace->clear();
     vm.Call(inst, f, {});
     base::String line = f + "|";
-    for (size_t i = 0; i < trace->size(); ++i) line += (i ? ";" : "") + (*trace)[i];
+    for (size_t i = 0; i < trace->size(); ++i)
+      line += (i ? ";" : "") + (*trace)[i];
     vm_out << line.c_str() << "\n";
   }
 
@@ -466,16 +489,21 @@ bool IsPrimScalar(const base::String& t) {
 // is one of its own params, locals, or compiler temps.
 bool IsPure(const PexFile& pex, const Function& fn) {
   using namespace rx::script::papyrus;
-  if (fn.is_native) return false;
+  if (fn.is_native)
+    return false;
   for (const TypedName& p : fn.params)
-    if (!IsPrimScalar(LowerStr(pex.Str(p.type)))) return false;
+    if (!IsPrimScalar(LowerStr(pex.Str(p.type))))
+      return false;
   base::String rt = LowerStr(pex.Str(fn.return_type));
-  if (!(rt.empty() || rt == "none" || IsPrimScalar(rt))) return false;
+  if (!(rt.empty() || rt == "none" || IsPrimScalar(rt)))
+    return false;
   base::Set<base::String> names;
-  for (const TypedName& p : fn.params) names.insert(pex.Str(p.name));
+  for (const TypedName& p : fn.params)
+    names.insert(pex.Str(p.name));
   for (const TypedName& l : fn.locals) {
     names.insert(pex.Str(l.name));
-    if (!IsPrimType(pex.Str(l.type))) return false;
+    if (!IsPrimType(pex.Str(l.type)))
+      return false;
   }
   for (const Instruction& in : fn.code) {
     switch (in.op) {
@@ -501,7 +529,8 @@ bool IsPure(const PexFile& pex, const Function& fn) {
           return false;
       return true;
     };
-    if (!ok(in.args) || !ok(in.var_args)) return false;
+    if (!ok(in.args) || !ok(in.var_args))
+      return false;
   }
   return true;
 }
@@ -510,11 +539,15 @@ std::int64_t DiffSeed(int fi, int t, int p) {
   return static_cast<std::int64_t>(fi) * 1000003 + static_cast<std::int64_t>(t) * 131 +
          static_cast<std::int64_t>(p) * 17 + 1;
 }
-int InpI(int fi, int t, int p) { return static_cast<int>(((DiffSeed(fi, t, p) % 41) + 41) % 41) - 20; }
+int InpI(int fi, int t, int p) {
+  return static_cast<int>(((DiffSeed(fi, t, p) % 41) + 41) % 41) - 20;
+}
 double InpF(int fi, int t, int p) {
   return (static_cast<double>(((DiffSeed(fi, t, p) % 4001) + 4001) % 4001) - 2000.0) / 100.0;
 }
-bool InpB(int fi, int t, int p) { return (((DiffSeed(fi, t, p) % 2) + 2) % 2) == 0; }
+bool InpB(int fi, int t, int p) {
+  return (((DiffSeed(fi, t, p) % 2) + 2) % 2) == 0;
+}
 const char* InpS(int fi, int t, int p) {
   static const char* kV[] = {"", "a", "Hello", "123"};
   return kV[((DiffSeed(fi, t, p) % 4) + 4) % 4];
@@ -523,9 +556,12 @@ const char* InpS(int fi, int t, int p) {
 // Formats a VM return value the same way the emitted C# formats its result.
 base::String FormatResult(const base::String& ret_lower, const rx::script::papyrus::Value& v) {
   using rx::script::papyrus::Value;
-  if (ret_lower == "int") return "I" + base::ToString(v.ToInt());
-  if (ret_lower == "bool") return v.ToBool() ? "B1" : "B0";
-  if (ret_lower == "string") return "S" + v.ToString();
+  if (ret_lower == "int")
+    return "I" + base::ToString(v.ToInt());
+  if (ret_lower == "bool")
+    return v.ToBool() ? "B1" : "B0";
+  if (ret_lower == "string")
+    return "S" + v.ToString();
   if (ret_lower == "float")
     return "F" + base::ToString(static_cast<std::int64_t>(std::llround(v.ToFloat() * 1000.0)));
   return "V";
@@ -564,28 +600,36 @@ int DiffTest(const base::String& data_dir, const base::String& out_dir) {
   base::String main_body;
   int fi = 0;
   for (const base::String& path : scripts) {
-    if (fi >= kMaxFns) break;
+    if (fi >= kMaxFns)
+      break;
     auto data = vfs.Read(path);
-    if (!data) continue;
+    if (!data)
+      continue;
     PexFile pex;
-    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) continue;
-    if (pex.objects.empty()) continue;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex))
+      continue;
+    if (pex.objects.empty())
+      continue;
 
     // One VM per script, the script loaded once; pure functions ignore instance
     // state so a single instance serves every call.
     VirtualMachine vm(nullptr);
     PexFile pex_for_vm = pex;
     base::String type = vm.AddScript(base::move(pex_for_vm));
-    if (type.empty()) continue;
+    if (type.empty())
+      continue;
     ObjectRef inst = vm.CreateInstance(type);
 
     const Object& obj = pex.objects.front();
     for (const State& s : obj.states) {
-      if (s.name != kInvalidString && !pex.Str(s.name).empty()) continue;  // default state only
+      if (s.name != kInvalidString && !pex.Str(s.name).empty())
+        continue;  // default state only
       for (const NamedFunction& nf : s.functions) {
-        if (fi >= kMaxFns) break;
+        if (fi >= kMaxFns)
+          break;
         const Function& fn = nf.function;
-        if (!IsPure(pex, fn)) continue;
+        if (!IsPure(pex, fn))
+          continue;
         base::String fname = pex.Str(nf.name);
         base::String rt = LowerStr(pex.Str(fn.return_type));
 
@@ -594,7 +638,8 @@ int DiffTest(const base::String& data_dir, const base::String& out_dir) {
         cs << "  static string R_" << fi << "(int t){ ";
         base::String call = "Func_" + base::ToString(fi) + "(";
         for (size_t p = 0; p < fn.params.size(); ++p) {
-          if (p) call += ", ";
+          if (p)
+            call += ", ";
           base::String pt = LowerStr(pex.Str(fn.params[p].type));
           base::String fn_in = pt == "int"     ? "InpI"
                                : pt == "float" ? "InpF"
@@ -653,7 +698,8 @@ int DiffTest(const base::String& data_dir, const base::String& out_dir) {
 // an MQ<digit>* quest/alias/effect script. This is the MQ1xx-MQ3xx spine; dialogue
 // TIF__ fragments are keyed by form id and fall outside this name-based scope.
 bool IsMainQuestScript(const base::String& name) {
-  if (name.rfind("QF_MQ", 0) == 0) return true;
+  if (name.rfind("QF_MQ", 0) == 0)
+    return true;
   return name.size() >= 3 && name[0] == 'M' && name[1] == 'Q' && name[2] >= '0' && name[2] <= '9';
 }
 
@@ -675,13 +721,16 @@ int MqTrace(const base::String& data_dir) {
     if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
       return;
     auto data = vfs.Read(p);
-    if (!data) return;
+    if (!data)
+      return;
     PexFile pex;
-    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) return;
+    if (!ParsePex(ByteSpan(data->data(), data->size()), &pex))
+      return;
     for (const Object& o : pex.objects)
       for (const State& s : o.states)
         for (const NamedFunction& nf : s.functions)
-          if (nf.function.is_native) natives.insert({pex.Str(o.name), pex.Str(nf.name)});
+          if (nf.function.is_native)
+            natives.insert({pex.Str(o.name), pex.Str(nf.name)});
   });
   NativeRegistry reg;
   for (const auto& [type, func] : natives) {
@@ -702,36 +751,44 @@ int MqTrace(const base::String& data_dir) {
   });
   for (const base::String& path : pending) {
     auto blob = vfs.Read(path);
-    if (!blob) continue;
+    if (!blob)
+      continue;
     PexFile pex;
-    if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex) || pex.objects.empty()) continue;
+    if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex) || pex.objects.empty())
+      continue;
     const Object& obj = pex.objects.front();
     base::String type_name = pex.Str(obj.name);
-    if (!IsMainQuestScript(type_name)) continue;
+    if (!IsMainQuestScript(type_name))
+      continue;
 
     VirtualMachine vm(&reg);
     vm.LoadScript(ByteSpan(blob->data(), blob->size()));
     for (base::String parent = vm.ParentClassOf(type_name); !parent.empty();) {
       auto pb = vfs.Read("scripts/" + parent + ".pex");
-      if (!pb) break;
+      if (!pb)
+        break;
       base::String loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
       parent = loaded.empty() ? "" : vm.ParentClassOf(loaded);
     }
     ObjectRef inst = vm.CreateInstance(type_name);
     for (const MemberVariable& v : obj.variables) {
-      if (IsPrimType(LowerStr(pex.Str(v.type)))) continue;
+      if (IsPrimType(LowerStr(pex.Str(v.type))))
+        continue;
       if (Value* slot = vm.MemberVar(inst, pex.Str(v.name)))
         *slot = Value::Object(ObjectRef{(*counter)++});
     }
     for (const State& s : obj.states) {
-      if (s.name != kInvalidString && !pex.Str(s.name).empty()) continue;
+      if (s.name != kInvalidString && !pex.Str(s.name).empty())
+        continue;
       for (const NamedFunction& nf : s.functions)
-        if (nf.function.params.empty()) vm.Call(inst, pex.Str(nf.name), {});
+        if (nf.function.params.empty())
+          vm.Call(inst, pex.Str(nf.name), {});
     }
     ++scripts;
   }
 
-  for (const auto& [type, func] : *called) std::printf("%s.%s\n", type.c_str(), func.c_str());
+  for (const auto& [type, func] : *called)
+    std::printf("%s.%s\n", type.c_str(), func.c_str());
   std::fprintf(stderr, "mqtrace: %zu main-quest scripts, %zu distinct natives dispatched\n",
                scripts, called->size());
   return 0;
@@ -749,12 +806,18 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (args.size() >= 2 && args[0] == "--audit") return Audit(args[1]);
-  if (args.size() >= 3 && args[0] == "--dump-all") return DumpAll(args[1], args[2]);
-  if (args.size() >= 3 && args[0] == "--compile-check") return CompileCheck(args[1], args[2]);
-  if (args.size() >= 3 && args[0] == "--difftest") return DiffTest(args[1], args[2]);
-  if (args.size() >= 4 && args[0] == "--runtest") return RunTest(args[1], args[2], args[3]);
-  if (args.size() >= 2 && args[0] == "--mqtrace") return MqTrace(args[1]);
+  if (args.size() >= 2 && args[0] == "--audit")
+    return Audit(args[1]);
+  if (args.size() >= 3 && args[0] == "--dump-all")
+    return DumpAll(args[1], args[2]);
+  if (args.size() >= 3 && args[0] == "--compile-check")
+    return CompileCheck(args[1], args[2]);
+  if (args.size() >= 3 && args[0] == "--difftest")
+    return DiffTest(args[1], args[2]);
+  if (args.size() >= 4 && args[0] == "--runtest")
+    return RunTest(args[1], args[2], args[3]);
+  if (args.size() >= 2 && args[0] == "--mqtrace")
+    return MqTrace(args[1]);
 
   base::Vector<u8> blob;
   base::String out_path;
@@ -768,7 +831,8 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "cannot read %s\n", args[1].c_str());
       return 1;
     }
-    if (args.size() > 2) out_path = args[2];
+    if (args.size() > 2)
+      out_path = args[2];
   } else if (args.size() >= 2) {
     asset::Vfs vfs;
     MountArchives(vfs, args[0]);
@@ -779,7 +843,8 @@ int main(int argc, char** argv) {
       return 1;
     }
     blob.assign(data->data(), data->data() + data->size());
-    if (args.size() > 2) out_path = args[2];
+    if (args.size() > 2)
+      out_path = args[2];
   } else {
     std::fprintf(stderr,
                  "usage:\n  %s --file <path.pex> [out.cs] [--disasm]\n"

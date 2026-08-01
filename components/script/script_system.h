@@ -10,10 +10,10 @@
 #include "asset/vfs.h"
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/types.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
 #include "components/script/papyrus/value.h"
 #include "components/script/papyrus_guest.h"
+#include "core/types.h"
 
 namespace rx::script {
 

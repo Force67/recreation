@@ -17,8 +17,8 @@
 
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
-#include "core/types.h"
 #include "components/quest/package_record.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -32,7 +32,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Backing store for the synthetic record's subrecord spans.
@@ -40,7 +41,8 @@ struct Buffers {
   base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
-    if (n) std::memcpy(b.data(), p, n);
+    if (n)
+      std::memcpy(b.data(), p, n);
     return ByteSpan(b.data(), b.size());
   }
   ByteSpan Empty() { return Bytes(nullptr, 0); }
@@ -231,7 +233,8 @@ void TestSelectActivePackage() {
   base::Vector<PackageDef> packages = {leg(40), leg(30), leg(20), leg(10)};
 
   StageContext before(0);
-  Check("no package qualifies before the quest starts", SelectActivePackage(packages, before) == -1);
+  Check("no package qualifies before the quest starts",
+        SelectActivePackage(packages, before) == -1);
 
   StageContext early(10);
   Check("the first leg runs at its stage", SelectActivePackage(packages, early) == 3);
@@ -282,14 +285,17 @@ int DumpReal(const base::String& data_dir) {
   records.EachOfType(
       FourCc('P', 'A', 'C', 'K'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
         Record rec;
-        if (!records.Parse(id, &rec)) return;
+        if (!records.Parse(id, &rec))
+          return;
         base::String edid = rec.GetString(FourCc('E', 'D', 'I', 'D'));
         bool interesting = edid.find("MQ101") != base::String::npos ||
                            edid.find("Travel") != base::String::npos ||
                            edid.find("Escort") != base::String::npos;
-        if (!interesting) return;
+        if (!interesting)
+          return;
         PackageDef def = ParsePackageRecord(id.packed(), rec, records);
-        if (def.target.kind == PackageTarget::Kind::kNone) return;
+        if (def.target.kind == PackageTarget::Kind::kNone)
+          return;
         ++travel;
         const char* k = def.target.kind == PackageTarget::Kind::kReference   ? "reference"
                         : def.target.kind == PackageTarget::Kind::kAlias     ? "alias"
@@ -316,7 +322,8 @@ int main(int argc, char** argv) {
   TestSelectActivePackage();
 
   int rc = 0;
-  if (argc >= 2) rc = DumpReal(argv[1]);
+  if (argc >= 2)
+    rc = DumpReal(argv[1]);
 
   if (g_failures == 0 && rc == 0) {
     std::puts("package: all checks passed");

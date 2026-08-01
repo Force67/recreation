@@ -23,13 +23,17 @@ int Runtime::Build(const bethesda::RecordStore& records) {
                      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
                        ++total;
                        bethesda::Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        base::String source = rec.GetString(kSctx);
-                       if (source.empty()) return;
+                       if (source.empty())
+                         return;
                        Script script;
-                       if (!Parse(source, &script) || script.name.empty()) return;
+                       if (!Parse(source, &script) || script.name.empty())
+                         return;
                        block_count_ += static_cast<int>(script.blocks.size());
-                       for (const Script::Block& b : script.blocks) block_types_[b.type]++;
+                       for (const Script::Block& b : script.blocks)
+                         block_types_[b.type]++;
                        scripts_.emplace(script.name, base::move(script));
                        ++parsed;
                      });
@@ -44,7 +48,8 @@ const Script* Runtime::Find(const base::String& name) const {
 
 bool Runtime::RunBlock(const base::String& name, base::StringRef event, Host& host) {
   const Script* script = Find(name);
-  if (!script) return false;
+  if (!script)
+    return false;
   Instance inst(script, &host);
   return inst.Run(event);
 }
@@ -68,13 +73,18 @@ class TracingHost : public Host {
     RX_INFO("obscript:   set {}.{} to {}", o, v, val);
     ++effects;
   }
-  f32 Call(base::StringRef target, base::StringRef fn, const base::Vector<f32>& args,
+  f32 Call(base::StringRef target,
+           base::StringRef fn,
+           const base::Vector<f32>& args,
            const base::Vector<base::String>& text) override {
     base::String s(target);
-    if (!s.empty()) s += ".";
+    if (!s.empty())
+      s += ".";
     s += base::String(fn);
-    for (const base::String& t : text) s += " " + t;
-    for (f32 a : args) s += " " + base::ToString(a);
+    for (const base::String& t : text)
+      s += " " + t;
+    for (f32 a : args)
+      s += " " + base::ToString(a);
     RX_INFO("obscript:   call {}", s);
     ++effects;
     return 0;
@@ -87,16 +97,19 @@ void Runtime::Report() const {
   RX_INFO("obscript report: {} scripts, {} blocks", scripts_.size(), block_count_);
   base::Vector<base::Pair<base::String, int>> hist;
   hist.reserve(block_types_.size());
-  for (auto entry : block_types_) hist.push_back({entry.key, entry.value});
+  for (auto entry : block_types_)
+    hist.push_back({entry.key, entry.value});
   base::Sort(hist.begin(), hist.end(), [](auto& a, auto& b) { return a.second > b.second; });
-  for (const auto& [type, count] : hist) RX_INFO("obscript:   Begin {} x{}", type.c_str(), count);
+  for (const auto& [type, count] : hist)
+    RX_INFO("obscript:   Begin {} x{}", type.c_str(), count);
 
   // Run every script's GameMode/OnActivate/OnTrigger block once through a tracing
   // host, up to a cap, so the log shows real scripts interpreting end to end.
   TracingHost host;
   int ran = 0, with_effects = 0;
   for (const auto& [name, script] : scripts_) {
-    if (ran >= 40) break;
+    if (ran >= 40)
+      break;
     for (const Script::Block& block : script.blocks) {
       if (block.type != "gamemode" && block.type != "onactivate" &&
           block.type != "ontriggerenter" && block.type != "onadd" && block.type != "onequip")

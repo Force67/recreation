@@ -29,7 +29,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-52s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // 1. The bare primitive: local state survives a yield and a resume.
@@ -128,7 +129,12 @@ int main() {
     VirtualMachine vm(&reg);
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
     bool done = false;
-    sched.Run([&] { vm.SuspendCurrentFor(-1.0, 0.25); done = true; }, /*real=*/0.0, /*game=*/10.0);
+    sched.Run(
+        [&] {
+          vm.SuspendCurrentFor(-1.0, 0.25);
+          done = true;
+        },
+        /*real=*/0.0, /*game=*/10.0);
     check("game-time wait parks", !done && sched.parked() == 1);
     sched.Advance(1e6, 10.2);  // huge real time, but game day < deadline
     check("real time does not wake a game-time wait", !done && sched.parked() == 1);
@@ -245,10 +251,11 @@ int main() {
     VirtualMachine vm(&reg);
     u64 ctx = 0;
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
-    sched.set_context_hooks([&] { ctx = 0; }, [&]() -> base::Function<void()> {
-      const u64 c = ctx;
-      return [&ctx, c] { ctx = c; };
-    });
+    sched.set_context_hooks([&] { ctx = 0; },
+                            [&]() -> base::Function<void()> {
+                              const u64 c = ctx;
+                              return [&ctx, c] { ctx = c; };
+                            });
     u64 a_saw = 0, b_saw = 0;
     sched.Run(
         [&] {
@@ -279,10 +286,11 @@ int main() {
     VirtualMachine vm(&reg);
     int depth = 0;
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
-    sched.set_context_hooks([&] { depth = 0; }, [&]() -> base::Function<void()> {
-      const int d = depth;
-      return [&depth, d] { depth = d; };
-    });
+    sched.set_context_hooks([&] { depth = 0; },
+                            [&]() -> base::Function<void()> {
+                              const int d = depth;
+                              return [&depth, d] { depth = d; };
+                            });
     int a_depth = 0, b_depth = 0;
     sched.Run(
         [&] {

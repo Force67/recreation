@@ -1,9 +1,9 @@
-#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "runtime/ui/platform_hud.h"
 
@@ -25,7 +25,8 @@ f32 ArgF(const base::Vector<script::papyrus::Value>& a, size_t i) {
 
 }  // namespace
 
-void PlatformHud::Submit(const base::String& type, const base::String& func,
+void PlatformHud::Submit(const base::String& type,
+                         const base::String& func,
                          const base::Vector<script::papyrus::Value>& args) {
   std::lock_guard<std::mutex> lock(mu_);
   if (type == "Hud") {
@@ -36,7 +37,8 @@ void PlatformHud::Submit(const base::String& type, const base::String& func,
       PlatformChatLine line{ArgStr(args, 0), ArgStr(args, 1), static_cast<u32>(ArgInt(args, 2))};
       chat_pending_.push_back(line);
       chat_log_.push_back(base::move(line));
-      while (chat_log_.size() > kChatLogCap) chat_log_.pop_front();
+      while (chat_log_.size() > kChatLogCap)
+        chat_log_.pop_front();
     } else if (func == "Prompt") {
       const base::String id = ArgStr(args, 0);
       prompts_[id] = {id, ArgStr(args, 1), ArgStr(args, 2)};
@@ -69,12 +71,14 @@ void PlatformHud::Submit(const base::String& type, const base::String& func,
       scoreboard_.title = ArgStr(args, 0);
       scoreboard_.headers.clear();
       const int columns = ArgInt(args, 1);
-      for (int i = 0; i < columns; ++i) scoreboard_.headers.push_back(ArgStr(args, 2 + i));
+      for (int i = 0; i < columns; ++i)
+        scoreboard_.headers.push_back(ArgStr(args, 2 + i));
       scoreboard_.rows.clear();
     } else if (func == "ScoreboardRow") {
       PlatformScoreRow row;
       row.player = args.empty() ? 0 : args[0].ToInt();
-      for (size_t i = 1; i < args.size(); ++i) row.cells.push_back(args[i].ToString());
+      for (size_t i = 1; i < args.size(); ++i)
+        row.cells.push_back(args[i].ToString());
       scoreboard_.rows.push_back(base::move(row));
     } else if (func == "HideScoreboard") {
       scoreboard_.open = false;
@@ -115,7 +119,8 @@ base::Vector<PlatformPrompt> PlatformHud::Prompts() const {
   std::lock_guard<std::mutex> lock(mu_);
   base::Vector<PlatformPrompt> out;
   out.reserve(prompts_.size());
-  for (const auto& [id, p] : prompts_) out.push_back(p);
+  for (const auto& [id, p] : prompts_)
+    out.push_back(p);
   return out;
 }
 
@@ -123,7 +128,8 @@ base::Vector<PlatformBlip> PlatformHud::Blips() const {
   std::lock_guard<std::mutex> lock(mu_);
   base::Vector<PlatformBlip> out;
   out.reserve(blips_.size());
-  for (const auto& [id, b] : blips_) out.push_back(b);
+  for (const auto& [id, b] : blips_)
+    out.push_back(b);
   return out;
 }
 

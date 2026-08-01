@@ -1,11 +1,11 @@
 #ifndef RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 #define RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 
-#include <mutex>
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "components/script/host/bridge.h"
 #include "components/script/host/clr_host.h"
@@ -40,14 +40,16 @@ class ManagedHost {
   // script (and its ancestor chain) from that domain's VFS by name for the
   // bridge's load_script (pass {} to load only already-present types). The guest
   // must outlive the host.
-  void AddDomain(base::String name, PapyrusGuest& guest,
+  void AddDomain(base::String name,
+                 PapyrusGuest& guest,
                  base::Function<bool(const base::String&)> loader);
 
   // Boots the managed world over the registered domains. The paths locate the
   // .NET runtime and the Recreation.Scripting assembly (see ClrHost::Initialize).
   // Returns false (and leaves available() false) when no domain was registered,
   // or the runtime or assembly is unavailable.
-  bool Boot(const base::String& dotnet_root, const base::String& runtime_config,
+  bool Boot(const base::String& dotnet_root,
+            const base::String& runtime_config,
             const base::String& assembly);
 
   // Hands the managed world the ultragui widget-operation table (a
@@ -72,8 +74,11 @@ class ManagedHost {
   // Delivers an inbound session RPC to the managed world. Safe to call from any
   // engine thread; the callback runs on the guest thread. No-op when unavailable
   // or the managed side declined RPC.
-  void DispatchRpc(const char* name, std::int32_t sender, std::int32_t from_server,
-                   const ApiValue* args, std::int32_t argc);
+  void DispatchRpc(const char* name,
+                   std::int32_t sender,
+                   std::int32_t from_server,
+                   const ApiValue* args,
+                   std::int32_t argc);
 
   bool available() const { return available_; }
 

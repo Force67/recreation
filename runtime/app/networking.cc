@@ -8,10 +8,10 @@
 #include <cstdlib>
 
 #include "asset/primitives.h"
-#include "core/log.h"
-#include "runtime/app/engine.h"
 #include "components/quest/quest_def.h"
 #include "components/script/papyrus/value.h"
+#include "core/log.h"
+#include "runtime/app/engine.h"
 
 #if RECREATION_HAS_NET
 #include "components/gamenet/asset_stream.h"
@@ -90,13 +90,15 @@ bool StartNetworking(Engine& engine) {
         base::Vector<net::DomainQuestStatus> all;
         auto collect = [&](u8 domain, rx::script::ScriptSystem* scripts,
                            rx::script::skyrim::RecordBackedSkyrimBindings* binds) {
-          if (!scripts || !binds) return;
+          if (!scripts || !binds)
+            return;
           auto statuses = scripts->guest()
                               .SubmitFor([binds](script::papyrus::VirtualMachine&) {
                                 return binds->quest_system().AllStatuses();
                               })
                               .get();
-          for (quest::QuestStatus& s : statuses) all.push_back({domain, base::move(s)});
+          for (quest::QuestStatus& s : statuses)
+            all.push_back({domain, base::move(s)});
         };
         collect(0, (self->scripts_ ? &*self->scripts_ : nullptr),
                 (self->script_bindings_ ? &*self->script_bindings_ : nullptr));
@@ -115,7 +117,8 @@ bool StartNetworking(Engine& engine) {
         self->script_bindings_->SnapshotWarMap(holds, fraction);
         board.imperial_fraction = fraction;
         board.holds.reserve(holds.size());
-        for (const auto& h : holds) board.holds.push_back({h.name.c_str(), h.owner});
+        for (const auto& h : holds)
+          board.holds.push_back({h.name.c_str(), h.owner});
         return board;
       });
       // A client activating a reference runs OnActivate authoritatively here; the
@@ -132,7 +135,8 @@ bool StartNetworking(Engine& engine) {
       // stage/objective/running change on the guest, which replicates back as a
       // normal quest update.
       self->server_session_->SetStageRequestSink([self](const net::StageRequest& r) {
-        if (!self->scripts_) return;
+        if (!self->scripts_)
+          return;
         auto* binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
         self->scripts_->guest().Submit([binds, r](script::papyrus::VirtualMachine&) {
           const script::papyrus::ObjectRef ref{r.quest};
@@ -206,7 +210,8 @@ bool StartNetworking(Engine& engine) {
           scripts = self->extra_domains_[domain - 1]->scripts();
           binds = self->extra_domains_[domain - 1]->bindings();
         }
-        if (!scripts || !binds) return;
+        if (!scripts || !binds)
+          return;
         scripts->guest().Submit([binds, status](script::papyrus::VirtualMachine&) {
           // Apply via the binding (not quest_system directly) so a replicated stage
           // advance also fires the managed QuestStageChanged event, driving the C#
@@ -238,7 +243,8 @@ bool StartNetworking(Engine& engine) {
       // runs only on the host). SetWarHold/SetWarProgress lock the binding's
       // war-map mutex, so applying from the net sim thread is safe.
       self->client_session_->SetWarMapSink([self](const net::WarMapState& board) {
-        if (!self->script_bindings_) return;
+        if (!self->script_bindings_)
+          return;
         for (size_t i = 0; i < board.holds.size(); ++i)
           self->script_bindings_->SetWarHold(static_cast<i32>(i), board.holds[i].name,
                                              board.holds[i].owner);
@@ -280,7 +286,8 @@ bool StartNetworking(Engine& engine) {
   }
   // The managed world booted before the session, so forward any RPC names its
   // mods subscribed to into the live session's registry now.
-  if (self->managed_) RegisterManagedRpcForwarding(*self);
+  if (self->managed_)
+    RegisterManagedRpcForwarding(*self);
   return true;
 }
 

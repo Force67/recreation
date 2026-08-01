@@ -14,7 +14,8 @@ bool SceneRunner::running() const {
 }
 
 bool SceneRunner::Tick(SceneSink& sink, float dt) {
-  if (!scene_ || index_ >= scene_->actions.size()) return false;
+  if (!scene_ || index_ >= scene_->actions.size())
+    return false;
 
   const SceneAction& a = scene_->actions[index_];
 

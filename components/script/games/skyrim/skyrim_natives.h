@@ -3,9 +3,9 @@
 
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/script/papyrus/native.h"
 #include "components/script/papyrus/value.h"
+#include "core/types.h"
 
 namespace rx::script::skyrim {
 
@@ -230,7 +230,8 @@ class SkyrimBindings {
   virtual papyrus::ObjectRef GetParentCell(papyrus::ObjectRef ref) { return {}; }
   virtual void Activate(papyrus::ObjectRef target, papyrus::ObjectRef activator) {}
   virtual void Delete(papyrus::ObjectRef ref) {}
-  virtual papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where, papyrus::ObjectRef base,
+  virtual papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where,
+                                       papyrus::ObjectRef base,
                                        i32 count) {
     return {};
   }
@@ -336,7 +337,9 @@ class SkyrimBindings {
   }
   // The quest a dialogue INFO belongs to (TopicInfo.GetOwningQuest), so a TIF_
   // fragment's GetOwningQuest().SetStage advances the right quest.
-  virtual papyrus::ObjectRef InfoOwningQuest(papyrus::ObjectRef info) { return papyrus::ObjectRef{0}; }
+  virtual papyrus::ObjectRef InfoOwningQuest(papyrus::ObjectRef info) {
+    return papyrus::ObjectRef{0};
+  }
   // The quest a PACK belongs to (Package.GetOwningQuest), so a travel package's
   // arrival fragment advances the journal (this is what walks Skyrim's cart ride
   // from stage to stage).
@@ -370,7 +373,9 @@ class SkyrimBindings {
   // transient toast. `fraction` is clamped 0..1, `color` is packed rgba8 (0 lets
   // the HUD pick one). The engine snapshots them onto the HUD each frame.
   // Clearing one removes its bar. Default no-ops for the neutral bindings.
-  virtual void SetHudGauge(const base::String& id, f32 fraction, const base::String& label,
+  virtual void SetHudGauge(const base::String& id,
+                           f32 fraction,
+                           const base::String& label,
                            u32 color) {}
   virtual void ClearHudGauge(const base::String& id) {}
 

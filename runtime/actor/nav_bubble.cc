@@ -4,8 +4,8 @@
 
 #include <cmath>
 
-#include "runtime/app/engine_context.h"
 #include "components/world/cell_streaming.h"
+#include "runtime/app/engine_context.h"
 
 namespace rx {
 namespace {
@@ -31,9 +31,11 @@ NavBubble::NavBubble(EngineContext& ctx)
 
 bool NavBubble::SampleTerrain(f32 x, f32 z, nav::Sample& out) const {
   world::CellStreamer* streamer = ctx_.streamer;
-  if (!streamer) return false;
+  if (!streamer)
+    return false;
   f32 height = 0;
-  if (!streamer->GroundHeight(x, z, &height)) return false;
+  if (!streamer->GroundHeight(x, z, &height))
+    return false;
 
   // Slope from the streamed heightmap. Missing neighbors (cell edge mid
   // stream) fall back to the center height: flat, revisited by the retry pass.
@@ -45,7 +47,8 @@ bool NavBubble::SampleTerrain(f32 x, f32 z, nav::Sample& out) const {
   const f32 gx = (probe(x + 0.4f, z) - probe(x - 0.4f, z)) / 0.8f;
   const f32 gz = (probe(x, z + 0.4f) - probe(x, z - 0.4f)) / 0.8f;
   const f32 slope_sq = gx * gx + gz * gz;
-  if (slope_sq > 1.2f * 1.2f) return false;  // cliff: not standable
+  if (slope_sq > 1.2f * 1.2f)
+    return false;  // cliff: not standable
 
   out.height = height;
   out.area = slope_sq > 0.55f * 0.55f ? kNavAreaRough : nav::kAreaGround;
@@ -75,11 +78,13 @@ void NavBubble::BuildAround(const Vec3& focus) {
   base::Vector<Want> missing;
   for (i32 tz = fz - span; tz <= fz + span; ++tz) {
     for (i32 tx = fx - span; tx <= fx + span; ++tx) {
-      if (mesh_.TileVersionAt(tx, tz) != 0) continue;
+      if (mesh_.TileVersionAt(tx, tz) != 0)
+        continue;
       const f32 cx = (static_cast<f32>(tx) + 0.5f) * tile_m - focus.x;
       const f32 cz = (static_cast<f32>(tz) + 0.5f) * tile_m - focus.z;
       const f32 d2 = cx * cx + cz * cz;
-      if (d2 > kBubbleRadius * kBubbleRadius) continue;
+      if (d2 > kBubbleRadius * kBubbleRadius)
+        continue;
       missing.push_back({tx, tz, d2});
     }
   }
@@ -91,7 +96,8 @@ void NavBubble::BuildAround(const Vec3& focus) {
   };
   u32 built = 0;
   for (const Want& want : missing) {
-    if (built >= kTilesPerTick) break;
+    if (built >= kTilesPerTick)
+      break;
     ++built;
     if (!mesh_.BuildTile(want.tx, want.tz, sampler)) {
       // Nothing standable: either an interior or the cell has not streamed
@@ -113,7 +119,8 @@ void NavBubble::Update(const Vec3& focus, f32 dt) {
   i32 rebuild = -1;
   for (u32 i = 0; i < empty_retry_.size(); ++i) {
     empty_retry_[i].cooldown -= dt;
-    if (rebuild < 0 && empty_retry_[i].cooldown <= 0) rebuild = static_cast<i32>(i);
+    if (rebuild < 0 && empty_retry_[i].cooldown <= 0)
+      rebuild = static_cast<i32>(i);
   }
   if (rebuild >= 0) {  // at most one rebuild per tick keeps the cost flat
     const EmptyTile retry = empty_retry_[rebuild];
@@ -134,13 +141,17 @@ void NavBubble::Update(const Vec3& focus, f32 dt) {
     base::Vector<u64> stale;
     agents_.ForEach([&](const u64& id, Agent& agent) {
       agent.idle += 2.0f;
-      if (agent.idle > kAgentIdleSeconds) stale.push_back(id);
+      if (agent.idle > kAgentIdleSeconds)
+        stale.push_back(id);
     });
-    for (u64 id : stale) agents_.erase(id);
+    for (u64 id : stale)
+      agents_.erase(id);
   }
 }
 
-bool NavBubble::Covers(const Vec3& pos) const { return mesh_.ClampToWalkable(pos, 1.2f).valid(); }
+bool NavBubble::Covers(const Vec3& pos) const {
+  return mesh_.ClampToWalkable(pos, 1.2f).valid();
+}
 
 Vec3 NavBubble::Step(u64 id, const Vec3& from, const Vec3& goal) {
   Agent& agent = agents_[id];
@@ -159,13 +170,17 @@ Vec3 NavBubble::Step(u64 id, const Vec3& from, const Vec3& goal) {
     request.clamp_radius = 4.0f;
     nav::FindPath(mesh_, request, scratch_, &agent.corridor);
   }
-  if (!agent.corridor.valid()) return goal;
+  if (!agent.corridor.valid())
+    return goal;
 
   Vec3 corner;
-  if (!nav::NextCorner(mesh_, &agent.corridor, from, 0.3f, &corner)) return goal;
+  if (!nav::NextCorner(mesh_, &agent.corridor, from, 0.3f, &corner))
+    return goal;
   return corner;
 }
 
-void NavBubble::Forget(u64 id) { agents_.erase(id); }
+void NavBubble::Forget(u64 id) {
+  agents_.erase(id);
+}
 
 }  // namespace rx

@@ -43,9 +43,9 @@ enum class ApiKind : std::int32_t {
 // next bridge call on the same thread; managed code copies it out immediately.
 struct ApiValue {
   ApiKind kind = ApiKind::kNone;
-  std::int32_t i = 0;     // kInt, or kBool (0/1)
-  float f = 0.0f;         // kFloat
-  std::uint64_t h = 0;    // kObject handle / kArray id
+  std::int32_t i = 0;       // kInt, or kBool (0/1)
+  float f = 0.0f;           // kFloat
+  std::uint64_t h = 0;      // kObject handle / kArray id
   const char* s = nullptr;  // kString (borrowed UTF-8)
 };
 
@@ -72,10 +72,18 @@ struct ScriptBridge {
   // is written through result. Both route through the VM, which falls back to the
   // engine native registry, so any registered native or loaded script function
   // is reachable.
-  void (*call_global)(void* ctx, const char* type_name, const char* function,
-                      const ApiValue* args, std::int32_t argc, ApiValue* result);
-  void (*call_method)(void* ctx, std::uint64_t self, const char* function, const ApiValue* args,
-                      std::int32_t argc, ApiValue* result);
+  void (*call_global)(void* ctx,
+                      const char* type_name,
+                      const char* function,
+                      const ApiValue* args,
+                      std::int32_t argc,
+                      ApiValue* result);
+  void (*call_method)(void* ctx,
+                      std::uint64_t self,
+                      const char* function,
+                      const ApiValue* args,
+                      std::int32_t argc,
+                      ApiValue* result);
 
   // --- Properties -----------------------------------------------------------
   void (*get_property)(void* ctx, std::uint64_t self, const char* name, ApiValue* result);
@@ -131,16 +139,19 @@ struct HostCallbacks {
   // name (UTF-8); sender is the originating peer id (0 from the host); from_server
   // is 1 when the host sent it. args points at argc ApiValues. Null when the
   // managed side declines RPC. Append-only: keep after the originals.
-  void (*dispatch_rpc)(const char* name, std::int32_t sender, std::int32_t from_server,
-                       const ApiValue* args, std::int32_t argc);
+  void (*dispatch_rpc)(const char* name,
+                       std::int32_t sender,
+                       std::int32_t from_server,
+                       const ApiValue* args,
+                       std::int32_t argc);
 };
 
 // Where an outbound scripting RPC goes. Mirrors the managed RpcTarget; append
 // only.
 enum class RpcTarget : std::int32_t {
-  kToServer = 0,    // client -> the host
-  kToClient = 1,    // host -> one client (peer)
-  kBroadcast = 2,   // host -> every client
+  kToServer = 0,   // client -> the host
+  kToClient = 1,   // host -> one client (peer)
+  kBroadcast = 2,  // host -> every client
 };
 
 // The multiplayer RPC surface handed to the managed world so server-side mod
@@ -152,8 +163,12 @@ enum class RpcTarget : std::int32_t {
 // active (e.g. a broadcast with no server). Append-only.
 struct RpcBridge {
   void* ctx;
-  void (*emit)(void* ctx, std::int32_t target, std::uint64_t peer, const char* name,
-               const ApiValue* args, std::int32_t argc);
+  void (*emit)(void* ctx,
+               std::int32_t target,
+               std::uint64_t peer,
+               const char* name,
+               const ApiValue* args,
+               std::int32_t argc);
   void (*on)(void* ctx, const char* name);
 };
 

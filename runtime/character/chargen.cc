@@ -25,15 +25,15 @@
 #include "components/bethesda/converters.h"
 #include "components/bethesda/nif.h"
 #include "components/bethesda/record.h"
-#include "runtime/character/chargen_layout.h"
+#include "components/world/components.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "ecs/world.h"
-#include "runtime/app/engine_context.h"
 #include "render/core/renderer.h"
 #include "render/geometry/hair_groom.h"
-#include "components/world/components.h"
+#include "runtime/app/engine_context.h"
+#include "runtime/character/chargen_layout.h"
 
 namespace rx {
 namespace {
@@ -65,7 +65,8 @@ constexpr f32 kLookDrop = 0.05f;  // look below the pivot -> eyes at the upper t
 base::String Spacify(const base::String& s) {
   base::String out;
   for (size_t i = 0; i < s.size(); ++i) {
-    if (i > 0 && s[i] >= 'A' && s[i] <= 'Z' && s[i - 1] >= 'a' && s[i - 1] <= 'z') out += ' ';
+    if (i > 0 && s[i] >= 'A' && s[i] <= 'Z' && s[i - 1] >= 'a' && s[i - 1] <= 'z')
+      out += ' ';
     out += s[i];
   }
   return out;
@@ -75,11 +76,13 @@ base::String Spacify(const base::String& s) {
 
 CharGen::CharGen(EngineContext& ctx) : ctx_(ctx) {}
 CharGen::~CharGen() {
-  if (groom_ && ctx_.renderer) ctx_.renderer->DestroyHairGroom(groom_);
+  if (groom_ && ctx_.renderer)
+    ctx_.renderer->DestroyHairGroom(groom_);
 }
 
 void CharGen::Enter() {
-  if (active_) return;
+  if (active_)
+    return;
   if (!ctx_.records || !ctx_.renderer || !ctx_.vfs || !ctx_.assets) {
     RX_WARN("chargen: services not ready");
     return;
@@ -91,7 +94,8 @@ void CharGen::Enter() {
   }
   race_ = 0;
   for (size_t i = 0; i < races_.size(); ++i)
-    if (races_[i].edid == "NordRace") race_ = static_cast<int>(i);
+    if (races_[i].edid == "NordRace")
+      race_ = static_cast<int>(i);
 
   builder_ = base::MakeUnique<FaceBuilder>(ctx_);
   save_path_ = ChargenOut.get() ? ChargenOut.get() : "chargen_preset.json";
@@ -123,12 +127,14 @@ void CharGen::BuildRaces() {
       FourCc('R', 'A', 'C', 'E'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         bethesda::Record r;
-        if (!ctx_.records->Parse(id, &r)) return;
+        if (!ctx_.records->Parse(id, &r))
+          return;
         found[r.GetString(kEdid)] = id;
       });
   for (const auto& w : kWant) {
     auto* it = found.find(w.edid);
-    if (it != nullptr) races_.push_back({*it, w.edid, w.disp});
+    if (it != nullptr)
+      races_.push_back({*it, w.edid, w.disp});
   }
 }
 
@@ -138,13 +144,18 @@ void CharGen::BuildHairCatalog() {
   ctx_.records->EachOfType(
       FourCc('H', 'D', 'P', 'T'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-        if (hair_styles_.size() >= 24) return;
+        if (hair_styles_.size() >= 24)
+          return;
         auto hp = bethesda::ResolveHeadPart(*ctx_.records, id);
-        if (!hp || hp->type != bethesda::HeadPartType::kHair || hp->model.empty()) return;
-        if (!(hp->flags & 0x01)) return;  // playable
-        if (hp->flags & 0x10) return;     // chained "extra part", not a base style
+        if (!hp || hp->type != bethesda::HeadPartType::kHair || hp->model.empty())
+          return;
+        if (!(hp->flags & 0x01))
+          return;  // playable
+        if (hp->flags & 0x10)
+          return;  // chained "extra part", not a base style
         const bool male = hp->flags & 0x02, female = hp->flags & 0x04;
-        if ((male || female) && !(hp->flags & sexbit)) return;  // wrong sex
+        if ((male || female) && !(hp->flags & sexbit))
+          return;  // wrong sex
         hair_styles_.push_back({hp->model, hp->editor_id});
       });
 }
@@ -159,7 +170,8 @@ void CharGen::ScanChargenMorphs() {
     const size_t pl = std::strlen(pre);
     if (n.size() > pl && n.compare(0, pl, pre) == 0) {
       int v = std::atoi(n.c_str() + pl);
-      if (v > 0) out.push_back(v);
+      if (v > 0)
+        out.push_back(v);
     }
   };
   base::UnorderedSet<base::String> present;
@@ -181,7 +193,8 @@ void CharGen::ScanChargenMorphs() {
                                "LipMoveOut", "LipMoveIn",   "EyesMoveUp", "EyesMoveDown",
                                "ChinMoveUp", "ChinMoveDown"};
   for (const char* c : kCur)
-    if (present.count(c)) curated_morphs_.push_back(c);
+    if (present.count(c))
+      curated_morphs_.push_back(c);
   // Fallback: if none of the curated names exist, expose the first handful of
   // non-type morphs so the advanced page still has sliders.
   if (curated_morphs_.empty()) {
@@ -189,20 +202,25 @@ void CharGen::ScanChargenMorphs() {
       if (n.rfind("NoseType", 0) == 0 || n.rfind("EyesType", 0) == 0 || n.rfind("LipType", 0) == 0)
         continue;
       curated_morphs_.push_back(n);
-      if (curated_morphs_.size() >= 10) break;
+      if (curated_morphs_.size() >= 10)
+        break;
     }
   }
 }
 
 void CharGen::PushEditsToFace() {
-  for (u32 i = 0; i < bethesda::kNam9Count; ++i) face_.SetNam9(i, nam9_[i]);
-  for (int i = 0; i < 4; ++i) face_.SetNama(i, nama_[i]);
+  for (u32 i = 0; i < bethesda::kNam9Count; ++i)
+    face_.SetNam9(i, nam9_[i]);
+  for (int i = 0; i < 4; ++i)
+    face_.SetNama(i, nama_[i]);
   face_.SetSkinTone(skin_[0], skin_[1], skin_[2]);
-  for (const auto& m : morphs_) face_.SetMorph(m.first, m.second);
+  for (const auto& m : morphs_)
+    face_.SetMorph(m.first, m.second);
 }
 
 void CharGen::Reassemble(bool read_preset) {
-  if (races_.empty() || !builder_) return;
+  if (races_.empty() || !builder_)
+    return;
   race_ = base::Clamp(race_, 0, static_cast<int>(races_.size()) - 1);
   auto race = bethesda::ResolveRaceHead(*ctx_.records, races_[race_].form);
   if (!race) {
@@ -217,7 +235,8 @@ void CharGen::Reassemble(bool read_preset) {
     preset_ = ((preset_ % preset_count_) + preset_count_) % preset_count_;
     for (int t = 0; t < preset_count_ && !ok; ++t) {
       const int pi = (preset_ + t) % preset_count_;
-      if (sh.presets[pi].plugin == 0xffff) continue;
+      if (sh.presets[pi].plugin == 0xffff)
+        continue;
       FaceState tmp;
       if (builder_->AssembleNpc(sh.presets[pi], &tmp)) {
         face_ = base::move(tmp);
@@ -229,15 +248,19 @@ void CharGen::Reassemble(bool read_preset) {
   if (!ok) {
     RX_WARN("chargen: no assemblable preset for {} {}", races_[race_].edid,
             sex_ ? "female" : "male");
-    if (face_.parts().empty()) return;  // first boot with nothing: bail
+    if (face_.parts().empty())
+      return;  // first boot with nothing: bail
   }
 
   face_.SetRaceBlend(races_[race_].edid);
   ScanChargenMorphs();
   if (read_preset) {
-    for (u32 i = 0; i < bethesda::kNam9Count; ++i) nam9_[i] = face_.nam9()[i];
-    for (int i = 0; i < 4; ++i) nama_[i] = face_.nama()[i];
-    for (int k = 0; k < 3; ++k) skin_[k] = face_.skin_tone()[k];
+    for (u32 i = 0; i < bethesda::kNam9Count; ++i)
+      nam9_[i] = face_.nam9()[i];
+    for (int i = 0; i < 4; ++i)
+      nama_[i] = face_.nama()[i];
+    for (int k = 0; k < 3; ++k)
+      skin_[k] = face_.skin_tone()[k];
     morphs_.clear();
   }
   PushEditsToFace();
@@ -249,11 +272,13 @@ void CharGen::Reassemble(bool read_preset) {
   hair_colors_.clear();
   for (bethesda::GlobalFormId cf : sh.hair_colors) {
     auto clfm = bethesda::ResolveColorForm(*ctx_.records, cf);
-    if (!clfm) continue;
+    if (!clfm)
+      continue;
     hair_colors_.push_back(
         {clfm->editor_id,
          {clfm->rgba[0] / 255.0f, clfm->rgba[1] / 255.0f, clfm->rgba[2] / 255.0f}});
-    if (hair_colors_.size() >= 16) break;
+    if (hair_colors_.size() >= 16)
+      break;
   }
   BuildHairCatalog();
   if (read_preset) {
@@ -267,18 +292,21 @@ void CharGen::Reassemble(bool read_preset) {
   } else {
     if (!hair_styles_.empty())
       hair_style_ = base::Clamp(hair_style_, 0, static_cast<int>(hair_styles_.size()) - 1);
-    if (hair_color_ >= static_cast<int>(hair_colors_.size())) hair_color_ = -1;
+    if (hair_color_ >= static_cast<int>(hair_colors_.size()))
+      hair_color_ = -1;
   }
   RebuildHairGroom();
 }
 
 void CharGen::SpawnHeadEntities() {
   for (ecs::Entity e : head_entities_)
-    if (ctx_.world->IsAlive(e)) ctx_.world->Destroy(e);
+    if (ctx_.world->IsAlive(e))
+      ctx_.world->Destroy(e);
   head_entities_.clear();
   const Quat basis = QuatFromAxisAngle({1, 0, 0}, -1.57079633f);
   for (const BuiltFacePart& part : face_.parts()) {
-    if (part.type == bethesda::HeadPartType::kHair) continue;  // groom replaces the card
+    if (part.type == bethesda::HeadPartType::kHair)
+      continue;  // groom replaces the card
     ecs::Entity e = ctx_.world->Create();
     ctx_.world->Add(e, world::Transform{.position = {0, 0, 0},
                                         .rotation = {basis.x, basis.y, basis.z, basis.w},
@@ -296,25 +324,29 @@ void CharGen::SpawnHeadEntities() {
 Vec3 CharGen::HeadBoneOffset() {
   static bool resolved = false;
   static Vec3 offset{0.0f, 1.66f, -0.04f};  // Skyrim SE fallback
-  if (resolved) return offset;
+  if (resolved)
+    return offset;
   resolved = true;
   const char* kSkeleton = "meshes/actors/character/character assets/skeleton.nif";
   auto bytes = ctx_.vfs->Read(kSkeleton);
-  if (!bytes) return offset;
+  if (!bytes)
+    return offset;
   asset::Skeleton skel;
   if (!bethesda::ConvertNifSkeleton(ByteSpan(bytes->data(), bytes->size()),
                                     asset::MakeAssetId(kSkeleton), &skel)) {
     return offset;
   }
   const i32 head = skel.Find("NPC Head [Head]");
-  if (head < 0) return offset;
+  if (head < 0)
+    return offset;
   // Compose the parent-relative rest transforms up the chain (Bethesda object
   // space), then map to engine space like static NIF geometry.
   Vec3 t{0, 0, 0};
   Quat r{0, 0, 0, 1};
   f32 s = 1.0f;
   base::Vector<i32> chain;
-  for (i32 b = head; b >= 0; b = skel.bones[b].parent) chain.push_back(b);
+  for (i32 b = head; b >= 0; b = skel.bones[b].parent)
+    chain.push_back(b);
   for (size_t i = chain.size(); i-- > 0;) {
     const asset::Bone& bone = skel.bones[chain[i]];
     t = t + Rotate(r, bone.bind_translation * s);
@@ -334,18 +366,23 @@ void CharGen::RebuildHairGroom() {
   }
   const base::String model =
       !hair_styles_.empty() ? hair_styles_[hair_style_].model : face_.hair_model();
-  if (model.empty()) return;
+  if (model.empty())
+    return;
   base::String path = asset::NormalizePath(model);
-  if (!path.starts_with("meshes/")) path = "meshes/" + path;
+  if (!path.starts_with("meshes/"))
+    path = "meshes/" + path;
   auto bytes = ctx_.vfs->Read(path);
-  if (!bytes) return;
+  if (!bytes)
+    return;
   bethesda::NifConversion conv = bethesda::ConvertNifRigid(ByteSpan(bytes->data(), bytes->size()),
                                                            asset::MakeAssetId(path), path);
-  if (!conv.mesh || conv.mesh->lods.empty() || conv.mesh->lods[0].vertices.empty()) return;
+  if (!conv.mesh || conv.mesh->lods.empty() || conv.mesh->lods[0].vertices.empty())
+    return;
   const asset::Texture* diffuse = nullptr;
   for (const base::String& tp : conv.texture_paths) {
     diffuse = ctx_.assets->LoadTexture(tp);
-    if (diffuse) break;
+    if (diffuse)
+      break;
   }
   Vec3 tint = (hair_color_ >= 0 && hair_color_ < static_cast<int>(hair_colors_.size()))
                   ? hair_colors_[hair_color_].second
@@ -364,7 +401,8 @@ void CharGen::RebuildHairGroom() {
 }
 
 void CharGen::SetupSceneAndCamera() {
-  if (scene_ready_) return;
+  if (scene_ready_)
+    return;
   scene_ready_ = true;
   // A soft portrait key over a raised ambient fill, matching the faces demo: the
   // head reads without the harsh midday sun blowing out the skin. scene_owns_sun
@@ -400,7 +438,8 @@ void CharGen::SetupSceneAndCamera() {
   // edges even at the frame corners.
   asset::Mesh cube = asset::MakeCube(60.0f, asset::MakeAssetId("chargen/backdrop"));
   for (asset::MeshLod& lod : cube.lods) {
-    for (asset::Submesh& sm : lod.submeshes) sm.material = back.id;
+    for (asset::Submesh& sm : lod.submeshes)
+      sm.material = back.id;
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), back.id});
   }
@@ -451,12 +490,14 @@ namespace {
 // Position of an index in a sorted type list (0 = base), for cyclers.
 int TypePos(const base::Vector<int>& list, int value) {
   for (size_t i = 0; i < list.size(); ++i)
-    if (list[i] == value) return static_cast<int>(i);
+    if (list[i] == value)
+      return static_cast<int>(i);
   return 0;
 }
 f32 MorphWeightOf(const base::Vector<base::Pair<base::String, f32>>& v, const base::String& name) {
   for (const auto& m : v)
-    if (m.first == name) return m.second;
+    if (m.first == name)
+      return m.second;
   return 0.0f;
 }
 }  // namespace
@@ -477,7 +518,8 @@ void CharGen::ApplyControl(const Control& cd, f32 v01) {
           m.second = value;
           found = true;
         }
-      if (!found) morphs_.push_back({cd.name, value});
+      if (!found)
+        morphs_.push_back({cd.name, value});
       face_.SetMorph(cd.name, value);
       face_.RebuildAndUpload();
       break;
@@ -497,7 +539,8 @@ void CharGen::CycleControl(const Control& cd, int dir) {
       const base::Vector<int>& list = cd.slot == 0   ? nose_types_
                                       : cd.slot == 2 ? eyes_types_
                                                      : mouth_types_;
-      if (list.empty()) break;
+      if (list.empty())
+        break;
       int pos = TypePos(list, nama_[cd.slot]);
       pos = ((pos + dir) % static_cast<int>(list.size()) + static_cast<int>(list.size())) %
             static_cast<int>(list.size());
@@ -507,18 +550,21 @@ void CharGen::CycleControl(const Control& cd, int dir) {
       break;
     }
     case Control::Kind::kHairStyle: {
-      if (hair_styles_.empty()) break;
+      if (hair_styles_.empty())
+        break;
       const int n = static_cast<int>(hair_styles_.size());
       hair_style_ = ((hair_style_ + dir) % n + n) % n;
       RebuildHairGroom();
       break;
     }
     case Control::Kind::kHairColor: {
-      if (hair_colors_.empty()) break;
+      if (hair_colors_.empty())
+        break;
       const int n = static_cast<int>(hair_colors_.size());
       int pos = hair_color_ < 0 ? 0 : hair_color_;
       hair_color_ = ((pos + dir) % n + n) % n;
-      if (groom_) ctx_.renderer->SetHairGroomTint(groom_, hair_colors_[hair_color_].second);
+      if (groom_)
+        ctx_.renderer->SetHairGroomTint(groom_, hair_colors_[hair_color_].second);
       break;
     }
     default:
@@ -527,7 +573,8 @@ void CharGen::CycleControl(const Control& cd, int dir) {
 }
 
 void CharGen::SelectRace(int i) {
-  if (i == race_ || i < 0 || i >= static_cast<int>(races_.size())) return;
+  if (i == race_ || i < 0 || i >= static_cast<int>(races_.size()))
+    return;
   race_ = i;
   preset_ = 0;
   Reassemble(true);
@@ -536,7 +583,8 @@ void CharGen::SelectRace(int i) {
 }
 
 void CharGen::SelectSex(int sex) {
-  if (sex == sex_) return;
+  if (sex == sex_)
+    return;
   sex_ = sex;
   preset_ = 0;
   Reassemble(true);
@@ -545,7 +593,8 @@ void CharGen::SelectSex(int sex) {
 }
 
 void CharGen::StepPreset(int dir) {
-  if (preset_count_ <= 0) return;
+  if (preset_count_ <= 0)
+    return;
   preset_ = ((preset_ + dir) % preset_count_ + preset_count_) % preset_count_;
   Reassemble(true);
 }
@@ -565,16 +614,21 @@ void CharGen::Randomize() {
   auto pick = [&](const base::Vector<int>& v) {
     return v.empty() ? 0 : v[static_cast<size_t>(rnd() * v.size()) % v.size()];
   };
-  for (u32 i = 0; i < bethesda::kNam9Count; ++i) nam9_[i] = (rnd() * 2.0f - 1.0f) * 0.5f;
-  if (nose_types_.size() > 1) nama_[0] = pick(nose_types_);
-  if (eyes_types_.size() > 1) nama_[2] = pick(eyes_types_);
-  if (mouth_types_.size() > 1) nama_[3] = pick(mouth_types_);
+  for (u32 i = 0; i < bethesda::kNam9Count; ++i)
+    nam9_[i] = (rnd() * 2.0f - 1.0f) * 0.5f;
+  if (nose_types_.size() > 1)
+    nama_[0] = pick(nose_types_);
+  if (eyes_types_.size() > 1)
+    nama_[2] = pick(eyes_types_);
+  if (mouth_types_.size() > 1)
+    nama_[3] = pick(mouth_types_);
   skin_[0] = 0.45f + rnd() * 0.4f;
   skin_[1] = 0.32f + rnd() * 0.35f;
   skin_[2] = 0.26f + rnd() * 0.3f;
   morphs_.clear();
   for (const base::String& m : curated_morphs_)
-    if (rnd() < 0.4f) morphs_.push_back({m, rnd() * 0.9f});
+    if (rnd() < 0.4f)
+      morphs_.push_back({m, rnd() * 0.9f});
   if (!hair_styles_.empty())
     hair_style_ =
         static_cast<int>(static_cast<size_t>(rnd() * hair_styles_.size()) % hair_styles_.size());
@@ -601,15 +655,19 @@ void CharGen::Save() {
   const Vec3 hc = (hair_color_ >= 0 && hair_color_ < static_cast<int>(hair_colors_.size()))
                       ? hair_colors_[hair_color_].second
                       : Vec3{face_.hair_color()[0], face_.hair_color()[1], face_.hair_color()[2]};
-  for (int k = 0; k < 3; ++k) p.skin[k] = skin_[k];
+  for (int k = 0; k < 3; ++k)
+    p.skin[k] = skin_[k];
   p.hair[0] = hc.x;
   p.hair[1] = hc.y;
   p.hair[2] = hc.z;
-  for (int k = 0; k < 4; ++k) p.nama[k] = nama_[k];
+  for (int k = 0; k < 4; ++k)
+    p.nama[k] = nama_[k];
   for (u32 i = 0; i < bethesda::kNam9Count; ++i)
-    if (std::fabs(nam9_[i]) > 1e-4f) p.nam9.push_back({static_cast<int>(i), nam9_[i]});
+    if (std::fabs(nam9_[i]) > 1e-4f)
+      p.nam9.push_back({static_cast<int>(i), nam9_[i]});
   for (const auto& m : morphs_)
-    if (std::fabs(m.second) > 1e-4f) p.morphs.push_back(m);
+    if (std::fabs(m.second) > 1e-4f)
+      p.morphs.push_back(m);
 
   std::ofstream out(save_path_.c_str(), std::ios::trunc);
   if (!out) {
@@ -626,22 +684,30 @@ void CharGen::Save() {
 
 bool CharGen::Load() {
   std::ifstream in(save_path_.c_str());
-  if (!in) return false;
+  if (!in)
+    return false;
   std::stringstream ss;
   ss << in.rdbuf();
   chargen::CharGenPreset p;
-  if (!chargen::ParseCharGenPreset(ss.str(), &p)) return false;
+  if (!chargen::ParseCharGenPreset(ss.str(), &p))
+    return false;
   for (size_t i = 0; i < races_.size(); ++i)
-    if (races_[i].edid == p.race) race_ = static_cast<int>(i);
+    if (races_[i].edid == p.race)
+      race_ = static_cast<int>(i);
   sex_ = p.sex ? 1 : 0;
   preset_ = p.preset < 0 ? 0 : p.preset;
-  for (int k = 0; k < 3; ++k) skin_[k] = p.skin[k];
-  for (int k = 0; k < 4; ++k) nama_[k] = p.nama[k];
-  for (u32 i = 0; i < bethesda::kNam9Count; ++i) nam9_[i] = 0;
+  for (int k = 0; k < 3; ++k)
+    skin_[k] = p.skin[k];
+  for (int k = 0; k < 4; ++k)
+    nama_[k] = p.nama[k];
+  for (u32 i = 0; i < bethesda::kNam9Count; ++i)
+    nam9_[i] = 0;
   for (const auto& [i, v] : p.nam9)
-    if (i >= 0 && i < static_cast<int>(bethesda::kNam9Count)) nam9_[i] = v;
+    if (i >= 0 && i < static_cast<int>(bethesda::kNam9Count))
+      nam9_[i] = v;
   morphs_.clear();
-  for (const auto& m : p.morphs) morphs_.push_back(m);
+  for (const auto& m : p.morphs)
+    morphs_.push_back(m);
   hair_style_ = p.hair_style < 0 ? 0 : p.hair_style;
   hair_color_ = p.hair_color;
   RX_INFO("chargen: loaded preset from {}", save_path_);
@@ -664,7 +730,8 @@ void CharGen::ApplyScript(const base::String& script) {
   bool edited = false;
   while (std::getline(ts, source, ',')) {
     const base::String tok(source.c_str(), source.size());
-    if (tok.empty()) continue;
+    if (tok.empty())
+      continue;
     base::String rest;
     const base::String key = valuePart(tok, ':', &rest);
     if (key == "page") {
@@ -674,7 +741,8 @@ void CharGen::ApplyScript(const base::String& script) {
       SelectSex(std::atoi(rest.c_str()) ? 1 : 0);
     } else if (key == "race") {
       for (size_t i = 0; i < races_.size(); ++i)
-        if (races_[i].edid == rest) SelectRace(static_cast<int>(i));
+        if (races_[i].edid == rest)
+          SelectRace(static_cast<int>(i));
     } else if (key == "preset") {
       preset_ = std::atoi(rest.c_str());
       Reassemble(true);
@@ -697,7 +765,8 @@ void CharGen::ApplyScript(const base::String& script) {
           m.second = w;
           found = true;
         }
-      if (!found) morphs_.push_back({name, w});
+      if (!found)
+        morphs_.push_back({name, w});
       edited = true;
     } else if (key == "nama" || key == "nose" || key == "eyes" || key == "mouth") {
       int slot = key == "nose" ? 0 : key == "eyes" ? 2 : key == "mouth" ? 3 : -1;
@@ -744,7 +813,8 @@ void CharGen::ApplyScript(const base::String& script) {
 }
 
 void CharGen::Update(const InputState& input, f32 dt) {
-  if (!active_) return;
+  if (!active_)
+    return;
   elapsed_ += dt;
   status_age_ += dt;
 
@@ -752,7 +822,8 @@ void CharGen::Update(const InputState& input, f32 dt) {
   // in (after the first head + hair have uploaded).
   if (!script_done_ && elapsed_ > 0.4f) {
     script_done_ = true;
-    if (const char* s = ChargenScript.get()) ApplyScript(s);
+    if (const char* s = ChargenScript.get())
+      ApplyScript(s);
   }
 
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
@@ -831,10 +902,13 @@ void CharGen::Update(const InputState& input, f32 dt) {
       } else {
         for (int i = 0; i < kCgSliderRows; ++i) {
           const int ci = row_first_ + i;
-          if (ci >= total) break;
+          if (ci >= total)
+            break;
           const float y0 = kCgTop + kCgRowsY0 + i * kCgRowH;
-          if (my < y0 || my > y0 + kCgRowH - 6.0f) continue;
-          if (mx < rightLeft + 8.0f || mx > w - 8.0f) continue;
+          if (my < y0 || my > y0 + kCgRowH - 6.0f)
+            continue;
+          if (mx < rightLeft + 8.0f || mx > w - 8.0f)
+            continue;
           const Control& c = controls[ci];
           const float trackX = rightLeft + kCgTrackX;
           if (c.kind == Control::Kind::kNam9 || c.kind == Control::Kind::kMorph ||
@@ -865,7 +939,8 @@ void CharGen::Update(const InputState& input, f32 dt) {
   }
 
   if (release) {
-    if (drag_skin_) face_.BakeFaceTint();  // re-tint on release (the bake leaks GPU ids)
+    if (drag_skin_)
+      face_.BakeFaceTint();  // re-tint on release (the bake leaks GPU ids)
     dragging_ = false;
     drag_control_ = -1;
     drag_skin_ = false;
@@ -887,10 +962,12 @@ void CharGen::Update(const InputState& input, f32 dt) {
 }
 
 void CharGen::PushView() {
-  if (!ctx_.game_ui) return;
+  if (!ctx_.game_ui)
+    return;
   CharGenView v;
   v.active = true;
-  for (const Race& r : races_) v.races.push_back(r.display);
+  for (const Race& r : races_)
+    v.races.push_back(r.display);
   v.race = race_;
   v.sex = sex_;
   v.page = page_;
@@ -918,7 +995,8 @@ void CharGen::PushView() {
 
   for (int i = 0; i < kCgSliderRows; ++i) {
     const int ci = v.row_first + i;
-    if (ci >= v.row_total) break;
+    if (ci >= v.row_total)
+      break;
     const Control& c = controls[ci];
     CharGenView::Row row;
     row.label = c.label;

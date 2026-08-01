@@ -9,15 +9,15 @@
 #include <cstring>
 #include <iterator>
 
-#include "runtime/actor/actor_system.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/log.h"
-#include "runtime/interaction/item_bridge.h"
-#include "core/math.h"
 #include "components/script/games/skyrim/skyrim_condition_context.h"
 #include "components/script/papyrus/value.h"
 #include "components/world/components.h"
 #include "components/world/interaction.h"
+#include "core/log.h"
+#include "core/math.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/interaction/item_bridge.h"
 
 namespace rx {
 
@@ -50,21 +50,25 @@ void InteractionSystem::SyncHud() {
   ContainerView cv;
   cv.open = container_session_.open;
   cv.name = container_session_.name;
-  for (const ContainerItem& it : container_session_.items) cv.items.push_back({it.name, it.count});
+  for (const ContainerItem& it : container_session_.items)
+    cv.items.push_back({it.name, it.count});
   game_ui_.SetContainer(cv);
 }
 
 base::String InteractionSystem::RecordName(bethesda::GlobalFormId id) {
   bethesda::Record record;
-  if (!records_.Parse(id, &record)) return {};
+  if (!records_.Parse(id, &record))
+    return {};
   const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L'));
-  if (!full) return {};
+  if (!full)
+    return {};
   // A localized plugin stores a 4-byte string id here; a non-localized one
   // stores the literal text. Try the table first, fall back to the bytes.
   if (full->data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, full->data.data(), 4);
-    if (const base::String* s = strings_.Find(string_id)) return base::String(s->c_str());
+    if (const base::String* s = strings_.Find(string_id))
+      return base::String(s->c_str());
   }
   return record.GetString(FourCc('F', 'U', 'L', 'L'));
 }
@@ -73,11 +77,14 @@ base::String InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
   // The carriage is a synthetic (record-less) ref; its prompt comes from the
   // carriage system, not the record store.
   if (ctx_.carriage_label)
-    if (const char* l = ctx_.carriage_label(refr.packed())) return l;
+    if (const char* l = ctx_.carriage_label(refr.packed()))
+      return l;
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(refr);
-  if (!stored) return "Activate";
+  if (!stored)
+    return "Activate";
   bethesda::Record record;
-  if (!records_.Parse(refr, &record)) return "Activate";
+  if (!records_.Parse(refr, &record))
+    return "Activate";
 
   // The placed reference points at its base object through NAME; the base
   // carries the displayed name and the type that picks the verb.
@@ -136,7 +143,8 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
   // metres behind the body and would put everything in front out of range.
   Vec3 eye = ctx_.walk_eye;
   Vec3 ppos;
-  if (actors_->PlayerWorldPos(&ppos)) eye = Vec3{ppos.x, ppos.y + 1.6f, ppos.z};
+  if (actors_->PlayerWorldPos(&ppos))
+    eye = Vec3{ppos.x, ppos.y + 1.6f, ppos.z};
   const Vec3 fwd = Normalize(ctx_.walk_target - ctx_.walk_eye);
 
   // Collect the form-linked refs near the eye; a coarse cull keeps this cheap
@@ -145,10 +153,13 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
   const f32 coarse_sq = (kRange + 0.5f) * (kRange + 0.5f);
   world_.Each<world::FormLink, world::Transform>([&](ecs::Entity entity, world::FormLink& link,
                                                      world::Transform& t) {
-    if (world_.Has<world::Hidden>(entity) || world_.Has<world::Deleted>(entity)) return;
-    if (candidates.size() >= 512) return;
+    if (world_.Has<world::Hidden>(entity) || world_.Has<world::Deleted>(entity))
+      return;
+    if (candidates.size() >= 512)
+      return;
     const f32 dx = t.position[0] - eye.x, dy = t.position[1] - eye.y, dz = t.position[2] - eye.z;
-    if (dx * dx + dy * dy + dz * dz > coarse_sq) return;
+    if (dx * dx + dy * dy + dz * dz > coarse_sq)
+      return;
     world::ActivationCandidate c;
     c.form_handle = link.form.packed();
     c.pos[0] = t.position[0];
@@ -179,7 +190,8 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
   if (activate_pressed) {
     RX_INFO("activate: {} (0x{:x})", activate_label_, handle);
 #if RECREATION_HAS_NET
-    if (!ctx_.client_session || !ctx_.client_session->joined()) AttachReferenceScripts(handle);
+    if (!ctx_.client_session || !ctx_.client_session->joined())
+      AttachReferenceScripts(handle);
 #else
     AttachReferenceScripts(handle);
 #endif
@@ -232,7 +244,8 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
 }
 
 void InteractionSystem::OpenDialogue(u64 npc) {
-  if (!ctx_.scripts || !ctx_.bindings) return;
+  if (!ctx_.scripts || !ctx_.bindings)
+    return;
   auto* binds = ctx_.bindings;
   // Gather the NPC's available topics on the guest thread, which owns the quest
   // state the conditions read; records_/dialogue_/strings_ are read-only here.
@@ -256,9 +269,11 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             auto classify = [&](const dialogue::Response& r) {
               bool keyed = false;
               for (const quest::Comparison& c : r.conditions.comparisons) {
-                if (c.func != quest::Func::kGetIsId) continue;
+                if (c.func != quest::Func::kGetIsId)
+                  continue;
                 keyed = true;
-                if (c.param1 == speaker_base) return SpeakerFit::kKeyed;
+                if (c.param1 == speaker_base)
+                  return SpeakerFit::kKeyed;
               }
               return keyed ? SpeakerFit::kForeign : SpeakerFit::kGeneric;
             };
@@ -270,17 +285,20 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             };
             base::Vector<Scored> candidates;
             for (const quest::QuestStatus& q : binds->quest_system().AllStatuses()) {
-              if (!q.running) continue;
+              if (!q.running)
+                continue;
               for (dialogue::Handle dial : dialogue_.TopicsForQuest(q.handle)) {
                 bethesda::GlobalFormId id{static_cast<u16>(dial >> 32),
                                           static_cast<u32>(dial & 0xffffffffu)};
                 dialogue::Topic t = dialogue::ParseTopic(records_, id, &strings_);
-                if (t.dial == 0) continue;
+                if (t.dial == 0)
+                  continue;
                 for (const dialogue::Response& r : t.responses) {
                   const SpeakerFit fit = classify(r);
                   // Drop another actor's lines and any condition we understand and
                   // that fails (Allows passes lines whose checks we cannot judge).
-                  if (fit == SpeakerFit::kForeign || !ctx.Allows(r.conditions)) continue;
+                  if (fit == SpeakerFit::kForeign || !ctx.Allows(r.conditions))
+                    continue;
                   DialogueOption opt;
                   opt.player_line = r.player_line;
                   opt.npc_line = r.npc_line;
@@ -294,12 +312,14 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             // Keyed-to-this-actor lines first, then by topic priority.
             std::stable_sort(candidates.begin(), candidates.end(),
                              [](const Scored& a, const Scored& b) {
-                               if (a.keyed != b.keyed) return a.keyed;
+                               if (a.keyed != b.keyed)
+                                 return a.keyed;
                                return a.priority > b.priority;
                              });
             constexpr size_t kMaxOptions = 4;  // the dialogue panel shows four rows
             for (Scored& c : candidates) {
-              if (s.options.size() >= kMaxOptions) break;
+              if (s.options.size() >= kMaxOptions)
+                break;
               s.options.push_back(base::move(c.opt));
             }
             return s;
@@ -339,17 +359,22 @@ void InteractionSystem::SelectDialogueOption(int index) {
 }
 
 void InteractionSystem::RunInfoFragment(u64 info, u64 owning_quest) {
-  if (!ctx_.scripts || info == 0) return;
+  if (!ctx_.scripts || info == 0)
+    return;
   const bethesda::GlobalFormId id{static_cast<u16>(info >> 32),
                                   static_cast<u32>(info & 0xffffffffu)};
   bethesda::Record record;
-  if (!records_.Parse(id, &record)) return;
+  if (!records_.Parse(id, &record))
+    return;
   const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
-  if (!vmad) return;
+  if (!vmad)
+    return;
   bethesda::ScriptAttachment attachment;
   bethesda::InfoFragments frags;
-  if (!bethesda::ParseInfoFragments(vmad->data, &attachment, &frags)) return;
-  if (frags.begin.function.empty()) return;
+  if (!bethesda::ParseInfoFragments(vmad->data, &attachment, &frags))
+    return;
+  if (frags.begin.function.empty())
+    return;
   if (const bethesda::RecordStore::StoredRecord* stored = records_.Find(id)) {
     bethesda::ResolveScriptObjectForms(&attachment, [&](u32 raw) {
       return records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed();
@@ -363,15 +388,19 @@ void InteractionSystem::RunInfoFragment(u64 info, u64 owning_quest) {
   auto* binds = ctx_.bindings;
   ctx_.scripts->guest().Submit(
       [binds, info, owning_quest, fn](script::papyrus::VirtualMachine& vm) {
-        if (binds && owning_quest != 0) binds->SetInfoOwningQuest(info, owning_quest);
+        if (binds && owning_quest != 0)
+          binds->SetInfoOwningQuest(info, owning_quest);
         vm.TryCall(script::papyrus::ObjectRef{info}, fn, {});
       });
 }
 
-void InteractionSystem::CloseDialogue() { dialogue_session_ = DialogueSession{}; }
+void InteractionSystem::CloseDialogue() {
+  dialogue_session_ = DialogueSession{};
+}
 
 void InteractionSystem::UpdateDialogueInput(const InputState& input, const ActionState& actions) {
-  if (!dialogue_session_.open) return;
+  if (!dialogue_session_.open)
+    return;
   if (actions.pressed(Action::kMenuCancel)) {  // Esc / pad B
     CloseDialogue();
     return;
@@ -383,7 +412,8 @@ void InteractionSystem::UpdateDialogueInput(const InputState& input, const Actio
       dialogue_session_.selected = (dialogue_session_.selected + 1) % count;
     if (actions.pressed(Action::kMenuUp))
       dialogue_session_.selected = (dialogue_session_.selected + count - 1) % count;
-    if (actions.pressed(Action::kMenuAccept)) SelectDialogueOption(dialogue_session_.selected);
+    if (actions.pressed(Action::kMenuAccept))
+      SelectDialogueOption(dialogue_session_.selected);
   }
   // Direct number-key selection still works (1-4).
   if (input.key_pressed(Key::k1))
@@ -400,8 +430,10 @@ void InteractionSystem::RaiseActivate(u64 handle) {
   // Authoritative pickup: a client's activation request lands here on the server,
   // so try the item pickup first (idempotent, host/single-player already handled
   // it in UpdateInteraction, so this only fires for a routed client request).
-  if (ctx_.items && ctx_.items->TryPickUp(handle)) return;
-  if (!ctx_.scripts) return;
+  if (ctx_.items && ctx_.items->TryPickUp(handle))
+    return;
+  if (!ctx_.scripts)
+    return;
   AttachReferenceScripts(handle);
   const ecs::Entity entity = quest_world_.Find(handle);
   world::DoorState* door = world_.IsAlive(entity) ? world_.Get<world::DoorState>(entity) : nullptr;
@@ -418,7 +450,8 @@ void InteractionSystem::RaiseActivate(u64 handle) {
       const base::Vector<world::WorldCommand> commands{command};
       quest_world_.Apply(commands);
 #if RECREATION_HAS_NET
-      if (ctx_.server_session) ctx_.server_session->SendWorldCommands(commands);
+      if (ctx_.server_session)
+        ctx_.server_session->SendWorldCommands(commands);
 #endif
       RX_INFO("door 0x{:x}: {}", handle, command.enabled ? "open" : "closed");
     }
@@ -444,26 +477,31 @@ bool InteractionSystem::RaiseRemoteActivate(u32 peer, ecs::Entity player, u64 ha
 }
 
 bool InteractionSystem::AttachReferenceScripts(u64 handle) {
-  if (!ctx_.scripts) return false;
+  if (!ctx_.scripts)
+    return false;
   const ecs::Entity entity = quest_world_.Find(handle);
   ScriptAttachmentState* previous = scripts_examined_.find(handle);
-  if (previous && previous->entity == entity && previous->complete) return previous->attached;
+  if (previous && previous->entity == entity && previous->complete)
+    return previous->attached;
 
   const bethesda::GlobalFormId id = ReferenceForm(handle);
-  if (ctx_.bindings && id.packed() != handle) ctx_.bindings->SetSourceForm(handle, id.packed());
+  if (ctx_.bindings && id.packed() != handle)
+    ctx_.bindings->SetSourceForm(handle, id.packed());
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   bethesda::Record record;
   bethesda::ScriptAttachment combined;
   if (stored && records_.Parse(id, &record)) {
     auto remap = [&](u64 resolved, bool instance_children) {
-      if (!ctx_.streamer) return resolved;
+      if (!ctx_.streamer)
+        return resolved;
       const bethesda::GlobalFormId source_id{static_cast<u16>(resolved >> 32),
                                              static_cast<u32>(resolved)};
       const u64 runtime =
           instance_children
               ? ctx_.streamer->RuntimeHandleForInstanceChild(world_, handle, source_id)
               : ctx_.streamer->RuntimeHandleForSource(world_, handle, source_id);
-      if (ctx_.bindings) ctx_.bindings->SetRuntimeForm(handle, resolved, runtime);
+      if (ctx_.bindings)
+        ctx_.bindings->SetRuntimeForm(handle, resolved, runtime);
       return runtime;
     };
     auto append = [&](const bethesda::Record& source, u16 plugin, bool instance_children) {
@@ -487,9 +525,11 @@ bool InteractionSystem::AttachReferenceScripts(u64 handle) {
     // GetLinkedRef resolves from the placed record at call time rather than from
     // VMAD, so register its source-to-instance translations up front as well.
     for (const bethesda::Subrecord& subrecord : record.subrecords) {
-      if (subrecord.type != FourCc('X', 'L', 'K', 'R')) continue;
+      if (subrecord.type != FourCc('X', 'L', 'K', 'R'))
+        continue;
       const size_t offset = subrecord.data.size() >= 8 ? 4 : 0;
-      if (subrecord.data.size() < offset + 4) continue;
+      if (subrecord.data.size() < offset + 4)
+        continue;
       u32 raw;
       std::memcpy(&raw, subrecord.data.data() + offset, sizeof(raw));
       const u64 resolved =
@@ -530,9 +570,11 @@ bethesda::GlobalFormId InteractionSystem::ReferenceForm(u64 handle) const {
 void InteractionSystem::UpdateTriggers() {
   // Host-authoritative, walk-mode only; a client receives the resulting quest
   // changes through replication rather than firing triggers itself.
-  if (!ctx_.walk_mode || !actors_->HasPlayer() || !ctx_.scripts) return;
+  if (!ctx_.walk_mode || !actors_->HasPlayer() || !ctx_.scripts)
+    return;
 #if RECREATION_HAS_NET
-  if (ctx_.client_session) return;
+  if (ctx_.client_session)
+    return;
 #endif
 
   // Examine each placed reference once: one carrying both a script (VMAD) and a
@@ -545,13 +587,16 @@ void InteractionSystem::UpdateTriggers() {
             (world_.Has<world::Hidden>(entity) || world_.Has<world::Deleted>(entity)))
           return;
         const u64 handle = link.form.packed();
-        if (trigger_examined_.find(handle)) return;
+        if (trigger_examined_.find(handle))
+          return;
         trigger_examined_.insert(handle, 1);
         const bethesda::GlobalFormId id = ReferenceForm(handle);
         bethesda::Record record;
-        if (!records_.Parse(id, &record)) return;
+        if (!records_.Parse(id, &record))
+          return;
         const bethesda::Subrecord* xprm = record.Find(FourCc('X', 'P', 'R', 'M'));
-        if (!xprm || xprm->data.size() < 12 || !AttachReferenceScripts(handle)) return;
+        if (!xprm || xprm->data.size() < 12 || !AttachReferenceScripts(handle))
+          return;
         // XPRM opens with the box half-extents (Bethesda units); map to engine
         // axes (x, z, -y) and metres, as a reference's world position is.
         f32 b[3];
@@ -565,7 +610,8 @@ void InteractionSystem::UpdateTriggers() {
       });
 
   Vec3 player;
-  if (!actors_->PlayerWorldPos(&player)) return;
+  if (!actors_->PlayerWorldPos(&player))
+    return;
 
   // Fire OnTriggerEnter once as the player crosses into a volume; drop volumes
   // whose reference streamed out (and re-examine it if it streams back in).
@@ -602,29 +648,36 @@ void InteractionSystem::UpdateTriggers() {
 }
 
 bool InteractionSystem::TryActivateDoor(u64 handle) {
-  if (!ctx_.streamer) return false;
+  if (!ctx_.streamer)
+    return false;
   const bethesda::GlobalFormId refr = ReferenceForm(handle);
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(refr);
-  if (!stored) return false;
+  if (!stored)
+    return false;
   bethesda::Record record;
-  if (!records_.Parse(refr, &record)) return false;
+  if (!records_.Parse(refr, &record))
+    return false;
 
   // The reference must be a DOOR (its base object's type).
   const bethesda::Subrecord* nm = record.Find(FourCc('N', 'A', 'M', 'E'));
-  if (!nm || nm->data.size() < 4) return false;
+  if (!nm || nm->data.size() < 4)
+    return false;
   u32 base_raw;
   std::memcpy(&base_raw, nm->data.data(), 4);
   bethesda::GlobalFormId base =
       records_.ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
   const bethesda::RecordStore::StoredRecord* bstored = records_.Find(base);
-  if (!bstored || bstored->header.type != FourCc('D', 'O', 'O', 'R')) return false;
+  if (!bstored || bstored->header.type != FourCc('D', 'O', 'O', 'R'))
+    return false;
 
   world::DoorState* door = nullptr;
   world_.Each<world::FormLink, world::DoorState>(
       [&](ecs::Entity, world::FormLink& link, world::DoorState& state) {
-        if (link.form.packed() == handle) door = &state;
+        if (link.form.packed() == handle)
+          door = &state;
       });
-  if (door && door->locked) return true;
+  if (door && door->locked)
+    return true;
 
   // XTEL on the reference is the teleport: dest door form id (4), then the
   // landing position (3 floats) and rotation (3 floats). A door without one is
@@ -645,7 +698,8 @@ bool InteractionSystem::TryActivateDoor(u64 handle) {
   return true;
 }
 
-void InteractionSystem::EnterThroughDoor(bethesda::GlobalFormId dest_door, const f32 pos[3],
+void InteractionSystem::EnterThroughDoor(bethesda::GlobalFormId dest_door,
+                                         const f32 pos[3],
                                          const f32 rot[3]) {
   // The destination door's parent interior cell (if any) decides the
   // transition: stream that interior, or resume the exterior worldspace.
@@ -676,30 +730,38 @@ void InteractionSystem::EnterThroughDoor(bethesda::GlobalFormId dest_door, const
 bool InteractionSystem::TryOpenContainer(u64 handle) {
   const bethesda::GlobalFormId refr = ReferenceForm(handle);
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(refr);
-  if (!stored) return false;
+  if (!stored)
+    return false;
   bethesda::Record record;
-  if (!records_.Parse(refr, &record)) return false;
+  if (!records_.Parse(refr, &record))
+    return false;
   const bethesda::Subrecord* nm = record.Find(FourCc('N', 'A', 'M', 'E'));
-  if (!nm || nm->data.size() < 4) return false;
+  if (!nm || nm->data.size() < 4)
+    return false;
   u32 base_raw;
   std::memcpy(&base_raw, nm->data.data(), 4);
   bethesda::GlobalFormId base =
       records_.ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
   const bethesda::RecordStore::StoredRecord* bstored = records_.Find(base);
-  if (!bstored || bstored->header.type != FourCc('C', 'O', 'N', 'T')) return false;
+  if (!bstored || bstored->header.type != FourCc('C', 'O', 'N', 'T'))
+    return false;
   bethesda::Record cont;
-  if (!records_.Parse(base, &cont)) return false;
+  if (!records_.Parse(base, &cont))
+    return false;
 
   ContainerSession s;
   s.open = true;
   s.container = handle;
   s.name = RecordName(base);
-  if (s.name.empty()) s.name = "Container";
+  if (s.name.empty())
+    s.name = "Container";
   // CNTO holds the contents: item form id (4) + count (4). Names resolve against
   // the base record's owning plugin; the row pool caps how many we show.
   for (const bethesda::Subrecord& sub : cont.subrecords) {
-    if (s.items.size() >= 14) break;
-    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8) continue;
+    if (s.items.size() >= 14)
+      break;
+    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
+      continue;
     u32 item_raw;
     i32 count;
     std::memcpy(&item_raw, sub.data.data(), 4);
@@ -709,7 +771,8 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
     ContainerItem ci;
     ci.count = count;
     ci.name = RecordName(item);
-    if (ci.name.empty()) ci.name = "(item)";
+    if (ci.name.empty())
+      ci.name = "(item)";
     s.items.push_back(base::move(ci));
   }
   container_session_ = base::move(s);
@@ -718,11 +781,15 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
   return true;
 }
 
-void InteractionSystem::CloseContainer() { container_session_ = ContainerSession{}; }
+void InteractionSystem::CloseContainer() {
+  container_session_ = ContainerSession{};
+}
 
 void InteractionSystem::UpdateContainerInput(const InputState& input, const ActionState& actions) {
-  if (!container_session_.open) return;
-  if (actions.pressed(Action::kMenuCancel)) CloseContainer();  // Esc / pad B
+  if (!container_session_.open)
+    return;
+  if (actions.pressed(Action::kMenuCancel))
+    CloseContainer();  // Esc / pad B
 }
 
 }  // namespace rx

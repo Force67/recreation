@@ -10,16 +10,16 @@
 
 #include <cmath>
 
-#include "runtime/actor/actor_system.h"
-#include "core/log.h"
-#include "core/math.h"
-#include "runtime/app/engine_internal.h"
-#include "runtime/interaction/interaction_system.h"
-#include "runtime/narrative/quest_director.h"
 #include "components/script/papyrus/value.h"
 #include "components/world/components.h"
 #include "components/world/npc_ai.h"
 #include "components/world/steering_avoidance.h"
+#include "core/log.h"
+#include "core/math.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/app/engine_internal.h"
+#include "runtime/interaction/interaction_system.h"
+#include "runtime/narrative/quest_director.h"
 
 namespace rx {
 
@@ -42,7 +42,8 @@ void NpcDirector::UpdateNav(f32 dt) {
   // terrain is actually resident.
   Vec3 anchor = ctx_.camera ? ctx_.camera->position() : Vec3{};
   Vec3 ppos;
-  if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+  if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos))
+    anchor = ppos;
   nav_.Update(anchor, dt);
 }
 
@@ -52,7 +53,8 @@ void NpcDirector::ArmMq101Demo(u64 quest_handle) {
   // fragment that advances the journal (160 "Make your way to the Keep", on
   // through entering and escaping the keep, to completion 900).
   mq101_demo_stages_.clear();
-  for (i32 s : {160, 300, 500, 700, 900}) mq101_demo_stages_.push_back(s);
+  for (i32 s : {160, 300, 500, 700, 900})
+    mq101_demo_stages_.push_back(s);
   mq101_demo_next_ = 1;  // SetStage(stages[0]) now; waypoints drive stages[1..]
   const i32 first = mq101_demo_stages_[0];
   auto* binds = ctx_.bindings;
@@ -66,13 +68,15 @@ void NpcDirector::ArmMq101Demo(u64 quest_handle) {
 
 void NpcDirector::SetFollower(u64 npc, bool follow) {
   if (follow) {
-    if (!followers_.find(npc)) followers_.insert(npc, static_cast<i32>(followers_.size()));
+    if (!followers_.find(npc))
+      followers_.insert(npc, static_cast<i32>(followers_.size()));
   } else {
     followers_.erase(npc);
   }
 }
 
-void NpcDirector::AvoidObstacles(const float self_pos[3], const float goal_dir[3],
+void NpcDirector::AvoidObstacles(const float self_pos[3],
+                                 const float goal_dir[3],
                                  float out_dir[3]) {
   // Without physics (e.g. a stub build) there is nothing to raycast against, so
   // steer straight at the goal.
@@ -113,18 +117,26 @@ f32 NpcDirector::GroundY(f32 x, f32 z, f32 y_hint) const {
   // floating at eye height on open ground. The physics cast still refines onto
   // objects/roads stacked above the terrain when collision is present.
   f32 h = 0;
-  if (ctx_.streamer && ctx_.streamer->GroundHeight(x, z, &h)) return h;
-  if (!physics_.initialized()) return y_hint;
+  if (ctx_.streamer && ctx_.streamer->GroundHeight(x, z, &h))
+    return h;
+  if (!physics_.initialized())
+    return y_hint;
   // Cast down from just above the current height so a slightly embedded NPC still
   // finds the floor; cap the reach so a gap or ledge leaves the NPC where it was
   // rather than snapping it to a distant floor below.
   physics::PhysicsWorld::RayHit hit;
-  if (physics_.Raycast(Vec3{x, y_hint + 1.5f, z}, Vec3{0, -1, 0}, 4.0f, &hit)) return hit.position.y;
+  if (physics_.Raycast(Vec3{x, y_hint + 1.5f, z}, Vec3{0, -1, 0}, 4.0f, &hit))
+    return hit.position.y;
   return y_hint;
 }
 
-bool NpcDirector::StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3],
-                                  float rot[4], float speed, float arrive_radius, float stop_radius,
+bool NpcDirector::StepNpcSteering(ecs::Entity actor,
+                                  const float goal[3],
+                                  float pos[3],
+                                  float rot[4],
+                                  float speed,
+                                  float arrive_radius,
+                                  float stop_radius,
                                   f32 dt) {
   const world::SteerParams params{speed, arrive_radius, stop_radius};
   const float self_pos[3] = {pos[0], pos[1], pos[2]};
@@ -179,7 +191,8 @@ void NpcDirector::UpdateAmbient(f32 dt) {
   }
 #endif
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
 
   constexpr f32 kActiveRadius = 26.0f;  // only NPCs near the player sandbox
   constexpr f32 kFaceRadius = 6.0f;     // turn to face the player within this
@@ -198,15 +211,20 @@ void NpcDirector::UpdateAmbient(f32 dt) {
   base::Vector<Nearby> nearby;
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (IsActorInactive(world_, e)) return;
+        if (IsActorInactive(world_, e))
+          return;
         const u64 handle = link.form.packed();
-        if (followers_.find(handle) || guides_.find(handle)) return;     // driven elsewhere
-        if (combat_.find(handle) || world_.Has<world::Dead>(e)) return;  // fighting / downed
+        if (followers_.find(handle) || guides_.find(handle))
+          return;  // driven elsewhere
+        if (combat_.find(handle) || world_.Has<world::Dead>(e))
+          return;  // fighting / downed
         if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
-          if (ct->team != 0) return;  // a soldier awaiting orders, not an idler
+          if (ct->team != 0)
+            return;  // a soldier awaiting orders, not an idler
         const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
         const f32 d2 = dx * dx + dz * dz;
-        if (d2 <= kActiveRadius * kActiveRadius) nearby.push_back({e, handle, &t, d2});
+        if (d2 <= kActiveRadius * kActiveRadius)
+          nearby.push_back({e, handle, &t, d2});
       });
 
   base::UnorderedMap<u64, AmbientState> kept;  // rebuilt, pruning NPCs no longer near
@@ -261,10 +279,12 @@ constexpr u64 kPlayerHandle = 0x14;  // Skyrim's PlayerRef form id
 }  // namespace
 
 void NpcDirector::EnterCombat(u64 attacker, u64 target) {
-  if (attacker == 0 || target == 0 || attacker == target) return;
+  if (attacker == 0 || target == 0 || attacker == target)
+    return;
   // The player fights through its own input, never the auto-attacker driver; it
   // can still be a target (NPCs close on and swing at it).
-  if (attacker == kPlayerHandle) return;
+  if (attacker == kPlayerHandle)
+    return;
   CombatState* cs = combat_.find(attacker);
   if (cs) {
     cs->target = target;
@@ -278,7 +298,9 @@ void NpcDirector::EnterCombat(u64 attacker, u64 target) {
   }
 }
 
-void NpcDirector::LeaveCombat(u64 attacker) { combat_.erase(attacker); }
+void NpcDirector::LeaveCombat(u64 attacker) {
+  combat_.erase(attacker);
+}
 
 void NpcDirector::OnActorDied(u64 actor) {
   combat_.erase(actor);  // the dead actor stops fighting
@@ -286,9 +308,11 @@ void NpcDirector::OnActorDied(u64 actor) {
   // Anyone fighting the dead actor disengages (their target is now a corpse).
   base::Vector<u64> idle;
   combat_.ForEach([&](u64 attacker, CombatState& cs) {
-    if (cs.target == actor) idle.push_back(attacker);
+    if (cs.target == actor)
+      idle.push_back(attacker);
   });
-  for (u64 a : idle) combat_.erase(a);
+  for (u64 a : idle)
+    combat_.erase(a);
   // Tag the body so auto-aggression skips it and it stops moving.
   ecs::Entity e;
   world::Transform* t;
@@ -303,7 +327,8 @@ void NpcDirector::OnActorResurrected(u64 actor) {
   // again, the mirror of OnActorDied, driven by a script Reset/Resurrect.
   ecs::Entity e;
   world::Transform* t;
-  if (ResolveCombatant(actor, &e, &t) && world_.Has<world::Dead>(e)) world_.Remove<world::Dead>(e);
+  if (ResolveCombatant(actor, &e, &t) && world_.Has<world::Dead>(e))
+    world_.Remove<world::Dead>(e);
 }
 
 void NpcDirector::AcquireTargets() {
@@ -320,7 +345,8 @@ void NpcDirector::AcquireTargets() {
   world_.Each<world::Npc, world::CombatTeam, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::CombatTeam& ct, world::FormLink& link,
           world::Transform& t) {
-        if (ct.team == 0 || world_.Has<world::Dead>(e) || IsActorInactive(world_, e)) return;
+        if (ct.team == 0 || world_.Has<world::Dead>(e) || IsActorInactive(world_, e))
+          return;
         cands.push_back(
             {link.form.packed(), ct.team, {t.position[0], t.position[1], t.position[2]}});
       });
@@ -332,33 +358,40 @@ void NpcDirector::AcquireTargets() {
 
   const f32 r2 = combat_params_.engage_radius * combat_params_.engage_radius;
   for (const Cand& self : cands) {
-    if (self.handle == kPlayerHandle) continue;  // player picks targets by input
-    if (combat_.find(self.handle)) continue;     // already engaged
+    if (self.handle == kPlayerHandle)
+      continue;  // player picks targets by input
+    if (combat_.find(self.handle))
+      continue;  // already engaged
     u64 best = 0;
     f32 best_d2 = r2;
     for (const Cand& other : cands) {
-      if (other.team == self.team || other.handle == self.handle) continue;
+      if (other.team == self.team || other.handle == self.handle)
+        continue;
       const f32 d2 = world::PlanarDist2(self.pos, other.pos);
       if (d2 < best_d2) {
         best_d2 = d2;
         best = other.handle;
       }
     }
-    if (best) EnterCombat(self.handle, best);
+    if (best)
+      EnterCombat(self.handle, best);
   }
 }
 
 bool NpcDirector::ResolveCombatant(u64 handle, ecs::Entity* entity, world::Transform** transform) {
   ecs::Entity e;
   if (handle == kPlayerHandle) {
-    if (!actors_->HasPlayer()) return false;
+    if (!actors_->HasPlayer())
+      return false;
     e = actors_->PlayerEntity();
   } else {
     e = ctx_.quest_world ? ctx_.quest_world->Find(handle) : ecs::Entity{};
   }
-  if (!world_.IsAlive(e) || IsActorInactive(world_, e)) return false;
+  if (!world_.IsAlive(e) || IsActorInactive(world_, e))
+    return false;
   world::Transform* t = world_.Get<world::Transform>(e);
-  if (!t) return false;
+  if (!t)
+    return false;
   *entity = e;
   *transform = t;
   return true;
@@ -368,7 +401,8 @@ void NpcDirector::UpdateCombat(f32 dt) {
   // Host / single-player authoritative; a client receives soldier motion via
   // actor sync and deaths via quest/actor replication, so it must not simulate.
 #if RECREATION_HAS_NET
-  if (ctx_.client_session) return;
+  if (ctx_.client_session)
+    return;
 #endif
   // Re-acquire targets a few times a second (cheaper than every frame and the
   // clash cadence does not need frame precision).
@@ -377,7 +411,8 @@ void NpcDirector::UpdateCombat(f32 dt) {
     combat_acquire_timer_ = 0.3f;
     AcquireTargets();
   }
-  if (combat_.empty()) return;
+  if (combat_.empty())
+    return;
   const world::CombatParams& p = combat_params_;
 
   struct Hit {
@@ -391,7 +426,8 @@ void NpcDirector::UpdateCombat(f32 dt) {
   combat_.ForEach([&](u64 attacker, CombatState& cs) {
     ecs::Entity ae;
     world::Transform* at;
-    if (!ResolveCombatant(attacker, &ae, &at)) return;  // not streamed yet: keep enrolled
+    if (!ResolveCombatant(attacker, &ae, &at))
+      return;  // not streamed yet: keep enrolled
     ecs::Entity te;
     world::Transform* tt;
     if (cs.target == 0 || !ResolveCombatant(cs.target, &te, &tt)) {
@@ -427,7 +463,8 @@ void NpcDirector::UpdateCombat(f32 dt) {
     }
   });
 
-  for (u64 a : drop) combat_.erase(a);
+  for (u64 a : drop)
+    combat_.erase(a);
 
   // Apply the swings on the guest thread, where actor values and the OnDeath ->
   // quest/managed path live. Throttled by the per-attacker swing cooldown, so
@@ -444,7 +481,8 @@ void NpcDirector::UpdateCombat(f32 dt) {
 }
 
 bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
-  if (!ctx_.scripts || !ctx_.bindings) return false;
+  if (!ctx_.scripts || !ctx_.bindings)
+    return false;
   // Swing in the facing direction: the nearest living NPC inside the reach and a
   // forward arc takes the hit. The player aims, so any actor in front is fair
   // game (it is how you cut down the fort's bandits).
@@ -456,15 +494,19 @@ bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
   f32 best_d2 = kReach * kReach;
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (world_.Has<world::Dead>(e) || IsActorInactive(world_, e)) return;
-        if (!world::InMeleeArc(self, t.position, fwd, kReach, kArcCos)) return;
+        if (world_.Has<world::Dead>(e) || IsActorInactive(world_, e))
+          return;
+        if (!world::InMeleeArc(self, t.position, fwd, kReach, kArcCos))
+          return;
         const f32 dx = t.position[0] - self[0], dz = t.position[2] - self[2];
         const f32 d2 = dx * dx + dz * dz;
-        if (d2 >= best_d2) return;
+        if (d2 >= best_d2)
+          return;
         best_d2 = d2;
         best = link.form.packed();
       });
-  if (!best) return false;
+  if (!best)
+    return false;
   auto* binds = ctx_.bindings;
   ctx_.scripts->guest().Submit([binds, best](rx::script::papyrus::VirtualMachine&) {
     // A heavier blow than a common soldier's: the player is the dragonborn.
@@ -476,10 +518,12 @@ bool NpcDirector::PlayerMeleeStrike(const Vec3& pos, f32 yaw) {
 }
 
 bool NpcDirector::BattleStrength(int* team_a, int* team_b, int* fallen) const {
-  if (!cw_battle_active_ && !cw_field_active_) return false;
+  if (!cw_battle_active_ && !cw_field_active_)
+    return false;
   int a = 0, b = 0, d = 0;
   world_.Each<world::CombatTeam>([&](ecs::Entity e, world::CombatTeam& ct) {
-    if (IsActorInactive(world_, e)) return;
+    if (IsActorInactive(world_, e))
+      return;
     if (world_.Has<world::Dead>(e)) {
       ++d;
       return;
@@ -509,18 +553,21 @@ bool NpcDirector::BattleGauges(f32* team1_frac, f32* team2_frac) const {
     return true;
   }
   int a, b, d;
-  if (!BattleStrength(&a, &b, &d)) return false;
+  if (!BattleStrength(&a, &b, &d))
+    return false;
   *team1_frac = cw_start1_ > 0 ? static_cast<f32>(a) / static_cast<f32>(cw_start1_) : 0.0f;
   *team2_frac = cw_start2_ > 0 ? static_cast<f32>(b) / static_cast<f32>(cw_start2_) : 0.0f;
   return true;
 }
 
 void NpcDirector::CwBattleTick(f32 dt) {
-  if (!cw_battle_pending_ || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings) return;
+  if (!cw_battle_pending_ || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings)
+    return;
 
   if (!cw_battle_active_) {
     Vec3 ppos;
-    if (!actors_->PlayerWorldPos(&ppos)) return;
+    if (!actors_->PlayerWorldPos(&ppos))
+      return;
     // Enlist the streamed NPCs around the player into two armies, split across the
     // player's position so they form opposing lines and charge.
     base::Vector<u64> enlisted;
@@ -528,10 +575,13 @@ void NpcDirector::CwBattleTick(f32 dt) {
     int foes = 0;
     world_.Each<world::Npc, world::FormLink, world::Transform>(
         [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-          if (IsActorInactive(world_, e)) return;
+          if (IsActorInactive(world_, e))
+            return;
           const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
-          if (dx * dx + dz * dz > 200.0f * 200.0f) return;  // grab the whole garrison
-          if (world_.Has<world::Dead>(e)) return;
+          if (dx * dx + dz * dz > 200.0f * 200.0f)
+            return;  // grab the whole garrison
+          if (world_.Has<world::Dead>(e))
+            return;
           const i32 team = t.position[0] < ppos.x ? 1 : 2;
           world_.Add(e, world::CombatTeam{team});
           enlisted.push_back(link.form.packed());
@@ -540,7 +590,8 @@ void NpcDirector::CwBattleTick(f32 dt) {
             ++foes;
           }
         });
-    if (enlisted.size() < 2) return;  // wait for the cell's NPCs to stream in
+    if (enlisted.size() < 2)
+      return;  // wait for the cell's NPCs to stream in
     // Turn the player (hence the follow camera) to face the enemy line, so the
     // melee plays out in view and a forward swing connects.
     if (foes > 0) {
@@ -552,7 +603,8 @@ void NpcDirector::CwBattleTick(f32 dt) {
     base::Vector<u64> handles(enlisted.begin(), enlisted.end());
     auto* binds = ctx_.bindings;
     ctx_.scripts->guest().Submit([binds, handles](rx::script::papyrus::VirtualMachine&) {
-      for (u64 h : handles) binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
+      for (u64 h : handles)
+        binds->SetActorValue(script::papyrus::ObjectRef{h}, "health", 80.0f);
     });
     cw_battle_active_ = true;
     cw_start2_ = foes;
@@ -571,7 +623,8 @@ void NpcDirector::CwBattleTick(f32 dt) {
 }
 
 bool NpcDirector::BattleCam(Vec3* eye, Vec3* target) const {
-  if (!cw_field_active_) return false;
+  if (!cw_field_active_)
+    return false;
   // A near ground-level vantage behind team 1 looking ACROSS the clash, like the
   // original game's field battles: the soldiers read against the horizon (terrain
   // + sky) instead of a steep top-down look into terrain that the camera is too
@@ -582,7 +635,8 @@ bool NpcDirector::BattleCam(Vec3* eye, Vec3* target) const {
 }
 
 void NpcDirector::Cw00DemoTick(f32 dt) {
-  if (!cw00_demo_pending_ || !actors_->HasPlayer() || !interaction_) return;
+  if (!cw00_demo_pending_ || !actors_->HasPlayer() || !interaction_)
+    return;
   // Castle Dour war room actors (Skyrim.esm, plugin 0): the placed ACHR refs of
   // General Tullius and Legate Rikke, and Tullius's CW00A forcegreet INFO whose
   // fragment is GetOwningQuest().SetStage(10), the enlistment.
@@ -593,7 +647,8 @@ void NpcDirector::Cw00DemoTick(f32 dt) {
   cw00_demo_timer_ += dt;
 
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
 
   // Steer toward the officer if its ref has streamed in (cosmetic); a forcegreet
   // has range, so fire within 8 m or after a grace period, a wedged walk (the
@@ -609,7 +664,8 @@ void NpcDirector::Cw00DemoTick(f32 dt) {
     const float self[3] = {ppos.x, ppos.y, ppos.z};
     arrived = world::WithinPlanar(self, t->position, 8.0f);
   }
-  if (!arrived && cw00_demo_timer_ < 14.0f) return;  // still closing the distance
+  if (!arrived && cw00_demo_timer_ < 14.0f)
+    return;  // still closing the distance
 
   if (cw00_demo_phase_ == 0) {
     // Reached Tullius: he greets the player and the enlistment is acknowledged.
@@ -649,7 +705,8 @@ u64 NpcDirector::SpawnSoldier(const Vec3& pos, i32 team) {
   world_.Add(e, world::Npc{bethesda::GlobalFormId{}});  // generic soldier; rig is shared
   world_.Add(e, world::FormLink{bethesda::GlobalFormId{0xFFFF, static_cast<u32>(id)}});
   world_.Add(e, world::CombatTeam{team});
-  if (ctx_.quest_world) ctx_.quest_world->Register(handle, e);
+  if (ctx_.quest_world)
+    ctx_.quest_world->Register(handle, e);
   // Replicate the spawn so a client builds the same biped, registered under the
   // same form handle; the actor sync then streams the host's movement to it. The
   // client does not simulate combat, but it carries the team so it renders the
@@ -665,7 +722,8 @@ u64 NpcDirector::SpawnSoldier(const Vec3& pos, i32 team) {
 }
 
 void NpcDirector::SeedSiegeReinforcementPools() {
-  if (cw_siege_quest_ == 0 || cw_siege_master_ == 0 || !ctx_.scripts || !ctx_.bindings) return;
+  if (cw_siege_quest_ == 0 || cw_siege_master_ == 0 || !ctx_.scripts || !ctx_.bindings)
+    return;
   // The pool starts at this clash's strength: one point per soldier on each side.
   // Team 1 (the player's line) assaults, team 2 holds.
   int atk = 0, def = 0;
@@ -688,7 +746,8 @@ void NpcDirector::SeedSiegeReinforcementPools() {
             using rx::script::papyrus::Value;
             using rx::script::papyrus::ValueType;
             auto set_member = [&](const char* name, Value v) {
-              if (Value* m = vm.MemberVar(ObjectRef{siege}, name)) *m = base::move(v);
+              if (Value* m = vm.MemberVar(ObjectRef{siege}, name))
+                *m = base::move(v);
             };
             // Wire the controller to the CW master (whose properties carry the
             // reinforcement-pool globals) and make the pools finite so a death
@@ -706,8 +765,10 @@ void NpcDirector::SeedSiegeReinforcementPools() {
             };
             const u64 atk_g = global_handle("CWReinforcementPoolAttacker");
             const u64 def_g = global_handle("CWReinforcementPoolDefender");
-            if (atk_g) binds->SetGlobalValue(ObjectRef{atk_g}, static_cast<f32>(atk));
-            if (def_g) binds->SetGlobalValue(ObjectRef{def_g}, static_cast<f32>(def));
+            if (atk_g)
+              binds->SetGlobalValue(ObjectRef{atk_g}, static_cast<f32>(atk));
+            if (def_g)
+              binds->SetGlobalValue(ObjectRef{def_g}, static_cast<f32>(def));
             return base::Pair<u64, u64>{atk_g, def_g};
           })
           .get();
@@ -719,14 +780,17 @@ void NpcDirector::SeedSiegeReinforcementPools() {
 }
 
 void NpcDirector::ChargeSiegeReinforcementDeaths() {
-  if (!cw_siege_pool_seeded_ || !ctx_.scripts) return;
+  if (!cw_siege_pool_seeded_ || !ctx_.scripts)
+    return;
   // Each soldier that newly fell spends one point of its side's pool through the
   // siege's own ModifyPool, so the on-screen losses drive the authored mechanic.
   base::Vector<bool> attacker_died;
   for (u64 h : cw_field_soldiers_) {
-    if (cw_pool_counted_.count(h)) continue;
+    if (cw_pool_counted_.count(h))
+      continue;
     ecs::Entity e = ctx_.quest_world ? ctx_.quest_world->Find(h) : ecs::kInvalidEntity;
-    if (!world_.IsAlive(e) || !world_.Has<world::Dead>(e)) continue;
+    if (!world_.IsAlive(e) || !world_.Has<world::Dead>(e))
+      continue;
     const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e);
     cw_pool_counted_.insert(h);
     const bool attacker = ct && ct->team == 1;
@@ -738,7 +802,8 @@ void NpcDirector::ChargeSiegeReinforcementDeaths() {
     else
       cw_pool_def_cur_ = base::Max(0.0f, cw_pool_def_cur_ - 1.0f);
   }
-  if (attacker_died.empty()) return;
+  if (attacker_died.empty())
+    return;
   const u64 siege = cw_siege_quest_;
   ctx_.scripts->guest().Submit([siege, attacker_died](rx::script::papyrus::VirtualMachine& vm) {
     using rx::script::papyrus::ObjectRef;
@@ -749,16 +814,20 @@ void NpcDirector::ChargeSiegeReinforcementDeaths() {
 }
 
 void NpcDirector::CwFieldBattleTick(f32 dt) {
-  if (!cw_field_pending_ || !actors_->HasPlayer()) return;
+  if (!cw_field_pending_ || !actors_->HasPlayer())
+    return;
   if (!cw_field_active_) {
     cw_field_warmup_ += dt;
     // Let the terrain stream and the player settle (and, in MP, a client finish
     // joining so it receives the live spawn broadcast). RX_CW_BATTLE_DELAY tunes it.
     f32 warmup = 2.0f;
-    if (CwBattleDelay.overridden()) warmup = CwBattleDelay.get();
-    if (cw_field_warmup_ < warmup) return;
+    if (CwBattleDelay.overridden())
+      warmup = CwBattleDelay.get();
+    if (cw_field_warmup_ < warmup)
+      return;
     Vec3 ppos;
-    if (!actors_->PlayerWorldPos(&ppos)) return;
+    if (!actors_->PlayerWorldPos(&ppos))
+      return;
     // Pick the direction that stages the clash on the FLATTEST nearby ground:
     // scoring purely by "most open" sends the battle off a clifftop (a drop is
     // maximally clear), which is exactly the washed-out mid-air framing we want
@@ -882,14 +951,17 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
     cw_field_resync_ = 3.0f;
     for (u64 h : cw_field_soldiers_) {
       ecs::Entity e = ctx_.quest_world ? ctx_.quest_world->Find(h) : ecs::kInvalidEntity;
-      if (!world_.IsAlive(e) || IsActorInactive(world_, e)) continue;
+      if (!world_.IsAlive(e) || IsActorInactive(world_, e))
+        continue;
       const world::Transform* t = world_.Get<world::Transform>(e);
-      if (!t) continue;
+      if (!t)
+        continue;
       world::WorldCommand c;
       c.op = world::WorldOp::kSpawn;
       c.handle = h;
       c.is_actor = true;
-      if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e)) c.team = ct->team;
+      if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
+        c.team = ct->team;
       c.pos = {t->position[0], t->position[1], t->position[2]};
       replicated_spawns_.push_back(c);
     }
@@ -926,12 +998,15 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
 void NpcDirector::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
 #if RECREATION_HAS_NET
-  if (followers_.empty() || !actors_->HasPlayer() || ctx_.client_session) return;
+  if (followers_.empty() || !actors_->HasPlayer() || ctx_.client_session)
+    return;
 #else
-  if (followers_.empty() || !actors_->HasPlayer()) return;
+  if (followers_.empty() || !actors_->HasPlayer())
+    return;
 #endif
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
   const float leader_pos[3] = {ppos.x, ppos.y, ppos.z};
   const float leader_yaw = actors_->PlayerYaw();
 
@@ -946,15 +1021,18 @@ void NpcDirector::UpdateFollowers(f32 dt) {
   base::Vector<float> positions;  // xyz per follower, parallel to `followers`
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (IsActorInactive(world_, e)) return;
+        if (IsActorInactive(world_, e))
+          return;
         const i32* slot = followers_.find(link.form.packed());
-        if (!slot) return;
+        if (!slot)
+          return;
         followers.push_back({e, *slot, &t, link.form.packed()});
         positions.push_back(t.position[0]);
         positions.push_back(t.position[1]);
         positions.push_back(t.position[2]);
       });
-  if (followers.empty()) return;
+  if (followers.empty())
+    return;
 
   const world::SteerParams params{2.6f, 2.2f, 1.5f};
   base::Vector<float> others;
@@ -965,7 +1043,8 @@ void NpcDirector::UpdateFollowers(f32 dt) {
     // Spread followers apart so they do not pile onto the same slot.
     others.clear();
     for (size_t j = 0; j < followers.size(); ++j) {
-      if (j == i) continue;
+      if (j == i)
+        continue;
       others.push_back(positions[j * 3 + 0]);
       others.push_back(positions[j * 3 + 1]);
       others.push_back(positions[j * 3 + 2]);
@@ -1002,8 +1081,10 @@ void NpcDirector::UpdateFollowers(f32 dt) {
 Vec3 NpcDirector::NavigateTo(u64 nav_id, const Vec3& from, const Vec3& goal) {
   // Streamed exterior terrain: the cost-aware navmesh corridor (slopes and
   // water priced in, event-based repathing, funnel steering).
-  if (nav_.Covers(from)) return nav_.Step(nav_id, from, goal);
-  if (!physics_.initialized()) return goal;
+  if (nav_.Covers(from))
+    return nav_.Step(nav_id, from, goal);
+  if (!physics_.initialized())
+    return goal;
   // Route over a cached, cell-spanning navgrid (built from downward floor rays)
   // so an NPC or the player rounds interior walls toward the goal. The grid is
   // rebuilt only when the query point leaves the covered region, so most calls
@@ -1033,20 +1114,26 @@ void NpcDirector::SetGuide(u64 npc, const Vec3& goal) {
     guides_.insert(npc, goal);
 }
 
-void NpcDirector::ClearGuide(u64 npc) { guides_.erase(npc); }
+void NpcDirector::ClearGuide(u64 npc) {
+  guides_.erase(npc);
+}
 
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
 #if RECREATION_HAS_NET
-  if (guides_.empty() || ctx_.client_session) return;
+  if (guides_.empty() || ctx_.client_session)
+    return;
 #else
-  if (guides_.empty()) return;
+  if (guides_.empty())
+    return;
 #endif
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (IsActorInactive(world_, e)) return;
+        if (IsActorInactive(world_, e))
+          return;
         const Vec3* target = guides_.find(link.form.packed());
-        if (!target) return;
+        if (!target)
+          return;
         const Vec3 wp = NavigateTo(link.form.packed(),
                                    Vec3{t.position[0], t.position[1], t.position[2]}, *target);
         const float goal[3] = {wp.x, wp.y, wp.z};
@@ -1055,7 +1142,8 @@ void NpcDirector::UpdateGuides(f32 dt) {
 }
 
 void NpcDirector::Mq101DemoTick(f32 dt) {
-  if (!mq101_demo_pending_ || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings) return;
+  if (!mq101_demo_pending_ || !actors_->HasPlayer() || !ctx_.scripts || !ctx_.bindings)
+    return;
 
   // A live (unfired) demo waypoint means the player is still walking to it.
   // Reaching it fires the trigger normally; if the player gets stuck on terrain
@@ -1102,7 +1190,8 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
   if (quest_->CurrentObjectiveTarget(&target)) {
     const Vec3 to{target.x - ppos.x, 0.0f, target.z - ppos.z};
     const f32 len = Length(to);
-    if (len > 1.0f) fwd = to * (1.0f / len);
+    if (len > 1.0f)
+      fwd = to * (1.0f / len);
   }
   QuestMarker m;
   m.quest = mq101_demo_quest_;
@@ -1123,14 +1212,16 @@ void NpcDirector::Mq101DemoTick(f32 dt) {
     base::Vector<Cand> cands;
     world_.Each<world::Npc, world::FormLink, world::Transform>(
         [&](ecs::Entity entity, world::Npc&, world::FormLink& link, world::Transform& t) {
-          if (IsActorInactive(world_, entity)) return;
+          if (IsActorInactive(world_, entity))
+            return;
           const f32 dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
           cands.push_back({link.form.packed(), dx * dx + dz * dz});
         });
     base::Sort(cands.begin(), cands.end(),
                [](const Cand& a, const Cand& b) { return a.dist_sq < b.dist_sq; });
     for (size_t i = 0; i < cands.size() && recruited < 3; ++i) {
-      if (cands[i].dist_sq > 60.0f * 60.0f) break;  // skip actors across the whole cell
+      if (cands[i].dist_sq > 60.0f * 60.0f)
+        break;  // skip actors across the whole cell
       SetFollower(cands[i].form, true);
       ++recruited;
     }
@@ -1148,10 +1239,13 @@ void NpcDirector::Mq101Sink::GuideTo(u64 actor, const float pos[3]) {
     d->guides_.insert(actor, target);
 }
 
-void NpcDirector::Mq101Sink::SayInfo(u64 /*actor*/, u64 info) { d->interaction_->RunInfoFragment(info); }
+void NpcDirector::Mq101Sink::SayInfo(u64 /*actor*/, u64 info) {
+  d->interaction_->RunInfoFragment(info);
+}
 
 void NpcDirector::Mq101Sink::SetStage(u64 quest, i32 stage) {
-  if (!d->ctx_.scripts || !d->ctx_.bindings) return;
+  if (!d->ctx_.scripts || !d->ctx_.bindings)
+    return;
   auto* binds = d->ctx_.bindings;
   d->ctx_.scripts->guest().Submit([binds, quest, stage](script::papyrus::VirtualMachine&) {
     binds->SetStage(script::papyrus::ObjectRef{quest}, stage);
@@ -1162,8 +1256,10 @@ bool NpcDirector::Mq101Sink::ActorAt(u64 actor, const float pos[3], float radius
   bool found = false, reached = false;
   d->world_.Each<world::FormLink, world::Transform>(
       [&](ecs::Entity entity, world::FormLink& link, world::Transform& t) {
-        if (link.form.packed() != actor) return;
-        if (IsActorInactive(d->world_, entity)) return;
+        if (link.form.packed() != actor)
+          return;
+        if (IsActorInactive(d->world_, entity))
+          return;
         found = true;
         const float dx = t.position[0] - pos[0], dz = t.position[2] - pos[2];
         reached = dx * dx + dz * dz <= radius * radius;
@@ -1173,7 +1269,8 @@ bool NpcDirector::Mq101Sink::ActorAt(u64 actor, const float pos[3], float radius
 
 bool NpcDirector::Mq101Sink::PlayerNear(const float pos[3], float radius) {
   Vec3 p;
-  if (!d->actors_->PlayerWorldPos(&p)) return true;
+  if (!d->actors_->PlayerWorldPos(&p))
+    return true;
   const float dx = p.x - pos[0], dz = p.z - pos[2];
   return dx * dx + dz * dz <= radius * radius;
 }
@@ -1199,7 +1296,8 @@ bool NpcDirector::StartMq101Scene() {
   const u64 mq = mq101_scene_quest_;
 
   Vec3 ppos{};
-  if (!actors_->PlayerWorldPos(&ppos)) return false;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return false;
   // Pick the nearest NPC within reach as the guide who leads the escort. The
   // companion who shares the player's start (Ralof / Hadvar in the keep) is the
   // closest actor, so nearest-within-radius resolves to the right one without
@@ -1208,7 +1306,8 @@ bool NpcDirector::StartMq101Scene() {
   float best = 30.0f * 30.0f;  // ignore actors across the cell
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity entity, world::Npc&, world::FormLink& link, world::Transform& t) {
-        if (IsActorInactive(world_, entity)) return;
+        if (IsActorInactive(world_, entity))
+          return;
         const float dx = t.position[0] - ppos.x, dz = t.position[2] - ppos.z;
         const float d = dx * dx + dz * dz;
         if (d < best) {
@@ -1216,7 +1315,8 @@ bool NpcDirector::StartMq101Scene() {
           guide = link.form.packed();
         }
       });
-  if (guide == 0) return false;  // NPCs not streamed in yet, retry
+  if (guide == 0)
+    return false;  // NPCs not streamed in yet, retry
 
   // The guide leads to each mark, then the stage advances only once the player
   // has caught up: the player's own movement drives the journal, with the guide
@@ -1255,7 +1355,8 @@ bool NpcDirector::StartMq101Scene() {
   // Stage 160 was set when the escort armed (it relocated the player here); the
   // guide now leads the remaining beats to completion.
   const i32 stages[4] = {300, 500, 700, 900};
-  for (int i = 0; i < 4; ++i) lead_to(ppos + fwd * (8.0f * static_cast<f32>(i + 1)), stages[i]);
+  for (int i = 0; i < 4; ++i)
+    lead_to(ppos + fwd * (8.0f * static_cast<f32>(i + 1)), stages[i]);
 
   scene_sink_.d = this;
   scene_runner_.Reset(&mq101_scene_);
@@ -1267,10 +1368,12 @@ bool NpcDirector::StartMq101Scene() {
 
 void NpcDirector::Mq101SceneTick(f32 dt) {
   if (mq101_scene_pending_) {
-    if (StartMq101Scene()) mq101_scene_pending_ = false;
+    if (StartMq101Scene())
+      mq101_scene_pending_ = false;
     return;
   }
-  if (!mq101_scene_active_) return;
+  if (!mq101_scene_active_)
+    return;
 
   const size_t before = scene_runner_.current_action();
   const bool running = scene_runner_.Tick(scene_sink_, dt);
@@ -1288,8 +1391,10 @@ void NpcDirector::Mq101SceneTick(f32 dt) {
       const float wx = a.pos[0], wy = a.pos[1], wz = a.pos[2];
       world_.Each<world::FormLink, world::Transform>(
           [&](ecs::Entity entity, world::FormLink& link, world::Transform& t) {
-            if (link.form.packed() != a.actor) return;
-            if (IsActorInactive(world_, entity)) return;
+            if (link.form.packed() != a.actor)
+              return;
+            if (IsActorInactive(world_, entity))
+              return;
             t.position[0] = wx;
             t.position[1] = wy;
             t.position[2] = wz;

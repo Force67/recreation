@@ -10,8 +10,8 @@
 
 #include <cstdio>
 
-#include "core/types.h"
 #include "components/script/papyrus/pex.h"
+#include "core/types.h"
 
 namespace {
 
@@ -19,26 +19,34 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Little-endian writers (Fallout .pex is little-endian on disk).
-void PutU8(base::Vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU8(base::Vector<rx::u8>& b, rx::u8 v) {
+  b.push_back(v);
+}
 void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v));
   b.push_back(rx::u8(v >> 8));
 }
 void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(rx::u8(v >> (8 * i)));
 }
 void PutWStr(base::Vector<rx::u8>& b, const char* s) {
   rx::u16 n = 0;
-  while (s[n]) ++n;
+  while (s[n])
+    ++n;
   PutU16(b, n);
-  for (rx::u16 i = 0; i < n; ++i) b.push_back(static_cast<rx::u8>(s[i]));
+  for (rx::u16 i = 0; i < n; ++i)
+    b.push_back(static_cast<rx::u8>(s[i]));
 }
 // A kNone VariableData: one type byte, no payload.
-void PutNoneValue(base::Vector<rx::u8>& b) { PutU8(b, 0); }
+void PutNoneValue(base::Vector<rx::u8>& b) {
+  PutU8(b, 0);
+}
 
 }  // namespace
 
@@ -48,7 +56,15 @@ int main() {
 
   // String table indices used below.
   enum : rx::u16 {
-    kEmpty = 0, kScript, kParent, kVar, kInt, kStruct, kMember, kFunc, kBool,
+    kEmpty = 0,
+    kScript,
+    kParent,
+    kVar,
+    kInt,
+    kStruct,
+    kMember,
+    kFunc,
+    kBool,
   };
 
   base::Vector<rx::u8> b;
@@ -56,8 +72,9 @@ int main() {
   PutU8(b, 3);                                  // major
   PutU8(b, 9);                                  // minor
   PutU16(b, 2);                                 // game id: Fallout 4
-  for (int i = 0; i < 8; ++i) PutU8(b, 0);      // compilation time
-  PutWStr(b, "Test.psc");                       // source
+  for (int i = 0; i < 8; ++i)
+    PutU8(b, 0);           // compilation time
+  PutWStr(b, "Test.psc");  // source
   PutWStr(b, "user");
   PutWStr(b, "machine");
 

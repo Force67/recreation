@@ -43,7 +43,8 @@ Fiber::~Fiber() {
     aborting_ = true;
     Resume();
   }
-  if (ctx_->co) mco_destroy(ctx_->co);  // now dead (ran to end) or never started
+  if (ctx_->co)
+    mco_destroy(ctx_->co);  // now dead (ran to end) or never started
   delete ctx_;
 }
 
@@ -74,15 +75,19 @@ void Fiber::Resume() {
 
 void Fiber::Yield() {
   mco_yield(ctx_->co);
-  if (aborting_) throw FiberUnwind{};  // resumed only to tear down: unwind the stack
+  if (aborting_)
+    throw FiberUnwind{};  // resumed only to tear down: unwind the stack
 }
 
 bool Fiber::YieldCurrent() {
-  if (!t_current) return false;
+  if (!t_current)
+    return false;
   t_current->Yield();
   return true;
 }
 
-Fiber* Fiber::current() { return t_current; }
+Fiber* Fiber::current() {
+  return t_current;
+}
 
 }  // namespace rx::script::papyrus

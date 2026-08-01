@@ -25,7 +25,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 struct PexBuilder {
@@ -34,7 +35,8 @@ struct PexBuilder {
 
   StringIndex String(const base::String& value) {
     auto* it = strings.find(value);
-    if (it != nullptr) return *it;
+    if (it != nullptr)
+      return *it;
     const auto index = static_cast<StringIndex>(pex.string_table.size());
     pex.string_table.push_back(value);
     strings.emplace(value, index);
@@ -78,7 +80,8 @@ PexFile MakeScript(const base::String& name, bool lifecycle_events) {
   return base::move(builder.pex);
 }
 
-void AddScript(rx::script::ScriptSystem& system, const base::String& name,
+void AddScript(rx::script::ScriptSystem& system,
+               const base::String& name,
                bool lifecycle_events = false) {
   base::String loaded =
       system.guest()
@@ -91,7 +94,8 @@ void AddScript(rx::script::ScriptSystem& system, const base::String& name,
 
 bethesda::ScriptAttachment Attachment(std::initializer_list<const char*> names) {
   bethesda::ScriptAttachment attachment;
-  for (const char* name : names) attachment.scripts.push_back({name, 0, {}});
+  for (const char* name : names)
+    attachment.scripts.push_back({name, 0, {}});
   return attachment;
 }
 

@@ -39,7 +39,8 @@ base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "RX_PRESETS_DIR"
 // Directory holding the .ini render presets: RX_PRESETS_DIR, else the
 // compiled-in source path, else a cwd-relative fallback.
 std::filesystem::path PresetDir() {
-  if (const char* env = PresetsDirOpt.get(); env && *env) return env;
+  if (const char* env = PresetsDirOpt.get(); env && *env)
+    return env;
 #ifdef RECREATION_PRESETS_DIR_DEFAULT
   return std::filesystem::path(RECREATION_PRESETS_DIR_DEFAULT);
 #else
@@ -52,11 +53,14 @@ std::filesystem::path PresetDir() {
 // regular weight; null if the system has none (titles fall back to the default).
 const char* FindTitleFont() {
   static base::String resolved;
-  if (!resolved.empty()) return resolved.c_str();
+  if (!resolved.empty())
+    return resolved.c_str();
   static const char* candidates[] = {
 #if defined(_WIN32)
-      "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf",
-      "C:/Windows/Fonts/segoeui.ttf",  "C:/Windows/Fonts/arial.ttf",
+      "C:/Windows/Fonts/segoeuib.ttf",
+      "C:/Windows/Fonts/arialbd.ttf",
+      "C:/Windows/Fonts/segoeui.ttf",
+      "C:/Windows/Fonts/arial.ttf",
 #else
       "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
       "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
@@ -115,15 +119,19 @@ const render::QualityPreset kPresetValues[] = {
 }  // namespace
 
 DebugUi::DebugUi() = default;
-DebugUi::~DebugUi() { Shutdown(); }
+DebugUi::~DebugUi() {
+  Shutdown();
+}
 
 bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   SDL_Window* sdl_window = static_cast<SDL_Window*>(window.native_handles().window);
   render::Device* device = renderer.device();
-  if (!sdl_window || !device || device->is_stub()) return false;
+  if (!sdl_window || !device || device->is_stub())
+    return false;
   // imgui_impl_vulkan records raw Vulkan; on other backends the overlay is off.
   const render::VulkanHandles vk = render::GetVulkanHandles(*device);
-  if (vk.device == VK_NULL_HANDLE) return false;
+  if (vk.device == VK_NULL_HANDLE)
+    return false;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -138,7 +146,8 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   if (const char* title_path = FindTitleFont())
     title_font_ = io.Fonts->AddFontFromFileTTF(title_path, 116.0f);
 
-  if (!ImGui_ImplSDL3_InitForVulkan(sdl_window)) return false;
+  if (!ImGui_ImplSDL3_InitForVulkan(sdl_window))
+    return false;
 
   swapchain_format_ = render::GetVkFormat(renderer.swapchain_format());
   ImGui_ImplVulkan_InitInfo info{};
@@ -167,7 +176,8 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
 
   // RX_HIDE_DEBUG_UI starts with the imgui overlays hidden, so the libultragui
   // HUD has the screen to itself for clean screenshots (cf. RECREATION_UI_MENU).
-  if (HideDebugUi) visible_ = trace_visible_ = quests_visible_ = false;
+  if (HideDebugUi)
+    visible_ = trace_visible_ = quests_visible_ = false;
   window_ = &window;
   initialized_ = true;
   RX_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
@@ -175,7 +185,8 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
 }
 
 void DebugUi::Shutdown() {
-  if (!initialized_) return;
+  if (!initialized_)
+    return;
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
@@ -183,7 +194,8 @@ void DebugUi::Shutdown() {
 }
 
 void DebugUi::BeginFrame() {
-  if (!initialized_) return;
+  if (!initialized_)
+    return;
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
@@ -197,9 +209,14 @@ bool DebugUi::wants_keyboard() const {
   return initialized_ && ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureKeyboard;
 }
 
-void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
-                    render::FrameView* view, QuestPanel* quests, NativeTracePanel* trace) {
-  if (!initialized_) return;
+void DebugUi::Build(render::Renderer& renderer,
+                    FlyCamera& camera,
+                    f32 frame_delta,
+                    render::FrameView* view,
+                    QuestPanel* quests,
+                    NativeTracePanel* trace) {
+  if (!initialized_)
+    return;
 
   frame_times_[frame_time_cursor_] = frame_delta * 1000.0f;
   frame_time_cursor_ = (frame_time_cursor_ + 1) % IM_ARRAYSIZE(frame_times_);
@@ -221,7 +238,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     ImGui::SetNextWindowPos({16, 16}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize({460, 640}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Renderer (F1 hides)")) {
-      if (caps) ImGui::TextWrapped("%s", caps->adapter_name.c_str());
+      if (caps)
+        ImGui::TextWrapped("%s", caps->adapter_name.c_str());
       ImGui::Text("output %ux%u  render %ux%u", renderer.output_width(), renderer.output_height(),
                   renderer.render_width(), renderer.render_height());
       // The fps figure turns amber then red as it drops past the thresholds.
@@ -251,13 +269,15 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
       // straight onto the live settings; "for now" the debug ui is the only way
       // in. Save writes the current settings back out so users can author more.
       if (ImGui::CollapsingHeader("Platform preset (.ini)")) {
-        if (!preset_files_scanned_) ScanPresetFiles();
+        if (!preset_files_scanned_)
+          ScanPresetFiles();
         if (preset_files_.empty()) {
           ImGui::TextDisabled("no .ini in %s", PresetDir().string().c_str());
         } else {
           base::Vector<const char*> names;
           names.reserve(preset_files_.size());
-          for (const auto& f : preset_files_) names.push_back(f.c_str());
+          for (const auto& f : preset_files_)
+            names.push_back(f.c_str());
           ImGui::Combo("File", &preset_file_choice_, names.data(), static_cast<int>(names.size()));
           if (ImGui::Button("Load")) {
             const auto path = PresetDir() / preset_files_[preset_file_choice_].c_str();
@@ -271,13 +291,15 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
           }
           ImGui::SameLine();
         }
-        if (ImGui::Button("Rescan")) ScanPresetFiles();
+        if (ImGui::Button("Rescan"))
+          ScanPresetFiles();
         ImGui::SetNextItemWidth(150);
         ImGui::InputText("##presetname", preset_save_name_, sizeof(preset_save_name_));
         ImGui::SameLine();
         if (ImGui::Button("Save")) {
           base::String fn = preset_save_name_[0] ? preset_save_name_ : "custom";
-          if (fn.size() < 4 || fn.compare(fn.size() - 4, 4, ".ini") != 0) fn += ".ini";
+          if (fn.size() < 4 || fn.compare(fn.size() - 4, 4, ".ini") != 0)
+            fn += ".ini";
           const auto path = PresetDir() / fn.c_str();
           if (render::SaveSettingsIni(path, settings)) {
             preset_status_ = "saved " + fn;
@@ -287,7 +309,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
             preset_status_ = "could not write " + fn;
           }
         }
-        if (!preset_status_.empty()) ImGui::TextDisabled("%s", preset_status_.c_str());
+        if (!preset_status_.empty())
+          ImGui::TextDisabled("%s", preset_status_.c_str());
       }
 
       // Per-topic graphics submenus: a tab bar across the top splits the long
@@ -327,7 +350,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
 
     DrawStageChart(renderer);
 
-    if (show_demo_) ImGui::ShowDemoWindow(&show_demo_);
+    if (show_demo_)
+      ImGui::ShowDemoWindow(&show_demo_);
   }
 
   // The quest debugger (F3): a dedicated window so it stays reachable without
@@ -337,7 +361,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     // overlaps them.
     ImGui::SetNextWindowPos({760, 16}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize({440, 520}, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Quest debugger (F3 hides)", &quests_visible_)) RenderQuestPanel(quests);
+    if (ImGui::Begin("Quest debugger (F3 hides)", &quests_visible_))
+      RenderQuestPanel(quests);
     ImGui::End();
   }
 
@@ -349,12 +374,14 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     if (ImGui::Begin("Papyrus natives (F2 hides)", &trace_visible_)) {
       ImGui::Text("%llu native calls", static_cast<unsigned long long>(trace->total));
       ImGui::SameLine();
-      if (ImGui::SmallButton("Clear") && trace->clear) trace->clear();
+      if (ImGui::SmallButton("Clear") && trace->clear)
+        trace->clear();
 
       if (ImGui::BeginTabBar("trace_tabs")) {
         if (ImGui::BeginTabItem("Recent")) {
           if (ImGui::BeginChild("recent", {0, 0})) {
-            for (const base::String& call : trace->recent) ImGui::TextUnformatted(call.c_str());
+            for (const base::String& call : trace->recent)
+              ImGui::TextUnformatted(call.c_str());
           }
           ImGui::EndChild();
           ImGui::EndTabItem();
@@ -456,7 +483,8 @@ void DebugUi::DrawDisplayTab(render::Renderer& renderer, render::RenderSettings&
   }
 }
 
-void DebugUi::DrawRayTracingTab(render::Renderer& renderer, render::RenderSettings& settings,
+void DebugUi::DrawRayTracingTab(render::Renderer& renderer,
+                                render::RenderSettings& settings,
                                 const render::DeviceCaps* caps) {
   const bool ray_query = caps && caps->ray_query;
   if (!ray_query) {
@@ -535,7 +563,8 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
   // RX_SUN_DIR pinned a fixed sun.
   if (clock_) {
     f32 hour = clock_->hour();
-    if (ImGui::SliderFloat("Time of day", &hour, 0.0f, 24.0f, "%.2f h")) clock_->set_hour(hour);
+    if (ImGui::SliderFloat("Time of day", &hour, 0.0f, 24.0f, "%.2f h"))
+      clock_->set_hour(hour);
     f32 timescale = clock_->timescale();
     if (ImGui::SliderFloat("Time scale", &timescale, 0.0f, 1200.0f, "%.0fx"))
       clock_->set_timescale(timescale);
@@ -544,7 +573,8 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
   f32 direction[3] = {settings.sun_direction.x, settings.sun_direction.y, settings.sun_direction.z};
   if (ImGui::SliderFloat3("Sun direction", direction, -1.0f, 1.0f)) {
     settings.sun_direction = {direction[0], direction[1], direction[2]};
-    if (settings.sun_direction.y > -0.05f) settings.sun_direction.y = -0.05f;
+    if (settings.sun_direction.y > -0.05f)
+      settings.sun_direction.y = -0.05f;
   }
   ImGui::SliderFloat("Sun intensity", &settings.sun_intensity, 0.0f, 20.0f);
   f32 color[3] = {settings.sun_color.x, settings.sun_color.y, settings.sun_color.z};
@@ -576,13 +606,17 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
       w = weather::ToState(d);
       *weather_enable_ = true;
     };
-    if (ImGui::Button("Clear")) preset(weather::WeatherDef::Kind::kPleasant);
+    if (ImGui::Button("Clear"))
+      preset(weather::WeatherDef::Kind::kPleasant);
     ImGui::SameLine();
-    if (ImGui::Button("Cloudy")) preset(weather::WeatherDef::Kind::kCloudy);
+    if (ImGui::Button("Cloudy"))
+      preset(weather::WeatherDef::Kind::kCloudy);
     ImGui::SameLine();
-    if (ImGui::Button("Rainy")) preset(weather::WeatherDef::Kind::kRainy);
+    if (ImGui::Button("Rainy"))
+      preset(weather::WeatherDef::Kind::kRainy);
     ImGui::SameLine();
-    if (ImGui::Button("Snow")) preset(weather::WeatherDef::Kind::kSnow);
+    if (ImGui::Button("Snow"))
+      preset(weather::WeatherDef::Kind::kSnow);
     ImGui::SliderFloat("Cloud coverage", &w.cloud_coverage, 0.0f, 1.0f);
     ImGui::SliderFloat("Precipitation", &w.precipitation, 0.0f, 1.0f);
     ImGui::Checkbox("Snow (vs rain)", &w.snow);
@@ -592,7 +626,8 @@ void DebugUi::DrawLightingTab(render::RenderSettings& settings, const render::De
     ImGui::SliderFloat("Gustiness", &w.gustiness, 0.0f, 1.0f);
     ImGui::SliderFloat("Aurora intensity", &w.aurora, 0.0f, 1.0f);
     // Fires a bolt ~300 m out on the next update, whatever the weather.
-    if (weather_strike_ && ImGui::Button("Strike now")) weather_strike_();
+    if (weather_strike_ && ImGui::Button("Strike now"))
+      weather_strike_();
   }
 }
 
@@ -626,7 +661,8 @@ void DebugUi::DrawGiTab(render::RenderSettings& settings, const render::DeviceCa
     ImGui::SliderFloat("AO radius", &settings.ao_radius, 0.2f, 5.0f);
     ImGui::SliderFloat("AO intensity", &settings.ao_intensity, 0.2f, 3.0f);
     int rays = static_cast<int>(settings.ao_rays);
-    if (ImGui::SliderInt("AO rays/taps", &rays, 1, 8)) settings.ao_rays = rays;
+    if (ImGui::SliderInt("AO rays/taps", &rays, 1, 8))
+      settings.ao_rays = rays;
   }
 
   ImGui::SeparatorText("Screen-space GI");
@@ -666,8 +702,10 @@ void DebugUi::DrawPostTab(render::RenderSettings& settings) {
                      8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
 }
 
-void DebugUi::DrawDiagnosticsTab(render::Renderer& renderer, FlyCamera& camera,
-                                 render::RenderSettings& settings, const render::DeviceCaps* caps) {
+void DebugUi::DrawDiagnosticsTab(render::Renderer& renderer,
+                                 FlyCamera& camera,
+                                 render::RenderSettings& settings,
+                                 const render::DeviceCaps* caps) {
   int debug_view = static_cast<int>(settings.debug_view);
   if (ImGui::Combo("Debug view", &debug_view, kDebugViews, IM_ARRAYSIZE(kDebugViews))) {
     settings.debug_view = static_cast<render::DebugView>(debug_view);
@@ -769,7 +807,8 @@ void DebugUi::DrawDiagnosticsTab(render::Renderer& renderer, FlyCamera& camera,
 
 void DebugUi::DrawStageChart(render::Renderer& renderer) {
   const auto& timings = renderer.pass_timings();
-  if (timings.empty()) return;
+  if (timings.empty())
+    return;
 
   // Heaviest stages first; fold the long tail into a single "other" bar so the
   // chart stays legible.
@@ -779,17 +818,21 @@ void DebugUi::DrawStageChart(render::Renderer& renderer) {
   };
   base::Vector<Bar> bars;
   bars.reserve(timings.size());
-  for (const auto& t : timings) bars.push_back({t.name.c_str(), t.ms});
+  for (const auto& t : timings)
+    bars.push_back({t.name.c_str(), t.ms});
   base::Sort(bars.begin(), bars.end(), [](const Bar& a, const Bar& b) { return a.ms > b.ms; });
 
   constexpr int kMaxBars = 6;
   f32 other_ms = 0.0f;
   if (static_cast<int>(bars.size()) > kMaxBars) {
-    for (size_t i = kMaxBars; i < bars.size(); ++i) other_ms += bars[i].ms;
+    for (size_t i = kMaxBars; i < bars.size(); ++i)
+      other_ms += bars[i].ms;
     bars.resize(kMaxBars);
   }
-  if (other_ms > 0.0f) bars.push_back({"other", other_ms});
-  if (bars.empty()) return;
+  if (other_ms > 0.0f)
+    bars.push_back({"other", other_ms});
+  if (bars.empty())
+    return;
 
   const f32 max_ms = bars.front().ms > 0.0f ? bars.front().ms : 1.0f;
 
@@ -860,7 +903,8 @@ void DebugUi::DrawStageChart(render::Renderer& renderer) {
 }
 
 void DebugUi::DrawTrailerOverlay() {
-  if (!trailer_ || !trailer_->active) return;
+  if (!trailer_ || !trailer_->active)
+    return;
   const TrailerOverlay& t = *trailer_;
   ImDrawList* dl = ImGui::GetForegroundDrawList();
   const ImVec2 screen = ImGui::GetIO().DisplaySize;
@@ -870,7 +914,8 @@ void DebugUi::DrawTrailerOverlay() {
   // Text with a soft drop shadow; sizes measured in the title font so layout is
   // exact. All sizes are fractions of screen height so it scales to any output.
   auto draw_text = [&](f32 size, ImVec2 pos, ImU32 rgb, f32 alpha, const char* s) {
-    if (alpha <= 0.003f || !s || !*s) return;
+    if (alpha <= 0.003f || !s || !*s)
+      return;
     const int a = static_cast<int>(alpha * 255.0f + 0.5f);
     const ImU32 fg = (rgb & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
     const ImU32 sh = IM_COL32(0, 0, 0, static_cast<int>(alpha * 170.0f));
@@ -983,12 +1028,14 @@ void DebugUi::ScanPresetFiles() {
       preset_files_.push_back(entry.path().filename().string());
   }
   base::Sort(preset_files_.begin(), preset_files_.end());
-  if (preset_file_choice_ >= static_cast<int>(preset_files_.size())) preset_file_choice_ = 0;
+  if (preset_file_choice_ >= static_cast<int>(preset_files_.size()))
+    preset_file_choice_ = 0;
 }
 
 void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   int running = 0;
-  for (const auto& q : quests->quests) running += q.running ? 1 : 0;
+  for (const auto& q : quests->quests)
+    running += q.running ? 1 : 0;
   ImGui::Text("%zu quests, %d running", quests->quests.size(), running);
   ImGui::TextDisabled("Papyrus quest scripts attached from VMAD");
 
@@ -998,7 +1045,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
                                                       : quests->look_label.c_str());
     ImGui::SameLine();
     if (quests->look_following) {
-      if (ImGui::SmallButton("Stop following")) quests->set_follower(quests->look_target, false);
+      if (ImGui::SmallButton("Stop following"))
+        quests->set_follower(quests->look_target, false);
     } else if (ImGui::SmallButton("Follow me")) {
       quests->set_follower(quests->look_target, true);
     }
@@ -1027,7 +1075,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
         base::String name = q.name;
         std::transform(name.begin(), name.end(), name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        if (name.find(needle) == base::String::npos) continue;
+        if (name.find(needle) == base::String::npos)
+          continue;
       }
       ImGui::TableNextRow();
       ImGui::PushID(static_cast<int>(q.handle));
@@ -1044,7 +1093,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
         ImGui::TextDisabled("stopped");
       ImGui::TableNextColumn();
       if (q.running) {
-        if (ImGui::SmallButton("Stop") && quests->set_running) quests->set_running(q.handle, false);
+        if (ImGui::SmallButton("Stop") && quests->set_running)
+          quests->set_running(q.handle, false);
       } else if (ImGui::SmallButton("Start") && quests->set_running) {
         quests->set_running(q.handle, true);
       }
@@ -1055,18 +1105,22 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
 
   // Selected-quest debugger: drive its stages and objectives directly.
   const QuestPanel::Detail& d = quests->detail;
-  if (quests->selected == 0 || d.handle != quests->selected) return;
+  if (quests->selected == 0 || d.handle != quests->selected)
+    return;
   const QuestPanel::Quest* q = nullptr;
   for (const QuestPanel::Quest& it : quests->quests)
-    if (it.handle == quests->selected) q = &it;
+    if (it.handle == quests->selected)
+      q = &it;
   ImGui::Separator();
-  if (q) ImGui::Text("%s", q->name.c_str());
+  if (q)
+    ImGui::Text("%s", q->name.c_str());
   ImGui::SameLine();
   ImGui::TextDisabled("%s  0x%llx", d.editor_id.c_str(), static_cast<unsigned long long>(d.handle));
 
   ImGui::PushID("detail");
   if (q && q->running) {
-    if (ImGui::SmallButton("Stop") && quests->set_running) quests->set_running(d.handle, false);
+    if (ImGui::SmallButton("Stop") && quests->set_running)
+      quests->set_running(d.handle, false);
   } else if (ImGui::SmallButton("Start") && quests->set_running) {
     quests->set_running(d.handle, true);
   }
@@ -1087,16 +1141,20 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   if (ImGui::SmallButton("Prev") && q && quests->set_stage) {
     i32 prev = -1;
     for (const QuestPanel::Stage& s : d.stages)
-      if (s.index < q->stage && s.index > prev) prev = s.index;
-    if (prev >= 0) quests->set_stage(d.handle, prev);
+      if (s.index < q->stage && s.index > prev)
+        prev = s.index;
+    if (prev >= 0)
+      quests->set_stage(d.handle, prev);
   }
   ImGui::SameLine();
   // Skip to the next defined stage above the current one.
   if (ImGui::SmallButton("Next") && q && quests->set_stage) {
     i32 next = -1;
     for (const QuestPanel::Stage& s : d.stages)
-      if (s.index > q->stage && (next < 0 || s.index < next)) next = s.index;
-    if (next >= 0) quests->set_stage(d.handle, next);
+      if (s.index > q->stage && (next < 0 || s.index < next))
+        next = s.index;
+    if (next >= 0)
+      quests->set_stage(d.handle, next);
   }
   if (d.completion_stage >= 0) {
     ImGui::SameLine();
@@ -1125,7 +1183,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
     ImGui::EndDisabled();
     if (quests->clear_markers) {
       ImGui::SameLine();
-      if (ImGui::SmallButton("Clear")) quests->clear_markers();
+      if (ImGui::SmallButton("Clear"))
+        quests->clear_markers();
     }
     if (current_obj >= 0)
       ImGui::TextDisabled("objective %d -> reaching advances to stage %d", current_obj,
@@ -1137,7 +1196,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   if (!d.stages.empty() && ImGui::TreeNode("Stages")) {
     for (const QuestPanel::Stage& s : d.stages) {
       ImGui::PushID(s.index);
-      if (ImGui::SmallButton("Set") && quests->set_stage) quests->set_stage(d.handle, s.index);
+      if (ImGui::SmallButton("Set") && quests->set_stage)
+        quests->set_stage(d.handle, s.index);
       ImGui::SameLine();
       bool current = q && s.index == q->stage;
       ImVec4 col = current ? ImVec4{0.4f, 0.9f, 0.4f, 1}
@@ -1179,13 +1239,23 @@ namespace rx {
 
 DebugUi::DebugUi() = default;
 DebugUi::~DebugUi() = default;
-bool DebugUi::Initialize(Window&, render::Renderer&) { return false; }
+bool DebugUi::Initialize(Window&, render::Renderer&) {
+  return false;
+}
 void DebugUi::Shutdown() {}
 void DebugUi::BeginFrame() {}
-void DebugUi::Build(render::Renderer&, FlyCamera&, f32, render::FrameView*, QuestPanel*,
+void DebugUi::Build(render::Renderer&,
+                    FlyCamera&,
+                    f32,
+                    render::FrameView*,
+                    QuestPanel*,
                     NativeTracePanel*) {}
-bool DebugUi::wants_mouse() const { return false; }
-bool DebugUi::wants_keyboard() const { return false; }
+bool DebugUi::wants_mouse() const {
+  return false;
+}
+bool DebugUi::wants_keyboard() const {
+  return false;
+}
 
 }  // namespace rx
 

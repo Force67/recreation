@@ -18,12 +18,15 @@ namespace {
 int failures = 0;
 
 void Check(bool condition, const char* message) {
-  if (condition) return;
+  if (condition)
+    return;
   std::cerr << "FAIL: " << message << '\n';
   ++failures;
 }
 
-base::Optional<rx::f32> FlatBase(rx::i32, rx::i32) { return 100.0f; }
+base::Optional<rx::f32> FlatBase(rx::i32, rx::i32) {
+  return 100.0f;
+}
 
 rx::u64 Fingerprint(rx::world::TerrainCellKey cell) {
   return 0x9e3779b97f4a7c15ull ^ (static_cast<rx::u64>(static_cast<rx::u32>(cell.x)) << 32) ^
@@ -95,8 +98,7 @@ void TestMergeRevertAndCompose() {
   brush.strength = 0.75f;
   TerrainEditChange dab = edits.ApplyBrush(brush, FlatBase);
   Check(MergeTerrainEditChanges(&stroke, dab), "merge sequential dabs");
-  Check(stroke.samples.size() == 1 &&
-            stroke.samples[0].old_delta == 0.0f &&
+  Check(stroke.samples.size() == 1 && stroke.samples[0].old_delta == 0.0f &&
             stroke.samples[0].new_delta == 2.0f,
         "merged stroke keeps first old and final new delta");
   Check(edits.RevertChange(stroke), "revert whole merged stroke");

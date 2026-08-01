@@ -32,7 +32,8 @@ using namespace rx;
 using namespace rx::script::papyrus;
 
 base::String Lower(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
@@ -41,7 +42,8 @@ void CollectNatives(const PexFile& pex, base::Map<base::String, base::Set<base::
     base::String type = pex.Str(obj.name);
     for (const State& st : obj.states)
       for (const NamedFunction& nf : st.functions)
-        if (nf.function.is_native) by_type[type].insert(pex.Str(nf.name));
+        if (nf.function.is_native)
+          by_type[type].insert(pex.Str(nf.name));
   }
 }
 
@@ -60,7 +62,8 @@ int main(int argc, char** argv) {
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec)) {
     auto provider = bethesda::OpenArchive(entry.path().string());
-    if (!provider) continue;
+    if (!provider)
+      continue;
     base::Set<base::String> script_paths;
     provider->Enumerate([&](base::StringRef path) {
       if (path.starts_with("scripts/") && path.ends_with(".pex"))
@@ -68,9 +71,11 @@ int main(int argc, char** argv) {
     });
     for (const base::String& path : script_paths) {
       auto blob = provider->Read(path);
-      if (!blob) continue;
+      if (!blob)
+        continue;
       PexFile pex;
-      if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex)) continue;
+      if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex))
+        continue;
       CollectNatives(pex, by_type);
       ++scripts_scanned;
     }
@@ -89,10 +94,13 @@ int main(int argc, char** argv) {
     for (const base::String& fn : fns) {
       ++total;
       bool ok = reg.Find(type, fn) != nullptr;
-      if (ok) ++handled;
+      if (ok)
+        ++handled;
       per_type[type].second++;
-      if (ok) per_type[type].first++;
-      if (list_missing && !ok) std::printf("MISSING %s.%s\n", type.c_str(), fn.c_str());
+      if (ok)
+        per_type[type].first++;
+      if (list_missing && !ok)
+        std::printf("MISSING %s.%s\n", type.c_str(), fn.c_str());
     }
 
   std::printf("scanned %d scripts, %zu script types declare natives\n", scripts_scanned,
@@ -102,7 +110,8 @@ int main(int argc, char** argv) {
 
   // The script types with the most native surface, and how much is covered.
   base::Vector<base::Pair<base::String, base::Pair<int, int>>> ranked;
-  for (const auto& entry : per_type) ranked.push_back({entry.first, entry.second});
+  for (const auto& entry : per_type)
+    ranked.push_back({entry.first, entry.second});
   base::Sort(ranked.begin(), ranked.end(),
              [](const auto& a, const auto& b) { return a.second.second > b.second.second; });
   std::printf("top native-declaring types (handled/total):\n");

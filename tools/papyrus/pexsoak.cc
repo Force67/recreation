@@ -38,7 +38,8 @@ using namespace rx::script::papyrus;
 // A function is safe to execute blind when it has no calls (no recursion, no
 // latent natives) and no backward jumps (no loops), so it always terminates.
 bool IsStraightLine(const Function& fn) {
-  if (fn.is_native || !fn.params.empty()) return false;
+  if (fn.is_native || !fn.params.empty())
+    return false;
   for (const Instruction& in : fn.code) {
     switch (in.op) {
       case Op::kCallMethod:
@@ -71,14 +72,17 @@ int main(int argc, char** argv) {
   int stride = 16;
   bool exec = false;
   for (int i = 2; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--exec") == 0) exec = true;
-    else if (std::atoi(argv[i]) > 0) stride = std::atoi(argv[i]);
+    if (std::strcmp(argv[i], "--exec") == 0)
+      exec = true;
+    else if (std::atoi(argv[i]) > 0)
+      stride = std::atoi(argv[i]);
   }
 
   base::Vector<base::UniquePointer<asset::FileProvider>> providers;
   std::error_code ec;
   for (const auto& e : std::filesystem::directory_iterator(argv[1], ec))
-    if (auto p = bethesda::OpenArchive(e.path().string())) providers.push_back(base::move(p));
+    if (auto p = bethesda::OpenArchive(e.path().string()))
+      providers.push_back(base::move(p));
 
   base::Map<base::String, size_t> scripts;
   for (size_t i = 0; i < providers.size(); ++i)
@@ -98,7 +102,8 @@ int main(int argc, char** argv) {
   base::Map<base::String, base::Vector<base::String>> safe_fns;
   for (const auto& [path, idx] : scripts) {
     auto blob = providers[idx]->Read(path);
-    if (!blob) continue;
+    if (!blob)
+      continue;
     PexFile pex;
     if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex) || pex.objects.empty()) {
       ++parse_fail;
@@ -108,9 +113,11 @@ int main(int argc, char** argv) {
       const Object& obj = pex.objects[0];
       base::String cls = pex.Str(obj.name);
       for (const State& st : obj.states) {
-        if (!pex.Str(st.name).empty()) continue;  // default state only
+        if (!pex.Str(st.name).empty())
+          continue;  // default state only
         for (const NamedFunction& nf : st.functions)
-          if (IsStraightLine(nf.function)) safe_fns[cls].push_back(pex.Str(nf.name));
+          if (IsStraightLine(nf.function))
+            safe_fns[cls].push_back(pex.Str(nf.name));
       }
     }
     base::String type = vm.AddScript(base::move(pex));
@@ -127,7 +134,10 @@ int main(int argc, char** argv) {
   int created = 0, dead = 0;
   for (size_t i = 0; i < types.size(); i += stride) {
     ObjectRef inst = vm.CreateInstance(types[i]);
-    if (vm.IsAlive(inst)) ++created; else ++dead;
+    if (vm.IsAlive(inst))
+      ++created;
+    else
+      ++dead;
   }
 
   std::printf(
@@ -142,7 +152,8 @@ int main(int argc, char** argv) {
     int executed = 0;
     for (const auto& [cls, fns] : safe_fns) {
       ObjectRef inst = vm.CreateInstance(cls);
-      if (!vm.IsAlive(inst)) continue;
+      if (!vm.IsAlive(inst))
+        continue;
       for (const base::String& fn : fns) {
         vm.Call(inst, fn, {});
         ++executed;

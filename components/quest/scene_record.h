@@ -91,7 +91,8 @@ struct SceneDef {
 // scene carries (owning quest, dialogue topics, packages) against the load
 // order; pass null to leave those handles as raw form ids. Always succeeds; a
 // sparse scene yields empty actor/phase/action lists.
-SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
+SceneDef ParseSceneRecord(u64 handle,
+                          const bethesda::Record& record,
                           const bethesda::RecordStore* records);
 
 }  // namespace rx::quest

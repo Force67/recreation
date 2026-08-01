@@ -5,13 +5,13 @@
 #include <cmath>
 #include <cstdlib>
 
-#include "runtime/actor/actor_system.h"
-#include "runtime/vehicle/cart_visuals.h"
+#include "components/world/components.h"
 #include "core/log.h"
+#include "render/core/renderer.h"
+#include "runtime/actor/actor_system.h"
 #include "runtime/app/engine_context.h"
 #include "runtime/camera/fly_camera.h"
-#include "render/core/renderer.h"
-#include "components/world/components.h"
+#include "runtime/vehicle/cart_visuals.h"
 
 namespace rx {
 namespace {
@@ -47,10 +47,12 @@ CarriageSystem::CarriageSystem(EngineContext& ctx, ActorSystem* actors)
 }
 
 void CarriageSystem::Step(f32 dt) {
-  if (!enabled_ || !ctx_.physics || !ctx_.physics->initialized()) return;
+  if (!enabled_ || !ctx_.physics || !ctx_.physics->initialized())
+    return;
   if (!spawned_) {
     Vec3 origin{0, 0, 0};
-    if (actors_) actors_->PlayerWorldPos(&origin);
+    if (actors_)
+      actors_->PlayerWorldPos(&origin);
     Spawn(origin);
     if (!spawned_) {
       enabled_ = false;  // spawn failed (no physics vehicle); don't retry every frame
@@ -76,7 +78,8 @@ void CarriageSystem::Step(f32 dt) {
     t->rotation[2] = 0;
     t->rotation[3] = std::cos(h);
   }
-  if (horse_is_rig_ && actors_) actors_->SetNpcGait(horse_entity_, trot_speed_, true, yaw);
+  if (horse_is_rig_ && actors_)
+    actors_->SetNpcGait(horse_entity_, trot_speed_, true, yaw);
 
   // The hitch point sits behind the horse at the tongue height, so the shaft
   // pulls level. Its velocity is the finite difference of the hitch point.
@@ -89,13 +92,15 @@ void CarriageSystem::Step(f32 dt) {
 }
 
 void CarriageSystem::SyncRender() {
-  if (!spawned_ || ctx_.config->headless || !ctx_.physics) return;
+  if (!spawned_ || ctx_.config->headless || !ctx_.physics)
+    return;
   // The chassis pose is mirrored into body_entity_ by the engine's physics
   // mirror; here we place the four wheels at their live physics transforms.
   for (u32 i = 0; i < 4; ++i) {
     Vec3 wp;
     f32 wr[4];
-    if (!ctx_.physics->GetVehicleWheel(rig_.vehicle(), i, &wp, wr)) continue;
+    if (!ctx_.physics->GetVehicleWheel(rig_.vehicle(), i, &wp, wr))
+      continue;
     if (world::Transform* t = ctx_.world->Get<world::Transform>(wheel_entity_[i])) {
       *t = TransformAt(wp, wr);
     }
@@ -140,7 +145,8 @@ void CarriageSystem::Spawn(const Vec3& origin) {
   ctx_.world->Add(body_entity_, TransformAt(carriage_pos, spawn_rot));
   ctx_.world->Add(body_entity_, world::Renderable{body_mesh});
   ctx_.world->Add(body_entity_, world::FormLink{carriage_form_});
-  if (ctx_.physics_entities) ctx_.physics_entities->push_back({rig_.body(), body_entity_});
+  if (ctx_.physics_entities)
+    ctx_.physics_entities->push_back({rig_.body(), body_entity_});
 
   // Four engine-drawn wheels at the physics wheel transforms.
   asset::Mesh wheel = cart::MakeWheel(renderer, "carriage/wheel", cfg.wheel_radius, 0.12f, draw);
@@ -179,7 +185,7 @@ void CarriageSystem::Spawn(const Vec3& origin) {
   prev_hitch_ = Vec3{horse_start.x, ground, horse_start.z} - tangent * horse_hitch_back_;
   spawned_ = true;
   RX_INFO("carriage: spawned {} horse + free-rolling cart at ({:.1f}, {:.1f})",
-           horse_is_rig_ ? "rig" : "graybox", carriage_pos.x, carriage_pos.z);
+          horse_is_rig_ ? "rig" : "graybox", carriage_pos.x, carriage_pos.z);
 }
 
 Vec3 CarriageSystem::RoutePoint(f32 arc) const {
@@ -193,7 +199,8 @@ Vec3 CarriageSystem::RouteTangent(f32 arc) const {
 }
 
 f32 CarriageSystem::GroundY(f32 x, f32 z, f32 y_hint) const {
-  if (!ctx_.physics) return y_hint;
+  if (!ctx_.physics)
+    return y_hint;
   physics::PhysicsWorld::RayHit hit;
   if (ctx_.physics->Raycast(Vec3{x, y_hint + 5.0f, z}, Vec3{0, -1, 0}, 40.0f, &hit))
     return hit.position.y;
@@ -203,13 +210,15 @@ f32 CarriageSystem::GroundY(f32 x, f32 z, f32 y_hint) const {
 Vec3 CarriageSystem::SeatWorld() const {
   Vec3 pos;
   f32 rot[4];
-  if (!rig_.Pose(*ctx_.physics, &pos, rot)) return pos;
+  if (!rig_.Pose(*ctx_.physics, &pos, rot))
+    return pos;
   const Quat q{rot[0], rot[1], rot[2], rot[3]};
   return pos + Rotate(q, Vec3{0, 1.0f, -0.2f});
 }
 
 bool CarriageSystem::Activate(u64 handle) {
-  if (!spawned_ || handle != carriage_handle_) return false;
+  if (!spawned_ || handle != carriage_handle_)
+    return false;
   riding_ = !riding_;
   if (riding_) {
     ctx_.ride_active = true;
@@ -222,7 +231,8 @@ bool CarriageSystem::Activate(u64 handle) {
     if (rig_.Pose(*ctx_.physics, &pos, rot)) {
       const Quat q{rot[0], rot[1], rot[2], rot[3]};
       const Vec3 off = pos + Rotate(q, Vec3{1.6f, 0, 0});
-      if (actors_) actors_->TeleportPlayer(off.x, GroundY(off.x, off.z, pos.y), off.z);
+      if (actors_)
+        actors_->TeleportPlayer(off.x, GroundY(off.x, off.z, pos.y), off.z);
     }
     RX_INFO("carriage: dismounted");
   }
@@ -235,14 +245,17 @@ const char* CarriageSystem::Label(u64 handle) const {
 
 void CarriageSystem::UpdateRide(f32 dt) {
   (void)dt;
-  if (!riding_ || !ctx_.physics) return;
+  if (!riding_ || !ctx_.physics)
+    return;
   const Vec3 seat = SeatWorld();
   // Pin the player to the seat (capsule + transform follow the carriage).
-  if (actors_) actors_->TeleportPlayer(seat.x, seat.y - actors_->PlayerCapsuleOffset(), seat.z);
+  if (actors_)
+    actors_->TeleportPlayer(seat.x, seat.y - actors_->PlayerCapsuleOffset(), seat.z);
   // Frame a chase camera looking forward over the carriage.
   Vec3 pos;
   f32 rot[4];
-  if (!rig_.Pose(*ctx_.physics, &pos, rot)) return;
+  if (!rig_.Pose(*ctx_.physics, &pos, rot))
+    return;
   const Quat q{rot[0], rot[1], rot[2], rot[3]};
   const Vec3 fwd = Rotate(q, Vec3{0, 0, 1});
   const Vec3 eye = seat + Vec3{0, 1.4f, 0} - fwd * 3.2f;

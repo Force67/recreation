@@ -1,8 +1,8 @@
-#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <span>
 #include <string>
 
@@ -21,14 +21,14 @@
 #include "components/bethesda/material_db.h"
 #include "components/bethesda/planet.h"
 #include "components/bethesda/record.h"
-#include "core/log.h"
-#include "runtime/app/engine.h"
-#include "runtime/app/engine_internal.h"
 #include "components/script/obscript/obscript_runtime.h"
 #include "components/script/papyrus/value.h"
 #include "components/weather/weather_loader.h"
 #include "components/world/components.h"
 #include "components/world/planet_tile.h"
+#include "core/log.h"
+#include "runtime/app/engine.h"
+#include "runtime/app/engine_internal.h"
 
 // Bringing a universe online: mounts archives, loads the record/string/dialogue
 // data, stands up the Papyrus guest and Skyrim bindings, then builds the cell
@@ -92,7 +92,8 @@ bool LoadGameData(Engine& engine) {
   bethesda::RegisterConverters(*self->assets_, profile);
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(self->config_.plugins_txt, profile);
-  if (!self->records_.LoadAll(self->config_.data_dir, order, profile)) return false;
+  if (!self->records_.LoadAll(self->config_.data_dir, order, profile))
+    return false;
   RX_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
 
   // Localized string tables, base masters first so their ids win the collisions
@@ -115,7 +116,8 @@ bool LoadGameData(Engine& engine) {
   if (self->game_ == bethesda::Game::kFallout3 || self->game_ == bethesda::Game::kFalloutNv) {
     rx::script::obscript::Runtime obscript;
     obscript.Build(self->records_);
-    if (ObscriptReport) obscript.Report();
+    if (ObscriptReport)
+      obscript.Report();
   }
 
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
@@ -138,7 +140,8 @@ bool LoadGameData(Engine& engine) {
   const auto game_hour = self->records_.FindGlobal("GameHour");
   const auto days_passed = self->records_.FindGlobal("GameDaysPassed");
   auto timescale_glob = self->records_.FindGlobal("TimeScale");
-  if (timescale_glob.plugin == 0xffff) timescale_glob = self->records_.FindGlobal("Timescale");
+  if (timescale_glob.plugin == 0xffff)
+    timescale_glob = self->records_.FindGlobal("Timescale");
   f32 authored_timescale = 20.0f;
   if (timescale_glob.plugin != 0xffff) {
     // Read before set_time_globals so it returns the authored FLTV, not the clock.
@@ -157,7 +160,8 @@ bool LoadGameData(Engine& engine) {
     base::UnorderedMap<u64, rx::weather::WeatherDef> weathers;
     const int n = rx::weather::LoadWeathers(self->records_, &weathers);
     int kinds[4] = {};
-    for (auto [id, def] : weathers) kinds[static_cast<int>(def.kind)]++;
+    for (auto [id, def] : weathers)
+      kinds[static_cast<int>(def.kind)]++;
     RX_INFO("weather: WTHR kinds -- pleasant {} cloudy {} rainy {} snow {}", kinds[0], kinds[1],
             kinds[2], kinds[3]);
     const bool starfield = self->game_ == bethesda::Game::kStarfield;
@@ -184,7 +188,8 @@ bool LoadGameData(Engine& engine) {
                                             : rx::weather::WeatherDef::Kind::kPleasant;
       climate.clear();
       for (const auto [id, def] : weathers)
-        if (def.kind == kind) climate.push_back({def, 1});
+        if (def.kind == kind)
+          climate.push_back({def, 1});
       if (climate.empty()) {
         rx::weather::WeatherDef forced;
         forced.kind = kind;
@@ -238,7 +243,8 @@ bool LoadGameData(Engine& engine) {
       for (u64 region : self->region_ambience_.RegionForms()) {
         for (const bethesda::GlobalFormId& snd : self->region_ambience_.SoundsFor(region)) {
           const base::String path = self->sound_catalog_.PathFor(snd);
-          if (path.empty()) continue;
+          if (path.empty())
+            continue;
           if (!self->audio_->HasAsset(path)) {
             RX_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(),
                     path);
@@ -270,7 +276,8 @@ bool LoadGameData(Engine& engine) {
     // The open-field battle demo anchors the player on its staged dry venue, so a
     // background quest (a follower/pet setup, an auto-started scene) must not warp
     // the player off it mid-demo.
-    if (CwFieldBattle || CwSiegeDemo) return;
+    if (CwFieldBattle || CwSiegeDemo)
+      return;
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded
     // world rather than at interior-local coordinates floating in the exterior.
@@ -399,7 +406,8 @@ bool LoadGameData(Engine& engine) {
   // prints the journey, then quits; RX_DIALOGUE_REPORT dumps its dialogue.
   // RX_WAR_MAP opens the Civil War war-map overlay at load (normally toggled
   // with M), for screenshots.
-  if (WarMap) self->war_map_open_ = true;
+  if (WarMap)
+    self->war_map_open_ = true;
   if (const char* want = QuestList.get()) {
     self->quest_->ReportQuestList(want);
     self->host_->RequestQuit();
@@ -436,10 +444,12 @@ bool LoadGameData(Engine& engine) {
   }
   // Headless reports drive quests during init and quit before the main loop, so
   // deliver any events they queued to managed hooks here too.
-  if (self->managed_) self->managed_->DrainEvents();
+  if (self->managed_)
+    self->managed_->DrainEvents();
 
   // Actor bringup scene: load a Skyrim character and animate it, no streaming.
-  if (self->config_.demo_scene == "actor") return self->actors_->CreateSkyrimActor();
+  if (self->config_.demo_scene == "actor")
+    return self->actors_->CreateSkyrimActor();
 
   // FaceGen head lineup: assemble + morph real NPC heads, no streaming. Needs
   // the loaded records/vfs, hence it routes through here rather than the bare
@@ -473,7 +483,8 @@ bool LoadGameData(Engine& engine) {
   // clients can apply replicated actor transforms by form id.
   self->streamer_->set_quest_world((self->quest_world_ ? &*self->quest_world_ : nullptr));
   self->quest_world_->set_on_reference_changed([self](u64 handle) {
-    if (self->streamer_) self->streamer_->SyncReference(*self->world_, handle);
+    if (self->streamer_)
+      self->streamer_->SyncReference(*self->world_, handle);
   });
   if (self->physics_->initialized()) {
     self->streamer_->set_physics(self->physics_);
@@ -530,9 +541,12 @@ bool LoadGameData(Engine& engine) {
   // RX_INTERIOR=<editor id or 0x form id> boots straight into that interior
   // cell with the flycam placed inside, for testing authored interior lighting.
   // --interior takes precedence when both are given.
-  if (self->config_.interior.empty() && Interior.get()) self->config_.interior = Interior.get();
-  if (!self->config_.interior.empty()) return LoadInterior(engine);
-  if (!self->streamer_->SelectWorldspace(profile.exterior_worldspace)) return false;
+  if (self->config_.interior.empty() && Interior.get())
+    self->config_.interior = Interior.get();
+  if (!self->config_.interior.empty())
+    return LoadInterior(engine);
+  if (!self->streamer_->SelectWorldspace(profile.exterior_worldspace))
+    return false;
 
   // Without an explicit --cell, start in the game's content-dense cell so the
   // first view is its signature locale, not whichever grid Whiterun happens to
@@ -628,7 +642,8 @@ bool LoadGameData(Engine& engine) {
       }
       f32 wh;
       Vec3 flow;
-      if (self->streamer_->WaterHeightAt({px, h, pz}, &wh, &flow) && h < wh - 0.5f) ++submerged;
+      if (self->streamer_->WaterHeightAt({px, h, pz}, &wh, &flow) && h < wh - 0.5f)
+        ++submerged;
     }
     RX_INFO("venue probe cell {},{}: base_y={:.1f} max_drop={:.1f}m submerged={}/12 sampled={}",
             self->config_.start_cell_x, self->config_.start_cell_y, ground, max_drop, submerged,
@@ -654,7 +669,8 @@ bool LoadGameData(Engine& engine) {
 
 void SetupExtraStreamers(Engine& engine) {
   Engine* const self = &engine;
-  if (self->config_.headless || self->extra_domains_.empty()) return;
+  if (self->config_.headless || self->extra_domains_.empty())
+    return;
 
   // Each secondary worldspace is a fixed diorama placed this far east of the
   // primary camera, stepped per domain so several never overlap. RX_DOMAIN_OFFSET
@@ -797,7 +813,8 @@ bool LoadPlanetTile(Engine& engine, const base::String& biom_name) {
     };
     self->planet_tile_->SetUploads(base::move(uploads));
   }
-  if (self->physics_->initialized()) self->planet_tile_->set_physics(self->physics_);
+  if (self->physics_->initialized())
+    self->planet_tile_->set_physics(self->physics_);
 
   const u32 cells = self->planet_tile_->Generate(*self->world_);
   if (cells == 0) {
@@ -831,7 +848,8 @@ bool LoadInterior(Engine& engine) {
   }
 
   Vec3 start{};
-  if (!self->streamer_->LoadInterior(*self->world_, cell_id, &start)) return false;
+  if (!self->streamer_->LoadInterior(*self->world_, cell_id, &start))
+    return false;
   self->camera_.set_position(start);
   self->camera_.set_yaw_pitch(0.0f, 0.0f);
   self->camera_.speed = 5.0f;
@@ -892,20 +910,25 @@ void MountArchives(Engine& engine) {
     base::String path = entry.path().string();
     // TODO: archive order should follow plugin order plus the ini resource
     // lists, alphabetical is a placeholder.
-    if (auto provider = bethesda::OpenArchive(path)) self->vfs_->Mount(base::move(provider));
+    if (auto provider = bethesda::OpenArchive(path))
+      self->vfs_->Mount(base::move(provider));
   }
 }
 
 bool Engine::LoadGltfScene() {
   asset::GltfScene scene;
-  if (!asset::LoadGltfScene(config_.gltf_path.c_str(), &scene)) return false;
+  if (!asset::LoadGltfScene(config_.gltf_path.c_str(), &scene))
+    return false;
 
   if (!config_.headless) {
     for (const asset::Texture& texture : scene.textures) {
-      if (texture.id) renderer_->UploadTexture(texture);
+      if (texture.id)
+        renderer_->UploadTexture(texture);
     }
-    for (const asset::Material& material : scene.materials) renderer_->UploadMaterial(material);
-    for (const asset::Mesh& mesh : scene.meshes) renderer_->UploadMesh(mesh);
+    for (const asset::Material& material : scene.materials)
+      renderer_->UploadMaterial(material);
+    for (const asset::Mesh& mesh : scene.meshes)
+      renderer_->UploadMesh(mesh);
   }
 
   for (const asset::GltfScene::Instance& instance : scene.instances) {

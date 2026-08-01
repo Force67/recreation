@@ -22,15 +22,15 @@ struct WeatherDef {
 
   f32 cloud_coverage = 0.18f;  // volumetric cloud coverage 0..1
   f32 cloud_density = 1.0f;
-  f32 aerosol = 0.0f;        // haze / turbidity 0..1, scales aerial perspective
-  f32 wind = 10.0f;          // cloud drift, m/s
-  f32 light_scale = 1.0f;    // multiplies sun intensity (overcast dims the light)
-  Vec3 light_tint{1, 1, 1};  // multiplies sun colour (overcast greys it)
-  f32 precipitation = 0.0f;  // 0 none .. 1 heavy
-  bool snow = false;         // precipitation is snow vs rain
-  bool thunder = false;      // lightning strikes (heavy rain, FO4 radstorms)
-  f32 wind_yaw = 0.0f;       // radians, direction the wind blows toward (XZ)
-  f32 gustiness = 0.15f;     // 0 steady .. 1 squally
+  f32 aerosol = 0.0f;                        // haze / turbidity 0..1, scales aerial perspective
+  f32 wind = 10.0f;                          // cloud drift, m/s
+  f32 light_scale = 1.0f;                    // multiplies sun intensity (overcast dims the light)
+  Vec3 light_tint{1, 1, 1};                  // multiplies sun colour (overcast greys it)
+  f32 precipitation = 0.0f;                  // 0 none .. 1 heavy
+  bool snow = false;                         // precipitation is snow vs rain
+  bool thunder = false;                      // lightning strikes (heavy rain, FO4 radstorms)
+  f32 wind_yaw = 0.0f;                       // radians, direction the wind blows toward (XZ)
+  f32 gustiness = 0.15f;                     // 0 steady .. 1 squally
   Vec3 lightning_color{0.86f, 0.88f, 1.0f};  // normalized flash tint
   // Seconds between lightning strikes; < 0 means the weather never thunders
   // (the WTHR thunder-frequency byte maps LOWER = MORE frequent).
@@ -74,7 +74,7 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t);
 struct Region {
   u64 form = 0;
   i32 priority = 0;  // higher wins where regions overlap (REGN RDAT priority)
-  base::Vector<base::Pair<f32, f32>> polygon;        // worldspace XY (game units)
+  base::Vector<base::Pair<f32, f32>> polygon;         // worldspace XY (game units)
   base::Vector<base::Pair<WeatherDef, u32>> climate;  // (weather, chance)
 };
 

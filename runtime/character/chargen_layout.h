@@ -46,8 +46,10 @@ inline base::String SerializeCharGenPreset(const CharGenPreset& p) {
   out << "skin " << p.skin[0] << ' ' << p.skin[1] << ' ' << p.skin[2] << '\n';
   out << "hair " << p.hair[0] << ' ' << p.hair[1] << ' ' << p.hair[2] << '\n';
   out << "nama " << p.nama[0] << ' ' << p.nama[1] << ' ' << p.nama[2] << ' ' << p.nama[3] << '\n';
-  for (const auto& [i, v] : p.nam9) out << "nam9 " << i << ' ' << v << '\n';
-  for (const auto& [name, w] : p.morphs) out << "morph " << name.c_str() << ' ' << w << '\n';
+  for (const auto& [i, v] : p.nam9)
+    out << "nam9 " << i << ' ' << v << '\n';
+  for (const auto& [name, w] : p.morphs)
+    out << "morph " << name.c_str() << ' ' << w << '\n';
   const std::string text = out.str();
   return base::String(text.c_str(), text.size());
 }
@@ -63,7 +65,8 @@ inline bool ParseCharGenPreset(const base::String& text, CharGenPreset* out) {
   std::istringstream in(text.c_str());
   std::string line;
   while (std::getline(in, line)) {
-    if (line.empty() || line[0] == '#') continue;
+    if (line.empty() || line[0] == '#')
+      continue;
     std::istringstream ss(line);
     std::string tag;
     ss >> tag;
@@ -112,7 +115,8 @@ inline bool ParseCharGenPreset(const base::String& text, CharGenPreset* out) {
       }
     }
   }
-  if (any) *out = base::move(p);
+  if (any)
+    *out = base::move(p);
   return any;
 }
 

@@ -20,18 +20,21 @@ class Reader {
   size_t pos() const { return pos_; }
 
   u8 U8() {
-    if (!Need(1)) return 0;
+    if (!Need(1))
+      return 0;
     return data_[pos_++];
   }
   u16 U16() {
-    if (!Need(2)) return 0;
+    if (!Need(2))
+      return 0;
     u16 v = u16(data_[pos_]) | u16(data_[pos_ + 1]) << 8;
     pos_ += 2;
     return v;
   }
   i16 I16() { return static_cast<i16>(U16()); }
   u32 U32() {
-    if (!Need(4)) return 0;
+    if (!Need(4))
+      return 0;
     u32 v = u32(data_[pos_]) | u32(data_[pos_ + 1]) << 8 | u32(data_[pos_ + 2]) << 16 |
             u32(data_[pos_ + 3]) << 24;
     pos_ += 4;
@@ -47,7 +50,8 @@ class Reader {
   // VMAD strings are uint16 length prefixed, no terminator.
   base::String Str() {
     u16 len = U16();
-    if (!Need(len)) return {};
+    if (!Need(len))
+      return {};
     base::String s(reinterpret_cast<const char*>(data_.data() + pos_), len);
     pos_ += len;
     return s;
@@ -110,24 +114,29 @@ void SkipPropertyValue(Reader& r, i16 object_format, u8 type) {
       r.U8();
       break;
     case 11:
-      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) ReadObject(r, object_format);
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i)
+        ReadObject(r, object_format);
       break;
     case 12:
-      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.Str();
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i)
+        r.Str();
       break;
     case 13:
     case 14:
-      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.U32();
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i)
+        r.U32();
       break;
     case 15:
-      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i) r.U8();
+      for (u32 n = r.U32(), i = 0; i < n && r.ok(); ++i)
+        r.U8();
       break;
     case 17: {
       // FO4 array-of-struct: a count of structs, each a count of members, each a
       // name/type/status/value. The engine has no use for the values, so skip.
       u32 elements = r.U32();
       for (u32 e = 0; e < elements && r.ok(); ++e)
-        for (u32 m = r.U32(), i = 0; i < m && r.ok(); ++i) SkipProperty(r, object_format);
+        for (u32 m = r.U32(), i = 0; i < m && r.ok(); ++i)
+          SkipProperty(r, object_format);
       break;
     }
     default:
@@ -155,27 +164,32 @@ void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
       break;
     case 11: {
       u32 n = r.U32();
-      for (u32 i = 0; i < n && r.ok(); ++i) p->object_array.push_back(ReadObject(r, object_format));
+      for (u32 i = 0; i < n && r.ok(); ++i)
+        p->object_array.push_back(ReadObject(r, object_format));
       break;
     }
     case 12: {
       u32 n = r.U32();
-      for (u32 i = 0; i < n && r.ok(); ++i) p->string_array.push_back(r.Str());
+      for (u32 i = 0; i < n && r.ok(); ++i)
+        p->string_array.push_back(r.Str());
       break;
     }
     case 13: {
       u32 n = r.U32();
-      for (u32 i = 0; i < n && r.ok(); ++i) p->int_array.push_back(r.I32());
+      for (u32 i = 0; i < n && r.ok(); ++i)
+        p->int_array.push_back(r.I32());
       break;
     }
     case 14: {
       u32 n = r.U32();
-      for (u32 i = 0; i < n && r.ok(); ++i) p->float_array.push_back(r.F32());
+      for (u32 i = 0; i < n && r.ok(); ++i)
+        p->float_array.push_back(r.F32());
       break;
     }
     case 15: {
       u32 n = r.U32();
-      for (u32 i = 0; i < n && r.ok(); ++i) p->bool_array.push_back(r.U8());
+      for (u32 i = 0; i < n && r.ok(); ++i)
+        p->bool_array.push_back(r.U8());
       break;
     }
     case 17:
@@ -201,14 +215,16 @@ bool ReadScriptList(Reader& r, i16 version, i16 object_format, base::Vector<Scri
   for (u16 i = 0; i < script_count && r.ok(); ++i) {
     ScriptEntry entry;
     entry.name = r.Str();
-    if (has_status) entry.status = r.U8();
+    if (has_status)
+      entry.status = r.U8();
     u16 prop_count = r.U16();
     entry.properties.reserve(prop_count);
     for (u16 j = 0; j < prop_count && r.ok(); ++j) {
       ScriptProperty prop;
       prop.name = r.Str();
       prop.type = r.U8();
-      if (has_status) prop.status = r.U8();
+      if (has_status)
+        prop.status = r.U8();
       ReadPropertyValue(r, object_format, &prop);
       entry.properties.push_back(base::move(prop));
     }
@@ -240,10 +256,12 @@ bool ReadScriptsSection(Reader& r, ScriptAttachment* out) {
 // script. Skyrim (version 5) has neither. Skipping it leaves the reader at the
 // fragment entries, whose layout matches v5.
 void SkipFalloutFragmentHeader(Reader& r, const ScriptAttachment& att) {
-  if (att.version < 6) return;
+  if (att.version < 6)
+    return;
   r.U8();  // unknown
   u16 prop_count = r.U16();
-  for (u16 i = 0; i < prop_count && r.ok(); ++i) SkipProperty(r, att.object_format);
+  for (u16 i = 0; i < prop_count && r.ok(); ++i)
+    SkipProperty(r, att.object_format);
 }
 
 }  // namespace
@@ -253,28 +271,35 @@ bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out) {
   return ReadScriptsSection(r, out);
 }
 
-void ResolveScriptObjectForms(ScriptAttachment* attachment, const base::Function<u64(u32)>& resolve,
+void ResolveScriptObjectForms(ScriptAttachment* attachment,
+                              const base::Function<u64(u32)>& resolve,
                               const base::Function<u64(u64)>& remap) {
-  if (!attachment || !resolve) return;
+  if (!attachment || !resolve)
+    return;
   auto resolve_object = [&](ScriptObjectValue& object) {
-    if (object.alias_id != 0xffff || object.form_id == 0) return;
+    if (object.alias_id != 0xffff || object.form_id == 0)
+      return;
     u64 handle = resolve(static_cast<u32>(object.form_id));
     object.form_id = remap ? remap(handle) : handle;
   };
   for (ScriptEntry& script : attachment->scripts) {
     for (ScriptProperty& property : script.properties) {
-      if (property.type == 1) resolve_object(property.object_value);
+      if (property.type == 1)
+        resolve_object(property.object_value);
       if (property.type == 11)
-        for (ScriptObjectValue& object : property.object_array) resolve_object(object);
+        for (ScriptObjectValue& object : property.object_array)
+          resolve_object(object);
     }
   }
 }
 
-bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
+bool ParseQuestFragments(ByteSpan vmad,
+                         ScriptAttachment* out,
                          base::Vector<QuestStageFragment>* fragments,
                          base::Vector<QuestAliasScripts>* alias_scripts) {
   Reader r(vmad);
-  if (!ReadScriptsSection(r, out)) return false;
+  if (!ReadScriptsSection(r, out))
+    return false;
 
   // Quest fragment section (SSE): a flags/version byte, the fragment count, the
   // QF script file name, then one entry per stage-with-a-fragment. FO4 (v6) adds
@@ -291,7 +316,8 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
     r.U8();  // per-fragment flags, unused
     f.script_name = r.Str();
     f.function = r.Str();
-    if (r.ok()) fragments->push_back(base::move(f));
+    if (r.ok())
+      fragments->push_back(base::move(f));
   }
 
   // Alias scripts follow: a count, then per alias a VMAD object (carrying the
@@ -310,8 +336,10 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
       if (a.scripts.version < 1 || a.scripts.version > 6 ||
           (a.scripts.object_format != 1 && a.scripts.object_format != 2))
         break;  // malformed alias header: cannot size the rest safely
-      if (!ReadScriptList(r, a.scripts.version, a.scripts.object_format, &a.scripts.scripts)) break;
-      if (!a.scripts.scripts.empty()) alias_scripts->push_back(base::move(a));
+      if (!ReadScriptList(r, a.scripts.version, a.scripts.object_format, &a.scripts.scripts))
+        break;
+      if (!a.scripts.scripts.empty())
+        alias_scripts->push_back(base::move(a));
     }
   }
   return true;
@@ -319,7 +347,8 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
 
 bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* frags) {
   Reader r(vmad);
-  if (!ReadScriptsSection(r, out)) return false;
+  if (!ReadScriptsSection(r, out))
+    return false;
 
   // INFO fragment section (SSE): a version byte, a flags byte (bit 0 = a start
   // fragment is present, bit 1 = an end fragment), the shared TIF file name,
@@ -348,7 +377,8 @@ bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* fra
 
 bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* frags) {
   Reader r(vmad);
-  if (!ReadScriptsSection(r, out)) return false;
+  if (!ReadScriptsSection(r, out))
+    return false;
 
   // SCEN fragment section (SSE): a version byte, a flags byte (bit 0 = a begin
   // fragment is present, bit 1 = an end fragment), the shared SF_ file name, the
@@ -378,7 +408,8 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
     p.on_begin = kind != 2;
     p.fragment.script_name = r.Str();
     p.fragment.function = r.Str();
-    if (r.ok()) frags->phases.push_back(base::move(p));
+    if (r.ok())
+      frags->phases.push_back(base::move(p));
   }
   if (!r.ok()) {
     frags->begin = SceneFragment{};
@@ -390,7 +421,8 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
 
 bool ParsePackageFragments(ByteSpan vmad, ScriptAttachment* out, PackageFragments* frags) {
   Reader r(vmad);
-  if (!ReadScriptsSection(r, out)) return false;
+  if (!ReadScriptsSection(r, out))
+    return false;
 
   // PACK fragment section: a version byte, a u32 of flags (bit 0 on-begin,
   // bit 1 on-end, bit 2 on-change), the shared PF_ file name, then the present
@@ -404,10 +436,14 @@ bool ParsePackageFragments(ByteSpan vmad, ScriptAttachment* out, PackageFragment
     into->script_name = r.Str();
     into->function = r.Str();
   };
-  if (flags & 0x01) read(&frags->on_begin);
-  if (flags & 0x02) read(&frags->on_end);
-  if (flags & 0x04) read(&frags->on_change);
-  if (!r.ok()) *frags = PackageFragments{};
+  if (flags & 0x01)
+    read(&frags->on_begin);
+  if (flags & 0x02)
+    read(&frags->on_end);
+  if (flags & 0x04)
+    read(&frags->on_change);
+  if (!r.ok())
+    *frags = PackageFragments{};
   return true;
 }
 

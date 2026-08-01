@@ -6,8 +6,8 @@
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 
-#include "core/types.h"
 #include "components/script/papyrus/fiber.h"
+#include "core/types.h"
 
 namespace rx::script::papyrus {
 
@@ -56,8 +56,8 @@ class FiberScheduler {
  private:
   struct Parked {
     base::UniquePointer<Fiber> fiber;
-    f64 real_due;                   // resume when real_now >= this; <0 if not a real-time wait
-    f64 game_due;                   // resume when game_now >= this; <0 if not a game-time wait
+    f64 real_due;                    // resume when real_now >= this; <0 if not a real-time wait
+    f64 game_due;                    // resume when game_now >= this; <0 if not a game-time wait
     base::Function<void()> restore;  // re-establishes this fiber's context before resume
   };
 

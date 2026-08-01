@@ -7,8 +7,8 @@
 #include <optional>
 #include <vector>
 
-#include "core/types.h"
 #include "components/world/quest_world.h"
+#include "core/types.h"
 
 namespace rx::net {
 

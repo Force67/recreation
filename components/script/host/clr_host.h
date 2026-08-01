@@ -37,8 +37,10 @@ class ClrHost {
   //                  runtime rejects is logged and skipped, not fatal.
   // Returns false (and leaves available() false) if .NET is not present or the
   // entrypoint cannot be resolved.
-  bool Initialize(const base::String& dotnet_root, const base::String& runtime_config_path,
-                  const base::String& assembly_path, const base::String& type_name,
+  bool Initialize(const base::String& dotnet_root,
+                  const base::String& runtime_config_path,
+                  const base::String& assembly_path,
+                  const base::String& type_name,
                   const base::String& method_name,
                   const base::Vector<base::Pair<base::String, base::String>>& properties = {});
 

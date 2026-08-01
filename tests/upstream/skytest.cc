@@ -18,10 +18,18 @@ namespace {
 struct Spec {
   double r = 0, g = 0, b = 0;
 };
-Spec operator+(Spec a, Spec b) { return {a.r + b.r, a.g + b.g, a.b + b.b}; }
-Spec operator*(Spec a, double s) { return {a.r * s, a.g * s, a.b * s}; }
-Spec operator*(Spec a, Spec b) { return {a.r * b.r, a.g * b.g, a.b * b.b}; }
-Spec ExpNeg(Spec a) { return {std::exp(-a.r), std::exp(-a.g), std::exp(-a.b)}; }
+Spec operator+(Spec a, Spec b) {
+  return {a.r + b.r, a.g + b.g, a.b + b.b};
+}
+Spec operator*(Spec a, double s) {
+  return {a.r * s, a.g * s, a.b * s};
+}
+Spec operator*(Spec a, Spec b) {
+  return {a.r * b.r, a.g * b.g, a.b * b.b};
+}
+Spec ExpNeg(Spec a) {
+  return {std::exp(-a.r), std::exp(-a.g), std::exp(-a.b)};
+}
 
 // --- atmosphere constants (must match shaders/atmosphere.hlsli) ---
 constexpr double kPi = 3.14159265358979;
@@ -54,14 +62,18 @@ double RaySphere(std::array<double, 3> p, std::array<double, 3> d, double radius
   double b = p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
   double c = p[0] * p[0] + p[1] * p[1] + p[2] * p[2] - radius * radius;
   double disc = b * b - c;
-  if (disc < 0) return -1;
+  if (disc < 0)
+    return -1;
   disc = std::sqrt(disc);
   double t0 = -b - disc, t1 = -b + disc;
-  if (t1 < 0) return -1;
+  if (t1 < 0)
+    return -1;
   return t0 < 0 ? t1 : t0;
 }
 
-double Len(std::array<double, 3> p) { return std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]); }
+double Len(std::array<double, 3> p) {
+  return std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+}
 
 // Transmittance from a point at `radius` along a ray with view-zenith cosine
 // `mu`, to the top of the atmosphere.
@@ -69,7 +81,8 @@ Spec Transmittance(double radius, double mu) {
   std::array<double, 3> p{0, radius, 0};
   std::array<double, 3> d{std::sqrt(std::max(0.0, 1 - mu * mu)), mu, 0};
   double t_top = RaySphere(p, d, kTop);
-  if (t_top < 0) return {1, 1, 1};
+  if (t_top < 0)
+    return {1, 1, 1};
   const int kSteps = 64;
   Spec tau{};
   double dt = t_top / kSteps;
@@ -81,7 +94,9 @@ Spec Transmittance(double radius, double mu) {
   return ExpNeg(tau);
 }
 
-double RayleighPhase(double c) { return 3.0 / (16.0 * kPi) * (1.0 + c * c); }
+double RayleighPhase(double c) {
+  return 3.0 / (16.0 * kPi) * (1.0 + c * c);
+}
 double MiePhase(double c, double g) {
   double g2 = g * g;
   return 3.0 / (8.0 * kPi) * ((1 - g2) * (1 + c * c)) /
@@ -96,7 +111,8 @@ Spec SkyRadiance(std::array<double, 3> view, std::array<double, 3> sun, bool wit
   double t_ground = RaySphere(p0, view, kGround);
   double t_top = RaySphere(p0, view, kTop);
   double t_max = t_ground > 0 ? t_ground : t_top;
-  if (t_max <= 0) return {};
+  if (t_max <= 0)
+    return {};
   double mu = view[0] * sun[0] + view[1] * sun[1] + view[2] * sun[2];
   double rp = RayleighPhase(mu), mp = MiePhase(mu, 0.8);
   const int kSteps = 48;
@@ -132,7 +148,9 @@ Spec SkyRadiance(std::array<double, 3> view, std::array<double, 3> sun, bool wit
   return L;
 }
 
-double Luma(Spec s) { return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b; }
+double Luma(Spec s) {
+  return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
+}
 
 }  // namespace
 
@@ -140,7 +158,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-56s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // --- Transmittance invariants ---
@@ -175,7 +194,7 @@ int main() {
 
   // --- Sky radiance: zenith bluer than horizon; sun set darkens the sky ---
   std::array<double, 3> up{0, 1, 0};
-  std::array<double, 3> sun_high{0.0, 0.85, -0.53};   // ~58 deg
+  std::array<double, 3> sun_high{0.0, 0.85, -0.53};    // ~58 deg
   std::array<double, 3> sun_horizon{0.0, 0.05, -1.0};  // ~3 deg
   std::array<double, 3> sun_below{0.0, -0.2, -0.98};   // below horizon
   // normalize the sun dirs

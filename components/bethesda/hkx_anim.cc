@@ -48,13 +48,15 @@ struct Cursor {
   u8 U8() { return at < size ? data[at++] : 0; }
   u16 U16() {
     u16 v = 0;
-    if (at + 2 <= size) std::memcpy(&v, data + at, 2);
+    if (at + 2 <= size)
+      std::memcpy(&v, data + at, 2);
     at += 2;
     return v;
   }
   f32 F32() {
     f32 v = 0;
-    if (at + 4 <= size) std::memcpy(&v, data + at, 4);
+    if (at + 4 <= size)
+      std::memcpy(&v, data + at, 4);
     at += 4;
     return v;
   }
@@ -71,7 +73,8 @@ struct Cursor {
 // and 1 sign bit for it.
 void UnpackThreeComp40(const u8* bytes, f32 out[4]) {
   u64 v = 0;
-  for (int i = 0; i < 5; ++i) v |= static_cast<u64>(bytes[i]) << (i * 8);
+  for (int i = 0; i < 5; ++i)
+    v |= static_cast<u64>(bytes[i]) << (i * 8);
   constexpr f32 kFrac = 1.41421356f / 4094.0f;  // full 12-bit span -> sqrt(2)
   f32 c[3];
   for (int i = 0; i < 3; ++i) {
@@ -82,9 +85,11 @@ void UnpackThreeComp40(const u8* bytes, f32 out[4]) {
   bool invert = ((v >> 38) & 0x1) != 0;
   f32 missing = 1.0f - c[0] * c[0] - c[1] * c[1] - c[2] * c[2];
   missing = missing > 0.0f ? std::sqrt(missing) : 0.0f;
-  if (invert) missing = -missing;
+  if (invert)
+    missing = -missing;
   u32 j = 0;
-  for (u32 i = 0; i < 4; ++i) out[i] = (i == shift) ? missing : c[j++];
+  for (u32 i = 0; i < 4; ++i)
+    out[i] = (i == shift) ? missing : c[j++];
 }
 
 // THREECOMP48: 6 bytes = three u16, each carrying a 15-bit component over the
@@ -103,9 +108,11 @@ void UnpackThreeComp48(const u8* bytes, f32 out[4]) {
   bool invert = (item[2] >> 15) != 0;
   f32 missing = 1.0f - c[0] * c[0] - c[1] * c[1] - c[2] * c[2];
   missing = missing > 0.0f ? std::sqrt(missing) : 0.0f;
-  if (invert) missing = -missing;
+  if (invert)
+    missing = -missing;
   u32 j = 0;
-  for (u32 i = 0; i < 4; ++i) out[i] = (i == shift) ? missing : c[j++];
+  for (u32 i = 0; i < 4; ++i)
+    out[i] = (i == shift) ? missing : c[j++];
 }
 
 // Reads a NURBS header: control point count - 1, degree, then the knot
@@ -114,12 +121,16 @@ void ReadSplineHeader(Cursor* cursor, u16* num_items, u8* degree, base::Vector<u
   *num_items = cursor->U16();
   *degree = cursor->U8();
   knots->resize(*num_items + *degree + 2);
-  for (auto& k : *knots) k = cursor->U8();
+  for (auto& k : *knots)
+    k = cursor->U8();
 }
 
 // Vector channel (position or scale): per-component static/spline masks in
 // one byte (low nibble static, high nibble spline).
-void ReadVectorChannel(Cursor* cursor, u8 mask, u8 quant_bits, f32 default_value,
+void ReadVectorChannel(Cursor* cursor,
+                       u8 mask,
+                       u8 quant_bits,
+                       f32 default_value,
                        HkxAnimation::Channel* out) {
   out->stride = 3;
   out->static_value[0] = out->static_value[1] = out->static_value[2] = default_value;
@@ -128,7 +139,8 @@ void ReadVectorChannel(Cursor* cursor, u8 mask, u8 quant_bits, f32 default_value
   spline &= static_cast<u8>(~fixed);  // static wins when both bits are set
   if (spline == 0) {
     for (int c = 0; c < 3; ++c) {
-      if (fixed & (1 << c)) out->static_value[c] = cursor->F32();
+      if (fixed & (1 << c))
+        out->static_value[c] = cursor->F32();
     }
     return;
   }
@@ -174,7 +186,8 @@ bool ReadRotationChannel(Cursor* cursor, u8 mask, u8 quant, HkxAnimation::Channe
   // THREECOMP40 (=1) is all Bethesda ships; THREECOMP48 (=2) shows up in
   // HCT-exported mod content. POLAR32/24-bit stay unsupported.
   if (quant != 1 && quant != 2) {
-    if ((mask & 0xF0) != 0 || (mask & 0x0F) != 0) return false;
+    if ((mask & 0xF0) != 0 || (mask & 0x0F) != 0)
+      return false;
     return true;
   }
   const size_t point_bytes = quant == 1 ? 5 : 6;
@@ -185,19 +198,22 @@ bool ReadRotationChannel(Cursor* cursor, u8 mask, u8 quant, HkxAnimation::Channe
     ReadSplineHeader(cursor, &num_items, &degree, &out->knots);
     // 40-bit quats follow the knots directly; 48-bit payloads align to 2
     // (matching Havok's serializer).
-    if (quant == 2) cursor->Align(2);
+    if (quant == 2)
+      cursor->Align(2);
     out->has_spline = true;
     out->degree = degree;
     out->control_points.resize(static_cast<size_t>(num_items + 1) * 4);
     for (u32 p = 0; p <= num_items; ++p) {
       const u8* bytes = cursor->Bytes(point_bytes);
-      if (!bytes) return false;
+      if (!bytes)
+        return false;
       unpack(bytes, &out->control_points[p * 4]);
     }
     cursor->Align(4);
   } else if (mask & 0x0F) {
     const u8* bytes = cursor->Bytes(point_bytes);
-    if (!bytes) return false;
+    if (!bytes)
+      return false;
     unpack(bytes, out->static_value);
     cursor->Align(4);
   }
@@ -214,7 +230,8 @@ void EvaluateSpline(const HkxAnimation::Channel& channel, f32 u, f32* out) {
   // Find the knot span (clamped).
   int span = degree;
   int max_span = point_count - 1;
-  while (span < max_span && static_cast<f32>(knots[span + 1]) <= u) ++span;
+  while (span < max_span && static_cast<f32>(knots[span + 1]) <= u)
+    ++span;
 
   // Working copy of the affected control points.
   f32 work[4 * 4];  // (degree+1) points, degree <= 3
@@ -238,12 +255,14 @@ void EvaluateSpline(const HkxAnimation::Channel& channel, f32 u, f32* out) {
       }
     }
   }
-  for (u32 c = 0; c < stride; ++c) out[c] = work[degree * stride + c];
+  for (u32 c = 0; c < stride; ++c)
+    out[c] = work[degree * stride + c];
 }
 
 void SampleChannel(const HkxAnimation::Channel& channel, f32 u, f32* out) {
   if (!channel.has_spline) {
-    for (u32 c = 0; c < channel.stride; ++c) out[c] = channel.static_value[c];
+    for (u32 c = 0; c < channel.stride; ++c)
+      out[c] = channel.static_value[c];
     return;
   }
   EvaluateSpline(channel, u, out);
@@ -259,7 +278,8 @@ base::Optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
       break;
     }
   }
-  if (anim_at == HkxFile::kNull) return base::nullopt;
+  if (anim_at == HkxFile::kNull)
+    return base::nullopt;
 
   HkxAnimation animation;
   animation.duration = hkx.F32(anim_at + off::kAnimDuration);
@@ -283,7 +303,8 @@ base::Optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
     u32 begin = hkx.U32(block_offsets + static_cast<u64>(b) * 4);
     u32 end = b + 1 < block_offset_count ? hkx.U32(block_offsets + static_cast<u64>(b + 1) * 4)
                                          : data_size;
-    if (begin >= data_size || end > data_size || begin >= end) return base::nullopt;
+    if (begin >= data_size || end > data_size || begin >= end)
+      return base::nullopt;
 
     HkxAnimation::Block block;
     block.tracks.resize(animation.num_tracks);
@@ -326,8 +347,10 @@ base::Optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
 
   // Binding: original skeleton + optional partial-skeleton track map.
   for (const HkxObject& obj : hkx.objects()) {
-    if (obj.class_name != "hkaAnimationBinding") continue;
-    if (hkx.Pointer(obj.offset + off::kBindingAnimation) != anim_at) continue;
+    if (obj.class_name != "hkaAnimationBinding")
+      continue;
+    if (hkx.Pointer(obj.offset + off::kBindingAnimation) != anim_at)
+      continue;
     animation.skeleton_name = base::String(hkx.CString(obj.offset + off::kBindingSkeletonName));
     u32 map_count = 0;
     u64 map = hkx.Array(obj.offset + off::kBindingTrackToBone, &map_count);
@@ -345,7 +368,8 @@ base::Optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
 
 void SampleAnimation(const HkxAnimation& animation, f32 time, base::Vector<HkxTrackPose>* out) {
   out->assign(animation.num_tracks, {});
-  if (animation.blocks.empty()) return;
+  if (animation.blocks.empty())
+    return;
   time = base::Clamp(time, 0.0f, animation.duration);
   u32 block_index =
       animation.block_duration > 0.0f ? static_cast<u32>(time / animation.block_duration) : 0;
@@ -368,7 +392,8 @@ void SampleAnimation(const HkxAnimation& animation, f32 time, base::Vector<HkxTr
     pose.translation = {pos[0], pos[1], pos[2]};
     f32 len = std::sqrt(rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2] + rot[3] * rot[3]);
     if (len > 1e-6f) {
-      for (int c = 0; c < 4; ++c) pose.rotation[c] = rot[c] / len;
+      for (int c = 0; c < 4; ++c)
+        pose.rotation[c] = rot[c] / len;
     }
     pose.scale = (scale[0] + scale[1] + scale[2]) / 3.0f;
   }

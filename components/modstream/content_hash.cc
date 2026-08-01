@@ -28,17 +28,20 @@ ContentHash HashBytes(const void* data, size_t size) {
 
 base::Optional<ContentHash> HashFile(const std::filesystem::path& path) {
   std::ifstream in(path.c_str(), std::ios::binary);
-  if (!in) return base::nullopt;
+  if (!in)
+    return base::nullopt;
 
   ContentHasher hasher;
   base::Array<char, 64 * 1024> buffer;
   while (in) {
     in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     const std::streamsize got = in.gcount();
-    if (got > 0) hasher.Update(buffer.data(), static_cast<size_t>(got));
+    if (got > 0)
+      hasher.Update(buffer.data(), static_cast<size_t>(got));
   }
   // eof is the expected stop condition; any other failure means a short read.
-  if (in.bad()) return base::nullopt;
+  if (in.bad())
+    return base::nullopt;
   return hasher.value;
 }
 

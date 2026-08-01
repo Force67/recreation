@@ -6,9 +6,9 @@
 #include <thread>
 #include <vector>
 
-#include "ecs/world.h"
 #include "components/gamenet/protocol.h"
 #include "components/gamenet/session.h"
+#include "ecs/world.h"
 
 namespace {
 
@@ -16,11 +16,14 @@ int failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++failures;
+  if (!ok)
+    ++failures;
 }
 
-void Pump(rx::net::GameServerSession& server, rx::ecs::World& server_world,
-          rx::net::GameClientSession& client, rx::ecs::World& client_world) {
+void Pump(rx::net::GameServerSession& server,
+          rx::ecs::World& server_world,
+          rx::net::GameClientSession& client,
+          rx::ecs::World& client_world) {
   server.Tick(server_world, 1.0f / 60.0f);
   client.Tick(client_world, 1.0f / 60.0f);
   std::this_thread::sleep_for(std::chrono::milliseconds(3));
@@ -43,7 +46,8 @@ int main() {
   bool observed = false;
   bool peer_changed = false;
   server.SetActivateSink([&](rx::u32 peer, rx::u64 handle) {
-    if (observed && observed_peer != peer) peer_changed = true;
+    if (observed && observed_peer != peer)
+      peer_changed = true;
     observed = true;
     observed_peer = peer;
     observed_handle = handle;
@@ -81,12 +85,14 @@ int main() {
   client.engine().SendToServer(static_cast<rx::u16>(rx::net::GameMessage::kActivateRef),
                                long_payload, true);
   client.SendActivate(0);
-  for (int i = 0; i < 90; ++i) Pump(server, server_world, client, client_world);
+  for (int i = 0; i < 90; ++i)
+    Pump(server, server_world, client, client_world);
   Check("malformed and zero-handle requests are rejected", accepted == before_malformed);
 
   for (rx::u32 i = 0; i < rx::net::GameServerSession::kMaxActivationRequestsPerSecond + 8; ++i)
     client.SendActivate(kHandle + i + 1);
-  for (int i = 0; i < 300; ++i) Pump(server, server_world, client, client_world);
+  for (int i = 0; i < 300; ++i)
+    Pump(server, server_world, client, client_world);
   Check("per-peer activation rate is bounded",
         accepted == rx::net::GameServerSession::kMaxActivationRequestsPerSecond);
   Check("rate accounting remains scoped to the admitted peer", !peer_changed);

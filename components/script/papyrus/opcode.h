@@ -75,7 +75,9 @@ struct OpInfo {
 // Returns metadata for any opcode value. Unknown values map to kInvalid so a
 // corrupt or newer stream is rejected rather than misdecoded.
 const OpInfo& GetOpInfo(Op op);
-inline const OpInfo& GetOpInfo(u8 raw) { return GetOpInfo(static_cast<Op>(raw)); }
+inline const OpInfo& GetOpInfo(u8 raw) {
+  return GetOpInfo(static_cast<Op>(raw));
+}
 
 }  // namespace rx::script::papyrus
 

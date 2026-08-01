@@ -47,7 +47,9 @@ void RawRewriter::Replace(u32 raw_form_id, base::Vector<u8> encoded) {
   replace_[raw_form_id] = base::move(encoded);
 }
 
-void RawRewriter::Delete(u32 raw_form_id) { deleted_.insert(raw_form_id); }
+void RawRewriter::Delete(u32 raw_form_id) {
+  deleted_.insert(raw_form_id);
+}
 
 void RawRewriter::Insert(u32 record_type, base::Vector<u8> encoded) {
   base::Vector<u8>& group = inserts_[record_type];
@@ -97,12 +99,14 @@ void RawRewriter::EmitRegion(size_t pos, size_t end, base::Vector<u8>* out) cons
     pos = record_end;
   }
   // Any trailing bytes shorter than a header (shouldn't happen in a valid file).
-  if (pos < end) PutBytes(out, d + pos, end - pos);
+  if (pos < end)
+    PutBytes(out, d + pos, end - pos);
 }
 
 base::Vector<u8> RawRewriter::Build() const {
   base::Vector<u8> out;
-  if (bytes_.size() < sizeof(RecordHeader)) return out;
+  if (bytes_.size() < sizeof(RecordHeader))
+    return out;
   const u8* d = bytes_.data();
   const size_t end = bytes_.size();
 
@@ -110,7 +114,8 @@ base::Vector<u8> RawRewriter::Build() const {
   RecordHeader tes4;
   std::memcpy(&tes4, d, sizeof(tes4));
   size_t tes4_end = sizeof(RecordHeader) + tes4.data_size;
-  if (tes4_end > end) tes4_end = end;
+  if (tes4_end > end)
+    tes4_end = end;
   PutBytes(&out, d, tes4_end);
 
   // Walk the top-level groups so inserts can be appended into the matching type
@@ -120,12 +125,14 @@ base::Vector<u8> RawRewriter::Build() const {
   while (pos + sizeof(GroupHeader) <= end) {
     u32 type;
     std::memcpy(&type, d + pos, 4);
-    if (type != kGrup) break;  // stray top-level record; copy the rest below
+    if (type != kGrup)
+      break;  // stray top-level record; copy the rest below
 
     GroupHeader group;
     std::memcpy(&group, d + pos, sizeof(group));
     size_t group_end = pos + group.group_size;
-    if (group.group_size < sizeof(GroupHeader) || group_end > end) break;
+    if (group.group_size < sizeof(GroupHeader) || group_end > end)
+      break;
 
     base::Vector<u8> body;
     EmitRegion(pos + sizeof(GroupHeader), group_end, &body);
@@ -141,11 +148,13 @@ base::Vector<u8> RawRewriter::Build() const {
     PutBytes(&out, body.data(), body.size());
     pos = group_end;
   }
-  if (pos < end) PutBytes(&out, d + pos, end - pos);
+  if (pos < end)
+    PutBytes(&out, d + pos, end - pos);
 
   // New top-level type groups for inserts the file had no group for.
   for (const auto& [type, records] : inserts_) {
-    if (consumed.count(type)) continue;
+    if (consumed.count(type))
+      continue;
     GroupHeader group{};
     group.type = kGrup;
     group.group_size = static_cast<u32>(sizeof(GroupHeader) + records.size());

@@ -5,8 +5,8 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
-#include "core/math.h"
 #include "components/quest/package_record.h"
+#include "core/math.h"
 #include "ecs/world.h"
 #include "runtime/demo/trailer.h"
 

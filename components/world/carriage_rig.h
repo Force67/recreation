@@ -20,13 +20,13 @@ namespace rx::world {
 struct CarriageConfig {
   // Chassis geometry, forwarded to the rx VehicleDesc. A light wooden cart.
   Vec3 half_extent{0.85f, 0.45f, 1.5f};
-  f32 mass = 350;              // kg
-  f32 wheel_radius = 0.5f;     // tall cart wheels
-  f32 wheel_x = 0.9f;          // half track (wheel centre from chassis centre)
-  f32 front_z = 1.25f;         // axle offsets, +Z forward
+  f32 mass = 350;           // kg
+  f32 wheel_radius = 0.5f;  // tall cart wheels
+  f32 wheel_x = 0.9f;       // half track (wheel centre from chassis centre)
+  f32 front_z = 1.25f;      // axle offsets, +Z forward
   f32 rear_z = -1.25f;
-  f32 max_steer_angle = 0.7f;  // rad; the turntable front-axle range
-  f32 handbrake_torque = 4000; // Nm on the rear axle; the parking brake
+  f32 max_steer_angle = 0.7f;   // rad; the turntable front-axle range
+  f32 handbrake_torque = 4000;  // Nm on the rear axle; the parking brake
 
   // Hitch. The tongue attach point sits `tongue_z` ahead of the chassis centre
   // and `tongue_y` above it; a stiff spring-damper pulls it toward the horse's
@@ -58,7 +58,9 @@ class CarriageRig {
   // Spawns the free-rolling chassis at `position` (chassis centre) yawed about
   // +Y. Spawn slightly high and let the suspension settle. Returns false if the
   // physics world could not create the vehicle.
-  bool Spawn(physics::PhysicsWorld& world, const Vec3& position, f32 yaw,
+  bool Spawn(physics::PhysicsWorld& world,
+             const Vec3& position,
+             f32 yaw,
              const CarriageConfig& cfg);
   bool valid() const { return vehicle_ != 0; }
 
@@ -67,8 +69,10 @@ class CarriageRig {
   // horse's hitch point, world space) given the horse moving at
   // `horse_velocity`, steers the front axle toward it, and engages the parking
   // brake as the horse slows. `dt` is the world fixed step.
-  void Step(physics::PhysicsWorld& world, const Vec3& hitch_target,
-            const Vec3& horse_velocity, f32 dt);
+  void Step(physics::PhysicsWorld& world,
+            const Vec3& hitch_target,
+            const Vec3& horse_velocity,
+            f32 dt);
 
   physics::VehicleId vehicle() const { return vehicle_; }
   physics::BodyId body() const { return body_; }

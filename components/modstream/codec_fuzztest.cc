@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 
-#include "core/types.h"
 #include "components/modstream/asset_request.h"
 #include "components/modstream/manifest_chunk.h"
 #include "components/modstream/manifest_codec.h"
 #include "components/modstream/mod_resource.h"
+#include "core/types.h"
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_value.h"
 
@@ -28,7 +28,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // A small deterministic PRNG (xorshift64), so the corpus is identical every run.
@@ -109,7 +110,8 @@ int main() {
     // 1. Pure random bytes: the decoder must not crash; almost all are rejected.
     {
       std::vector<u8> noise(rng.Below(2048));
-      for (u8& b : noise) b = rng.Byte();
+      for (u8& b : noise)
+        b = rng.Byte();
       (void)modstream::DecodeManifest(noise.data(), noise.size());
       (void)rpc::DecodeCall(noise.data(), noise.size());
       (void)modstream::DecodeHashRequest(noise.data(), noise.size(), 6000);
@@ -117,7 +119,8 @@ int main() {
       // bounds, which only holds if the validation is correct.
       if (auto v = modstream::DecodeManifestChunk(noise.data(), noise.size())) {
         volatile u8 sink = 0;
-        for (u32 i = 0; i < v->payload_len; ++i) sink ^= v->payload[i];
+        for (u32 i = 0; i < v->payload_len; ++i)
+          sink ^= v->payload[i];
         (void)sink;
       }
     }
@@ -128,7 +131,8 @@ int main() {
       const modstream::ModManifest m = RandomManifest(rng);
       std::vector<u8> bytes = modstream::EncodeManifest(m);
       auto decoded = modstream::DecodeManifest(bytes);
-      if (!decoded || !(*decoded == m)) manifest_roundtrips = false;
+      if (!decoded || !(*decoded == m))
+        manifest_roundtrips = false;
       const u32 flips = rng.Below(8);
       for (u32 i = 0; i < flips && !bytes.empty(); ++i)
         bytes[rng.Below(static_cast<u32>(bytes.size()))] ^= (1u << rng.Below(8));
@@ -138,21 +142,25 @@ int main() {
       const rpc::RpcCall c = RandomCall(rng);
       std::vector<u8> bytes = rpc::EncodeCall(c);
       auto decoded = rpc::DecodeCall(bytes.data(), bytes.size());
-      if (!decoded) rpc_roundtrips = false;
+      if (!decoded)
+        rpc_roundtrips = false;
       const u32 flips = rng.Below(8);
       for (u32 i = 0; i < flips && !bytes.empty(); ++i)
         bytes[rng.Below(static_cast<u32>(bytes.size()))] ^= (1u << rng.Below(8));
       (void)rpc::DecodeCall(bytes.data(), bytes.size());
 
       // Truncations of a valid buffer are a common attack; none may crash.
-      for (size_t cut = 0; cut < bytes.size(); cut += 3) (void)rpc::DecodeCall(bytes.data(), cut);
+      for (size_t cut = 0; cut < bytes.size(); cut += 3)
+        (void)rpc::DecodeCall(bytes.data(), cut);
     }
     {
       std::vector<modstream::ContentHash> hashes(rng.Below(20));
-      for (modstream::ContentHash& h : hashes) h = rng.Next();
+      for (modstream::ContentHash& h : hashes)
+        h = rng.Next();
       std::vector<u8> bytes = modstream::EncodeHashRequest(hashes);
       auto decoded = modstream::DecodeHashRequest(bytes.data(), bytes.size(), 6000);
-      if (!decoded || !(*decoded == hashes)) manifest_roundtrips = false;
+      if (!decoded || !(*decoded == hashes))
+        manifest_roundtrips = false;
       const u32 flips = rng.Below(6);
       for (u32 i = 0; i < flips && !bytes.empty(); ++i)
         bytes[rng.Below(static_cast<u32>(bytes.size()))] ^= (1u << rng.Below(8));

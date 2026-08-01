@@ -30,7 +30,8 @@ int main(int argc, char** argv) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& e : std::filesystem::directory_iterator(argv[1], ec))
-    if (auto p = bethesda::OpenArchive(e.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(e.path().string()))
+      vfs.Mount(base::move(p));
 
   // A spread of real scripts: tiny, medium, and a large one with deep tables.
   const char* names[] = {"scripts/trapbase.pex", "scripts/quest.pex", "scripts/actor.pex",
@@ -47,7 +48,8 @@ int main(int argc, char** argv) {
     // Truncation: every prefix length must be rejected or parsed, never crash.
     for (size_t len = 0; len <= full.size(); ++len) {
       PexFile pex;
-      if (ParsePex(ByteSpan(full.data(), len), &pex)) ++accepted;
+      if (ParsePex(ByteSpan(full.data(), len), &pex))
+        ++accepted;
       ++attempts;
     }
 
@@ -59,7 +61,8 @@ int main(int argc, char** argv) {
       for (u8 m : masks) {
         full[off] = static_cast<u8>(original ^ m);
         PexFile pex;
-        if (ParsePex(ByteSpan(full.data(), full.size()), &pex)) ++accepted;
+        if (ParsePex(ByteSpan(full.data(), full.size()), &pex))
+          ++accepted;
         ++attempts;
       }
       full[off] = original;

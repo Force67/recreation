@@ -13,22 +13,27 @@ namespace {
 
 base::String Lower(base::StringRef s) {
   base::String out(s);
-  for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : out)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return out;
 }
 
 bool IEquals(base::StringRef a, base::StringRef b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i)
-    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+    if (std::tolower(static_cast<unsigned char>(a[i])) !=
+        std::tolower(static_cast<unsigned char>(b[i])))
       return false;
   return true;
 }
 
 base::StringRef Trim(base::StringRef s) {
   size_t b = 0, e = s.size();
-  while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
-  while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+  while (b < e && std::isspace(static_cast<unsigned char>(s[b])))
+    ++b;
+  while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
+    --e;
   return s.substr(b, e - b);
 }
 
@@ -53,13 +58,15 @@ base::Vector<Token> Tokenize(base::StringRef line) {
     }
     if (c == '"') {
       size_t j = i + 1;
-      while (j < line.size() && line[j] != '"') ++j;
+      while (j < line.size() && line[j] != '"')
+        ++j;
       out.push_back({Token::kString, base::String(line.substr(i + 1, j - i - 1)), 0});
       i = j < line.size() ? j + 1 : j;
       continue;
     }
     if (std::isdigit(static_cast<unsigned char>(c)) ||
-        (c == '.' && i + 1 < line.size() && std::isdigit(static_cast<unsigned char>(line[i + 1])))) {
+        (c == '.' && i + 1 < line.size() &&
+         std::isdigit(static_cast<unsigned char>(line[i + 1])))) {
       size_t j = i;
       while (j < line.size() &&
              (std::isdigit(static_cast<unsigned char>(line[j])) || line[j] == '.'))
@@ -93,7 +100,8 @@ base::Vector<Token> Tokenize(base::StringRef line) {
         }
       }
     }
-    if (matched) continue;
+    if (matched)
+      continue;
     out.push_back({Token::kOp, base::String(1, c), 0});
     ++i;
   }
@@ -104,14 +112,16 @@ base::Vector<Token> Tokenize(base::StringRef line) {
 base::String FirstWord(base::StringRef line) {
   base::StringRef t = Trim(line);
   size_t sp = 0;
-  while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp]))) ++sp;
+  while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp])))
+    ++sp;
   return base::String(t.substr(0, sp));
 }
 
 base::String AfterFirstWord(base::StringRef line) {
   base::StringRef t = Trim(line);
   size_t sp = 0;
-  while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp]))) ++sp;
+  while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp])))
+    ++sp;
   return base::String(Trim(t.substr(sp)));
 }
 
@@ -127,14 +137,16 @@ bool Parse(base::StringRef source, Script* out) {
     bool in_string = false;
     size_t cut = line.size();
     for (size_t i = 0; i < line.size(); ++i) {
-      if (line[i] == '"') in_string = !in_string;
+      if (line[i] == '"')
+        in_string = !in_string;
       if (line[i] == ';' && !in_string) {
         cut = i;
         break;
       }
     }
     base::StringRef trimmed = Trim(line.substr(0, cut));
-    if (!trimmed.empty()) raw.push_back(base::String(trimmed));
+    if (!trimmed.empty())
+      raw.push_back(base::String(trimmed));
   };
   for (size_t i = 0; i <= source.size(); ++i) {
     if (i == source.size() || source[i] == '\n' || source[i] == '\r') {
@@ -174,7 +186,8 @@ bool Parse(base::StringRef source, Script* out) {
       else
         continue;  // ScriptName duplicates, unknown directives: skip
       base::String var = FirstWord(AfterFirstWord(line));
-      if (!var.empty()) out->vars.push_back({Lower(var), kind});
+      if (!var.empty())
+        out->vars.push_back({Lower(var), kind});
       continue;
     }
     if (w == "end") {
@@ -214,57 +227,74 @@ class Eval {
 
   f32 Or() {
     f32 v = And();
-    while (TakeOp("||")) v = (v != 0 || And() != 0) ? 1.0f : 0.0f;
+    while (TakeOp("||"))
+      v = (v != 0 || And() != 0) ? 1.0f : 0.0f;
     return v;
   }
   f32 And() {
     f32 v = Compare();
-    while (TakeOp("&&")) v = (v != 0 && Compare() != 0) ? 1.0f : 0.0f;
+    while (TakeOp("&&"))
+      v = (v != 0 && Compare() != 0) ? 1.0f : 0.0f;
     return v;
   }
   f32 Compare() {
     f32 v = Relational();
     for (;;) {
-      if (TakeOp("==") || TakeOp("=")) v = (v == Relational()) ? 1.0f : 0.0f;
-      else if (TakeOp("!=")) v = (v != Relational()) ? 1.0f : 0.0f;
-      else break;
+      if (TakeOp("==") || TakeOp("="))
+        v = (v == Relational()) ? 1.0f : 0.0f;
+      else if (TakeOp("!="))
+        v = (v != Relational()) ? 1.0f : 0.0f;
+      else
+        break;
     }
     return v;
   }
   f32 Relational() {
     f32 v = Additive();
     for (;;) {
-      if (TakeOp("<=")) v = (v <= Additive()) ? 1.0f : 0.0f;
-      else if (TakeOp(">=")) v = (v >= Additive()) ? 1.0f : 0.0f;
-      else if (TakeOp("<")) v = (v < Additive()) ? 1.0f : 0.0f;
-      else if (TakeOp(">")) v = (v > Additive()) ? 1.0f : 0.0f;
-      else break;
+      if (TakeOp("<="))
+        v = (v <= Additive()) ? 1.0f : 0.0f;
+      else if (TakeOp(">="))
+        v = (v >= Additive()) ? 1.0f : 0.0f;
+      else if (TakeOp("<"))
+        v = (v < Additive()) ? 1.0f : 0.0f;
+      else if (TakeOp(">"))
+        v = (v > Additive()) ? 1.0f : 0.0f;
+      else
+        break;
     }
     return v;
   }
   f32 Additive() {
     f32 v = Multiplicative();
     for (;;) {
-      if (TakeOp("+")) v += Multiplicative();
-      else if (TakeOp("-")) v -= Multiplicative();
-      else break;
+      if (TakeOp("+"))
+        v += Multiplicative();
+      else if (TakeOp("-"))
+        v -= Multiplicative();
+      else
+        break;
     }
     return v;
   }
   f32 Multiplicative() {
     f32 v = Unary();
     for (;;) {
-      if (TakeOp("*")) v *= Unary();
+      if (TakeOp("*"))
+        v *= Unary();
       else if (TakeOp("/")) {
         f32 d = Unary();
         v = d != 0 ? v / d : 0;
-      } else break;
+      } else
+        break;
     }
     return v;
   }
   f32 Unary() {
-    if (TakeOp("-")) return -Unary();
-    if (TakeOp("!")) return Unary() == 0 ? 1.0f : 0.0f;
+    if (TakeOp("-"))
+      return -Unary();
+    if (TakeOp("!"))
+      return Unary() == 0 ? 1.0f : 0.0f;
     return Primary();
   }
   f32 Primary();
@@ -278,7 +308,8 @@ class Eval {
 }  // namespace
 
 Instance::Instance(const Script* script, Host* host) : script_(script), host_(host) {
-  for (const Script::Var& v : script_->vars) locals_[v.name] = 0.0f;
+  for (const Script::Var& v : script_->vars)
+    locals_[v.name] = 0.0f;
 }
 
 f32 Instance::GetVar(base::StringRef name) const {
@@ -286,7 +317,9 @@ f32 Instance::GetVar(base::StringRef name) const {
   return it != nullptr ? *it : 0.0f;
 }
 
-void Instance::SetVar(base::StringRef name, f32 value) { locals_[Lower(name)] = value; }
+void Instance::SetVar(base::StringRef name, f32 value) {
+  locals_[Lower(name)] = value;
+}
 
 namespace {
 
@@ -297,12 +330,14 @@ f32 ResolveIdent(const base::String& ident, Instance* self, Host* host) {
   if (dot == base::String::npos) {
     // A declared local wins; otherwise treat the bare name as a global.
     for (const Script::Var& v : self->script().vars)
-      if (IEquals(v.name, ident)) return self->GetVar(ident);
+      if (IEquals(v.name, ident))
+        return self->GetVar(ident);
     return host->GetGlobal(ident);
   }
   base::String owner = ident.substr(0, dot);
   base::String member = ident.substr(dot + 1);
-  if (IEquals(member, "getstage")) return static_cast<f32>(host->GetStage(owner));
+  if (IEquals(member, "getstage"))
+    return static_cast<f32>(host->GetStage(owner));
   return host->GetRemoteVar(owner, member);
 }
 
@@ -352,19 +387,23 @@ void Assign(Instance* self, Host* host, const base::String& lval, f32 value) {
 // Executes a non-control statement line (set / function call).
 void ExecStatement(const base::String& line, Instance* self, Host* host) {
   base::Vector<Token> tokens = Tokenize(line);
-  if (tokens.empty() || tokens[0].kind == Token::kEnd) return;
+  if (tokens.empty() || tokens[0].kind == Token::kEnd)
+    return;
   if (tokens[0].kind == Token::kIdent && IEquals(tokens[0].text, "set")) {
-    if (tokens.size() < 4 || tokens[1].kind != Token::kIdent) return;
+    if (tokens.size() < 4 || tokens[1].kind != Token::kIdent)
+      return;
     const base::String& lval = tokens[1].text;
     // tokens[2] is "to"; evaluate the rest.
     base::Vector<Token> rhs;
-    for (size_t i = 3; i < tokens.size(); ++i) rhs.push_back(tokens[i]);
+    for (size_t i = 3; i < tokens.size(); ++i)
+      rhs.push_back(tokens[i]);
     Eval e(rhs, self, host);
     Assign(self, host, lval, e.Parse());
     return;
   }
   // Function-call statement: [Target.]Func arg...
-  if (tokens[0].kind != Token::kIdent) return;
+  if (tokens[0].kind != Token::kIdent)
+    return;
   base::String call = tokens[0].text;
   base::String target, fn = call;
   size_t dot = call.find('.');
@@ -385,7 +424,8 @@ void ExecStatement(const base::String& line, Instance* self, Host* host) {
       // (a message, form, or reference the host resolves).
       bool is_local = false;
       for (const Script::Var& v : self->script().vars)
-        if (IEquals(v.name, t.text)) is_local = true;
+        if (IEquals(v.name, t.text))
+          is_local = true;
       if (is_local)
         args.push_back(self->GetVar(t.text));
       else
@@ -408,7 +448,8 @@ struct Segment {
 
 // Scans an if block starting at `if_index`, collecting its branch segments;
 // returns the index of the matching endif (or the line count if unterminated).
-size_t ScanIf(const base::Vector<base::String>& lines, size_t if_index,
+size_t ScanIf(const base::Vector<base::String>& lines,
+              size_t if_index,
               base::Vector<Segment>* segs) {
   Segment cur;
   cur.cond = AfterFirstWord(lines[if_index]);
@@ -445,7 +486,10 @@ size_t ScanIf(const base::Vector<base::String>& lines, size_t if_index,
 
 enum class Flow { kNormal, kReturn };
 
-Flow ExecRange(const base::Vector<base::String>& lines, size_t lo, size_t hi, Instance* self,
+Flow ExecRange(const base::Vector<base::String>& lines,
+               size_t lo,
+               size_t hi,
+               Instance* self,
                Host* host) {
   size_t i = lo;
   while (i < hi) {
@@ -469,7 +513,8 @@ Flow ExecRange(const base::Vector<base::String>& lines, size_t lo, size_t hi, In
       i = endif + 1;
       continue;
     }
-    if (w == "return") return Flow::kReturn;
+    if (w == "return")
+      return Flow::kReturn;
     if (w == "endif" || w == "else" || w == "elseif") {  // stray, skip
       ++i;
       continue;
@@ -484,8 +529,10 @@ Flow ExecRange(const base::Vector<base::String>& lines, size_t lo, size_t hi, In
 
 bool Instance::Run(base::StringRef event, base::StringRef param) {
   for (const Script::Block& block : script_->blocks) {
-    if (!IEquals(block.type, event)) continue;
-    if (!param.empty() && !block.param.empty() && !IEquals(block.param, param)) continue;
+    if (!IEquals(block.type, event))
+      continue;
+    if (!param.empty() && !block.param.empty() && !IEquals(block.param, param))
+      continue;
     ExecRange(block.lines, 0, block.lines.size(), this, host_);
     return true;
   }

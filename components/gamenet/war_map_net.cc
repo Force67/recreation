@@ -24,7 +24,8 @@ std::vector<u8> EncodeWarMap(const WarMapState& m) {
 }
 
 std::optional<WarMapState> DecodeWarMap(ByteSpan data) {
-  if (data.size() < 5) return std::nullopt;  // count + fraction
+  if (data.size() < 5)
+    return std::nullopt;  // count + fraction
   const u8* p = data.data();
   size_t off = 0;
   const u8 count = p[off++];
@@ -33,9 +34,11 @@ std::optional<WarMapState> DecodeWarMap(ByteSpan data) {
   off += 4;
   m.holds.reserve(count);
   for (u8 i = 0; i < count; ++i) {
-    if (off >= data.size()) return std::nullopt;
+    if (off >= data.size())
+      return std::nullopt;
     const u8 len = p[off++];
-    if (off + static_cast<size_t>(len) + 1 > data.size()) return std::nullopt;  // name + owner
+    if (off + static_cast<size_t>(len) + 1 > data.size())
+      return std::nullopt;  // name + owner
     WarMapHold h;
     h.name.assign(reinterpret_cast<const char*>(p + off), len);
     off += len;

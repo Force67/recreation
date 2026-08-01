@@ -6,13 +6,12 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "components/bethesda/form_id.h"
+#include "components/gamenet/actor_sync.h"
 #include "components/world/components.h"
 #include "components/world/quest_world.h"
-#include "components/bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "runtime/actor/gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
-#include "components/gamenet/actor_sync.h"
 #include "net/replication.h"
 #include "runtime/actor/gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
 
@@ -28,7 +27,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Creates an NPC entity at (x,_,z) and registers it by form handle.
@@ -39,7 +39,7 @@ rx::ecs::Entity MakeNpc(rx::ecs::World& w, QuestWorld& qw, Handle form, float x,
   t.position[2] = z;
   w.Add(e, t);
   w.Add(e, FormLink{rx::bethesda::GlobalFormId{static_cast<rx::u16>(form >> 32),
-                                                static_cast<rx::u32>(form)}});
+                                               static_cast<rx::u32>(form)}});
   w.Add(e, Npc{});
   qw.Register(form, e);
   return e;
@@ -129,7 +129,8 @@ int main() {
   Check("sub-walk floors at 0.7x walk cadence",
         approx(rx::GaitPlaybackRate(0.5f, kWalk, kRun), 0.7f));
   // Degenerate authored speeds must not divide by zero / invert.
-  Check("degenerate speeds stay finite and positive", rx::GaitPlaybackRate(3.0f, 0.0f, 0.0f) > 0.0f);
+  Check("degenerate speeds stay finite and positive",
+        rx::GaitPlaybackRate(3.0f, 0.0f, 0.0f) > 0.0f);
 
   if (g_failures) {
     std::printf("FAILED: %d check(s)\n", g_failures);

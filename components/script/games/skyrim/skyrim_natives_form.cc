@@ -2,16 +2,15 @@
 
 namespace rx::script::skyrim {
 
+using ext::Args;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
 
 void RegisterFormExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   // No player knowledge model yet, so nothing is known.
-  reg.Register("Form", "PlayerKnows", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
+  reg.Register("Form", "PlayerKnows",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 
   auto noop = [](VirtualMachine&, ObjectRef, Args&) { return Value(); };
   reg.Register("Form", "RegisterForAnimationEvent", noop);

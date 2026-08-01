@@ -42,13 +42,17 @@ struct Found {
 base::Optional<Found> FindScripted(RecordStore& records, u32 type) {
   base::Optional<Found> result;
   records.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (result) return;
+    if (result)
+      return;
     Record rec;
-    if (!records.Parse(id, &rec)) return;
+    if (!records.Parse(id, &rec))
+      return;
     const Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
-    if (!vmad) return;
+    if (!vmad)
+      return;
     ScriptAttachment att;
-    if (!ParseScriptAttachment(vmad->data, &att)) return;
+    if (!ParseScriptAttachment(vmad->data, &att))
+      return;
     for (const ScriptEntry& s : att.scripts)
       if (!s.properties.empty()) {
         result = Found{id, base::move(att)};
@@ -70,7 +74,8 @@ int main(int argc, char** argv) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(p));
 
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
@@ -87,7 +92,8 @@ int main(int argc, char** argv) {
   }
   const ScriptEntry& first = [&]() -> const ScriptEntry& {
     for (const ScriptEntry& s : found->attachment.scripts)
-      if (!s.properties.empty()) return s;
+      if (!s.properties.empty())
+        return s;
     return found->attachment.scripts.front();
   }();
   rx::u64 handle = static_cast<rx::u64>(found->id.plugin) << 32 | found->id.local_id;
@@ -100,7 +106,8 @@ int main(int argc, char** argv) {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   check("attached at least one instance", !handles.empty());
@@ -132,7 +139,8 @@ int main(int argc, char** argv) {
     round_trip = true;  // array property not seeded; not asserted
   std::printf("  property %s seeded and read back: %s\n", prop.name.c_str(),
               round_trip ? "ok" : "FAIL");
-  if (!round_trip) ++failures;
+  if (!round_trip)
+    ++failures;
 
   std::printf("%s (%d failures)\n", failures ? "SCRIPTTEST FAILED" : "SCRIPTTEST PASSED", failures);
   return failures ? 1 : 0;

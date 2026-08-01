@@ -17,8 +17,11 @@ namespace rx::world {
 // at danger_dist, divided by danger_dist, so a wall right ahead scores ~0).
 // The highest score wins; this naturally deflects around a blocked goal toward
 // an open, still goal-ish direction. With count <= 0, copies goal_dir through.
-inline void SteerAroundObstacles(const float goal_dir[3], const float* candidate_dirs,
-                                 const float* clearances, int count, float danger_dist,
+inline void SteerAroundObstacles(const float goal_dir[3],
+                                 const float* candidate_dirs,
+                                 const float* clearances,
+                                 int count,
+                                 float danger_dist,
                                  float out_dir[3]) {
   const float goal_len_sq = goal_dir[0] * goal_dir[0] + goal_dir[2] * goal_dir[2];
   if (count <= 0 || goal_len_sq <= 0.0f) {

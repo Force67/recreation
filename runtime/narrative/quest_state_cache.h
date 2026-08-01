@@ -6,9 +6,9 @@
 #include <base/functional/function.h>
 #include <base/memory/move.h>
 
+#include "components/quest/condition.h"
 #include "core/math.h"
 #include "core/types.h"
-#include "components/quest/condition.h"
 
 namespace rx {
 
@@ -47,9 +47,11 @@ class QuestStateCache {
   }
   bool StageDone(u64 quest, i32 stage) const {
     auto* it = quests_.find(quest);
-    if (it == nullptr) return false;
+    if (it == nullptr)
+      return false;
     for (i32 s : it->done)
-      if (s == stage) return true;
+      if (s == stage)
+        return true;
     return false;
   }
   const base::UnorderedMap<u64, Entry>& entries() const { return quests_; }
@@ -75,7 +77,8 @@ class WorldConditionContext : public quest::ConditionContext {
   }
   float GetDistance(quest::RunOn, u64 reference, u64 target) const override {
     Vec3 a, b;
-    if (!position_ || !position_(reference, &a) || !position_(target, &b)) return 0.0f;
+    if (!position_ || !position_(reference, &a) || !position_(target, &b))
+      return 0.0f;
     // Game units, which is what the authored comparison values are in.
     constexpr float kMetersToUnits = 1.0f / 0.01428f;
     return Length(b - a) * kMetersToUnits;

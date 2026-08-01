@@ -1,4 +1,3 @@
-#include <mutex>
 #include <base/algorithm.h>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
@@ -10,6 +9,7 @@
 #include <base/option.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"
 
@@ -19,13 +19,13 @@
 #include <cstdlib>
 #include <cstring>
 #include "components/bethesda/record.h"
-#include "core/log.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_import.h"
 #include "components/script/games/skyrim/skyrim_condition_context.h"
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/fiber.h"
 #include "components/script/papyrus/vm.h"
+#include "core/log.h"
 
 namespace rx::script::skyrim {
 namespace {
@@ -51,7 +51,8 @@ struct SceneCueSink : quest::ScenePlayerSink {
 };
 
 base::String Lower(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
@@ -122,17 +123,21 @@ i32 FormTypeFromSignature(u32 type) {
 
 f32 DefaultActorValue(const base::String& av) {
   base::String a = Lower(av);
-  if (a == "health" || a == "magicka" || a == "stamina") return 100.0f;
+  if (a == "health" || a == "magicka" || a == "stamina")
+    return 100.0f;
   return 0.0f;
 }
 
 // The NPC_ ACBS flags word (bit 0 Female, bit 1 Essential, bit 5 Unique).
 u32 AcbsFlags(const bethesda::RecordStore* records, bethesda::GlobalFormId id) {
-  if (!records) return 0;
+  if (!records)
+    return 0;
   bethesda::Record rec;
-  if (!records->Parse(id, &rec)) return 0;
+  if (!records->Parse(id, &rec))
+    return 0;
   const bethesda::Subrecord* acbs = rec.Find(FourCc('A', 'C', 'B', 'S'));
-  if (!acbs || acbs->data.size() < 4) return 0;
+  if (!acbs || acbs->data.size() < 4)
+    return 0;
   u32 flags;
   std::memcpy(&flags, acbs->data.data(), 4);
   return flags;
@@ -145,7 +150,8 @@ bethesda::GlobalFormId RecordBackedSkyrimBindings::ToFormId(ObjectRef ref) const
   {
     std::lock_guard<std::mutex> lock(source_forms_mutex_);
     auto* source = source_forms_.find(handle);
-    if (source != nullptr) handle = *source;
+    if (source != nullptr)
+      handle = *source;
   }
   return bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)};
 }
@@ -156,7 +162,8 @@ void RecordBackedSkyrimBindings::SetSourceForm(u64 handle, u64 source) {
 }
 
 void RecordBackedSkyrimBindings::SetRuntimeForm(u64 owner, u64 source, u64 runtime) {
-  if (owner == 0 || source == 0 || runtime == 0 || source == runtime) return;
+  if (owner == 0 || source == 0 || runtime == 0 || source == runtime)
+    return;
   std::lock_guard<std::mutex> lock(source_forms_mutex_);
   source_forms_[runtime] = source;
   runtime_forms_[owner][source] = runtime;
@@ -167,19 +174,24 @@ void RecordBackedSkyrimBindings::SetDoorStateLocal(u64 handle, bool locked, bool
   open_[handle] = open;
 }
 
-u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) { return static_cast<u32>(form.handle); }
+u32 RecordBackedSkyrimBindings::GetFormId(ObjectRef form) {
+  return static_cast<u32>(form.handle);
+}
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, ObjectRef keyword) {
-  if (!records_ || ref.handle == 0) return {};
+  if (!records_ || ref.handle == 0)
+    return {};
   bethesda::GlobalFormId id = ToFormId(ref);
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return {};
+  if (!records_->Parse(id, &rec))
+    return {};
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
   const u16 plugin = stored ? stored->winning_plugin : id.plugin;
   // XLKR is an optional keyword form id (4 bytes) followed by the linked ref form
   // id (4); older entries carry only the ref. Match the keyword when one is asked.
   for (const bethesda::Subrecord& sub : rec.subrecords) {
-    if (sub.type != FourCc('X', 'L', 'K', 'R')) continue;
+    if (sub.type != FourCc('X', 'L', 'K', 'R'))
+      continue;
     u32 kw = 0, target = 0;
     if (sub.data.size() >= 8) {
       std::memcpy(&kw, sub.data.data(), 4);
@@ -191,7 +203,8 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, Objec
     }
     if (keyword.handle != 0) {
       bethesda::GlobalFormId kw_id = records_->ResolveFrom(bethesda::RawFormId{kw}, plugin);
-      if (kw_id.packed() != keyword.handle) continue;
+      if (kw_id.packed() != keyword.handle)
+        continue;
     }
     bethesda::GlobalFormId tgt = records_->ResolveFrom(bethesda::RawFormId{target}, plugin);
     u64 handle = tgt.packed();
@@ -199,7 +212,8 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, Objec
       std::lock_guard<std::mutex> lock(source_forms_mutex_);
       auto* owner = runtime_forms_.find(ref.handle);
       if (owner != nullptr) {
-        if (const u64* runtime = owner->find(handle)) handle = *runtime;
+        if (const u64* runtime = owner->find(handle))
+          handle = *runtime;
       }
     }
     return handle ? papyrus::ObjectRef{handle} : papyrus::ObjectRef{};
@@ -208,33 +222,40 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetLinkedRef(ObjectRef ref, Objec
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetParentCell(ObjectRef ref) {
-  if (!records_ || ref.handle == 0) return {};
+  if (!records_ || ref.handle == 0)
+    return {};
   bethesda::GlobalFormId cell = records_->InteriorCellOfRef(ToFormId(ref));
   return cell.packed() ? papyrus::ObjectRef{cell.packed()} : papyrus::ObjectRef{};
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetForm(u32 form_id) {
-  if (!records_) return {};
+  if (!records_)
+    return {};
   // Runtime form id: high byte is the load-order index, low 24 bits the local
   // id. (Light/ESL forms 0xFE... are not resolved here and yield None.)
   bethesda::GlobalFormId id{static_cast<u16>((form_id >> 24) & 0xFF), form_id & 0x00FFFFFFu};
-  if (!records_->Find(id)) return {};
+  if (!records_->Find(id))
+    return {};
   return papyrus::ObjectRef{id.packed()};
 }
 
 void RecordBackedSkyrimBindings::EraseRefAlias(u64 ref, u64 alias_handle) {
   auto* it = ref_to_aliases_.find(ref);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   base::Vector<u64>& v = *it;
   base::EraseIf(v, [alias_handle](u64 h) { return h == alias_handle; });
-  if (v.empty()) ref_to_aliases_.erase(ref);
+  if (v.empty())
+    ref_to_aliases_.erase(ref);
 }
 
 void RecordBackedSkyrimBindings::AliasForceRefTo(ObjectRef alias, ObjectRef ref) {
-  if (replica_mode_ || !papyrus::IsAliasHandle(alias.handle)) return;
+  if (replica_mode_ || !papyrus::IsAliasHandle(alias.handle))
+    return;
   // Maintain the reverse ref->alias index so the filled actor's death reaches its
   // alias script; drop the previous fill's link before overwriting it.
-  if (auto* it = alias_fills_.find(alias.handle); it != nullptr) EraseRefAlias(*it, alias.handle);
+  if (auto* it = alias_fills_.find(alias.handle); it != nullptr)
+    EraseRefAlias(*it, alias.handle);
   if (ref.handle == 0) {
     alias_fills_.erase(alias.handle);
   } else {
@@ -249,7 +270,8 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetAliasLocation(ObjectRef alias)
 }
 
 void RecordBackedSkyrimBindings::ForceAliasLocation(ObjectRef alias, ObjectRef location) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   if (location.handle == 0)
     location_fills_.erase(alias.handle);
   else
@@ -262,13 +284,16 @@ f32 RecordBackedSkyrimBindings::GetKeywordData(ObjectRef form, ObjectRef keyword
 }
 
 void RecordBackedSkyrimBindings::SetKeywordData(ObjectRef form, ObjectRef keyword, f32 value) {
-  if (!replica_mode_) keyword_data_[{form.handle, keyword.handle}] = value;
+  if (!replica_mode_)
+    keyword_data_[{form.handle, keyword.handle}] = value;
 }
 
 int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectRef location) {
-  if (!records_ || replica_mode_) return 0;
+  if (!records_ || replica_mode_)
+    return 0;
   const quest::QuestDef* def = quest_system_.Definition(quest.handle);
-  if (!def) return 0;
+  if (!def)
+    return 0;
   // The Location's LCSR is one packed array of {LocationRefType:u32, Reference:u32}
   // (stride 8). Group the placed refs (resolved to engine handles) by ref-type,
   // walking up the parent chain (LCTN PNAM): a room or dungeon location inherits
@@ -279,9 +304,11 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
   bethesda::GlobalFormId loc_id = ToFormId(location);
   for (int level = 0; level < 4 && loc_id.plugin != 0xffff; ++level) {
     bethesda::Record loc;
-    if (!records_->Parse(loc_id, &loc)) break;
+    if (!records_->Parse(loc_id, &loc))
+      break;
     for (const bethesda::Subrecord& s : loc.subrecords) {
-      if (s.type != kLcsr) continue;
+      if (s.type != kLcsr)
+        continue;
       for (size_t i = 0; i + 8 <= s.data.size(); i += 8) {
         u32 rt = 0, ref = 0;
         std::memcpy(&rt, s.data.data() + i, 4);
@@ -295,13 +322,16 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
       }
     }
     const bethesda::Subrecord* parent = loc.Find(kPnam);
-    if (!parent || parent->data.size() < 4) break;
+    if (!parent || parent->data.size() < 4)
+      break;
     u32 raw = 0;
     std::memcpy(&raw, parent->data.data(), 4);
-    if (raw == 0) break;
+    if (raw == 0)
+      break;
     loc_id = records_->ResolveFrom(bethesda::RawFormId{raw}, loc_id.plugin);
   }
-  if (by_type.empty()) return 0;
+  if (by_type.empty())
+    return 0;
 
   // Alias ALRT form ids resolve against the quest record's plugin.
   const bethesda::RecordStore::StoredRecord* qstored = records_->Find(ToFormId(quest));
@@ -311,12 +341,15 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
   base::UnorderedMap<u64, size_t> cursor;
   int filled = 0;
   for (const quest::AliasDef& a : def->aliases) {
-    if (!a.find_matching || a.ref_type_raw == 0) continue;
+    if (!a.find_matching || a.ref_type_raw == 0)
+      continue;
     const u64 rt_key = records_->ResolveFrom(bethesda::RawFormId{a.ref_type_raw}, qplugin).packed();
     auto* it = by_type.find(rt_key);
-    if (it == nullptr) continue;
+    if (it == nullptr)
+      continue;
     size_t& c = cursor[rt_key];
-    if (c >= it->size()) continue;  // out of matching refs for this type
+    if (c >= it->size())
+      continue;  // out of matching refs for this type
     AliasForceRefTo(ObjectRef{papyrus::EncodeAliasHandle(quest.handle, a.id)},
                     ObjectRef{(*it)[c++]});
     ++filled;
@@ -325,24 +358,30 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
 }
 
 void RecordBackedSkyrimBindings::AliasClear(ObjectRef alias) {
-  if (replica_mode_) return;
-  if (auto* it = alias_fills_.find(alias.handle); it != nullptr) EraseRefAlias(*it, alias.handle);
+  if (replica_mode_)
+    return;
+  if (auto* it = alias_fills_.find(alias.handle); it != nullptr)
+    EraseRefAlias(*it, alias.handle);
   alias_fills_.erase(alias.handle);
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
-  if (!papyrus::IsAliasHandle(alias.handle)) return {};
+  if (!papyrus::IsAliasHandle(alias.handle))
+    return {};
   // A runtime fill (ForceRefTo) wins over the authored rule; it was a valid ref
   // when set, so it is returned without re-validating against records.
   if (const auto* it = alias_fills_.find(alias.handle); it != nullptr)
     return papyrus::ObjectRef{*it};
-  if (!records_) return {};
+  if (!records_)
+    return {};
   const u64 quest = papyrus::AliasHandleQuest(alias.handle);
   const i32 alias_id = static_cast<i32>(papyrus::AliasHandleAliasId(alias.handle));
   const quest::QuestDef* def = quest_system_.Definition(quest);
-  if (!def) return {};
+  if (!def)
+    return {};
   const quest::AliasDef* a = def->FindAlias(alias_id);
-  if (!a) return {};
+  if (!a)
+    return {};
   // Alias form ids resolve against the quest record's plugin.
   const bethesda::GlobalFormId quest_id{static_cast<u16>(quest >> 32),
                                         static_cast<u32>(quest & 0xffffffffu)};
@@ -363,7 +402,8 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
     // other quest holds; the conversation quests share their cast this way. Two
     // quests can name each other, so the hop is bounded.
     static thread_local int hops = 0;
-    if (hops >= 4) return {};
+    if (hops >= 4)
+      return {};
     const bethesda::GlobalFormId other =
         records_->ResolveFrom(bethesda::RawFormId{a->external_quest_raw}, plugin);
     ++hops;
@@ -374,31 +414,38 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
   } else {
     return {};
   }
-  if (ref.plugin == 0xffff || !records_->Find(ref)) return {};
+  if (ref.plugin == 0xffff || !records_->Find(ref))
+    return {};
   return papyrus::ObjectRef{ref.packed()};
 }
 
 i32 RecordBackedSkyrimBindings::GetFormType(ObjectRef form) {
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(form));
   return stored ? FormTypeFromSignature(stored->header.type) : 0;
 }
 
 bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const base::String& type_name) {
-  if (ref.handle == 0) return false;
+  if (ref.handle == 0)
+    return false;
   // Every reference is, at root, a Form and an ObjectReference.
   if (type_name == "ObjectReference" || type_name == "Form" || type_name == "ScriptObject")
     return true;
   const bool want_actor = type_name == "Actor";
-  if (!want_actor && type_name != "ActorBase") return false;
+  if (!want_actor && type_name != "ActorBase")
+    return false;
   // A reference we already hold live actor state for (a spawned combatant, an
   // alias the quest handed health/factions) is an Actor even with no record.
   if (want_actor && (actor_values_.count(ref.handle) || faction_ranks_.count(ref.handle)))
     return true;
-  if (!records_) return false;
+  if (!records_)
+    return false;
   if (const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(ref))) {
-    if (!want_actor) return stored->header.type == FourCc('N', 'P', 'C', '_');  // ActorBase
-    if (stored->header.type == FourCc('A', 'C', 'H', 'R')) return true;         // placed actor ref
+    if (!want_actor)
+      return stored->header.type == FourCc('N', 'P', 'C', '_');  // ActorBase
+    if (stored->header.type == FourCc('A', 'C', 'H', 'R'))
+      return true;  // placed actor ref
   }
   // A placed REFR whose base object is an NPC is an actor as well.
   if (want_actor) {
@@ -414,9 +461,11 @@ bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const base::String& ty
 // GetArmorRating) live in skyrim_bindings_item_data.cc.
 
 base::String RecordBackedSkyrimBindings::GetName(ObjectRef form) {
-  if (!records_) return "";
+  if (!records_)
+    return "";
   bethesda::Record record;
-  if (!records_->Parse(ToFormId(form), &record)) return "";
+  if (!records_->Parse(ToFormId(form), &record))
+    return "";
   const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L'));
   if (!full) {
     // A placed reference (REFR/ACHR) carries no FULL of its own; the displayed
@@ -427,29 +476,35 @@ base::String RecordBackedSkyrimBindings::GetName(ObjectRef form) {
   if (strings_ && full->data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, full->data.data(), 4);
-    if (const base::String* s = strings_->Find(string_id)) return base::String(s->c_str());
+    if (const base::String* s = strings_->Find(string_id))
+      return base::String(s->c_str());
   }
   return record.GetString(FourCc('F', 'U', 'L', 'L'));  // non-localized inline text
 }
 
 bool RecordBackedSkyrimBindings::HasKeyword(ObjectRef form, ObjectRef keyword) {
-  if (!records_) return false;
+  if (!records_)
+    return false;
   bethesda::Record record;
-  if (!records_->Parse(ToFormId(form), &record)) return false;
+  if (!records_->Parse(ToFormId(form), &record))
+    return false;
   const bethesda::Subrecord* kwda = record.Find(FourCc('K', 'W', 'D', 'A'));
-  if (!kwda) return false;
+  if (!kwda)
+    return false;
   u32 want = static_cast<u32>(keyword.handle);
   for (size_t offset = 0; offset + 4 <= kwda->data.size(); offset += 4) {
     u32 id;
     std::memcpy(&id, kwda->data.data() + offset, 4);
-    if (id == want) return true;
+    if (id == want)
+      return true;
   }
   return false;
 }
 
 base::Array<f32, 3> RecordBackedSkyrimBindings::Position(ObjectRef ref) {
   auto* it = positions_.find(ref.handle);
-  if (it != nullptr) return *it;
+  if (it != nullptr)
+    return *it;
   // Fall back to the authored placement in the REFR record (DATA = pos+rot).
   if (records_) {
     bethesda::Record record;
@@ -465,14 +520,22 @@ base::Array<f32, 3> RecordBackedSkyrimBindings::Position(ObjectRef ref) {
   return {0.0f, 0.0f, 0.0f};
 }
 
-f32 RecordBackedSkyrimBindings::GetPositionX(ObjectRef ref) { return Position(ref)[0]; }
-f32 RecordBackedSkyrimBindings::GetPositionY(ObjectRef ref) { return Position(ref)[1]; }
-f32 RecordBackedSkyrimBindings::GetPositionZ(ObjectRef ref) { return Position(ref)[2]; }
+f32 RecordBackedSkyrimBindings::GetPositionX(ObjectRef ref) {
+  return Position(ref)[0];
+}
+f32 RecordBackedSkyrimBindings::GetPositionY(ObjectRef ref) {
+  return Position(ref)[1];
+}
+f32 RecordBackedSkyrimBindings::GetPositionZ(ObjectRef ref) {
+  return Position(ref)[2];
+}
 
 void RecordBackedSkyrimBindings::SetPosition(ObjectRef ref, f32 x, f32 y, f32 z) {
-  if (replica_mode_) return;           // server-authoritative: positions arrive replicated
+  if (replica_mode_)
+    return;                            // server-authoritative: positions arrive replicated
   positions_[ref.handle] = {x, y, z};  // logical position for script reads
-  if (!world_sink_) return;
+  if (!world_sink_)
+    return;
   if (ref.handle == player_.handle)
     world_sink_->MovePlayer(active_quest_, 0, x, y, z);  // raw coords, no dest ref
   else
@@ -487,7 +550,8 @@ f32 RecordBackedSkyrimBindings::GetDistance(ObjectRef a, ObjectRef b) {
 }
 
 bool RecordBackedSkyrimBindings::HasLos(ObjectRef viewer, ObjectRef target) {
-  if (viewer.handle == 0 || target.handle == 0) return false;
+  if (viewer.handle == 0 || target.handle == 0)
+    return false;
   // Prefer the runtime's live position snapshot (a moving NPC), falling back to the
   // logical/record placement. Without occlusion geometry, sight is a distance gate:
   // a generous range that still rejects refs in distant cells.
@@ -495,22 +559,27 @@ bool RecordBackedSkyrimBindings::HasLos(ObjectRef viewer, ObjectRef target) {
   auto live = [&](ObjectRef ref) -> base::Array<f32, 3> {
     std::lock_guard<std::mutex> lock(live_positions_mutex_);
     auto* it = live_positions_.find(ref.handle);
-    if (it != nullptr) return *it;
+    if (it != nullptr)
+      return *it;
     return base::Array<f32, 3>{};  // sentinel; replaced below when absent
   };
   base::Array<f32, 3> pv = live(viewer);
-  if (pv == base::Array<f32, 3>{}) pv = Position(viewer);
+  if (pv == base::Array<f32, 3>{})
+    pv = Position(viewer);
   base::Array<f32, 3> pt = live(target);
-  if (pt == base::Array<f32, 3>{}) pt = Position(target);
+  if (pt == base::Array<f32, 3>{})
+    pt = Position(target);
   f32 dx = pv[0] - pt[0], dy = pv[1] - pt[1], dz = pv[2] - pt[2];
   return dx * dx + dy * dy + dz * dz <= kLosRange * kLosRange;
 }
 
 void RecordBackedSkyrimBindings::MoveTo(ObjectRef ref, ObjectRef target) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   base::Array<f32, 3> p = Position(target);
   positions_[ref.handle] = p;
-  if (!world_sink_) return;
+  if (!world_sink_)
+    return;
   if (ref.handle == player_.handle)
     world_sink_->MovePlayer(active_quest_, target.handle, p[0], p[1], p[2]);
   else
@@ -518,9 +587,11 @@ void RecordBackedSkyrimBindings::MoveTo(ObjectRef ref, ObjectRef target) {
 }
 
 void RecordBackedSkyrimBindings::SetEnabled(ObjectRef ref, bool enabled) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   disabled_[ref.handle] = !enabled;
-  if (world_sink_) world_sink_->SetEnabled(active_quest_, ref.handle, enabled);
+  if (world_sink_)
+    world_sink_->SetEnabled(active_quest_, ref.handle, enabled);
 }
 
 bool RecordBackedSkyrimBindings::IsDisabled(ObjectRef ref) {
@@ -529,13 +600,17 @@ bool RecordBackedSkyrimBindings::IsDisabled(ObjectRef ref) {
 }
 
 void RecordBackedSkyrimBindings::Delete(ObjectRef ref) {
-  if (replica_mode_) return;
-  if (world_sink_) world_sink_->DeleteReference(active_quest_, ref.handle);
+  if (replica_mode_)
+    return;
+  if (world_sink_)
+    world_sink_->DeleteReference(active_quest_, ref.handle);
 }
 
-papyrus::ObjectRef RecordBackedSkyrimBindings::PlaceAtMe(ObjectRef where, ObjectRef base,
+papyrus::ObjectRef RecordBackedSkyrimBindings::PlaceAtMe(ObjectRef where,
+                                                         ObjectRef base,
                                                          i32 /*count*/) {
-  if (replica_mode_ || !world_sink_) return ObjectRef{0};
+  if (replica_mode_ || !world_sink_)
+    return ObjectRef{0};
   // Spawn at the placer's position; the sink allocates the new ref handle so we
   // can return it to the script immediately. Mirror the position locally so the
   // script's GetPosition on the new ref reads back.
@@ -550,20 +625,25 @@ f32 RecordBackedSkyrimBindings::GetScale(ObjectRef ref) {
   return it == nullptr ? 1.0f : *it;
 }
 
-void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) { scales_[ref.handle] = scale; }
+void RecordBackedSkyrimBindings::SetScale(ObjectRef ref, f32 scale) {
+  scales_[ref.handle] = scale;
+}
 
 bool RecordBackedSkyrimBindings::IsLocked(ObjectRef ref) {
   auto* it = locks_.find(ref.handle);
-  if (it != nullptr) return it->locked;
+  if (it != nullptr)
+    return it->locked;
   bethesda::Record record;
   return records_ && records_->Parse(ToFormId(ref), &record) &&
          record.Find(FourCc('X', 'L', 'O', 'C'));
 }
 
 void RecordBackedSkyrimBindings::SetLocked(ObjectRef ref, bool locked) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   locks_[ref.handle].locked = locked;
-  if (world_sink_) world_sink_->SetLocked(active_quest_, ref.handle, locked);
+  if (world_sink_)
+    world_sink_->SetLocked(active_quest_, ref.handle, locked);
 }
 
 i32 RecordBackedSkyrimBindings::GetLockLevel(ObjectRef ref) {
@@ -577,14 +657,17 @@ void RecordBackedSkyrimBindings::SetLockLevel(ObjectRef ref, i32 level) {
 
 i32 RecordBackedSkyrimBindings::GetOpenState(ObjectRef ref) {
   auto* it = open_.find(ref.handle);
-  if (it == nullptr) return 3;  // closed
+  if (it == nullptr)
+    return 3;  // closed
   return *it ? 1 : 3;
 }
 
 void RecordBackedSkyrimBindings::SetOpen(ObjectRef ref, bool open) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   open_[ref.handle] = open;
-  if (world_sink_) world_sink_->SetOpen(active_quest_, ref.handle, open);
+  if (world_sink_)
+    world_sink_->SetOpen(active_quest_, ref.handle, open);
 }
 
 i32 RecordBackedSkyrimBindings::GetFactionRank(ObjectRef actor, ObjectRef faction) {
@@ -593,7 +676,8 @@ i32 RecordBackedSkyrimBindings::GetFactionRank(ObjectRef actor, ObjectRef factio
   // -2 sentinel so the override can hide an authored membership.
   auto* it = faction_ranks_.find(actor.handle);
   if (it != nullptr) {
-    if (const i32* rank = it->find(faction.handle)) return *rank;
+    if (const i32* rank = it->find(faction.handle))
+      return *rank;
   }
   return AuthoredFactionRank(actor, faction);
 }
@@ -621,7 +705,8 @@ i32 RecordBackedSkyrimBindings::GetReaction(ObjectRef faction, ObjectRef other) 
   // authored in the FACT record.
   auto* it = reactions_.find(faction.handle);
   if (it != nullptr) {
-    if (const i32* reaction = it->find(other.handle)) return *reaction;
+    if (const i32* reaction = it->find(other.handle))
+      return *reaction;
   }
   return AuthoredFactionReaction(faction, other);
 }
@@ -649,11 +734,13 @@ void RecordBackedSkyrimBindings::SetPlayerControl(i32 category, bool enabled) {
     player_controls_.fill(true);
     player_controls_init_ = true;
   }
-  if (category >= 0 && category < kControlCount) player_controls_[category] = enabled;
+  if (category >= 0 && category < kControlCount)
+    player_controls_[category] = enabled;
 }
 
 bool RecordBackedSkyrimBindings::IsPlayerControlEnabled(i32 category) {
-  if (!player_controls_init_) return true;  // all enabled until something toggles
+  if (!player_controls_init_)
+    return true;  // all enabled until something toggles
   return category >= 0 && category < kControlCount ? player_controls_[category] : true;
 }
 
@@ -668,12 +755,16 @@ f32 RecordBackedSkyrimBindings::GetRealHoursPassed() {
 f32 RecordBackedSkyrimBindings::GetGlobalValue(ObjectRef global) {
   // The time globals proxy the live clock rather than a stored/authored value.
   if (clock_ && global.handle != 0) {
-    if (global.handle == game_hour_global_) return clock_->hour();
-    if (global.handle == game_days_global_) return static_cast<f32>(clock_->game_days());
-    if (global.handle == timescale_global_) return clock_->timescale();
+    if (global.handle == game_hour_global_)
+      return clock_->hour();
+    if (global.handle == game_days_global_)
+      return static_cast<f32>(clock_->game_days());
+    if (global.handle == timescale_global_)
+      return clock_->timescale();
   }
   auto* it = global_values_.find(global.handle);
-  if (it != nullptr) return *it;
+  if (it != nullptr)
+    return *it;
   // Fall back to the GLOB record's authored value (FLTV).
   if (records_) {
     bethesda::Record rec;
@@ -692,9 +783,12 @@ f32 RecordBackedSkyrimBindings::GetGlobalValue(ObjectRef global) {
 void RecordBackedSkyrimBindings::SetGlobalValue(ObjectRef global, f32 value) {
   // Writing a time global moves the clock (e.g. a script setting GameHour).
   if (clock_ && global.handle != 0) {
-    if (global.handle == game_hour_global_) return clock_->set_hour(value);
-    if (global.handle == game_days_global_) return clock_->set_game_days(value);
-    if (global.handle == timescale_global_) return clock_->set_timescale(value);
+    if (global.handle == game_hour_global_)
+      return clock_->set_hour(value);
+    if (global.handle == game_days_global_)
+      return clock_->set_game_days(value);
+    if (global.handle == timescale_global_)
+      return clock_->set_timescale(value);
   }
   global_values_[global.handle] = value;
 }
@@ -704,7 +798,8 @@ RecordBackedSkyrimBindings::ActorValue& RecordBackedSkyrimBindings::Av(ObjectRef
   auto& values = actor_values_[actor.handle];
   base::String key = Lower(av);
   auto* it = values.find(key);
-  if (it != nullptr) return *it;
+  if (it != nullptr)
+    return *it;
   f32 d = DefaultActorValue(av);
   return values[key] = ActorValue{d, d};
 }
@@ -722,14 +817,18 @@ bool RecordBackedSkyrimBindings::IsEssential(ObjectRef actor_base) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::ResolveFormRef(ObjectRef from, u32 subrecord_type) {
-  if (!records_) return {};
+  if (!records_)
+    return {};
   bethesda::GlobalFormId id = ToFormId(from);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return {};
+  if (!stored)
+    return {};
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return {};
+  if (!records_->Parse(id, &rec))
+    return {};
   const bethesda::Subrecord* sub = rec.Find(subrecord_type);
-  if (!sub || sub->data.size() < 4) return {};
+  if (!sub || sub->data.size() < 4)
+    return {};
   u32 raw;
   std::memcpy(&raw, sub->data.data(), 4);
   bethesda::GlobalFormId resolved =
@@ -764,42 +863,49 @@ bool RecordBackedSkyrimBindings::IsActorRunning(ObjectRef actor) {
 void RecordBackedSkyrimBindings::UpdateMovingActors(const base::Vector<u64>& running) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
   running_actors_.clear();
-  for (u64 handle : running) running_actors_.insert(handle);
+  for (u64 handle : running)
+    running_actors_.insert(handle);
 }
 
 void RecordBackedSkyrimBindings::UpdatePositionSnapshot(
     const base::Vector<base::Pair<u64, base::Array<f32, 3>>>& positions) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
   live_positions_.clear();
-  for (const auto& [handle, pos] : positions) live_positions_[handle] = pos;
+  for (const auto& [handle, pos] : positions)
+    live_positions_[handle] = pos;
 }
 
 i32 RecordBackedSkyrimBindings::GetNearbyRefs(ObjectRef center, f32 radius) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
   nearby_cache_.clear();
   auto* it = live_positions_.find(center.handle);
-  if (it == nullptr) return 0;
+  if (it == nullptr)
+    return 0;
   const base::Array<f32, 3> c = *it;
   const f32 r = radius * kGameUnitsToEngine;
   const f32 r2 = r * r;
   for (const auto& [handle, pos] : live_positions_) {
-    if (handle == center.handle) continue;
+    if (handle == center.handle)
+      continue;
     const f32 dx = pos[0] - c[0], dy = pos[1] - c[1], dz = pos[2] - c[2];
     const f32 d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 <= r2) nearby_cache_.push_back({handle, std::sqrt(d2) / kGameUnitsToEngine});
+    if (d2 <= r2)
+      nearby_cache_.push_back({handle, std::sqrt(d2) / kGameUnitsToEngine});
   }
   return static_cast<i32>(nearby_cache_.size());
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthNearbyRef(i32 index) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
-  if (index < 0 || index >= static_cast<i32>(nearby_cache_.size())) return {};
+  if (index < 0 || index >= static_cast<i32>(nearby_cache_.size()))
+    return {};
   return ObjectRef{nearby_cache_[static_cast<size_t>(index)].first};
 }
 
 f32 RecordBackedSkyrimBindings::GetNthNearbyDistance(i32 index) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
-  if (index < 0 || index >= static_cast<i32>(nearby_cache_.size())) return 0.0f;
+  if (index < 0 || index >= static_cast<i32>(nearby_cache_.size()))
+    return 0.0f;
   return nearby_cache_[static_cast<size_t>(index)].second;
 }
 
@@ -808,19 +914,24 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetBaseObject(ObjectRef ref) {
 }
 
 bool RecordBackedSkyrimBindings::IsInterior(ObjectRef cell) {
-  if (!records_) return false;
+  if (!records_)
+    return false;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(cell), &rec)) return false;
+  if (!records_->Parse(ToFormId(cell), &rec))
+    return false;
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
   return data && !data->data.empty() && (data->data[0] & 0x1);
 }
 
 f32 RecordBackedSkyrimBindings::GetCellWaterLevel(ObjectRef cell) {
-  if (!records_) return 0.0f;
+  if (!records_)
+    return 0.0f;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(cell), &rec)) return 0.0f;
+  if (!records_->Parse(ToFormId(cell), &rec))
+    return 0.0f;
   const bethesda::Subrecord* xclw = rec.Find(FourCc('X', 'C', 'L', 'W'));
-  if (!xclw || xclw->data.size() < 4) return 0.0f;
+  if (!xclw || xclw->data.size() < 4)
+    return 0.0f;
   f32 value;
   std::memcpy(&value, xclw->data.data(), 4);
   return value;
@@ -836,26 +947,31 @@ f32 RecordBackedSkyrimBindings::GetBaseActorValue(ObjectRef actor, const base::S
 
 f32 RecordBackedSkyrimBindings::GetActorValuePercentage(ObjectRef actor, const base::String& av) {
   ActorValue& v = Av(actor, av);
-  if (v.base <= 0.0f) return 0.0f;
+  if (v.base <= 0.0f)
+    return 0.0f;
   return base::Clamp(v.current / v.base, 0.0f, 1.0f);
 }
 
-void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target, const char* event,
+void RecordBackedSkyrimBindings::RaiseFormEvent(u64 target,
+                                                const char* event,
                                                 base::Vector<papyrus::Value> args) {
   const bool dispatched = vm_ && vm_->TryCall(ObjectRef{target}, event, base::move(args));
   // RX_EVENT_TRACE logs every raised form event and whether a handler ran, so a
   // headless quest run shows which events the stage fragments actually produce.
   const bool trace = bool(EventTrace);
-  if (trace) RX_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
+  if (trace)
+    RX_INFO("event {} -> 0x{:x} (handler {})", event, target, dispatched ? "ran" : "none");
 }
 
-void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target, const char* event,
+void RecordBackedSkyrimBindings::RaiseFormAndAliasEvent(u64 target,
+                                                        const char* event,
                                                         base::Vector<papyrus::Value> args) {
   RaiseFormEvent(target, event, args);
   // Also dispatch to every alias the ref fills. Copy the list: a handler may
   // refill/clear the alias and mutate ref_to_aliases_ mid-iteration.
   if (auto* it = ref_to_aliases_.find(target); it != nullptr)
-    for (u64 alias_handle : base::Vector<u64>(*it)) RaiseFormEvent(alias_handle, event, args);
+    for (u64 alias_handle : base::Vector<u64>(*it))
+      RaiseFormEvent(alias_handle, event, args);
 }
 
 base::Vector<papyrus::ObjectRef> RecordBackedSkyrimBindings::AliasesFilledBy(
@@ -863,13 +979,15 @@ base::Vector<papyrus::ObjectRef> RecordBackedSkyrimBindings::AliasesFilledBy(
   base::Vector<papyrus::ObjectRef> out;
   if (auto* it = ref_to_aliases_.find(ref.handle); it != nullptr) {
     out.reserve(it->size());
-    for (u64 alias_handle : *it) out.push_back(papyrus::ObjectRef{alias_handle});
+    for (u64 alias_handle : *it)
+      out.push_back(papyrus::ObjectRef{alias_handle});
   }
   return out;
 }
 
 void RecordBackedSkyrimBindings::EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i) {
-  if (event_sink_) event_sink_(host::ManagedEvent{id, a, b, i, 0.0f});
+  if (event_sink_)
+    event_sink_(host::ManagedEvent{id, a, b, i, 0.0f});
 }
 
 void RecordBackedSkyrimBindings::MaybeNotifyDeath(ObjectRef actor) {
@@ -877,7 +995,8 @@ void RecordBackedSkyrimBindings::MaybeNotifyDeath(ObjectRef actor) {
     dead_.erase(actor.handle);  // healed or resurrected: re-arm the death event
     return;
   }
-  if (!dead_.insert(actor.handle)) return;  // already announced
+  if (!dead_.insert(actor.handle))
+    return;  // already announced
   // Attribute the kill to the swinging attacker when the death came from a melee
   // hit; None for scripted Kill()/environmental deaths.
   const papyrus::Value killer = papyrus::Value::Object(last_attacker_);
@@ -895,9 +1014,12 @@ void RecordBackedSkyrimBindings::MaybeNotifyDeath(ObjectRef actor) {
   combat_target_.erase(actor.handle);
   base::Vector<u64> disengaging;
   for (const auto& [fighter, target] : combat_target_)
-    if (target == actor.handle) disengaging.push_back(fighter);
-  for (u64 fighter : disengaging) StopCombat(ObjectRef{fighter});
-  if (world_sink_) world_sink_->ActorDied(active_quest_, actor.handle);
+    if (target == actor.handle)
+      disengaging.push_back(fighter);
+  for (u64 fighter : disengaging)
+    StopCombat(ObjectRef{fighter});
+  if (world_sink_)
+    world_sink_->ActorDied(active_quest_, actor.handle);
 }
 
 bool RecordBackedSkyrimBindings::IsInCombat(ObjectRef actor) {
@@ -920,11 +1042,14 @@ ObjectRef RecordBackedSkyrimBindings::GetCombatTarget(ObjectRef actor) {
 }
 
 void RecordBackedSkyrimBindings::StartCombat(ObjectRef actor, ObjectRef target) {
-  if (actor.handle == 0 || target.handle == 0 || actor.handle == target.handle) return;
-  if (IsDead(actor) || IsDead(target)) return;
+  if (actor.handle == 0 || target.handle == 0 || actor.handle == target.handle)
+    return;
+  if (IsDead(actor) || IsDead(target))
+    return;
   const bool was_in_combat = combat_target_.count(actor.handle) != 0;
   combat_target_[actor.handle] = target.handle;
-  if (world_sink_) world_sink_->StartCombat(active_quest_, actor.handle, target.handle);
+  if (world_sink_)
+    world_sink_->StartCombat(active_quest_, actor.handle, target.handle);
   // OnCombatStateChanged(akTarget, aeCombatState): 1 = in combat. Only on the
   // leading edge, so re-targeting a foe mid-combat stays quiet (matches Skyrim,
   // which fires the transition once per combat entry, not per target switch).
@@ -936,7 +1061,8 @@ void RecordBackedSkyrimBindings::StartCombat(ObjectRef actor, ObjectRef target) 
 void RecordBackedSkyrimBindings::StopCombat(ObjectRef actor) {
   const bool was_in_combat = combat_target_.count(actor.handle) != 0;
   combat_target_.erase(actor.handle);
-  if (world_sink_) world_sink_->StopCombat(active_quest_, actor.handle);
+  if (world_sink_)
+    world_sink_->StopCombat(active_quest_, actor.handle);
   // 0 = no longer in combat, with a None target. Only when actually leaving
   // combat, so a redundant StopCombat is silent.
   if (was_in_combat)
@@ -945,11 +1071,13 @@ void RecordBackedSkyrimBindings::StopCombat(ObjectRef actor) {
 }
 
 void RecordBackedSkyrimBindings::SetActorFollowing(ObjectRef actor, bool follow) {
-  if (world_sink_) world_sink_->ActorFollow(active_quest_, actor.handle, follow);
+  if (world_sink_)
+    world_sink_->ActorFollow(active_quest_, actor.handle, follow);
 }
 
 void RecordBackedSkyrimBindings::ApplyMeleeHit(ObjectRef attacker, ObjectRef target, f32 damage) {
-  if (target.handle == 0 || IsDead(target)) return;
+  if (target.handle == 0 || IsDead(target))
+    return;
   last_attacker_ = attacker;
   // OnHit(akAggressor, akSource, akProjectile, abPowerAttack, abSneakAttack,
   // abBashAttack, abHitBlocked). A plain melee swing carries no weapon/spell
@@ -968,15 +1096,18 @@ namespace {
 // Resolves one quest-text token body (without the angle brackets), e.g.
 // "Alias=City", "Alias.ShortName=Fort", "Global=CWPercentPoolRemainingAttacker".
 // Returns false to leave an unrecognised token in place.
-bool ExpandToken(base::StringRef token, base::String* out,
+bool ExpandToken(base::StringRef token,
+                 base::String* out,
                  const base::Function<base::String(base::StringRef)>& alias_name,
                  const base::Function<bool(base::StringRef, f32*)>& global_value) {
   const size_t eq = token.find('=');
-  if (eq == base::StringRef::npos) return false;
+  if (eq == base::StringRef::npos)
+    return false;
   base::StringRef key = token.substr(0, eq);
   base::StringRef name = token.substr(eq + 1);
   const size_t dot = key.find('.');  // strip a ".ShortName"/".GetName" qualifier
-  if (dot != base::StringRef::npos) key = key.substr(0, dot);
+  if (dot != base::StringRef::npos)
+    key = key.substr(0, dot);
   base::String lower(key);
   std::transform(lower.begin(), lower.end(), lower.begin(),
                  [](unsigned char c) { return std::tolower(c); });
@@ -986,7 +1117,8 @@ bool ExpandToken(base::StringRef token, base::String* out,
   }
   if (lower == "global") {
     f32 v = 0;
-    if (!global_value(name, &v)) return false;
+    if (!global_value(name, &v))
+      return false;
     char buf[32];
     if (v == std::floor(v))
       std::snprintf(buf, sizeof(buf), "%d", static_cast<int>(v));
@@ -1000,7 +1132,8 @@ bool ExpandToken(base::StringRef token, base::String* out,
 }  // namespace
 
 base::String RecordBackedSkyrimBindings::ResolveQuestText(u64 quest, const base::String& raw) {
-  if (raw.find('<') == base::String::npos) return raw;
+  if (raw.find('<') == base::String::npos)
+    return raw;
   const quest::QuestDef* def = quest_system_.Definition(quest);
 
   // <Alias=Name> -> the display name of the reference filling that named alias,
@@ -1015,7 +1148,8 @@ base::String RecordBackedSkyrimBindings::ResolveQuestText(u64 quest, const base:
         base::String an = a.name;
         std::transform(an.begin(), an.end(), an.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        if (an != want) continue;
+        if (an != want)
+          continue;
         const ObjectRef ref = AliasReference(ObjectRef{papyrus::EncodeAliasHandle(quest, a.id)});
         base::String n = ref.handle ? GetName(ref) : "";
         return n.empty() ? a.name : n;
@@ -1025,9 +1159,11 @@ base::String RecordBackedSkyrimBindings::ResolveQuestText(u64 quest, const base:
   };
   // <Global=Name> -> the live value of the GLOB with that editor id.
   auto global_value = [&](base::StringRef name, f32* v) -> bool {
-    if (!records_) return false;
+    if (!records_)
+      return false;
     const bethesda::GlobalFormId g = records_->FindGlobal(base::String(name));
-    if (g.plugin == 0xffff) return false;
+    if (g.plugin == 0xffff)
+      return false;
     *v = GetGlobalValue(ObjectRef{g.packed()});
     return true;
   };
@@ -1056,24 +1192,29 @@ void RecordBackedSkyrimBindings::SetActorValue(ObjectRef actor, const base::Stri
   ActorValue& v = Av(actor, av);
   v.base = value;
   v.current = value;
-  if (Lower(av) == "health") MaybeNotifyDeath(actor);
+  if (Lower(av) == "health")
+    MaybeNotifyDeath(actor);
 }
 
-void RecordBackedSkyrimBindings::ForceActorValue(ObjectRef actor, const base::String& av,
+void RecordBackedSkyrimBindings::ForceActorValue(ObjectRef actor,
+                                                 const base::String& av,
                                                  f32 value) {
   SetActorValue(actor, av, value);
 }
 
 void RecordBackedSkyrimBindings::ModActorValue(ObjectRef actor, const base::String& av, f32 delta) {
   Av(actor, av).current += delta;
-  if (Lower(av) == "health") MaybeNotifyDeath(actor);
+  if (Lower(av) == "health")
+    MaybeNotifyDeath(actor);
 }
 
-void RecordBackedSkyrimBindings::RestoreActorValue(ObjectRef actor, const base::String& av,
+void RecordBackedSkyrimBindings::RestoreActorValue(ObjectRef actor,
+                                                   const base::String& av,
                                                    f32 amount) {
   ActorValue& v = Av(actor, av);
   v.current = base::Min(v.base, v.current + amount);
-  if (Lower(av) == "health") MaybeNotifyDeath(actor);
+  if (Lower(av) == "health")
+    MaybeNotifyDeath(actor);
 }
 
 bool RecordBackedSkyrimBindings::IsDead(ObjectRef actor) {
@@ -1083,15 +1224,18 @@ bool RecordBackedSkyrimBindings::IsDead(ObjectRef actor) {
 void RecordBackedSkyrimBindings::Resurrect(ObjectRef actor) {
   // Only bring back something that actually died: Reset() is also called on
   // living/clutter refs, and reviving those (handing them health) would be wrong.
-  if (!dead_.contains(actor.handle)) return;
+  if (!dead_.contains(actor.handle))
+    return;
   RestoreActorValue(actor, "health", 1.0e9f);  // back to full (clamped to base)
   dead_.erase(actor.handle);
-  if (world_sink_) world_sink_->ActorResurrected(active_quest_, actor.handle);
+  if (world_sink_)
+    world_sink_->ActorResurrected(active_quest_, actor.handle);
 }
 
 i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item) {
   auto* it = inventory_.find(container.handle);
-  if (it == nullptr) return 0;
+  if (it == nullptr)
+    return 0;
   const i32* item_it = it->find(item.handle);
   return item_it == nullptr ? 0 : *item_it;
 }
@@ -1103,16 +1247,19 @@ i32 RecordBackedSkyrimBindings::GetNumItems(ObjectRef container) {
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthForm(ObjectRef container, i32 index) {
   auto* it = inventory_.find(container.handle);
-  if (it == nullptr || index < 0) return {};
+  if (it == nullptr || index < 0)
+    return {};
   // Every entry has a positive count (RemoveItem erases zeroed ones), so the
   // index maps directly onto the map's entries.
   for (const auto& [item, count] : *it)
-    if (index-- == 0) return ObjectRef{item};
+    if (index-- == 0)
+      return ObjectRef{item};
   return {};
 }
 
 void RecordBackedSkyrimBindings::AddItem(ObjectRef container, ObjectRef item, i32 count) {
-  if (count <= 0) return;
+  if (count <= 0)
+    return;
   inventory_[container.handle][item.handle] += count;
   // OnItemAdded(akBaseItem, aiItemCount, akItemReference, akSourceContainer).
   // No placed reference / source container yet, so those are None.
@@ -1123,15 +1270,20 @@ void RecordBackedSkyrimBindings::AddItem(ObjectRef container, ObjectRef item, i3
 }
 
 void RecordBackedSkyrimBindings::RemoveItem(ObjectRef container, ObjectRef item, i32 count) {
-  if (count <= 0) return;
+  if (count <= 0)
+    return;
   auto* it = inventory_.find(container.handle);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   i32* item_it = it->find(item.handle);
-  if (item_it == nullptr) return;
+  if (item_it == nullptr)
+    return;
   const i32 removed = base::Min(count, *item_it);
   *item_it = base::Max(0, *item_it - count);
-  if (*item_it == 0) it->erase(item.handle);
-  if (removed <= 0) return;
+  if (*item_it == 0)
+    it->erase(item.handle);
+  if (removed <= 0)
+    return;
   // OnItemRemoved(akBaseItem, aiItemCount, akItemReference, akDestContainer).
   const papyrus::Value none = papyrus::Value::Object(ObjectRef{0});
   RaiseFormEvent(container.handle, "OnItemRemoved",
@@ -1140,8 +1292,10 @@ void RecordBackedSkyrimBindings::RemoveItem(ObjectRef container, ObjectRef item,
 }
 
 void RecordBackedSkyrimBindings::EquipItem(ObjectRef actor, ObjectRef item) {
-  if (actor.handle == 0 || item.handle == 0) return;
-  if (!equipped_[actor.handle].insert(item.handle)) return;  // already equipped
+  if (actor.handle == 0 || item.handle == 0)
+    return;
+  if (!equipped_[actor.handle].insert(item.handle))
+    return;  // already equipped
   // OnObjectEquipped(akBaseObject, akReference) on the actor and any alias it
   // fills; akReference is None since we equip base forms, not placed refs. The
   // item's own script hears OnEquipped(akActor).
@@ -1151,10 +1305,13 @@ void RecordBackedSkyrimBindings::EquipItem(ObjectRef actor, ObjectRef item) {
 }
 
 void RecordBackedSkyrimBindings::UnequipItem(ObjectRef actor, ObjectRef item) {
-  if (actor.handle == 0 || item.handle == 0) return;
+  if (actor.handle == 0 || item.handle == 0)
+    return;
   auto* it = equipped_.find(actor.handle);
-  if (it == nullptr || !it->erase(item.handle)) return;  // was not equipped
-  if (it->empty()) equipped_.erase(actor.handle);
+  if (it == nullptr || !it->erase(item.handle))
+    return;  // was not equipped
+  if (it->empty())
+    equipped_.erase(actor.handle);
   const papyrus::Value none = papyrus::Value::Object(ObjectRef{0});
   RaiseFormAndAliasEvent(actor.handle, "OnObjectUnequipped", {papyrus::Value::Object(item), none});
   RaiseFormEvent(item.handle, "OnUnequipped", {papyrus::Value::Object(actor)});
@@ -1166,34 +1323,44 @@ bool RecordBackedSkyrimBindings::IsEquipped(ObjectRef actor, ObjectRef item) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetEquippedWeapon(ObjectRef actor) {
-  if (!records_) return {};
+  if (!records_)
+    return {};
   auto* it = equipped_.find(actor.handle);
-  if (it == nullptr) return {};
+  if (it == nullptr)
+    return {};
   for (u64 item : *it) {
     const bethesda::RecordStore::StoredRecord* stored = records_->Find(ToFormId(ObjectRef{item}));
-    if (stored && stored->header.type == FourCc('W', 'E', 'A', 'P')) return ObjectRef{item};
+    if (stored && stored->header.type == FourCc('W', 'E', 'A', 'P'))
+      return ObjectRef{item};
   }
   return {};
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetEquippedShield(ObjectRef actor) {
-  if (!records_) return {};
+  if (!records_)
+    return {};
   auto* it = equipped_.find(actor.handle);
-  if (it == nullptr) return {};
+  if (it == nullptr)
+    return {};
   for (u64 item : *it) {
     const bethesda::GlobalFormId id = ToFormId(ObjectRef{item});
     const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-    if (!stored || stored->header.type != FourCc('A', 'R', 'M', 'O')) continue;
+    if (!stored || stored->header.type != FourCc('A', 'R', 'M', 'O'))
+      continue;
     bethesda::Record rec;
-    if (!records_->Parse(id, &rec)) continue;
+    if (!records_->Parse(id, &rec))
+      continue;
     // BOD2 (or the older BODT) opens with a u32 of first-person biped-slot flags;
     // the shield slot (39) is bit 39-30 = 9. An ARMO carrying it is the shield.
     const bethesda::Subrecord* bod = rec.Find(FourCc('B', 'O', 'D', '2'));
-    if (!bod) bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
-    if (!bod || bod->data.size() < 4) continue;
+    if (!bod)
+      bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
+    if (!bod || bod->data.size() < 4)
+      continue;
     u32 flags;
     std::memcpy(&flags, bod->data.data(), 4);
-    if (flags & (1u << 9)) return ObjectRef{item};
+    if (flags & (1u << 9))
+      return ObjectRef{item};
   }
   return {};
 }
@@ -1202,12 +1369,15 @@ i32 RecordBackedSkyrimBindings::GetStage(ObjectRef quest) {
   return quest_system_.GetStage(quest.handle);
 }
 
-void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, i32 entry,
+void RecordBackedSkyrimBindings::SetStageFragment(u64 quest,
+                                                  i32 stage,
+                                                  i32 entry,
                                                   base::String function,
                                                   quest::ConditionList conditions) {
   auto& entries = stage_fragments_[quest][stage];
   for (StageFragment& existing : entries) {
-    if (existing.entry != entry) continue;
+    if (existing.entry != entry)
+      continue;
     existing.function = base::move(function);
     existing.conditions = base::move(conditions);
     return;
@@ -1215,7 +1385,8 @@ void RecordBackedSkyrimBindings::SetStageFragment(u64 quest, i32 stage, i32 entr
   entries.push_back({entry, base::move(function), base::move(conditions)});
 }
 
-void RecordBackedSkyrimBindings::SetSceneFragments(u64 scene, u64 owning_quest,
+void RecordBackedSkyrimBindings::SetSceneFragments(u64 scene,
+                                                   u64 owning_quest,
                                                    bethesda::SceneFragments frags) {
   scene_fragments_[scene] = SceneFragmentSet{owning_quest, base::move(frags)};
 }
@@ -1236,7 +1407,8 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::PackageOwningQuest(papyrus::Objec
 }
 
 void RecordBackedSkyrimBindings::RunPackageFragment(u64 package, const base::String& function) {
-  if (replica_mode_ || !vm_ || function.empty()) return;
+  if (replica_mode_ || !vm_ || function.empty())
+    return;
   if (fragment_depth_ >= 32) {
     RX_WARN("package fragment recursion too deep at {}.{}", package, function);
     return;
@@ -1266,7 +1438,8 @@ void RecordBackedSkyrimBindings::SetScenePlayingLive(u64 scene, bool playing) {
 
 void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
   // Server-authoritative: a client mirrors quest progress via replication.
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   // With the runtime playing scenes in the world, hand the call over: the director
   // needs the main thread to move actors, speak the lines and frame the camera.
   if (live_scene_playback_) {
@@ -1277,9 +1450,11 @@ void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
   // Only scenes whose SCEN was parsed + SF_ script attached (by the runtime) can
   // play; an unregistered scene is a silent no-op rather than a crash.
   auto* it = scene_fragments_.find(scene.handle);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   base::Vector<u32> phases;
-  for (const auto& p : it->frags.phases) phases.push_back(p.phase);
+  for (const auto& p : it->frags.phases)
+    phases.push_back(p.phase);
   base::Sort(phases.begin(), phases.end());
   phases.erase(std::unique(phases.begin(), phases.end()), phases.end());
   SceneCueSink sink;
@@ -1307,19 +1482,23 @@ bool RecordBackedSkyrimBindings::SceneIsPlaying(papyrus::ObjectRef scene) {
 }
 
 void RecordBackedSkyrimBindings::TickScenes(f32 dt) {
-  if (scene_player_.playing_count() == 0) return;
+  if (scene_player_.playing_count() == 0)
+    return;
   SceneCueSink sink;
   sink.b = this;
   scene_player_.Tick(dt, sink);
 }
 
-void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
+void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene,
+                                                  u64 owning_quest,
                                                   const base::String& function) {
   // Server-authoritative: a multiplayer client mirrors quest progress via
   // replication, so it must not run scene logic itself (the fragments touch more
   // than SetStage, ref enables, dialogue, and only SetStage is replica-gated).
-  if (replica_mode_) return;
-  if (!vm_ || function.empty()) return;
+  if (replica_mode_)
+    return;
+  if (!vm_ || function.empty())
+    return;
   // Scene fragments call SetStage, whose stage fragment can run more fragments;
   // share the stage-fragment depth guard so a cyclic chain cannot blow the stack.
   if (fragment_depth_ >= 32) {
@@ -1341,17 +1520,20 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene, u64 owning_quest,
 void RecordBackedSkyrimBindings::RunSceneBegin(u64 scene) {
   ++scenes_begun_;
   auto* it = scene_fragments_.find(scene);
-  if (it != nullptr) RunSceneFragment(scene, it->owning_quest, it->frags.begin.function);
+  if (it != nullptr)
+    RunSceneFragment(scene, it->owning_quest, it->frags.begin.function);
 }
 
 void RecordBackedSkyrimBindings::RunSceneEnd(u64 scene) {
   auto* it = scene_fragments_.find(scene);
-  if (it != nullptr) RunSceneFragment(scene, it->owning_quest, it->frags.end.function);
+  if (it != nullptr)
+    RunSceneFragment(scene, it->owning_quest, it->frags.end.function);
 }
 
 void RecordBackedSkyrimBindings::RunScenePhase(u64 scene, u32 phase, bool on_begin) {
   auto* it = scene_fragments_.find(scene);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   for (const auto& p : it->frags.phases)
     if (p.phase == phase && p.on_begin == on_begin)
       RunSceneFragment(scene, it->owning_quest, p.fragment.function);
@@ -1369,24 +1551,30 @@ void RecordBackedSkyrimBindings::RunStageFragment(ObjectRef quest, i32 stage) {
 }
 
 void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage) {
-  if (!vm_) return;
+  if (!vm_)
+    return;
   auto* qit = stage_fragments_.find(quest.handle);
-  if (qit == nullptr) return;
+  if (qit == nullptr)
+    return;
   auto* fit = qit->find(stage);
-  if (fit == nullptr || fit->empty()) return;
+  if (fit == nullptr || fit->empty())
+    return;
   // A stage's log entries are conditioned; the game runs the first whose gate
   // passes. Falling back to the last entry keeps stages whose conditions we
   // cannot yet evaluate behaving as they did before conditions were read.
   const StageFragment* chosen = nullptr;
   SkyrimConditionContext conditions(this);
   for (const StageFragment& candidate : *fit) {
-    if (!quest::Evaluate(candidate.conditions, conditions)) continue;
+    if (!quest::Evaluate(candidate.conditions, conditions))
+      continue;
     chosen = &candidate;
     break;
   }
-  if (!chosen) chosen = &fit->back();
+  if (!chosen)
+    chosen = &fit->back();
   const base::String& function = chosen->function;
-  if (function.empty()) return;
+  if (function.empty())
+    return;
   // Stage fragments call SetStage on themselves and other quests; cap the depth
   // so a cyclic chain in the data cannot blow the guest stack.
   if (fragment_depth_ >= 32) {
@@ -1407,13 +1595,15 @@ void RecordBackedSkyrimBindings::RunStageFragmentBody(ObjectRef quest, i32 stage
 }
 
 RecordBackedSkyrimBindings::QuestRuntime& RecordBackedSkyrimBindings::Runtime(u64 quest) {
-  if (auto* it = quest_runtime_.find(quest); it != nullptr) return **it;
+  if (auto* it = quest_runtime_.find(quest); it != nullptr)
+    return **it;
   // The graph only needs to know which stages carry a fragment at all, so
   // collapse each stage's conditioned entries to its first function name.
   base::UnorderedMap<i32, base::String> fragments;
   if (auto* fit = stage_fragments_.find(quest); fit != nullptr)
     for (const auto& [stage, entries] : *fit)
-      if (!entries.empty()) fragments.emplace(stage, entries.front().function);
+      if (!entries.empty())
+        fragments.emplace(stage, entries.front().function);
   quest::QuestDef empty;
   empty.handle = quest;
   const quest::QuestDef* def = quest_system_.Definition(quest);
@@ -1440,9 +1630,12 @@ void RecordBackedSkyrimBindings::ApplyReplicatedStatus(const quest::QuestStatus&
     EmitManagedEvent(host::ManagedEventId::kQuestStageChanged, status.handle, 0, status.stage);
 }
 
-void RecordBackedSkyrimBindings::SetHudGauge(const base::String& id, f32 fraction,
-                                             const base::String& label, u32 color) {
-  if (id.empty()) return;
+void RecordBackedSkyrimBindings::SetHudGauge(const base::String& id,
+                                             f32 fraction,
+                                             const base::String& label,
+                                             u32 color) {
+  if (id.empty())
+    return;
   const f32 clamped = base::Clamp(fraction, 0.0f, 1.0f);
   std::lock_guard<std::mutex> lock(hud_gauges_mutex_);
   for (HudGauge& g : hud_gauges_) {
@@ -1469,9 +1662,11 @@ void RecordBackedSkyrimBindings::SnapshotHudGauges(base::Vector<HudGauge>& out) 
 }
 
 void RecordBackedSkyrimBindings::SetWarHold(i32 index, const base::String& name, i32 owner) {
-  if (index < 0 || index > 64) return;  // sanity bound on the hold count
+  if (index < 0 || index > 64)
+    return;  // sanity bound on the hold count
   std::lock_guard<std::mutex> lock(war_map_mutex_);
-  if (static_cast<size_t>(index) >= war_holds_.size()) war_holds_.resize(index + 1);
+  if (static_cast<size_t>(index) >= war_holds_.size())
+    war_holds_.resize(index + 1);
   war_holds_[index] = {name, owner};
 }
 
@@ -1488,7 +1683,8 @@ void RecordBackedSkyrimBindings::SnapshotWarMap(base::Vector<WarHold>& out,
 }
 
 void RecordBackedSkyrimBindings::SetStage(ObjectRef quest, i32 stage) {
-  if (replica_mode_) return;  // server-authoritative: stage arrives via ApplyStatus
+  if (replica_mode_)
+    return;  // server-authoritative: stage arrives via ApplyStatus
   // The quest system owns the state and tells us whether this is a fresh stage;
   // only then do we run the stage's logic. That logic now flows through the
   // quest graph: Advance enters the stage node and dispatches its on-enter
@@ -1513,29 +1709,34 @@ bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) {
 }
 
 void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
-  if (replica_mode_) return;  // server starts quests; clients mirror the result
+  if (replica_mode_)
+    return;  // server starts quests; clients mirror the result
   quest_system_.StartQuest(quest.handle);
   // Kick the opening stage so the quest's logic actually begins. The start
   // stage is the lowest one carrying a fragment.
   auto* qit = stage_fragments_.find(quest.handle);
   if (qit != nullptr && !qit->empty()) {
     i32 lowest = qit->begin().key();
-    for (auto entry : *qit) lowest = base::Min(lowest, entry.key);
+    for (auto entry : *qit)
+      lowest = base::Min(lowest, entry.key);
     SetStage(quest, lowest);
   }
 }
 
 void RecordBackedSkyrimBindings::StopQuest(ObjectRef quest) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   quest_system_.StopQuest(quest.handle);
 }
 
 void RecordBackedSkyrimBindings::ResetQuest(ObjectRef quest) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   quest_system_.ResetQuest(quest.handle);
   quest_runtime_.erase(quest.handle);  // rebuild a fresh traversal on next start
   // Roll back everything the quest spawned/placed/moved in the world.
-  if (world_sink_) world_sink_->CleanupQuest(quest.handle);
+  if (world_sink_)
+    world_sink_->CleanupQuest(quest.handle);
 }
 
 bool RecordBackedSkyrimBindings::IsQuestActive(ObjectRef quest) {
@@ -1543,19 +1744,24 @@ bool RecordBackedSkyrimBindings::IsQuestActive(ObjectRef quest) {
 }
 
 void RecordBackedSkyrimBindings::SetQuestActive(ObjectRef quest, bool active) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   quest_system_.SetActive(quest.handle, active);
 }
 
-void RecordBackedSkyrimBindings::SetObjectiveDisplayed(ObjectRef quest, i32 objective,
+void RecordBackedSkyrimBindings::SetObjectiveDisplayed(ObjectRef quest,
+                                                       i32 objective,
                                                        bool displayed) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   quest_system_.SetObjectiveDisplayed(quest.handle, objective, displayed);
 }
 
-void RecordBackedSkyrimBindings::SetObjectiveCompleted(ObjectRef quest, i32 objective,
+void RecordBackedSkyrimBindings::SetObjectiveCompleted(ObjectRef quest,
+                                                       i32 objective,
                                                        bool completed) {
-  if (replica_mode_) return;
+  if (replica_mode_)
+    return;
   quest_system_.SetObjectiveCompleted(quest.handle, objective, completed);
 }
 

@@ -1,9 +1,9 @@
-#include <mutex>
 #include <base/algorithm.h>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
+#include <mutex>
 
 #include "components/world/quest_world.h"
 
@@ -11,9 +11,9 @@
 #include <cmath>
 
 #include "components/bethesda/form_id.h"
+#include "components/world/components.h"
 #include "core/log.h"
 #include "ecs/world.h"
-#include "components/world/components.h"
 
 namespace rx::world {
 
@@ -35,9 +35,12 @@ void QuestWorld::Register(u64 handle, ecs::Entity entity) {
     DoorState* door = world_.Get<DoorState>(entity);
     auto* override = door_overrides_.find(handle);
     if (door && override != nullptr) {
-      if (override->locked) door->locked = *override->locked;
-      if (override->open) door->open = *override->open;
-      if (on_door_state_) on_door_state_(handle, door->locked, door->open);
+      if (override->locked)
+        door->locked = *override->locked;
+      if (override->open)
+        door->open = *override->open;
+      if (on_door_state_)
+        on_door_state_(handle, door->locked, door->open);
     }
   }
   auto* pending = pending_.find(handle);
@@ -45,16 +48,20 @@ void QuestWorld::Register(u64 handle, ecs::Entity entity) {
     base::Vector<WorldCommand> commands = base::move(*pending);
     pending_.erase(handle);
     pending_overflow_warned_.erase(handle);
-    for (const WorldCommand& command : commands) ApplyOne(command);
+    for (const WorldCommand& command : commands)
+      ApplyOne(command);
   }
-  if (on_register_ && world_.IsAlive(entity) && !world_.Has<Deleted>(entity)) on_register_(handle);
+  if (on_register_ && world_.IsAlive(entity) && !world_.Has<Deleted>(entity))
+    on_register_(handle);
 }
 void QuestWorld::Unregister(u64 handle) {
   auto* it = registry_.find(handle);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   const bool already_unloaded = world_.IsAlive(*it) && world_.Has<Deleted>(*it);
   registry_.erase(handle);
-  if (!already_unloaded && on_unregister_) on_unregister_(handle);
+  if (!already_unloaded && on_unregister_)
+    on_unregister_(handle);
 }
 
 ecs::Entity QuestWorld::Find(u64 handle) const {
@@ -71,7 +78,8 @@ bool QuestWorld::CanActivateFrom(ecs::Entity player, u64 handle, f32 max_distanc
   }
   const Transform* player_transform = world_.Get<Transform>(player);
   const Transform* target_transform = world_.Get<Transform>(target);
-  if (!player_transform || !target_transform) return false;
+  if (!player_transform || !target_transform)
+    return false;
   f32 distance_sq = 0.0f;
   for (u32 axis = 0; axis < 3; ++axis) {
     const f32 delta = target_transform->position[axis] - player_transform->position[axis];
@@ -81,7 +89,8 @@ bool QuestWorld::CanActivateFrom(ecs::Entity player, u64 handle, f32 max_distanc
 }
 
 void QuestWorld::RecordEffect(u64 quest, Effect effect) {
-  if (quest == 0) return;
+  if (quest == 0)
+    return;
   effect.sequence = next_effect_sequence_++;
   provenance_[quest].push_back(base::move(effect));
 }
@@ -109,10 +118,13 @@ void QuestWorld::DeferCommand(const WorldCommand& command) {
   commands.push_back(command);
 }
 
-void QuestWorld::Apply(WorldCommandQueue& queue) { Apply(queue.Drain()); }
+void QuestWorld::Apply(WorldCommandQueue& queue) {
+  Apply(queue.Drain());
+}
 
 void QuestWorld::Apply(const base::Vector<WorldCommand>& commands) {
-  for (const WorldCommand& cmd : commands) ApplyOne(cmd);
+  for (const WorldCommand& cmd : commands)
+    ApplyOne(cmd);
 }
 
 void QuestWorld::ApplyOne(const WorldCommand& cmd) {
@@ -135,17 +147,21 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
     case WorldOp::kSpawn: {
       // Idempotent: a re-sent spawn (e.g. a battle resync to a late-joining
       // client) must not duplicate an entity that already exists for this handle.
-      if (cmd.handle != 0 && registry_.contains(cmd.handle)) break;
+      if (cmd.handle != 0 && registry_.contains(cmd.handle))
+        break;
       ecs::Entity entity = world_.Create();
       Transform t;
-      for (int i = 0; i < 3; ++i) t.position[i] = cmd.pos[i];
-      for (int i = 0; i < 4; ++i) t.rotation[i] = cmd.rot[i];
+      for (int i = 0; i < 3; ++i)
+        t.position[i] = cmd.pos[i];
+      for (int i = 0; i < 4; ++i)
+        t.rotation[i] = cmd.rot[i];
       t.scale = cmd.scale;
       world_.Add(entity, t);
       world_.Add(entity, FormLink{bethesda::GlobalFormId{static_cast<u16>(cmd.handle >> 32),
                                                          static_cast<u32>(cmd.handle)}});
       world_.Add(entity, QuestSpawned{cmd.quest});
-      if (cmd.has_mesh) world_.Add(entity, Renderable{cmd.mesh});
+      if (cmd.has_mesh)
+        world_.Add(entity, Renderable{cmd.mesh});
       // A replicated actor spawn (battle soldier): tag it Npc so the actor system
       // renders a biped and the actor sync recognises it (host and client agree
       // on the entity by its form handle).
@@ -154,32 +170,41 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
                                                       static_cast<u32>(cmd.base)}});
         // Carry the combat side for rendering only (the client does not simulate
         // combat) so the actor system instances the matching faction armour.
-        if (cmd.team != 0) world_.Add(entity, CombatTeam{cmd.team});
+        if (cmd.team != 0)
+          world_.Add(entity, CombatTeam{cmd.team});
         RX_INFO("quest_world: spawned replicated actor 0x{:x} (team {})", cmd.handle, cmd.team);
       }
       registry_[cmd.handle] = entity;
       RecordEffect(cmd.quest, {EffectKind::kSpawned, cmd.handle, {}, false});
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kMove: {
       ecs::Entity entity = Find(cmd.handle);
-      if (!world_.IsAlive(entity)) break;
-      if (world_.Has<Deleted>(entity)) break;
+      if (!world_.IsAlive(entity))
+        break;
+      if (world_.Has<Deleted>(entity))
+        break;
       Transform* t = world_.Get<Transform>(entity);
-      if (!t) break;
+      if (!t)
+        break;
       RecordEffect(cmd.quest, {EffectKind::kMoved,
                                cmd.handle,
                                {t->position[0], t->position[1], t->position[2]},
                                false});
-      for (int i = 0; i < 3; ++i) t->position[i] = cmd.pos[i];
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      for (int i = 0; i < 3; ++i)
+        t->position[i] = cmd.pos[i];
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kSetEnabled: {
       ecs::Entity entity = Find(cmd.handle);
-      if (!world_.IsAlive(entity)) break;
-      if (world_.Has<Deleted>(entity)) break;
+      if (!world_.IsAlive(entity))
+        break;
+      if (world_.Has<Deleted>(entity))
+        break;
       bool was_hidden = world_.Has<Hidden>(entity);
       bool hidden = !cmd.enabled;
       if (PackInOwner* owner = world_.Get<PackInOwner>(entity)) {
@@ -189,58 +214,75 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
         hidden |= !world_.IsAlive(root) || world_.Has<Hidden>(root) || world_.Has<Deleted>(root);
       }
       RecordEffect(cmd.quest, {EffectKind::kEnabledChanged, cmd.handle, {}, was_hidden});
-      if (!hidden && world_.Has<Hidden>(entity)) world_.Remove<Hidden>(entity);
-      if (hidden && !world_.Has<Hidden>(entity)) world_.Add(entity, Hidden{});
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      if (!hidden && world_.Has<Hidden>(entity))
+        world_.Remove<Hidden>(entity);
+      if (hidden && !world_.Has<Hidden>(entity))
+        world_.Add(entity, Hidden{});
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kSetLocked: {
       ecs::Entity entity = Find(cmd.handle);
-      if (!world_.IsAlive(entity)) break;
+      if (!world_.IsAlive(entity))
+        break;
       DoorState* door = world_.Get<DoorState>(entity);
-      if (!door) break;
+      if (!door)
+        break;
       Effect effect{EffectKind::kDoorLockedChanged, cmd.handle, {}, door->locked};
       effect.value = cmd.enabled;
       RecordEffect(cmd.quest, base::move(effect));
       door->locked = cmd.enabled;
       door_overrides_[cmd.handle].locked = door->locked;
-      if (on_door_state_) on_door_state_(cmd.handle, door->locked, door->open);
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      if (on_door_state_)
+        on_door_state_(cmd.handle, door->locked, door->open);
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kSetOpen: {
       ecs::Entity entity = Find(cmd.handle);
-      if (!world_.IsAlive(entity)) break;
+      if (!world_.IsAlive(entity))
+        break;
       DoorState* door = world_.Get<DoorState>(entity);
-      if (!door) break;
+      if (!door)
+        break;
       Effect effect{EffectKind::kDoorOpenChanged, cmd.handle, {}, door->open};
       effect.value = cmd.enabled;
       RecordEffect(cmd.quest, base::move(effect));
       door->open = cmd.enabled;
       door_overrides_[cmd.handle].open = door->open;
-      if (on_door_state_) on_door_state_(cmd.handle, door->locked, door->open);
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      if (on_door_state_)
+        on_door_state_(cmd.handle, door->locked, door->open);
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kDelete: {
       ecs::Entity entity = Find(cmd.handle);
       if (world_.IsAlive(entity) && world_.Has<Prop>(entity) &&
           world_.Has<CellMembership>(entity)) {
-        if (!world_.Has<Hidden>(entity)) world_.Add(entity, Hidden{});
+        if (!world_.Has<Hidden>(entity))
+          world_.Add(entity, Hidden{});
         if (!world_.Has<Deleted>(entity)) {
           world_.Add(entity, Deleted{});
-          if (on_unregister_) on_unregister_(cmd.handle);
+          if (on_unregister_)
+            on_unregister_(cmd.handle);
         }
       } else {
-        if (world_.IsAlive(entity)) world_.Destroy(entity);
+        if (world_.IsAlive(entity))
+          world_.Destroy(entity);
         const bool tracked = registry_.erase(cmd.handle) != 0;
-        if (tracked && on_unregister_) on_unregister_(cmd.handle);
+        if (tracked && on_unregister_)
+          on_unregister_(cmd.handle);
       }
-      if (on_reference_changed_) on_reference_changed_(cmd.handle);
+      if (on_reference_changed_)
+        on_reference_changed_(cmd.handle);
       break;
     }
     case WorldOp::kMovePlayer:
-      if (on_move_player_) on_move_player_(cmd.handle, cmd.pos[0], cmd.pos[1], cmd.pos[2]);
+      if (on_move_player_)
+        on_move_player_(cmd.handle, cmd.pos[0], cmd.pos[1], cmd.pos[2]);
       break;
     case WorldOp::kCleanupQuest:
       CleanupQuest(cmd.quest);
@@ -258,12 +300,15 @@ void QuestWorld::CleanupQuest(u64 quest) {
         std::remove_if(commands.begin(), commands.end(),
                        [quest](const WorldCommand& command) { return command.quest == quest; }),
         commands.end());
-    if (commands.empty()) emptied.push_back(entry.key);
+    if (commands.empty())
+      emptied.push_back(entry.key);
   }
-  for (u64 handle : emptied) pending_.erase(handle);
+  for (u64 handle : emptied)
+    pending_.erase(handle);
 
   auto* it = provenance_.find(quest);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   base::Vector<Effect>& effects = *it;
   struct DoorProperty {
     u64 handle;
@@ -279,13 +324,16 @@ void QuestWorld::CleanupQuest(u64 quest) {
         std::any_of(door_properties.begin(), door_properties.end(), [&](const DoorProperty& p) {
           return p.handle == removed.handle && p.kind == removed.kind;
         });
-    if (already_tracked) continue;
+    if (already_tracked)
+      continue;
 
     const Effect* first = nullptr;
     for (const auto& [_, active_effects] : provenance_) {
       for (const Effect& active : active_effects) {
-        if (active.handle != removed.handle || active.kind != removed.kind) continue;
-        if (!first || active.sequence < first->sequence) first = &active;
+        if (active.handle != removed.handle || active.kind != removed.kind)
+          continue;
+        if (!first || active.sequence < first->sequence)
+          first = &active;
       }
     }
     door_properties.push_back(
@@ -297,14 +345,18 @@ void QuestWorld::CleanupQuest(u64 quest) {
     ecs::Entity entity = Find(e->handle);
     switch (e->kind) {
       case EffectKind::kSpawned:
-        if (world_.IsAlive(entity)) world_.Destroy(entity);
-        if (registry_.erase(e->handle) != 0 && on_unregister_) on_unregister_(e->handle);
+        if (world_.IsAlive(entity))
+          world_.Destroy(entity);
+        if (registry_.erase(e->handle) != 0 && on_unregister_)
+          on_unregister_(e->handle);
         break;
       case EffectKind::kMoved:
         if (world_.IsAlive(entity)) {
           if (Transform* t = world_.Get<Transform>(entity))
-            for (int i = 0; i < 3; ++i) t->position[i] = e->prev_pos[i];
-          if (on_reference_changed_) on_reference_changed_(e->handle);
+            for (int i = 0; i < 3; ++i)
+              t->position[i] = e->prev_pos[i];
+          if (on_reference_changed_)
+            on_reference_changed_(e->handle);
         } else {
           WorldCommand restore;
           restore.op = WorldOp::kMove;
@@ -315,7 +367,8 @@ void QuestWorld::CleanupQuest(u64 quest) {
         break;
       case EffectKind::kEnabledChanged:
         if (world_.IsAlive(entity)) {
-          if (world_.Has<Deleted>(entity)) break;
+          if (world_.Has<Deleted>(entity))
+            break;
           bool hidden = e->prev_value;
           if (PackInOwner* owner = world_.Get<PackInOwner>(entity)) {
             owner->independently_hidden = e->prev_value;
@@ -323,9 +376,12 @@ void QuestWorld::CleanupQuest(u64 quest) {
             hidden |=
                 !world_.IsAlive(root) || world_.Has<Hidden>(root) || world_.Has<Deleted>(root);
           }
-          if (hidden && !world_.Has<Hidden>(entity)) world_.Add(entity, Hidden{});
-          if (!hidden && world_.Has<Hidden>(entity)) world_.Remove<Hidden>(entity);
-          if (on_reference_changed_) on_reference_changed_(e->handle);
+          if (hidden && !world_.Has<Hidden>(entity))
+            world_.Add(entity, Hidden{});
+          if (!hidden && world_.Has<Hidden>(entity))
+            world_.Remove<Hidden>(entity);
+          if (on_reference_changed_)
+            on_reference_changed_(e->handle);
         } else {
           WorldCommand restore;
           restore.op = WorldOp::kSetEnabled;
@@ -367,13 +423,16 @@ void QuestWorld::CleanupQuest(u64 quest) {
 
     const ecs::Entity entity = Find(property.handle);
     DoorState* door = world_.IsAlive(entity) ? world_.Get<DoorState>(entity) : nullptr;
-    if (!door) continue;
+    if (!door)
+      continue;
     if (property.kind == EffectKind::kDoorLockedChanged)
       door->locked = value;
     else
       door->open = value;
-    if (on_door_state_) on_door_state_(property.handle, door->locked, door->open);
-    if (on_reference_changed_) on_reference_changed_(property.handle);
+    if (on_door_state_)
+      on_door_state_(property.handle, door->locked, door->open);
+    if (on_reference_changed_)
+      on_reference_changed_(property.handle);
   }
 }
 
@@ -381,7 +440,8 @@ void QuestWorld::SnapshotPositions(base::Vector<base::Pair<u64, base::Array<f32,
   out.clear();
   out.reserve(registry_.size());
   for (const auto& [handle, entity] : registry_) {
-    if (world_.Has<Hidden>(entity) || world_.Has<Deleted>(entity)) continue;
+    if (world_.Has<Hidden>(entity) || world_.Has<Deleted>(entity))
+      continue;
     if (const Transform* t = world_.Get<Transform>(entity))
       out.push_back({handle, {t->position[0], t->position[1], t->position[2]}});
   }
@@ -398,7 +458,8 @@ base::Vector<WorldCommand> QuestWorld::SnapshotDoorStates() const {
     base::Vector<ActiveEffect> effects;
     for (const auto& [quest, quest_effects] : provenance_)
       for (const Effect& effect : quest_effects)
-        if (effect.handle == handle && effect.kind == kind) effects.push_back({quest, &effect});
+        if (effect.handle == handle && effect.kind == kind)
+          effects.push_back({quest, &effect});
     base::Sort(effects.begin(), effects.end(), [](const ActiveEffect& a, const ActiveEffect& b) {
       return a.effect->sequence < b.effect->sequence;
     });
@@ -440,7 +501,8 @@ base::Vector<WorldCommand> QuestWorld::SnapshotDoorStates() const {
 
 size_t QuestWorld::pending_command_count() const {
   size_t count = 0;
-  for (const auto& [_, commands] : pending_) count += commands.size();
+  for (const auto& [_, commands] : pending_)
+    count += commands.size();
   return count;
 }
 

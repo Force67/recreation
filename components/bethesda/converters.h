@@ -16,7 +16,8 @@ namespace rx::bethesda {
 // passing BCn block data straight through. `path` drives the sRGB-vs-linear
 // decision for the ambiguous UNORM color formats. Returns null on an
 // unsupported or truncated source. Exposed for the asset layer and tests.
-base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
+base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data,
+                                               asset::AssetId id,
                                                base::StringRef path);
 
 // The subset of a Fallout 4 BGSM (lighting) / BGEM (effect) material file the
@@ -44,7 +45,8 @@ class StarfieldMaterialDb;
 // ConvertStarfieldNif. Returns null when the NIF carries no skinned geometry.
 base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase& database,
                                                             const StarfieldMaterialDb& mat_db,
-                                                            ByteSpan data, asset::AssetId id,
+                                                            ByteSpan data,
+                                                            asset::AssetId id,
                                                             base::StringRef path);
 
 // Hooks the bethesda format converters into the asset database:

@@ -5,9 +5,9 @@
 #include <base/functional/function.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/scene_record.h"
+#include "core/types.h"
 
 namespace rx::quest {
 
@@ -72,8 +72,8 @@ struct ScenePlanBindings {
   // one). The alias is passed as well as the reference because a scene's cast is
   // often unplaced, and the alias still names the NPC whose voice type files the
   // recording. False when there is nothing to say, which drops the beat.
-  base::Function<bool(i32 alias, u64 topic, u64 speaker, u64* info, base::String* text,
-                     f32* seconds)>
+  base::Function<
+      bool(i32 alias, u64 topic, u64 speaker, u64* info, base::String* text, f32* seconds)>
       line;
   // Raw CTDA payloads -> the native condition IR, with form ids resolved.
   base::Function<ConditionList(const base::Vector<SceneRawCondition>&)> conditions;

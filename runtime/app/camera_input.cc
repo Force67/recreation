@@ -9,13 +9,12 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "components/world/components.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "runtime/actor/player_controller.h"
 #include "runtime/app/engine.h"
 #include "runtime/interaction/item_bridge.h"
-#include "runtime/actor/player_controller.h"
-#include "components/world/components.h"
 
 // Camera and player input: routes per-frame input to the right consumer (pause
 // menu, editor, dialogue/container/journal modals, walk mode, or the free-fly
@@ -44,7 +43,8 @@ static constexpr f32 kTrailerMaxLoadHold = 25.0f;
 static base::Option<bool> AutoAttack{"auto.attack", false, "RX_AUTO_ATTACK"};
 
 void Engine::UpdateCamera(f32 frame_delta) {
-  if (!window_) return;
+  if (!window_)
+    return;
   // The first-run setup wizard owns all input while it is up, ahead of the menu
   // it hands off to once the player finishes (which clears first_run_active_).
   if (first_run_active_ && game_ui_.first_run_open()) {
@@ -76,7 +76,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
       debug_ui_.SetAllVisible(!active);
       debug_ui_.SetTrailerOverlay(active ? &helgen_->overlay() : nullptr);
     }
-    if (active) return;
+    if (active)
+      return;
   }
 
   // A cutscene in progress frames itself: the camera goes to the scene's dialogue
@@ -94,7 +95,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
       LookCameraAt(eye, target);
       ctx_.walk_eye = eye;
       ctx_.walk_target = target;
-      if (actions_->pressed(Action::kToggleMenu)) cutscene_->ReleaseView();
+      if (actions_->pressed(Action::kToggleMenu))
+        cutscene_->ReleaseView();
       interaction_->UpdateInteraction(false);  // no activation while it plays
       return;
     }
@@ -149,8 +151,10 @@ void Engine::UpdateCamera(f32 frame_delta) {
     // pad B closes it; movement is frozen while it is open.
     const Key num[4] = {Key::k1, Key::k2, Key::k3, Key::k4};
     for (int i = 0; i < 4; ++i)
-      if (input.key_pressed(num[i])) quest_->PinJournalSlot(i);
-    if (actions_->pressed(Action::kMenuCancel)) quest_->ToggleJournal();
+      if (input.key_pressed(num[i]))
+        quest_->PinJournalSlot(i);
+    if (actions_->pressed(Action::kMenuCancel))
+      quest_->ToggleJournal();
     interaction_->UpdateInteraction(false);
   } else if (carriage_ && carriage_->riding()) {
     // Seated as a carriage passenger: locomotion stands down, the carriage pins
@@ -161,7 +165,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
     WalkUpdate(frame_delta, !menu && !kb);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
     // Drop the most recent inventory item into the world (walk mode only).
-    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb) ctx_.items->DropLast();
+    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb)
+      ctx_.items->DropLast();
   } else {
     bool allow_mouse = !menu && (!debug_ui_.wants_mouse() || camera_.looking());
     bool allow_keyboard = !menu && !kb;
@@ -173,10 +178,14 @@ void Engine::UpdateCamera(f32 frame_delta) {
   interaction_->SyncHud();   // mirror the conversation / loot view into the HUD
   DriveCamera(frame_delta);  // orbit / replay overrides + record
 
-  if (actions_->pressed(Action::kToggleDebug) && !kb) debug_ui_.ToggleVisible();
-  if (actions_->pressed(Action::kToggleTrace) && !kb) debug_ui_.ToggleTrace();
-  if (actions_->pressed(Action::kToggleQuests) && !kb) debug_ui_.ToggleQuests();
-  if (actions_->pressed(Action::kToggleEditor) && !kb && editor_) editor_->Toggle();
+  if (actions_->pressed(Action::kToggleDebug) && !kb)
+    debug_ui_.ToggleVisible();
+  if (actions_->pressed(Action::kToggleTrace) && !kb)
+    debug_ui_.ToggleTrace();
+  if (actions_->pressed(Action::kToggleQuests) && !kb)
+    debug_ui_.ToggleQuests();
+  if (actions_->pressed(Action::kToggleEditor) && !kb && editor_)
+    editor_->Toggle();
   if (actions_->pressed(Action::kThrowDebug) && !menu && !kb && !ctx_.walk_mode && !editor_on)
     ThrowPhysicsCube();
   // DualSense adaptive-trigger demo: readying a weapon toggles right-trigger
@@ -193,8 +202,10 @@ void Engine::UpdateCamera(f32 frame_delta) {
     window_->SetTriggerEffect(false, true, fx);
   }
   // The editor owns Esc (cancel brush / move); only open the pause menu outside it.
-  if (actions_->pressed(Action::kToggleMenu) && !kb && !modal && !editor_on) game_ui_.ToggleMenu();
-  if (game_ui_.quit_requested()) RequestQuit();
+  if (actions_->pressed(Action::kToggleMenu) && !kb && !modal && !editor_on)
+    game_ui_.ToggleMenu();
+  if (game_ui_.quit_requested())
+    RequestQuit();
 }
 
 void Engine::LookCameraAt(const Vec3& eye, const Vec3& center) {
@@ -220,8 +231,10 @@ void Engine::DriveCamera(f32 dt) {
     cam_orbit_ = bool(Orbit);
     // RX_EDITOR boots straight into the map editor (the catalog is ready once
     // the records are loaded), so a capture or a builder session can skip F4.
-    if (Editor && editor_ && !editor_->active()) editor_->Toggle();
-    if (const char* r = Record.get()) cam_record_ = std::fopen(r, "wb");
+    if (Editor && editor_ && !editor_->active())
+      editor_->Toggle();
+    if (const char* r = Record.get())
+      cam_record_ = std::fopen(r, "wb");
     if (const char* p = Replay.get()) {
       if (std::FILE* f = std::fopen(p, "rb")) {
         f32 rec[7];
@@ -239,10 +252,12 @@ void Engine::DriveCamera(f32 dt) {
       // Multi-game trailer: collapse the side-by-side regions onto one shared
       // center and stream the games one at a time. Must run before BuildShowcase
       // so the camera path is built over the collapsed regions.
-      if (Trailer) SetupTrailerStreaming();
+      if (Trailer)
+        SetupTrailerStreaming();
       BuildShowcase();
       cam_showcase_ = !showcase_.empty();
-      if (const char* d = ShowcaseShots.get()) showcase_shot_dir_ = d;
+      if (const char* d = ShowcaseShots.get())
+        showcase_shot_dir_ = d;
       showcase_quit_ = bool(ShowcaseQuit);
       if (cam_showcase_) {
         ctx_.walk_mode = false;         // the cinematic owns the camera
@@ -326,7 +341,8 @@ void Engine::DriveCamera(f32 dt) {
         for (char& ch : label) {
           bool ok =
               (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
-          if (!ok) ch = '_';
+          if (!ok)
+            ch = '_';
         }
         char path[1024];
         std::snprintf(path, sizeof(path), "%s/%02d_%s.png", showcase_shot_dir_.c_str(), idx,
@@ -353,7 +369,8 @@ void Engine::DriveCamera(f32 dt) {
                 showcase_frames_, showcase_bench_time_, avg > 0 ? 1.0f / avg : 0.0f,
                 showcase_dt_max_ > 0 ? 1.0f / showcase_dt_max_ : 0.0f,
                 showcase_dt_min_ > 0 ? 1.0f / showcase_dt_min_ : 0.0f);
-        if (showcase_quit_) RequestQuit();
+        if (showcase_quit_)
+          RequestQuit();
       }
     }
   } else if (cam_orbit_) {
@@ -365,7 +382,8 @@ void Engine::DriveCamera(f32 dt) {
     const CamKey* lo = &cam_replay_[0];
     const CamKey* hi = lo;
     for (const CamKey& k : cam_replay_) {
-      if (k.t <= cam_time_) lo = &k;
+      if (k.t <= cam_time_)
+        lo = &k;
       if (k.t >= cam_time_) {
         hi = &k;
         break;
@@ -436,21 +454,27 @@ struct TrailerCaption {
   base::String subtitle;
 };
 base::String Upper(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   return s;
 }
 TrailerCaption CaptionFor(const base::String& name) {
-  if (name.rfind("Skyrim", 0) == 0) return {"SKYRIM", "THE ELDER SCROLLS V"};
-  if (name.rfind("Fallout 4", 0) == 0) return {"FALLOUT 4", "THE COMMONWEALTH"};
-  if (name.rfind("Fallout 76", 0) == 0) return {"FALLOUT 76", "APPALACHIA"};
-  if (name.rfind("Starfield", 0) == 0) return {"STARFIELD", "THE SETTLED SYSTEMS"};
+  if (name.rfind("Skyrim", 0) == 0)
+    return {"SKYRIM", "THE ELDER SCROLLS V"};
+  if (name.rfind("Fallout 4", 0) == 0)
+    return {"FALLOUT 4", "THE COMMONWEALTH"};
+  if (name.rfind("Fallout 76", 0) == 0)
+    return {"FALLOUT 76", "APPALACHIA"};
+  if (name.rfind("Starfield", 0) == 0)
+    return {"STARFIELD", "THE SETTLED SYSTEMS"};
   return {Upper(name), ""};
 }
 }  // namespace
 
 void Engine::BuildTrailer() {
   trailer_ = TrailerDirector{};  // fresh, in case of a rebuild
-  if (showcase_regions_.empty()) return;
+  if (showcase_regions_.empty())
+    return;
   if (const char* title = TrailerTitle.get())
     trailer_.set_intro(title, "A BETHESDA ENGINE, REIMAGINED");
   const f32 total = showcase_.duration();
@@ -524,7 +548,8 @@ world::CellStreamer* Engine::TrailerStreamer(int region_index) {
 void Engine::SetupTrailerStreaming() {
   // Only sequence when more than the primary game renders; a single map keeps the
   // simple in-place trailer (all regions already share one center).
-  if (extra_streamers_.empty() || showcase_regions_.size() < 2) return;
+  if (extra_streamers_.empty() || showcase_regions_.size() < 2)
+    return;
   trailer_sequential_ = true;
   const Vec3 center = showcase_regions_[0].center;  // the primary start-cell center
 
@@ -546,7 +571,8 @@ void Engine::SetupTrailerStreaming() {
 
   for (size_t k = 0; k < showcase_regions_.size(); ++k) {
     world::CellStreamer* s = TrailerStreamer(static_cast<int>(k));
-    if (!s) continue;
+    if (!s)
+      continue;
     // The region center in this domain's own (pre-offset) coordinates: the primary
     // is the start cell under the shared center; a secondary uses its anchor.
     const Vec3 anchor = (k == 0) ? Vec3{center.x, 0.0f, center.z} : s->fixed_anchor();
@@ -555,11 +581,13 @@ void Engine::SetupTrailerStreaming() {
     s->set_fixed_anchor(anchor);
     s->set_world_offset({center.x - anchor.x, center.y - ground, center.z - anchor.z});
     s->Configure(preload);
-    if (k != 0) s->UnloadAllCells(*world_);  // only the active game stays resident
+    if (k != 0)
+      s->UnloadAllCells(*world_);  // only the active game stays resident
   }
   // Collapse all regions onto the shared center: the drone repeats its hero move
   // in place for each game while the active domain switches under the fade-cut.
-  for (auto& r : showcase_regions_) r.center = center;
+  for (auto& r : showcase_regions_)
+    r.center = center;
   trailer_active_domain_ = 0;  // the primary streams first
   trailer_loading_ = true;     // hold on the loading screen until it has streamed in
   trailer_load_elapsed_ = 0.0f;
@@ -571,7 +599,8 @@ bool Engine::TrailerActiveLoaded() {
 }
 
 void Engine::SwitchTrailerDomain(int region_index) {
-  if (region_index == trailer_active_domain_) return;
+  if (region_index == trailer_active_domain_)
+    return;
   if (world::CellStreamer* prev = TrailerStreamer(trailer_active_domain_))
     prev->UnloadAllCells(*world_);  // drop the outgoing map; the incoming streams in
   trailer_active_domain_ = region_index;
@@ -589,7 +618,8 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   // gathering (auto-walk, melee, battle cam) plus delegation.
   if (!player_controller_)
     player_controller_ = base::MakeUnique<PlayerController>(ctx_, *actors_, *input_map_);
-  if (!player_controller_->assembled() && !player_controller_->Assemble()) return;
+  if (!player_controller_->assembled() && !player_controller_->Assemble())
+    return;
 
   // Auto-walk test hook: head for the active quest marker / guide mark when one is
   // set (routed through pathfinding so the player rounds interior walls), else
@@ -626,7 +656,8 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
       swing = true;
     }
   }
-  if (swing) npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
+  if (swing)
+    npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
 
   // A staged field battle takes over the view with an elevated spectator framing,
   // so the clash is visible even when the player wedged against terrain.
@@ -638,18 +669,21 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
 }
 
 void Engine::ThrowPhysicsCube() {
-  if (!physics_->initialized() || !physics_cube_mesh_) return;
+  if (!physics_->initialized() || !physics_cube_mesh_)
+    return;
   Vec3 forward = camera_.forward();
   Vec3 origin = camera_.position() + forward * 0.8f;
   // Wood-ish density: heavy enough to splash, light enough to float.
   physics::BodyId body =
       physics_->AddDynamicBox(origin, {0.25f, 0.25f, 0.25f}, 350.0f, forward * 14.0f);
-  if (!body) return;
+  if (!body)
+    return;
   ecs::Entity entity = world_->Create();
   world_->Add(entity, world::Transform{.position = {origin.x, origin.y, origin.z}});
   world_->Add(entity, world::Renderable{physics_cube_mesh_});
   physics_entities_.push_back({body, entity});
-  if (window_ && input_map_->rumble) window_->SetRumble(0.35f, 0.7f, 180);  // toss kick
+  if (window_ && input_map_->rumble)
+    window_->SetRumble(0.35f, 0.7f, 180);  // toss kick
 }
 
 }  // namespace rx

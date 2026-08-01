@@ -1,8 +1,8 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_FIBER_H_
 #define RECREATION_SCRIPT_PAPYRUS_FIBER_H_
 
-#include <cstddef>
 #include <base/functional/function.h>
+#include <cstddef>
 
 #include "core/types.h"
 

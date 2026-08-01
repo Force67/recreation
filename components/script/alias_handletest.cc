@@ -3,8 +3,8 @@
 
 #include <cstdio>
 
-#include "core/types.h"
 #include "components/script/papyrus/alias_handle.h"
+#include "core/types.h"
 
 namespace {
 
@@ -18,7 +18,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void RoundTrip(rx::u64 quest, rx::u32 alias) {

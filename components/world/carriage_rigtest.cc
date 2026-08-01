@@ -10,8 +10,8 @@
 #include <cmath>
 #include <cstdio>
 
-#include "physics/physics_world.h"
 #include "components/world/carriage_rig.h"
+#include "physics/physics_world.h"
 
 using rx::f32;
 using rx::Length;
@@ -29,7 +29,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 bool Finite(const Vec3& v) {
@@ -42,7 +43,8 @@ bool Finite(const Vec3& v) {
 f32 TrackingAngle(const CarriageRig& rig, const PhysicsWorld& world, const Vec3& horse) {
   Vec3 pos;
   f32 rot[4];
-  if (!rig.Pose(world, &pos, rot)) return 0;
+  if (!rig.Pose(world, &pos, rot))
+    return 0;
   const Quat q{rot[0], rot[1], rot[2], rot[3]};
   const Vec3 fwd = Rotate(q, Vec3{0, 0, 1});
   const Vec3 shaft = horse - rig.TonguePoint(world);
@@ -75,7 +77,8 @@ int main() {
   // Spawn a little high so the suspension settles onto the ground.
   const bool spawned = rig.Spawn(world, {0, 1.3f, 0}, 0.0f, cfg);
   Check("free-rolling carriage spawned", spawned);
-  if (!spawned) return 1;
+  if (!spawned)
+    return 1;
 
   bool all_finite = true;
   auto step = [&](const Vec3& horse, const Vec3& horse_vel) {
@@ -84,8 +87,10 @@ int main() {
     Vec3 pos;
     f32 rot[4];
     rig.Pose(world, &pos, rot);
-    if (!Finite(pos) || !std::isfinite(rot[0]) || !std::isfinite(rot[3])) all_finite = false;
-    if (!Finite(world.GetLinearVelocity(rig.body()))) all_finite = false;
+    if (!Finite(pos) || !std::isfinite(rot[0]) || !std::isfinite(rot[3]))
+      all_finite = false;
+    if (!Finite(world.GetLinearVelocity(rig.body())))
+      all_finite = false;
   };
 
   // The horse hitch point. Start it a rest-length ahead of the tongue and hold
@@ -93,7 +98,8 @@ int main() {
   // height so the scripted route keeps the shaft horizontal.
   f32 hitch_y = 1.4f;
   Vec3 horse{0, hitch_y, cfg.tongue_z + cfg.rest_length};
-  for (int i = 0; i < 150; ++i) step(horse, {0, 0, 0});
+  for (int i = 0; i < 150; ++i)
+    step(horse, {0, 0, 0});
   hitch_y = rig.TonguePoint(world).y;
   horse.y = hitch_y;
 
@@ -147,7 +153,8 @@ int main() {
   Check("does not flip in the turn", min_up > 0.5f);
 
   // (c) Horse stops: the cart must coast to rest and hold (parking brake in).
-  for (int i = 0; i < 240; ++i) step(horse, {0, 0, 0});
+  for (int i = 0; i < 240; ++i)
+    step(horse, {0, 0, 0});
   const f32 rest_speed = Length(world.GetLinearVelocity(rig.body()));
   std::printf("    settled speed %.3f m/s, handbrake %.2f\n", rest_speed, rig.handbrake());
   Check("settles when the horse stops (< 0.35 m/s)", rest_speed < 0.35f);

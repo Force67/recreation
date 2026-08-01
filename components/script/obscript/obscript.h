@@ -82,7 +82,9 @@ class Host {
   // function name (lower cased), `args` the evaluated numeric arguments, and
   // `text_args` the bare identifier arguments (message/form editor ids). Returns
   // the call's numeric result (0 when void or unknown).
-  virtual f32 Call(base::StringRef target, base::StringRef fn, const base::Vector<f32>& args,
+  virtual f32 Call(base::StringRef target,
+                   base::StringRef fn,
+                   const base::Vector<f32>& args,
                    const base::Vector<base::String>& text_args) {
     return 0;
   }

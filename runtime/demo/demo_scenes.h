@@ -5,9 +5,9 @@
 #include <base/memory/unique_pointer.h>
 
 #include "core/math.h"
+#include "render/core/renderer.h"
 #include "runtime/app/engine_context.h"
 #include "runtime/character/face.h"
-#include "render/core/renderer.h"
 
 namespace rx {
 

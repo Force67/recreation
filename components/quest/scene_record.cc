@@ -35,13 +35,15 @@ constexpr u32 kDeva = FourCc('D', 'E', 'V', 'A');
 template <typename T>
 T ReadLe(const bethesda::Subrecord& sub) {
   T value{};
-  if (sub.data.size() >= sizeof(T)) std::memcpy(&value, sub.data.data(), sizeof(T));
+  if (sub.data.size() >= sizeof(T))
+    std::memcpy(&value, sub.data.data(), sizeof(T));
   return value;
 }
 
 }  // namespace
 
-SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
+SceneDef ParseSceneRecord(u64 handle,
+                          const bethesda::Record& record,
                           const bethesda::RecordStore* records) {
   SceneDef def;
   def.handle = handle;
@@ -60,8 +62,10 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
     }
   }
   auto resolve = [&](u32 raw) -> u64 {
-    if (raw == 0) return 0;
-    if (!can_resolve) return raw;
+    if (raw == 0)
+      return 0;
+    if (!can_resolve)
+      return raw;
     return records->ResolveFrom(bethesda::RawFormId{raw}, plugin).packed();
   };
 
@@ -91,7 +95,8 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
     phase_in_completion = false;
   };
   auto flush_action = [&] {
-    if (action_open) def.actions.push_back(base::move(action));
+    if (action_open)
+      def.actions.push_back(base::move(action));
     action = SceneActionDef{};
     action_open = false;
     action_end_seen = false;
@@ -132,7 +137,8 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
         // Phase name flag while phasing; action name flag inside an action.
         break;
       case kNext:
-        if (section == Section::kPhases) phase_in_completion = true;
+        if (section == Section::kPhases)
+          phase_in_completion = true;
         break;
       case kCtda:
         if (section == Section::kPhases && phase_open) {
@@ -216,19 +222,24 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
           action.topic = resolve(ReadLe<u32>(sub));
         break;
       case kHtid:
-        if (action_open) action.head_track_alias = ReadLe<i32>(sub);
+        if (action_open)
+          action.head_track_alias = ReadLe<i32>(sub);
         break;
       case kDmax:
-        if (action_open) action.delay_max = ReadLe<f32>(sub);
+        if (action_open)
+          action.delay_max = ReadLe<f32>(sub);
         break;
       case kDmin:
-        if (action_open) action.delay_min = ReadLe<f32>(sub);
+        if (action_open)
+          action.delay_min = ReadLe<f32>(sub);
         break;
       case kDemo:
-        if (action_open) action.emotion_type = ReadLe<u32>(sub);
+        if (action_open)
+          action.emotion_type = ReadLe<u32>(sub);
         break;
       case kDeva:
-        if (action_open) action.emotion_value = ReadLe<i32>(sub);
+        if (action_open)
+          action.emotion_value = ReadLe<i32>(sub);
         break;
       case kInam:
         // Action index / scene action counter; positional, not needed here.

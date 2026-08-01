@@ -102,7 +102,8 @@ bool WalkSubrecords(ByteSpan payload, base::Vector<SubSpan>* out) {
     std::memcpy(&type, payload.data() + pos, 4);
     std::memcpy(&size, payload.data() + pos + 4, 4);
     pos += 8;
-    if (pos + size > payload.size()) return false;
+    if (pos + size > payload.size())
+      return false;
     out->push_back({type, payload.subspan(pos, size)});
     pos += size;
   }
@@ -111,19 +112,22 @@ bool WalkSubrecords(ByteSpan payload, base::Vector<SubSpan>* out) {
 
 const SubSpan* FindSub(const base::Vector<SubSpan>& subs, u32 type) {
   for (const SubSpan& sub : subs) {
-    if (sub.type == type) return &sub;
+    if (sub.type == type)
+      return &sub;
   }
   return nullptr;
 }
 
 base::String SubString(const SubSpan& sub) {
   size_t len = sub.data.size();
-  while (len > 0 && sub.data[len - 1] == 0) --len;
+  while (len > 0 && sub.data[len - 1] == 0)
+    --len;
   return base::String(reinterpret_cast<const char*>(sub.data.data()), len);
 }
 
 base::String Lower(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
@@ -182,7 +186,8 @@ class Emitter {
 // Decodes a TES3 VHGT (65x65) into absolute heights in units of 8.
 bool DecodeTes3Heights(ByteSpan vhgt, f32* out) {
   constexpr u32 n = kTes3GridPoints;
-  if (vhgt.size() < 4 + n * n) return false;
+  if (vhgt.size() < 4 + n * n)
+    return false;
   f32 offset;
   std::memcpy(&offset, vhgt.data(), 4);
   const i8* deltas = reinterpret_cast<const i8*>(vhgt.data() + 4);
@@ -199,7 +204,9 @@ bool DecodeTes3Heights(ByteSpan vhgt, f32* out) {
   return true;
 }
 
-i8 ClampDelta(f32 d) { return static_cast<i8>(base::Clamp(d, -128.0f, 127.0f)); }
+i8 ClampDelta(f32 d) {
+  return static_cast<i8>(base::Clamp(d, -128.0f, 127.0f));
+}
 
 }  // namespace
 
@@ -214,16 +221,19 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       std::memcpy(&size, data.data() + pos + 4, 4);
       std::memcpy(&flags, data.data() + pos + 12, 4);
       pos += 16;
-      if (pos + size > data.size()) return false;
+      if (pos + size > data.size())
+        return false;
       records.push_back({type, flags, data.subspan(pos, size)});
       pos += size;
     }
-    if (pos != data.size() || records.empty() || records[0].type != kTes3) return false;
+    if (pos != data.size() || records.empty() || records[0].type != kTes3)
+      return false;
   }
 
   {
     base::Vector<SubSpan> subs;
-    if (!WalkSubrecords(records[0].payload, &subs)) return false;
+    if (!WalkSubrecords(records[0].payload, &subs))
+      return false;
     if (const SubSpan* hedr = FindSub(subs, kHedr); hedr && hedr->data.size() >= 300) {
       std::memcpy(&out->version, hedr->data.data(), 4);
       std::memcpy(&out->record_count, hedr->data.data() + 296, 4);
@@ -266,14 +276,17 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
   base::Vector<SubSpan> subs;
   for (size_t i = 1; i < records.size(); ++i) {
     const Tes3Record& rec = records[i];
-    if (rec.flags & 0x20) continue;  // deleted
+    if (rec.flags & 0x20)
+      continue;  // deleted
     if (rec.type == kLtex) {
       subs.clear();
-      if (!WalkSubrecords(rec.payload, &subs)) continue;
+      if (!WalkSubrecords(rec.payload, &subs))
+        continue;
       const SubSpan* name = FindSub(subs, kName);
       const SubSpan* intv = FindSub(subs, kIntv);
       const SubSpan* path = FindSub(subs, kData);
-      if (!name || !intv || intv->data.size() < 4 || !path) continue;
+      if (!name || !intv || intv->data.size() < 4 || !path)
+        continue;
       LtexInfo info;
       info.ltex_id = take_id();
       info.txst_id = take_id();
@@ -291,22 +304,27 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       ltexes.push_back(base::move(info));
     } else if (IsBaseType(rec.type)) {
       subs.clear();
-      if (!WalkSubrecords(rec.payload, &subs)) continue;
+      if (!WalkSubrecords(rec.payload, &subs))
+        continue;
       const SubSpan* name = FindSub(subs, kName);
-      if (!name || FindSub(subs, kDele)) continue;
+      if (!name || FindSub(subs, kDele))
+        continue;
       base_ids.emplace(Lower(SubString(*name)), take_id());
       bases.push_back(&rec);
     } else if (rec.type == kCell) {
       subs.clear();
-      if (!WalkSubrecords(rec.payload, &subs)) continue;
+      if (!WalkSubrecords(rec.payload, &subs))
+        continue;
       const SubSpan* cdata = FindSub(subs, kData);
-      if (!cdata || cdata->data.size() < 12) continue;
+      if (!cdata || cdata->data.size() < 12)
+        continue;
       u32 flags;
       i32 gx, gy;
       std::memcpy(&flags, cdata->data.data(), 4);
       std::memcpy(&gx, cdata->data.data() + 4, 4);
       std::memcpy(&gy, cdata->data.data() + 8, 4);
-      if (flags & 0x1) continue;  // interior: not translated yet
+      if (flags & 0x1)
+        continue;  // interior: not translated yet
       cells.push_back(&rec);
       for (i32 vy = gy * 2; vy < gy * 2 + 2; ++vy) {
         for (i32 vx = gx * 2; vx < gx * 2 + 2; ++vx) {
@@ -338,11 +356,13 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
 
   for (const Tes3Record* rec : bases) {
     subs.clear();
-    if (!WalkSubrecords(rec->payload, &subs)) continue;
+    if (!WalkSubrecords(rec->payload, &subs))
+      continue;
     const SubSpan* name = FindSub(subs, kName);
     base::String id_string = SubString(*name);
     auto* it = base_ids.find(Lower(id_string));
-    if (it == nullptr) continue;
+    if (it == nullptr)
+      continue;
     emit.Begin(rec->type, *it, top);
     emit.SubString(kEdid, id_string);
     if (const SubSpan* modl = FindSub(subs, kModl)) {
@@ -366,7 +386,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
   world_ctx.worldspace = RawFormId{wrld_id};
   for (const Tes3Record* rec : cells) {
     subs.clear();
-    if (!WalkSubrecords(rec->payload, &subs)) continue;
+    if (!WalkSubrecords(rec->payload, &subs))
+      continue;
     const SubSpan* cdata = FindSub(subs, kData);
     i32 gx, gy;
     std::memcpy(&gx, cdata->data.data() + 4, 4);
@@ -374,7 +395,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     for (i32 vy = gy * 2; vy < gy * 2 + 2; ++vy) {
       for (i32 vx = gx * 2; vx < gx * 2 + 2; ++vx) {
         auto* it = virtual_cells.find(GridKey(vx, vy));
-        if (it == nullptr) continue;
+        if (it == nullptr)
+          continue;
         emit.Begin(kCell, *it, world_ctx);
         u16 flags16 = kCellFlagHasWater;
         emit.Sub(kData, &flags16, 2);
@@ -390,7 +412,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
   size_t refs_emitted = 0, refs_skipped = 0;
   for (const Tes3Record* rec : cells) {
     subs.clear();
-    if (!WalkSubrecords(rec->payload, &subs)) continue;
+    if (!WalkSubrecords(rec->payload, &subs))
+      continue;
     size_t first_ref = subs.size();
     for (size_t s = 0; s < subs.size(); ++s) {
       if (subs[s].type == kFrmr) {
@@ -401,16 +424,21 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     for (size_t s = first_ref; s < subs.size();) {
       // One reference: FRMR then its subrecords until the next FRMR.
       size_t end = s + 1;
-      while (end < subs.size() && subs[end].type != kFrmr) ++end;
+      while (end < subs.size() && subs[end].type != kFrmr)
+        ++end;
       const SubSpan* rname = nullptr;
       const SubSpan* rdata = nullptr;
       const SubSpan* rscale = nullptr;
       bool deleted = false;
       for (size_t k = s + 1; k < end; ++k) {
-        if (subs[k].type == kName && !rname) rname = &subs[k];
-        if (subs[k].type == kData && subs[k].data.size() >= 24) rdata = &subs[k];
-        if (subs[k].type == kXscl && !rscale) rscale = &subs[k];
-        if (subs[k].type == kDele) deleted = true;
+        if (subs[k].type == kName && !rname)
+          rname = &subs[k];
+        if (subs[k].type == kData && subs[k].data.size() >= 24)
+          rdata = &subs[k];
+        if (subs[k].type == kXscl && !rscale)
+          rscale = &subs[k];
+        if (subs[k].type == kDele)
+          deleted = true;
       }
       s = end;
       if (deleted || !rname || !rdata) {
@@ -436,7 +464,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       ref_ctx.cell_group_type = 9;
       emit.Begin(kRefr, take_id(), ref_ctx);
       emit.Sub(kName, &*base, 4);
-      if (rscale && rscale->data.size() >= 4) emit.Sub(kXscl, rscale->data.data(), 4);
+      if (rscale && rscale->data.size() >= 4)
+        emit.Sub(kXscl, rscale->data.data(), 4);
       emit.Sub(kData, rdata->data.data(), 24);
       emit.End();
       ++refs_emitted;
@@ -448,14 +477,17 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
   size_t lands_emitted = 0;
   for (const Tes3Record* rec : lands) {
     subs.clear();
-    if (!WalkSubrecords(rec->payload, &subs)) continue;
+    if (!WalkSubrecords(rec->payload, &subs))
+      continue;
     const SubSpan* intv = FindSub(subs, kIntv);
     const SubSpan* vhgt = FindSub(subs, kVhgt);
-    if (!intv || intv->data.size() < 8 || !vhgt) continue;
+    if (!intv || intv->data.size() < 8 || !vhgt)
+      continue;
     i32 gx, gy;
     std::memcpy(&gx, intv->data.data(), 4);
     std::memcpy(&gy, intv->data.data() + 4, 4);
-    if (!DecodeTes3Heights(vhgt->data, heights.data())) continue;
+    if (!DecodeTes3Heights(vhgt->data, heights.data()))
+      continue;
     const SubSpan* vnml = FindSub(subs, kVnml);
     const SubSpan* vclr = FindSub(subs, kVclr);
     const SubSpan* vtex = FindSub(subs, kVtex);
@@ -479,7 +511,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     }
     auto ltex_for = [&](u16 v) -> u32 {
       auto* it = ltex_by_index.find(v == 0 ? 0xffffffffu : v - 1);
-      if (it == nullptr) it = ltex_by_index.find(0xffffffffu);
+      if (it == nullptr)
+        it = ltex_by_index.find(0xffffffffu);
       return *it;
     };
 
@@ -488,7 +521,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
         i32 vx = gx * 2 + static_cast<i32>(quad_x);
         i32 vy = gy * 2 + static_cast<i32>(quad_y);
         auto* cell_it = virtual_cells.find(GridKey(vx, vy));
-        if (cell_it == nullptr) continue;
+        if (cell_it == nullptr)
+          continue;
         const u32 r0 = quad_y * (kGridPoints - 1);
         const u32 c0 = quad_x * (kGridPoints - 1);
 
@@ -551,7 +585,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
             u32 best_count = 0;
             for (u32 a = 0; a < 16; ++a) {
               u32 count = 0;
-              for (u32 b = 0; b < 16; ++b) count += texels[b] == texels[a];
+              for (u32 b = 0; b < 16; ++b)
+                count += texels[b] == texels[a];
               if (count > best_count) {
                 best_count = count;
                 best = texels[a];
@@ -573,8 +608,10 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
             for (u32 a = 0; a < 16; ++a) {
               u16 v = texels[a];
               bool seen = false;
-              for (u32 k = 0; k < done_count; ++k) seen |= done[k] == v;
-              if (seen) continue;
+              for (u32 k = 0; k < done_count; ++k)
+                seen |= done[k] == v;
+              if (seen)
+                continue;
               done[done_count++] = v;
               struct AtxtData {
                 u32 ltex;
@@ -588,7 +625,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
               for (u32 g = 0; g < kQuadGrid * kQuadGrid; ++g) {
                 u32 cx = base::Min(3u, (g % kQuadGrid) / 4);
                 u32 cy = base::Min(3u, (g / kQuadGrid) / 4);
-                if (texels[cy * 4 + cx] != v) continue;
+                if (texels[cy * 4 + cx] != v)
+                  continue;
                 u16 position = static_cast<u16>(g);
                 f32 opacity = 1.0f;
                 std::memcpy(vtxt + entries * 8, &position, 2);

@@ -16,7 +16,8 @@ namespace {
 
 base::String ToLower(base::StringRef str) {
   base::String out(str);
-  for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : out)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return out;
 }
 
@@ -25,7 +26,8 @@ base::String ToLower(base::StringRef str) {
 LoadOrder LoadOrder::FromPluginsTxt(const base::String& plugins_txt_path,
                                     const GameProfile& profile) {
   LoadOrder order;
-  for (const auto& master : profile.base_masters) order.Append(master);
+  for (const auto& master : profile.base_masters)
+    order.Append(master);
 
   std::ifstream file(plugins_txt_path.c_str());
   // std::getline fills a std::string; the line is copied into a base::String
@@ -33,11 +35,15 @@ LoadOrder LoadOrder::FromPluginsTxt(const base::String& plugins_txt_path,
   std::string raw;
   while (std::getline(file, raw)) {
     base::String line(raw.c_str(), raw.size());
-    if (line.empty() || line[0] == '#') continue;
-    if (line.back() == '\r') line.pop_back();
-    if (line[0] != '*') continue;  // only enabled plugins
+    if (line.empty() || line[0] == '#')
+      continue;
+    if (line.back() == '\r')
+      line.pop_back();
+    if (line[0] != '*')
+      continue;  // only enabled plugins
     base::String name = line.substr(1);
-    if (order.IndexOf(name) == 0xffff) order.Append(base::move(name));
+    if (order.IndexOf(name) == 0xffff)
+      order.Append(base::move(name));
   }
   return order;
 }
@@ -52,7 +58,8 @@ u16 LoadOrder::IndexOf(const base::String& file_name) const {
   return it == nullptr ? 0xffff : *it;
 }
 
-GlobalFormId LoadOrder::Resolve(RawFormId raw, u16 referencing_plugin,
+GlobalFormId LoadOrder::Resolve(RawFormId raw,
+                                u16 referencing_plugin,
                                 const base::Vector<base::String>& masters) const {
   // Mod index below the master count points at a master, otherwise the
   // record is defined by the referencing plugin itself. ESL slots cannot be
@@ -64,7 +71,8 @@ GlobalFormId LoadOrder::Resolve(RawFormId raw, u16 referencing_plugin,
   return {referencing_plugin, raw.local_id()};
 }
 
-bool RecordStore::LoadAll(const base::String& data_dir, const LoadOrder& order,
+bool RecordStore::LoadAll(const base::String& data_dir,
+                          const LoadOrder& order,
                           const GameProfile& profile) {
   constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
   constexpr u32 kRefr = FourCc('R', 'E', 'F', 'R');
@@ -107,15 +115,18 @@ bool RecordStore::LoadAll(const base::String& data_dir, const LoadOrder& order,
           stored->header = header;
           stored->payload = payload;
           stored->winning_plugin = i;
-          if (inserted) by_type_[header.type].push_back(id.packed());
+          if (inserted)
+            by_type_[header.type].push_back(id.packed());
 
           if (header.type == kCell && ctx.worldspace.value != 0) {
             // Exterior cell: grid coordinate from XCLC, parsed eagerly since the
             // streamer is keyed on it.
             Record record;
-            if (!ParseRecordPayload(header, payload, &record)) return;
+            if (!ParseRecordPayload(header, payload, &record))
+              return;
             const Subrecord* xclc = record.Find(kXclc);
-            if (!xclc || xclc->data.size() < 8) return;
+            if (!xclc || xclc->data.size() < 8)
+              return;
             i32 grid[2];
             std::memcpy(grid, xclc->data.data(), 8);
             u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
@@ -139,9 +150,11 @@ bool RecordStore::LoadAll(const base::String& data_dir, const LoadOrder& order,
             // Temporary cell children, listed under their cell's grid slot.
             u64 cell = order.Resolve(ctx.cell, i, masters).packed();
             const CellGridSlot* slot = cell_grid_.find(cell);
-            if (!slot) return;
+            if (!slot)
+              return;
             ExteriorCell* entry = exterior_[slot->worldspace].find(slot->grid_key);
-            if (!entry) return;
+            if (!entry)
+              return;
             if (header.type == kLand) {
               entry->land = id.packed();
             } else if (inserted) {
@@ -154,9 +167,11 @@ bool RecordStore::LoadAll(const base::String& data_dir, const LoadOrder& order,
             // dummy cell; bin them by placement position so the streamer treats
             // them like temporary refs.
             Record record;
-            if (!ParseRecordPayload(header, payload, &record)) return;
+            if (!ParseRecordPayload(header, payload, &record))
+              return;
             const Subrecord* data = record.Find(kData);
-            if (!data || data->data.size() < 24) return;
+            if (!data || data->data.size() < 24)
+              return;
             f32 position[3];
             std::memcpy(position, data->data.data(), 12);
             i16 grid_x = static_cast<i16>(std::floor(position[0] / cell_size));
@@ -184,23 +199,28 @@ const RecordStore::StoredRecord* RecordStore::Find(GlobalFormId id) const {
 
 bool RecordStore::Parse(GlobalFormId id, Record* out) const {
   const StoredRecord* stored = records_.find(id.packed());
-  if (!stored) return false;
+  if (!stored)
+    return false;
   return ParseRecordPayload(stored->header, stored->payload, out);
 }
 
 void RecordStore::EachOfType(
-    u32 fourcc, const base::Function<void(GlobalFormId, const StoredRecord&)>& fn) const {
+    u32 fourcc,
+    const base::Function<void(GlobalFormId, const StoredRecord&)>& fn) const {
   const base::Vector<u64>* ids = by_type_.find(fourcc);
-  if (!ids) return;
+  if (!ids)
+    return;
   for (u64 packed : *ids) {
     const StoredRecord* stored = records_.find(packed);
-    if (!stored) continue;
+    if (!stored)
+      continue;
     fn(GlobalFormId{static_cast<u16>(packed >> 32), static_cast<u32>(packed)}, *stored);
   }
 }
 
 GlobalFormId RecordStore::ResolveFrom(RawFormId raw, u16 plugin) const {
-  if (plugin >= by_order_.size() || !by_order_[plugin]) return {};
+  if (plugin >= by_order_.size() || !by_order_[plugin])
+    return {};
   return order_.Resolve(raw, plugin, by_order_[plugin]->masters());
 }
 
@@ -213,10 +233,13 @@ GlobalFormId RecordStore::FindWorldspace(base::StringRef editor_id) const {
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;
   EachOfType(kWrld, [&](GlobalFormId id, const StoredRecord& stored) {
-    if (found.plugin != 0xffff) return;
+    if (found.plugin != 0xffff)
+      return;
     Record record;
-    if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
-    if (record.GetString(kEdid) == editor_id) found = id;
+    if (!ParseRecordPayload(stored.header, stored.payload, &record))
+      return;
+    if (record.GetString(kEdid) == editor_id)
+      found = id;
   });
   return found;
 }
@@ -226,10 +249,13 @@ GlobalFormId RecordStore::FindInteriorCell(base::StringRef editor_id) const {
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;
   EachOfType(kCell, [&](GlobalFormId id, const StoredRecord& stored) {
-    if (found.plugin != 0xffff || !interior_.contains(id.packed())) return;
+    if (found.plugin != 0xffff || !interior_.contains(id.packed()))
+      return;
     Record record;
-    if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
-    if (record.GetString(kEdid) == editor_id) found = id;
+    if (!ParseRecordPayload(stored.header, stored.payload, &record))
+      return;
+    if (record.GetString(kEdid) == editor_id)
+      found = id;
   });
   return found;
 }
@@ -239,10 +265,13 @@ GlobalFormId RecordStore::FindGlobal(base::StringRef editor_id) const {
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;
   EachOfType(kGlob, [&](GlobalFormId id, const StoredRecord& stored) {
-    if (found.plugin != 0xffff) return;
+    if (found.plugin != 0xffff)
+      return;
     Record record;
-    if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
-    if (record.GetString(kEdid) == editor_id) found = id;
+    if (!ParseRecordPayload(stored.header, stored.payload, &record))
+      return;
+    if (record.GetString(kEdid) == editor_id)
+      found = id;
   });
   return found;
 }
@@ -264,9 +293,11 @@ GlobalFormId RecordStore::PlacedRefForBase(GlobalFormId base) const {
     constexpr u32 kName = FourCc('N', 'A', 'M', 'E');
     EachOfType(kAchr, [&](GlobalFormId id, const StoredRecord& stored) {
       Record record;
-      if (!ParseRecordPayload(stored.header, stored.payload, &record)) return;
+      if (!ParseRecordPayload(stored.header, stored.payload, &record))
+        return;
       const Subrecord* name = record.Find(kName);
-      if (!name || name->data.size() < 4) return;
+      if (!name || name->data.size() < 4)
+        return;
       u32 raw;
       std::memcpy(&raw, name->data.data(), 4);
       const u64 key = ResolveFrom(RawFormId{raw}, stored.winning_plugin).packed();
@@ -276,10 +307,12 @@ GlobalFormId RecordStore::PlacedRefForBase(GlobalFormId base) const {
       constexpr u32 kPersistent = 0x00000400;
       const bool persistent = (stored.header.flags & kPersistent) != 0;
       if (const u64* existing = base_to_achr_.find(key)) {
-        if (!persistent) return;
+        if (!persistent)
+          return;
         const StoredRecord* prev =
             Find(GlobalFormId{static_cast<u16>(*existing >> 32), static_cast<u32>(*existing)});
-        if (prev && (prev->header.flags & kPersistent) != 0) return;  // already the good one
+        if (prev && (prev->header.flags & kPersistent) != 0)
+          return;  // already the good one
       }
       base_to_achr_[key] = id.packed();
     });

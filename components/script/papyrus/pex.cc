@@ -21,20 +21,24 @@ class Reader {
   size_t pos() const { return pos_; }
 
   u8 U8() {
-    if (!Need(1)) return 0;
+    if (!Need(1))
+      return 0;
     return data_[pos_++];
   }
   u16 U16() {
-    if (!Need(2)) return 0;
+    if (!Need(2))
+      return 0;
     const u8* p = data_.data() + pos_;
     pos_ += 2;
     return big_ ? u16(p[0]) << 8 | p[1] : u16(p[1]) << 8 | p[0];
   }
   u32 U32() {
-    if (!Need(4)) return 0;
+    if (!Need(4))
+      return 0;
     const u8* p = data_.data() + pos_;
     pos_ += 4;
-    if (big_) return u32(p[0]) << 24 | u32(p[1]) << 16 | u32(p[2]) << 8 | p[3];
+    if (big_)
+      return u32(p[0]) << 24 | u32(p[1]) << 16 | u32(p[2]) << 8 | p[3];
     return u32(p[3]) << 24 | u32(p[2]) << 16 | u32(p[1]) << 8 | p[0];
   }
   u64 U64() {
@@ -55,7 +59,8 @@ class Reader {
   }
   base::String Str() {
     u16 len = U16();
-    if (!Need(len)) return {};
+    if (!Need(len))
+      return {};
     base::String s(reinterpret_cast<const char*>(data_.data() + pos_), len);
     pos_ += len;
     return s;
@@ -116,11 +121,13 @@ Function ReadFunction(Reader& r) {
 
   u16 param_count = r.U16();
   f.params.reserve(param_count);
-  for (u16 i = 0; i < param_count; ++i) f.params.push_back({r.U16(), r.U16()});
+  for (u16 i = 0; i < param_count; ++i)
+    f.params.push_back({r.U16(), r.U16()});
 
   u16 local_count = r.U16();
   f.locals.reserve(local_count);
-  for (u16 i = 0; i < local_count; ++i) f.locals.push_back({r.U16(), r.U16()});
+  for (u16 i = 0; i < local_count; ++i)
+    f.locals.push_back({r.U16(), r.U16()});
 
   u16 instr_count = r.U16();
   f.code.reserve(instr_count);
@@ -133,11 +140,13 @@ Function ReadFunction(Reader& r) {
       RX_WARN("pex: unknown opcode 0x{:02x} at byte {}", raw, r.pos());
       return f;  // caller sees !ok via the truncation check, or count mismatch
     }
-    for (u8 a = 0; a < info.fixed_args; ++a) insn.args.push_back(ReadVarData(r));
+    for (u8 a = 0; a < info.fixed_args; ++a)
+      insn.args.push_back(ReadVarData(r));
     if (info.var_args) {
       VariableData count = ReadVarData(r);
       i32 n = count.int_value;
-      for (i32 a = 0; a < n && r.ok(); ++a) insn.var_args.push_back(ReadVarData(r));
+      for (i32 a = 0; a < n && r.ok(); ++a)
+        insn.var_args.push_back(ReadVarData(r));
     }
     f.code.push_back(base::move(insn));
   }
@@ -155,7 +164,8 @@ Object ReadObject(Reader& r, bool fallout) {
   r.U32();  // object data size in bytes; we parse sequentially and ignore it
   o.parent_class = r.U16();
   o.doc_string = r.U16();
-  if (fallout) r.U8();  // object const flag (unused by the VM)
+  if (fallout)
+    r.U8();  // object const flag (unused by the VM)
   o.user_flags = r.U32();
   o.auto_state_name = r.U16();
 
@@ -185,7 +195,8 @@ Object ReadObject(Reader& r, bool fallout) {
     v.type = r.U16();
     v.user_flags = r.U32();
     v.initial_value = ReadVarData(r);
-    if (fallout) r.U8();  // member variable const flag
+    if (fallout)
+      r.U8();  // member variable const flag
     o.variables.push_back(base::move(v));
   }
 
@@ -242,14 +253,16 @@ void SkipFalloutDebugExtras(Reader& r) {
     r.U16();  // doc string
     r.U32();  // user flags
     u16 names = r.U16();
-    for (u16 j = 0; j < names; ++j) r.U16();
+    for (u16 j = 0; j < names; ++j)
+      r.U16();
   }
   u16 struct_count = r.U16();
   for (u16 i = 0; i < struct_count; ++i) {
     r.U16();  // object name
     r.U16();  // struct name
     u16 names = r.U16();
-    for (u16 j = 0; j < names; ++j) r.U16();
+    for (u16 j = 0; j < names; ++j)
+      r.U16();
   }
 }
 
@@ -258,7 +271,8 @@ const base::String kEmpty;
 }  // namespace
 
 const base::String& PexFile::Str(StringIndex index) const {
-  if (index >= string_table.size()) return kEmpty;
+  if (index >= string_table.size())
+    return kEmpty;
   return string_table[index];
 }
 
@@ -290,7 +304,8 @@ bool ParsePex(ByteSpan data, PexFile* out) {
 
   u16 string_count = r.U16();
   out->string_table.reserve(string_count);
-  for (u16 i = 0; i < string_count; ++i) out->string_table.push_back(r.Str());
+  for (u16 i = 0; i < string_count; ++i)
+    out->string_table.push_back(r.Str());
 
   out->has_debug_info = r.U8() != 0;
   if (out->has_debug_info) {
@@ -305,10 +320,12 @@ bool ParsePex(ByteSpan data, PexFile* out) {
       d.function_type = r.U8();
       u16 line_count = r.U16();
       d.line_numbers.reserve(line_count);
-      for (u16 j = 0; j < line_count; ++j) d.line_numbers.push_back(r.U16());
+      for (u16 j = 0; j < line_count; ++j)
+        d.line_numbers.push_back(r.U16());
       out->debug_functions.push_back(base::move(d));
     }
-    if (out->game_id != 1) SkipFalloutDebugExtras(r);
+    if (out->game_id != 1)
+      SkipFalloutDebugExtras(r);
   }
 
   u16 user_flag_count = r.U16();
@@ -323,7 +340,8 @@ bool ParsePex(ByteSpan data, PexFile* out) {
   u16 object_count = r.U16();
   out->objects.reserve(object_count);
   const bool fallout = out->game_id != 1;  // Skyrim is 1; FO4/76 add object fields
-  for (u16 i = 0; i < object_count && r.ok(); ++i) out->objects.push_back(ReadObject(r, fallout));
+  for (u16 i = 0; i < object_count && r.ok(); ++i)
+    out->objects.push_back(ReadObject(r, fallout));
 
   if (!r.ok()) {
     RX_WARN("pex: truncated or malformed near byte {}", r.pos());

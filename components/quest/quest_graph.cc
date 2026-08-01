@@ -7,7 +7,8 @@ namespace rx::quest {
 
 const QuestNode* QuestGraph::FindNode(i32 id) const {
   for (const QuestNode& n : nodes)
-    if (n.id == id) return &n;
+    if (n.id == id)
+      return &n;
   return nullptr;
 }
 
@@ -16,7 +17,9 @@ i64 QuestInstance::GetVar(const base::String& key, i64 fallback) const {
   return it == nullptr ? fallback : *it;
 }
 
-void QuestInstance::Start(QuestActionSink& sink) { Advance(graph_->start_node, sink); }
+void QuestInstance::Start(QuestActionSink& sink) {
+  Advance(graph_->start_node, sink);
+}
 
 bool QuestInstance::Advance(i32 node, QuestActionSink& sink) {
   if (entered_.count(node)) {
@@ -37,7 +40,8 @@ void QuestInstance::Enter(i32 node, QuestActionSink& sink) {
     has_stage_ = true;
   }
   sink.OnEnterNode(quest, node);
-  if (!n) return;
+  if (!n)
+    return;
   for (const Action& a : n->on_enter) {
     switch (a.kind) {
       case ActionKind::kSetObjectiveDisplayed:
@@ -68,20 +72,26 @@ bool QuestInstance::Tick(const ConditionContext& ctx, QuestActionSink& sink) {
     // Snapshot the frontier; Advance() mutates active_ underneath us.
     base::Vector<i32> frontier(active_.begin(), active_.end());
     for (i32 from : frontier) {
-      if (!active_.count(from)) continue;
+      if (!active_.count(from))
+        continue;
       for (const Transition& t : graph_->transitions) {
-        if (t.from != from || t.trigger != TriggerKind::kCondition) continue;
-        if (entered_.count(t.to)) continue;  // edge already taken
-        if (!Evaluate(t.condition, ctx)) continue;
+        if (t.from != from || t.trigger != TriggerKind::kCondition)
+          continue;
+        if (entered_.count(t.to))
+          continue;  // edge already taken
+        if (!Evaluate(t.condition, ctx))
+          continue;
         active_.erase(from);  // moved along the edge
         Advance(t.to, sink);
         fired = true;
         any = true;
         break;
       }
-      if (fired) break;
+      if (fired)
+        break;
     }
-    if (!fired) break;
+    if (!fired)
+      break;
   }
   return any;
 }
@@ -90,10 +100,13 @@ bool QuestInstance::PostEvent(const base::String& event, QuestActionSink& sink) 
   bool any = false;
   base::Vector<i32> frontier(active_.begin(), active_.end());
   for (i32 from : frontier) {
-    if (!active_.count(from)) continue;
+    if (!active_.count(from))
+      continue;
     for (const Transition& t : graph_->transitions) {
-      if (t.from != from || t.trigger != TriggerKind::kEvent) continue;
-      if (t.event != event || entered_.count(t.to)) continue;
+      if (t.from != from || t.trigger != TriggerKind::kEvent)
+        continue;
+      if (t.event != event || entered_.count(t.to))
+        continue;
       active_.erase(from);
       Advance(t.to, sink);
       any = true;

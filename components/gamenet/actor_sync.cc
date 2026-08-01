@@ -7,7 +7,6 @@
 
 #include "components/world/components.h"
 #include "net/replication.h"
-#include "components/world/components.h"
 
 namespace rx::net {
 namespace {
@@ -35,13 +34,16 @@ std::vector<u8> EncodeRecord(const ActorState& a) {
   std::vector<u8> rec;
   rec.reserve(kRecordSize);
   AppendU64(rec, a.form);
-  for (f32 v : a.pos) AppendF32(rec, v);
-  for (f32 v : a.rot) AppendF32(rec, v);
+  for (f32 v : a.pos)
+    AppendF32(rec, v);
+  for (f32 v : a.rot)
+    AppendF32(rec, v);
   return rec;
 }
 
 bool DecodeRecord(const u8* data, size_t size, ActorState* out) {
-  if (size != kRecordSize) return false;
+  if (size != kRecordSize)
+    return false;
   size_t pos = 0;
   auto f32at = [&] {
     u32 bits = nanobuf::LoadLe<u32>(data + pos);
@@ -52,17 +54,21 @@ bool DecodeRecord(const u8* data, size_t size, ActorState* out) {
   };
   out->form = nanobuf::LoadLe<u64>(data);
   pos += 8;
-  for (f32& v : out->pos) v = f32at();
-  for (f32& v : out->rot) v = f32at();
+  for (f32& v : out->pos)
+    v = f32at();
+  for (f32& v : out->rot)
+    v = f32at();
   return true;
 }
 
 bool Changed(const ActorState& a, const ActorState& b) {
   constexpr f32 kEps = 1e-3f;
   for (int i = 0; i < 3; ++i)
-    if (std::fabs(a.pos[i] - b.pos[i]) > kEps) return true;
+    if (std::fabs(a.pos[i] - b.pos[i]) > kEps)
+      return true;
   for (int i = 0; i < 4; ++i)
-    if (std::fabs(a.rot[i] - b.rot[i]) > kEps) return true;
+    if (std::fabs(a.rot[i] - b.rot[i]) > kEps)
+      return true;
   return false;
 }
 
@@ -80,17 +86,21 @@ std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors) {
 
 base::Optional<base::Vector<ActorState>> DecodeActorStates(ByteSpan data) {
   std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
-  if (!view) return base::nullopt;
+  if (!view)
+    return base::nullopt;
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
-  if (!records) return base::nullopt;
+  if (!records)
+    return base::nullopt;
 
   base::Vector<ActorState> out;
   out.reserve(records->size());
   for (size_t i = 0; i < records->size(); ++i) {
     std::optional<nanobuf::BytesView> bytes = records->Get(i);
-    if (!bytes) return base::nullopt;
+    if (!bytes)
+      return base::nullopt;
     ActorState a;
-    if (!DecodeRecord(bytes->data, bytes->size, &a)) return base::nullopt;
+    if (!DecodeRecord(bytes->data, bytes->size, &a))
+      return base::nullopt;
     out.push_back(a);
   }
   return out;
@@ -100,11 +110,14 @@ std::vector<ActorState> CollectActorStates(ecs::World& world) {
   std::vector<ActorState> out;
   world.Each<world::Npc, world::Transform, world::FormLink>(
       [&](ecs::Entity entity, world::Npc&, world::Transform& t, world::FormLink& link) {
-        if (world.Has<world::Hidden>(entity) || world.Has<world::Deleted>(entity)) return;
+        if (world.Has<world::Hidden>(entity) || world.Has<world::Deleted>(entity))
+          return;
         ActorState a;
         a.form = link.form.packed();
-        for (int i = 0; i < 3; ++i) a.pos[i] = t.position[i];
-        for (int i = 0; i < 4; ++i) a.rot[i] = t.rotation[i];
+        for (int i = 0; i < 3; ++i)
+          a.pos[i] = t.position[i];
+        for (int i = 0; i < 4; ++i)
+          a.rot[i] = t.rotation[i];
         out.push_back(a);
       });
   return out;
@@ -126,19 +139,24 @@ std::vector<ActorState> ActorReplicator::Build(const std::vector<ActorState>& sn
   return changed;
 }
 
-void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
-                      const base::Vector<ActorState>& actors, f32 lerp_duration) {
+void ApplyActorStates(ecs::World& world,
+                      const world::QuestWorld& registry,
+                      const base::Vector<ActorState>& actors,
+                      f32 lerp_duration) {
   for (const ActorState& a : actors) {
     ecs::Entity entity = registry.Find(a.form);
     if (!world.IsAlive(entity) || world.Has<world::Hidden>(entity) ||
         world.Has<world::Deleted>(entity))
       continue;
     const world::Transform* current = world.Get<world::Transform>(entity);
-    if (!current) continue;
+    if (!current)
+      continue;
 
     world::Transform target = *current;
-    for (int i = 0; i < 3; ++i) target.position[i] = a.pos[i];
-    for (int i = 0; i < 4; ++i) target.rotation[i] = a.rot[i];
+    for (int i = 0; i < 3; ++i)
+      target.position[i] = a.pos[i];
+    for (int i = 0; i < 4; ++i)
+      target.rotation[i] = a.rot[i];
 
     // Blend from where the entity is now to the authoritative target over one
     // update interval; TickInterpolation writes the result into Transform.

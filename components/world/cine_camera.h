@@ -28,20 +28,23 @@ enum class ShotKind : u8 {
 };
 
 struct ShotParams {
-  f32 close = 1.05f;      // eye distance for a close-up
-  f32 medium = 1.9f;      // how far behind the near subject an over-shoulder sits
-  f32 wide = 4.6f;        // lateral offset of a wide/two-shot
-  f32 shoulder = 0.62f;   // lateral offset of an over-shoulder, so the near head
-                          // frames one edge instead of blocking the lens
-  f32 lift = 0.16f;       // camera sits just above the eyeline
+  f32 close = 1.05f;           // eye distance for a close-up
+  f32 medium = 1.9f;           // how far behind the near subject an over-shoulder sits
+  f32 wide = 4.6f;             // lateral offset of a wide/two-shot
+  f32 shoulder = 0.62f;        // lateral offset of an over-shoulder, so the near head
+                               // frames one edge instead of blocking the lens
+  f32 lift = 0.16f;            // camera sits just above the eyeline
   f32 min_subject_gap = 0.6f;  // subjects closer than this are framed as one
 };
 
 // Frames one shot. When the two subjects coincide (or `listener` is the same as
 // `speaker`), `speaker_yaw` gives the axis so a lone speaker still gets a
 // sensible angle; it uses the engine's facing convention (forward = {sin, 0, -cos}).
-CineFraming SolveShot(ShotKind kind, const f32 speaker_head[3], const f32 listener_head[3],
-                      f32 speaker_yaw, const ShotParams& params);
+CineFraming SolveShot(ShotKind kind,
+                      const f32 speaker_head[3],
+                      const f32 listener_head[3],
+                      f32 speaker_yaw,
+                      const ShotParams& params);
 
 // Chooses shots over time: cut when the speaker changes, alternate the reverse
 // angle so a back-and-forth reads as coverage, and break up a long single speech

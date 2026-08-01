@@ -20,17 +20,24 @@ inline constexpr const char* kBodyMesh = "meshes/furniture/cart/cartfurnstatic01
 // centre, so a transform at the chassis centre places it; without, the NIF's
 // authored origin is kept, which is what a caller placing seats in the cart's
 // own local space wants. False when the mesh is not in the archives.
-bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const char* path,
-              bool recenter, const char* id, asset::AssetId* out);
+bool BakeBody(asset::AssetDatabase* assets,
+              render::Renderer* renderer,
+              const char* path,
+              bool recenter,
+              const char* id,
+              asset::AssetId* out);
 
 // An X-axis cylinder (a wheel: axle along local +X, disc in the Y-Z plane), so a
 // transform whose right axis is X spins it about the axle.
-asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f32 half_width,
+asset::Mesh MakeWheel(render::Renderer* renderer,
+                      const char* id,
+                      f32 radius,
+                      f32 half_width,
                       bool upload);
 
 // A flat-shaded box with one material, for graybox parts.
-asset::Mesh MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b,
-                    bool upload);
+asset::Mesh
+MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b, bool upload);
 
 }  // namespace rx::cart
 

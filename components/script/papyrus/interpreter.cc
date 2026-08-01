@@ -9,14 +9,15 @@
 
 #include <cctype>
 
-#include "core/log.h"
 #include "components/script/papyrus/fiber.h"
+#include "core/log.h"
 
 namespace rx::script::papyrus {
 namespace {
 
 base::String Lower(base::String s) {
-  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : s)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
@@ -24,12 +25,18 @@ base::String Lower(base::String s) {
 // the dynamic "var" type are not primitive coercions and are handled by Cast.
 ValueType TargetType(const base::String& type_name) {
   base::String t = Lower(type_name);
-  if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0) return ValueType::kArray;
-  if (t == "int") return ValueType::kInt;
-  if (t == "float") return ValueType::kFloat;
-  if (t == "bool") return ValueType::kBool;
-  if (t == "string") return ValueType::kString;
-  if (t == "none") return ValueType::kNone;
+  if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0)
+    return ValueType::kArray;
+  if (t == "int")
+    return ValueType::kInt;
+  if (t == "float")
+    return ValueType::kFloat;
+  if (t == "bool")
+    return ValueType::kBool;
+  if (t == "string")
+    return ValueType::kString;
+  if (t == "none")
+    return ValueType::kNone;
   return ValueType::kObject;  // a script type
 }
 
@@ -37,8 +44,13 @@ ValueType TargetType(const base::String& type_name) {
 // instance it runs on, and the VM it calls out to.
 class Frame {
  public:
-  Frame(const PexFile& pex, const Object& object, const Function& fn, ObjectRef self,
-        base::Vector<Value>& args, VmInterface& vm, base::StringRef fn_name)
+  Frame(const PexFile& pex,
+        const Object& object,
+        const Function& fn,
+        ObjectRef self,
+        base::Vector<Value>& args,
+        VmInterface& vm,
+        base::StringRef fn_name)
       : pex_(pex), object_(object), fn_(fn), self_(self), vm_(vm), fn_name_(fn_name) {
     for (size_t i = 0; i < fn.params.size(); ++i) {
       const base::String& name = pex.Str(fn.params[i].name);
@@ -72,18 +84,24 @@ class Frame {
 
   base::String DeclType(const base::String& name) {
     auto* it = decl_types_.find(name);
-    if (it != nullptr) return *it;
+    if (it != nullptr)
+      return *it;
     for (const MemberVariable& v : object_.variables)
-      if (pex_.Str(v.name) == name) return pex_.Str(v.type);
+      if (pex_.Str(v.name) == name)
+        return pex_.Str(v.type);
     return "";
   }
 
   Value ResolveRead(const base::String& name) {
-    if (name == "self" || name == "parent") return Value::Object(self_);
-    if (name == "::State") return Value::Str(vm_.CurrentState(self_));
+    if (name == "self" || name == "parent")
+      return Value::Object(self_);
+    if (name == "::State")
+      return Value::Str(vm_.CurrentState(self_));
     auto* it = regs_.find(name);
-    if (it != nullptr) return *it;
-    if (Value* m = vm_.MemberVar(self_, name)) return *m;
+    if (it != nullptr)
+      return *it;
+    if (Value* m = vm_.MemberVar(self_, name))
+      return *m;
     return Value();
   }
 
@@ -92,13 +110,15 @@ class Frame {
       vm_.GotoState(self_, value.ToString());
       return;
     }
-    if (name == "self" || name == "parent") return;
+    if (name == "self" || name == "parent")
+      return;
     auto* it = regs_.find(name);
     if (it != nullptr) {
       *it = base::move(value);
       return;
     }
-    if (Value* m = vm_.MemberVar(self_, name)) *m = base::move(value);
+    if (Value* m = vm_.MemberVar(self_, name))
+      *m = base::move(value);
     // else discard (e.g. ::NoneVar that is not a declared local)
   }
 
@@ -128,7 +148,8 @@ class Frame {
 
   Value Cast(const Value& value, const base::String& type_name) {
     base::String t = Lower(type_name);
-    if (t.empty() || t == "var") return value;
+    if (t.empty() || t == "var")
+      return value;
     switch (TargetType(type_name)) {
       case ValueType::kInt:
         return Value::Int(value.ToInt());
@@ -152,13 +173,17 @@ class Frame {
   base::Vector<Value> CollectArgs(const Instruction& insn) {
     base::Vector<Value> out;
     out.reserve(insn.var_args.size());
-    for (const VariableData& a : insn.var_args) out.push_back(ReadOperand(a));
+    for (const VariableData& a : insn.var_args)
+      out.push_back(ReadOperand(a));
     return out;
   }
 
   // Finds the index of the array element (a struct) whose `member` equals
   // `value`, scanning forward from start or backward. -1 if none.
-  i32 FindStruct(ArrayRef array, const base::String& member, const Value& value, i32 start,
+  i32 FindStruct(ArrayRef array,
+                 const base::String& member,
+                 const Value& value,
+                 i32 start,
                  bool reverse) {
     i32 n = vm_.ArrayLength(array);
     auto matches = [&](i32 i) {
@@ -167,10 +192,12 @@ class Frame {
     };
     if (reverse) {
       for (i32 i = start < 0 ? n - 1 : base::Min(start, n - 1); i >= 0; --i)
-        if (matches(i)) return i;
+        if (matches(i))
+          return i;
     } else {
       for (i32 i = base::Max(0, start); i < n; ++i)
-        if (matches(i)) return i;
+        if (matches(i))
+          return i;
     }
     return -1;
   }
@@ -187,9 +214,11 @@ class Frame {
 
 namespace {
 bool EqualsIgnoreCase(base::StringRef a, base::StringRef b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i)
-    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+    if (std::tolower(static_cast<unsigned char>(a[i])) !=
+        std::tolower(static_cast<unsigned char>(b[i])))
       return false;
   return true;
 }
@@ -199,7 +228,8 @@ bool EqualsIgnoreCase(base::StringRef a, base::StringRef b) {
 // until the actors are 3D loaded") spins forever. Recognizing the call lets the
 // interpreter bail such a loop quickly instead of grinding to the ceiling.
 bool IsLatentWait(base::StringRef object, base::StringRef method) {
-  if (!EqualsIgnoreCase(object, "Utility")) return false;
+  if (!EqualsIgnoreCase(object, "Utility"))
+    return false;
   return EqualsIgnoreCase(method, "Wait") || EqualsIgnoreCase(method, "WaitMenuMode") ||
          EqualsIgnoreCase(method, "WaitGameTime");
 }
@@ -424,8 +454,13 @@ Value Frame::Run() {
 
 }  // namespace
 
-Value ExecuteFunction(const PexFile& pex, const Object& object, const Function& fn, ObjectRef self,
-                      base::Vector<Value> args, VmInterface& vm, base::StringRef function_name) {
+Value ExecuteFunction(const PexFile& pex,
+                      const Object& object,
+                      const Function& fn,
+                      ObjectRef self,
+                      base::Vector<Value> args,
+                      VmInterface& vm,
+                      base::StringRef function_name) {
   Frame frame(pex, object, fn, self, args, vm, function_name);
   return frame.Run();
 }

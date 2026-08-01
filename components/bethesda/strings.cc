@@ -8,8 +8,10 @@
 
 namespace rx::bethesda {
 
-bool StringTable::Load(const asset::Vfs& vfs, const base::String& plugin_name,
-                       const base::String& language, u16 plugin) {
+bool StringTable::Load(const asset::Vfs& vfs,
+                       const base::String& plugin_name,
+                       const base::String& language,
+                       u16 plugin) {
   base::String base = plugin_name.substr(0, plugin_name.rfind('.'));
   base::String prefix = "strings/" + base + "_" + language;
   bool any = LoadFile(vfs, prefix + ".strings", false, plugin);
@@ -18,7 +20,9 @@ bool StringTable::Load(const asset::Vfs& vfs, const base::String& plugin_name,
   return any;
 }
 
-const base::String* StringTable::Find(u32 string_id) const { return strings_.find(string_id); }
+const base::String* StringTable::Find(u32 string_id) const {
+  return strings_.find(string_id);
+}
 
 const base::String* StringTable::Find(u32 string_id, u16 plugin) const {
   if (plugin != kAnyPlugin)
@@ -27,10 +31,13 @@ const base::String* StringTable::Find(u32 string_id, u16 plugin) const {
   return strings_.find(string_id);
 }
 
-bool StringTable::LoadFile(const asset::Vfs& vfs, const base::String& path, bool length_prefixed,
+bool StringTable::LoadFile(const asset::Vfs& vfs,
+                           const base::String& path,
+                           bool length_prefixed,
                            u16 plugin) {
   auto bytes = vfs.Read(path);
-  if (!bytes || bytes->size() < 8) return false;
+  if (!bytes || bytes->size() < 8)
+    return false;
 
   u32 count, data_size;
   std::memcpy(&count, bytes->data(), 4);
@@ -47,14 +54,17 @@ bool StringTable::LoadFile(const asset::Vfs& vfs, const base::String& path, bool
     std::memcpy(&id, bytes->data() + 8 + i * 8, 4);
     std::memcpy(&offset, bytes->data() + 8 + i * 8 + 4, 4);
     size_t pos = directory_end + offset;
-    if (pos >= bytes->size()) continue;
+    if (pos >= bytes->size())
+      continue;
 
     const char* start = reinterpret_cast<const char*>(bytes->data() + pos);
     if (length_prefixed) {
-      if (pos + 4 > bytes->size()) continue;
+      if (pos + 4 > bytes->size())
+        continue;
       u32 length;
       std::memcpy(&length, start, 4);
-      if (pos + 4 + length > bytes->size()) continue;
+      if (pos + 4 + length > bytes->size())
+        continue;
       // Length includes the terminator.
       const size_t chars = static_cast<size_t>(length > 0 ? length - 1 : 0);
       strings_.emplace(id, start + 4, chars);

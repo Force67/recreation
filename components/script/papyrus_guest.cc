@@ -1,10 +1,10 @@
-#include <mutex>
-#include <thread>
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
+#include <mutex>
+#include <thread>
 
 #include "components/script/papyrus_guest.h"
 
@@ -30,10 +30,13 @@ PapyrusGuest::PapyrusGuest(bethesda::Game game) : game_(game), vm_(&natives_) {
   BindEngineNatives();
 }
 
-PapyrusGuest::~PapyrusGuest() { Stop(); }
+PapyrusGuest::~PapyrusGuest() {
+  Stop();
+}
 
 void PapyrusGuest::Start() {
-  if (running_) return;
+  if (running_)
+    return;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stop_ = false;
@@ -43,17 +46,21 @@ void PapyrusGuest::Start() {
 }
 
 void PapyrusGuest::Stop() {
-  if (!running_) return;
+  if (!running_)
+    return;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stop_ = true;
   }
   wake_.notify_all();
-  if (thread_.joinable()) thread_.join();
+  if (thread_.joinable())
+    thread_.join();
   running_ = false;
 }
 
-bool PapyrusGuest::OnGuestThread() const { return t_current_guest == this; }
+bool PapyrusGuest::OnGuestThread() const {
+  return t_current_guest == this;
+}
 
 void PapyrusGuest::ThreadMain() {
   t_current_guest = this;
@@ -63,7 +70,8 @@ void PapyrusGuest::ThreadMain() {
       std::unique_lock<std::mutex> lock(mutex_);
       wake_.wait(lock, [this] { return stop_ || !queue_.empty(); });
       if (queue_.empty()) {
-        if (stop_) return;
+        if (stop_)
+          return;
         continue;
       }
       job = base::move(queue_.front());
@@ -103,12 +111,15 @@ void PapyrusGuest::RaiseEvent(ObjectRef target, base::String event, base::Vector
       // OnActivate/OnTriggerEnter handler runs (native-raised events already route
       // this way through the bindings). Copy args: TryCall consumes its vector.
       if (alias_resolver_)
-        for (ObjectRef alias : alias_resolver_(target)) vm.TryCall(alias, event, args);
+        for (ObjectRef alias : alias_resolver_(target))
+          vm.TryCall(alias, event, args);
     });
   });
 }
 
-void PapyrusGuest::RaiseScriptEvent(ObjectRef target, base::String script_type, base::String event,
+void PapyrusGuest::RaiseScriptEvent(ObjectRef target,
+                                    base::String script_type,
+                                    base::String event,
                                     base::Vector<Value> args) {
   Submit([this, target, script_type = base::move(script_type), event = base::move(event),
           args = base::move(args)](VirtualMachine& vm) mutable {
@@ -116,7 +127,8 @@ void PapyrusGuest::RaiseScriptEvent(ObjectRef target, base::String script_type, 
                args = base::move(args)]() mutable {
       vm.TryCallScript(target, script_type, event, args);
       if (alias_resolver_)
-        for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
+        for (ObjectRef alias : alias_resolver_(target))
+          vm.TryCallAll(alias, event, args);
     });
   });
 }
@@ -127,7 +139,8 @@ void PapyrusGuest::RaiseEventAll(ObjectRef target, base::String event, base::Vec
     RunScript([this, &vm, target, event = base::move(event), args = base::move(args)]() mutable {
       vm.TryCallAll(target, event, args);
       if (alias_resolver_)
-        for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
+        for (ObjectRef alias : alias_resolver_(target))
+          vm.TryCallAll(alias, event, args);
     });
   });
 }
@@ -159,11 +172,13 @@ void PapyrusGuest::AdvanceGameUpdates(f64 now) {
   // itself and must not fire again this tick.
   base::Vector<ObjectRef> due;
   for (ScheduledUpdate& u : game_updates_)
-    if (u.due <= now) due.push_back(u.target);
+    if (u.due <= now)
+      due.push_back(u.target);
   for (ObjectRef target : due) {
     auto it = std::find_if(game_updates_.begin(), game_updates_.end(),
                            [&](const ScheduledUpdate& u) { return u.target == target; });
-    if (it == game_updates_.end()) continue;
+    if (it == game_updates_.end())
+      continue;
     f64 interval = it->interval;
     if (interval > 0)
       it->due += interval;
@@ -185,7 +200,8 @@ void PapyrusGuest::RemoveLosWatch(ObjectRef registrant, ObjectRef viewer, Object
 }
 
 void PapyrusGuest::AdvanceLosWatches() {
-  if (!los_provider_ || los_watches_.empty()) return;
+  if (!los_provider_ || los_watches_.empty())
+    return;
   // Evaluate against a snapshot index: a handler may register or drop watches, so
   // collect the events first, then fire, then prune the one-shots that fired.
   struct Fired {
@@ -197,13 +213,16 @@ void PapyrusGuest::AdvanceLosWatches() {
   for (size_t i = 0; i < los_watches_.size(); ++i) {
     LosWatch& w = los_watches_[i];
     bool now = los_provider_(w.viewer.handle, w.target.handle);
-    if (now == w.has_los) continue;
+    if (now == w.has_los)
+      continue;
     w.has_los = now;
     const bool wants =
         (now && w.mode != LosMode::kSingleLost) || (!now && w.mode != LosMode::kSingleGain);
-    if (!wants) continue;
+    if (!wants)
+      continue;
     fired.push_back({w.registrant, w.viewer, w.target, now});
-    if (w.mode != LosMode::kBoth) drop.push_back(i);
+    if (w.mode != LosMode::kBoth)
+      drop.push_back(i);
   }
   for (auto it = drop.rbegin(); it != drop.rend(); ++it)
     los_watches_.erase(los_watches_.begin() + *it);
@@ -222,17 +241,20 @@ void PapyrusGuest::AdvanceUpdates(f64 dt) {
   clock_ += dt;
   // Resume any activations whose Wait has elapsed before firing this tick's work.
   fiber_sched_.Advance(clock_, GameNow());
-  if (game_time_provider_) AdvanceGameUpdates(game_time_provider_());
+  if (game_time_provider_)
+    AdvanceGameUpdates(game_time_provider_());
   AdvanceLosWatches();
   // Snapshot the due set first: an OnUpdate handler may reschedule itself, and
   // we must not fire that new registration in the same tick.
   base::Vector<ObjectRef> due;
   for (ScheduledUpdate& u : updates_)
-    if (u.due <= clock_) due.push_back(u.target);
+    if (u.due <= clock_)
+      due.push_back(u.target);
   for (ObjectRef target : due) {
     auto it = std::find_if(updates_.begin(), updates_.end(),
                            [&](const ScheduledUpdate& u) { return u.target == target; });
-    if (it == updates_.end()) continue;
+    if (it == updates_.end())
+      continue;
     f64 interval = it->interval;
     if (interval > 0)
       it->due += interval;
@@ -302,7 +324,8 @@ void PapyrusGuest::BindEngineNatives() {
   };
   auto make_los = [this, los_now](LosMode mode) {
     return [this, los_now, mode](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
-      if (args.size() < 2) return Value();
+      if (args.size() < 2)
+        return Value();
       ObjectRef viewer = args[0].as_object();
       ObjectRef target = args[1].as_object();
       AddLosWatch({self, viewer, target, mode, los_now(viewer, target)});
@@ -310,7 +333,8 @@ void PapyrusGuest::BindEngineNatives() {
     };
   };
   auto unreg_los = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
-    if (args.size() >= 2) RemoveLosWatch(self, args[0].as_object(), args[1].as_object());
+    if (args.size() >= 2)
+      RemoveLosWatch(self, args[0].as_object(), args[1].as_object());
     return Value();
   };
   for (const char* type : {"Form", "Alias", "ActiveMagicEffect"}) {
@@ -338,7 +362,8 @@ void PapyrusGuest::BindEngineNatives() {
   auto surface = [this](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
     const base::String message = args.empty() ? "" : args[0].ToString();
     RX_INFO("[papyrus] notification: {}", message);
-    if (on_notification_) on_notification_(message);
+    if (on_notification_)
+      on_notification_(message);
     return Value();
   };
   natives_.Register("Debug", "MessageBox", surface);
@@ -351,7 +376,8 @@ void PapyrusGuest::BindEngineNatives() {
     base::String v = verb;
     natives_.Register("Debug", v.c_str(),
                       [this, v](VirtualMachine&, ObjectRef, base::Vector<Value>&) {
-                        if (on_debug_command_) on_debug_command_(v, "");
+                        if (on_debug_command_)
+                          on_debug_command_(v, "");
                         return Value();
                       });
   };
@@ -365,7 +391,8 @@ void PapyrusGuest::BindEngineNatives() {
     natives_.Register("Debug", v.c_str(),
                       [this, v](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
                         const bool on = args.empty() ? false : args[0].ToBool();
-                        if (on_debug_command_) on_debug_command_(v, on ? "1" : "0");
+                        if (on_debug_command_)
+                          on_debug_command_(v, on ? "1" : "0");
                         return Value();
                       });
   };
@@ -382,7 +409,8 @@ void PapyrusGuest::BindEngineNatives() {
     base::String f = func;
     natives_.Register(type, func,
                       [this, t, f](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
-                        if (on_platform_hud_) on_platform_hud_(t, f, args);
+                        if (on_platform_hud_)
+                          on_platform_hud_(t, f, args);
                         return Value();
                       });
   };

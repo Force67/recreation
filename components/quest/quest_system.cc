@@ -24,8 +24,10 @@ const QuestSystem::QuestState* QuestSystem::Peek(QuestHandle quest) const {
 
 void QuestSystem::Notify(QuestHandle quest, QuestEvent event) {
   ++revision_;
-  if (auto* it = states_.find(quest); it != nullptr) it->revision = revision_;
-  for (auto& listener : listeners_) listener(quest, event);
+  if (auto* it = states_.find(quest); it != nullptr)
+    it->revision = revision_;
+  for (auto& listener : listeners_)
+    listener(quest, event);
 }
 
 i32 QuestSystem::GetStage(QuestHandle quest) const {
@@ -41,13 +43,15 @@ bool QuestSystem::SetStage(QuestHandle quest, i32 stage) {
   q.running = true;  // setting a stage implies the quest is running
   // Re-setting an already-done stage is a no-op in the game, so it raises no
   // event (and the caller does not re-run its fragment).
-  if (!already_done) Notify(quest, QuestEvent::kStageChanged);
+  if (!already_done)
+    Notify(quest, QuestEvent::kStageChanged);
   return !already_done;
 }
 
 bool QuestSystem::GetStageDone(QuestHandle quest, i32 stage) const {
   const QuestState* s = Peek(quest);
-  if (!s) return false;
+  if (!s)
+    return false;
   auto* it = s->stage_done.find(stage);
   return it != nullptr && *it;
 }
@@ -94,31 +98,38 @@ void QuestSystem::SetObjectiveCompleted(QuestHandle quest, i32 objective, bool c
 
 bool QuestSystem::IsObjectiveDisplayed(QuestHandle quest, i32 objective) const {
   const QuestState* s = Peek(quest);
-  if (!s) return false;
+  if (!s)
+    return false;
   auto* it = s->objective_displayed.find(objective);
   return it != nullptr && *it;
 }
 
 bool QuestSystem::IsObjectiveCompleted(QuestHandle quest, i32 objective) const {
   const QuestState* s = Peek(quest);
-  if (!s) return false;
+  if (!s)
+    return false;
   auto* it = s->objective_completed.find(objective);
   return it != nullptr && *it;
 }
 
 bool QuestSystem::IsComplete(QuestHandle quest) const {
   const QuestState* s = Peek(quest);
-  if (!s) return false;
-  if (s->complete_override) return true;  // mirrored from a remote authority
+  if (!s)
+    return false;
+  if (s->complete_override)
+    return true;  // mirrored from a remote authority
   const QuestDef* def = Definition(quest);
-  if (!def) return false;
+  if (!def)
+    return false;
   // Scan the definition's completing stages rather than FindStage(current),
   // since a stage index can carry several log entries and only one need flag
   // completion.
   for (const StageDef& sd : def->stages) {
-    if (!sd.complete_quest) continue;
+    if (!sd.complete_quest)
+      continue;
     auto* it = s->stage_done.find(sd.index);
-    if (it != nullptr && *it) return true;
+    if (it != nullptr && *it)
+      return true;
   }
   return false;
 }
@@ -134,9 +145,11 @@ void QuestSystem::FillStatus(QuestHandle quest, const QuestState& state, QuestSt
   if (def) {
     out->editor_id = def->editor_id;
     out->name = !def->name.empty() ? def->name : def->editor_id;
-    if (const StageDef* sd = def->FindStage(state.stage)) out->log_entry = sd->log_entry;
+    if (const StageDef* sd = def->FindStage(state.stage))
+      out->log_entry = sd->log_entry;
   }
-  if (out->name.empty()) out->name = base::ToString(quest);
+  if (out->name.empty())
+    out->name = base::ToString(quest);
 
   // Objectives in definition order, overlaid with live displayed/completed
   // bits. Any objective the script touched without a definition entry follows.
@@ -146,8 +159,10 @@ void QuestSystem::FillStatus(QuestHandle quest, const QuestState& state, QuestSt
       ObjectiveStatus os;
       os.index = od.index;
       os.text = od.text;
-      if (auto* it = state.objective_displayed.find(od.index); it != nullptr) os.displayed = *it;
-      if (auto* it = state.objective_completed.find(od.index); it != nullptr) os.completed = *it;
+      if (auto* it = state.objective_displayed.find(od.index); it != nullptr)
+        os.displayed = *it;
+      if (auto* it = state.objective_completed.find(od.index); it != nullptr)
+        os.completed = *it;
       out->objectives.push_back(base::move(os));
       seen.insert(od.index);
     }
@@ -155,14 +170,19 @@ void QuestSystem::FillStatus(QuestHandle quest, const QuestState& state, QuestSt
   // Objectives the script touched without a definition entry, from either map
   // (an objective can be completed without ever having been displayed).
   base::Set<i32> extras;
-  for (const auto& [index, _] : state.objective_displayed) extras.insert(index);
-  for (const auto& [index, _] : state.objective_completed) extras.insert(index);
+  for (const auto& [index, _] : state.objective_displayed)
+    extras.insert(index);
+  for (const auto& [index, _] : state.objective_completed)
+    extras.insert(index);
   for (i32 index : extras) {
-    if (seen.count(index)) continue;
+    if (seen.count(index))
+      continue;
     ObjectiveStatus os;
     os.index = index;
-    if (auto* it = state.objective_displayed.find(index); it != nullptr) os.displayed = *it;
-    if (auto* it = state.objective_completed.find(index); it != nullptr) os.completed = *it;
+    if (auto* it = state.objective_displayed.find(index); it != nullptr)
+      os.displayed = *it;
+    if (auto* it = state.objective_completed.find(index); it != nullptr)
+      os.completed = *it;
     out->objectives.push_back(base::move(os));
     seen.insert(index);
   }
@@ -190,8 +210,10 @@ base::Vector<QuestStatus> QuestSystem::AllStatuses() const {
 base::Vector<QuestStatus> QuestSystem::RunningStatuses(bool include_inactive) const {
   base::Vector<QuestStatus> out;
   for (const auto& [handle, state] : states_) {
-    if (!state.running) continue;
-    if (!state.active && !include_inactive) continue;
+    if (!state.running)
+      continue;
+    if (!state.active && !include_inactive)
+      continue;
     QuestStatus status;
     FillStatus(handle, state, &status);
     out.push_back(base::move(status));

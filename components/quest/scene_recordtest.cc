@@ -17,8 +17,8 @@
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/types.h"
 #include "components/quest/scene_record.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -32,7 +32,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Backing store for the synthetic record's subrecord spans.
@@ -40,7 +41,8 @@ struct Buffers {
   base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
-    if (n) std::memcpy(b.data(), p, n);
+    if (n)
+      std::memcpy(b.data(), p, n);
     return ByteSpan(b.data(), b.size());
   }
   ByteSpan Empty() { return Bytes(nullptr, 0); }
@@ -65,7 +67,8 @@ void AppendU16(base::Vector<u8>& v, u16 x) {
   v.push_back(static_cast<u8>(x >> 8));
 }
 void AppendU32(base::Vector<u8>& v, u32 x) {
-  for (int i = 0; i < 4; ++i) v.push_back(static_cast<u8>(x >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    v.push_back(static_cast<u8>(x >> (8 * i)));
 }
 void AppendWStr(base::Vector<u8>& v, const char* s) {
   u16 len = static_cast<u16>(std::strlen(s));
@@ -274,11 +277,13 @@ int DumpReal(const base::String& data_dir) {
   records.EachOfType(
       FourCc('S', 'C', 'E', 'N'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
         Record rec;
-        if (!records.Parse(id, &rec)) return;
+        if (!records.Parse(id, &rec))
+          return;
         SceneDef def = ParseSceneRecord(id.packed(), rec, &records);
         // Resolve MQ101's handle for the load order to compare.
         GlobalFormId mq = records.ResolveFrom(RawFormId{kMq101}, id.plugin);
-        if (def.quest != mq.packed() && def.quest != kMq101) return;
+        if (def.quest != mq.packed() && def.quest != kMq101)
+          return;
         ++scenes;
         std::printf("SCEN %04x:%06x  %s\n", id.plugin, id.local_id,
                     rec.GetString(FourCc('E', 'D', 'I', 'D')).c_str());
@@ -297,7 +302,8 @@ int DumpReal(const base::String& data_dir) {
         // Scene Papyrus fragments: the scene begin/end and per-phase
         // functions that call SetStage to drive the journal.
         for (const Subrecord& s : rec.subrecords) {
-          if (s.type != FourCc('V', 'M', 'A', 'D')) continue;
+          if (s.type != FourCc('V', 'M', 'A', 'D'))
+            continue;
           ScriptAttachment att;
           SceneFragments frags;
           if (!ParseSceneFragments(s.data, &att, &frags)) {
@@ -325,7 +331,8 @@ int main(int argc, char** argv) {
   TestFragments();
 
   int rc = 0;
-  if (argc >= 2) rc = DumpReal(argv[1]);
+  if (argc >= 2)
+    rc = DumpReal(argv[1]);
 
   if (g_failures == 0 && rc == 0) {
     std::puts("scene: all checks passed");

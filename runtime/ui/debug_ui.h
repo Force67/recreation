@@ -12,12 +12,12 @@
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
 
+#include "components/weather/weather.h"
 #include "core/types.h"
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "render/core/renderer.h"
 #include "runtime/demo/trailer.h"
-#include "components/weather/weather.h"
 
 // Dear ImGui's font handle, forward-declared so this header stays free of imgui
 // (it compiles to a stub when imgui is absent).
@@ -118,8 +118,11 @@ class DebugUi {
   void BeginFrame();
   // Builds the panels and fills view->ui_draw. Always pairs with a
   // BeginFrame, even while hidden.
-  void Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
-             render::FrameView* view, QuestPanel* quests = nullptr,
+  void Build(render::Renderer& renderer,
+             FlyCamera& camera,
+             f32 frame_delta,
+             render::FrameView* view,
+             QuestPanel* quests = nullptr,
              NativeTracePanel* trace = nullptr);
 
   // The day/night clock, so the Lighting panel can scrub the time of day and the
@@ -129,7 +132,8 @@ class DebugUi {
   // `*state` instead of the climate, so the Weather panel can drive the sky
   // live. `strike_now` (optional) asks the director to fire a lightning strike
   // near the camera, for testing the bolt/flash/thunder without waiting.
-  void set_weather(bool* enable, weather::WeatherState* state,
+  void set_weather(bool* enable,
+                   weather::WeatherState* state,
                    base::Function<void()> strike_now = {}) {
     weather_enable_ = enable;
     weather_state_ = state;
@@ -159,13 +163,16 @@ class DebugUi {
   // area of the pipeline; Build() wraps them in tab items so the long flat list
   // of options is split into navigable submenus.
   void DrawDisplayTab(render::Renderer& renderer, render::RenderSettings& settings);
-  void DrawRayTracingTab(render::Renderer& renderer, render::RenderSettings& settings,
+  void DrawRayTracingTab(render::Renderer& renderer,
+                         render::RenderSettings& settings,
                          const render::DeviceCaps* caps);
   void DrawLightingTab(render::RenderSettings& settings, const render::DeviceCaps* caps);
   void DrawGiTab(render::RenderSettings& settings, const render::DeviceCaps* caps);
   void DrawPostTab(render::RenderSettings& settings);
-  void DrawDiagnosticsTab(render::Renderer& renderer, FlyCamera& camera,
-                          render::RenderSettings& settings, const render::DeviceCaps* caps);
+  void DrawDiagnosticsTab(render::Renderer& renderer,
+                          FlyCamera& camera,
+                          render::RenderSettings& settings,
+                          const render::DeviceCaps* caps);
 
   // Refreshes preset_files_ from the .ini files in the presets directory.
   void ScanPresetFiles();
@@ -192,7 +199,7 @@ class DebugUi {
   WorldClock* clock_ = nullptr;     // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel
   weather::WeatherState* weather_state_ = nullptr;
-  base::Function<void()> weather_strike_;     // director test hook: force a strike
+  base::Function<void()> weather_strike_;    // director test hook: force a strike
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;         // 0 = custom/hand-tuned, else a QualityPreset combo row

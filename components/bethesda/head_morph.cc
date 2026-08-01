@@ -52,11 +52,13 @@ const Nam9Slider& Nam9SliderInfo(u32 index) {
   return index < kNam9Count ? kSliders[index] : kNone;
 }
 
-void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
+void CollectFaceMorphs(const f32 nam9[kNam9Count],
+                       const i32 nama[4],
                        base::Vector<MorphWeight>* out) {
   for (u32 i = 0; i < kNam9Count; ++i) {
     f32 v = nam9[i];
-    if (!std::isfinite(v) || std::fabs(v) < 1e-4f) continue;
+    if (!std::isfinite(v) || std::fabs(v) < 1e-4f)
+      continue;
     const Nam9Slider& s = kSliders[i];
     if (v >= 0) {
       out->push_back({s.positive, v});
@@ -68,15 +70,19 @@ void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
   // head part, not a morph.
   const char* kTypePrefix[4] = {"NoseType", nullptr, "EyesType", "LipType"};
   for (int slot = 0; slot < 4; ++slot) {
-    if (!kTypePrefix[slot]) continue;
+    if (!kTypePrefix[slot])
+      continue;
     i32 idx = nama[slot];
-    if (idx < 1) continue;  // -1 = none, 0 = the base type (no morph)
+    if (idx < 1)
+      continue;  // -1 = none, 0 = the base type (no morph)
     out->push_back({base::String(kTypePrefix[slot]) + base::ToString(idx), 1.0f});
   }
 }
 
-bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
-                     const base::String& race_morph, const TriMorphSet* chargen_tri,
+bool ApplyHeadMorphs(asset::MeshLod& lod,
+                     const TriMorphSet* race_tri,
+                     const base::String& race_morph,
+                     const TriMorphSet* chargen_tri,
                      const base::Vector<MorphWeight>& chargen) {
   const u32 verts = static_cast<u32>(lod.vertices.size());
   bool applied = false;

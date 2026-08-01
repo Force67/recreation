@@ -40,16 +40,21 @@ std::vector<u8> EncodeQuestRecord(const DomainQuestStatus& dq) {
   AppendU64(rec, q.handle);
   AppendU32(rec, static_cast<u32>(q.stage));
   u8 flags = 0;
-  if (q.running) flags |= kFlagRunning;
-  if (q.active) flags |= kFlagActive;
-  if (q.complete) flags |= kFlagComplete;
+  if (q.running)
+    flags |= kFlagRunning;
+  if (q.active)
+    flags |= kFlagActive;
+  if (q.complete)
+    flags |= kFlagComplete;
   rec.push_back(flags);
   AppendU32(rec, static_cast<u32>(q.objectives.size()));
   for (const quest::ObjectiveStatus& obj : q.objectives) {
     AppendU32(rec, static_cast<u32>(obj.index));
     u8 obj_flags = 0;
-    if (obj.displayed) obj_flags |= kObjDisplayed;
-    if (obj.completed) obj_flags |= kObjCompleted;
+    if (obj.displayed)
+      obj_flags |= kObjDisplayed;
+    if (obj.completed)
+      obj_flags |= kObjCompleted;
     rec.push_back(obj_flags);
   }
   return rec;
@@ -60,46 +65,55 @@ std::vector<u8> EncodeQuestRecord(const DomainQuestStatus& dq) {
 bool DecodeQuestRecord(const u8* data, size_t size, DomainQuestStatus* out) {
   size_t pos = 0;
   auto take = [&](size_t n) -> const u8* {
-    if (n > size - pos) return nullptr;
+    if (n > size - pos)
+      return nullptr;
     const u8* p = data + pos;
     pos += n;
     return p;
   };
 
   const u8* p = take(1);
-  if (!p) return false;
+  if (!p)
+    return false;
   out->domain = *p;
 
   p = take(8);
-  if (!p) return false;
+  if (!p)
+    return false;
   out->status.handle = nanobuf::LoadLe<u64>(p);
 
   p = take(4);
-  if (!p) return false;
+  if (!p)
+    return false;
   out->status.stage = static_cast<i32>(nanobuf::LoadLe<u32>(p));
 
   p = take(1);
-  if (!p) return false;
+  if (!p)
+    return false;
   const u8 flags = *p;
   out->status.running = (flags & kFlagRunning) != 0;
   out->status.active = (flags & kFlagActive) != 0;
   out->status.complete = (flags & kFlagComplete) != 0;
 
   p = take(4);
-  if (!p) return false;
+  if (!p)
+    return false;
   const u32 objective_count = nanobuf::LoadLe<u32>(p);
   // Each objective is exactly 5 bytes; reject a count the buffer cannot hold
   // before reserving, so a corrupt length never triggers a huge allocation.
-  if (objective_count > (size - pos) / 5) return false;
+  if (objective_count > (size - pos) / 5)
+    return false;
   out->status.objectives.clear();
   out->status.objectives.reserve(objective_count);
   for (u32 i = 0; i < objective_count; ++i) {
     quest::ObjectiveStatus obj;
     p = take(4);
-    if (!p) return false;
+    if (!p)
+      return false;
     obj.index = static_cast<i32>(nanobuf::LoadLe<u32>(p));
     p = take(1);
-    if (!p) return false;
+    if (!p)
+      return false;
     obj.displayed = (*p & kObjDisplayed) != 0;
     obj.completed = (*p & kObjCompleted) != 0;
     out->status.objectives.push_back(std::move(obj));
@@ -115,8 +129,7 @@ std::vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests) 
   nanobuf::Writer writer;
   writer.Begin(/*fixed_len=*/6);  // 2-byte header + one 4-byte offset slot
   writer.PutOffsetList<DomainQuestStatus>(
-      /*slot=*/2, quests,
-      [](nanobuf::Writer& w, const DomainQuestStatus& q) {
+      /*slot=*/2, quests, [](nanobuf::Writer& w, const DomainQuestStatus& q) {
         std::vector<u8> rec = EncodeQuestRecord(q);
         return w.HeapBytes(rec);
       });
@@ -124,27 +137,29 @@ std::vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests) 
 }
 
 std::optional<std::vector<DomainQuestStatus>> DecodeQuestUpdate(ByteSpan data) {
-  std::optional<nanobuf::View> view =
-      nanobuf::View::Parse(data.data(), data.size());
-  if (!view) return std::nullopt;
+  std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
+  if (!view)
+    return std::nullopt;
 
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
-  if (!records) return std::nullopt;  // present but corrupt list
+  if (!records)
+    return std::nullopt;  // present but corrupt list
 
   std::vector<DomainQuestStatus> out;
   out.reserve(records->size());
   for (size_t i = 0; i < records->size(); ++i) {
     std::optional<nanobuf::BytesView> bytes = records->Get(i);
-    if (!bytes) return std::nullopt;
+    if (!bytes)
+      return std::nullopt;
     DomainQuestStatus status;
-    if (!DecodeQuestRecord(bytes->data, bytes->size, &status)) return std::nullopt;
+    if (!DecodeQuestRecord(bytes->data, bytes->size, &status))
+      return std::nullopt;
     out.push_back(std::move(status));
   }
   return out;
 }
 
-std::vector<u8> QuestReplicator::Build(
-    const std::vector<DomainQuestStatus>& snapshot) {
+std::vector<u8> QuestReplicator::Build(const std::vector<DomainQuestStatus>& snapshot) {
   const bool full = force_full_;
   force_full_ = false;
 
@@ -152,7 +167,8 @@ std::vector<u8> QuestReplicator::Build(
   for (const DomainQuestStatus& q : snapshot) {
     const u64 key = RevisionKey(q.domain, q.status.handle);
     u32* sent = sent_revision_.find(key);
-    if (!full && sent && *sent == q.status.revision) continue;
+    if (!full && sent && *sent == q.status.revision)
+      continue;
     if (sent) {
       *sent = q.status.revision;
     } else {
@@ -162,16 +178,18 @@ std::vector<u8> QuestReplicator::Build(
   }
 
   // Nothing to say. Callers treat the empty vector as "skip this tick".
-  if (changed.empty()) return {};
+  if (changed.empty())
+    return {};
   return EncodeQuestUpdate(changed);
 }
 
-bool ApplyQuestUpdate(
-    ByteSpan data,
-    const std::function<void(u8 domain, const quest::QuestStatus&)>& sink) {
+bool ApplyQuestUpdate(ByteSpan data,
+                      const std::function<void(u8 domain, const quest::QuestStatus&)>& sink) {
   std::optional<std::vector<DomainQuestStatus>> quests = DecodeQuestUpdate(data);
-  if (!quests) return false;
-  for (const DomainQuestStatus& q : *quests) sink(q.domain, q.status);
+  if (!quests)
+    return false;
+  for (const DomainQuestStatus& q : *quests)
+    sink(q.domain, q.status);
   return true;
 }
 

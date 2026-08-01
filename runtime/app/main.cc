@@ -3,8 +3,8 @@
 #include <cstring>
 #include <string>
 
-#include "runtime/app/engine.h"
 #include "core/log.h"
+#include "runtime/app/engine.h"
 
 namespace {
 
@@ -39,21 +39,32 @@ void PrintUsage() {
 }
 
 rx::bethesda::Game ParseGame(const base::String& id) {
-  if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
-  if (id == "fo4") return rx::bethesda::Game::kFallout4;
-  if (id == "fo76") return rx::bethesda::Game::kFallout76;
-  if (id == "starfield") return rx::bethesda::Game::kStarfield;
-  if (id == "oblivion") return rx::bethesda::Game::kOblivion;
-  if (id == "morrowind") return rx::bethesda::Game::kMorrowind;
-  if (id == "fo3") return rx::bethesda::Game::kFallout3;
-  if (id == "fnv") return rx::bethesda::Game::kFalloutNv;
+  if (id == "skyrimse")
+    return rx::bethesda::Game::kSkyrimSe;
+  if (id == "fo4")
+    return rx::bethesda::Game::kFallout4;
+  if (id == "fo76")
+    return rx::bethesda::Game::kFallout76;
+  if (id == "starfield")
+    return rx::bethesda::Game::kStarfield;
+  if (id == "oblivion")
+    return rx::bethesda::Game::kOblivion;
+  if (id == "morrowind")
+    return rx::bethesda::Game::kMorrowind;
+  if (id == "fo3")
+    return rx::bethesda::Game::kFallout3;
+  if (id == "fnv")
+    return rx::bethesda::Game::kFalloutNv;
   return rx::bethesda::Game::kUnknown;
 }
 
 rx::render::UpscalerKind ParseUpscaler(const base::String& id) {
-  if (id == "fsr3") return rx::render::UpscalerKind::kFsr3;
-  if (id == "dlss") return rx::render::UpscalerKind::kDlss;
-  if (id == "xess") return rx::render::UpscalerKind::kXess;
+  if (id == "fsr3")
+    return rx::render::UpscalerKind::kFsr3;
+  if (id == "dlss")
+    return rx::render::UpscalerKind::kDlss;
+  if (id == "xess")
+    return rx::render::UpscalerKind::kXess;
   return rx::render::UpscalerKind::kNone;
 }
 
@@ -66,11 +77,16 @@ int main(int argc, char** argv) {
     base::String arg = argv[i];
     auto next = [&]() -> base::String { return i + 1 < argc ? argv[++i] : ""; };
 
-    if (arg == "--data-dir") config.data_dir = next();
-    else if (arg == "--gltf") config.gltf_path = next();
-    else if (arg == "--demo") config.demo_scene = next();
-    else if (arg == "--plugins") config.plugins_txt = next();
-    else if (arg == "--game") config.game = ParseGame(next());
+    if (arg == "--data-dir")
+      config.data_dir = next();
+    else if (arg == "--gltf")
+      config.gltf_path = next();
+    else if (arg == "--demo")
+      config.demo_scene = next();
+    else if (arg == "--plugins")
+      config.plugins_txt = next();
+    else if (arg == "--game")
+      config.game = ParseGame(next());
     else if (arg == "--add-game") {
       // <game>:<data-dir>[:<plugins.txt>]; the data dir may itself be absolute
       // (a leading drive-less unix path), so split on the first and last colons.

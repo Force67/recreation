@@ -19,8 +19,12 @@ using papyrus::Value;
 using papyrus::ValueType;
 using papyrus::VirtualMachine;
 
-BridgeContext& Ctx(void* ctx) { return *static_cast<BridgeContext*>(ctx); }
-PapyrusGuest& Guest(void* ctx) { return *Ctx(ctx).guest; }
+BridgeContext& Ctx(void* ctx) {
+  return *static_cast<BridgeContext*>(ctx);
+}
+PapyrusGuest& Guest(void* ctx) {
+  return *Ctx(ctx).guest;
+}
 
 // Marshals a VM value out to managed code. kString points at a thread-local
 // scratch that stays valid until the next bridge call on this thread, which is
@@ -86,7 +90,8 @@ Value FromApi(const ApiValue& v) {
 base::Vector<Value> FromApiArgs(const ApiValue* args, std::int32_t argc) {
   base::Vector<Value> out;
   out.reserve(argc > 0 ? static_cast<size_t>(argc) : 0);
-  for (std::int32_t i = 0; i < argc; ++i) out.push_back(FromApi(args[i]));
+  for (std::int32_t i = 0; i < argc; ++i)
+    out.push_back(FromApi(args[i]));
   return out;
 }
 
@@ -98,7 +103,8 @@ std::int32_t IsScriptLoaded(void* ctx, const char* type) {
 std::int32_t LoadScript(void* ctx, const char* type) {
   base::String name = type ? type : "";
   auto& loader = Ctx(ctx).loader;
-  if (loader) return loader(name) ? 1 : 0;
+  if (loader)
+    return loader(name) ? 1 : 0;
   return IsScriptLoaded(ctx, type);
 }
 
@@ -118,32 +124,43 @@ std::int32_t TypeOf(void* ctx, std::uint64_t handle, char* buf, std::int32_t buf
   return static_cast<std::int32_t>(type.size());
 }
 
-void CallGlobal(void* ctx, const char* type, const char* func, const ApiValue* args,
-                std::int32_t argc, ApiValue* result) {
+void CallGlobal(void* ctx,
+                const char* type,
+                const char* func,
+                const ApiValue* args,
+                std::int32_t argc,
+                ApiValue* result) {
   base::String t = type ? type : "";
   base::String f = func ? func : "";
   base::Vector<Value> a = FromApiArgs(args, argc);
   Value r = Guest(ctx).Dispatch([t, f, a = base::move(a)](VirtualMachine& vm) mutable {
     return vm.CallGlobal(t, f, base::move(a));
   });
-  if (result) *result = ToApi(r);
+  if (result)
+    *result = ToApi(r);
 }
 
-void CallMethod(void* ctx, std::uint64_t self, const char* func, const ApiValue* args,
-                std::int32_t argc, ApiValue* result) {
+void CallMethod(void* ctx,
+                std::uint64_t self,
+                const char* func,
+                const ApiValue* args,
+                std::int32_t argc,
+                ApiValue* result) {
   base::String f = func ? func : "";
   base::Vector<Value> a = FromApiArgs(args, argc);
   Value r = Guest(ctx).Dispatch([self, f, a = base::move(a)](VirtualMachine& vm) mutable {
     return vm.Call(ObjectRef{self}, f, base::move(a));
   });
-  if (result) *result = ToApi(r);
+  if (result)
+    *result = ToApi(r);
 }
 
 void GetProperty(void* ctx, std::uint64_t self, const char* name, ApiValue* result) {
   base::String p = name ? name : "";
   Value r = Guest(ctx).Dispatch(
       [self, p](VirtualMachine& vm) { return vm.GetProperty(ObjectRef{self}, p); });
-  if (result) *result = ToApi(r);
+  if (result)
+    *result = ToApi(r);
 }
 
 void SetProperty(void* ctx, std::uint64_t self, const char* name, ApiValue value) {
@@ -155,7 +172,9 @@ void SetProperty(void* ctx, std::uint64_t self, const char* name, ApiValue value
   });
 }
 
-void Tick(void* ctx, float dt) { Guest(ctx).Tick(dt); }
+void Tick(void* ctx, float dt) {
+  Guest(ctx).Tick(dt);
+}
 
 }  // namespace
 

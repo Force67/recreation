@@ -17,7 +17,8 @@
 namespace rx::bethesda {
 
 // `motion` / `events` are optional (from the animationdata sidecars).
-base::Vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
+base::Vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation,
+                                           const AnimMotion* motion,
                                            const base::Vector<ClipEvent>* events);
 
 // Skeleton-space transcode: instead of one track per animation channel (havok

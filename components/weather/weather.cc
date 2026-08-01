@@ -13,20 +13,26 @@ u64 Mix(u64 x) {
   x ^= x >> 33;
   return x;
 }
-f32 Clamp01(f32 x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+f32 Clamp01(f32 x) {
+  return x < 0 ? 0 : (x > 1 ? 1 : x);
+}
 f32 Smooth(f32 t) {
   t = Clamp01(t);
   return t * t * (3.0f - 2.0f * t);
 }
-f32 LerpF(f32 a, f32 b, f32 t) { return a + (b - a) * t; }
+f32 LerpF(f32 a, f32 b, f32 t) {
+  return a + (b - a) * t;
+}
 
 // Yaw interpolation goes the short way around the circle, so a transition from
 // 350 degrees to 10 degrees swings 20 degrees through north, not 340 back.
 f32 LerpYaw(f32 a, f32 b, f32 t) {
   constexpr f32 kTau = 6.28318530718f;
   f32 delta = std::fmod(b - a, kTau);
-  if (delta > kTau * 0.5f) delta -= kTau;
-  if (delta < -kTau * 0.5f) delta += kTau;
+  if (delta > kTau * 0.5f)
+    delta -= kTau;
+  if (delta < -kTau * 0.5f)
+    delta += kTau;
   f32 yaw = std::fmod(a + delta * t, kTau);
   return yaw < 0 ? yaw + kTau : yaw;
 }
@@ -136,17 +142,20 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t) {
 void WeatherSystem::SetClimate(base::Vector<base::Pair<WeatherDef, u32>> weighted) {
   climate_ = base::move(weighted);
   total_chance_ = 0;
-  for (auto& [def, chance] : climate_) total_chance_ += (chance == 0 ? 1 : chance);
+  for (auto& [def, chance] : climate_)
+    total_chance_ += (chance == 0 ? 1 : chance);
 }
 
 const WeatherDef& WeatherSystem::ForSlot(i64 slot) const {
-  if (climate_.empty()) return kDefault;
+  if (climate_.empty())
+    return kDefault;
   u64 h = Mix(seed_ ^ (static_cast<u64>(slot) * 0x9e3779b97f4a7c15ULL));
   u32 pick = static_cast<u32>(h % (total_chance_ == 0 ? 1 : total_chance_));
   u32 acc = 0;
   for (auto& [def, chance] : climate_) {
     acc += (chance == 0 ? 1 : chance);
-    if (pick < acc) return def;
+    if (pick < acc)
+      return def;
   }
   return climate_.back().first;
 }
@@ -159,12 +168,14 @@ i64 SlotOf(f64 game_days, f32 hold_hours) {
 }  // namespace
 
 f32 WeatherSystem::Transition(f64 game_days) const {
-  if (climate_.empty()) return 0;
+  if (climate_.empty())
+    return 0;
   double slot_days = hold_hours_ / 24.0;
   i64 slot = SlotOf(game_days, hold_hours_);
   double phase = game_days / slot_days - static_cast<double>(slot);
   double tr = transition_hours_ / hold_hours_;
-  if (tr <= 0 || phase <= 1.0 - tr) return 0;
+  if (tr <= 0 || phase <= 1.0 - tr)
+    return 0;
   return Smooth(static_cast<f32>((phase - (1.0 - tr)) / tr));
 }
 
@@ -176,9 +187,11 @@ const WeatherDef& WeatherSystem::Target(f64 game_days) const {
 }
 
 WeatherState WeatherSystem::At(f64 game_days) const {
-  if (climate_.empty()) return {};
+  if (climate_.empty())
+    return {};
   f32 t = Transition(game_days);
-  if (t <= 0) return ToState(Current(game_days));
+  if (t <= 0)
+    return ToState(Current(game_days));
   return Lerp(ToState(Current(game_days)), ToState(Target(game_days)), t);
 }
 
@@ -187,25 +200,32 @@ namespace {
 bool PointInPoly(const base::Vector<base::Pair<f32, f32>>& poly, f32 x, f32 y) {
   bool inside = false;
   const mem_size n = poly.size();
-  if (n < 3) return false;
+  if (n < 3)
+    return false;
   for (mem_size i = 0, j = n - 1; i < n; j = i++) {
     f32 xi = poly[i].first, yi = poly[i].second;
     f32 xj = poly[j].first, yj = poly[j].second;
-    if (((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    if (((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi))
+      inside = !inside;
   }
   return inside;
 }
 }  // namespace
 
-const base::Vector<base::Pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x, f32 y,
+const base::Vector<base::Pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x,
+                                                                          f32 y,
                                                                           u64* out_region) const {
   const Region* best = nullptr;
   for (const Region& r : regions_) {
-    if (r.climate.empty()) continue;
-    if (!PointInPoly(r.polygon, x, y)) continue;
-    if (!best || r.priority > best->priority) best = &r;
+    if (r.climate.empty())
+      continue;
+    if (!PointInPoly(r.polygon, x, y))
+      continue;
+    if (!best || r.priority > best->priority)
+      best = &r;
   }
-  if (out_region) *out_region = best ? best->form : 0;
+  if (out_region)
+    *out_region = best ? best->form : 0;
   return best ? &best->climate : nullptr;
 }
 

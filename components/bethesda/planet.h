@@ -29,8 +29,10 @@ struct BiomeGround {
 // ground data above, following LNAM -> LTEX -> .mat and, when `mat_db` is
 // non-empty, .mat -> texture paths. `mat_db` may be empty (base_color/normal stay
 // blank and the caller falls back to the tint).
-BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMaterialDb& mat_db,
-                               u32 raw_biome_id, u16 biom_plugin);
+BiomeGround ResolveBiomeGround(const RecordStore& records,
+                               const StarfieldMaterialDb& mat_db,
+                               u32 raw_biome_id,
+                               u16 biom_plugin);
 
 // A resolved procedural-planet target: its biome map plus per-biome ground data,
 // ready to drive tile generation. Loaded from planetdata/biomemaps/<name>.biom.
@@ -47,8 +49,10 @@ struct PlanetSurface {
 // "zeta ophiuchi ii" or "zeta ophiuchi vi-e". Tries the plain path first, then a
 // few known DLC subdirectories. Returns valid=false when the file is missing or
 // malformed.
-PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs, const RecordStore& records,
-                                const StarfieldMaterialDb& mat_db, const base::String& biom_name,
+PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs,
+                                const RecordStore& records,
+                                const StarfieldMaterialDb& mat_db,
+                                const base::String& biom_name,
                                 u16 biom_plugin);
 
 }  // namespace rx::bethesda

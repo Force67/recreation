@@ -49,7 +49,9 @@ class StarfieldMaterialDb {
 
   // Legacy 3-slot lookup kept for callers that only need color/normal/emissive.
   // Outputs are left untouched when a map is absent.
-  bool Lookup(base::StringRef mat_path, base::String* base_color, base::String* normal,
+  bool Lookup(base::StringRef mat_path,
+              base::String* base_color,
+              base::String* normal,
               base::String* emissive) const;
 
   bool empty() const { return by_resource_.empty() && by_stem_.empty(); }

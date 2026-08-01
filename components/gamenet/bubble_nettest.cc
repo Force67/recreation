@@ -11,8 +11,8 @@
 #include <cstdio>
 #include <thread>
 
-#include "ecs/world.h"
 #include "components/gamenet/session.h"
+#include "ecs/world.h"
 #include "net/replication.h"
 #include "scene/components.h"
 
@@ -25,14 +25,18 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Pumps all three sessions one fixed step and yields briefly so the threaded
 // transport makes progress.
-void Pump(net::GameServerSession& server, ecs::World& sworld,
-          net::GameClientSession& c1, ecs::World& w1,
-          net::GameClientSession& c2, ecs::World& w2) {
+void Pump(net::GameServerSession& server,
+          ecs::World& sworld,
+          net::GameClientSession& c1,
+          ecs::World& w1,
+          net::GameClientSession& c2,
+          ecs::World& w2) {
   const float dt = 1.0f / 60.0f;
   server.Tick(sworld, dt);
   c1.Tick(w1, dt);
@@ -94,13 +98,12 @@ int main() {
   SpawnProp(sworld, 5.0f, 1.5f, &near_id);
   ecs::Entity far_prop = SpawnProp(sworld, 500.0f, 0.0f, &far_id);
 
-  for (int i = 0; i < 90; ++i) Pump(server, sworld, c1, w1, c2, w2);
+  for (int i = 0; i < 90; ++i)
+    Pump(server, sworld, c1, w1, c2, w2);
 
   // 2 player avatars + the near prop; the far prop must not replicate.
-  Check("client 1 sees only its bubble (2 players + near prop)",
-        c1.replicated_entity_count() == 3);
-  Check("client 2 sees only its bubble (2 players + near prop)",
-        c2.replicated_entity_count() == 3);
+  Check("client 1 sees only its bubble (2 players + near prop)", c1.replicated_entity_count() == 3);
+  Check("client 2 sees only its bubble (2 players + near prop)", c2.replicated_entity_count() == 3);
   Check("near prop reached client 1", c1.engine().replicated_entity_count() == 3);
 
   // Every client mirrors the whole session's bubbles for HUDs/visualizers.
@@ -111,20 +114,19 @@ int main() {
   // owner is stable while it holds the prop.
   const rx::u32 owner = server.engine().interest().OwnerOf(near_id);
   Check("overlapping bubbles agree on one owner", owner != net::kNoPeer);
-  for (int i = 0; i < 30; ++i) Pump(server, sworld, c1, w1, c2, w2);
-  Check("ownership is sticky across ticks",
-        server.engine().interest().OwnerOf(near_id) == owner);
+  for (int i = 0; i < 30; ++i)
+    Pump(server, sworld, c1, w1, c2, w2);
+  Check("ownership is sticky across ticks", server.engine().interest().OwnerOf(near_id) == owner);
 
   // Walk the far prop into range: it must spawn on the clients.
   if (scene::Transform* t = sworld.Get<scene::Transform>(far_prop)) {
     t->position[0] = 6.0f;
     t->position[2] = 1.5f;
   }
-  for (int i = 0; i < 90; ++i) Pump(server, sworld, c1, w1, c2, w2);
-  Check("prop entering the bubble spawns on client 1",
-        c1.replicated_entity_count() == 4);
-  Check("prop entering the bubble spawns on client 2",
-        c2.replicated_entity_count() == 4);
+  for (int i = 0; i < 90; ++i)
+    Pump(server, sworld, c1, w1, c2, w2);
+  Check("prop entering the bubble spawns on client 1", c1.replicated_entity_count() == 4);
+  Check("prop entering the bubble spawns on client 2", c2.replicated_entity_count() == 4);
 
   // Walk it back out: it must despawn on the clients even though it is alive
   // on the server (that is the bandwidth cut).
@@ -132,11 +134,10 @@ int main() {
     t->position[0] = 500.0f;
     t->position[2] = 0.0f;
   }
-  for (int i = 0; i < 90; ++i) Pump(server, sworld, c1, w1, c2, w2);
-  Check("prop leaving the bubble despawns on client 1",
-        c1.replicated_entity_count() == 3);
-  Check("prop leaving the bubble despawns on client 2",
-        c2.replicated_entity_count() == 3);
+  for (int i = 0; i < 90; ++i)
+    Pump(server, sworld, c1, w1, c2, w2);
+  Check("prop leaving the bubble despawns on client 1", c1.replicated_entity_count() == 3);
+  Check("prop leaving the bubble despawns on client 2", c2.replicated_entity_count() == 3);
   Check("server still owns the prop entity", sworld.IsAlive(far_prop));
 
   // The whole point: fewer records shipped than full visibility would cost.

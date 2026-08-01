@@ -30,11 +30,14 @@ base::String NormalizeSoundPath(base::StringRef raw) {
   base::String out;
   out.reserve(raw.size() + 6);
   for (char c : raw) {
-    if (c == '\0') break;
-    if (c == '\\') c = '/';
+    if (c == '\0')
+      break;
+    if (c == '\\')
+      c = '/';
     out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
   }
-  if (out.empty()) return out;
+  if (out.empty())
+    return out;
   // Some references carry a leading separator ("\data\sound\..."), so trim any
   // leading slashes before the data/ + sound/ rooting below, or they would slip
   // past both checks and produce "sound//data/sound/...".
@@ -42,15 +45,18 @@ base::String NormalizeSoundPath(base::StringRef raw) {
     return {};
   else if (lead > 0)
     out.erase(0, lead);
-  if (out.rfind("data/", 0) == 0) out.erase(0, 5);
-  if (out.rfind("sound/", 0) != 0) out = "sound/" + out;
+  if (out.rfind("data/", 0) == 0)
+    out.erase(0, 5);
+  if (out.rfind("sound/", 0) != 0)
+    out = "sound/" + out;
   return out;
 }
 
 // The first file path on a SNDR descriptor (its ANAM variations), or empty.
 base::String SndrPath(const bethesda::Record& record) {
   for (const bethesda::Subrecord& sub : record.subrecords) {
-    if (sub.type != kAnam || sub.data.empty()) continue;
+    if (sub.type != kAnam || sub.data.empty())
+      continue;
     return NormalizeSoundPath(
         base::StringRef(reinterpret_cast<const char*>(sub.data.data()), sub.data.size()));
   }
@@ -66,15 +72,18 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
   records.EachOfType(kSndr,
                      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
                        bethesda::Record record;
-                       if (!records.Parse(id, &record)) return;
+                       if (!records.Parse(id, &record))
+                         return;
                        base::String path = SndrPath(record);
-                       if (!path.empty()) paths_[id.packed()] = base::move(path);
+                       if (!path.empty())
+                         paths_[id.packed()] = base::move(path);
                      });
 
   records.EachOfType(
       kSoun, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
         bethesda::Record record;
-        if (!records.Parse(id, &record)) return;
+        if (!records.Parse(id, &record))
+          return;
         // Modern SOUN: a link to a sound descriptor whose path we resolved above.
         if (const bethesda::Subrecord* sdsc = record.Find(kSdsc); sdsc && sdsc->data.size() >= 4) {
           u32 raw;
@@ -88,7 +97,8 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
         }
         // Legacy SOUN: the filename is stored directly.
         const base::String fnam = record.GetString(kFnam);
-        if (!fnam.empty()) paths_[id.packed()] = NormalizeSoundPath(fnam);
+        if (!fnam.empty())
+          paths_[id.packed()] = NormalizeSoundPath(fnam);
       });
 
   RX_INFO("audio: sound catalog built, {} sound forms", paths_.size());

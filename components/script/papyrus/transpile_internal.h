@@ -42,9 +42,12 @@ inline base::String Sanitize(const base::String& name) {
   out.reserve(name.size());
   for (char c : name)
     out.push_back(std::isalnum(static_cast<unsigned char>(c)) || c == '_' ? c : '_');
-  if (out.empty()) out = "_";
-  if (std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(0, 1, '_');
-  if (CsKeywords().count(out)) out.push_back('_');
+  if (out.empty())
+    out = "_";
+  if (std::isdigit(static_cast<unsigned char>(out[0])))
+    out.insert(0, 1, '_');
+  if (CsKeywords().count(out))
+    out.push_back('_');
   return out;
 }
 
@@ -79,7 +82,8 @@ inline base::String FormatFloat(f32 v) {
   char buf[64];
   std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(v));
   base::String s = buf;
-  if (s.find_first_of(".eEnN") == base::String::npos) s += ".0";  // keep it a float literal
+  if (s.find_first_of(".eEnN") == base::String::npos)
+    s += ".0";  // keep it a float literal
   s += "f";
   return s;
 }
@@ -87,14 +91,16 @@ inline base::String FormatFloat(f32 v) {
 inline bool IEquals(const base::String& a, const char* b) {
   size_t i = 0;
   for (; i < a.size() && b[i]; ++i)
-    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+    if (std::tolower(static_cast<unsigned char>(a[i])) !=
+        std::tolower(static_cast<unsigned char>(b[i])))
       return false;
   return i == a.size() && b[i] == '\0';
 }
 
 inline base::String ToLower(const base::String& s) {
   base::String out = s;
-  for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : out)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return out;
 }
 
@@ -164,15 +170,22 @@ inline const base::UnorderedMap<base::String, base::String>& CanonicalTypes() {
 // Maps a Papyrus type name to the closest SDK or C# type. Unknown object types
 // pass through unchanged, since they name other decompiled script classes.
 inline base::String CsType(const base::String& papyrus) {
-  if (papyrus.empty() || IEquals(papyrus, "none")) return "void";
+  if (papyrus.empty() || IEquals(papyrus, "none"))
+    return "void";
   if (papyrus.size() >= 2 && papyrus.compare(papyrus.size() - 2, 2, "[]") == 0)
     return CsType(papyrus.substr(0, papyrus.size() - 2)) + "[]";
-  if (IEquals(papyrus, "int")) return "int";
-  if (IEquals(papyrus, "float")) return "float";
-  if (IEquals(papyrus, "bool")) return "bool";
-  if (IEquals(papyrus, "string")) return "string";
-  if (IEquals(papyrus, "var")) return "object";
-  if (IEquals(papyrus, "self")) return "this";
+  if (IEquals(papyrus, "int"))
+    return "int";
+  if (IEquals(papyrus, "float"))
+    return "float";
+  if (IEquals(papyrus, "bool"))
+    return "bool";
+  if (IEquals(papyrus, "string"))
+    return "string";
+  if (IEquals(papyrus, "var"))
+    return "object";
+  if (IEquals(papyrus, "self"))
+    return "this";
   const auto& canon = CanonicalTypes();
   auto* it = canon.find(ToLower(papyrus));
   return it != nullptr ? *it : Sanitize(papyrus);
@@ -183,7 +196,8 @@ inline base::String CsType(const base::String& papyrus) {
 // returns) instead of Papyrus's loose coercions, which strict C# would reject.
 inline base::String DeclTypeFor(const base::String& papyrus, bool harness) {
   base::String cs = CsType(papyrus);
-  if (!harness) return cs;
+  if (!harness)
+    return cs;
   return cs == "void" ? cs : "dynamic";
 }
 
@@ -272,7 +286,9 @@ inline int JumpRel(const Instruction& in) {
   }
 }
 
-inline bool IsBranch(Op op) { return op == Op::kJmp || op == Op::kJmpT || op == Op::kJmpF; }
+inline bool IsBranch(Op op) {
+  return op == Op::kJmp || op == Op::kJmpT || op == Op::kJmpF;
+}
 
 // Whether control can fall off the end of the function on some reachable path.
 // Papyrus lets a non-Void function run off the end and implicitly return the
@@ -280,7 +296,8 @@ inline bool IsBranch(Op op) { return op == Op::kJmp || op == Op::kJmpT || op == 
 inline bool EndReachable(const Function& fn) {
   const auto& code = fn.code;
   const int n = static_cast<int>(code.size());
-  if (n == 0) return true;
+  if (n == 0)
+    return true;
   base::Vector<char> seen(static_cast<size_t>(n), 0);
   base::Vector<int> stack = {0};
   bool reaches_end = false;
@@ -291,7 +308,8 @@ inline bool EndReachable(const Function& fn) {
       reaches_end = true;
       continue;
     }
-    if (i < 0 || i > n || seen[static_cast<size_t>(i)]) continue;
+    if (i < 0 || i > n || seen[static_cast<size_t>(i)])
+      continue;
     seen[static_cast<size_t>(i)] = 1;
     const Instruction& in = code[i];
     switch (in.op) {
@@ -328,7 +346,10 @@ struct DecompileCtx {
 
 // Emits the statements of fn into out at the given indent. value_alias, when set,
 // names a property setter's value parameter, which becomes C#'s implicit `value`.
-void DecompileFunction(const DecompileCtx& ctx, const Function& fn, base::String& out, int indent,
+void DecompileFunction(const DecompileCtx& ctx,
+                       const Function& fn,
+                       base::String& out,
+                       int indent,
                        const base::String& value_alias = {});
 
 }  // namespace rx::script::papyrus::detail

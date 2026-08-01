@@ -10,10 +10,10 @@
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
 #include "components/bethesda/strings.h"
-#include "core/types.h"
 #include "components/dialogue/dialogue.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "components/script/script_system.h"
+#include "core/types.h"
 
 namespace rx {
 
@@ -39,7 +39,9 @@ class ContentDomain {
   // bindings + guest VM. replica_mode marks a multiplayer client whose scripts
   // must not mutate authoritative state. Returns false if the data is missing
   // or no supported game is present.
-  bool Load(bethesda::Game game, const base::String& data_dir, const base::String& plugins_txt,
+  bool Load(bethesda::Game game,
+            const base::String& data_dir,
+            const base::String& plugins_txt,
             bool replica_mode);
 
   // Instantiates every quest with a Papyrus script so the domain's microvm runs

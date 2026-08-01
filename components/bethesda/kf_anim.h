@@ -24,7 +24,9 @@ namespace rx::bethesda {
 // tracks naming a bone the skeleton lacks are dropped.
 //
 // This is NOT Havok: Skyrim/FO4 clips are .hkx and go through hkx_anim.h.
-bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton& skeleton,
+bool ConvertKfAnimation(ByteSpan data,
+                        asset::AssetId id,
+                        const asset::Skeleton& skeleton,
                         asset::AnimationClip* out);
 
 // Samples per second the B-spline curves are baked at. The shipped clips are

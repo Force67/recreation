@@ -12,8 +12,8 @@
 #include "components/bethesda/record.h"
 #include "components/bethesda/strings.h"
 #include "core/log.h"
-#include "runtime/editor/editor.h"
 #include "runtime/app/engine_context.h"
+#include "runtime/editor/editor.h"
 
 namespace rx {
 namespace {
@@ -41,7 +41,8 @@ const TypeBucket kPlaceableTypes[] = {
 };
 
 // The displayed name: the localized FULL string, falling back to the editor id.
-base::String DisplayName(const bethesda::Record& record, const bethesda::StringTable& strings,
+base::String DisplayName(const bethesda::Record& record,
+                         const bethesda::StringTable& strings,
                          const base::String& editor_id) {
   const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L'));
   if (full) {
@@ -49,10 +50,12 @@ base::String DisplayName(const bethesda::Record& record, const bethesda::StringT
       u32 string_id;
       std::memcpy(&string_id, full->data.data(), 4);
       if (const base::String* s = strings.Find(string_id))
-        if (s->size() > 0) return base::String(s->c_str());
+        if (s->size() > 0)
+          return base::String(s->c_str());
     }
     base::String literal = record.GetString(FourCc('F', 'U', 'L', 'L'));
-    if (!literal.empty()) return literal;
+    if (!literal.empty())
+      return literal;
   }
   return editor_id;
 }
@@ -70,14 +73,17 @@ base::String Lower(base::StringRef s) {
 // (no bare "ref", which is a common legitimate suffix) to avoid dropping real
 // assets.
 bool IsDeveloperJunk(const base::String& editor_id) {
-  if (editor_id.empty()) return false;
+  if (editor_id.empty())
+    return false;
   const base::String lid = Lower(editor_id);
-  if (lid.rfind("1stperson", 0) == 0) return true;
+  if (lid.rfind("1stperson", 0) == 0)
+    return true;
   static const char* const kFragments[] = {
       "marker", "delete", "dummy", "test", "zzz", "xxx", "debug", "editor", "holding",
   };
   for (const char* frag : kFragments)
-    if (lid.find(frag) != base::String::npos) return true;
+    if (lid.find(frag) != base::String::npos)
+      return true;
   return false;
 }
 
@@ -94,14 +100,16 @@ void MapEditor::BuildCatalog() {
   // both appear (the dedupe set is per domain).
   for (int domain = 0; domain < static_cast<int>(domains_.size()); ++domain) {
     const EditorPlaceDomain& dom = domains_[domain];
-    if (!dom.records || !dom.strings) continue;
+    if (!dom.records || !dom.strings)
+      continue;
     const bethesda::RecordStore& records = *dom.records;
     const bethesda::StringTable& strings = *dom.strings;
     const int domain_start = static_cast<int>(catalog_.size());
 
     base::UnorderedSet<base::String> seen;  // collapse rows that read identically
     for (const TypeBucket& tb : kPlaceableTypes) {
-      if (static_cast<int>(catalog_.size()) - domain_start >= kPerDomainCap) break;
+      if (static_cast<int>(catalog_.size()) - domain_start >= kPerDomainCap)
+        break;
       int taken = 0;
       records.EachOfType(
           tb.type, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
@@ -110,18 +118,23 @@ void MapEditor::BuildCatalog() {
               return;
             }
             bethesda::Record record;
-            if (!records.Parse(id, &record)) return;
+            if (!records.Parse(id, &record))
+              return;
             // Only forms with a world model are droppable.
             const bethesda::Subrecord* modl = record.Find(kModl);
-            if (!modl || modl->data.empty()) return;
+            if (!modl || modl->data.empty())
+              return;
             base::String editor_id = record.GetString(kEdid);
-            if (IsDeveloperJunk(editor_id)) return;
+            if (IsDeveloperJunk(editor_id))
+              return;
             base::String name = DisplayName(record, strings, editor_id);
-            if (name.empty()) return;  // nameless and idless: not useful to browse
+            if (name.empty())
+              return;  // nameless and idless: not useful to browse
             base::String key = Lower(name);
             key.push_back('\x1f');
             key.append(reinterpret_cast<const char*>(&tb.type), sizeof(tb.type));
-            if (!seen.insert(base::move(key))) return;  // duplicate display row
+            if (!seen.insert(base::move(key)))
+              return;  // duplicate display row
             CatalogEntry e;
             e.base = id;
             e.type = tb.type;
@@ -138,11 +151,14 @@ void MapEditor::BuildCatalog() {
   // Group by category, then by game, then float entries with a real FULL name
   // above id-only ones, then sort by name; the filter keeps this order.
   base::Sort(catalog_.begin(), catalog_.end(), [](const CatalogEntry& a, const CatalogEntry& b) {
-    if (a.category != b.category) return a.category < b.category;
-    if (a.domain != b.domain) return a.domain < b.domain;
+    if (a.category != b.category)
+      return a.category < b.category;
+    if (a.domain != b.domain)
+      return a.domain < b.domain;
     const bool a_named = a.name != a.editor_id;
     const bool b_named = b.name != b.editor_id;
-    if (a_named != b_named) return a_named;
+    if (a_named != b_named)
+      return a_named;
     return Lower(a.name) < Lower(b.name);
   });
   RX_INFO("editor catalog: {} curated placeable forms across {} game(s)", catalog_.size(),
@@ -155,7 +171,8 @@ void MapEditor::RefreshFilter() {
   const base::String needle = Lower(search_);
   for (int i = 0; i < static_cast<int>(catalog_.size()); ++i) {
     const CatalogEntry& e = catalog_[i];
-    if (category_ != 0 && e.category != category_) continue;
+    if (category_ != 0 && e.category != category_)
+      continue;
     if (!needle.empty()) {
       // Match the name, the editor id, or the game (so "fallout" narrows to that
       // game's assets in a multi-game session).
@@ -169,7 +186,8 @@ void MapEditor::RefreshFilter() {
     }
     filtered_.push_back(i);
   }
-  if (page_first_ >= static_cast<int>(filtered_.size())) page_first_ = 0;
+  if (page_first_ >= static_cast<int>(filtered_.size()))
+    page_first_ = 0;
 }
 
 }  // namespace rx

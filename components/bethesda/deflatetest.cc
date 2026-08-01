@@ -23,7 +23,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Deflates `in`, inflates it back into a buffer of the original size, and
@@ -38,7 +39,8 @@ size_t RoundTrip(const char* name, const base::Vector<u8>& in) {
                         in.size());
   bool same = ok;
   for (size_t i = 0; same && i < in.size(); ++i) {
-    if (back[i] != in[i]) same = false;
+    if (back[i] != in[i])
+      same = false;
   }
   base::String label = base::String("round-trips: ") + name;
   Check(label.c_str(), same);
@@ -59,7 +61,8 @@ int main() {
   // Small input.
   {
     base::Vector<u8> in;
-    for (u8 c : {'h', 'e', 'l', 'l', 'o'}) in.push_back(c);
+    for (u8 c : {'h', 'e', 'l', 'l', 'o'})
+      in.push_back(c);
     RoundTrip("small \"hello\"", in);
   }
 
@@ -68,7 +71,8 @@ int main() {
   {
     const char* pat = "ABCDEFGH";
     base::Vector<u8> in;
-    for (int i = 0; i < 10000; ++i) in.push_back(static_cast<u8>(pat[i % 8]));
+    for (int i = 0; i < 10000; ++i)
+      in.push_back(static_cast<u8>(pat[i % 8]));
     size_t comp = RoundTrip("repetitive 10000", in);
     Check("repetitive compresses < 25% of input", comp != 0 && comp < in.size() / 4);
   }
@@ -92,7 +96,8 @@ int main() {
   // used symbol. This stresses the single-symbol / forced-complete-code path.
   {
     base::Vector<u8> in;
-    for (int i = 0; i < 5000; ++i) in.push_back(0x41);
+    for (int i = 0; i < 5000; ++i)
+      in.push_back(0x41);
     size_t comp = RoundTrip("all-same-byte 5000", in);
     Check("all-same compresses hard", comp != 0 && comp < 128);
   }
@@ -101,7 +106,8 @@ int main() {
   // symbol) and the literal alphabet has two symbols; another degenerate case.
   {
     base::Vector<u8> in;
-    for (int i = 0; i < 5000; ++i) in.push_back(static_cast<u8>(i & 1 ? 0x42 : 0x41));
+    for (int i = 0; i < 5000; ++i)
+      in.push_back(static_cast<u8>(i & 1 ? 0x42 : 0x41));
     size_t comp = RoundTrip("two-distinct-byte 5000", in);
     Check("two-byte compresses hard", comp != 0 && comp < 128);
   }
@@ -117,7 +123,8 @@ int main() {
         "the dog was not amused, but the fox jumped again. ";
     base::Vector<u8> in;
     for (int rep = 0; rep < 200; ++rep) {
-      for (const char* p = sentence; *p; ++p) in.push_back(static_cast<u8>(*p));
+      for (const char* p = sentence; *p; ++p)
+        in.push_back(static_cast<u8>(*p));
     }
     size_t comp = RoundTrip("english-like text", in);
     std::printf("  english-like text: %zu -> %zu bytes (%.1f%%)\n", static_cast<size_t>(in.size()),
@@ -137,7 +144,8 @@ int main() {
     while (in.size() < 20000) {
       state = state * 1103515245u + 12345u;
       const char* w = words[(state >> 16) % 20];
-      for (const char* p = w; *p; ++p) in.push_back(static_cast<u8>(*p));
+      for (const char* p = w; *p; ++p)
+        in.push_back(static_cast<u8>(*p));
       in.push_back(static_cast<u8>(' '));
     }
     size_t comp = RoundTrip("english-like 20KB", in);
@@ -149,14 +157,16 @@ int main() {
   // Regression guard: the stored (uncompressed) encoder must still round-trip.
   {
     base::Vector<u8> in;
-    for (int i = 0; i < 1000; ++i) in.push_back(static_cast<u8>(i * 7 + 3));
+    for (int i = 0; i < 1000; ++i)
+      in.push_back(static_cast<u8>(i * 7 + 3));
     auto stream = ZlibDeflateStored(ByteSpan(in.data(), in.size()));
     base::Vector<u8> back;
     back.resize(in.size());
     bool ok = ZlibInflate(ByteSpan(stream.data(), stream.size()), back.data(), in.size());
     bool same = ok;
     for (size_t i = 0; same && i < in.size(); ++i) {
-      if (back[i] != in[i]) same = false;
+      if (back[i] != in[i])
+        same = false;
     }
     Check("ZlibDeflateStored still round-trips", same);
   }

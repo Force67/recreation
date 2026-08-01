@@ -13,9 +13,9 @@ namespace rx::net {
 // the one active marker travels; the client computes the on-screen pip from
 // the world position and its own camera.
 struct ObjectiveMarkerState {
-  bool active = false;       // false hides the client's pip
-  u64 quest = 0;             // packed GlobalFormId of the marker's quest
-  f32 x = 0, y = 0, z = 0;   // marker world position (engine space)
+  bool active = false;      // false hides the client's pip
+  u64 quest = 0;            // packed GlobalFormId of the marker's quest
+  f32 x = 0, y = 0, z = 0;  // marker world position (engine space)
 };
 
 // Encodes the marker as a fixed 21-byte little-endian record:

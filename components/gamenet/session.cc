@@ -6,12 +6,12 @@
 #include <algorithm>
 
 #include "components/bethesda/form_id.h"
-#include "core/log.h"
 #include "components/gamenet/asset_stream.h"
 #include "components/gamenet/world_replication.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
 #include "components/world/components.h"
+#include "core/log.h"
 
 namespace rx::net {
 namespace {
@@ -55,7 +55,8 @@ void SendWorldCommandChunks(const base::Vector<world::WorldCommand>& commands, S
     const mem_size end = base::Min<mem_size>(commands.size(), begin + kMaxWorldCommandsPerMessage);
     std::vector<world::WorldCommand> chunk(commands.begin() + begin, commands.begin() + end);
     std::vector<u8> payload = EncodeWorldCommands(chunk);
-    if (payload.size() <= kMaxWorldCommandPayload) send(std::move(payload));
+    if (payload.size() <= kMaxWorldCommandPayload)
+      send(std::move(payload));
   }
 }
 
@@ -82,12 +83,15 @@ GameServerSession::GameServerSession(GameSessionConfig config)
     }
     // Offer the mod manifest right after admitting the peer, so it can start
     // streaming whatever content it is missing.
-    if (asset_stream_) asset_stream_->SendManifest(peer);
-    if (client_joined_sink_) client_joined_sink_(peer);
+    if (asset_stream_)
+      asset_stream_->SendManifest(peer);
+    if (client_joined_sink_)
+      client_joined_sink_(peer);
   });
   inner_.SetClientLeftSink([this](u32 peer) {
     activation_windows_.erase(peer);
-    if (client_left_sink_) client_left_sink_(peer);
+    if (client_left_sink_)
+      client_left_sink_(peer);
   });
 }
 
@@ -98,7 +102,8 @@ void GameServerSession::SetClientJoinedSink(std::function<void(u32)> sink) {
 }
 
 bool GameServerSession::Start() {
-  if (!inner_.Start()) return false;
+  if (!inner_.Start())
+    return false;
   if (config_.mod_catalog) {
     asset_stream_ = std::make_unique<AssetStreamServer>(inner_.raw(), *config_.mod_catalog);
   }
@@ -122,7 +127,8 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
       if (!activate_sink_ || size != sizeof(u64) || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
         break;
       const u64 handle = nanobuf::LoadLe<u64>(data);
-      if (handle == 0) break;
+      if (handle == 0)
+        break;
 
       ActivationWindow& window = activation_windows_[peer];
       const u64 window_ticks = std::max<u64>(1, config_.tick_rate);
@@ -141,21 +147,26 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
       break;
     }
     case GameMessage::kDialogueSelect: {
-      if (!dialogue_sink_ || size < 8) break;
+      if (!dialogue_sink_ || size < 8)
+        break;
       dialogue_sink_(nanobuf::LoadLe<u64>(data));
       break;
     }
     case GameMessage::kStageRequest: {
-      if (!stage_request_sink_) break;
-      if (auto req = DecodeStageRequest(ByteSpan(data, size))) stage_request_sink_(*req);
+      if (!stage_request_sink_)
+        break;
+      if (auto req = DecodeStageRequest(ByteSpan(data, size)))
+        stage_request_sink_(*req);
       break;
     }
     case GameMessage::kAssetRequest: {
-      if (asset_stream_) asset_stream_->HandleRequest(peer, data, size);
+      if (asset_stream_)
+        asset_stream_->HandleRequest(peer, data, size);
       break;
     }
     case GameMessage::kAssetReady: {
-      if (client_ready_sink_) client_ready_sink_(peer);
+      if (client_ready_sink_)
+        client_ready_sink_(peer);
       break;
     }
     default:
@@ -165,12 +176,14 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
 }
 
 void GameServerSession::BroadcastQuests() {
-  if (!quest_source_ || inner_.client_count() == 0) return;
+  if (!quest_source_ || inner_.client_count() == 0)
+    return;
   // The wire codec is std-typed; the source is recreation-side and base-typed.
   const base::Vector<DomainQuestStatus> snapshot = quest_source_();
   std::vector<u8> blob =
       quest_replicator_.Build(std::vector<DomainQuestStatus>(snapshot.begin(), snapshot.end()));
-  if (blob.empty()) return;  // nothing changed this tick
+  if (blob.empty())
+    return;  // nothing changed this tick
 
   // Unlike snapshots, quest progress must not be lost, so it rides the
   // reliable channel: a dropped delta would leave a client's journal stale
@@ -180,9 +193,11 @@ void GameServerSession::BroadcastQuests() {
 }
 
 void GameServerSession::BroadcastActors() {
-  if (!actor_source_ || inner_.client_count() == 0) return;
+  if (!actor_source_ || inner_.client_count() == 0)
+    return;
   std::vector<ActorState> changed = actor_replicator_.Build(actor_source_());
-  if (changed.empty()) return;  // no NPC moved this tick
+  if (changed.empty())
+    return;  // no NPC moved this tick
   // Unreliable like snapshots: the next update supersedes a lost one, and the
   // client interpolates between them.
   inner_.Broadcast(static_cast<u16>(GameMessage::kActorSync), EncodeActorStates(changed),
@@ -190,11 +205,13 @@ void GameServerSession::BroadcastActors() {
 }
 
 void GameServerSession::BroadcastWarMap() {
-  if (!war_map_source_ || inner_.client_count() == 0) return;
+  if (!war_map_source_ || inner_.client_count() == 0)
+    return;
   std::vector<u8> blob = EncodeWarMap(war_map_source_());
   // Skip unchanged ticks, but always re-send when a new client joins so a late
   // joiner gets the current front rather than waiting for the next capture.
-  if (blob == last_war_map_blob_ && inner_.client_count() == last_war_map_clients_) return;
+  if (blob == last_war_map_blob_ && inner_.client_count() == last_war_map_clients_)
+    return;
   last_war_map_blob_ = blob;
   last_war_map_clients_ = inner_.client_count();
   inner_.Broadcast(static_cast<u16>(GameMessage::kWarMap), std::move(blob),
@@ -202,7 +219,8 @@ void GameServerSession::BroadcastWarMap() {
 }
 
 void GameServerSession::SendWorldCommands(const base::Vector<world::WorldCommand>& commands) {
-  if (inner_.client_count() == 0 || commands.empty()) return;
+  if (inner_.client_count() == 0 || commands.empty())
+    return;
   // Reliable, like quests: a dropped spawn or cleanup would desync a client's
   // world from the host's permanently.
   SendWorldCommandChunks(commands, [this](std::vector<u8> payload) {
@@ -212,7 +230,8 @@ void GameServerSession::SendWorldCommands(const base::Vector<world::WorldCommand
 }
 
 void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
-  if (inner_.client_count() == 0) return;
+  if (inner_.client_count() == 0)
+    return;
   // Reliable: a dropped marker would leave the clients' compass pip stale until
   // the next change.
   inner_.Broadcast(static_cast<u16>(GameMessage::kObjectiveMarker), EncodeObjectiveMarker(m),
@@ -220,7 +239,8 @@ void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
 }
 
 void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
-  if (!asset_stream_) return;
+  if (!asset_stream_)
+    return;
   asset_stream_->SetCatalog(catalog);
   // Push the new manifest to everyone already connected; each re-diffs against
   // its cache and streams only what changed, then re-mounts.
@@ -239,7 +259,8 @@ GameClientSession::GameClientSession(GameSessionConfig config)
 GameClientSession::~GameClientSession() = default;
 
 bool GameClientSession::Start() {
-  if (!inner_.Start()) return false;
+  if (!inner_.Start())
+    return false;
   if (config_.content_store) {
     asset_stream_ = std::make_unique<AssetStreamClient>(
         inner_.raw(), *config_.content_store, config_.content_store->root() / ".incoming");
@@ -249,10 +270,13 @@ bool GameClientSession::Start() {
   return true;
 }
 
-void GameClientSession::Tick(ecs::World& world, f32 dt) { inner_.Tick(world, dt); }
+void GameClientSession::Tick(ecs::World& world, f32 dt) {
+  inner_.Tick(world, dt);
+}
 
 void GameClientSession::SendActivate(u64 handle) {
-  if (!joined()) return;
+  if (!joined())
+    return;
   std::vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), handle);
   inner_.SendToServer(static_cast<u16>(GameMessage::kActivateRef), payload,
@@ -260,7 +284,8 @@ void GameClientSession::SendActivate(u64 handle) {
 }
 
 void GameClientSession::SendDialogueSelect(u64 info) {
-  if (!joined()) return;
+  if (!joined())
+    return;
   std::vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), info);
   inner_.SendToServer(static_cast<u16>(GameMessage::kDialogueSelect), payload,
@@ -268,7 +293,8 @@ void GameClientSession::SendDialogueSelect(u64 info) {
 }
 
 void GameClientSession::SendStageRequest(const StageRequest& req) {
-  if (!joined()) return;
+  if (!joined())
+    return;
   inner_.SendToServer(static_cast<u16>(GameMessage::kStageRequest), EncodeStageRequest(req),
                       /*reliable=*/true, tx::network::PacketPriority::High);
 }
@@ -277,14 +303,16 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
   const ByteSpan blob(data, size);
   switch (static_cast<GameMessage>(type)) {
     case GameMessage::kQuestUpdate: {
-      if (!quest_sink_) break;
+      if (!quest_sink_)
+        break;
       if (!ApplyQuestUpdate(blob, quest_sink_)) {
         RX_WARN("net: dropped corrupt quest update");
       }
       break;
     }
     case GameMessage::kWorldCommands: {
-      if (!world_command_sink_) break;
+      if (!world_command_sink_)
+        break;
       if (auto cmds = DecodeWorldCommands(blob)) {
         world_command_sink_(*cmds);
       } else {
@@ -293,7 +321,8 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       break;
     }
     case GameMessage::kActorSync: {
-      if (!actor_sink_) break;
+      if (!actor_sink_)
+        break;
       if (auto actors = DecodeActorStates(blob)) {
         actor_sink_(*actors);
       } else {
@@ -302,7 +331,8 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       break;
     }
     case GameMessage::kObjectiveMarker: {
-      if (!objective_marker_sink_) break;
+      if (!objective_marker_sink_)
+        break;
       if (auto marker = DecodeObjectiveMarker(blob)) {
         objective_marker_sink_(*marker);
       } else {
@@ -311,7 +341,8 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       break;
     }
     case GameMessage::kWarMap: {
-      if (!war_map_sink_) break;
+      if (!war_map_sink_)
+        break;
       if (auto board = DecodeWarMap(blob)) {
         war_map_sink_(*board);
       } else {
@@ -320,7 +351,8 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       break;
     }
     case GameMessage::kAssetManifest: {
-      if (asset_stream_) asset_stream_->OnManifestChunk(data, size);
+      if (asset_stream_)
+        asset_stream_->OnManifestChunk(data, size);
       break;
     }
     default:

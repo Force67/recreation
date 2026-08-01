@@ -1,7 +1,6 @@
 #ifndef RECREATION_WORLD_QUEST_WORLD_H_
 #define RECREATION_WORLD_QUEST_WORLD_H_
 
-#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
@@ -9,6 +8,7 @@
 #include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
+#include <mutex>
 
 #include "asset/asset_id.h"
 #include "core/types.h"

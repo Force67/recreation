@@ -30,7 +30,8 @@ void MountArchives(asset::Vfs& vfs, const base::String& data_dir) {
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec)) {
     base::String path = entry.path().string();
-    if (auto provider = bethesda::OpenArchive(path)) vfs.Mount(base::move(provider));
+    if (auto provider = bethesda::OpenArchive(path))
+      vfs.Mount(base::move(provider));
   }
 }
 
@@ -60,11 +61,13 @@ void PrintFunction(const PexFile& pex, const base::String& name, const Function&
   }
   std::printf(")%s%s, %zu locals, %zu instrs\n", fn.is_global ? " global" : "",
               fn.is_native ? " native" : "", fn.locals.size(), fn.code.size());
-  if (!disasm) return;
+  if (!disasm)
+    return;
   for (size_t i = 0; i < fn.code.size(); ++i) {
     const Instruction& insn = fn.code[i];
     std::printf("      %4zu  %-20s", i, GetOpInfo(insn.op).mnemonic);
-    for (const VariableData& a : insn.args) std::printf(" %s", FormatOperand(pex, a).c_str());
+    for (const VariableData& a : insn.args)
+      std::printf(" %s", FormatOperand(pex, a).c_str());
     if (!insn.var_args.empty()) {
       std::printf(" [");
       for (size_t j = 0; j < insn.var_args.size(); ++j)
@@ -108,8 +111,10 @@ int Dump(const base::String& data_dir, const base::String& script, bool disasm) 
     for (const Property& p : obj.properties) {
       std::printf("  property %s %s%s\n", pex.Str(p.type).c_str(), pex.Str(p.name).c_str(),
                   p.is_auto() ? " auto" : "");
-      if (p.has_getter) PrintFunction(pex, "get", p.getter, disasm);
-      if (p.has_setter) PrintFunction(pex, "set", p.setter, disasm);
+      if (p.has_getter)
+        PrintFunction(pex, "get", p.getter, disasm);
+      if (p.has_setter)
+        PrintFunction(pex, "set", p.setter, disasm);
     }
     for (const State& s : obj.states) {
       base::String sname = pex.Str(s.name);

@@ -17,11 +17,17 @@ constexpr u64 EncodeAliasHandle(u64 quest, u32 alias_id) {
   return kAliasHandleTag | (quest << 12) | (static_cast<u64>(alias_id) & 0xfffu);
 }
 
-constexpr bool IsAliasHandle(u64 handle) { return (handle & kAliasHandleTag) != 0; }
+constexpr bool IsAliasHandle(u64 handle) {
+  return (handle & kAliasHandleTag) != 0;
+}
 
-constexpr u64 AliasHandleQuest(u64 handle) { return (handle & (kAliasHandleTag - 1)) >> 12; }
+constexpr u64 AliasHandleQuest(u64 handle) {
+  return (handle & (kAliasHandleTag - 1)) >> 12;
+}
 
-constexpr u32 AliasHandleAliasId(u64 handle) { return static_cast<u32>(handle & 0xfffu); }
+constexpr u32 AliasHandleAliasId(u64 handle) {
+  return static_cast<u32>(handle & 0xfffu);
+}
 
 }  // namespace rx::script::papyrus
 

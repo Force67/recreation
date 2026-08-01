@@ -20,9 +20,12 @@ PropClassification ClassifyProp(const PropTraits& traits) {
   constexpr u32 kActivator = FourCc('A', 'C', 'T', 'I');
 
   PropClassification out;
-  if (traits.placed_script || traits.base_script) out.capabilities |= kPropScripted;
-  if (traits.base_type == kDoor) out.capabilities |= kPropDoor | kPropActivatable;
-  if (traits.base_type == kContainer) out.capabilities |= kPropContainer | kPropActivatable;
+  if (traits.placed_script || traits.base_script)
+    out.capabilities |= kPropScripted;
+  if (traits.base_type == kDoor)
+    out.capabilities |= kPropDoor | kPropActivatable;
+  if (traits.base_type == kContainer)
+    out.capabilities |= kPropContainer | kPropActivatable;
   if (traits.base_type == kFurniture || traits.base_type == kActivator) {
     out.capabilities |= kPropActivatable;
   }

@@ -6,9 +6,9 @@
 #include <utility>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/quest_replication.h"
 #include "components/quest/quest_system.h"
+#include "core/types.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
 // arch_types scalar aliases, so the scalar types stay fully qualified as rx::
@@ -28,13 +28,19 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // A quest with the replicated fields set plus some text/name, which must NOT
 // survive the round trip (clients resolve text locally), tagged with a domain.
-DomainQuestStatus MakeQuest(rx::u64 handle, rx::i32 stage, bool running, bool active, bool complete,
-                            base::Vector<ObjectiveStatus> objectives = {}, rx::u8 domain = 0) {
+DomainQuestStatus MakeQuest(rx::u64 handle,
+                            rx::i32 stage,
+                            bool running,
+                            bool active,
+                            bool complete,
+                            base::Vector<ObjectiveStatus> objectives = {},
+                            rx::u8 domain = 0) {
   QuestStatus q;
   q.handle = handle;
   q.stage = stage;
@@ -57,14 +63,16 @@ ObjectiveStatus MakeObjective(rx::i32 index, bool displayed, bool completed) {
 }
 
 bool SameReplicatedFields(const DomainQuestStatus& da, const DomainQuestStatus& db) {
-  if (da.domain != db.domain) return false;
+  if (da.domain != db.domain)
+    return false;
   const QuestStatus& a = da.status;
   const QuestStatus& b = db.status;
   if (a.handle != b.handle || a.stage != b.stage || a.running != b.running ||
       a.active != b.active || a.complete != b.complete) {
     return false;
   }
-  if (a.objectives.size() != b.objectives.size()) return false;
+  if (a.objectives.size() != b.objectives.size())
+    return false;
   for (size_t i = 0; i < a.objectives.size(); ++i) {
     const ObjectiveStatus& oa = a.objectives[i];
     const ObjectiveStatus& ob = b.objectives[i];
@@ -93,7 +101,8 @@ void TestRoundTrip() {
 
   std::optional<std::vector<DomainQuestStatus>> decoded = DecodeQuestUpdate(blob);
   Check("decode succeeds", decoded.has_value());
-  if (!decoded) return;
+  if (!decoded)
+    return;
   Check("quest count preserved", decoded->size() == quests.size());
 
   bool all_match = decoded->size() == quests.size();
@@ -104,9 +113,11 @@ void TestRoundTrip() {
 
   bool text_empty = true;
   for (const DomainQuestStatus& q : *decoded) {
-    if (!q.status.name.empty() || !q.status.log_entry.empty()) text_empty = false;
+    if (!q.status.name.empty() || !q.status.log_entry.empty())
+      text_empty = false;
     for (const ObjectiveStatus& o : q.status.objectives) {
-      if (!o.text.empty()) text_empty = false;
+      if (!o.text.empty())
+        text_empty = false;
     }
   }
   Check("text never travels", text_empty);
@@ -129,7 +140,8 @@ void TestDomainRouting() {
   std::optional<std::vector<DomainQuestStatus>> decoded =
       DecodeQuestUpdate(EncodeQuestUpdate(quests));
   Check("both domains decode", decoded.has_value() && decoded->size() == 2);
-  if (!decoded) return;
+  if (!decoded)
+    return;
   Check("domain tags preserved", (*decoded)[0].domain == 0 && (*decoded)[1].domain == 1);
   Check("same handle, distinct stages per domain",
         (*decoded)[0].status.handle == (*decoded)[1].status.handle &&
@@ -175,9 +187,9 @@ void TestDeltas() {
   snap[1].status.stage = 10;
   std::vector<rx::u8> second = rep.Build(snap);
   std::optional<std::vector<DomainQuestStatus>> d2 = DecodeQuestUpdate(second);
-  Check("only changed quest sent",
-        d2.has_value() && d2->size() == 1 && (*d2)[0].status.handle == 0x20ull &&
-            (*d2)[0].status.stage == 10);
+  Check("only changed quest sent", d2.has_value() && d2->size() == 1 &&
+                                       (*d2)[0].status.handle == 0x20ull &&
+                                       (*d2)[0].status.stage == 10);
 
   // Re-running with the same snapshot is again empty.
   Check("re-running unchanged sends nothing", rep.Build(snap).empty());
@@ -237,8 +249,7 @@ void TestCorrupt() {
   std::puts("corrupt rejection:");
   std::vector<DomainQuestStatus> quests = {
       MakeQuest(0x10ull, 5, true, true, false,
-                {MakeObjective(1, true, false),
-                 MakeObjective(2, false, true)}),
+                {MakeObjective(1, true, false), MakeObjective(2, false, true)}),
       MakeQuest(0x20ull, 6, true, false, true),
   };
   std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
@@ -256,7 +267,8 @@ void TestCorrupt() {
   bool every_truncation_rejected = true;
   for (size_t cut = 1; cut < blob.size(); ++cut) {
     std::vector<rx::u8> shorter(blob.begin(), blob.begin() + cut);
-    if (DecodeQuestUpdate(shorter).has_value()) every_truncation_rejected = false;
+    if (DecodeQuestUpdate(shorter).has_value())
+      every_truncation_rejected = false;
   }
   Check("every truncation rejected without over-read", every_truncation_rejected);
 

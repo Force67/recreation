@@ -12,10 +12,10 @@
 #include <optional>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/quest_replication.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_system.h"
+#include "core/types.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
 // arch_types scalar aliases, so the scalar types stay fully qualified as rx::
@@ -37,7 +37,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // An MQ101-shaped definition built by hand: three stages (200 completes the
@@ -66,9 +67,11 @@ QuestDef MakeUnboundDef(QuestHandle handle) {
 size_t Replicate(QuestReplicator& rep, const QuestSystem& server, QuestSystem& client) {
   // This single-game harness replicates everything as the primary domain (0).
   std::vector<DomainQuestStatus> snapshot;
-  for (QuestStatus& s : server.AllStatuses()) snapshot.push_back({0, std::move(s)});
+  for (QuestStatus& s : server.AllStatuses())
+    snapshot.push_back({0, std::move(s)});
   std::vector<rx::u8> blob = rep.Build(snapshot);
-  if (blob.empty()) return 0;
+  if (blob.empty())
+    return 0;
   size_t count = 0;
   const bool ok = ApplyQuestUpdate(blob, [&](rx::u8 /*domain*/, const QuestStatus& q) {
     client.ApplyStatus(q);

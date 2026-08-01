@@ -3,16 +3,16 @@
 
 namespace rx::script::skyrim {
 
-using papyrus::ObjectRef;
-using papyrus::Value;
-using papyrus::VirtualMachine;
-using ext::Args;
 using ext::ArgB;
 using ext::ArgF;
 using ext::ArgI;
 using ext::ArgO;
+using ext::Args;
 using ext::ArgS;
 using ext::Resolve;
+using papyrus::ObjectRef;
+using papyrus::Value;
+using papyrus::VirtualMachine;
 namespace st = state;
 
 void RegisterDebugExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {

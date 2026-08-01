@@ -31,7 +31,8 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
   }
   // Sort phases ascending, keeping each phase's completion gate with it.
   base::Vector<size_t> order(plan.phases.size());
-  for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+  for (size_t i = 0; i < order.size(); ++i)
+    order[i] = i;
   std::stable_sort(order.begin(), order.end(),
                    [&](size_t a, size_t b) { return plan.phases[a] < plan.phases[b]; });
   base::Vector<i32> phases;
@@ -77,7 +78,8 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
       case SceneActionDef::Kind::kPackage:
         beat.kind = SceneBeat::Kind::kPackage;
         beat.package = a.package;
-        if (beat.package == 0) continue;
+        if (beat.package == 0)
+          continue;
         break;
       case SceneActionDef::Kind::kTimer:
         beat.kind = SceneBeat::Kind::kTimer;
@@ -96,8 +98,10 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
 }
 
 void SceneRuntime::Start(const ScenePlan* plan, SceneRuntimeSink& sink) {
-  if (plan_) Stop(sink);
-  if (!plan) return;
+  if (plan_)
+    Stop(sink);
+  if (!plan)
+    return;
   plan_ = plan;
   time_ = 0;
   phase_index_ = 0;
@@ -113,19 +117,22 @@ void SceneRuntime::Start(const ScenePlan* plan, SceneRuntimeSink& sink) {
 }
 
 void SceneRuntime::Stop(SceneRuntimeSink& sink) {
-  if (!plan_) return;
+  if (!plan_)
+    return;
   EndLine(sink);
   LeavePhase(sink);
   Finish(false, sink);
 }
 
 i32 SceneRuntime::phase() const {
-  if (!plan_ || phase_index_ >= plan_->phases.size()) return -1;
+  if (!plan_ || phase_index_ >= plan_->phases.size())
+    return -1;
   return plan_->phases[phase_index_];
 }
 
 const SceneBeat* SceneRuntime::speaking() const {
-  if (!plan_ || line_beat_ == kNoBeat) return nullptr;
+  if (!plan_ || line_beat_ == kNoBeat)
+    return nullptr;
   return &plan_->beats[line_beat_];
 }
 
@@ -142,16 +149,20 @@ void SceneRuntime::EnterPhase(size_t index, SceneRuntimeSink& sink) {
   sink.OnPhaseBegin(*plan_, phase);
   for (size_t i = 0; i < plan_->beats.size(); ++i) {
     const SceneBeat& beat = plan_->beats[i];
-    if (beat.phase != phase) continue;
-    if (beat.kind == SceneBeat::Kind::kDialogue) line_queue_.push_back(i);
-    if (beat.kind == SceneBeat::Kind::kTimer) phase_wait_ = base::Max(phase_wait_, beat.seconds);
+    if (beat.phase != phase)
+      continue;
+    if (beat.kind == SceneBeat::Kind::kDialogue)
+      line_queue_.push_back(i);
+    if (beat.kind == SceneBeat::Kind::kTimer)
+      phase_wait_ = base::Max(phase_wait_, beat.seconds);
   }
   OpenPackages(phase, sink);
   StartNextLine(sink);
 }
 
 void SceneRuntime::LeavePhase(SceneRuntimeSink& sink) {
-  if (phase_index_ < plan_->phases.size()) sink.OnPhaseEnd(*plan_, plan_->phases[phase_index_]);
+  if (phase_index_ < plan_->phases.size())
+    sink.OnPhaseEnd(*plan_, plan_->phases[phase_index_]);
 }
 
 void SceneRuntime::ClosePackages(i32 phase, SceneRuntimeSink& sink) {
@@ -169,8 +180,10 @@ void SceneRuntime::ClosePackages(i32 phase, SceneRuntimeSink& sink) {
 void SceneRuntime::OpenPackages(i32 phase, SceneRuntimeSink& sink) {
   for (size_t i = 0; i < plan_->beats.size(); ++i) {
     const SceneBeat& beat = plan_->beats[i];
-    if (beat.kind != SceneBeat::Kind::kPackage) continue;
-    if (phase < beat.phase || phase > beat.end_phase) continue;
+    if (beat.kind != SceneBeat::Kind::kPackage)
+      continue;
+    if (phase < beat.phase || phase > beat.end_phase)
+      continue;
     if (std::find(active_packages_.begin(), active_packages_.end(), i) != active_packages_.end())
       continue;
     active_packages_.push_back(i);
@@ -181,13 +194,15 @@ void SceneRuntime::OpenPackages(i32 phase, SceneRuntimeSink& sink) {
 void SceneRuntime::StartNextLine(SceneRuntimeSink& sink) {
   line_beat_ = kNoBeat;
   line_time_ = 0;
-  if (line_cursor_ >= line_queue_.size()) return;
+  if (line_cursor_ >= line_queue_.size())
+    return;
   line_beat_ = line_queue_[line_cursor_++];
   sink.OnLineBegin(*plan_, plan_->beats[line_beat_]);
 }
 
 void SceneRuntime::EndLine(SceneRuntimeSink& sink) {
-  if (line_beat_ == kNoBeat) return;
+  if (line_beat_ == kNoBeat)
+    return;
   sink.OnLineEnd(*plan_, plan_->beats[line_beat_]);
   line_beat_ = kNoBeat;
   line_time_ = 0;
@@ -195,7 +210,8 @@ void SceneRuntime::EndLine(SceneRuntimeSink& sink) {
 
 void SceneRuntime::Finish(bool completed, SceneRuntimeSink& sink) {
   const ScenePlan* plan = plan_;
-  for (size_t i : active_packages_) sink.OnPackageEnd(*plan, plan->beats[i]);
+  for (size_t i : active_packages_)
+    sink.OnPackageEnd(*plan, plan->beats[i]);
   active_packages_.clear();
   plan_ = nullptr;
   line_queue_.clear();
@@ -204,11 +220,14 @@ void SceneRuntime::Finish(bool completed, SceneRuntimeSink& sink) {
 }
 
 void SceneRuntime::Tick(f32 dt, SceneRuntimeSink& sink) {
-  if (!plan_) return;
+  if (!plan_)
+    return;
   time_ += dt;
   phase_time_ += dt;
-  if (line_beat_ != kNoBeat) line_time_ += dt;
-  if (phase_wait_ > 0) phase_wait_ -= dt;
+  if (line_beat_ != kNoBeat)
+    line_time_ += dt;
+  if (phase_wait_ > 0)
+    phase_wait_ -= dt;
 
   // Advance as far as this tick allows: a line that just finished hands straight
   // over to the next speaker, and a phase with nothing left in it to the next
@@ -219,12 +238,14 @@ void SceneRuntime::Tick(f32 dt, SceneRuntimeSink& sink) {
       const SceneBeat& beat = plan_->beats[line_beat_];
       // Follow the voice clip while it is audible; `seconds` is the fallback for a
       // line with no clip, and the floor, so a failed play still holds the beat.
-      if (sink.LineStillPlaying(beat) || line_time_ < beat.seconds) return;
+      if (sink.LineStillPlaying(beat) || line_time_ < beat.seconds)
+        return;
       EndLine(sink);
       StartNextLine(sink);
       continue;
     }
-    if (phase_wait_ > 0) return;
+    if (phase_wait_ > 0)
+      return;
 
     // Everything authored in this phase has played. Its completion gate now decides
     // whether the scene moves on; a gate that never passes gives way to the timeout

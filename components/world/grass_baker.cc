@@ -56,7 +56,8 @@ struct Rng {
 // heights in units of 8.
 bool DecodeLandHeights(const bethesda::Record& land, f32 out[kLandGridPoints * kLandGridPoints]) {
   const bethesda::Subrecord* vhgt = land.Find(kVhgt);
-  if (!vhgt || vhgt->data.size() < 4 + kLandGridPoints * kLandGridPoints) return false;
+  if (!vhgt || vhgt->data.size() < 4 + kLandGridPoints * kLandGridPoints)
+    return false;
   f32 offset;
   std::memcpy(&offset, vhgt->data.data(), 4);
   const i8* deltas = reinterpret_cast<const i8*>(vhgt->data.data() + 4);
@@ -110,14 +111,16 @@ SurfaceSample SampleSurface(const f32* heights, f32 x, f32 y) {
 // Slope in degrees from the VNML normal nearest to the point. Flat when the
 // LAND has no normals.
 f32 SlopeDegrees(const bethesda::Subrecord* vnml, f32 x, f32 y) {
-  if (!vnml || vnml->data.size() < kLandGridPoints * kLandGridPoints * 3) return 0;
+  if (!vnml || vnml->data.size() < kLandGridPoints * kLandGridPoints * 3)
+    return 0;
   constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
   u32 c = base::Min(kLandGridPoints - 1, static_cast<u32>(base::Max(0.0f, x / kSpacing + 0.5f)));
   u32 r = base::Min(kLandGridPoints - 1, static_cast<u32>(base::Max(0.0f, y / kSpacing + 0.5f)));
   const i8* n = reinterpret_cast<const i8*>(vnml->data.data() + (r * kLandGridPoints + c) * 3);
   f32 length = std::sqrt(static_cast<f32>(n[0]) * n[0] + static_cast<f32>(n[1]) * n[1] +
                          static_cast<f32>(n[2]) * n[2]);
-  if (length <= 0) return 0;
+  if (length <= 0)
+    return 0;
   f32 nz = base::Clamp(static_cast<f32>(n[2]) / length, -1.0f, 1.0f);
   return std::acos(nz) * 57.29578f;
 }
@@ -170,8 +173,10 @@ f32 LayerOpacity(const QuadLayer& layer, f32 qx, f32 qy) {
 }  // namespace
 
 const base::Vector<u64>& GrassBaker::GrassListFor(u64 ltex_packed) {
-  if (ltex_packed == 0) return empty_list_;
-  if (const base::Vector<u64>* known = ltex_grass_.find(ltex_packed)) return *known;
+  if (ltex_packed == 0)
+    return empty_list_;
+  if (const base::Vector<u64>* known = ltex_grass_.find(ltex_packed))
+    return *known;
   base::Vector<u64>* list = ltex_grass_.emplace(ltex_packed).first;
 
   bethesda::GlobalFormId ltex_id{static_cast<u16>(ltex_packed >> 32),
@@ -180,7 +185,8 @@ const base::Vector<u64>& GrassBaker::GrassListFor(u64 ltex_packed) {
   if (records_.Parse(ltex_id, &ltex)) {
     u16 plugin = records_.Find(ltex_id)->winning_plugin;
     for (const bethesda::Subrecord& sub : ltex.subrecords) {
-      if (sub.type != kGnam || sub.data.size() < 4) continue;
+      if (sub.type != kGnam || sub.data.size() < 4)
+        continue;
       u32 raw;
       std::memcpy(&raw, sub.data.data(), 4);
       list->push_back(records_.ResolveFrom(bethesda::RawFormId{raw}, plugin).packed());
@@ -190,13 +196,15 @@ const base::Vector<u64>& GrassBaker::GrassListFor(u64 ltex_packed) {
 }
 
 const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
-  if (const GrassType* known = types_.find(gras_packed)) return known;
+  if (const GrassType* known = types_.find(gras_packed))
+    return known;
   GrassType* type = types_.emplace(gras_packed).first;
 
   bethesda::GlobalFormId gras_id{static_cast<u16>(gras_packed >> 32),
                                  static_cast<u32>(gras_packed)};
   bethesda::Record gras;
-  if (!records_.Parse(gras_id, &gras)) return type;
+  if (!records_.Parse(gras_id, &gras))
+    return type;
 
   // GRAS DATA: u8 density, u8 minSlope, u8 maxSlope, pad, u16 unitsFromWater,
   // pad, u32 unitsFromWaterType, f32 positionRange, heightRange, colorRange,
@@ -218,35 +226,45 @@ const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
   base::String model = gras.GetString(kModl);
   if (!model.empty()) {
     base::String path = asset::NormalizePath(model);
-    if (!path.starts_with("meshes/")) path = "meshes/" + path;
+    if (!path.starts_with("meshes/"))
+      path = "meshes/" + path;
     type->model = assets_.LoadMesh(path);
-    if (type->model && type->model->lods.empty()) type->model = nullptr;
-    if (!type->model) RX_WARN("grass model failed: {}", path);
+    if (type->model && type->model->lods.empty())
+      type->model = nullptr;
+    if (!type->model)
+      RX_WARN("grass model failed: {}", path);
     // Flag the model's materials for the renderer's vertex wind (uv.y-weighted
     // sway). Marked here, before EnsureUploaded pushes them to the gpu.
     if (type->model) {
       for (const asset::Submesh& submesh : type->model->lods[0].submeshes) {
-        if (asset::Material* m = assets_.FindMaterialMutable(submesh.material)) m->wind = true;
+        if (asset::Material* m = assets_.FindMaterialMutable(submesh.material))
+          m->wind = true;
       }
     }
   }
   return type;
 }
 
-const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
-                                         i16 grid_y, f32 water_height, f32 density_scale,
+const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land,
+                                         u16 land_plugin,
+                                         i16 grid_x,
+                                         i16 grid_y,
+                                         f32 water_height,
+                                         f32 density_scale,
                                          std::span<const f32> height_override) {
   base::String name = "grass/" + base::ToString(grid_x) + "_" + base::ToString(grid_y);
   asset::AssetId mesh_id = asset::MakeAssetId(name);
   if (height_override.empty()) {
-    if (const asset::Mesh* cached = assets_.FindMesh(mesh_id)) return cached;
+    if (const asset::Mesh* cached = assets_.FindMesh(mesh_id))
+      return cached;
   } else if (height_override.size() != kLandGridPoints * kLandGridPoints) {
     return nullptr;
   }
 
   f32 heights[kLandGridPoints * kLandGridPoints];
   if (height_override.empty()) {
-    if (!DecodeLandHeights(land, heights)) return nullptr;
+    if (!DecodeLandHeights(land, heights))
+      return nullptr;
   } else {
     std::memcpy(heights, height_override.data(), sizeof(heights));
   }
@@ -263,7 +281,8 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
       u32 raw;
       u8 quadrant = sub.data[4];
       std::memcpy(&raw, sub.data.data(), 4);
-      if (quadrant > 3) continue;
+      if (quadrant > 3)
+        continue;
       u64 ltex =
           raw == 0 ? 0 : records_.ResolveFrom(bethesda::RawFormId{raw}, land_plugin).packed();
       if (sub.type == kBtxt) {
@@ -290,30 +309,41 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
 
   // Resolve every LTEX's grass list and every GRAS form up front; the cache
   // maps can rehash while filling, so pointers are only taken once complete.
-  for (u32 q = 0; q < 4; ++q) GrassListFor(base[q]);
-  for (const QuadLayer& layer : layers) GrassListFor(layer.ltex);
+  for (u32 q = 0; q < 4; ++q)
+    GrassListFor(base[q]);
+  for (const QuadLayer& layer : layers)
+    GrassListFor(layer.ltex);
   base::Vector<u64> all_gras;
   auto collect = [&](u64 ltex) {
-    for (u64 id : GrassListFor(ltex)) all_gras.push_back(id);
+    for (u64 id : GrassListFor(ltex))
+      all_gras.push_back(id);
   };
-  for (u32 q = 0; q < 4; ++q) collect(base[q]);
-  for (const QuadLayer& layer : layers) collect(layer.ltex);
-  if (all_gras.empty()) return nullptr;
-  for (u64 id : all_gras) TypeFor(id);
+  for (u32 q = 0; q < 4; ++q)
+    collect(base[q]);
+  for (const QuadLayer& layer : layers)
+    collect(layer.ltex);
+  if (all_gras.empty())
+    return nullptr;
+  for (u64 id : all_gras)
+    TypeFor(id);
 
   base::UnorderedMap<u64, base::Vector<const GrassType*>> candidates;  // LTEX -> types
   auto resolve = [&](u64 ltex) {
-    if (ltex == 0 || candidates.contains(ltex)) return;
+    if (ltex == 0 || candidates.contains(ltex))
+      return;
     base::Vector<const GrassType*>* list = candidates.emplace(ltex).first;
     if (const base::Vector<u64>* gras_ids = ltex_grass_.find(ltex)) {
       for (u64 id : *gras_ids) {
         const GrassType* type = types_.find(id);
-        if (type && type->model) list->push_back(type);
+        if (type && type->model)
+          list->push_back(type);
       }
     }
   };
-  for (u32 q = 0; q < 4; ++q) resolve(base[q]);
-  for (const QuadLayer& layer : layers) resolve(layer.ltex);
+  for (u32 q = 0; q < 4; ++q)
+    resolve(base[q]);
+  for (const QuadLayer& layer : layers)
+    resolve(layer.ltex);
   auto candidates_for = [&](u64 ltex) -> const base::Vector<const GrassType*>* {
     return ltex == 0 ? nullptr : candidates.find(ltex);
   };
@@ -353,16 +383,20 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
       const base::Vector<const GrassType*>* best = candidates_for(base[quadrant]);
       opacities.clear();
       for (const QuadLayer& layer : layers) {
-        if (layer.quadrant == quadrant) opacities.push_back(LayerOpacity(layer, qx, qy));
+        if (layer.quadrant == quadrant)
+          opacities.push_back(LayerOpacity(layer, qx, qy));
       }
       if (!opacities.empty()) {
         f32 best_weight = 1;
-        for (f32 opacity : opacities) best_weight *= 1 - opacity;  // base weight
+        for (f32 opacity : opacities)
+          best_weight *= 1 - opacity;  // base weight
         u32 i = 0;
         for (const QuadLayer& layer : layers) {
-          if (layer.quadrant != quadrant) continue;
+          if (layer.quadrant != quadrant)
+            continue;
           f32 weight = opacities[i];
-          for (u32 j = i + 1; j < opacities.size(); ++j) weight *= 1 - opacities[j];
+          for (u32 j = i + 1; j < opacities.size(); ++j)
+            weight *= 1 - opacities[j];
           if (weight > best_weight) {
             best_weight = weight;
             best = candidates_for(layer.ltex);
@@ -370,19 +404,23 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
           ++i;
         }
       }
-      if (!best || best->empty()) continue;
+      if (!best || best->empty())
+        continue;
 
       for (const GrassType* type : *best) {
-        if (rng.Uniform() >= type->density * density_scale) continue;
+        if (rng.Uniform() >= type->density * density_scale)
+          continue;
         const f32 slope = edited_heights ? SampleSurface(heights, px, py).slope_degrees
                                          : SlopeDegrees(vnml, px, py);
-        if (slope < type->min_slope || slope > type->max_slope) continue;
+        if (slope < type->min_slope || slope > type->max_slope)
+          continue;
 
         f32 wx = px + (rng.Uniform() * 2 - 1) * type->position_range;
         f32 wy = py + (rng.Uniform() * 2 - 1) * type->position_range;
         f32 wz =
             SampleSurface(heights, wx, wy).height + (rng.Uniform() * 2 - 1) * type->height_range;
-        if (!WaterOk(type->water_type, type->units_from_water, wz - water_height)) continue;
+        if (!WaterOk(type->water_type, type->units_from_water, wz - water_height))
+          continue;
 
         f32 yaw = rng.Uniform() * 6.2831853f;
         f32 scale = 0.8f + rng.Uniform() * 0.4f;
@@ -430,14 +468,16 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
       }
     }
   }
-  if (instances == 0) return nullptr;
+  if (instances == 0)
+    return nullptr;
 
   for (Bucket& bucket : buckets) {
     asset::Submesh submesh;
     submesh.index_offset = static_cast<u32>(lod.indices.size());
     submesh.index_count = static_cast<u32>(bucket.indices.size());
     submesh.material = bucket.material;
-    for (u32 index : bucket.indices) lod.indices.push_back(index);
+    for (u32 index : bucket.indices)
+      lod.indices.push_back(index);
     lod.submeshes.push_back(submesh);
   }
   built.bounds_center[0] = kCellSize * 0.5f;

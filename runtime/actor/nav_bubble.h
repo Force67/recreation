@@ -31,9 +31,9 @@ class CellStreamer;
 }
 
 // Areas painted by the terrain sampler (rx::nav ids; 1 = plain ground).
-inline constexpr nav::AreaId kNavAreaRough = 2;   // stumble-grade slopes
-inline constexpr nav::AreaId kNavAreaWater = 3;   // wadeable water
-inline constexpr nav::AreaId kNavAreaDeep = 4;    // swimming depth
+inline constexpr nav::AreaId kNavAreaRough = 2;  // stumble-grade slopes
+inline constexpr nav::AreaId kNavAreaWater = 3;  // wadeable water
+inline constexpr nav::AreaId kNavAreaDeep = 4;   // swimming depth
 
 // Corridor identity of the walking player (form handles start well above it).
 inline constexpr u64 kPlayerNavId = 1;

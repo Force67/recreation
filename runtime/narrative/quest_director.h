@@ -6,10 +6,10 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
-#include "core/math.h"
-#include "runtime/app/engine_context.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_system.h"
+#include "core/math.h"
+#include "runtime/app/engine_context.h"
 #include "runtime/narrative/quest_state_cache.h"
 
 namespace rx {
@@ -105,7 +105,8 @@ class QuestDirector {
   // playthrough to head toward instead of a blind facing direction. False when
   // no resolvable target exists (the caller then falls back to facing).
   bool CurrentObjectiveTarget(Vec3* out) const {
-    if (cur_objective_valid_) *out = cur_objective_target_;
+    if (cur_objective_valid_)
+      *out = cur_objective_target_;
     return cur_objective_valid_;
   }
 

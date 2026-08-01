@@ -57,7 +57,9 @@ void RegisterGameInput(InputMap& map) {
 
   map.SetDefaultsFn([](InputMap& m) {
     auto key = [](Key k) { return Binding{SourceKind::kKey, static_cast<u16>(k), 0}; };
-    auto mb = [](MouseButton b) { return Binding{SourceKind::kMouseButton, static_cast<u16>(b), 0}; };
+    auto mb = [](MouseButton b) {
+      return Binding{SourceKind::kMouseButton, static_cast<u16>(b), 0};
+    };
     auto pad = [](GamepadButton g) {
       return Binding{SourceKind::kGamepadButton, static_cast<u16>(g), 0};
     };

@@ -16,7 +16,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 }  // namespace
@@ -35,7 +36,8 @@ int main() {
   // Dead ahead, in range.
   {
     ActivationCandidate c[1] = {{7, {0, 0, 10}}};
-    Check("ahead and near -> picked", PickActivationTarget(origin, forward, c, 1, 50.0f, 0.5f) == 0);
+    Check("ahead and near -> picked",
+          PickActivationTarget(origin, forward, c, 1, 50.0f, 0.5f) == 0);
   }
   // Behind the player is never picked.
   {
@@ -75,8 +77,8 @@ int main() {
     Check("shoved to the radius edge", std::fabs(out[0] - 1.0f) < 1e-4f);
     Check("height preserved", out[1] == 7.0f);
     // Exact overlap resolves deterministically (+x).
-    Check("exact overlap shoves deterministically", ShoveOutOfRadius(pusher, pusher, 1.0f, out) &&
-                                                        std::fabs(out[0] - 1.0f) < 1e-4f);
+    Check("exact overlap shoves deterministically",
+          ShoveOutOfRadius(pusher, pusher, 1.0f, out) && std::fabs(out[0] - 1.0f) < 1e-4f);
   }
 
   if (g_failures == 0) {

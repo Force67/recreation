@@ -32,7 +32,8 @@ int Inspect(const base::String& dir) {
   std::printf("modtool: %s\n", dir.c_str());
   for (const rx::modstream::ModResource& resource : manifest.resources) {
     rx::u64 resource_bytes = 0;
-    for (const rx::modstream::ResourceFile& f : resource.files) resource_bytes += f.size;
+    for (const rx::modstream::ResourceFile& f : resource.files)
+      resource_bytes += f.size;
     std::printf("  resource \"%s\" (%zu files, %llu bytes)\n", resource.name.c_str(),
                 resource.files.size(), static_cast<unsigned long long>(resource_bytes));
     for (const rx::modstream::ResourceFile& f : resource.files) {
@@ -49,7 +50,8 @@ int Inspect(const base::String& dir) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc >= 3 && std::strcmp(argv[1], "inspect") == 0) return Inspect(argv[2]);
+  if (argc >= 3 && std::strcmp(argv[1], "inspect") == 0)
+    return Inspect(argv[2]);
   PrintUsage();
   return argc == 2 && std::strcmp(argv[1], "--help") == 0 ? 0 : 1;
 }

@@ -28,8 +28,12 @@ void PutBytes(base::Vector<u8>* out, const void* data, size_t size) {
   out->insert(out->end(), p, p + size);
 }
 
-void PutU16(base::Vector<u8>* out, u16 v) { PutBytes(out, &v, sizeof(v)); }
-void PutU32(base::Vector<u8>* out, u32 v) { PutBytes(out, &v, sizeof(v)); }
+void PutU16(base::Vector<u8>* out, u16 v) {
+  PutBytes(out, &v, sizeof(v));
+}
+void PutU32(base::Vector<u8>* out, u32 v) {
+  PutBytes(out, &v, sizeof(v));
+}
 
 template <typename T>
 void PutPod(base::Vector<u8>* out, const T& v) {
@@ -54,7 +58,8 @@ void EncodeSubrecord(u32 type, ByteSpan data, base::Vector<u8>* out) {
 }
 
 void EncodeSubrecords(const base::Vector<Subrecord>& subrecords, base::Vector<u8>* out) {
-  for (const auto& sub : subrecords) EncodeSubrecord(sub.type, sub.data, out);
+  for (const auto& sub : subrecords)
+    EncodeSubrecord(sub.type, sub.data, out);
 }
 
 void EncodeRecord(const Record& record, base::Vector<u8>* out) {
@@ -129,7 +134,8 @@ PluginWriter& PluginWriter::set_compress(bool compress) {
 
 PluginWriter::Group& PluginWriter::GroupFor(u32 type) {
   for (auto& group : groups_) {
-    if (group.type == type) return group;
+    if (group.type == type)
+      return group;
   }
   groups_.push_back(Group{type, {}});
   return groups_[groups_.size() - 1];

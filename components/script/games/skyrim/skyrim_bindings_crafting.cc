@@ -17,7 +17,8 @@ using papyrus::ObjectRef;
 void RecordBackedSkyrimBindings::BuildRecipes() {
   recipes_built_ = true;
   recipe_cache_.clear();
-  if (!records_) return;
+  if (!records_)
+    return;
   // A COBJ lists its inputs as repeated CNTO ({ formid; uint32 count }) entries,
   // then names the output (CNAM), the workbench keyword (BNAM) and the output
   // quantity (NAM1 uint16). CTDA conditions and COED component data are skipped.
@@ -27,7 +28,8 @@ void RecordBackedSkyrimBindings::BuildRecipes() {
       FourCc('C', 'O', 'B', 'J'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
         bethesda::Record rec;
-        if (!records_->Parse(id, &rec)) return;
+        if (!records_->Parse(id, &rec))
+          return;
         Recipe recipe;
         for (const bethesda::Subrecord& sub : rec.subrecords) {
           if (sub.type == FourCc('C', 'N', 'T', 'O') && sub.data.size() >= 8) {
@@ -53,17 +55,20 @@ void RecordBackedSkyrimBindings::BuildRecipes() {
             recipe.output_count = quantity;
           }
         }
-        if (recipe.output != 0) recipe_cache_.push_back(base::move(recipe));
+        if (recipe.output != 0)
+          recipe_cache_.push_back(base::move(recipe));
       });
 }
 
 i32 RecordBackedSkyrimBindings::GetRecipeCount() {
-  if (!recipes_built_) BuildRecipes();
+  if (!recipes_built_)
+    BuildRecipes();
   return static_cast<i32>(recipe_cache_.size());
 }
 
 const RecordBackedSkyrimBindings::Recipe* RecordBackedSkyrimBindings::RecipeAt(i32 index) const {
-  if (index < 0 || static_cast<size_t>(index) >= recipe_cache_.size()) return nullptr;
+  if (index < 0 || static_cast<size_t>(index) >= recipe_cache_.size())
+    return nullptr;
   return &recipe_cache_[static_cast<size_t>(index)];
 }
 
@@ -89,13 +94,15 @@ i32 RecordBackedSkyrimBindings::GetNthRecipeInputCount(i32 recipe) {
 
 ObjectRef RecordBackedSkyrimBindings::GetNthRecipeInput(i32 recipe, i32 input) {
   const Recipe* r = RecipeAt(recipe);
-  if (!r || input < 0 || static_cast<size_t>(input) >= r->inputs.size()) return {};
+  if (!r || input < 0 || static_cast<size_t>(input) >= r->inputs.size())
+    return {};
   return ObjectRef{r->inputs[static_cast<size_t>(input)].item};
 }
 
 i32 RecordBackedSkyrimBindings::GetNthRecipeInputQuantity(i32 recipe, i32 input) {
   const Recipe* r = RecipeAt(recipe);
-  if (!r || input < 0 || static_cast<size_t>(input) >= r->inputs.size()) return 0;
+  if (!r || input < 0 || static_cast<size_t>(input) >= r->inputs.size())
+    return 0;
   return r->inputs[static_cast<size_t>(input)].count;
 }
 

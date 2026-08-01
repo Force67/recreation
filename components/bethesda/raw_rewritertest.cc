@@ -32,7 +32,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 constexpr u32 kWeap = FourCc('W', 'E', 'A', 'P');
@@ -115,14 +116,17 @@ void TestReplaceAndDelete(const base::String& dir, const GameProfile& profile) {
   const GameProfile& p = profile;
   auto plugin = PluginFile::Open(path, p);
   Check("rewritten plugin opens", plugin.has_value());
-  if (!plugin) return;
+  if (!plugin)
+    return;
 
   base::Vector<base::String> weap_edids;
   bool saw_armo = false;
   bool structure_ok = true;
   plugin->VisitRecords([&](Record& r) {
-    if (r.header.type == kArmo) saw_armo = true;
-    if (r.header.type == kWeap) weap_edids.push_back(r.GetString(kEdid));
+    if (r.header.type == kArmo)
+      saw_armo = true;
+    if (r.header.type == kWeap)
+      weap_edids.push_back(r.GetString(kEdid));
   });
   // If any group size were wrong, the walk would desync and mis-parse; a clean
   // read of exactly the expected records is the structural check.
@@ -130,8 +134,10 @@ void TestReplaceAndDelete(const base::String& dir, const GameProfile& profile) {
   Check("both swords remain", weap_edids.size() == 2);
   bool has_reforged = false, has_swordb = false;
   for (const base::String& e : weap_edids) {
-    if (e == "SwordA_Reforged_With_A_Much_Longer_Name") has_reforged = true;
-    if (e == "SwordB") has_swordb = true;
+    if (e == "SwordA_Reforged_With_A_Much_Longer_Name")
+      has_reforged = true;
+    if (e == "SwordB")
+      has_swordb = true;
   }
   Check("replacement content present", has_reforged);
   Check("untouched record intact", has_swordb);

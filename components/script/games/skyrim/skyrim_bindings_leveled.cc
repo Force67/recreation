@@ -14,15 +14,19 @@ using papyrus::ObjectRef;
 
 i32 RecordBackedSkyrimBindings::GetLeveledListCount(ObjectRef list) {
   leveled_cache_ = LeveledList{};
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(list);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return 0;
+  if (!records_->Parse(id, &rec))
+    return 0;
   // Leveled item lists (LVLI) and leveled actor lists (LVLN) share the format, so
   // one resolver serves loot and encounter spawns alike.
-  if (rec.header.type != FourCc('L', 'V', 'L', 'I') && rec.header.type != FourCc('L', 'V', 'L', 'N'))
+  if (rec.header.type != FourCc('L', 'V', 'L', 'I') &&
+      rec.header.type != FourCc('L', 'V', 'L', 'N'))
     return 0;
 
   // LVLD is the percent chance of nothing, LVLF the flags, and each LVLO is a
@@ -47,45 +51,57 @@ i32 RecordBackedSkyrimBindings::GetLeveledListCount(ObjectRef list) {
   return static_cast<i32>(leveled_cache_.entries.size());
 }
 
-i32 RecordBackedSkyrimBindings::GetLeveledChanceNone() { return leveled_cache_.chance_none; }
-i32 RecordBackedSkyrimBindings::GetLeveledFlags() { return leveled_cache_.flags; }
+i32 RecordBackedSkyrimBindings::GetLeveledChanceNone() {
+  return leveled_cache_.chance_none;
+}
+i32 RecordBackedSkyrimBindings::GetLeveledFlags() {
+  return leveled_cache_.flags;
+}
 
 ObjectRef RecordBackedSkyrimBindings::GetNthLeveledForm(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size())
+    return {};
   return ObjectRef{leveled_cache_.entries[static_cast<size_t>(index)].form};
 }
 
 i32 RecordBackedSkyrimBindings::GetNthLeveledLevel(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size()) return 0;
+  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size())
+    return 0;
   return leveled_cache_.entries[static_cast<size_t>(index)].level;
 }
 
 i32 RecordBackedSkyrimBindings::GetNthLeveledCount(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size()) return 0;
+  if (index < 0 || static_cast<size_t>(index) >= leveled_cache_.entries.size())
+    return 0;
   return leveled_cache_.entries[static_cast<size_t>(index)].count;
 }
 
 i32 RecordBackedSkyrimBindings::GetFormListSize(ObjectRef list) {
   form_list_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(list);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('F', 'L', 'S', 'T')) return 0;
+  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('F', 'L', 'S', 'T'))
+    return 0;
   // Each LNAM is one 4-byte entry form id, local to the list's plugin.
   for (const bethesda::Subrecord& sub : rec.subrecords) {
-    if (sub.type != FourCc('L', 'N', 'A', 'M') || sub.data.size() < 4) continue;
+    if (sub.type != FourCc('L', 'N', 'A', 'M') || sub.data.size() < 4)
+      continue;
     u32 raw;
     std::memcpy(&raw, sub.data.data(), 4);
-    form_list_cache_.push_back(
-        ObjectRef{records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed()});
+    form_list_cache_.push_back(ObjectRef{
+        records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed()});
   }
   return static_cast<i32>(form_list_cache_.size());
 }
 
 ObjectRef RecordBackedSkyrimBindings::GetNthListForm(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= form_list_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= form_list_cache_.size())
+    return {};
   return form_list_cache_[static_cast<size_t>(index)];
 }
 

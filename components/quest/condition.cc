@@ -59,14 +59,16 @@ bool Evaluate(const ConditionList& conditions, const ConditionContext& ctx) {
     group = group || EvaluateOne(c, ctx);
     open = true;
     if (!c.or_next) {
-      if (!group) return false;
+      if (!group)
+        return false;
       group = false;
       open = false;
     }
   }
   // A trailing group left open by an or_next set on the final comparison
   // (malformed data) still has to hold.
-  if (open && !group) return false;
+  if (open && !group)
+    return false;
   return true;
 }
 

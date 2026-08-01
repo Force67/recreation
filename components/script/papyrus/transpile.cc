@@ -34,7 +34,8 @@ class Emitter {
     Line("");
     Line("namespace " + opts_.namespace_name + ";");
     Line("");
-    for (const Object& obj : pex_.objects) EmitObject(obj);
+    for (const Object& obj : pex_.objects)
+      EmitObject(obj);
     return out_;
   }
 
@@ -60,18 +61,23 @@ class Emitter {
   // chiefly "::State". Returned as raw Papyrus names, deduplicated.
   base::Set<base::String> ImplicitMembers(const Object& obj) {
     base::Set<base::String> declared;
-    for (const MemberVariable& v : obj.variables) declared.insert(Str(v.name));
+    for (const MemberVariable& v : obj.variables)
+      declared.insert(Str(v.name));
     base::Set<base::String> implicit;
     for (const State& s : obj.states) {
       for (const NamedFunction& nf : s.functions) {
         base::Set<base::String> locals;
-        for (const TypedName& l : nf.function.locals) locals.insert(Str(l.name));
+        for (const TypedName& l : nf.function.locals)
+          locals.insert(Str(l.name));
         auto scan = [&](const base::Vector<VariableData>& ops) {
           for (const VariableData& v : ops) {
-            if (v.type != VariableData::Type::kIdentifier) continue;
+            if (v.type != VariableData::Type::kIdentifier)
+              continue;
             const base::String& n = Str(v.string_index);
-            if (n.size() < 2 || n[0] != ':' || n[1] != ':') continue;
-            if (locals.count(n) || declared.count(n)) continue;
+            if (n.size() < 2 || n[0] != ':' || n[1] != ':')
+              continue;
+            if (locals.count(n) || declared.count(n))
+              continue;
             implicit.insert(n);
           }
         };
@@ -90,18 +96,25 @@ class Emitter {
   // variant onto the one field via case_names_. Harness only.
   base::Set<base::String> HarnessUnresolved(const Object& obj) {
     base::Set<base::String> object_lower;
-    for (const auto& [lower, _] : case_names_) object_lower.insert(lower);
-    for (const base::String& raw : ImplicitMembers(obj)) object_lower.insert(ToLower(raw));
+    for (const auto& [lower, _] : case_names_)
+      object_lower.insert(lower);
+    for (const base::String& raw : ImplicitMembers(obj))
+      object_lower.insert(ToLower(raw));
     base::Set<base::String> fields;
     auto scan = [&](const Function& fn) {
       base::Set<base::String> scoped = object_lower;
-      for (const TypedName& p : fn.params) scoped.insert(ToLower(Str(p.name)));
-      for (const TypedName& l : fn.locals) scoped.insert(ToLower(Str(l.name)));
+      for (const TypedName& p : fn.params)
+        scoped.insert(ToLower(Str(p.name)));
+      for (const TypedName& l : fn.locals)
+        scoped.insert(ToLower(Str(l.name)));
       auto consider_name = [&](const base::String& n) {
-        if (n.empty() || (n.size() >= 2 && n[0] == ':' && n[1] == ':')) return;
-        if (IEquals(n, "self") || IEquals(n, "value")) return;  // value is the setter param
+        if (n.empty() || (n.size() >= 2 && n[0] == ':' && n[1] == ':'))
+          return;
+        if (IEquals(n, "self") || IEquals(n, "value"))
+          return;  // value is the setter param
         base::String lower = ToLower(n);
-        if (scoped.count(lower)) return;
+        if (scoped.count(lower))
+          return;
         base::String canon = Sanitize(n);
         case_names_.emplace(lower, canon);
         fields.insert(canon);
@@ -111,19 +124,23 @@ class Emitter {
       // that currently hold self to recognise those self-property accesses.
       base::Set<base::String> self_temps;
       auto is_self = [&](const VariableData& v) {
-        if (v.type != VariableData::Type::kIdentifier) return false;
+        if (v.type != VariableData::Type::kIdentifier)
+          return false;
         const base::String& n = Str(v.string_index);
         return IEquals(n, "self") || self_temps.count(n) != 0;
       };
       for (const Instruction& in : fn.code) {
         const Roles r = RolesOf(in.op);
         auto op = [&](int idx) {
-          if (idx < 0 || idx >= static_cast<int>(in.args.size())) return;
+          if (idx < 0 || idx >= static_cast<int>(in.args.size()))
+            return;
           if (in.args[idx].type == VariableData::Type::kIdentifier)
             consider_name(Str(in.args[idx].string_index));
         };
-        for (int idx : r.reads) op(idx);
-        if (r.dest >= 0) op(r.dest);
+        for (int idx : r.reads)
+          op(idx);
+        if (r.dest >= 0)
+          op(r.dest);
         // An inherited property reached on self carries its name in args[0],
         // outside the read set, so pick it up here.
         if ((in.op == Op::kPropGet || in.op == Op::kPropSet) && in.args.size() >= 2 &&
@@ -139,10 +156,13 @@ class Emitter {
       }
     };
     for (const State& s : obj.states)
-      for (const NamedFunction& nf : s.functions) scan(nf.function);
+      for (const NamedFunction& nf : s.functions)
+        scan(nf.function);
     for (const Property& p : obj.properties) {
-      if (p.has_getter) scan(p.getter);
-      if (p.has_setter) scan(p.setter);
+      if (p.has_getter)
+        scan(p.getter);
+      if (p.has_setter)
+        scan(p.setter);
     }
     return fields;
   }
@@ -162,30 +182,36 @@ class Emitter {
     // with a data member is renamed (and self-calls follow it).
     base::Set<base::String> members;
     for (const MemberVariable& v : obj.variables) {
-      if (backing_.count(Str(v.name))) continue;
+      if (backing_.count(Str(v.name)))
+        continue;
       members.insert(Sanitize(Str(v.name)));
     }
-    for (const Property& p : obj.properties) members.insert(Sanitize(Str(p.name)));
+    for (const Property& p : obj.properties)
+      members.insert(Sanitize(Str(p.name)));
     fn_rename_.clear();
     case_names_.clear();
     case_fns_.clear();
     for (const MemberVariable& v : obj.variables) {
-      if (backing_.count(Str(v.name))) continue;
+      if (backing_.count(Str(v.name)))
+        continue;
       case_names_[ToLower(Str(v.name))] = Sanitize(Str(v.name));
     }
     for (const Property& p : obj.properties)
       case_names_[ToLower(Str(p.name))] = Sanitize(Str(p.name));
     for (const State& s : obj.states) {
-      if (s.name != kInvalidString && !Str(s.name).empty()) continue;  // default state only
+      if (s.name != kInvalidString && !Str(s.name).empty())
+        continue;  // default state only
       for (const NamedFunction& nf : s.functions) {
         base::String n = Sanitize(Str(nf.name));
-        if (members.count(n)) fn_rename_[Str(nf.name)] = n + "_fn";
+        if (members.count(n))
+          fn_rename_[Str(nf.name)] = n + "_fn";
         case_fns_[ToLower(Str(nf.name))] = members.count(n) ? n + "_fn" : n;
       }
     }
 
     base::String name = Sanitize(Str(obj.name));
-    if (opts_.sink) opts_.sink->declared_types.insert(name);
+    if (opts_.sink)
+      opts_.sink->declared_types.insert(name);
     base::String parent = Str(obj.parent_class);
     // The harness has no engine base types and routes inherited calls through
     // dynamic, so it drops the `: Parent` clause. The runner instead derives from
@@ -194,15 +220,18 @@ class Emitter {
                         : (Harness() || parent.empty() || IEquals(parent, "none"))
                             ? ""
                             : " : " + Sanitize(parent);
-    if (!Str(obj.doc_string).empty()) LineComment(Str(obj.doc_string));
+    if (!Str(obj.doc_string).empty())
+      LineComment(Str(obj.doc_string));
     Line("public class " + name + base);
     Line("{");
     ++indent_;
-    if (Runner()) Line("public " + name + "() : base(\"" + name + "\") {}");
+    if (Runner())
+      Line("public " + name + "() : base(\"" + name + "\") {}");
 
     size_t emitted_vars = 0;
     for (const MemberVariable& v : obj.variables) {
-      if (backing_.count(Str(v.name))) continue;  // hidden auto-property backing
+      if (backing_.count(Str(v.name)))
+        continue;  // hidden auto-property backing
       EmitMember(v);
       ++emitted_vars;
     }
@@ -221,15 +250,19 @@ class Emitter {
         Line("private dynamic " + field + MemberSeed(field) + ";");
         ++emitted_vars;
       }
-    if (emitted_vars) Line("");
-    for (const Property& p : obj.properties) EmitProperty(obj, p);
+    if (emitted_vars)
+      Line("");
+    for (const Property& p : obj.properties)
+      EmitProperty(obj, p);
 
     // Functions live inside states. The default state's functions are the
     // script's methods; a named state's are emitted under a state-qualified name.
     for (const State& s : obj.states) {
       base::String sname = Str(s.name);
-      if (!sname.empty()) Line("// state " + sname);
-      for (const NamedFunction& nf : s.functions) EmitFunction(obj, nf, sname);
+      if (!sname.empty())
+        Line("// state " + sname);
+      for (const NamedFunction& nf : s.functions)
+        EmitFunction(obj, nf, sname);
     }
 
     --indent_;
@@ -270,7 +303,8 @@ class Emitter {
     base::String name = Sanitize(Str(p.name));
     if (p.is_auto()) {
       base::String acc = "{ get; set; }";
-      if (p.readable() && !p.writable()) acc = "{ get; }";
+      if (p.readable() && !p.writable())
+        acc = "{ get; }";
       Line("public " + type + " " + name + " " + acc + (Runner() ? MemberSeed(name) + ";" : ""));
       Line("");
       return;
@@ -316,18 +350,24 @@ class Emitter {
       name = Sanitize(state) + "_" + name;
     } else {
       auto* rit = fn_rename_.find(Str(nf.name));
-      if (rit != nullptr) name = *rit;
+      if (rit != nullptr)
+        name = *rit;
     }
 
-    if (opts_.emit_disasm_comments) EmitDisasm(fn);
-    if (!state.empty()) Line("// state " + state);
-    if (!Str(fn.doc_string).empty()) LineComment(Str(fn.doc_string));
+    if (opts_.emit_disasm_comments)
+      EmitDisasm(fn);
+    if (!state.empty())
+      Line("// state " + state);
+    if (!Str(fn.doc_string).empty())
+      LineComment(Str(fn.doc_string));
 
     base::String sig = "public ";
-    if (fn.is_global) sig += "static ";
+    if (fn.is_global)
+      sig += "static ";
     sig += ret + " " + name + "(";
     for (size_t i = 0; i < fn.params.size(); ++i) {
-      if (i) sig += ", ";
+      if (i)
+        sig += ", ";
       sig += DeclType(Str(fn.params[i].type)) + " " + Sanitize(Str(fn.params[i].name));
     }
     sig += ")";
@@ -336,13 +376,15 @@ class Emitter {
     ++indent_;
     if (fn.is_native) {
       Line("// native: implemented by the engine.");
-      if (ret != "void") Line("return default;");
+      if (ret != "void")
+        Line("return default;");
     } else {
       EmitLocals(fn);
       DecompileFunction(Ctx(), fn, out_, indent_);
       // Papyrus lets a non-Void function fall off the end with an implicit zero
       // return, which C# does not, so close that path explicitly.
-      if (ret != "void" && EndReachable(fn)) Line("return default;");
+      if (ret != "void" && EndReachable(fn))
+        Line("return default;");
     }
     --indent_;
     Line("}");
@@ -354,12 +396,16 @@ class Emitter {
   // names a setter value parameter that must not be declared.
   void EmitLocals(const Function& fn, const base::String& value_param = "") {
     base::Set<base::String> params;
-    for (const TypedName& p : fn.params) params.insert(Str(p.name));
-    if (!value_param.empty()) params.insert(value_param);
+    for (const TypedName& p : fn.params)
+      params.insert(Str(p.name));
+    if (!value_param.empty())
+      params.insert(value_param);
     for (const TypedName& l : fn.locals) {
       base::String n = Str(l.name);
-      if (n.size() >= 2 && n[0] == ':' && n[1] == ':') continue;  // compiler temp
-      if (params.count(n)) continue;
+      if (n.size() >= 2 && n[0] == ':' && n[1] == ':')
+        continue;  // compiler temp
+      if (params.count(n))
+        continue;
       Line(DeclType(Str(l.type)) + " " + Sanitize(n) + " = default;");
     }
   }
@@ -369,8 +415,10 @@ class Emitter {
     for (size_t i = 0; i < fn.code.size(); ++i) {
       const Instruction& in = fn.code[i];
       base::String s = "  " + base::ToString(i) + ": " + GetOpInfo(in.op).mnemonic;
-      for (const VariableData& a : in.args) s += " " + Operand(a);
-      for (const VariableData& a : in.var_args) s += " " + Operand(a);
+      for (const VariableData& a : in.args)
+        s += " " + Operand(a);
+      for (const VariableData& a : in.var_args)
+        s += " " + Operand(a);
       Line(s);
     }
     Line("*/");
@@ -408,9 +456,11 @@ class Emitter {
       size_t nl = text.find('\n', start);
       size_t end = (nl == base::String::npos) ? text.size() : nl;
       base::String piece = text.substr(start, end - start);
-      if (!piece.empty() && piece.back() == '\r') piece.pop_back();
+      if (!piece.empty() && piece.back() == '\r')
+        piece.pop_back();
       Line("// " + piece);
-      if (nl == base::String::npos) break;
+      if (nl == base::String::npos)
+        break;
       start = nl + 1;
     }
   }
@@ -431,24 +481,29 @@ base::String TranspileToCSharp(const PexFile& pex, const TranspileOptions& opts)
   return Emitter(pex, opts).Run();
 }
 
-base::String TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
+base::String TranspileFunctionToCSharp(const PexFile& pex,
+                                       const Function& fn,
                                        const base::String& cs_name) {
   using namespace detail;
   TranspileOptions opts;  // real mode: concrete types, self-contained for a pure fn
   base::String out =
       "    public static " + DeclTypeFor(pex.Str(fn.return_type), false) + " " + cs_name + "(";
   for (size_t i = 0; i < fn.params.size(); ++i) {
-    if (i) out += ", ";
+    if (i)
+      out += ", ";
     out +=
         DeclTypeFor(pex.Str(fn.params[i].type), false) + " " + Sanitize(pex.Str(fn.params[i].name));
   }
   out += ") {\n";
   base::Set<base::String> params;
-  for (const TypedName& p : fn.params) params.insert(pex.Str(p.name));
+  for (const TypedName& p : fn.params)
+    params.insert(pex.Str(p.name));
   for (const TypedName& l : fn.locals) {
     base::String n = pex.Str(l.name);
-    if (n.size() >= 2 && n[0] == ':' && n[1] == ':') continue;
-    if (params.count(n)) continue;
+    if (n.size() >= 2 && n[0] == ':' && n[1] == ':')
+      continue;
+    if (params.count(n))
+      continue;
     out += "        " + DeclTypeFor(pex.Str(l.type), false) + " " + Sanitize(n) + " = default;\n";
   }
   DecompileFunction({pex, nullptr, nullptr, nullptr, nullptr, &opts}, fn, out, 2);

@@ -3,8 +3,8 @@
 
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/script/papyrus/value.h"
+#include "core/types.h"
 
 // A keyed runtime store the native batches share, so a set/get pair round-trips
 // even when the engine subsystem behind it is not built yet (a script that calls

@@ -16,16 +16,16 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "core/types.h"
+#include "components/modstream/asset_request.h"
 #include "components/modstream/content_hash.h"
 #include "components/modstream/content_provider.h"
 #include "components/modstream/content_store.h"
-#include "components/modstream/manifest_codec.h"
-#include "components/modstream/asset_request.h"
 #include "components/modstream/manifest_chunk.h"
+#include "components/modstream/manifest_codec.h"
 #include "components/modstream/mod_catalog.h"
 #include "components/modstream/stream_filter.h"
 #include "components/modstream/transfer_plan.h"
+#include "core/types.h"
 
 namespace fs = std::filesystem;
 using namespace rx;
@@ -40,7 +40,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void WriteFile(const fs::path& path, const base::String& contents) {
@@ -51,14 +52,16 @@ void WriteFile(const fs::path& path, const base::String& contents) {
 
 const ResourceFile* FindFile(const ModResource& resource, const base::String& path) {
   for (const ResourceFile& f : resource.files) {
-    if (f.path == path) return &f;
+    if (f.path == path)
+      return &f;
   }
   return nullptr;
 }
 
 const ModResource* FindResource(const ModManifest& manifest, const base::String& name) {
   for (const ModResource& r : manifest.resources) {
-    if (r.name == name) return &r;
+    if (r.name == name)
+      return &r;
   }
   return nullptr;
 }
@@ -275,7 +278,8 @@ int main() {
   for (const NeededFile& need : plan) {
     const auto src = catalog->PathForHash(need.hash);
     Check("server can serve every planned hash", src.has_value());
-    if (!src) continue;
+    if (!src)
+      continue;
     const fs::path staged = stage_dir / (base::ToString(need.hash) + ".part").c_str();
     fs::copy_file(*src, staged, fs::copy_options::overwrite_existing, ec);
     const auto stored = store.Adopt(need.hash, staged);

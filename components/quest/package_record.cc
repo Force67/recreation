@@ -5,8 +5,8 @@
 #include <cstring>
 
 #include "components/bethesda/load_order.h"
-#include "components/quest/ctda.h"
 #include "components/bethesda/record.h"
+#include "components/quest/ctda.h"
 #include "core/types.h"
 
 namespace rx::quest {
@@ -62,7 +62,8 @@ bool IsTravelTarget(PackageTarget::Kind kind) {
   return false;
 }
 
-PackageDef ParseImpl(u64 handle, const bethesda::Record& record,
+PackageDef ParseImpl(u64 handle,
+                     const bethesda::Record& record,
                      const bethesda::RecordStore* records) {
   PackageDef def;
   def.handle = handle;
@@ -72,7 +73,8 @@ PackageDef ParseImpl(u64 handle, const bethesda::Record& record,
   // plugin index. Without a store, references stay raw.
   u16 plugin = static_cast<u16>(handle >> 32);
   auto resolve = [&](u32 raw) -> u64 {
-    if (raw == 0 || records == nullptr) return raw;
+    if (raw == 0 || records == nullptr)
+      return raw;
     return records->ResolveFrom(bethesda::RawFormId{raw}, plugin).packed();
   };
 
@@ -86,7 +88,8 @@ PackageDef ParseImpl(u64 handle, const bethesda::Record& record,
   // are secondary inputs (sandbox radius anchors, fallback points).
   bool have_target = false;
   for (const bethesda::Subrecord& sub : record.subrecords) {
-    if (have_target) break;
+    if (have_target)
+      break;
     if (sub.type == kPldt) {
       u32 type = ReadAt<u32>(sub, 0);
       u32 data = ReadAt<u32>(sub, 4);
@@ -163,7 +166,8 @@ PackageDef ParseImpl(u64 handle, const bethesda::Record& record,
 
 }  // namespace
 
-PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record,
+PackageDef ParsePackageRecord(u64 handle,
+                              const bethesda::Record& record,
                               const bethesda::RecordStore& records) {
   return ParseImpl(handle, record, &records);
 }
@@ -174,12 +178,14 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record) {
 
 int SelectActivePackage(const base::Vector<PackageDef>& packages, const ConditionContext& ctx) {
   for (size_t i = 0; i < packages.size(); ++i)
-    if (Evaluate(packages[i].conditions, ctx)) return static_cast<int>(i);
+    if (Evaluate(packages[i].conditions, ctx))
+      return static_cast<int>(i);
   return -1;
 }
 
 base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
-                                                const AliasDef& alias, u16 quest_plugin) {
+                                                const AliasDef& alias,
+                                                u16 quest_plugin) {
   base::Vector<RouteStop> route;
   // Highest priority first in the record, so the first leg to run is the last
   // one listed; walk the list backwards to get travel order.
@@ -187,7 +193,8 @@ base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& rec
     const bethesda::GlobalFormId pack =
         records.ResolveFrom(bethesda::RawFormId{alias.package_raw[i]}, quest_plugin);
     bethesda::Record record;
-    if (!records.Parse(pack, &record)) continue;
+    if (!records.Parse(pack, &record))
+      continue;
     const PackageDef def = ParsePackageRecord(pack.packed(), record, records);
     // Only legs that name a concrete destination are part of a route; the
     // stay-put packages bracketing the list are the actor's idle states.
@@ -196,9 +203,11 @@ base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& rec
     const bethesda::GlobalFormId marker{static_cast<u16>(def.target.ref >> 32),
                                         static_cast<u32>(def.target.ref)};
     bethesda::Record marker_record;
-    if (!records.Parse(marker, &marker_record)) continue;
+    if (!records.Parse(marker, &marker_record))
+      continue;
     const bethesda::Subrecord* data = marker_record.Find(FourCc('D', 'A', 'T', 'A'));
-    if (!data || data->data.size() < 12) continue;
+    if (!data || data->data.size() < 12)
+      continue;
     RouteStop stop;
     stop.package = pack.packed();
     stop.marker = marker.packed();
@@ -212,19 +221,24 @@ base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& rec
     bethesda::GlobalFormId link = marker;
     for (int hop = 0; hop < 64; ++hop) {
       bethesda::Record current;
-      if (!records.Parse(link, &current)) break;
+      if (!records.Parse(link, &current))
+        break;
       const bethesda::Subrecord* xlkr = current.Find(kXlkr);
-      if (!xlkr || xlkr->data.size() < 8) break;
+      if (!xlkr || xlkr->data.size() < 8)
+        break;
       u32 next_raw;
       std::memcpy(&next_raw, xlkr->data.data() + 4, 4);
-      if (!next_raw) break;
+      if (!next_raw)
+        break;
       const bethesda::RecordStore::StoredRecord* stored = records.Find(link);
       link = records.ResolveFrom(bethesda::RawFormId{next_raw},
                                  stored ? stored->winning_plugin : quest_plugin);
       bethesda::Record next;
-      if (!records.Parse(link, &next)) break;
+      if (!records.Parse(link, &next))
+        break;
       const bethesda::Subrecord* next_data = next.Find(FourCc('D', 'A', 'T', 'A'));
-      if (!next_data || next_data->data.size() < 12) break;
+      if (!next_data || next_data->data.size() < 12)
+        break;
       RouteStop via;  // no package: passing through, nothing fires here
       via.marker = link.packed();
       std::memcpy(via.position, next_data->data.data(), 12);

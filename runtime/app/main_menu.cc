@@ -98,7 +98,8 @@ void ResolveUniverses(Engine& engine) {
     if (self->config_.game == g && !self->config_.data_dir.empty())
       return {self->config_.data_dir, self->config_.plugins_txt};
     for (const auto& d : self->config_.extra_domains)
-      if (d.game == g && !d.data_dir.empty()) return {d.data_dir, d.plugins_txt};
+      if (d.game == g && !d.data_dir.empty())
+        return {d.data_dir, d.plugins_txt};
     return {"", ""};
   };
   for (int i = 0; i < 3; ++i) {
@@ -113,8 +114,9 @@ void ResolveUniverses(Engine& engine) {
       u.plugins_txt = cp;
     }
     if (u.data_dir.empty())
-      if (const char* e = std::getenv(specs[i].env)) u.data_dir = e;  // env override
-    if (u.data_dir.empty()) {                                         // Steam scan
+      if (const char* e = std::getenv(specs[i].env))
+        u.data_dir = e;        // env override
+    if (u.data_dir.empty()) {  // Steam scan
       for (const char* root : roots) {
         std::error_code ec;
         fs::path p = fs::path(root) / specs[i].subdir;
@@ -124,7 +126,8 @@ void ResolveUniverses(Engine& engine) {
         }
       }
     }
-    if (u.plugins_txt.empty() && !u.data_dir.empty()) u.plugins_txt = u.data_dir + "/../plugins.txt";
+    if (u.plugins_txt.empty() && !u.data_dir.empty())
+      u.plugins_txt = u.data_dir + "/../plugins.txt";
     std::error_code ec;
     u.available = !u.data_dir.empty() && fs::exists(u.data_dir.c_str(), ec);
     RX_INFO("menu universe {}: {} -> {}", i, u.name.c_str(),
@@ -138,7 +141,8 @@ void ResolveUniverses(Engine& engine) {
 static base::Vector<MenuNewsItem> ParseChangelog(const base::String& path, int max_items) {
   base::Vector<MenuNewsItem> out;
   std::ifstream f(path.c_str());
-  if (!f) return out;
+  if (!f)
+    return out;
   auto trim = [](base::String s) {
     const size_t a = s.find_first_not_of(" \t\r\n");
     const size_t b = s.find_last_not_of(" \t\r\n");
@@ -157,7 +161,8 @@ static base::Vector<MenuNewsItem> ParseChangelog(const base::String& path, int m
       if (lb != base::String::npos && rb != base::String::npos && rb > lb)
         ver = line.substr(lb + 1, rb - lb - 1);
       const size_t d = line.find("- ", rb == base::String::npos ? 0 : rb);
-      if (d != base::String::npos) date = trim(line.substr(d + 2));
+      if (d != base::String::npos)
+        date = trim(line.substr(d + 2));
       want_bullet = true;
     } else if (want_bullet && line.rfind("- ", 0) == 0) {  // first change = headline
       MenuNewsItem it;
@@ -165,7 +170,8 @@ static base::Vector<MenuNewsItem> ParseChangelog(const base::String& path, int m
       it.detail = ver.empty() ? date : ("v" + ver + (date.empty() ? "" : "  \xc2\xb7  " + date));
       out.push_back(base::move(it));
       want_bullet = false;
-      if (static_cast<int>(out.size()) >= max_items) break;
+      if (static_cast<int>(out.size()) >= max_items)
+        break;
     }
   }
   return out;
@@ -184,24 +190,29 @@ void SetupMainMenu(Engine& engine) {
   self->game_ui_.SetMainMenuUniverses(names, avail);
   self->game_ui_.OpenMainMenu();
   base::Vector<MenuNewsItem> news = ParseChangelog("CHANGELOG.md", 3);
-  if (news.empty()) news = {{"Welcome to Recreation", "v" RECREATION_VERSION}};
+  if (news.empty())
+    news = {{"Welcome to Recreation", "v" RECREATION_VERSION}};
   self->game_ui_.SetMainMenuNews(news);
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
   RX_INFO("nexus main menu open");
 }
 
-void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
+void EnterUniverse(Engine& engine,
+                   int idx,
+                   bool multiplayer,
+                   bool host,
                    const base::String& join_address) {
   Engine* const self = &engine;
-  if (idx < 0 || idx >= static_cast<int>(self->menu_universes_.size())) return;
+  if (idx < 0 || idx >= static_cast<int>(self->menu_universes_.size()))
+    return;
   const Engine::MenuUniverse& u = self->menu_universes_[idx];
   if (!u.available) {
     RX_WARN("universe {} has no data; cannot enter", u.name);
     return;
   }
   RX_INFO("entering universe {}{}", u.name,
-           multiplayer ? (host ? " (hosting)" : " (joining)") : "");
+          multiplayer ? (host ? " (hosting)" : " (joining)") : "");
   self->config_.game = u.game;
   self->config_.data_dir = u.data_dir;
   self->config_.plugins_txt = u.plugins_txt;
@@ -228,7 +239,8 @@ void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
   }
 #if RECREATION_HAS_NET
   if (self->config_.host_server || !self->config_.connect_address.empty()) {
-    if (!StartNetworking(engine)) RX_WARN("networking failed to start");
+    if (!StartNetworking(engine))
+      RX_WARN("networking failed to start");
   }
 #endif
 }
@@ -251,14 +263,18 @@ void Engine::UpdateMainMenu(f32 dt) {
   // Menu actions (keyboard arrows + gamepad dpad/stick + South/East) drive the
   // NEXUS menu; WASD and Space are kept as extra keyboard conveniences. Routed
   // through the same helpers so mouse, keyboard, and pad share one selection.
-  if (actions_->pressed(Action::kMenuUp) || in.key_pressed(Key::kW)) game_ui_.MainMenuMove(0, -1);
-  if (actions_->pressed(Action::kMenuDown) || in.key_pressed(Key::kS)) game_ui_.MainMenuMove(0, +1);
-  if (actions_->pressed(Action::kMenuLeft) || in.key_pressed(Key::kA)) game_ui_.MainMenuMove(-1, 0);
+  if (actions_->pressed(Action::kMenuUp) || in.key_pressed(Key::kW))
+    game_ui_.MainMenuMove(0, -1);
+  if (actions_->pressed(Action::kMenuDown) || in.key_pressed(Key::kS))
+    game_ui_.MainMenuMove(0, +1);
+  if (actions_->pressed(Action::kMenuLeft) || in.key_pressed(Key::kA))
+    game_ui_.MainMenuMove(-1, 0);
   if (actions_->pressed(Action::kMenuRight) || in.key_pressed(Key::kD))
     game_ui_.MainMenuMove(+1, 0);
   if (actions_->pressed(Action::kMenuAccept) || in.key_pressed(Key::kSpace))
     game_ui_.MainMenuActivate();
-  if (actions_->pressed(Action::kMenuCancel)) game_ui_.MainMenuBack();
+  if (actions_->pressed(Action::kMenuCancel))
+    game_ui_.MainMenuBack();
 
   RefreshMenuData();
 
@@ -305,8 +321,10 @@ void Engine::RefreshMenuData() {
   base::String login;
   char host[256] = {0};
 #if !defined(_WIN32)
-  if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name) login = pw->pw_name;
-  if (gethostname(host, sizeof(host) - 1) != 0) host[0] = '\0';
+  if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name)
+    login = pw->pw_name;
+  if (gethostname(host, sizeof(host) - 1) != 0)
+    host[0] = '\0';
 #endif
   if (login.empty()) {
     if (const char* u = std::getenv("USER"))
@@ -331,7 +349,8 @@ void Engine::RefreshMenuData() {
 
   int avail = 0;
   for (const auto& u : menu_universes_)
-    if (u.available) ++avail;
+    if (u.available)
+      ++avail;
   stats.universes_available = avail;
 
 #if RECREATION_HAS_NET
@@ -361,12 +380,18 @@ struct Rgb {
   float r, g, b;
 };
 
-inline float Clamp01(float v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); }
-inline float Mixf(float a, float b, float t) { return a + (b - a) * t; }
+inline float Clamp01(float v) {
+  return v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+}
+inline float Mixf(float a, float b, float t) {
+  return a + (b - a) * t;
+}
 inline Rgb Mix(Rgb a, Rgb b, float t) {
   return {Mixf(a.r, b.r, t), Mixf(a.g, b.g, t), Mixf(a.b, b.b, t)};
 }
-inline Rgb Add(Rgb a, Rgb b, float s) { return {a.r + b.r * s, a.g + b.g * s, a.b + b.b * s}; }
+inline Rgb Add(Rgb a, Rgb b, float s) {
+  return {a.r + b.r * s, a.g + b.g * s, a.b + b.b * s};
+}
 inline float Smooth(float e0, float e1, float x) {
   const float t = Clamp01((x - e0) / (e1 - e0));
   return t * t * (3.f - 2.f * t);
@@ -462,7 +487,8 @@ struct Glyph {
 };
 
 void GBlend(Glyph& g, int x, int y, Rgb col, float a) {
-  if (x < 0 || y < 0 || x >= g.w || y >= g.h || a <= 0.f) return;
+  if (x < 0 || y < 0 || x >= g.w || y >= g.h || a <= 0.f)
+    return;
   a = Clamp01(a);
   const size_t o = (static_cast<size_t>(y) * g.w + x) * 4;
   const float oa = g.px[o + 3] / 255.f;
@@ -553,7 +579,8 @@ void GEllipse(Glyph& g, float cx, float cy, float rx, float ry, float ang, float
     const float t = i / 48.f * 6.2831853f;
     const float ex = rx * std::cos(t), ey = ry * std::sin(t);
     const float x = cx + ex * ca - ey * sa, y = cy + ex * sa + ey * ca;
-    if (i > 0) GLine(g, pcx, pcy, x, y, thick, col);
+    if (i > 0)
+      GLine(g, pcx, pcy, x, y, thick, col);
     pcx = x;
     pcy = y;
   }
@@ -683,7 +710,9 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
 struct V3 {
   float x, y, z;
 };
-inline V3 Vsub(V3 a, V3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline V3 Vsub(V3 a, V3 b) {
+  return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
 inline V3 Vcross(V3 a, V3 b) {
   return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
 }
@@ -694,9 +723,15 @@ inline V3 Vnorm(V3 a) {
 }
 void PushVert(asset::MeshLod& m, V3 p, V3 n) {
   asset::Vertex v{};
-  v.position[0] = p.x; v.position[1] = p.y; v.position[2] = p.z;
-  v.normal[0] = n.x; v.normal[1] = n.y; v.normal[2] = n.z;
-  v.tangent[0] = 1.f; v.tangent[3] = 1.f; v.color = 0xffffffffu;
+  v.position[0] = p.x;
+  v.position[1] = p.y;
+  v.position[2] = p.z;
+  v.normal[0] = n.x;
+  v.normal[1] = n.y;
+  v.normal[2] = n.z;
+  v.tangent[0] = 1.f;
+  v.tangent[3] = 1.f;
+  v.color = 0xffffffffu;
   m.vertices.push_back(v);
 }
 // Flat-shaded triangle; winding auto-flipped to face away from the origin
@@ -708,7 +743,9 @@ void FaceTri(asset::MeshLod& m, V3 a, V3 b, V3 c) {
     base::Swap(b, c);
     n = {-n.x, -n.y, -n.z};
   }
-  PushVert(m, a, n); PushVert(m, b, n); PushVert(m, c, n);
+  PushVert(m, a, n);
+  PushVert(m, b, n);
+  PushVert(m, c, n);
 }
 asset::Mesh Finalize(asset::MeshLod&& lod) {
   asset::Mesh mesh;
@@ -719,7 +756,8 @@ asset::Mesh Finalize(asset::MeshLod&& lod) {
                                v.position[2] * v.position[2]));
   }
   // The vertex list is the index list (every tri owns its 3 verts).
-  for (size_t i = 0; i < lod.vertices.size(); ++i) lod.indices.push_back(static_cast<u32>(i));
+  for (size_t i = 0; i < lod.vertices.size(); ++i)
+    lod.indices.push_back(static_cast<u32>(i));
   asset::Submesh sm{};
   sm.index_count = static_cast<u32>(lod.indices.size());
   lod.submeshes.push_back(sm);
@@ -757,7 +795,8 @@ asset::Mesh MakeGem(int subdiv, float radius) {
   }
   asset::MeshLod lod;
   auto sc = [&](V3 p) { return V3{p.x * radius, p.y * radius, p.z * radius}; };
-  for (const auto& tr : tris) FaceTri(lod, sc(tr[0]), sc(tr[1]), sc(tr[2]));
+  for (const auto& tr : tris)
+    FaceTri(lod, sc(tr[0]), sc(tr[1]), sc(tr[2]));
   return Finalize(base::move(lod));
 }
 
@@ -778,9 +817,11 @@ void Engine::GenerateMenuBackdrops() {
   // Emblems / icons — line art bound to the menu's image widgets.
   for (const auto& [name, g] : BuildMenuGlyphs()) {
     const u64 tex = game_ui_.CreateUiTexture(g.w, g.h, g.px.data());
-    if (!tex) continue;
+    if (!tex)
+      continue;
     game_ui_.SetMainMenuGlyph(name, tex);
-    if (name == "gl_profile") game_ui_.SetMainMenuGlyph("gl_profile2", tex);  // sub-screen reuse
+    if (name == "gl_profile")
+      game_ui_.SetMainMenuGlyph("gl_profile2", tex);  // sub-screen reuse
   }
 
   // The menu's key art: a single faceted gem, clay-rendered once and composited
@@ -811,7 +852,8 @@ void Engine::GenerateMenuBackdrops() {
 }
 
 void Engine::TickMenuCapture() {
-  if (menu_capture_countdown_ <= 0) return;
+  if (menu_capture_countdown_ <= 0)
+    return;
   const int c = menu_capture_countdown_--;  // value before this frame's decrement
   if (c == 5) {                             // hide all overlays a few frames ahead of the grab
     game_ui_.SetHudVisible(false);

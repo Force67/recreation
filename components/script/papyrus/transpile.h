@@ -60,7 +60,8 @@ base::String TranspileToCSharp(const PexFile& pex, const TranspileOptions& opts 
 // no engine calls, properties, or member access, so the result compiles and
 // runs against nothing but the BCL. This is what the differential tester
 // (`pex2cs --difftest`) executes side by side with the Papyrus VM.
-base::String TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
+base::String TranspileFunctionToCSharp(const PexFile& pex,
+                                       const Function& fn,
                                        const base::String& cs_name);
 
 }  // namespace rx::script::papyrus

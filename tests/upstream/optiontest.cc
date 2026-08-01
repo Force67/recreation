@@ -13,7 +13,9 @@
 static int setenv(const char* name, const char* value, int /*overwrite*/) {
   return _putenv_s(name, value);
 }
-static int unsetenv(const char* name) { return _putenv_s(name, ""); }
+static int unsetenv(const char* name) {
+  return _putenv_s(name, "");
+}
 #endif
 
 // Declared at namespace scope, the way a real subsystem would: a default, plus
@@ -28,7 +30,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-46s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // Before the adapter runs, every option reads its compiled-in default.
@@ -67,7 +70,6 @@ int main() {
   ::unsetenv("RX_OPT_SCALE");
   ::unsetenv("RX_OPT_NAME");
 
-  std::printf("%s (%d failures)\n", failures ? "OPTIONTEST FAILED" : "OPTIONTEST PASSED",
-              failures);
+  std::printf("%s (%d failures)\n", failures ? "OPTIONTEST FAILED" : "OPTIONTEST PASSED", failures);
   return failures ? 1 : 0;
 }

@@ -34,14 +34,16 @@ bool IsValueWeightItem(u32 signature) {
 }
 
 f32 ReadF32(const bethesda::Subrecord* sub, size_t offset) {
-  if (!sub || sub->data.size() < offset + 4) return 0.0f;
+  if (!sub || sub->data.size() < offset + 4)
+    return 0.0f;
   f32 value;
   std::memcpy(&value, sub->data.data() + offset, 4);
   return value;
 }
 
 u32 ReadU32(const bethesda::Subrecord* sub, size_t offset) {
-  if (!sub || sub->data.size() < offset + 4) return 0;
+  if (!sub || sub->data.size() < offset + 4)
+    return 0;
   u32 value;
   std::memcpy(&value, sub->data.data() + offset, 4);
   return value;
@@ -153,28 +155,37 @@ const char* EffectAvName(i32 index) {
 }  // namespace
 
 f32 RecordBackedSkyrimBindings::GetWeight(ObjectRef form) {
-  if (!records_) return 0.0f;
+  if (!records_)
+    return 0.0f;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(form), &rec)) return 0.0f;
+  if (!records_->Parse(ToFormId(form), &rec))
+    return 0.0f;
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (IsValueWeightItem(rec.header.type)) return ReadF32(data, 4);
+  if (IsValueWeightItem(rec.header.type))
+    return ReadF32(data, 4);
   // Potions/food/poisons (ALCH) keep weight alone in DATA; value lives in ENIT.
-  if (rec.header.type == FourCc('A', 'L', 'C', 'H')) return ReadF32(data, 0);
+  if (rec.header.type == FourCc('A', 'L', 'C', 'H'))
+    return ReadF32(data, 0);
   return 0.0f;
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
-  if (!records_) return {};
+  if (!records_)
+    return {};
   const bethesda::GlobalFormId id = ToFormId(book);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return {};
+  if (!stored)
+    return {};
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return {};
-  if (rec.header.type != FourCc('B', 'O', 'O', 'K')) return {};
+  if (!records_->Parse(id, &rec))
+    return {};
+  if (rec.header.type != FourCc('B', 'O', 'O', 'K'))
+    return {};
   // BOOK DATA: { uint8 flags; uint8 type; uint16 pad; uint32 teaches; ... }. The
   // 0x04 flag marks a spell tome, where `teaches` is the taught spell's form id.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 8 || (data->data[0] & 0x04) == 0) return {};
+  if (!data || data->data.size() < 8 || (data->data[0] & 0x04) == 0)
+    return {};
   u32 raw;
   std::memcpy(&raw, data->data.data() + 4, 4);
   return papyrus::ObjectRef{
@@ -182,13 +193,17 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
 }
 
 base::String RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
-  if (!records_) return "";
+  if (!records_)
+    return "";
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(book), &rec)) return "";
-  if (rec.header.type != FourCc('B', 'O', 'O', 'K')) return "";
+  if (!records_->Parse(ToFormId(book), &rec))
+    return "";
+  if (rec.header.type != FourCc('B', 'O', 'O', 'K'))
+    return "";
   // The 0x01 flag marks a skill book, where `teaches` is the skill's AV index.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 8 || (data->data[0] & 0x01) == 0) return "";
+  if (!data || data->data.size() < 8 || (data->data[0] & 0x01) == 0)
+    return "";
   u32 index;
   std::memcpy(&index, data->data.data() + 4, 4);
   return SkillAvName(index);
@@ -198,9 +213,11 @@ namespace {
 // Reads a one-byte soul-gem subrecord (SOUL or SLCP) off a SLGM record, 0 if the
 // form is not a soul gem or the subrecord is absent.
 i32 SoulGemByte(const bethesda::RecordStore* records, bethesda::GlobalFormId id, u32 subrecord) {
-  if (!records) return 0;
+  if (!records)
+    return 0;
   bethesda::Record rec;
-  if (!records->Parse(id, &rec) || rec.header.type != FourCc('S', 'L', 'G', 'M')) return 0;
+  if (!records->Parse(id, &rec) || rec.header.type != FourCc('S', 'L', 'G', 'M'))
+    return 0;
   const bethesda::Subrecord* sub = rec.Find(subrecord);
   return sub && !sub->data.empty() ? sub->data[0] : 0;
 }
@@ -215,9 +232,11 @@ i32 RecordBackedSkyrimBindings::GetSoulGemCapacity(ObjectRef gem) {
 }
 
 i32 RecordBackedSkyrimBindings::GetGoldValue(ObjectRef form) {
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(form), &rec)) return 0;
+  if (!records_->Parse(ToFormId(form), &rec))
+    return 0;
   if (IsValueWeightItem(rec.header.type))
     return static_cast<i32>(ReadU32(rec.Find(FourCc('D', 'A', 'T', 'A')), 0));
   if (rec.header.type == FourCc('A', 'L', 'C', 'H'))
@@ -226,26 +245,34 @@ i32 RecordBackedSkyrimBindings::GetGoldValue(ObjectRef form) {
 }
 
 i32 RecordBackedSkyrimBindings::GetWeaponDamage(ObjectRef weapon) {
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(weapon), &rec)) return 0;
-  if (rec.header.type != FourCc('W', 'E', 'A', 'P')) return 0;
+  if (!records_->Parse(ToFormId(weapon), &rec))
+    return 0;
+  if (rec.header.type != FourCc('W', 'E', 'A', 'P'))
+    return 0;
   // WEAP DATA = { uint32 value; float weight; uint16 damage; }.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 10) return 0;
+  if (!data || data->data.size() < 10)
+    return 0;
   u16 damage;
   std::memcpy(&damage, data->data.data() + 8, 2);
   return damage;
 }
 
 f32 RecordBackedSkyrimBindings::GetArmorRating(ObjectRef armor) {
-  if (!records_) return 0.0f;
+  if (!records_)
+    return 0.0f;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(armor), &rec)) return 0.0f;
-  if (rec.header.type != FourCc('A', 'R', 'M', 'O')) return 0.0f;
+  if (!records_->Parse(ToFormId(armor), &rec))
+    return 0.0f;
+  if (rec.header.type != FourCc('A', 'R', 'M', 'O'))
+    return 0.0f;
   // ARMO DNAM holds the base armor rating scaled by 100.
   const bethesda::Subrecord* dnam = rec.Find(FourCc('D', 'N', 'A', 'M'));
-  if (!dnam || dnam->data.size() < 2) return 0.0f;
+  if (!dnam || dnam->data.size() < 2)
+    return 0.0f;
   u16 scaled;
   std::memcpy(&scaled, dnam->data.data(), 2);
   return scaled / 100.0f;
@@ -253,12 +280,15 @@ f32 RecordBackedSkyrimBindings::GetArmorRating(ObjectRef armor) {
 
 i32 RecordBackedSkyrimBindings::GetMagicEffectCount(ObjectRef item) {
   magic_effect_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(item);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return 0;
+  if (!records_->Parse(id, &rec))
+    return 0;
   // Ingredients, potions (ALCH), enchantments (ENCH) and spells (SPEL) all list
   // their effects the same way, so one accessor serves alchemy (matching shared
   // effects), consumables and casting (applying them) and enchanting (inspecting).
@@ -293,31 +323,38 @@ i32 RecordBackedSkyrimBindings::GetMagicEffectCount(ObjectRef item) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthMagicEffectId(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size())
+    return {};
   return papyrus::ObjectRef{magic_effect_cache_[static_cast<size_t>(index)].effect};
 }
 
 f32 RecordBackedSkyrimBindings::GetNthMagicEffectMagnitude(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size()) return 0.0f;
+  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size())
+    return 0.0f;
   return magic_effect_cache_[static_cast<size_t>(index)].magnitude;
 }
 
 i32 RecordBackedSkyrimBindings::GetShoutWordCount(ObjectRef shout) {
   shout_word_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(shout);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return 0;
-  if (rec.header.type != FourCc('S', 'H', 'O', 'U')) return 0;
+  if (!records_->Parse(id, &rec))
+    return 0;
+  if (rec.header.type != FourCc('S', 'H', 'O', 'U'))
+    return 0;
 
   // A SHOU lists up to three words as SNAM subrecords, each a 12-byte struct
   // { formid word (WORD/WOOP); formid spell (SPEL); float recoveryTime }. The two
   // form ids resolve against the shout's load order so managed code gets real
   // global handles.
   for (const bethesda::Subrecord& sub : rec.subrecords) {
-    if (sub.type != FourCc('S', 'N', 'A', 'M') || sub.data.size() < 12) continue;
+    if (sub.type != FourCc('S', 'N', 'A', 'M') || sub.data.size() < 12)
+      continue;
     u32 word_raw, spell_raw;
     std::memcpy(&word_raw, sub.data.data(), 4);
     std::memcpy(&spell_raw, sub.data.data() + 4, 4);
@@ -333,62 +370,78 @@ i32 RecordBackedSkyrimBindings::GetShoutWordCount(ObjectRef shout) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthShoutWord(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size())
+    return {};
   return papyrus::ObjectRef{shout_word_cache_[static_cast<size_t>(index)].word};
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthShoutSpell(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size())
+    return {};
   return papyrus::ObjectRef{shout_word_cache_[static_cast<size_t>(index)].spell};
 }
 
 f32 RecordBackedSkyrimBindings::GetNthShoutRecoveryTime(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size()) return 0.0f;
+  if (index < 0 || static_cast<size_t>(index) >= shout_word_cache_.size())
+    return 0.0f;
   return shout_word_cache_[static_cast<size_t>(index)].recovery;
 }
 
 i32 RecordBackedSkyrimBindings::GetNthMagicEffectDuration(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size()) return 0;
+  if (index < 0 || static_cast<size_t>(index) >= magic_effect_cache_.size())
+    return 0;
   return magic_effect_cache_[static_cast<size_t>(index)].duration;
 }
 
 base::String RecordBackedSkyrimBindings::GetMagicEffectActorValue(ObjectRef effect) {
-  if (!records_) return "";
+  if (!records_)
+    return "";
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(effect), &rec)) return "";
-  if (rec.header.type != FourCc('M', 'G', 'E', 'F')) return "";
+  if (!records_->Parse(ToFormId(effect), &rec))
+    return "";
+  if (rec.header.type != FourCc('M', 'G', 'E', 'F'))
+    return "";
   // MGEF DATA holds the primary actor value the effect modifies at offset 0x44.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 0x48) return "";
+  if (!data || data->data.size() < 0x48)
+    return "";
   i32 av;
   std::memcpy(&av, data->data.data() + 0x44, 4);
   return EffectAvName(av);
 }
 
 bool RecordBackedSkyrimBindings::GetMagicEffectDetrimental(ObjectRef effect) {
-  if (!records_) return false;
+  if (!records_)
+    return false;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(effect), &rec)) return false;
-  if (rec.header.type != FourCc('M', 'G', 'E', 'F')) return false;
+  if (!records_->Parse(ToFormId(effect), &rec))
+    return false;
+  if (rec.header.type != FourCc('M', 'G', 'E', 'F'))
+    return false;
   // The 0x04 flag in MGEF DATA marks a detrimental effect (damage rather than
   // restore or fortify).
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 4) return false;
+  if (!data || data->data.size() < 4)
+    return false;
   u32 flags;
   std::memcpy(&flags, data->data.data(), 4);
   return (flags & 0x04) != 0;
 }
 
 f32 RecordBackedSkyrimBindings::GetMagicEffectBaseCost(ObjectRef effect) {
-  if (!records_) return 0.0f;
+  if (!records_)
+    return 0.0f;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(effect), &rec)) return 0.0f;
-  if (rec.header.type != FourCc('M', 'G', 'E', 'F')) return 0.0f;
+  if (!records_->Parse(ToFormId(effect), &rec))
+    return 0.0f;
+  if (rec.header.type != FourCc('M', 'G', 'E', 'F'))
+    return 0.0f;
   // MGEF DATA holds the base cost (the effect's unit price) as a float at 0x04,
   // right after the flags. It anchors the magicka cost of a spell and the gold
   // value of a brewed potion that carries the effect.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 0x08) return 0.0f;
+  if (!data || data->data.size() < 0x08)
+    return 0.0f;
   f32 cost;
   std::memcpy(&cost, data->data.data() + 0x04, 4);
   return cost;
@@ -399,12 +452,16 @@ namespace {
 // uint32 flags; uint32 type; float chargeTime; uint32 castType; uint32 delivery;
 // ... }, so cost is at 0, type at 8, cast type at 16 and delivery at 20.
 i32 SpitField(const bethesda::RecordStore* records, bethesda::GlobalFormId id, size_t offset) {
-  if (!records) return 0;
+  if (!records)
+    return 0;
   bethesda::Record rec;
-  if (!records->Parse(id, &rec)) return 0;
-  if (rec.header.type != FourCc('S', 'P', 'E', 'L')) return 0;
+  if (!records->Parse(id, &rec))
+    return 0;
+  if (rec.header.type != FourCc('S', 'P', 'E', 'L'))
+    return 0;
   const bethesda::Subrecord* spit = rec.Find(FourCc('S', 'P', 'I', 'T'));
-  if (!spit || spit->data.size() < offset + 4) return 0;
+  if (!spit || spit->data.size() < offset + 4)
+    return 0;
   u32 value;
   std::memcpy(&value, spit->data.data() + offset, 4);
   return static_cast<i32>(value);
@@ -413,16 +470,20 @@ i32 SpitField(const bethesda::RecordStore* records, bethesda::GlobalFormId id, s
 
 i32 RecordBackedSkyrimBindings::GetKeywordCount(ObjectRef form) {
   keyword_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(form);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec)) return 0;
+  if (!records_->Parse(id, &rec))
+    return 0;
   // KWDA is a packed array of keyword form ids (KSIZ gives the count, but the
   // subrecord size already implies it). Each is local to the form's plugin.
   const bethesda::Subrecord* kwda = rec.Find(FourCc('K', 'W', 'D', 'A'));
-  if (!kwda) return 0;
+  if (!kwda)
+    return 0;
   for (size_t offset = 0; offset + 4 <= kwda->data.size(); offset += 4) {
     u32 raw;
     std::memcpy(&raw, kwda->data.data() + offset, 4);
@@ -433,21 +494,26 @@ i32 RecordBackedSkyrimBindings::GetKeywordCount(ObjectRef form) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthKeyword(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= keyword_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= keyword_cache_.size())
+    return {};
   return papyrus::ObjectRef{keyword_cache_[static_cast<size_t>(index)]};
 }
 
 i32 RecordBackedSkyrimBindings::GetRaceSpellCount(ObjectRef race) {
   race_spell_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   const bethesda::GlobalFormId id = ToFormId(race);
   const bethesda::RecordStore::StoredRecord* stored = records_->Find(id);
-  if (!stored) return 0;
+  if (!stored)
+    return 0;
   bethesda::Record rec;
-  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E')) return 0;
+  if (!records_->Parse(id, &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E'))
+    return 0;
   // SPLO is a single spell form id (the race's innate abilities and powers).
   for (const bethesda::Subrecord& sub : rec.subrecords) {
-    if (sub.type != FourCc('S', 'P', 'L', 'O') || sub.data.size() < 4) continue;
+    if (sub.type != FourCc('S', 'P', 'L', 'O') || sub.data.size() < 4)
+      continue;
     u32 raw;
     std::memcpy(&raw, sub.data.data(), 4);
     race_spell_cache_.push_back(
@@ -457,36 +523,42 @@ i32 RecordBackedSkyrimBindings::GetRaceSpellCount(ObjectRef race) {
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthRaceSpell(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= race_spell_cache_.size()) return {};
+  if (index < 0 || static_cast<size_t>(index) >= race_spell_cache_.size())
+    return {};
   return papyrus::ObjectRef{race_spell_cache_[static_cast<size_t>(index)]};
 }
 
 i32 RecordBackedSkyrimBindings::GetRaceSkillBonusCount(ObjectRef race) {
   race_skill_cache_.clear();
-  if (!records_) return 0;
+  if (!records_)
+    return 0;
   bethesda::Record rec;
   if (!records_->Parse(ToFormId(race), &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E'))
     return 0;
   // RACE DATA opens with seven { uint8 skill-AV; uint8 bonus } pairs; an unused
   // slot has skill 255.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 14) return 0;
+  if (!data || data->data.size() < 14)
+    return 0;
   for (int i = 0; i < 7; ++i) {
     u8 skill = data->data[static_cast<size_t>(i) * 2];
     u8 bonus = data->data[static_cast<size_t>(i) * 2 + 1];
-    if (skill == 255 || bonus == 0) continue;
+    if (skill == 255 || bonus == 0)
+      continue;
     race_skill_cache_.push_back({skill, bonus});
   }
   return static_cast<i32>(race_skill_cache_.size());
 }
 
 base::String RecordBackedSkyrimBindings::GetNthRaceSkillBonusSkill(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size()) return "";
+  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size())
+    return "";
   return SkillAvName(static_cast<u32>(race_skill_cache_[static_cast<size_t>(index)].first));
 }
 
 i32 RecordBackedSkyrimBindings::GetNthRaceSkillBonusValue(i32 index) {
-  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size()) return 0;
+  if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size())
+    return 0;
   return race_skill_cache_[static_cast<size_t>(index)].second;
 }
 

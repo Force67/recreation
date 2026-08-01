@@ -28,7 +28,9 @@ void Check(bool ok, const char* what) {
   }
 }
 
-bool Approx(float a, float b) { return std::fabs(a - b) < 1e-4f; }
+bool Approx(float a, float b) {
+  return std::fabs(a - b) < 1e-4f;
+}
 
 // Compares every field that the (de)serializer round-trips.
 bool CoveredEqual(const RenderSettings& a, const RenderSettings& b) {
@@ -123,12 +125,14 @@ void TestEnumAliases() {
 }
 
 // Loads a shipped preset and runs a per-file spot check on distinctive values.
-void CheckPreset(const std::filesystem::path& dir, const char* name,
+void CheckPreset(const std::filesystem::path& dir,
+                 const char* name,
                  bool (*pred)(const RenderSettings&)) {
   RenderSettings s;
   const bool ok = LoadSettingsIni(dir / name, s);
   Check(ok, name);
-  if (ok) Check(pred(s), name);
+  if (ok)
+    Check(pred(s), name);
 }
 
 void TestShippedPresets() {
@@ -165,9 +169,8 @@ void TestShippedPresets() {
            Approx(s.reflection_roughness_cutoff, 0.85f) && s.path_trace_spp == 4;
   });
   CheckPreset(dir, "console.ini", [](const RenderSettings& s) {
-    return s.upscaler == UpscalerKind::kFsr3 &&
-           s.upscaler_quality == UpscalerQuality::kBalanced && s.vsync &&
-           Approx(s.fog_density, 0.02f);
+    return s.upscaler == UpscalerKind::kFsr3 && s.upscaler_quality == UpscalerQuality::kBalanced &&
+           s.vsync && Approx(s.fog_density, 0.02f);
   });
 }
 

@@ -44,7 +44,8 @@ constexpr char kMagic[8] = {'R', 'E', 'C', 'T', 'E', 'R', 'R', '\0'};
 
 i64 FloorDiv(i64 value, i64 divisor) {
   i64 quotient = value / divisor;
-  if (value % divisor < 0) --quotient;
+  if (value % divisor < 0)
+    --quotient;
   return quotient;
 }
 
@@ -74,9 +75,11 @@ base::Vector<TerrainCellKey> SharedCells(TerrainSampleKey sample) {
   base::Vector<TerrainCellKey> result;
   result.reserve((edge_x ? 2 : 1) * (edge_y ? 2 : 1));
   for (i64 y : {owner_y, owner_y - 1}) {
-    if (y != owner_y && !edge_y) continue;
+    if (y != owner_y && !edge_y)
+      continue;
     for (i64 x : {owner_x, owner_x - 1}) {
-      if (x != owner_x && !edge_x) continue;
+      if (x != owner_x && !edge_x)
+        continue;
       if (x < std::numeric_limits<i32>::min() || x > std::numeric_limits<i32>::max() ||
           y < std::numeric_limits<i32>::min() || y > std::numeric_limits<i32>::max()) {
         continue;
@@ -92,7 +95,8 @@ void CollectCells(TerrainEditChange* change) {
   base::Set<TerrainCellKey> cells;
   for (const TerrainSampleChange& sample : change->samples) {
     const base::Vector<TerrainCellKey> shared = SharedCells(sample.sample);
-    for (const TerrainCellKey& cell : shared) cells.insert(cell);
+    for (const TerrainCellKey& cell : shared)
+      cells.insert(cell);
   }
   change->cells.assign(cells.begin(), cells.end());
 }
@@ -109,7 +113,8 @@ base::Optional<f32> QuantizeDelta(double value) {
 }
 
 void SetError(base::String* error, base::String message) {
-  if (error) *error = base::move(message);
+  if (error)
+    *error = base::move(message);
 }
 
 void AppendU16(base::Vector<u8>* bytes, u16 value) {
@@ -118,20 +123,25 @@ void AppendU16(base::Vector<u8>* bytes, u16 value) {
 }
 
 void AppendU32(base::Vector<u8>* bytes, u32 value) {
-  for (u32 shift = 0; shift < 32; shift += 8) bytes->push_back(static_cast<u8>(value >> shift));
+  for (u32 shift = 0; shift < 32; shift += 8)
+    bytes->push_back(static_cast<u8>(value >> shift));
 }
 
-void AppendI32(base::Vector<u8>* bytes, i32 value) { AppendU32(bytes, static_cast<u32>(value)); }
+void AppendI32(base::Vector<u8>* bytes, i32 value) {
+  AppendU32(bytes, static_cast<u32>(value));
+}
 
 void AppendU64(base::Vector<u8>* bytes, u64 value) {
-  for (u32 shift = 0; shift < 64; shift += 8) bytes->push_back(static_cast<u8>(value >> shift));
+  for (u32 shift = 0; shift < 64; shift += 8)
+    bytes->push_back(static_cast<u8>(value >> shift));
 }
 
 u32 Crc32(std::span<const u8> bytes) {
   u32 crc = 0xffffffffu;
   for (u8 byte : bytes) {
     crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+    for (int bit = 0; bit < 8; ++bit)
+      crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
   }
   return ~crc;
 }
@@ -141,18 +151,21 @@ class Reader {
   explicit Reader(std::span<const u8> bytes) : bytes_(bytes) {}
 
   bool ReadU8(u8* value) {
-    if (offset_ == bytes_.size()) return false;
+    if (offset_ == bytes_.size())
+      return false;
     *value = bytes_[offset_++];
     return true;
   }
   bool ReadU16(u16* value) {
-    if (!Has(2)) return false;
+    if (!Has(2))
+      return false;
     *value = static_cast<u16>(bytes_[offset_]) | static_cast<u16>(bytes_[offset_ + 1]) << 8;
     offset_ += 2;
     return true;
   }
   bool ReadU32(u32* value) {
-    if (!Has(4)) return false;
+    if (!Has(4))
+      return false;
     *value = 0;
     for (u32 shift = 0; shift < 32; shift += 8)
       *value |= static_cast<u32>(bytes_[offset_++]) << shift;
@@ -160,19 +173,22 @@ class Reader {
   }
   bool ReadI32(i32* value) {
     u32 bits = 0;
-    if (!ReadU32(&bits)) return false;
+    if (!ReadU32(&bits))
+      return false;
     *value = static_cast<i32>(bits);
     return true;
   }
   bool ReadU64(u64* value) {
-    if (!Has(8)) return false;
+    if (!Has(8))
+      return false;
     *value = 0;
     for (u32 shift = 0; shift < 64; shift += 8)
       *value |= static_cast<u64>(bytes_[offset_++]) << shift;
     return true;
   }
   bool ReadString(size_t size, base::String* value) {
-    if (!Has(size)) return false;
+    if (!Has(size))
+      return false;
     value->assign(reinterpret_cast<const char*>(bytes_.data() + offset_), size);
     offset_ += size;
     return true;
@@ -202,7 +218,8 @@ struct EncodedCell {
 }  // namespace
 
 void TerrainEdits::BindWorld(base::String identity) {
-  if (identity == world_identity_) return;
+  if (identity == world_identity_)
+    return;
   world_identity_ = base::move(identity);
   samples_.clear();
   fingerprints_.clear();
@@ -234,7 +251,8 @@ bool TerrainEdits::AffectsCell(TerrainCellKey cell) const {
   return false;
 }
 
-bool TerrainEdits::ComposeCell(TerrainCellKey cell, std::span<const f32> base_heights,
+bool TerrainEdits::ComposeCell(TerrainCellKey cell,
+                               std::span<const f32> base_heights,
                                std::span<f32> composed_heights) const {
   if (base_heights.size() != kCellSamples || composed_heights.size() != kCellSamples) {
     return false;
@@ -285,7 +303,8 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
 
   auto current_height = [&](i32 x, i32 y) -> base::Optional<f32> {
     base::Optional<f32> base = base_height(x, y);
-    if (!base || !std::isfinite(*base)) return base::nullopt;
+    if (!base || !std::isfinite(*base))
+      return base::nullopt;
     const double current = static_cast<double>(*base) + SampleDelta(x, y);
     if (!std::isfinite(current) || std::abs(current) > std::numeric_limits<f32>::max()) {
       return base::nullopt;
@@ -297,13 +316,16 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
     for (i32 y = static_cast<i32>(min_y); y <= static_cast<i32>(max_y); ++y) {
       const f32 distance = static_cast<f32>(std::hypot(static_cast<double>(x) - brush.center_x,
                                                        static_cast<double>(y) - brush.center_y));
-      if (distance > brush.radius) continue;
+      if (distance > brush.radius)
+        continue;
       const f32 radial = base::Max(0.0f, 1.0f - distance / brush.radius);
       const f32 influence = brush.falloff == 0 ? 1.0f : std::pow(radial, brush.falloff);
-      if (influence <= 0) continue;
+      if (influence <= 0)
+        continue;
 
       const base::Optional<f32> base = base_height(x, y);
-      if (!base || !std::isfinite(*base)) continue;
+      if (!base || !std::isfinite(*base))
+        continue;
       const f32 old_delta = SampleDelta(x, y);
       const f32 old_height = *base + old_delta;
       double new_delta = old_delta;
@@ -325,7 +347,8 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
               ++count;
             }
           }
-          if (count == 0) continue;
+          if (count == 0)
+            continue;
           const f32 amount = base::Clamp(brush.strength * influence, 0.0f, 1.0f);
           new_delta += (total / count - old_height) * amount;
           break;
@@ -337,12 +360,14 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
         }
       }
       const base::Optional<f32> quantized = QuantizeDelta(new_delta);
-      if (!quantized || *quantized == old_delta) continue;
+      if (!quantized || *quantized == old_delta)
+        continue;
       change.samples.push_back({{x, y}, old_delta, *quantized});
     }
   }
   CollectCells(&change);
-  if (!change.empty() && !ApplyChange(change)) return {};
+  if (!change.empty() && !ApplyChange(change))
+    return {};
   return change;
 }
 
@@ -372,8 +397,10 @@ bool TerrainEdits::SetChangeState(const TerrainEditChange& change, bool use_new)
     else
       samples_[sample.sample] = value;
   }
-  for (TerrainCellKey cell : change.cells) dirty_cells_[cell] = true;
-  if (!change.empty()) dirty_ = true;
+  for (TerrainCellKey cell : change.cells)
+    dirty_cells_[cell] = true;
+  if (!change.empty())
+    dirty_ = true;
   return true;
 }
 
@@ -388,9 +415,11 @@ bool TerrainEdits::RevertChange(const TerrainEditChange& change) {
 TerrainEditChange TerrainEdits::Clear() {
   TerrainEditChange change;
   change.samples.reserve(samples_.size());
-  for (const auto& [sample, delta] : samples_) change.samples.push_back({sample, delta, 0.0f});
+  for (const auto& [sample, delta] : samples_)
+    change.samples.push_back({sample, delta, 0.0f});
   CollectCells(&change);
-  if (!change.empty() && !ApplyChange(change)) return {};
+  if (!change.empty() && !ApplyChange(change))
+    return {};
   return change;
 }
 
@@ -400,7 +429,8 @@ void TerrainEdits::SetCellFingerprint(TerrainCellKey cell, u64 fingerprint) {
 
 base::Optional<u64> TerrainEdits::CellFingerprint(TerrainCellKey cell) const {
   const auto found = fingerprints_.find(cell);
-  if (found == fingerprints_.end()) return base::nullopt;
+  if (found == fingerprints_.end())
+    return base::nullopt;
   return found->second;
 }
 
@@ -419,7 +449,8 @@ base::Vector<TerrainCellKey> TerrainEdits::touched_cells() const {
   for (const auto& [sample, ignored] : samples_) {
     (void)ignored;
     const base::Vector<TerrainCellKey> shared = SharedCells(sample);
-    for (const TerrainCellKey& cell : shared) touched.insert(cell);
+    for (const TerrainCellKey& cell : shared)
+      touched.insert(cell);
   }
   return {touched.begin(), touched.end()};
 }
@@ -433,7 +464,8 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange&
   if (!stroke || !IsSortedUnique(dab.samples) || !IsSortedUnique(dab.cells)) {
     return false;
   }
-  if (dab.empty()) return true;
+  if (dab.empty())
+    return true;
   if (stroke->empty()) {
     *stroke = dab;
     return true;
@@ -457,10 +489,10 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange&
     } else {
       const TerrainSampleChange& old = stroke->samples[old_index++];
       const TerrainSampleChange& later = dab.samples[dab_index++];
-      if (old.new_delta != later.old_delta) return false;
+      if (old.new_delta != later.old_delta)
+        return false;
       if (old.old_delta != later.new_delta) {
-        merged.samples.push_back(
-            {old.sample, old.old_delta, later.new_delta});
+        merged.samples.push_back({old.sample, old.old_delta, later.new_delta});
       }
     }
   }
@@ -469,7 +501,8 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange&
   return true;
 }
 
-bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
+bool SaveTerrainEdits(const TerrainEdits& edits,
+                      const base::String& file_path,
                       base::String* error) {
   if (edits.world_identity_.empty() || edits.world_identity_.size() > kMaximumWorldBytes) {
     SetError(error, "terrain diff has no valid worldspace identity");
@@ -486,7 +519,8 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
       return false;
     }
     const i32 quantized = static_cast<i32>(std::llround(scaled));
-    if (quantized == 0) continue;
+    if (quantized == 0)
+      continue;
     const i64 owner_x = FloorDiv(sample.x, kCellQuads);
     const i64 owner_y = FloorDiv(sample.y, kCellQuads);
     if (owner_x < std::numeric_limits<i32>::min() || owner_x > std::numeric_limits<i32>::max() ||
@@ -499,7 +533,8 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
     encoded.key = owner;
     encoded.samples.push_back({static_cast<u8>(PositiveMod(sample.x, kCellQuads)),
                                static_cast<u8>(PositiveMod(sample.y, kCellQuads)), quantized});
-    for (TerrainCellKey shared : SharedCells(sample)) cells[shared].key = shared;
+    for (TerrainCellKey shared : SharedCells(sample))
+      cells[shared].key = shared;
     if (++sample_count > kMaximumSamples) {
       SetError(error, "terrain diff exceeds the sample limit");
       return false;
@@ -520,8 +555,8 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
     }
   }
 
-  const u64 payload_bytes = edits.world_identity_.size() +
-                            cells.size() * 20ull + sample_count * 6ull;
+  const u64 payload_bytes =
+      edits.world_identity_.size() + cells.size() * 20ull + sample_count * 6ull;
   const u64 total_bytes = kHeaderBytes + payload_bytes + 4;
   if (total_bytes > kMaximumFileBytes) {
     SetError(error, "terrain diff exceeds the file-size limit");
@@ -586,12 +621,15 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
     SetError(error, "cannot replace terrain diff: " + rename_error.message());
     return false;
   }
-  if (error) error->clear();
+  if (error)
+    error->clear();
   return true;
 }
 
-bool LoadTerrainEdits(const base::String& file_path, base::StringRef expected_world_identity,
-                      const TerrainEdits::FingerprintLookup& fingerprints, TerrainEdits* edits,
+bool LoadTerrainEdits(const base::String& file_path,
+                      base::StringRef expected_world_identity,
+                      const TerrainEdits::FingerprintLookup& fingerprints,
+                      TerrainEdits* edits,
                       base::String* error) {
   if (!edits || expected_world_identity.empty() || !fingerprints) {
     SetError(error, "terrain diff load has no destination, worldspace, or fingerprint source");
@@ -741,7 +779,8 @@ bool LoadTerrainEdits(const base::String& file_path, base::StringRef expected_wo
   }
   loaded.MarkSaved();
   *edits = base::move(loaded);
-  if (error) error->clear();
+  if (error)
+    error->clear();
   return true;
 }
 

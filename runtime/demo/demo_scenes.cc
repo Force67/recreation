@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <filesystem>
 
-#include "runtime/actor/actor_system.h"
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
 #include "asset/materialx.h"
@@ -22,10 +21,11 @@
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/nif.h"
 #include "components/bethesda/record.h"
+#include "components/world/components.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "render/geometry/hair_groom.h"
-#include "components/world/components.h"
+#include "runtime/actor/actor_system.h"
 
 namespace rx {
 
@@ -85,10 +85,14 @@ void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
     view.fur_ball = true;
     view.fur_position = fur_position_;
   }
-  if (!oit_instances_.empty()) view.oit = oit_instances_;
-  if (!demo_gaussians_.empty()) view.gaussians = demo_gaussians_;
-  if (!demo_lights_.empty()) view.lights = demo_lights_;
-  if (!demo_decals_.empty()) view.decals = demo_decals_;
+  if (!oit_instances_.empty())
+    view.oit = oit_instances_;
+  if (!demo_gaussians_.empty())
+    view.gaussians = demo_gaussians_;
+  if (!demo_lights_.empty())
+    view.lights = demo_lights_;
+  if (!demo_decals_.empty())
+    view.decals = demo_decals_;
 
   // Strand-hair demo: swing one groom on a slow orbit to show the moving
   // attachment (its collision sphere and roots ride the transform; the sim
@@ -159,7 +163,8 @@ void DemoScenes::CreateWaterDemoScene() {
       u32 b = a + 1;
       u32 c = a + (kGrid + 1);
       u32 d = c + 1;
-      for (u32 index : {a, b, c, b, d, c}) lod.indices.push_back(index);
+      for (u32 index : {a, b, c, b, d, c})
+        lod.indices.push_back(index);
     }
   }
   asset::Submesh submesh;
@@ -189,7 +194,8 @@ void DemoScenes::CreateWaterDemoScene() {
   physics_.AddStaticBox({0, -48.0f, 0}, {40.0f, 40.0f, 40.0f});
   physics_.set_water_height([](const Vec3&, f32* height, Vec3* flow) {
     *height = 0.0f;
-    if (flow) *flow = {};
+    if (flow)
+      *flow = {};
     return true;
   });
   for (int i = 0; i < 6; ++i) {
@@ -199,7 +205,8 @@ void DemoScenes::CreateWaterDemoScene() {
     world_.Add(block, world::Transform{.position = {position.x, position.y, position.z}});
     world_.Add(block, world::Renderable{cube.id});
     physics::BodyId body = physics_.AddDynamicBox(position, {1.0f, 1.0f, 1.0f}, 400.0f, {});
-    if (body) ctx_.physics_entities->push_back({body, block});
+    if (body)
+      ctx_.physics_entities->push_back({body, block});
   }
 
   // An ember fountain in front of the camera to exercise the particle path.
@@ -220,7 +227,8 @@ void DemoScenes::CreateMaterialDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.5f, 0}});  // top at y = -0.5
   world_.Add(floor, world::Renderable{ground.id});
@@ -245,7 +253,8 @@ void DemoScenes::CreateMaterialDemoScene() {
     f32 t = static_cast<f32>(i) / 4.0f;
     // Row 1: clearcoat 0..1 over a dark red dielectric.
     asset::Material coat;
-    coat.base_color_factor[0] = 0.5f; coat.base_color_factor[1] = 0.04f;
+    coat.base_color_factor[0] = 0.5f;
+    coat.base_color_factor[1] = 0.04f;
     coat.base_color_factor[2] = 0.04f;
     coat.roughness_factor = 0.45f;
     coat.clearcoat = t;
@@ -254,7 +263,8 @@ void DemoScenes::CreateMaterialDemoScene() {
 
     // Row 2: anisotropy -1..1 over a brushed metal.
     asset::Material metal;
-    metal.base_color_factor[0] = 0.95f; metal.base_color_factor[1] = 0.93f;
+    metal.base_color_factor[0] = 0.95f;
+    metal.base_color_factor[1] = 0.93f;
     metal.base_color_factor[2] = 0.88f;
     metal.metallic_factor = 1.0f;
     metal.roughness_factor = 0.35f;
@@ -263,16 +273,20 @@ void DemoScenes::CreateMaterialDemoScene() {
 
     // Row 3: sheen 0..1 over a matte blue cloth.
     asset::Material cloth;
-    cloth.base_color_factor[0] = 0.05f; cloth.base_color_factor[1] = 0.07f;
+    cloth.base_color_factor[0] = 0.05f;
+    cloth.base_color_factor[1] = 0.07f;
     cloth.base_color_factor[2] = 0.25f;
     cloth.roughness_factor = 0.9f;
-    cloth.sheen_color[0] = t; cloth.sheen_color[1] = t; cloth.sheen_color[2] = t;
+    cloth.sheen_color[0] = t;
+    cloth.sheen_color[1] = t;
+    cloth.sheen_color[2] = t;
     cloth.sheen_roughness = 0.3f;
     spawn({xs[i], 0.0f, -3.4f}, cloth);
 
     // Row 0 (front): transmission 0..1 glass, refracting the rows behind it.
     asset::Material glass;
-    glass.base_color_factor[0] = 0.85f; glass.base_color_factor[1] = 0.95f;
+    glass.base_color_factor[0] = 0.85f;
+    glass.base_color_factor[1] = 0.95f;
     glass.base_color_factor[2] = 0.92f;
     glass.roughness_factor = 0.05f;
     glass.transmission = t;
@@ -281,17 +295,20 @@ void DemoScenes::CreateMaterialDemoScene() {
 
     // Row 4: subsurface scattering 0..1 over pale waxy skin (moved to the back).
     asset::Material skin;
-    skin.base_color_factor[0] = 0.85f; skin.base_color_factor[1] = 0.6f;
+    skin.base_color_factor[0] = 0.85f;
+    skin.base_color_factor[1] = 0.6f;
     skin.base_color_factor[2] = 0.5f;
     skin.roughness_factor = 0.55f;
     skin.subsurface = t;
-    skin.subsurface_color[0] = 0.9f; skin.subsurface_color[1] = 0.2f;
+    skin.subsurface_color[0] = 0.9f;
+    skin.subsurface_color[1] = 0.2f;
     skin.subsurface_color[2] = 0.12f;
     spawn({xs[i], 0.0f, -7.2f}, skin);
 
     // Row 5: thin-film iridescence, film thickness sweep over a dark dielectric.
     asset::Material irid;
-    irid.base_color_factor[0] = 0.04f; irid.base_color_factor[1] = 0.04f;
+    irid.base_color_factor[0] = 0.04f;
+    irid.base_color_factor[1] = 0.04f;
     irid.base_color_factor[2] = 0.05f;
     irid.roughness_factor = 0.12f;
     irid.iridescence = 1.0f;
@@ -306,8 +323,10 @@ void DemoScenes::CreateMaterialDemoScene() {
 }
 
 void DemoScenes::UpdateParticles(f32 dt, render::FrameView& view) {
-  if (!particles_enabled_) return;
-  if (dt > 0.05f) dt = 0.05f;  // clamp hitches so the fountain never explodes
+  if (!particles_enabled_)
+    return;
+  if (dt > 0.05f)
+    dt = 0.05f;  // clamp hitches so the fountain never explodes
   auto rnd = [&]() -> f32 {
     particle_seed_ ^= particle_seed_ << 13;
     particle_seed_ ^= particle_seed_ >> 17;
@@ -377,7 +396,8 @@ void DemoScenes::CreateGaussianDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.0f, 0}});  // top at y = 0
   world_.Add(floor, world::Renderable{ground.id});
@@ -433,7 +453,8 @@ void DemoScenes::CreateLodDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.1f, 0}});  // top at y = -0.1
   world_.Add(floor, world::Renderable{ground.id});
@@ -445,15 +466,18 @@ void DemoScenes::CreateLodDemoScene() {
   mat.base_color_factor[2] = 0.2f;
   mat.roughness_factor = 0.35f;
   mat.metallic_factor = 0.0f;
-  if (!config_.headless) renderer_.UploadMaterial(mat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(mat);
 
   // Three spheres at increasing distance, landing on lod 0 / 1 / 2 in turn.
   const Vec3 pos[3] = {{-1.6f, 0.9f, 4.5f}, {1.5f, 0.9f, 2.0f}, {-1.3f, 0.9f, -0.5f}};
   for (int i = 0; i < 3; ++i) {
     base::String tag = "builtin/loddemo/" + base::ToString(i);
     asset::Mesh sphere = asset::MakeLodSphere(1.2f, asset::MakeAssetId(tag + "/mesh"));
-    for (asset::MeshLod& lod : sphere.lods) lod.submeshes[0].material = mat.id;
-    if (!config_.headless) renderer_.UploadMesh(sphere);
+    for (asset::MeshLod& lod : sphere.lods)
+      lod.submeshes[0].material = mat.id;
+    if (!config_.headless)
+      renderer_.UploadMesh(sphere);
     ecs::Entity e = world_.Create();
     world_.Add(e, world::Transform{.position = {pos[i].x, pos[i].y, pos[i].z}});
     world_.Add(e, world::Renderable{sphere.id});
@@ -479,7 +503,8 @@ void DemoScenes::CreateCornellDemoScene() {
     m.base_color_factor[2] = b;
     m.roughness_factor = 0.95f;  // matte, so the bounce reads without specular
     m.metallic_factor = 0.0f;
-    if (!config_.headless) renderer_.UploadMaterial(m);
+    if (!config_.headless)
+      renderer_.UploadMaterial(m);
     return m.id;
   };
   asset::AssetId white = mat("builtin/cornell/white", 0.8f, 0.8f, 0.8f);
@@ -490,7 +515,8 @@ void DemoScenes::CreateCornellDemoScene() {
   auto add = [&](asset::Mesh mesh, asset::AssetId material, Vec3 pos) {
     asset::MeshLod& lod = mesh.lods[0];  // MakeBox leaves the submesh list empty
     lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), material});
-    if (!config_.headless) renderer_.UploadMesh(mesh);
+    if (!config_.headless)
+      renderer_.UploadMesh(mesh);
     ecs::Entity e = world_.Create();
     world_.Add(e, world::Transform{.position = {pos.x, pos.y, pos.z}});
     world_.Add(e, world::Renderable{mesh.id});
@@ -521,7 +547,8 @@ void DemoScenes::CreateGpuParticleDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -12.0f, 0}});  // top at y = 0
   world_.Add(floor, world::Renderable{ground.id});
@@ -545,9 +572,13 @@ void DemoScenes::CreateImposterDemoScene() {
   asset::MeshLod& lod = tree.lods[0];
   auto push_vertex = [&](f32 x, f32 y, f32 z, f32 nx, f32 ny, f32 nz, u32 color) {
     asset::Vertex v{};
-    v.position[0] = x; v.position[1] = y; v.position[2] = z;
+    v.position[0] = x;
+    v.position[1] = y;
+    v.position[2] = z;
     f32 len = std::sqrt(nx * nx + ny * ny + nz * nz);
-    v.normal[0] = nx / len; v.normal[1] = ny / len; v.normal[2] = nz / len;
+    v.normal[0] = nx / len;
+    v.normal[1] = ny / len;
+    v.normal[2] = nz / len;
     v.tangent[3] = 1.0f;
     v.color = color;
     lod.vertices.push_back(v);
@@ -558,8 +589,12 @@ void DemoScenes::CreateImposterDemoScene() {
   const u32 kGreen = 0xff2a6a2e;
   const u32 kGreenDark = 0xff1e4a20;
   auto add_quad = [&](u32 a, u32 b, u32 c, u32 d) {
-    lod.indices.push_back(a); lod.indices.push_back(b); lod.indices.push_back(c);
-    lod.indices.push_back(a); lod.indices.push_back(c); lod.indices.push_back(d);
+    lod.indices.push_back(a);
+    lod.indices.push_back(b);
+    lod.indices.push_back(c);
+    lod.indices.push_back(a);
+    lod.indices.push_back(c);
+    lod.indices.push_back(d);
   };
   const f32 tw = 0.14f, th = 1.1f;
   for (int s = 0; s < 4; ++s) {
@@ -601,7 +636,8 @@ void DemoScenes::CreateImposterDemoScene() {
   grass.base_color_factor[1] = 0.32f;
   grass.base_color_factor[2] = 0.16f;
   grass.roughness_factor = 1.0f;
-  if (!config_.headless) renderer_.UploadMaterial(grass);
+  if (!config_.headless)
+    renderer_.UploadMaterial(grass);
   asset::Mesh ground =
       asset::MakeBox(400.0f, 0.1f, 400.0f, asset::MakeAssetId("builtin/imposters/ground"));
   ground.lods[0].submeshes.push_back(
@@ -638,7 +674,8 @@ void DemoScenes::CreateImposterDemoScene() {
     world_.Add(t, world::Transform{.position = {std::cos(ang) * dist, 0.0f, std::sin(ang) * dist}});
     world_.Add(t, world::Renderable{tree.id});
   }
-  if (!config_.headless) renderer_.BakeImposter(tree, instances);
+  if (!config_.headless)
+    renderer_.BakeImposter(tree, instances);
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.6f, -0.5f, -0.62f};
@@ -674,7 +711,8 @@ void DemoScenes::CreateStrandHairDemoScene() {
       asset::MakeBox(8.0f, 0.1f, 8.0f, asset::MakeAssetId("builtin/strands/floor"));
   floor_m.lods[0].submeshes.push_back(
       {0, static_cast<u32>(floor_m.lods[0].indices.size()), stone.id});
-  if (!config_.headless) renderer_.UploadMesh(floor_m);
+  if (!config_.headless)
+    renderer_.UploadMesh(floor_m);
   ecs::Entity f = world_.Create();
   world_.Add(f, world::Transform{.position = {0.0f, -0.1f, 0.0f}});
   world_.Add(f, world::Renderable{floor_m.id});
@@ -688,7 +726,8 @@ void DemoScenes::CreateStrandHairDemoScene() {
   camera_.set_yaw_pitch(-0.06f, -0.38f);
   camera_.speed = 2.0f;
 
-  if (config_.headless) return;
+  if (config_.headless)
+    return;
 
   // Mount the Skyrim archives into a LOCAL vfs (not the shared ctx_.vfs, which
   // the actor system reads: giving it archives would make it load bodies it
@@ -702,7 +741,8 @@ void DemoScenes::CreateStrandHairDemoScene() {
   }
   asset::Vfs vfs;
   for (const auto& entry : fs::directory_iterator(data_dir, ec)) {
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(p));
   }
   asset::AssetDatabase db(vfs);
   const auto& profile =
@@ -749,16 +789,19 @@ void DemoScenes::CreateStrandHairDemoScene() {
     // that is not shipped.
     const asset::Texture* diffuse = nullptr;
     for (const asset::Material& m : conv.materials) {
-      if (!m.base_color) continue;
+      if (!m.base_color)
+        continue;
       for (const base::String& tp : conv.texture_paths) {
         if (asset::MakeAssetId(tp).hash == m.base_color.hash) {
           diffuse = db.LoadTexture(tp);
           break;
         }
       }
-      if (diffuse) break;
+      if (diffuse)
+        break;
     }
-    if (!diffuse) diffuse = db.LoadTexture(specs[i].diffuse);
+    if (!diffuse)
+      diffuse = db.LoadTexture(specs[i].diffuse);
 
     render::GroomParams params;
     params.guide_count = 8000;
@@ -770,7 +813,8 @@ void DemoScenes::CreateStrandHairDemoScene() {
     params.seed = i + 1;
     params.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
     u32 id = renderer_.CreateHairGroom(*conv.mesh, params, MakeTranslation(head_center));
-    if (id == 0) continue;
+    if (id == 0)
+      continue;
     hair_grooms_.push_back(id);
     if (specs[i].orbit) {
       hair_orbit_groom_ = id;
@@ -844,7 +888,8 @@ void DemoScenes::CreateVirtualGeometryDemoScene() {
       lod.indices.push_back(i3);
     }
   }
-  if (!config_.headless) renderer_.UploadVirtualGeometryMesh(terrain);
+  if (!config_.headless)
+    renderer_.UploadVirtualGeometryMesh(terrain);
   RX_INFO("vgeo demo: {} tris in the source terrain", lod.indices.size() / 3);
 
   ctx_.scene_owns_sun = true;
@@ -863,7 +908,8 @@ void DemoScenes::CreateVirtualTextureDemoScene() {
   vt_mat.id = asset::MakeAssetId("builtin/vt/mat");
   vt_mat.virtual_albedo = true;
   vt_mat.roughness_factor = 0.85f;
-  if (!config_.headless) renderer_.UploadMaterial(vt_mat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(vt_mat);
 
   asset::Mesh ground =
       asset::MakeBox(240.0f, 0.2f, 240.0f, asset::MakeAssetId("builtin/vt/ground"));
@@ -971,11 +1017,13 @@ void DemoScenes::CreateBrickDemoScene() {
   brick.height = height.id;
   brick.height_scale = 0.06f;
   brick.roughness_factor = 0.9f;
-  if (!config_.headless) renderer_.UploadMaterial(brick);
+  if (!config_.headless)
+    renderer_.UploadMaterial(brick);
   asset::Material brick_flat = brick;  // a/b: same look minus the pom march
   brick_flat.id = asset::MakeAssetId("builtin/bricks/mat_flat");
   brick_flat.height = {};
-  if (!config_.headless) renderer_.UploadMaterial(brick_flat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(brick_flat);
 
   // Two walls side by side (pom | flat) + a floor, sun grazing along them.
   asset::Mesh wall = asset::MakeBox(3.0f, 2.0f, 0.15f, asset::MakeAssetId("builtin/bricks/wall"));
@@ -1143,11 +1191,13 @@ void DemoScenes::CreateSssDemoScene() {
   floor_mat.base_color_factor[1] = 0.30f;
   floor_mat.base_color_factor[2] = 0.32f;
   floor_mat.roughness_factor = 0.9f;
-  if (!config_.headless) renderer_.UploadMaterial(floor_mat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(floor_mat);
   asset::Mesh ground = asset::MakeBox(8.0f, 0.15f, 6.0f, asset::MakeAssetId("builtin/sss/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -0.15f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
@@ -1227,7 +1277,8 @@ void DemoScenes::CreateSssDemoScene() {
   asset::Mesh pole = asset::MakeBox(0.035f, 0.7f, 0.035f, asset::MakeAssetId("builtin/sss/pole"));
   pole.lods[0].submeshes.push_back(
       {0, static_cast<u32>(pole.lods[0].indices.size()), floor_mat.id});
-  if (!config_.headless) renderer_.UploadMesh(pole);
+  if (!config_.headless)
+    renderer_.UploadMesh(pole);
   const f32 poles[2][3] = {{1.30f, 0.95f, 0.75f}, {-0.20f, 0.95f, 0.75f}};
   for (auto& pp : poles) {
     ecs::Entity occluder = world_.Create();
@@ -1250,7 +1301,8 @@ void DemoScenes::CreateSssDemoScene() {
 }
 
 void DemoScenes::CreateFacesDemoScene() {
-  if (config_.headless || !ctx_.records) return;
+  if (config_.headless || !ctx_.records)
+    return;
   face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
 
   // A spread of distinct real faces across races (Nord, Orc, High Elf, Redguard,
@@ -1261,24 +1313,31 @@ void DemoScenes::CreateFacesDemoScene() {
     bool exaggerate = false;
   };
   const Want wanted[] = {
-      {"BalgruuftheGreater"}, {"BalgruuftheGreater", true}, {"Ghorbash"},
-      {"Ancano"},             {"Nazeem"},                   {"Ysolda"},
+      {"BalgruuftheGreater"},
+      {"BalgruuftheGreater", true},
+      {"Ghorbash"},
+      {"Ancano"},
+      {"Nazeem"},
+      {"Ysolda"},
   };
   const int count = static_cast<int>(std::size(wanted));
 
   // Resolve the editor ids to form ids in one NPC_ pass (records offer no
   // by-edid NPC lookup). Duplicates in `wanted` resolve to the same id.
   bethesda::GlobalFormId ids[std::size(wanted)];
-  for (auto& id : ids) id = bethesda::GlobalFormId{0xffff, 0};
+  for (auto& id : ids)
+    id = bethesda::GlobalFormId{0xffff, 0};
   const u32 kEdid = FourCc('E', 'D', 'I', 'D');
   ctx_.records->EachOfType(
       FourCc('N', 'P', 'C', '_'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         bethesda::Record r;
-        if (!ctx_.records->Parse(id, &r)) return;
+        if (!ctx_.records->Parse(id, &r))
+          return;
         base::String edid = r.GetString(kEdid);
         for (int i = 0; i < count; ++i)
-          if (ids[i].plugin == 0xffff && edid == wanted[i].edid) ids[i] = id;
+          if (ids[i].plugin == 0xffff && edid == wanted[i].edid)
+            ids[i] = id;
       });
 
   // Bethesda object space (Z-up, game units) -> engine (Y-up, metres): the head
@@ -1298,7 +1357,8 @@ void DemoScenes::CreateFacesDemoScene() {
       continue;
     }
     FaceState fs;
-    if (!face_builder_->AssembleNpc(ids[i], &fs)) continue;
+    if (!face_builder_->AssembleNpc(ids[i], &fs))
+      continue;
     if (wanted[i].exaggerate) {
       // Push a handful of chargen morphs well past their in-game range so the
       // morph pipeline reads unmistakably (a caricature, on purpose).
@@ -1316,7 +1376,8 @@ void DemoScenes::CreateFacesDemoScene() {
 
     const f32 x = x0 + spacing * i;
     for (const BuiltFacePart& part : faces_.back().parts()) {
-      if (part.type == bethesda::HeadPartType::kHair) continue;  // groom replaces the card
+      if (part.type == bethesda::HeadPartType::kHair)
+        continue;  // groom replaces the card
       ecs::Entity e = world_.Create();
       world_.Add(e, world::Transform{.position = {x, 0.0f, 0.0f},
                                      .rotation = {basis.x, basis.y, basis.z, basis.w},
@@ -1329,7 +1390,8 @@ void DemoScenes::CreateFacesDemoScene() {
     const FaceState& built_face = faces_.back();
     if (!built_face.hair_model().empty()) {
       base::String hair_path = asset::NormalizePath(built_face.hair_model());
-      if (!hair_path.starts_with("meshes/")) hair_path = "meshes/" + hair_path;
+      if (!hair_path.starts_with("meshes/"))
+        hair_path = "meshes/" + hair_path;
       if (auto bytes = ctx_.vfs->Read(hair_path)) {
         bethesda::NifConversion conv = bethesda::ConvertNifRigid(
             ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(hair_path), hair_path);
@@ -1337,7 +1399,8 @@ void DemoScenes::CreateFacesDemoScene() {
           const asset::Texture* diffuse = nullptr;
           for (const base::String& tp : conv.texture_paths) {
             diffuse = ctx_.assets->LoadTexture(tp);
-            if (diffuse) break;
+            if (diffuse)
+              break;
           }
           const f32* hc = built_face.hair_color();
           render::GroomParams params;
@@ -1359,7 +1422,8 @@ void DemoScenes::CreateFacesDemoScene() {
           const f32 s = 0.01428f;
           Vec3 crown{x + fc[0] * s, (fc[2] + 0.42f * fr) * s, -fc[1] * s};
           u32 id = renderer_.CreateHairGroom(*conv.mesh, params, MakeTranslation(crown));
-          if (id) hair_grooms_.push_back(id);
+          if (id)
+            hair_grooms_.push_back(id);
         }
       }
     }
@@ -1414,20 +1478,23 @@ void DemoScenes::CreateFireDemoScene() {
   stone.base_color_factor[1] = 0.22f;
   stone.base_color_factor[2] = 0.21f;
   stone.roughness_factor = 0.9f;
-  if (!config_.headless) renderer_.UploadMaterial(stone);
+  if (!config_.headless)
+    renderer_.UploadMaterial(stone);
   asset::Material wood;
   wood.id = asset::MakeAssetId("builtin/fire/wood");
   wood.base_color_factor[0] = 0.16f;
   wood.base_color_factor[1] = 0.09f;
   wood.base_color_factor[2] = 0.05f;
   wood.roughness_factor = 0.85f;
-  if (!config_.headless) renderer_.UploadMaterial(wood);
+  if (!config_.headless)
+    renderer_.UploadMaterial(wood);
 
   asset::Mesh ground =
       asset::MakeBox(30.0f, 0.2f, 30.0f, asset::MakeAssetId("builtin/fire/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), stone.id});
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -0.2f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
@@ -1436,7 +1503,8 @@ void DemoScenes::CreateFireDemoScene() {
   // flicker light has geometry to shadow.
   asset::Mesh log = asset::MakeBox(0.9f, 0.14f, 0.14f, asset::MakeAssetId("builtin/fire/log"));
   log.lods[0].submeshes.push_back({0, static_cast<u32>(log.lods[0].indices.size()), wood.id});
-  if (!config_.headless) renderer_.UploadMesh(log);
+  if (!config_.headless)
+    renderer_.UploadMesh(log);
   for (int i = 0; i < 5; ++i) {
     f32 a = static_cast<f32>(i) * 1.2566f;
     Quat q = QuatFromAxisAngle({0, 1, 0}, a);
@@ -1448,7 +1516,8 @@ void DemoScenes::CreateFireDemoScene() {
   }
   asset::Mesh rock = asset::MakeSphere(0.45f, 16, 24, asset::MakeAssetId("builtin/fire/rock"));
   rock.lods[0].submeshes.push_back({0, static_cast<u32>(rock.lods[0].indices.size()), stone.id});
-  if (!config_.headless) renderer_.UploadMesh(rock);
+  if (!config_.headless)
+    renderer_.UploadMesh(rock);
   const f32 rocks[4][2] = {{2.2f, 0.6f}, {-1.8f, 1.4f}, {0.6f, -2.1f}, {-2.4f, -1.2f}};
   for (auto& r : rocks) {
     ecs::Entity e = world_.Create();
@@ -1468,7 +1537,8 @@ void DemoScenes::CreateFireDemoScene() {
   cloth.wind = true;
   cloth.sheen_color[0] = cloth.sheen_color[1] = cloth.sheen_color[2] = 0.35f;
   cloth.sheen_roughness = 0.5f;
-  if (!config_.headless) renderer_.UploadMaterial(cloth);
+  if (!config_.headless)
+    renderer_.UploadMaterial(cloth);
 
   asset::Mesh banner;
   banner.id = asset::MakeAssetId("builtin/fire/banner");
@@ -1499,15 +1569,18 @@ void DemoScenes::CreateFireDemoScene() {
         u32 b = a + 1;
         u32 c = a + (kW + 1);
         u32 d = c + 1;
-        for (u32 idx : {a, c, b, b, c, d}) lod.indices.push_back(idx);
+        for (u32 idx : {a, c, b, b, c, d})
+          lod.indices.push_back(idx);
       }
     }
     lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), cloth.id});
   }
-  if (!config_.headless) renderer_.UploadMesh(banner);
+  if (!config_.headless)
+    renderer_.UploadMesh(banner);
   asset::Mesh pole = asset::MakeBox(0.04f, 1.3f, 0.04f, asset::MakeAssetId("builtin/fire/pole"));
   pole.lods[0].submeshes.push_back({0, static_cast<u32>(pole.lods[0].indices.size()), wood.id});
-  if (!config_.headless) renderer_.UploadMesh(pole);
+  if (!config_.headless)
+    renderer_.UploadMesh(pole);
   const f32 banners[2][2] = {{-2.6f, -0.8f}, {2.3f, -1.6f}};
   for (auto& b : banners) {
     ecs::Entity pe = world_.Create();
@@ -1538,7 +1611,7 @@ void DemoScenes::CreateFireDemoScene() {
   camera_.set_yaw_pitch(-0.65f, -0.22f);
   camera_.speed = 3.0f;
   RX_INFO("fire demo: {} gpu flame/ember particles + flickering shadowed light",
-           gpu_particle_count_);
+          gpu_particle_count_);
 }
 
 void DemoScenes::CreateFurDemoScene() {
@@ -1549,7 +1622,8 @@ void DemoScenes::CreateFurDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -12.0f, 0}});  // top at y = 0
   world_.Add(floor, world::Renderable{ground.id});
@@ -1560,10 +1634,12 @@ void DemoScenes::CreateFurDemoScene() {
   core.base_color_factor[1] = 0.28f;
   core.base_color_factor[2] = 0.15f;
   core.roughness_factor = 0.9f;
-  if (!config_.headless) renderer_.UploadMaterial(core);
+  if (!config_.headless)
+    renderer_.UploadMaterial(core);
   asset::Mesh sphere = asset::MakeSphere(1.0f, 64, 96, asset::MakeAssetId("builtin/fur/coremesh"));
   sphere.lods[0].submeshes[0].material = core.id;
-  if (!config_.headless) renderer_.UploadMesh(sphere);
+  if (!config_.headless)
+    renderer_.UploadMesh(sphere);
   ecs::Entity ball = world_.Create();
   world_.Add(ball, world::Transform{.position = {0, 1.05f, 0}});
   world_.Add(ball, world::Renderable{sphere.id});
@@ -1586,7 +1662,8 @@ void DemoScenes::CreateAutoLodDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.1f, 0}});  // top at y = -0.1
   world_.Add(floor, world::Renderable{ground.id});
@@ -1597,7 +1674,8 @@ void DemoScenes::CreateAutoLodDemoScene() {
   mat.base_color_factor[1] = 0.55f;
   mat.base_color_factor[2] = 0.85f;
   mat.roughness_factor = 0.4f;
-  if (!config_.headless) renderer_.UploadMaterial(mat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(mat);
 
   asset::Mesh sphere = asset::MakeSphere(1.0f, 80, 120, asset::MakeAssetId("builtin/autolod/mesh"));
   sphere.lods[0].submeshes[0].material = mat.id;
@@ -1605,7 +1683,8 @@ void DemoScenes::CreateAutoLodDemoScene() {
   for (size_t i = 0; i < sphere.lods.size(); ++i) {
     RX_INFO("auto-lod: lod{} = {} tris", i, sphere.lods[i].indices.size() / 3);
   }
-  if (!config_.headless) renderer_.UploadMesh(sphere);
+  if (!config_.headless)
+    renderer_.UploadMesh(sphere);
 
   // One mesh, instanced at increasing distance: each instance picks its lod.
   const Vec3 pos[3] = {{-1.7f, 0.9f, 5.0f}, {1.5f, 0.9f, 3.0f}, {-1.0f, 0.9f, 1.0f}};
@@ -1629,7 +1708,8 @@ void DemoScenes::CreateOitDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.0f, 0}});  // top at y = 0
   world_.Add(floor, world::Renderable{ground.id});
@@ -1685,7 +1765,8 @@ void DemoScenes::CreateOcclusionDemoScene() {
     m.base_color_factor[2] = b;
     m.roughness_factor = 0.6f;
     m.metallic_factor = 0.0f;
-    if (!config_.headless) renderer_.UploadMaterial(m);
+    if (!config_.headless)
+      renderer_.UploadMaterial(m);
     return m.id;
   };
   asset::AssetId floor_mat = mat("builtin/occl/floor", 0.5f, 0.5f, 0.55f);
@@ -1695,7 +1776,8 @@ void DemoScenes::CreateOcclusionDemoScene() {
   auto add_box = [&](asset::Mesh mesh, asset::AssetId material, Vec3 pos) {
     asset::MeshLod& lod = mesh.lods[0];  // MakeBox leaves the submesh list empty
     lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), material});
-    if (!config_.headless) renderer_.UploadMesh(mesh);
+    if (!config_.headless)
+      renderer_.UploadMesh(mesh);
     ecs::Entity e = world_.Create();
     world_.Add(e, world::Transform{.position = {pos.x, pos.y, pos.z}});
     world_.Add(e, world::Renderable{mesh.id});
@@ -1736,13 +1818,15 @@ void DemoScenes::CreatePointLightDemoScene() {
       0.32f;  // mid-dark so colored light reflects as colour, not blown-out white
   floor_mat.roughness_factor = 0.5f;
   floor_mat.metallic_factor = 0.0f;
-  if (!config_.headless) renderer_.UploadMaterial(floor_mat);
+  if (!config_.headless)
+    renderer_.UploadMaterial(floor_mat);
 
   asset::Mesh ground =
       asset::MakeBox(6.0f, 0.1f, 6.0f, asset::MakeAssetId("builtin/lights/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -0.1f, 0}});
   world_.Add(floor, world::Renderable{ground.id});
@@ -1753,7 +1837,8 @@ void DemoScenes::CreatePointLightDemoScene() {
     base::String tag = "builtin/lights/bump" + base::ToString(i);
     asset::Mesh s = asset::MakeSphere(0.6f, 24, 32, asset::MakeAssetId(tag));
     s.lods[0].submeshes.push_back({0, static_cast<u32>(s.lods[0].indices.size()), floor_mat.id});
-    if (!config_.headless) renderer_.UploadMesh(s);
+    if (!config_.headless)
+      renderer_.UploadMesh(s);
     ecs::Entity e = world_.Create();
     world_.Add(e, world::Transform{.position = {x, 0.3f, 0.0f}});
     world_.Add(e, world::Renderable{s.id});
@@ -1778,10 +1863,14 @@ void DemoScenes::CreatePointLightDemoScene() {
   // lamp, and a cool rect panel washing the right wall of tiles.
   {
     render::PointLight spot;
-    spot.pos_radius[0] = -4.5f; spot.pos_radius[1] = 3.0f; spot.pos_radius[2] = 2.5f;
+    spot.pos_radius[0] = -4.5f;
+    spot.pos_radius[1] = 3.0f;
+    spot.pos_radius[2] = 2.5f;
     spot.pos_radius[3] = 9.0f;
-    spot.color_intensity[0] = 1.0f; spot.color_intensity[1] = 0.95f;
-    spot.color_intensity[2] = 0.8f; spot.color_intensity[3] = 20.0f;
+    spot.color_intensity[0] = 1.0f;
+    spot.color_intensity[1] = 0.95f;
+    spot.color_intensity[2] = 0.8f;
+    spot.color_intensity[3] = 20.0f;
     f32 dir[3] = {0.35f, -0.85f, -0.4f};
     f32 len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     spot.direction_type[0] = dir[0] / len;
@@ -1793,7 +1882,9 @@ void DemoScenes::CreatePointLightDemoScene() {
     demo_lights_.push_back(spot);
 
     render::PointLight ball;
-    ball.pos_radius[0] = 4.6f; ball.pos_radius[1] = 0.7f; ball.pos_radius[2] = 2.2f;
+    ball.pos_radius[0] = 4.6f;
+    ball.pos_radius[1] = 0.7f;
+    ball.pos_radius[2] = 2.2f;
     ball.pos_radius[3] = 6.0f;
     ball.color_intensity[0] = 1.0f;
     ball.color_intensity[1] = 0.6f;
@@ -1804,7 +1895,9 @@ void DemoScenes::CreatePointLightDemoScene() {
     demo_lights_.push_back(ball);
 
     render::PointLight panel;
-    panel.pos_radius[0] = 0.0f; panel.pos_radius[1] = 1.6f; panel.pos_radius[2] = -3.2f;
+    panel.pos_radius[0] = 0.0f;
+    panel.pos_radius[1] = 1.6f;
+    panel.pos_radius[2] = -3.2f;
     panel.pos_radius[3] = 8.0f;
     panel.color_intensity[0] = 0.4f;
     panel.color_intensity[1] = 0.7f;
@@ -1825,7 +1918,8 @@ void DemoScenes::CreatePointLightDemoScene() {
       asset::MakeBox(0.18f, 1.1f, 0.55f, asset::MakeAssetId("builtin/lights/pillar"));
   pillar.lods[0].submeshes.push_back(
       {0, static_cast<u32>(pillar.lods[0].indices.size()), floor_mat.id});
-  if (!config_.headless) renderer_.UploadMesh(pillar);
+  if (!config_.headless)
+    renderer_.UploadMesh(pillar);
   const f32 pillars[3][2] = {{-2.0f, 0.45f}, {0.4f, 0.5f}, {2.6f, 0.4f}};
   for (auto& pp : pillars) {
     ecs::Entity e = world_.Create();
@@ -1858,13 +1952,14 @@ void DemoScenes::CreateMeshletDemoScene() {
   // renderer draws it via the meshlet pass (watch "meshlet: N meshlets ...").
   asset::Mesh sphere =
       asset::MakeSphere(1.5f, 64, 128, asset::MakeAssetId("builtin/meshlet/sphere"));
-  if (!config_.headless) renderer_.UploadMeshletMesh(sphere);
+  if (!config_.headless)
+    renderer_.UploadMeshletMesh(sphere);
 
   camera_.set_position({0.0f, 0.0f, 4.5f});
   camera_.set_yaw_pitch(0.0f, 0.0f);
   camera_.speed = 3.0f;
   RX_INFO("meshlet demo: mesh-shader cluster rendering ({} tris)",
-           sphere.lods[0].indices.size() / 3);
+          sphere.lods[0].indices.size() / 3);
 }
 
 void DemoScenes::CreateMaterialXDemoScene() {
@@ -1875,7 +1970,8 @@ void DemoScenes::CreateMaterialXDemoScene() {
     if (lod.submeshes.empty())
       lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
-  if (!config_.headless) renderer_.UploadMesh(ground);
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.6f, 0}});  // top at y = -0.6
   world_.Add(floor, world::Renderable{ground.id});
@@ -1885,26 +1981,32 @@ void DemoScenes::CreateMaterialXDemoScene() {
     base::String s = env, cur;
     for (char c : s) {
       if (c == ',') {
-        if (!cur.empty()) paths.push_back(cur);
+        if (!cur.empty())
+          paths.push_back(cur);
         cur.clear();
       } else {
         cur.push_back(c);
       }
     }
-    if (!cur.empty()) paths.push_back(cur);
+    if (!cur.empty())
+      paths.push_back(cur);
   }
-  if (paths.empty()) RX_WARN("mtlx demo: set RX_MTLX=a.mtlx,b.mtlx to load materials");
+  if (paths.empty())
+    RX_WARN("mtlx demo: set RX_MTLX=a.mtlx,b.mtlx to load materials");
 
   int n = static_cast<int>(paths.size());
   for (int i = 0; i < n; ++i) {
     asset::Material mat;
     mat.id = asset::MakeAssetId("builtin/mtlx/mat" + base::ToString(i));
-    if (!asset::LoadMaterialX(paths[i].c_str(), &mat)) continue;
-    if (!config_.headless) renderer_.UploadMaterial(mat);
+    if (!asset::LoadMaterialX(paths[i].c_str(), &mat))
+      continue;
+    if (!config_.headless)
+      renderer_.UploadMaterial(mat);
     base::String tag = "builtin/mtlx/sphere" + base::ToString(i);
     asset::Mesh sphere = asset::MakeSphere(0.6f, 40, 60, asset::MakeAssetId(tag));
     sphere.lods[0].submeshes[0].material = mat.id;
-    if (!config_.headless) renderer_.UploadMesh(sphere);
+    if (!config_.headless)
+      renderer_.UploadMesh(sphere);
     ecs::Entity e = world_.Create();
     f32 x = (static_cast<f32>(i) - (n - 1) * 0.5f) * 1.5f;
     world_.Add(e, world::Transform{.position = {x, 0.0f, 0.0f}});
@@ -2011,7 +2113,8 @@ void DemoScenes::CreateDemoScene() {
     // uploaded so replicated Renderables resolve. The demo input swings the
     // player cube in a circle to exercise the client-to-server path.
     scheduler_.AddSystem(ecs::Stage::kSim, "demo_input", [this](ecs::World&, f32 dt) {
-      if (!ctx_.client_session || !ctx_.client_session->joined()) return;
+      if (!ctx_.client_session || !ctx_.client_session->joined())
+        return;
       demo_input_time_ += dt;
       net::PlayerInput input;
       input.move_x = std::cos(demo_input_time_ * 0.8f) * 0.5f;

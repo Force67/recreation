@@ -1,10 +1,10 @@
 #ifndef RECREATION_AUDIO_AMBIENT_H_
 #define RECREATION_AUDIO_AMBIENT_H_
 
-#include <string>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
+#include <string>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/form_id.h"

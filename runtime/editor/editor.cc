@@ -21,13 +21,13 @@
 #include "asset/asset_id.h"
 #include "asset/mesh.h"
 #include "components/bethesda/record.h"
+#include "components/world/cell_streaming.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "ecs/world.h"
-#include "runtime/app/engine_context.h"
 #include "render/core/renderer.h"
+#include "runtime/app/engine_context.h"
 #include "runtime/ui/thumbnailer.h"
-#include "components/world/cell_streaming.h"
 
 namespace rx {
 namespace {
@@ -54,7 +54,8 @@ constexpr int kGridCount = 5;
 
 // The scene-tree group label for a catalog category (0 / unknown -> "Objects").
 base::String GroupName(int category) {
-  if (category >= 1 && category < kEditorCategoryCount) return kEditorCategories[category];
+  if (category >= 1 && category < kEditorCategoryCount)
+    return kEditorCategories[category];
   return "Objects";
 }
 
@@ -65,13 +66,15 @@ MapEditor::MapEditor(EngineContext& ctx) : ctx_(ctx) {
   // stays in MapEditor.
   if (ctx_.game_ui)
     ctx_.game_ui->SetEditorEventSink([this](const EditorUiEvent& e) { HandleUiEvent(e); });
-  for (bool& g : group_expanded_) g = true;  // scene tree starts fully expanded
+  for (bool& g : group_expanded_)
+    g = true;  // scene tree starts fully expanded
 }
 
 void MapEditor::Toggle() {
   active_ = !active_;
   if (active_) {
-    if (!catalog_built_) BuildCatalog();
+    if (!catalog_built_)
+      BuildCatalog();
     ctx_.walk_mode = false;  // editor flies; never walks
     SetStatus("Editor on. Pick an asset, aim, click to place. F4 exits.");
     // Restore a previously saved building the first time the editor opens.
@@ -79,13 +82,15 @@ void MapEditor::Toggle() {
       layout_loaded_ = true;
       LoadLayout();
       LoadTerrain();
-      if (EditorDemo) PlaceDemoBuild();
+      if (EditorDemo)
+        PlaceDemoBuild();
     } else if (terrain_load_failed_) {
       LoadTerrain();
     }
     if (EditorTerrain) {
       EnterTerrainMode(world::TerrainBrushMode::kRaise);
-      if (!terrain_load_failed_) SetStatus("Terrain sculpt: drag to raise, Shift lowers");
+      if (!terrain_load_failed_)
+        SetStatus("Terrain sculpt: drag to raise, Shift lowers");
     }
   } else {
     ExitTerrainMode();
@@ -97,7 +102,8 @@ void MapEditor::Toggle() {
   }
   RX_INFO("map editor {}", active_ ? "on" : "off");
   // Push one view so the overlay shows/hides immediately.
-  if (ctx_.game_ui) PushView();
+  if (ctx_.game_ui)
+    PushView();
 }
 
 void MapEditor::SetStatus(base::String message) {
@@ -111,7 +117,8 @@ void MapEditor::SetPlaceDomains(base::Vector<EditorPlaceDomain> domains) {
 }
 
 void MapEditor::EnsureDomains() {
-  if (!domains_.empty()) return;
+  if (!domains_.empty())
+    return;
   domains_.push_back({"Game", "primary", ctx_.records, ctx_.strings, ctx_.streamer});
 }
 
@@ -123,7 +130,8 @@ world::CellStreamer* MapEditor::StreamerFor(int domain) const {
 
 const MapEditor::LightParams* MapEditor::LightFor(bethesda::GlobalFormId base, int domain) const {
   const u64 key = base.packed();
-  if (auto* it = light_cache_.find(key); it != nullptr) return *it ? &**it : nullptr;
+  if (auto* it = light_cache_.find(key); it != nullptr)
+    return *it ? &**it : nullptr;
 
   base::Optional<LightParams> result;
   if (domain >= 0 && domain < static_cast<int>(domains_.size()) && domains_[domain].records) {
@@ -138,7 +146,8 @@ const MapEditor::LightParams* MapEditor::LightFor(bethesda::GlobalFormId base, i
           d && d->data.size() >= 12) {
         u32 radius_units;
         std::memcpy(&radius_units, d->data.data() + 4, 4);
-        if (radius_units > 0 && radius_units < 20000) lp.radius = radius_units * kUnitsToMeters;
+        if (radius_units > 0 && radius_units < 20000)
+          lp.radius = radius_units * kUnitsToMeters;
         const u8* c = d->data.data() + 8;
         lp.color[0] = c[0] / 255.0f;
         lp.color[1] = c[1] / 255.0f;
@@ -156,9 +165,11 @@ const MapEditor::LightParams* MapEditor::LightFor(bethesda::GlobalFormId base, i
 void MapEditor::CollectLights(base::Vector<render::PointLight>& out) const {
   for (const PlacedObject& p : placed_) {
     const LightParams* lp = LightFor(p.base, p.domain);
-    if (!lp) continue;
+    if (!lp)
+      continue;
     const world::Transform* t = ctx_.world->Get<world::Transform>(p.entity);
-    if (!t) continue;
+    if (!t)
+      continue;
     render::PointLight l;
     l.pos_radius[0] = t->position[0];
     l.pos_radius[1] = t->position[1];
@@ -173,7 +184,8 @@ void MapEditor::CollectLights(base::Vector<render::PointLight>& out) const {
 }
 
 void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
-  if (!active_) return;
+  if (!active_)
+    return;
   status_age_ += dt;
 
   if (allow_input && (search_focused_ || scene_search_focused_)) {
@@ -216,7 +228,8 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
                !ctx_.camera->looking()) {
       // A click stamps the whole prefab at the aim point.
       Vec3 aim;
-      if (AimPoint(input, &aim)) StampPrefab(aim);
+      if (AimPoint(input, &aim))
+        StampPrefab(aim);
     } else if (brush_ >= 0 && lmb && !PointerOverUi(input) && !ctx_.camera->looking()) {
       // With a brush armed: the first click drops one; holding and dragging
       // paint-scatters a copy every scatter_spacing_ metres (fast forests).
@@ -349,10 +362,13 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
     return;
   }
 
-  if (selected_.empty()) return;
+  if (selected_.empty())
+    return;
 
-  if (input.key_pressed(Key::kV) && ctrl) DuplicateSelection();
-  if (input.key_pressed(Key::kX) || input.key_pressed(Key::kDelete)) DeleteSelection();
+  if (input.key_pressed(Key::kV) && ctrl)
+    DuplicateSelection();
+  if (input.key_pressed(Key::kX) || input.key_pressed(Key::kDelete))
+    DeleteSelection();
   if (input.key_pressed(Key::kG)) {
     if (ctrl)
       SaveSelectionAsPrefab();  // Ctrl+G groups the selection into a prefab
@@ -370,7 +386,8 @@ void MapEditor::ApplyKeyboard(const InputState& input) {
 }
 
 void MapEditor::ArmBrush(int catalog_index) {
-  if (catalog_index < 0 || catalog_index >= static_cast<int>(catalog_.size())) return;
+  if (catalog_index < 0 || catalog_index >= static_cast<int>(catalog_.size()))
+    return;
   ExitTerrainMode();
   brush_ = catalog_index;
   moving_ = false;
@@ -379,7 +396,8 @@ void MapEditor::ArmBrush(int catalog_index) {
 }
 
 void MapEditor::EnterTerrainMode(world::TerrainBrushMode mode, int toolbar_tool) {
-  if (terrain_mode_) ExitTerrainMode();
+  if (terrain_mode_)
+    ExitTerrainMode();
   terrain_mode_ = true;
   terrain_brush_mode_ = mode;
   terrain_stroke_active_ = false;
@@ -402,7 +420,8 @@ void MapEditor::ExitTerrainMode() {
 }
 
 void MapEditor::FinishTerrainStroke() {
-  if (!terrain_stroke_active_) return;
+  if (!terrain_stroke_active_)
+    return;
   terrain_stroke_active_ = false;
   world::TerrainEditChange refresh = terrain_stroke_;
   refresh.cells.insert(refresh.cells.end(), terrain_stroke_cells_.begin(),
@@ -424,12 +443,14 @@ void MapEditor::FinishTerrainStroke() {
 }
 
 void MapEditor::UpdateTerrainStroke(const InputState& input) {
-  if (!ctx_.streamer || !ctx_.world) return;
+  if (!ctx_.streamer || !ctx_.world)
+    return;
   const bool lmb = input.button(MouseButton::kLeft);
   const bool can_paint = !PointerOverUi(input) && !ctx_.camera->looking();
   Vec3 aim;
   terrain_has_aim_ = can_paint && TerrainAimPoint(input, &aim);
-  if (terrain_has_aim_) terrain_aim_ = aim;
+  if (terrain_has_aim_)
+    terrain_aim_ = aim;
 
   if (lmb && can_paint && terrain_has_aim_) {
     world::TerrainEditChange frame_change;
@@ -480,13 +501,15 @@ void MapEditor::UpdateTerrainStroke(const InputState& input) {
           world::TerrainEditChange change = ctx_.streamer->ApplyTerrainBrush(
               *ctx_.world, mode, position.x, position.z, terrain_radius_, terrain_strength_,
               terrain_flatten_y_, false);
-          if (!record_dab(base::move(change))) break;
+          if (!record_dab(base::move(change)))
+            break;
           terrain_last_dab_ = position;
         }
         SetStatus("Sculpting terrain");
       }
     }
-    if (!frame_change.empty()) ctx_.streamer->RefreshTerrainGeometry(*ctx_.world, frame_change);
+    if (!frame_change.empty())
+      ctx_.streamer->RefreshTerrainGeometry(*ctx_.world, frame_change);
   }
 
   if (!lmb && terrain_stroke_active_) {
@@ -496,7 +519,8 @@ void MapEditor::UpdateTerrainStroke(const InputState& input) {
 
 void MapEditor::EmitTerrainBrush(render::FrameView& view) {
   terrain_debug_lines_.clear();
-  if (!active_ || !terrain_mode_ || !terrain_has_aim_ || !ctx_.streamer) return;
+  if (!active_ || !terrain_mode_ || !terrain_has_aim_ || !ctx_.streamer)
+    return;
   constexpr int kSegments = 64;
   constexpr f32 kTau = 6.28318530718f;
   constexpr u32 kColor = 0x7c8cffff;
@@ -506,8 +530,10 @@ void MapEditor::EmitTerrainBrush(render::FrameView& view) {
     Vec3 point{terrain_aim_.x + std::cos(angle) * terrain_radius_, terrain_aim_.y + 0.06f,
                terrain_aim_.z + std::sin(angle) * terrain_radius_};
     f32 ground = 0;
-    if (ctx_.streamer->GroundHeight(point.x, point.z, &ground)) point.y = ground + 0.06f;
-    if (i > 0) terrain_debug_lines_.push_back({previous, point, kColor});
+    if (ctx_.streamer->GroundHeight(point.x, point.z, &ground))
+      point.y = ground + 0.06f;
+    if (i > 0)
+      terrain_debug_lines_.push_back({previous, point, kColor});
     previous = point;
   }
   view.debug_lines_overlay =
@@ -515,14 +541,17 @@ void MapEditor::EmitTerrainBrush(render::FrameView& view) {
 }
 
 ecs::Entity MapEditor::PlaceArmedAt(const Vec3& pos, f32 yaw) {
-  if (brush_ < 0 || !ctx_.world) return ecs::kInvalidEntity;
+  if (brush_ < 0 || !ctx_.world)
+    return ecs::kInvalidEntity;
   const CatalogEntry& e = catalog_[brush_];
   world::CellStreamer* streamer = StreamerFor(e.domain);
-  if (!streamer) return ecs::kInvalidEntity;
+  if (!streamer)
+    return ecs::kInvalidEntity;
   const Quat yq = QuatFromAxisAngle({0, 1, 0}, yaw);
   const f32 rot[4] = {yq.x, yq.y, yq.z, yq.w};
   ecs::Entity entity = streamer->PlaceObject(*ctx_.world, e.base, pos, rot, 1.0f);
-  if (entity == ecs::kInvalidEntity) return ecs::kInvalidEntity;
+  if (entity == ecs::kInvalidEntity)
+    return ecs::kInvalidEntity;
   placed_.push_back({entity, e.base, e.name, e.domain, e.category, e.type, e.editor_id});
   PushEdit({UndoKind::kPlace, entity, e.base, {}, e.name, e.domain});
   return entity;
@@ -536,9 +565,11 @@ f32 MapEditor::ScatterYaw() {
 }
 
 void MapEditor::PlaceBrush(const InputState& input) {
-  if (brush_ < 0 || !ctx_.world) return;
+  if (brush_ < 0 || !ctx_.world)
+    return;
   Vec3 pos;
-  if (!AimPoint(input, &pos)) return;
+  if (!AimPoint(input, &pos))
+    return;
   // Drop it facing the brush yaw the user dialed in with R.
   ecs::Entity entity = PlaceArmedAt(pos, brush_yaw_);
   if (entity == ecs::kInvalidEntity) {
@@ -551,7 +582,8 @@ void MapEditor::PlaceBrush(const InputState& input) {
 }
 
 void MapEditor::PlaceDemoBuild() {
-  if (!ctx_.streamer || !ctx_.world || catalog_.empty()) return;
+  if (!ctx_.streamer || !ctx_.world || catalog_.empty())
+    return;
   EnsureDomains();
   // One row per loaded game, on the ground ahead of the camera, so a multi-game
   // session (--add-game) shows Skyrim and Fallout 4 props side by side in the
@@ -565,19 +597,23 @@ void MapEditor::PlaceDemoBuild() {
   int total = 0;
   for (int d = 0; d < static_cast<int>(domains_.size()); ++d) {
     world::CellStreamer* streamer = StreamerFor(d);
-    if (!streamer) continue;
+    if (!streamer)
+      continue;
     const Vec3 center = base_center + fwd_h * (static_cast<f32>(d) * 4.0f);
     int placed = 0;
     for (size_t i = 0; i < catalog_.size() && placed < kWant; i += 17) {
       const CatalogEntry& e = catalog_[i];
-      if (e.domain != d) continue;
+      if (e.domain != d)
+        continue;
       Vec3 pos = center + right * (static_cast<f32>(placed) - (kWant - 1) * 0.5f) * 3.0f;
       f32 ground = 0;
-      if (ctx_.streamer->GroundHeight(pos.x, pos.z, &ground)) pos.y = ground;
+      if (ctx_.streamer->GroundHeight(pos.x, pos.z, &ground))
+        pos.y = ground;
       asset::AssetId mid;
       ecs::Entity entity =
           streamer->PlaceObject(*ctx_.world, e.base, pos, kIdentityRot, 1.0f, &mid);
-      if (entity == ecs::kInvalidEntity) continue;
+      if (entity == ecs::kInvalidEntity)
+        continue;
       // Keep the primary row human-scale (its mesh bounds are in the shared asset
       // db); secondary games are not size-filtered, just shown.
       if (d == 0 && ctx_.assets) {
@@ -613,8 +649,10 @@ void MapEditor::PlaceDemoBuild() {
         Vec3 p = grove + right * (static_cast<f32>(gx) * 2.2f) +
                  fwd_h * (static_cast<f32>(gz - 1) * 2.2f);
         f32 g = 0;
-        if (ctx_.streamer->GroundHeight(p.x, p.z, &g)) p.y = g;
-        if (PlaceArmedAt(p, ScatterYaw()) != ecs::kInvalidEntity) ++total;
+        if (ctx_.streamer->GroundHeight(p.x, p.z, &g))
+          p.y = g;
+        if (PlaceArmedAt(p, ScatterYaw()) != ecs::kInvalidEntity)
+          ++total;
       }
     }
     brush_ = -1;
@@ -635,21 +673,25 @@ void MapEditor::PlaceDemoBuild() {
     for (int i = 0; i < 4; ++i) {
       Vec3 p = line + fwd_h * (static_cast<f32>(i - 1) * 2.5f);
       f32 g = 0;
-      if (ctx_.streamer->GroundHeight(p.x, p.z, &g)) p.y = g + 1.0f;  // lift lamps off the ground
-      if (PlaceArmedAt(p, 0.0f) != ecs::kInvalidEntity) ++total;
+      if (ctx_.streamer->GroundHeight(p.x, p.z, &g))
+        p.y = g + 1.0f;  // lift lamps off the ground
+      if (PlaceArmedAt(p, 0.0f) != ecs::kInvalidEntity)
+        ++total;
     }
     brush_ = -1;
   }
 
   // Select the middle object so the selection reticle and inspector are live.
-  if (!placed_.empty()) selected_ = {placed_[placed_.size() / 2].entity};
+  if (!placed_.empty())
+    selected_ = {placed_[placed_.size() / 2].entity};
 
   // Frame the rows for a clean capture (unless RX_CAM already pinned a vantage):
   // a near-top-down vantage so dense start cells never occlude them.
   if (!Cam) {
     Vec3 row_center = base_center + fwd_h * 2.0f;
     f32 cg = 0;
-    if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg)) row_center.y = cg;
+    if (ctx_.streamer->GroundHeight(row_center.x, row_center.z, &cg))
+      row_center.y = cg;
     ctx_.camera->set_position(row_center + Vec3{0, 18.0f, 2.0f});
     ctx_.camera->set_yaw_pitch(0.0f, -1.4f);  // look almost straight down, slight tilt
   }
@@ -702,7 +744,8 @@ void MapEditor::SelectUnderCursor(const InputState& input, bool additive) {
   ecs::Entity hit = PickEntity(input, &t);
   moving_ = false;
   if (hit == ecs::kInvalidEntity) {
-    if (!additive) selected_.clear();  // a plain click on empty space deselects
+    if (!additive)
+      selected_.clear();  // a plain click on empty space deselects
     SetStatus("Nothing under the cursor");
     return;
   }
@@ -722,14 +765,17 @@ void MapEditor::SelectUnderCursor(const InputState& input, bool additive) {
 
 void MapEditor::DeleteSelection() {
   PruneDeadSelection();
-  if (selected_.empty()) return;
+  if (selected_.empty())
+    return;
   int deleted = 0;
   for (ecs::Entity e : selected_) {
-    if (!ctx_.world->IsAlive(e)) continue;
+    if (!ctx_.world->IsAlive(e))
+      continue;
     UndoOp op;
     op.kind = UndoKind::kDelete;
     op.entity = e;
-    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e)) op.transform = *t;
+    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e))
+      op.transform = *t;
     op.base = bethesda::GlobalFormId{0xffff, 0};
     op.name = "object";
     if (const int pi = FindPlaced(e); pi >= 0) {
@@ -751,19 +797,23 @@ void MapEditor::DeleteSelection() {
 
 void MapEditor::DuplicateSelection() {
   PruneDeadSelection();
-  if (selected_.empty()) return;
+  if (selected_.empty())
+    return;
   base::Vector<ecs::Entity> copies;
   for (ecs::Entity e : selected_) {
     const world::Transform* t = ctx_.world->Get<world::Transform>(e);
     const int pi = FindPlaced(e);
-    if (!t || pi < 0) continue;  // only editor-owned objects can be duplicated
+    if (!t || pi < 0)
+      continue;  // only editor-owned objects can be duplicated
     const PlacedObject src = placed_[pi];
     world::CellStreamer* streamer = StreamerFor(src.domain);
-    if (!streamer) continue;
+    if (!streamer)
+      continue;
     const f32 user_scale = t->scale / kUnitsToMeters;  // strip the unit->metre factor
     Vec3 pos{t->position[0] + 1.0f, t->position[1], t->position[2] + 1.0f};
     ecs::Entity copy = streamer->PlaceObject(*ctx_.world, src.base, pos, t->rotation, user_scale);
-    if (copy == ecs::kInvalidEntity) continue;
+    if (copy == ecs::kInvalidEntity)
+      continue;
     placed_.push_back(
         {copy, src.base, src.name, src.domain, src.category, src.type, src.editor_id});
     PushEdit({UndoKind::kPlace, copy, src.base, {}, src.name, src.domain});
@@ -783,7 +833,8 @@ void MapEditor::RotateSelection(f32 radians) {
   for (ecs::Entity e : selected_) {
     RecordTransform(e);
     world::Transform* t = ctx_.world->Get<world::Transform>(e);
-    if (!t) continue;
+    if (!t)
+      continue;
     Quat cur{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
     Quat nr = Normalize(yaw * cur);
     t->rotation[0] = nr.x;
@@ -798,21 +849,24 @@ void MapEditor::ScaleSelection(f32 factor) {
   for (ecs::Entity e : selected_) {
     RecordTransform(e);
     world::Transform* t = ctx_.world->Get<world::Transform>(e);
-    if (!t) continue;
+    if (!t)
+      continue;
     t->scale = base::Clamp(t->scale * factor, kUnitsToMeters * 0.05f, kUnitsToMeters * 50.0f);
   }
 }
 
 void MapEditor::BeginMove() {
   PruneDeadSelection();
-  if (selected_.empty()) return;
+  if (selected_.empty())
+    return;
   moving_ = true;
   marquee_dragging_ = false;
   move_origins_.clear();
   for (ecs::Entity e : selected_) {
     RecordTransform(e);
     world::Transform snapshot{};
-    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e)) snapshot = *t;
+    if (const world::Transform* t = ctx_.world->Get<world::Transform>(e))
+      snapshot = *t;
     move_origins_.push_back(snapshot);
   }
   if (const world::Transform* pt = ctx_.world->Get<world::Transform>(Primary()))
@@ -823,20 +877,23 @@ void MapEditor::BeginMove() {
 void MapEditor::SaveSelectionAsPrefab() {
   PruneDeadSelection();
   const world::Transform* anchor_t = ctx_.world->Get<world::Transform>(Primary());
-  if (!anchor_t) return;
+  if (!anchor_t)
+    return;
   const Vec3 anchor{anchor_t->position[0], anchor_t->position[1], anchor_t->position[2]};
   prefab_.clear();
   for (ecs::Entity e : selected_) {
     const int pi = FindPlaced(e);  // only editor-owned objects can be grouped
     const world::Transform* t = ctx_.world->Get<world::Transform>(e);
-    if (pi < 0 || !t) continue;
+    if (pi < 0 || !t)
+      continue;
     PrefabMember m;
     m.base = placed_[pi].base;
     m.domain = placed_[pi].domain;
     m.rel[0] = t->position[0] - anchor.x;
     m.rel[1] = t->position[1] - anchor.y;
     m.rel[2] = t->position[2] - anchor.z;
-    for (int i = 0; i < 4; ++i) m.rot[i] = t->rotation[i];
+    for (int i = 0; i < 4; ++i)
+      m.rot[i] = t->rotation[i];
     m.scale = t->scale / kUnitsToMeters;  // strip the unit->metre factor
     prefab_.push_back(m);
   }
@@ -852,14 +909,17 @@ void MapEditor::SaveSelectionAsPrefab() {
 }
 
 void MapEditor::StampPrefab(const Vec3& at) {
-  if (prefab_.empty()) return;
+  if (prefab_.empty())
+    return;
   base::Vector<ecs::Entity> stamped;
   for (const PrefabMember& m : prefab_) {
     world::CellStreamer* streamer = StreamerFor(m.domain);
-    if (!streamer) continue;
+    if (!streamer)
+      continue;
     const Vec3 pos{at.x + m.rel[0], at.y + m.rel[1], at.z + m.rel[2]};
     ecs::Entity e = streamer->PlaceObject(*ctx_.world, m.base, pos, m.rot, m.scale);
-    if (e == ecs::kInvalidEntity) continue;
+    if (e == ecs::kInvalidEntity)
+      continue;
     placed_.push_back({e, m.base, "prefab part", m.domain});
     PushEdit({UndoKind::kPlace, e, m.base, {}, "prefab part", m.domain});
     stamped.push_back(e);
@@ -878,7 +938,8 @@ base::Optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
       inv.kind = UndoKind::kDelete;
       if (const world::Transform* t = ctx_.world->Get<world::Transform>(op.entity))
         inv.transform = *t;
-      if (!ctx_.world->IsAlive(op.entity)) return base::nullopt;
+      if (!ctx_.world->IsAlive(op.entity))
+        return base::nullopt;
       ctx_.world->Destroy(op.entity);
       placed_.erase(std::remove_if(placed_.begin(), placed_.end(),
                                    [&](const PlacedObject& p) { return p.entity == op.entity; }),
@@ -900,7 +961,8 @@ base::Optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
         placed_.push_back({e, op.base, op.name, op.domain});
         selected_ = {e};
       }
-      if (e == ecs::kInvalidEntity) return base::nullopt;
+      if (e == ecs::kInvalidEntity)
+        return base::nullopt;
       inv.kind = UndoKind::kPlace;
       inv.entity = e;
       break;
@@ -917,7 +979,8 @@ base::Optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
       break;
     }
     case UndoKind::kTerrain: {
-      if (!ctx_.streamer || !ctx_.world) return base::nullopt;
+      if (!ctx_.streamer || !ctx_.world)
+        return base::nullopt;
       const bool ok = op.terrain_applied
                           ? ctx_.streamer->RevertTerrainChange(*ctx_.world, op.terrain)
                           : ctx_.streamer->ApplyTerrainChange(*ctx_.world, op.terrain);
@@ -940,7 +1003,8 @@ void MapEditor::Undo() {
   }
   UndoOp op = undo_.back();
   base::Optional<UndoOp> inverse = ApplyAndInvert(op);
-  if (!inverse) return;
+  if (!inverse)
+    return;
   undo_.pop_back();
   redo_.push_back(base::move(*inverse));
   SetStatus("Undid");
@@ -954,7 +1018,8 @@ void MapEditor::Redo() {
   }
   UndoOp op = redo_.back();
   base::Optional<UndoOp> inverse = ApplyAndInvert(op);
-  if (!inverse) return;
+  if (!inverse)
+    return;
   redo_.pop_back();
   undo_.push_back(base::move(*inverse));
   SetStatus("Redid");
@@ -966,9 +1031,11 @@ void MapEditor::PushEdit(const UndoOp& op) {
 }
 
 void MapEditor::RecordTransform(ecs::Entity entity) {
-  if (!ctx_.world->IsAlive(entity)) return;
+  if (!ctx_.world->IsAlive(entity))
+    return;
   const world::Transform* t = ctx_.world->Get<world::Transform>(entity);
-  if (!t) return;
+  if (!t)
+    return;
   // Coalesce consecutive transform snapshots of the same entity so a long
   // wheel-scale or rotate burst collapses to a single undo step.
   if (!undo_.empty() && undo_.back().kind == UndoKind::kTransform &&
@@ -994,13 +1061,15 @@ void MapEditor::PruneDeadSelection() {
 
 int MapEditor::FindPlaced(ecs::Entity e) const {
   for (int i = 0; i < static_cast<int>(placed_.size()); ++i)
-    if (placed_[i].entity == e) return i;
+    if (placed_[i].entity == e)
+      return i;
   return -1;
 }
 
 world::Transform* MapEditor::SelectedTransform() {
   const ecs::Entity e = Primary();
-  if (e == ecs::kInvalidEntity || !ctx_.world->IsAlive(e)) return nullptr;
+  if (e == ecs::kInvalidEntity || !ctx_.world->IsAlive(e))
+    return nullptr;
   return ctx_.world->Get<world::Transform>(e);
 }
 
@@ -1010,13 +1079,19 @@ bool MapEditor::PointerOverUi(const InputState& input) const {
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
   f32 x = input.mouse_x, y = input.mouse_y;
-  if (ctx_.game_ui) ctx_.game_ui->ScalePointer(x, y, &x, &y);
-  if (y < kEdToolbarH) return true;        // toolbar
-  if (y > h - kEdStatusH) return true;     // status bar
-  if (x < kEdSceneW) return true;          // left scene/assets dock
-  if (x > w - kEdInspectorW) return true;  // inspector dock (always shown)
+  if (ctx_.game_ui)
+    ctx_.game_ui->ScalePointer(x, y, &x, &y);
+  if (y < kEdToolbarH)
+    return true;  // toolbar
+  if (y > h - kEdStatusH)
+    return true;  // status bar
+  if (x < kEdSceneW)
+    return true;  // left scene/assets dock
+  if (x > w - kEdInspectorW)
+    return true;  // inspector dock (always shown)
   // Bottom asset-browser dock, between the side docks above the status bar.
-  if (y > h - kEdStatusH - kEdBrowserH) return true;
+  if (y > h - kEdStatusH - kEdBrowserH)
+    return true;
   return false;
 }
 
@@ -1030,7 +1105,8 @@ Vec3 MapEditor::CursorRayDir(const InputState& input) const {
   const f32 aspect = h > 0 ? w / h : 1.0f;
   const f32 tan_half = std::tan(kFovY * 0.5f);
   f32 pointer_x = input.mouse_x, pointer_y = input.mouse_y;
-  if (ctx_.game_ui) ctx_.game_ui->ScalePointer(pointer_x, pointer_y, &pointer_x, &pointer_y);
+  if (ctx_.game_ui)
+    ctx_.game_ui->ScalePointer(pointer_x, pointer_y, &pointer_x, &pointer_y);
   const f32 ndc_x = w > 0 ? (2.0f * pointer_x / w - 1.0f) : 0.0f;
   const f32 ndc_y = h > 0 ? (1.0f - 2.0f * pointer_y / h) : 0.0f;
   Vec3 dir = fwd + right * (ndc_x * aspect * tan_half) + up * (ndc_y * tan_half);
@@ -1039,7 +1115,8 @@ Vec3 MapEditor::CursorRayDir(const InputState& input) const {
 }
 
 bool MapEditor::AimPoint(const InputState& input, Vec3* out) const {
-  if (TerrainAimPoint(input, out)) return true;
+  if (TerrainAimPoint(input, out))
+    return true;
   // No ground (interior, or aimed at the sky): drop it a fixed distance ahead.
   *out = Snap(ctx_.camera->position() + CursorRayDir(input) * kFallbackDist);
   return true;
@@ -1065,7 +1142,8 @@ bool MapEditor::TerrainAimPoint(const InputState& input, Vec3* out) const {
 }
 
 Vec3 MapEditor::Snap(const Vec3& p) const {
-  if (!snap_ || snap_grid_ <= 0) return p;
+  if (!snap_ || snap_grid_ <= 0)
+    return p;
   return Vec3{std::round(p.x / snap_grid_) * snap_grid_, p.y,
               std::round(p.z / snap_grid_) * snap_grid_};
 }
@@ -1077,8 +1155,10 @@ ecs::Entity MapEditor::PickEntity(const InputState& input, f32* out_t) const {
   f32 best_t = 1e30f;
   ctx_.world->Each<world::Transform, world::Renderable>(
       [&](ecs::Entity entity, world::Transform& t, world::Renderable& r) {
-        if (entity == ghost_entity_) return;  // never select the live preview
-        if (ctx_.world->Has<world::Hidden>(entity)) return;
+        if (entity == ghost_entity_)
+          return;  // never select the live preview
+        if (ctx_.world->Has<world::Hidden>(entity))
+          return;
         // World-space bounding sphere from the mesh bounds (object space, scaled).
         Vec3 center{t.position[0], t.position[1], t.position[2]};
         f32 radius = 0.5f;
@@ -1090,20 +1170,25 @@ ecs::Entity MapEditor::PickEntity(const InputState& input, f32* out_t) const {
             radius = mesh->bounds_radius * t.scale;
           }
         }
-        if (radius <= 0) return;
+        if (radius <= 0)
+          return;
         const Vec3 oc = eye - center;
         const f32 b = Dot(oc, dir);
         const f32 c = Dot(oc, oc) - radius * radius;
         const f32 disc = b * b - c;
-        if (disc < 0) return;
+        if (disc < 0)
+          return;
         const f32 sq = std::sqrt(disc);
         f32 hit = -b - sq;
-        if (hit < 0) hit = -b + sq;
-        if (hit < 0 || hit >= best_t) return;
+        if (hit < 0)
+          hit = -b + sq;
+        if (hit < 0 || hit >= best_t)
+          return;
         best_t = hit;
         best = entity;
       });
-  if (out_t) *out_t = best_t;
+  if (out_t)
+    *out_t = best_t;
   return best;
 }
 
@@ -1114,7 +1199,8 @@ bool MapEditor::ProjectToScreen(const Vec3& world, f32* sx, f32* sy) const {
   const Vec3 cu = Cross(cr, cf);
   const Vec3 to = world - eye;
   const f32 zc = Dot(to, cf);
-  if (zc <= 0.1f) return false;  // behind the camera
+  if (zc <= 0.1f)
+    return false;  // behind the camera
   const f32 w = static_cast<f32>(ctx_.renderer->output_width());
   const f32 h = static_cast<f32>(ctx_.renderer->output_height());
   const f32 aspect = h > 0 ? w / h : 1.0f;
@@ -1129,13 +1215,17 @@ bool MapEditor::ProjectToScreen(const Vec3& world, f32* sx, f32* sy) const {
 void MapEditor::BoxSelect(f32 x0, f32 y0, f32 x1, f32 y1, bool additive) {
   const f32 lo_x = base::Min(x0, x1), hi_x = base::Max(x0, x1);
   const f32 lo_y = base::Min(y0, y1), hi_y = base::Max(y0, y1);
-  if (!additive) selected_.clear();
+  if (!additive)
+    selected_.clear();
   ctx_.world->Each<world::Transform, world::Renderable>(
       [&](ecs::Entity e, world::Transform& t, world::Renderable&) {
-        if (e == ghost_entity_ || ctx_.world->Has<world::Hidden>(e)) return;
+        if (e == ghost_entity_ || ctx_.world->Has<world::Hidden>(e))
+          return;
         f32 sx, sy;
-        if (!ProjectToScreen(Vec3{t.position[0], t.position[1], t.position[2]}, &sx, &sy)) return;
-        if (sx < lo_x || sx > hi_x || sy < lo_y || sy > hi_y) return;
+        if (!ProjectToScreen(Vec3{t.position[0], t.position[1], t.position[2]}, &sx, &sy))
+          return;
+        if (sx < lo_x || sx > hi_x || sy < lo_y || sy > hi_y)
+          return;
         if (std::find(selected_.begin(), selected_.end(), e) == selected_.end())
           selected_.push_back(e);
       });
@@ -1203,7 +1293,8 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       left_tab_ = e.index;  // 0 scene tree, 1 assets list
       break;
     case K::kTreeSelect: {
-      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size()))
+        break;
       const TreeNode& n = tree_targets_[e.index];
       if (n.kind == 0) {
         root_expanded_ = !root_expanded_;
@@ -1217,7 +1308,8 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       break;
     }
     case K::kTreeExpand: {
-      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size()))
+        break;
       const TreeNode& n = tree_targets_[e.index];
       if (n.kind == 0)
         root_expanded_ = !root_expanded_;
@@ -1226,10 +1318,12 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       break;
     }
     case K::kTreeEye: {
-      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size())) break;
+      if (e.index < 0 || e.index >= static_cast<int>(tree_targets_.size()))
+        break;
       const TreeNode& n = tree_targets_[e.index];
       auto toggle = [&](ecs::Entity ent) {
-        if (!ctx_.world->IsAlive(ent)) return;
+        if (!ctx_.world->IsAlive(ent))
+          return;
         if (ctx_.world->Has<world::Hidden>(ent))
           ctx_.world->Remove<world::Hidden>(ent);
         else
@@ -1239,10 +1333,12 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
         toggle(n.entity);
       else if (n.kind == 1)
         for (const PlacedObject& p : placed_) {
-          if (p.category == n.category) toggle(p.entity);
+          if (p.category == n.category)
+            toggle(p.entity);
         }
       else
-        for (const PlacedObject& p : placed_) toggle(p.entity);
+        for (const PlacedObject& p : placed_)
+          toggle(p.entity);
       break;
     }
     case K::kTreeScroll:
@@ -1257,7 +1353,8 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       break;
     case K::kPickCard: {
       const int idx = page_first_ + e.index;
-      if (idx >= 0 && idx < static_cast<int>(filtered_.size())) ArmBrush(filtered_[idx]);
+      if (idx >= 0 && idx < static_cast<int>(filtered_.size()))
+        ArmBrush(filtered_[idx]);
       break;
     }
     case K::kCardScroll:
@@ -1323,13 +1420,17 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
 }
 
 const asset::Mesh* MapEditor::MeshForCatalog(const CatalogEntry& e) {
-  if (e.domain != 0 || !ctx_.assets || !ctx_.records) return nullptr;
+  if (e.domain != 0 || !ctx_.assets || !ctx_.records)
+    return nullptr;
   bethesda::Record rec;
-  if (!ctx_.records->Parse(e.base, &rec)) return nullptr;
+  if (!ctx_.records->Parse(e.base, &rec))
+    return nullptr;
   base::String model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
-  if (model.empty()) return nullptr;
+  if (model.empty())
+    return nullptr;
   base::String path = asset::NormalizePath(model);
-  if (path.rfind("meshes/", 0) != 0) path = "meshes/" + path;
+  if (path.rfind("meshes/", 0) != 0)
+    path = "meshes/" + path;
   return ctx_.assets->LoadMesh(path);
 }
 
@@ -1339,10 +1440,12 @@ u64 MapEditor::ThumbTexFor(u64 base_packed) const {
 }
 
 void MapEditor::GenerateThumbnails() {
-  if (!ctx_.game_ui || !ctx_.renderer) return;
+  if (!ctx_.game_ui || !ctx_.renderer)
+    return;
   // First use: stand up the renderer + cache dir (once; never retried on failure).
   if (!thumber_) {
-    if (thumber_tried_) return;
+    if (thumber_tried_)
+      return;
     thumber_tried_ = true;
     thumber_ = base::MakeUnique<Thumbnailer>();
     if (!thumber_->Init(*ctx_.renderer, 128)) {
@@ -1353,7 +1456,8 @@ void MapEditor::GenerateThumbnails() {
     std::error_code ec;
     std::filesystem::create_directories(thumb_dir_.c_str(), ec);
   }
-  if (!thumber_->ready()) return;
+  if (!thumber_->ready())
+    return;
 
   // Render at most a couple per frame; load from disk when a prop was already
   // previewed in a previous session. Keyed by base form id so the asset cards
@@ -1361,7 +1465,8 @@ void MapEditor::GenerateThumbnails() {
   int budget = 2;
   base::Vector<u8> pixels;
   auto ensure = [&](u64 key, auto get_mesh) {
-    if (budget <= 0 || thumb_tex_.count(key) || thumb_failed_.count(key)) return;
+    if (budget <= 0 || thumb_tex_.count(key) || thumb_failed_.count(key))
+      return;
     char path[80];
     std::snprintf(path, sizeof(path), "%s/%016llx.png", thumb_dir_.c_str(),
                   static_cast<unsigned long long>(key));
@@ -1388,7 +1493,8 @@ void MapEditor::GenerateThumbnails() {
   // Visible asset cards (primary game only).
   for (int i = 0; i < kEdCards && budget > 0; ++i) {
     const int idx = page_first_ + i;
-    if (idx >= static_cast<int>(filtered_.size())) break;
+    if (idx >= static_cast<int>(filtered_.size()))
+      break;
     const CatalogEntry& e = catalog_[filtered_[idx]];
     if (e.domain != 0) {
       thumb_failed_.insert(e.base.packed());
@@ -1411,7 +1517,8 @@ void MapEditor::GenerateThumbnails() {
 }
 
 void MapEditor::PushView() {
-  if (!ctx_.game_ui) return;
+  if (!ctx_.game_ui)
+    return;
   EditorView v;
   v.active = active_;
   if (!active_) {
@@ -1420,7 +1527,8 @@ void MapEditor::PushView() {
   }
   GenerateThumbnails();
   auto lower = [](base::String x) {
-    for (char& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : x)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return x;
   };
   // Long editor ids overrun the fixed tree rows / asset cards; ellipsize them.
@@ -1431,7 +1539,8 @@ void MapEditor::PushView() {
   // Toolbar highlight (Select/Move/Rotate map to buttons 0..2); gizmo bar mirrors
   // the gizmo mode 0..3.
   v.tool = terrain_mode_ ? tool_ : ((tool_ <= 2) ? tool_ : -1);
-  if (moving_) v.tool = 1;
+  if (moving_)
+    v.tool = 1;
   v.gizmo = terrain_mode_ ? 0 : tool_;
   v.terrain_mode = terrain_mode_;
   v.terrain_brush_mode = static_cast<int>(terrain_brush_mode_);
@@ -1465,13 +1574,17 @@ void MapEditor::PushView() {
     for (int cat = 0; cat < kEditorCategoryCount; ++cat) {
       base::Vector<const PlacedObject*> objs;
       for (const PlacedObject& p : placed_) {
-        if (!ctx_.world->IsAlive(p.entity)) continue;
+        if (!ctx_.world->IsAlive(p.entity))
+          continue;
         const int pc = (p.category >= 1 && p.category < kEditorCategoryCount) ? p.category : 0;
-        if (pc != cat) continue;
-        if (!needle.empty() && lower(p.name).find(needle) == base::String::npos) continue;
+        if (pc != cat)
+          continue;
+        if (!needle.empty() && lower(p.name).find(needle) == base::String::npos)
+          continue;
         objs.push_back(&p);
       }
-      if (objs.empty()) continue;
+      if (objs.empty())
+        continue;
       EditorView::TreeRow g;
       g.depth = 1;
       g.icon = 1;
@@ -1479,7 +1592,8 @@ void MapEditor::PushView() {
       g.expand = group_expanded_[cat] ? 2 : 1;
       rows.push_back(g);
       flat.push_back({1, cat, ecs::kInvalidEntity});
-      if (!group_expanded_[cat]) continue;
+      if (!group_expanded_[cat])
+        continue;
       for (const PlacedObject* p : objs) {
         EditorView::TreeRow leaf;
         leaf.depth = 2;
@@ -1502,7 +1616,8 @@ void MapEditor::PushView() {
   }
 
   // --- asset-browser tabs and per-category counts (over the asset search) ---
-  for (int i = 0; i < kEditorCategoryCount; ++i) v.tabs.push_back(kEditorCategories[i]);
+  for (int i = 0; i < kEditorCategoryCount; ++i)
+    v.tabs.push_back(kEditorCategories[i]);
   v.tab = category_;
   {
     const base::String an = search_.empty() ? "" : lower(search_);
@@ -1512,7 +1627,8 @@ void MapEditor::PushView() {
           lower(e.editor_id).find(an) == base::String::npos)
         continue;
       ++counts[0];
-      if (e.category >= 1 && e.category < kEditorCategoryCount) ++counts[e.category];
+      if (e.category >= 1 && e.category < kEditorCategoryCount)
+        ++counts[e.category];
     }
     for (int i = 0; i < kEditorCategoryCount; ++i)
       v.cats.push_back({kEditorCategories[i], counts[i], i == category_});
@@ -1526,7 +1642,8 @@ void MapEditor::PushView() {
   v.card_first = page_first_;
   for (int i = 0; i < kEdCards; ++i) {
     const int idx = page_first_ + i;
-    if (idx >= static_cast<int>(filtered_.size())) break;
+    if (idx >= static_cast<int>(filtered_.size()))
+      break;
     const CatalogEntry& e = catalog_[filtered_[idx]];
     EditorView::Card c;
     c.name = clip(e.name, 11);
@@ -1550,7 +1667,8 @@ void MapEditor::PushView() {
   if (sel != ecs::kInvalidEntity && ctx_.world->IsAlive(sel)) {
     if (const world::Transform* t = ctx_.world->Get<world::Transform>(sel)) {
       v.has_selection = true;
-      for (int a = 0; a < 3; ++a) v.pos[a] = t->position[a];
+      for (int a = 0; a < 3; ++a)
+        v.pos[a] = t->position[a];
       Quat q{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
       const f32 sinp = base::Clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f);
       v.rot[0] = std::asin(sinp) * 57.29578f;
@@ -1589,7 +1707,8 @@ void MapEditor::PushView() {
       } else {
         v.tags.push_back("Object");
       }
-      if (selected_.size() > 1) v.sel_name = base::ToString(selected_.size()) + " objects";
+      if (selected_.size() > 1)
+        v.sel_name = base::ToString(selected_.size()) + " objects";
 
       // Project the bounding sphere to the screen for the tracking bracket.
       Vec3 wc{t->position[0], t->position[1], t->position[2]};
@@ -1627,7 +1746,8 @@ void MapEditor::PushView() {
   v.object_count = static_cast<int>(placed_.size());
   v.snapping = snap_;
   v.grid_label = kGridLabels[grid_index_];
-  if (status_age_ < kStatusSeconds) v.status = status_;
+  if (status_age_ < kStatusSeconds)
+    v.status = status_;
   ctx_.game_ui->SetEditorView(v);
 }
 

@@ -6,8 +6,8 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
+#include "core/types.h"
 
 namespace rx::quest {
 

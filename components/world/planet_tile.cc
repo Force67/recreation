@@ -11,7 +11,6 @@
 
 #include "components/world/components.h"
 #include "core/log.h"
-#include "components/world/components.h"
 
 namespace rx::world {
 namespace {
@@ -58,7 +57,9 @@ f32 Hash2(i32 x, i32 y, u64 seed) {
   return static_cast<f32>(h >> 40) * (1.0f / 16777216.0f);  // 0..1
 }
 
-f32 Smooth(f32 t) { return t * t * (3.0f - 2.0f * t); }
+f32 Smooth(f32 t) {
+  return t * t * (3.0f - 2.0f * t);
+}
 
 f32 ValueNoise(f32 x, f32 y, u64 seed) {
   const i32 xi = static_cast<i32>(std::floor(x));
@@ -94,7 +95,8 @@ f32 PlanetTile::Noise(f32 x, f32 y) const {
 }
 
 u32 PlanetTile::BiomeIndexForCell(i32 cell_x, i32 cell_y) const {
-  if (surface_.map.biome_ids.empty()) return 0;
+  if (surface_.map.biome_ids.empty())
+    return 0;
   // Map the small tile of cells onto a patch of the biome grid so a
   // multi-biome planet shows more than one ground. Centre the tile on the
   // middle of hemisphere 0.
@@ -105,12 +107,14 @@ u32 PlanetTile::BiomeIndexForCell(i32 cell_x, i32 cell_y) const {
       surface_.map.BiomeAt(0, static_cast<u32>(base::Clamp(gx, 0, static_cast<i32>(dim) - 1)),
                            static_cast<u32>(base::Clamp(gy, 0, static_cast<i32>(dim) - 1)));
   for (u32 i = 0; i < surface_.map.biome_ids.size(); ++i)
-    if (surface_.map.biome_ids[i] == raw) return i;
+    if (surface_.map.biome_ids[i] == raw)
+      return i;
   return 0;
 }
 
 asset::AssetId PlanetTile::GroundMaterial(u32 biome_index) {
-  if (const asset::AssetId* cached = biome_materials_.find(biome_index)) return *cached;
+  if (const asset::AssetId* cached = biome_materials_.find(biome_index))
+    return *cached;
 
   const bethesda::BiomeGround* ground =
       biome_index < surface_.grounds.size() ? &surface_.grounds[biome_index] : nullptr;
@@ -137,7 +141,8 @@ asset::AssetId PlanetTile::GroundMaterial(u32 biome_index) {
       }
     }
     if (!ground->normal.empty()) {
-      if (const asset::Texture* t = assets_.LoadTexture(ground->normal)) material.normal = t->id;
+      if (const asset::Texture* t = assets_.LoadTexture(ground->normal))
+        material.normal = t->id;
     }
   }
   assets_.AddMaterial(material);
@@ -177,7 +182,8 @@ f32 PlanetTile::GroundHeightAt(f32 engine_x, f32 engine_z) const {
 const asset::Mesh* PlanetTile::BoulderMesh(u64 seed, f32 tint[3]) {
   const asset::AssetId id =
       asset::MakeAssetId(base::String(surface_.name) + "/rock/" + base::ToString(seed));
-  if (const asset::Mesh* existing = assets_.FindMesh(id)) return existing;
+  if (const asset::Mesh* existing = assets_.FindMesh(id))
+    return existing;
 
   // A jittered icosphere-ish blob: a low-poly boulder, deterministic per seed.
   Rng rng(seed);
@@ -247,11 +253,13 @@ const asset::Mesh* PlanetTile::BoulderMesh(u64 seed, f32 tint[3]) {
 }
 
 void PlanetTile::SpawnScatter(ecs::World& world, i32 cell_x, i32 cell_y, u32 biome_index) {
-  if (config_.rock_density <= 0.0f) return;
+  if (config_.rock_density <= 0.0f)
+    return;
   const bethesda::BiomeGround* ground =
       biome_index < surface_.grounds.size() ? &surface_.grounds[biome_index] : nullptr;
   f32 tint[3] = {0.5f, 0.5f, 0.5f};
-  if (ground) std::memcpy(tint, ground->tint, sizeof(tint));
+  if (ground)
+    std::memcpy(tint, ground->tint, sizeof(tint));
 
   Rng rng(seed_ ^ (static_cast<u64>(static_cast<u32>(cell_x)) << 20) ^
           (static_cast<u64>(static_cast<u32>(cell_y)) << 4) ^ 0x0c4b0c4bull);
@@ -264,10 +272,12 @@ void PlanetTile::SpawnScatter(ecs::World& world, i32 cell_x, i32 cell_y, u32 bio
     const f32 bz = HeightBethesda(bx, by);
 
     const asset::Mesh* rock = BoulderMesh(rng.Next(), tint);
-    if (!rock) continue;
+    if (!rock)
+      continue;
     if (uploads_.mesh) {
       const asset::Material* mat = assets_.FindMaterial(rock->lods[0].submeshes[0].material);
-      if (mat) uploads_.material(*mat);
+      if (mat)
+        uploads_.material(*mat);
       uploads_.mesh(*rock);
     }
     ecs::Entity entity = world.Create();
@@ -367,7 +377,8 @@ u32 PlanetTile::Generate(ecs::World& world) {
             if (const asset::Texture* t = assets_.FindTexture(mat->base_color))
               uploads_.texture(*t);
           if (mat->normal)
-            if (const asset::Texture* t = assets_.FindTexture(mat->normal)) uploads_.texture(*t);
+            if (const asset::Texture* t = assets_.FindTexture(mat->normal))
+              uploads_.texture(*t);
           uploads_.material(*mat);
         }
         uploads_.mesh(*built);
@@ -391,9 +402,8 @@ u32 PlanetTile::Generate(ecs::World& world) {
       // Spawn the terrain entity.
       ecs::Entity entity = world.Create();
       Transform transform;
-      const Vec3 pos =
-          ToWorld(static_cast<f32>(cx) * config_.cell_size, static_cast<f32>(cy) * config_.cell_size,
-                  0.0f);
+      const Vec3 pos = ToWorld(static_cast<f32>(cx) * config_.cell_size,
+                               static_cast<f32>(cy) * config_.cell_size, 0.0f);
       transform.position[0] = pos.x;
       transform.position[1] = pos.y;
       transform.position[2] = pos.z;

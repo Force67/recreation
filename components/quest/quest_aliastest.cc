@@ -12,8 +12,8 @@
 #include <cstring>
 
 #include "components/bethesda/record.h"
-#include "core/types.h"
 #include "components/quest/quest_def.h"
+#include "core/types.h"
 
 namespace {
 
@@ -32,7 +32,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Owns each subrecord's bytes so the Record's non-owning ByteSpans stay valid.

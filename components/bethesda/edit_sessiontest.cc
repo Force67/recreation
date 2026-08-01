@@ -34,7 +34,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 constexpr u32 kWeap = FourCc('W', 'E', 'A', 'P');
@@ -57,12 +58,14 @@ constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 // `id`, mirroring engine/bethesda/strings.cc.
 base::String ReadStringsEntry(const base::String& path, u32 id) {
   std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
-  if (!file) return {};
+  if (!file)
+    return {};
   size_t size = static_cast<size_t>(file.tellg());
   file.seekg(0);
   base::Vector<u8> bytes(size);
   file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
-  if (size < 8) return {};
+  if (size < 8)
+    return {};
   u32 count = 0;
   std::memcpy(&count, bytes.data(), 4);
   size_t dir_end = 8 + static_cast<size_t>(count) * 8;
@@ -70,9 +73,11 @@ base::String ReadStringsEntry(const base::String& path, u32 id) {
     u32 eid = 0, offset = 0;
     std::memcpy(&eid, bytes.data() + 8 + i * 8, 4);
     std::memcpy(&offset, bytes.data() + 8 + i * 8 + 4, 4);
-    if (eid != id) continue;
+    if (eid != id)
+      continue;
     size_t pos = dir_end + offset;
-    if (pos >= size) return {};
+    if (pos >= size)
+      return {};
     const char* s = reinterpret_cast<const char*>(bytes.data() + pos);
     return base::String(s, strnlen(s, size - pos));
   }
@@ -205,7 +210,8 @@ int main() {
   Check("parse winning sword", merged.Parse(iron_sword, &sword_rec));
   const Subrecord* sword_data = sword_rec.Find(kData);
   u16 damage = 0;
-  if (sword_data && sword_data->data.size() >= 10) std::memcpy(&damage, sword_data->data.data() + 8, 2);
+  if (sword_data && sword_data->data.size() >= 10)
+    std::memcpy(&damage, sword_data->data.data() + 8, 2);
   Check("override damage is 25", damage == 25);
 
   // The created form list resolves back to the two base records.
@@ -276,7 +282,8 @@ int main() {
   bool got_full = false;
   if (loc) {
     loc->VisitRecords([&](Record& r) {
-      if (r.header.type != kAlch) return;
+      if (r.header.type != kAlch)
+        return;
       const Subrecord* full = r.Find(kFull);
       if (full && full->data.size() == 4) {
         std::memcpy(&full_id, full->data.data(), 4);

@@ -9,11 +9,11 @@
 #include <cstring>
 
 #include "asset/primitives.h"
+#include "components/world/components.h"
 #include "core/feature_registry.h"
 #include "core/log.h"
-#include "runtime/interaction/item_bridge.h"
 #include "runtime/actor/player_controller.h"
-#include "components/world/components.h"
+#include "runtime/interaction/item_bridge.h"
 
 #if defined(RECREATION_HAS_UGUI)
 #include "asset/pack.h"
@@ -44,7 +44,8 @@ base::Option<const char*> ShaderPackOpt{"shader.pack", nullptr, "RECREATION_SHAD
 base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER_DIR"};
 
 base::String ShaderPackPath() {
-  if (const char* env = ShaderPackOpt.get(); env && *env) return env;
+  if (const char* env = ShaderPackOpt.get(); env && *env)
+    return env;
 #ifdef RECREATION_SHADER_PACK_DEFAULT
   return RECREATION_SHADER_PACK_DEFAULT;
 #else
@@ -154,9 +155,11 @@ bool Engine::OnInitialize(app::Services& services) {
   quest_->set_cutscenes((packages_ ? &*packages_ : nullptr), (cutscene_ ? &*cutscene_ : nullptr));
   // The live map editor (windowed client only). Constructed after game_ui_ is up
   // so it can register its overlay event sink; ticked from UpdateCamera.
-  if (!config_.headless) editor_ = base::MakeUnique<MapEditor>(ctx_);
+  if (!config_.headless)
+    editor_ = base::MakeUnique<MapEditor>(ctx_);
   // Character creation (RX_CHARGEN); Enter() runs once game data has loaded.
-  if (!config_.headless) chargen_ = base::MakeUnique<CharGen>(ctx_);
+  if (!config_.headless)
+    chargen_ = base::MakeUnique<CharGen>(ctx_);
 
   // Place NPC / other-player collision capsules at their current transforms
   // before each sim step, so the player's character controller collides with
@@ -182,7 +185,8 @@ bool Engine::OnInitialize(app::Services& services) {
     wood.roughness_factor = 0.75f;
     asset::Mesh cube = asset::MakeCube(0.25f, asset::MakeAssetId("builtin/physics_cube"));
     for (asset::MeshLod& lod : cube.lods) {
-      for (asset::Submesh& submesh : lod.submeshes) submesh.material = wood.id;
+      for (asset::Submesh& submesh : lod.submeshes)
+        submesh.material = wood.id;
       if (lod.submeshes.empty()) {
         lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), wood.id});
       }
@@ -199,7 +203,8 @@ bool Engine::OnInitialize(app::Services& services) {
     scheduler_->AddSystem(ecs::Stage::kSim, "physics_mirror", [this](ecs::World& world, f32) {
       for (const PhysicsEntity& body : physics_entities_) {
         world::Transform* transform = world.Get<world::Transform>(body.entity);
-        if (!transform) continue;
+        if (!transform)
+          continue;
         Vec3 position;
         f32 rotation[4];
         if (physics_->GetBodyTransform(body.body, &position, rotation)) {
@@ -227,27 +232,32 @@ bool Engine::OnInitialize(app::Services& services) {
     else
       SetupFirstRun(*this);  // fresh install: run the out-of-box setup wizard first
   } else if (!config_.gltf_path.empty()) {
-    if (!LoadGltfScene()) return false;
+    if (!LoadGltfScene())
+      return false;
   } else if (!config_.data_dir.empty()) {
-    if (!LoadGameData(*this)) return false;
+    if (!LoadGameData(*this))
+      return false;
   } else {
     demos_->CreateDemoScene();
   }
 
 #if RECREATION_HAS_NET
   // In menu mode the session is opened later, when a universe is entered.
-  if (!config_.main_menu && !StartNetworking(*this)) return false;
+  if (!config_.main_menu && !StartNetworking(*this))
+    return false;
 #endif
 
   scheduler_->AddSystem(ecs::Stage::kPostSim, "cell_streaming", [this](ecs::World& world, f32) {
-    if (!streamer_) return;
+    if (!streamer_)
+      return;
     // In walk mode the streamer follows the player, not the fly camera (which is
     // frozen while walking): this keeps cells loaded as the player walks far and,
     // crucially, as quest fragments and load doors teleport them across the
     // worldspace, instead of leaving them stranded in unstreamed space.
     Vec3 anchor = camera_.position();
     Vec3 ppos;
-    if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+    if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos))
+      anchor = ppos;
     // Multi-game trailer: only the active game streams (around the shared center),
     // so the maps never all sit resident at once. SwitchTrailerDomain unloads the
     // others as the trailer cuts between them.
@@ -259,7 +269,8 @@ bool Engine::OnInitialize(app::Services& services) {
     streamer_->Update(world, anchor);
     // Secondary worldspaces follow the same anchor; each applies its own offset
     // internally so it streams the region that lands beside the primary world.
-    for (auto& extra : extra_streamers_) extra->Update(world, anchor);
+    for (auto& extra : extra_streamers_)
+      extra->Update(world, anchor);
   });
 
   return true;
@@ -271,17 +282,20 @@ void Engine::OnShutdown() {
   // Called by the host while the renderer is idle but still alive, and after the
   // host has already stopped the audio device. The host owns the renderer/jobs
   // teardown; here the game drops its own state in the order its threads need.
-  SaveControls();              // persist any in-session rebinds / sensitivity changes
-  if (items_) items_->Save();  // persist inventory + world items + removed refs
+  SaveControls();  // persist any in-session rebinds / sensitivity changes
+  if (items_)
+    items_->Save();  // persist inventory + world items + removed refs
   // Run managed teardown while the guest is still alive (its shutdown callbacks
   // dispatch through the bridge), then stop the guest so no more events reach the
   // host, then destroy the host. This exact order keeps the event sink, which
   // the guest thread holds, valid until the guest is joined.
-  if (managed_) managed_->Shutdown();
+  if (managed_)
+    managed_->Shutdown();
   scripts_.Reset();
   // Streaming prefetch jobs read domain records/assets; drain them before the
   // domains go away (the host's own WaitIdle runs only after OnShutdown).
-  if (jobs_) jobs_->WaitIdle();
+  if (jobs_)
+    jobs_->WaitIdle();
   extra_streamers_.clear();  // reference domain records/assets; drop before the domains
   extra_domains_.clear();    // joins each secondary guest thread before teardown
   managed_.Reset();

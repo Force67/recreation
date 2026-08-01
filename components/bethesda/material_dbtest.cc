@@ -26,15 +26,20 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
+void PutU16(base::Vector<u8>& b, u16 v) {
+  b.insert(b.end(), {u8(v), u8(v >> 8)});
+}
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutStr(base::Vector<u8>& b, const char* s) {
-  for (const char* p = s; *p; ++p) b.push_back(static_cast<u8>(*p));
+  for (const char* p = s; *p; ++p)
+    b.push_back(static_cast<u8>(*p));
 }
 
 // One DIFF chunk: 'DIFF' + u32 size + [u32 fieldId][u16 0][u16 len][string].
@@ -44,7 +49,8 @@ void PutDiff(base::Vector<u8>& b, u32 field_id, const base::String& s) {
   PutU32(b, field_id);
   PutU16(b, 0);
   PutU16(b, static_cast<u16>(s.size()));
-  for (char c : s) b.push_back(static_cast<u8>(c));
+  for (char c : s)
+    b.push_back(static_cast<u8>(c));
 }
 
 // Builds a minimal BSComponentDB2 that wires one material through the object
@@ -59,10 +65,12 @@ struct GraphCdbBuilder {
 
   u32 Intern(const base::String& s) {
     const auto it = str_off.find(s);
-    if (it != str_off.end()) return it->second;
+    if (it != str_off.end())
+      return it->second;
     u32 off = static_cast<u32>(strt.size());
     str_off[s] = off;
-    for (char c : s) strt.push_back(static_cast<u8>(c));
+    for (char c : s)
+      strt.push_back(static_cast<u8>(c));
     strt.push_back(0);
     return off;
   }
@@ -120,7 +128,8 @@ struct GraphCdbBuilder {
     // chunk is serialized, so pre-intern class/field/index names here.
     for (const ClassDef& cd : classes) {
       Intern(cd.name);
-      for (const auto& [fname, ftype] : cd.fields) Intern(fname);
+      for (const auto& [fname, ftype] : cd.fields)
+        Intern(fname);
     }
     Intern("BSComponentDB2::DBFileIndex::ObjectInfo");
     Intern("BSComponentDB2::DBFileIndex::ComponentInfo");
@@ -195,7 +204,8 @@ base::Vector<u8> IdBody(u32 object_id) {
 base::Vector<u8> StringBody(const base::String& s) {
   base::Vector<u8> b;
   PutU16(b, static_cast<u16>(s.size()));
-  for (char c : s) b.push_back(static_cast<u8>(c));
+  for (char c : s)
+    b.push_back(static_cast<u8>(c));
   return b;
 }
 
@@ -265,8 +275,8 @@ int main() {
     // Path case and separators do not change the hash.
     auto id2 = rx::bethesda::StarfieldMaterialDb::HashResource(
         "materials/architecture/spacestationkit/stndividerwalltrim01.mat");
-    Check("resource id is case/separator insensitive", id2.file == id.file &&
-                                                       id2.dir == id.dir && id2.ext == id.ext);
+    Check("resource id is case/separator insensitive",
+          id2.file == id.file && id2.dir == id.dir && id2.ext == id.ext);
   }
 
   // Object-graph resolution: a material wired through the component graph to its

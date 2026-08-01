@@ -1,14 +1,14 @@
 #ifndef RECREATION_DIALOGUE_DIALOGUE_H_
 #define RECREATION_DIALOGUE_DIALOGUE_H_
 
-#include <string>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
+#include <string>
 
 #include "components/bethesda/form_id.h"
-#include "core/types.h"
 #include "components/quest/condition.h"
+#include "core/types.h"
 
 namespace rx::bethesda {
 class RecordStore;
@@ -52,13 +52,16 @@ struct Topic {
 // `plugin` is the load-order index the record came from: string ids are only
 // unique within a plugin, so a DLC line needs its own table or it reads back as
 // whatever the base game wrote at that id.
-Response ParseInfoRecord(const bethesda::Record& record, Handle info,
-                         const base::String& topic_text, const bethesda::StringTable* strings,
+Response ParseInfoRecord(const bethesda::Record& record,
+                         Handle info,
+                         const base::String& topic_text,
+                         const bethesda::StringTable* strings,
                          u16 plugin = 0xffff);
 
 // Parses one DIAL topic and its INFO children. `strings` resolves localized
 // text (may be null). Returns a topic with dial == 0 if `dial` is not a DIAL.
-Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId dial,
+Topic ParseTopic(const bethesda::RecordStore& records,
+                 bethesda::GlobalFormId dial,
                  const bethesda::StringTable* strings);
 
 // True if `response` may be shown given the world state `ctx` exposes -- i.e.

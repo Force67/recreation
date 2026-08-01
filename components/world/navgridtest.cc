@@ -15,7 +15,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // A synthetic 20x20 meter room with floor at y=0, a full-height wall down x=10
@@ -23,7 +24,8 @@ void Check(const char* what, bool ok) {
 // modeled as a floor lifted to y=3 (above any reasonable step tolerance); the
 // world outside the room is a void (no floor at all).
 bool RoomProbe(float x, float z, float* floor_y) {
-  if (x < 0.0f || x > 20.0f || z < 0.0f || z > 20.0f) return false;  // void outside
+  if (x < 0.0f || x > 20.0f || z < 0.0f || z > 20.0f)
+    return false;  // void outside
   const bool in_wall_band = x > 9.4f && x < 10.6f;
   const bool in_doorway = z > 8.0f && z < 12.0f;
   if (in_wall_band && !in_doorway) {
@@ -36,7 +38,8 @@ bool RoomProbe(float x, float z, float* floor_y) {
 
 // The same room but the wall has no gap: the two sides are disconnected.
 bool SealedRoomProbe(float x, float z, float* floor_y) {
-  if (x < 0.0f || x > 20.0f || z < 0.0f || z > 20.0f) return false;
+  if (x < 0.0f || x > 20.0f || z < 0.0f || z > 20.0f)
+    return false;
   if (x > 9.4f && x < 10.6f) {
     *floor_y = 3.0f;
     return true;
@@ -45,7 +48,9 @@ bool SealedRoomProbe(float x, float z, float* floor_y) {
   return true;
 }
 
-bool Near(float a, float b, float eps = 0.5f) { return std::fabs(a - b) <= eps; }
+bool Near(float a, float b, float eps = 0.5f) {
+  return std::fabs(a - b) <= eps;
+}
 
 }  // namespace
 
@@ -59,8 +64,7 @@ int main() {
     Check("fresh grid -> covers nothing", !g.Covers({10, 0, 10}));
     const Vec3 goal{18, 0, 10};
     const Vec3 n = g.Next({2, 0, 10}, goal);
-    Check("fresh grid -> Next falls back to goal",
-          Near(n.x, goal.x) && Near(n.z, goal.z));
+    Check("fresh grid -> Next falls back to goal", Near(n.x, goal.x) && Near(n.z, goal.z));
   }
 
   // Build over the room: center (10,0,10), 11 m half-extent, 0.8 m cells.
@@ -93,8 +97,10 @@ int main() {
     Vec3 cur = from;
     for (int i = 0; i < 200; ++i) {
       const Vec3 wp = g.Next(cur, goal, /*lookahead_cells=*/1);
-      if (wp.x > 9.4f && wp.x < 10.6f) any_in_wall = true;
-      if (wp.x > 9.4f && wp.x < 10.6f && wp.z > 8.0f && wp.z < 12.0f) any_in_doorway = true;
+      if (wp.x > 9.4f && wp.x < 10.6f)
+        any_in_wall = true;
+      if (wp.x > 9.4f && wp.x < 10.6f && wp.z > 8.0f && wp.z < 12.0f)
+        any_in_doorway = true;
       cur = wp;
       if (Near(cur.x, goal.x, 1.0f) && Near(cur.z, goal.z, 1.0f)) {
         reached = true;
@@ -120,16 +126,14 @@ int main() {
     const Vec3 from{3, 0, 10};
     const Vec3 goal{17, 0, 10};
     const Vec3 n = sealed.Next(from, goal);
-    Check("sealed room -> Next falls back to goal",
-          Near(n.x, goal.x) && Near(n.z, goal.z));
+    Check("sealed room -> Next falls back to goal", Near(n.x, goal.x) && Near(n.z, goal.z));
   }
 
   // Goal off the grid -> fallback to goal (caller steers straight, then rebuilds).
   {
     const Vec3 goal{200, 0, 200};
     const Vec3 n = g.Next({3, 0, 3}, goal);
-    Check("off-grid goal -> Next falls back to goal",
-          Near(n.x, goal.x) && Near(n.z, goal.z));
+    Check("off-grid goal -> Next falls back to goal", Near(n.x, goal.x) && Near(n.z, goal.z));
   }
 
   // start == goal -> returns the goal, no spurious detour.

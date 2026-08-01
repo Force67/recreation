@@ -19,22 +19,28 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-void PutU8(base::Vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU8(base::Vector<rx::u8>& b, rx::u8 v) {
+  b.push_back(v);
+}
 void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v));
   b.push_back(rx::u8(v >> 8));
 }
 void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(rx::u8(v >> (8 * i)));
 }
 void PutStr(base::Vector<rx::u8>& b, const char* s) {  // u16 len + bytes, no terminator
   rx::u16 n = 0;
-  while (s[n]) ++n;
+  while (s[n])
+    ++n;
   PutU16(b, n);
-  for (rx::u16 i = 0; i < n; ++i) b.push_back(static_cast<rx::u8>(s[i]));
+  for (rx::u16 i = 0; i < n; ++i)
+    b.push_back(static_cast<rx::u8>(s[i]));
 }
 
 // A v6 script section with one script carrying one type-17 (array-of-struct)

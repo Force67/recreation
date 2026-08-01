@@ -1,46 +1,46 @@
 #ifndef RECREATION_RUNTIME_APP_ENGINE_H_
 #define RECREATION_RUNTIME_APP_ENGINE_H_
 
-#include <mutex>
-#include <atomic>
-#include <cstdio>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <atomic>
+#include <cstdio>
+#include <mutex>
 
-#include "runtime/actor/actor_system.h"
 #include "app/application.h"
 #include "app/host.h"
 #include "components/audio/ambient.h"
 #include "components/bethesda/planet.h"
-#include "runtime/vehicle/carriage.h"
-#include "runtime/character/chargen.h"
-#include "runtime/app/content_domain.h"
-#include "core/input_bindings.h"
-#include "core/window.h"
-#include "core/world_clock.h"
-#include "runtime/demo/demo_scenes.h"
-#include "runtime/editor/editor.h"
-#include "runtime/app/engine_context.h"
-#include "runtime/actor/ai_package_director.h"
-#include "runtime/narrative/cutscene_director.h"
-#include "runtime/narrative/helgen_intro.h"
-#include "runtime/interaction/interaction_system.h"
-#include "runtime/interaction/item_bridge.h"
-#include "runtime/actor/npc_director.h"
-#include "runtime/ui/platform_hud.h"
-#include "runtime/narrative/quest_director.h"
 #include "components/script/host/managed_host.h"
-#include "runtime/camera/showcase_camera.h"
-#include "runtime/actor/player_controller.h"
-#include "runtime/demo/trailer.h"
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
 #include "components/world/combat.h"
 #include "components/world/planet_tile.h"
+#include "core/input_bindings.h"
+#include "core/window.h"
+#include "core/world_clock.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/actor/ai_package_director.h"
+#include "runtime/actor/npc_director.h"
+#include "runtime/actor/player_controller.h"
+#include "runtime/app/content_domain.h"
+#include "runtime/app/engine_context.h"
+#include "runtime/camera/showcase_camera.h"
+#include "runtime/character/chargen.h"
+#include "runtime/demo/demo_scenes.h"
+#include "runtime/demo/trailer.h"
+#include "runtime/editor/editor.h"
+#include "runtime/interaction/interaction_system.h"
+#include "runtime/interaction/item_bridge.h"
+#include "runtime/narrative/cutscene_director.h"
+#include "runtime/narrative/helgen_intro.h"
+#include "runtime/narrative/quest_director.h"
+#include "runtime/ui/platform_hud.h"
+#include "runtime/vehicle/carriage.h"
 
 #if RECREATION_HAS_NET
 #include "components/modstream/content_store.h"
@@ -179,7 +179,8 @@ class Engine : public app::Application {
   // Safe to call from a signal handler; the host's Run() returns after the
   // current frame. Forwards to the host once OnInitialize has run.
   void RequestQuit() {
-    if (host_) host_->RequestQuit();
+    if (host_)
+      host_->RequestQuit();
   }
 
   // Global debug toggles set by Debug.* console natives (tgm/tcl/tai/tm, foot IK).
@@ -219,8 +220,12 @@ class Engine : public app::Application {
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
-  friend void EngineRpcEmitImpl(Engine&, std::int32_t, std::uint64_t, const char*,
-                                const script::host::ApiValue*, std::int32_t);
+  friend void EngineRpcEmitImpl(Engine&,
+                                std::int32_t,
+                                std::uint64_t,
+                                const char*,
+                                const script::host::ApiValue*,
+                                std::int32_t);
   friend void EngineRpcSubscribeImpl(Engine&, const char*);
   friend void RegisterManagedRpcForwarding(Engine&);
 #endif
@@ -585,7 +590,10 @@ void BootManagedScripting(Engine& engine);
 // gameplay module boots (the module gates on being the primary domain).
 void ResolveUniverses(Engine& engine);
 void SetupMainMenu(Engine& engine);
-void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
+void EnterUniverse(Engine& engine,
+                   int idx,
+                   bool multiplayer,
+                   bool host,
                    const base::String& join_address);
 // First-run out-of-box setup. LoadSetupConfig pulls any persisted game paths /
 // mods dir into the EngineConfig before universes are resolved. FirstRunComplete

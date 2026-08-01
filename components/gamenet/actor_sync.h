@@ -9,7 +9,6 @@
 #include "components/world/quest_world.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "components/world/quest_world.h"
 
 namespace rx::net {
 
@@ -47,8 +46,10 @@ class ActorReplicator {
 // via the registry, feeding InterpolatedTransform so motion is smooth between
 // the (unreliable, low-rate) updates. Unknown / not-yet-streamed forms are
 // skipped.
-void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
-                      const base::Vector<ActorState>& actors, f32 lerp_duration);
+void ApplyActorStates(ecs::World& world,
+                      const world::QuestWorld& registry,
+                      const base::Vector<ActorState>& actors,
+                      f32 lerp_duration);
 
 }  // namespace rx::net
 

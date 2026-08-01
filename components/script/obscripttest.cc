@@ -60,13 +60,18 @@ class MockHost : public Host {
   void SetRemoteVar(base::StringRef o, base::StringRef v, f32 val) override {
     remote[base::String(o) + "." + base::String(v)] = val;
   }
-  f32 Call(base::StringRef target, base::StringRef fn, const base::Vector<f32>& args,
+  f32 Call(base::StringRef target,
+           base::StringRef fn,
+           const base::Vector<f32>& args,
            const base::Vector<base::String>& text) override {
     base::String s(target);
-    if (!s.empty()) s += ".";
+    if (!s.empty())
+      s += ".";
     s += base::String(fn);
-    for (const base::String& t : text) s += " " + t;
-    for (f32 a : args) s += " " + base::ToString(static_cast<int>(a));
+    for (const base::String& t : text)
+      s += " " + t;
+    for (f32 a : args)
+      s += " " + base::ToString(static_cast<int>(a));
     calls.push_back(s);
     return 0;
   }

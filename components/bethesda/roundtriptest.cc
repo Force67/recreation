@@ -44,7 +44,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 constexpr u32 kWeap = FourCc('W', 'E', 'A', 'P');
@@ -83,10 +84,13 @@ struct ExpectedRecord {
 // Compares parsed subrecords against what was authored, positionally: the
 // writer preserves field order, so encode->parse must too.
 bool FieldsMatch(const base::Vector<Subrecord>& got, const base::Vector<ExpectedField>& want) {
-  if (got.size() != want.size()) return false;
+  if (got.size() != want.size())
+    return false;
   for (size_t i = 0; i < want.size(); ++i) {
-    if (got[i].type != want[i].type) return false;
-    if (got[i].data.size() != want[i].bytes.size()) return false;
+    if (got[i].type != want[i].type)
+      return false;
+    if (got[i].data.size() != want[i].bytes.size())
+      return false;
     if (!want[i].bytes.empty() &&
         std::memcmp(got[i].data.data(), want[i].bytes.data(), want[i].bytes.size()) != 0) {
       return false;
@@ -98,7 +102,8 @@ bool FieldsMatch(const base::Vector<Subrecord>& got, const base::Vector<Expected
 // A zero-terminated FULL name field, authored the same way the reader keeps it.
 ExpectedField MakeFull(const char* s) {
   ExpectedField f{kFull, {}};
-  for (const char* p = s; *p; ++p) f.bytes.push_back(static_cast<u8>(*p));
+  for (const char* p = s; *p; ++p)
+    f.bytes.push_back(static_cast<u8>(*p));
   f.bytes.push_back(0);
   return f;
 }
@@ -137,7 +142,8 @@ void SyntheticRoundTrip(const base::String& dir) {
   // A zero-terminated EDID field (matches RecordBuilder::EditorId output).
   auto edid = [](const char* s) {
     ExpectedField f{kEdid, {}};
-    for (const char* p = s; *p; ++p) f.bytes.push_back(static_cast<u8>(*p));
+    for (const char* p = s; *p; ++p)
+      f.bytes.push_back(static_cast<u8>(*p));
     f.bytes.push_back(0);
     return f;
   };
@@ -157,7 +163,8 @@ void SyntheticRoundTrip(const base::String& dir) {
   // exercised mid-record.
   {
     base::Vector<u8> big(0x10001);  // 65537 bytes, one past the u16 boundary
-    for (size_t i = 0; i < big.size(); ++i) big[i] = static_cast<u8>(i * 31 + 7);
+    for (size_t i = 0; i < big.size(); ++i)
+      big[i] = static_cast<u8>(i * 31 + 7);
     author(kArmo, 0x00000803,
            {edid("BigArmor"), pod(kModl, big), pod(kData, {5, 0, 0, 0, 0, 0, 0, 0})});
   }
@@ -236,7 +243,8 @@ void SyntheticRoundTrip(const base::String& dir) {
 // originally-compressed records (whose bytes legitimately differ after P0
 // stores) can still be checked for structural fidelity.
 bool ReparseEncoded(const base::Vector<u8>& encoded, Record* out) {
-  if (encoded.size() < sizeof(RecordHeader)) return false;
+  if (encoded.size() < sizeof(RecordHeader))
+    return false;
   RecordHeader header;
   std::memcpy(&header, encoded.data(), sizeof(RecordHeader));
   ByteSpan payload(encoded.data() + sizeof(RecordHeader), encoded.size() - sizeof(RecordHeader));
@@ -244,9 +252,11 @@ bool ReparseEncoded(const base::Vector<u8>& encoded, Record* out) {
 }
 
 bool SubrecordsEqual(const base::Vector<Subrecord>& a, const base::Vector<Subrecord>& b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i) {
-    if (a[i].type != b[i].type || a[i].data.size() != b[i].data.size()) return false;
+    if (a[i].type != b[i].type || a[i].data.size() != b[i].data.size())
+      return false;
     if (a[i].data.size() &&
         std::memcmp(a[i].data.data(), b[i].data.data(), a[i].data.size()) != 0) {
       return false;
@@ -301,7 +311,8 @@ void RealPluginFidelity(const base::String& data_dir) {
   for (u32 type : kSampleTypes) {
     size_t seen = 0;
     store.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
-      if (seen >= kPerType) return;
+      if (seen >= kPerType)
+        return;
       ++seen;
       ++total_sampled;
 

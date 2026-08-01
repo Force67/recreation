@@ -4,8 +4,8 @@
 #include <optional>
 #include <vector>
 
-#include "core/types.h"
 #include "components/modstream/mod_resource.h"
+#include "core/types.h"
 
 namespace rx::modstream {
 
@@ -21,7 +21,8 @@ std::vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes);
 // Parses a request received over the wire. Fully bounds-checked: returns nullopt
 // on a truncated, oversized (count over max_hashes), or malformed buffer, so a
 // hostile payload can never make the server over-read or over-allocate.
-std::optional<std::vector<ContentHash>> DecodeHashRequest(const u8* data, size_t size,
+std::optional<std::vector<ContentHash>> DecodeHashRequest(const u8* data,
+                                                          size_t size,
                                                           size_t max_hashes);
 
 }  // namespace rx::modstream

@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/war_map_net.h"
+#include "core/types.h"
 
 namespace {
 
@@ -21,14 +21,18 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 bool Same(const WarMapState& a, const WarMapState& b) {
-  if (a.imperial_fraction != b.imperial_fraction) return false;
-  if (a.holds.size() != b.holds.size()) return false;
+  if (a.imperial_fraction != b.imperial_fraction)
+    return false;
+  if (a.holds.size() != b.holds.size())
+    return false;
   for (size_t i = 0; i < a.holds.size(); ++i)
-    if (a.holds[i].name != b.holds[i].name || a.holds[i].owner != b.holds[i].owner) return false;
+    if (a.holds[i].name != b.holds[i].name || a.holds[i].owner != b.holds[i].owner)
+      return false;
   return true;
 }
 
@@ -45,8 +49,8 @@ void TestRoundTrip() {
 
   WarMapState skyrim;
   skyrim.imperial_fraction = 0.5f;
-  skyrim.holds = {{"Solitude", 1}, {"Markarth", 1},  {"Falkreath", 1},
-                  {"Morthal", 1},  {"Whiterun", 0},  {"Windhelm", 2},
+  skyrim.holds = {{"Solitude", 1}, {"Markarth", 1},   {"Falkreath", 1},
+                  {"Morthal", 1},  {"Whiterun", 0},   {"Windhelm", 2},
                   {"Riften", 2},   {"Winterhold", 2}, {"Dawnstar", 2}};
   RoundTrip("the nine holds survive", skyrim);
 
@@ -74,7 +78,8 @@ void TestTruncation() {
   bool every_truncation_rejected = true;
   for (size_t cut = 0; cut < valid.size(); ++cut) {
     std::vector<rx::u8> shorter(valid.begin(), valid.begin() + cut);
-    if (DecodeWarMap(shorter).has_value()) every_truncation_rejected = false;
+    if (DecodeWarMap(shorter).has_value())
+      every_truncation_rejected = false;
   }
   Check("every truncation rejected", every_truncation_rejected);
 }

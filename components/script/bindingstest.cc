@@ -27,7 +27,9 @@ using namespace rx::bethesda;
 using rx::script::papyrus::ObjectRef;
 using rx::script::skyrim::RecordBackedSkyrimBindings;
 
-rx::u64 Handle(GlobalFormId id) { return id.packed(); }
+rx::u64 Handle(GlobalFormId id) {
+  return id.packed();
+}
 
 }  // namespace
 
@@ -50,7 +52,8 @@ int main(int argc, char** argv) {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-48s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // Actor values (new system): defaults, set, mod, death.
@@ -102,9 +105,11 @@ int main(int argc, char** argv) {
   u32 weapon_keyword = 0;
   records.EachOfType(FourCc('W', 'E', 'A', 'P'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (weapon) return;
+                       if (weapon)
+                         return;
                        Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        const Subrecord* kwda = rec.Find(FourCc('K', 'W', 'D', 'A'));
                        if (!kwda || kwda->data.size() < 4)
                          return;  // pick one with a keyword to test
@@ -151,15 +156,20 @@ int main(int argc, char** argv) {
   base::Optional<GlobalFormId> shield;
   records.EachOfType(FourCc('A', 'R', 'M', 'O'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (shield) return;
+                       if (shield)
+                         return;
                        Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        const Subrecord* bod = rec.Find(FourCc('B', 'O', 'D', '2'));
-                       if (!bod) bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
-                       if (!bod || bod->data.size() < 4) return;
+                       if (!bod)
+                         bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
+                       if (!bod || bod->data.size() < 4)
+                         return;
                        u32 flags;
                        std::memcpy(&flags, bod->data.data(), 4);
-                       if (flags & (1u << 9)) shield = id;
+                       if (flags & (1u << 9))
+                         shield = id;
                      });
   if (shield) {
     const ObjectRef actor{0xACC02};
@@ -178,7 +188,8 @@ int main(int argc, char** argv) {
   base::Optional<GlobalFormId> npc_base;
   records.EachOfType(FourCc('N', 'P', 'C', '_'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (npc_base) return;
+                       if (npc_base)
+                         return;
                        Record rec;
                        if (records.Parse(id, &rec) && rec.Find(FourCc('R', 'N', 'A', 'M')))
                          npc_base = id;
@@ -198,11 +209,14 @@ int main(int argc, char** argv) {
   f32 authored[3] = {0, 0, 0};
   records.EachOfType(FourCc('R', 'E', 'F', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (ref) return;
+                       if (ref)
+                         return;
                        Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-                       if (!data || data->data.size() < 12) return;
+                       if (!data || data->data.size() < 12)
+                         return;
                        ref = id;
                        std::memcpy(authored, data->data.data(), 12);
                      });
@@ -223,7 +237,8 @@ int main(int argc, char** argv) {
   base::Optional<GlobalFormId> placed;
   records.EachOfType(FourCc('R', 'E', 'F', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (placed) return;
+                       if (placed)
+                         return;
                        Record rec;
                        if (records.Parse(id, &rec) && rec.Find(FourCc('N', 'A', 'M', 'E')))
                          placed = id;
@@ -236,11 +251,14 @@ int main(int argc, char** argv) {
   bool cell_interior = false;
   records.EachOfType(FourCc('C', 'E', 'L', 'L'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (cell) return;
+                       if (cell)
+                         return;
                        Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-                       if (!data || data->data.empty()) return;
+                       if (!data || data->data.empty())
+                         return;
                        cell = id;
                        cell_interior = (data->data[0] & 0x1) != 0;
                      });
@@ -253,11 +271,14 @@ int main(int argc, char** argv) {
   f32 glob_authored = 0;
   records.EachOfType(FourCc('G', 'L', 'O', 'B'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       if (glob) return;
+                       if (glob)
+                         return;
                        Record rec;
-                       if (!records.Parse(id, &rec)) return;
+                       if (!records.Parse(id, &rec))
+                         return;
                        const Subrecord* fltv = rec.Find(FourCc('F', 'L', 'T', 'V'));
-                       if (!fltv || fltv->data.size() < 4) return;
+                       if (!fltv || fltv->data.size() < 4)
+                         return;
                        glob = id;
                        std::memcpy(&glob_authored, fltv->data.data(), 4);
                      });

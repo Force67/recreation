@@ -24,10 +24,14 @@ struct SettingsRow {
   const char* label;
 };
 constexpr SettingsRow kRows[] = {
-    {Action::kJump, "Jump"},        {Action::kSprint, "Sprint"},
-    {Action::kSneak, "Sneak"},      {Action::kActivate, "Activate"},
-    {Action::kAttack, "Attack"},    {Action::kReady, "Ready Weapon"},
-    {Action::kToggleWalk, "Walk / Fly"}, {Action::kToggleJournal, "Journal"},
+    {Action::kJump, "Jump"},
+    {Action::kSprint, "Sprint"},
+    {Action::kSneak, "Sneak"},
+    {Action::kActivate, "Activate"},
+    {Action::kAttack, "Attack"},
+    {Action::kReady, "Ready Weapon"},
+    {Action::kToggleWalk, "Walk / Fly"},
+    {Action::kToggleJournal, "Journal"},
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 
@@ -37,7 +41,8 @@ void Engine::ApplyControls() {
   camera_.sensitivity = input_map_->look_sens_kbm;
   camera_.pad_sensitivity = input_map_->look_sens_pad;
   camera_.invert_y = input_map_->invert_y;
-  if (window_) window_->SetLedColor(input_map_->led_r, input_map_->led_g, input_map_->led_b);
+  if (window_)
+    window_->SetLedColor(input_map_->led_r, input_map_->led_g, input_map_->led_b);
 }
 
 void Engine::LoadControls() {
@@ -58,7 +63,8 @@ void Engine::LoadControls() {
 }
 
 void Engine::SaveControls() {
-  if (!controls_path_.empty()) input_map_->SaveToIni(controls_path_.c_str());
+  if (!controls_path_.empty())
+    input_map_->SaveToIni(controls_path_.c_str());
 }
 
 void Engine::UpdateSettings() {
@@ -93,7 +99,8 @@ void Engine::UpdateSettings() {
             captured = true;
           }
     }
-    for (u8 m = 0; m < static_cast<u8>(MouseButton::kCount); ++m) capture_prev_mouse_[m] = in.mouse[m];
+    for (u8 m = 0; m < static_cast<u8>(MouseButton::kCount); ++m)
+      capture_prev_mouse_[m] = in.mouse[m];
     if (cancel) {
       capturing_row_ = -1;
     } else if (captured) {
@@ -108,7 +115,8 @@ void Engine::UpdateSettings() {
         if (req.row >= 0 && req.row < kRowCount) {
           capturing_row_ = req.row;
           // Treat the mouse as held so the click that opened capture is ignored.
-          for (bool& m : capture_prev_mouse_) m = true;
+          for (bool& m : capture_prev_mouse_)
+            m = true;
         }
         break;
       case SettingsRequest::Kind::kSensKbm:
@@ -159,7 +167,8 @@ void Engine::UpdateSettings() {
     } else {
       base::String s;
       for (const Binding& b : input_map_->bindings(kRows[i].action)) {
-        if (!s.empty()) s += " / ";
+        if (!s.empty())
+          s += " / ";
         s += BindingLabel(b);
       }
       row.binding = s.empty() ? "(unbound)" : s;

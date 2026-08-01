@@ -91,7 +91,8 @@ struct QuestAliasScripts {
 // sections that follow the stage fragments are parsed into it (so alias scripts
 // can be instantiated). Returns false if the script section is malformed; a
 // malformed fragment/alias tail leaves whatever parsed cleanly.
-bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
+bool ParseQuestFragments(ByteSpan vmad,
+                         ScriptAttachment* out,
                          base::Vector<QuestStageFragment>* fragments,
                          base::Vector<QuestAliasScripts>* alias_scripts = nullptr);
 

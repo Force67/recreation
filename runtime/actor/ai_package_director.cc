@@ -11,14 +11,14 @@
 #include <cstdio>
 #include <cstring>
 
-#include "runtime/actor/actor_system.h"
 #include "components/bethesda/record.h"
-#include "core/log.h"
-#include "runtime/actor/npc_director.h"
 #include "components/quest/ctda.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "components/world/cell_streaming.h"
 #include "components/world/components.h"
+#include "core/log.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/actor/npc_director.h"
 
 namespace rx {
 namespace {
@@ -32,17 +32,25 @@ Vec3 GameToEngine(const f32 p[3]) {
 // The engine yaw a placed reference's authored rotation means. A Bethesda model
 // faces +Y and the games count their euler angles clockwise, so the engine yaw
 // (about up, with -Z forward) is the negated Z angle.
-f32 RefYaw(f32 game_rot_z) { return -game_rot_z; }
+f32 RefYaw(f32 game_rot_z) {
+  return -game_rot_z;
+}
 
 // Forward/right basis for an engine yaw, with -Z forward.
-Vec3 ForwardOf(f32 yaw) { return {-std::sin(yaw), 0, -std::cos(yaw)}; }
+Vec3 ForwardOf(f32 yaw) {
+  return {-std::sin(yaw), 0, -std::cos(yaw)};
+}
 Vec3 RightOf(f32 yaw) {
   const Vec3 f = ForwardOf(yaw);
   return {-f.z, 0, f.x};
 }
-f32 YawOfForward(const Vec3& forward) { return std::atan2(-forward.x, -forward.z); }
+f32 YawOfForward(const Vec3& forward) {
+  return std::atan2(-forward.x, -forward.z);
+}
 
-f32 YawOfQuat(const f32 q[4]) { return 2.0f * std::atan2(q[1], q[3]); }
+f32 YawOfQuat(const f32 q[4]) {
+  return 2.0f * std::atan2(q[1], q[3]);
+}
 
 void SetYaw(f32 rot[4], f32 yaw) {
   const f32 h = yaw * 0.5f;
@@ -53,7 +61,8 @@ void SetYaw(f32 rot[4], f32 yaw) {
 }
 
 u32 FormAt(const bethesda::Subrecord* sub, size_t offset) {
-  if (!sub || sub->data.size() < offset + 4) return 0;
+  if (!sub || sub->data.size() < offset + 4)
+    return 0;
   u32 raw = 0;
   std::memcpy(&raw, sub->data.data() + offset, 4);
   return raw;
@@ -77,9 +86,11 @@ AiPackageDirector::AiPackageDirector(EngineContext& ctx, ActorSystem* actors, Np
 
 bool AiPackageDirector::RefRecordPose(bethesda::GlobalFormId ref, Vec3* pos, f32* yaw) const {
   bethesda::Record record;
-  if (!ctx_.records || !ctx_.records->Parse(ref, &record)) return false;
+  if (!ctx_.records || !ctx_.records->Parse(ref, &record))
+    return false;
   const bethesda::Subrecord* data = record.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 24) return false;
+  if (!data || data->data.size() < 24)
+    return false;
   f32 v[6];
   std::memcpy(v, data->data.data(), 24);
   *pos = GameToEngine(v);
@@ -88,25 +99,30 @@ bool AiPackageDirector::RefRecordPose(bethesda::GlobalFormId ref, Vec3* pos, f32
 }
 
 u64 AiPackageDirector::AliasReference(const quest::AliasDef& alias, u16 plugin) const {
-  if (!ctx_.records) return 0;
+  if (!ctx_.records)
+    return 0;
   if (alias.forced_ref_raw)
     return ctx_.records->ResolveFrom(bethesda::RawFormId{alias.forced_ref_raw}, plugin).packed();
   if (alias.unique_actor_raw) {
     const bethesda::GlobalFormId base =
         ctx_.records->ResolveFrom(bethesda::RawFormId{alias.unique_actor_raw}, plugin);
     const bethesda::GlobalFormId placed = ctx_.records->PlacedRefForBase(base);
-    if (placed.plugin != 0xffff) return placed.packed();
+    if (placed.plugin != 0xffff)
+      return placed.packed();
   }
   return 0;
 }
 
 void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& def) {
-  if (!ctx_.records) return;
+  if (!ctx_.records)
+    return;
   const size_t first_slot = slots_.size();
   for (const quest::AliasDef& alias : def.aliases) {
-    if (alias.package_raw.empty()) continue;
+    if (alias.package_raw.empty())
+      continue;
     const u64 actor = AliasReference(alias, plugin);
-    if (actor == 0) continue;  // an alias that fills at runtime is picked up later
+    if (actor == 0)
+      continue;  // an alias that fills at runtime is picked up later
     Slot slot;
     slot.quest = quest;
     slot.plugin = plugin;
@@ -116,7 +132,8 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
     for (u32 raw : alias.package_raw) {
       const bethesda::GlobalFormId id = ctx_.records->ResolveFrom(bethesda::RawFormId{raw}, plugin);
       bethesda::Record record;
-      if (!ctx_.records->Parse(id, &record)) continue;
+      if (!ctx_.records->Parse(id, &record))
+        continue;
       Package pack;
       pack.def = quest::ParsePackageRecord(id.packed(), record, *ctx_.records);
       pack.editor_id = record.GetString(FourCc('E', 'D', 'I', 'D'));
@@ -124,7 +141,8 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
         pack.has_scripts = bethesda::ParsePackageFragments(vmad->data, &pack.scripts, &pack.frags);
       slot.packages.push_back(base::move(pack));
     }
-    if (slot.packages.empty()) continue;
+    if (slot.packages.empty())
+      continue;
     Vec3 at;
     f32 at_yaw = 0;
     if (RefRecordPose(
@@ -140,25 +158,32 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
   const size_t first_tow = tows_.size();
   for (const quest::AliasDef& alias : def.aliases) {
     const u64 ref = AliasReference(alias, plugin);
-    if (ref == 0) continue;
+    if (ref == 0)
+      continue;
     const bethesda::GlobalFormId id{static_cast<u16>(ref >> 32), static_cast<u32>(ref)};
     // Only an object rides its enable parent. Actors are enable-parented too (a
     // whole set piece is switched on by one reference), but they walk themselves.
     const bethesda::RecordStore::StoredRecord* child = ctx_.records->Find(id);
-    if (!child || child->header.type != FourCc('R', 'E', 'F', 'R')) continue;
+    if (!child || child->header.type != FourCc('R', 'E', 'F', 'R'))
+      continue;
     bethesda::Record record;
-    if (!ctx_.records->Parse(id, &record)) continue;
+    if (!ctx_.records->Parse(id, &record))
+      continue;
     const u32 parent_raw = FormAt(record.Find(FourCc('X', 'E', 'S', 'P')), 0);
-    if (parent_raw == 0) continue;
+    if (parent_raw == 0)
+      continue;
     const u64 parent =
         ctx_.records->ResolveFrom(bethesda::RawFormId{parent_raw}, child->winning_plugin).packed();
     bool parent_drives = false;
     for (const Slot& s : slots_)
-      if (s.actor == parent) parent_drives = true;
-    if (!parent_drives) continue;
+      if (s.actor == parent)
+        parent_drives = true;
+    if (!parent_drives)
+      continue;
     Vec3 child_pos, parent_pos;
     f32 child_yaw = 0, parent_yaw = 0;
-    if (!RefRecordPose(id, &child_pos, &child_yaw)) continue;
+    if (!RefRecordPose(id, &child_pos, &child_yaw))
+      continue;
     if (!RefRecordPose(
             bethesda::GlobalFormId{static_cast<u16>(parent >> 32), static_cast<u32>(parent)},
             &parent_pos, &parent_yaw))
@@ -182,7 +207,8 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
     const bethesda::GlobalFormId ride{static_cast<u16>(tow.ref >> 32), static_cast<u32>(tow.ref)};
     Vec3 ride_pos;
     f32 ride_yaw = 0;
-    if (!RefRecordPose(ride, &ride_pos, &ride_yaw)) continue;
+    if (!RefRecordPose(ride, &ride_pos, &ride_yaw))
+      continue;
     // Is this a cart? The seated idles belong to the vehicle's own model, so read
     // the base record's mesh rather than assuming anything about the quest.
     bethesda::Record ride_rec;
@@ -205,7 +231,8 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
     base::Vector<base::Pair<f32, size_t>> seats;  // forward offset -> slot index
     for (size_t i = first_slot; i < slots_.size(); ++i) {
       const Slot& s = slots_[i];
-      if (s.actor == tow.parent) continue;  // the animal pulling it
+      if (s.actor == tow.parent)
+        continue;  // the animal pulling it
       Vec3 pos;
       f32 yaw = 0;
       if (!RefRecordPose(
@@ -249,9 +276,12 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
   }
 }
 
-bool AiPackageDirector::ResolveDestination(const Slot& slot, const Package& pack, Vec3* out,
+bool AiPackageDirector::ResolveDestination(const Slot& slot,
+                                           const Package& pack,
+                                           Vec3* out,
                                            f32* radius) const {
-  if (!ctx_.records) return false;
+  if (!ctx_.records)
+    return false;
   const quest::PackageTarget& target = pack.def.target;
   *radius = base::Max(target.radius * kUnitsToMeters, 1.6f);
   auto pose_of = [&](u64 handle) {
@@ -260,7 +290,8 @@ bool AiPackageDirector::ResolveDestination(const Slot& slot, const Package& pack
     const bool ok = RefRecordPose(
         bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)}, &pos,
         &yaw);
-    if (ok) *out = pos;
+    if (ok)
+      *out = pos;
     return ok;
   };
   switch (target.kind) {
@@ -271,9 +302,11 @@ bool AiPackageDirector::ResolveDestination(const Slot& slot, const Package& pack
       const bethesda::GlobalFormId self{static_cast<u16>(slot.actor >> 32),
                                         static_cast<u32>(slot.actor)};
       bethesda::Record record;
-      if (!ctx_.records->Parse(self, &record)) return false;
+      if (!ctx_.records->Parse(self, &record))
+        return false;
       const u32 linked = FormAt(record.Find(FourCc('X', 'L', 'K', 'R')), 4);
-      if (!linked) return false;
+      if (!linked)
+        return false;
       const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(self);
       return pose_of(ctx_.records
                          ->ResolveFrom(bethesda::RawFormId{linked},
@@ -286,19 +319,24 @@ bool AiPackageDirector::ResolveDestination(const Slot& slot, const Package& pack
 }
 
 bool AiPackageDirector::ActorPose(u64 handle, Vec3* pos, f32* yaw) const {
-  if (!ctx_.quest_world) return false;
+  if (!ctx_.quest_world)
+    return false;
   const ecs::Entity e = ctx_.quest_world->Find(handle);
-  if (!ctx_.world->IsAlive(e)) return false;
+  if (!ctx_.world->IsAlive(e))
+    return false;
   const world::Transform* t = ctx_.world->Get<world::Transform>(e);
-  if (!t) return false;
+  if (!t)
+    return false;
   *pos = Vec3{t->position[0], t->position[1], t->position[2]};
   *yaw = YawOfQuat(t->rotation);
   return true;
 }
 
-void AiPackageDirector::FirePackageFragment(Slot& slot, Package& pack,
+void AiPackageDirector::FirePackageFragment(Slot& slot,
+                                            Package& pack,
                                             const base::String& function) {
-  if (function.empty() || !ctx_.scripts || !ctx_.bindings) return;
+  if (function.empty() || !ctx_.scripts || !ctx_.bindings)
+    return;
   auto* binds = ctx_.bindings;
   const u64 package = pack.def.handle;
   const u64 quest = slot.quest;
@@ -322,7 +360,8 @@ void AiPackageDirector::FirePackageFragment(Slot& slot, Package& pack,
 void AiPackageDirector::SelectPackages(const QuestStateCache& quests) {
   WorldConditionContext conditions(quests, [this](u64 handle, Vec3* out) {
     f32 yaw = 0;
-    if (ActorPose(handle, out, &yaw)) return true;
+    if (ActorPose(handle, out, &yaw))
+      return true;
     return RefRecordPose(
         bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)}, out,
         &yaw);
@@ -341,10 +380,12 @@ void AiPackageDirector::SelectPackages(const QuestStateCache& quests) {
     if (want < 0) {
       base::Vector<quest::PackageDef> defs;
       defs.reserve(slot.packages.size());
-      for (const Package& p : slot.packages) defs.push_back(p.def);
+      for (const Package& p : slot.packages)
+        defs.push_back(p.def);
       want = quest::SelectActivePackage(defs, conditions);
     }
-    if (want == slot.active) continue;
+    if (want == slot.active)
+      continue;
 
     // Changing package: the old one's on-end fragment runs (that is where a leg of
     // a journey sets the next stage) and the new one's on-begin.
@@ -360,10 +401,12 @@ void AiPackageDirector::SelectPackages(const QuestStateCache& quests) {
     slot.has_dest = false;
     slot.stall = 0;
     slot.last_dist = 0;
-    if (want < 0) continue;
+    if (want < 0)
+      continue;
     Package& pack = slot.packages[static_cast<size_t>(want)];
     slot.has_dest = pack.def.is_travel && ResolveDestination(slot, pack, &slot.dest, &slot.radius);
-    if (pack.frags.on_begin.valid()) FirePackageFragment(slot, pack, pack.frags.on_begin.function);
+    if (pack.frags.on_begin.valid())
+      FirePackageFragment(slot, pack, pack.frags.on_begin.function);
     RX_INFO("packages: {} runs {}{}", slot.name, pack.editor_id,
             slot.has_dest ? " (travelling)" : "");
   }
@@ -371,10 +414,12 @@ void AiPackageDirector::SelectPackages(const QuestStateCache& quests) {
 
 void AiPackageDirector::DriveTravel(f32 dt) {
   for (Slot& slot : slots_) {
-    if (slot.active < 0 || !slot.has_dest || slot.arrived) continue;
+    if (slot.active < 0 || !slot.has_dest || slot.arrived)
+      continue;
     Vec3 pos;
     f32 yaw = 0;
-    if (!ActorPose(slot.actor, &pos, &yaw)) continue;  // not streamed in yet
+    if (!ActorPose(slot.actor, &pos, &yaw))
+      continue;  // not streamed in yet
     const f32 dist = Length(Vec3{slot.dest.x - pos.x, 0, slot.dest.z - pos.z});
     if (dist <= slot.radius) {
       slot.arrived = true;
@@ -416,19 +461,25 @@ void AiPackageDirector::DriveTravel(f32 dt) {
 
 void AiPackageDirector::CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_yaw) {
   for (const Slot& slot : slots_) {
-    if (slot.actor == tow.parent) continue;
+    if (slot.actor == tow.parent)
+      continue;
     // Anything running a travel package of its own is going somewhere, not riding
     // (the escort's own horses trot alongside the cart).
-    if (slot.has_dest && !slot.arrived) continue;
+    if (slot.has_dest && !slot.arrived)
+      continue;
     bool already = false;
     for (const Rider& r : riders_)
-      if (r.actor == slot.actor) already = true;
-    if (already) continue;
+      if (r.actor == slot.actor)
+        already = true;
+    if (already)
+      continue;
     Vec3 pos;
     f32 yaw = 0;
-    if (!ActorPose(slot.actor, &pos, &yaw)) continue;
+    if (!ActorPose(slot.actor, &pos, &yaw))
+      continue;
     const Vec3 rel = pos - ride_pos;
-    if (Length(Vec3{rel.x, 0, rel.z}) > 2.4f || std::fabs(rel.y) > 2.5f) continue;
+    if (Length(Vec3{rel.x, 0, rel.z}) > 2.4f || std::fabs(rel.y) > 2.5f)
+      continue;
     Rider rider;
     rider.actor = slot.actor;
     rider.ride = tow.ref;
@@ -446,10 +497,12 @@ void AiPackageDirector::DriveTows() {
   for (Tow& tow : tows_) {
     Vec3 parent_pos;
     f32 parent_yaw = 0;
-    if (!ActorPose(tow.parent, &parent_pos, &parent_yaw)) continue;
+    if (!ActorPose(tow.parent, &parent_pos, &parent_yaw))
+      continue;
     const ecs::Entity e = ctx_.quest_world->Find(tow.ref);
     world::Transform* t = ctx_.world->Get<world::Transform>(e);
-    if (!t) continue;
+    if (!t)
+      continue;
     // The parent is an actor, whose transform yaw follows the biped convention;
     // take its facing from the transform and rebuild the authored rig around it.
     const Vec3 f = ForwardOf(parent_yaw), r = RightOf(parent_yaw);
@@ -474,7 +527,8 @@ void AiPackageDirector::SeatRiders() {
     const world::Transform* ride = ctx_.world->Get<world::Transform>(ride_entity);
     const ecs::Entity actor_entity = ctx_.quest_world->Find(rider.actor);
     world::Transform* t = ctx_.world->Get<world::Transform>(actor_entity);
-    if (!ride || !t) continue;
+    if (!ride || !t)
+      continue;
     if (!rider.seated && !rider.clip.empty())
       rider.seated = actors_->PlayNpcClip(actor_entity, rider.clip);
     const f32 ride_yaw = YawOfQuat(ride->rotation);
@@ -496,19 +550,23 @@ void AiPackageDirector::SeatRiders() {
 
 void AiPackageDirector::RunScenePackage(u64 actor, u64 package, u64 quest, u16 plugin) {
   for (Slot& slot : slots_) {
-    if (slot.actor != actor) continue;
+    if (slot.actor != actor)
+      continue;
     for (size_t i = 0; i < slot.packages.size(); ++i) {
-      if (slot.packages[i].def.handle != package) continue;
+      if (slot.packages[i].def.handle != package)
+        continue;
       slot.forced = static_cast<int>(i);
       slot.forced_handle = package;
       return;
     }
     // A scene can hand an actor a package that is not on its alias stack; add it so
     // the same execution path runs it.
-    if (!ctx_.records) return;
+    if (!ctx_.records)
+      return;
     const bethesda::GlobalFormId id{static_cast<u16>(package >> 32), static_cast<u32>(package)};
     bethesda::Record record;
-    if (!ctx_.records->Parse(id, &record)) return;
+    if (!ctx_.records->Parse(id, &record))
+      return;
     Package pack;
     pack.def = quest::ParsePackageRecord(package, record, *ctx_.records);
     pack.editor_id = record.GetString(FourCc('E', 'D', 'I', 'D'));
@@ -521,10 +579,12 @@ void AiPackageDirector::RunScenePackage(u64 actor, u64 package, u64 quest, u16 p
   }
   // The performer has no alias package stack at all (a scene actor that only ever
   // does what the scene tells it): give it one.
-  if (!ctx_.records) return;
+  if (!ctx_.records)
+    return;
   const bethesda::GlobalFormId id{static_cast<u16>(package >> 32), static_cast<u32>(package)};
   bethesda::Record record;
-  if (!ctx_.records->Parse(id, &record)) return;
+  if (!ctx_.records->Parse(id, &record))
+    return;
   Slot slot;
   slot.quest = quest;
   slot.plugin = plugin;
@@ -543,7 +603,8 @@ void AiPackageDirector::RunScenePackage(u64 actor, u64 package, u64 quest, u16 p
 
 void AiPackageDirector::StopScenePackage(u64 actor, u64 package) {
   for (Slot& slot : slots_) {
-    if (slot.actor != actor || slot.forced_handle != package) continue;
+    if (slot.actor != actor || slot.forced_handle != package)
+      continue;
     slot.forced = -1;
     slot.forced_handle = 0;
     slot.active = -1;  // re-select from the alias stack on the next pass
@@ -556,17 +617,18 @@ bool AiPackageDirector::JourneyStart(u64 quest, Vec3* pos) const {
   // Where a quest's scripted journey begins: the placement of the first alias actor
   // it stacks a travel package on. For an opening ride that is the top of the road.
   for (const Slot& slot : slots_) {
-    if (slot.quest != quest) continue;
+    if (slot.quest != quest)
+      continue;
     bool travels = false;
     for (const Package& p : slot.packages)
       if (p.def.is_travel && p.def.target.kind == quest::PackageTarget::Kind::kReference)
         travels = true;
-    if (!travels) continue;
+    if (!travels)
+      continue;
     f32 yaw = 0;
-    if (RefRecordPose(
-            bethesda::GlobalFormId{static_cast<u16>(slot.actor >> 32),
-                                   static_cast<u32>(slot.actor)},
-            pos, &yaw))
+    if (RefRecordPose(bethesda::GlobalFormId{static_cast<u16>(slot.actor >> 32),
+                                             static_cast<u32>(slot.actor)},
+                      pos, &yaw))
       return true;
   }
   return false;
@@ -575,14 +637,16 @@ bool AiPackageDirector::JourneyStart(u64 quest, Vec3* pos) const {
 int AiPackageDirector::travelling_count() const {
   int n = 0;
   for (const Slot& slot : slots_)
-    if (slot.active >= 0 && slot.has_dest && !slot.arrived) ++n;
+    if (slot.active >= 0 && slot.has_dest && !slot.arrived)
+      ++n;
   return n;
 }
 
 base::Vector<base::String> AiPackageDirector::Report() const {
   base::Vector<base::String> out;
   for (const Slot& slot : slots_) {
-    if (slot.active < 0) continue;
+    if (slot.active < 0)
+      continue;
     const Package& pack = slot.packages[static_cast<size_t>(slot.active)];
     base::String line = slot.name + ": " + pack.editor_id;
     Vec3 pos;
@@ -600,9 +664,11 @@ base::Vector<base::String> AiPackageDirector::Report() const {
 }
 
 void AiPackageDirector::Tick(f32 dt, const QuestStateCache& quests) {
-  if (slots_.empty() || !ctx_.quest_world || !ctx_.world) return;
+  if (slots_.empty() || !ctx_.quest_world || !ctx_.world)
+    return;
 #if RECREATION_HAS_NET
-  if (ctx_.client_session) return;  // host authoritative, like the rest of NPC motion
+  if (ctx_.client_session)
+    return;  // host authoritative, like the rest of NPC motion
 #endif
   select_timer_ -= dt;
   if (select_timer_ <= 0) {
@@ -612,7 +678,8 @@ void AiPackageDirector::Tick(f32 dt, const QuestStateCache& quests) {
   rider_timer_ -= dt;
   DriveTravel(dt);
   DriveTows();
-  if (rider_timer_ <= 0) rider_timer_ = 1.0f;
+  if (rider_timer_ <= 0)
+    rider_timer_ = 1.0f;
   SeatRiders();
 }
 

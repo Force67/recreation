@@ -11,21 +11,21 @@
 #include <filesystem>
 #include <fstream>
 
-#include "runtime/actor/actor_system.h"
 #include "asset/asset_id.h"
 #include "asset/mesh.h"
 #include "components/bethesda/record.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
+#include "components/world/quest_world.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "runtime/app/engine_context.h"
 #include "inventory/inventory.h"
 #include "inventory/serialize.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/app/engine_context.h"
 #include "scene/components.h"
-#include "components/world/cell_streaming.h"
-#include "components/world/components.h"
-#include "components/world/quest_world.h"
 
 namespace rx {
 namespace {
@@ -80,14 +80,16 @@ bool IsValueWeightType(u32 type) {
 
 // --- little-endian byte helpers for the per-profile item blob ---
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutU16(base::Vector<u8>& b, u16 v) {
   b.push_back(u8(v));
   b.push_back(u8(v >> 8));
 }
 void PutU64(base::Vector<u8>& b, u64 v) {
-  for (int i = 0; i < 8; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 8; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutBytes(base::Vector<u8>& b, const base::Vector<u8>& v) {
   PutU32(b, u32(v.size()));
@@ -100,22 +102,33 @@ struct Reader {
   bool ok = true;
   Reader(const u8* d, size_t n) : p(d), end(d + n) {}
   u32 U32() {
-    if (p + 4 > end) { ok = false; return 0; }
+    if (p + 4 > end) {
+      ok = false;
+      return 0;
+    }
     u32 v = 0;
-    for (int i = 0; i < 4; ++i) v |= u32(p[i]) << (8 * i);
+    for (int i = 0; i < 4; ++i)
+      v |= u32(p[i]) << (8 * i);
     p += 4;
     return v;
   }
   u16 U16() {
-    if (p + 2 > end) { ok = false; return 0; }
+    if (p + 2 > end) {
+      ok = false;
+      return 0;
+    }
     u16 v = u16(p[0]) | u16(p[1]) << 8;
     p += 2;
     return v;
   }
   u64 U64() {
-    if (p + 8 > end) { ok = false; return 0; }
+    if (p + 8 > end) {
+      ok = false;
+      return 0;
+    }
     u64 v = 0;
-    for (int i = 0; i < 8; ++i) v |= u64(p[i]) << (8 * i);
+    for (int i = 0; i < 8; ++i)
+      v |= u64(p[i]) << (8 * i);
     p += 8;
     return v;
   }
@@ -133,8 +146,10 @@ struct Reader {
 
 std::filesystem::path ConfigDir() {
   namespace fs = std::filesystem;
-  if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x) return fs::path(x) / "recreation";
-  if (const char* h = std::getenv("HOME")) return fs::path(h) / ".config" / "recreation";
+  if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x)
+    return fs::path(x) / "recreation";
+  if (const char* h = std::getenv("HOME"))
+    return fs::path(h) / ".config" / "recreation";
   return fs::path("recreation_config");
 }
 
@@ -162,14 +177,16 @@ base::String ItemBridge::SavePath() const {
 }
 
 bool ItemBridge::IsItemBase(bethesda::GlobalFormId base) const {
-  if (!ctx_.records) return false;
+  if (!ctx_.records)
+    return false;
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(base);
   return stored && IsItemType(stored->header.type);
 }
 
 ecs::Entity ItemBridge::PlayerInventoryEntity() {
   ecs::Entity player = actors_->PlayerEntity();
-  if (!ctx_.world->IsAlive(player)) return ecs::kInvalidEntity;
+  if (!ctx_.world->IsAlive(player))
+    return ecs::kInvalidEntity;
   if (!ctx_.world->Has<inventory::Inventory>(player)) {
     ctx_.world->Add(player, inventory::Inventory{});
     // A stable Guid so the saved inventory reattaches to next session's player.
@@ -180,11 +197,14 @@ ecs::Entity ItemBridge::PlayerInventoryEntity() {
 }
 
 bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) {
-  if (!ctx_.records) return false;
+  if (!ctx_.records)
+    return false;
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(base);
-  if (!stored || !IsItemType(stored->header.type)) return false;
+  if (!stored || !IsItemType(stored->header.type))
+    return false;
   bethesda::Record rec;
-  if (!ctx_.records->Parse(base, &rec)) return false;
+  if (!ctx_.records->Parse(base, &rec))
+    return false;
   const u32 type = rec.header.type;
 
   inventory::ItemDef def;
@@ -266,9 +286,11 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
 
 inventory::ItemDefId ItemBridge::DefForBase(bethesda::GlobalFormId base) {
   const u64 key = base.packed();
-  if (auto* it = base_to_def_.find(key); it != nullptr) return *it;
+  if (auto* it = base_to_def_.find(key); it != nullptr)
+    return *it;
   inventory::ItemDef def;
-  if (!BuildDef(base, &def)) return inventory::kInvalidItemDef;
+  if (!BuildDef(base, &def))
+    return inventory::kInvalidItemDef;
   const inventory::ItemDefId id = next_def_id_++;
   catalog_.Register(id, def);
   base_to_def_[key] = id;
@@ -277,29 +299,38 @@ inventory::ItemDefId ItemBridge::DefForBase(bethesda::GlobalFormId base) {
 }
 
 bool ItemBridge::TryPickUp(u64 ref_handle) {
-  if (!ctx_.records || !ctx_.world) return false;
-  if (removed_refs_.count(ref_handle)) return false;  // already taken (idempotent)
+  if (!ctx_.records || !ctx_.world)
+    return false;
+  if (removed_refs_.count(ref_handle))
+    return false;  // already taken (idempotent)
   const bethesda::GlobalFormId refr{static_cast<u16>(ref_handle >> 32),
                                     static_cast<u32>(ref_handle & 0xffffffffu)};
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
-  if (!stored) return false;
+  if (!stored)
+    return false;
   bethesda::Record record;
-  if (!ctx_.records->Parse(refr, &record)) return false;
+  if (!ctx_.records->Parse(refr, &record))
+    return false;
   const bethesda::Subrecord* name = record.Find(FourCc('N', 'A', 'M', 'E'));
-  if (!name || name->data.size() < 4) return false;
+  if (!name || name->data.size() < 4)
+    return false;
   u32 base_raw;
   std::memcpy(&base_raw, name->data.data(), 4);
   const bethesda::GlobalFormId base =
       ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
-  if (!IsItemBase(base)) return false;  // not an item: let other affordances handle it
+  if (!IsItemBase(base))
+    return false;  // not an item: let other affordances handle it
 
   const inventory::ItemDefId def = DefForBase(base);
-  if (def == inventory::kInvalidItemDef) return false;
+  if (def == inventory::kInvalidItemDef)
+    return false;
 
   const ecs::Entity player = PlayerInventoryEntity();
-  if (!ctx_.world->IsAlive(player)) return false;
+  if (!ctx_.world->IsAlive(player))
+    return false;
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
-  if (!inv) return false;
+  if (!inv)
+    return false;
 
   // Placed stack count (XCNT), else a single unit.
   u32 count = 1;
@@ -307,25 +338,32 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
       xcnt && xcnt->data.size() >= 4) {
     i32 c;
     std::memcpy(&c, xcnt->data.data(), 4);
-    if (c > 0) count = static_cast<u32>(c);
+    if (c > 0)
+      count = static_cast<u32>(c);
   }
   const u32 added = inventory::AddItem(*inv, catalog_, def, count);
-  if (added == 0) return false;
+  if (added == 0)
+    return false;
 
   // Remove the world reference: find its ECS entity by form link and destroy it,
   // unregister it from the quest world, and remember it so the streamer never
   // re-places it (persistent removal across streaming + reload).
   ecs::Entity ref_entity = ecs::kInvalidEntity;
   ctx_.world->Each<world::FormLink>([&](ecs::Entity e, world::FormLink& link) {
-    if (link.form.packed() == ref_handle) ref_entity = e;
+    if (link.form.packed() == ref_handle)
+      ref_entity = e;
   });
-  if (ctx_.world->IsAlive(ref_entity)) ctx_.world->Destroy(ref_entity);
-  if (ctx_.quest_world) ctx_.quest_world->Unregister(ref_handle);
+  if (ctx_.world->IsAlive(ref_entity))
+    ctx_.world->Destroy(ref_entity);
+  if (ctx_.quest_world)
+    ctx_.quest_world->Unregister(ref_handle);
   removed_refs_.insert(ref_handle);
 
   base::String display = RecordNameFor(base);
-  if (display.empty()) display = "item";
-  if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Picked up " + display);
+  if (display.empty())
+    display = "item";
+  if (ctx_.game_ui)
+    ctx_.game_ui->FlashQuestUpdate("Picked up " + display);
   RX_INFO("item: picked up '{}' x{} (ref 0x{:x}, base {:04x}:{:06x})", display, added, ref_handle,
           base.plugin, base.local_id);
   Save();  // pickups are cheap and rare relative to frames; persist immediately
@@ -333,38 +371,50 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
 }
 
 base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
-  if (!ctx_.records) return {};
+  if (!ctx_.records)
+    return {};
   bethesda::Record record;
-  if (!ctx_.records->Parse(id, &record)) return {};
+  if (!ctx_.records->Parse(id, &record))
+    return {};
   const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L'));
-  if (!full) return {};
+  if (!full)
+    return {};
   if (ctx_.strings && full->data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, full->data.data(), 4);
-    if (const base::String* s = ctx_.strings->Find(string_id)) return base::String(s->c_str());
+    if (const base::String* s = ctx_.strings->Find(string_id))
+      return base::String(s->c_str());
   }
   return record.GetString(FourCc('F', 'U', 'L', 'L'));
 }
 
 void ItemBridge::DropLast() {
-  if (!ctx_.world || !ctx_.physics) return;
+  if (!ctx_.world || !ctx_.physics)
+    return;
   const ecs::Entity player = PlayerInventoryEntity();
-  if (!ctx_.world->IsAlive(player)) return;
+  if (!ctx_.world->IsAlive(player))
+    return;
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
-  if (!inv) return;
+  if (!inv)
+    return;
 
   // The most recently added stack: the last non-empty entry.
   int entry = -1;
   for (int i = static_cast<int>(inv->entries.size()) - 1; i >= 0; --i) {
-    if (inv->entries[i].count > 0) { entry = i; break; }
+    if (inv->entries[i].count > 0) {
+      entry = i;
+      break;
+    }
   }
   if (entry < 0) {
-    if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Nothing to drop");
+    if (ctx_.game_ui)
+      ctx_.game_ui->FlashQuestUpdate("Nothing to drop");
     return;
   }
 
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
   // Horizontal facing from the walk camera; drop in front at chest height.
   Vec3 fwd = ctx_.walk_target - ctx_.walk_eye;
   fwd.y = 0.0f;
@@ -389,23 +439,29 @@ void ItemBridge::DropLast() {
 
   const ecs::Entity dropped =
       inventory::DropItem(*ctx_.world, *ctx_.physics, catalog_, player, entry, 1, spawn, impulse);
-  if (dropped == ecs::kInvalidEntity) return;
+  if (dropped == ecs::kInvalidEntity)
+    return;
 
   base::String display = def ? RecordNameFor(def_to_base_.count(item) ? def_to_base_.at(item)
                                                                       : bethesda::GlobalFormId{})
                              : base::String();
-  if (display.empty()) display = "item";
-  if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Dropped " + display);
+  if (display.empty())
+    display = "item";
+  if (ctx_.game_ui)
+    ctx_.game_ui->FlashQuestUpdate("Dropped " + display);
   RX_INFO("item: dropped '{}' at ({:.2f},{:.2f},{:.2f})", display, spawn.position[0],
           spawn.position[1], spawn.position[2]);
   Save();
 }
 
 void ItemBridge::Update(f32 dt) {
-  if (!ctx_.world || !ctx_.physics) return;
-  if (!loaded_ && actors_->HasPlayer()) OnPlayerReady();
+  if (!ctx_.world || !ctx_.physics)
+    return;
+  if (!loaded_ && actors_->HasPlayer())
+    OnPlayerReady();
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
 
   // Mirror awake body transforms into ECS transforms, then hibernate settled
   // loot beyond the far radius into the store and wake stored loot back near the
@@ -431,13 +487,16 @@ void ItemBridge::Update(f32 dt) {
 
 void ItemBridge::MaybeRunProbe(f32 dt) {
   static const bool kProbe = std::getenv("RX_ITEM_PROBE") != nullptr;
-  if (!kProbe || probe_done_) return;
+  if (!kProbe || probe_done_)
+    return;
   probe_timer_ += dt;
-  if (probe_timer_ < 6.0f) return;  // let cells stream in first
+  if (probe_timer_ < 6.0f)
+    return;  // let cells stream in first
   probe_done_ = true;
 
   Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos)) return;
+  if (!actors_->PlayerWorldPos(&ppos))
+    return;
   // Find the nearest loose item reference to the player.
   u64 best = 0;
   f32 best_d2 = 1e30f;
@@ -447,16 +506,20 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
     const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
                                       static_cast<u32>(handle & 0xffffffffu)};
     const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
-    if (!stored) return;
+    if (!stored)
+      return;
     bethesda::Record rec;
-    if (!ctx_.records->Parse(refr, &rec)) return;
+    if (!ctx_.records->Parse(refr, &rec))
+      return;
     const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
-    if (!name || name->data.size() < 4) return;
+    if (!name || name->data.size() < 4)
+      return;
     u32 base_raw;
     std::memcpy(&base_raw, name->data.data(), 4);
     const bethesda::GlobalFormId base =
         ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
-    if (!IsItemBase(base)) return;
+    if (!IsItemBase(base))
+      return;
     const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y, dz = t.position[2] - ppos.z;
     const f32 d2 = dx * dx + dy * dy + dz * dz;
     if (d2 < best_d2) {
@@ -477,7 +540,8 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
     u32 n = 0;
     if (inv)
       for (const auto& e : inv->entries)
-        if (e.count > 0) ++n;
+        if (e.count > 0)
+          ++n;
     return n;
   }());
   DropLast();
@@ -490,7 +554,8 @@ void ItemBridge::OnPlayerReady() {
   // The cell streamer skips any ref we have marked removed, so a picked-up item
   // never re-places when its cell streams back in.
   if (ctx_.streamer)
-    ctx_.streamer->set_ref_suppressor([this](u64 handle) { return removed_refs_.count(handle) != 0; });
+    ctx_.streamer->set_ref_suppressor(
+        [this](u64 handle) { return removed_refs_.count(handle) != 0; });
   if (!loaded_) {
     Load();
     loaded_ = true;
@@ -499,7 +564,8 @@ void ItemBridge::OnPlayerReady() {
     if (!removed_refs_.empty() && ctx_.world) {
       base::Vector<ecs::Entity> victims;
       ctx_.world->Each<world::FormLink>([&](ecs::Entity e, world::FormLink& link) {
-        if (removed_refs_.count(link.form.packed())) victims.push_back(e);
+        if (removed_refs_.count(link.form.packed()))
+          victims.push_back(e);
       });
       for (ecs::Entity e : victims) {
         if (ctx_.quest_world)
@@ -511,7 +577,8 @@ void ItemBridge::OnPlayerReady() {
 }
 
 void ItemBridge::Save() const {
-  if (!ctx_.world) return;
+  if (!ctx_.world)
+    return;
   base::Vector<u8> blob;
   PutU32(blob, kBlobMagic);
   PutU32(blob, kBlobVersion);
@@ -527,7 +594,8 @@ void ItemBridge::Save() const {
 
   // Removed refs.
   PutU32(blob, u32(removed_refs_.size()));
-  for (u64 h : removed_refs_) PutU64(blob, h);
+  for (u64 h : removed_refs_)
+    PutU64(blob, h);
 
   // rx inventory + world-item blobs.
   // rx::inventory serializes into std::vector; copy across the boundary.
@@ -551,7 +619,8 @@ void ItemBridge::Save() const {
 bool ItemBridge::Load() {
   const base::String path = SavePath();
   std::ifstream in(path.c_str(), std::ios::binary);
-  if (!in) return false;  // fresh profile
+  if (!in)
+    return false;  // fresh profile
   base::Vector<u8> blob((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   Reader r(blob.data(), blob.size());
   if (r.U32() != kBlobMagic || r.U32() != kBlobVersion) {
@@ -568,7 +637,8 @@ bool ItemBridge::Load() {
     const u32 local = r.U32();
     const bethesda::GlobalFormId base{plugin, local};
     inventory::ItemDef def;
-    if (!BuildDef(base, &def)) continue;  // record gone (mod removed): drop the def
+    if (!BuildDef(base, &def))
+      continue;  // record gone (mod removed): drop the def
     catalog_.Register(id, def);
     base_to_def_[base.packed()] = id;
     def_to_base_[id] = base;
@@ -576,7 +646,8 @@ bool ItemBridge::Load() {
   }
 
   const u32 removed = r.U32();
-  for (u32 i = 0; i < removed && r.ok; ++i) removed_refs_.insert(r.U64());
+  for (u32 i = 0; i < removed && r.ok; ++i)
+    removed_refs_.insert(r.U64());
 
   const base::Vector<u8> inv_blob = r.Bytes();
   const base::Vector<u8> wi_blob = r.Bytes();
@@ -597,7 +668,8 @@ bool ItemBridge::Load() {
   const ecs::Entity player = actors_->PlayerEntity();
   if (const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player))
     for (const auto& e : inv->entries)
-      if (e.count > 0) ++inv_stacks;
+      if (e.count > 0)
+        ++inv_stacks;
   RX_INFO(
       "item: loaded {} defs, {} removed refs, {} inventory stack(s), {} live + {} dormant world "
       "item(s) from {}",

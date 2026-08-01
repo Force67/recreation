@@ -1,6 +1,6 @@
-#include <functional>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -39,8 +39,10 @@ static_assert(sizeof(Ba2Header) == 24);
 // u32 (value 3), so its records start 12 bytes in. Getting this wrong reads the
 // texture dimensions from the wrong offset and tries to allocate a garbage size.
 constexpr size_t ExtraHeaderSize(u32 version) {
-  if (version == 2) return sizeof(u64);
-  if (version == 3) return sizeof(u64) + sizeof(u32);
+  if (version == 2)
+    return sizeof(u64);
+  if (version == 3)
+    return sizeof(u64) + sizeof(u32);
   return 0;
 }
 
@@ -78,12 +80,15 @@ bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size, 
   }
   base::Vector<u8> packed(packed_size);
   file.read(reinterpret_cast<char*>(packed.data()), packed_size);
-  if (!file) return false;
+  if (!file)
+    return false;
   ByteSpan span(packed.data(), packed.size());
   return lz4 ? Lz4BlockDecompress(span, dst, full_size) : ZlibInflate(span, dst, full_size);
 }
 
-void PutU32(u8* p, u32 v) { std::memcpy(p, &v, 4); }
+void PutU32(u8* p, u32 v) {
+  std::memcpy(p, &v, 4);
+}
 
 template <typename T>
 T GetLe(const u8* p) {
@@ -130,7 +135,8 @@ class Ba2Provider final : public asset::FileProvider {
 
   bool Parse() {
     std::ifstream file(path_.c_str(), std::ios::binary);
-    if (!file) return false;
+    if (!file)
+      return false;
     file.seekg(sizeof(Ba2Header) + ExtraHeaderSize(header_.version));
 
     const bool dx10 = header_.type == kBa2Dx10;
@@ -148,7 +154,8 @@ class Ba2Provider final : public asset::FileProvider {
     for (u32 i = 0; i < header_.file_count; ++i) {
       if (dx10) {
         file.read(reinterpret_cast<char*>(buffer), kTexHeaderSize);
-        if (!file) return false;
+        if (!file)
+          return false;
         const u8 chunk_count = buffer[13];
         TexEntry entry;
         entry.height = GetLe<u16>(buffer + 16);
@@ -159,14 +166,16 @@ class Ba2Provider final : public asset::FileProvider {
         for (u8 c = 0; c < chunk_count; ++c) {
           u8 ch[kTexChunkSize];
           file.read(reinterpret_cast<char*>(ch), kTexChunkSize);
-          if (!file) return false;
+          if (!file)
+            return false;
           entry.chunks.push_back({GetLe<u64>(ch), GetLe<u32>(ch + 8), GetLe<u32>(ch + 12)});
         }
         tex.push_back(base::move(entry));
       } else {
         u8 fr[kGnrlRecordSize];
         file.read(reinterpret_cast<char*>(fr), kGnrlRecordSize);
-        if (!file) return false;
+        if (!file)
+          return false;
         gnrl.push_back({GetLe<u64>(fr + 16), GetLe<u32>(fr + 24), GetLe<u32>(fr + 28)});
       }
     }
@@ -178,10 +187,12 @@ class Ba2Provider final : public asset::FileProvider {
     for (u32 i = 0; i < header_.file_count; ++i) {
       u16 length = 0;
       file.read(reinterpret_cast<char*>(&length), 2);
-      if (!file) return false;
+      if (!file)
+        return false;
       base::String name(length, '\0');
       file.read(name.data(), length);
-      if (!file) return false;
+      if (!file)
+        return false;
       base::String key = asset::NormalizePath(name);
       if (dx10)
         tex_entries_.emplace(base::move(key), base::move(tex[i]));
@@ -199,7 +210,8 @@ class Ba2Provider final : public asset::FileProvider {
   std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
     base::String key(normalized_path);
     std::ifstream file(path_.c_str(), std::ios::binary);
-    if (!file) return std::nullopt;
+    if (!file)
+      return std::nullopt;
     const bool lz4 = header_.version == 3;
 
     if (auto* it = entries_.find(key); it != nullptr) {
@@ -217,7 +229,8 @@ class Ba2Provider final : public asset::FileProvider {
       base::Vector<u8> dds = MakeDdsHeader(tex);
       const size_t header_size = dds.size();
       size_t total = header_size;
-      for (const TexChunk& c : tex.chunks) total += c.full_size;
+      for (const TexChunk& c : tex.chunks)
+        total += c.full_size;
       dds.resize(total);
       size_t cursor = header_size;
       for (const TexChunk& c : tex.chunks) {
@@ -233,8 +246,10 @@ class Ba2Provider final : public asset::FileProvider {
   }
 
   void Enumerate(const std::function<void(std::string_view)>& fn) const override {
-    for (const auto& [name, entry] : entries_) fn(name);
-    for (const auto& [name, entry] : tex_entries_) fn(name);
+    for (const auto& [name, entry] : entries_)
+      fn(name);
+    for (const auto& [name, entry] : tex_entries_)
+      fn(name);
   }
 
   std::string name() const override { return path_.c_str(); }
@@ -255,7 +270,8 @@ bool IsKnownVersion(u32 version) {
 
 base::UniquePointer<asset::FileProvider> OpenBa2(const base::String& path) {
   std::ifstream file(path.c_str(), std::ios::binary);
-  if (!file) return nullptr;
+  if (!file)
+    return nullptr;
   Ba2Header header{};
   file.read(reinterpret_cast<char*>(&header), sizeof(header));
   if (!file || header.magic != kBa2Magic) {
@@ -277,8 +293,10 @@ base::UniquePointer<asset::FileProvider> OpenBa2(const base::String& path) {
 }
 
 base::UniquePointer<asset::FileProvider> OpenArchive(const base::String& path) {
-  if (path.ends_with(".bsa") || path.ends_with(".BSA")) return OpenBsa(path);
-  if (path.ends_with(".ba2") || path.ends_with(".BA2")) return OpenBa2(path);
+  if (path.ends_with(".bsa") || path.ends_with(".BSA"))
+    return OpenBsa(path);
+  if (path.ends_with(".ba2") || path.ends_with(".BA2"))
+    return OpenBa2(path);
   return nullptr;
 }
 

@@ -30,8 +30,12 @@ class GrassBaker {
   // Returns the merged grass mesh for the cell, or null when nothing grows.
   // `water_height` is the cell's water level in game units (very negative
   // when the cell is dry), `density_scale` multiplies every GRAS density.
-  const asset::Mesh* BuildCell(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
-                               i16 grid_y, f32 water_height, f32 density_scale,
+  const asset::Mesh* BuildCell(const bethesda::Record& land,
+                               u16 land_plugin,
+                               i16 grid_x,
+                               i16 grid_y,
+                               f32 water_height,
+                               f32 density_scale,
                                std::span<const f32> height_override = {});
 
   size_t total_instances() const { return total_instances_; }

@@ -7,9 +7,9 @@
 #include <cstdio>
 #include <cstring>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/ctda.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -23,13 +23,19 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Builds a 32-byte (SE) CTDA payload from its fields, so the parser sees a
 // realistic record. operator_bits go in the top 3 bits, flags in the low 5.
-base::Vector<u8> MakeCtda(u8 operator_bits, u8 flags, float value, u16 function, u32 param1,
-                          u32 run_on, u32 reference) {
+base::Vector<u8> MakeCtda(u8 operator_bits,
+                          u8 flags,
+                          float value,
+                          u16 function,
+                          u32 param1,
+                          u32 run_on,
+                          u32 reference) {
   base::Vector<u8> b(32, 0);
   b[0] = static_cast<u8>((operator_bits << 5) | (flags & 0x1F));
   std::memcpy(b.data() + 4, &value, 4);
@@ -40,7 +46,9 @@ base::Vector<u8> MakeCtda(u8 operator_bits, u8 flags, float value, u16 function,
   return b;
 }
 
-ByteSpan Span(const base::Vector<u8>& v) { return ByteSpan(v.data(), v.size()); }
+ByteSpan Span(const base::Vector<u8>& v) {
+  return ByteSpan(v.data(), v.size());
+}
 
 // A context that reports a fixed stage for one quest and a fixed raw result, so
 // tests can exercise both the typed and the fallback dispatch paths.
@@ -121,7 +129,8 @@ void TestEvaluate() {
   ConditionList both;
   both.comparisons.push_back(Cmp(Func::kGetStage, CompareOp::kGreaterOrEqual, 20.0f, false));
   both.comparisons.push_back(Cmp(Func::kGetStage, CompareOp::kLess, 100.0f, false));
-  for (auto& c : both.comparisons) c.param1 = 7;
+  for (auto& c : both.comparisons)
+    c.param1 = 7;
   Check("AND of two passing groups passes", Evaluate(both, ctx));
   both.comparisons[1].value = 25.0f;  // 30 < 25 is false
   Check("AND fails when one group fails", !Evaluate(both, ctx));
@@ -130,7 +139,8 @@ void TestEvaluate() {
   ConditionList either;
   either.comparisons.push_back(Cmp(Func::kGetStage, CompareOp::kEqual, 999.0f, true));
   either.comparisons.push_back(Cmp(Func::kGetStage, CompareOp::kEqual, 30.0f, false));
-  for (auto& c : either.comparisons) c.param1 = 7;
+  for (auto& c : either.comparisons)
+    c.param1 = 7;
   Check("OR passes when the second disjunct holds", Evaluate(either, ctx));
   either.comparisons[1].value = 31.0f;  // neither matches now
   Check("OR fails when no disjunct holds", !Evaluate(either, ctx));

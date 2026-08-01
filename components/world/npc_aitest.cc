@@ -18,10 +18,13 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-bool Near(float a, float b, float eps = 1e-4f) { return std::fabs(a - b) <= eps; }
+bool Near(float a, float b, float eps = 1e-4f) {
+  return std::fabs(a - b) <= eps;
+}
 
 }  // namespace
 

@@ -63,7 +63,8 @@ int main(int argc, char** argv) {
   base::String data_dir = argv[1];
   char sig[4] = {'Q', 'U', 'S', 'T'};
   if (argc > 2)
-    for (int i = 0; i < 4; ++i) sig[i] = argv[2][i] ? argv[2][i] : ' ';
+    for (int i = 0; i < 4; ++i)
+      sig[i] = argv[2][i] ? argv[2][i] : ' ';
   u32 type = FourCc(sig[0], sig[1], sig[2], sig[3]);
   int max = argc > 3 ? std::atoi(argv[3]) : 8;
 
@@ -80,17 +81,21 @@ int main(int argc, char** argv) {
   int shown = 0;
   records.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     Record rec;
-    if (!records.Parse(id, &rec)) return;
+    if (!records.Parse(id, &rec))
+      return;
     const Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
-    if (!vmad) return;
+    if (!vmad)
+      return;
     ScriptAttachment att;
     base::Vector<QuestStageFragment> fragments;
     bool is_quest = type == FourCc('Q', 'U', 'S', 'T');
     bool ok = is_quest ? ParseQuestFragments(vmad->data, &att, &fragments)
                        : ParseScriptAttachment(vmad->data, &att);
-    if (!ok || att.scripts.empty()) return;
+    if (!ok || att.scripts.empty())
+      return;
     ++total;
-    if (shown >= max) return;
+    if (shown >= max)
+      return;
     ++shown;
     std::printf("%04x:%06x  vmad v%d fmt%d, %zu script(s)\n", id.plugin, id.local_id, att.version,
                 att.object_format, att.scripts.size());

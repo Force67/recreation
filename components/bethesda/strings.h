@@ -17,7 +17,9 @@ class StringTable {
   // `plugin` is the load-order index the strings belong to. String ids are only
   // unique within one plugin, so the table keeps them per plugin as well as in a
   // flat, first-wins map for callers that do not know which plugin a record is from.
-  bool Load(const asset::Vfs& vfs, const base::String& plugin_name, const base::String& language,
+  bool Load(const asset::Vfs& vfs,
+            const base::String& plugin_name,
+            const base::String& language,
             u16 plugin = kAnyPlugin);
 
   static constexpr u16 kAnyPlugin = 0xffff;

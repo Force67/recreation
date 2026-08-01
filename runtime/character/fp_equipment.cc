@@ -9,20 +9,20 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "runtime/actor/actor_system.h"
 #include "asset/asset_id.h"
 #include "components/bethesda/record.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
 #include "core/input_actions.h"
 #include "core/log.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "runtime/app/engine_context.h"
-#include "runtime/input/game_input.h"
 #include "inventory/components.h"
 #include "inventory/inventory.h"
+#include "runtime/actor/actor_system.h"
+#include "runtime/app/engine_context.h"
+#include "runtime/input/game_input.h"
 #include "runtime/interaction/item_bridge.h"
-#include "components/world/cell_streaming.h"
-#include "components/world/components.h"
 
 namespace rx {
 namespace {
@@ -31,7 +31,8 @@ namespace {
 // the tag as opaque). FNV-1a of "hand.right" so the same constant round-trips.
 constexpr u32 Fnv1a(const char* s) {
   u32 h = 2166136261u;
-  for (; *s; ++s) h = (h ^ static_cast<u8>(*s)) * 16777619u;
+  for (; *s; ++s)
+    h = (h ^ static_cast<u8>(*s)) * 16777619u;
   return h;
 }
 constexpr u32 kHandRightTag = Fnv1a("hand.right");
@@ -42,13 +43,16 @@ constexpr u32 kWeapType = FourCc('W', 'E', 'A', 'P');
 FpEquipment::FpEquipment(EngineContext& ctx, ActorSystem& actors) : ctx_(ctx), actors_(actors) {}
 
 bool FpEquipment::InputBlocked() const {
-  if (ctx_.game_ui && ctx_.game_ui->menu_open()) return true;
-  if (ctx_.debug_ui && ctx_.debug_ui->wants_keyboard()) return true;
+  if (ctx_.game_ui && ctx_.game_ui->menu_open())
+    return true;
+  if (ctx_.debug_ui && ctx_.debug_ui->wants_keyboard())
+    return true;
   return false;
 }
 
 void FpEquipment::Update(f32 dt) {
-  if (!ctx_.world || !actors_.HasPlayer()) return;
+  if (!ctx_.world || !actors_.HasPlayer())
+    return;
   MaybeRunProbe(dt);
 
   const ActionState* actions = ctx_.actions;
@@ -105,7 +109,8 @@ void FpEquipment::Update(f32 dt) {
   if (equipped_item_ != inventory::kInvalidItemDef && state_ != State::kUnequipping &&
       state_ != State::kSheathed) {
     const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(actors_.PlayerEntity());
-    if (!inv || inventory::InventoryCount(*inv, equipped_item_) == 0) BeginUnequip();
+    if (!inv || inventory::InventoryCount(*inv, equipped_item_) == 0)
+      BeginUnequip();
   }
 
   // Render only while a weapon is engaged and the arms would be on screen; the
@@ -114,15 +119,18 @@ void FpEquipment::Update(f32 dt) {
   const bool engaged = state_ != State::kSheathed;
   const bool visible = engaged && first_person;
   actors_.SetFpFlags(engaged, visible);
-  if (visible) actors_.SetFpRootView(ctx_.walk_eye, ctx_.walk_target);
+  if (visible)
+    actors_.SetFpRootView(ctx_.walk_eye, ctx_.walk_target);
 }
 
 void FpEquipment::BeginEquip() {
-  if (!ctx_.world || !ctx_.items) return;
+  if (!ctx_.world || !ctx_.items)
+    return;
   const ecs::Entity player = actors_.PlayerEntity();
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
   if (!inv) {
-    if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("No weapon to equip");
+    if (ctx_.game_ui)
+      ctx_.game_ui->FlashQuestUpdate("No weapon to equip");
     return;
   }
   // Most-recent weapon: the last non-empty stack whose def is a WEAP record.
@@ -130,7 +138,8 @@ void FpEquipment::BeginEquip() {
   inventory::ItemDefId weapon = inventory::kInvalidItemDef;
   for (int i = static_cast<int>(inv->entries.size()) - 1; i >= 0; --i) {
     const inventory::InventoryEntry& e = inv->entries[i];
-    if (e.count == 0) continue;
+    if (e.count == 0)
+      continue;
     const inventory::ItemDef* def = catalog.Find(e.item);
     if (def && def->flags == kWeapType) {
       weapon = e.item;
@@ -138,7 +147,8 @@ void FpEquipment::BeginEquip() {
     }
   }
   if (weapon == inventory::kInvalidItemDef) {
-    if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("No weapon to equip");
+    if (ctx_.game_ui)
+      ctx_.game_ui->FlashQuestUpdate("No weapon to equip");
     return;
   }
   if (!actors_.EnsureFpRig()) {
@@ -156,7 +166,8 @@ void FpEquipment::BeginEquip() {
   actors_.PlayFpClip(ActorSystem::FpClip::kEquip);
   state_ = State::kEquipping;
   equipped_item_ = weapon;
-  if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Weapon drawn");
+  if (ctx_.game_ui)
+    ctx_.game_ui->FlashQuestUpdate("Weapon drawn");
   RX_INFO("fp: drew weapon (item def {}), playing 1hm_equip", weapon);
 }
 
@@ -167,9 +178,11 @@ void FpEquipment::BeginUnequip() {
 }
 
 bool FpEquipment::ProbePickupNearestWeapon() {
-  if (!ctx_.records || !ctx_.items) return false;
+  if (!ctx_.records || !ctx_.items)
+    return false;
   Vec3 ppos;
-  if (!actors_.PlayerWorldPos(&ppos)) return false;
+  if (!actors_.PlayerWorldPos(&ppos))
+    return false;
   // Track the nearest weapon overall and, separately, the nearest genuine
   // one-handed sword: the 1hm clips + WEAPON node are authored for a 1h sword, so
   // it sits in the hand and swings on-screen (a greatsword floats and arcs out of
@@ -182,17 +195,21 @@ bool FpEquipment::ProbePickupNearestWeapon() {
     const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
                                       static_cast<u32>(handle & 0xffffffffu)};
     const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
-    if (!stored) return;
+    if (!stored)
+      return;
     bethesda::Record rec;
-    if (!ctx_.records->Parse(refr, &rec)) return;
+    if (!ctx_.records->Parse(refr, &rec))
+      return;
     const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
-    if (!name || name->data.size() < 4) return;
+    if (!name || name->data.size() < 4)
+      return;
     u32 base_raw;
     std::memcpy(&base_raw, name->data.data(), 4);
     const bethesda::GlobalFormId base =
         ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
     const bethesda::RecordStore::StoredRecord* bstored = ctx_.records->Find(base);
-    if (!bstored || bstored->header.type != kWeapType) return;
+    if (!bstored || bstored->header.type != kWeapType)
+      return;
     const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y, dz = t.position[2] - ppos.z;
     const f32 d2 = dx * dx + dy * dy + dz * dz;
     if (d2 < best_d2) {
@@ -202,7 +219,8 @@ bool FpEquipment::ProbePickupNearestWeapon() {
     bethesda::Record brec;
     if (ctx_.records->Parse(base, &brec)) {
       base::String model = brec.GetString(FourCc('M', 'O', 'D', 'L'));
-      for (char& c : model) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      for (char& c : model)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       if (model.find("sword") != base::String::npos &&
           model.find("greatsword") == base::String::npos && d2 < best_sword_d2) {
         best_sword_d2 = d2;
@@ -223,21 +241,27 @@ bool FpEquipment::ProbePickupNearestWeapon() {
 }
 
 void FpEquipment::ProbeForceDraw() {
-  if (!actors_.EnsureFpRig() || !ctx_.records || !ctx_.streamer) return;
+  if (!actors_.EnsureFpRig() || !ctx_.records || !ctx_.streamer)
+    return;
   // Prefer a genuine one-handed sword (the 1hm clips + the WEAPON node are
   // authored for it); fall back to any WEAP with a hand mesh.
   asset::AssetId sword{};
   asset::AssetId any_mesh{};
   ctx_.records->EachOfType(kWeapType, [&](bethesda::GlobalFormId id,
                                           const bethesda::RecordStore::StoredRecord&) {
-    if (sword.hash != 0) return;
+    if (sword.hash != 0)
+      return;
     bethesda::Record rec;
-    if (!ctx_.records->Parse(id, &rec)) return;
+    if (!ctx_.records->Parse(id, &rec))
+      return;
     base::String model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
-    for (char& c : model) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : model)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     asset::AssetId rid{};
-    if (!ctx_.streamer->PrepareItemModel(id, &rid) || rid.hash == 0) return;
-    if (any_mesh.hash == 0) any_mesh = rid;
+    if (!ctx_.streamer->PrepareItemModel(id, &rid) || rid.hash == 0)
+      return;
+    if (any_mesh.hash == 0)
+      any_mesh = rid;
     if (model.find("sword") != base::String::npos && model.find("greatsword") == base::String::npos)
       sword = rid;
   });
@@ -251,7 +275,8 @@ void FpEquipment::ProbeForceDraw() {
 
 void FpEquipment::MaybeRunProbe(f32 dt) {
   static const char* kDir = std::getenv("RX_FP_PROBE");
-  if (!kDir || probe_phase_ >= 8) return;
+  if (!kDir || probe_phase_ >= 8)
+    return;
   probe_t_ += dt;
   // Force first-person walk so the FP layer renders for the capture.
   if (!probe_forced_view_) {
@@ -266,7 +291,8 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
       if (probe_t_ >= 5.0f) {
         ProbePickupNearestWeapon();
         BeginEquip();
-        if (state_ == State::kSheathed) ProbeForceDraw();  // no inventory weapon: direct rig
+        if (state_ == State::kSheathed)
+          ProbeForceDraw();  // no inventory weapon: direct rig
         probe_phase_ = 1;
         probe_t_ = 0;
       }
@@ -309,7 +335,8 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
         // spawns a physics-driven world item that tumbles to the floor and
         // persists to items.bin. Stay first person but aim the look down so the
         // sword lying ahead frames cleanly (no player body in the way).
-        if (ctx_.items) ctx_.items->DropLast();
+        if (ctx_.items)
+          ctx_.items->DropLast();
         state_ = State::kSheathed;
         ctx_.debug_look_pitch = -0.5f;  // provisional down-tilt while it settles
         RX_INFO("FP_PROBE: dropped weapon, aiming down for the ground shot");

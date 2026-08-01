@@ -20,20 +20,26 @@
 #include "components/bethesda/game_profile.h"
 #include "core/log.h"
 #include "core/window.h"
-#include "runtime/app/engine.h"
 #include "render/core/presets.h"
+#include "runtime/app/engine.h"
 
 namespace {
 
 constexpr const char* kTag = "recreation";
 
 rx::bethesda::Game ParseGame(const base::String& id) {
-  if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
-  if (id == "fo4") return rx::bethesda::Game::kFallout4;
-  if (id == "fo76") return rx::bethesda::Game::kFallout76;
-  if (id == "starfield") return rx::bethesda::Game::kStarfield;
-  if (id == "fo3") return rx::bethesda::Game::kFallout3;
-  if (id == "fnv") return rx::bethesda::Game::kFalloutNv;
+  if (id == "skyrimse")
+    return rx::bethesda::Game::kSkyrimSe;
+  if (id == "fo4")
+    return rx::bethesda::Game::kFallout4;
+  if (id == "fo76")
+    return rx::bethesda::Game::kFallout76;
+  if (id == "starfield")
+    return rx::bethesda::Game::kStarfield;
+  if (id == "fo3")
+    return rx::bethesda::Game::kFallout3;
+  if (id == "fnv")
+    return rx::bethesda::Game::kFalloutNv;
   return rx::bethesda::Game::kUnknown;
 }
 
@@ -55,12 +61,15 @@ rx::EngineConfig LoadConfig(android_app* app) {
   base::UnorderedMap<base::String, base::String> kv;
   base::String line;
   while (std::getline(file, line)) {
-    if (line.empty() || line[0] == '#') continue;
+    if (line.empty() || line[0] == '#')
+      continue;
     size_t eq = line.find('=');
-    if (eq == base::String::npos) continue;
+    if (eq == base::String::npos)
+      continue;
     base::String key = line.substr(0, eq);
     base::String value = line.substr(eq + 1);
-    while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) value.pop_back();
+    while (!value.empty() && (value.back() == '\r' || value.back() == ' '))
+      value.pop_back();
     kv[key] = value;
   }
 
@@ -78,15 +87,21 @@ rx::EngineConfig LoadConfig(android_app* app) {
     }
   }
   base::String gltf = get("gltf");
-  if (!gltf.empty()) config.gltf_path = gltf;
+  if (!gltf.empty())
+    config.gltf_path = gltf;
   base::String demo = get("demo");
-  if (!demo.empty()) config.demo_scene = demo;
+  if (!demo.empty())
+    config.demo_scene = demo;
   base::String preset = get("preset");
-  if (!preset.empty()) config.preset = rx::render::ParsePreset(preset);
+  if (!preset.empty())
+    config.preset = rx::render::ParsePreset(preset);
   base::String interior = get("interior");
-  if (!interior.empty()) config.interior = interior;
-  if (get("validation") == "1") config.renderer.enable_validation = true;
-  if (get("no_rt") == "1") config.renderer.enable_raytracing = false;
+  if (!interior.empty())
+    config.interior = interior;
+  if (get("validation") == "1")
+    config.renderer.enable_validation = true;
+  if (get("no_rt") == "1")
+    config.renderer.enable_raytracing = false;
   // screenshot=<seconds>: the renderer reads RX_SCREENSHOT and writes the
   // frame at that time to the app's data dir, for on-device render verification
   // that does not depend on the platform screenshotter.
@@ -147,7 +162,8 @@ void HandleCmd(android_app* app, int32_t cmd) {
   auto* state = static_cast<AppState*>(app->userData);
   switch (cmd) {
     case APP_CMD_INIT_WINDOW:
-      if (app->window == nullptr) break;
+      if (app->window == nullptr)
+        break;
       if (!state->initialized) {
         auto window = rx::CreateAndroidWindow(app->window);  // acquires the window
         state->window = window.get();
@@ -185,7 +201,8 @@ void HandleCmd(android_app* app, int32_t cmd) {
       break;
     case APP_CMD_DESTROY:
       state->finished = true;
-      if (state->initialized) state->window->RequestQuit();
+      if (state->initialized)
+        state->window->RequestQuit();
       break;
     default:
       break;
@@ -219,8 +236,10 @@ void PointerUp(AppState* state, rx::InputState& input, int id) {
 
 int32_t HandleInput(android_app* app, AInputEvent* event) {
   auto* state = static_cast<AppState*>(app->userData);
-  if (!state->initialized || state->window == nullptr) return 0;
-  if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
+  if (!state->initialized || state->window == nullptr)
+    return 0;
+  if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION)
+    return 0;
 
   rx::InputState& input = state->window->mutable_input();
   // Touch x arrives in the activity's (landscape) space; the larger dimension is
@@ -301,18 +320,22 @@ void android_main(android_app* app) {
     // blocking so we render every frame.
     int timeout = active ? 0 : -1;
     while (ALooper_pollOnce(timeout, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
-      if (source != nullptr) source->process(app, source);
+      if (source != nullptr)
+        source->process(app, source);
       if (app->destroyRequested) {
         state.finished = true;
         break;
       }
       timeout = 0;
     }
-    if (state.finished) break;
+    if (state.finished)
+      break;
     if (state.initialized && state.has_surface) {
-      if (!state.host.RunFrame()) break;
+      if (!state.host.RunFrame())
+        break;
     }
   }
 
-  if (state.initialized) state.host.Shutdown();
+  if (state.initialized)
+    state.host.Shutdown();
 }

@@ -3,9 +3,9 @@
 
 #include <base/containers/vector.h>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/quest_def.h"
+#include "core/types.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -97,7 +97,8 @@ int SelectActivePackage(const base::Vector<PackageDef>& packages, const Conditio
 // leave a reference target as a raw form id. Always succeeds; a package with no
 // target input yields PackageTarget::Kind::kNone and never reads past a
 // truncated subrecord.
-PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record,
+PackageDef ParsePackageRecord(u64 handle,
+                              const bethesda::Record& record,
                               const bethesda::RecordStore& records);
 
 // Overload for callers without a store (synthetic data / unit tests): leaves a
@@ -121,7 +122,8 @@ struct RouteStop {
 // cart horse walks five patrol packages in turn, each package's fragment setting
 // the stage that lets the next one take over.
 base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
-                                                const AliasDef& alias, u16 quest_plugin);
+                                                const AliasDef& alias,
+                                                u16 quest_plugin);
 
 }  // namespace rx::quest
 

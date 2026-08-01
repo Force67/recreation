@@ -35,7 +35,8 @@ physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
           desc.children.push_back(base::move(converted));
         }
       }
-      if (desc.children.empty()) desc.kind = physics::ShapeDesc::Kind::kInvalid;
+      if (desc.children.empty())
+        desc.kind = physics::ShapeDesc::Kind::kInvalid;
       break;
     case HkxShape::Kind::kTransform: {
       desc.kind = physics::ShapeDesc::Kind::kPlaced;
@@ -46,7 +47,8 @@ physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
           desc.children.push_back(base::move(converted));
         }
       }
-      if (desc.children.empty()) desc.kind = physics::ShapeDesc::Kind::kInvalid;
+      if (desc.children.empty())
+        desc.kind = physics::ShapeDesc::Kind::kInvalid;
       break;
     }
     case HkxShape::Kind::kUnknown:

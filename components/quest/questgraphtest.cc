@@ -9,9 +9,9 @@
 
 #include <cstdio>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/quest_graph.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -25,7 +25,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Records every side effect the graph drives, so tests can assert ordering and

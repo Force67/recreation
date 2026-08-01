@@ -24,13 +24,16 @@ Vec3 CatmullRom(const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec3& p3, 
 }  // namespace
 
 ShowcasePose ShowcaseCamera::Sample(f32 t) const {
-  if (keys_.empty()) return {};
-  if (keys_.size() == 1) return {keys_[0].eye, keys_[0].look};
+  if (keys_.empty())
+    return {};
+  if (keys_.size() == 1)
+    return {keys_[0].eye, keys_[0].look};
   t = base::Clamp(t, 0.0f, total_);
 
   // Segment [a, b] of the timeline that contains t.
   size_t b = 1;
-  while (b < keys_.size() && arrive_[b] < t) ++b;
+  while (b < keys_.size() && arrive_[b] < t)
+    ++b;
   size_t a = b - 1;
   f32 span = arrive_[b] - arrive_[a];
   f32 u = span > 1e-5f ? (t - arrive_[a]) / span : 0.0f;
@@ -46,9 +49,11 @@ ShowcasePose ShowcaseCamera::Sample(f32 t) const {
 
 int ShowcaseCamera::CaptureCrossed(f32 prev_t, f32 t, base::String* label) const {
   for (size_t i = 0; i < keys_.size(); ++i) {
-    if (!keys_[i].capture) continue;
+    if (!keys_[i].capture)
+      continue;
     if (arrive_[i] > prev_t && arrive_[i] <= t) {
-      if (label) *label = keys_[i].label;
+      if (label)
+        *label = keys_[i].label;
       return static_cast<int>(i);
     }
   }

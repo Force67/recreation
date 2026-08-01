@@ -97,7 +97,8 @@ void ReadTransform12(const HkxFile& hkx, u64 at, f32 out[12]) {
 
 HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
   HkxShape shape;
-  if (at == HkxFile::kNull || depth > 8) return shape;
+  if (at == HkxFile::kNull || depth > 8)
+    return shape;
   base::StringRef cls = hkx.class_of(at);
   shape.class_name = base::String(cls);
 
@@ -123,7 +124,8 @@ HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
     for (u32 blk = 0; blk < blocks && verts != HkxFile::kNull; ++blk) {
       u64 base = verts + static_cast<u64>(blk) * 48;
       for (u32 i = 0; i < 4; ++i) {
-        if (shape.vertices.size() >= count) break;
+        if (shape.vertices.size() >= count)
+          break;
         shape.vertices.push_back(
             {hkx.F32(base + i * 4), hkx.F32(base + 16 + i * 4), hkx.F32(base + 32 + i * 4)});
       }
@@ -137,15 +139,18 @@ HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
     constexpr u64 kChildStride = 32;
     for (u32 i = 0; i < count && children != HkxFile::kNull; ++i) {
       u64 child = hkx.Pointer(children + i * kChildStride);
-      if (child != HkxFile::kNull) shape.children.push_back(DecodeShape(hkx, child, depth + 1));
+      if (child != HkxFile::kNull)
+        shape.children.push_back(DecodeShape(hkx, child, depth + 1));
     }
   } else if (cls == "hkpConvexTransformShape" || cls == "hkpConvexTranslateShape") {
     shape.kind = HkxShape::Kind::kTransform;
     u64 child = hkx.Pointer(at + off::kCvxTransformChild);
-    if (child != HkxFile::kNull) shape.children.push_back(DecodeShape(hkx, child, depth + 1));
+    if (child != HkxFile::kNull)
+      shape.children.push_back(DecodeShape(hkx, child, depth + 1));
     if (cls == "hkpConvexTransformShape") {
       // Four float4 columns: basis c0,c1,c2 then the origin.
-      for (u32 i = 0; i < 16; ++i) shape.transform[i] = hkx.F32(at + off::kCvxTransformXf + i * 4);
+      for (u32 i = 0; i < 16; ++i)
+        shape.transform[i] = hkx.F32(at + off::kCvxTransformXf + i * 4);
     } else {
       // Translate-only: identity basis + stored offset.
       shape.transform[0] = shape.transform[5] = shape.transform[10] = 1.0f;
@@ -158,7 +163,8 @@ HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
     // The mopp code is an acceleration structure over its child; Jolt builds
     // its own BVH, so only the child matters.
     u64 child = hkx.Pointer(at + off::kMoppChild);
-    if (child != HkxFile::kNull) return DecodeShape(hkx, child, depth + 1);
+    if (child != HkxFile::kNull)
+      return DecodeShape(hkx, child, depth + 1);
   }
   return shape;
 }
@@ -173,11 +179,13 @@ HkxSkeleton DecodeSkeleton(const HkxFile& hkx, u64 at) {
   for (u32 i = 0; i < bone_count; ++i) {
     HkxBone bone;
     bone.name = base::String(hkx.CString(bones + static_cast<u64>(i) * 16));
-    if (i < parent_count && parents != HkxFile::kNull) bone.parent = hkx.I16(parents + i * 2);
+    if (i < parent_count && parents != HkxFile::kNull)
+      bone.parent = hkx.I16(parents + i * 2);
     if (i < pose_count && pose != HkxFile::kNull) {
       u64 t = pose + static_cast<u64>(i) * 48;  // hkQsTransform: T, Q, S float4s
       bone.translation = ReadVec3(hkx, t);
-      for (u32 c = 0; c < 4; ++c) bone.rotation[c] = hkx.F32(t + 16 + c * 4);
+      for (u32 c = 0; c < 4; ++c)
+        bone.rotation[c] = hkx.F32(t + 16 + c * 4);
       bone.scale = hkx.F32(t + 32);
     }
     skeleton.bones.push_back(base::move(bone));
@@ -211,7 +219,8 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
       f32 inv_mass = hkx.F32(obj.offset + off::kBodyInvMass);
       body.mass = inv_mass > 1e-6f ? 1.0f / inv_mass : 0.0f;
       u64 shape = hkx.Pointer(obj.offset + off::kBodyShape);
-      if (shape != HkxFile::kNull) body.shape = DecodeShape(hkx, shape, 0);
+      if (shape != HkxFile::kNull)
+        body.shape = DecodeShape(hkx, shape, 0);
       body_index[obj.offset] = static_cast<i32>(physics.bodies.size());
       physics.bodies.push_back(base::move(body));
     }
@@ -230,17 +239,20 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
   // back to the flat object walk only when no system exists.
   base::Vector<u64> constraint_offsets;
   for (const HkxObject& obj : hkx.objects()) {
-    if (obj.class_name != "hkpPhysicsSystem") continue;
+    if (obj.class_name != "hkpPhysicsSystem")
+      continue;
     u32 count = 0;
     u64 items = hkx.Array(obj.offset + off::kSystemConstraints, &count);
     for (u32 i = 0; i < count && items != HkxFile::kNull; ++i) {
       u64 instance = hkx.Pointer(items + static_cast<u64>(i) * 8);
-      if (instance != HkxFile::kNull) constraint_offsets.push_back(instance);
+      if (instance != HkxFile::kNull)
+        constraint_offsets.push_back(instance);
     }
   }
   if (constraint_offsets.empty()) {
     for (const HkxObject& obj : hkx.objects()) {
-      if (obj.class_name == "hkpConstraintInstance") constraint_offsets.push_back(obj.offset);
+      if (obj.class_name == "hkpConstraintInstance")
+        constraint_offsets.push_back(obj.offset);
     }
   }
   for (u64 instance : constraint_offsets) {
@@ -275,7 +287,8 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
   }
 
   for (const HkxObject& obj : hkx.objects()) {
-    if (obj.class_name != "hkaRagdollInstance") continue;
+    if (obj.class_name != "hkaRagdollInstance")
+      continue;
     HkxRagdoll ragdoll;
     u32 map_count = 0;
     u64 map = hkx.Array(obj.offset + off::kRagdollBoneMap, &map_count);

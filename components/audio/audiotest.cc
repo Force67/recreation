@@ -11,11 +11,11 @@
 #include <fstream>
 #include <iterator>
 
-#include "components/audio/ambient.h"
 #include "audio/audio_clip.h"
 #include "audio/mixer.h"
 #include "audio/spatial.h"
 #include "audio/wav.h"
+#include "components/audio/ambient.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -30,10 +30,12 @@ void PutU16(base::Vector<std::uint8_t>& b, std::uint16_t v) {
   b.push_back(v >> 8);
 }
 void PutU32(base::Vector<std::uint8_t>& b, std::uint32_t v) {
-  for (int i = 0; i < 4; ++i) b.push_back((v >> (8 * i)) & 0xFF);
+  for (int i = 0; i < 4; ++i)
+    b.push_back((v >> (8 * i)) & 0xFF);
 }
 void PutTag(base::Vector<std::uint8_t>& b, const char* t) {
-  for (int i = 0; i < 4; ++i) b.push_back(static_cast<std::uint8_t>(t[i]));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(static_cast<std::uint8_t>(t[i]));
 }
 
 // A mono 16-bit PCM WAV holding `frames` samples of a unit-amplitude sine.
@@ -63,9 +65,11 @@ base::Vector<std::uint8_t> MakeSineWav(std::uint32_t rate, std::uint32_t frames,
 }
 
 double Rms(const base::Vector<float>& buf) {
-  if (buf.empty()) return 0.0;
+  if (buf.empty())
+    return 0.0;
   double acc = 0;
-  for (float s : buf) acc += static_cast<double>(s) * s;
+  for (float s : buf)
+    acc += static_cast<double>(s) * s;
   return std::sqrt(acc / buf.size());
 }
 
@@ -94,7 +98,8 @@ int ProbeFile(const char* path) {
   std::uint64_t frames = 0;
   for (;;) {
     std::uint32_t got = decoder->Read(buf.data(), 4096);
-    if (got == 0) break;
+    if (got == 0)
+      break;
     frames += got;
   }
   std::printf("audiotest: decoded %s -> %llu frames, %u ch, %u Hz\n", path,
@@ -103,11 +108,13 @@ int ProbeFile(const char* path) {
 }
 
 int main(int argc, char** argv) {
-  if (argc > 1) return ProbeFile(argv[1]);
+  if (argc > 1)
+    return ProbeFile(argv[1]);
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-56s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // --- WAV decode --------------------------------------------------------------
@@ -143,7 +150,8 @@ int main(int argc, char** argv) {
   bool went_silent = false;
   for (int i = 0; i < 64 && !went_silent; ++i) {
     mixer.MixInto(out.data(), 2048);
-    if (Rms(out) < 1e-6) went_silent = true;
+    if (Rms(out) < 1e-6)
+      went_silent = true;
   }
   check("one-shot voice ends and goes silent", went_silent);
 
@@ -156,7 +164,8 @@ int main(int argc, char** argv) {
   bool always_sound = true;
   for (int i = 0; i < 64; ++i) {
     loop_mixer.MixInto(out.data(), 2048);
-    if (Rms(out) < 1e-6) always_sound = false;
+    if (Rms(out) < 1e-6)
+      always_sound = false;
   }
   check("looping voice never goes silent", always_sound);
 

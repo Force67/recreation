@@ -2,10 +2,10 @@
 
 namespace rx::script::skyrim {
 
+using ext::Args;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
 
 void RegisterActiveMagicEffectExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   // An active magic effect is a transient runtime instance the engine does not

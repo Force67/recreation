@@ -20,26 +20,33 @@ struct Lines {
     size_t end = text.find('\n', pos);
     base::StringRef line = text.substr(pos, end == base::StringRef::npos ? end : end - pos);
     pos = end == base::StringRef::npos ? text.size() : end + 1;
-    if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+    if (!line.empty() && line.back() == '\r')
+      line.remove_suffix(1);
     return line;
   }
 };
 
-f32 ToF32(base::StringRef s) { return std::strtof(base::String(s).c_str(), nullptr); }
+f32 ToF32(base::StringRef s) {
+  return std::strtof(base::String(s).c_str(), nullptr);
+}
 i32 ToI32(base::StringRef s) {
   return static_cast<i32>(std::strtol(base::String(s).c_str(), nullptr, 10));
 }
 
 void ParseProject(base::StringRef text, AnimationData* out) {
   Lines lines{text};
-  if (lines.Done()) return;
+  if (lines.Done())
+    return;
   lines.Next();  // leading count (always 1 in shipped data)
   i32 file_count = ToI32(lines.Next());
-  for (i32 i = 0; i < file_count && !lines.Done(); ++i) lines.Next();
-  if (lines.Done() || ToI32(lines.Next()) == 0) return;  // has-animation-data flag
+  for (i32 i = 0; i < file_count && !lines.Done(); ++i)
+    lines.Next();
+  if (lines.Done() || ToI32(lines.Next()) == 0)
+    return;  // has-animation-data flag
   while (!lines.Done()) {
     base::StringRef name = lines.Next();
-    if (name.empty()) continue;  // block separator
+    if (name.empty())
+      continue;  // block separator
     ClipData clip;
     clip.name = base::String(name);
     clip.animation_index = ToI32(lines.Next());
@@ -50,7 +57,8 @@ void ParseProject(base::StringRef text, AnimationData* out) {
     for (i32 e = 0; e < events && !lines.Done(); ++e) {
       base::StringRef line = lines.Next();
       size_t colon = line.rfind(':');
-      if (colon == base::StringRef::npos) continue;
+      if (colon == base::StringRef::npos)
+        continue;
       clip.events.push_back({base::String(line.substr(0, colon)), ToF32(line.substr(colon + 1))});
     }
     out->clips.push_back(base::move(clip));
@@ -73,7 +81,8 @@ void ParseMotion(base::StringRef text, AnimationData* out) {
   Lines lines{text};
   while (!lines.Done()) {
     base::StringRef id_line = lines.Next();
-    if (id_line.empty()) continue;
+    if (id_line.empty())
+      continue;
     AnimMotion motion;
     i32 index = ToI32(id_line);
     motion.duration = ToF32(lines.Next());

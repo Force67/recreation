@@ -8,10 +8,10 @@
 #include <base/optional.h>
 #include <base/strings/xstring.h>
 
+#include "components/weather/weather.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "render/core/settings.h"
-#include "components/weather/weather.h"
 
 namespace rx::audio {
 class AudioSystem;
@@ -46,7 +46,8 @@ class Director {
  public:
   // The worldspace's default climate + its REGN region overrides. Resets the
   // active-region and cross-fade state (a new game was loaded).
-  void SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate, RegionWeather regions,
+  void SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate,
+                  RegionWeather regions,
                   u64 seed);
 
   // Debug panel / trailer override: copies *state and pins the weather to it;

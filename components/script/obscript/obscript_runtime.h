@@ -5,8 +5,8 @@
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/script/obscript/obscript.h"
+#include "core/types.h"
 
 namespace rx::bethesda {
 class RecordStore;

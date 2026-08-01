@@ -17,7 +17,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Builds a `blocked` lambda over a maze where '#' is a wall and any other char
@@ -32,7 +33,8 @@ struct Maze {
 // True when no cell on the path sits on a wall.
 bool NoneBlocked(const Maze& m, const base::Vector<PathNode>& path) {
   for (const PathNode& p : path)
-    if (m.blocked(p.x, p.y)) return false;
+    if (m.blocked(p.x, p.y))
+      return false;
   return true;
 }
 
@@ -108,8 +110,8 @@ int main() {
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
     base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {1, 1}, {1, 1}, &path);
-    Check("start == goal -> single cell", ok && path.size() == 1 && path[0].x == 1 &&
-                                              path[0].y == 1);
+    Check("start == goal -> single cell",
+          ok && path.size() == 1 && path[0].x == 1 && path[0].y == 1);
   }
 
   // Corner cutting prevented: walls at (2,1) and (1,2) wall off the direct

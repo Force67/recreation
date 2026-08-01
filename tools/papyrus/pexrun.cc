@@ -8,13 +8,6 @@
 // storage; cross-object calls and properties return None. This isolates the
 // interpreter so its opcode handling can be checked end to end.
 
-#include <thread>
-#include <atomic>
-#include <chrono>
-#include <cmath>
-#include <cstdint>
-#include <cstdio>
-#include <filesystem>
 #include <base/algorithm.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
@@ -22,9 +15,21 @@
 #include <base/memory/move.h>
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <thread>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
+#include "components/script/host/bridge.h"
+#include "components/script/host/clr_host.h"
+#include "components/script/host/guest_bridge.h"
+#include "components/script/host/managed_gc_profile.h"
+#include "components/script/host/managed_host.h"
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/interpreter.h"
 #include "components/script/papyrus/native.h"
@@ -32,11 +37,6 @@
 #include "components/script/papyrus/value.h"
 #include "components/script/papyrus/vm.h"
 #include "components/script/papyrus_guest.h"
-#include "components/script/host/bridge.h"
-#include "components/script/host/clr_host.h"
-#include "components/script/host/guest_bridge.h"
-#include "components/script/host/managed_gc_profile.h"
-#include "components/script/host/managed_host.h"
 
 #if defined(__linux__) || defined(__APPLE__)
 #include <unistd.h>  // sysconf, for physical-memory readback in gcprofiletest
@@ -91,50 +91,60 @@ class TestVm : public VmInterface {
       arrays_[a.id - 1][i] = base::move(v);
   }
   i32 ArrayFind(ArrayRef a, const Value& v, i32 start) override {
-    if (!Valid(a)) return -1;
+    if (!Valid(a))
+      return -1;
     const auto& arr = arrays_[a.id - 1];
     for (i32 i = base::Max(0, start); i < (i32)arr.size(); ++i)
-      if (arr[i].Equals(v)) return i;
+      if (arr[i].Equals(v))
+        return i;
     return -1;
   }
   i32 ArrayRFind(ArrayRef a, const Value& v, i32 start) override {
-    if (!Valid(a)) return -1;
+    if (!Valid(a))
+      return -1;
     const auto& arr = arrays_[a.id - 1];
     i32 from = start < 0 ? (i32)arr.size() - 1 : base::Min(start, (i32)arr.size() - 1);
     for (i32 i = from; i >= 0; --i)
-      if (arr[i].Equals(v)) return i;
+      if (arr[i].Equals(v))
+        return i;
     return -1;
   }
   void ArrayAdd(ArrayRef a, const Value& v, i32 count) override {
     if (Valid(a))
-      for (i32 i = 0; i < count; ++i) arrays_[a.id - 1].push_back(v);
+      for (i32 i = 0; i < count; ++i)
+        arrays_[a.id - 1].push_back(v);
   }
   void ArrayInsert(ArrayRef a, i32 i, const Value& v) override {
     if (Valid(a) && i >= 0 && i <= (i32)arrays_[a.id - 1].size())
       arrays_[a.id - 1].insert(arrays_[a.id - 1].begin() + i, v);
   }
   void ArrayRemove(ArrayRef a, i32 i, i32 c) override {
-    if (!Valid(a) || c <= 0 || i < 0 || i >= (i32)arrays_[a.id - 1].size()) return;
+    if (!Valid(a) || c <= 0 || i < 0 || i >= (i32)arrays_[a.id - 1].size())
+      return;
     auto& arr = arrays_[a.id - 1];
     arr.erase(arr.begin() + i, arr.begin() + base::Min(i + c, (i32)arr.size()));
   }
   void ArrayRemoveLast(ArrayRef a) override {
-    if (Valid(a) && !arrays_[a.id - 1].empty()) arrays_[a.id - 1].pop_back();
+    if (Valid(a) && !arrays_[a.id - 1].empty())
+      arrays_[a.id - 1].pop_back();
   }
   void ArrayClear(ArrayRef a) override {
-    if (Valid(a)) arrays_[a.id - 1].clear();
+    if (Valid(a))
+      arrays_[a.id - 1].clear();
   }
   StructRef StructCreate(const base::String&) override {
     structs_.emplace_back();
     return StructRef{static_cast<u32>(structs_.size())};
   }
   Value StructGet(StructRef s, const base::String& m) override {
-    if (s.id == 0 || s.id > structs_.size()) return Value();
+    if (s.id == 0 || s.id > structs_.size())
+      return Value();
     const Value* member = structs_[s.id - 1].find(m);
     return member ? *member : Value();
   }
   void StructSet(StructRef s, const base::String& m, Value v) override {
-    if (s.id != 0 && s.id <= structs_.size()) structs_[s.id - 1][m] = base::move(v);
+    if (s.id != 0 && s.id <= structs_.size())
+      structs_[s.id - 1][m] = base::move(v);
   }
 
  private:
@@ -150,7 +160,8 @@ struct Builder {
   Object obj;
   StringIndex S(const base::String& s) {
     for (StringIndex i = 0; i < pex.string_table.size(); ++i)
-      if (pex.string_table[i] == s) return i;
+      if (pex.string_table[i] == s)
+        return i;
     pex.string_table.push_back(s);
     return static_cast<StringIndex>(pex.string_table.size() - 1);
   }
@@ -174,13 +185,16 @@ struct Builder {
   }
 };
 
-Instruction Make(Op op, base::Vector<VariableData> args) { return {op, base::move(args), {}}; }
+Instruction Make(Op op, base::Vector<VariableData> args) {
+  return {op, base::move(args), {}};
+}
 
 int SelfTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // Value coercion sanity.
@@ -311,7 +325,8 @@ int SelfTest() {
     check("repeat dispatch (hits==2)", hits_of() == 2);
     check("TryCall undefined handler -> false", !ev_vm.TryCall(listener, "OnAbsent", {}));
     check("undefined handler did not run", hits_of() == 2);
-    check("TryCall on missing instance -> false", !ev_vm.TryCall(ObjectRef{0xDEAD}, "OnSignal", {}));
+    check("TryCall on missing instance -> false",
+          !ev_vm.TryCall(ObjectRef{0xDEAD}, "OnSignal", {}));
   }
 
   // Multiple scripts on one form (handle): a quest carries its main script plus
@@ -345,7 +360,8 @@ int SelfTest() {
       Function frag;
       frag.return_type = qfb.S("Int");
       frag.locals.push_back({qfb.S("r"), qfb.S("Int")});
-      frag.code = {Make(Op::kAssign, {qfb.Id("r"), qfb.IntV(77)}), Make(Op::kReturn, {qfb.Id("r")})};
+      frag.code = {Make(Op::kAssign, {qfb.Id("r"), qfb.IntV(77)}),
+                   Make(Op::kReturn, {qfb.Id("r")})};
       State def;
       def.name = qfb.S("");
       def.functions.push_back({qfb.S("Fragment_3"), base::move(frag)});
@@ -706,7 +722,9 @@ int SelfTest() {
   return failures ? 1 : 0;
 }
 
-const Function* FindFunction(const PexFile& pex, const Object& obj, const base::String& name,
+const Function* FindFunction(const PexFile& pex,
+                             const Object& obj,
+                             const base::String& name,
                              const Object** owner) {
   for (const State& s : obj.states)
     for (const NamedFunction& nf : s.functions)
@@ -815,12 +833,14 @@ base::String FmtArg(const PexFile& pex, const VariableData& v) {
 
 // Prints one non-native function's bytecode so a runaway loop (a backward jump)
 // and what it polls (the call targets inside it) can be read off directly.
-int DisasmReal(const base::String& data_dir, const base::String& script,
+int DisasmReal(const base::String& data_dir,
+               const base::String& script,
                const base::String& function) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(p));
   auto blob = vfs.Read("scripts/" + script + ".pex");
   if (!blob) {
     std::printf("not found: scripts/%s.pex\n", script.c_str());
@@ -862,7 +882,8 @@ int DisasmReal(const base::String& data_dir, const base::String& script,
   for (size_t i = 0; i < fn->code.size(); ++i) {
     const Instruction& in = fn->code[i];
     base::String line = "  " + base::ToString(i) + ": " + OpMnemonic(in.op);
-    for (const VariableData& a : in.args) line += " " + FmtArg(pex, a);
+    for (const VariableData& a : in.args)
+      line += " " + FmtArg(pex, a);
     if (!in.var_args.empty()) {
       line += " [";
       for (size_t j = 0; j < in.var_args.size(); ++j)
@@ -874,12 +895,14 @@ int DisasmReal(const base::String& data_dir, const base::String& script,
   return 0;
 }
 
-int RunReal(const base::String& data_dir, const base::String& script,
+int RunReal(const base::String& data_dir,
+            const base::String& script,
             const base::String& function) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(p));
 
   auto blob = vfs.Read("scripts/" + script + ".pex");
   if (!blob) {
@@ -938,7 +961,8 @@ int VmTest(const base::String& data_dir) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(p));
   auto blob = vfs.Read("scripts/TrapBase.pex");
   if (!blob) {
     std::printf("TrapBase.pex not found\n");
@@ -953,7 +977,8 @@ int VmTest(const base::String& data_dir) {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   check("loaded TrapBase", type == "TrapBase");
@@ -1092,7 +1117,8 @@ int GuestTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   check("instance created on guest thread",
@@ -1163,7 +1189,8 @@ int GuestTest() {
         .SubmitFor([&guest, ref, alias_handle](VirtualMachine&) {
           guest.set_alias_resolver([ref, alias_handle](ObjectRef r) {
             base::Vector<ObjectRef> out;
-            if (r.handle == ref.handle) out.push_back(ObjectRef{alias_handle});
+            if (r.handle == ref.handle)
+              out.push_back(ObjectRef{alias_handle});
             return out;
           });
           return 0;
@@ -1282,7 +1309,8 @@ int ManagedHostTest(const base::String& runtime_config, const base::String& asse
   }
 
   const f32 before = bindings.GetActorValue(player, "Health");
-  for (int i = 0; i < 10; ++i) host.Tick(1.0f);  // ~0.7 hp/s * 10s
+  for (int i = 0; i < 10; ++i)
+    host.Tick(1.0f);  // ~0.7 hp/s * 10s
   const f32 after = bindings.GetActorValue(player, "Health");
 
   // Event delivery must not fault even without a consumer.
@@ -1294,7 +1322,8 @@ int ManagedHostTest(const base::String& runtime_config, const base::String& asse
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   check("health regenerated over ticks", after > before);
   check("regen stays within base", after <= 100.0f);
@@ -1304,12 +1333,14 @@ int ManagedHostTest(const base::String& runtime_config, const base::String& asse
 }
 
 // A native method on a synthetic script (is_native, no body).
-NamedFunction NativeMethod(Builder& b, const char* name,
+NamedFunction NativeMethod(Builder& b,
+                           const char* name,
                            base::Vector<base::Pair<const char*, const char*>> params) {
   Function fn;
   fn.is_native = true;
   fn.return_type = b.S("");
-  for (auto& p : params) fn.params.push_back({b.S(p.first), b.S(p.second)});
+  for (auto& p : params)
+    fn.params.push_back({b.S(p.first), b.S(p.second)});
   return {b.S(name), base::move(fn)};
 }
 
@@ -1354,7 +1385,8 @@ int SkyrimTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   auto nearly = [](f32 a, f32 b) { return std::fabs(a - b) < 0.001f; };
 
@@ -1453,15 +1485,18 @@ int ConcurrencyTest() {
         guest
             .SubmitFor([shared](VirtualMachine& vm) {
               Value* m = vm.MemberVar(shared, "n");
-              if (m) *m = Value::Int(m->ToInt() + 1);
+              if (m)
+                *m = Value::Int(m->ToInt() + 1);
               return 0;
             })
             .get();
       }
-      if (guest.CreateInstance("Counter").get().handle == 0) ++bad_handles;
+      if (guest.CreateInstance("Counter").get().handle == 0)
+        ++bad_handles;
     });
   }
-  for (std::thread& th : threads) th.join();
+  for (std::thread& th : threads)
+    th.join();
   int final = guest
                   .SubmitFor([shared](VirtualMachine& vm) {
                     Value* m = vm.MemberVar(shared, "n");
@@ -1473,7 +1508,8 @@ int ConcurrencyTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   check("no lost updates under 8-thread contention", final == kThreads * kPerThread);
   check("concurrent CreateInstance all valid", bad_handles.load() == 0);
@@ -1489,7 +1525,8 @@ int SeparationTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   NativeRegistry foreign;
@@ -1531,7 +1568,8 @@ int TraceTest() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   check("tracing off by default", !vm.native_trace());
@@ -1550,7 +1588,8 @@ int TraceTest() {
 
   vm.set_native_trace(false);
   vm.CallGlobal("Math", "Sqrt", {Value::Float(4)});
-  check("disabled: counted, not ringed", vm.native_call_count() == 1 && vm.native_trace_log().empty());
+  check("disabled: counted, not ringed",
+        vm.native_call_count() == 1 && vm.native_trace_log().empty());
 
   // The exact path the engine debug window drives: enable, call, and snapshot
   // all marshalled through the guest thread.
@@ -1611,7 +1650,8 @@ int GcProfileTest(const base::String& runtime_config, const base::String& assemb
 #if defined(__linux__) || defined(__APPLE__)
   const long pages = ::sysconf(_SC_PHYS_PAGES);
   const long page_size = ::sysconf(_SC_PAGE_SIZE);
-  if (pages > 0 && page_size > 0) phys = static_cast<std::int64_t>(pages) * page_size;
+  if (pages > 0 && page_size > 0)
+    phys = static_cast<std::int64_t>(pages) * page_size;
 #endif
 
   auto mib = [](std::int64_t b) { return static_cast<double>(b) / (1024.0 * 1024.0); };
@@ -1619,12 +1659,14 @@ int GcProfileTest(const base::String& runtime_config, const base::String& assemb
   std::printf("  server GC              : %s\n", info.is_server ? "on" : "off");
   std::printf("  GC memory ceiling      : %.0f MiB\n", mib(info.total_available));
   std::printf("  managed heap in use    : %.0f MiB\n", mib(info.heap_size));
-  if (phys > 0) std::printf("  physical memory        : %.0f MiB\n", mib(phys));
+  if (phys > 0)
+    std::printf("  physical memory        : %.0f MiB\n", mib(phys));
 
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-40s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   check("GC ceiling reported (>0)", info.total_available > 0);
   check("workstation GC (server off)", info.is_server == 0);
@@ -1661,7 +1703,8 @@ int BridgeTest(const base::String& runtime_config, const base::String& assembly)
       });
   guest.natives().Register("Bench", "Join", [](VirtualMachine&, ObjectRef, base::Vector<Value>& a) {
     base::String s;
-    for (const Value& v : a) s += v.ToString();
+    for (const Value& v : a)
+      s += v.ToString();
     return Value::Str(s);
   });
   guest.Start();
@@ -1774,21 +1817,34 @@ int BenchBridge(const base::String& runtime_config, const base::String& assembly
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc == 4 && base::String(argv[1]) == "bridgetest") return BridgeTest(argv[2], argv[3]);
-  if (argc == 4 && base::String(argv[1]) == "gcprofiletest") return GcProfileTest(argv[2], argv[3]);
-  if (argc == 4 && base::String(argv[1]) == "benchbridge") return BenchBridge(argv[2], argv[3]);
-  if (argc == 2 && base::String(argv[1]) == "selftest") return SelfTest();
-  if (argc == 2 && base::String(argv[1]) == "skyrimtest") return SkyrimTest();
-  if (argc == 2 && base::String(argv[1]) == "guesttest") return GuestTest();
-  if (argc == 2 && base::String(argv[1]) == "conctest") return ConcurrencyTest();
-  if (argc == 2 && base::String(argv[1]) == "separationtest") return SeparationTest();
-  if (argc == 2 && base::String(argv[1]) == "tracetest") return TraceTest();
-  if (argc == 3 && base::String(argv[1]) == "vmtest") return VmTest(argv[2]);
-  if (argc == 4 && base::String(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "bridgetest")
+    return BridgeTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "gcprofiletest")
+    return GcProfileTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "benchbridge")
+    return BenchBridge(argv[2], argv[3]);
+  if (argc == 2 && base::String(argv[1]) == "selftest")
+    return SelfTest();
+  if (argc == 2 && base::String(argv[1]) == "skyrimtest")
+    return SkyrimTest();
+  if (argc == 2 && base::String(argv[1]) == "guesttest")
+    return GuestTest();
+  if (argc == 2 && base::String(argv[1]) == "conctest")
+    return ConcurrencyTest();
+  if (argc == 2 && base::String(argv[1]) == "separationtest")
+    return SeparationTest();
+  if (argc == 2 && base::String(argv[1]) == "tracetest")
+    return TraceTest();
+  if (argc == 3 && base::String(argv[1]) == "vmtest")
+    return VmTest(argv[2]);
+  if (argc == 4 && base::String(argv[1]) == "hosttest")
+    return HostTest(argv[2], argv[3]);
   if (argc == 4 && base::String(argv[1]) == "managedhosttest")
     return ManagedHostTest(argv[2], argv[3]);
-  if (argc == 5 && base::String(argv[1]) == "disasm") return DisasmReal(argv[2], argv[3], argv[4]);
-  if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
+  if (argc == 5 && base::String(argv[1]) == "disasm")
+    return DisasmReal(argv[2], argv[3], argv[4]);
+  if (argc == 4)
+    return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
                "usage: %s [selftest|skyrimtest|guesttest|conctest|separationtest]\n"
                "       %s vmtest <data_dir>\n"

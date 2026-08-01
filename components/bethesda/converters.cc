@@ -41,7 +41,9 @@ constexpr u32 kDdpfFourCc = 0x4;
 constexpr u32 kDdpfRgb = 0x40;
 constexpr u32 kCaps2Cubemap = 0x200;
 
-bool BlockCompressed(asset::TextureFormat format) { return format != asset::TextureFormat::kRgba8; }
+bool BlockCompressed(asset::TextureFormat format) {
+  return format != asset::TextureFormat::kRgba8;
+}
 
 size_t MipChainSize(asset::TextureFormat format, u32 width, u32 height, u32 mips) {
   size_t total = 0;
@@ -72,30 +74,36 @@ bool PathIsLinearData(base::StringRef path) {
 
 }  // namespace
 
-base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
+base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data,
+                                               asset::AssetId id,
                                                base::StringRef path) {
-  if (data.size() < 128) return nullptr;
+  if (data.size() < 128)
+    return nullptr;
   u32 magic;
   std::memcpy(&magic, data.data(), 4);
-  if (magic != kDdsMagic) return nullptr;
+  if (magic != kDdsMagic)
+    return nullptr;
 
   auto texture = base::MakeUnique<asset::Texture>();
   texture->id = id;
   std::memcpy(&texture->height, data.data() + 12, 4);
   std::memcpy(&texture->width, data.data() + 16, 4);
   std::memcpy(&texture->mip_count, data.data() + 28, 4);
-  if (texture->mip_count == 0) texture->mip_count = 1;
+  if (texture->mip_count == 0)
+    texture->mip_count = 1;
 
   u32 pf_flags, fourcc, caps2;
   std::memcpy(&pf_flags, data.data() + 80, 4);
   std::memcpy(&fourcc, data.data() + 84, 4);
   std::memcpy(&caps2, data.data() + 112, 4);
-  if (caps2 & kCaps2Cubemap) return nullptr;  // environment maps, unused
+  if (caps2 & kCaps2Cubemap)
+    return nullptr;  // environment maps, unused
 
   size_t data_offset = 128;
   bool srgb_from_format = false;
   if ((pf_flags & kDdpfFourCc) && fourcc == FourCc('D', 'X', '1', '0')) {
-    if (data.size() < 148) return nullptr;
+    if (data.size() < 148)
+      return nullptr;
     u32 dxgi;
     std::memcpy(&dxgi, data.data() + 128, 4);
     data_offset = 148;
@@ -236,30 +244,36 @@ base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
     texture->is_srgb = true;
   else
     texture->is_srgb = color && !PathIsLinearData(path);
-  if (!color) texture->is_srgb = false;
+  if (!color)
+    texture->is_srgb = false;
   return texture;
 }
 
 namespace {
 
 base::String NormalizeTexturePathLocal(base::StringRef raw) {
-  if (raw.empty()) return {};
+  if (raw.empty())
+    return {};
   base::String path = asset::NormalizePath(raw);
   size_t anchor = path.rfind("textures/");
-  if (anchor != base::String::npos) return path.substr(anchor);
+  if (anchor != base::String::npos)
+    return path.substr(anchor);
   return "textures/" + path;
 }
 
 // One length-prefixed, null-terminated string from a BGSM/BGEM at *cursor.
 base::String ReadBgsmString(ByteSpan data, size_t* cursor) {
-  if (*cursor + 4 > data.size()) return {};
+  if (*cursor + 4 > data.size())
+    return {};
   u32 length;
   std::memcpy(&length, data.data() + *cursor, 4);
   *cursor += 4;
-  if (length > 1024 || *cursor + length > data.size()) return {};
+  if (length > 1024 || *cursor + length > data.size())
+    return {};
   base::String s(reinterpret_cast<const char*>(data.data() + *cursor), length);
   *cursor += length;
-  while (!s.empty() && s.back() == '\0') s.pop_back();
+  while (!s.empty() && s.back() == '\0')
+    s.pop_back();
   return s;
 }
 
@@ -276,15 +290,19 @@ constexpr size_t kBgsmV2TextureOffset = 63;
 constexpr size_t kBgsmV2TextureSlots = 10;
 constexpr size_t kBgsmV2SmoothnessGap = 28;
 
-base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan data, asset::AssetId id,
+base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan data,
+                                                 asset::AssetId id,
                                                  base::StringRef) {
   auto material = base::MakeUnique<asset::Material>();
   material->id = id;
   BgsmMaterial parsed;
   if (ParseBgsm(data, &parsed)) {
-    if (!parsed.diffuse.empty()) material->base_color = asset::MakeAssetId(parsed.diffuse);
-    if (!parsed.normal.empty()) material->normal = asset::MakeAssetId(parsed.normal);
-    if (parsed.roughness >= 0.0f) material->roughness_factor = parsed.roughness;
+    if (!parsed.diffuse.empty())
+      material->base_color = asset::MakeAssetId(parsed.diffuse);
+    if (!parsed.normal.empty())
+      material->normal = asset::MakeAssetId(parsed.normal);
+    if (parsed.roughness >= 0.0f)
+      material->roughness_factor = parsed.roughness;
   }
   return material;
 }
@@ -295,13 +313,16 @@ base::UniquePointer<asset::Material> ConvertBgsm(ByteSpan data, asset::AssetId i
 // keeps its own default; for BGSM it is 1 - smoothness.
 bool ParseBgsm(ByteSpan data, BgsmMaterial* out) {
   *out = BgsmMaterial{};
-  if (data.size() < kBgsmV2TextureOffset + 8) return false;
+  if (data.size() < kBgsmV2TextureOffset + 8)
+    return false;
   const bool bgsm = std::memcmp(data.data(), "BGSM", 4) == 0;
   const bool bgem = std::memcmp(data.data(), "BGEM", 4) == 0;
-  if (!bgsm && !bgem) return false;
+  if (!bgsm && !bgem)
+    return false;
   u32 version;
   std::memcpy(&version, data.data() + 4, 4);
-  if (version != 2) return false;  // FO76 (v20+) has a different header
+  if (version != 2)
+    return false;  // FO76 (v20+) has a different header
 
   size_t cursor = kBgsmV2TextureOffset;
   base::String base = ReadBgsmString(data, &cursor);
@@ -310,7 +331,8 @@ bool ParseBgsm(ByteSpan data, BgsmMaterial* out) {
   out->normal = bgsm ? NormalizeTexturePathLocal(second) : base::String();
 
   if (bgsm) {
-    for (size_t i = 2; i < kBgsmV2TextureSlots; ++i) ReadBgsmString(data, &cursor);
+    for (size_t i = 2; i < kBgsmV2TextureSlots; ++i)
+      ReadBgsmString(data, &cursor);
     cursor += kBgsmV2SmoothnessGap;
     if (cursor + 4 <= data.size()) {
       f32 smoothness;
@@ -328,11 +350,13 @@ namespace {
 // can texture safely). Material paths live in the NIF header string table.
 base::String SingleMaterialPath(ByteSpan nif) {
   auto header = ParseNifHeader(nif);
-  if (!header) return {};
+  if (!header)
+    return {};
   base::String found;
   for (const base::String& s : header->strings) {
     base::String norm = asset::NormalizePath(s);
-    if (!norm.ends_with(".mat") || norm.find("materials/") == base::String::npos) continue;
+    if (!norm.ends_with(".mat") || norm.find("materials/") == base::String::npos)
+      continue;
     if (found.empty()) {
       found = base::move(norm);
     } else if (found != norm) {
@@ -344,19 +368,24 @@ base::String SingleMaterialPath(ByteSpan nif) {
 
 // Binds `path` to a material texture slot when the file exists, so a mesh is
 // never given a missing or wrong texture.
-void BindTextureIfExists(asset::AssetDatabase& database, const base::String& path,
+void BindTextureIfExists(asset::AssetDatabase& database,
+                         const base::String& path,
                          asset::AssetId* slot) {
-  if (path.empty() || !database.vfs().Contains(path)) return;
+  if (path.empty() || !database.vfs().Contains(path))
+    return;
   *slot = asset::MakeAssetId(path);
   database.LoadTexture(path);
 }
 
 // Emissive, unlike the other maps, needs its factor turned on to show.
-void BindEmissiveIfExists(asset::AssetDatabase& database, const base::String& path,
+void BindEmissiveIfExists(asset::AssetDatabase& database,
+                          const base::String& path,
                           asset::Material* material) {
-  if (path.empty() || !database.vfs().Contains(path)) return;
+  if (path.empty() || !database.vfs().Contains(path))
+    return;
   material->emissive = asset::MakeAssetId(path);
-  for (int k = 0; k < 3; ++k) material->emissive_factor[k] = 1.0f;
+  for (int k = 0; k < 3; ++k)
+    material->emissive_factor[k] = 1.0f;
   database.LoadTexture(path);
 }
 
@@ -367,14 +396,18 @@ void BindEmissiveIfExists(asset::AssetDatabase& database, const base::String& pa
 // instead of a bright white panel with a dim glow on top. Opaque materials that
 // merely have an emissive detail keep their base colour and just glow brighter.
 void ApplyStarfieldEmissive(asset::Material* material, bool no_base_color) {
-  if (!StarfieldEmissive.get()) return;
-  if (!material->emissive) return;  // nothing emissive to promote
+  if (!StarfieldEmissive.get())
+    return;
+  if (!material->emissive)
+    return;  // nothing emissive to promote
   float scale = StarfieldEmissiveScale.get();
-  for (int k = 0; k < 3; ++k) material->emissive_factor[k] *= scale;
+  for (int k = 0; k < 3; ++k)
+    material->emissive_factor[k] *= scale;
   if (no_base_color && !material->base_color) {
     // Self-illuminated sign with no diffuse: suppress the white lit fallback so
     // the panel does not render as a flat-white surface swamping its glow.
-    for (int k = 0; k < 3; ++k) material->base_color_factor[k] = 0.0f;
+    for (int k = 0; k < 3; ++k)
+      material->base_color_factor[k] = 0.0f;
   }
 }
 
@@ -383,10 +416,12 @@ void ApplyStarfieldEmissive(asset::Material* material, bool no_base_color) {
 // but only when the files actually exist, so a mesh is never bound a wrong
 // texture. The convention holds for landscape and natural materials; the
 // material database resolves the rest.
-void BindConventionTextures(asset::AssetDatabase& database, const base::String& mat_path,
+void BindConventionTextures(asset::AssetDatabase& database,
+                            const base::String& mat_path,
                             asset::Material* material) {
   size_t anchor = mat_path.find("materials/");
-  if (anchor == base::String::npos || mat_path.size() < anchor + 14) return;
+  if (anchor == base::String::npos || mat_path.size() < anchor + 14)
+    return;
   base::String stem =
       mat_path.substr(anchor + 10, mat_path.size() - anchor - 10 - 4);  // drop ".mat"
   BindTextureIfExists(database, "textures/" + stem + "_color.dds", &material->base_color);
@@ -396,11 +431,13 @@ void BindConventionTextures(asset::AssetDatabase& database, const base::String& 
   // PBR channels by the same mirror (roughness/metallic/AO ship as separate
   // maps in Starfield). rx keeps the roughness map in the metallic_roughness
   // slot and reads separate metallic/occlusion under their own slots.
-  if (!StarfieldPbr.get()) return;  // RX_STARFIELD_PBR=0: old gray-matte look
+  if (!StarfieldPbr.get())
+    return;  // RX_STARFIELD_PBR=0: old gray-matte look
   BindTextureIfExists(database, "textures/" + stem + "_rough.dds", &material->metallic_roughness);
   BindTextureIfExists(database, "textures/" + stem + "_metal.dds", &material->metallic_map);
   BindTextureIfExists(database, "textures/" + stem + "_ao.dds", &material->occlusion_map);
-  if (material->metallic_roughness) material->roughness_factor = 1.0f;
+  if (material->metallic_roughness)
+    material->roughness_factor = 1.0f;
   if (material->metallic_map) {
     material->separate_metallic = true;
     material->metallic_factor = 1.0f;
@@ -412,15 +449,18 @@ void BindConventionTextures(asset::AssetDatabase& database, const base::String& 
 // the mr slot is roughness-only), AO -> the occlusion slot. metallic_factor is
 // raised to 1 for a metal so the map (or the flat white default) reads as metal;
 // non-metals stay dielectric (factor 0 from the caller).
-void BindStarfieldPbr(asset::AssetDatabase& database, const StarfieldMaterialDb::Resolved& r,
+void BindStarfieldPbr(asset::AssetDatabase& database,
+                      const StarfieldMaterialDb::Resolved& r,
                       asset::Material* material) {
-  if (!StarfieldPbr.get()) return;  // RX_STARFIELD_PBR=0: old gray-matte look
+  if (!StarfieldPbr.get())
+    return;  // RX_STARFIELD_PBR=0: old gray-matte look
   BindTextureIfExists(database, r.roughness, &material->metallic_roughness);
   BindTextureIfExists(database, r.metallic, &material->metallic_map);
   BindTextureIfExists(database, r.ao, &material->occlusion_map);
   // With a real roughness map the per-texel gloss should drive shading, so let
   // the factor pass through fully instead of the gray-default 0.8 dampening it.
-  if (material->metallic_roughness) material->roughness_factor = 1.0f;
+  if (material->metallic_roughness)
+    material->roughness_factor = 1.0f;
   // Even without a per-texel metallic map, the CDB metal hint promotes the
   // surface to metal so it reflects; the flat white metallic default * factor 1
   // then reads fully metallic.
@@ -433,8 +473,10 @@ void BindStarfieldPbr(asset::AssetDatabase& database, const StarfieldMaterialDb:
 // Resolves a Starfield mesh's textures: the compiled material database first (it
 // maps most materials, including architecture and ships), then the path
 // convention (landscape), then nothing (the gray factor shows through).
-void BindStarfieldMaterial(asset::AssetDatabase& database, const StarfieldMaterialDb& mat_db,
-                           const base::String& mat_path, asset::Material* material) {
+void BindStarfieldMaterial(asset::AssetDatabase& database,
+                           const StarfieldMaterialDb& mat_db,
+                           const base::String& mat_path,
+                           asset::Material* material) {
   StarfieldMaterialDb::Resolved r;
   if (mat_db.Lookup(mat_path, &r)) {
     BindTextureIfExists(database, r.base_color, &material->base_color);
@@ -456,7 +498,8 @@ void BindStarfieldMaterial(asset::AssetDatabase& database, const StarfieldMateri
 // translations stay in metres, matching the metres-space skeleton.
 bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
   auto header = ParseNifHeader(data);
-  if (!header) return false;
+  if (!header)
+    return false;
   u32 block_count = static_cast<u32>(header->block_sizes.size());
 
   base::Vector<base::String> names;
@@ -467,14 +510,19 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
     size_t size = header->block_sizes[i];
     if (type == "SkinAttach") {
       // u32 (ref, unused), u32 bone count, then `count` length-prefixed strings.
-      if (size < 8) continue;
+      if (size < 8)
+        continue;
       u32 count;
       std::memcpy(&count, block + 4, 4);
-      if (count > 256) continue;
+      if (count > 256)
+        continue;
       size_t cursor = 8;
       bool ok = true;
       for (u32 b = 0; b < count && ok; ++b) {
-        if (cursor + 4 > size) { ok = false; break; }
+        if (cursor + 4 > size) {
+          ok = false;
+          break;
+        }
         u32 len;
         std::memcpy(&len, block + cursor, 4);
         cursor += 4;
@@ -485,17 +533,20 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
         names.emplace_back(reinterpret_cast<const char*>(block + cursor), len);
         cursor += len;
       }
-      if (!ok) names.clear();
+      if (!ok)
+        names.clear();
     } else if (type == "BSSkin::BoneData") {
       // u32 bone count, then per bone: NiBound (center vec3 + radius, 16 bytes)
       // followed by NiTransform (9 f32 row-major rotation, vec3 translation, f32
       // scale, 52 bytes). The transform is the inverse bind (bind vertex -> bone
       // local) the GPU palette wants.
-      if (size < 4) continue;
+      if (size < 4)
+        continue;
       u32 count;
       std::memcpy(&count, block, 4);
       constexpr size_t kBoneStride = 16 + 52;
-      if (count > 256 || 4 + static_cast<size_t>(count) * kBoneStride > size) continue;
+      if (count > 256 || 4 + static_cast<size_t>(count) * kBoneStride > size)
+        continue;
       inverse_bind.reserve(count);
       for (u32 b = 0; b < count; ++b) {
         const u8* t = block + 4 + static_cast<size_t>(b) * kBoneStride + 16;  // skip NiBound
@@ -507,7 +558,8 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
         // (m[col*4+row]), then the translation, matching the engine's MakeTransform.
         Mat4 m = Mat4::Identity();
         for (int row = 0; row < 3; ++row) {
-          for (int col = 0; col < 3; ++col) m.m[col * 4 + row] = rot[row * 3 + col] * scale;
+          for (int col = 0; col < 3; ++col)
+            m.m[col * 4 + row] = rot[row * 3 + col] * scale;
         }
         m.m[12] = trans[0];
         m.m[13] = trans[1];
@@ -517,10 +569,12 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
     }
   }
 
-  if (names.empty() || names.size() != inverse_bind.size()) return false;
+  if (names.empty() || names.size() != inverse_bind.size())
+    return false;
   // asset::Skin::bones is an rx type spelled in std::string.
   skin->bones.clear();
-  for (const base::String& bone : names) skin->bones.push_back(bone.c_str());
+  for (const base::String& bone : names)
+    skin->bones.push_back(bone.c_str());
   skin->inverse_bind = base::move(inverse_bind);
   return true;
 }
@@ -533,10 +587,12 @@ bool ParseStarfieldSkin(ByteSpan data, asset::SkinBinding* skin) {
 // converts.
 base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& database,
                                                      const StarfieldMaterialDb& mat_db,
-                                                     ByteSpan data, asset::AssetId id,
+                                                     ByteSpan data,
+                                                     asset::AssetId id,
                                                      base::StringRef path) {
   base::Vector<StarfieldGeometryRef> refs;
-  if (!ParseStarfieldNif(data, &refs)) return nullptr;
+  if (!ParseStarfieldNif(data, &refs))
+    return nullptr;
 
   auto mesh = base::MakeUnique<asset::Mesh>();
   mesh->id = id;
@@ -550,14 +606,17 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
   base::UnorderedMap<u64, asset::AssetId> materials_by_path;
   auto material_for = [&](const base::String& mat_path) -> asset::AssetId {
     u64 key = mat_path.empty() ? 0 : asset::MakeAssetId(mat_path).hash;
-    if (const asset::AssetId* found = materials_by_path.find(key)) return *found;
+    if (const asset::AssetId* found = materials_by_path.find(key))
+      return *found;
     asset::Material material;
     material.id =
         asset::MakeAssetId(base::String(path) + "#m" + base::ToString(materials_by_path.size()));
-    for (int k = 0; k < 3; ++k) material.base_color_factor[k] = 0.5f;
+    for (int k = 0; k < 3; ++k)
+      material.base_color_factor[k] = 0.5f;
     material.roughness_factor = 0.8f;
     material.metallic_factor = 0;
-    if (!mat_path.empty()) BindStarfieldMaterial(database, mat_db, mat_path, &material);
+    if (!mat_path.empty())
+      BindStarfieldMaterial(database, mat_db, mat_path, &material);
     database.AddMaterial(material);
     materials_by_path.emplace(key, material.id);
     return material.id;
@@ -567,9 +626,11 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
   f32 bounds_max[3] = {-1e30f, -1e30f, -1e30f};
   for (const StarfieldGeometryRef& ref : refs) {
     auto bytes = database.vfs().Read(ref.mesh_path);
-    if (!bytes) continue;
+    if (!bytes)
+      continue;
     StarfieldMeshData geometry;
-    if (!ParseStarfieldMesh(ByteSpan(bytes->data(), bytes->size()), &geometry)) continue;
+    if (!ParseStarfieldMesh(ByteSpan(bytes->data(), bytes->size()), &geometry))
+      continue;
 
     u32 vertex_base = static_cast<u32>(lod.vertices.size());
     u32 index_offset = static_cast<u32>(lod.indices.size());
@@ -595,7 +656,8 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
       }
       lod.vertices.push_back(v);
     }
-    for (u32 index : geometry.indices) lod.indices.push_back(vertex_base + index);
+    for (u32 index : geometry.indices)
+      lod.indices.push_back(vertex_base + index);
 
     asset::Submesh submesh;
     submesh.index_offset = index_offset;
@@ -604,8 +666,10 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
     lod.submeshes.push_back(submesh);
   }
 
-  if (lod.vertices.empty()) return nullptr;
-  for (int k = 0; k < 3; ++k) mesh->bounds_center[k] = (bounds_min[k] + bounds_max[k]) * 0.5f;
+  if (lod.vertices.empty())
+    return nullptr;
+  for (int k = 0; k < 3; ++k)
+    mesh->bounds_center[k] = (bounds_min[k] + bounds_max[k]) * 0.5f;
   f32 radius_sq = 0;
   for (int k = 0; k < 3; ++k) {
     f32 d = bounds_max[k] - mesh->bounds_center[k];
@@ -619,12 +683,15 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldNif(asset::AssetDatabase& datab
 
 base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase& database,
                                                             const StarfieldMaterialDb& mat_db,
-                                                            ByteSpan data, asset::AssetId id,
+                                                            ByteSpan data,
+                                                            asset::AssetId id,
                                                             base::StringRef path) {
   asset::SkinBinding skin;
-  if (!ParseStarfieldSkin(data, &skin)) return nullptr;
+  if (!ParseStarfieldSkin(data, &skin))
+    return nullptr;
   base::Vector<StarfieldGeometryRef> refs;
-  if (!ParseStarfieldNif(data, &refs)) return nullptr;
+  if (!ParseStarfieldNif(data, &refs))
+    return nullptr;
 
   auto mesh = base::MakeUnique<asset::Mesh>();
   mesh->id = id;
@@ -633,7 +700,8 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase
 
   asset::Material material;
   material.id = asset::MakeAssetId(base::String(path) + "#m0");
-  for (int k = 0; k < 3; ++k) material.base_color_factor[k] = 0.5f;
+  for (int k = 0; k < 3; ++k)
+    material.base_color_factor[k] = 0.5f;
   material.roughness_factor = 0.8f;
   material.metallic_factor = 0;
   if (base::String mat_path = SingleMaterialPath(data); !mat_path.empty()) {
@@ -645,9 +713,11 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase
   f32 bounds_max[3] = {-1e30f, -1e30f, -1e30f};
   for (const StarfieldGeometryRef& ref : refs) {
     auto bytes = database.vfs().Read(ref.mesh_path);
-    if (!bytes) continue;
+    if (!bytes)
+      continue;
     StarfieldSkinnedMeshData geometry;
-    if (!ParseStarfieldSkinnedMesh(ByteSpan(bytes->data(), bytes->size()), &geometry)) continue;
+    if (!ParseStarfieldSkinnedMesh(ByteSpan(bytes->data(), bytes->size()), &geometry))
+      continue;
 
     // Skinned vertices stay in bind space: the node transform is the skeleton's
     // job, so unlike ConvertStarfieldNif it is not baked into the vertices here.
@@ -662,7 +732,8 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase
       lod.vertices.push_back(v);
       lod.skinning.push_back(geometry.skinning[vi]);
     }
-    for (u32 index : geometry.indices) lod.indices.push_back(vertex_base + index);
+    for (u32 index : geometry.indices)
+      lod.indices.push_back(vertex_base + index);
 
     asset::Submesh submesh;
     submesh.index_offset = index_offset;
@@ -671,10 +742,12 @@ base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase
     lod.submeshes.push_back(submesh);
   }
 
-  if (lod.vertices.empty()) return nullptr;
+  if (lod.vertices.empty())
+    return nullptr;
   mesh->skinned = true;
   mesh->skin = base::move(skin);
-  for (int k = 0; k < 3; ++k) mesh->bounds_center[k] = (bounds_min[k] + bounds_max[k]) * 0.5f;
+  for (int k = 0; k < 3; ++k)
+    mesh->bounds_center[k] = (bounds_min[k] + bounds_max[k]) * 0.5f;
   f32 radius_sq = 0;
   for (int k = 0; k < 3; ++k) {
     f32 d = bounds_max[k] - mesh->bounds_center[k];
@@ -712,14 +785,16 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
   asset::MeshConverter nif_converter = [&database](ByteSpan data, asset::AssetId id,
                                                    base::StringRef path) {
     NifConversion conversion = ConvertNifScene(data, id, path);
-    if (!conversion.mesh) return base::UniquePointer<asset::Mesh>();
+    if (!conversion.mesh)
+      return base::UniquePointer<asset::Mesh>();
     for (const base::String& texture : conversion.texture_paths) {
       // Gamebryo (Oblivion) normal maps are derived by the _n.dds naming
       // convention, so only bind the ones that actually exist.
       if (conversion.gamebryo && texture.ends_with("_n.dds") && !database.vfs().Contains(texture)) {
         asset::AssetId missing = asset::MakeAssetId(texture);
         for (asset::Material& material : conversion.materials) {
-          if (material.normal.hash == missing.hash) material.normal = {};
+          if (material.normal.hash == missing.hash)
+            material.normal = {};
         }
         continue;
       }
@@ -734,11 +809,14 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
       asset::Material& material = conversion.materials[i];
       const base::String& material_file =
           i < conversion.material_files.size() ? conversion.material_files[i] : base::String();
-      if (material_file.empty()) continue;
+      if (material_file.empty())
+        continue;
       auto bytes = database.vfs().Read(material_file);
-      if (!bytes) continue;
+      if (!bytes)
+        continue;
       BgsmMaterial parsed;
-      if (!ParseBgsm(ByteSpan(bytes->data(), bytes->size()), &parsed)) continue;
+      if (!ParseBgsm(ByteSpan(bytes->data(), bytes->size()), &parsed))
+        continue;
       if (!parsed.diffuse.empty()) {
         material.base_color = asset::MakeAssetId(parsed.diffuse);
         database.LoadTexture(parsed.diffuse);
@@ -747,7 +825,8 @@ void RegisterConverters(asset::AssetDatabase& database, const GameProfile& profi
         material.normal = asset::MakeAssetId(parsed.normal);
         database.LoadTexture(parsed.normal);
       }
-      if (parsed.roughness >= 0.0f) material.roughness_factor = parsed.roughness;
+      if (parsed.roughness >= 0.0f)
+        material.roughness_factor = parsed.roughness;
     }
     for (const asset::Material& material : conversion.materials) {
       database.AddMaterial(material);

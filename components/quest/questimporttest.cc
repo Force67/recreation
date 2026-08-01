@@ -11,10 +11,10 @@
 
 #include <cstdio>
 
-#include "core/types.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_graph.h"
 #include "components/quest/quest_import.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -28,7 +28,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 struct RecordingSink : QuestActionSink {
@@ -50,12 +51,16 @@ StageDef Stage(i32 index, base::String log, bool complete) {
   return s;
 }
 
-const QuestNode* Node(const QuestGraph& g, i32 id) { return g.FindNode(id); }
+const QuestNode* Node(const QuestGraph& g, i32 id) {
+  return g.FindNode(id);
+}
 
 bool HasAction(const QuestNode* n, ActionKind kind) {
-  if (!n) return false;
+  if (!n)
+    return false;
   for (const Action& a : n->on_enter)
-    if (a.kind == kind) return true;
+    if (a.kind == kind)
+      return true;
   return false;
 }
 

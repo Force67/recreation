@@ -1,21 +1,24 @@
-#include <mutex>
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "components/script/host/managed_host.h"
 
-#include "core/log.h"
 #include "components/script/host/managed_gc_profile.h"
 #include "components/script/papyrus_guest.h"
+#include "core/log.h"
 
 namespace rx::script::host {
 
-ManagedHost::~ManagedHost() { Shutdown(); }
+ManagedHost::~ManagedHost() {
+  Shutdown();
+}
 
-void ManagedHost::AddDomain(base::String name, PapyrusGuest& guest,
+void ManagedHost::AddDomain(base::String name,
+                            PapyrusGuest& guest,
                             base::Function<bool(const base::String&)> loader) {
   auto domain = base::MakeUnique<Domain>();
   domain->name = base::move(name);
@@ -25,7 +28,8 @@ void ManagedHost::AddDomain(base::String name, PapyrusGuest& guest,
   domains_.push_back(base::move(domain));
 }
 
-bool ManagedHost::Boot(const base::String& dotnet_root, const base::String& runtime_config,
+bool ManagedHost::Boot(const base::String& dotnet_root,
+                       const base::String& runtime_config,
                        const base::String& assembly) {
   if (domains_.empty()) {
     RX_WARN("managed: no content domain registered, scripting disabled");
@@ -80,28 +84,35 @@ void ManagedHost::RunManaged(const base::Function<void()>& fn) {
 }
 
 void ManagedHost::Tick(float dt) {
-  if (!available_ || !handshake_.callbacks.tick) return;
+  if (!available_ || !handshake_.callbacks.tick)
+    return;
   auto tick = handshake_.callbacks.tick;
   RunManaged([tick, dt] { tick(dt); });
 }
 
 std::int32_t ManagedHost::DispatchUi(const char* func_name, std::uint64_t widget) {
-  if (!available_ || !handshake_.callbacks.dispatch_ui) return 0;
+  if (!available_ || !handshake_.callbacks.dispatch_ui)
+    return 0;
   auto dispatch = handshake_.callbacks.dispatch_ui;
   std::int32_t result = 0;
   RunManaged([&] { result = dispatch(func_name, widget); });
   return result;
 }
 
-void ManagedHost::DispatchRpc(const char* name, std::int32_t sender, std::int32_t from_server,
-                              const ApiValue* args, std::int32_t argc) {
-  if (!available_ || !handshake_.callbacks.dispatch_rpc) return;
+void ManagedHost::DispatchRpc(const char* name,
+                              std::int32_t sender,
+                              std::int32_t from_server,
+                              const ApiValue* args,
+                              std::int32_t argc) {
+  if (!available_ || !handshake_.callbacks.dispatch_rpc)
+    return;
   auto dispatch = handshake_.callbacks.dispatch_rpc;
   RunManaged([&] { dispatch(name, sender, from_server, args, argc); });
 }
 
 void ManagedHost::PublishEvent(const ManagedEvent& event) {
-  if (!available_ || !handshake_.callbacks.publish_event) return;
+  if (!available_ || !handshake_.callbacks.publish_event)
+    return;
   auto publish = handshake_.callbacks.publish_event;
   RunManaged([&] { publish(&event); });
 }
@@ -112,18 +123,21 @@ void ManagedHost::QueueEvent(const ManagedEvent& event) {
 }
 
 void ManagedHost::DrainEvents() {
-  if (!available_ || !handshake_.callbacks.publish_event) return;
+  if (!available_ || !handshake_.callbacks.publish_event)
+    return;
   base::Vector<ManagedEvent> events;
   {
     std::lock_guard<std::mutex> lock(event_mutex_);
     events.swap(pending_events_);
   }
-  if (events.empty()) return;
+  if (events.empty())
+    return;
   // Publish the whole batch under a single hop onto the guest thread, so N queued
   // events cost one round-trip, not N.
   auto publish = handshake_.callbacks.publish_event;
   RunManaged([&] {
-    for (const ManagedEvent& e : events) publish(&e);
+    for (const ManagedEvent& e : events)
+      publish(&e);
   });
 }
 

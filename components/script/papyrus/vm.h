@@ -8,12 +8,12 @@
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/script/papyrus/fiber.h"
 #include "components/script/papyrus/interpreter.h"
 #include "components/script/papyrus/native.h"
 #include "components/script/papyrus/pex.h"
 #include "components/script/papyrus/value.h"
+#include "core/types.h"
 
 namespace rx::script::papyrus {
 
@@ -89,7 +89,8 @@ class VirtualMachine : public VmInterface {
   // Calls a method on an instance, or a global function on a script type. These
   // are the entry points the host and the event system use.
   Value Call(ObjectRef self, const base::String& method, base::Vector<Value> args);
-  Value CallGlobal(const base::String& script_type, const base::String& function,
+  Value CallGlobal(const base::String& script_type,
+                   const base::String& function,
                    base::Vector<Value> args);
 
   // Like Call, but for optional event handlers: dispatches only when the
@@ -99,7 +100,9 @@ class VirtualMachine : public VmInterface {
   // them, without log spam.
   bool TryCall(ObjectRef self, const base::String& method, base::Vector<Value> args);
   // Event dispatch variants for forms carrying several independent scripts.
-  bool TryCallScript(ObjectRef self, const base::String& script_type, const base::String& method,
+  bool TryCallScript(ObjectRef self,
+                     const base::String& script_type,
+                     const base::String& method,
                      base::Vector<Value> args);
   bool TryCallAll(ObjectRef self, const base::String& method, const base::Vector<Value>& args);
 
@@ -126,7 +129,8 @@ class VirtualMachine : public VmInterface {
 
   // VmInterface, used by the interpreter.
   Value CallMethod(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
-  Value CallStatic(const base::String& script_type, const base::String& function,
+  Value CallStatic(const base::String& script_type,
+                   const base::String& function,
                    base::Vector<Value> args) override;
   Value CallParent(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
   Value GetProperty(ObjectRef self, const base::String& property) override;
@@ -181,16 +185,21 @@ class VirtualMachine : public VmInterface {
 
   // Resolves method on inst, starting the chain walk at start_type (the
   // instance type for normal calls, the parent type for parent calls).
-  bool ResolveMethod(Instance& inst, const base::String& method, const base::String& start_type,
+  bool ResolveMethod(Instance& inst,
+                     const base::String& method,
+                     const base::String& start_type,
                      Resolved* out);
   // Resolves method across every script attached to inst (each script's own
   // inheritance chain, in attach order); the first match wins. This is how a
   // stage fragment finds its function regardless of which attached script the
   // function lives on.
   bool ResolveMethodAny(Instance& inst, const base::String& method, Resolved* out);
-  const Property* ResolveProperty(Instance& inst, const base::String& name,
+  const Property* ResolveProperty(Instance& inst,
+                                  const base::String& name,
                                   LoadedScript** owner_script);
-  Value Invoke(const Resolved& target, ObjectRef self, base::Vector<Value> args,
+  Value Invoke(const Resolved& target,
+               ObjectRef self,
+               base::Vector<Value> args,
                const base::String& method_name);
   void SeedMembers(Instance& inst, const base::String& type);
   bool ArrayValid(ArrayRef array) const { return array.id != 0 && array.id <= arrays_.size(); }

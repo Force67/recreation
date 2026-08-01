@@ -23,7 +23,8 @@ std::vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m) {
 }
 
 std::optional<ObjectiveMarkerState> DecodeObjectiveMarker(ByteSpan data) {
-  if (data.size() != kWireSize) return std::nullopt;
+  if (data.size() != kWireSize)
+    return std::nullopt;
   const u8* p = data.data();
   ObjectiveMarkerState m;
   m.active = p[0] != 0;

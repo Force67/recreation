@@ -6,10 +6,10 @@
 
 #include "components/bethesda/form_id.h"
 #include "components/bethesda/script_attachment.h"
-#include "core/math.h"
-#include "runtime/app/engine_context.h"
 #include "components/quest/package_record.h"
 #include "components/quest/quest_def.h"
+#include "core/math.h"
+#include "runtime/app/engine_context.h"
 #include "runtime/narrative/quest_state_cache.h"
 
 namespace rx {

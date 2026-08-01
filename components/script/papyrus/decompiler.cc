@@ -59,7 +59,8 @@ class Decompiler {
     out_ = &out;
     for (const auto& [local, papyrus_type] : materialized_) {
       base::String ty = DeclTypeFor(papyrus_type, harness());
-      if (ty == "void") ty = harness() ? "dynamic" : "object";  // a temp always holds a value
+      if (ty == "void")
+        ty = harness() ? "dynamic" : "object";  // a temp always holds a value
       Line(ty + " " + local + " = default;");
     }
     out += scratch;
@@ -72,12 +73,15 @@ class Decompiler {
   // backing slot resolves to the property, a member, property, or local folds to
   // its declared casing, and a setter's value parameter becomes C#'s `value`.
   base::String RefName(const base::String& raw) const {
-    if (!value_alias_.empty() && IEquals(raw, value_alias_.c_str())) return "value";
+    if (!value_alias_.empty() && IEquals(raw, value_alias_.c_str()))
+      return "value";
     if (backing_) {
-      if (const base::String* renamed = backing_->find(raw)) return *renamed;
+      if (const base::String* renamed = backing_->find(raw))
+        return *renamed;
     }
     auto* it = local_case_.find(ToLower(raw));
-    if (it != nullptr) return *it;
+    if (it != nullptr)
+      return *it;
     return Sanitize(raw);
   }
 
@@ -85,10 +89,12 @@ class Decompiler {
   // function's declared casing, else the sanitised name.
   base::String SelfFn(const base::String& raw) const {
     if (fn_rename_) {
-      if (const base::String* renamed = fn_rename_->find(raw)) return *renamed;
+      if (const base::String* renamed = fn_rename_->find(raw))
+        return *renamed;
     }
     if (case_fns_) {
-      if (const base::String* cased = case_fns_->find(ToLower(raw))) return *cased;
+      if (const base::String* cased = case_fns_->find(ToLower(raw)))
+        return *cased;
     }
     return Sanitize(raw);
   }
@@ -123,7 +129,8 @@ class Decompiler {
       }
       if (r.var_reads)
         for (const VariableData& a : in.var_args)
-          if (a.type == VariableData::Type::kIdentifier) read_count_[Name(a)]++;
+          if (a.type == VariableData::Type::kIdentifier)
+            read_count_[Name(a)]++;
     }
   }
 
@@ -141,9 +148,11 @@ class Decompiler {
         return v.bool_value ? "true" : "false";
       case VariableData::Type::kIdentifier: {
         const base::String& n = Name(v);
-        if (IEquals(n, "self")) return "this";
+        if (IEquals(n, "self"))
+          return "this";
         auto* it = temp_expr_.find(n);
-        if (it != nullptr) return *it;
+        if (it != nullptr)
+          return *it;
         return RefName(n);
       }
     }
@@ -153,17 +162,20 @@ class Decompiler {
   base::String CallArgs(const Instruction& in) {
     base::String s;
     for (size_t i = 0; i < in.var_args.size(); ++i) {
-      if (i) s += ", ";
+      if (i)
+        s += ", ";
       s += Read(in.var_args[i]);
     }
     return s;
   }
 
   base::String ElemType(const VariableData& dest) {
-    if (harness()) return "dynamic";
+    if (harness())
+      return "dynamic";
     auto* it = type_of_.find(Name(dest));
     base::String t = it != nullptr ? *it : "var";
-    if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0) t.resize(t.size() - 2);
+    if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0)
+      t.resize(t.size() - 2);
     return CsType(t);
   }
 
@@ -188,7 +200,8 @@ class Decompiler {
         break;
       }
     }
-    if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0) t.resize(t.size() - 2);
+    if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0)
+      t.resize(t.size() - 2);
     return t;
   }
 
@@ -200,20 +213,29 @@ class Decompiler {
     base::String src = Read(src_op);
     base::String raw;
     auto* it = type_of_.find(Name(dest));
-    if (it != nullptr) raw = *it;
+    if (it != nullptr)
+      raw = *it;
     base::String tt = ToLower(raw);
-    if (tt.size() >= 2 && tt.compare(tt.size() - 2, 2, "[]") == 0) tt.resize(tt.size() - 2);
+    if (tt.size() >= 2 && tt.compare(tt.size() - 2, 2, "[]") == 0)
+      tt.resize(tt.size() - 2);
     base::String st = SrcType(src_op);
-    if (tt.empty() || tt == st) return src;
+    if (tt.empty() || tt == st)
+      return src;
     if (tt == "bool") {
-      if (st == "int" || st == "float") return "(" + src + " != 0)";
-      if (st == "string") return "(" + src + " != \"\")";
-      if (st == "bool") return src;
+      if (st == "int" || st == "float")
+        return "(" + src + " != 0)";
+      if (st == "string")
+        return "(" + src + " != \"\")";
+      if (st == "bool")
+        return src;
       return "(" + src + " != null)";
     }
-    if (tt == "float") return "(float)(" + src + ")";
-    if (tt == "int") return "(int)(" + src + ")";
-    if (tt == "string") return "(\"\" + " + src + ")";
+    if (tt == "float")
+      return "(float)(" + src + ")";
+    if (tt == "int")
+      return "(int)(" + src + ")";
+    if (tt == "string")
+      return "(\"\" + " + src + ")";
     return harness() ? src : "(" + CsType(raw) + ")(" + src + ")";  // object downcast
   }
 
@@ -262,7 +284,8 @@ class Decompiler {
         base::String tgt = Read(a[1]);
         base::String method = tgt == "this" ? SelfFn(Name(a[0])) : Sanitize(Name(a[0]));
         base::String call = method + "(" + CallArgs(in) + ")";
-        if (tgt != "this") return tgt + "." + call;
+        if (tgt != "this")
+          return tgt + "." + call;
         // A bare self-call may target a method inherited from a parent script. The
         // harness has no base type, so it routes through dynamic.
         return harness() ? "((dynamic)this)." + call : call;
@@ -304,8 +327,10 @@ class Decompiler {
         return Read(a[0]) + ".RFind(" + Read(a[2]) + ", " + Read(a[3]) + ")";
       case Op::kIs: {
         base::String type = CsType(Name(a[2]));
-        if (harness()) return "__Is(" + Read(a[1]) + ")";
-        if (sink()) sink()->ref_types.insert(type);
+        if (harness())
+          return "__Is(" + Read(a[1]) + ")";
+        if (sink())
+          sink()->ref_types.insert(type);
         return "(" + Read(a[1]) + " is " + type + ")";
       }
       default:
@@ -340,7 +365,8 @@ class Decompiler {
 
     const Roles r = RolesOf(in.op);
     if (r.dest < 0) {
-      if (in.op != Op::kNop) Line("// " + base::String(GetOpInfo(in.op).mnemonic));
+      if (in.op != Op::kNop)
+        Line("// " + base::String(GetOpInfo(in.op).mnemonic));
       return;
     }
     const VariableData& dest = a[r.dest];
@@ -354,7 +380,8 @@ class Decompiler {
       bool const_load = (in.op == Op::kAssign || in.op == Op::kCast) &&
                         a[1].type != VariableData::Type::kIdentifier;
       if (rc == 0) {
-        if (HasSideEffect(in.op)) Line(expr + ";");
+        if (HasSideEffect(in.op))
+          Line(expr + ";");
       } else if (rc == 1 || const_load) {
         temp_expr_[dname] = expr;
       } else {
@@ -380,7 +407,8 @@ class Decompiler {
       return;
     }
     base::String lhs = RefName(dname);
-    if (lhs == expr) return;  // a redundant no-op cast (x = x)
+    if (lhs == expr)
+      return;  // a redundant no-op cast (x = x)
     Line(lhs + " = " + expr + ";");
   }
 
@@ -391,11 +419,13 @@ class Decompiler {
     const auto& code = fn_->code;
     auto is_loop_edge = [&](int t) {
       for (const auto& l : loops_)
-        if (t == l.first || t == l.second) return true;
+        if (t == l.first || t == l.second)
+          return true;
       return false;
     };
     for (int i = 0; i < static_cast<int>(code.size()); ++i) {
-      if (!IsBranch(code[i].op)) continue;
+      if (!IsBranch(code[i].op))
+        continue;
       int tgt = i + JumpRel(code[i]);
       bool src_in = (i >= lo && i < hi);
       bool tgt_in = (tgt > lo && tgt < hi);
@@ -403,7 +433,8 @@ class Decompiler {
       // structurable, so it counts as in-range.
       if (src_in && !(tgt >= lo && tgt <= hi) && !exits.count(tgt) && !is_loop_edge(tgt))
         return false;
-      if (!src_in && tgt_in) return false;
+      if (!src_in && tgt_in)
+        return false;
     }
     return true;
   }
@@ -422,7 +453,8 @@ class Decompiler {
     while (i < hi) {
       int back_from = BackEdgeInto(i, hi);
       if (back_from >= 0) {
-        if (!EmitLoop(i, back_from, hi)) return false;
+        if (!EmitLoop(i, back_from, hi))
+          return false;
         i = back_from + 1;
         continue;
       }
@@ -438,9 +470,20 @@ class Decompiler {
       if (in.op == Op::kJmp) {
         // The compiler litters bodies with jumps to the next instruction (a
         // just-closed branch's merge point); they are no-ops once structured.
-        if (target == i + 1) { ++i; continue; }
-        if (loop && target == loop->second) { Line("break;"); ++i; continue; }
-        if (loop && target == loop->first) { Line("continue;"); ++i; continue; }
+        if (target == i + 1) {
+          ++i;
+          continue;
+        }
+        if (loop && target == loop->second) {
+          Line("break;");
+          ++i;
+          continue;
+        }
+        if (loop && target == loop->first) {
+          Line("continue;");
+          ++i;
+          continue;
+        }
         return false;
       }
 
@@ -464,7 +507,8 @@ class Decompiler {
 
       // Forward conditional becomes if / if-else. JmpF runs the body when the
       // condition is true, JmpT is the inverse.
-      if (target <= i || target > hi) return false;
+      if (target <= i || target > hi)
+        return false;
       base::String if_cond = jmpf ? cond : neg(cond);
 
       // The then-block's last instruction is an unconditional forward jump over
@@ -479,10 +523,12 @@ class Decompiler {
         }
       }
       if (else_end < 0) {
-        if (!IsClean(i + 1, target, {target})) return false;
+        if (!IsClean(i + 1, target, {target}))
+          return false;
         Line("if (" + if_cond + ") {");
         ++indent_;
-        if (!EmitStructured(i + 1, target)) return false;
+        if (!EmitStructured(i + 1, target))
+          return false;
         --indent_;
         Line("}");
         i = target;
@@ -492,11 +538,13 @@ class Decompiler {
         return false;
       Line("if (" + if_cond + ") {");
       ++indent_;
-      if (!EmitStructured(i + 1, then_end)) return false;
+      if (!EmitStructured(i + 1, then_end))
+        return false;
       --indent_;
       Line("} else {");
       ++indent_;
-      if (!EmitStructured(target, else_end)) return false;
+      if (!EmitStructured(target, else_end))
+        return false;
       --indent_;
       Line("}");
       i = else_end;
@@ -510,7 +558,8 @@ class Decompiler {
     const auto& code = fn_->code;
     int found = -1;
     for (int j = header + 1; j < hi; ++j)
-      if (IsBranch(code[j].op) && j + JumpRel(code[j]) == header) found = j;
+      if (IsBranch(code[j].op) && j + JumpRel(code[j]) == header)
+        found = j;
     return found;
   }
 
@@ -519,14 +568,16 @@ class Decompiler {
   // implicit close, so arbitrarily placed exits and continues stay structured.
   bool EmitLoop(int header, int back, int hi) {
     int exit = back + 1;
-    if (!IsClean(header, back + 1, {header, exit})) return false;
+    if (!IsClean(header, back + 1, {header, exit}))
+      return false;
 
     Line("while (true) {");
     ++indent_;
     loops_.push_back({header, exit});
     bool ok = EmitStructured(header, back);
     loops_.pop_back();
-    if (!ok) return false;
+    if (!ok)
+      return false;
     --indent_;
     Line("}");
     return true;
@@ -538,7 +589,8 @@ class Decompiler {
     const auto& code = fn_->code;
     base::Set<int> labels;
     for (int i = 0; i < static_cast<int>(code.size()); ++i)
-      if (IsBranch(code[i].op)) labels.insert(i + JumpRel(code[i]));
+      if (IsBranch(code[i].op))
+        labels.insert(i + JumpRel(code[i]));
 
     for (int i = 0; i < static_cast<int>(code.size()); ++i) {
       if (labels.count(i)) {
@@ -595,7 +647,10 @@ class Decompiler {
 
 }  // namespace
 
-void DecompileFunction(const DecompileCtx& ctx, const Function& fn, base::String& out, int indent,
+void DecompileFunction(const DecompileCtx& ctx,
+                       const Function& fn,
+                       base::String& out,
+                       int indent,
                        const base::String& value_alias) {
   Decompiler(ctx).Emit(fn, out, indent, value_alias);
 }

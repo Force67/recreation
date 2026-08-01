@@ -40,8 +40,10 @@ struct Reader {
   }
 
   void Skip(size_t count) {
-    if (!ok || pos + count > data.size()) ok = false;
-    else pos += count;
+    if (!ok || pos + count > data.size())
+      ok = false;
+    else
+      pos += count;
   }
 };
 
@@ -49,14 +51,16 @@ struct Reader {
 
 const TriMorph* TriMorphSet::FindMorph(base::StringRef name) const {
   for (const TriMorph& m : morphs)
-    if (m.name == name) return &m;
+    if (m.name == name)
+      return &m;
   return nullptr;
 }
 
 base::Optional<TriMorphSet> ParseTri(ByteSpan data) {
   Reader r{data};
   const u8* magic = r.Bytes(8);
-  if (!magic || std::memcmp(magic, kMagic, 8) != 0) return base::nullopt;
+  if (!magic || std::memcmp(magic, kMagic, 8) != 0)
+    return base::nullopt;
 
   const u32 vertex_count = r.Read<u32>();
   const u32 face_count = r.Read<u32>();
@@ -67,7 +71,8 @@ base::Optional<TriMorphSet> ParseTri(ByteSpan data) {
   r.Read<u32>();  // modifier_count, always 0 in SE
   r.Read<u32>();  // modifier_vertex_count, always 0 in SE
   r.Skip(16);     // unknown_30..3c, always 0 in SE
-  if (!r.ok) return base::nullopt;
+  if (!r.ok)
+    return base::nullopt;
 
   // Base geometry: vertices, then triangle vertex indices, then (when the UV
   // flag is set) uvs and uv indices. Only vertex_count is needed downstream,
@@ -78,22 +83,26 @@ base::Optional<TriMorphSet> ParseTri(ByteSpan data) {
     r.Skip(static_cast<size_t>(uv_count) * 2 * sizeof(f32));
     r.Skip(static_cast<size_t>(face_count) * 3 * sizeof(u32));
   }
-  if (!r.ok) return base::nullopt;
+  if (!r.ok)
+    return base::nullopt;
 
   TriMorphSet set;
   set.vertex_count = vertex_count;
   set.morphs.reserve(morph_count);
   for (u32 i = 0; i < morph_count; ++i) {
     const u32 name_len = r.Read<u32>();
-    if (!r.ok || name_len == 0) return base::nullopt;
+    if (!r.ok || name_len == 0)
+      return base::nullopt;
     const u8* name_bytes = r.Bytes(name_len);
-    if (!name_bytes) return base::nullopt;
+    if (!name_bytes)
+      return base::nullopt;
     const f32 scale = r.Read<f32>();
 
     TriMorph morph;
     // name_len counts the trailing null; drop it (and any padding nulls).
     size_t n = name_len;
-    while (n > 0 && name_bytes[n - 1] == 0) --n;
+    while (n > 0 && name_bytes[n - 1] == 0)
+      --n;
     morph.name.assign(reinterpret_cast<const char*>(name_bytes), n);
     morph.scale = scale;
 
@@ -103,7 +112,8 @@ base::Optional<TriMorphSet> ParseTri(ByteSpan data) {
       morph.deltas[v].y = r.Read<i16>();
       morph.deltas[v].z = r.Read<i16>();
     }
-    if (!r.ok) return base::nullopt;
+    if (!r.ok)
+      return base::nullopt;
     set.morphs.push_back(base::move(morph));
   }
   return set;

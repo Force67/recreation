@@ -5,9 +5,9 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/record.h"
+#include "components/world/carriage_rig.h"
 #include "core/math.h"
 #include "ecs/world.h"
-#include "components/world/carriage_rig.h"
 
 namespace rx {
 

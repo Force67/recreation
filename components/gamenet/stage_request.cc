@@ -44,9 +44,11 @@ std::vector<u8> EncodeStageRequest(const StageRequest& req) {
 }
 
 std::optional<StageRequest> DecodeStageRequest(ByteSpan data) {
-  if (data.size() != kWireSize) return std::nullopt;
+  if (data.size() != kWireSize)
+    return std::nullopt;
   const u8* p = data.data();
-  if (!IsKnownOp(p[8])) return std::nullopt;
+  if (!IsKnownOp(p[8]))
+    return std::nullopt;
 
   StageRequest req;
   req.quest = nanobuf::LoadLe<u64>(p);

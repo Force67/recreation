@@ -21,7 +21,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Builds a minimal DX10 DDS holding one 4x4 BC block of `dxgi` format. The
@@ -51,7 +52,7 @@ base::Vector<rx::u8> MakeDx10Dds(rx::u32 dxgi, rx::u32 block_bytes) {
 bool DecodeSrgb(rx::u32 dxgi, rx::u32 block_bytes, base::StringRef path) {
   auto blob = MakeDx10Dds(dxgi, block_bytes);
   auto tex = rx::bethesda::ConvertDds(rx::ByteSpan(blob.data(), blob.size()),
-                                       rx::asset::MakeAssetId(path), path);
+                                      rx::asset::MakeAssetId(path), path);
   return tex && tex->is_srgb;
 }
 

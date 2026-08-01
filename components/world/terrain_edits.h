@@ -77,7 +77,8 @@ class TerrainEdits {
 
   f32 SampleDelta(i32 global_x, i32 global_y) const;
   bool AffectsCell(TerrainCellKey cell) const;
-  bool ComposeCell(TerrainCellKey cell, std::span<const f32> base_heights,
+  bool ComposeCell(TerrainCellKey cell,
+                   std::span<const f32> base_heights,
                    std::span<f32> composed_heights) const;
 
   TerrainEditChange ApplyBrush(const TerrainBrush& brush, const BaseHeight& base_height);
@@ -106,8 +107,11 @@ class TerrainEdits {
   bool dirty_ = false;
 
   friend bool SaveTerrainEdits(const TerrainEdits&, const base::String&, base::String*);
-  friend bool LoadTerrainEdits(const base::String&, base::StringRef, const FingerprintLookup&,
-                               TerrainEdits*, base::String*);
+  friend bool LoadTerrainEdits(const base::String&,
+                               base::StringRef,
+                               const FingerprintLookup&,
+                               TerrainEdits*,
+                               base::String*);
 };
 
 // Appends an already-applied dab to a stroke. Repeated samples retain the
@@ -116,10 +120,13 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange&
 
 // Versioned little-endian Recreation terrain diff (.recterrain). Save writes a
 // sibling temporary file then renames it over the destination.
-bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
+bool SaveTerrainEdits(const TerrainEdits& edits,
+                      const base::String& file_path,
                       base::String* error = nullptr);
-bool LoadTerrainEdits(const base::String& file_path, base::StringRef expected_world_identity,
-                      const TerrainEdits::FingerprintLookup& fingerprints, TerrainEdits* edits,
+bool LoadTerrainEdits(const base::String& file_path,
+                      base::StringRef expected_world_identity,
+                      const TerrainEdits::FingerprintLookup& fingerprints,
+                      TerrainEdits* edits,
                       base::String* error = nullptr);
 
 }  // namespace rx::world

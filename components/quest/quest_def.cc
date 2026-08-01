@@ -7,8 +7,8 @@
 
 #include "components/bethesda/record.h"
 #include "components/bethesda/strings.h"
-#include "core/types.h"
 #include "components/quest/ctda.h"
+#include "core/types.h"
 
 namespace rx::quest {
 namespace {
@@ -20,20 +20,23 @@ base::String ResolveLString(const bethesda::Subrecord& sub, const bethesda::Stri
   if (strings && sub.data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, sub.data.data(), 4);
-    if (const base::String* s = strings->Find(string_id)) return base::String(s->c_str());
+    if (const base::String* s = strings->Find(string_id))
+      return base::String(s->c_str());
   }
   // Inline text: bytes up to the terminator.
   const char* p = reinterpret_cast<const char*>(sub.data.data());
   size_t n = sub.data.size();
   size_t len = 0;
-  while (len < n && p[len] != '\0') ++len;
+  while (len < n && p[len] != '\0')
+    ++len;
   return base::String(p, len);
 }
 
 template <typename T>
 T ReadLe(const bethesda::Subrecord& sub) {
   T value{};
-  if (sub.data.size() >= sizeof(T)) std::memcpy(&value, sub.data.data(), sizeof(T));
+  if (sub.data.size() >= sizeof(T))
+    std::memcpy(&value, sub.data.data(), sizeof(T));
   return value;
 }
 
@@ -42,7 +45,8 @@ T ReadLe(const bethesda::Subrecord& sub) {
 const StageDef* QuestDef::FindStage(i32 index) const {
   const StageDef* best = nullptr;
   for (const StageDef& s : stages) {
-    if (s.index != index) continue;
+    if (s.index != index)
+      continue;
     // Last log entry for the index wins, matching the journal showing the most
     // recent entry the script set.
     best = &s;
@@ -52,26 +56,31 @@ const StageDef* QuestDef::FindStage(i32 index) const {
 
 const ObjectiveDef* QuestDef::FindObjective(i32 index) const {
   for (const ObjectiveDef& o : objectives)
-    if (o.index == index) return &o;
+    if (o.index == index)
+      return &o;
   return nullptr;
 }
 
 const AliasDef* QuestDef::FindAlias(i32 id) const {
   for (const AliasDef& a : aliases)
-    if (a.id == id) return &a;
+    if (a.id == id)
+      return &a;
   return nullptr;
 }
 
 i32 QuestDef::CompletionStage() const {
   i32 best = -1;
   for (const StageDef& s : stages) {
-    if (!s.complete_quest) continue;
-    if (best < 0 || s.index < best) best = s.index;
+    if (!s.complete_quest)
+      continue;
+    if (best < 0 || s.index < best)
+      best = s.index;
   }
   return best;
 }
 
-QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
+QuestDef ParseQuestDefinition(u64 handle,
+                              const bethesda::Record& record,
                               const bethesda::StringTable* strings) {
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   constexpr u32 kFull = FourCc('F', 'U', 'L', 'L');
@@ -118,8 +127,10 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kDnam:
         // DNAM: flags(u16), priority(u8), ... Priority sits at byte offset 2; the
         // low flag bit (0x01) is Start Game Enabled.
-        if (sub.data.size() >= 2) def.start_game_enabled = (sub.data.data()[0] & 0x01) != 0;
-        if (sub.data.size() >= 3) def.priority = sub.data.data()[2];
+        if (sub.data.size() >= 2)
+          def.start_game_enabled = (sub.data.data()[0] & 0x01) != 0;
+        if (sub.data.size() >= 3)
+          def.priority = sub.data.data()[2];
         break;
       case kIndx:
         cur_stage = ReadLe<u16>(sub);
@@ -128,14 +139,17 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         in_alias = false;
         break;
       case kQsdt: {
-        if (!in_stage) break;
+        if (!in_stage)
+          break;
         StageDef stage;
         stage.index = cur_stage;
         // QSDT order within this INDX is the log entry index the VMAD fragments
         // key on.
         for (const StageDef& existing : def.stages)
-          if (existing.index == cur_stage) ++stage.entry;
-        if (sub.data.size() >= 1) stage.complete_quest = (sub.data.data()[0] & 0x01) != 0;
+          if (existing.index == cur_stage)
+            ++stage.entry;
+        if (sub.data.size() >= 1)
+          stage.complete_quest = (sub.data.data()[0] & 0x01) != 0;
         def.stages.push_back(base::move(stage));
         break;
       }
@@ -176,12 +190,14 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         if (in_alias && !def.aliases.empty()) {
           const char* p = reinterpret_cast<const char*>(sub.data.data());
           size_t n = sub.data.size(), len = 0;
-          while (len < n && p[len] != '\0') ++len;
+          while (len < n && p[len] != '\0')
+            ++len;
           def.aliases.back().name.assign(p, len);
         }
         break;
       case kAlfr:
-        if (in_alias && !def.aliases.empty()) def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
         break;
       case kAlua:
         if (in_alias && !def.aliases.empty())
@@ -192,20 +208,24 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
           def.aliases.back().created_base_raw = ReadLe<u32>(sub);
         break;
       case kAlfa:
-        if (in_alias && !def.aliases.empty()) def.aliases.back().find_matching = true;
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().find_matching = true;
         break;
       case kAlrt:
-        if (in_alias && !def.aliases.empty()) def.aliases.back().ref_type_raw = ReadLe<u32>(sub);
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().ref_type_raw = ReadLe<u32>(sub);
         break;
       case kAlfi:
-        if (in_alias && !def.aliases.empty()) def.aliases.back().find_in_parent = ReadLe<i32>(sub);
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().find_in_parent = ReadLe<i32>(sub);
         break;
       case kAleq:
         if (in_alias && !def.aliases.empty())
           def.aliases.back().external_quest_raw = ReadLe<u32>(sub);
         break;
       case kAlea:
-        if (in_alias && !def.aliases.empty()) def.aliases.back().external_alias = ReadLe<i32>(sub);
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().external_alias = ReadLe<i32>(sub);
         break;
       case kAlpc:
         if (in_alias && !def.aliases.empty())
@@ -216,7 +236,8 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         // through here; objective and alias conditions are not modelled yet.
         if (in_stage && !def.stages.empty()) {
           Comparison c;
-          if (ParseCtda(sub.data, &c)) def.stages.back().conditions.comparisons.push_back(c);
+          if (ParseCtda(sub.data, &c))
+            def.stages.back().conditions.comparisons.push_back(c);
         }
         break;
       case kAled:

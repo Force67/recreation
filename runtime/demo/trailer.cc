@@ -32,7 +32,9 @@ constexpr f32 kModeFade = 0.5f;     // badge dip on a mode swap
 constexpr f32 kCutIn = 0.6f;        // fade to black before a game cut...
 constexpr f32 kCutOut = 1.6f;       // ...then back, giving the next game time to stream
 
-f32 Clamp01(f32 x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+f32 Clamp01(f32 x) {
+  return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+}
 f32 Smooth(f32 x) {
   x = Clamp01(x);
   return x * x * (3.0f - 2.0f * x);
@@ -41,7 +43,8 @@ f32 Smooth(f32 x) {
 // Trapezoid envelope: 0 before `start`, ramps up over `in`, 1 across the middle,
 // ramps down over `out`, 0 after `end`.
 f32 Envelope(f32 t, f32 start, f32 end, f32 in, f32 out) {
-  if (t <= start || t >= end) return 0.0f;
+  if (t <= start || t >= end)
+    return 0.0f;
   return base::Min(Smooth((t - start) / base::Max(in, 1e-3f)),
                    Smooth((end - t) / base::Max(out, 1e-3f)));
 }
@@ -84,7 +87,9 @@ constexpr TrailerRenderMode kModeCycle[] = {
 };
 constexpr int kModeCount = 2;
 
-int Wrap(int i, int n) { return ((i % n) + n) % n; }
+int Wrap(int i, int n) {
+  return ((i % n) + n) % n;
+}
 
 }  // namespace
 
@@ -155,9 +160,11 @@ TrailerState TrailerDirector::At(f32 t) const {
   // intro card so the two never overlap.
   if (t >= kIntro) {
     for (const Beat& b : beats_) {
-      if (t < b.start || t >= b.end) continue;
+      if (t < b.start || t >= b.end)
+        continue;
       const f32 a = Envelope(t, b.start, b.end, 1.2f, 1.2f);
-      if (a <= o.title_alpha) continue;
+      if (a <= o.title_alpha)
+        continue;
       o.title = b.title;
       o.subtitle = b.subtitle;
       o.title_alpha = a;
@@ -168,9 +175,11 @@ TrailerState TrailerDirector::At(f32 t) const {
 }
 
 int TrailerDirector::ActiveBeatIndex(f32 t) const {
-  if (beats_.empty()) return 0;
+  if (beats_.empty())
+    return 0;
   for (size_t k = 0; k < beats_.size(); ++k)
-    if (t < beats_[k].end) return static_cast<int>(k);
+    if (t < beats_[k].end)
+      return static_cast<int>(k);
   return static_cast<int>(beats_.size()) - 1;
 }
 

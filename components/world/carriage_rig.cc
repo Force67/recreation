@@ -6,7 +6,9 @@
 
 namespace rx::world {
 
-bool CarriageRig::Spawn(physics::PhysicsWorld& world, const Vec3& position, f32 yaw,
+bool CarriageRig::Spawn(physics::PhysicsWorld& world,
+                        const Vec3& position,
+                        f32 yaw,
                         const CarriageConfig& cfg) {
   cfg_ = cfg;
   physics::PhysicsWorld::VehicleDesc desc;
@@ -23,32 +25,39 @@ bool CarriageRig::Spawn(physics::PhysicsWorld& world, const Vec3& position, f32 
   desc.free_rolling = true;
   desc.max_handbrake_torque = cfg.handbrake_torque;
   vehicle_ = world.CreateVehicle(desc, position, yaw);
-  if (!vehicle_) return false;
+  if (!vehicle_)
+    return false;
   body_ = world.GetVehicleBody(vehicle_);
   return body_ != 0;
 }
 
 bool CarriageRig::Pose(const physics::PhysicsWorld& world, Vec3* position, f32 rotation[4]) const {
-  if (!vehicle_) return false;
+  if (!vehicle_)
+    return false;
   return world.GetVehicleTransform(vehicle_, position, rotation);
 }
 
 Vec3 CarriageRig::TonguePoint(const physics::PhysicsWorld& world) const {
   Vec3 pos;
   f32 rot[4];
-  if (!world.GetVehicleTransform(vehicle_, &pos, rot)) return {};
+  if (!world.GetVehicleTransform(vehicle_, &pos, rot))
+    return {};
   const Quat q{rot[0], rot[1], rot[2], rot[3]};
   return pos + Rotate(q, Vec3{0, cfg_.tongue_y, cfg_.tongue_z});
 }
 
-void CarriageRig::Step(physics::PhysicsWorld& world, const Vec3& hitch_target,
-                       const Vec3& horse_velocity, f32 dt) {
+void CarriageRig::Step(physics::PhysicsWorld& world,
+                       const Vec3& hitch_target,
+                       const Vec3& horse_velocity,
+                       f32 dt) {
   (void)dt;
-  if (!vehicle_ || !body_) return;
+  if (!vehicle_ || !body_)
+    return;
 
   Vec3 pos;
   f32 rot[4];
-  if (!world.GetVehicleTransform(vehicle_, &pos, rot)) return;
+  if (!world.GetVehicleTransform(vehicle_, &pos, rot))
+    return;
   const Quat q{rot[0], rot[1], rot[2], rot[3]};
   const Vec3 fwd = Rotate(q, Vec3{0, 0, 1});
 

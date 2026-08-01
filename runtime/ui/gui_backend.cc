@@ -46,13 +46,16 @@ uint32_t GuiRenderBackend::FindMemoryType(uint32_t type_filter, VkMemoryProperty
   VkPhysicalDeviceMemoryProperties mp;
   vkGetPhysicalDeviceMemoryProperties(info_.physical_device, &mp);
   for (uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
-    if ((type_filter & (1u << i)) && (mp.memoryTypes[i].propertyFlags & props) == props) return i;
+    if ((type_filter & (1u << i)) && (mp.memoryTypes[i].propertyFlags & props) == props)
+      return i;
   }
   return 0;
 }
 
-void GuiRenderBackend::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
-                                    VkMemoryPropertyFlags props, GpuBuffer& out) {
+void GuiRenderBackend::CreateBuffer(VkDeviceSize size,
+                                    VkBufferUsageFlags usage,
+                                    VkMemoryPropertyFlags props,
+                                    GpuBuffer& out) {
   VkBufferCreateInfo ci{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   ci.size = size;
   ci.usage = usage;
@@ -69,14 +72,19 @@ void GuiRenderBackend::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 }
 
 void GuiRenderBackend::DestroyBuffer(GpuBuffer& b) {
-  if (b.buffer) vkDestroyBuffer(info_.device, b.buffer, nullptr);
-  if (b.memory) vkFreeMemory(info_.device, b.memory, nullptr);
+  if (b.buffer)
+    vkDestroyBuffer(info_.device, b.buffer, nullptr);
+  if (b.memory)
+    vkFreeMemory(info_.device, b.memory, nullptr);
   b = {};
 }
 
-void GuiRenderBackend::UploadBuffer(GpuBuffer& b, VkBufferUsageFlags usage, const void* src,
+void GuiRenderBackend::UploadBuffer(GpuBuffer& b,
+                                    VkBufferUsageFlags usage,
+                                    const void* src,
                                     VkDeviceSize bytes) {
-  if (bytes == 0) return;
+  if (bytes == 0)
+    return;
   if (b.capacity < bytes) {
     DestroyBuffer(b);
     VkDeviceSize cap = std::max<VkDeviceSize>(bytes, 4096);
@@ -89,12 +97,15 @@ void GuiRenderBackend::UploadBuffer(GpuBuffer& b, VkBufferUsageFlags usage, cons
   vkUnmapMemory(info_.device, b.memory);
 }
 
-VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs, size_t vs_size,
-                                            const unsigned char* fs, size_t fs_size,
+VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs,
+                                            size_t vs_size,
+                                            const unsigned char* fs,
+                                            size_t fs_size,
                                             uint32_t attr_count) {
   VkShaderModule vert = rx::render::CreateShaderModule(info_.device, vs, vs_size);
   VkShaderModule frag = rx::render::CreateShaderModule(info_.device, fs, fs_size);
-  if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE) return VK_NULL_HANDLE;
+  if (vert == VK_NULL_HANDLE || frag == VK_NULL_HANDLE)
+    return VK_NULL_HANDLE;
 
   VkPipelineShaderStageCreateInfo stages[2]{};
   stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -214,8 +225,11 @@ VkSampler GuiRenderBackend::MakeSampler(VkFilter filter) {
   return out;
 }
 
-GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w, uint32_t h, VkFormat fmt,
-                                                        uint32_t pixel_size, const void* pixels,
+GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w,
+                                                        uint32_t h,
+                                                        VkFormat fmt,
+                                                        uint32_t pixel_size,
+                                                        const void* pixels,
                                                         VkSampler sampler) {
   Texture t;
   VkDeviceSize size = static_cast<VkDeviceSize>(w) * h * pixel_size;
@@ -322,16 +336,21 @@ GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w, uint32_t h, 
 }
 
 void GuiRenderBackend::FreeTexture(Texture& t) {
-  if (t.set) vkFreeDescriptorSets(info_.device, descriptor_pool_, 1, &t.set);
-  if (t.view) vkDestroyImageView(info_.device, t.view, nullptr);
-  if (t.image) vkDestroyImage(info_.device, t.image, nullptr);
-  if (t.memory) vkFreeMemory(info_.device, t.memory, nullptr);
+  if (t.set)
+    vkFreeDescriptorSets(info_.device, descriptor_pool_, 1, &t.set);
+  if (t.view)
+    vkDestroyImageView(info_.device, t.view, nullptr);
+  if (t.image)
+    vkDestroyImage(info_.device, t.image, nullptr);
+  if (t.memory)
+    vkFreeMemory(info_.device, t.memory, nullptr);
   t = {};
 }
 
 bool GuiRenderBackend::Init(const InitInfo& info) {
   info_ = info;
-  if (info_.frames_in_flight < 1) info_.frames_in_flight = 2;
+  if (info_.frames_in_flight < 1)
+    info_.frames_in_flight = 2;
 
   VkDescriptorSetLayoutBinding b{};
   b.binding = 0;
@@ -390,7 +409,8 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
   // (one combined image sampler = the blurred backdrop; vertex push constant).
   frost_pipeline_ =
       CreatePipeline(frost_vs.data(), frost_vs.size(), frost_ps.data(), frost_ps.size(), 9);
-  if (!quad_pipeline_ || !text_pipeline_ || !frost_pipeline_) return false;
+  if (!quad_pipeline_ || !text_pipeline_ || !frost_pipeline_)
+    return false;
 
   uint32_t white = 0xFFFFFFFFu;
   white_ = MakeTexture(1, 1, VK_FORMAT_R8G8B8A8_UNORM, 4, &white, linear_sampler_);
@@ -411,7 +431,8 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
 }
 
 void GuiRenderBackend::Shutdown() {
-  if (!info_.device) return;
+  if (!info_.device)
+    return;
   vkDeviceWaitIdle(info_.device);
   for (auto& f : frames_) {
     DestroyBuffer(f.quad_vtx);
@@ -420,22 +441,33 @@ void GuiRenderBackend::Shutdown() {
     DestroyBuffer(f.text_idx);
   }
   frames_.clear();
-  for (auto kv : user_textures_) FreeTexture(kv.value.tex);
+  for (auto kv : user_textures_)
+    FreeTexture(kv.value.tex);
   user_textures_.clear();
   FreeTexture(font_);
   FreeTexture(white_);
-  if (quad_pipeline_) vkDestroyPipeline(info_.device, quad_pipeline_, nullptr);
-  if (text_pipeline_) vkDestroyPipeline(info_.device, text_pipeline_, nullptr);
-  if (frost_pipeline_) vkDestroyPipeline(info_.device, frost_pipeline_, nullptr);
-  if (pipeline_layout_) vkDestroyPipelineLayout(info_.device, pipeline_layout_, nullptr);
-  if (set_layout_) vkDestroyDescriptorSetLayout(info_.device, set_layout_, nullptr);
-  if (descriptor_pool_) vkDestroyDescriptorPool(info_.device, descriptor_pool_, nullptr);
-  if (linear_sampler_) vkDestroySampler(info_.device, linear_sampler_, nullptr);
-  if (nearest_sampler_) vkDestroySampler(info_.device, nearest_sampler_, nullptr);
+  if (quad_pipeline_)
+    vkDestroyPipeline(info_.device, quad_pipeline_, nullptr);
+  if (text_pipeline_)
+    vkDestroyPipeline(info_.device, text_pipeline_, nullptr);
+  if (frost_pipeline_)
+    vkDestroyPipeline(info_.device, frost_pipeline_, nullptr);
+  if (pipeline_layout_)
+    vkDestroyPipelineLayout(info_.device, pipeline_layout_, nullptr);
+  if (set_layout_)
+    vkDestroyDescriptorSetLayout(info_.device, set_layout_, nullptr);
+  if (descriptor_pool_)
+    vkDestroyDescriptorPool(info_.device, descriptor_pool_, nullptr);
+  if (linear_sampler_)
+    vkDestroySampler(info_.device, linear_sampler_, nullptr);
+  if (nearest_sampler_)
+    vkDestroySampler(info_.device, nearest_sampler_, nullptr);
   info_ = {};
 }
 
-void GuiRenderBackend::NewFrame() { frame_index_ = (frame_index_ + 1) % info_.frames_in_flight; }
+void GuiRenderBackend::NewFrame() {
+  frame_index_ = (frame_index_ + 1) % info_.frames_in_flight;
+}
 
 void GuiRenderBackend::SetBackdrop(VkImageView view, VkSampler sampler) {
   backdrop_view_ = view;
@@ -443,7 +475,8 @@ void GuiRenderBackend::SetBackdrop(VkImageView view, VkSampler sampler) {
 }
 
 bool GuiRenderBackend::UpdateFontAtlas(const uint8_t* pixels, uint32_t width, uint32_t height) {
-  if (!pixels || width == 0 || height == 0) return false;
+  if (!pixels || width == 0 || height == 0)
+    return false;
   vkDeviceWaitIdle(info_.device);
   FreeTexture(font_);
   font_ = MakeTexture(width, height, VK_FORMAT_R8_UNORM, 1, pixels, nearest_sampler_);
@@ -451,8 +484,10 @@ bool GuiRenderBackend::UpdateFontAtlas(const uint8_t* pixels, uint32_t width, ui
 }
 
 void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
-  if (!dd.valid || dd.command_count == 0) return;
-  if (dd.display_size.x <= 0.0f || dd.display_size.y <= 0.0f) return;
+  if (!dd.valid || dd.command_count == 0)
+    return;
+  if (dd.display_size.x <= 0.0f || dd.display_size.y <= 0.0f)
+    return;
 
   FrameBuffers& fb = frames_[frame_index_];
   UploadBuffer(fb.quad_vtx, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, dd.quad_vertices,
@@ -497,7 +532,8 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
   VkPipeline bound = VK_NULL_HANDLE;
   for (uint32_t i = 0; i < dd.command_count; ++i) {
     const ugui::DrawCmd& c = dd.commands[i];
-    if (c.elem_count == 0) continue;
+    if (c.elem_count == 0)
+      continue;
 
     const bool frost = c.blur > 0.0f && have_backdrop && !c.is_text;
     VkPipeline want = c.is_text ? text_pipeline_ : (frost ? frost_pipeline_ : quad_pipeline_);
@@ -517,7 +553,8 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
       auto* it = user_textures_.find(c.texture_id);
       set = it != nullptr ? it->tex.set : white_.set;
     }
-    if (set == VK_NULL_HANDLE) set = white_.set;
+    if (set == VK_NULL_HANDLE)
+      set = white_.set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &set, 0,
                             nullptr);
 
@@ -533,7 +570,8 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
 
     GpuBuffer& vb = c.is_text ? fb.text_vtx : fb.quad_vtx;
     GpuBuffer& ib = c.is_text ? fb.text_idx : fb.quad_idx;
-    if (!vb.buffer || !ib.buffer) continue;
+    if (!vb.buffer || !ib.buffer)
+      continue;
     VkDeviceSize zero = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb.buffer, &zero);
     vkCmdBindIndexBuffer(cmd, ib.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -541,17 +579,21 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
   }
 }
 
-ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width, uint32_t height,
-                                                ugui::RHIFormat format, const void* pixels,
+ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width,
+                                                uint32_t height,
+                                                ugui::RHIFormat format,
+                                                const void* pixels,
                                                 ugui::RHIFilter filter) {
-  if (!info_.device || width == 0 || height == 0 || !pixels) return ugui::kNullTextureId;
+  if (!info_.device || width == 0 || height == 0 || !pixels)
+    return ugui::kNullTextureId;
   UserTexture ut;
   ut.width = width;
   ut.height = height;
   ut.sampler = filter == ugui::RHIFilter::kNearest ? nearest_sampler_ : linear_sampler_;
   RhiFormatToVk(format, ut.fmt, ut.pixel_size);
   ut.tex = MakeTexture(width, height, ut.fmt, ut.pixel_size, pixels, ut.sampler);
-  if (ut.tex.image == VK_NULL_HANDLE) return ugui::kNullTextureId;
+  if (ut.tex.image == VK_NULL_HANDLE)
+    return ugui::kNullTextureId;
   ugui::TextureId id = next_user_id_++;
   user_textures_.emplace(id, ut);
   return id;
@@ -559,7 +601,8 @@ ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width, uint32_t height,
 
 void GuiRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
   auto* it = user_textures_.find(id);
-  if (it == nullptr || !pixels) return;
+  if (it == nullptr || !pixels)
+    return;
   UserTexture& ut = *it;
   vkDeviceWaitIdle(info_.device);
   FreeTexture(ut.tex);
@@ -568,7 +611,8 @@ void GuiRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
 
 void GuiRenderBackend::DestroyTexture(ugui::TextureId id) {
   auto* it = user_textures_.find(id);
-  if (it == nullptr) return;
+  if (it == nullptr)
+    return;
   vkDeviceWaitIdle(info_.device);
   FreeTexture(it->tex);
   user_textures_.erase(id);

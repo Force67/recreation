@@ -3,15 +3,16 @@
 
 namespace rx::script::skyrim {
 
+using ext::Args;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
 
 void RegisterAliasExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   // An alias handle packs its owning quest (see EncodeAliasHandle); unpack it.
   reg.Register("Alias", "GetOwningQuest", [](VirtualMachine&, ObjectRef self, Args&) {
-    if (!papyrus::IsAliasHandle(self.handle)) return Value::Object(ObjectRef{});
+    if (!papyrus::IsAliasHandle(self.handle))
+      return Value::Object(ObjectRef{});
     return Value::Object(ObjectRef{papyrus::AliasHandleQuest(self.handle)});
   });
 

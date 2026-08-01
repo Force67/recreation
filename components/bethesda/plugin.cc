@@ -28,14 +28,16 @@ struct Reader {
 
   template <typename T>
   bool Read(T* out) {
-    if (remaining() < sizeof(T)) return false;
+    if (remaining() < sizeof(T))
+      return false;
     std::memcpy(out, data.data() + pos, sizeof(T));
     pos += sizeof(T);
     return true;
   }
 
   bool Skip(size_t count) {
-    if (remaining() < count) return false;
+    if (remaining() < count)
+      return false;
     pos += count;
     return true;
   }
@@ -58,21 +60,24 @@ bool ParseSubrecords(ByteSpan data, base::Vector<Subrecord>* out) {
     u32 size = size16;
     if (type == kXxxx) {
       // XXXX carries the true size of the next subrecord.
-      if (size16 != 4 || !reader.Read(&extended_size)) return false;
+      if (size16 != 4 || !reader.Read(&extended_size))
+        return false;
       continue;
     }
     if (extended_size != 0) {
       size = extended_size;
       extended_size = 0;
     }
-    if (reader.remaining() < size) return false;
+    if (reader.remaining() < size)
+      return false;
     out->push_back(Subrecord{type, reader.Take(size)});
   }
   return reader.remaining() == 0;
 }
 
 bool DecompressRecord(ByteSpan compressed, base::Vector<u8>* out) {
-  if (compressed.size() < 4) return false;
+  if (compressed.size() < 4)
+    return false;
   u32 uncompressed_size;
   std::memcpy(&uncompressed_size, compressed.data(), 4);
   out->resize(uncompressed_size);
@@ -88,14 +93,16 @@ bool EndsWithEsl(const base::String& path) {
 // without the form_version/unknown tail Skyrim added. Reads either size into
 // the in-memory 24 byte structs.
 bool ReadRecordHeader(Reader& reader, u32 header_size, RecordHeader* out) {
-  if (header_size == sizeof(RecordHeader)) return reader.Read(out);
+  if (header_size == sizeof(RecordHeader))
+    return reader.Read(out);
   *out = RecordHeader{};
   return reader.Read(&out->type) && reader.Read(&out->data_size) && reader.Read(&out->flags) &&
          reader.Read(&out->form_id) && reader.Read(&out->version_control);
 }
 
 bool ReadGroupHeader(Reader& reader, u32 header_size, GroupHeader* out) {
-  if (header_size == sizeof(GroupHeader)) return reader.Read(out);
+  if (header_size == sizeof(GroupHeader))
+    return reader.Read(out);
   *out = GroupHeader{};
   return reader.Read(&out->type) && reader.Read(&out->group_size) && reader.Read(&out->label) &&
          reader.Read(&out->group_type) && reader.Read(&out->version_control);
@@ -110,7 +117,8 @@ PluginFile::~PluginFile() = default;
 bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* out) {
   out->header = header;
   if (header.flags & kRecordFlagCompressed) {
-    if (!DecompressRecord(payload, &out->decompressed)) return false;
+    if (!DecompressRecord(payload, &out->decompressed))
+      return false;
     payload = ByteSpan(out->decompressed.data(), out->decompressed.size());
   }
   return ParseSubrecords(payload, &out->subrecords);
@@ -118,16 +126,19 @@ bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* ou
 
 const Subrecord* Record::Find(u32 fourcc) const {
   for (const auto& sub : subrecords) {
-    if (sub.type == fourcc) return &sub;
+    if (sub.type == fourcc)
+      return &sub;
   }
   return nullptr;
 }
 
 base::String Record::GetString(u32 fourcc) const {
   const Subrecord* sub = Find(fourcc);
-  if (!sub || sub->data.empty()) return {};
+  if (!sub || sub->data.empty())
+    return {};
   size_t len = sub->data.size();
-  if (sub->data[len - 1] == 0) --len;
+  if (sub->data[len - 1] == 0)
+    --len;
   return base::String(reinterpret_cast<const char*>(sub->data.data()), len);
 }
 
@@ -150,31 +161,37 @@ base::Optional<PluginFile> PluginFile::Open(const base::String& path, const Game
     RX_ERROR("bad TES4 header: {}", path);
     return base::nullopt;
   }
-  if (EndsWithEsl(path)) plugin.is_light_ = true;
+  if (EndsWithEsl(path))
+    plugin.is_light_ = true;
   return plugin;
 }
 
 bool PluginFile::ParseHeader(const GameProfile& profile) {
   if (profile.flat_tes3) {
     tes3_ = base::MakeUnique<Tes3Translation>();
-    if (!TranslateTes3(ByteSpan(data_.data(), data_.size()), &*tes3_)) return false;
+    if (!TranslateTes3(ByteSpan(data_.data(), data_.size()), &*tes3_))
+      return false;
     version_ = tes3_->version;
     record_count_ = tes3_->record_count;
     header_flags_ = kPluginFlagMaster;
     data_ = base::Vector<u8>{};  // the synthesized arena replaces the file bytes
     return true;
   }
-  if (profile.record_header_size != 0) header_size_ = profile.record_header_size;
+  if (profile.record_header_size != 0)
+    header_size_ = profile.record_header_size;
   Reader reader{ByteSpan(data_.data(), data_.size())};
   RecordHeader header;
-  if (!ReadRecordHeader(reader, header_size_, &header) || header.type != kTes4) return false;
-  if (reader.remaining() < header.data_size) return false;
+  if (!ReadRecordHeader(reader, header_size_, &header) || header.type != kTes4)
+    return false;
+  if (reader.remaining() < header.data_size)
+    return false;
 
   header_flags_ = header.flags;
   is_light_ = (header.flags & kPluginFlagLight) != 0;
 
   Record tes4;
-  if (!ParseRecordPayload(header, reader.Take(header.data_size), &tes4)) return false;
+  if (!ParseRecordPayload(header, reader.Take(header.data_size), &tes4))
+    return false;
   records_begin_ = reader.pos;
 
   if (const Subrecord* hedr = tes4.Find(kHedr); hedr && hedr->data.size() >= 8) {
@@ -189,7 +206,7 @@ bool PluginFile::ParseHeader(const GameProfile& profile) {
 
   if (profile.plugin_version != 0 && version_ > profile.plugin_version) {
     RX_WARN("{}: plugin version {} newer than profile {}", file_name_, version_,
-             profile.plugin_version);
+            profile.plugin_version);
   }
   return true;
 }
@@ -216,20 +233,23 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
       // cell children groups carry the context records need; records always
       // follow their enclosing group header, so last-seen labels are enough.
       GroupHeader group;
-      if (!ReadGroupHeader(reader, header_size_, &group)) return false;
+      if (!ReadGroupHeader(reader, header_size_, &group))
+        return false;
       // Top level and interior block groups end any worldspace context, so
       // interior cells are never misattributed to the last seen worldspace.
       if (group.group_type == 0 || group.group_type == 2 || group.group_type == 3) {
         ctx = GroupContext{};
       }
-      if (group.group_type == 1) ctx.worldspace = RawFormId{group.label};
+      if (group.group_type == 1)
+        ctx.worldspace = RawFormId{group.label};
       if (group.group_type == 6 || group.group_type == 8 || group.group_type == 9) {
         ctx.cell = RawFormId{group.label};
         ctx.cell_group_type = group.group_type;
       }
       // Topic children (type 7): the label is the parent DIAL, so the INFO
       // records that follow can be tied back to their dialogue topic.
-      if (group.group_type == 7) ctx.dialogue = RawFormId{group.label};
+      if (group.group_type == 7)
+        ctx.dialogue = RawFormId{group.label};
       continue;
     }
 
@@ -238,7 +258,8 @@ bool PluginFile::VisitRecordsRaw(const RawRecordVisitor& visitor) const {
       return false;
     }
     ByteSpan payload = reader.Take(header.data_size);
-    if (header.flags & kRecordFlagDeleted) continue;
+    if (header.flags & kRecordFlagDeleted)
+      continue;
     visitor(header, payload, ctx);
   }
   return true;

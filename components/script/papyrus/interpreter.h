@@ -19,11 +19,14 @@ class VmInterface {
  public:
   virtual ~VmInterface() = default;
 
-  virtual Value CallMethod(ObjectRef self, const base::String& method,
+  virtual Value CallMethod(ObjectRef self,
+                           const base::String& method,
                            base::Vector<Value> args) = 0;
-  virtual Value CallStatic(const base::String& script_type, const base::String& function,
+  virtual Value CallStatic(const base::String& script_type,
+                           const base::String& function,
                            base::Vector<Value> args) = 0;
-  virtual Value CallParent(ObjectRef self, const base::String& method,
+  virtual Value CallParent(ObjectRef self,
+                           const base::String& method,
                            base::Vector<Value> args) = 0;
 
   virtual Value GetProperty(ObjectRef self, const base::String& property) = 0;
@@ -64,8 +67,12 @@ class VmInterface {
 // value (None if it falls off the end). Every Skyrim opcode (0x00-0x23) is
 // implemented here. object is the script that defines fn, used for member
 // variable types; self is the instance the function runs on.
-Value ExecuteFunction(const PexFile& pex, const Object& object, const Function& fn, ObjectRef self,
-                      base::Vector<Value> args, VmInterface& vm,
+Value ExecuteFunction(const PexFile& pex,
+                      const Object& object,
+                      const Function& fn,
+                      ObjectRef self,
+                      base::Vector<Value> args,
+                      VmInterface& vm,
                       base::StringRef function_name = {});
 
 }  // namespace rx::script::papyrus

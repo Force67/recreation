@@ -5,8 +5,8 @@
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/weather/weather.h"
+#include "core/types.h"
 
 namespace rx {
 

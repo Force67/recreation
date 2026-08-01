@@ -59,33 +59,45 @@ struct Thumbnailer::Impl {
     VkPhysicalDeviceMemoryProperties mp;
     vkGetPhysicalDeviceMemoryProperties(phys, &mp);
     for (uint32_t i = 0; i < mp.memoryTypeCount; ++i)
-      if ((filter & (1u << i)) && (mp.memoryTypes[i].propertyFlags & props) == props) return i;
+      if ((filter & (1u << i)) && (mp.memoryTypes[i].propertyFlags & props) == props)
+        return i;
     return 0;
   }
 
-  bool CreateBuffer(VkDeviceSize bytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags props,
-                    VkBuffer& buf, VkDeviceMemory& mem) {
+  bool CreateBuffer(VkDeviceSize bytes,
+                    VkBufferUsageFlags usage,
+                    VkMemoryPropertyFlags props,
+                    VkBuffer& buf,
+                    VkDeviceMemory& mem) {
     VkBufferCreateInfo ci{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     ci.size = bytes;
     ci.usage = usage;
     ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateBuffer(device, &ci, nullptr, &buf) != VK_SUCCESS) return false;
+    if (vkCreateBuffer(device, &ci, nullptr, &buf) != VK_SUCCESS)
+      return false;
     VkMemoryRequirements reqs;
     vkGetBufferMemoryRequirements(device, buf, &reqs);
     VkMemoryAllocateInfo ai{.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = reqs.size;
     ai.memoryTypeIndex = FindMemory(reqs.memoryTypeBits, props);
-    if (vkAllocateMemory(device, &ai, nullptr, &mem) != VK_SUCCESS) return false;
+    if (vkAllocateMemory(device, &ai, nullptr, &mem) != VK_SUCCESS)
+      return false;
     vkBindBufferMemory(device, buf, mem, 0);
     return true;
   }
 
   // Uploads bytes into a host-visible buffer, growing it if needed.
-  void UploadHostBuffer(VkBuffer& buf, VkDeviceMemory& mem, VkDeviceSize& cap,
-                        VkBufferUsageFlags usage, const void* src, VkDeviceSize bytes) {
+  void UploadHostBuffer(VkBuffer& buf,
+                        VkDeviceMemory& mem,
+                        VkDeviceSize& cap,
+                        VkBufferUsageFlags usage,
+                        const void* src,
+                        VkDeviceSize bytes) {
     if (cap < bytes) {
-      if (buf) vkDestroyBuffer(device, buf, nullptr);
-      if (mem) vkFreeMemory(device, mem, nullptr);
+      if (buf)
+        vkDestroyBuffer(device, buf, nullptr);
+      if (mem)
+        vkFreeMemory(device, mem, nullptr);
       buf = VK_NULL_HANDLE;
       mem = VK_NULL_HANDLE;
       VkDeviceSize want = bytes + bytes / 2 + 4096;
@@ -100,8 +112,12 @@ struct Thumbnailer::Impl {
     vkUnmapMemory(device, mem);
   }
 
-  bool CreateImage(VkFormat fmt, VkImageUsageFlags usage, VkImageAspectFlags aspect, VkImage& img,
-                   VkDeviceMemory& mem, VkImageView& view) {
+  bool CreateImage(VkFormat fmt,
+                   VkImageUsageFlags usage,
+                   VkImageAspectFlags aspect,
+                   VkImage& img,
+                   VkDeviceMemory& mem,
+                   VkImageView& view) {
     VkImageCreateInfo ci{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.extent = {static_cast<uint32_t>(size), static_cast<uint32_t>(size), 1};
@@ -112,13 +128,15 @@ struct Thumbnailer::Impl {
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     ci.usage = usage;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    if (vkCreateImage(device, &ci, nullptr, &img) != VK_SUCCESS) return false;
+    if (vkCreateImage(device, &ci, nullptr, &img) != VK_SUCCESS)
+      return false;
     VkMemoryRequirements reqs;
     vkGetImageMemoryRequirements(device, img, &reqs);
     VkMemoryAllocateInfo ai{.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     ai.allocationSize = reqs.size;
     ai.memoryTypeIndex = FindMemory(reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device, &ai, nullptr, &mem) != VK_SUCCESS) return false;
+    if (vkAllocateMemory(device, &ai, nullptr, &mem) != VK_SUCCESS)
+      return false;
     vkBindImageMemory(device, img, mem, 0);
     VkImageViewCreateInfo vi{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vi.image = img;
@@ -135,7 +153,8 @@ struct Thumbnailer::Impl {
     VkPipelineLayoutCreateInfo li{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     li.pushConstantRangeCount = 1;
     li.pPushConstantRanges = &pc;
-    if (vkCreatePipelineLayout(device, &li, nullptr, &layout) != VK_SUCCESS) return false;
+    if (vkCreatePipelineLayout(device, &li, nullptr, &layout) != VK_SUCCESS)
+      return false;
 
     // Blobs come from the mounted shaders:// archive, falling back to the bytes
     // embedded in the binary when the pack is missing (shaderpack::Load).
@@ -145,7 +164,8 @@ struct Thumbnailer::Impl {
         shaderpack::Load("thumb.ps", k_thumb_ps_hlsl, sizeof(k_thumb_ps_hlsl));
     VkShaderModule vs = render::CreateShaderModule(device, vs_blob.data(), vs_blob.size());
     VkShaderModule fs = render::CreateShaderModule(device, fs_blob.data(), fs_blob.size());
-    if (!vs || !fs) return false;
+    if (!vs || !fs)
+      return false;
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0] = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -233,9 +253,15 @@ struct Thumbnailer::Impl {
     return r == VK_SUCCESS;
   }
 
-  void Barrier(VkCommandBuffer c, VkImage img, VkImageAspectFlags aspect, VkImageLayout from,
-               VkImageLayout to, VkPipelineStageFlags src_stage, VkAccessFlags src_access,
-               VkPipelineStageFlags dst_stage, VkAccessFlags dst_access) {
+  void Barrier(VkCommandBuffer c,
+               VkImage img,
+               VkImageAspectFlags aspect,
+               VkImageLayout from,
+               VkImageLayout to,
+               VkPipelineStageFlags src_stage,
+               VkAccessFlags src_access,
+               VkPipelineStageFlags dst_stage,
+               VkAccessFlags dst_access) {
     VkImageMemoryBarrier b{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     b.oldLayout = from;
     b.newLayout = to;
@@ -250,13 +276,20 @@ struct Thumbnailer::Impl {
 };
 
 Thumbnailer::Thumbnailer() : impl_(base::MakeUnique<Impl>()) {}
-Thumbnailer::~Thumbnailer() { Shutdown(); }
-bool Thumbnailer::ready() const { return impl_ && impl_->ready; }
-int Thumbnailer::size() const { return impl_ ? impl_->size : 0; }
+Thumbnailer::~Thumbnailer() {
+  Shutdown();
+}
+bool Thumbnailer::ready() const {
+  return impl_ && impl_->ready;
+}
+int Thumbnailer::size() const {
+  return impl_ ? impl_->size : 0;
+}
 
 bool Thumbnailer::Init(render::Renderer& renderer, int size) {
   render::Device* dev = renderer.device();
-  if (!dev || dev->is_stub()) return false;
+  if (!dev || dev->is_stub())
+    return false;
   // Rasterizes with raw Vulkan; null handles on other backends leave it off.
   const render::VulkanHandles vk = render::GetVulkanHandles(*dev);
   Impl& m = *impl_;
@@ -265,7 +298,8 @@ bool Thumbnailer::Init(render::Renderer& renderer, int size) {
   m.queue = vk.graphics_queue;
   m.qfam = vk.graphics_family;
   m.size = size;
-  if (!m.device || !m.queue) return false;
+  if (!m.device || !m.queue)
+    return false;
 
   if (!m.CreateImage(VK_FORMAT_R8G8B8A8_UNORM,
                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -278,17 +312,20 @@ bool Thumbnailer::Init(render::Renderer& renderer, int size) {
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                       m.readback, m.rmem))
     return false;
-  if (!m.CreatePipeline()) return false;
+  if (!m.CreatePipeline())
+    return false;
 
   VkCommandPoolCreateInfo pci{.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   pci.queueFamilyIndex = m.qfam;
   pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  if (vkCreateCommandPool(m.device, &pci, nullptr, &m.pool) != VK_SUCCESS) return false;
+  if (vkCreateCommandPool(m.device, &pci, nullptr, &m.pool) != VK_SUCCESS)
+    return false;
   VkCommandBufferAllocateInfo cai{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
   cai.commandPool = m.pool;
   cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   cai.commandBufferCount = 1;
-  if (vkAllocateCommandBuffers(m.device, &cai, &m.cmd) != VK_SUCCESS) return false;
+  if (vkAllocateCommandBuffers(m.device, &cai, &m.cmd) != VK_SUCCESS)
+    return false;
   VkFenceCreateInfo fci{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
   vkCreateFence(m.device, &fci, nullptr, &m.fence);
 
@@ -298,37 +335,57 @@ bool Thumbnailer::Init(render::Renderer& renderer, int size) {
 }
 
 void Thumbnailer::Shutdown() {
-  if (!impl_) return;
+  if (!impl_)
+    return;
   Impl& m = *impl_;
   if (m.device) {
-    if (m.queue) vkQueueWaitIdle(m.queue);
-    if (m.pipeline) vkDestroyPipeline(m.device, m.pipeline, nullptr);
-    if (m.layout) vkDestroyPipelineLayout(m.device, m.layout, nullptr);
-    if (m.color_view) vkDestroyImageView(m.device, m.color_view, nullptr);
-    if (m.depth_view) vkDestroyImageView(m.device, m.depth_view, nullptr);
-    if (m.color) vkDestroyImage(m.device, m.color, nullptr);
-    if (m.depth) vkDestroyImage(m.device, m.depth, nullptr);
-    if (m.color_mem) vkFreeMemory(m.device, m.color_mem, nullptr);
-    if (m.depth_mem) vkFreeMemory(m.device, m.depth_mem, nullptr);
-    if (m.vbuf) vkDestroyBuffer(m.device, m.vbuf, nullptr);
-    if (m.ibuf) vkDestroyBuffer(m.device, m.ibuf, nullptr);
-    if (m.readback) vkDestroyBuffer(m.device, m.readback, nullptr);
-    if (m.vmem) vkFreeMemory(m.device, m.vmem, nullptr);
-    if (m.imem) vkFreeMemory(m.device, m.imem, nullptr);
-    if (m.rmem) vkFreeMemory(m.device, m.rmem, nullptr);
-    if (m.fence) vkDestroyFence(m.device, m.fence, nullptr);
-    if (m.pool) vkDestroyCommandPool(m.device, m.pool, nullptr);
+    if (m.queue)
+      vkQueueWaitIdle(m.queue);
+    if (m.pipeline)
+      vkDestroyPipeline(m.device, m.pipeline, nullptr);
+    if (m.layout)
+      vkDestroyPipelineLayout(m.device, m.layout, nullptr);
+    if (m.color_view)
+      vkDestroyImageView(m.device, m.color_view, nullptr);
+    if (m.depth_view)
+      vkDestroyImageView(m.device, m.depth_view, nullptr);
+    if (m.color)
+      vkDestroyImage(m.device, m.color, nullptr);
+    if (m.depth)
+      vkDestroyImage(m.device, m.depth, nullptr);
+    if (m.color_mem)
+      vkFreeMemory(m.device, m.color_mem, nullptr);
+    if (m.depth_mem)
+      vkFreeMemory(m.device, m.depth_mem, nullptr);
+    if (m.vbuf)
+      vkDestroyBuffer(m.device, m.vbuf, nullptr);
+    if (m.ibuf)
+      vkDestroyBuffer(m.device, m.ibuf, nullptr);
+    if (m.readback)
+      vkDestroyBuffer(m.device, m.readback, nullptr);
+    if (m.vmem)
+      vkFreeMemory(m.device, m.vmem, nullptr);
+    if (m.imem)
+      vkFreeMemory(m.device, m.imem, nullptr);
+    if (m.rmem)
+      vkFreeMemory(m.device, m.rmem, nullptr);
+    if (m.fence)
+      vkDestroyFence(m.device, m.fence, nullptr);
+    if (m.pool)
+      vkDestroyCommandPool(m.device, m.pool, nullptr);
   }
   m = Impl{};
 }
 
 bool Thumbnailer::Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& out) {
   Impl& m = *impl_;
-  if (!m.ready || mesh.lods.empty()) return false;
+  if (!m.ready || mesh.lods.empty())
+    return false;
   const asset::MeshLod& lod = mesh.lods[0];
   const uint32_t nv = static_cast<uint32_t>(lod.vertices.size());
   const uint32_t ni = static_cast<uint32_t>(lod.indices.size());
-  if (nv == 0 || ni == 0) return false;
+  if (nv == 0 || ni == 0)
+    return false;
 
   m.UploadHostBuffer(m.vbuf, m.vmem, m.vcap, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, lod.vertices.data(),
                      static_cast<VkDeviceSize>(nv) * sizeof(asset::Vertex));
@@ -338,7 +395,8 @@ bool Thumbnailer::Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& ou
   // Frame the bounds with a 3/4 orthographic view (y-flipped for Vulkan clip).
   const Vec3 c{mesh.bounds_center[0], mesh.bounds_center[1], mesh.bounds_center[2]};
   float r = mesh.bounds_radius;
-  if (!(r > 0.0f)) r = 1.0f;
+  if (!(r > 0.0f))
+    r = 1.0f;
   const Vec3 dir = Normalize(Vec3{0.82f, 0.62f, 1.0f});
   const float dist = r * 4.0f;
   const Vec3 eye = c + dir * dist;
@@ -421,7 +479,8 @@ bool Thumbnailer::Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& ou
   si.commandBufferCount = 1;
   si.pCommandBuffers = &m.cmd;
   vkResetFences(m.device, 1, &m.fence);
-  if (vkQueueSubmit(m.queue, 1, &si, m.fence) != VK_SUCCESS) return false;
+  if (vkQueueSubmit(m.queue, 1, &si, m.fence) != VK_SUCCESS)
+    return false;
   vkWaitForFences(m.device, 1, &m.fence, VK_TRUE, UINT64_MAX);
 
   const size_t bytes = static_cast<size_t>(m.size) * m.size * 4;
@@ -436,7 +495,8 @@ bool Thumbnailer::Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& ou
 bool Thumbnailer::LoadCached(const base::String& path, base::Vector<std::uint8_t>& out) const {
   int w = 0, h = 0, n = 0;
   unsigned char* data = stbi_load(path.c_str(), &w, &h, &n, 4);
-  if (!data) return false;
+  if (!data)
+    return false;
   if (w != impl_->size || h != impl_->size) {
     stbi_image_free(data);
     return false;
@@ -448,7 +508,8 @@ bool Thumbnailer::LoadCached(const base::String& path, base::Vector<std::uint8_t
 
 void Thumbnailer::SaveCached(const base::String& path,
                              const base::Vector<std::uint8_t>& rgba) const {
-  if (rgba.size() < static_cast<size_t>(impl_->size) * impl_->size * 4) return;
+  if (rgba.size() < static_cast<size_t>(impl_->size) * impl_->size * 4)
+    return;
   stbi_write_png(path.c_str(), impl_->size, impl_->size, 4, rgba.data(), impl_->size * 4);
 }
 
@@ -460,11 +521,19 @@ namespace rx {
 struct Thumbnailer::Impl {};
 Thumbnailer::Thumbnailer() = default;
 Thumbnailer::~Thumbnailer() = default;
-bool Thumbnailer::Init(render::Renderer&, int) { return false; }
+bool Thumbnailer::Init(render::Renderer&, int) {
+  return false;
+}
 void Thumbnailer::Shutdown() {}
-bool Thumbnailer::ready() const { return false; }
-int Thumbnailer::size() const { return 0; }
-bool Thumbnailer::Render(const asset::Mesh&, base::Vector<std::uint8_t>&) { return false; }
+bool Thumbnailer::ready() const {
+  return false;
+}
+int Thumbnailer::size() const {
+  return 0;
+}
+bool Thumbnailer::Render(const asset::Mesh&, base::Vector<std::uint8_t>&) {
+  return false;
+}
 bool Thumbnailer::LoadCached(const base::String&, base::Vector<std::uint8_t>&) const {
   return false;
 }

@@ -3,11 +3,14 @@
 
 namespace rx::script::skyrim {
 
+using ext::ArgB;
+using ext::ArgF;
+using ext::ArgI;
+using ext::Args;
+using ext::ArgS;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
-using ext::ArgB; using ext::ArgF; using ext::ArgI; using ext::ArgS;
 namespace st = state;
 
 void RegisterUtilityRest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -28,30 +31,22 @@ void RegisterUtilityRest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings)
     return Value();
   });
 
-  reg.Register("Utility", "CaptureFrameRate", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value();
-  });
-  reg.Register("Utility", "StartFrameRateCapture", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value();
-  });
-  reg.Register("Utility", "EndFrameRateCapture", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value();
-  });
-  reg.Register("Utility", "GetBudgetCount", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Int(0);
-  });
-  reg.Register("Utility", "GetBudgetName", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Str("");
-  });
-  reg.Register("Utility", "GetCurrentBudget", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Float(0.0f);
-  });
-  reg.Register("Utility", "GetCurrentMemory", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Int(0);
-  });
-  reg.Register("Utility", "OverBudget", [](VirtualMachine&, ObjectRef, Args&) {
-    return Value::Bool(false);
-  });
+  reg.Register("Utility", "CaptureFrameRate",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
+  reg.Register("Utility", "StartFrameRateCapture",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
+  reg.Register("Utility", "EndFrameRateCapture",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
+  reg.Register("Utility", "GetBudgetCount",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
+  reg.Register("Utility", "GetBudgetName",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Str(""); });
+  reg.Register("Utility", "GetCurrentBudget",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Float(0.0f); });
+  reg.Register("Utility", "GetCurrentMemory",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
+  reg.Register("Utility", "OverBudget",
+               [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
 }
 
 }  // namespace rx::script::skyrim

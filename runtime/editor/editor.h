@@ -9,14 +9,14 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
+#include "components/world/components.h"
+#include "components/world/terrain_edits.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "ecs/entity.h"
-#include "runtime/ui/game_ui.h"
 #include "render/core/renderer.h"
+#include "runtime/ui/game_ui.h"
 #include "runtime/ui/thumbnailer.h"
-#include "components/world/components.h"
-#include "components/world/terrain_edits.h"
 
 namespace rx::bethesda {
 class RecordStore;

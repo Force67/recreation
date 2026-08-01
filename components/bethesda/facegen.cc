@@ -47,23 +47,28 @@ constexpr u32 kTinp = FourCc('T', 'I', 'N', 'P');
 constexpr u32 kTind = FourCc('T', 'I', 'N', 'D');
 
 base::String SubString(const Subrecord& sub) {
-  if (sub.data.empty()) return {};
+  if (sub.data.empty())
+    return {};
   size_t len = sub.data.size();
-  if (sub.data[len - 1] == 0) --len;
+  if (sub.data[len - 1] == 0)
+    --len;
   return base::String(reinterpret_cast<const char*>(sub.data.data()), len);
 }
 
 template <typename T>
 T ReadAt(const Subrecord& sub, size_t offset = 0) {
   T value{};
-  if (offset + sizeof(T) <= sub.data.size()) std::memcpy(&value, sub.data.data() + offset, sizeof(T));
+  if (offset + sizeof(T) <= sub.data.size())
+    std::memcpy(&value, sub.data.data() + offset, sizeof(T));
   return value;
 }
 
 GlobalFormId ReadFormRef(const RecordStore& store, const Subrecord* sub, u16 plugin) {
-  if (!sub || sub->data.size() < 4) return {};
+  if (!sub || sub->data.size() < 4)
+    return {};
   u32 raw = ReadAt<u32>(*sub);
-  if (raw == 0) return {};
+  if (raw == 0)
+    return {};
   return store.ResolveFrom(RawFormId{raw}, plugin);
 }
 
@@ -71,23 +76,31 @@ GlobalFormId ReadFormRef(const RecordStore& store, const Subrecord* sub, u16 plu
 
 base::Optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('T', 'X', 'S', 'T')) return base::nullopt;
+  if (!stored || stored->header.type != FourCc('T', 'X', 'S', 'T'))
+    return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return base::nullopt;
+  if (!store.Parse(id, &rec))
+    return base::nullopt;
   TextureSet set;
   set.id = id;
-  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '0'))) set.diffuse = SubString(*s);
-  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '1'))) set.normal = SubString(*s);
-  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '2'))) set.subsurface = SubString(*s);
-  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '7'))) set.specular = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '0')))
+    set.diffuse = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '1')))
+    set.normal = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '2')))
+    set.subsurface = SubString(*s);
+  if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '7')))
+    set.specular = SubString(*s);
   return set;
 }
 
 base::Optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('H', 'D', 'P', 'T')) return base::nullopt;
+  if (!stored || stored->header.type != FourCc('H', 'D', 'P', 'T'))
+    return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return base::nullopt;
+  if (!store.Parse(id, &rec))
+    return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   HeadPart part;
@@ -119,9 +132,11 @@ base::Optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId 
 
 base::Optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('C', 'L', 'F', 'M')) return base::nullopt;
+  if (!stored || stored->header.type != FourCc('C', 'L', 'F', 'M'))
+    return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return base::nullopt;
+  if (!store.Parse(id, &rec))
+    return base::nullopt;
   ColorForm color;
   color.id = id;
   color.editor_id = rec.GetString(kEdid);
@@ -132,12 +147,15 @@ base::Optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormI
   return color;
 }
 
-static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, GlobalFormId id,
+static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store,
+                                                      GlobalFormId id,
                                                       int depth) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('N', 'P', 'C', '_')) return base::nullopt;
+  if (!stored || stored->header.type != FourCc('N', 'P', 'C', '_'))
+    return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return base::nullopt;
+  if (!store.Parse(id, &rec))
+    return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   NpcFaceData face;
@@ -173,13 +191,15 @@ static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, 
   for (const Subrecord& sub : rec.subrecords) {
     if (sub.type == kPnam && sub.data.size() >= 4) {
       u32 raw = ReadAt<u32>(sub);
-      if (raw != 0) face.head_parts.push_back(store.ResolveFrom(RawFormId{raw}, plugin));
+      if (raw != 0)
+        face.head_parts.push_back(store.ResolveFrom(RawFormId{raw}, plugin));
     } else if (sub.type == kTini) {
       NpcTintLayer layer;
       layer.index = ReadAt<u16>(sub);
       face.tint_layers.push_back(layer);
     } else if (sub.type == kTinc && !face.tint_layers.empty()) {
-      if (sub.data.size() >= 4) std::memcpy(face.tint_layers.back().color, sub.data.data(), 4);
+      if (sub.data.size() >= 4)
+        std::memcpy(face.tint_layers.back().color, sub.data.data(), 4);
     } else if (sub.type == kTinv && !face.tint_layers.empty()) {
       face.tint_layers.back().interpolation = ReadAt<u32>(sub);
     } else if (sub.type == kTias && !face.tint_layers.empty()) {
@@ -193,8 +213,10 @@ static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, 
   if (use_traits && template_form.plugin != 0xffff && depth < 8) {
     if (auto tmpl = ResolveNpcFaceImpl(store, template_form, depth + 1)) {
       face.female = tmpl->female;  // sex is a trait
-      if (face.race.plugin == 0xffff) face.race = tmpl->race;
-      if (face.head_parts.empty()) face.head_parts = tmpl->head_parts;
+      if (face.race.plugin == 0xffff)
+        face.race = tmpl->race;
+      if (face.head_parts.empty())
+        face.head_parts = tmpl->head_parts;
       if (!face.has_face_morph && tmpl->has_face_morph) {
         std::memcpy(face.face_morph, tmpl->face_morph, sizeof(face.face_morph));
         face.has_face_morph = true;
@@ -203,13 +225,16 @@ static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, 
         std::memcpy(face.face_parts, tmpl->face_parts, sizeof(face.face_parts));
         face.has_face_parts = true;
       }
-      if (face.hair_color.plugin == 0xffff) face.hair_color = tmpl->hair_color;
-      if (face.face_texture_set.plugin == 0xffff) face.face_texture_set = tmpl->face_texture_set;
+      if (face.hair_color.plugin == 0xffff)
+        face.hair_color = tmpl->hair_color;
+      if (face.face_texture_set.plugin == 0xffff)
+        face.face_texture_set = tmpl->face_texture_set;
       if (!face.has_skin_tone && tmpl->has_skin_tone) {
         std::memcpy(face.skin_tone, tmpl->skin_tone, sizeof(face.skin_tone));
         face.has_skin_tone = true;
       }
-      if (face.tint_layers.empty()) face.tint_layers = tmpl->tint_layers;
+      if (face.tint_layers.empty())
+        face.tint_layers = tmpl->tint_layers;
     }
   }
   return face;
@@ -221,9 +246,11 @@ base::Optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormI
 
 base::Optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('R', 'A', 'C', 'E')) return base::nullopt;
+  if (!stored || stored->header.type != FourCc('R', 'A', 'C', 'E'))
+    return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return base::nullopt;
+  if (!store.Parse(id, &rec))
+    return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   RaceHeadData race;
@@ -241,7 +268,8 @@ base::Optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalFor
       in_head = true;
       continue;
     }
-    if (!in_head) continue;
+    if (!in_head)
+      continue;
     if (sub.type == kMnam) {
       sex = &race.male;
     } else if (sub.type == kFnam) {

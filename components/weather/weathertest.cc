@@ -1,9 +1,9 @@
 // weathertest: the deterministic weather selection + cross-fade logic that maps
 // a Bethesda-style climate (weighted weather list) onto our physical pipeline.
 // No game data, so it runs in the default ctest gate.
+#include <base/algorithm.h>
 #include <cmath>
 #include <cstdio>
-#include <base/algorithm.h>
 
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
@@ -25,7 +25,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-52s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // A single-weather climate is constant.
@@ -34,7 +35,8 @@ int main() {
   clear.set_seed(1234);
   bool constant = true;
   for (int i = 0; i < 200; ++i)
-    if (clear.At(i * 0.31).cloud_coverage > 0.3f) constant = false;
+    if (clear.At(i * 0.31).cloud_coverage > 0.3f)
+      constant = false;
   check("single-weather climate is constant", constant);
 
   // The weighted distribution roughly matches the chances over many slots.
@@ -70,7 +72,8 @@ int main() {
     double slot_days = 5.0 / 24.0;
     const WeatherDef& a = clim.Current((s + 0.5) * slot_days);
     const WeatherDef& b = clim.Current((s + 1.5) * slot_days);
-    if (a.kind == b.kind) continue;
+    if (a.kind == b.kind)
+      continue;
     double t_days = (s + (1.0 - tr * 0.5)) * slot_days;  // middle of the cross-fade
     WeatherState mid = clim.At(t_days);
     float lo = base::Min(a.cloud_coverage, b.cloud_coverage);

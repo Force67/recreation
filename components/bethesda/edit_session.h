@@ -87,7 +87,9 @@ class EditSession {
   // assigned u32 string id instead of inline text. Marks the output localized;
   // Save then writes the strings/<plugin>_<language>.* files and sets the
   // localized flag. The id space is shared across the three files.
-  bool SetLocalizedString(GlobalFormId handle, u32 field_type, base::StringRef text,
+  bool SetLocalizedString(GlobalFormId handle,
+                          u32 field_type,
+                          base::StringRef text,
                           StringFile file = StringFile::kStrings);
   // Writes a single form-id field, encoding `target` with Ref.
   bool SetReference(GlobalFormId handle, u32 field_type, GlobalFormId target);
@@ -110,7 +112,9 @@ class EditSession {
   // Places a reference inside an exterior cell of a worldspace. The cell must
   // carry an XCLC grid field (SetField with the cell's grid coordinates); the
   // block/sub-block groups are derived from it.
-  bool PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell, GlobalFormId reference,
+  bool PlaceInExteriorCell(GlobalFormId worldspace,
+                           GlobalFormId cell,
+                           GlobalFormId reference,
                            bool persistent = false);
 
   // Serializes the override plugin to disk.

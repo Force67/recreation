@@ -3,9 +3,9 @@
 
 #include "asset/asset_id.h"
 #include "components/bethesda/form_id.h"
+#include "components/world/prop_streaming.h"
 #include "core/types.h"
 #include "scene/components.h"
-#include "components/world/prop_streaming.h"
 
 namespace rx::world {
 

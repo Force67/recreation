@@ -10,38 +10,44 @@
 #include "components/bethesda/record.h"
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/strings.h"
-#include "core/types.h"
 #include "components/quest/ctda.h"
+#include "core/types.h"
 
 namespace rx::dialogue {
 namespace {
 
 // A localized subrecord: a 4-byte string id in a localized plugin, inline
 // zero-terminated text otherwise. Mirrors the quest/binding text handling.
-base::String ResolveLString(const bethesda::Subrecord& sub, const bethesda::StringTable* strings,
+base::String ResolveLString(const bethesda::Subrecord& sub,
+                            const bethesda::StringTable* strings,
                             u16 plugin = bethesda::StringTable::kAnyPlugin) {
   if (strings && sub.data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, sub.data.data(), 4);
-    if (const base::String* s = strings->Find(string_id, plugin)) return base::String(s->c_str());
+    if (const base::String* s = strings->Find(string_id, plugin))
+      return base::String(s->c_str());
   }
   const char* p = reinterpret_cast<const char*>(sub.data.data());
   size_t n = sub.data.size();
   size_t len = 0;
-  while (len < n && p[len] != '\0') ++len;
+  while (len < n && p[len] != '\0')
+    ++len;
   return base::String(p, len);
 }
 
 }  // namespace
 
-Response ParseInfoRecord(const bethesda::Record& record, Handle info,
-                         const base::String& topic_text, const bethesda::StringTable* strings,
+Response ParseInfoRecord(const bethesda::Record& record,
+                         Handle info,
+                         const base::String& topic_text,
+                         const bethesda::StringTable* strings,
                          u16 plugin) {
   Response out;
   out.info = info;
   if (const bethesda::Subrecord* rnam = record.Find(FourCc('R', 'N', 'A', 'M')))
     out.player_line = ResolveLString(*rnam, strings, plugin);
-  if (out.player_line.empty()) out.player_line = topic_text;
+  if (out.player_line.empty())
+    out.player_line = topic_text;
   // The response text is the first NAM1 (one per response row, after its TRDT).
   if (const bethesda::Subrecord* nam1 = record.Find(FourCc('N', 'A', 'M', '1')))
     out.npc_line = ResolveLString(*nam1, strings, plugin);
@@ -70,17 +76,21 @@ base::Vector<Response> AvailableResponses(const base::Vector<Topic>& topics,
   base::Vector<Response> out;
   for (const Topic& topic : topics)
     for (const Response& response : topic.responses)
-      if (ResponseAvailable(response, ctx)) out.push_back(response);
+      if (ResponseAvailable(response, ctx))
+        out.push_back(response);
   return out;
 }
 
-Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId dial,
+Topic ParseTopic(const bethesda::RecordStore& records,
+                 bethesda::GlobalFormId dial,
                  const bethesda::StringTable* strings) {
   Topic out;
   const bethesda::RecordStore::StoredRecord* stored = records.Find(dial);
-  if (!stored || stored->header.type != FourCc('D', 'I', 'A', 'L')) return out;
+  if (!stored || stored->header.type != FourCc('D', 'I', 'A', 'L'))
+    return out;
   bethesda::Record record;
-  if (!records.Parse(dial, &record)) return out;
+  if (!records.Parse(dial, &record))
+    return out;
 
   out.dial = dial.packed();
   out.editor_id = record.GetString(FourCc('E', 'D', 'I', 'D'));
@@ -104,7 +114,8 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
       bethesda::GlobalFormId info{static_cast<u16>(packed >> 32),
                                   static_cast<u32>(packed & 0xffffffffu)};
       bethesda::Record info_record;
-      if (!records.Parse(info, &info_record)) continue;
+      if (!records.Parse(info, &info_record))
+        continue;
       const bethesda::RecordStore::StoredRecord* info_stored = records.Find(info);
       Response response = ParseInfoRecord(info_record, packed, out.text, strings,
                                           info_stored ? info_stored->winning_plugin : info.plugin);
@@ -125,13 +136,16 @@ void DialogueDb::Build(const bethesda::RecordStore& records) {
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
         ++topic_count_;
         bethesda::Record record;
-        if (!records.Parse(id, &record)) return;
+        if (!records.Parse(id, &record))
+          return;
         const bethesda::Subrecord* qnam = record.Find(FourCc('Q', 'N', 'A', 'M'));
-        if (!qnam || qnam->data.size() < 4) return;
+        if (!qnam || qnam->data.size() < 4)
+          return;
         u32 raw;
         std::memcpy(&raw, qnam->data.data(), 4);
         u64 quest = records.ResolveFrom(bethesda::RawFormId{raw}, stored.winning_plugin).packed();
-        if (quest != 0) by_quest_[quest].push_back(id.packed());
+        if (quest != 0)
+          by_quest_[quest].push_back(id.packed());
       });
 }
 

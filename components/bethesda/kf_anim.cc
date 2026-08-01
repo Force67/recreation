@@ -60,7 +60,8 @@ struct TransformKeys {
 // translation, scale) each with their own interpolation type.
 bool ReadTransformData(Reader& r, TransformKeys* out) {
   u32 rot_count = r.Read<u32>();
-  if (!r.ok || rot_count > (1u << 20)) return false;
+  if (!r.ok || rot_count > (1u << 20))
+    return false;
   u32 rot_type = rot_count > 0 ? r.Read<u32>() : 1;
   if (rot_type == 4) {
     // XYZ rotations: three separate float curves rather than quaternion keys.
@@ -68,7 +69,8 @@ bool ReadTransformData(Reader& r, TransformKeys* out) {
     r.Skip(4);  // unused float
     for (int axis = 0; axis < 3; ++axis) {
       u32 count = r.Read<u32>();
-      if (!r.ok || count > (1u << 20)) return false;
+      if (!r.ok || count > (1u << 20))
+        return false;
       u32 type = count > 0 ? r.Read<u32>() : 1;
       for (u32 i = 0; i < count; ++i) {
         r.Skip(8);  // time + value
@@ -89,14 +91,17 @@ bool ReadTransformData(Reader& r, TransformKeys* out) {
       key.q[1] = r.Read<f32>();
       key.q[2] = r.Read<f32>();
       key.q[3] = w;
-      if (rot_type == 3) r.Skip(12);  // tbc
-      if (!r.ok) return false;
+      if (rot_type == 3)
+        r.Skip(12);  // tbc
+      if (!r.ok)
+        return false;
       out->rot.push_back(key);
     }
   }
 
   u32 pos_count = r.Read<u32>();
-  if (!r.ok || pos_count > (1u << 20)) return false;
+  if (!r.ok || pos_count > (1u << 20))
+    return false;
   u32 pos_type = pos_count > 0 ? r.Read<u32>() : 1;
   out->pos.reserve(pos_count);
   for (u32 i = 0; i < pos_count; ++i) {
@@ -109,7 +114,8 @@ bool ReadTransformData(Reader& r, TransformKeys* out) {
       r.Skip(24);  // in/out tangents
     else if (pos_type == 3)
       r.Skip(12);  // tbc
-    if (!r.ok) return false;
+    if (!r.ok)
+      return false;
     out->pos.push_back(key);
   }
   // Scale keys follow; the engine's pose has uniform scale it does not animate.
@@ -155,21 +161,31 @@ void CubicBasis(f32 u, f32 out[4]) {
 // Evaluates one `components`-wide quantized B-spline channel at normalized time
 // t in [0, 1]. The control points are interleaved per component and stored as
 // shorts scaled by (multiplier, bias).
-void EvalBSpline(const base::Vector<i16>& points, u32 offset, u32 control_count, u32 components,
-                 f32 bias, f32 multiplier, f32 t, f32* out) {
-  for (u32 c = 0; c < components; ++c) out[c] = 0;
-  if (control_count < 4) return;
+void EvalBSpline(const base::Vector<i16>& points,
+                 u32 offset,
+                 u32 control_count,
+                 u32 components,
+                 f32 bias,
+                 f32 multiplier,
+                 f32 t,
+                 f32* out) {
+  for (u32 c = 0; c < components; ++c)
+    out[c] = 0;
+  if (control_count < 4)
+    return;
   u32 segments = control_count - 3;
   f32 scaled = t * static_cast<f32>(segments);
   u32 segment = static_cast<u32>(scaled);
-  if (segment >= segments) segment = segments - 1;
+  if (segment >= segments)
+    segment = segments - 1;
   f32 u = scaled - static_cast<f32>(segment);
   f32 basis[4];
   CubicBasis(u, basis);
   for (u32 k = 0; k < 4; ++k) {
     u32 index = offset + (segment + k) * components;
     for (u32 c = 0; c < components; ++c) {
-      if (index + c >= points.size()) return;
+      if (index + c >= points.size())
+        return;
       f32 value = static_cast<f32>(points[index + c]) / 32767.0f * multiplier + bias;
       out[c] += basis[k] * value;
     }
@@ -183,17 +199,22 @@ void Normalize(f32 q[4]) {
     q[3] = 1;
     return;
   }
-  for (int i = 0; i < 4; ++i) q[i] /= len;
+  for (int i = 0; i < 4; ++i)
+    q[i] /= len;
 }
 
 }  // namespace
 
-bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton& skeleton,
+bool ConvertKfAnimation(ByteSpan data,
+                        asset::AssetId id,
+                        const asset::Skeleton& skeleton,
                         asset::AnimationClip* out) {
   auto header = ParseNifHeader(data);
-  if (!header) return false;
+  if (!header)
+    return false;
   u32 block_count = static_cast<u32>(header->block_sizes.size());
-  if (block_count == 0) return false;
+  if (block_count == 0)
+    return false;
 
   auto block_type = [&](u32 index) -> const base::String& {
     return header->block_types[header->block_type_index[index]];
@@ -202,7 +223,8 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     return Reader{data.subspan(header->block_offsets[index], header->block_sizes[index])};
   };
   auto string_at = [&](i32 index) -> base::String {
-    if (index < 0 || static_cast<u32>(index) >= header->strings.size()) return {};
+    if (index < 0 || static_cast<u32>(index) >= header->strings.size())
+      return {};
     return header->strings[index];
   };
 
@@ -216,22 +238,29 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       Reader r = block_reader(i);
       BSplineData out_data;
       u32 float_count = r.Read<u32>();
-      if (!r.ok || float_count > (1u << 22)) continue;
+      if (!r.ok || float_count > (1u << 22))
+        continue;
       out_data.floats.reserve(float_count);
-      for (u32 f = 0; f < float_count && r.ok; ++f) out_data.floats.push_back(r.Read<f32>());
+      for (u32 f = 0; f < float_count && r.ok; ++f)
+        out_data.floats.push_back(r.Read<f32>());
       u32 short_count = r.Read<u32>();
-      if (!r.ok || short_count > (1u << 24)) continue;
+      if (!r.ok || short_count > (1u << 24))
+        continue;
       out_data.shorts.reserve(short_count);
-      for (u32 s = 0; s < short_count && r.ok; ++s) out_data.shorts.push_back(r.Read<i16>());
-      if (r.ok) spline_data.emplace(i, base::move(out_data));
+      for (u32 s = 0; s < short_count && r.ok; ++s)
+        out_data.shorts.push_back(r.Read<i16>());
+      if (r.ok)
+        spline_data.emplace(i, base::move(out_data));
     } else if (type == "NiBSplineBasisData") {
       Reader r = block_reader(i);
       u32 count = r.Read<u32>();
-      if (r.ok) basis_counts.emplace(i, count);
+      if (r.ok)
+        basis_counts.emplace(i, count);
     } else if (type == "NiTransformData" || type == "NiKeyframeData") {
       Reader r = block_reader(i);
       TransformKeys keys;
-      if (ReadTransformData(r, &keys)) transform_data.emplace(i, base::move(keys));
+      if (ReadTransformData(r, &keys))
+        transform_data.emplace(i, base::move(keys));
     }
   }
 
@@ -247,7 +276,8 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       interp.stop_time = r.Read<f32>();
       interp.spline_data = r.Read<i32>();
       interp.basis_data = r.Read<i32>();
-      for (f32& v : interp.translation) v = r.Read<f32>();
+      for (f32& v : interp.translation)
+        v = r.Read<f32>();
       // Quaternion is w-first on disk.
       f32 w = r.Read<f32>();
       interp.rotation[0] = r.Read<f32>();
@@ -264,14 +294,16 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       interp.rotation_multiplier = r.Read<f32>();
       interp.scale_bias = r.Read<f32>();
       interp.scale_multiplier = r.Read<f32>();
-      if (r.ok) bspline_interps.emplace(i, interp);
+      if (r.ok)
+        bspline_interps.emplace(i, interp);
     } else if (type == "NiTransformInterpolator") {
       Reader r = block_reader(i);
       r.Skip(12);  // static translation
       r.Skip(16);  // static rotation
       r.Skip(4);   // static scale
       i32 keys = r.Read<i32>();
-      if (r.ok) transform_interps.emplace(i, keys);
+      if (r.ok)
+        transform_interps.emplace(i, keys);
     }
   }
 
@@ -283,13 +315,15 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       break;
     }
   }
-  if (sequence < 0) return false;
+  if (sequence < 0)
+    return false;
 
   Reader r = block_reader(static_cast<u32>(sequence));
   i32 name_index = r.Read<i32>();
   u32 controlled_count = r.Read<u32>();
   r.Skip(4);  // array grow by
-  if (!r.ok || controlled_count > 4096) return false;
+  if (!r.ok || controlled_count > 4096)
+    return false;
   base::Vector<ControlledBlock> controlled;
   controlled.reserve(controlled_count);
   for (u32 i = 0; i < controlled_count; ++i) {
@@ -302,7 +336,8 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     r.Skip(4);  // controller type
     r.Skip(4);  // controller id
     r.Skip(4);  // interpolator id
-    if (!r.ok) return false;
+    if (!r.ok)
+      return false;
     controlled.push_back(block);
   }
   r.Skip(4);  // weight
@@ -311,10 +346,12 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   r.Skip(4);  // frequency
   f32 start_time = r.Read<f32>();
   f32 stop_time = r.Read<f32>();
-  if (!r.ok) return false;
+  if (!r.ok)
+    return false;
 
   f32 duration = stop_time - start_time;
-  if (!(duration > 0) || duration > 3600.0f) return false;
+  if (!(duration > 0) || duration > 3600.0f)
+    return false;
 
   out->id = id;
   out->duration = duration;
@@ -322,15 +359,20 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   out->tracks.clear();
 
   u32 sample_count = static_cast<u32>(duration * kKfBakeRate) + 1;
-  if (sample_count < 2) sample_count = 2;
-  if (sample_count > 4096) sample_count = 4096;
+  if (sample_count < 2)
+    sample_count = 2;
+  if (sample_count > 4096)
+    sample_count = 4096;
 
   for (const ControlledBlock& block : controlled) {
     base::String bone_name = string_at(block.node_name);
-    if (bone_name.empty()) continue;
+    if (bone_name.empty())
+      continue;
     i32 bone = skeleton.Find(bone_name);
-    if (bone < 0) continue;  // the clip drives a bone this skeleton lacks
-    if (block.interpolator < 0) continue;
+    if (bone < 0)
+      continue;  // the clip drives a bone this skeleton lacks
+    if (block.interpolator < 0)
+      continue;
     u32 interp_block = static_cast<u32>(block.interpolator);
 
     asset::BoneTrack track;
@@ -343,10 +385,12 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       const u32* control_count = interp->basis_data >= 0
                                      ? basis_counts.find(static_cast<u32>(interp->basis_data))
                                      : nullptr;
-      if (!curve || !control_count) continue;
+      if (!curve || !control_count)
+        continue;
       bool has_rot = interp->rotation_offset != kNoOffset;
       bool has_pos = interp->translation_offset != kNoOffset;
-      if (!has_rot && !has_pos) continue;
+      if (!has_rot && !has_pos)
+        continue;
       for (u32 s = 0; s < sample_count; ++s) {
         f32 t = static_cast<f32>(s) / static_cast<f32>(sample_count - 1);
         if (has_rot) {
@@ -374,12 +418,15 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     } else if (const i32* keys_block = transform_interps.find(interp_block)) {
       const TransformKeys* keys =
           *keys_block >= 0 ? transform_data.find(static_cast<u32>(*keys_block)) : nullptr;
-      if (!keys) continue;
+      if (!keys)
+        continue;
       track.rot = keys->rot;
       track.pos = keys->pos;
       // Keys are absolute clip times; rebase so the track starts at zero.
-      for (asset::RotKey& key : track.rot) key.time -= start_time;
-      for (asset::PosKey& key : track.pos) key.time -= start_time;
+      for (asset::RotKey& key : track.rot)
+        key.time -= start_time;
+      for (asset::PosKey& key : track.pos)
+        key.time -= start_time;
     } else {
       continue;
     }
@@ -388,9 +435,11 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     // Bip01 the full stride length). That is root MOTION, not pose: applying it
     // would fling the actor around while the engine separately owns where it
     // stands, so keep the rotation and drop the translation to animate in place.
-    if (bone_name == "Bip01" || bone_name == "Bip01 NonAccum") track.pos.clear();
+    if (bone_name == "Bip01" || bone_name == "Bip01 NonAccum")
+      track.pos.clear();
 
-    if (track.rot.empty() && track.pos.empty()) continue;
+    if (track.rot.empty() && track.pos.empty())
+      continue;
     out->tracks.push_back(base::move(track));
   }
 

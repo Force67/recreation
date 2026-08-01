@@ -3,12 +3,14 @@
 
 namespace rx::script::skyrim {
 
+using ext::ArgB;
+using ext::ArgI;
+using ext::ArgO;
+using ext::Args;
+using ext::Resolve;
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using ext::Args;
-using ext::ArgB; using ext::ArgI; using ext::ArgO;
-using ext::Resolve;
 namespace st = state;
 
 void RegisterFactionExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -22,9 +24,11 @@ void RegisterFactionExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Faction", "GetCrimeGoldViolent", [](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(st::GetInt(self, "crimeGoldViolent"));
   });
-  reg.Register("Faction", "GetCrimeGoldNonViolent", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(Resolve(bindings).GetCrimeGold(self) - st::GetInt(self, "crimeGoldViolent"));
-  });
+  reg.Register("Faction", "GetCrimeGoldNonViolent",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetCrimeGold(self) -
+                                   st::GetInt(self, "crimeGoldViolent"));
+               });
 
   // Infamy and stolen-item bookkeeping have no engine source yet.
   auto zero = [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); };

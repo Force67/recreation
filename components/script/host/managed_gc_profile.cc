@@ -23,7 +23,8 @@ const char* Env(const char* name) {
 
 bool EnvTruthy(const char* name) {
   const char* v = Env(name);
-  if (!v) return false;
+  if (!v)
+    return false;
   const base::String s = Lower(v);
   return s == "1" || s == "true" || s == "yes" || s == "on";
 }
@@ -44,9 +45,11 @@ void Set(base::Vector<GcProperty>& props, const base::String& name, const base::
 base::String ResolveGcProfileName(std::int32_t realm) {
   if (const char* forced = Env("RECREATION_MANAGED_GC")) {
     const base::String name = Lower(forced);
-    if (name == "server" || name == "constrained" || name == "desktop") return name;
+    if (name == "server" || name == "constrained" || name == "desktop")
+      return name;
   }
-  if (realm == 0) return "server";  // dedicated host
+  if (realm == 0)
+    return "server";  // dedicated host
 #if defined(__ANDROID__)
   return "constrained";
 #else
@@ -83,7 +86,8 @@ base::Vector<GcProperty> ManagedGcProfile(const base::String& name) {
     Set(props, "System.GC.HeapHardLimitPercent", pct);
   if (const char* conserve = Env("RECREATION_MANAGED_GC_CONSERVE"))
     Set(props, "System.GC.ConserveMemory", conserve);
-  if (EnvTruthy("RECREATION_MANAGED_GC_SERVER")) Set(props, "System.GC.Server", "true");
+  if (EnvTruthy("RECREATION_MANAGED_GC_SERVER"))
+    Set(props, "System.GC.Server", "true");
 
   return props;
 }

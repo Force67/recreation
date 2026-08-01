@@ -25,7 +25,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Minimal reimplementation of StringTable::LoadFile over a raw byte buffer,
@@ -34,28 +35,33 @@ void Check(const char* what, bool ok) {
 base::Map<u32, base::String> Parse(const base::Vector<u8>& bytes, bool length_prefixed, bool* ok) {
   base::Map<u32, base::String> out;
   *ok = false;
-  if (bytes.size() < 8) return out;
+  if (bytes.size() < 8)
+    return out;
 
   u32 count = 0, data_size = 0;
   std::memcpy(&count, bytes.data(), 4);
   std::memcpy(&data_size, bytes.data() + 4, 4);
 
   size_t directory_end = 8 + static_cast<size_t>(count) * 8;
-  if (bytes.size() < directory_end + data_size) return out;
+  if (bytes.size() < directory_end + data_size)
+    return out;
 
   for (u32 i = 0; i < count; ++i) {
     u32 id = 0, offset = 0;
     std::memcpy(&id, bytes.data() + 8 + i * 8, 4);
     std::memcpy(&offset, bytes.data() + 8 + i * 8 + 4, 4);
     size_t pos = directory_end + offset;
-    if (pos >= bytes.size()) continue;
+    if (pos >= bytes.size())
+      continue;
 
     const char* start = reinterpret_cast<const char*>(bytes.data() + pos);
     if (length_prefixed) {
-      if (pos + 4 > bytes.size()) continue;
+      if (pos + 4 > bytes.size())
+        continue;
       u32 length = 0;
       std::memcpy(&length, start, 4);
-      if (pos + 4 + length > bytes.size()) continue;
+      if (pos + 4 + length > bytes.size())
+        continue;
       out[id] = base::String(start + 4, length > 0 ? length - 1 : 0);
     } else {
       size_t max_length = bytes.size() - pos;
@@ -105,7 +111,8 @@ void RunVariant(const char* label, bool length_prefixed, const base::String& dir
   // Header sanity: count field matches the number of directory entries.
   Check("has header", bytes.size() >= 8);
   u32 count = 0;
-  if (bytes.size() >= 8) std::memcpy(&count, bytes.data(), 4);
+  if (bytes.size() >= 8)
+    std::memcpy(&count, bytes.data(), 4);
   Check("header count == 5", count == 5);
 
   bool parsed_ok = false;

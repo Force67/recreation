@@ -1,16 +1,16 @@
 #ifndef RECREATION_RUNTIME_UI_PLATFORM_HUD_H_
 #define RECREATION_RUNTIME_UI_PLATFORM_HUD_H_
 
-#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/deque.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
-#include "core/types.h"
 #include "components/script/papyrus/value.h"
+#include "core/types.h"
 
 namespace rx {
 
@@ -96,7 +96,8 @@ class PlatformHud {
  public:
   // Guest thread: route one platform call into HUD state. Unknown (type, func)
   // pairs are ignored, so the surface can grow without the guest changing.
-  void Submit(const base::String& type, const base::String& func,
+  void Submit(const base::String& type,
+              const base::String& func,
               const base::Vector<script::papyrus::Value>& args);
 
   // Main thread: take the notices / chat lines queued since the previous drain.

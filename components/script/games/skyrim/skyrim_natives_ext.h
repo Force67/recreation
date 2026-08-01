@@ -4,10 +4,10 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
 #include "components/script/papyrus/native.h"
 #include "components/script/papyrus/value.h"
+#include "core/types.h"
 
 // Additional native batches, one registration function per domain, each in its
 // own .cc so they can be developed independently. RegisterSkyrimNatives calls
@@ -18,8 +18,12 @@ namespace rx::script::skyrim {
 namespace ext {
 using Args = base::Vector<papyrus::Value>;
 
-inline f32 ArgF(const Args& a, size_t i) { return i < a.size() ? a[i].ToFloat() : 0.0f; }
-inline i32 ArgI(const Args& a, size_t i) { return i < a.size() ? a[i].ToInt() : 0; }
+inline f32 ArgF(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToFloat() : 0.0f;
+}
+inline i32 ArgI(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToInt() : 0;
+}
 inline bool ArgB(const Args& a, size_t i, bool fallback) {
   return i < a.size() ? a[i].ToBool() : fallback;
 }

@@ -19,7 +19,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 f32 Dist(const f32 a[3], const f32 b[3]) {
@@ -85,7 +86,8 @@ void TestDirector() {
   mono.set_max_shot(3.0f);
   mono.Update(0.016f, 7, 8);
   bool cut = false;
-  for (int i = 0; i < 400 && !cut; ++i) cut = mono.Update(0.016f, 7, 8);
+  for (int i = 0; i < 400 && !cut; ++i)
+    cut = mono.Update(0.016f, 7, 8);
   Check("a long hold cuts to another angle", cut);
 
   mono.Reset();
@@ -101,7 +103,8 @@ void TestEase() {
   const CineFraming mid = EaseFraming(from, to, 0.1f, 6.0f);
   Check("easing moves toward the goal without arriving", mid.eye[0] > 0.0f && mid.eye[0] < 10.0f);
   CineFraming cur = from;
-  for (int i = 0; i < 200; ++i) cur = EaseFraming(cur, to, 0.016f, 6.0f);
+  for (int i = 0; i < 200; ++i)
+    cur = EaseFraming(cur, to, 0.016f, 6.0f);
   Check("and converges on it",
         std::fabs(cur.eye[0] - 10.0f) < 0.05f && std::fabs(cur.target[1] - 4.0f) < 0.05f);
 }
@@ -109,8 +112,12 @@ void TestEase() {
 void TestPushIn() {
   std::puts("cine camera (push-in while a shot is held):");
   CineFraming shot;
-  shot.eye[0] = 0; shot.eye[1] = 2; shot.eye[2] = 4;
-  shot.target[0] = 0; shot.target[1] = 2; shot.target[2] = 0;
+  shot.eye[0] = 0;
+  shot.eye[1] = 2;
+  shot.eye[2] = 4;
+  shot.target[0] = 0;
+  shot.target[1] = 2;
+  shot.target[2] = 0;
   const CineFraming at_cut = PushIn(shot, 0.0f);
   Check("a fresh shot is the solved framing", std::fabs(at_cut.eye[2] - 4.0f) < 1e-4f);
   const CineFraming held = PushIn(shot, 4.0f);

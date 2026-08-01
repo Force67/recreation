@@ -14,10 +14,13 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-bool Near(float a, float b) { return std::fabs(a - b) < 1e-4f; }
+bool Near(float a, float b) {
+  return std::fabs(a - b) < 1e-4f;
+}
 
 }  // namespace
 
@@ -25,8 +28,8 @@ int main() {
   const float goal[3] = {0, 0, 1};  // travel toward +z
   // Goal fanned dead-ahead, right, left (all unit XZ vectors).
   const float cands[9] = {
-      0, 0, 1,   // +z, toward goal
-      1, 0, 0,   // +x, right
+      0,  0, 1,  // +z, toward goal
+      1,  0, 0,  // +x, right
       -1, 0, 0,  // -x, left
   };
 

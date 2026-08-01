@@ -5,8 +5,8 @@
 #include <cmath>
 #include <cstdio>
 
-#include "core/world_clock.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
+#include "core/world_clock.h"
 
 using rx::ComputeSkyLighting;
 using rx::SkyLighting;
@@ -18,7 +18,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-52s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
   auto approx = [](rx::f32 a, rx::f32 b) { return std::fabs(a - b) < 1e-3f; };
 
@@ -31,8 +32,8 @@ int main() {
   check("game_days advanced by 20/24", std::fabs(clock.game_days() - (32.0 / 24.0)) < 1e-6);
   check("real_hours tracks wall clock", approx(clock.real_hours(), 1.0f));
   clock.set_hour(0.0f);
-  check("set_hour 0 -> midnight, keeps day count", approx(clock.hour(), 0.0f) &&
-                                                       std::floor(clock.game_days()) == 1.0);
+  check("set_hour 0 -> midnight, keeps day count",
+        approx(clock.hour(), 0.0f) && std::floor(clock.game_days()) == 1.0);
   clock.set_timescale(0.0f);
   clock.Advance(3600.0);
   check("timescale 0 freezes game time", approx(clock.hour(), 0.0f));

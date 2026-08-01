@@ -7,8 +7,8 @@
 
 #include <cstdio>
 
-#include "core/types.h"
 #include "components/quest/scene.h"
+#include "core/types.h"
 
 using namespace rx;
 // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
@@ -22,7 +22,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 // Records every side effect and lets the test script the query answers:
@@ -189,7 +190,8 @@ void TestFullScene() {
   SceneRunner runner(&scene);
 
   int guard = 0;
-  while (runner.Tick(sink, 0.1f) && guard < 100) ++guard;
+  while (runner.Tick(sink, 0.1f) && guard < 100)
+    ++guard;
   Check("scene ran to completion", !runner.running());
   Check("did not spin", guard < 100);
 
@@ -237,7 +239,8 @@ void TestReset() {
   runner.Reset(&scene);
   Check("reset rewinds to action 0", runner.current_action() == 0);
   Check("running again after reset", runner.running());
-  while (runner.Tick(sink, 0.1f)) {}
+  while (runner.Tick(sink, 0.1f)) {
+  }
   Check("replay re-ran both stages", sink.staged.size() == 3);
   Check("replay set stages 1 then 2", sink.staged[1] == base::MakePair<rx::u64, i32>(0x1, 1) &&
                                           sink.staged[2] == base::MakePair<rx::u64, i32>(0x1, 2));

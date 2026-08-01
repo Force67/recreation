@@ -11,18 +11,18 @@
 #include <memory>
 
 #include "anim/locomotion.h"
-#include "components/bethesda/animation_data.h"
-#include "components/bethesda/hkx_anim.h"
-#include "components/bethesda/hkx_physics.h"
 #include "anim/pose.h"
 #include "asset/asset_database.h"
 #include "asset/skeleton.h"
+#include "components/bethesda/animation_data.h"
+#include "components/bethesda/hkx_anim.h"
+#include "components/bethesda/hkx_physics.h"
 #include "core/math.h"
 #include "ecs/world.h"
-#include "runtime/app/engine_context.h"
-#include "runtime/character/face.h"
 #include "physics/physics_world.h"
 #include "render/core/renderer.h"
+#include "runtime/app/engine_context.h"
+#include "runtime/character/face.h"
 
 namespace rx {
 
@@ -97,8 +97,10 @@ class ActorSystem {
   // legs) but the caller owns its world position, driving the returned entity's
   // world::Transform each step. Returns a dead entity if the rig data is
   // absent, so callers fall back to a graybox. Used by the carriage horse.
-  ecs::Entity SpawnCreatureNpc(const base::String& name, const base::String& clip_override,
-                               const Vec3& position, f32 yaw);
+  ecs::Entity SpawnCreatureNpc(const base::String& name,
+                               const base::String& clip_override,
+                               const Vec3& position,
+                               f32 yaw);
   // Spawns a human NPC the caller drives: a full actor wearing `base`'s
   // assembled FaceGen head and holding `clip_path` on a loop. `outfit` is a
   // LoadActorTemplate soldier kind (0 bare, 1 imperial, 2 stormcloak). Like
@@ -107,8 +109,11 @@ class ActorSystem {
   // with, which is how a furniture animation seats an actor. Used by the Helgen
   // intro to fill the cart with the game's own cart-prisoner idles. Returns a
   // dead entity when the body assets are unavailable.
-  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base, const base::String& clip_path,
-                               const Vec3& position, f32 yaw, int outfit = 0);
+  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base,
+                               const base::String& clip_path,
+                               const Vec3& position,
+                               f32 yaw,
+                               int outfit = 0);
 
   // --- Per-frame ---
   void Update(f32 dt);                      // advance gaits + bone matrices
@@ -261,17 +266,22 @@ class ActorSystem {
   // without creating an entity; the shared rig-load behind CreateCreatureActor
   // and SpawnCreatureNpc.
   bool LoadCreatureRig(const base::String& name, const base::String& clip_override, Actor* out);
-  bool PlayHavokClip(Actor& actor, const base::String& animation_path,
-                     const base::String& skeleton_hkx_path, const base::String& actor_name);
+  bool PlayHavokClip(Actor& actor,
+                     const base::String& animation_path,
+                     const base::String& skeleton_hkx_path,
+                     const base::String& actor_name);
   // Decodes + transcodes a clip against the actor's skeleton without touching
   // playback state (PlayHavokClip is this plus assign-and-play). Used to preload
   // the clip-cycle / additive layers. Null on a missing or unmatched file.
-  std::shared_ptr<HavokClip> LoadHavokClip(const Actor& actor, const base::String& animation_path,
+  std::shared_ptr<HavokClip> LoadHavokClip(const Actor& actor,
+                                           const base::String& animation_path,
                                            const base::String& skeleton_hkx_path,
                                            const base::String& actor_name);
   // Samples a clip at `time` and maps its tracks into skeleton-bone space (bind
   // pose for untouched bones), through the same kinema/spline paths as the tick.
-  void SampleHavokClipToPose(const Actor& actor, const HavokClip& clip, f32 time,
+  void SampleHavokClipToPose(const Actor& actor,
+                             const HavokClip& clip,
+                             f32 time,
                              anim::SkeletonPose* out);
   // Transcodes a loaded clip into a kinema blob laid out in skeleton-bone order
   // (one track per skeleton bone, untouched bones at bind), so a StateMachine /
@@ -281,7 +291,9 @@ class ActorSystem {
   // from real transcoded clips (cached in character_locomotion_). Null when the
   // clips are missing/undecodable, so callers fall back to the existing path.
   std::shared_ptr<const LocomotionArchetype> BuildCharacterLocomotion(
-      const Actor& actor, const base::String& skeleton_hkx_path, const base::String& actor_name);
+      const Actor& actor,
+      const base::String& skeleton_hkx_path,
+      const base::String& actor_name);
   // Binds an actor to a locomotion archetype: sizes its instance/arena/foot-sync
   // (one-time allocation, no per-frame heap traffic).
   void AttachLocomotion(Actor& actor, std::shared_ptr<const LocomotionArchetype> arch);
@@ -295,7 +307,8 @@ class ActorSystem {
   // Root motion + events for one animation file, resolved through the project
   // data (clip-name match, animation-list index, then unique duration), each
   // gated on the motion duration agreeing with the decoded animation.
-  void ResolveClipMotion(const ProjectAnimData& project, const base::String& animation_path,
+  void ResolveClipMotion(const ProjectAnimData& project,
+                         const base::String& animation_path,
                          HavokClip* clip);
   // Lazily builds + caches the worn-armour template for a battle side (team 1
   // imperial, team 2 stormcloak), falling back to the bare body template.
@@ -315,9 +328,13 @@ class ActorSystem {
   // Builds a strand groom from a hair nif and rides it on the head bone. Replaces
   // the flat card hair when RX_STRAND_HAIR is on. No-op if the nif has no usable
   // geometry.
-  void AttachHairGroom(Actor& actor, const base::String& hair_model, const Vec3& tint,
-                       i32 head_bone, const Mat4& inverse_bind);
-  bool LoadStarfieldActorPart(const base::String& path, Actor& actor,
+  void AttachHairGroom(Actor& actor,
+                       const base::String& hair_model,
+                       const Vec3& tint,
+                       i32 head_bone,
+                       const Mat4& inverse_bind);
+  bool LoadStarfieldActorPart(const base::String& path,
+                              Actor& actor,
                               const bethesda::StarfieldMaterialDb& mat_db);
   base::Vector<base::String> FindHeadPartModels(u32 part_type, u32 max);
   void UpdateOneActor(Actor& actor, f32 dt);

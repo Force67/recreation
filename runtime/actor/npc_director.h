@@ -6,15 +6,15 @@
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 
-#include "core/math.h"
-#include "ecs/world.h"
-#include "runtime/app/engine_context.h"
 #include "components/quest/scene.h"
 #include "components/world/combat.h"
 #include "components/world/components.h"
-#include "runtime/actor/nav_bubble.h"
 #include "components/world/navgrid.h"
 #include "components/world/quest_world.h"
+#include "core/math.h"
+#include "ecs/world.h"
+#include "runtime/actor/nav_bubble.h"
+#include "runtime/app/engine_context.h"
 
 namespace rx {
 
@@ -174,8 +174,14 @@ class NpcDirector {
   };
 
   void AvoidObstacles(const float self_pos[3], const float goal_dir[3], float out_dir[3]);
-  bool StepNpcSteering(ecs::Entity actor, const float goal[3], float pos[3], float rot[4],
-                       float speed, float arrive_radius, float stop_radius, f32 dt);
+  bool StepNpcSteering(ecs::Entity actor,
+                       const float goal[3],
+                       float pos[3],
+                       float rot[4],
+                       float speed,
+                       float arrive_radius,
+                       float stop_radius,
+                       f32 dt);
   // The next waypoint from `from` toward `goal` for actor `nav_id` (a form
   // handle; kPlayerNavId for the player). Exterior streamed terrain routes
   // over the cost-aware rx::nav corridor (event-based repathing); interiors

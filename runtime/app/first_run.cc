@@ -17,8 +17,12 @@
 #ifdef _WIN32
 // MSVC names the pipe helpers _popen/_pclose; the folder picker shells out the
 // same way on every platform (PowerShell on Windows).
-static FILE* popen(const char* cmd, const char* mode) { return _popen(cmd, mode); }
-static int pclose(FILE* stream) { return _pclose(stream); }
+static FILE* popen(const char* cmd, const char* mode) {
+  return _popen(cmd, mode);
+}
+static int pclose(FILE* stream) {
+  return _pclose(stream);
+}
 #endif
 
 // The first-run / out-of-box setup wizard: the front door a fresh install opens
@@ -45,21 +49,28 @@ base::Option<bool> FirstrunAutolaunch{"firstrun.autolaunch", false, "RX_FIRSTRUN
 // $XDG_CONFIG_HOME/recreation (~/.config/recreation).
 fs::path SetupDir() {
 #if defined(_WIN32)
-  if (const char* a = std::getenv("APPDATA")) return fs::path(a) / "Recreation";
+  if (const char* a = std::getenv("APPDATA"))
+    return fs::path(a) / "Recreation";
   return fs::path("Recreation");
 #elif defined(__APPLE__)
   if (const char* h = std::getenv("HOME"))
     return fs::path(h) / "Library" / "Application Support" / "Recreation";
   return fs::path("Recreation");
 #else
-  if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x) return fs::path(x) / "recreation";
-  if (const char* h = std::getenv("HOME")) return fs::path(h) / ".config" / "recreation";
+  if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x)
+    return fs::path(x) / "recreation";
+  if (const char* h = std::getenv("HOME"))
+    return fs::path(h) / ".config" / "recreation";
   return fs::path(".recreation");
 #endif
 }
 
-fs::path SetupFile() { return SetupDir() / "setup.ini"; }
-base::String DefaultModsDir() { return (SetupDir() / "mods").string(); }
+fs::path SetupFile() {
+  return SetupDir() / "setup.ini";
+}
+base::String DefaultModsDir() {
+  return (SetupDir() / "mods").string();
+}
 
 // The three wizard columns, in order, with the env/persist keys and the nicer
 // display name shown on the locate page.
@@ -78,15 +89,18 @@ const GameSpec kGameSpecs[3] = {
 base::Map<base::String, base::String> ReadIni() {
   base::Map<base::String, base::String> kv;
   std::ifstream f(SetupFile());
-  if (!f) return kv;
+  if (!f)
+    return kv;
   // std::getline fills a std::string; each line is copied into a base::String.
   std::string source;
   while (std::getline(f, source)) {
     const base::String line(source.c_str(), source.size());
     const mem_size eq = line.find('=');
-    if (eq == base::String::npos) continue;
+    if (eq == base::String::npos)
+      continue;
     base::String k = line.substr(0, eq), v = line.substr(eq + 1);
-    while (!v.empty() && (v.back() == '\r' || v.back() == '\n')) v.pop_back();
+    while (!v.empty() && (v.back() == '\r' || v.back() == '\n'))
+      v.pop_back();
     kv[k] = v;
   }
   return kv;
@@ -98,20 +112,24 @@ base::Map<base::String, base::String> ReadIni() {
 // macOS, a FolderBrowserDialog via PowerShell on Windows.
 base::String RunPicker(const base::String& cmd) {
   FILE* p = popen(cmd.c_str(), "r");
-  if (!p) return "";
+  if (!p)
+    return "";
   base::String out;
   char buf[1024];
   size_t n;
-  while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
+  while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0)
+    out.append(buf, n);
   pclose(p);
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+  while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
+    out.pop_back();
   return out;
 }
 
 base::String PickFolder(const base::String& title) {
   // Test hook: skip the GUI dialog and return a fixed path. Lets the browse flow
   // run without a display (headless capture, CI).
-  if (const char* o = PickOverride.get()) return o;
+  if (const char* o = PickOverride.get())
+    return o;
 #if defined(_WIN32)
   const base::String cmd =
       "powershell -NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
@@ -136,12 +154,15 @@ base::String PickFolder(const base::String& title) {
 // checked; the returned path is the one that actually contains the master.
 base::String ResolvePickedDataDir(bethesda::Game game, const base::String& picked) {
   const auto& profile = bethesda::GameProfile::For(game);
-  if (profile.base_masters.empty()) return picked;  // unknown game: accept as-is
+  if (profile.base_masters.empty())
+    return picked;  // unknown game: accept as-is
   const base::String master(profile.base_masters[0].c_str());
   std::error_code ec;
-  if (fs::exists(fs::path(picked.c_str()) / master.c_str(), ec)) return picked;
+  if (fs::exists(fs::path(picked.c_str()) / master.c_str(), ec))
+    return picked;
   const fs::path data = fs::path(picked.c_str()) / "Data";
-  if (fs::exists(data / master.c_str(), ec)) return data.string();
+  if (fs::exists(data / master.c_str(), ec))
+    return data.string();
   return "";
 }
 
@@ -153,10 +174,12 @@ base::String ResolvePickedDataDir(bethesda::Game game, const base::String& picke
 void LoadSetupConfig(Engine& engine) {
   Engine* const self = &engine;
   const base::Map<base::String, base::String> kv = ReadIni();
-  if (kv.empty()) return;
+  if (kv.empty())
+    return;
   for (const GameSpec& spec : kGameSpecs) {
     const auto it = kv.find(spec.key);
-    if (it == kv.end() || it->second.empty()) continue;
+    if (it == kv.end() || it->second.empty())
+      continue;
     ExtraDomainConfig d;
     d.game = spec.game;
     d.data_dir = it->second;
@@ -172,7 +195,8 @@ void LoadSetupConfig(Engine& engine) {
 // True once the wizard has been completed (setup.ini exists with done=1).
 // RX_FORCE_FIRST_RUN forces the wizard back on for testing.
 bool FirstRunComplete() {
-  if (ForceFirstRun) return false;
+  if (ForceFirstRun)
+    return false;
   const auto kv = ReadIni();
   const auto it = kv.find("done");
   return it != kv.end() && it->second == "1";
@@ -182,7 +206,8 @@ void SetupFirstRun(Engine& engine) {
   Engine* const self = &engine;
   self->first_run_active_ = true;
   ResolveUniverses(engine);  // pre-detect installed games (config / env / Steam)
-  if (self->first_run_mods_dir_.empty()) self->first_run_mods_dir_ = DefaultModsDir();
+  if (self->first_run_mods_dir_.empty())
+    self->first_run_mods_dir_ = DefaultModsDir();
   self->game_ui_.OpenFirstRun();
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
   RX_INFO("first-run setup wizard open");
@@ -193,7 +218,8 @@ namespace {
 // Persist the wizard's choices and the done marker that suppresses it on later
 // launches. data_dirs holds each column's located path ("" if not found); the
 // privileged caller (Engine::UpdateFirstRun) gathers it from menu_universes_.
-void WriteSetupIni(const base::Array<base::String, 3>& data_dirs, const base::String& mods_dir,
+void WriteSetupIni(const base::Array<base::String, 3>& data_dirs,
+                   const base::String& mods_dir,
                    const FirstRunRequest& r) {
   std::error_code ec;
   fs::create_directories(SetupDir(), ec);
@@ -204,7 +230,8 @@ void WriteSetupIni(const base::Array<base::String, 3>& data_dirs, const base::St
   }
   f << "done=1\n";
   for (int i = 0; i < 3; ++i)
-    if (!data_dirs[i].empty()) f << kGameSpecs[i].key << "=" << data_dirs[i].c_str() << "\n";
+    if (!data_dirs[i].empty())
+      f << kGameSpecs[i].key << "=" << data_dirs[i].c_str() << "\n";
   f << "mods_dir=" << (mods_dir.empty() ? DefaultModsDir() : mods_dir).c_str() << "\n";
   f << "default_mode=" << r.mode << "\n";
   f << "difficulty=" << r.difficulty << "\n";
@@ -223,7 +250,8 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Validate a picked folder to game `idx`'s Data dir and mark it available.
   // Shared by the browse click and the auto-browse test hook below.
   auto accept_folder = [this](int idx, const base::String& picked) {
-    if (idx < 0 || idx >= 3 || picked.empty()) return;
+    if (idx < 0 || idx >= 3 || picked.empty())
+      return;
     MenuUniverse& u = menu_universes_[idx];
     const base::String data = ResolvePickedDataDir(u.game, picked);
     if (data.empty()) {
@@ -249,8 +277,10 @@ void Engine::UpdateFirstRun(f32 dt) {
 
   // Keyboard conveniences: Accept advances the page (the primary button), Cancel
   // steps back / cancels at the first page. The mouse drives everything else.
-  if (actions_->pressed(Action::kMenuAccept)) game_ui_.FirstRunNext();
-  if (actions_->pressed(Action::kMenuCancel)) game_ui_.FirstRunBack();
+  if (actions_->pressed(Action::kMenuAccept))
+    game_ui_.FirstRunNext();
+  if (actions_->pressed(Action::kMenuCancel))
+    game_ui_.FirstRunBack();
 
   // Mirror the resolved games + chosen mods dir into the wizard each frame.
   FirstRunView view;
@@ -267,19 +297,22 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Test hook: RX_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
   // launches, so the setup->main-menu handoff can be verified headlessly. Runs
   // after the view push so the locate-page gate sees any auto-browsed game.
-  if (FirstrunAutolaunch) game_ui_.FirstRunNext();
+  if (FirstrunAutolaunch)
+    game_ui_.FirstRunNext();
 
   const FirstRunRequest req = game_ui_.PollFirstRunRequest();
   switch (req.kind) {
     case FirstRunRequest::Kind::kBrowseGame: {
-      if (req.index < 0 || req.index >= 3) break;
+      if (req.index < 0 || req.index >= 3)
+        break;
       accept_folder(req.index,
                     PickFolder("Locate the " + menu_universes_[req.index].name + " Data folder"));
       break;
     }
     case FirstRunRequest::Kind::kBrowseMods: {
       const base::String p = PickFolder("Choose the Recreation mods directory");
-      if (!p.empty()) first_run_mods_dir_ = p;
+      if (!p.empty())
+        first_run_mods_dir_ = p;
       break;
     }
     case FirstRunRequest::Kind::kLaunch: {
@@ -288,7 +321,8 @@ void Engine::UpdateFirstRun(f32 dt) {
       base::Array<base::String, 3> data_dirs;
       for (int i = 0; i < 3; ++i) {
         const MenuUniverse& u = menu_universes_[i];
-        if (!u.available || u.data_dir.empty()) continue;
+        if (!u.available || u.data_dir.empty())
+          continue;
         data_dirs[i] = u.data_dir;
         ExtraDomainConfig d;
         d.game = kGameSpecs[i].game;

@@ -13,7 +13,9 @@ namespace {
 asset::Vfs* g_vfs = nullptr;
 }  // namespace
 
-void SetVfs(asset::Vfs* vfs) { g_vfs = vfs; }
+void SetVfs(asset::Vfs* vfs) {
+  g_vfs = vfs;
+}
 
 base::Vector<u8> Load(base::StringRef stem, const void* fallback, size_t fallback_size) {
   if (g_vfs) {
@@ -27,7 +29,8 @@ base::Vector<u8> Load(base::StringRef stem, const void* fallback, size_t fallbac
   }
   // No archive mounted, or the entry is absent: hand back the embedded blob.
   base::Vector<u8> out(fallback_size);
-  if (fallback_size) std::memcpy(out.data(), fallback, fallback_size);
+  if (fallback_size)
+    std::memcpy(out.data(), fallback, fallback_size);
   return out;
 }
 

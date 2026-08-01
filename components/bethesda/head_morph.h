@@ -40,7 +40,8 @@ const Nam9Slider& Nam9SliderInfo(u32 index);  // index < kNam9Count
 // requests. NAMA slots 0/2/3 (nose/eyes/mouth) select a NoseType/EyesType/
 // LipType morph at full weight; -1 or 0 = none. Brows (NAMA slot 1) select a
 // separate head part, not a head morph, so are not emitted here.
-void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
+void CollectFaceMorphs(const f32 nam9[kNam9Count],
+                       const i32 nama[4],
                        base::Vector<MorphWeight>* out);
 
 // Applies morphs to a head-part mesh lod in place: the race blend (the morph
@@ -51,8 +52,10 @@ void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
 // mismatch would garble the mesh). Returns true if any morph was applied. Does
 // not recompute normals: call asset::RecomputeNormalsTangents or SubdivideLoop
 // after.
-bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
-                     const base::String& race_morph, const TriMorphSet* chargen_tri,
+bool ApplyHeadMorphs(asset::MeshLod& lod,
+                     const TriMorphSet* race_tri,
+                     const base::String& race_morph,
+                     const TriMorphSet* chargen_tri,
                      const base::Vector<MorphWeight>& chargen);
 
 }  // namespace rx::bethesda

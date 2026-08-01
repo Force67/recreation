@@ -57,7 +57,8 @@ void* g_dispatch_ctx = nullptr;
 // Resolve a packed handle to its live node, or null if stale / unknown.
 WidgetNode* NodeOf(std::uint64_t widget) {
   wid w = Unpack(widget);
-  if (!w.valid()) return nullptr;
+  if (!w.valid())
+    return nullptr;
   World& world = *WidgetRegistry::Active();
   return world.Get<WidgetNode>(w);
 }
@@ -69,23 +70,28 @@ WidgetNode* NodeOf(std::uint64_t widget) {
 namespace {
 
 std::uint64_t OpFind(const char* name) {
-  if (!name) return 0;
+  if (!name)
+    return 0;
   auto* it = Registry().find(name);
   return it != nullptr ? Pack(*it) : 0;
 }
 
 std::int32_t OpGetText(std::uint64_t widget, char* buf, std::int32_t buf_len) {
   WidgetNode* n = NodeOf(widget);
-  if (!n) return 0;
+  if (!n)
+    return 0;
   World& world = *WidgetRegistry::Active();
   wid w = Unpack(widget);
   const String* text = nullptr;
   if (n->kind == WidgetKind::kText) {
-    if (auto* c = world.Get<TextContent>(w)) text = &c->text;
+    if (auto* c = world.Get<TextContent>(w))
+      text = &c->text;
   } else if (n->kind == WidgetKind::kButton) {
-    if (auto* c = world.Get<ButtonContent>(w)) text = &c->label;
+    if (auto* c = world.Get<ButtonContent>(w))
+      text = &c->label;
   }
-  if (!text) return 0;
+  if (!text)
+    return 0;
   auto full = static_cast<std::int32_t>(text->size());
   if (buf && buf_len > 0) {
     std::int32_t copy = full < buf_len - 1 ? full : buf_len - 1;
@@ -97,7 +103,8 @@ std::int32_t OpGetText(std::uint64_t widget, char* buf, std::int32_t buf_len) {
 
 void OpSetText(std::uint64_t widget, const char* text) {
   WidgetNode* n = NodeOf(widget);
-  if (!n || !text) return;
+  if (!n || !text)
+    return;
   wid w = Unpack(widget);
   World& world = *WidgetRegistry::Active();
   if (n->kind == WidgetKind::kText) {
@@ -111,40 +118,47 @@ void OpSetText(std::uint64_t widget, const char* text) {
 
 std::int32_t OpGetChecked(std::uint64_t widget) {
   WidgetNode* n = NodeOf(widget);
-  if (!n || n->kind != WidgetKind::kCheckbox) return 0;
+  if (!n || n->kind != WidgetKind::kCheckbox)
+    return 0;
   return IsChecked(Unpack(widget)) ? 1 : 0;
 }
 
 void OpSetChecked(std::uint64_t widget, std::int32_t checked) {
   WidgetNode* n = NodeOf(widget);
-  if (n && n->kind == WidgetKind::kCheckbox) SetChecked(Unpack(widget), checked != 0);
+  if (n && n->kind == WidgetKind::kCheckbox)
+    SetChecked(Unpack(widget), checked != 0);
 }
 
 float OpGetValue(std::uint64_t widget) {
   WidgetNode* n = NodeOf(widget);
-  if (!n || n->kind != WidgetKind::kSlider) return 0.0f;
+  if (!n || n->kind != WidgetKind::kSlider)
+    return 0.0f;
   return SliderValue(Unpack(widget));
 }
 
 void OpSetValue(std::uint64_t widget, float value) {
   WidgetNode* n = NodeOf(widget);
-  if (n && n->kind == WidgetKind::kSlider) SetSliderValue(Unpack(widget), value);
+  if (n && n->kind == WidgetKind::kSlider)
+    SetSliderValue(Unpack(widget), value);
 }
 
 std::int32_t OpGetSelected(std::uint64_t widget) {
   WidgetNode* n = NodeOf(widget);
-  if (!n || n->kind != WidgetKind::kDropdown) return -1;
+  if (!n || n->kind != WidgetKind::kDropdown)
+    return -1;
   return DropdownSelected(Unpack(widget));
 }
 
 void OpSetSelected(std::uint64_t widget, std::int32_t index) {
   WidgetNode* n = NodeOf(widget);
-  if (n && n->kind == WidgetKind::kDropdown) SetDropdownSelected(Unpack(widget), index);
+  if (n && n->kind == WidgetKind::kDropdown)
+    SetDropdownSelected(Unpack(widget), index);
 }
 
 std::int32_t OpGetVisible(std::uint64_t widget) {
   wid w = Unpack(widget);
-  if (!w.valid()) return 0;
+  if (!w.valid())
+    return 0;
   World& world = *WidgetRegistry::Active();
   auto* sc = world.Get<StyleC>(w);
   return (sc && sc->style.visibility == Visibility::kVisible) ? 1 : 0;
@@ -152,10 +166,12 @@ std::int32_t OpGetVisible(std::uint64_t widget) {
 
 void OpSetVisible(std::uint64_t widget, std::int32_t visible) {
   wid w = Unpack(widget);
-  if (!w.valid()) return;
+  if (!w.valid())
+    return;
   World& world = *WidgetRegistry::Active();
   auto* sc = world.Get<StyleC>(w);
-  if (!sc) return;
+  if (!sc)
+    return;
   Style s = sc->style;
   s.visibility = visible ? Visibility::kVisible : Visibility::kHidden;
   SetStyle(world, w, s);
@@ -176,31 +192,44 @@ struct ScriptRuntime::Impl {};
 ScriptRuntime::ScriptRuntime() : impl_(nullptr) {}
 ScriptRuntime::~ScriptRuntime() {}
 
-bool ScriptRuntime::Init() { return true; }
+bool ScriptRuntime::Init() {
+  return true;
+}
 
-void ScriptRuntime::Shutdown() { Registry().clear(); }
+void ScriptRuntime::Shutdown() {
+  Registry().clear();
+}
 
 // C# UI logic lives in compiled assemblies the managed host loads, not in script
 // chunks ugui hands us, so there is nothing to interpret here.
-bool ScriptRuntime::Exec(const char*, const char*) { return false; }
-bool ScriptRuntime::ExecFile(const char*) { return false; }
+bool ScriptRuntime::Exec(const char*, const char*) {
+  return false;
+}
+bool ScriptRuntime::ExecFile(const char*) {
+  return false;
+}
 
 void ScriptRuntime::RegisterWidget(wid widget) {
   World& world = *WidgetRegistry::Active();
   WidgetNode* n = world.Get<WidgetNode>(widget);
-  if (n && !n->name.empty()) Registry()[n->name] = widget;
+  if (n && !n->name.empty())
+    Registry()[n->name] = widget;
 }
 
 void ScriptRuntime::UnregisterWidget(wid widget) {
   World& world = *WidgetRegistry::Active();
   WidgetNode* n = world.Get<WidgetNode>(widget);
-  if (n && !n->name.empty()) Registry().erase(n->name);
+  if (n && !n->name.empty())
+    Registry().erase(n->name);
 }
 
-void ScriptRuntime::ClearWidgetRegistry() { Registry().clear(); }
+void ScriptRuntime::ClearWidgetRegistry() {
+  Registry().clear();
+}
 
 wid ScriptRuntime::FindRegisteredWidget(const char* name) const {
-  if (!name) return kNullWidget;
+  if (!name)
+    return kNullWidget;
   auto* it = Registry().find(name);
   return it != nullptr ? *it : kNullWidget;
 }
@@ -208,22 +237,26 @@ wid ScriptRuntime::FindRegisteredWidget(const char* name) const {
 // The crossing point: a ugui handler fired, route it to the host (the managed
 // world). Returns whether the host claimed it.
 bool ScriptRuntime::CallHandler(const char* func_name, wid widget) {
-  if (!g_dispatch || !func_name) return false;
+  if (!g_dispatch || !func_name)
+    return false;
   return g_dispatch(g_dispatch_ctx, func_name, Pack(widget)) != 0;
 }
 
 // Mirror the Lua backend: give every named dropdown/checkbox/slider an on_change
 // that dispatches on_<name>(widget) into the host.
 static void WireChangeHandlersRecursive(ScriptRuntime& rt, wid w) {
-  if (!w.valid()) return;
+  if (!w.valid())
+    return;
   World& world = *WidgetRegistry::Active();
   WidgetNode* n = world.Get<WidgetNode>(w);
-  if (!n) return;
+  if (!n)
+    return;
   if (!n->name.empty()) {
     auto dispatch = [&rt, w]() {
       World& wr = *WidgetRegistry::Active();
       WidgetNode* node = wr.Get<WidgetNode>(w);
-      if (!node) return;
+      if (!node)
+        return;
       base::String handler = "on_" + node->name;
       rt.CallHandler(handler.c_str(), w);
     };
@@ -234,10 +267,13 @@ static void WireChangeHandlersRecursive(ScriptRuntime& rt, wid w) {
     else if (n->kind == WidgetKind::kSlider)
       SetSliderChange(w, [dispatch](f32) { dispatch(); });
   }
-  for (wid child : world.Get<Hierarchy>(w)->children) WireChangeHandlersRecursive(rt, child);
+  for (wid child : world.Get<Hierarchy>(w)->children)
+    WireChangeHandlersRecursive(rt, child);
 }
 
-void ScriptRuntime::WireChangeHandlers(wid root) { WireChangeHandlersRecursive(*this, root); }
+void ScriptRuntime::WireChangeHandlers(wid root) {
+  WireChangeHandlersRecursive(*this, root);
+}
 
 // Timers/tweens are owned by the managed world (ticked from its frame callback),
 // so the native side has nothing to advance.
@@ -257,6 +293,8 @@ void InstallHostDispatch(DispatchFn dispatch, void* ctx) {
   ugui::g_dispatch_ctx = ctx;
 }
 
-const WidgetOps* GetWidgetOps() { return &ugui::kWidgetOps; }
+const WidgetOps* GetWidgetOps() {
+  return &ugui::kWidgetOps;
+}
 
 }  // namespace rx::ugui_cs

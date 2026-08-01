@@ -6,9 +6,9 @@
 #include <cstdio>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/world_replication.h"
 #include "components/world/quest_world.h"
+#include "core/types.h"
 
 using Handle = std::uint64_t;  // avoid the rx::u64 / arch_types::u64 ambiguity
 using rx::world::WorldCommand;
@@ -18,7 +18,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 }  // namespace
 

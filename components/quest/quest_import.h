@@ -4,9 +4,9 @@
 #include <base/containers/unordered_map.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_graph.h"
+#include "core/types.h"
 
 namespace rx::quest {
 

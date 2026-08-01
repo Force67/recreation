@@ -31,7 +31,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 constexpr u32 kWeap = FourCc('W', 'E', 'A', 'P');
@@ -104,7 +105,8 @@ void TestPluginRoundTrip(const base::String& dir) {
 
   auto plugin = PluginFile::Open(path, profile);
   Check("reopen", plugin.has_value());
-  if (!plugin) return;
+  if (!plugin)
+    return;
   Check("masters parsed", plugin->masters().size() == 1 && plugin->masters()[0] == "Skyrim.esm");
   Check("hedr record count", plugin->record_count() == 3);
 
@@ -126,7 +128,8 @@ void TestCompression(const base::String& dir) {
   std::printf("compression:\n");
   // Direct codec round-trip on data with a repeated pattern.
   base::Vector<u8> raw(5000);
-  for (size_t i = 0; i < raw.size(); ++i) raw[i] = static_cast<u8>(i * 7 + 3);
+  for (size_t i = 0; i < raw.size(); ++i)
+    raw[i] = static_cast<u8>(i * 7 + 3);
   base::Vector<u8> stream = ZlibDeflateStored(ByteSpan(raw.data(), raw.size()));
   base::Vector<u8> back(raw.size());
   Check("inflate(deflate(x)) succeeds",
@@ -151,7 +154,8 @@ void TestCompression(const base::String& dir) {
   bool desc_ok = false;
   if (plugin) {
     plugin->VisitRecords([&](Record& r) {
-      if (r.header.type != FourCc('B', 'O', 'O', 'K')) return;
+      if (r.header.type != FourCc('B', 'O', 'O', 'K'))
+        return;
       found = true;
       const Subrecord* desc = r.Find(FourCc('D', 'E', 'S', 'C'));
       desc_ok = desc && desc->data.size() == raw.size() &&

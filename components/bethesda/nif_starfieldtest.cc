@@ -20,7 +20,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
@@ -28,9 +29,12 @@ void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v >> 8));
 }
 void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutI16(base::Vector<rx::u8>& b, rx::i16 v) { PutU16(b, static_cast<rx::u16>(v)); }
+void PutI16(base::Vector<rx::u8>& b, rx::i16 v) {
+  PutU16(b, static_cast<rx::u16>(v));
+}
 void PutF32(base::Vector<rx::u8>& b, float f) {
   rx::u32 v;
   std::memcpy(&v, &f, 4);
@@ -46,23 +50,25 @@ int main() {
   // triangles. scale 2.0 metres so a corner decodes to +/-2 metres.
   const float scale = 2.0f;
   const rx::i16 q = 32767;
-  const rx::i16 pos[4][3] = {
-      {-q, -q, 0}, {q, -q, 0}, {q, q, 0}, {-q, q, 0}};
+  const rx::i16 pos[4][3] = {{-q, -q, 0}, {q, -q, 0}, {q, q, 0}, {-q, q, 0}};
   const rx::u16 indices[6] = {0, 1, 2, 0, 2, 3};
 
   base::Vector<rx::u8> b;
   PutU32(b, 2);  // version
   PutU32(b, 6);  // index count
-  for (rx::u16 i : indices) PutU16(b, i);
+  for (rx::u16 i : indices)
+    PutU16(b, i);
   PutF32(b, scale);
   PutU32(b, 0);  // weights per vertex
   PutU32(b, 4);  // vertex count
   for (int v = 0; v < 4; ++v)
-    for (int c = 0; c < 3; ++c) PutI16(b, pos[v][c]);
+    for (int c = 0; c < 3; ++c)
+      PutI16(b, pos[v][c]);
   // uv1 present (two float16 per vertex, zero here), uv2/color/normal/tangent
   // absent so the trailing streams are just zero counts.
   PutU32(b, 4);  // uv1 count
-  for (int v = 0; v < 4; ++v) PutU32(b, 0);
+  for (int v = 0; v < 4; ++v)
+    PutU32(b, 0);
   PutU32(b, 0);  // uv2
   PutU32(b, 0);  // color
   PutU32(b, 0);  // normals

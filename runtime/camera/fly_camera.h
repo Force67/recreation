@@ -14,8 +14,11 @@ namespace rx {
 // to go fast. The scroll wheel scales the base speed.
 class FlyCamera {
  public:
-  void Update(const InputState& input, const ActionState& actions, bool allow_mouse,
-              bool allow_keyboard, f32 dt);
+  void Update(const InputState& input,
+              const ActionState& actions,
+              bool allow_mouse,
+              bool allow_keyboard,
+              f32 dt);
 
   Vec3 position() const { return position_; }
   Vec3 forward() const;
@@ -29,8 +32,8 @@ class FlyCamera {
   }
 
   f32 speed = 3.0f;
-  f32 sensitivity = 0.0025f;      // radians per mouse pixel
-  f32 pad_sensitivity = 2.6f;     // radians per second at full stick deflection
+  f32 sensitivity = 0.0025f;   // radians per mouse pixel
+  f32 pad_sensitivity = 2.6f;  // radians per second at full stick deflection
   bool invert_y = false;
 
  private:

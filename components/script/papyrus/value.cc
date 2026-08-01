@@ -36,7 +36,8 @@ base::String FloatToString(f32 v) {
 }  // namespace
 
 const base::String& Value::as_string() const {
-  if (type_ == ValueType::kString) return std::get<base::String>(data_);
+  if (type_ == ValueType::kString)
+    return std::get<base::String>(data_);
   return kEmpty;
 }
 
@@ -120,11 +121,13 @@ base::String Value::ToString() const {
 
 bool Value::Equals(const Value& other) const {
   // None equals only None.
-  if (type_ == ValueType::kNone || other.type_ == ValueType::kNone) return type_ == other.type_;
+  if (type_ == ValueType::kNone || other.type_ == ValueType::kNone)
+    return type_ == other.type_;
 
   // Strings compare textually only against strings.
   if (type_ == ValueType::kString || other.type_ == ValueType::kString) {
-    if (type_ != other.type_) return false;
+    if (type_ != other.type_)
+      return false;
     return std::get<base::String>(data_) == std::get<base::String>(other.data_);
   }
 

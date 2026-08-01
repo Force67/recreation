@@ -1,8 +1,8 @@
-#include <mutex>
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
@@ -14,17 +14,17 @@
 #include <base/strings/xstring.h>
 
 #include "components/bethesda/record.h"
-#include "core/log.h"
-#include "core/math.h"
-#include "core/types.h"
-#include "runtime/app/engine.h"
-#include "runtime/app/engine_internal.h"
-#include "nav/nav_debug.h"
 #include "components/script/papyrus/value.h"
 #include "components/world/cell_streaming.h"
 #include "components/world/components.h"
 #include "components/world/interaction.h"
 #include "components/world/objective_marker.h"
+#include "core/log.h"
+#include "core/math.h"
+#include "core/types.h"
+#include "nav/nav_debug.h"
+#include "runtime/app/engine.h"
+#include "runtime/app/engine_internal.h"
 
 // The Engine's per-frame heartbeat: the fixed-step simulation loop, the
 // quest-driven world mutation flush, and host-authoritative NPC shove-out, plus
@@ -35,7 +35,8 @@ namespace rx {
 // Case-insensitive ASCII string compare, for matching a NetEntity model against a
 // record's editor id.
 static bool EqualsIgnoreCase(const base::String& a, const base::String& b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i) {
     if (std::tolower(static_cast<unsigned char>(a[i])) !=
         std::tolower(static_cast<unsigned char>(b[i])))
@@ -76,10 +77,12 @@ void Engine::ApplyDebugCommand(const base::String& verb, const base::String& arg
 
 void Engine::ApplyQuestWorld() {
   base::Vector<world::WorldCommand> commands = quest_world_queue_.Drain();
-  if (commands.empty()) return;
+  if (commands.empty())
+    return;
   quest_world_->Apply(commands);  // host/single-player: apply locally + record provenance
 #if RECREATION_HAS_NET
-  if (server_session_) server_session_->SendWorldCommands(commands);  // mirror to clients
+  if (server_session_)
+    server_session_->SendWorldCommands(commands);  // mirror to clients
 #endif
 }
 
@@ -98,12 +101,14 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
         pushers.push_back({t.position[0], t.position[1], t.position[2]});
       });
 #endif
-  if (pushers.empty()) return;
+  if (pushers.empty())
+    return;
 
   constexpr f32 kPushRadius = 0.6f;  // ~capsule radius in meters
   world_->Each<world::Npc, world::Transform>(
       [&](ecs::Entity entity, world::Npc&, world::Transform& nt) {
-        if (world_->Has<world::Hidden>(entity) || world_->Has<world::Deleted>(entity)) return;
+        if (world_->Has<world::Hidden>(entity) || world_->Has<world::Deleted>(entity))
+          return;
         for (const Vec3& p : pushers) {
           const float pusher[3] = {p.x, p.y, p.z};
           float out[3];
@@ -125,7 +130,8 @@ void Engine::OnSimulate(f32 frame_delta) {
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload; drained on the main thread where the Vfs
   // is not being read (a fresh mount is picked up by next frame's streaming).
-  if (mod_reload_requested_.exchange(false, std::memory_order_relaxed)) ReloadMods(*this);
+  if (mod_reload_requested_.exchange(false, std::memory_order_relaxed))
+    ReloadMods(*this);
 #endif
   // Forward key presses to the managed world (KeyPressed) so mods can bind
   // hotkeys, unless the debug console is capturing the keyboard. Queued here and
@@ -139,15 +145,18 @@ void Engine::OnSimulate(f32 frame_delta) {
   {
     // The guest advances on the main loop's clock; it does its work on its own
     // thread, so this only posts a tick.
-    if (scripts_) scripts_->Tick(frame_delta);
+    if (scripts_)
+      scripts_->Tick(frame_delta);
     // Secondary game domains tick their own isolated microvms in lockstep.
-    for (auto& domain : extra_domains_) domain->Tick(frame_delta);
+    for (auto& domain : extra_domains_)
+      domain->Tick(frame_delta);
     // Refresh the world-space position snapshot the managed proximity query reads
     // (registered refs plus the player), so mods see this frame's positions.
     if (managed_ && ctx_.bindings) {
       quest_world_->SnapshotPositions(position_snapshot_);
       Vec3 pp;
-      if (actors_->PlayerWorldPos(&pp)) position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
+      if (actors_->PlayerWorldPos(&pp))
+        position_snapshot_.push_back({0x14, {pp.x, pp.y, pp.z}});
       ctx_.bindings->UpdatePositionSnapshot(position_snapshot_);
       // Derive who is moving at a run pace from the frame-to-frame displacement, so
       // Actor.IsRunning reflects real motion. Skyrim run speed is a few hundred
@@ -158,14 +167,17 @@ void Engine::OnSimulate(f32 frame_delta) {
       if (fd > 0.0f) {
         for (const auto& [handle, pos] : position_snapshot_) {
           auto* prev = prev_positions_.find(handle);
-          if (prev == nullptr) continue;
+          if (prev == nullptr)
+            continue;
           const f32 dx = pos[0] - (*prev)[0], dy = pos[1] - (*prev)[1], dz = pos[2] - (*prev)[2];
-          if (std::sqrt(dx * dx + dy * dy + dz * dz) / fd >= kRunSpeed) running.push_back(handle);
+          if (std::sqrt(dx * dx + dy * dy + dz * dz) / fd >= kRunSpeed)
+            running.push_back(handle);
         }
       }
       ctx_.bindings->UpdateMovingActors(running);
       prev_positions_.clear();
-      for (const auto& [handle, pos] : position_snapshot_) prev_positions_[handle] = pos;
+      for (const auto& [handle, pos] : position_snapshot_)
+        prev_positions_[handle] = pos;
     }
     // Advance the managed world: deliver any queued engine events to mod hooks,
     // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
@@ -194,7 +206,8 @@ void Engine::OnSimulate(f32 frame_delta) {
     // Authoritative NPC simulation runs on the host / single-player only; a
     // client receives the results via actor sync instead of simulating.
 #if RECREATION_HAS_NET
-    if (!client_session_) ServerSimulateActors(frame_delta);
+    if (!client_session_)
+      ServerSimulateActors(frame_delta);
 #else
     ServerSimulateActors(frame_delta);
 #endif
@@ -239,7 +252,8 @@ void Engine::OnSimulate(f32 frame_delta) {
     {
       base::Vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
 #if RECREATION_HAS_NET
-      if (server_session_ && !spawns.empty()) server_session_->SendWorldCommands(spawns);
+      if (server_session_ && !spawns.empty())
+        server_session_->SendWorldCommands(spawns);
 #endif
     }
     npc_->Mq101DemoTick(frame_delta);
@@ -255,7 +269,8 @@ void Engine::OnSimulate(f32 frame_delta) {
     // Dropped-item upkeep: mirror settled body transforms, hibernate/wake the
     // loot field around the player, and autosave. Loads persisted items lazily on
     // the first frame the player exists.
-    if (items_) items_->Update(frame_delta);
+    if (items_)
+      items_->Update(frame_delta);
   }
 }
 
@@ -279,7 +294,8 @@ void Engine::OnUpdate(f32 frame_delta) {
         wt.timescale = clock_->timescale();
         Vec3 anchor = camera_.position();
         Vec3 ppos;
-        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos))
+          anchor = ppos;
         wt.anchor = anchor;
         wt.listener = anchor;
         wt.indoors = streamer_ && streamer_->in_interior();
@@ -295,7 +311,8 @@ void Engine::OnUpdate(f32 frame_delta) {
       if (audio_ && !region_ambience_.empty()) {
         Vec3 anchor = camera_.position();
         Vec3 ppos;
-        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) anchor = ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos))
+          anchor = ppos;
         constexpr f32 kEngineToGame = 1.0f / 0.01428f;  // metres -> Bethesda units
         audio::AmbientContext ambient;
         ambient.interior = streamer_ && streamer_->in_interior();
@@ -389,7 +406,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       base::UnorderedMap<u64, Mat4> transforms;
       world_->Each<world::Transform, world::Renderable>(
           [&](ecs::Entity entity, world::Transform& transform, world::Renderable& renderable) {
-            if (world_->Has<world::Hidden>(entity)) return;  // Disable()d by a quest
+            if (world_->Has<world::Hidden>(entity))
+              return;  // Disable()d by a quest
             u64 key = static_cast<u64>(entity.generation) << 32 | entity.index;
             Mat4 current = TransformMatrix(transform);
             const Mat4* prev = prev_transforms_.find(key);
@@ -415,7 +433,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         }
       }
       demos_->EmitToView(frame_delta, view);
-      if (editor_) editor_->EmitTerrainBrush(view);
+      if (editor_)
+        editor_->EmitTerrainBrush(view);
 #if RECREATION_HAS_NET
       // Overlay the session's streaming bubbles: the host draws its live
       // interest map, a client the server-replicated mirror (kBubbleSync).
@@ -443,7 +462,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         // player when there is one.
         Vec3 focus = camera_.position();
         Vec3 ppos;
-        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos)) focus = ppos;
+        if (ctx_.walk_mode && actors_->PlayerWorldPos(&ppos))
+          focus = ppos;
         nav_debug_lines_.clear();
         const NavBubble& nav = npc_->nav();
         nav::AppendNavMeshLines(nav.mesh(), focus, NavDebugRadius.get(), &nav_debug_lines_);
@@ -453,8 +473,10 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         view.debug_lines =
             std::span<const render::DebugLine>(nav_debug_lines_.begin(), nav_debug_lines_.size());
       }
-      if (editor_) editor_->CollectLights(view.lights);      // placed torches/lamps light the scene
-      if (streamer_) streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
+      if (editor_)
+        editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
+      if (streamer_)
+        streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
       if (streamer_) {
         streamer_->CollectDecals(view.decals);  // streamed TXST refs project decals
         // Keep the clustered decal sampler on the streamer's atlas once built
@@ -471,7 +493,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       if (ctx_.auto_walk && !npc_->guiding()) {
         Vec3 goal;
         ctx_.auto_walk_has_goal = quest_->CurrentObjectiveTarget(&goal);
-        if (ctx_.auto_walk_has_goal) ctx_.auto_walk_goal = goal;
+        if (ctx_.auto_walk_has_goal)
+          ctx_.auto_walk_goal = goal;
       }
       debug_ui_.Build(*renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
                       quest_->native_trace_panel());
@@ -482,7 +505,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           std::lock_guard<std::mutex> lock(notification_mutex_);
           notifications.swap(pending_notifications_);
         }
-        for (const base::String& message : notifications) game_ui_.FlashQuestUpdate(message);
+        for (const base::String& message : notifications)
+          game_ui_.FlashQuestUpdate(message);
       }
       // Drain Debug.* engine commands (quit, screenshot, dev toggles).
       {
@@ -491,7 +515,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           std::lock_guard<std::mutex> lock(debug_cmd_mutex_);
           cmds.swap(pending_debug_cmds_);
         }
-        for (const auto& [verb, arg] : cmds) ApplyDebugCommand(verb, arg);
+        for (const auto& [verb, arg] : cmds)
+          ApplyDebugCommand(verb, arg);
       }
       // Drain the multiplayer platform HUD: notices flash on the toast, chat
       // accumulates into the chat box (kept to a bounded tail), and a Net.Connect
@@ -512,17 +537,20 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         const PlatformScoreboard sb = platform_hud_.Scoreboard();
         auto pad = [](const base::String& s, size_t width) {
           base::String out = s;
-          if (out.size() < width) out.append(width - out.size(), ' ');
+          if (out.size() < width)
+            out.append(width - out.size(), ' ');
           return out;
         };
         auto format_cells = [&pad](const base::Vector<base::String>& cells) {
           base::String line;
-          for (size_t i = 0; i < cells.size(); ++i) line += pad(cells[i], i == 0 ? 26 : 12);
+          for (size_t i = 0; i < cells.size(); ++i)
+            line += pad(cells[i], i == 0 ? 26 : 12);
           return line;
         };
         base::Vector<base::String> rows;
         rows.reserve(sb.rows.size());
-        for (const PlatformScoreRow& r : sb.rows) rows.push_back(format_cells(r.cells));
+        for (const PlatformScoreRow& r : sb.rows)
+          rows.push_back(format_cells(r.cells));
         game_ui_.SetScoreboard(sb.open, sb.title, format_cells(sb.headers), rows);
       }
       // Interaction prompts: format each as "[KEY]  label" for the bottom stack.
@@ -530,7 +558,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         base::Vector<base::String> prompts;
         for (const PlatformPrompt& p : platform_hud_.Prompts()) {
           base::String line;
-          if (!p.key.empty()) line += "[" + p.key + "]  ";
+          if (!p.key.empty())
+            line += "[" + p.key + "]  ";
           line += p.label;
           prompts.push_back(line);
         }
@@ -554,9 +583,11 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         for (const PlatformBlip& b : platform_hud_.Blips()) {
           const float to[3] = {b.x - eye.x, 0.0f, b.z - eye.z};
           const float bearing = world::MarkerCompassBearingDeg(fwd, to);
-          if (std::fabs(bearing) > 105.0f) continue;  // behind the player / off the strip
+          if (std::fabs(bearing) > 105.0f)
+            continue;  // behind the player / off the strip
           cblips.push_back({bearing, b.color ? b.color : 0xffffffffu});
-          if (cblips.size() >= 8) break;
+          if (cblips.size() >= 8)
+            break;
         }
         game_ui_.SetCompassBlips(cblips);
       }
@@ -578,13 +609,16 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         for (const PlatformNametag& n : tags) {
           const Vec3 to{n.x - eye.x, n.y - eye.y, n.z - eye.z};
           const f32 zc = Dot(to, cf);
-          if (zc <= 0.1f) continue;  // behind the camera
+          if (zc <= 0.1f)
+            continue;  // behind the camera
           const f32 ndc_x = (Dot(to, cr) / zc) / (tan_half * aspect);
           const f32 ndc_y = (Dot(to, cu) / zc) / tan_half;
-          if (std::fabs(ndc_x) > 1.2f || std::fabs(ndc_y) > 1.2f) continue;  // off screen
+          if (std::fabs(ndc_x) > 1.2f || std::fabs(ndc_y) > 1.2f)
+            continue;  // off screen
           screen_tags.push_back({n.label, (ndc_x * 0.5f + 0.5f) * w, (0.5f - ndc_y * 0.5f) * h,
                                  n.color ? n.color : 0xffffffffu});
-          if (screen_tags.size() >= 16) break;
+          if (screen_tags.size() >= 16)
+            break;
         }
         game_ui_.SetNametags(screen_tags);
       }
@@ -596,21 +630,27 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         records_.EachOfType(
             FourCc('S', 'T', 'A', 'T'),
             [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-              if (net_entity_base_.local_id != 0) return;  // first good hit wins
+              if (net_entity_base_.local_id != 0)
+                return;  // first good hit wins
               bethesda::Record record;
-              if (!records_.Parse(id, &record)) return;
+              if (!records_.Parse(id, &record))
+                return;
               const bethesda::Subrecord* modl = record.Find(FourCc('M', 'O', 'D', 'L'));
-              if (!modl || modl->data.empty()) return;
+              if (!modl || modl->data.empty())
+                return;
               base::String path(reinterpret_cast<const char*>(modl->data.data()),
                                 modl->data.size());
-              if (size_t z = path.find('\0'); z != base::String::npos) path.resize(z);
+              if (size_t z = path.find('\0'); z != base::String::npos)
+                path.resize(z);
               for (char& c : path)
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
               // Need a real world mesh; skip markers, effects and the non-world art
               // (load screens, UI) that carry a model but never render in the cell.
-              if (path.find(".nif") == base::String::npos) return;
+              if (path.find(".nif") == base::String::npos)
+                return;
               for (const char* bad : {"marker", "fx\\", "loadscreen", "interface", "effects\\"}) {
-                if (path.find(bad) != base::String::npos) return;
+                if (path.find(bad) != base::String::npos)
+                  return;
               }
               // Prefer a compact, recognizable prop for the placeholder; otherwise
               // take the first acceptable static found.
@@ -618,14 +658,18 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
                                 path.find("crate") != base::String::npos ||
                                 path.find("rock") != base::String::npos ||
                                 path.find("boulder") != base::String::npos;
-              if (!nice && net_entity_base_fallback_.local_id == 0) net_entity_base_fallback_ = id;
-              if (nice) net_entity_base_ = id;
+              if (!nice && net_entity_base_fallback_.local_id == 0)
+                net_entity_base_fallback_ = id;
+              if (nice)
+                net_entity_base_ = id;
             });
-        if (net_entity_base_.local_id == 0) net_entity_base_ = net_entity_base_fallback_;
+        if (net_entity_base_.local_id == 0)
+          net_entity_base_ = net_entity_base_fallback_;
       }
       for (const PlatformEntityOp& op : platform_hud_.DrainEntityOps()) {
         if (op.kind == PlatformEntityOp::Kind::kSpawn) {
-          if (!streamer_) continue;
+          if (!streamer_)
+            continue;
           // Resolve the requested model (an editor id) to a base form so a mod
           // spawns a specific object by name; fall back to the placeholder static
           // when it is empty or unknown. Cached, since the lookup scans records.
@@ -638,17 +682,20 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
               bethesda::GlobalFormId resolved{};
               for (u32 type : {FourCc('S', 'T', 'A', 'T'), FourCc('M', 'S', 'T', 'T'),
                                FourCc('F', 'U', 'R', 'N'), FourCc('M', 'I', 'S', 'C')}) {
-                if (resolved.local_id != 0) break;
+                if (resolved.local_id != 0)
+                  break;
                 records_.EachOfType(type, [&](bethesda::GlobalFormId id,
                                               const bethesda::RecordStore::StoredRecord&) {
-                  if (resolved.local_id != 0) return;
+                  if (resolved.local_id != 0)
+                    return;
                   bethesda::Record r;
                   if (records_.Parse(id, &r) &&
                       EqualsIgnoreCase(r.GetString(FourCc('E', 'D', 'I', 'D')), op.model))
                     resolved = id;
                 });
               }
-              if (resolved.local_id == 0) resolved = net_entity_base_;  // unknown -> placeholder
+              if (resolved.local_id == 0)
+                resolved = net_entity_base_;  // unknown -> placeholder
               net_model_cache_[op.model] = resolved;
               form = resolved;
             }
@@ -659,7 +706,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           const Vec3 pos{op.x, op.y, op.z};
           const f32 rot[4] = {0, 0, 0, 1};
           ecs::Entity e = streamer_->PlaceObject(*world_, form, pos, rot, 1.0f);
-          if (e != ecs::kInvalidEntity) net_entities_.insert(op.id, e);
+          if (e != ecs::kInvalidEntity)
+            net_entities_.insert(op.id, e);
         } else if (op.kind == PlatformEntityOp::Kind::kMove) {
           if (ecs::Entity* e = net_entities_.find(op.id)) {
             if (world::Transform* t = world_->Get<world::Transform>(*e)) {
@@ -682,7 +730,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         script_bindings_->SnapshotHudGauges(gauges);
         base::Vector<HudGauge> hud;
         hud.reserve(gauges.size());
-        for (const auto& g : gauges) hud.push_back({g.id, g.label, g.fraction, g.color});
+        for (const auto& g : gauges)
+          hud.push_back({g.id, g.label, g.fraction, g.color});
         // A staged battle adds two reinforcement bars (the modern read-out of who
         // is winning). The real Civil War siege drives its own bars from the pool
         // globals via the managed BattleReinforcementHud; this covers the engine's
@@ -701,7 +750,8 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         script_bindings_->SnapshotWarMap(war_holds, war_progress);
         base::Vector<GameUi::WarHoldEntry> holds;
         holds.reserve(war_holds.size());
-        for (const auto& h : war_holds) holds.push_back({h.name, h.owner});
+        for (const auto& h : war_holds)
+          holds.push_back({h.name, h.owner});
         game_ui_.SetWarMap(war_map_open_, holds, war_progress);
       }
       game_ui_.Build(*window_, *renderer_, camera_, frame_delta, &view);

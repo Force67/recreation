@@ -4,8 +4,8 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
-#include "core/types.h"
 #include "components/quest/condition.h"
+#include "core/types.h"
 
 namespace rx::bethesda {
 struct Record;
@@ -96,7 +96,8 @@ struct QuestDef {
 // `strings` resolves localized subrecords (CNAM/FULL hold string ids in a
 // localized plugin, inline text otherwise); may be null. Always succeeds; an
 // unscripted or sparse quest just yields empty stage/objective lists.
-QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
+QuestDef ParseQuestDefinition(u64 handle,
+                              const bethesda::Record& record,
                               const bethesda::StringTable* strings);
 
 }  // namespace rx::quest

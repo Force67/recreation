@@ -30,7 +30,8 @@ int main(int argc, char** argv) {
   // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
   // a global name, so the 64-bit spellings below are qualified; the other scalars
   // agree between the two and need no help.
-  if (std::getenv("RX_LOG_DEBUG")) rx::SetLogLevel(rx::LogLevel::kDebug);
+  if (std::getenv("RX_LOG_DEBUG"))
+    rx::SetLogLevel(rx::LogLevel::kDebug);
 
   asset::Vfs vfs;
   std::error_code ec;
@@ -65,14 +66,17 @@ int main(int argc, char** argv) {
     base::String filter = argc > 3 ? argv[3] : "";
     base::Vector<base::String> nifs;
     vfs.Enumerate([&](base::StringRef p) {
-      if (!p.ends_with(".nif")) return;
-      if (!filter.empty() && p.find(filter) == base::StringRef::npos) return;
+      if (!p.ends_with(".nif"))
+        return;
+      if (!filter.empty() && p.find(filter) == base::StringRef::npos)
+        return;
       nifs.push_back(base::String(p));
     });
     u32 ok = 0, failed = 0, printed = 0;
     for (const base::String& nif : nifs) {
       auto bytes = vfs.Read(nif);
-      if (!bytes) continue;
+      if (!bytes)
+        continue;
       bethesda::NifConversion conversion = bethesda::ConvertNifScene(
           rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(nif), nif);
       if (conversion.mesh && !conversion.mesh->lods.empty() &&
@@ -166,7 +170,8 @@ int main(int argc, char** argv) {
     for (const asset::Submesh& s : lod.submeshes)
       std::printf("  submesh +%u x%u\n", s.index_offset, s.index_count);
     auto bbox = [](const base::Vector<asset::Vertex>& v, const char* label) {
-      if (v.empty()) return;
+      if (v.empty())
+        return;
       f32 mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
       for (const asset::Vertex& x : v)
         for (int k = 0; k < 3; ++k) {
@@ -210,12 +215,15 @@ int main(int argc, char** argv) {
     anim::BuildSkinPalette(bone_model, conv.mesh->skin, remap, &palette);
     u32 missing = 0, off = 0;
     for (size_t i = 0; i < conv.mesh->skin.bones.size(); ++i) {
-      if (remap[i] < 0) ++missing;
+      if (remap[i] < 0)
+        ++missing;
       // Deviation of palette[i] from identity: a correct bind pairing cancels.
       const Mat4& p = palette[i];
       f32 dev = 0;
-      for (int k = 0; k < 16; ++k) dev = base::Max(dev, std::abs(p.m[k] - Mat4::Identity().m[k]));
-      if (dev > 0.5f) ++off;
+      for (int k = 0; k < 16; ++k)
+        dev = base::Max(dev, std::abs(p.m[k] - Mat4::Identity().m[k]));
+      if (dev > 0.5f)
+        ++off;
       if (i < 40)
         std::printf("  bone[%2zu] %-28s remap=%3d dev=%7.2f palette_t=(%.1f %.1f %.1f)\n", i,
                     conv.mesh->skin.bones[i].c_str(), remap[i], dev, p.m[12], p.m[13], p.m[14]);
@@ -232,9 +240,11 @@ int main(int argc, char** argv) {
         f32 acc[3] = {0, 0, 0}, total = 0;
         for (int j = 0; j < 4; ++j) {
           f32 w = e.bone_weights[j] / 255.0f;
-          if (w <= 0) continue;
+          if (w <= 0)
+            continue;
           u32 b = e.bone_indices[j];
-          if (b >= palette.size()) continue;
+          if (b >= palette.size())
+            continue;
           const Mat4& m = palette[b];
           const f32* s = lod.vertices[v].position;
           for (int k = 0; k < 3; ++k)
@@ -242,7 +252,8 @@ int main(int argc, char** argv) {
           total += w;
         }
         if (total > 1e-4f)
-          for (int k = 0; k < 3; ++k) posed[v].position[k] = acc[k] / total;
+          for (int k = 0; k < 3; ++k)
+            posed[v].position[k] = acc[k] / total;
       }
       bbox(posed, "posed");
     }
@@ -255,7 +266,8 @@ int main(int argc, char** argv) {
       return 1;
     }
     std::FILE* out = std::fopen(argv[3], "wb");
-    if (!out) return 1;
+    if (!out)
+      return 1;
     std::fwrite(bytes->data(), 1, bytes->size(), out);
     std::fclose(out);
     std::printf("wrote %zu bytes to %s\n", static_cast<size_t>(bytes->size()), argv[3]);
@@ -331,7 +343,8 @@ int main(int argc, char** argv) {
       std::printf("    base=%s normal=%s\n", path_of(material->base_color),
                   path_of(material->normal));
       for (asset::AssetId id : {material->base_color, material->normal}) {
-        if (!id) continue;
+        if (!id)
+          continue;
         const asset::Texture* texture = database.FindTexture(id);
         if (!texture) {
           std::printf("    texture %016llx NOT LOADED\n", static_cast<unsigned long long>(id.hash));

@@ -13,7 +13,9 @@ namespace {
 //   | u8 is_actor | u8 team
 constexpr size_t kRecordSize = 1 + 8 + 8 + 8 + 4 + 4 + 4 + 1 + 1 + 1;
 
-void AppendU8(std::vector<u8>& out, u8 v) { out.push_back(v); }
+void AppendU8(std::vector<u8>& out, u8 v) {
+  out.push_back(v);
+}
 void AppendU32(std::vector<u8>& out, u32 v) {
   u8 buf[4];
   nanobuf::StoreLe<u32>(buf, v);
@@ -47,7 +49,8 @@ std::vector<u8> EncodeRecord(const world::WorldCommand& c) {
 }
 
 bool DecodeRecord(const u8* data, size_t size, world::WorldCommand* out) {
-  if (size != kRecordSize) return false;
+  if (size != kRecordSize)
+    return false;
   size_t pos = 0;
   auto u8at = [&] { return data[pos++]; };
   auto u32at = [&] {
@@ -68,7 +71,8 @@ bool DecodeRecord(const u8* data, size_t size, world::WorldCommand* out) {
   };
 
   const u8 op = u8at();
-  if (op > static_cast<u8>(world::WorldOp::kSetOpen)) return false;
+  if (op > static_cast<u8>(world::WorldOp::kSetOpen))
+    return false;
   out->op = static_cast<world::WorldOp>(op);
   out->quest = u64at();
   out->handle = u64at();
@@ -95,20 +99,26 @@ std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& comm
 }
 
 base::Optional<base::Vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data) {
-  if (data.size() > kMaxWorldCommandPayload) return base::nullopt;
+  if (data.size() > kMaxWorldCommandPayload)
+    return base::nullopt;
   std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
-  if (!view) return base::nullopt;
+  if (!view)
+    return base::nullopt;
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
-  if (!records) return base::nullopt;
-  if (records->size() > kMaxWorldCommandsPerMessage) return base::nullopt;
+  if (!records)
+    return base::nullopt;
+  if (records->size() > kMaxWorldCommandsPerMessage)
+    return base::nullopt;
 
   base::Vector<world::WorldCommand> out;
   out.reserve(records->size());
   for (size_t i = 0; i < records->size(); ++i) {
     std::optional<nanobuf::BytesView> bytes = records->Get(i);
-    if (!bytes) return base::nullopt;
+    if (!bytes)
+      return base::nullopt;
     world::WorldCommand cmd;
-    if (!DecodeRecord(bytes->data, bytes->size, &cmd)) return base::nullopt;
+    if (!DecodeRecord(bytes->data, bytes->size, &cmd))
+      return base::nullopt;
     out.push_back(cmd);
   }
   return out;

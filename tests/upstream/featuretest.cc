@@ -13,7 +13,9 @@
 static int setenv(const char* name, const char* value, int /*overwrite*/) {
   return _putenv_s(name, value);
 }
-static int unsetenv(const char* name) { return _putenv_s(name, ""); }
+static int unsetenv(const char* name) {
+  return _putenv_s(name, "");
+}
 #endif
 
 using rx::FeatureEnabled;
@@ -25,7 +27,8 @@ int main() {
   int failures = 0;
   auto check = [&](const char* what, bool ok) {
     std::printf("  %-50s %s\n", what, ok ? "ok" : "FAIL");
-    if (!ok) ++failures;
+    if (!ok)
+      ++failures;
   };
 
   // The table is fully present, pulled in by referencing the registry alone.

@@ -10,8 +10,8 @@
 #include <cstdio>
 
 #include "components/bethesda/game_profile.h"
-#include "core/math.h"
 #include "components/world/components.h"
+#include "core/math.h"
 
 namespace rx {
 

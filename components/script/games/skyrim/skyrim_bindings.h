@@ -1,7 +1,6 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 
-#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/map.h>
 #include <base/containers/pair.h>
@@ -12,14 +11,15 @@
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/strings.h"
+#include "components/quest/quest_graph.h"
 #include "core/types.h"
 #include "core/world_clock.h"
-#include "components/quest/quest_graph.h"
 
 namespace rx::audio {
 class AudioSystem;
@@ -140,7 +140,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // and the game runs only the one whose conditions pass, so register each with
   // its entry index and gate; `conditions` must already have its form ids
   // resolved. The 3-argument form registers an unconditional single entry.
-  void SetStageFragment(u64 quest, i32 stage, i32 entry, base::String function,
+  void SetStageFragment(u64 quest,
+                        i32 stage,
+                        i32 entry,
+                        base::String function,
                         quest::ConditionList conditions);
   void SetStageFragment(u64 quest, i32 stage, base::String function) {
     SetStageFragment(quest, stage, 0, base::move(function), {});
@@ -207,7 +210,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     f32 fraction = 0;
     u32 color = 0;  // packed rgba8; 0 = HUD default
   };
-  void SetHudGauge(const base::String& id, f32 fraction, const base::String& label,
+  void SetHudGauge(const base::String& id,
+                   f32 fraction,
+                   const base::String& label,
                    u32 color) override;
   void ClearHudGauge(const base::String& id) override;
   void SnapshotHudGauges(base::Vector<HudGauge>& out) const;
@@ -319,7 +324,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void SetEnabled(papyrus::ObjectRef ref, bool enabled) override;
   bool IsDisabled(papyrus::ObjectRef ref) override;
   void Delete(papyrus::ObjectRef ref) override;
-  papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where, papyrus::ObjectRef base,
+  papyrus::ObjectRef PlaceAtMe(papyrus::ObjectRef where,
+                               papyrus::ObjectRef base,
                                i32 count) override;
   papyrus::ObjectRef GetBaseObject(papyrus::ObjectRef ref) override;
   bool IsInterior(papyrus::ObjectRef cell) override;

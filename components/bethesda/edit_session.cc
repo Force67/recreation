@@ -36,7 +36,9 @@ constexpr i32 kGroupTopicChildren = 7;
 constexpr i32 kGroupCellPersistent = 8;
 constexpr i32 kGroupCellTemporary = 9;
 
-i32 FloorDiv(i32 a, i32 b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+i32 FloorDiv(i32 a, i32 b) {
+  return a >= 0 ? a / b : -((-a + b - 1) / b);
+}
 
 // Packs a pair of grid coordinates into an exterior CELL block/sub-block group
 // label the way the games (and xEdit) do: X in the high word, Y in the low word,
@@ -50,7 +52,8 @@ u32 PackGrid(i32 x, i32 y) {
 }
 
 bool IEquals(base::StringRef a, base::StringRef b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i) {
     if (std::tolower(static_cast<unsigned char>(a[i])) !=
         std::tolower(static_cast<unsigned char>(b[i]))) {
@@ -64,7 +67,8 @@ bool IEquals(base::StringRef a, base::StringRef b) {
 
 u16 EditSession::AddMasterName(const base::String& name) {
   for (u16 i = 0; i < masters_.size(); ++i) {
-    if (IEquals(masters_[i], name)) return i;
+    if (IEquals(masters_[i], name))
+      return i;
   }
   masters_.push_back(name);
   return static_cast<u16>(masters_.size() - 1);
@@ -80,7 +84,8 @@ bool EditSession::RequireChain(u16 plugin) {
   // plugin itself, so the mod-index prefix the verbatim body relies on is
   // preserved.
   base::Vector<base::String> chain;
-  for (const base::String& m : pf->masters()) chain.push_back(m);
+  for (const base::String& m : pf->masters())
+    chain.push_back(m);
   chain.push_back(order_.plugins()[plugin]);
 
   for (u16 k = 0; k < chain.size(); ++k) {
@@ -135,7 +140,8 @@ bool EditSession::SetInPlaceTarget(u16 plugin_index) {
   in_place_ = true;
   in_place_plugin_ = plugin_index;
   in_place_masters_.clear();
-  for (const base::String& m : pf->masters()) in_place_masters_.push_back(m);
+  for (const base::String& m : pf->masters())
+    in_place_masters_.push_back(m);
 
   // New records inserted in place must not collide with the plugin's existing
   // forms, so start allocating above its highest self-defined local id.
@@ -172,7 +178,8 @@ bool EditSession::ApplyEditsTo(RawRewriter& rewriter) {
       continue;
     }
     // Only records that belong to the target plugin can be substituted in place.
-    if (entry.handle.plugin != in_place_plugin_) continue;
+    if (entry.handle.plugin != in_place_plugin_)
+      continue;
     u32 raw = Ref(entry.handle).value;
     if (entry.deleted) {
       rewriter.Delete(raw);
@@ -201,13 +208,15 @@ EditSession::Entry& EditSession::NewEntry(GlobalFormId handle) {
 }
 
 bool EditSession::Override(GlobalFormId id) {
-  if (FindEntry(id)) return true;  // already overriding
+  if (FindEntry(id))
+    return true;  // already overriding
   const RecordStore::StoredRecord* stored = base_.Find(id);
   if (!stored) {
     RX_ERROR("edit: cannot override unknown form {:04x}:{:06x}", id.plugin, id.local_id);
     return false;
   }
-  if (!RequireChain(stored->winning_plugin)) return false;
+  if (!RequireChain(stored->winning_plugin))
+    return false;
   Entry& entry = NewEntry(id);
   if (!ParseRecordPayload(stored->header, stored->payload, &entry.record)) {
     RX_ERROR("edit: failed to parse form {:04x}:{:06x} for override", id.plugin, id.local_id);
@@ -225,10 +234,13 @@ GlobalFormId EditSession::Create(u32 type) {
 
 bool EditSession::Remove(GlobalFormId id) {
   const RecordStore::StoredRecord* stored = base_.Find(id);
-  if (!stored) return false;
-  if (!RequireChain(stored->winning_plugin)) return false;
+  if (!stored)
+    return false;
+  if (!RequireChain(stored->winning_plugin))
+    return false;
   Entry* entry = FindEntry(id);
-  if (!entry) entry = &NewEntry(id);
+  if (!entry)
+    entry = &NewEntry(id);
   entry->record.header.type = stored->header.type;
   entry->deleted = true;
   return true;
@@ -270,7 +282,9 @@ bool EditSession::SetEditorId(GlobalFormId handle, base::StringRef editor_id) {
   return SetField(handle, kEdid, ByteSpan(buffer.data(), buffer.size()));
 }
 
-bool EditSession::SetLocalizedString(GlobalFormId handle, u32 field_type, base::StringRef text,
+bool EditSession::SetLocalizedString(GlobalFormId handle,
+                                     u32 field_type,
+                                     base::StringRef text,
                                      StringFile file) {
   u32 id = next_string_id_++;
   StringTableWriter& table = file == StringFile::kStrings     ? strings_
@@ -296,7 +310,8 @@ bool EditSession::AddReference(GlobalFormId handle, u32 field_type, GlobalFormId
 
 bool EditSession::RemoveField(GlobalFormId handle, u32 type) {
   Entry* entry = FindEntry(handle);
-  if (!entry) return false;
+  if (!entry)
+    return false;
   auto& subs = entry->record.subrecords;
   for (Subrecord* it = subs.begin(); it != nullptr; ++it) {
     if (it->type == type) {
@@ -313,7 +328,8 @@ bool EditSession::PlaceInInteriorCell(GlobalFormId cell, GlobalFormId reference,
     return false;
   }
   auto* it = cell_children_.find(cell.packed());
-  if (it == nullptr) cell_order_.push_back(cell.packed());
+  if (it == nullptr)
+    cell_order_.push_back(cell.packed());
   CellChildren& children = cell_children_[cell.packed()];
   (persistent ? children.persistent : children.temporary).push_back(reference);
   claimed_.insert(cell.packed());
@@ -327,23 +343,28 @@ bool EditSession::AddTopicInfo(GlobalFormId dialogue, GlobalFormId info) {
     return false;
   }
   auto* it = topic_infos_.find(dialogue.packed());
-  if (it == nullptr) dial_order_.push_back(dialogue.packed());
+  if (it == nullptr)
+    dial_order_.push_back(dialogue.packed());
   topic_infos_[dialogue.packed()].push_back(info);
   claimed_.insert(dialogue.packed());
   claimed_.insert(info.packed());
   return true;
 }
 
-bool EditSession::PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell,
-                                      GlobalFormId reference, bool persistent) {
+bool EditSession::PlaceInExteriorCell(GlobalFormId worldspace,
+                                      GlobalFormId cell,
+                                      GlobalFormId reference,
+                                      bool persistent) {
   if (!FindEntry(worldspace) || !FindEntry(cell) || !FindEntry(reference)) {
     RX_ERROR("edit: worldspace, cell and reference must all exist before placement");
     return false;
   }
   auto* it = world_cells_.find(worldspace.packed());
-  if (it == nullptr) world_order_.push_back(worldspace.packed());
+  if (it == nullptr)
+    world_order_.push_back(worldspace.packed());
   base::Vector<GlobalFormId>& cells = world_cells_[worldspace.packed()];
-  if (!cells.Contains(cell)) cells.push_back(cell);
+  if (!cells.Contains(cell))
+    cells.push_back(cell);
 
   CellChildren& children = cell_children_[cell.packed()];
   (persistent ? children.persistent : children.temporary).push_back(reference);
@@ -367,7 +388,8 @@ Record EditSession::BuildOutput(Entry& entry) {
 
 void EditSession::EncodeEntry(GlobalFormId handle, base::Vector<u8>* out, u32* count) {
   Entry* entry = FindEntry(handle);
-  if (!entry) return;
+  if (!entry)
+    return;
   Record record = BuildOutput(*entry);
   EncodeRecord(record, out);
   ++*count;
@@ -383,19 +405,22 @@ void EditSession::EncodeCellChildren(GlobalFormId cell, base::Vector<u8>* out, u
   base::Vector<u8> children_body;
   if (!children.persistent.empty()) {
     base::Vector<u8> body;
-    for (GlobalFormId ref : children.persistent) EncodeEntry(ref, &body, count);
+    for (GlobalFormId ref : children.persistent)
+      EncodeEntry(ref, &body, count);
     EmitGroup(kGroupCellPersistent, label, ByteSpan(body.data(), body.size()), &children_body);
   }
   if (!children.temporary.empty()) {
     base::Vector<u8> body;
-    for (GlobalFormId ref : children.temporary) EncodeEntry(ref, &body, count);
+    for (GlobalFormId ref : children.temporary)
+      EncodeEntry(ref, &body, count);
     EmitGroup(kGroupCellTemporary, label, ByteSpan(body.data(), body.size()), &children_body);
   }
   EmitGroup(kGroupCellChildren, label, ByteSpan(children_body.data(), children_body.size()), out);
 }
 
 base::Vector<u8> EditSession::BuildCellGroup(u32* count) {
-  if (cell_order_.empty()) return {};
+  if (cell_order_.empty())
+    return {};
   // Bin cells by interior block / sub-block so the tree matches the games'
   // layout. The numbers come from the last two decimal digits of the cell's
   // local form id: block = FormID mod 10 (ones digit), sub-block =
@@ -433,7 +458,8 @@ base::Vector<u8> EditSession::BuildCellGroup(u32* count) {
 }
 
 base::Vector<u8> EditSession::BuildWorldGroup(u32* count) {
-  if (world_order_.empty()) return {};
+  if (world_order_.empty())
+    return {};
   base::Vector<u8> top_body;
   for (u64 wpacked : world_order_) {
     GlobalFormId world{static_cast<u16>(wpacked >> 32), static_cast<u32>(wpacked)};
@@ -488,14 +514,16 @@ base::Vector<u8> EditSession::BuildWorldGroup(u32* count) {
 }
 
 base::Vector<u8> EditSession::BuildDialGroup(u32* count) {
-  if (dial_order_.empty()) return {};
+  if (dial_order_.empty())
+    return {};
   base::Vector<u8> top_body;
   for (u64 packed : dial_order_) {
     GlobalFormId dial{static_cast<u16>(packed >> 32), static_cast<u32>(packed)};
     EncodeEntry(dial, &top_body, count);  // the DIAL record
 
     base::Vector<u8> infos_body;
-    for (GlobalFormId info : topic_infos_[packed]) EncodeEntry(info, &infos_body, count);
+    for (GlobalFormId info : topic_infos_[packed])
+      EncodeEntry(info, &infos_body, count);
     EmitGroup(kGroupTopicChildren, Ref(dial).value, ByteSpan(infos_body.data(), infos_body.size()),
               &top_body);
   }
@@ -516,9 +544,12 @@ bool EditSession::WriteStringFiles(const base::String& plugin_path) {
   const base::String prefix = (dir / (base + "_" + lang).c_str()).string();
   bool ok = true;
   // Each file is written only when it holds strings; the id space is shared.
-  if (strings_.size()) ok &= strings_.Save(prefix + ".strings", /*length_prefixed=*/false);
-  if (dlstrings_.size()) ok &= dlstrings_.Save(prefix + ".dlstrings", /*length_prefixed=*/true);
-  if (ilstrings_.size()) ok &= ilstrings_.Save(prefix + ".ilstrings", /*length_prefixed=*/true);
+  if (strings_.size())
+    ok &= strings_.Save(prefix + ".strings", /*length_prefixed=*/false);
+  if (dlstrings_.size())
+    ok &= dlstrings_.Save(prefix + ".dlstrings", /*length_prefixed=*/true);
+  if (ilstrings_.size())
+    ok &= ilstrings_.Save(prefix + ".ilstrings", /*length_prefixed=*/true);
   return ok;
 }
 
@@ -530,12 +561,14 @@ bool EditSession::Save(const base::String& path, const SaveOptions& options) {
       .set_master(options.is_master)
       .set_light(options.is_light)
       .set_localized(localized);
-  for (const base::String& master : masters_) writer.add_master(master);
+  for (const base::String& master : masters_)
+    writer.add_master(master);
   writer.set_next_object_id(next_local_id_);
 
   // Flat pass: every entry not claimed by a nested structure.
   for (u64 packed : order_of_entries_) {
-    if (claimed_.count(packed)) continue;
+    if (claimed_.count(packed))
+      continue;
     Record out = BuildOutput(entries_[packed]);
     writer.AddRecord(out);
   }
@@ -543,18 +576,23 @@ bool EditSession::Save(const base::String& path, const SaveOptions& options) {
   // Nested passes: CELL and DIAL subtrees.
   u32 cell_count = 0;
   base::Vector<u8> cell_group = BuildCellGroup(&cell_count);
-  if (!cell_group.empty()) writer.AddPrebuiltGroup(cell_group, cell_count);
+  if (!cell_group.empty())
+    writer.AddPrebuiltGroup(cell_group, cell_count);
 
   u32 dial_count = 0;
   base::Vector<u8> dial_group = BuildDialGroup(&dial_count);
-  if (!dial_group.empty()) writer.AddPrebuiltGroup(dial_group, dial_count);
+  if (!dial_group.empty())
+    writer.AddPrebuiltGroup(dial_group, dial_count);
 
   u32 world_count = 0;
   base::Vector<u8> world_group = BuildWorldGroup(&world_count);
-  if (!world_group.empty()) writer.AddPrebuiltGroup(world_group, world_count);
+  if (!world_group.empty())
+    writer.AddPrebuiltGroup(world_group, world_count);
 
-  if (!writer.Save(path)) return false;
-  if (localized) return WriteStringFiles(path);
+  if (!writer.Save(path))
+    return false;
+  if (localized)
+    return WriteStringFiles(path);
   return true;
 }
 

@@ -5,8 +5,8 @@
 #include <optional>
 #include <vector>
 
-#include "core/types.h"
 #include "components/gamenet/objective_marker_net.h"
+#include "core/types.h"
 
 // zetanet's headers (pulled in via net/objective_marker_net.h's siblings) inject
 // their own scalar aliases, so scalar types stay fully qualified as rx::.
@@ -21,12 +21,12 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 bool Same(const ObjectiveMarkerState& a, const ObjectiveMarkerState& b) {
-  return a.active == b.active && a.quest == b.quest && a.x == b.x &&
-         a.y == b.y && a.z == b.z;
+  return a.active == b.active && a.quest == b.quest && a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
 void RoundTrip(const char* what, const ObjectiveMarkerState& m) {
@@ -40,17 +40,18 @@ void TestRoundTrip() {
   std::puts("objective marker round trip:");
 
   RoundTrip("inactive marker survives",
-            ObjectiveMarkerState{.active = false, .quest = 0, .x = 0, .y = 0,
-                                 .z = 0});
+            ObjectiveMarkerState{.active = false, .quest = 0, .x = 0, .y = 0, .z = 0});
   RoundTrip("active marker survives",
-            ObjectiveMarkerState{.active = true, .quest = 0x000a1234ull,
-                                 .x = 1.0f, .y = 2.0f, .z = 3.0f});
-  RoundTrip("negative positions survive",
-            ObjectiveMarkerState{.active = true, .quest = 0xffffffffffffffffull,
-                                 .x = -1234.5f, .y = -0.0f, .z = -987654.0f});
+            ObjectiveMarkerState{
+                .active = true, .quest = 0x000a1234ull, .x = 1.0f, .y = 2.0f, .z = 3.0f});
+  RoundTrip("negative positions survive", ObjectiveMarkerState{.active = true,
+                                                               .quest = 0xffffffffffffffffull,
+                                                               .x = -1234.5f,
+                                                               .y = -0.0f,
+                                                               .z = -987654.0f});
   RoundTrip("fractional positions survive",
-            ObjectiveMarkerState{.active = true, .quest = 0x42ull,
-                                 .x = 0.125f, .y = -0.333333f, .z = 65536.5f});
+            ObjectiveMarkerState{
+                .active = true, .quest = 0x42ull, .x = 0.125f, .y = -0.333333f, .z = 65536.5f});
 }
 
 void TestSizeRejection() {
@@ -75,8 +76,7 @@ void TestSizeRejection() {
   // One trailing byte makes the buffer oversized and is rejected.
   std::vector<rx::u8> oversized = valid;
   oversized.push_back(0);
-  Check("oversized buffer rejected",
-        !DecodeObjectiveMarker(oversized).has_value());
+  Check("oversized buffer rejected", !DecodeObjectiveMarker(oversized).has_value());
 }
 
 }  // namespace

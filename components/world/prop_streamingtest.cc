@@ -20,7 +20,8 @@ int failures = 0;
 
 void Check(const char* name, bool condition) {
   std::printf("  [%s] %s\n", condition ? "ok" : "FAIL", name);
-  if (!condition) ++failures;
+  if (!condition)
+    ++failures;
 }
 
 }  // namespace

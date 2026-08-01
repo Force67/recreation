@@ -25,7 +25,8 @@ base::String Lower(base::String s) {
 }
 
 u32 FormIdAt(const bethesda::Subrecord* sub) {
-  if (!sub || sub->data.size() < 4) return 0;
+  if (!sub || sub->data.size() < 4)
+    return 0;
   u32 raw = 0;
   std::memcpy(&raw, sub->data.data(), 4);
   return raw;
@@ -33,9 +34,12 @@ u32 FormIdAt(const bethesda::Subrecord* sub) {
 
 }  // namespace
 
-base::String VoiceFilePath(const base::String& plugin_file, const base::String& voice_type,
-                           const base::String& quest_edid, const base::String& topic_edid,
-                           u32 info_local_id, int response_index) {
+base::String VoiceFilePath(const base::String& plugin_file,
+                           const base::String& voice_type,
+                           const base::String& quest_edid,
+                           const base::String& topic_edid,
+                           u32 info_local_id,
+                           int response_index) {
   char tail[64];
   std::snprintf(tail, sizeof(tail), "_%08x_%d.fuz", info_local_id, response_index);
   return Lower("sound/voice/" + plugin_file + "/" + voice_type + "/" + quest_edid + "_" +
@@ -45,12 +49,15 @@ base::String VoiceFilePath(const base::String& plugin_file, const base::String& 
 base::Vector<base::String> VoiceFileCandidates(const base::Vector<base::String>& plugin_files,
                                                const base::String& voice_type,
                                                const base::String& quest_edid,
-                                               const base::String& topic_edid, u32 info_local_id,
+                                               const base::String& topic_edid,
+                                               u32 info_local_id,
                                                int response_index) {
   base::Vector<base::String> out;
-  if (voice_type.empty()) return out;
+  if (voice_type.empty())
+    return out;
   for (const base::String& plugin : plugin_files) {
-    if (plugin.empty()) continue;
+    if (plugin.empty())
+      continue;
     out.push_back(
         VoiceFilePath(plugin, voice_type, quest_edid, topic_edid, info_local_id, response_index));
     // Scene dialogue is normally filed with an empty topic segment even when the
@@ -71,7 +78,8 @@ base::String VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::G
   bethesda::GlobalFormId current = npc;
   for (int depth = 0; depth < 8; ++depth) {
     bethesda::Record rec;
-    if (!records.Parse(current, &rec)) return {};
+    if (!records.Parse(current, &rec))
+      return {};
     const bethesda::RecordStore::StoredRecord* stored = records.Find(current);
     const u16 plugin = stored ? stored->winning_plugin : current.plugin;
     if (u32 raw = FormIdAt(rec.Find(FourCc('V', 'T', 'C', 'K')))) {
@@ -81,7 +89,8 @@ base::String VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::G
       return {};
     }
     const u32 tplt = FormIdAt(rec.Find(FourCc('T', 'P', 'L', 'T')));
-    if (!tplt) return {};
+    if (!tplt)
+      return {};
     current = records.ResolveFrom(bethesda::RawFormId{tplt}, plugin);
   }
   return {};
@@ -90,21 +99,24 @@ base::String VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::G
 namespace {
 
 u32 ReadU32(ByteSpan bytes, size_t offset) {
-  if (offset + 4 > bytes.size()) return 0;
+  if (offset + 4 > bytes.size())
+    return 0;
   u32 value = 0;
   std::memcpy(&value, bytes.data() + offset, 4);
   return value;
 }
 
 u16 ReadU16(ByteSpan bytes, size_t offset) {
-  if (offset + 2 > bytes.size()) return 0;
+  if (offset + 2 > bytes.size())
+    return 0;
   u16 value = 0;
   std::memcpy(&value, bytes.data() + offset, 2);
   return value;
 }
 
 bool TagAt(ByteSpan bytes, size_t offset, const char* tag) {
-  if (offset + 4 > bytes.size()) return false;
+  if (offset + 4 > bytes.size())
+    return false;
   return std::memcmp(bytes.data() + offset, tag, 4) == 0;
 }
 
@@ -112,26 +124,33 @@ bool TagAt(ByteSpan bytes, size_t offset, const char* tag) {
 
 bool VoiceIndex::ParsePath(base::StringRef path, u32* info_local_id, base::String* voice_type) {
   // sound/voice/<plugin>/<voice type>/<quest>_<topic>_<info hex8>_<n>.fuz
-  if (path.size() < 8 || path.rfind(".fuz") != path.size() - 4) return false;
+  if (path.size() < 8 || path.rfind(".fuz") != path.size() - 4)
+    return false;
   const size_t slash = path.rfind('/');
-  if (slash == base::StringRef::npos || slash == 0) return false;
+  if (slash == base::StringRef::npos || slash == 0)
+    return false;
   const size_t voice_start = path.rfind('/', slash - 1);
-  if (voice_start == base::StringRef::npos) return false;
+  if (voice_start == base::StringRef::npos)
+    return false;
   const base::StringRef name = path.substr(slash + 1, path.size() - slash - 5);  // drop ".fuz"
   // The id is the second-to-last underscore-separated field.
   const size_t last = name.rfind('_');
-  if (last == base::StringRef::npos || last == 0) return false;
+  if (last == base::StringRef::npos || last == 0)
+    return false;
   const size_t prev = name.rfind('_', last - 1);
-  if (prev == base::StringRef::npos) return false;
+  if (prev == base::StringRef::npos)
+    return false;
   const base::StringRef id = name.substr(prev + 1, last - prev - 1);
-  if (id.size() != 8) return false;
+  if (id.size() != 8)
+    return false;
   u32 value = 0;
   for (char c : id) {
     const int digit = (c >= '0' && c <= '9')   ? c - '0'
                       : (c >= 'a' && c <= 'f') ? c - 'a' + 10
                       : (c >= 'A' && c <= 'F') ? c - 'A' + 10
                                                : -1;
-    if (digit < 0) return false;
+    if (digit < 0)
+      return false;
     value = value * 16 + static_cast<u32>(digit);
   }
   *info_local_id = value;
@@ -140,23 +159,28 @@ bool VoiceIndex::ParsePath(base::StringRef path, u32* info_local_id, base::Strin
 }
 
 void VoiceIndex::Build(const asset::Vfs& vfs) {
-  if (built_) return;
+  if (built_)
+    return;
   built_ = true;
   vfs.Enumerate([&](base::StringRef path) {
-    if (path.rfind("sound/voice/", 0) != 0) return;
+    if (path.rfind("sound/voice/", 0) != 0)
+      return;
     u32 info = 0;
     base::String voice_type;
-    if (!ParsePath(path, &info, &voice_type)) return;
+    if (!ParsePath(path, &info, &voice_type))
+      return;
     by_info_[info].push_back({base::move(voice_type), base::String(path)});
   });
 }
 
 base::String VoiceIndex::Find(u32 info_local_id, const base::String& voice_type) const {
   const base::Vector<Clip>* clips = by_info_.find(info_local_id);
-  if (!clips) return {};
+  if (!clips)
+    return {};
   const base::String want = Lower(voice_type);
   for (const Clip& clip : *clips)
-    if (clip.voice_type == want) return clip.path;
+    if (clip.voice_type == want)
+      return clip.path;
   // A line recorded for one voice type only (a unique actor) still belongs to this
   // INFO, so it is the right recording even when the speaker's type does not match.
   return clips->front().path;
@@ -165,10 +189,13 @@ base::String VoiceIndex::Find(u32 info_local_id, const base::String& voice_type)
 f32 ClipSeconds(ByteSpan bytes) {
   size_t at = 0;
   // FUZE: magic, version, lipsync block size, then the wrapped RIFF.
-  if (TagAt(bytes, 0, "FUZE")) at = 12 + ReadU32(bytes, 8);
-  if (!TagAt(bytes, at, "RIFF")) return 0.0f;
+  if (TagAt(bytes, 0, "FUZE"))
+    at = 12 + ReadU32(bytes, 8);
+  if (!TagAt(bytes, at, "RIFF"))
+    return 0.0f;
   const bool xwma = TagAt(bytes, at + 8, "XWMA");
-  if (!xwma && !TagAt(bytes, at + 8, "WAVE")) return 0.0f;
+  if (!xwma && !TagAt(bytes, at + 8, "WAVE"))
+    return 0.0f;
 
   u32 sample_rate = 0, byte_rate = 0, data_size = 0, decoded_bytes = 0;
   u16 channels = 0, bits = 0;
@@ -183,13 +210,15 @@ f32 ClipSeconds(ByteSpan bytes) {
       bits = ReadU16(bytes, body + 14);
     } else if (TagAt(bytes, chunk, "dpds")) {
       // Cumulative decoded bytes per packet; the last entry is the whole clip.
-      if (size >= 4) decoded_bytes = ReadU32(bytes, body + size - 4);
+      if (size >= 4)
+        decoded_bytes = ReadU32(bytes, body + size - 4);
     } else if (TagAt(bytes, chunk, "data")) {
       data_size = size;
     }
     chunk = body + size + (size & 1);  // chunks are word aligned
   }
-  if (sample_rate == 0) return 0.0f;
+  if (sample_rate == 0)
+    return 0.0f;
   if (decoded_bytes > 0 && channels > 0 && bits >= 8) {
     const u32 frame_bytes = channels * (bits / 8u);
     if (frame_bytes > 0)

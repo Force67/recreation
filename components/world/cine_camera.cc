@@ -11,32 +11,48 @@ struct V3 {
   f32 x = 0, y = 0, z = 0;
 };
 
-V3 Load(const f32 v[3]) { return {v[0], v[1], v[2]}; }
+V3 Load(const f32 v[3]) {
+  return {v[0], v[1], v[2]};
+}
 void Store(const V3& v, f32 out[3]) {
   out[0] = v.x;
   out[1] = v.y;
   out[2] = v.z;
 }
-V3 Add(const V3& a, const V3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
-V3 Sub(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-V3 Scale(const V3& a, f32 s) { return {a.x * s, a.y * s, a.z * s}; }
-V3 Mid(const V3& a, const V3& b) { return Scale(Add(a, b), 0.5f); }
+V3 Add(const V3& a, const V3& b) {
+  return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+V3 Sub(const V3& a, const V3& b) {
+  return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+V3 Scale(const V3& a, f32 s) {
+  return {a.x * s, a.y * s, a.z * s};
+}
+V3 Mid(const V3& a, const V3& b) {
+  return Scale(Add(a, b), 0.5f);
+}
 
 // Planar direction from a to b; falls back to `yaw`'s forward when they coincide,
 // so a lone speaker is still framed from in front rather than from inside.
 V3 Axis(const V3& from, const V3& to, f32 yaw, f32 min_gap) {
   V3 d{to.x - from.x, 0, to.z - from.z};
   const f32 len = std::sqrt(d.x * d.x + d.z * d.z);
-  if (len < min_gap) return {std::sin(yaw), 0, -std::cos(yaw)};
+  if (len < min_gap)
+    return {std::sin(yaw), 0, -std::cos(yaw)};
   return Scale(d, 1.0f / len);
 }
 
-V3 RightOf(const V3& axis) { return {-axis.z, 0, axis.x}; }
+V3 RightOf(const V3& axis) {
+  return {-axis.z, 0, axis.x};
+}
 
 }  // namespace
 
-CineFraming SolveShot(ShotKind kind, const f32 speaker_head[3], const f32 listener_head[3],
-                      f32 speaker_yaw, const ShotParams& p) {
+CineFraming SolveShot(ShotKind kind,
+                      const f32 speaker_head[3],
+                      const f32 listener_head[3],
+                      f32 speaker_yaw,
+                      const ShotParams& p) {
   const V3 speaker = Load(speaker_head);
   const V3 listener = Load(listener_head);
   // The conversation axis runs from the speaker to whoever they address, so
@@ -115,7 +131,8 @@ bool ShotDirector::Update(f32 dt, u64 speaker, u64 addressee) {
   const bool held_too_long = max_shot_ > 0 && shot_time_ >= max_shot_;
   const bool may_cut = !started_ || shot_time_ >= min_shot_;
   if (!started_ || (may_cut && (subject_changed || held_too_long))) {
-    if (started_) ++cuts_;
+    if (started_)
+      ++cuts_;
     started_ = true;
     speaker_ = speaker;
     addressee_ = addressee;

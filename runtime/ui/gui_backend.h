@@ -56,8 +56,11 @@ class GuiRenderBackend final : public ugui::TextureBackend {
   void SetBackdrop(VkImageView view, VkSampler sampler);
 
   // ugui::TextureBackend.
-  ugui::TextureId CreateTexture(uint32_t width, uint32_t height, ugui::RHIFormat format,
-                                const void* pixels, ugui::RHIFilter filter) override;
+  ugui::TextureId CreateTexture(uint32_t width,
+                                uint32_t height,
+                                ugui::RHIFormat format,
+                                const void* pixels,
+                                ugui::RHIFilter filter) override;
   void UpdateTexture(ugui::TextureId id, const void* pixels) override;
   void DestroyTexture(ugui::TextureId id) override;
 
@@ -86,13 +89,22 @@ class GuiRenderBackend final : public ugui::TextureBackend {
   };
 
   uint32_t FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags props) const;
-  void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props,
+  void CreateBuffer(VkDeviceSize size,
+                    VkBufferUsageFlags usage,
+                    VkMemoryPropertyFlags props,
                     GpuBuffer& out);
   void DestroyBuffer(GpuBuffer& b);
   void UploadBuffer(GpuBuffer& b, VkBufferUsageFlags usage, const void* src, VkDeviceSize bytes);
-  VkPipeline CreatePipeline(const unsigned char* vs, size_t vs_size, const unsigned char* fs,
-                            size_t fs_size, uint32_t attr_count);
-  Texture MakeTexture(uint32_t w, uint32_t h, VkFormat fmt, uint32_t pixel_size, const void* pixels,
+  VkPipeline CreatePipeline(const unsigned char* vs,
+                            size_t vs_size,
+                            const unsigned char* fs,
+                            size_t fs_size,
+                            uint32_t attr_count);
+  Texture MakeTexture(uint32_t w,
+                      uint32_t h,
+                      VkFormat fmt,
+                      uint32_t pixel_size,
+                      const void* pixels,
                       VkSampler sampler);
   void FreeTexture(Texture& t);
   VkSampler MakeSampler(VkFilter filter);

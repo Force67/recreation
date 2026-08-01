@@ -3,9 +3,9 @@
 
 #include <base/functional/function.h>
 
-#include "core/types.h"
 #include "components/quest/scene.h"
 #include "components/quest/scene_record.h"
+#include "core/types.h"
 
 namespace rx::quest {
 

@@ -36,24 +36,28 @@ u64 Mix(u64 x) {
 // Hash of (seed, slot, salt) folded to [0, 1). Everything a strike randomises
 // comes through here, so the schedule replays identically from the seed.
 f32 HashF(u64 seed, i64 slot, u64 salt) {
-  const u64 h = Mix(seed ^ (static_cast<u64>(slot) * 0x9e3779b97f4a7c15ULL) ^
-                    (salt * 0xbf58476d1ce4e5b9ULL));
+  const u64 h =
+      Mix(seed ^ (static_cast<u64>(slot) * 0x9e3779b97f4a7c15ULL) ^ (salt * 0xbf58476d1ce4e5b9ULL));
   return static_cast<f32>(h >> 40) / 16777216.0f;
 }
 
-f32 Clamp01(f32 v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+f32 Clamp01(f32 v) {
+  return v < 0 ? 0 : (v > 1 ? 1 : v);
+}
 
 // Frame-rate independent exponential approach: the fraction of the remaining
 // distance covered in `dt` at time constant `tau`.
 f32 Approach(f32 value, f32 target, f32 dt, f32 tau) {
-  if (tau <= 0.0f) return target;
+  if (tau <= 0.0f)
+    return target;
   return value + (target - value) * (1.0f - std::exp(-dt / tau));
 }
 
 // The main flash plus a delayed flicker, the envelope the old frame-loop
 // scheduler used; age in seconds since the strike.
 f32 FlashEnvelope(f32 age) {
-  if (age < 0.0f) return 0.0f;
+  if (age < 0.0f)
+    return 0.0f;
   const f32 a = std::exp(-age * 9.0f);
   const f32 b = age > 0.12f ? 0.65f * std::exp(-(age - 0.12f) * 12.0f) : 0.0f;
   return base::Min(1.0f, a + b);
@@ -68,7 +72,8 @@ const WeatherDef kNeutralDef;
 
 }  // namespace
 
-void Director::SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate, RegionWeather regions,
+void Director::SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate,
+                          RegionWeather regions,
                           u64 seed) {
   default_climate_ = climate;
   system_.SetClimate(base::move(climate));
@@ -82,7 +87,8 @@ void Director::SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate, Reg
 
 void Director::SetOverride(const WeatherState* state) {
   override_ = state != nullptr;
-  if (state) override_state_ = *state;
+  if (state)
+    override_state_ = *state;
 }
 
 void Director::BindAudio(audio::AudioSystem* audio, const audio::SoundCatalog* catalog) {
@@ -91,7 +97,8 @@ void Director::BindAudio(audio::AudioSystem* audio, const audio::SoundCatalog* c
 }
 
 const WeatherDef& Director::DominantDef(f64 game_days) const {
-  if (system_.empty()) return kNeutralDef;
+  if (system_.empty())
+    return kNeutralDef;
   return system_.Transition(game_days) < 0.5f ? system_.Current(game_days)
                                               : system_.Target(game_days);
 }
@@ -100,11 +107,13 @@ void Director::ResolveRegion(const Tick& tick) {
   // The REGN area the player stands in overrides the worldspace climate
   // (Skyrim's per-region weather). Swapped only when the active region changes;
   // skipped while an override pins the weather.
-  if (override_ || regions_.empty()) return;
+  if (override_ || regions_.empty())
+    return;
   u64 region = 0;
-  const auto* climate = regions_.ClimateAt(tick.anchor.x * kEngineToGame,
-                                           -tick.anchor.z * kEngineToGame, &region);
-  if (region == active_region_) return;
+  const auto* climate =
+      regions_.ClimateAt(tick.anchor.x * kEngineToGame, -tick.anchor.z * kEngineToGame, &region);
+  if (region == active_region_)
+    return;
   // Capture the weather we are leaving (old climate) to cross-fade from.
   region_blend_from_ = system_.empty() ? WeatherState{} : system_.At(tick.game_days);
   region_blend_t_ = 0.0f;
@@ -194,11 +203,10 @@ void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
         if (audio_ && catalog_) {
           const WeatherDef& def = DominantDef(tick.game_days);
           if (!def.sound_thunder.empty()) {
-            thunder_queue_.push_back(
-                {tick.real_seconds + dist / kSpeedOfSound, strike_pos_,
-                 1.0f / (1.0f + dist / 300.0f),
-                 def.sound_thunder[Mix(seed_ ^ static_cast<u64>(fired) ^ 7) %
-                                   def.sound_thunder.size()]});
+            thunder_queue_.push_back({tick.real_seconds + dist / kSpeedOfSound, strike_pos_,
+                                      1.0f / (1.0f + dist / 300.0f),
+                                      def.sound_thunder[Mix(seed_ ^ static_cast<u64>(fired) ^ 7) %
+                                                        def.sound_thunder.size()]});
           } else if (!warned_missing_thunder_) {
             warned_missing_thunder_ = true;
             RX_INFO("weather: thundery weather carries no thunder sounds (SNAM)");
@@ -211,7 +219,8 @@ void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
 
   // The forced strike wins while it runs (real clock, so it survives pauses).
   const f32 manual_age = tick.real_seconds - manual_strike_real_seconds_;
-  if (manual_age >= 0.0f && manual_age < kManualStrikeSeconds && !tick.indoors) age = manual_age;
+  if (manual_age >= 0.0f && manual_age < kManualStrikeSeconds && !tick.indoors)
+    age = manual_age;
 
   const bool strike_active = age >= 0.0f && age < kStrikeStaleSeconds;
   out->lightning = strike_active ? FlashEnvelope(age) : 0.0f;
@@ -220,10 +229,13 @@ void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
   out->strike_seed = strike_seed_;
   out->strike_energy = strike_energy_;
   // RX_LIGHTNING holds the flash at a fixed level (testing the brief strike).
-  if (flash_pin_) out->lightning = *flash_pin_;
+  if (flash_pin_)
+    out->lightning = *flash_pin_;
 }
 
-void Director::UpdateBed(Bed* bed, const base::String& target_path, f32 target_gain,
+void Director::UpdateBed(Bed* bed,
+                         const base::String& target_path,
+                         f32 target_gain,
                          f32 frame_delta) {
   // A changed source cross-fades: the old loop fades out on its own while the
   // fresh one ramps up from silence. The same loop is never restarted.
@@ -235,7 +247,8 @@ void Director::UpdateBed(Bed* bed, const base::String& target_path, f32 target_g
     bed->path = target_path;
     bed->gain = 0.0f;
   }
-  if (bed->path.empty()) return;
+  if (bed->path.empty())
+    return;
   // Ramp the gain toward the weather over ~2 s, full scale.
   const f32 step = frame_delta * 0.5f;
   bed->gain += base::Clamp(target_gain - bed->gain, -step, step);
@@ -245,7 +258,8 @@ void Director::UpdateBed(Bed* bed, const base::String& target_path, f32 target_g
       params.gain = 0.0f;  // the ramp below brings it in
       params.positional = false;
       bed->voice = audio_->PlayLoop(bed->path.c_str(), params);
-      if (!bed->voice) bed->path.clear();  // undecodable: stop retrying this file
+      if (!bed->voice)
+        bed->path.clear();  // undecodable: stop retrying this file
     }
   } else {
     audio_->SetVoiceGain(bed->voice, bed->gain);
@@ -257,7 +271,8 @@ void Director::UpdateBed(Bed* bed, const base::String& target_path, f32 target_g
 }
 
 void Director::UpdateAudio(const Tick& tick) {
-  if (!audio_ || !catalog_) return;
+  if (!audio_ || !catalog_)
+    return;
 
   // Rain/wind beds follow the blended weather; indoors both fall silent (the
   // interior systems own the soundscape there).
@@ -301,8 +316,7 @@ void Director::UpdateAudio(const Tick& tick) {
   }
 }
 
-void Director::Update(const Tick& tick, render::WeatherSettings* out,
-                      render::RenderSettings* sky) {
+void Director::Update(const Tick& tick, render::WeatherSettings* out, render::RenderSettings* sky) {
   ResolveRegion(tick);
 
   // The frame's blended state: the override verbatim, else the climate's

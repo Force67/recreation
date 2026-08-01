@@ -17,7 +17,9 @@ void PutBytes(base::Vector<u8>* out, const void* data, size_t size) {
   out->insert(out->end(), p, p + size);
 }
 
-void PutU32(base::Vector<u8>* out, u32 v) { PutBytes(out, &v, sizeof(v)); }
+void PutU32(base::Vector<u8>* out, u32 v) {
+  PutBytes(out, &v, sizeof(v));
+}
 
 }  // namespace
 
@@ -31,12 +33,14 @@ void StringTableWriter::Set(u32 id, base::StringRef text) {
   for (Entry& e : entries_) {
     if (e.id == id) {
       e.text.assign(text);
-      if (id >= next_id_) next_id_ = id + 1;
+      if (id >= next_id_)
+        next_id_ = id + 1;
       return;
     }
   }
   entries_.push_back(Entry{id, base::String(text)});
-  if (id >= next_id_) next_id_ = id + 1;
+  if (id >= next_id_)
+    next_id_ = id + 1;
 }
 
 // GCC's -Wstringop-overflow mis-analyzes base::Vector's byte appends under -O3

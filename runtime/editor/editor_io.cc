@@ -11,12 +11,12 @@
 #include <fstream>
 #include <string>
 
+#include "components/world/cell_streaming.h"
 #include "core/log.h"
 #include "ecs/world.h"
+#include "runtime/app/engine_context.h"
 #include "runtime/editor/editor.h"
 #include "runtime/editor/editor_layout.h"
-#include "runtime/app/engine_context.h"
-#include "components/world/cell_streaming.h"
 
 namespace rx {
 namespace {
@@ -30,21 +30,26 @@ base::Option<const char*> TerrainEditsPath{"terrain.edits", nullptr, "REC_TERRAI
 
 // Where the layout lives: RX_EDITOR_LAYOUT, else a file in the working dir.
 base::String DefaultLayoutPath() {
-  if (const char* env = EditorLayout.get()) return env;
+  if (const char* env = EditorLayout.get())
+    return env;
   return "editor_layout.reclayout";
 }
 
 base::String DefaultTerrainPath(const base::String& layout_path, base::StringRef world_identity) {
-  if (const char* env = TerrainEditsPath.get()) return env;
+  if (const char* env = TerrainEditsPath.get())
+    return env;
   std::filesystem::path path(layout_path.c_str());
   base::String slug;
   for (char c : world_identity) {
     const unsigned char byte = static_cast<unsigned char>(c);
     const char safe = std::isalnum(byte) ? static_cast<char>(std::tolower(byte)) : '_';
-    if (safe != '_' || slug.empty() || slug.back() != '_') slug += safe;
+    if (safe != '_' || slug.empty() || slug.back() != '_')
+      slug += safe;
   }
-  while (!slug.empty() && slug.back() == '_') slug.pop_back();
-  if (slug.empty()) slug = "world";
+  while (!slug.empty() && slug.back() == '_')
+    slug.pop_back();
+  if (slug.empty())
+    slug = "world";
   u64 identity_hash = 0xcbf29ce484222325ull;
   for (unsigned char byte : world_identity) {
     identity_hash ^= byte;
@@ -58,7 +63,8 @@ base::String DefaultTerrainPath(const base::String& layout_path, base::StringRef
 }  // namespace
 
 base::Optional<int> MapEditor::SaveLayout() {
-  if (layout_path_.empty()) layout_path_ = DefaultLayoutPath();
+  if (layout_path_.empty())
+    layout_path_ = DefaultLayoutPath();
   std::ofstream out(layout_path_.c_str(), std::ios::trunc);
   if (!out) {
     SetStatus("Save failed: " + layout_path_);
@@ -69,16 +75,20 @@ base::Optional<int> MapEditor::SaveLayout() {
   out << "# place <game> <plugin> <local_id> <px py pz> <qx qy qz qw> <scale>\n";
   int n = 0;
   for (const PlacedObject& p : placed_) {
-    if (!ctx_.world->IsAlive(p.entity)) continue;
+    if (!ctx_.world->IsAlive(p.entity))
+      continue;
     const world::Transform* t = ctx_.world->Get<world::Transform>(p.entity);
-    if (!t) continue;
+    if (!t)
+      continue;
     editor::LayoutEntry e;
     e.domain = (p.domain >= 0 && p.domain < static_cast<int>(domains_.size()))
                    ? domains_[p.domain].tag
                    : "primary";
     e.base = p.base;
-    for (int i = 0; i < 3; ++i) e.pos[i] = t->position[i];
-    for (int i = 0; i < 4; ++i) e.rot[i] = t->rotation[i];
+    for (int i = 0; i < 3; ++i)
+      e.pos[i] = t->position[i];
+    for (int i = 0; i < 4; ++i)
+      e.rot[i] = t->rotation[i];
     e.scale = t->scale / kUnitsToMeters;  // native multiplier, not engine metres
     out << editor::FormatPlaceLine(e).c_str() << '\n';
     ++n;
@@ -95,10 +105,13 @@ base::Optional<int> MapEditor::SaveLayout() {
 }
 
 int MapEditor::LoadLayout() {
-  if (layout_path_.empty()) layout_path_ = DefaultLayoutPath();
+  if (layout_path_.empty())
+    layout_path_ = DefaultLayoutPath();
   std::ifstream in(layout_path_.c_str());
-  if (!in) return 0;  // no layout saved yet: a silent no-op
-  if (!ctx_.world) return 0;
+  if (!in)
+    return 0;  // no layout saved yet: a silent no-op
+  if (!ctx_.world)
+    return 0;
   EnsureDomains();
 
   int n = 0, skipped = 0;
@@ -107,7 +120,8 @@ int MapEditor::LoadLayout() {
   std::string source;
   while (std::getline(in, source)) {
     const base::String line(source.c_str(), source.size());
-    if (!editor::ParsePlaceLine(line, &le)) continue;
+    if (!editor::ParsePlaceLine(line, &le))
+      continue;
     // Map the saved game slug back to a loaded domain; a placement whose game is
     // not loaded this run is skipped rather than placed against the wrong assets.
     int domain = -1;
@@ -122,10 +136,12 @@ int MapEditor::LoadLayout() {
       continue;
     }
     world::CellStreamer* streamer = StreamerFor(domain);
-    if (!streamer) continue;
+    if (!streamer)
+      continue;
     ecs::Entity e = streamer->PlaceObject(*ctx_.world, le.base,
                                           Vec3{le.pos[0], le.pos[1], le.pos[2]}, le.rot, le.scale);
-    if (e == ecs::kInvalidEntity) continue;
+    if (e == ecs::kInvalidEntity)
+      continue;
     // Recover a display name from the catalog when it is built.
     base::String name = "object";
     for (const CatalogEntry& c : catalog_) {
@@ -138,7 +154,8 @@ int MapEditor::LoadLayout() {
     placed_.push_back({e, le.base, base::move(name), domain});
     ++n;
   }
-  if (skipped > 0) RX_INFO("editor: skipped {} placements for unloaded games", skipped);
+  if (skipped > 0)
+    RX_INFO("editor: skipped {} placements for unloaded games", skipped);
   if (n > 0) {
     SetStatus("Loaded " + base::ToString(n) + " saved objects");
     RX_INFO("editor: loaded {} objects from {}", n, layout_path_);
@@ -147,13 +164,15 @@ int MapEditor::LoadLayout() {
 }
 
 bool MapEditor::SaveTerrain() {
-  if (!ctx_.streamer) return false;
+  if (!ctx_.streamer)
+    return false;
   if (terrain_load_failed_) {
     SetStatus("Terrain save blocked: fix or remove the rejected diff first");
     RX_WARN("editor: preserving rejected terrain diff {}", terrain_path_);
     return false;
   }
-  if (layout_path_.empty()) layout_path_ = DefaultLayoutPath();
+  if (layout_path_.empty())
+    layout_path_ = DefaultLayoutPath();
   if (!TerrainEditsPath.get() || terrain_path_.empty()) {
     terrain_path_ = DefaultTerrainPath(layout_path_, ctx_.streamer->terrain_world_identity());
   }
@@ -169,8 +188,10 @@ bool MapEditor::SaveTerrain() {
 }
 
 bool MapEditor::LoadTerrain() {
-  if (!ctx_.streamer || !ctx_.world) return false;
-  if (layout_path_.empty()) layout_path_ = DefaultLayoutPath();
+  if (!ctx_.streamer || !ctx_.world)
+    return false;
+  if (layout_path_.empty())
+    layout_path_ = DefaultLayoutPath();
   if (!TerrainEditsPath.get() || terrain_path_.empty()) {
     terrain_path_ = DefaultTerrainPath(layout_path_, ctx_.streamer->terrain_world_identity());
   }

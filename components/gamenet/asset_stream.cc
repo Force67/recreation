@@ -1,5 +1,5 @@
-#include "core/log.h"
 #include "components/gamenet/asset_stream.h"
+#include "core/log.h"
 
 #include <base/filesystem/path.h>
 
@@ -11,7 +11,6 @@
 #include "components/modstream/manifest_chunk.h"
 #include "components/modstream/manifest_codec.h"
 #include "components/modstream/transfer_plan.h"
-#include "components/gamenet/protocol.h"
 #include "net/znet_util.h"
 
 namespace rx::net {
@@ -23,18 +22,22 @@ namespace fs = std::filesystem;
 // (8 bytes each plus a 4-byte count). Larger plans split across packets.
 constexpr u32 kRequestHashesPerPacket = 6000;
 
-base::Path ToBasePath(const fs::path& path) { return base::Path(path.string().c_str()); }
+base::Path ToBasePath(const fs::path& path) {
+  return base::Path(path.string().c_str());
+}
 
 }  // namespace
 
 // --- server ---
 
 AssetStreamServer::AssetStreamServer(tx::network::ZServer& server,
-                                     const modstream::ModCatalog& catalog, unsigned sender_threads)
+                                     const modstream::ModCatalog& catalog,
+                                     unsigned sender_threads)
     : server_(server), catalog_(&catalog), transporter_(server) {
   const unsigned count = sender_threads > 0 ? sender_threads : 1;
   workers_.reserve(count);
-  for (unsigned i = 0; i < count; ++i) workers_.emplace_back(&AssetStreamServer::Worker, this);
+  for (unsigned i = 0; i < count; ++i)
+    workers_.emplace_back(&AssetStreamServer::Worker, this);
 }
 
 AssetStreamServer::~AssetStreamServer() {
@@ -47,7 +50,8 @@ AssetStreamServer::~AssetStreamServer() {
   // zetanet's transporter has no send-abort, so shutdown waits that out.
   cv_.notify_all();
   for (std::thread& worker : workers_) {
-    if (worker.joinable()) worker.join();
+    if (worker.joinable())
+      worker.join();
   }
 }
 
@@ -70,19 +74,22 @@ void AssetStreamServer::SendManifest(u32 peer) {
 void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
   std::optional<std::vector<modstream::ContentHash>> hashes =
       modstream::DecodeHashRequest(data, size, kRequestHashesPerPacket);
-  if (!hashes) return;  // malformed or oversized request, drop
+  if (!hashes)
+    return;  // malformed or oversized request, drop
 
   size_t queued = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     for (modstream::ContentHash hash : *hashes) {
       base::Optional<fs::path> path = catalog_->PathForHash(hash);
-      if (!path) continue;  // not catalogued: never read outside the mods dir
+      if (!path)
+        continue;  // not catalogued: never read outside the mods dir
       jobs_.push_back({peer, std::move(*path)});
       ++queued;
     }
   }
-  if (queued > 0) cv_.notify_all();
+  if (queued > 0)
+    cv_.notify_all();
 }
 
 void AssetStreamServer::Worker() {
@@ -91,7 +98,8 @@ void AssetStreamServer::Worker() {
     {
       std::unique_lock<std::mutex> lock(mutex_);
       cv_.wait(lock, [this] { return stop_ || !jobs_.empty(); });
-      if (stop_ && jobs_.empty()) return;
+      if (stop_ && jobs_.empty())
+        return;
       job = std::move(jobs_.front());
       jobs_.pop_front();
     }
@@ -103,7 +111,8 @@ void AssetStreamServer::Worker() {
 
 // --- client ---
 
-AssetStreamClient::AssetStreamClient(tx::network::ZClient& client, modstream::ContentStore& store,
+AssetStreamClient::AssetStreamClient(tx::network::ZClient& client,
+                                     modstream::ContentStore& store,
                                      fs::path incoming_dir)
     : client_(client), store_(store), incoming_dir_(std::move(incoming_dir)), transporter_(client) {
   std::error_code ec;
@@ -118,12 +127,14 @@ AssetStreamClient::~AssetStreamClient() = default;
 
 void AssetStreamClient::OnFilePacket(const tx::network::IncomingPacket& packet) {
   tx::network::ZFileTransporter::TransferChunk chunk;
-  if (transporter_.ParseTransferChunkPacket(packet, chunk)) HandleChunk(chunk);
+  if (transporter_.ParseTransferChunkPacket(packet, chunk))
+    HandleChunk(chunk);
 }
 
 u64 AssetStreamClient::bytes_remaining() const {
   u64 total = 0;
-  for (const auto& [hash, size] : remaining_) total += size;
+  for (const auto& [hash, size] : remaining_)
+    total += size;
   return total;
 }
 
@@ -131,14 +142,16 @@ void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
   // The codec validates the chunk in isolation (header, counts, index, payload
   // length), so reassembly below cannot write out of range.
   std::optional<modstream::ManifestChunkView> chunk = modstream::DecodeManifestChunk(data, size);
-  if (!chunk) return;
+  if (!chunk)
+    return;
 
   // Process a chunk only for a newer generation (a fresh manifest, from join or a
   // live reload) or for the generation currently being assembled. A chunk for an
   // already-finished generation is a stale retransmit and is ignored.
   const bool newer = chunk->generation > manifest_generation_;
   const bool same_assembly = manifest_started_ && chunk->generation == manifest_generation_;
-  if (!newer && !same_assembly) return;
+  if (!newer && !same_assembly)
+    return;
   if (newer) {
     ResetForNewManifest();
     manifest_generation_ = chunk->generation;
@@ -157,7 +170,8 @@ void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
   const u32 offset = chunk->chunk_index * modstream::kManifestChunkPayload;
   std::copy(chunk->payload, chunk->payload + chunk->payload_len, manifest_buffer_.begin() + offset);
   manifest_chunks_[chunk->chunk_index] = true;
-  if (manifest_chunks_.size() == manifest_total_chunks_) OnManifestComplete();
+  if (manifest_chunks_.size() == manifest_total_chunks_)
+    OnManifestComplete();
 }
 
 void AssetStreamClient::ResetForNewManifest() {
@@ -188,16 +202,18 @@ void AssetStreamClient::OnManifestComplete() {
     RX_INFO("net: asset manifest complete, {} files already cached", manifest_.TotalFiles());
     ready_ = true;
     SendReady();
-    if (on_ready_) on_ready_(manifest_);
+    if (on_ready_)
+      on_ready_(manifest_);
     return;
   }
 
   remaining_.reserve(plan.size());
-  for (const modstream::NeededFile& need : plan) remaining_[need.hash] = need.size;
+  for (const modstream::NeededFile& need : plan)
+    remaining_[need.hash] = need.size;
   planned_files_ = plan.size();
   downloading_ = true;
   RX_INFO("net: streaming {} mod files ({} bytes) from the server", plan.size(),
-           modstream::PlannedBytes(plan));
+          modstream::PlannedBytes(plan));
 
   // Request the missing hashes, split across packets to stay under the datagram
   // ceiling. Each packet is independent; the server queues every valid hash.
@@ -205,7 +221,8 @@ void AssetStreamClient::OnManifestComplete() {
     const size_t end = std::min(base + kRequestHashesPerPacket, plan.size());
     std::vector<modstream::ContentHash> batch;
     batch.reserve(end - base);
-    for (size_t i = base; i < end; ++i) batch.push_back(plan[i].hash);
+    for (size_t i = base; i < end; ++i)
+      batch.push_back(plan[i].hash);
     client_.Push(MakePacket(
         tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetRequest),
         modstream::EncodeHashRequest(batch), /*reliable=*/true, tx::network::PacketPriority::High));
@@ -219,7 +236,8 @@ void AssetStreamClient::HandleChunk(const tx::network::ZFileTransporter::Transfe
 
   // The transporter's session is created by the file-name bearing chunk 0; until
   // it arrives, later chunks (already ACKed, so never resent) wait buffered.
-  if (!transfer.started && transfer.pending.find(0) == transfer.pending.end()) return;
+  if (!transfer.started && transfer.pending.find(0) == transfer.pending.end())
+    return;
   transfer.started = true;
 
   const base::Path temp_dir = ToBasePath(incoming_dir_);
@@ -233,7 +251,8 @@ void AssetStreamClient::HandleChunk(const tx::network::ZFileTransporter::Transfe
       return;
     }
     it = transfer.pending.erase(it);
-    if (!completed) continue;
+    if (!completed)
+      continue;
 
     const fs::path out = incoming_dir_ / (std::to_string(transfer_id) + ".bin");
     if (transporter_.FinalizeStreamedFile(transfer_id, ToBasePath(out))) {
@@ -273,7 +292,8 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
     ready_ = true;
     RX_INFO("net: all mod assets streamed, mounting {} files", manifest_.TotalFiles());
     SendReady();
-    if (on_ready_) on_ready_(manifest_);
+    if (on_ready_)
+      on_ready_(manifest_);
   }
 }
 

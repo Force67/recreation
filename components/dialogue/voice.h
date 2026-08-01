@@ -30,9 +30,12 @@ namespace rx::dialogue {
 // long as the recording, which is how the game times its scene phases.
 
 // Builds the voice path for one response. `topic_edid` may be empty.
-base::String VoiceFilePath(const base::String& plugin_file, const base::String& voice_type,
-                           const base::String& quest_edid, const base::String& topic_edid,
-                           u32 info_local_id, int response_index);
+base::String VoiceFilePath(const base::String& plugin_file,
+                           const base::String& voice_type,
+                           const base::String& quest_edid,
+                           const base::String& topic_edid,
+                           u32 info_local_id,
+                           int response_index);
 
 // Every path worth probing for a line, best first: the plugin/quest/topic naming
 // above, then the same file under the plugin's other spellings (a master's lines
@@ -41,7 +44,8 @@ base::String VoiceFilePath(const base::String& plugin_file, const base::String& 
 base::Vector<base::String> VoiceFileCandidates(const base::Vector<base::String>& plugin_files,
                                                const base::String& voice_type,
                                                const base::String& quest_edid,
-                                               const base::String& topic_edid, u32 info_local_id,
+                                               const base::String& topic_edid,
+                                               u32 info_local_id,
                                                int response_index);
 
 // The VTCK voice type editor id of an NPC_ (empty when it has none). This is the

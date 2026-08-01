@@ -25,13 +25,19 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
-void PutI16(base::Vector<u8>& b, i16 v) { PutU16(b, static_cast<u16>(v)); }
+void PutU16(base::Vector<u8>& b, u16 v) {
+  b.insert(b.end(), {u8(v), u8(v >> 8)});
+}
+void PutI16(base::Vector<u8>& b, i16 v) {
+  PutU16(b, static_cast<u16>(v));
+}
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutF32(base::Vector<u8>& b, f32 v) {
   u32 bits;
@@ -62,9 +68,11 @@ int main() {
   PutU32(mesh, kWpv);  // weightsPerVertex
   PutU32(mesh, kVertexCount);
   for (u32 v = 0; v < kVertexCount; ++v)
-    for (int k = 0; k < 3; ++k) PutI16(mesh, positions[v][k]);
+    for (int k = 0; k < 3; ++k)
+      PutI16(mesh, positions[v][k]);
   // Five optional streams, all absent (count 0) so the weight stream follows.
-  for (int s = 0; s < 5; ++s) PutU32(mesh, 0);
+  for (int s = 0; s < 5; ++s)
+    PutU32(mesh, 0);
 
   // Weight stream. vertex 0 has six influences whose two smallest must be
   // dropped; the kept four renormalize to sum 255. vertices 1 and 2 pad with

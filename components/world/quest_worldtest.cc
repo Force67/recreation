@@ -10,10 +10,10 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "core/types.h"
-#include "ecs/world.h"
 #include "components/world/components.h"
 #include "components/world/quest_world.h"
+#include "core/types.h"
+#include "ecs/world.h"
 
 // Handles are addressed with std::uint64_t here rather than rx::u64: linking the
 // world (-> physics -> arch_types) makes the bare name `rx::u64` ambiguous in this
@@ -36,7 +36,8 @@ namespace {
 int g_failures = 0;
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 WorldCommand Spawn(Handle quest, Handle handle, f32 x, f32 y, f32 z) {
@@ -73,7 +74,9 @@ WorldCommand SetDoor(WorldOp op, Handle quest, Handle handle, bool value) {
   return c;
 }
 
-f32 PosX(ecs::World& w, ecs::Entity e) { return w.Get<Transform>(e)->position[0]; }
+f32 PosX(ecs::World& w, ecs::Entity e) {
+  return w.Get<Transform>(e)->position[0];
+}
 
 }  // namespace
 
@@ -264,7 +267,8 @@ int main() {
 
   const size_t pending_before = qw.pending_command_count();
   const Handle COALESCED = 0x00054322;
-  for (int i = 0; i < 100; ++i) q.Push(Move(Q4, COALESCED, static_cast<f32>(i), 0, 0));
+  for (int i = 0; i < 100; ++i)
+    q.Push(Move(Q4, COALESCED, static_cast<f32>(i), 0, 0));
   qw.Apply(q);
   Check("adjacent deferred state updates coalesce",
         qw.pending_command_count() == pending_before + 1);
@@ -367,7 +371,8 @@ int main() {
   base::Vector<base::Pair<rx::u64, base::Array<f32, 3>>> positions;
   qw.SnapshotPositions(positions);
   bool deleted_visible = false;
-  for (const auto& [handle, _] : positions) deleted_visible |= handle == DELETED;
+  for (const auto& [handle, _] : positions)
+    deleted_visible |= handle == DELETED;
   Check("deleted streamed ref stays alive for unload", world.IsAlive(deleted));
   Check("deleted streamed ref is absent from snapshots", !deleted_visible);
   Check("logical delete emits unload", unloaded == 1);

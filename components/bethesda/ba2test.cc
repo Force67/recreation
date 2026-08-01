@@ -24,18 +24,24 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
-void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
+void PutU16(base::Vector<u8>& b, u16 v) {
+  b.insert(b.end(), {u8(v), u8(v >> 8)});
+}
 void PutU32(base::Vector<u8>& b, u32 v) {
-  for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutU64(base::Vector<u8>& b, u64 v) {
-  for (int i = 0; i < 8; ++i) b.push_back(u8(v >> (8 * i)));
+  for (int i = 0; i < 8; ++i)
+    b.push_back(u8(v >> (8 * i)));
 }
 void PutBytes(base::Vector<u8>& b, const char* s, size_t n) {
-  for (size_t i = 0; i < n; ++i) b.push_back(static_cast<u8>(s[i]));
+  for (size_t i = 0; i < n; ++i)
+    b.push_back(static_cast<u8>(s[i]));
 }
 
 // Writes `bytes` to a temp .ba2 and opens it through OpenArchive.
@@ -82,7 +88,8 @@ void TestGnrl(const base::String& dir) {
 
   auto provider = OpenSynthetic(b, dir + "/rec_ba2test_gnrl.ba2");
   Check("opens", provider != nullptr);
-  if (!provider) return;
+  if (!provider)
+    return;
 
   // Lookups are by the normalized (lower-case, forward-slash) path.
   const base::String key = "meshes/test/thing.nif";
@@ -103,7 +110,8 @@ void TestDx10(const base::String& dir) {
   std::puts("ba2 DX10 round trip:");
   // One 4x4 BC7 block (16 bytes) as the single mip-0 chunk.
   base::Vector<u8> mip0(16);
-  for (size_t i = 0; i < mip0.size(); ++i) mip0[i] = static_cast<u8>(i + 1);
+  for (size_t i = 0; i < mip0.size(); ++i)
+    mip0[i] = static_cast<u8>(i + 1);
   const base::String name = "Textures\\Test\\Albedo_d.DDS";
 
   constexpr u64 kHeaderSize = 24;
@@ -150,13 +158,15 @@ void TestDx10(const base::String& dir) {
 
   auto provider = OpenSynthetic(b, dir + "/rec_ba2test_dx10.ba2");
   Check("opens", provider != nullptr);
-  if (!provider) return;
+  if (!provider)
+    return;
 
   const base::String key = "textures/test/albedo_d.dds";
   Check("contains by normalized path", provider->Contains(key));
   auto dds = provider->Read(key);
   Check("reads", dds.has_value());
-  if (!dds) return;
+  if (!dds)
+    return;
 
   // The reader synthesizes a DDS header (4-byte magic + 124 header + 20 DX10),
   // so the chunk data lands at byte 148. Fields line up with what ConvertDds
@@ -165,7 +175,8 @@ void TestDx10(const base::String& dir) {
   Check("dds magic", dds->size() >= 4 && std::memcmp(dds->data(), "DDS ", 4) == 0);
   auto u32_at = [&](size_t off) {
     u32 v = 0;
-    if (off + 4 <= dds->size()) std::memcpy(&v, dds->data() + off, 4);
+    if (off + 4 <= dds->size())
+      std::memcpy(&v, dds->data() + off, 4);
     return v;
   };
   Check("dds height", u32_at(12) == kHeight);
@@ -215,7 +226,8 @@ void TestStarfieldGnrl(const base::String& dir) {
 
   auto provider = OpenSynthetic(b, dir + "/rec_ba2test_sf.ba2");
   Check("opens", provider != nullptr);
-  if (!provider) return;
+  if (!provider)
+    return;
 
   const base::String key = "geometries/abcd/1234.mesh";
   Check("contains by normalized path", provider->Contains(key));
@@ -235,7 +247,8 @@ void TestStarfieldGnrl(const base::String& dir) {
 void TestStarfieldV3Dx10(const base::String& dir) {
   std::puts("ba2 Starfield (v3) DX10 round trip:");
   base::Vector<u8> mip0(16);
-  for (size_t i = 0; i < mip0.size(); ++i) mip0[i] = static_cast<u8>(i + 1);
+  for (size_t i = 0; i < mip0.size(); ++i)
+    mip0[i] = static_cast<u8>(i + 1);
   const base::String name = "Textures\\Land\\Rock_color.DDS";
 
   constexpr u64 kHeaderSize = 24;
@@ -283,13 +296,16 @@ void TestStarfieldV3Dx10(const base::String& dir) {
 
   auto provider = OpenSynthetic(b, dir + "/rec_ba2test_sf_v3.ba2");
   Check("opens", provider != nullptr);
-  if (!provider) return;
+  if (!provider)
+    return;
   auto dds = provider->Read("textures/land/rock_color.dds");
   Check("reads", dds.has_value());
-  if (!dds) return;
+  if (!dds)
+    return;
   auto u32_at = [&](size_t off) {
     u32 v = 0;
-    if (off + 4 <= dds->size()) std::memcpy(&v, dds->data() + off, 4);
+    if (off + 4 <= dds->size())
+      std::memcpy(&v, dds->data() + off, 4);
     return v;
   };
   Check("dds height", u32_at(12) == kHeight);

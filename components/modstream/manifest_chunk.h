@@ -38,8 +38,12 @@ struct ManifestChunkView {
 };
 
 // Encodes one chunk: the header then `payload_len` bytes from `payload`.
-std::vector<u8> EncodeManifestChunk(u32 generation, u32 total_size, u32 total_chunks,
-                                    u32 chunk_index, const u8* payload, u32 payload_len);
+std::vector<u8> EncodeManifestChunk(u32 generation,
+                                    u32 total_size,
+                                    u32 total_chunks,
+                                    u32 chunk_index,
+                                    const u8* payload,
+                                    u32 payload_len);
 
 // Parses and validates a received chunk: header present, total positive and under
 // the cap, chunk count consistent with the total, index in range, and the payload

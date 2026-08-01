@@ -17,14 +17,14 @@
 #include <thread>
 
 #include "asset/vfs.h"
-#include "core/types.h"
-#include "ecs/world.h"
+#include "components/gamenet/asset_stream.h"
+#include "components/gamenet/session.h"
 #include "components/modstream/content_provider.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
-#include "components/gamenet/asset_stream.h"
+#include "core/types.h"
+#include "ecs/world.h"
 #include "net/rpc_channel.h"
-#include "components/gamenet/session.h"
 #include "rpc/rpc_value.h"
 
 namespace fs = std::filesystem;
@@ -40,7 +40,8 @@ int g_failures = 0;
 
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
-  if (!ok) ++g_failures;
+  if (!ok)
+    ++g_failures;
 }
 
 void WriteFile(const fs::path& path, const std::string& contents) {
@@ -51,7 +52,9 @@ void WriteFile(const fs::path& path, const std::string& contents) {
 
 // Pumps both sessions one fixed step and yields briefly so the threaded
 // transport makes progress.
-void Pump(net::GameServerSession& server, ecs::World& sworld, net::GameClientSession& client,
+void Pump(net::GameServerSession& server,
+          ecs::World& sworld,
+          net::GameClientSession& client,
           ecs::World& cworld) {
   const float dt = 1.0f / 60.0f;
   server.Tick(sworld, dt);
@@ -112,7 +115,8 @@ int main() {
   });
   client.rpc()->registry().On("echo_reply", [&](const rpc::RpcContext&, const rpc::RpcArgs& args) {
     client_saw_reply = true;
-    if (!args.empty()) echoed_value = args[0].as_int();
+    if (!args.empty())
+      echoed_value = args[0].as_int();
   });
 
   // The server learns when the client finished streaming, the hook server-side
@@ -156,7 +160,8 @@ int main() {
   bool ready = false;
   for (int i = 0; i < 2000 && !ready; ++i) {
     Pump(server, sworld, client, cworld);
-    if (client.asset_stream()->failed()) break;
+    if (client.asset_stream()->failed())
+      break;
     ready = client.asset_stream()->ready();
   }
   Check("client joined the session", client.joined());
@@ -175,20 +180,23 @@ int main() {
   bool all_cached = true;
   for (const modstream::ModResource& resource : catalog->manifest().resources) {
     for (const modstream::ResourceFile& file : resource.files) {
-      if (!store.Has(file.hash)) all_cached = false;
+      if (!store.Has(file.hash))
+        all_cached = false;
     }
   }
   Check("content cache holds every catalogued file", all_cached);
   Check("client reports no files remaining", client.asset_stream()->files_remaining() == 0);
 
   // The ready notice rides the wire after the client mounts; settle a few ticks.
-  for (int i = 0; i < 120 && !server_saw_ready; ++i) Pump(server, sworld, client, cworld);
+  for (int i = 0; i < 120 && !server_saw_ready; ++i)
+    Pump(server, sworld, client, cworld);
   Check("server was notified the client's assets are ready", server_saw_ready);
   Check("ready notice carries the client's peer id", ready_peer == 0);
 
   // --- RPC round-trip ---
   client.rpc()->EmitToServer("echo", {rpc::RpcValue(rx::i64{41})});
-  for (int i = 0; i < 600 && !client_saw_reply; ++i) Pump(server, sworld, client, cworld);
+  for (int i = 0; i < 600 && !client_saw_reply; ++i)
+    Pump(server, sworld, client, cworld);
   Check("server received the client's RPC", server_saw_rpc);
   Check("client received the server's reply", client_saw_reply);
   Check("RPC argument round-tripped", echoed_value == 42);

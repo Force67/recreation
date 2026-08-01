@@ -15,8 +15,10 @@ namespace {
 // Strips leading and trailing ASCII whitespace.
 base::StringRef Trim(base::StringRef s) {
   const auto is_space = [](char c) { return c == ' ' || c == '\t' || c == '\r'; };
-  while (!s.empty() && is_space(s.front())) s.remove_prefix(1);
-  while (!s.empty() && is_space(s.back())) s.remove_suffix(1);
+  while (!s.empty() && is_space(s.front()))
+    s.remove_prefix(1);
+  while (!s.empty() && is_space(s.back()))
+    s.remove_suffix(1);
   return s;
 }
 
@@ -30,11 +32,13 @@ StreamFilter StreamFilter::Parse(base::StringRef text) {
   while (std::getline(in, source)) {
     const base::String raw(source.c_str(), source.size());
     const base::StringRef line = Trim(raw);
-    if (line.empty() || line.front() == '#') continue;
+    if (line.empty() || line.front() == '#')
+      continue;
     // Normalize so patterns match the catalog's normalized paths regardless of
     // the case or slash style the author used.
     base::String pattern = asset::NormalizePath(line);
-    if (pattern.empty()) continue;
+    if (pattern.empty())
+      continue;
     if (pattern.back() == '/') {
       filter.dir_prefixes_.push_back(base::move(pattern));
     } else if (pattern.size() > 2 && pattern[0] == '*' && pattern[1] == '.') {
@@ -48,7 +52,8 @@ StreamFilter StreamFilter::Parse(base::StringRef text) {
 
 StreamFilter StreamFilter::FromFile(const std::filesystem::path& path) {
   std::ifstream in(path.c_str(), std::ios::binary);
-  if (!in) return {};
+  if (!in)
+    return {};
   std::ostringstream buffer;
   buffer << in.rdbuf();
   return Parse(buffer.str());
@@ -56,7 +61,8 @@ StreamFilter StreamFilter::FromFile(const std::filesystem::path& path) {
 
 bool StreamFilter::Excludes(base::StringRef path) const {
   for (const base::String& exact : exact_paths_) {
-    if (path == exact) return true;
+    if (path == exact)
+      return true;
   }
   for (const base::String& prefix : dir_prefixes_) {
     if (path.size() >= prefix.size() && path.compare(0, prefix.size(), prefix) == 0) {

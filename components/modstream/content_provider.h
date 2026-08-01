@@ -16,8 +16,7 @@ class ModCatalog;
 // the manifest names must already be present in the store (the asset-stream
 // client downloads them before mounting); a missing entry is a programming error
 // the provider surfaces as a failed read, not a silent gap. Used on the client.
-void MountManifest(asset::Vfs& vfs, const ModManifest& manifest,
-                   const ContentStore& store);
+void MountManifest(asset::Vfs& vfs, const ModManifest& manifest, const ContentStore& store);
 
 // Mounts a host's own catalogued resources into `vfs`, read straight from the
 // mods directory, so a listen-server host (and a headless server's physics and

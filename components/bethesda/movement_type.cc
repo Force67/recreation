@@ -20,7 +20,8 @@ constexpr u32 kSped = FourCc('S', 'P', 'E', 'D');
 // array of 11 little-endian float32 (44 bytes). Absent fields read as 0.
 f32 ReadFloat(const ByteSpan& data, size_t index) {
   const size_t off = index * 4;
-  if (off + 4 > data.size()) return 0.0f;
+  if (off + 4 > data.size())
+    return 0.0f;
   f32 v;
   std::memcpy(&v, data.data() + off, 4);
   return v;
@@ -29,11 +30,13 @@ f32 ReadFloat(const ByteSpan& data, size_t index) {
 }  // namespace
 
 int LoadMovementTypes(const RecordStore& records, base::UnorderedMap<u64, MovementType>* out) {
-  if (!out) return 0;
+  if (!out)
+    return 0;
   int count = 0;
   records.EachOfType(kMovt, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     Record rec;
-    if (!records.Parse(id, &rec)) return;
+    if (!records.Parse(id, &rec))
+      return;
     MovementType mt;
     mt.form = id.packed();
     mt.editor_id = rec.GetString(kEdid);
@@ -64,7 +67,8 @@ int LoadMovementTypes(const RecordStore& records, base::UnorderedMap<u64, Moveme
 const MovementType* FindMovementType(const base::UnorderedMap<u64, MovementType>& types,
                                      base::StringRef editor_id) {
   for (const auto& [form, mt] : types) {
-    if (mt.editor_id == editor_id) return &mt;
+    if (mt.editor_id == editor_id)
+      return &mt;
   }
   return nullptr;
 }

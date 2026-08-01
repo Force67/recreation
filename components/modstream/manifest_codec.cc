@@ -21,11 +21,13 @@ void PutU16(std::vector<u8>& out, u16 v) {
 }
 
 void PutU32(std::vector<u8>& out, u32 v) {
-  for (int i = 0; i < 4; ++i) out.push_back(static_cast<u8>(v >> (8 * i)));
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
 void PutU64(std::vector<u8>& out, u64 v) {
-  for (int i = 0; i < 8; ++i) out.push_back(static_cast<u8>(v >> (8 * i)));
+  for (int i = 0; i < 8; ++i)
+    out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
 // Takes a StringRef so the manifest's base::String fields and any plain
@@ -42,24 +44,29 @@ class Reader {
   Reader(const u8* data, size_t size) : data_(data), size_(size) {}
 
   u16 U16() {
-    if (!Need(2)) return 0;
+    if (!Need(2))
+      return 0;
     const u16 v = static_cast<u16>(data_[pos_]) | static_cast<u16>(data_[pos_ + 1]) << 8;
     pos_ += 2;
     return v;
   }
 
   u32 U32() {
-    if (!Need(4)) return 0;
+    if (!Need(4))
+      return 0;
     u32 v = 0;
-    for (int i = 0; i < 4; ++i) v |= static_cast<u32>(data_[pos_ + i]) << (8 * i);
+    for (int i = 0; i < 4; ++i)
+      v |= static_cast<u32>(data_[pos_ + i]) << (8 * i);
     pos_ += 4;
     return v;
   }
 
   u64 U64() {
-    if (!Need(8)) return 0;
+    if (!Need(8))
+      return 0;
     u64 v = 0;
-    for (int i = 0; i < 8; ++i) v |= static_cast<u64>(data_[pos_ + i]) << (8 * i);
+    for (int i = 0; i < 8; ++i)
+      v |= static_cast<u64>(data_[pos_ + i]) << (8 * i);
     pos_ += 8;
     return v;
   }
@@ -114,11 +121,14 @@ std::vector<u8> EncodeManifest(const ModManifest& manifest) {
 
 std::optional<ModManifest> DecodeManifest(const u8* data, size_t size) {
   Reader r(data, size);
-  if (r.U32() != kMagic) return std::nullopt;
-  if (r.U16() != kVersion) return std::nullopt;
+  if (r.U32() != kMagic)
+    return std::nullopt;
+  if (r.U16() != kVersion)
+    return std::nullopt;
 
   const u32 resource_count = r.U32();
-  if (!r.ok() || resource_count > kMaxResources) return std::nullopt;
+  if (!r.ok() || resource_count > kMaxResources)
+    return std::nullopt;
 
   ModManifest manifest;
   manifest.resources.reserve(resource_count);
@@ -126,14 +136,16 @@ std::optional<ModManifest> DecodeManifest(const u8* data, size_t size) {
     ModResource resource;
     resource.name = r.String(kMaxNameLen);
     const u32 file_count = r.U32();
-    if (!r.ok() || file_count > kMaxFilesPerResource) return std::nullopt;
+    if (!r.ok() || file_count > kMaxFilesPerResource)
+      return std::nullopt;
     resource.files.reserve(file_count);
     for (u32 j = 0; j < file_count; ++j) {
       ResourceFile file;
       file.path = r.String(kMaxNameLen);
       file.size = r.U64();
       file.hash = r.U64();
-      if (!r.ok()) return std::nullopt;
+      if (!r.ok())
+        return std::nullopt;
       resource.files.push_back(std::move(file));
     }
     manifest.resources.push_back(std::move(resource));
@@ -141,7 +153,8 @@ std::optional<ModManifest> DecodeManifest(const u8* data, size_t size) {
 
   // A well-formed manifest consumes the buffer exactly; trailing bytes mean the
   // payload is not what it claims to be.
-  if (!r.ok() || !r.at_end()) return std::nullopt;
+  if (!r.ok() || !r.at_end())
+    return std::nullopt;
   return manifest;
 }
 

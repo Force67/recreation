@@ -7,8 +7,8 @@
 
 #include <base/containers/unordered_map.h>
 
-#include "core/types.h"
 #include "components/quest/quest_system.h"
+#include "core/types.h"
 
 namespace rx::net {
 
@@ -70,9 +70,8 @@ class QuestReplicator {
 // Returns false on a corrupt blob (the sink is then not called for any quest in
 // it). A blob encoding zero quests is valid and simply invokes the sink zero
 // times.
-bool ApplyQuestUpdate(
-    ByteSpan data,
-    const std::function<void(u8 domain, const quest::QuestStatus&)>& sink);
+bool ApplyQuestUpdate(ByteSpan data,
+                      const std::function<void(u8 domain, const quest::QuestStatus&)>& sink);
 
 }  // namespace rx::net
 

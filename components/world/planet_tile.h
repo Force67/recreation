@@ -40,7 +40,8 @@ class PlanetTile {
     f32 rock_density = 1.0f;    // multiplies the scatter count
   };
 
-  PlanetTile(asset::AssetDatabase& assets, const bethesda::PlanetSurface& surface,
+  PlanetTile(asset::AssetDatabase& assets,
+             const bethesda::PlanetSurface& surface,
              const Config& config)
       : assets_(assets), surface_(surface), config_(config) {}
 

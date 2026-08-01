@@ -42,9 +42,11 @@ bool EndsWith(base::StringRef s, base::StringRef suffix) {
 base::String TextureSetStem(base::StringRef name) {
   base::String lower = ToLowerSlashes(name);
   size_t marker = lower.rfind("_textureset");
-  if (marker == base::String::npos || marker == 0) return {};
+  if (marker == base::String::npos || marker == 0)
+    return {};
   for (size_t i = marker + 11; i < lower.size(); ++i) {
-    if (!std::isdigit(static_cast<unsigned char>(lower[i]))) return {};
+    if (!std::isdigit(static_cast<unsigned char>(lower[i])))
+      return {};
   }
   return lower.substr(0, marker);
 }
@@ -85,10 +87,29 @@ struct Cursor {
   const u8* p;
   const u8* end;
   bool Has(size_t n) const { return static_cast<size_t>(end - p) >= n; }
-  u8 U8() { u8 v = *p; p += 1; return v; }
-  u16 U16() { u16 v; std::memcpy(&v, p, 2); p += 2; return v; }
-  u32 U32() { u32 v; std::memcpy(&v, p, 4); p += 4; return v; }
-  u64 U64() { u64 v; std::memcpy(&v, p, 8); p += 8; return v; }
+  u8 U8() {
+    u8 v = *p;
+    p += 1;
+    return v;
+  }
+  u16 U16() {
+    u16 v;
+    std::memcpy(&v, p, 2);
+    p += 2;
+    return v;
+  }
+  u32 U32() {
+    u32 v;
+    std::memcpy(&v, p, 4);
+    p += 4;
+    return v;
+  }
+  u64 U64() {
+    u64 v;
+    std::memcpy(&v, p, 8);
+    p += 8;
+    return v;
+  }
 };
 
 const std::uint32_t& Crc32Table(size_t i) {
@@ -96,7 +117,8 @@ const std::uint32_t& Crc32Table(size_t i) {
     base::Array<u32, 256> t{};
     for (u32 n = 0; n < 256; ++n) {
       u32 c = n;
-      for (int k = 0; k < 8; ++k) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+      for (int k = 0; k < 8; ++k)
+        c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
       t[n] = c;
     }
     return t;
@@ -104,7 +126,9 @@ const std::uint32_t& Crc32Table(size_t i) {
   return table[i];
 }
 
-void Crc32Byte(u32& h, unsigned char c) { h = (h >> 8) ^ Crc32Table((h ^ c) & 0xFF); }
+void Crc32Byte(u32& h, unsigned char c) {
+  h = (h >> 8) ^ Crc32Table((h ^ c) & 0xFF);
+}
 
 }  // namespace
 
@@ -124,8 +148,10 @@ StarfieldMaterialDb::ResourceId StarfieldMaterialDb::HashResource(base::StringRe
   if (base != base::StringRef::npos) {
     for (; i < base; ++i) {
       unsigned char c = static_cast<unsigned char>(path[i]);
-      if (c >= 'A' && c <= 'Z') c |= 0x20;
-      else if (c == '/') c = '\\';
+      if (c >= 'A' && c <= 'Z')
+        c |= 0x20;
+      else if (c == '/')
+        c = '\\';
       Crc32Byte(crc, c);
     }
     ++i;
@@ -135,7 +161,8 @@ StarfieldMaterialDb::ResourceId StarfieldMaterialDb::HashResource(base::StringRe
   crc = 0;
   for (; i < ext; ++i) {
     unsigned char c = static_cast<unsigned char>(path[i]);
-    if (c >= 'A' && c <= 'Z') c |= 0x20;
+    if (c >= 'A' && c <= 'Z')
+      c |= 0x20;
     Crc32Byte(crc, c);
   }
   id.file = crc;
@@ -162,7 +189,8 @@ StarfieldMaterialDb::ResourceId StarfieldMaterialDb::HashResource(base::StringRe
 void StarfieldMaterialDb::Build(ByteSpan cdb) {
   by_stem_.clear();
   by_resource_.clear();
-  if (cdb.size() < 16) return;
+  if (cdb.size() < 16)
+    return;
 
   BuildGraphIndex(cdb);
   // Keep the TextureSet-name scan as a fallback: it recovers materials whose
@@ -176,26 +204,30 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   r.p += 16;  // BETH magic + headerSize(8) + version(4) + chunkCount
 
   auto read_chunk = [&](u32& type, u32& size) -> bool {
-    if (!r.Has(8)) return false;
+    if (!r.Has(8))
+      return false;
     type = r.U32();
     size = r.U32();
     return r.Has(size);
   };
 
   u32 ct, cs;
-  if (!read_chunk(ct, cs) || ct != kChunkStrt) return;
+  if (!read_chunk(ct, cs) || ct != kChunkStrt)
+    return;
   const char* strt = reinterpret_cast<const char*>(r.p);
   u32 strt_size = cs;
   r.p += cs;
   auto str_at = [&](u32 off) -> base::StringRef {
-    if (off >= strt_size) return {};
+    if (off >= strt_size)
+      return {};
     return base::StringRef(strt + off);
   };
   // A field/class type offset is a STRT offset, or a builtin encoded as
   // >= 0xFFFFFF01; we only need to distinguish String and the ID-carrying
   // classes, so map builtins to their names.
   auto type_at = [&](u32 off) -> base::StringRef {
-    if (off < 0xFFFFFF01u) return str_at(off);
+    if (off < 0xFFFFFF01u)
+      return str_at(off);
     switch (off) {
       case 0xFFFFFF02u:
         return "String";
@@ -236,17 +268,20 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   };
   base::UnorderedMap<base::String, ClassDef> classes;
 
-  if (!read_chunk(ct, cs) || ct != kChunkType) return;
+  if (!read_chunk(ct, cs) || ct != kChunkType)
+    return;
   {
     Cursor tr{r.p, r.p + cs};
     u32 class_count = tr.Has(4) ? tr.U32() : 0;
     r.p += cs;
     for (u32 i = 0; i < class_count; ++i) {
       u32 cct, ccs;
-      if (!read_chunk(cct, ccs) || cct != kChunkClas) return;
+      if (!read_chunk(cct, ccs) || cct != kChunkClas)
+        return;
       Cursor cr{r.p, r.p + ccs};
       r.p += ccs;
-      if (!cr.Has(12)) continue;
+      if (!cr.Has(12))
+        continue;
       base::String name(str_at(cr.U32()));
       cr.U32();  // class version
       u16 flags = cr.U16();
@@ -276,7 +311,8 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   };
   base::Vector<Object> objects;
   auto grow = [&](u32 db_id) {
-    if (objects.size() <= db_id) objects.resize(db_id + 1);
+    if (objects.size() <= db_id)
+      objects.resize(db_id + 1);
   };
 
   struct ComponentRef {
@@ -288,12 +324,15 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
 
   // Reads a String value: u16 length, then bytes (may be null-terminated).
   auto read_string = [&](Cursor& c) -> base::String {
-    if (!c.Has(2)) return {};
+    if (!c.Has(2))
+      return {};
     u16 len = c.U16();
-    if (!c.Has(len)) return {};
+    if (!c.Has(len))
+      return {};
     const char* s = reinterpret_cast<const char*>(c.p);
     c.p += len;
-    while (len > 0 && s[len - 1] == '\0') --len;
+    while (len > 0 && s[len - 1] == '\0')
+      --len;
     return base::String(s, len);
   };
 
@@ -316,19 +355,23 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
           return;
         }
         if (type_name == "1") {
-          if (c.Has(1)) c.U8();
+          if (c.Has(1))
+            c.U8();
           return;
         }
         if (type_name == "2") {
-          if (c.Has(2)) c.U16();
+          if (c.Has(2))
+            c.U16();
           return;
         }
         if (type_name == "4") {
-          if (c.Has(4)) c.U32();
+          if (c.Has(4))
+            c.U32();
           return;
         }
         if (type_name == "8") {
-          if (c.Has(8)) c.U64();
+          if (c.Has(8))
+            c.U64();
           return;
         }
         auto* it = classes.find(base::String(type_name));
@@ -342,7 +385,8 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
           if (is_diff) {
             while (c.Has(2)) {
               u16 fn = c.U16();
-              if (static_cast<std::int16_t>(fn) < 0 || fn >= cd.fields.size()) break;
+              if (static_cast<std::int16_t>(fn) < 0 || fn >= cd.fields.size())
+                break;
               if (c.Has(4)) {
                 last_id = c.U32();
                 have_id = true;
@@ -366,12 +410,15 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
         if (is_diff) {
           while (c.Has(2)) {
             u16 fn = c.U16();
-            if (static_cast<std::int16_t>(fn) < 0 || fn >= cd.fields.size()) break;
-            if (!walk_field(cd.fields[fn])) return;
+            if (static_cast<std::int16_t>(fn) < 0 || fn >= cd.fields.size())
+              break;
+            if (!walk_field(cd.fields[fn]))
+              return;
           }
         } else {
           for (const Field& f : cd.fields) {
-            if (!walk_field(f)) return;
+            if (!walk_field(f))
+              return;
           }
         }
       };
@@ -384,17 +431,22 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
     if (type == kChunkObjt || type == kChunkDiff) {
       Cursor c{data, data + size};
       base::StringRef class_name = c.Has(4) ? str_at(c.U32()) : base::StringRef{};
-      if (component_cursor >= component_info.size()) continue;
+      if (component_cursor >= component_info.size())
+        continue;
       const ComponentRef& ref = component_info[component_cursor++];
       u32 slot = ref.key & 0xFFFF;
       have_id = have_str = false;
       last_id = 0;
       last_str.clear();
       read_item(c, class_name, type == kChunkDiff, 0);
-      if (ref.db_id >= objects.size()) continue;
+      if (ref.db_id >= objects.size())
+        continue;
       Object& o = objects[ref.db_id];
       if (class_name == "BSMaterial::LayerID" && have_id) {
-        if (slot < 8) { o.layer_ids[slot] = last_id; o.has_layer = true; }
+        if (slot < 8) {
+          o.layer_ids[slot] = last_id;
+          o.has_layer = true;
+        }
       } else if (class_name == "BSMaterial::MaterialID" && have_id) {
         o.material_id = last_id;
       } else if (class_name == "BSMaterial::TextureSetID" && have_id) {
@@ -402,12 +454,14 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
       } else if ((class_name == "BSMaterial::TextureFile" ||
                   class_name == "BSMaterial::MRTextureFile") &&
                  have_str) {
-        if (slot < kMaxSlots && o.tex[slot].empty()) o.tex[slot] = base::move(last_str);
+        if (slot < kMaxSlots && o.tex[slot].empty())
+          o.tex[slot] = base::move(last_str);
       }
       continue;
     }
 
-    if (type != kChunkList) continue;
+    if (type != kChunkList)
+      continue;
     Cursor c{data, data + size};
     base::StringRef class_name = c.Has(4) ? str_at(c.U32()) : base::StringRef{};
     u32 n = c.Has(4) ? c.U32() : 0;
@@ -424,7 +478,8 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
         std::memcpy(&ext, e + 4, 4);
         std::memcpy(&dir, e + 8, 4);
         std::memcpy(&db_id, e + 12, 4);
-        if (!db_id) continue;
+        if (!db_id)
+          continue;
         grow(db_id);
         objects[db_id].id = {file, ext, dir};
       }
@@ -451,9 +506,11 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   // the chosen layer set.
   auto is_generic_overlay = [](base::StringRef path) {
     base::String lower(path);
-    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     for (char& c : lower)
-      if (c == '\\') c = '/';
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : lower)
+      if (c == '\\')
+        c = '/';
     if (lower.find("/grunge/") != base::String::npos ||
         lower.find("/detail/") != base::String::npos)
       return true;
@@ -480,16 +537,23 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   auto pick_layer = [&](const Object& mat) -> u32 {
     u32 first_with_color = 0, first_any = 0;
     for (u32 layer : mat.layer_ids) {
-      if (!layer || layer >= objects.size()) continue;
+      if (!layer || layer >= objects.size())
+        continue;
       u32 mid = objects[layer].material_id;
-      if (!mid || mid >= objects.size()) continue;
+      if (!mid || mid >= objects.size())
+        continue;
       u32 tsid = objects[mid].texture_set_id;
-      if (!tsid || tsid >= objects.size()) continue;
-      if (!first_any) first_any = tsid;
+      if (!tsid || tsid >= objects.size())
+        continue;
+      if (!first_any)
+        first_any = tsid;
       const base::String& c = objects[tsid].tex[kSlotColor];
-      if (c.empty()) continue;
-      if (!first_with_color) first_with_color = tsid;
-      if (!is_generic_overlay(c)) return tsid;  // a real surface layer
+      if (c.empty())
+        continue;
+      if (!first_with_color)
+        first_with_color = tsid;
+      if (!is_generic_overlay(c))
+        return tsid;  // a real surface layer
     }
     return first_with_color ? first_with_color : first_any;
   };
@@ -497,23 +561,30 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   // Original path: first layer (in order) with a texture in this slot.
   auto tex_of_first = [&](const Object& mat, u32 slot) -> const base::String* {
     for (u32 layer : mat.layer_ids) {
-      if (!layer || layer >= objects.size()) continue;
+      if (!layer || layer >= objects.size())
+        continue;
       u32 mid = objects[layer].material_id;
-      if (!mid || mid >= objects.size()) continue;
+      if (!mid || mid >= objects.size())
+        continue;
       u32 tsid = objects[mid].texture_set_id;
-      if (!tsid || tsid >= objects.size()) continue;
+      if (!tsid || tsid >= objects.size())
+        continue;
       const base::String& t = objects[tsid].tex[slot];
-      if (!t.empty()) return &t;
+      if (!t.empty())
+        return &t;
     }
     return nullptr;
   };
 
   for (const Object& o : objects) {
-    if (o.id.ext != kExtMat || !o.has_layer) continue;
+    if (o.id.ext != kExtMat || !o.has_layer)
+      continue;
     u32 tsid = prefer_surface ? pick_layer(o) : 0;
     auto tex_of = [&](u32 slot) -> const base::String* {
-      if (!prefer_surface) return tex_of_first(o, slot);
-      if (!tsid || tsid >= objects.size()) return nullptr;
+      if (!prefer_surface)
+        return tex_of_first(o, slot);
+      if (!tsid || tsid >= objects.size())
+        return nullptr;
       const base::String& t = objects[tsid].tex[slot];
       return t.empty() ? nullptr : &t;
     };
@@ -523,14 +594,21 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
     const base::String* roughness = tex_of(kSlotRoughness);
     const base::String* metallic = tex_of(kSlotMetallic);
     const base::String* ao = tex_of(kSlotAo);
-    if (!color && !normal && !emissive && !roughness && !metallic && !ao) continue;
+    if (!color && !normal && !emissive && !roughness && !metallic && !ao)
+      continue;
     Textures t;
-    if (color) t.base_color = NormalizeTexturePath(*color);
-    if (normal) t.normal = NormalizeTexturePath(*normal);
-    if (emissive) t.emissive = NormalizeTexturePath(*emissive);
-    if (roughness) t.roughness = NormalizeTexturePath(*roughness);
-    if (metallic) t.metallic = NormalizeTexturePath(*metallic);
-    if (ao) t.ao = NormalizeTexturePath(*ao);
+    if (color)
+      t.base_color = NormalizeTexturePath(*color);
+    if (normal)
+      t.normal = NormalizeTexturePath(*normal);
+    if (emissive)
+      t.emissive = NormalizeTexturePath(*emissive);
+    if (roughness)
+      t.roughness = NormalizeTexturePath(*roughness);
+    if (metallic)
+      t.metallic = NormalizeTexturePath(*metallic);
+    if (ao)
+      t.ao = NormalizeTexturePath(*ao);
     by_resource_.emplace(o.id, base::move(t));
   }
 }
@@ -555,11 +633,14 @@ void StarfieldMaterialDb::BuildStemIndex(ByteSpan cdb) {
     const u8* chunk = cdb.data() + p;
     bool ascii = true;
     for (int i = 0; i < 4; ++i)
-      if (chunk[i] < 32 || chunk[i] >= 127) ascii = false;
-    if (!ascii) break;
+      if (chunk[i] < 32 || chunk[i] >= 127)
+        ascii = false;
+    if (!ascii)
+      break;
     u32 size;
     std::memcpy(&size, chunk + 4, 4);
-    if (p + 8 + static_cast<size_t>(size) > cdb.size()) break;
+    if (p + 8 + static_cast<size_t>(size) > cdb.size())
+      break;
     const u8* data = chunk + 8;
 
     if (std::memcmp(chunk, "DIFF", 4) == 0 && size >= 8) {
@@ -570,7 +651,8 @@ void StarfieldMaterialDb::BuildStemIndex(ByteSpan cdb) {
         std::memcpy(&len, data + 6, 2);
         if (8u + len <= size) {
           base::StringRef value(reinterpret_cast<const char*>(data + 8), len);
-          if (size_t z = value.find('\0'); z != base::StringRef::npos) value = value.substr(0, z);
+          if (size_t z = value.find('\0'); z != base::StringRef::npos)
+            value = value.substr(0, z);
           if (fid == kFieldTextureSetName) {
             commit();
             cur = Textures{};
@@ -621,21 +703,29 @@ bool StarfieldMaterialDb::Lookup(base::StringRef mat_path, Resolved* out) const 
   size_t slash = lower.find_last_of('/');
   base::StringRef file = slash == base::String::npos ? base::StringRef(lower)
                                                      : base::StringRef(lower).subslice(slash + 1);
-  if (EndsWith(file, ".mat")) file = file.subslice(0, file.size() - 4);
+  if (EndsWith(file, ".mat"))
+    file = file.subslice(0, file.size() - 4);
 
   auto* it = by_stem_.find(base::String(file));
-  if (it == nullptr) return false;
+  if (it == nullptr)
+    return false;
   fill(*it);
   return true;
 }
 
-bool StarfieldMaterialDb::Lookup(base::StringRef mat_path, base::String* base_color,
-                                 base::String* normal, base::String* emissive) const {
+bool StarfieldMaterialDb::Lookup(base::StringRef mat_path,
+                                 base::String* base_color,
+                                 base::String* normal,
+                                 base::String* emissive) const {
   Resolved r;
-  if (!Lookup(mat_path, &r)) return false;
-  if (base_color && !r.base_color.empty()) *base_color = r.base_color;
-  if (normal && !r.normal.empty()) *normal = r.normal;
-  if (emissive && !r.emissive.empty()) *emissive = r.emissive;
+  if (!Lookup(mat_path, &r))
+    return false;
+  if (base_color && !r.base_color.empty())
+    *base_color = r.base_color;
+  if (normal && !r.normal.empty())
+    *normal = r.normal;
+  if (emissive && !r.emissive.empty())
+    *emissive = r.emissive;
   return true;
 }
 
