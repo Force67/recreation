@@ -161,7 +161,8 @@ class CutsceneDirector {
   bool PlayerInCast(const quest::ScenePlan& plan) const;
   // The reference an alias fills, from the records: a forced reference, or the
   // placement of the unique actor it names.
-  u64 AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin) const;
+  u64 AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin,
+                     int depth = 0) const;
   // Asks the live quest-alias system what a scene's cast is filled with, for the
   // aliases the records cannot answer on their own (find-matching, created, or
   // anything the quest forced at runtime). One guest round trip per scene start,

@@ -59,6 +59,11 @@ struct AliasDef {
   u32 created_base_raw = 0;    // ALCO base object form id, 0 when none
   u32 ref_type_raw = 0;        // ALRT LocationRefType form id, 0 when none
   i32 find_in_parent = -1;     // ALFI parent alias id to search within, -1 when none
+  // "External Alias Reference" (ALEQ + ALEA): whatever alias `external_alias` of
+  // quest `external_quest_raw` is filled with. Half the game's conversation quests
+  // point their cast at a shared dialogue quest this way.
+  u32 external_quest_raw = 0;  // ALEQ quest form id, 0 when none
+  i32 external_alias = -1;     // ALEA alias id in that quest, -1 when none
   // ALPC: the AI packages this alias stacks onto whatever actor fills it, in
   // declaration order (highest priority first, the way the game evaluates them).
   // This is where a scripted actor gets told to walk somewhere -- the Helgen

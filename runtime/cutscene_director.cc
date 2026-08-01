@@ -272,11 +272,26 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
             filled.size());
 }
 
-u64 CutsceneDirector::AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin) const {
+u64 CutsceneDirector::AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin,
+                                     int depth) const {
   const quest::AliasDef* a = def.FindAlias(alias);
   if (!a || !ctx_.records) return 0;
   if (a->forced_ref_raw)
     return ctx_.records->ResolveFrom(bethesda::RawFormId{a->forced_ref_raw}, plugin).packed();
+  // An external alias reference points at an alias of another quest, which is how
+  // the conversation quests share one cast. Bounded, because two quests can name
+  // each other.
+  if (a->external_quest_raw && a->external_alias >= 0 && depth < 4) {
+    const bethesda::GlobalFormId other =
+        ctx_.records->ResolveFrom(bethesda::RawFormId{a->external_quest_raw}, plugin);
+    if (const quest::QuestDef* odef =
+            const_cast<CutsceneDirector*>(this)->QuestDefinition(other.packed())) {
+      const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(other);
+      const u64 ref = AliasReference(*odef, a->external_alias,
+                                     stored ? stored->winning_plugin : other.plugin, depth + 1);
+      if (ref) return ref;
+    }
+  }
   if (a->unique_actor_raw) {
     const bethesda::GlobalFormId base =
         ctx_.records->ResolveFrom(bethesda::RawFormId{a->unique_actor_raw}, plugin);
@@ -1113,6 +1128,9 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
   // Why a spoken line ends up unvoiced: the speaker has no voice type (an alias
   // nothing fills, a creature, the player) or the named clip is not in the archives.
   int no_voice_type = 0, no_clip = 0;
+  // How much of the game's cast the records alone bind: a performer with no
+  // reference is a scene that plays as voice and subtitles with nobody to frame.
+  int cast_total = 0, cast_bound = 0, scenes_cast_bound = 0, scenes_cast_none = 0;
   for (const auto& [edid, quest] : quests) {
     const quest::QuestDef* def = QuestDefinition(quest);
     int q_scenes = 0, q_lines = 0, q_voiced = 0, q_packages = 0;
@@ -1145,6 +1163,14 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
         }
         seconds += beat.seconds;
       }
+      int bound = 0;
+      for (const quest::SceneActorDef& actor : sdef.actors)
+        if (def && AliasReference(*def, actor.alias, entry.plugin)) ++bound;
+      cast_total += static_cast<int>(sdef.actors.size());
+      cast_bound += bound;
+      if (!sdef.actors.empty() && bound == static_cast<int>(sdef.actors.size()))
+        ++scenes_cast_bound;
+      if (!sdef.actors.empty() && bound == 0) ++scenes_cast_none;
       ++q_scenes;
       q_lines += lines;
       q_voiced += voiced;
@@ -1181,6 +1207,10 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
       "=== %d scene(s), %d spoken line(s), %d with a voice clip; %d unvoiced for want of a "
       "voice type, %d for want of the file ===\n",
       total_scenes, total_lines, total_voiced, no_voice_type, no_clip);
+  std::printf(
+      "=== %d performer(s), %d bound to a reference by the records; %d scene(s) with their "
+      "whole cast bound, %d with none ===\n",
+      cast_total, cast_bound, scenes_cast_bound, scenes_cast_none);
   std::fflush(stdout);
 }
 

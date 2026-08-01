@@ -88,6 +88,8 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
   constexpr u32 kAlco = FourCc('A', 'L', 'C', 'O');  // created-object base form id
   constexpr u32 kAlrt = FourCc('A', 'L', 'R', 'T');  // LocationRefType to match
   constexpr u32 kAlfi = FourCc('A', 'L', 'F', 'I');  // find-in-parent alias id
+  constexpr u32 kAleq = FourCc('A', 'L', 'E', 'Q');  // external-alias quest
+  constexpr u32 kAlea = FourCc('A', 'L', 'E', 'A');  // external-alias alias id
   constexpr u32 kAlpc = FourCc('A', 'L', 'P', 'C');  // alias AI package
   constexpr u32 kAled = FourCc('A', 'L', 'E', 'D');  // alias block end
   constexpr u32 kCtda = FourCc('C', 'T', 'D', 'A');  // condition, scoped to the block above it
@@ -197,6 +199,14 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kAlfi:
         if (in_alias && !def.aliases.empty())
           def.aliases.back().find_in_parent = ReadLe<i32>(sub);
+        break;
+      case kAleq:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().external_quest_raw = ReadLe<u32>(sub);
+        break;
+      case kAlea:
+        if (in_alias && !def.aliases.empty())
+          def.aliases.back().external_alias = ReadLe<i32>(sub);
         break;
       case kAlpc:
         if (in_alias && !def.aliases.empty())

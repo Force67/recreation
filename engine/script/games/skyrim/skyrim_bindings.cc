@@ -264,28 +264,39 @@ int RecordBackedSkyrimBindings::FillFindMatchingAliases(ObjectRef quest, ObjectR
   if (!records_ || replica_mode_) return 0;
   const quest::QuestDef* def = quest_system_.Definition(quest.handle);
   if (!def) return 0;
-  const bethesda::GlobalFormId loc_id = ToFormId(location);
-  bethesda::Record loc;
-  if (!records_->Parse(loc_id, &loc)) return 0;
-
   // The Location's LCSR is one packed array of {LocationRefType:u32, Reference:u32}
-  // (stride 8). Group the placed refs (resolved to engine handles) by ref-type.
+  // (stride 8). Group the placed refs (resolved to engine handles) by ref-type,
+  // walking up the parent chain (LCTN PNAM): a room or dungeon location inherits
+  // the refs its city or hold lists, which is where most casts are tagged.
   std::unordered_map<u64, std::vector<u64>> by_type;
   constexpr u32 kLcsr = FourCc('L', 'C', 'S', 'R');
-  for (const bethesda::Subrecord& s : loc.subrecords) {
-    if (s.type != kLcsr) continue;
-    for (size_t i = 0; i + 8 <= s.data.size(); i += 8) {
-      u32 rt = 0, ref = 0;
-      std::memcpy(&rt, s.data.data() + i, 4);
-      std::memcpy(&ref, s.data.data() + i + 4, 4);
-      const bethesda::GlobalFormId rt_id =
-          records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
-      const bethesda::GlobalFormId ref_id =
-          records_->ResolveFrom(bethesda::RawFormId{ref}, loc_id.plugin);
-      if (rt_id.plugin != 0xffff && ref_id.plugin != 0xffff)
-        by_type[rt_id.packed()].push_back(ref_id.packed());
+  constexpr u32 kPnam = FourCc('P', 'N', 'A', 'M');
+  bethesda::GlobalFormId loc_id = ToFormId(location);
+  for (int level = 0; level < 4 && loc_id.plugin != 0xffff; ++level) {
+    bethesda::Record loc;
+    if (!records_->Parse(loc_id, &loc)) break;
+    for (const bethesda::Subrecord& s : loc.subrecords) {
+      if (s.type != kLcsr) continue;
+      for (size_t i = 0; i + 8 <= s.data.size(); i += 8) {
+        u32 rt = 0, ref = 0;
+        std::memcpy(&rt, s.data.data() + i, 4);
+        std::memcpy(&ref, s.data.data() + i + 4, 4);
+        const bethesda::GlobalFormId rt_id =
+            records_->ResolveFrom(bethesda::RawFormId{rt}, loc_id.plugin);
+        const bethesda::GlobalFormId ref_id =
+            records_->ResolveFrom(bethesda::RawFormId{ref}, loc_id.plugin);
+        if (rt_id.plugin != 0xffff && ref_id.plugin != 0xffff)
+          by_type[rt_id.packed()].push_back(ref_id.packed());
+      }
     }
+    const bethesda::Subrecord* parent = loc.Find(kPnam);
+    if (!parent || parent->data.size() < 4) break;
+    u32 raw = 0;
+    std::memcpy(&raw, parent->data.data(), 4);
+    if (raw == 0) break;
+    loc_id = records_->ResolveFrom(bethesda::RawFormId{raw}, loc_id.plugin);
   }
+  if (by_type.empty()) return 0;
 
   // Alias ALRT form ids resolve against the quest record's plugin.
   const bethesda::RecordStore::StoredRecord* qstored = records_->Find(ToFormId(quest));
@@ -343,6 +354,19 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::AliasReference(ObjectRef alias) {
     const bethesda::GlobalFormId base =
         records_->ResolveFrom(bethesda::RawFormId{a->unique_actor_raw}, plugin);
     ref = records_->PlacedRefForBase(base);
+  } else if (a->external_quest_raw != 0 && a->external_alias >= 0) {
+    // An external alias reference (ALEQ + ALEA) is whatever that alias of that
+    // other quest holds; the conversation quests share their cast this way. Two
+    // quests can name each other, so the hop is bounded.
+    static thread_local int hops = 0;
+    if (hops >= 4) return {};
+    const bethesda::GlobalFormId other =
+        records_->ResolveFrom(bethesda::RawFormId{a->external_quest_raw}, plugin);
+    ++hops;
+    const ObjectRef out = AliasReference(ObjectRef{papyrus::EncodeAliasHandle(
+        other.packed(), static_cast<u32>(a->external_alias))});
+    --hops;
+    return out;
   } else {
     return {};
   }

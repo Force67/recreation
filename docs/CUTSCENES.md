@@ -58,9 +58,11 @@ Esc hands the camera back mid-scene; the scene keeps playing.
 
 ```
 2130 scene(s) over 1281 quest(s), 956 begin with their quest
-8329 spoken line(s), 6947 with a voice clip (83%)
-  12 of the rest name a clip the archives do not hold; the other 1371 have no
+8329 spoken line(s), 7151 with a voice clip (86%)
+  12 of the rest name a clip the archives do not hold; the other 1167 have no
   recording anywhere, which is how Skyrim ships them (subtitle only)
+4820 performer(s), 3999 bound to a reference by the records alone
+  1778 scenes have their whole cast bound, 217 none (those fill at runtime)
 ```
 
 Every one of those 2130 scenes lowers to a runnable plan: phases sorted, cast
@@ -162,13 +164,14 @@ procedural gait, which is authored against the builtin biped's bones.
 * 12 lines name a clip the archives do not hold. They play, paced by their reading
   length. (The other 1371 unvoiced lines are not a gap: Skyrim ships no audio for
   them either, and showing the subtitle for its reading length is what the game does.)
-* **Find-matching aliases still do not bind.** Forced references, unique actors and
-  created objects (ALCO) bind to the instance in the world, so their scenes get a
-  camera. A find-matching alias (ALFA, "any reference of this ref type inside this
-  location") needs the location's ref-type table walked before it can point at
-  anyone; the director now hands the scene's location to the quest system's
-  find-matching fill, which covers the ones whose location carries a ref-type table,
-  and the rest still play as voice and subtitles in the gameplay view.
+* **217 scenes bind no cast from the records.** Forced references (ALFR), unique
+  actors (ALUA), created objects (ALCO) and external alias references (ALEQ/ALEA,
+  which is how the conversation quests share one cast) all resolve, and a
+  find-matching alias (ALFA, "any reference of this ref type in this location") is
+  filled from the location's ref-type table, walking up its parent chain. What is
+  left fills from Papyrus at runtime (`ForceRefTo` as the quest reaches the scene),
+  so those scenes bind when the quest that owns them actually runs, and play as voice
+  and subtitles in the gameplay view when it has not.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as
