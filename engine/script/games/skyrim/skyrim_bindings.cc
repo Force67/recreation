@@ -1203,9 +1203,50 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::InfoOwningQuest(papyrus::ObjectRe
   return papyrus::ObjectRef{it != info_owning_quest_.end() ? it->second : 0};
 }
 
+papyrus::ObjectRef RecordBackedSkyrimBindings::PackageOwningQuest(papyrus::ObjectRef package) {
+  auto it = package_owning_quest_.find(package.handle);
+  return papyrus::ObjectRef{it != package_owning_quest_.end() ? it->second : 0};
+}
+
+void RecordBackedSkyrimBindings::RunPackageFragment(u64 package, const std::string& function) {
+  if (replica_mode_ || !vm_ || function.empty()) return;
+  if (fragment_depth_ >= 32) {
+    RX_WARN("package fragment recursion too deep at {}.{}", package, function);
+    return;
+  }
+  ++fragment_depth_;
+  const u64 prev_quest = active_quest_;
+  auto owner = package_owning_quest_.find(package);
+  active_quest_ = owner != package_owning_quest_.end() ? owner->second : 0;
+  vm_->Call(papyrus::ObjectRef{package}, function, {});
+  active_quest_ = prev_quest;
+  --fragment_depth_;
+}
+
+void RecordBackedSkyrimBindings::DrainSceneRequests(std::vector<SceneRequest>& out) {
+  std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+  out.insert(out.end(), scene_requests_.begin(), scene_requests_.end());
+  scene_requests_.clear();
+}
+
+void RecordBackedSkyrimBindings::SetScenePlayingLive(u64 scene, bool playing) {
+  std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+  if (playing)
+    scenes_playing_live_.insert(scene);
+  else
+    scenes_playing_live_.erase(scene);
+}
+
 void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
   // Server-authoritative: a client mirrors quest progress via replication.
   if (replica_mode_) return;
+  // With the runtime playing scenes in the world, hand the call over: the director
+  // needs the main thread to move actors, speak the lines and frame the camera.
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    scene_requests_.push_back({scene.handle, true});
+    return;
+  }
   // Only scenes whose SCEN was parsed + SF_ script attached (by the runtime) can
   // play; an unregistered scene is a silent no-op rather than a crash.
   auto it = scene_fragments_.find(scene.handle);
@@ -1220,12 +1261,21 @@ void RecordBackedSkyrimBindings::SceneStart(papyrus::ObjectRef scene) {
 }
 
 void RecordBackedSkyrimBindings::SceneStop(papyrus::ObjectRef scene) {
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    scene_requests_.push_back({scene.handle, false});
+    return;
+  }
   SceneCueSink sink;
   sink.b = this;
   scene_player_.Stop(scene.handle, sink);
 }
 
 bool RecordBackedSkyrimBindings::SceneIsPlaying(papyrus::ObjectRef scene) {
+  if (live_scene_playback_) {
+    std::lock_guard<std::mutex> lock(scene_requests_mutex_);
+    return scenes_playing_live_.count(scene.handle) != 0;
+  }
   return scene_player_.IsPlaying(scene.handle);
 }
 

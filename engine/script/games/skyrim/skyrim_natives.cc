@@ -644,6 +644,11 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("TopicInfo", "GetOwningQuest", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).InfoOwningQuest(self));
   });
+  // A travel package's arrival fragment (PF_ script, extends Package) advances the
+  // journal with Self.GetOwningQuest().SetStage(N); resolve the PACK -> its quest.
+  reg.Register("Package", "GetOwningQuest", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Object(Resolve(bindings).PackageOwningQuest(self));
+  });
   // An alias script (e.g. CWReinforcementAliasScript) calls
   // Self.GetOwningQuest().registerDeath(self); the alias handle encodes its quest,
   // so decode it. No bindings needed, the quest is in the handle.
