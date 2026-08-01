@@ -145,4 +145,12 @@ CineFraming EaseFraming(const CineFraming& from, const CineFraming& to, f32 dt, 
   return out;
 }
 
+CineFraming PushIn(const CineFraming& shot, f32 held, f32 rate, f32 limit) {
+  const f32 amount = std::min(std::max(held, 0.0f) * rate, limit);
+  CineFraming out = shot;
+  for (int axis = 0; axis < 3; ++axis)
+    out.eye[axis] = shot.target[axis] + (shot.eye[axis] - shot.target[axis]) * (1.0f - amount);
+  return out;
+}
+
 }  // namespace rx::world

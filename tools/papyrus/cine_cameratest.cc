@@ -103,9 +103,24 @@ void TestEase() {
                                   std::fabs(cur.target[1] - 4.0f) < 0.05f);
 }
 
+void TestPushIn() {
+  std::puts("cine camera (push-in while a shot is held):");
+  CineFraming shot;
+  shot.eye[0] = 0; shot.eye[1] = 2; shot.eye[2] = 4;
+  shot.target[0] = 0; shot.target[1] = 2; shot.target[2] = 0;
+  const CineFraming at_cut = PushIn(shot, 0.0f);
+  Check("a fresh shot is the solved framing", std::fabs(at_cut.eye[2] - 4.0f) < 1e-4f);
+  const CineFraming held = PushIn(shot, 4.0f);
+  Check("a held shot creeps toward the subject", held.eye[2] < 3.99f && held.eye[2] > 3.7f);
+  const CineFraming forever = PushIn(shot, 1000.0f);
+  Check("the creep is capped well short of the subject", forever.eye[2] > 3.4f);
+  Check("the aim point never moves", std::fabs(forever.target[2]) < 1e-4f);
+}
+
 }  // namespace
 
 int main() {
+  TestPushIn();
   TestShots();
   TestDirector();
   TestEase();

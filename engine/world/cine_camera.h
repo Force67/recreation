@@ -82,6 +82,13 @@ class ShotDirector {
 // `rate` is the fraction of the remaining distance covered per second.
 CineFraming EaseFraming(const CineFraming& from, const CineFraming& to, f32 dt, f32 rate);
 
+// A slow push toward the subject over the life of a held shot. Bethesda's own scene
+// camera is locked off, which reads as a still image when a line runs long; creeping
+// in a few percent keeps the shot alive without turning it into a dolly move.
+// `held` is how long this shot has been on screen. The push is capped so the framing
+// never overshoots the subject.
+CineFraming PushIn(const CineFraming& shot, f32 held, f32 rate = 0.012f, f32 limit = 0.12f);
+
 }  // namespace rx::world
 
 #endif  // RECREATION_WORLD_CINE_CAMERA_H_
