@@ -1,5 +1,10 @@
 #include "components/modstream/manifest_codec.h"
 
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <base/strings/string_ref.h>
 
 namespace rx::modstream {

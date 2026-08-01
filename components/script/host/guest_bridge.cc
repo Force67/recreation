@@ -5,6 +5,7 @@
 #include <base/strings/xstring.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #include "components/script/papyrus/value.h"

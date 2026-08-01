@@ -3,6 +3,8 @@
 #include <nanobuf.h>
 
 #include <cstring>
+#include <optional>
+#include <vector>
 
 namespace rx::net {
 namespace {

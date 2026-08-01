@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 #include "asset/asset_id.h"
 #include "asset/mesh.h"

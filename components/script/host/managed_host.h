@@ -5,6 +5,7 @@
 #include <base/functional/function.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <cstdint>
 #include <mutex>
 
 #include "components/script/host/bridge.h"

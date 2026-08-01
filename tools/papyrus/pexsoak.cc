@@ -18,6 +18,7 @@
 #include <base/strings/xstring.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 

@@ -7,6 +7,8 @@
 #include <base/strings/xstring.h>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "core/log.h"

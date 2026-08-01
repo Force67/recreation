@@ -27,6 +27,7 @@
 #include <ugui/widgets/widget.h>
 #include <ugui/widgets/widget_registry.h>
 
+#include <cstdint>
 #include <cstring>
 
 #include "runtime/ui/ugui_csharp_host.h"

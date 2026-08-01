@@ -9,6 +9,7 @@
 #include "components/bethesda/material_db.h"
 
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 namespace rx::bethesda {

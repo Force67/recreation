@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <vector>
 
 #include "anim/foot_ik.h"
 #include "asset/primitives.h"

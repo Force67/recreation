@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <span>
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"

@@ -59,8 +59,10 @@ rx::EngineConfig LoadConfig(android_app* app) {
   }
 
   base::UnorderedMap<base::String, base::String> kv;
-  base::String line;
-  while (std::getline(file, line)) {
+  // std::getline fills a std::string; each line is copied into a base::String.
+  std::string source;
+  while (std::getline(file, source)) {
+    const base::String line(source.c_str(), source.size());
     if (line.empty() || line[0] == '#')
       continue;
     size_t eq = line.find('=');
@@ -94,7 +96,7 @@ rx::EngineConfig LoadConfig(android_app* app) {
     config.demo_scene = demo;
   base::String preset = get("preset");
   if (!preset.empty())
-    config.preset = rx::render::ParsePreset(preset);
+    config.preset = rx::render::ParsePreset(preset.c_str());
   base::String interior = get("interior");
   if (!interior.empty())
     config.interior = interior;

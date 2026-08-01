@@ -3,6 +3,7 @@
 #include <base/containers/array.h>
 #include <base/optional.h>
 
+#include <filesystem>
 #include <fstream>
 
 namespace rx::modstream {

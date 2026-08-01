@@ -11,6 +11,7 @@
 #include <volk.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 #include "asset/mesh.h"

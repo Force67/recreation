@@ -41,6 +41,7 @@ jobs:
         run: |
           scripts/setup-linux.sh --system
           scripts/setup-linux.sh --dxc
+          scripts/setup-linux.sh --slang
       - name: third-party deps
         run: |
           bash tools/get_nanobuf.sh
@@ -134,7 +135,9 @@ jobs:
           repository: Force67/kinema
           path: kinema
       - name: deps
-        run: scripts/setup-linux.sh --system
+        run: |
+          scripts/setup-linux.sh --system
+          scripts/setup-linux.sh --slang
       - name: dxc cache
         id: dxc-cache
         uses: actions/cache@v4
@@ -235,6 +238,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           ./scripts/setup-windows.ps1 -Dxc
+          ./scripts/setup-windows.ps1 -Slang
           ./scripts/setup-windows.ps1 -System
       - name: third-party deps
         shell: bash
@@ -311,7 +315,9 @@ jobs:
           repository: Force67/kinema
           path: kinema
       - name: deps
-        run: scripts/setup-macos.sh --system
+        run: |
+          scripts/setup-macos.sh --system
+          scripts/setup-macos.sh --slang
       - name: dxc cache restore
         id: dxc-cache
         uses: actions/cache/restore@v4
@@ -394,6 +400,7 @@ jobs:
         run: |
           scripts/setup-linux.sh --system --minimal
           scripts/setup-linux.sh --dxc
+          scripts/setup-linux.sh --slang
       - name: nanobuf
         run: bash tools/get_nanobuf.sh
       - name: configure

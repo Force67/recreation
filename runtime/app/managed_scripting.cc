@@ -2,6 +2,7 @@
 #include <base/option.h>
 #include <base/strings/xstring.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 

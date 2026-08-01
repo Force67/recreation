@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <vector>
 
 #include "components/bethesda/form_id.h"
 #include "components/gamenet/actor_sync.h"

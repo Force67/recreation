@@ -1,3 +1,8 @@
+#include <functional>
+#include <optional>
+#include <utility>
+#include <vector>
+
 #include "components/gamenet/quest_replication.h"
 
 #include <nanobuf.h>

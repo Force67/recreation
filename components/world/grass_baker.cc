@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <span>
 
 #include "core/log.h"
 

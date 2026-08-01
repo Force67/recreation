@@ -4,6 +4,7 @@
 #include <base/strings/xstring.h>
 
 #include <sstream>
+#include <string>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"

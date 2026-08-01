@@ -4,6 +4,7 @@
 #include <base/strings/xstring.h>
 
 #include <cstring>
+#include <optional>
 
 #include "components/bethesda/record.h"
 #include "core/log.h"

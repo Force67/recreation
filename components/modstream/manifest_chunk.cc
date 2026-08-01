@@ -1,6 +1,8 @@
 #include "components/modstream/manifest_chunk.h"
 
 #include <algorithm>
+#include <optional>
+#include <vector>
 
 namespace rx::modstream {
 namespace {

@@ -1,3 +1,6 @@
+#include <optional>
+#include <vector>
+
 #include "components/gamenet/stage_request.h"
 
 #include <nanobuf.h>

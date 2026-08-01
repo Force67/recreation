@@ -4,6 +4,10 @@
 #include <nanobuf.h>
 
 #include <algorithm>
+#include <functional>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "components/bethesda/form_id.h"
 #include "components/gamenet/asset_stream.h"

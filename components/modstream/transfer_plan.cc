@@ -1,6 +1,7 @@
 #include "components/modstream/transfer_plan.h"
 
 #include <unordered_set>
+#include <vector>
 
 namespace rx::modstream {
 

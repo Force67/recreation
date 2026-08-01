@@ -1,6 +1,8 @@
 #ifndef RECREATION_BETHESDA_GAME_PROFILE_H_
 #define RECREATION_BETHESDA_GAME_PROFILE_H_
 
+#include <fstream>
+
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 

@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstring>
 
 #include "asset/asset_database.h"
 #include "asset/subdivide.h"

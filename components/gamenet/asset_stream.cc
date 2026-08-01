@@ -4,7 +4,12 @@
 #include <base/filesystem/path.h>
 
 #include <algorithm>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "components/gamenet/protocol.h"
 #include "components/modstream/asset_request.h"

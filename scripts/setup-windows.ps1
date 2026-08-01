@@ -13,6 +13,7 @@
 .PARAMETER Check    Report only, change nothing.
 .PARAMETER System   Install build tools + freetype/harfbuzz + pkg-config.
 .PARAMETER Dxc      Download dxc + glslang.
+.PARAMETER Slang    Download the Slang shader compiler (rx embeds .slang shaders).
 .PARAMETER Deps     Fetch third-party deps + clone sibling repos.
   (no switch) does everything.
 #>
@@ -21,6 +22,7 @@ param(
   [switch]$Check,
   [switch]$System,
   [switch]$Dxc,
+  [switch]$Slang,
   [switch]$Deps,
   [switch]$Yes
 )
@@ -28,7 +30,8 @@ $ErrorActionPreference = 'Stop'
 
 $RepoDir = (Resolve-Path "$PSScriptRoot\..").Path
 $DxcUrl     = 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/dxc_2026_05_27.zip'
-$GlslangUrl = 'https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip'
+$SlangUrl   = 'https://github.com/shader-slang/slang/releases/download/v2026.14.1/slang-2026.14.1-windows-x86_64.zip'
+$GlslangUrl = 'https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-main-windows-x86_64-release.zip'
 $ToolsDir   = Join-Path $RepoDir 'third_party\winbin'
 $InCI       = [bool]$env:GITHUB_PATH
 
@@ -85,14 +88,34 @@ function Do-Dxc {
     Add-ToPath "$ToolsDir\dxc\bin\x64"
     Ok "dxc installed"
   } else { Ok "dxc already on PATH" }
-  if (-not (Have glslangValidator) -and -not (Have glslang)) {
+  if (-not (Have glslangValidator)) {
     Log "downloading glslang"
     $z = Join-Path $env:TEMP 'glslang.zip'
     curl.exe -fsSL -o $z $GlslangUrl
     Expand-Archive -Force $z "$ToolsDir\glslang"
-    Add-ToPath "$ToolsDir\glslang\bin"
+    # Upstream ships only glslang.exe now, but rx (and FidelityFX) look for the
+    # historical glslangValidator name, so provide both.
+    $bin = "$ToolsDir\glslang\bin"
+    if ((Test-Path "$bin\glslang.exe") -and -not (Test-Path "$bin\glslangValidator.exe")) {
+      Copy-Item "$bin\glslang.exe" "$bin\glslangValidator.exe"
+    }
+    Add-ToPath $bin
     Ok "glslang installed"
-  } else { Ok "glslang already on PATH" }
+  } else { Ok "glslangValidator already on PATH" }
+}
+
+# rx compiles its .slang shaders with slangc (CMake finds it as RX_SLANGC), so
+# configure fails outright without it.
+function Do-Slang {
+  New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+  if (-not (Have slangc)) {
+    Log "downloading slang"
+    $z = Join-Path $env:TEMP 'slang.zip'
+    curl.exe -fsSL -o $z $SlangUrl
+    Expand-Archive -Force $z "$ToolsDir\slang"
+    Add-ToPath "$ToolsDir\slang\bin"
+    Ok "slangc installed"
+  } else { Ok "slangc already on PATH" }
 }
 
 function Do-ThirdParty {
@@ -127,6 +150,7 @@ function Do-Doctor {
   if (Have cl) { Ok "MSVC (cl.exe)" } else { Block "MSVC not on PATH - install VS 2022 Build Tools (C++ workload) and run from the x64 Native Tools prompt" }
   if (Have cmake) { Ok "cmake" } else { Block "cmake missing - scripts\setup-windows.ps1 -System" }
   if (Have dxc) { Ok "dxc" } else { Block "dxc missing - scripts\setup-windows.ps1 -Dxc" }
+  if (Have slangc) { Ok "slangc" } else { Block "slangc missing - scripts\setup-windows.ps1 -Slang" }
   if ((Have glslangValidator) -or (Have glslang)) { Ok "glslang" } else { Block "glslang missing - scripts\setup-windows.ps1 -Dxc" }
   if (Have dotnet) { Ok "dotnet ($(dotnet --version))" } else { Warn "dotnet SDK 9 not found (only needed for C# scripting)" }
   if (Test-Path (Join-Path $RepoDir '..\zetanet\CMakeLists.txt')) { Ok "zetanet sibling" } else { Block "zetanet missing - scripts\setup-windows.ps1 -Deps" }
@@ -143,11 +167,12 @@ function Print-Report {
 
 if ($Check) { Do-Doctor; if (Print-Report) { exit 0 } else { exit 1 } }
 
-$any = $System -or $Dxc -or $Deps
+$any = $System -or $Dxc -or $Slang -or $Deps
 $defaultAll = -not $any
-if ($defaultAll) { $System = $Dxc = $Deps = $true }
+if ($defaultAll) { $System = $Dxc = $Slang = $Deps = $true }
 
 if ($System) { Do-System }
 if ($Dxc)    { Do-Dxc }
+if ($Slang)  { Do-Slang }
 if ($Deps)   { Do-ThirdParty; Do-Siblings }
 if ($defaultAll) { Do-Doctor; Print-Report | Out-Null }
