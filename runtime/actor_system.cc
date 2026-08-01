@@ -47,10 +47,6 @@ static base::Option<const char*> AnimAdditivePath{"anim.additive", nullptr, "RX_
 // for demos/screenshots of the pose.
 static base::Option<bool> PinRoot{"anim.pin_root", false, "RX_PIN_ROOT"};
 static base::Option<bool> Player{"player", false, "RX_PLAYER"};
-// RX_ACTOR_DUMP logs, once, what the renderer is handed for every NPC actor: which
-// entity, where its model matrix puts it, how many parts and the first mesh. The way
-// to tell "not drawn" from "drawn somewhere else".
-static base::Option<bool> ActorDump{"actor.dump", false, "RX_ACTOR_DUMP"};
 
 // The renderer uploads one skinning palette per frame and it is a fixed size
 // (render::Renderer::kMaxFrameBones, private to it). Actors whose matrices land past
@@ -1632,16 +1628,22 @@ void ActorSystem::EmitDraws(render::FrameView& view) {
     if (view.bone_matrices.size() + cost > kFrameBoneBudget) continue;
     EmitOneActor(*actor, view);
   }
-  if (ActorDump && !actor_dump_done_) {
+  // Only latch once there is something to report: the first frames have no NPC
+  // instances yet, and a one-shot dump that fires then prints nothing.
+  if (std::getenv("RX_ACTOR_DUMP") && !actor_dump_done_ && npc_actors_.size() >= 8) {
     actor_dump_done_ = true;
     for (auto entry : npc_actors_) {
       const Actor& a = entry.value;
       const world::Transform* t = world_.Get<world::Transform>(a.entity);
-      RX_INFO("actor dump: entity {}:{} transform {} parts {} mesh {:x} animate {}", a.entity.index,
-              a.entity.generation,
-              t ? Fmt("(%.0f, %.0f, %.0f)", t->position[0], t->position[1], t->position[2])
-                : std::string("none"),
-              a.parts.size(), a.parts.empty() ? 0 : a.parts[0].mesh.hash, a.animate);
+      RX_INFO(
+          "actor dump: entity {}:{} at {} parts {} mesh {:x} bones {} bone_model {} skin {} "
+          "remap {}",
+          a.entity.index, a.entity.generation,
+          t ? Fmt("(%.0f, %.0f, %.0f)", t->position[0], t->position[1], t->position[2])
+            : std::string("none"),
+          a.parts.size(), a.parts.empty() ? 0 : a.parts[0].mesh.hash, a.skeleton.bones.size(),
+          a.bone_model.size(), a.parts.empty() ? 0 : a.parts[0].skin.bones.size(),
+          a.parts.empty() ? 0 : a.parts[0].remap.size());
     }
   }
   if (fp_visible_) EmitFpRig(view);
