@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "bethesda/form_id.h"
@@ -149,6 +150,10 @@ class CutsceneDirector {
   // them onto markers authored against the game's own terrain; where our heightfield
   // sits a little higher they end up buried, which reads as an empty cutscene.
   void GroundCast(const std::vector<u64>& cast);
+  // Puts a scene's cast on the standing idle. A streamed NPC that nothing drives
+  // holds the procedural idle pose, which reads as a body lying in mid air; the
+  // game's own idle clip is what stands an actor up while it talks.
+  void PoseCast(const std::vector<u64>& cast);
   const quest::QuestDef* QuestDefinition(u64 quest);
   // Whether the player is one of the scene's performers, which decides both who a
   // line is addressed to and whether this is the player's own cutscene.
@@ -164,6 +169,9 @@ class CutsceneDirector {
   // The reference of the live instance of a base NPC, 0 when none is in the world.
   u64 LiveRefForBase(u64 base) const;
   std::string AliasName(const quest::QuestDef& def, i32 alias) const;
+  // Display name of a scene's performer: the NPC's own name where the alias binds
+  // to one, else the alias name with the modeller's "Alias" suffix taken off.
+  std::string SpeakerName(const quest::QuestDef& def, i32 alias, u16 plugin);
   // The line a speaker says under a topic: the INFO, its subtitle and its length.
   bool ResolveLine(const SceneEntry& entry, i32 alias, u64 topic, u64 speaker, u64* info,
                    std::string* text, f32* seconds);
@@ -199,6 +207,7 @@ class CutsceneDirector {
   // Alias fills the records could not resolve, keyed by (quest, alias), as the live
   // alias system reports them.
   std::unordered_map<u64, u64> live_alias_refs_;
+  std::unordered_set<u64> posed_cast_;  // cast already put on the standing idle
   std::vector<std::unique_ptr<Playing>> playing_;
   std::vector<u64> quests_seen_running_;  // for the begin-on-quest-start edge
   u64 armed_quest_ = 0;
@@ -208,6 +217,7 @@ class CutsceneDirector {
   world::ShotDirector shots_;
   world::CineFraming framing_{};
   bool framing_valid_ = false;
+  u64 subject_scene_ = 0;  // the scene the camera is on, so the caption follows it
   bool owns_view_ = false;
   bool view_released_ = false;
   f32 caption_fade_ = 0;

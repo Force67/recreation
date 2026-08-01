@@ -10,6 +10,7 @@
 #include "actor_system.h"
 #include "ai_package_director.h"
 #include "bethesda/record.h"
+#include "bethesda/strings.h"
 #include "bethesda/script_attachment.h"
 #include "core/log.h"
 #include "dialogue/dialogue.h"
@@ -277,6 +278,46 @@ std::string CutsceneDirector::AliasName(const quest::QuestDef& def, i32 alias) c
   return a ? a->name : std::string();
 }
 
+std::string CutsceneDirector::SpeakerName(const quest::QuestDef& def, i32 alias, u16 plugin) {
+  const u64 ref = AliasReference(def, alias, plugin);
+  if (ref != 0 && ref != kPlayerHandle && ctx_.records) {
+    // The performer's own name, from the NPC_ behind the placed reference.
+    bethesda::Record achr;
+    if (ctx_.records->Parse(
+            bethesda::GlobalFormId{static_cast<u16>(ref >> 32), static_cast<u32>(ref)}, &achr)) {
+      if (const u32 base_raw = FormAt(achr.Find(FourCc('N', 'A', 'M', 'E')))) {
+        const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(
+            bethesda::GlobalFormId{static_cast<u16>(ref >> 32), static_cast<u32>(ref)});
+        bethesda::Record npc;
+        if (ctx_.records->Parse(
+                ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw},
+                                          stored ? stored->winning_plugin : plugin),
+                &npc)) {
+          // FULL is a string id in a localized plugin and inline text otherwise.
+          if (const bethesda::Subrecord* full = npc.Find(FourCc('F', 'U', 'L', 'L'))) {
+            if (ctx_.strings && full->data.size() >= 4) {
+              u32 id = 0;
+              std::memcpy(&id, full->data.data(), 4);
+              if (const base::String* text = ctx_.strings->Find(id))
+                if (text->size() > 0) return std::string(text->c_str());
+            }
+            const std::string inline_text = npc.GetString(FourCc('F', 'U', 'L', 'L'));
+            if (!inline_text.empty()) return inline_text;
+          }
+        }
+      }
+    }
+  }
+  std::string name = AliasName(def, alias);
+  // Alias names read like "MG01MirabelleAlias"; drop the suffix so a caption does
+  // not shout the modeller's naming convention at the player.
+  constexpr std::string_view kSuffix = "Alias";
+  if (name.size() > kSuffix.size() &&
+      name.compare(name.size() - kSuffix.size(), kSuffix.size(), kSuffix) == 0)
+    name.resize(name.size() - kSuffix.size());
+  return name;
+}
+
 bool CutsceneDirector::PlayerInCast(const quest::ScenePlan& plan) const {
   for (const quest::SceneBeat& beat : plan.beats)
     if (beat.actor == kPlayerHandle) return true;
@@ -409,7 +450,7 @@ quest::ScenePlan CutsceneDirector::BuildPlan(const SceneEntry& entry, const ques
     const quest::QuestDef& q = *qdef;
     const u16 plugin = entry.plugin;
     bindings.actor = [this, &q, plugin](i32 alias) { return AliasReference(q, alias, plugin); };
-    bindings.alias_name = [this, &q](i32 alias) { return AliasName(q, alias); };
+    bindings.alias_name = [this, &q, plugin](i32 alias) { return SpeakerName(q, alias, plugin); };
   }
   bindings.line = [this, &entry](i32 alias, u64 topic, u64 speaker, u64* info, std::string* text,
                                  f32* seconds) {
@@ -492,6 +533,20 @@ void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
     // would drop the ones standing on a floor, a bridge or a cart.
     const f32 sunk = ground - t->position[1];
     if (sunk > 0.5f && sunk < 8.0f) t->position[1] = ground;
+  }
+}
+
+void CutsceneDirector::PoseCast(const std::vector<u64>& cast) {
+  // The game's standing movement idle: the clip every actor holds when it is doing
+  // nothing else, and the one that puts a talking actor on its feet.
+  static constexpr const char* kIdleClip = "meshes/actors/character/animations/mt_idle_a_base.hkx";
+  if (!ctx_.quest_world || !ctx_.world) return;
+  for (u64 ref : cast) {
+    if (posed_cast_.count(ref)) continue;
+    const ecs::Entity e = ctx_.quest_world->Find(ref);
+    if (!ctx_.world->IsAlive(e) || ctx_.world->Has<world::Hidden>(e)) continue;
+    if (!actors_->HasNpcInstance(e)) continue;
+    if (actors_->PlayNpcClip(e, kIdleClip)) posed_cast_.insert(ref);
   }
 }
 
@@ -766,6 +821,7 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   if (have && (subject->addressee == 0 || !HeadOf(subject->addressee, &listener_head)))
     listener_head = speaker_head;
   const bool want = have && bool(SceneCamera) && !view_released_;
+  subject_scene_ = subject ? subject->scene : 0;
   if (!want) {
     owns_view_ = false;
     framing_valid_ = false;
@@ -808,9 +864,14 @@ bool CutsceneDirector::CameraOverride(Vec3* eye, Vec3* target) const {
 }
 
 void CutsceneDirector::UpdateOverlay(f32 dt) {
+  // The caption belongs to the scene on camera; only when nothing is on camera does
+  // any other playing scene get to caption itself.
   const Playing* caption = nullptr;
   for (const auto& p : playing_)
-    if (!p->caption.empty()) caption = p.get();
+    if (!p->caption.empty() && p->scene == subject_scene_) caption = p.get();
+  if (!caption && subject_scene_ == 0)
+    for (const auto& p : playing_)
+      if (!p->caption.empty()) caption = p.get();
   const bool show = caption != nullptr;
   caption_fade_ = std::clamp(caption_fade_ + (show ? dt * 4.0f : -dt * 4.0f), 0.0f, 1.0f);
   overlay_ = TrailerOverlay{};
@@ -868,6 +929,7 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
       p.enable_timer = 1.0f;
       EnableCast(p.quest, p.editor_id, p.cast);
       GroundCast(p.cast);
+      PoseCast(p.cast);
     }
     Sink sink(*this, p);
     p.runtime.Tick(dt, sink);
@@ -960,6 +1022,19 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
       q_voiced += voiced;
       q_packages += packages;
       q_seconds += seconds;
+      // Per-cast detail when the report is aimed at a questline rather than the
+      // whole game: which alias fill rule each performer came from, and what it
+      // resolved to. This is what says whether a scene has a cast to point at.
+      if (!want.empty())
+        for (const quest::SceneActorDef& actor : sdef.actors) {
+          const quest::AliasDef* adef = def ? def->FindAlias(actor.alias) : nullptr;
+          detail += Fmt("      cast %-24s alias %3d forced=%06x unique=%06x match=%d -> %llx\n",
+                        adef ? adef->name.c_str() : "?", actor.alias,
+                        adef ? adef->forced_ref_raw : 0, adef ? adef->unique_actor_raw : 0,
+                        adef ? adef->find_matching : 0,
+                        static_cast<unsigned long long>(
+                            def ? AliasReference(*def, actor.alias, entry.plugin) : 0));
+        }
       detail +=
           Fmt("    %-34s %2zu phases %3zu beats %3d lines %3d voiced %2d packages %5.0fs  %-28s%s\n",
               entry.editor_id.c_str(), plan.phases.size(), plan.beats.size(), lines, voiced,
