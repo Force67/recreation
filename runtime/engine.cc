@@ -141,6 +141,7 @@ bool Engine::OnInitialize(app::Services& services) {
   quest_ = std::make_unique<QuestDirector>(ctx_, actors_.get());
   demos_ = std::make_unique<DemoScenes>(ctx_, actors_.get());
   carriage_ = std::make_unique<CarriageSystem>(ctx_, actors_.get());
+  helgen_ = std::make_unique<HelgenIntro>(ctx_, actors_.get());
   npc_->set_siblings(interaction_.get(), quest_.get());
   quest_->set_siblings(npc_.get(), interaction_.get());
   // The live map editor (windowed client only). Constructed after game_ui_ is up

@@ -64,6 +64,19 @@ void Engine::UpdateCamera(f32 frame_delta) {
     return;
   }
 
+  // Skyrim's opening cart ride: while it runs it owns the camera and the screen,
+  // so the HUD and debug overlays step aside for it and come back when it ends.
+  if (helgen_) {
+    const bool active = helgen_->Update(frame_delta);
+    if (active != helgen_active_) {
+      helgen_active_ = active;
+      game_ui_.SetHudVisible(!active);
+      debug_ui_.SetAllVisible(!active);
+      debug_ui_.SetTrailerOverlay(active ? &helgen_->overlay() : nullptr);
+    }
+    if (active) return;
+  }
+
   const InputState& input = window_->input();
 
   // The pause menu freezes the camera and frees the cursor so it can click.

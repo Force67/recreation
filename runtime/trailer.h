@@ -15,11 +15,12 @@ enum class TrailerRenderMode : u8 { kRaster, kRayTracing, kPathTracing };
 
 const char* TrailerRenderModeLabel(TrailerRenderMode mode);
 
-// One on-screen frame of trailer chrome: cinematic letterbox, a black wash for
-// the intro/outro fades, a lower-third location title, a render-mode badge with
-// the live weather, and a centered intro card. Every alpha is 0..1 so the drawer
-// just multiplies it in. Pure data, so the timeline is unit-testable with no
-// renderer.
+// One on-screen frame of cinematic chrome: letterbox, a black wash for the
+// intro/outro fades, a lower-third location title, a render-mode badge with the
+// live weather, a centered intro card, and a spoken-line caption. Every alpha is
+// 0..1 so the drawer just multiplies it in. Pure data, so the timeline is unit-
+// testable with no renderer. Filled by the trailer director and by the Helgen
+// intro cutscene, which share the drawer.
 struct TrailerOverlay {
   bool active = false;
   f32 letterbox = 0.0f;  // 0..1 of the cinematic bars' full height
@@ -36,6 +37,11 @@ struct TrailerOverlay {
   std::string intro_title;     // centered opening card
   std::string intro_subtitle;
   f32 intro_alpha = 0.0f;
+
+  // Spoken-line caption above the bottom bar: who is talking and what they say.
+  std::string caption_speaker;
+  std::string caption;
+  f32 caption_alpha = 0.0f;
 
   // Small loading screen shown over black while a freshly cut-to game streams in
   // (set by the engine, not the timeline). loading_label names the incoming game.

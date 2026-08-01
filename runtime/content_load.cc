@@ -560,10 +560,22 @@ bool LoadGameData(Engine& engine) {
     self->config_.start_cell_y = 1;
   }
 
+  // The Helgen intro starts up the road above the town, wherever the default
+  // start cell would have been.
+  if (self->game_ == bethesda::Game::kSkyrimSe && self->helgen_ &&
+      self->helgen_->StartCell(&self->config_.start_cell_x, &self->config_.start_cell_y)) {
+    RX_INFO("helgen intro: starting in cell {},{}", self->config_.start_cell_x,
+            self->config_.start_cell_y);
+  }
+
   // Drop the camera a bit above the terrain at the middle of the start cell.
   f32 beth_x = (static_cast<f32>(self->config_.start_cell_x) + 0.5f) * profile.cell_size;
   f32 beth_y = (static_cast<f32>(self->config_.start_cell_y) + 0.5f) * profile.cell_size;
   Vec3 start{beth_x * profile.units_to_meters, 0.0f, -beth_y * profile.units_to_meters};
+  if (Vec3 eye, target; self->helgen_ && self->helgen_->StartView(&eye, &target)) {
+    start.x = eye.x;
+    start.z = eye.z;
+  }
   f32 ground = 0;
   if (self->streamer_->GroundHeight(start.x, start.z, &ground)) {
     start.y = ground + 10.0f;  // a little above the terrain for a view

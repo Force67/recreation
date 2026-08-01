@@ -28,6 +28,7 @@
 #include "demo_scenes.h"
 #include "editor.h"
 #include "engine_context.h"
+#include "helgen_intro.h"
 #include "interaction_system.h"
 #include "item_bridge.h"
 #include "npc_director.h"
@@ -546,6 +547,11 @@ class Engine : public app::Application {
   std::unique_ptr<QuestDirector> quest_;
   std::unique_ptr<DemoScenes> demos_;
   std::unique_ptr<CarriageSystem> carriage_;
+  // Skyrim's opening cart ride into Helgen (RX_HELGEN_INTRO). While it runs it
+  // owns the camera and the screen; helgen_active_ tracks that so the HUD and
+  // debug overlays are hidden for it and restored when it ends.
+  std::unique_ptr<HelgenIntro> helgen_;
+  bool helgen_active_ = false;
   // Live map editor (windowed client only); F4 toggles it. Null in headless.
   std::unique_ptr<MapEditor> editor_;
   // Character-creation screen (RX_CHARGEN boot mode). Null in headless.

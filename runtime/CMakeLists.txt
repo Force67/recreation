@@ -18,6 +18,7 @@ set(RECREATION_RUNTIME_SOURCES
   player_controller.cc
   carriage.cc
   cart_visuals.cc
+  helgen_intro.cc
   face.cc
   chargen.cc
   demo_scenes.cc
