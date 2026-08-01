@@ -2588,7 +2588,19 @@ bool CellStreamer::SpawnReference(ecs::World& world, i16 grid_x, i16 grid_y, u64
     transform.position[0] = position.x;
     transform.position[1] = position.y;
     transform.position[2] = position.z;
-    RefrRotationToEngine(placement + 3, transform.rotation);
+    // An actor's rotation is a plain yaw about engine up, NOT the axis-changed
+    // reference rotation: the skinned actor already converts its Bethesda-space
+    // skeleton into engine space, so composing the axis change again here tips the
+    // whole body onto its back. The games only ever rotate a placed actor about
+    // their own up axis anyway.
+    {
+      const f32 yaw = -placement[5];  // game euler z, counted clockwise
+      const f32 half = yaw * 0.5f;
+      transform.rotation[0] = 0;
+      transform.rotation[1] = std::sin(half);
+      transform.rotation[2] = 0;
+      transform.rotation[3] = std::cos(half);
+    }
     const f32 authored_position[3] = {transform.position[0], transform.position[1],
                                       transform.position[2]};
     if (saved_state && saved_state->moved)

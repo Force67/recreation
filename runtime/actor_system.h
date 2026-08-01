@@ -220,6 +220,10 @@ class ActorSystem {
     base::Vector<Mat4> bone_model;  // model-space per skeleton bone
     base::Vector<ActorPart> parts;
     bool animate = true;  // false = hold the bind pose
+    // The hand-rolled procedural gait (anim::Locomotion) is authored against the
+    // builtin biped's bones. A real game skeleton with no clip holds its bind pose
+    // instead: running the procedural pose on a Bethesda rig lays the body out flat.
+    bool procedural_gait = false;
     // The caller owns this actor's world position (a scripted mover, e.g. the
     // carriage horse): the looping clip still animates the legs in place, but
     // its extracted root motion is not integrated into the entity transform.

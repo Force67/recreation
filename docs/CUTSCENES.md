@@ -71,8 +71,7 @@ An unvoiced line still plays, timed by its reading length.
 
 `RiftenKeepScene11` playing in Mistveil Keep: the scene started itself with its
 quest, the dialogue camera framed the exchange, and the caption is the INFO's own
-text under the speaker's real name, timed by her voice clip. The prone figure is the
-actor-pose defect noted below, not part of the scene.
+text under the speaker's real name, timed by her voice clip.
 
 ## Verified quests
 
@@ -111,6 +110,16 @@ clips, packages all resolved) without a live playthrough of that quest.
 still runs; it spawns its own cart, horse and riders instead of using the placed
 references. It goes away once the staging gap below is closed.
 
+## Fixed along the way
+
+Every placed actor in every game was lying on its back. A REFR's rotation was
+converted with the axis change that turns Bethesda's Z-up space into the engine's
+Y-up, but a skinned actor already converts its Bethesda-space skeleton itself, so the
+two composed and tipped the body 90 degrees. Placed actors now carry a plain yaw
+about engine up (the only axis the games rotate an actor about), and the shared NPC
+template holds the game's own standing idle (`mt_idle_a_base.hkx`) instead of the
+procedural gait, which is authored against the builtin biped's bones.
+
 ## Known gaps
 
 * **Voice coverage is 43%.** 3369 lines name a clip that is not in the archives
@@ -124,13 +133,6 @@ references. It goes away once the staging gap below is closed.
   or created (much of the ambient town dialogue) have no reference to point at yet,
   so they play as voices and subtitles in the gameplay view. Filling those alias
   kinds is the remaining work.
-* **A streamed NPC that nothing drives renders in a prone T-pose.** It has a
-  skinned instance and is in the right place, but its pose comes out lying in mid
-  air (visible in the screenshot above). The director now puts a scene's cast on the
-  game's standing idle, which did not fix it, and a control run of the same interior
-  with no scene active shows the same bodies: this is an actor-system defect, not a
-  scene one. It is the single biggest thing between "the cutscene runs" and "the
-  cutscene looks right".
 * **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled,
   are streamed and have skinned instances, but do not draw at their staged positions
   on the mountain, so the ride's establishing shot is an empty road. The scene itself

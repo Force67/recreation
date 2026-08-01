@@ -652,6 +652,7 @@ bool ActorSystem::LoadFalloutActorTemplate(Actor* out) {
 }
 
 void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
+  out->procedural_gait = true;  // the gait code is authored against these bones
   // Fallback rig for games with no dedicated body loader (Fallout 4): a
   // procedural biped so their NPCs are visible placeholders rather than
   // invisible markers. Skyrim and Starfield load real skinned bodies; this
@@ -1527,9 +1528,12 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
       actor.pose.ResetToBind(actor.skeleton);
       SampleAnimationClip(*clip, actor.kf_time, &actor.pose);
     }
-  } else {
+  } else if (actor.procedural_gait) {
     actor.locomotion.phase = anim::AdvancePhase(actor.locomotion.phase, actor.speed, dt);
     actor.locomotion.Apply(actor.skeleton, actor.speed, &actor.pose);
+  } else {
+    // A game rig with nothing playing on it stands in its bind pose.
+    actor.pose.ResetToBind(actor.skeleton);
   }
 
   // Additive layer (RX_KINEMA path): compose the baked additive (delta) clip onto
@@ -1895,6 +1899,23 @@ bool ActorSystem::EnsureNpcTemplate() {
   tmpl.animate = true;
   tmpl.speed = 0.0f;     // idle
   tmpl.foot_ik = false;  // skip per-NPC ground raycasts
+  // The game's own standing idle, so a streamed NPC breathes instead of holding a
+  // bind-pose T. Candidates in order: the movement idle every actor falls back to,
+  // then the variants shipped beside it.
+  if (!tmpl.procedural_gait) {
+    static constexpr const char* kIdleClips[] = {
+        "meshes/actors/character/animations/mt_idle_a_base.hkx",
+        "meshes/actors/character/animations/mt_idle_b_base.hkx",
+        "meshes/actors/character/animations/idlestop.hkx",
+    };
+    for (const char* clip : kIdleClips) {
+      if (!PlayHavokClip(tmpl, clip, "meshes/actors/character/character assets/skeleton.hkx",
+                         "character"))
+        continue;
+      RX_INFO("npc rendering: standing idle from {}", clip);
+      break;
+    }
+  }
   npc_template_ = std::move(tmpl);
   RX_INFO("npc actor template ready ({} parts)", npc_template_->parts.size());
   return true;
