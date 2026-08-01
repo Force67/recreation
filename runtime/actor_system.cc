@@ -162,6 +162,13 @@ int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
   return a ? static_cast<int>(a->parts.size()) : 0;
 }
 
+void ActorSystem::DropNpcInstance(ecs::Entity npc) {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  if (Actor* a = npc_actors_.find(key); a && a->hair_groom)
+    renderer_.DestroyHairGroom(a->hair_groom);
+  npc_actors_.erase(key);
+}
+
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);

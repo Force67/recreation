@@ -155,6 +155,17 @@ class CutsceneDirector {
   // holds the procedural idle pose, which reads as a body lying in mid air; the
   // game's own idle clip is what stands an actor up while it talks.
   void PoseCast(const std::vector<u64>& cast);
+  // Gives each performer a body that is guaranteed to draw. A streamed NPC's actor
+  // instance sometimes renders nothing at all on the streamer's own entity (see
+  // docs/CUTSCENES.md); a cutscene cannot play to an invisible cast, so the director
+  // stands its own actor in and drives it at the performer's transform. Remove once
+  // the streamed instance draws reliably.
+  void StandInCast(const std::vector<u64>& cast);
+  // Keeps the stand-ins on their performers each frame.
+  void DriveStandIns();
+  void ClearStandIns();
+  // The entity that draws a performer: its stand-in when it has one, else itself.
+  ecs::Entity BodyOf(u64 ref) const;
   const quest::QuestDef* QuestDefinition(u64 quest);
   // Whether the player is one of the scene's performers, which decides both who a
   // line is addressed to and whether this is the player's own cutscene.
@@ -214,6 +225,8 @@ class CutsceneDirector {
   // alias system reports them.
   std::unordered_map<u64, u64> live_alias_refs_;
   std::unordered_set<u64> posed_cast_;  // cast already put on the standing idle
+  // One stand-in body per performer, keyed by the performer's reference.
+  std::unordered_map<u64, ecs::Entity> stand_ins_;
   std::vector<std::unique_ptr<Playing>> playing_;
   std::vector<u64> quests_seen_running_;  // for the begin-on-quest-start edge
   u64 armed_quest_ = 0;

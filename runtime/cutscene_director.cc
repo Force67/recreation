@@ -35,6 +35,12 @@ base::Option<bool> SceneCamera{"scene.camera", true, "RX_SCENE_CAMERA"};
 base::Option<bool> SceneVoice{"scene.voice", true, "RX_SCENE_VOICE"};
 // Letterbox bars while a scene owns the view.
 base::Option<bool> SceneLetterbox{"scene.letterbox", true, "RX_SCENE_LETTERBOX"};
+// RX_SCENE_STANDIN gives every performer a freshly built body that the director
+// drives at the performer's transform. A streamed NPC's own instance sometimes draws
+// nothing at all on the streamer's entity (see docs/CUTSCENES.md), and this makes
+// those casts visible; it is off by default because building a body mid-scene can
+// evict what the cell already had resident.
+base::Option<bool> SceneStandIn{"scene.standin", false, "RX_SCENE_STANDIN"};
 // RX_SCENE_SHOT pins every shot to one kind (0 over-shoulder, 1 reverse, 2 two-shot,
 // 3 close-up, 4 wide), for framing work and for checking a staged scene from a known
 // distance. -1 leaves the shot director in charge.
@@ -556,7 +562,11 @@ void CutsceneDirector::EnableCast(u64 quest, const std::string& editor_id,
 }
 
 void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
+  // Exteriors only. Indoors the authored placement is already on the right floor,
+  // and a downward ray happily lands on a table or the storey above, which lifts the
+  // performer (and with it the camera) out of the room.
   if (!ctx_.quest_world || !ctx_.world) return;
+  if (!ctx_.streamer || ctx_.streamer->in_interior()) return;
   for (u64 ref : cast) {
     const ecs::Entity e = ctx_.quest_world->Find(ref);
     if (!ctx_.world->IsAlive(e) || ctx_.world->Has<world::Hidden>(e)) continue;
@@ -567,8 +577,7 @@ void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
     // stages its cast by teleporting it onto markers authored against the game's
     // own ground, so where ours sits higher they end up buried and invisible.
     f32 ground = 0;
-    bool found = ctx_.streamer && !ctx_.streamer->in_interior() &&
-                 ctx_.streamer->GroundHeight(t->position[0], t->position[2], &ground);
+    bool found = ctx_.streamer->GroundHeight(t->position[0], t->position[2], &ground);
     if (!found && ctx_.physics && ctx_.physics->initialized()) {
       physics::PhysicsWorld::RayHit hit;
       if (ctx_.physics->Raycast(Vec3{t->position[0], t->position[1] + 2.0f, t->position[2]},
@@ -586,6 +595,64 @@ void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
       t->position[1] = ground;
     }
   }
+}
+
+void CutsceneDirector::StandInCast(const std::vector<u64>& cast) {
+  if (!SceneStandIn || !ctx_.quest_world || !ctx_.world || !ctx_.records) return;
+  static constexpr const char* kIdleClip = "meshes/actors/character/animations/mt_idle_a_base.hkx";
+  for (u64 ref : cast) {
+    if (stand_ins_.count(ref)) continue;
+    const ecs::Entity e = ctx_.quest_world->Find(ref);
+    if (!ctx_.world->IsAlive(e) || ctx_.world->Has<world::Hidden>(e)) continue;
+    const world::Transform* t = ctx_.world->Get<world::Transform>(e);
+    if (!t) continue;
+    // The performer's NPC record is what the stand-in is built from, so it is the
+    // same character with the same head.
+    const bethesda::GlobalFormId id{static_cast<u16>(ref >> 32), static_cast<u32>(ref)};
+    bethesda::Record achr;
+    if (!ctx_.records->Parse(id, &achr)) continue;
+    const u32 base_raw = FormAt(achr.Find(FourCc('N', 'A', 'M', 'E')));
+    if (!base_raw) continue;
+    const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(id);
+    const bethesda::GlobalFormId base = ctx_.records->ResolveFrom(
+        bethesda::RawFormId{base_raw}, stored ? stored->winning_plugin : 0);
+    const Vec3 at{t->position[0], t->position[1], t->position[2]};
+    const ecs::Entity body = actors_->SpawnScriptedNpc(base, kIdleClip, at, 0.0f, 0);
+    if (!ctx_.world->IsAlive(body)) continue;
+    actors_->DropNpcInstance(e);  // only one body per performer
+    stand_ins_[ref] = body;
+    RX_INFO("cutscene: {} stands in for 0x{:x}", body.index, ref);
+  }
+}
+
+void CutsceneDirector::DriveStandIns() {
+  if (stand_ins_.empty()) return;
+  for (auto& [ref, body] : stand_ins_) {
+    const ecs::Entity performer = ctx_.quest_world->Find(ref);
+    const world::Transform* from = ctx_.world->Get<world::Transform>(performer);
+    world::Transform* to = ctx_.world->Get<world::Transform>(body);
+    if (!from || !to) continue;  // streamed out: the stand-in holds its last mark
+    for (int axis = 0; axis < 3; ++axis) to->position[axis] = from->position[axis];
+    for (int axis = 0; axis < 4; ++axis) to->rotation[axis] = from->rotation[axis];
+    // Streaming the performer back in gives it a new instance; the stand-in is the
+    // one body that draws, so keep it the only one.
+    if (actors_->HasNpcInstance(performer)) actors_->DropNpcInstance(performer);
+  }
+}
+
+void CutsceneDirector::ClearStandIns() {
+  if (stand_ins_.empty()) return;
+  for (auto& [ref, body] : stand_ins_) {
+    actors_->DropNpcInstance(body);
+    if (ctx_.world->IsAlive(body)) ctx_.world->Destroy(body);
+  }
+  stand_ins_.clear();
+}
+
+ecs::Entity CutsceneDirector::BodyOf(u64 ref) const {
+  const auto it = stand_ins_.find(ref);
+  if (it != stand_ins_.end()) return it->second;
+  return ctx_.quest_world ? ctx_.quest_world->Find(ref) : ecs::Entity{};
 }
 
 void CutsceneDirector::PoseCast(const std::vector<u64>& cast) {
@@ -795,7 +862,7 @@ void CutsceneDirector::OnQuestStarted(u64 quest) {
 bool CutsceneDirector::LiveActor(u64 handle) const {
   if (handle == kPlayerHandle) return actors_->HasPlayer();
   if (!ctx_.quest_world || !ctx_.world) return false;
-  const ecs::Entity e = ctx_.quest_world->Find(handle);
+  const ecs::Entity e = BodyOf(handle);
   return ctx_.world->IsAlive(e) && !ctx_.world->Has<world::Hidden>(e);
 }
 
@@ -812,7 +879,7 @@ bool CutsceneDirector::HeadOf(u64 handle, Vec3* out) const {
     return true;
   }
   if (!ctx_.quest_world || !ctx_.world) return false;
-  const ecs::Entity e = ctx_.quest_world->Find(handle);
+  const ecs::Entity e = BodyOf(handle);
   if (ctx_.world->IsAlive(e)) {
     const world::Transform* t = ctx_.world->Get<world::Transform>(e);
     const Vec3 body = t ? Vec3{t->position[0], t->position[1] + 1.6f, t->position[2]} : Vec3{};
@@ -891,8 +958,9 @@ void CutsceneDirector::DriveCamera(f32 dt) {
       for (u64 ref : p->cast) {
         if (!LiveActor(ref) || !HeadOf(ref, &speaker_head)) continue;
         // Prefer a performer that is actually being drawn: an ECS entity with no
-        // skinned instance would frame an empty spot.
-        const ecs::Entity e = ctx_.quest_world->Find(ref);
+        // skinned instance would frame an empty spot. A performer with a stand-in is
+        // drawn by the stand-in's body, not its own.
+        const ecs::Entity e = BodyOf(ref);
         if (!actors_->HasNpcInstance(e)) continue;
         RX_DEBUG("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
                  actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
@@ -909,6 +977,8 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   const bool want = have && bool(SceneCamera) && !view_released_;
   subject_scene_ = subject ? subject->scene : 0;
   if (!want) {
+    if (owns_view_)
+      RX_INFO("cutscene: camera off ({})", view_released_ ? "handed back" : "no subject in sight");
     owns_view_ = false;
     framing_valid_ = false;
     shots_.Reset();
@@ -933,8 +1003,11 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   }
   // And keep the subject in sight: on a slope the ground between camera and actor
   // rises into the shot, which frames an empty hillside with the performance behind
-  // it. Lift the lens until the line to the subject is clear.
-  if (ctx_.physics && ctx_.physics->initialized()) {
+  // it. Lift the lens until the line to the subject is clear. Outdoors only: a room
+  // has a ceiling right above the lens, and lifting through it puts the camera
+  // outside the room looking at nothing.
+  const bool indoors = ctx_.streamer && ctx_.streamer->in_interior();
+  if (!indoors && ctx_.physics && ctx_.physics->initialized()) {
     const Vec3 target{want_framing.target[0], want_framing.target[1], want_framing.target[2]};
     for (int lift = 0; lift < 5; ++lift) {
       const Vec3 eye{want_framing.eye[0], want_framing.eye[1], want_framing.eye[2]};
@@ -943,6 +1016,9 @@ void CutsceneDirector::DriveCamera(f32 dt) {
       if (distance < 0.2f) break;
       physics::PhysicsWorld::RayHit hit;
       if (!ctx_.physics->Raycast(target, to * (1.0f / distance), distance - 0.15f, &hit)) break;
+      // Only lift into clear air, so an overhang above the lens is not lifted into.
+      physics::PhysicsWorld::RayHit above;
+      if (ctx_.physics->Raycast(eye, Vec3{0, 1, 0}, 1.8f, &above)) break;
       want_framing.eye[1] += 1.5f;
     }
   }
@@ -1033,6 +1109,7 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
       EnableCast(p.quest, p.editor_id, p.cast);
       GroundCast(p.cast);
       PoseCast(p.cast);
+      StandInCast(p.cast);
     }
     Sink sink(*this, p);
     p.runtime.Tick(dt, sink);
@@ -1046,6 +1123,8 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
   }
   if (playing_.empty()) view_released_ = false;
 
+  DriveStandIns();
+  if (playing_.empty()) ClearStandIns();
   DriveCamera(dt);
   UpdateOverlay(dt);
   // The armed quest's journal is the thing a cutscene is supposed to move, so log

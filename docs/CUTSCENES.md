@@ -48,6 +48,7 @@ RX_CUTSCENE_REPORT=MQ1 ./build/nix/runtime/recreation --headless --data-dir <Dat
 | `RX_SCENE_CAMERA` | on | The dialogue camera. Off leaves scenes playing in the gameplay view. |
 | `RX_SCENE_VOICE` | on | Voice playback. Off falls back to reading-time pacing. |
 | `RX_SCENE_LETTERBOX` | on | Cinematic bars while a scene owns the view. |
+| `RX_SCENE_STANDIN=1` | off | Gives every performer a freshly built body the director keeps at the performer's transform, for the casts whose streamed instance draws nothing (see the gaps). |
 | `RX_CAPTURE_OFFSCREEN=1` | off | Renders captures offscreen, for screenshots on an unattended desktop (a compositor that stops compositing the window otherwise hands back a garbage frame). |
 
 Esc hands the camera back mid-scene; the scene keeps playing.
@@ -74,6 +75,13 @@ An unvoiced line still plays, timed by its reading length.
 quest, the dialogue camera framed the exchange, and the caption is the INFO's own
 text under the speaker's real name, timed by her voice clip.
 
+![Helgen road](cutscene-helgen-road.png)
+
+`MQ101Scene1`, the opening cart ride, on the mountain road above Helgen with
+`RX_SCENE_STANDIN=1`: the scene started itself with the quest, Ralof is mid-line on the
+shot the director cut to, and the rest of the prisoners are behind him where the scene
+stages them.
+
 ## Verified quests
 
 "Played live" means the engine was run on the real game data, the scene started
@@ -84,7 +92,7 @@ clips, packages all resolved) without a live playthrough of that quest.
 
 | Quest | Name | Scenes | Lines | Voiced | Status | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| MQ101 | Unbound | 17 | 197 | 152 | Played live | `MQ101Scene1` (29 phases) speaks the whole cart ride in order, from "Hey, you. You're finally awake." to "Sovngarde awaits."; journal runs 0 -> 10 -> 15; the cart horse runs its patrol packages and tows the cart |
+| MQ101 | Unbound | 17 | 197 | 152 | Played live | `MQ101Scene1` (29 phases) speaks the whole cart ride in order, from "Hey, you. You're finally awake." to "Sovngarde awaits."; journal runs 0 -> 10 -> 15; the cart horse runs its patrol packages and tows the cart; framed and captioned on screen with `RX_SCENE_STANDIN=1` (screenshot above) |
 | DialogueRiftenKeepScene11 | Riften Keep Scene 11 | 1 | 10 | 10 | Played live | Laila and Maven's audience plays on entering Mistveil Keep, voiced |
 | DialogueRiftenBeeAndBarbScene01 | Bee and Barb Scene 01 | 1 | 4 | 4 | Played live | Talen-Jei and Keerava behind the bar, framed and voiced (screenshot below) |
 | MG01 | First Lessons | 7 | 43 | 43 | Played live | Mirabelle/Ancano scene starts with the quest and speaks its lines |
@@ -149,7 +157,12 @@ procedural gait, which is authored against the builtin biped's bones.
   anyone; the director now hands the scene's location to the quest system's
   find-matching fill, which covers the ones whose location carries a ref-type table,
   and the rest still play as voice and subtitles in the gameplay view.
-* **MQ101's staged cast does not draw** (the only scene this is known to affect). The scene runs (dialogue, packages,
+* **MQ101's staged cast does not draw by itself** (the only scene this is known to
+  affect), though `RX_SCENE_STANDIN=1` puts it on screen: the director then builds a
+  body of its own per performer and keeps it at the performer's transform, and that
+  one renders (the screenshot above). The flag is off by default because building
+  bodies mid-scene can evict what a cell already had resident. The underlying defect,
+  as far as it has been chased: the scene runs (dialogue, packages,
   journal), and the actor it stages on the mountain road resolves, is enabled, is
   streamed, is upright, holds seven drawable parts with a valid mesh, sits on the
   ground and is handed to the renderer with the right model matrix
