@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/npc_ai.h"
+#include "components/world/npc_ai.h"
 
 using rx::world::FollowSlot;
 using rx::world::SeparationOffset;

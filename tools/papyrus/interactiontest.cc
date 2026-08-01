@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/interaction.h"
+#include "components/world/interaction.h"
 
 using rx::world::ActivationCandidate;
 using rx::world::PickActivationTarget;

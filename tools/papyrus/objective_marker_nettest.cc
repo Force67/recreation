@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "gamenet/objective_marker_net.h"
+#include "components/gamenet/objective_marker_net.h"
 
 // zetanet's headers (pulled in via net/objective_marker_net.h's siblings) inject
 // their own scalar aliases, so scalar types stay fully qualified as rx::.

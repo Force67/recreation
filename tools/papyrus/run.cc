@@ -22,25 +22,25 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "script/papyrus/alias_handle.h"
-#include "script/papyrus/interpreter.h"
-#include "script/papyrus/native.h"
-#include "script/papyrus/pex.h"
-#include "script/papyrus/value.h"
-#include "script/papyrus/vm.h"
-#include "script/papyrus_guest.h"
-#include "script/host/bridge.h"
-#include "script/host/clr_host.h"
-#include "script/host/guest_bridge.h"
-#include "script/host/managed_gc_profile.h"
-#include "script/host/managed_host.h"
+#include "components/bethesda/archive.h"
+#include "components/script/papyrus/alias_handle.h"
+#include "components/script/papyrus/interpreter.h"
+#include "components/script/papyrus/native.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/value.h"
+#include "components/script/papyrus/vm.h"
+#include "components/script/papyrus_guest.h"
+#include "components/script/host/bridge.h"
+#include "components/script/host/clr_host.h"
+#include "components/script/host/guest_bridge.h"
+#include "components/script/host/managed_gc_profile.h"
+#include "components/script/host/managed_host.h"
 
 #if defined(__linux__) || defined(__APPLE__)
 #include <unistd.h>  // sysconf, for physical-memory readback in gcprofiletest
 #endif
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/games/skyrim/skyrim_natives.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_natives.h"
 
 namespace {
 

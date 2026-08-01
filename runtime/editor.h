@@ -10,15 +10,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "ecs/entity.h"
 #include "game_ui.h"
 #include "render/core/renderer.h"
 #include "thumbnailer.h"
-#include "world/components.h"
-#include "world/terrain_edits.h"
+#include "components/world/components.h"
+#include "components/world/terrain_edits.h"
 
 namespace rx::bethesda {
 class RecordStore;

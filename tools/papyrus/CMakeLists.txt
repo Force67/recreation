@@ -283,9 +283,8 @@ recreation_set_warnings(navgridtest)
 
 add_executable(terrain_edittest
   terrain_edittest.cc
-  ${CMAKE_SOURCE_DIR}/engine/world/terrain_edits.cc)
+  ${CMAKE_SOURCE_DIR}/components/world/terrain_edits.cc)
 target_include_directories(terrain_edittest PRIVATE
-  ${CMAKE_SOURCE_DIR}/engine
   ${RECREATION_RX_DIR}/engine)
 recreation_set_warnings(terrain_edittest)
 

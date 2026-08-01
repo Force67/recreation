@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/types.h"
-#include "quest/quest_def.h"
+#include "components/quest/quest_def.h"
 
 namespace {
 

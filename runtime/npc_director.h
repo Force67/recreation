@@ -10,12 +10,12 @@
 #include "core/math.h"
 #include "ecs/world.h"
 #include "engine_context.h"
-#include "quest/scene.h"
-#include "world/combat.h"
-#include "world/components.h"
+#include "components/quest/scene.h"
+#include "components/world/combat.h"
+#include "components/world/components.h"
 #include "nav_service.h"
-#include "world/navgrid.h"
-#include "world/quest_world.h"
+#include "components/world/navgrid.h"
+#include "components/world/quest_world.h"
 
 namespace rx {
 

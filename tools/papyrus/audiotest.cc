@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "audio/ambient.h"
+#include "components/audio/ambient.h"
 #include "audio/audio_clip.h"
 #include "audio/mixer.h"
 #include "audio/spatial.h"

@@ -9,7 +9,7 @@
 
 #include <base/option.h>
 
-#include "bethesda/game_profile.h"
+#include "components/bethesda/game_profile.h"
 #include "core/log.h"
 #include "engine_internal.h"
 

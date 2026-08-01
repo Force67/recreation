@@ -9,7 +9,7 @@
 
 #include "actor_system.h"
 #include "asset/asset_id.h"
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/input_actions.h"
 #include "core/log.h"
 #include "core/types.h"
@@ -19,8 +19,8 @@
 #include "inventory/components.h"
 #include "inventory/inventory.h"
 #include "item_bridge.h"
-#include "world/cell_streaming.h"
-#include "world/components.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
 
 namespace rx {
 namespace {

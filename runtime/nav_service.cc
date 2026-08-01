@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include "engine_context.h"
-#include "world/cell_streaming.h"
+#include "components/world/cell_streaming.h"
 
 namespace rx {
 namespace {

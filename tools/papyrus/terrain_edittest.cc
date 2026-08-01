@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "world/terrain_edits.h"
+#include "components/world/terrain_edits.h"
 
 namespace {
 

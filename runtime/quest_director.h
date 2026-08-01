@@ -9,8 +9,8 @@
 
 #include "core/math.h"
 #include "engine_context.h"
-#include "quest/quest_def.h"
-#include "quest/quest_system.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/quest_system.h"
 #include "quest_state_cache.h"
 
 namespace rx {

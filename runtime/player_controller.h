@@ -3,7 +3,7 @@
 
 #include <unordered_map>
 
-#include "bethesda/movement_type.h"
+#include "components/bethesda/movement_type.h"
 #include "character/character.h"
 #include "core/math.h"
 #include "ecs/entity.h"

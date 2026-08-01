@@ -12,7 +12,7 @@
 #include "actor_system.h"
 #include "asset/asset_id.h"
 #include "asset/mesh.h"
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/types.h"
@@ -21,9 +21,9 @@
 #include "inventory/inventory.h"
 #include "inventory/serialize.h"
 #include "scene/components.h"
-#include "world/cell_streaming.h"
-#include "world/components.h"
-#include "world/quest_world.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
+#include "components/world/quest_world.h"
 
 namespace rx {
 namespace {

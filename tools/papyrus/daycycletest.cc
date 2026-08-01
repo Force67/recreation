@@ -6,7 +6,7 @@
 #include <cstdio>
 
 #include "core/world_clock.h"
-#include "script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
 
 using rx::ComputeSkyLighting;
 using rx::SkyLighting;

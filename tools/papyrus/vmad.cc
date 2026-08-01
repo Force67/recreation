@@ -12,9 +12,9 @@
 #include <functional>
 #include <string>
 
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/script_attachment.h"
 
 namespace {
 

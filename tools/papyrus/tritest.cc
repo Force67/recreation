@@ -8,7 +8,7 @@
 #include <cstring>
 #include <vector>
 
-#include "bethesda/tri.h"
+#include "components/bethesda/tri.h"
 #include "core/types.h"
 
 namespace {

@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/archive.h"
+#include "components/bethesda/archive.h"
 #include "core/types.h"
 
 // zetanet's headers (via archive.h) inject global arch_types scalar aliases, so

@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/navgrid.h"
+#include "components/world/navgrid.h"
 
 using rx::Vec3;
 using rx::world::NavGrid;

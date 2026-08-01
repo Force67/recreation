@@ -17,8 +17,8 @@
 #include "actor_system.h"
 #include "app/application.h"
 #include "app/host.h"
-#include "audio/ambient.h"
-#include "bethesda/planet.h"
+#include "components/audio/ambient.h"
+#include "components/bethesda/planet.h"
 #include "carriage.h"
 #include "chargen.h"
 #include "content_domain.h"
@@ -36,18 +36,18 @@
 #include "npc_director.h"
 #include "platform_hud.h"
 #include "quest_director.h"
-#include "script/host/managed_host.h"
+#include "components/script/host/managed_host.h"
 #include "showcase_camera.h"
 #include "player_controller.h"
 #include "trailer.h"
-#include "weather/director.h"
-#include "weather/weather.h"
-#include "world/combat.h"
-#include "world/planet_tile.h"
+#include "components/weather/director.h"
+#include "components/weather/weather.h"
+#include "components/world/combat.h"
+#include "components/world/planet_tile.h"
 
 #if RECREATION_HAS_NET
-#include "modstream/content_store.h"
-#include "modstream/mod_catalog.h"
+#include "components/modstream/content_store.h"
+#include "components/modstream/mod_catalog.h"
 #endif
 
 namespace rx {

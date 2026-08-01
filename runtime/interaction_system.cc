@@ -8,14 +8,14 @@
 #include <vector>
 
 #include "actor_system.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/log.h"
 #include "item_bridge.h"
 #include "core/math.h"
-#include "script/games/skyrim/skyrim_condition_context.h"
-#include "script/papyrus/value.h"
-#include "world/components.h"
-#include "world/interaction.h"
+#include "components/script/games/skyrim/skyrim_condition_context.h"
+#include "components/script/papyrus/value.h"
+#include "components/world/components.h"
+#include "components/world/interaction.h"
 
 namespace rx {
 

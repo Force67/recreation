@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "core/types.h"
-#include "quest/condition.h"
-#include "quest/quest_graph.h"
+#include "components/quest/condition.h"
+#include "components/quest/quest_graph.h"
 
 using namespace rx;
 using namespace rx::quest;

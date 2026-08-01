@@ -10,11 +10,11 @@
 #include "anim/pose.h"
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "bethesda/converters.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/kf_anim.h"
-#include "bethesda/nif.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/converters.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/kf_anim.h"
+#include "components/bethesda/nif.h"
 
 // Loads one asset through the real Vfs + converter pipeline and dumps what
 // came out. Handy for checking NIF/DDS conversion against game data. With an

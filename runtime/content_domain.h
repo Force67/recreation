@@ -6,14 +6,14 @@
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/strings.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/strings.h"
 #include "core/types.h"
-#include "dialogue/dialogue.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/script_system.h"
+#include "components/dialogue/dialogue.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/script_system.h"
 
 namespace rx {
 

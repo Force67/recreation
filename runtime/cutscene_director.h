@@ -7,15 +7,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/math.h"
-#include "dialogue/voice.h"
+#include "components/dialogue/voice.h"
 #include "engine_context.h"
-#include "quest/quest_def.h"
-#include "quest/scene_runtime.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/scene_runtime.h"
 #include "quest_state_cache.h"
 #include "trailer.h"
-#include "world/cine_camera.h"
+#include "components/world/cine_camera.h"
 
 namespace rx {
 

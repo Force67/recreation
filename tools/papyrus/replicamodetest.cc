@@ -5,9 +5,9 @@
 
 #include <cstdio>
 
-#include "quest/quest_system.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/host/bridge.h"
+#include "components/quest/quest_system.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/host/bridge.h"
 
 using rx::quest::QuestStatus;
 using rx::script::host::ManagedEvent;

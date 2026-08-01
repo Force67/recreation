@@ -10,7 +10,7 @@
 
 #include "asset/mesh.h"
 #include "asset/subdivide.h"
-#include "bethesda/head_morph.h"
+#include "components/bethesda/head_morph.h"
 #include "core/types.h"
 
 namespace {

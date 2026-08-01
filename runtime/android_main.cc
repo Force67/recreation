@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "bethesda/game_profile.h"
+#include "components/bethesda/game_profile.h"
 #include "core/log.h"
 #include "core/window.h"
 #include "engine.h"

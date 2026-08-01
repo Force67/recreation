@@ -7,7 +7,7 @@
 #include <cstring>
 #include <vector>
 
-#include "bethesda/converters.h"
+#include "components/bethesda/converters.h"
 #include "core/types.h"
 
 namespace {

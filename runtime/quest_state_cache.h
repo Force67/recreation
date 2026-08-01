@@ -7,7 +7,7 @@
 
 #include "core/math.h"
 #include "core/types.h"
-#include "quest/condition.h"
+#include "components/quest/condition.h"
 
 namespace rx {
 

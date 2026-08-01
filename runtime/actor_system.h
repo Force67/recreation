@@ -13,9 +13,9 @@
 #include <kinema/kinema.h>
 
 #include "anim/locomotion.h"
-#include "bethesda/animation_data.h"
-#include "bethesda/hkx_anim.h"
-#include "bethesda/hkx_physics.h"
+#include "components/bethesda/animation_data.h"
+#include "components/bethesda/hkx_anim.h"
+#include "components/bethesda/hkx_physics.h"
 #include "anim/pose.h"
 #include "asset/asset_database.h"
 #include "asset/skeleton.h"

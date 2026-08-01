@@ -8,17 +8,17 @@
 #include <string>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "bethesda/facegen.h"
-#include "bethesda/load_order.h"
-#include "bethesda/plugin.h"
-#include "bethesda/strings.h"
-#include "bethesda/tri.h"
-#include "dialogue/dialogue.h"
-#include "quest/package_record.h"
-#include "quest/quest_def.h"
-#include "quest/scene_record.h"
-#include "quest/scene_runtime.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/facegen.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/plugin.h"
+#include "components/bethesda/strings.h"
+#include "components/bethesda/tri.h"
+#include "components/dialogue/dialogue.h"
+#include "components/quest/package_record.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/scene_record.h"
+#include "components/quest/scene_runtime.h"
 
 namespace {
 

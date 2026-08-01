@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "quest/scene.h"
+#include "components/quest/scene.h"
 
 using namespace rx;
 using namespace rx::quest;

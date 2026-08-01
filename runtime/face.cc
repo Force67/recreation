@@ -8,7 +8,7 @@
 
 #include "asset/asset_database.h"
 #include "asset/subdivide.h"
-#include "bethesda/nif.h"
+#include "components/bethesda/nif.h"
 #include "core/log.h"
 #include "engine_context.h"
 #include "render/core/renderer.h"

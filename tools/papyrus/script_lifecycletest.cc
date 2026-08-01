@@ -7,10 +7,10 @@
 #include <utility>
 
 #include "asset/vfs.h"
-#include "bethesda/script_attachment.h"
-#include "script/papyrus/pex.h"
-#include "script/papyrus/vm.h"
-#include "script/script_system.h"
+#include "components/bethesda/script_attachment.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/vm.h"
+#include "components/script/script_system.h"
 
 namespace {
 

@@ -6,8 +6,8 @@
 #include <cstdio>
 #include <vector>
 
-#include "weather/director.h"
-#include "weather/weather.h"
+#include "components/weather/director.h"
+#include "components/weather/weather.h"
 
 using rx::weather::Director;
 using rx::weather::Tick;

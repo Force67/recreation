@@ -9,14 +9,14 @@
 #include "asset/primitives.h"
 #include "core/log.h"
 #include "engine.h"
-#include "quest/quest_def.h"
-#include "script/papyrus/value.h"
+#include "components/quest/quest_def.h"
+#include "components/script/papyrus/value.h"
 
 #if RECREATION_HAS_NET
-#include "gamenet/asset_stream.h"
-#include "modstream/content_provider.h"
-#include "modstream/content_store.h"
-#include "modstream/mod_catalog.h"
+#include "components/gamenet/asset_stream.h"
+#include "components/modstream/content_provider.h"
+#include "components/modstream/content_store.h"
+#include "components/modstream/mod_catalog.h"
 #endif
 
 // Engine network bringup: opens the authoritative server or replica client

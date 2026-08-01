@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/material_db.h"
+#include "components/bethesda/material_db.h"
 #include "core/types.h"
 
 namespace {

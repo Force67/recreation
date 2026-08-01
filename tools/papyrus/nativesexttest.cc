@@ -9,13 +9,13 @@
 #include <string>
 #include <vector>
 
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/games/skyrim/skyrim_natives.h"
-#include "script/papyrus/alias_handle.h"
-#include "script/papyrus/native.h"
-#include "script/papyrus/value.h"
-#include "script/papyrus/vm.h"
-#include "script/papyrus_guest.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_natives.h"
+#include "components/script/papyrus/alias_handle.h"
+#include "components/script/papyrus/native.h"
+#include "components/script/papyrus/value.h"
+#include "components/script/papyrus/vm.h"
+#include "components/script/papyrus_guest.h"
 
 namespace {
 

@@ -8,8 +8,8 @@
 
 #include "core/types.h"
 #include "ecs/world.h"
-#include "world/components.h"
-#include "world/quest_world.h"
+#include "components/world/components.h"
+#include "components/world/quest_world.h"
 
 // Handles are addressed with std::uint64_t here rather than rx::u64: linking the
 // world (-> physics -> arch_types) makes the bare name `u64` ambiguous in this

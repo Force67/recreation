@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "gamenet/stage_request.h"
+#include "components/gamenet/stage_request.h"
 
 // zetanet headers (pulled in transitively elsewhere) inject their own scalar
 // aliases, so the scalar types stay fully qualified as rx:: throughout.

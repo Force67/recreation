@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "world/pathfind.h"
+#include "components/world/pathfind.h"
 
 using rx::world::FindPath;
 using rx::world::PathNode;

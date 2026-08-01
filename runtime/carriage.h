@@ -5,10 +5,10 @@
 
 #include <base/containers/vector.h>
 
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/math.h"
 #include "ecs/world.h"
-#include "world/carriage_rig.h"
+#include "components/world/carriage_rig.h"
 
 namespace rx {
 

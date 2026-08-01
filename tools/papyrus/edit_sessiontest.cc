@@ -13,12 +13,12 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/edit_session.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/load_order.h"
-#include "bethesda/plugin.h"
-#include "bethesda/raw_rewriter.h"
-#include "bethesda/writer.h"
+#include "components/bethesda/edit_session.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/plugin.h"
+#include "components/bethesda/raw_rewriter.h"
+#include "components/bethesda/writer.h"
 #include "core/types.h"
 
 using namespace rx;

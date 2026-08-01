@@ -12,10 +12,10 @@
 #include <utility>
 #include <vector>
 
-#include "bethesda/compression.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/plugin.h"
-#include "bethesda/writer.h"
+#include "components/bethesda/compression.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/plugin.h"
+#include "components/bethesda/writer.h"
 #include "core/types.h"
 
 using namespace rx;

@@ -6,12 +6,12 @@
 
 #include <base/containers/vector.h>
 
-#include "bethesda/form_id.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/form_id.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/math.h"
 #include "engine_context.h"
-#include "quest/package_record.h"
-#include "quest/quest_def.h"
+#include "components/quest/package_record.h"
+#include "components/quest/quest_def.h"
 #include "quest_state_cache.h"
 
 namespace rx {

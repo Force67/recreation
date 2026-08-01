@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "ecs/entity.h"

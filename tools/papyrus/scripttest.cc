@@ -13,12 +13,12 @@
 #include <string>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/script_attachment.h"
-#include "script/papyrus/vm.h"
-#include "script/script_system.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/script_attachment.h"
+#include "components/script/papyrus/vm.h"
+#include "components/script/script_system.h"
 
 namespace {
 

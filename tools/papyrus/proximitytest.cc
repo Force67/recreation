@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
 
 using rx::script::papyrus::ObjectRef;
 using rx::script::skyrim::RecordBackedSkyrimBindings;

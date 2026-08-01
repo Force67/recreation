@@ -1,6 +1,6 @@
 #include <cstdio>
 
-#include "quest/scene_compile.h"
+#include "components/quest/scene_compile.h"
 
 using namespace rx;
 using namespace rx::quest;

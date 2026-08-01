@@ -10,7 +10,7 @@
 #include "engine_context.h"
 #include "fly_camera.h"
 #include "render/core/renderer.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 namespace rx {
 namespace {

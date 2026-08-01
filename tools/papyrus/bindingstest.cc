@@ -11,10 +11,10 @@
 #include <optional>
 #include <string>
 
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/papyrus/alias_handle.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/papyrus/alias_handle.h"
 
 namespace {
 

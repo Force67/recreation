@@ -19,12 +19,12 @@
 #include "asset/vfs.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "modstream/content_provider.h"
-#include "modstream/content_store.h"
-#include "modstream/mod_catalog.h"
-#include "gamenet/asset_stream.h"
+#include "components/modstream/content_provider.h"
+#include "components/modstream/content_store.h"
+#include "components/modstream/mod_catalog.h"
+#include "components/gamenet/asset_stream.h"
 #include "net/rpc_channel.h"
-#include "gamenet/session.h"
+#include "components/gamenet/session.h"
 #include "rpc/rpc_value.h"
 
 namespace fs = std::filesystem;

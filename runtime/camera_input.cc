@@ -13,7 +13,7 @@
 #include "core/math.h"
 #include "item_bridge.h"
 #include "player_controller.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 // Camera and player input: routes per-frame input to the right consumer (pause
 // menu, editor, dialogue/container/journal modals, walk mode, or the free-fly

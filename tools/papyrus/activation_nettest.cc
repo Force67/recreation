@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "ecs/world.h"
-#include "gamenet/protocol.h"
-#include "gamenet/session.h"
+#include "components/gamenet/protocol.h"
+#include "components/gamenet/session.h"
 
 namespace {
 

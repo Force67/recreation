@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "script/papyrus/value.h"
+#include "components/script/papyrus/value.h"
 
 namespace rx {
 

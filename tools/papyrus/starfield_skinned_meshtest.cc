@@ -9,7 +9,7 @@
 #include <cstring>
 #include <vector>
 
-#include "bethesda/starfield_mesh.h"
+#include "components/bethesda/starfield_mesh.h"
 #include "core/types.h"
 
 namespace {

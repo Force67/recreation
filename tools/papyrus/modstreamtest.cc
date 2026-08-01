@@ -12,15 +12,15 @@
 
 #include "asset/vfs.h"
 #include "core/types.h"
-#include "modstream/content_hash.h"
-#include "modstream/content_provider.h"
-#include "modstream/content_store.h"
-#include "modstream/manifest_codec.h"
-#include "modstream/asset_request.h"
-#include "modstream/manifest_chunk.h"
-#include "modstream/mod_catalog.h"
-#include "modstream/stream_filter.h"
-#include "modstream/transfer_plan.h"
+#include "components/modstream/content_hash.h"
+#include "components/modstream/content_provider.h"
+#include "components/modstream/content_store.h"
+#include "components/modstream/manifest_codec.h"
+#include "components/modstream/asset_request.h"
+#include "components/modstream/manifest_chunk.h"
+#include "components/modstream/mod_catalog.h"
+#include "components/modstream/stream_filter.h"
+#include "components/modstream/transfer_plan.h"
 
 namespace fs = std::filesystem;
 using namespace rx;

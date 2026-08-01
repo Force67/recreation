@@ -13,15 +13,15 @@
 #include "asset/asset_id.h"
 #include "asset/materialx.h"
 #include "asset/primitives.h"
-#include "bethesda/archive.h"
-#include "bethesda/converters.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/nif.h"
-#include "bethesda/record.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/converters.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/nif.h"
+#include "components/bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "render/geometry/hair_groom.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 namespace rx {
 

@@ -5,7 +5,7 @@
 
 #include "core/log.h"
 #include "engine.h"
-#include "script/papyrus/value.h"
+#include "components/script/papyrus/value.h"
 #if defined(RECREATION_HAS_UGUI)
 #include "ugui_csharp_host.h"  // the C# ultragui scripting backend seam
 #endif

@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "script/papyrus/pex.h"
-#include "script/papyrus/transpile.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/transpile.h"
 
 namespace {
 

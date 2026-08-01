@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "weather/weather.h"
+#include "components/weather/weather.h"
 
 namespace rx {
 

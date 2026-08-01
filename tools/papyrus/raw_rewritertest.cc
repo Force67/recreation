@@ -11,11 +11,11 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/game_profile.h"
-#include "bethesda/plugin.h"
-#include "bethesda/raw_rewriter.h"
-#include "bethesda/record.h"
-#include "bethesda/writer.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/plugin.h"
+#include "components/bethesda/raw_rewriter.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/writer.h"
 #include "core/types.h"
 
 using namespace rx;

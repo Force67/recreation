@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "quest/scene_player.h"
+#include "components/quest/scene_player.h"
 
 using namespace rx;
 using namespace rx::quest;

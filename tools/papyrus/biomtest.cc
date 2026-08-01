@@ -7,7 +7,7 @@
 #include <cstring>
 #include <vector>
 
-#include "bethesda/biom.h"
+#include "components/bethesda/biom.h"
 #include "core/types.h"
 
 namespace {

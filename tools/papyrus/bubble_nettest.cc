@@ -12,7 +12,7 @@
 #include <thread>
 
 #include "ecs/world.h"
-#include "gamenet/session.h"
+#include "components/gamenet/session.h"
 #include "net/replication.h"
 #include "scene/components.h"
 

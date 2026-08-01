@@ -9,10 +9,10 @@
 
 #include "asset/mesh.h"
 #include "asset/texture.h"
-#include "bethesda/facegen.h"
-#include "bethesda/form_id.h"
-#include "bethesda/head_morph.h"
-#include "bethesda/tri.h"
+#include "components/bethesda/facegen.h"
+#include "components/bethesda/form_id.h"
+#include "components/bethesda/head_morph.h"
+#include "components/bethesda/tri.h"
 #include "core/types.h"
 
 namespace rx {

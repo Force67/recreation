@@ -6,10 +6,10 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/record.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/types.h"
-#include "dialogue/dialogue.h"
+#include "components/dialogue/dialogue.h"
 
 using namespace rx;
 

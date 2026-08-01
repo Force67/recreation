@@ -13,7 +13,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "script/obscript/obscript.h"
+#include "components/script/obscript/obscript.h"
 
 using namespace rx;
 using namespace rx::script::obscript;

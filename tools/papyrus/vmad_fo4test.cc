@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/types.h"
 
 namespace {

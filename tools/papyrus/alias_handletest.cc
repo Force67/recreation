@@ -4,7 +4,7 @@
 #include <cstdio>
 
 #include "core/types.h"
-#include "script/papyrus/alias_handle.h"
+#include "components/script/papyrus/alias_handle.h"
 
 namespace {
 

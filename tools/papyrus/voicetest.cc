@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "dialogue/voice.h"
+#include "components/dialogue/voice.h"
 
 using namespace rx;
 using namespace rx::dialogue;

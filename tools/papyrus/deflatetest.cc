@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <string>
 
-#include "bethesda/compression.h"
+#include "components/bethesda/compression.h"
 #include "core/types.h"
 
 using namespace rx;

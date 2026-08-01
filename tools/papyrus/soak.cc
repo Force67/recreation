@@ -19,12 +19,12 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "script/games/skyrim/skyrim_natives.h"
-#include "script/papyrus/native.h"
-#include "script/papyrus/opcode.h"
-#include "script/papyrus/pex.h"
-#include "script/papyrus/vm.h"
+#include "components/bethesda/archive.h"
+#include "components/script/games/skyrim/skyrim_natives.h"
+#include "components/script/papyrus/native.h"
+#include "components/script/papyrus/opcode.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/vm.h"
 
 using namespace rx;
 using namespace rx::script::papyrus;

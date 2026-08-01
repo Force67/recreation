@@ -7,11 +7,11 @@
 #include <utility>
 #include <vector>
 
-#include "quest/quest_def.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/host/bridge.h"
-#include "script/world_effect_sink.h"
-#include "world/combat.h"
+#include "components/quest/quest_def.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/host/bridge.h"
+#include "components/script/world_effect_sink.h"
+#include "components/world/combat.h"
 
 using rx::script::papyrus::ObjectRef;
 using rx::script::skyrim::RecordBackedSkyrimBindings;

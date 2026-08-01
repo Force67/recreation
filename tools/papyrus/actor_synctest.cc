@@ -6,14 +6,14 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
 #include "gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
-#include "gamenet/actor_sync.h"
+#include "components/gamenet/actor_sync.h"
 #include "net/replication.h"
-#include "world/components.h"
-#include "world/quest_world.h"
+#include "components/world/components.h"
+#include "components/world/quest_world.h"
 
 using Handle = std::uint64_t;
 using rx::net::ActorReplicator;

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "asset/asset_id.h"
-#include "bethesda/nif.h"
+#include "components/bethesda/nif.h"
 #include "core/types.h"
 
 namespace {

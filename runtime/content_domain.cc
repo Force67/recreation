@@ -3,13 +3,13 @@
 #include <filesystem>
 #include <vector>
 
-#include "bethesda/archive.h"
-#include "bethesda/converters.h"
-#include "bethesda/record.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/converters.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/log.h"
-#include "quest/quest_def.h"
-#include "script/papyrus/value.h"
+#include "components/quest/quest_def.h"
+#include "components/script/papyrus/value.h"
 
 namespace rx {
 

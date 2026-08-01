@@ -8,9 +8,9 @@
 #include <cstdio>
 #include <string>
 
-#include "bethesda/game_profile.h"
+#include "components/bethesda/game_profile.h"
 #include "core/math.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 namespace rx {
 

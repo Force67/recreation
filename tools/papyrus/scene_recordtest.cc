@@ -12,11 +12,11 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/script_attachment.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/script_attachment.h"
 #include "core/types.h"
-#include "quest/scene_record.h"
+#include "components/quest/scene_record.h"
 
 using namespace rx;
 using namespace rx::quest;

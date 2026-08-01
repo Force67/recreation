@@ -8,7 +8,7 @@
 #include <cstring>
 #include <string>
 
-#include "modstream/mod_catalog.h"
+#include "components/modstream/mod_catalog.h"
 
 namespace {
 

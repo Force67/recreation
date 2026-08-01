@@ -14,14 +14,14 @@
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
 #include "asset/mesh.h"
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "ecs/world.h"
 #include "engine_context.h"
 #include "render/core/renderer.h"
 #include "thumbnailer.h"
-#include "world/cell_streaming.h"
+#include "components/world/cell_streaming.h"
 
 namespace rx {
 namespace {

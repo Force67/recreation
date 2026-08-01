@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "bethesda/string_writer.h"
+#include "components/bethesda/string_writer.h"
 #include "core/types.h"
 
 namespace {

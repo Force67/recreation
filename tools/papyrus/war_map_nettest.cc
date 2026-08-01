@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "core/types.h"
-#include "gamenet/war_map_net.h"
+#include "components/gamenet/war_map_net.h"
 
 namespace {
 

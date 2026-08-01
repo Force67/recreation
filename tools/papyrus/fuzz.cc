@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "script/papyrus/pex.h"
+#include "components/bethesda/archive.h"
+#include "components/script/papyrus/pex.h"
 
 using namespace rx;
 using namespace rx::script::papyrus;

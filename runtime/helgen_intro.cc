@@ -8,19 +8,19 @@
 #include <base/option.h>
 
 #include "actor_system.h"
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "cart_visuals.h"
 #include "core/log.h"
-#include "dialogue/dialogue.h"
+#include "components/dialogue/dialogue.h"
 #include "engine_context.h"
 #include "fly_camera.h"
-#include "quest/package_record.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "script/games/skyrim/skyrim_condition_context.h"
-#include "quest/quest_def.h"
-#include "quest/scene_record.h"
-#include "world/cell_streaming.h"
-#include "world/components.h"
+#include "components/quest/package_record.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_condition_context.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/scene_record.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
 
 namespace rx {
 namespace {

@@ -26,12 +26,12 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "script/papyrus/opcode.h"
-#include "script/papyrus/pex.h"
-#include "script/papyrus/transpile.h"
-#include "script/papyrus/value.h"
-#include "script/papyrus/vm.h"
+#include "components/bethesda/archive.h"
+#include "components/script/papyrus/opcode.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/transpile.h"
+#include "components/script/papyrus/value.h"
+#include "components/script/papyrus/vm.h"
 
 namespace {
 

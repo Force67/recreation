@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "quest/scene_runtime.h"
+#include "components/quest/scene_runtime.h"
 
 using namespace rx;
 using namespace rx::quest;

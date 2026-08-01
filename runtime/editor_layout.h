@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/types.h"
 
 namespace rx::editor {

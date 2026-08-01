@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/cine_camera.h"
+#include "components/world/cine_camera.h"
 
 using namespace rx;
 using namespace rx::world;

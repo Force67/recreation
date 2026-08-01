@@ -9,7 +9,7 @@
 #include <cstdio>
 
 #include "physics/physics_world.h"
-#include "world/carriage_rig.h"
+#include "components/world/carriage_rig.h"
 
 using rx::f32;
 using rx::Length;

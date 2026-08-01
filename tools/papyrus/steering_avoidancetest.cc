@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/steering_avoidance.h"
+#include "components/world/steering_avoidance.h"
 
 using rx::world::SteerAroundObstacles;
 

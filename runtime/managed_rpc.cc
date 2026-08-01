@@ -12,11 +12,11 @@
 #include <vector>
 
 #include "net/rpc_channel.h"
-#include "gamenet/session.h"
+#include "components/gamenet/session.h"
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_value.h"
-#include "script/host/bridge.h"
-#include "script/host/managed_host.h"
+#include "components/script/host/bridge.h"
+#include "components/script/host/managed_host.h"
 
 namespace rx {
 namespace {

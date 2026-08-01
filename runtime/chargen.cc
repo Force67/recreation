@@ -15,9 +15,9 @@
 #include "asset/asset_id.h"
 #include "asset/primitives.h"
 #include "asset/skeleton.h"
-#include "bethesda/converters.h"
-#include "bethesda/nif.h"
-#include "bethesda/record.h"
+#include "components/bethesda/converters.h"
+#include "components/bethesda/nif.h"
+#include "components/bethesda/record.h"
 #include "chargen_layout.h"
 #include "core/input.h"
 #include "core/log.h"
@@ -26,7 +26,7 @@
 #include "engine_context.h"
 #include "render/core/renderer.h"
 #include "render/geometry/hair_groom.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 namespace rx {
 namespace {

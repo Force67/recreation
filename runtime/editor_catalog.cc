@@ -5,9 +5,9 @@
 #include <string_view>
 #include <unordered_set>
 
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/strings.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/strings.h"
 #include "core/log.h"
 #include "editor.h"
 #include "engine_context.h"

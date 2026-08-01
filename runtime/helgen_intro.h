@@ -6,9 +6,9 @@
 
 #include <base/containers/vector.h>
 
-#include "bethesda/form_id.h"
+#include "components/bethesda/form_id.h"
 #include "core/math.h"
-#include "quest/package_record.h"
+#include "components/quest/package_record.h"
 #include "ecs/world.h"
 #include "trailer.h"
 

@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "asset/asset_id.h"
-#include "bethesda/converters.h"
+#include "components/bethesda/converters.h"
 #include "core/types.h"
 
 namespace {

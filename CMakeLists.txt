@@ -329,7 +329,7 @@ if(RECREATION_BUILD_TOOLS)
 endif()
 
 foreach(module ${RECREATION_MODULES})
-  add_subdirectory(engine/${module})
+  add_subdirectory(components/${module})
 endforeach()
 
 add_subdirectory(runtime)

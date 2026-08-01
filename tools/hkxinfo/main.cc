@@ -20,13 +20,13 @@
 #include <vector>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "bethesda/hkx.h"
-#include "bethesda/hkx_physics.h"
-#include "bethesda/hkx_to_physics.h"
-#include "bethesda/hkx_anim.h"
-#include "bethesda/hkx_character.h"
-#include "bethesda/hkx_to_kinema.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/hkx.h"
+#include "components/bethesda/hkx_physics.h"
+#include "components/bethesda/hkx_to_physics.h"
+#include "components/bethesda/hkx_anim.h"
+#include "components/bethesda/hkx_character.h"
+#include "components/bethesda/hkx_to_kinema.h"
 #include <chrono>
 #include <kinema/kinema.h>
 #include "physics/physics_world.h"

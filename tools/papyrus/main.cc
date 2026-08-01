@@ -11,9 +11,9 @@
 #include <string>
 
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "script/papyrus/opcode.h"
-#include "script/papyrus/pex.h"
+#include "components/bethesda/archive.h"
+#include "components/script/papyrus/opcode.h"
+#include "components/script/papyrus/pex.h"
 
 namespace {
 

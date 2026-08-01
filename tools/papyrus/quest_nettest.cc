@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "core/types.h"
-#include "gamenet/quest_replication.h"
-#include "quest/quest_system.h"
+#include "components/gamenet/quest_replication.h"
+#include "components/quest/quest_system.h"
 
 // zetanet's headers (pulled in via net/quest_replication.h) inject their own
 // arch_types scalar aliases, so the scalar types stay fully qualified as rx::

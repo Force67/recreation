@@ -6,13 +6,13 @@
 #include <cstring>
 
 #include "actor_system.h"
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/log.h"
 #include "npc_director.h"
-#include "quest/ctda.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "world/cell_streaming.h"
-#include "world/components.h"
+#include "components/quest/ctda.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
 
 namespace rx {
 namespace {

@@ -14,10 +14,10 @@
 #include <set>
 #include <string>
 
-#include "bethesda/archive.h"
-#include "script/games/skyrim/skyrim_natives.h"
-#include "script/papyrus/pex.h"
-#include "script/papyrus_guest.h"
+#include "components/bethesda/archive.h"
+#include "components/script/games/skyrim/skyrim_natives.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus_guest.h"
 
 namespace {
 

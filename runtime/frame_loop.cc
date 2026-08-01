@@ -8,18 +8,18 @@
 #include <thread>
 #include <utility>
 
-#include "bethesda/record.h"
+#include "components/bethesda/record.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "engine.h"
 #include "engine_internal.h"
 #include "nav/nav_debug.h"
-#include "script/papyrus/value.h"
-#include "world/cell_streaming.h"
-#include "world/components.h"
-#include "world/interaction.h"
-#include "world/objective_marker.h"
+#include "components/script/papyrus/value.h"
+#include "components/world/cell_streaming.h"
+#include "components/world/components.h"
+#include "components/world/interaction.h"
+#include "components/world/objective_marker.h"
 
 // The Engine's per-frame heartbeat: the fixed-step simulation loop, the
 // quest-driven world mutation flush, and host-authoritative NPC shove-out, plus

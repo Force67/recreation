@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "world/objective_marker.h"
+#include "components/world/objective_marker.h"
 
 using rx::world::MarkerCompassBearingDeg;
 using rx::world::MarkerReached;

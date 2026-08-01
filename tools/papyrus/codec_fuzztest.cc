@@ -10,10 +10,10 @@
 #include <vector>
 
 #include "core/types.h"
-#include "modstream/asset_request.h"
-#include "modstream/manifest_chunk.h"
-#include "modstream/manifest_codec.h"
-#include "modstream/mod_resource.h"
+#include "components/modstream/asset_request.h"
+#include "components/modstream/manifest_chunk.h"
+#include "components/modstream/manifest_codec.h"
+#include "components/modstream/mod_resource.h"
 #include "rpc/rpc_message.h"
 #include "rpc/rpc_value.h"
 

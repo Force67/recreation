@@ -16,7 +16,7 @@
 #include "core/world_clock.h"
 #include "render/core/renderer.h"
 #include "trailer.h"
-#include "weather/weather.h"
+#include "components/weather/weather.h"
 
 // Dear ImGui's font handle, forward-declared so this header stays free of imgui
 // (it compiles to a stub when imgui is absent).

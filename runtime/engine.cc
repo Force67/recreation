@@ -11,7 +11,7 @@
 #include "core/log.h"
 #include "item_bridge.h"
 #include "player_controller.h"
-#include "world/components.h"
+#include "components/world/components.h"
 
 #if defined(RECREATION_HAS_UGUI)
 #include <string>

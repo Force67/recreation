@@ -9,9 +9,9 @@
 #include <vector>
 
 #include "core/types.h"
-#include "quest/quest_def.h"
-#include "quest/quest_graph.h"
-#include "quest/quest_import.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/quest_graph.h"
+#include "components/quest/quest_import.h"
 
 using namespace rx;
 using namespace rx::quest;

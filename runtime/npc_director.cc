@@ -12,10 +12,10 @@
 #include "engine_internal.h"
 #include "interaction_system.h"
 #include "quest_director.h"
-#include "script/papyrus/value.h"
-#include "world/components.h"
-#include "world/npc_ai.h"
-#include "world/steering_avoidance.h"
+#include "components/script/papyrus/value.h"
+#include "components/world/components.h"
+#include "components/world/npc_ai.h"
+#include "components/world/steering_avoidance.h"
 
 namespace rx {
 

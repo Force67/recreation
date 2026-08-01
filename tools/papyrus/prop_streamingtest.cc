@@ -2,12 +2,12 @@
 #include <filesystem>
 #include <string>
 
-#include "bethesda/game_profile.h"
-#include "bethesda/load_order.h"
-#include "bethesda/record.h"
-#include "bethesda/writer.h"
-#include "script/games/skyrim/skyrim_bindings.h"
-#include "world/prop_streaming.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/load_order.h"
+#include "components/bethesda/record.h"
+#include "components/bethesda/writer.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/world/prop_streaming.h"
 
 namespace {
 

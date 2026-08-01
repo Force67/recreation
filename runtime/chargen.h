@@ -7,8 +7,8 @@
 
 #include <base/containers/vector.h>
 
-#include "bethesda/facegen.h"
-#include "bethesda/form_id.h"
+#include "components/bethesda/facegen.h"
+#include "components/bethesda/form_id.h"
 #include "core/math.h"
 #include "core/types.h"
 #include "ecs/entity.h"
