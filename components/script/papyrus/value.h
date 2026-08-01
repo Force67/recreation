@@ -1,7 +1,9 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_VALUE_H_
 #define RECREATION_SCRIPT_PAPYRUS_VALUE_H_
 
-#include <string>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <variant>
 
 #include "core/types.h"
@@ -51,7 +53,7 @@ class Value {
   static Value Int(i32 v) { return Value(ValueType::kInt, v); }
   static Value Float(f32 v) { return Value(ValueType::kFloat, v); }
   static Value Bool(bool v) { return Value(ValueType::kBool, v); }
-  static Value Str(std::string v) { return Value(ValueType::kString, std::move(v)); }
+  static Value Str(base::String v) { return Value(ValueType::kString, base::move(v)); }
   static Value Object(ObjectRef v) { return Value(ValueType::kObject, v); }
   static Value Array(ArrayRef v) { return Value(ValueType::kArray, v); }
   static Value Struct(StructRef v) { return Value(ValueType::kStruct, v); }
@@ -64,7 +66,7 @@ class Value {
   i32 as_int() const { return type_ == ValueType::kInt ? std::get<i32>(data_) : 0; }
   f32 as_float() const { return type_ == ValueType::kFloat ? std::get<f32>(data_) : 0; }
   bool as_bool() const { return type_ == ValueType::kBool ? std::get<bool>(data_) : false; }
-  const std::string& as_string() const;
+  const base::String& as_string() const;
   ObjectRef as_object() const {
     return type_ == ValueType::kObject ? std::get<ObjectRef>(data_) : ObjectRef{};
   }
@@ -79,7 +81,7 @@ class Value {
   i32 ToInt() const;
   f32 ToFloat() const;
   bool ToBool() const;
-  std::string ToString() const;
+  base::String ToString() const;
 
   // Equality (cmp_eq) with numeric promotion. cmp_lt/le/gt/ge use Compare,
   // which returns -1/0/1 and is defined for numeric and string operands.
@@ -88,9 +90,9 @@ class Value {
 
  private:
   using Storage =
-      std::variant<std::monostate, i32, f32, bool, std::string, ObjectRef, ArrayRef, StructRef>;
+      std::variant<std::monostate, i32, f32, bool, base::String, ObjectRef, ArrayRef, StructRef>;
   template <typename T>
-  Value(ValueType t, T v) : type_(t), data_(std::move(v)) {}
+  Value(ValueType t, T v) : type_(t), data_(base::move(v)) {}
 
   ValueType type_ = ValueType::kNone;
   Storage data_;

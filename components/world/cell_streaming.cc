@@ -1,6 +1,13 @@
 #include "components/world/cell_streaming.h"
 
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
 #include <base/option.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cctype>
@@ -8,7 +15,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <string>
 
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/starfield_mesh.h"
@@ -246,7 +252,7 @@ void FingerprintU32(u64* hash, u32 value) {
     FingerprintByte(hash, static_cast<u8>(value >> shift));
 }
 
-void FingerprintString(u64* hash, std::string_view value) {
+void FingerprintString(u64* hash, base::StringRef value) {
   for (char byte : value) FingerprintByte(hash, static_cast<u8>(byte));
 }
 
@@ -338,12 +344,12 @@ size_t DecalMipOffset(const asset::Texture& texture, u32 mip, u32* width, u32* h
   size_t block = texture.format == asset::TextureFormat::kBc1 ? 8 : 16;
   size_t offset = 0;
   for (u32 m = 0; m < mip; ++m) {
-    u32 w = std::max(1u, texture.width >> m);
-    u32 h = std::max(1u, texture.height >> m);
+    u32 w = base::Max(1u, texture.width >> m);
+    u32 h = base::Max(1u, texture.height >> m);
     offset += compressed ? ((w + 3) / 4) * ((h + 3) / 4) * block : static_cast<size_t>(w) * h * 4;
   }
-  *width = std::max(1u, texture.width >> mip);
-  *height = std::max(1u, texture.height >> mip);
+  *width = base::Max(1u, texture.width >> mip);
+  *height = base::Max(1u, texture.height >> mip);
   return offset;
 }
 
@@ -358,7 +364,7 @@ bool DecodeDecalPixels(const asset::Texture& texture, base::Vector<u8>& rgba, u3
   }
   u32 mip = 0;
   for (u32 m = 0; m + 1 < texture.mip_count; ++m) {
-    if (std::min(texture.width >> (m + 1), texture.height >> (m + 1)) < kDecalTile) break;
+    if (base::Min(texture.width >> (m + 1), texture.height >> (m + 1)) < kDecalTile) break;
     mip = m + 1;
   }
   u32 width, height;
@@ -401,7 +407,7 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
   size_t src_offset = 0;
   u32 mips = 1;
   while (w > 1 || h > 1) {
-    u32 nw = std::max(1u, w / 2), nh = std::max(1u, h / 2);
+    u32 nw = base::Max(1u, w / 2), nh = base::Max(1u, h / 2);
     size_t dst_offset = texture.data.size();
     texture.data.resize(dst_offset + static_cast<size_t>(nw) * nh * 4);
     for (u32 y = 0; y < nh; ++y) {
@@ -411,8 +417,8 @@ void AppendDecalMips(asset::Texture& texture, bool weight_by_alpha) {
         for (u32 sy = 0; sy < 2; ++sy) {
           for (u32 sx = 0; sx < 2; ++sx) {
             const u8* s = texture.data.data() + src_offset +
-                          (static_cast<size_t>(std::min(y * 2 + sy, h - 1)) * w +
-                           std::min(x * 2 + sx, w - 1)) *
+                          (static_cast<size_t>(base::Min(y * 2 + sy, h - 1)) * w +
+                           base::Min(x * 2 + sx, w - 1)) *
                               4;
             for (int k = 0; k < 4; ++k) sums[k] += s[k];
             for (int k = 0; k < 3; ++k) weighted[k] += s[k] * s[3];
@@ -475,9 +481,9 @@ void PrefetchCellMeshes(const bethesda::RecordStore& records, asset::AssetDataba
     if (!base_stored || !BaseTypeHasWorldModel(base_stored->header.type)) continue;
     bethesda::Record base;
     if (!records.Parse(base_id, &base)) continue;
-    std::string model = base.GetString(kModl);
+    base::String model = base.GetString(kModl);
     if (model.empty()) continue;
-    std::string path = asset::NormalizePath(model);
+    base::String path = asset::NormalizePath(model);
     if (!path.starts_with("meshes/")) path = "meshes/" + path;
     assets.LoadMesh(path);
   }
@@ -500,7 +506,7 @@ void PackDecalTile(asset::Texture& atlas, u32 tile, const base::Vector<u8>& src,
 
 }  // namespace
 
-bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
+bool CellStreamer::SelectWorldspace(base::StringRef editor_id) {
   BuildAddressableRefs();
   worldspace_ = records_.FindWorldspace(editor_id);
   if (worldspace_.plugin == 0xffff) {
@@ -518,14 +524,14 @@ bool CellStreamer::SelectWorldspace(std::string_view editor_id) {
   for (char& c : worldspace_edid_) c = static_cast<char>(std::tolower(c));
   // Bind diffs to a stable world identifier, not a load-order index. Including
   // the winning source plugin distinguishes same-named worlds from other games.
-  std::string terrain_world = worldspace_edid_;
+  base::String terrain_world = worldspace_edid_;
   if (const bethesda::RecordStore::StoredRecord* stored = records_.Find(worldspace_)) {
     if (const bethesda::PluginFile* plugin = records_.PluginAt(stored->winning_plugin)) {
       terrain_world += "@" + plugin->file_name();
     }
   }
   for (char& c : terrain_world) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  terrain_edits_.BindWorld(std::move(terrain_world));
+  terrain_edits_.BindWorld(base::move(terrain_world));
   distant_quads_.clear();
   distant_entities_.clear();
   distant_next_ = 0;
@@ -629,8 +635,8 @@ void CellStreamer::IndexAddressableRecord(bethesda::GlobalFormId id) {
     };
     bethesda::ScriptAttachment attachment;
     if (stored->header.type == FourCc('Q', 'U', 'S', 'T')) {
-      std::vector<bethesda::QuestStageFragment> fragments;
-      std::vector<bethesda::QuestAliasScripts> aliases;
+      base::Vector<bethesda::QuestStageFragment> fragments;
+      base::Vector<bethesda::QuestAliasScripts> aliases;
       if (bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments, &aliases)) {
         index_attachment(attachment);
         for (bethesda::QuestAliasScripts& alias : aliases) index_attachment(alias.scripts);
@@ -671,7 +677,7 @@ Vec3 CellStreamer::ToWorld(f32 bethesda_x, f32 bethesda_y, f32 bethesda_z) const
 }
 
 u64 CellStreamer::RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
-                                          bethesda::GlobalFormId source) const {
+                                         bethesda::GlobalFormId source) const {
   if (!quest_world_) return source.packed();
   const ecs::Entity owner = quest_world_->Find(owner_handle);
   if (!world.IsAlive(owner)) return source.packed();
@@ -681,7 +687,7 @@ u64 CellStreamer::RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
 }
 
 u64 CellStreamer::RuntimeHandleForInstanceChild(ecs::World& world, u64 instance_handle,
-                                                 bethesda::GlobalFormId source) const {
+                                                bethesda::GlobalFormId source) const {
   if (!quest_world_ || instance_handle == 0) return source.packed();
   const u64 candidate = rx::world::PackInChildHandle(instance_handle, source.packed());
   return world.IsAlive(quest_world_->Find(candidate)) ? candidate : source.packed();
@@ -706,14 +712,14 @@ bool CellStreamer::CommitInstances(ecs::World& world, LoadedCell& cell) {
     base::Vector<Mat4> matrices;
     matrices.reserve(entry.value.transforms.size());
     for (const Transform& transform : entry.value.transforms) {
-      matrices.push_back(MakeTransform(
-          {transform.position[0], transform.position[1], transform.position[2]},
-          {transform.rotation[0], transform.rotation[1], transform.rotation[2],
-           transform.rotation[3]},
-          transform.scale));
+      matrices.push_back(
+          MakeTransform({transform.position[0], transform.position[1], transform.position[2]},
+                        {transform.rotation[0], transform.rotation[1], transform.rotation[2],
+                         transform.rotation[3]},
+                        transform.scale));
     }
-    render::InstanceGroupHandle handle = uploads_.instances(
-        entry.key, std::span<const Mat4>(matrices.data(), matrices.size()));
+    render::InstanceGroupHandle handle =
+        uploads_.instances(entry.key, std::span<const Mat4>(matrices.data(), matrices.size()));
     if (handle) {
       cell.instance_groups.push_back(handle);
       committed.push_back(entry.key);
@@ -839,8 +845,7 @@ void CellStreamer::ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 h
         f32 authored[6];
         std::memcpy(authored, data->data.data(), sizeof(authored));
         std::memcpy(placement, authored, sizeof(placement));
-        if (const bethesda::Subrecord* xscl = record.Find(kXscl);
-            xscl && xscl->data.size() >= 4) {
+        if (const bethesda::Subrecord* xscl = record.Find(kXscl); xscl && xscl->data.size() >= 4) {
           std::memcpy(&scale, xscl->data.data(), sizeof(scale));
         }
         BethQuatFromEuler(authored + 3, rotation);
@@ -865,8 +870,8 @@ void CellStreamer::SyncReference(ecs::World& world, u64 handle) {
   const CellMembership* membership = world.Get<CellMembership>(entity);
   if (!membership) return;
   LoadedCell* cell = membership->interior
-                          ? &interior_cell_
-                          : loaded_.find(CellKey(membership->grid_x, membership->grid_y));
+                         ? &interior_cell_
+                         : loaded_.find(CellKey(membership->grid_x, membership->grid_y));
   if (!cell) return;
   SyncProp(world, entity, *cell);
 
@@ -927,7 +932,7 @@ void CellStreamer::PrefetchCells(i16 center_x, i16 center_y, i32 radius) {
   for (i32 ring = 0; ring <= radius; ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
-        if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
+        if (base::Max(std::abs(dx), std::abs(dy)) != ring) continue;
         const i16 x = static_cast<i16>(center_x + dx);
         const i16 y = static_cast<i16>(center_y + dy);
         const u32 key = CellKey(x, y);
@@ -973,8 +978,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   const auto stream_start = std::chrono::steady_clock::now();
   const int budget_ms = StreamBudgetMs.get();
   stream_time_limited_ = budget_ms > 0;
-  if (stream_time_limited_)
-    stream_deadline_ = stream_start + std::chrono::milliseconds(budget_ms);
+  if (stream_time_limited_) stream_deadline_ = stream_start + std::chrono::milliseconds(budget_ms);
   const size_t meshes_before = base_meshes_.size();
   const size_t entities_before = spawned_entities_ + spawned_instances_;
 
@@ -1030,7 +1034,7 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
        ++ring) {
     for (i32 dy = -ring; dy <= ring; ++dy) {
       for (i32 dx = -ring; dx <= ring; ++dx) {
-        if (std::max(std::abs(dx), std::abs(dy)) != ring) continue;
+        if (base::Max(std::abs(dx), std::abs(dy)) != ring) continue;
         i16 x = static_cast<i16>(center_x + dx);
         i16 y = static_cast<i16>(center_y + dy);
         LoadedCell* cell = loaded_.find(CellKey(x, y));
@@ -1086,10 +1090,10 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
                        static_cast<f32>(center_y - covered) * cell_size_, 0.0f);
       Vec3 b = ToWorld(static_cast<f32>(center_x + covered + 1) * cell_size_,
                        static_cast<f32>(center_y + covered + 1) * cell_size_, 0.0f);
-      detail_rect_[0] = std::min(a.x, b.x);
-      detail_rect_[1] = std::min(a.z, b.z);
-      detail_rect_[2] = std::max(a.x, b.x);
-      detail_rect_[3] = std::max(a.z, b.z);
+      detail_rect_[0] = base::Min(a.x, b.x);
+      detail_rect_[1] = base::Min(a.z, b.z);
+      detail_rect_[2] = base::Max(a.x, b.x);
+      detail_rect_[3] = base::Max(a.z, b.z);
     } else {
       std::memset(detail_rect_, 0, sizeof(detail_rect_));
     }
@@ -1119,9 +1123,9 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
     const size_t new_meshes = base_meshes_.size() - meshes_before;
     const size_t new_entities = (spawned_entities_ + spawned_instances_) - entities_before;
     if (new_meshes || new_entities) {
-      const f32 ms = std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() -
-                                                            stream_start)
-                         .count();
+      const f32 ms =
+          std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() - stream_start)
+              .count();
       RX_INFO("stream: {:.2f} ms this frame, {} new meshes, {} new refs{}", ms, new_meshes,
               new_entities, StreamBudgetExpired() ? " (time-capped)" : "");
     }
@@ -1212,8 +1216,8 @@ void CellStreamer::SweepCarriedRefs(ecs::World& world) {
     const ecs::Entity entity = carried_refs_[i];
     if (!world.IsAlive(entity)) continue;  // destroyed by whoever owns it now
     i16 host_x = 0, host_y = 0;
-    if (const Transform* t = world.Get<Transform>(entity)) GridForPosition(t->position, &host_x,
-                                                                          &host_y);
+    if (const Transform* t = world.Get<Transform>(entity))
+      GridForPosition(t->position, &host_x, &host_y);
     if (!CellInRing(host_x, host_y)) {
       ReleaseEntity(world, entity);
       --spawned_entities_;
@@ -1279,7 +1283,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
   bethesda::GlobalFormId land_id{static_cast<u16>(cell.source->land >> 32),
                                  static_cast<u32>(cell.source->land)};
 
-  std::string mesh_name = "land/" + std::to_string(grid_x) + "_" + std::to_string(grid_y);
+  base::String mesh_name = "land/" + base::ToString(grid_x) + "_" + base::ToString(grid_y);
   asset::AssetId mesh_id = asset::MakeAssetId(mesh_name);
   bethesda::Record land;
   if (!records_.Parse(land_id, &land)) return false;
@@ -1372,8 +1376,8 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
         v.position[0] = static_cast<f32>(c) * spacing;
         v.position[1] = static_cast<f32>(r) * spacing;
         v.position[2] = heights[i];
-        min_h = std::min(min_h, heights[i]);
-        max_h = std::max(max_h, heights[i]);
+        min_h = base::Min(min_h, heights[i]);
+        max_h = base::Max(max_h, heights[i]);
         if (has_normals) {
           const i8* n = reinterpret_cast<const i8*>(vnml->data.data() + i * 3);
           f32 length = std::sqrt(static_cast<f32>(n[0]) * n[0] + static_cast<f32>(n[1]) * n[1] +
@@ -1427,7 +1431,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
                                     (max_h - min_h) * 0.5f * (max_h - min_h) * 0.5f);
     if (edited || derived_normals_edited)
       UpdateTerrainMeshVertices(&built, heights, grid_x, grid_y);
-    mesh = assets_.AddMesh(std::move(built));
+    mesh = assets_.AddMesh(base::move(built));
   } else if (edited || derived_normals_edited || mesh->dynamic_vertices) {
     // A cell can unload while its diff changes. Refresh its cached procedural
     // mesh on the next spawn even though only loaded cells rebuild immediately.
@@ -1437,7 +1441,7 @@ bool CellStreamer::SpawnTerrain(ecs::World& world, i16 grid_x, i16 grid_y, Loade
       refreshed.exclude_from_rt = false;
     }
     UpdateTerrainMeshVertices(&refreshed, heights, grid_x, grid_y);
-    mesh = assets_.ReplaceMesh(std::move(refreshed));
+    mesh = assets_.ReplaceMesh(base::move(refreshed));
     if (mesh && uploaded_.contains(mesh->id.hash) && uploads_.mesh) {
       if ((!uploads_.dynamic_mesh || !uploads_.dynamic_mesh(*mesh)) && !uploads_.mesh(*mesh)) {
         return false;
@@ -1489,7 +1493,7 @@ bool CellStreamer::DecodeBaseTerrain(i32 grid_x, i32 grid_y, f32* heights) const
   base::Vector<f32> decoded;
   decoded.reserve(kLandGridPoints * kLandGridPoints);
   for (u32 i = 0; i < kLandGridPoints * kLandGridPoints; ++i) decoded.push_back(heights[i]);
-  ground_cache_.emplace(key, std::move(decoded));
+  ground_cache_.emplace(key, base::move(decoded));
   return true;
 }
 
@@ -1516,7 +1520,7 @@ bool CellStreamer::TerrainNormalsAffected(TerrainCellKey cell) const {
   return false;
 }
 
-std::optional<f32> CellStreamer::BaseTerrainSample(i32 global_x, i32 global_y) const {
+base::Optional<f32> CellStreamer::BaseTerrainSample(i32 global_x, i32 global_y) const {
   auto floor_div = [](i64 value) {
     i64 quotient = value / 32;
     if (value % 32 < 0) --quotient;
@@ -1556,7 +1560,7 @@ std::optional<f32> CellStreamer::BaseTerrainSample(i32 global_x, i32 global_y) c
           *heights)[static_cast<size_t>(local_y) * kLandGridPoints + static_cast<size_t>(local_x)];
     }
   }
-  return std::nullopt;
+  return base::nullopt;
 }
 
 u64 CellStreamer::TerrainBaseFingerprint(TerrainCellKey cell) const {
@@ -1596,7 +1600,7 @@ u64 CellStreamer::TerrainBaseFingerprint(TerrainCellKey cell) const {
   return hash == 0 ? 1 : hash;
 }
 
-void CellStreamer::RegisterTerrainFingerprints(const std::vector<TerrainCellKey>& cells) {
+void CellStreamer::RegisterTerrainFingerprints(const base::Vector<TerrainCellKey>& cells) {
   for (TerrainCellKey cell : cells)
     terrain_edits_.SetCellFingerprint(cell, TerrainBaseFingerprint(cell));
 }
@@ -1625,13 +1629,13 @@ void CellStreamer::UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heigh
       if (vnml && vnml->data.size() < kLandGridPoints * kLandGridPoints * 3) vnml = nullptr;
     }
   }
-  auto composed_sample = [&](i32 global_x, i32 global_y) -> std::optional<f32> {
-    const std::optional<f32> base = BaseTerrainSample(global_x, global_y);
-    if (!base) return std::nullopt;
+  auto composed_sample = [&](i32 global_x, i32 global_y) -> base::Optional<f32> {
+    const base::Optional<f32> base = BaseTerrainSample(global_x, global_y);
+    if (!base) return base::nullopt;
     const double height =
         static_cast<double>(*base) + terrain_edits_.SampleDelta(global_x, global_y);
     if (!std::isfinite(height) || std::abs(height) > std::numeric_limits<f32>::max()) {
-      return std::nullopt;
+      return base::nullopt;
     }
     return static_cast<f32>(height);
   };
@@ -1640,8 +1644,8 @@ void CellStreamer::UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heigh
       const u32 index = row * kLandGridPoints + col;
       asset::Vertex& vertex = lod.vertices[index];
       vertex.position[2] = heights[index];
-      minimum = std::min(minimum, heights[index]);
-      maximum = std::max(maximum, heights[index]);
+      minimum = base::Min(minimum, heights[index]);
+      maximum = base::Max(maximum, heights[index]);
       if (authored_normals) {
         vertex.normal[0] = 0;
         vertex.normal[1] = 0;
@@ -1665,10 +1669,10 @@ void CellStreamer::UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heigh
       }
       const i32 global_x = grid_x * 32 + static_cast<i32>(col);
       const i32 global_y = grid_y * 32 + static_cast<i32>(row);
-      const std::optional<f32> left = composed_sample(global_x - 1, global_y);
-      const std::optional<f32> right = composed_sample(global_x + 1, global_y);
-      const std::optional<f32> south = composed_sample(global_x, global_y - 1);
-      const std::optional<f32> north = composed_sample(global_x, global_y + 1);
+      const base::Optional<f32> left = composed_sample(global_x - 1, global_y);
+      const base::Optional<f32> right = composed_sample(global_x + 1, global_y);
+      const base::Optional<f32> south = composed_sample(global_x, global_y - 1);
+      const base::Optional<f32> north = composed_sample(global_x, global_y + 1);
       const f32 dx = left && right ? (*right - *left) / (spacing * 2)
                      : right       ? (*right - heights[index]) / spacing
                      : left        ? (heights[index] - *left) / spacing
@@ -1706,7 +1710,7 @@ bool CellStreamer::RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y,
   replacement.dynamic_vertices = true;
   replacement.exclude_from_rt = false;
   UpdateTerrainMeshVertices(&replacement, heights, grid_x, grid_y);
-  const asset::Mesh* mesh = assets_.ReplaceMesh(std::move(replacement));
+  const asset::Mesh* mesh = assets_.ReplaceMesh(base::move(replacement));
   if (!mesh) return false;
   bool uploaded = true;
   if (uploads_.mesh) {
@@ -1722,8 +1726,8 @@ bool CellStreamer::RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y,
 }
 
 void CellStreamer::RebuildTerrainCells(ecs::World& world,
-                                       const std::vector<TerrainCellKey>& cells) {
-  std::vector<TerrainCellKey> refresh = cells;
+                                       const base::Vector<TerrainCellKey>& cells) {
+  base::Vector<TerrainCellKey> refresh = cells;
   for (TerrainCellKey key : cells) {
     for (const TerrainCellKey offset : {TerrainCellKey{-1, 0}, TerrainCellKey{1, 0},
                                         TerrainCellKey{0, -1}, TerrainCellKey{0, 1}}) {
@@ -1735,7 +1739,7 @@ void CellStreamer::RebuildTerrainCells(ecs::World& world,
       }
     }
   }
-  std::sort(refresh.begin(), refresh.end());
+  base::Sort(refresh.begin(), refresh.end());
   refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
   for (TerrainCellKey key : refresh) {
     if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
@@ -1758,7 +1762,7 @@ void CellStreamer::RebuildTerrainCells(ecs::World& world,
 }
 
 void CellStreamer::RebuildTerrainDerivedCells(ecs::World& world,
-                                              const std::vector<TerrainCellKey>& cells) {
+                                              const base::Vector<TerrainCellKey>& cells) {
   for (TerrainCellKey key : cells) {
     if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
         key.y < std::numeric_limits<i16>::min() || key.y > std::numeric_limits<i16>::max()) {
@@ -1767,7 +1771,7 @@ void CellStreamer::RebuildTerrainDerivedCells(ecs::World& world,
     const i16 x = static_cast<i16>(key.x);
     const i16 y = static_cast<i16>(key.y);
     const asset::AssetId grass_id =
-        asset::MakeAssetId("grass/" + std::to_string(x) + "_" + std::to_string(y));
+        asset::MakeAssetId("grass/" + base::ToString(x) + "_" + base::ToString(y));
     if (uploads_.remove_dynamic_mesh) uploads_.remove_dynamic_mesh(grass_id);
     uploaded_.erase(grass_id.hash);
     assets_.RemoveMesh(grass_id);
@@ -1795,9 +1799,9 @@ void CellStreamer::RebuildTerrainDerivedCells(ecs::World& world,
   }
 }
 
-void CellStreamer::SyncTerrainRayTracing(const std::vector<TerrainCellKey>& cells) {
+void CellStreamer::SyncTerrainRayTracing(const base::Vector<TerrainCellKey>& cells) {
   if (!uploads_.sync_dynamic_mesh) return;
-  std::vector<TerrainCellKey> refresh = cells;
+  base::Vector<TerrainCellKey> refresh = cells;
   for (TerrainCellKey key : cells) {
     for (TerrainCellKey offset : {TerrainCellKey{-1, 0}, TerrainCellKey{1, 0},
                                   TerrainCellKey{0, -1}, TerrainCellKey{0, 1}}) {
@@ -1809,7 +1813,7 @@ void CellStreamer::SyncTerrainRayTracing(const std::vector<TerrainCellKey>& cell
       }
     }
   }
-  std::sort(refresh.begin(), refresh.end());
+  base::Sort(refresh.begin(), refresh.end());
   refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
   for (TerrainCellKey key : refresh) {
     if (key.x < std::numeric_limits<i16>::min() || key.x > std::numeric_limits<i16>::max() ||
@@ -1839,7 +1843,7 @@ TerrainEditChange CellStreamer::ApplyTerrainBrush(ecs::World& world, TerrainBrus
   brush.mode = mode;
   brush.strength = (mode == TerrainBrushMode::kRaise || mode == TerrainBrushMode::kLower)
                        ? strength / units_to_meters_
-                       : std::clamp(strength, 0.0f, 1.0f);
+                       : base::Clamp(strength, 0.0f, 1.0f);
   brush.flatten_target = (flatten_engine_y - world_offset_.y) / units_to_meters_;
   TerrainEditChange change =
       terrain_edits_.ApplyBrush(brush, [this](i32 x, i32 y) { return BaseTerrainSample(x, y); });
@@ -1887,31 +1891,31 @@ void CellStreamer::RefreshTerrainDerived(ecs::World& world, const TerrainEditCha
   SyncTerrainRayTracing(change.cells);
 }
 
-bool CellStreamer::SaveTerrainEdits(const std::string& path, std::string* error) {
+bool CellStreamer::SaveTerrainEdits(const base::String& path, base::String* error) {
   RegisterTerrainFingerprints(terrain_edits_.touched_cells());
   if (!::rx::world::SaveTerrainEdits(terrain_edits_, path, error)) return false;
   terrain_edits_.MarkSaved();
   return true;
 }
 
-bool CellStreamer::LoadTerrainEdits(ecs::World& world, const std::string& path,
-                                    std::string* error) {
+bool CellStreamer::LoadTerrainEdits(ecs::World& world, const base::String& path,
+                                    base::String* error) {
   TerrainEdits loaded;
   if (!::rx::world::LoadTerrainEdits(
           path, terrain_edits_.world_identity(),
-          [this](TerrainCellKey cell) -> std::optional<u64> {
+          [this](TerrainCellKey cell) -> base::Optional<u64> {
             const u64 fingerprint = TerrainBaseFingerprint(cell);
-            return fingerprint == 0 ? std::nullopt : std::optional<u64>(fingerprint);
+            return fingerprint == 0 ? base::nullopt : base::Optional<u64>(fingerprint);
           },
           &loaded, error)) {
     return false;
   }
-  std::vector<TerrainCellKey> refresh = terrain_edits_.touched_cells();
-  const std::vector<TerrainCellKey> loaded_cells = loaded.touched_cells();
+  base::Vector<TerrainCellKey> refresh = terrain_edits_.touched_cells();
+  const base::Vector<TerrainCellKey> loaded_cells = loaded.touched_cells();
   refresh.insert(refresh.end(), loaded_cells.begin(), loaded_cells.end());
-  std::sort(refresh.begin(), refresh.end());
+  base::Sort(refresh.begin(), refresh.end());
   refresh.erase(std::unique(refresh.begin(), refresh.end()), refresh.end());
-  terrain_edits_ = std::move(loaded);
+  terrain_edits_ = base::move(loaded);
   for (TerrainCellKey cell : refresh) {
     if (cell.x < std::numeric_limits<i16>::min() || cell.x > std::numeric_limits<i16>::max() ||
         cell.y < std::numeric_limits<i16>::min() || cell.y > std::numeric_limits<i16>::max()) {
@@ -1932,22 +1936,21 @@ namespace {
 // editor ids carry no dots, so the four right-most dot fields are the grid. The
 // coarsest (largest) level covers the most cells per quad. Returns false on a
 // stem that does not match.
-bool ParseLodStem(std::string_view stem, std::string_view edid, i32* level, i32* x, i32* y) {
-  if (stem.size() <= edid.size() + 1 || stem.compare(0, edid.size(), edid) != 0 ||
-      stem[edid.size()] != '.') {
+bool ParseLodStem(base::StringRef stem, base::StringRef edid, i32* level, i32* x, i32* y) {
+  if (stem.size() <= edid.size() + 1 || !stem.starts_with(edid) || stem[edid.size()] != '.') {
     return false;
   }
-  std::string_view grid = stem.substr(edid.size() + 1);  // "<level>.<x>.<y>"
+  base::StringRef grid = stem.subslice(edid.size() + 1);  // "<level>.<x>.<y>"
   i32 vals[3];
   for (i32& v : vals) {
-    size_t dot = grid.find('.');
-    std::string_view tok = dot == std::string_view::npos ? grid : grid.substr(0, dot);
+    mem_size dot = grid.find('.');
+    base::StringRef tok = dot == base::StringRef::npos ? grid : grid.subslice(0, dot);
     if (tok.empty()) return false;
     char* end = nullptr;
-    long parsed = std::strtol(std::string(tok).c_str(), &end, 10);
+    long parsed = std::strtol(base::String(tok).c_str(), &end, 10);
     if (*end != '\0') return false;
     v = static_cast<i32>(parsed);
-    grid = dot == std::string_view::npos ? std::string_view() : grid.substr(dot + 1);
+    grid = dot == base::StringRef::npos ? base::StringRef() : grid.subslice(dot + 1);
   }
   *level = vals[0];
   *x = vals[1];
@@ -1960,31 +1963,31 @@ bool ParseLodStem(std::string_view stem, std::string_view edid, i32* level, i32*
 void CellStreamer::DiscoverDistantQuads() {
   distant_discovered_ = true;
   if (worldspace_edid_.empty()) return;
-  const std::string terrain_prefix = "meshes/terrain/" + worldspace_edid_ + "/";
-  const std::string object_prefix = terrain_prefix + "objects/";
+  const base::String terrain_prefix = "meshes/terrain/" + worldspace_edid_ + "/";
+  const base::String object_prefix = terrain_prefix + "objects/";
 
   // One pass over the vfs collecting every .btr/.bto of this worldspace, keeping
   // each type's coarsest (max) level: those few quads tile the whole map.
   struct Found {
-    std::string path;
+    base::String path;
     i32 level, x, y;
     bool object;
   };
   base::Vector<Found> found;
   i32 max_terrain = -1, max_object = -1;
-  assets_.vfs().Enumerate([&](std::string_view path) {
+  assets_.vfs().Enumerate([&](base::StringRef path) {
     bool btr = path.ends_with(".btr");
     bool bto = path.ends_with(".bto");
     if (!btr && !bto) return;
     bool object = bto;
-    const std::string& prefix = object ? object_prefix : terrain_prefix;
-    if (path.size() < prefix.size() || path.compare(0, prefix.size(), prefix) != 0) return;
-    std::string_view stem = path.substr(prefix.size());
-    stem = stem.substr(0, stem.size() - 4);  // drop ".btr"/".bto"
+    const base::String& prefix = object ? object_prefix : terrain_prefix;
+    if (!path.starts_with(prefix)) return;
+    base::StringRef stem = path.subslice(prefix.size());
+    stem = stem.subslice(0, stem.size() - 4);  // drop ".btr"/".bto"
     i32 level, x, y;
     if (!ParseLodStem(stem, worldspace_edid_, &level, &x, &y)) return;
-    found.push_back({std::string(path), level, x, y, object});
-    (object ? max_object : max_terrain) = std::max(object ? max_object : max_terrain, level);
+    found.push_back({base::String(path), level, x, y, object});
+    (object ? max_object : max_terrain) = base::Max(object ? max_object : max_terrain, level);
   });
   for (const Found& f : found) {
     i32 want = f.object ? max_object : max_terrain;
@@ -2071,7 +2074,7 @@ const asset::Mesh* CellStreamer::WaterMeshForCell(const LoadedCell& cell) {
 }
 
 const asset::Mesh* CellStreamer::EnsureWaterMesh(u64 form_key, const f32 tint[3]) {
-  std::string base = "water/cell/" + std::to_string(form_key);
+  base::String base = "water/cell/" + base::ToString(form_key);
   asset::AssetId mesh_id = asset::MakeAssetId(base);
   if (const asset::Mesh* mesh = assets_.FindMesh(mesh_id)) return mesh;
 
@@ -2113,7 +2116,7 @@ const asset::Mesh* CellStreamer::EnsureWaterMesh(u64 form_key, const f32 tint[3]
   built.bounds_center[0] = cell_size_ * 0.5f;
   built.bounds_center[1] = cell_size_ * 0.5f;
   built.bounds_radius = cell_size_ * 0.7072f;
-  return assets_.AddMesh(std::move(built));
+  return assets_.AddMesh(base::move(built));
 }
 
 void CellStreamer::AddTerrainCollider(i16 grid_x, i16 grid_y, LoadedCell& cell,
@@ -2175,7 +2178,7 @@ bool CellStreamer::WaterHeightAt(const Vec3& position, f32* height, Vec3* flow) 
     f32 steepness = std::sqrt(Dot(downhill, downhill));
     if (steepness > 1e-5f) {
       // Flow speed grows with the drop, capped at a brisk current.
-      f32 speed = std::min(steepness * 600.0f, 2.5f);
+      f32 speed = base::Min(steepness * 600.0f, 2.5f);
       *flow = downhill * (speed / steepness);
     }
   }
@@ -2287,8 +2290,8 @@ bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
          .primitive = child.Find(kXprm) != nullptr,
          .teleport = child.Find(kXtel) != nullptr,
          .stateful = initially_disabled || child.Find(kXesp) != nullptr ||
-                      child.Find(kXlkr) != nullptr ||
-                      addressable_refs_.find(child_id.packed()) != nullptr || root_owner != 0});
+                     child.Find(kXlkr) != nullptr ||
+                     addressable_refs_.find(child_id.packed()) != nullptr || root_owner != 0});
     const PropState* saved_state = prop_states_.find(child_handle.packed());
     if (saved_state && saved_state->deleted) continue;
     if (base_stored && base_stored->header.type == kPkin) {
@@ -2455,8 +2458,8 @@ bool CellStreamer::SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y,
 bool CellStreamer::SpawnInstancedTerrain(ecs::World& world, i16 grid_x, i16 grid_y,
                                          LoadedCell& cell) {
   // Level 1 is the finest authored level (levels 2/4/8 are coarser LOD merges).
-  std::string path = "meshes/terrain/" + worldspace_edid_ + "/objects/" + worldspace_edid_ + ".1." +
-                     std::to_string(grid_x) + "." + std::to_string(grid_y) + ".nif";
+  base::String path = "meshes/terrain/" + worldspace_edid_ + "/objects/" + worldspace_edid_ +
+                      ".1." + base::ToString(grid_x) + "." + base::ToString(grid_y) + ".nif";
   auto bytes = assets_.vfs().Read(path);
   if (!bytes) return false;
   base::Vector<bethesda::StarfieldTerrainGroup> groups;
@@ -2514,7 +2517,7 @@ bool CellStreamer::SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
     f32 heights[kLandGridPoints * kLandGridPoints];
     if (ComposeTerrain(grid_x, grid_y, heights)) {
       f32 min_h = heights[0];
-      for (f32 h : heights) min_h = std::min(min_h, h);
+      for (f32 h : heights) min_h = base::Min(min_h, h);
       if (min_h >= height) return false;
     }
   }
@@ -2563,7 +2566,7 @@ bool CellStreamer::SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedC
       grass_baker_.BuildCell(land, records_.Find(land_id)->winning_plugin, grid_x, grid_y,
                              water_height, settings_.grass_density, height_override);
   const asset::AssetId grass_id =
-      asset::MakeAssetId("grass/" + std::to_string(grid_x) + "_" + std::to_string(grid_y));
+      asset::MakeAssetId("grass/" + base::ToString(grid_x) + "_" + base::ToString(grid_y));
   if (!mesh) {
     if (refresh || !height_override.empty()) {
       if (uploads_.remove_dynamic_mesh) uploads_.remove_dynamic_mesh(grass_id);
@@ -2908,7 +2911,7 @@ void CellStreamer::AddPlacedLight(bethesda::GlobalFormId base_id, u64 handle,
   if (const bethesda::Subrecord* f = light.Find(kFnam); f && f->data.size() >= 4) {
     f32 fade;
     std::memcpy(&fade, f->data.data(), 4);
-    if (fade > 0.0f) intensity *= std::min(fade, 2.0f);
+    if (fade > 0.0f) intensity *= base::Min(fade, 2.0f);
   }
   l.color_intensity[3] = intensity;
   if (const bethesda::Subrecord* x = refr.Find(kXrds); x && x->data.size() >= 4) {
@@ -3004,7 +3007,7 @@ void CellStreamer::EnsureDecalAtlas() {
   u32 tiles_used = 0;
   base::Vector<u8> pixels, normal_pixels;
 
-  auto texture_path = [](std::string path) {
+  auto texture_path = [](base::String path) {
     path = asset::NormalizePath(path);
     if (!path.empty() && !path.starts_with("textures/")) path = "textures/" + path;
     return path;
@@ -3016,7 +3019,7 @@ void CellStreamer::EnsureDecalAtlas() {
     if (!records_.Parse(id, &txst)) return;
     const bethesda::Subrecord* dodt = txst.Find(kDodt);
     if (!dodt || dodt->data.size() < 36) return;  // not a projected decal
-    std::string diffuse = texture_path(txst.GetString(kTx00));
+    base::String diffuse = texture_path(txst.GetString(kTx00));
     if (diffuse.empty()) return;
 
     TileRun run;
@@ -3044,7 +3047,7 @@ void CellStreamer::EnsureDecalAtlas() {
       run.tiles = subs;
       u32 nw = 0, nh = 0;
       bool has_normal = false;
-      if (std::string normal = texture_path(txst.GetString(kTx01)); !normal.empty()) {
+      if (base::String normal = texture_path(txst.GetString(kTx01)); !normal.empty()) {
         const asset::Texture* normal_texture = assets_.LoadTexture(normal);
         has_normal = normal_texture && DecodeDecalPixels(*normal_texture, normal_pixels, &nw, &nh);
       }
@@ -3073,7 +3076,7 @@ void CellStreamer::EnsureDecalAtlas() {
     base.half_h = 0.25f * (v[2] + v[3]) * units_to_meters_;
     if (base.half_w <= 0.01f || base.half_h <= 0.01f) return;
     // A generous depth floor keeps wide splats attached on uneven terrain.
-    base.half_d = std::max(v[4] * units_to_meters_, 0.4f);
+    base.half_d = base::Max(v[4] * units_to_meters_, 0.4f);
     const u8* tint = dodt->data.data() + 32;
     base.tint[0] = tint[0] / 255.0f;
     base.tint[1] = tint[1] / 255.0f;
@@ -3130,7 +3133,7 @@ void CellStreamer::AddPlacedDecal(bethesda::GlobalFormId base_id, bethesda::Glob
   // clearly reaches much further than the DODT depth). Slide the box down its
   // projection axis so it spans from just above the position to a few meters
   // below, instead of a thin authored-depth slab that misses the surface.
-  const f32 reach = std::max(base->half_d * scale, 1.5f);
+  const f32 reach = base::Max(base->half_d * scale, 1.5f);
   const Vec3 center = position - outward * reach;
   const f32 half_depth = reach + base->half_d * scale;
 
@@ -3253,9 +3256,9 @@ const asset::Mesh* CellStreamer::MeshForBase(bethesda::GlobalFormId base_id, u32
   const asset::Mesh* mesh = nullptr;
   bethesda::Record base;
   if (records_.Parse(base_id, &base)) {
-    std::string model = base.GetString(kModl);
+    base::String model = base.GetString(kModl);
     if (!model.empty()) {
-      std::string path = asset::NormalizePath(model);
+      base::String path = asset::NormalizePath(model);
       if (!path.starts_with("meshes/")) path = "meshes/" + path;
       // A conversion (or a final failure) is the expensive step we budget.
       if (!assets_.FindMesh(asset::MakeAssetId(path))) --mesh_budget;
@@ -3377,12 +3380,12 @@ bool CellStreamer::GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const
   if (!DecodeBaseTerrain(cell_x, cell_y, decoded)) return false;
 
   const f32 spacing = cell_size_ / (kLandGridPoints - 1);
-  const f32 local_x = std::clamp((beth_x - static_cast<f32>(cell_x) * cell_size_) / spacing, 0.0f,
-                                 static_cast<f32>(kLandGridPoints - 1));
-  const f32 local_y = std::clamp((beth_y - static_cast<f32>(cell_y) * cell_size_) / spacing, 0.0f,
-                                 static_cast<f32>(kLandGridPoints - 1));
-  const u32 col = std::min(static_cast<u32>(local_x), kLandGridPoints - 2);
-  const u32 row = std::min(static_cast<u32>(local_y), kLandGridPoints - 2);
+  const f32 local_x = base::Clamp((beth_x - static_cast<f32>(cell_x) * cell_size_) / spacing, 0.0f,
+                                  static_cast<f32>(kLandGridPoints - 1));
+  const f32 local_y = base::Clamp((beth_y - static_cast<f32>(cell_y) * cell_size_) / spacing, 0.0f,
+                                  static_cast<f32>(kLandGridPoints - 1));
+  const u32 col = base::Min(static_cast<u32>(local_x), kLandGridPoints - 2);
+  const u32 row = base::Min(static_cast<u32>(local_y), kLandGridPoints - 2);
   const f32 tx = local_x - col;
   const f32 ty = local_y - row;
   auto height = [&](u32 x, u32 y) {
@@ -3445,9 +3448,9 @@ bool CellStreamer::RefsGroundHeight(u32 grid_key, const bethesda::RecordStore::E
     for (f32 z : zs) {
       if (z >= water) dry.push_back(z);
     }
-    if (dry.size() >= 8) zs = std::move(dry);
+    if (dry.size() >= 8) zs = base::move(dry);
   }
-  std::sort(zs.begin(), zs.end());
+  base::Sort(zs.begin(), zs.end());
   const f32 ground = zs[zs.size() / 10] * units_to_meters_;
   refs_ground_cache_.emplace(grid_key, ground);
   *engine_y = ground;
@@ -3547,7 +3550,7 @@ void CellStreamer::ResolveInteriorLighting(bethesda::GlobalFormId cell_id) {
   L.fog_near = near_units * units_to_meters_;
   L.fog_far = far_units * units_to_meters_;
   L.fog_power = fog_pow > 0.01f ? fog_pow : 1.0f;
-  L.fog_max = fog_max > 0.0f ? std::min(fog_max, 1.0f) : 1.0f;
+  L.fog_max = fog_max > 0.0f ? base::Min(fog_max, 1.0f) : 1.0f;
 
   // Directional fill from XCLL, driven through the sun path. The rotation encodes
   // a direction; take rot_xy as azimuth and bias it downward so it reads as an

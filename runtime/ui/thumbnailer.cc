@@ -1,14 +1,17 @@
 #include "runtime/ui/thumbnailer.h"
 
+#include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
+
 #if defined(RECREATION_HAS_UGUI)
 
+#include <stb_image.h>
+#include <stb_image_write.h>
 #include <volk.h>
 
 #include <cstddef>
 #include <cstring>
-
-#include <stb_image.h>
-#include <stb_image_write.h>
 
 #include "asset/mesh.h"
 #include "core/log.h"
@@ -172,8 +175,8 @@ struct Thumbnailer::Impl {
     VkPipelineInputAssemblyStateCreateInfo ia{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo vp{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    VkPipelineViewportStateCreateInfo vp{.sType =
+                                             VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     vp.viewportCount = 1;
     vp.scissorCount = 1;
     VkPipelineRasterizationStateCreateInfo rs{
@@ -198,15 +201,15 @@ struct Thumbnailer::Impl {
     cb.attachmentCount = 1;
     cb.pAttachments = &ba;
     VkDynamicState dyn[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo ds{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    VkPipelineDynamicStateCreateInfo ds{.sType =
+                                            VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     ds.dynamicStateCount = 2;
     ds.pDynamicStates = dyn;
 
     VkFormat color_fmt = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depth_fmt = VK_FORMAT_D32_SFLOAT;
-    VkPipelineRenderingCreateInfo rendering{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    VkPipelineRenderingCreateInfo rendering{.sType =
+                                                VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rendering.colorAttachmentCount = 1;
     rendering.pColorAttachmentFormats = &color_fmt;
     rendering.depthAttachmentFormat = depth_fmt;
@@ -246,7 +249,7 @@ struct Thumbnailer::Impl {
   }
 };
 
-Thumbnailer::Thumbnailer() : impl_(std::make_unique<Impl>()) {}
+Thumbnailer::Thumbnailer() : impl_(base::MakeUnique<Impl>()) {}
 Thumbnailer::~Thumbnailer() { Shutdown(); }
 bool Thumbnailer::ready() const { return impl_ && impl_->ready; }
 int Thumbnailer::size() const { return impl_ ? impl_->size : 0; }
@@ -319,7 +322,7 @@ void Thumbnailer::Shutdown() {
   m = Impl{};
 }
 
-bool Thumbnailer::Render(const asset::Mesh& mesh, std::vector<std::uint8_t>& out) {
+bool Thumbnailer::Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& out) {
   Impl& m = *impl_;
   if (!m.ready || mesh.lods.empty()) return false;
   const asset::MeshLod& lod = mesh.lods[0];
@@ -430,7 +433,7 @@ bool Thumbnailer::Render(const asset::Mesh& mesh, std::vector<std::uint8_t>& out
   return true;
 }
 
-bool Thumbnailer::LoadCached(const std::string& path, std::vector<std::uint8_t>& out) const {
+bool Thumbnailer::LoadCached(const base::String& path, base::Vector<std::uint8_t>& out) const {
   int w = 0, h = 0, n = 0;
   unsigned char* data = stbi_load(path.c_str(), &w, &h, &n, 4);
   if (!data) return false;
@@ -443,7 +446,8 @@ bool Thumbnailer::LoadCached(const std::string& path, std::vector<std::uint8_t>&
   return true;
 }
 
-void Thumbnailer::SaveCached(const std::string& path, const std::vector<std::uint8_t>& rgba) const {
+void Thumbnailer::SaveCached(const base::String& path,
+                             const base::Vector<std::uint8_t>& rgba) const {
   if (rgba.size() < static_cast<size_t>(impl_->size) * impl_->size * 4) return;
   stbi_write_png(path.c_str(), impl_->size, impl_->size, 4, rgba.data(), impl_->size * 4);
 }
@@ -460,9 +464,11 @@ bool Thumbnailer::Init(render::Renderer&, int) { return false; }
 void Thumbnailer::Shutdown() {}
 bool Thumbnailer::ready() const { return false; }
 int Thumbnailer::size() const { return 0; }
-bool Thumbnailer::Render(const asset::Mesh&, std::vector<std::uint8_t>&) { return false; }
-bool Thumbnailer::LoadCached(const std::string&, std::vector<std::uint8_t>&) const { return false; }
-void Thumbnailer::SaveCached(const std::string&, const std::vector<std::uint8_t>&) const {}
+bool Thumbnailer::Render(const asset::Mesh&, base::Vector<std::uint8_t>&) { return false; }
+bool Thumbnailer::LoadCached(const base::String&, base::Vector<std::uint8_t>&) const {
+  return false;
+}
+void Thumbnailer::SaveCached(const base::String&, const base::Vector<std::uint8_t>&) const {}
 }  // namespace rx
 
 #endif  // RECREATION_HAS_UGUI

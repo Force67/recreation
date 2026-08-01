@@ -1,6 +1,9 @@
 #include "components/bethesda/head_morph.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 
 namespace rx::bethesda {
@@ -31,8 +34,8 @@ const Nam9Slider kSliders[kNam9Count] = {
 };
 
 void ApplyMorphToLod(const TriMorph& morph, f32 weight, asset::MeshLod& lod) {
-  const u32 n = std::min(static_cast<u32>(lod.vertices.size()),
-                         static_cast<u32>(morph.deltas.size()));
+  const u32 n =
+      base::Min(static_cast<u32>(lod.vertices.size()), static_cast<u32>(morph.deltas.size()));
   const f32 s = weight * morph.scale;
   for (u32 i = 0; i < n; ++i) {
     const TriDelta& d = morph.deltas[i];
@@ -68,12 +71,12 @@ void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
     if (!kTypePrefix[slot]) continue;
     i32 idx = nama[slot];
     if (idx < 1) continue;  // -1 = none, 0 = the base type (no morph)
-    out->push_back({std::string(kTypePrefix[slot]) + std::to_string(idx), 1.0f});
+    out->push_back({base::String(kTypePrefix[slot]) + base::ToString(idx), 1.0f});
   }
 }
 
 bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
-                     const std::string& race_morph, const TriMorphSet* chargen_tri,
+                     const base::String& race_morph, const TriMorphSet* chargen_tri,
                      const base::Vector<MorphWeight>& chargen) {
   const u32 verts = static_cast<u32>(lod.vertices.size());
   bool applied = false;

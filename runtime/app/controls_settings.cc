@@ -1,11 +1,13 @@
-#include "runtime/app/engine.h"
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 
 #include "core/input_bindings.h"
 #include "core/log.h"
+#include "runtime/app/engine.h"
 
 // Controls config lifecycle and the pause-menu rebinding flow. The InputMap owns
 // the bindings and INI I/O (core/input_bindings); this glues it to the engine:
@@ -45,17 +47,18 @@ void Engine::LoadControls() {
   controls_path_ = InputMap::DefaultConfigPath();
   if (!controls_path_.empty()) {
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(controls_path_).parent_path(), ec);
-    if (input_map_->LoadFromIni(controls_path_))
-      RX_INFO("controls loaded from {}", controls_path_);
+    std::filesystem::create_directories(std::filesystem::path(controls_path_.c_str()).parent_path(),
+                                        ec);
+    if (input_map_->LoadFromIni(controls_path_.c_str()))
+      RX_INFO("controls loaded from {}", controls_path_.c_str());
     else
-      RX_INFO("no controls config at {}, using defaults", controls_path_);
+      RX_INFO("no controls config at {}, using defaults", controls_path_.c_str());
   }
   ApplyControls();
 }
 
 void Engine::SaveControls() {
-  if (!controls_path_.empty()) input_map_->SaveToIni(controls_path_);
+  if (!controls_path_.empty()) input_map_->SaveToIni(controls_path_.c_str());
 }
 
 void Engine::UpdateSettings() {
@@ -109,14 +112,14 @@ void Engine::UpdateSettings() {
         }
         break;
       case SettingsRequest::Kind::kSensKbm:
-        input_map_->look_sens_kbm = std::clamp(
+        input_map_->look_sens_kbm = base::Clamp(
             input_map_->look_sens_kbm + static_cast<f32>(req.delta) * 0.0005f, 0.0005f, 0.01f);
         ApplyControls();
         SaveControls();
         break;
       case SettingsRequest::Kind::kSensPad:
-        input_map_->look_sens_pad = std::clamp(
-            input_map_->look_sens_pad + static_cast<f32>(req.delta) * 0.2f, 0.5f, 6.0f);
+        input_map_->look_sens_pad =
+            base::Clamp(input_map_->look_sens_pad + static_cast<f32>(req.delta) * 0.2f, 0.5f, 6.0f);
         ApplyControls();
         SaveControls();
         break;
@@ -154,14 +157,14 @@ void Engine::UpdateSettings() {
       row.capturing = true;
       row.binding = "Press input...";
     } else {
-      std::string s;
+      base::String s;
       for (const Binding& b : input_map_->bindings(kRows[i].action)) {
         if (!s.empty()) s += " / ";
         s += BindingLabel(b);
       }
       row.binding = s.empty() ? "(unbound)" : s;
     }
-    view.rows.push_back(std::move(row));
+    view.rows.push_back(base::move(row));
   }
   char buf[32];
   std::snprintf(buf, sizeof(buf), "%.4f", input_map_->look_sens_kbm);

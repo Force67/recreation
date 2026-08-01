@@ -1,9 +1,10 @@
 #ifndef RECREATION_MODSTREAM_MOD_CATALOG_H_
 #define RECREATION_MODSTREAM_MOD_CATALOG_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/optional.h>
+
 #include <filesystem>
-#include <optional>
-#include <unordered_map>
 
 #include "components/modstream/mod_resource.h"
 
@@ -21,18 +22,18 @@ class ModCatalog {
   // cannot be read, so a misconfigured server fails loudly instead of offering a
   // manifest that lies about what it can serve. An existing but empty directory
   // yields an empty catalog (a valid "nothing to stream").
-  static std::optional<ModCatalog> Build(const std::filesystem::path& mods_dir);
+  static base::Optional<ModCatalog> Build(const std::filesystem::path& mods_dir);
 
   const ModManifest& manifest() const { return manifest_; }
 
   // Absolute on-disk path of the file with this content hash, or nullopt if no
   // catalogued file has it. The server consults this before honoring a client's
   // request, so a client can never pull a path outside the mods directory.
-  std::optional<std::filesystem::path> PathForHash(ContentHash hash) const;
+  base::Optional<std::filesystem::path> PathForHash(ContentHash hash) const;
 
  private:
   ModManifest manifest_;
-  std::unordered_map<ContentHash, std::filesystem::path> by_hash_;
+  base::UnorderedMap<ContentHash, std::filesystem::path> by_hash_;
 };
 
 }  // namespace rx::modstream

@@ -1,6 +1,8 @@
 #include "components/world/navgrid.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+
 #include <cmath>
 
 #include "components/world/pathfind.h"
@@ -67,14 +69,14 @@ Vec3 NavGrid::Next(const Vec3& from, const Vec3& goal, int lookahead_cells) cons
   if (!WorldToCell(from, &sx, &sz) || !WorldToCell(goal, &gx, &gz)) return goal;
 
   const auto blocked = [this](int x, int z) { return !walkable_[Index(x, z)]; };
-  std::vector<PathNode> path;
+  base::Vector<PathNode> path;
   if (!FindPath(width_, width_, blocked, {sx, sz}, {gx, gz}, &path) || path.empty()) {
     return goal;
   }
 
   // Step a few cells along the route; clamp to the last node. The first node is
   // the start cell, so a single-cell path (start == goal) returns the goal.
-  const int step = std::min(std::max(lookahead_cells, 1), static_cast<int>(path.size()) - 1);
+  const int step = base::Min(base::Max(lookahead_cells, 1), static_cast<int>(path.size()) - 1);
   if (step <= 0) return goal;
   const PathNode& wp = path[static_cast<size_t>(step)];
   return CellToWorld(wp.x, wp.y);

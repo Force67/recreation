@@ -2,15 +2,19 @@
 // AND-of-ORs evaluator, and the CTDA transpiler. No game data needed, so it
 // runs in the ctest gate alongside questtest.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <cstring>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/ctda.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -24,9 +28,9 @@ void Check(const char* what, bool ok) {
 
 // Builds a 32-byte (SE) CTDA payload from its fields, so the parser sees a
 // realistic record. operator_bits go in the top 3 bits, flags in the low 5.
-std::vector<u8> MakeCtda(u8 operator_bits, u8 flags, float value, u16 function,
-                         u32 param1, u32 run_on, u32 reference) {
-  std::vector<u8> b(32, 0);
+base::Vector<u8> MakeCtda(u8 operator_bits, u8 flags, float value, u16 function, u32 param1,
+                          u32 run_on, u32 reference) {
+  base::Vector<u8> b(32, 0);
   b[0] = static_cast<u8>((operator_bits << 5) | (flags & 0x1F));
   std::memcpy(b.data() + 4, &value, 4);
   std::memcpy(b.data() + 8, &function, 2);
@@ -36,19 +40,19 @@ std::vector<u8> MakeCtda(u8 operator_bits, u8 flags, float value, u16 function,
   return b;
 }
 
-ByteSpan Span(const std::vector<u8>& v) { return ByteSpan(v.data(), v.size()); }
+ByteSpan Span(const base::Vector<u8>& v) { return ByteSpan(v.data(), v.size()); }
 
 // A context that reports a fixed stage for one quest and a fixed raw result, so
 // tests can exercise both the typed and the fallback dispatch paths.
 class MockContext : public ConditionContext {
  public:
   float stage = 0.0f;
-  u64 stage_quest = 0;
+  rx::u64 stage_quest = 0;
   float raw = 0.0f;
   float global = 0.0f;
 
-  float GetStage(u64 quest) const override { return quest == stage_quest ? stage : -1.0f; }
-  float GetGlobal(u64) const override { return global; }
+  float GetStage(rx::u64 quest) const override { return quest == stage_quest ? stage : -1.0f; }
+  float GetGlobal(rx::u64) const override { return global; }
   float EvalRaw(const Comparison&) const override { return raw; }
 };
 
@@ -83,7 +87,7 @@ void TestParse() {
   Check("unknown function stays kRaw", r.func == Func::kRaw && r.raw_function == 9999);
 
   // Too short is rejected.
-  std::vector<u8> tiny(10, 0);
+  base::Vector<u8> tiny(10, 0);
   Comparison junk;
   Check("rejects undersized payload", !ParseCtda(Span(tiny), &junk));
 }

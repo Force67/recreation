@@ -2,13 +2,18 @@
 // runner holds no engine state, so a recording sink scripts every query and
 // records every side effect. No game data needed, so it runs in the ctest gate.
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+
 #include <cstdio>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/scene.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -23,22 +28,22 @@ void Check(const char* what, bool ok) {
 // Records every side effect and lets the test script the query answers:
 // ActorAt/PlayerNear return false until their poll counter reaches a threshold.
 struct MockSink : SceneSink {
-  std::vector<u64> guided;       // actors handed a GuideTo target
-  std::vector<u64> said;         // INFO handles run via SayInfo
-  std::vector<std::pair<u64, i32>> staged;  // (quest, stage) from SetStage
+  base::Vector<rx::u64> guided;                   // actors handed a GuideTo target
+  base::Vector<rx::u64> said;                     // INFO handles run via SayInfo
+  base::Vector<base::Pair<rx::u64, i32>> staged;  // (quest, stage) from SetStage
 
-  int actor_at_polls = 0;        // ActorAt calls so far
-  int actor_at_true_after = 0;   // ActorAt returns true once polls > this
+  int actor_at_polls = 0;       // ActorAt calls so far
+  int actor_at_true_after = 0;  // ActorAt returns true once polls > this
   int player_near_polls = 0;
   int player_near_true_after = 0;
 
-  void GuideTo(u64 actor, const float[3]) override { guided.push_back(actor); }
-  void SayInfo(u64 actor, u64 info) override {
+  void GuideTo(rx::u64 actor, const float[3]) override { guided.push_back(actor); }
+  void SayInfo(rx::u64 actor, rx::u64 info) override {
     said.push_back(info);
     (void)actor;
   }
-  void SetStage(u64 quest, i32 stage) override { staged.emplace_back(quest, stage); }
-  bool ActorAt(u64, const float[3], float) override {
+  void SetStage(rx::u64 quest, i32 stage) override { staged.emplace_back(quest, stage); }
+  bool ActorAt(rx::u64, const float[3], float) override {
     return ++actor_at_polls > actor_at_true_after;
   }
   bool PlayerNear(const float[3], float) override {
@@ -46,7 +51,7 @@ struct MockSink : SceneSink {
   }
 };
 
-SceneAction GuideTo(u64 actor, float x, float y, float z, float radius = 2.5f) {
+SceneAction GuideTo(rx::u64 actor, float x, float y, float z, float radius = 2.5f) {
   SceneAction a;
   a.kind = SceneAction::Kind::kGuideTo;
   a.actor = actor;
@@ -57,7 +62,7 @@ SceneAction GuideTo(u64 actor, float x, float y, float z, float radius = 2.5f) {
   return a;
 }
 
-SceneAction SetStage(u64 quest, i32 stage) {
+SceneAction SetStage(rx::u64 quest, i32 stage) {
   SceneAction a;
   a.kind = SceneAction::Kind::kSetStage;
   a.quest = quest;
@@ -65,7 +70,7 @@ SceneAction SetStage(u64 quest, i32 stage) {
   return a;
 }
 
-SceneAction SayInfo(u64 actor, u64 info) {
+SceneAction SayInfo(rx::u64 actor, rx::u64 info) {
   SceneAction a;
   a.kind = SceneAction::Kind::kSayInfo;
   a.actor = actor;
@@ -106,8 +111,7 @@ void TestSetStage() {
   Check("not running after finish", !runner.running());
   Check("SetStage called exactly once", sink.staged.size() == 1);
   Check("SetStage carries quest + stage",
-        sink.staged.size() == 1 && sink.staged[0].first == 0xABCD &&
-            sink.staged[0].second == 10);
+        sink.staged.size() == 1 && sink.staged[0].first == 0xABCD && sink.staged[0].second == 10);
 
   // Ticking a finished runner stays finished and issues nothing more.
   Check("tick past end stays finished", !runner.Tick(sink, 0.016f));
@@ -189,11 +193,11 @@ void TestFullScene() {
   Check("scene ran to completion", !runner.running());
   Check("did not spin", guard < 100);
 
-  Check("both guides issued", sink.guided.size() == 2 && sink.guided[0] == 1 &&
-                                  sink.guided[1] == 2);
-  Check("two stages set in order",
-        sink.staged.size() == 2 && sink.staged[0] == std::make_pair<u64, i32>(0x100, 10) &&
-            sink.staged[1] == std::make_pair<u64, i32>(0x100, 20));
+  Check("both guides issued",
+        sink.guided.size() == 2 && sink.guided[0] == 1 && sink.guided[1] == 2);
+  Check("two stages set in order", sink.staged.size() == 2 &&
+                                       sink.staged[0] == base::MakePair<rx::u64, i32>(0x100, 10) &&
+                                       sink.staged[1] == base::MakePair<rx::u64, i32>(0x100, 20));
 
   // A finished runner keeps reporting finished.
   Check("tick after completion returns false", !runner.Tick(sink, 0.1f));
@@ -207,8 +211,7 @@ void TestSayInfo() {
   MockSink sink;
   SceneRunner runner(&scene);
   Check("SayInfo completes immediately", !runner.Tick(sink, 0.016f));
-  Check("SayInfo called once with info handle",
-        sink.said.size() == 1 && sink.said[0] == 0xBEEF);
+  Check("SayInfo called once with info handle", sink.said.size() == 1 && sink.said[0] == 0xBEEF);
 }
 
 void TestReset() {
@@ -236,9 +239,8 @@ void TestReset() {
   Check("running again after reset", runner.running());
   while (runner.Tick(sink, 0.1f)) {}
   Check("replay re-ran both stages", sink.staged.size() == 3);
-  Check("replay set stages 1 then 2",
-        sink.staged[1] == std::make_pair<u64, i32>(0x1, 1) &&
-            sink.staged[2] == std::make_pair<u64, i32>(0x1, 2));
+  Check("replay set stages 1 then 2", sink.staged[1] == base::MakePair<rx::u64, i32>(0x1, 1) &&
+                                          sink.staged[2] == base::MakePair<rx::u64, i32>(0x1, 2));
 }
 
 }  // namespace

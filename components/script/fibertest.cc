@@ -3,9 +3,9 @@
 // when the suspend point is several calls deep and routed through the VM's
 // SuspendCurrent hook (the seam Utility.Wait will use). No game assets needed.
 
-#include <cstdio>
+#include <base/containers/vector.h>
 
-#include <vector>
+#include <cstdio>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
@@ -180,7 +180,7 @@ int main() {
     sched.Run(
         [&] {
           step = 1;
-          std::vector<Value> args = {Value::Float(2.0f)};  // Utility.Wait(2.0)
+          base::Vector<Value> args = {Value::Float(2.0f)};  // Utility.Wait(2.0)
           (*wait)(vm, ObjectRef{}, args);
           step = 2;
         },
@@ -203,7 +203,7 @@ int main() {
     bool done = false;
     sched.Run(
         [&] {
-          std::vector<Value> args = {Value::Float(12.0f)};  // 12 game hours = 0.5 days
+          base::Vector<Value> args = {Value::Float(12.0f)};  // 12 game hours = 0.5 days
           (*wait_gt)(vm, ObjectRef{}, args);
           done = true;
         },
@@ -312,7 +312,7 @@ int main() {
     int destroyed = 0;
     struct Guard {
       int* counter;
-      std::vector<int> held{64, 7};  // heap a leak check would catch if never freed
+      base::Vector<int> held{64, 7};  // heap a leak check would catch if never freed
       ~Guard() { ++*counter; }
     };
     {

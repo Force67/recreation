@@ -1,5 +1,9 @@
 #include "components/bethesda/writer.h"
 
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 #include <fstream>
 
@@ -88,13 +92,13 @@ void EmitGroup(i32 group_type, u32 label, ByteSpan body, base::Vector<u8>* out) 
   PutBytes(out, body.data(), body.size());
 }
 
-PluginWriter& PluginWriter::set_author(std::string author) {
-  author_ = std::move(author);
+PluginWriter& PluginWriter::set_author(base::String author) {
+  author_ = base::move(author);
   return *this;
 }
 
-PluginWriter& PluginWriter::set_description(std::string description) {
-  description_ = std::move(description);
+PluginWriter& PluginWriter::set_description(base::String description) {
+  description_ = base::move(description);
   return *this;
 }
 
@@ -113,8 +117,8 @@ PluginWriter& PluginWriter::set_localized(bool localized) {
   return *this;
 }
 
-PluginWriter& PluginWriter::add_master(std::string master_file_name) {
-  masters_.push_back(std::move(master_file_name));
+PluginWriter& PluginWriter::add_master(base::String master_file_name) {
+  masters_.push_back(base::move(master_file_name));
   return *this;
 }
 
@@ -159,18 +163,17 @@ base::Vector<u8> PluginWriter::Build() const {
     EncodeSubrecord(kHedr, ByteSpan(hedr, sizeof(hedr)), &tes4_payload);
   }
   if (!author_.empty()) {
-    EncodeSubrecord(kCnam, ByteSpan(reinterpret_cast<const u8*>(author_.c_str()),
-                                    author_.size() + 1),
+    EncodeSubrecord(kCnam,
+                    ByteSpan(reinterpret_cast<const u8*>(author_.c_str()), author_.size() + 1),
                     &tes4_payload);
   }
   if (!description_.empty()) {
-    EncodeSubrecord(kSnam, ByteSpan(reinterpret_cast<const u8*>(description_.c_str()),
-                                    description_.size() + 1),
-                    &tes4_payload);
+    EncodeSubrecord(
+        kSnam, ByteSpan(reinterpret_cast<const u8*>(description_.c_str()), description_.size() + 1),
+        &tes4_payload);
   }
-  for (const std::string& master : masters_) {
-    EncodeSubrecord(kMast, ByteSpan(reinterpret_cast<const u8*>(master.c_str()),
-                                    master.size() + 1),
+  for (const base::String& master : masters_) {
+    EncodeSubrecord(kMast, ByteSpan(reinterpret_cast<const u8*>(master.c_str()), master.size() + 1),
                     &tes4_payload);
     u64 data = 0;  // DATA is an unused 64-bit companion to each MAST.
     EncodeSubrecord(kData, ByteSpan(reinterpret_cast<const u8*>(&data), sizeof(data)),
@@ -201,9 +204,9 @@ base::Vector<u8> PluginWriter::Build() const {
   return out;
 }
 
-bool PluginWriter::Save(const std::string& path) const {
+bool PluginWriter::Save(const base::String& path) const {
   base::Vector<u8> bytes = Build();
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  std::ofstream file(path.c_str(), std::ios::binary | std::ios::trunc);
   if (!file) {
     RX_ERROR("cannot open plugin for writing: {}", path);
     return false;
@@ -222,16 +225,16 @@ RecordBuilder::RecordBuilder(u32 type, RawFormId form_id, u32 flags) {
 RecordBuilder& RecordBuilder::Field(u32 type, ByteSpan bytes) {
   base::Vector<u8> buffer;
   buffer.insert(buffer.end(), bytes.begin(), bytes.end());
-  base::Vector<u8>& owned = storage_.emplace_back(std::move(buffer));
+  base::Vector<u8>& owned = storage_.emplace_back(base::move(buffer));
   record_.subrecords.push_back(Subrecord{type, ByteSpan(owned.data(), owned.size())});
   return *this;
 }
 
-RecordBuilder& RecordBuilder::EditorId(std::string_view editor_id) {
+RecordBuilder& RecordBuilder::EditorId(base::StringRef editor_id) {
   base::Vector<u8> buffer;
   buffer.insert(buffer.end(), editor_id.begin(), editor_id.end());
   buffer.push_back(0);
-  base::Vector<u8>& owned = storage_.emplace_back(std::move(buffer));
+  base::Vector<u8>& owned = storage_.emplace_back(base::move(buffer));
   record_.subrecords.push_back(
       Subrecord{FourCc('E', 'D', 'I', 'D'), ByteSpan(owned.data(), owned.size())});
   return *this;

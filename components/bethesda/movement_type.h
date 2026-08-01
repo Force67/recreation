@@ -1,8 +1,9 @@
 #ifndef RECREATION_BETHESDA_MOVEMENT_TYPE_H_
 #define RECREATION_BETHESDA_MOVEMENT_TYPE_H_
 
-#include <string>
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/load_order.h"
 #include "core/types.h"
@@ -24,14 +25,14 @@ namespace rx::bethesda {
 // run speed, then the rotation speeds. Missing/short SPED leaves fields at 0.
 struct MovementType {
   u64 form = 0;
-  std::string editor_id;
+  base::String editor_id;
 
   f32 left_walk = 0, left_run = 0;
   f32 right_walk = 0, right_run = 0;
   f32 forward_walk = 0, forward_run = 0;
   f32 back_walk = 0, back_run = 0;
-  f32 rotate_in_place_walk = 0;  // deg/s
-  f32 rotate_in_place_run = 0;   // deg/s
+  f32 rotate_in_place_walk = 0;     // deg/s
+  f32 rotate_in_place_run = 0;      // deg/s
   f32 rotate_while_moving_run = 0;  // deg/s
 
   bool has_speeds = false;  // a SPED subrecord was present and decoded
@@ -39,11 +40,11 @@ struct MovementType {
 
 // Decodes every MOVT record into `out` keyed by packed GlobalFormId. Returns the
 // number decoded. Cheap; run once after game data loads.
-int LoadMovementTypes(const RecordStore& records, std::unordered_map<u64, MovementType>* out);
+int LoadMovementTypes(const RecordStore& records, base::UnorderedMap<u64, MovementType>* out);
 
 // Finds a movement type by editor id (e.g. "NPC_Default_MT"). Null if absent.
-const MovementType* FindMovementType(const std::unordered_map<u64, MovementType>& types,
-                                     std::string_view editor_id);
+const MovementType* FindMovementType(const base::UnorderedMap<u64, MovementType>& types,
+                                     base::StringRef editor_id);
 
 }  // namespace rx::bethesda
 

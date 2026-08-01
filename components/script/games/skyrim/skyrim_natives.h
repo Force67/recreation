@@ -1,7 +1,7 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_H_
 
-#include <string>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/script/papyrus/native.h"
@@ -29,8 +29,8 @@ class SkyrimBindings {
   virtual i32 GetFormType(papyrus::ObjectRef form) { return 0; }
   // Whether a bare reference is of `type_name` ("Actor", "ObjectReference", ...),
   // used by the VM to resolve `obj as Type` casts for refs with no script.
-  virtual bool RefIsType(papyrus::ObjectRef ref, const std::string& type_name) { return false; }
-  virtual std::string GetName(papyrus::ObjectRef form) { return ""; }
+  virtual bool RefIsType(papyrus::ObjectRef ref, const base::String& type_name) { return false; }
+  virtual base::String GetName(papyrus::ObjectRef form) { return ""; }
   virtual bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) { return false; }
   // Enumerates a form's keywords (KWDA), so mods can categorise items by every
   // keyword they carry. GetKeywordCount parses them into a cache and returns the
@@ -63,7 +63,7 @@ class SkyrimBindings {
   // (None otherwise), GetBookSkill the actor-value name a skill book raises (empty
   // otherwise). The two are mutually exclusive in the record's DATA flags.
   virtual papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) { return {}; }
-  virtual std::string GetBookSkill(papyrus::ObjectRef book) { return ""; }
+  virtual base::String GetBookSkill(papyrus::ObjectRef book) { return ""; }
 
   // The magic effects of an ingredient or potion/food (INGR or ALCH), shared by
   // alchemy (matching effects across ingredients) and consumables (applying a
@@ -88,7 +88,7 @@ class SkyrimBindings {
   // for values not modelled) and whether it is detrimental (damage rather than
   // restore/fortify). Together with the per-effect duration these let managed code
   // apply a consumable's effects.
-  virtual std::string GetMagicEffectActorValue(papyrus::ObjectRef effect) { return ""; }
+  virtual base::String GetMagicEffectActorValue(papyrus::ObjectRef effect) { return ""; }
   virtual bool GetMagicEffectDetrimental(papyrus::ObjectRef effect) { return false; }
   virtual f32 GetMagicEffectBaseCost(papyrus::ObjectRef effect) { return 0.0f; }
 
@@ -157,7 +157,7 @@ class SkyrimBindings {
   // skill it favours and the bonus. GetRaceSkillBonusCount parses them into a
   // cache and returns the count; the GetNth accessors read it. Character creation.
   virtual i32 GetRaceSkillBonusCount(papyrus::ObjectRef race) { return 0; }
-  virtual std::string GetNthRaceSkillBonusSkill(i32 index) { return ""; }
+  virtual base::String GetNthRaceSkillBonusSkill(i32 index) { return ""; }
   virtual i32 GetNthRaceSkillBonusValue(i32 index) { return 0; }
 
   // Proximity over a per-frame position snapshot: references within `radius`
@@ -246,15 +246,15 @@ class SkyrimBindings {
 
   // Actor values and state. The value has a permanent base and a damageable
   // current; percentage is current/base.
-  virtual f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
-  virtual f32 GetBaseActorValue(papyrus::ObjectRef actor, const std::string& av) { return 0; }
-  virtual f32 GetActorValuePercentage(papyrus::ObjectRef actor, const std::string& av) {
+  virtual f32 GetActorValue(papyrus::ObjectRef actor, const base::String& av) { return 0; }
+  virtual f32 GetBaseActorValue(papyrus::ObjectRef actor, const base::String& av) { return 0; }
+  virtual f32 GetActorValuePercentage(papyrus::ObjectRef actor, const base::String& av) {
     return 1.0f;
   }
-  virtual void SetActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) {}
-  virtual void ForceActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) {}
-  virtual void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) {}
-  virtual void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) {}
+  virtual void SetActorValue(papyrus::ObjectRef actor, const base::String& av, f32 value) {}
+  virtual void ForceActorValue(papyrus::ObjectRef actor, const base::String& av, f32 value) {}
+  virtual void ModActorValue(papyrus::ObjectRef actor, const base::String& av, f32 delta) {}
+  virtual void RestoreActorValue(papyrus::ObjectRef actor, const base::String& av, f32 amount) {}
   virtual i32 GetLevel(papyrus::ObjectRef actor) { return 1; }
   virtual bool IsDead(papyrus::ObjectRef actor) { return false; }
   // Brings a dead actor back: restores its health and clears its downed state so
@@ -317,7 +317,7 @@ class SkyrimBindings {
   virtual bool GetStageDone(papyrus::ObjectRef quest, i32 stage) { return false; }
   // Journal (CNAM) text of the most recently set stage, empty for a control
   // stage that carries no log entry. Lets soft logic surface journal updates.
-  virtual std::string GetJournalEntry(papyrus::ObjectRef quest) { return ""; }
+  virtual base::String GetJournalEntry(papyrus::ObjectRef quest) { return ""; }
   virtual bool IsRunning(papyrus::ObjectRef quest) { return false; }
   virtual void StartQuest(papyrus::ObjectRef quest) {}
   virtual void StopQuest(papyrus::ObjectRef quest) {}
@@ -331,7 +331,9 @@ class SkyrimBindings {
 
   // Scenes: a SCEN fragment runs Self.GetOwningQuest().SetStage(N), so the scene
   // object must resolve to its owning quest. Returns None for an unknown scene.
-  virtual papyrus::ObjectRef SceneOwningQuest(papyrus::ObjectRef scene) { return papyrus::ObjectRef{0}; }
+  virtual papyrus::ObjectRef SceneOwningQuest(papyrus::ObjectRef scene) {
+    return papyrus::ObjectRef{0};
+  }
   // The quest a dialogue INFO belongs to (TopicInfo.GetOwningQuest), so a TIF_
   // fragment's GetOwningQuest().SetStage advances the right quest.
   virtual papyrus::ObjectRef InfoOwningQuest(papyrus::ObjectRef info) { return papyrus::ObjectRef{0}; }
@@ -359,7 +361,7 @@ class SkyrimBindings {
   virtual void SetGlobalValue(papyrus::ObjectRef global, f32 value) {}
 
   // Game settings and time.
-  virtual f32 GetGameSettingFloat(const std::string& name) { return 0; }
+  virtual f32 GetGameSettingFloat(const base::String& name) { return 0; }
   virtual f32 GetRealHoursPassed() { return 0; }
   virtual f32 GetCurrentGameTime() { return 0; }  // days since game start
 
@@ -368,15 +370,15 @@ class SkyrimBindings {
   // transient toast. `fraction` is clamped 0..1, `color` is packed rgba8 (0 lets
   // the HUD pick one). The engine snapshots them onto the HUD each frame.
   // Clearing one removes its bar. Default no-ops for the neutral bindings.
-  virtual void SetHudGauge(const std::string& id, f32 fraction, const std::string& label,
+  virtual void SetHudGauge(const base::String& id, f32 fraction, const base::String& label,
                            u32 color) {}
-  virtual void ClearHudGauge(const std::string& id) {}
+  virtual void ClearHudGauge(const base::String& id) {}
 
   // War-map state, pushed by managed gameplay (the Civil War campaign): each hold
   // by index with its name and owner (0 neutral, 1 Imperial, 2 Stormcloak), plus
   // the overall Imperial-controlled fraction. The engine snapshots it onto the
   // toggle-able war-map panel.
-  virtual void SetWarHold(i32 index, const std::string& name, i32 owner) {}
+  virtual void SetWarHold(i32 index, const base::String& name, i32 owner) {}
   virtual void SetWarProgress(f32 imperial_fraction) {}
 };
 

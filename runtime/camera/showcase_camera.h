@@ -1,9 +1,8 @@
 #ifndef RECREATION_RUNTIME_CAMERA_SHOWCASE_CAMERA_H_
 #define RECREATION_RUNTIME_CAMERA_SHOWCASE_CAMERA_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/math.h"
 
@@ -26,7 +25,7 @@ class ShowcaseCamera {
     Vec3 look{};     // point the camera aims at
     f32 travel = 6;  // seconds to glide here from the previous waypoint
     bool capture = false;
-    std::string label;
+    base::String label;
   };
 
   void Add(Waypoint wp);
@@ -39,7 +38,7 @@ class ShowcaseCamera {
 
   // If a capture waypoint's arrival falls in (prev_t, t], returns its index and
   // writes its label; otherwise returns -1.
-  int CaptureCrossed(f32 prev_t, f32 t, std::string* label) const;
+  int CaptureCrossed(f32 prev_t, f32 t, base::String* label) const;
 
  private:
   base::Vector<Waypoint> keys_;

@@ -1,6 +1,15 @@
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 #include <fstream>
-#include <unordered_map>
+#include <functional>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "asset/asset_id.h"
 #include "components/bethesda/archive.h"
@@ -60,8 +69,7 @@ struct TexEntry {
 // Reads `entry`'s bytes from `file`, decompressing when packed. v3 (Starfield
 // texture) archives store raw LZ4 blocks; every other version uses zlib.
 // Returns false on a short read or a decompression failure.
-bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size, u8* dst,
-               bool lz4) {
+bool ReadBlock(std::ifstream& file, u64 offset, u32 packed_size, u32 full_size, u8* dst, bool lz4) {
   file.seekg(static_cast<std::streamoff>(offset));
   if (packed_size == 0) {
     file.read(reinterpret_cast<char*>(dst), full_size);
@@ -117,11 +125,10 @@ base::Vector<u8> MakeDdsHeader(const TexEntry& tex) {
 
 class Ba2Provider final : public asset::FileProvider {
  public:
-  Ba2Provider(std::string path, Ba2Header header)
-      : path_(std::move(path)), header_(header) {}
+  Ba2Provider(base::String path, Ba2Header header) : path_(base::move(path)), header_(header) {}
 
   bool Parse() {
-    std::ifstream file(path_, std::ios::binary);
+    std::ifstream file(path_.c_str(), std::ios::binary);
     if (!file) return false;
     file.seekg(sizeof(Ba2Header) + ExtraHeaderSize(header_.version));
 
@@ -152,10 +159,9 @@ class Ba2Provider final : public asset::FileProvider {
           u8 ch[kTexChunkSize];
           file.read(reinterpret_cast<char*>(ch), kTexChunkSize);
           if (!file) return false;
-          entry.chunks.push_back(
-              {GetLe<u64>(ch), GetLe<u32>(ch + 8), GetLe<u32>(ch + 12)});
+          entry.chunks.push_back({GetLe<u64>(ch), GetLe<u32>(ch + 8), GetLe<u32>(ch + 12)});
         }
-        tex.push_back(std::move(entry));
+        tex.push_back(base::move(entry));
       } else {
         u8 fr[kGnrlRecordSize];
         file.read(reinterpret_cast<char*>(fr), kGnrlRecordSize);
@@ -172,31 +178,31 @@ class Ba2Provider final : public asset::FileProvider {
       u16 length = 0;
       file.read(reinterpret_cast<char*>(&length), 2);
       if (!file) return false;
-      std::string name(length, '\0');
+      base::String name(length, '\0');
       file.read(name.data(), length);
       if (!file) return false;
-      std::string key = asset::NormalizePath(name);
+      base::String key = asset::NormalizePath(name);
       if (dx10)
-        tex_entries_.emplace(std::move(key), std::move(tex[i]));
+        tex_entries_.emplace(base::move(key), base::move(tex[i]));
       else
-        entries_.emplace(std::move(key), gnrl[i]);
+        entries_.emplace(base::move(key), gnrl[i]);
     }
     return true;
   }
 
   bool Contains(std::string_view normalized_path) const override {
-    std::string key(normalized_path);
+    base::String key(normalized_path);
     return entries_.contains(key) || tex_entries_.contains(key);
   }
 
   std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
-    std::string key(normalized_path);
-    std::ifstream file(path_, std::ios::binary);
+    base::String key(normalized_path);
+    std::ifstream file(path_.c_str(), std::ios::binary);
     if (!file) return std::nullopt;
     const bool lz4 = header_.version == 3;
 
-    if (auto it = entries_.find(key); it != entries_.end()) {
-      const GnrlEntry& e = it->second;
+    if (auto* it = entries_.find(key); it != nullptr) {
+      const GnrlEntry& e = *it;
       base::Vector<u8> data(e.full_size);
       if (!ReadBlock(file, e.offset, e.packed_size, e.full_size, data.data(), lz4)) {
         RX_WARN("ba2 read failed: {} in {}", normalized_path, path_);
@@ -205,8 +211,8 @@ class Ba2Provider final : public asset::FileProvider {
       return data;
     }
 
-    if (auto it = tex_entries_.find(key); it != tex_entries_.end()) {
-      const TexEntry& tex = it->second;
+    if (auto* it = tex_entries_.find(key); it != nullptr) {
+      const TexEntry& tex = *it;
       base::Vector<u8> dds = MakeDdsHeader(tex);
       const size_t header_size = dds.size();
       size_t total = header_size;
@@ -230,14 +236,14 @@ class Ba2Provider final : public asset::FileProvider {
     for (const auto& [name, entry] : tex_entries_) fn(name);
   }
 
-  std::string name() const override { return path_; }
+  std::string name() const override { return path_.c_str(); }
 
  private:
-  std::string path_;
+  base::String path_;
   Ba2Header header_;
-  // std::string keyed maps stay STL, matching the Vfs path convention.
-  std::unordered_map<std::string, GnrlEntry> entries_;
-  std::unordered_map<std::string, TexEntry> tex_entries_;
+  // base::String keyed maps stay STL, matching the Vfs path convention.
+  base::UnorderedMap<base::String, GnrlEntry> entries_;
+  base::UnorderedMap<base::String, TexEntry> tex_entries_;
 };
 
 bool IsKnownVersion(u32 version) {
@@ -246,8 +252,8 @@ bool IsKnownVersion(u32 version) {
 
 }  // namespace
 
-base::UniquePointer<asset::FileProvider> OpenBa2(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
+base::UniquePointer<asset::FileProvider> OpenBa2(const base::String& path) {
+  std::ifstream file(path.c_str(), std::ios::binary);
   if (!file) return nullptr;
   Ba2Header header{};
   file.read(reinterpret_cast<char*>(&header), sizeof(header));
@@ -255,8 +261,7 @@ base::UniquePointer<asset::FileProvider> OpenBa2(const std::string& path) {
     RX_ERROR("not a ba2: {}", path);
     return nullptr;
   }
-  if (!IsKnownVersion(header.version) ||
-      (header.type != kBa2Gnrl && header.type != kBa2Dx10)) {
+  if (!IsKnownVersion(header.version) || (header.type != kBa2Gnrl && header.type != kBa2Dx10)) {
     RX_ERROR("unsupported ba2 (v{}) in {}", header.version, path);
     return nullptr;
   }
@@ -270,7 +275,7 @@ base::UniquePointer<asset::FileProvider> OpenBa2(const std::string& path) {
   return provider;
 }
 
-base::UniquePointer<asset::FileProvider> OpenArchive(const std::string& path) {
+base::UniquePointer<asset::FileProvider> OpenArchive(const base::String& path) {
   if (path.ends_with(".bsa") || path.ends_with(".BSA")) return OpenBsa(path);
   if (path.ends_with(".ba2") || path.ends_with(".BA2")) return OpenBa2(path);
   return nullptr;

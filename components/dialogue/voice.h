@@ -1,10 +1,10 @@
 #ifndef RECREATION_DIALOGUE_VOICE_H_
 #define RECREATION_DIALOGUE_VOICE_H_
 
-#include <string>
-#include <string_view>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -30,28 +30,28 @@ namespace rx::dialogue {
 // long as the recording, which is how the game times its scene phases.
 
 // Builds the voice path for one response. `topic_edid` may be empty.
-std::string VoiceFilePath(const std::string& plugin_file, const std::string& voice_type,
-                          const std::string& quest_edid, const std::string& topic_edid,
-                          u32 info_local_id, int response_index);
+base::String VoiceFilePath(const base::String& plugin_file, const base::String& voice_type,
+                           const base::String& quest_edid, const base::String& topic_edid,
+                           u32 info_local_id, int response_index);
 
 // Every path worth probing for a line, best first: the plugin/quest/topic naming
 // above, then the same file under the plugin's other spellings (a master's lines
 // can be voiced in an update plugin) and with the response index dropped. The
 // caller picks the first that exists in the Vfs.
-base::Vector<std::string> VoiceFileCandidates(const base::Vector<std::string>& plugin_files,
-                                             const std::string& voice_type,
-                                             const std::string& quest_edid,
-                                             const std::string& topic_edid, u32 info_local_id,
-                                             int response_index);
+base::Vector<base::String> VoiceFileCandidates(const base::Vector<base::String>& plugin_files,
+                                               const base::String& voice_type,
+                                               const base::String& quest_edid,
+                                               const base::String& topic_edid, u32 info_local_id,
+                                               int response_index);
 
 // The VTCK voice type editor id of an NPC_ (empty when it has none). This is the
 // directory the NPC's lines live in, so it is what turns an INFO into a file.
-std::string VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::GlobalFormId npc);
+base::String VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::GlobalFormId npc);
 
 // How long a line takes to read when there is no clip to measure: a speaking-rate
 // estimate, clamped so a one-word line still registers and a long one does not
 // stall a scene.
-f32 EstimateLineSeconds(const std::string& text);
+f32 EstimateLineSeconds(const base::String& text);
 
 // An index of the voice archive, keyed by the INFO the recording belongs to.
 //
@@ -71,16 +71,16 @@ class VoiceIndex {
 
   // The clip for a line, preferring the speaker's voice type and otherwise any
   // recording of that INFO. Empty when the archive has none.
-  std::string Find(u32 info_local_id, const std::string& voice_type) const;
+  base::String Find(u32 info_local_id, const base::String& voice_type) const;
 
   // Parses one voice path into the INFO id and voice type it belongs to. False when
   // the name does not carry an id (a lip file, an unrelated asset).
-  static bool ParsePath(std::string_view path, u32* info_local_id, std::string* voice_type);
+  static bool ParsePath(base::StringRef path, u32* info_local_id, base::String* voice_type);
 
  private:
   struct Clip {
-    std::string voice_type;
-    std::string path;
+    base::String voice_type;
+    base::String path;
   };
   base::UnorderedMap<u32, base::Vector<Clip>> by_info_;
   bool built_ = false;

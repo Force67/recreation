@@ -1,10 +1,12 @@
 #ifndef RECREATION_QUEST_QUEST_SYSTEM_H_
 #define RECREATION_QUEST_QUEST_SYSTEM_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/quest_def.h"
@@ -31,7 +33,7 @@ enum class QuestEvent {
 // targets come from the parsed QUST definition (empty when no def is loaded).
 struct ObjectiveStatus {
   i32 index = 0;
-  std::string text;
+  base::String text;
   bool displayed = false;
   bool completed = false;
 };
@@ -41,15 +43,15 @@ struct ObjectiveStatus {
 // so callers never reach into the system's internals.
 struct QuestStatus {
   QuestHandle handle = 0;
-  std::string editor_id;
-  std::string name;       // FULL text, falls back to editor id then handle
+  base::String editor_id;
+  base::String name;  // FULL text, falls back to editor id then handle
   bool running = false;
   bool active = true;     // shows in the journal / HUD when running
   bool complete = false;  // reached a stage flagged "complete quest"
   i32 stage = 0;
-  std::string log_entry;  // journal text of the most recently set stage
-  u32 revision = 0;       // bumps on every mutation; lets the net layer delta
-  std::vector<ObjectiveStatus> objectives;
+  base::String log_entry;  // journal text of the most recently set stage
+  u32 revision = 0;        // bumps on every mutation; lets the net layer delta
+  base::Vector<ObjectiveStatus> objectives;
 };
 
 // The engine's single source of truth for quest runtime state, decoupled from
@@ -101,10 +103,10 @@ class QuestSystem {
   // ---- Snapshots for HUD / debugger / network. ----
   QuestStatus Status(QuestHandle quest) const;
   // Every quest the system has touched, in unspecified order.
-  std::vector<QuestStatus> AllStatuses() const;
+  base::Vector<QuestStatus> AllStatuses() const;
   // Running quests, for the HUD. include_inactive keeps quests whose journal is
   // hidden (active == false); the HUD omits them by default.
-  std::vector<QuestStatus> RunningStatuses(bool include_inactive = false) const;
+  base::Vector<QuestStatus> RunningStatuses(bool include_inactive = false) const;
 
   // Overwrites one quest's state from a remote authority (multiplayer client).
   // Does not run fragments; fires kApplied so the HUD refreshes. Stage/objective
@@ -117,7 +119,7 @@ class QuestSystem {
 
   // Listeners fire after each mutation completes. Used for HUD toasts and to
   // flag the quest for replication. Cleared only by destruction.
-  void AddListener(Listener listener) { listeners_.push_back(std::move(listener)); }
+  void AddListener(Listener listener) { listeners_.push_back(base::move(listener)); }
 
  private:
   struct QuestState {
@@ -128,9 +130,9 @@ class QuestSystem {
     // completion even if its current stage is not the definition's completing
     // stage (e.g. the server advanced past it into an epilogue stage).
     bool complete_override = false;
-    std::unordered_map<i32, bool> stage_done;
-    std::unordered_map<i32, bool> objective_displayed;
-    std::unordered_map<i32, bool> objective_completed;
+    base::UnorderedMap<i32, bool> stage_done;
+    base::UnorderedMap<i32, bool> objective_displayed;
+    base::UnorderedMap<i32, bool> objective_completed;
     u32 revision = 0;
   };
 
@@ -141,9 +143,9 @@ class QuestSystem {
   void Notify(QuestHandle quest, QuestEvent event);
   void FillStatus(QuestHandle quest, const QuestState& state, QuestStatus* out) const;
 
-  std::unordered_map<QuestHandle, QuestState> states_;
-  std::unordered_map<QuestHandle, QuestDef> defs_;
-  std::vector<Listener> listeners_;
+  base::UnorderedMap<QuestHandle, QuestState> states_;
+  base::UnorderedMap<QuestHandle, QuestDef> defs_;
+  base::Vector<Listener> listeners_;
   u32 revision_ = 0;
 };
 

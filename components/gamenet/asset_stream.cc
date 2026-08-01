@@ -1,11 +1,12 @@
+#include "core/log.h"
 #include "components/gamenet/asset_stream.h"
+
+#include <base/filesystem/path.h>
 
 #include <algorithm>
 #include <utility>
 
-#include <base/filesystem/path.h>
-
-#include "core/log.h"
+#include "components/gamenet/protocol.h"
 #include "components/modstream/asset_request.h"
 #include "components/modstream/manifest_chunk.h"
 #include "components/modstream/manifest_codec.h"
@@ -22,22 +23,18 @@ namespace fs = std::filesystem;
 // (8 bytes each plus a 4-byte count). Larger plans split across packets.
 constexpr u32 kRequestHashesPerPacket = 6000;
 
-base::Path ToBasePath(const fs::path& path) {
-  return base::Path(path.string().c_str());
-}
+base::Path ToBasePath(const fs::path& path) { return base::Path(path.string().c_str()); }
 
 }  // namespace
 
 // --- server ---
 
 AssetStreamServer::AssetStreamServer(tx::network::ZServer& server,
-                                     const modstream::ModCatalog& catalog,
-                                     unsigned sender_threads)
+                                     const modstream::ModCatalog& catalog, unsigned sender_threads)
     : server_(server), catalog_(&catalog), transporter_(server) {
   const unsigned count = sender_threads > 0 ? sender_threads : 1;
   workers_.reserve(count);
-  for (unsigned i = 0; i < count; ++i)
-    workers_.emplace_back(&AssetStreamServer::Worker, this);
+  for (unsigned i = 0; i < count; ++i) workers_.emplace_back(&AssetStreamServer::Worker, this);
 }
 
 AssetStreamServer::~AssetStreamServer() {
@@ -66,8 +63,8 @@ void AssetStreamServer::SendManifest(u32 peer) {
                                                            bytes.data() + offset, len),
                             /*reliable=*/true, tx::network::PacketPriority::High));
   }
-  RX_INFO("net: sent manifest ({} files, {} bytes) to peer {}",
-           catalog_->manifest().TotalFiles(), catalog_->manifest().TotalBytes(), peer);
+  RX_INFO("net: sent manifest ({} files, {} bytes) to peer {}", catalog_->manifest().TotalFiles(),
+          catalog_->manifest().TotalBytes(), peer);
 }
 
 void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
@@ -79,7 +76,7 @@ void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     for (modstream::ContentHash hash : *hashes) {
-      std::optional<fs::path> path = catalog_->PathForHash(hash);
+      base::Optional<fs::path> path = catalog_->PathForHash(hash);
       if (!path) continue;  // not catalogued: never read outside the mods dir
       jobs_.push_back({peer, std::move(*path)});
       ++queued;
@@ -99,23 +96,18 @@ void AssetStreamServer::Worker() {
       jobs_.pop_front();
     }
     if (!transporter_.SendFile(ToBasePath(job.path), tx::network::ZPeerId(job.peer))) {
-      RX_WARN("net: asset stream failed to send {} to peer {}",
-               job.path.string(), job.peer);
+      RX_WARN("net: asset stream failed to send {} to peer {}", job.path.string(), job.peer);
     }
   }
 }
 
 // --- client ---
 
-AssetStreamClient::AssetStreamClient(tx::network::ZClient& client,
-                                     modstream::ContentStore& store,
+AssetStreamClient::AssetStreamClient(tx::network::ZClient& client, modstream::ContentStore& store,
                                      fs::path incoming_dir)
-    : client_(client),
-      store_(store),
-      incoming_dir_(std::move(incoming_dir)),
-      transporter_(client) {
+    : client_(client), store_(store), incoming_dir_(std::move(incoming_dir)), transporter_(client) {
   std::error_code ec;
-  fs::create_directories(incoming_dir_, ec);
+  fs::create_directories(incoming_dir_.c_str(), ec);
   // File-transfer chunks arrive as system packets on zetanet's control channel.
   // The client session drains that channel each tick and routes them to
   // OnFilePacket (see ClientSession::Tick), since ZClient::Update would
@@ -138,8 +130,7 @@ u64 AssetStreamClient::bytes_remaining() const {
 void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
   // The codec validates the chunk in isolation (header, counts, index, payload
   // length), so reassembly below cannot write out of range.
-  std::optional<modstream::ManifestChunkView> chunk =
-      modstream::DecodeManifestChunk(data, size);
+  std::optional<modstream::ManifestChunkView> chunk = modstream::DecodeManifestChunk(data, size);
   if (!chunk) return;
 
   // Process a chunk only for a newer generation (a fresh manifest, from join or a
@@ -164,8 +155,7 @@ void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
   }
 
   const u32 offset = chunk->chunk_index * modstream::kManifestChunkPayload;
-  std::copy(chunk->payload, chunk->payload + chunk->payload_len,
-            manifest_buffer_.begin() + offset);
+  std::copy(chunk->payload, chunk->payload + chunk->payload_len, manifest_buffer_.begin() + offset);
   manifest_chunks_[chunk->chunk_index] = true;
   if (manifest_chunks_.size() == manifest_total_chunks_) OnManifestComplete();
 }
@@ -185,8 +175,7 @@ void AssetStreamClient::ResetForNewManifest() {
 }
 
 void AssetStreamClient::OnManifestComplete() {
-  std::optional<modstream::ModManifest> decoded =
-      modstream::DecodeManifest(manifest_buffer_);
+  std::optional<modstream::ModManifest> decoded = modstream::DecodeManifest(manifest_buffer_);
   if (!decoded) {
     RX_ERROR("net: received a corrupt asset manifest");
     failed_ = true;
@@ -194,11 +183,9 @@ void AssetStreamClient::OnManifestComplete() {
   }
   manifest_ = std::move(*decoded);
 
-  const std::vector<modstream::NeededFile> plan =
-      modstream::ComputeMissing(manifest_, store_);
+  const std::vector<modstream::NeededFile> plan = modstream::ComputeMissing(manifest_, store_);
   if (plan.empty()) {
-    RX_INFO("net: asset manifest complete, {} files already cached",
-             manifest_.TotalFiles());
+    RX_INFO("net: asset manifest complete, {} files already cached", manifest_.TotalFiles());
     ready_ = true;
     SendReady();
     if (on_ready_) on_ready_(manifest_);
@@ -219,14 +206,13 @@ void AssetStreamClient::OnManifestComplete() {
     std::vector<modstream::ContentHash> batch;
     batch.reserve(end - base);
     for (size_t i = base; i < end; ++i) batch.push_back(plan[i].hash);
-    client_.Push(MakePacket(tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetRequest),
-                            modstream::EncodeHashRequest(batch), /*reliable=*/true,
-                            tx::network::PacketPriority::High));
+    client_.Push(MakePacket(
+        tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetRequest),
+        modstream::EncodeHashRequest(batch), /*reliable=*/true, tx::network::PacketPriority::High));
   }
 }
 
-void AssetStreamClient::HandleChunk(
-    const tx::network::ZFileTransporter::TransferChunk& chunk) {
+void AssetStreamClient::HandleChunk(const tx::network::ZFileTransporter::TransferChunk& chunk) {
   const u64 transfer_id = chunk.transfer_id;
   Transfer& transfer = transfers_[transfer_id];
   transfer.pending[chunk.chunk_index] = chunk;
@@ -263,7 +249,7 @@ void AssetStreamClient::HandleChunk(
 }
 
 void AssetStreamClient::OnFileFinished(const fs::path& path) {
-  std::optional<modstream::ContentHash> hash = store_.Ingest(path);
+  base::Optional<modstream::ContentHash> hash = store_.Ingest(path);
   if (!hash) {
     RX_WARN("net: failed to cache a streamed mod file");
     failed_ = true;
@@ -278,7 +264,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
     const size_t step = planned_files_ <= 20 ? 1 : planned_files_ / 10;
     if (done % step == 0) {
       RX_INFO("net: streamed {}/{} mod files ({} bytes left)", done, planned_files_,
-               bytes_remaining());
+              bytes_remaining());
     }
   }
 
@@ -292,9 +278,9 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
 }
 
 void AssetStreamClient::SendReady() {
-  client_.Push(MakePacket(tx::network::ZPeerId::to_server, static_cast<u16>(GameMessage::kAssetReady),
-                          std::vector<u8>{}, /*reliable=*/true,
-                          tx::network::PacketPriority::High));
+  client_.Push(MakePacket(tx::network::ZPeerId::to_server,
+                          static_cast<u16>(GameMessage::kAssetReady), std::vector<u8>{},
+                          /*reliable=*/true, tx::network::PacketPriority::High));
 }
 
 }  // namespace rx::net

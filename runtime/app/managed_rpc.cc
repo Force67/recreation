@@ -1,3 +1,6 @@
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include "runtime/app/engine.h"
 
 // Bridges the managed (C#) scripting world to the multiplayer RPC channel. The
@@ -8,8 +11,6 @@
 #if RECREATION_HAS_NET
 
 #include <cstdint>
-#include <string>
-#include <vector>
 
 #include "net/rpc_channel.h"
 #include "components/gamenet/session.h"
@@ -85,10 +86,10 @@ ApiValue ToApi(const rpc::RpcValue& v) {
 // code. Pure of Engine internals (takes the registry and host directly), so it
 // can live outside the friend functions.
 void RegisterForwardingOn(rpc::RpcRegistry* registry, script::host::ManagedHost* managed,
-                          std::string name) {
+                          base::String name) {
   if (!registry || !managed) return;
-  registry->On(name, [managed, name](const rpc::RpcContext& ctx, const rpc::RpcArgs& args) {
-    std::vector<ApiValue> api;
+  registry->On(name.c_str(), [managed, name](const rpc::RpcContext& ctx, const rpc::RpcArgs& args) {
+    base::Vector<ApiValue> api;
     api.reserve(args.size());
     for (const rpc::RpcValue& v : args) api.push_back(ToApi(v));
     managed->DispatchRpc(name.c_str(), static_cast<std::int32_t>(ctx.sender),
@@ -118,7 +119,8 @@ void EngineRpcEmitImpl(Engine& e, std::int32_t target, std::uint64_t peer, const
 
   switch (static_cast<script::host::RpcTarget>(target)) {
     case script::host::RpcTarget::kToServer:
-      if (e.client_session_ && e.client_session_->rpc()) e.client_session_->rpc()->EmitToServer(call);
+      if (e.client_session_ && e.client_session_->rpc())
+        e.client_session_->rpc()->EmitToServer(call);
       break;
     case script::host::RpcTarget::kToClient:
       if (e.server_session_ && e.server_session_->rpc())
@@ -134,12 +136,13 @@ void EngineRpcEmitImpl(Engine& e, std::int32_t target, std::uint64_t peer, const
 // is already live; otherwise StartNetworking forwards it once the session opens.
 void EngineRpcSubscribeImpl(Engine& e, const char* name) {
   if (!name || !*name) return;
-  std::string n(name);
-  for (const std::string& existing : e.managed_rpc_names_) {
+  base::String n(name);
+  for (const base::String& existing : e.managed_rpc_names_) {
     if (existing == n) return;  // already subscribed
   }
   e.managed_rpc_names_.push_back(n);
-  RegisterForwardingOn(ActiveRegistry(e.server_session_, e.client_session_), e.managed_.get(), n);
+  RegisterForwardingOn(ActiveRegistry(e.server_session_, e.client_session_),
+                       (e.managed_ ? &*e.managed_ : nullptr), n);
 }
 
 namespace {
@@ -162,8 +165,8 @@ script::host::RpcBridge MakeManagedRpcBridge(Engine& engine) {
 void RegisterManagedRpcForwarding(Engine& e) {
   rpc::RpcRegistry* registry = ActiveRegistry(e.server_session_, e.client_session_);
   if (!registry) return;
-  for (const std::string& name : e.managed_rpc_names_) {
-    RegisterForwardingOn(registry, e.managed_.get(), name);
+  for (const base::String& name : e.managed_rpc_names_) {
+    RegisterForwardingOn(registry, (e.managed_ ? &*e.managed_ : nullptr), name);
   }
 }
 

@@ -51,8 +51,8 @@ void WriteFile(const fs::path& path, const std::string& contents) {
 
 // Pumps both sessions one fixed step and yields briefly so the threaded
 // transport makes progress.
-void Pump(net::GameServerSession& server, ecs::World& sworld,
-          net::GameClientSession& client, ecs::World& cworld) {
+void Pump(net::GameServerSession& server, ecs::World& sworld, net::GameClientSession& client,
+          ecs::World& cworld) {
   const float dt = 1.0f / 60.0f;
   server.Tick(sworld, dt);
   client.Tick(cworld, dt);
@@ -66,7 +66,7 @@ int main() {
 
   const fs::path tmp = fs::temp_directory_path() / "rec_asset_stream_test";
   std::error_code ec;
-  fs::remove_all(tmp, ec);
+  fs::remove_all(tmp.c_str(), ec);
   const fs::path mods_dir = tmp / "server_mods";
   const fs::path cache_dir = tmp / "client_cache";
 
@@ -74,7 +74,7 @@ int main() {
   WriteFile(mods_dir / "weapons" / "textures" / "sword.dds", "TEX" + std::string(9000, 't'));
   WriteFile(mods_dir / "scripts" / "main.lua", "print('hi')");
 
-  std::optional<modstream::ModCatalog> catalog = modstream::ModCatalog::Build(mods_dir);
+  base::Optional<modstream::ModCatalog> catalog = modstream::ModCatalog::Build(mods_dir);
   Check("server catalogs the mods dir", catalog.has_value());
   if (!catalog) {
     std::printf("asset_streamtest: %d failure(s)\n", g_failures + 1);
@@ -83,7 +83,7 @@ int main() {
   modstream::ContentStore store(cache_dir);
   // Declared before the server so it outlives the catalog the server points at
   // after a live reload below.
-  std::optional<modstream::ModCatalog> reload_catalog;
+  base::Optional<modstream::ModCatalog> reload_catalog;
 
   // --- bring up a loopback server and client ---
   net::GameSessionConfig server_cfg;
@@ -169,8 +169,7 @@ int main() {
     auto mesh = client_vfs.Read("meshes/sword.nif");
     return mesh && mesh->size() == 3004;
   }());
-  Check("streamed script reads back through the Vfs",
-        client_vfs.Read("main.lua").has_value());
+  Check("streamed script reads back through the Vfs", client_vfs.Read("main.lua").has_value());
 
   // Every catalogued file now lives in the cache, keyed by content hash.
   bool all_cached = true;
@@ -203,10 +202,8 @@ int main() {
     server.ReloadCatalog(*reload_catalog);  // bumps the generation + re-sends
     for (int i = 0; i < 1500 && mount_count == mounts_before; ++i)
       Pump(server, sworld, client, cworld);
-    Check("connected client re-mounted after the live reload",
-          mount_count == mounts_before + 1);
-    Check("the live-added file resolves on the client",
-          client_vfs.Read("extra.lua").has_value());
+    Check("connected client re-mounted after the live reload", mount_count == mounts_before + 1);
+    Check("the live-added file resolves on the client", client_vfs.Read("extra.lua").has_value());
     Check("unchanged content still resolves after the reload",
           client_vfs.Read("meshes/sword.nif").has_value());
   }
@@ -221,7 +218,7 @@ int main() {
   Check("server raised the leave hook on timeout", server_saw_left);
   Check("leave hook carries the peer id", left_peer == 0);
 
-  fs::remove_all(tmp, ec);
+  fs::remove_all(tmp.c_str(), ec);
   std::printf("asset_streamtest: %d failure(s)\n", g_failures);
   return g_failures ? 1 : 0;
 }

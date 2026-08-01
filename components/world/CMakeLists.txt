@@ -31,4 +31,5 @@ recreation_add_test(combattest
 recreation_add_test(terrain_edittest SRCS terrain_edits.cc)
 if(TARGET terrain_edittest)
   target_include_directories(terrain_edittest PRIVATE ${RECREATION_RX_DIR}/engine)
+  target_link_libraries(terrain_edittest PRIVATE equilibrium::base)
 endif()

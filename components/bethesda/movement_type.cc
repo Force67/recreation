@@ -1,5 +1,9 @@
 #include "components/bethesda/movement_type.h"
 
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+
 #include <cstring>
 
 #include "components/bethesda/record.h"
@@ -24,7 +28,7 @@ f32 ReadFloat(const ByteSpan& data, size_t index) {
 
 }  // namespace
 
-int LoadMovementTypes(const RecordStore& records, std::unordered_map<u64, MovementType>* out) {
+int LoadMovementTypes(const RecordStore& records, base::UnorderedMap<u64, MovementType>* out) {
   if (!out) return 0;
   int count = 0;
   records.EachOfType(kMovt, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
@@ -51,14 +55,14 @@ int LoadMovementTypes(const RecordStore& records, std::unordered_map<u64, Moveme
       mt.rotate_while_moving_run = ReadFloat(sped->data, 10);
       mt.has_speeds = true;
     }
-    (*out)[mt.form] = std::move(mt);
+    (*out)[mt.form] = base::move(mt);
     ++count;
   });
   return count;
 }
 
-const MovementType* FindMovementType(const std::unordered_map<u64, MovementType>& types,
-                                     std::string_view editor_id) {
+const MovementType* FindMovementType(const base::UnorderedMap<u64, MovementType>& types,
+                                     base::StringRef editor_id) {
   for (const auto& [form, mt] : types) {
     if (mt.editor_id == editor_id) return &mt;
   }

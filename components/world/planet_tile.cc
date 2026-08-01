@@ -1,11 +1,15 @@
 #include "components/world/planet_tile.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstring>
 
-#include <base/option.h>
-
+#include "components/world/components.h"
 #include "core/log.h"
 #include "components/world/components.h"
 
@@ -33,7 +37,7 @@ struct Rng {
   f32 Range(f32 a, f32 b) { return a + (b - a) * Uniform(); }
 };
 
-u64 HashString(const std::string& s) {
+u64 HashString(const base::String& s) {
   u64 h = 1469598103934665603ull;  // FNV-1a
   for (char c : s) {
     h ^= static_cast<u8>(c);
@@ -97,8 +101,9 @@ u32 PlanetTile::BiomeIndexForCell(i32 cell_x, i32 cell_y) const {
   const u32 dim = bethesda::BiomeMap::kDim;
   const i32 gx = static_cast<i32>(dim / 2) + cell_x * 6;
   const i32 gy = static_cast<i32>(dim / 2) + cell_y * 6;
-  const u32 raw = surface_.map.BiomeAt(0, static_cast<u32>(std::clamp(gx, 0, static_cast<i32>(dim) - 1)),
-                                       static_cast<u32>(std::clamp(gy, 0, static_cast<i32>(dim) - 1)));
+  const u32 raw =
+      surface_.map.BiomeAt(0, static_cast<u32>(base::Clamp(gx, 0, static_cast<i32>(dim) - 1)),
+                           static_cast<u32>(base::Clamp(gy, 0, static_cast<i32>(dim) - 1)));
   for (u32 i = 0; i < surface_.map.biome_ids.size(); ++i)
     if (surface_.map.biome_ids[i] == raw) return i;
   return 0;
@@ -111,7 +116,7 @@ asset::AssetId PlanetTile::GroundMaterial(u32 biome_index) {
       biome_index < surface_.grounds.size() ? &surface_.grounds[biome_index] : nullptr;
 
   asset::Material material;
-  const std::string name = surface_.name + "/ground/" + std::to_string(biome_index);
+  const base::String name = base::String(surface_.name) + "/ground/" + base::ToString(biome_index);
   material.id = asset::MakeAssetId(name);
   material.roughness_factor = 1.0f;
 
@@ -119,9 +124,9 @@ asset::AssetId PlanetTile::GroundMaterial(u32 biome_index) {
     // The BMC map colour is the ground tint fallback (and multiplies the
     // texture when one resolves). Bias away from pure black so barren biomes
     // are not invisible.
-    material.base_color_factor[0] = std::max(0.18f, ground->tint[0]);
-    material.base_color_factor[1] = std::max(0.18f, ground->tint[1]);
-    material.base_color_factor[2] = std::max(0.18f, ground->tint[2]);
+    material.base_color_factor[0] = base::Max(0.18f, ground->tint[0]);
+    material.base_color_factor[1] = base::Max(0.18f, ground->tint[1]);
+    material.base_color_factor[2] = base::Max(0.18f, ground->tint[2]);
     if (!ground->base_color.empty() && GroundTexture.get()) {
       if (const asset::Texture* t = assets_.LoadTexture(ground->base_color)) {
         material.base_color = t->id;
@@ -170,17 +175,19 @@ f32 PlanetTile::GroundHeightAt(f32 engine_x, f32 engine_z) const {
 }
 
 const asset::Mesh* PlanetTile::BoulderMesh(u64 seed, f32 tint[3]) {
-  const asset::AssetId id = asset::MakeAssetId(surface_.name + "/rock/" + std::to_string(seed));
+  const asset::AssetId id =
+      asset::MakeAssetId(base::String(surface_.name) + "/rock/" + base::ToString(seed));
   if (const asset::Mesh* existing = assets_.FindMesh(id)) return existing;
 
   // A jittered icosphere-ish blob: a low-poly boulder, deterministic per seed.
   Rng rng(seed);
   asset::Material material;
-  material.id = asset::MakeAssetId(surface_.name + "/rockmat/" + std::to_string(seed % 8));
+  material.id =
+      asset::MakeAssetId(base::String(surface_.name) + "/rockmat/" + base::ToString(seed % 8));
   material.roughness_factor = 0.95f;
-  material.base_color_factor[0] = std::max(0.12f, tint[0] * 0.8f);
-  material.base_color_factor[1] = std::max(0.12f, tint[1] * 0.8f);
-  material.base_color_factor[2] = std::max(0.12f, tint[2] * 0.8f);
+  material.base_color_factor[0] = base::Max(0.12f, tint[0] * 0.8f);
+  material.base_color_factor[1] = base::Max(0.12f, tint[1] * 0.8f);
+  material.base_color_factor[2] = base::Max(0.12f, tint[2] * 0.8f);
   assets_.AddMaterial(material);
 
   asset::Mesh mesh;
@@ -212,7 +219,7 @@ const asset::Mesh* PlanetTile::BoulderMesh(u64 seed, f32 tint[3]) {
       vert.tangent[3] = 1;
       vert.uv[0] = u;
       vert.uv[1] = v;
-      max_r = std::max(max_r, r);
+      max_r = base::Max(max_r, r);
       lod.vertices.push_back(vert);
     }
   }
@@ -236,7 +243,7 @@ const asset::Mesh* PlanetTile::BoulderMesh(u64 seed, f32 tint[3]) {
   submesh.material = material.id;
   lod.submeshes.push_back(submesh);
   mesh.bounds_radius = max_r;
-  return assets_.AddMesh(std::move(mesh));
+  return assets_.AddMesh(base::move(mesh));
 }
 
 void PlanetTile::SpawnScatter(ecs::World& world, i32 cell_x, i32 cell_y, u32 biome_index) {
@@ -290,8 +297,8 @@ u32 PlanetTile::Generate(ecs::World& world) {
 
       // Build the terrain mesh (same layout as LAND SpawnTerrain).
       asset::Mesh mesh;
-      mesh.id = asset::MakeAssetId(surface_.name + "/tile/" + std::to_string(cx) + "_" +
-                                   std::to_string(cy));
+      mesh.id = asset::MakeAssetId(base::String(surface_.name) + "/tile/" + base::ToString(cx) +
+                                   "_" + base::ToString(cy));
       mesh.lods.emplace_back();
       asset::MeshLod& lod = mesh.lods[0];
       const f32 spacing = config_.cell_size / (kGrid - 1);
@@ -303,8 +310,8 @@ u32 PlanetTile::Generate(ecs::World& world) {
           v.position[0] = static_cast<f32>(c) * spacing;
           v.position[1] = static_cast<f32>(r) * spacing;
           v.position[2] = heights[idx];
-          min_h = std::min(min_h, heights[idx]);
-          max_h = std::max(max_h, heights[idx]);
+          min_h = base::Min(min_h, heights[idx]);
+          max_h = base::Max(max_h, heights[idx]);
           v.normal[2] = 1;
           v.tangent[0] = 1;
           v.tangent[3] = 1;
@@ -350,14 +357,15 @@ u32 PlanetTile::Generate(ecs::World& world) {
       mesh.bounds_center[2] = (min_h + max_h) * 0.5f;
       mesh.bounds_radius = std::sqrt(2 * config_.cell_size * 0.5f * config_.cell_size * 0.5f +
                                      (max_h - min_h) * (max_h - min_h) * 0.25f);
-      const asset::Mesh* built = assets_.AddMesh(std::move(mesh));
+      const asset::Mesh* built = assets_.AddMesh(base::move(mesh));
 
       // Upload textures -> material -> mesh (headless leaves uploads_ empty).
       if (uploads_.mesh) {
         const asset::Material* mat = assets_.FindMaterial(material_id);
         if (mat) {
           if (mat->base_color)
-            if (const asset::Texture* t = assets_.FindTexture(mat->base_color)) uploads_.texture(*t);
+            if (const asset::Texture* t = assets_.FindTexture(mat->base_color))
+              uploads_.texture(*t);
           if (mat->normal)
             if (const asset::Texture* t = assets_.FindTexture(mat->normal)) uploads_.texture(*t);
           uploads_.material(*mat);
@@ -373,9 +381,9 @@ u32 PlanetTile::Generate(ecs::World& world) {
             const u32 row = kGrid - 1 - j;
             engine_heights[j * kGrid + i] = heights[row * kGrid + i] * config_.units_to_meters;
           }
-        const Vec3 origin{static_cast<f32>(cx) * config_.cell_size * config_.units_to_meters, 0.0f,
-                          -(static_cast<f32>(cy) + 1.0f) * config_.cell_size *
-                              config_.units_to_meters};
+        const Vec3 origin{
+            static_cast<f32>(cx) * config_.cell_size * config_.units_to_meters, 0.0f,
+            -(static_cast<f32>(cy) + 1.0f) * config_.cell_size * config_.units_to_meters};
         physics_->AddHeightField(origin, engine_heights, kGrid,
                                  config_.cell_size * config_.units_to_meters);
       }

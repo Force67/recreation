@@ -1,11 +1,13 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_VM_H_
 #define RECREATION_SCRIPT_PAPYRUS_VM_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "core/types.h"
 #include "components/script/papyrus/fiber.h"
@@ -33,20 +35,20 @@ class VirtualMachine : public VmInterface {
 
   // Parses and registers a compiled script. The script's object name becomes a
   // known type. Returns the type name, or "" on a parse failure.
-  std::string LoadScript(ByteSpan pex_data);
+  base::String LoadScript(ByteSpan pex_data);
 
   // Registers an already-parsed script. Returns the type name, or "" if the
   // file has no object.
-  std::string AddScript(PexFile pex);
+  base::String AddScript(PexFile pex);
 
-  bool HasScript(const std::string& type) const;
+  bool HasScript(const base::String& type) const;
   size_t script_count() const { return scripts_.size(); }
 
   // A traced native invocation: the script type that declared it, the function
   // name, and a monotonic sequence number (1 = first since tracing began).
   struct NativeCall {
-    std::string script_type;
-    std::string function;
+    base::String script_type;
+    base::String function;
     u64 seq = 0;
   };
   // Native-call tracing for the debug overlay. Off by default (it copies two
@@ -58,12 +60,12 @@ class VirtualMachine : public VmInterface {
   // alias pointing at a placed actor, a freshly spawned actor, fails every
   // `GetReference() as Actor`, which silently breaks faction/owner classifiers.
   // The game supplies it (records + runtime actor state know the real kind).
-  void set_type_resolver(std::function<bool(ObjectRef, const std::string&)> r) {
-    type_resolver_ = std::move(r);
+  void set_type_resolver(std::function<bool(ObjectRef, const base::String&)> r) {
+    type_resolver_ = base::move(r);
   }
   bool native_trace() const { return native_trace_enabled_; }
   u64 native_call_count() const { return native_call_count_; }
-  const std::vector<NativeCall>& native_trace_log() const { return native_trace_; }
+  const base::Vector<NativeCall>& native_trace_log() const { return native_trace_; }
   void ClearNativeTrace() {
     native_trace_.clear();
     native_call_count_ = 0;
@@ -71,36 +73,36 @@ class VirtualMachine : public VmInterface {
 
   // Instantiates a known script type. Member variables are seeded from the
   // script's declared defaults. Returns None for an unknown type.
-  ObjectRef CreateInstance(const std::string& type);
+  ObjectRef CreateInstance(const base::String& type);
   // Same, but with a caller-chosen handle (the engine uses a form id, so an
   // object reference between scripts resolves to the same instance). A handle
   // may carry multiple script types; adding an already-present type is a no-op.
-  ObjectRef CreateInstanceWithHandle(const std::string& type, u64 handle);
-  bool HasAttachedScript(ObjectRef instance, const std::string& type) const;
+  ObjectRef CreateInstanceWithHandle(const base::String& type, u64 handle);
+  bool HasAttachedScript(ObjectRef instance, const base::String& type) const;
   void DestroyInstance(ObjectRef instance);
 
   // The parent class name of a loaded type, "" if none or unknown. Used to
   // walk and lazily load the script's ancestor chain.
-  std::string ParentClassOf(const std::string& type);
+  base::String ParentClassOf(const base::String& type);
   bool IsAlive(ObjectRef instance) const;
-  std::string TypeOf(ObjectRef instance);
+  base::String TypeOf(ObjectRef instance);
 
   // Calls a method on an instance, or a global function on a script type. These
   // are the entry points the host and the event system use.
-  Value Call(ObjectRef self, const std::string& method, std::vector<Value> args);
-  Value CallGlobal(const std::string& script_type, const std::string& function,
-                   std::vector<Value> args);
+  Value Call(ObjectRef self, const base::String& method, base::Vector<Value> args);
+  Value CallGlobal(const base::String& script_type, const base::String& function,
+                   base::Vector<Value> args);
 
   // Like Call, but for optional event handlers: dispatches only when the
   // instance exists and actually defines the method, and never warns about a
   // missing one. Returns true if it dispatched. This lets the engine broadcast
   // events (OnDeath, OnItemAdded, ...) to forms whose script may not handle
   // them, without log spam.
-  bool TryCall(ObjectRef self, const std::string& method, std::vector<Value> args);
+  bool TryCall(ObjectRef self, const base::String& method, base::Vector<Value> args);
   // Event dispatch variants for forms carrying several independent scripts.
-  bool TryCallScript(ObjectRef self, const std::string& script_type, const std::string& method,
-                     std::vector<Value> args);
-  bool TryCallAll(ObjectRef self, const std::string& method, const std::vector<Value>& args);
+  bool TryCallScript(ObjectRef self, const base::String& script_type, const base::String& method,
+                     base::Vector<Value> args);
+  bool TryCallAll(ObjectRef self, const base::String& method, const base::Vector<Value>& args);
 
   // Suspends the script activation currently running, which must be on a Fiber:
   // the whole interpreter call chain freezes and control returns to whoever
@@ -121,20 +123,20 @@ class VirtualMachine : public VmInterface {
 
   // Debug-only: the member-variable names currently held by an instance, used
   // to inspect live script state when bringing up a quest's fragments.
-  std::vector<std::string> MemberNames(ObjectRef self);
+  base::Vector<base::String> MemberNames(ObjectRef self);
 
   // VmInterface, used by the interpreter.
-  Value CallMethod(ObjectRef self, const std::string& method, std::vector<Value> args) override;
-  Value CallStatic(const std::string& script_type, const std::string& function,
-                   std::vector<Value> args) override;
-  Value CallParent(ObjectRef self, const std::string& method, std::vector<Value> args) override;
-  Value GetProperty(ObjectRef self, const std::string& property) override;
-  void SetProperty(ObjectRef self, const std::string& property, Value value) override;
-  Value* MemberVar(ObjectRef self, const std::string& name) override;
-  std::string CurrentState(ObjectRef self) override;
-  void GotoState(ObjectRef self, const std::string& state) override;
-  bool IsObjectOfType(ObjectRef obj, const std::string& type_name) override;
-  ArrayRef ArrayCreate(const std::string& element_type, i32 size) override;
+  Value CallMethod(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
+  Value CallStatic(const base::String& script_type, const base::String& function,
+                   base::Vector<Value> args) override;
+  Value CallParent(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
+  Value GetProperty(ObjectRef self, const base::String& property) override;
+  void SetProperty(ObjectRef self, const base::String& property, Value value) override;
+  Value* MemberVar(ObjectRef self, const base::String& name) override;
+  base::String CurrentState(ObjectRef self) override;
+  void GotoState(ObjectRef self, const base::String& state) override;
+  bool IsObjectOfType(ObjectRef obj, const base::String& type_name) override;
+  ArrayRef ArrayCreate(const base::String& element_type, i32 size) override;
   i32 ArrayLength(ArrayRef array) override;
   Value ArrayGet(ArrayRef array, i32 index) override;
   void ArraySet(ArrayRef array, i32 index, Value value) override;
@@ -145,15 +147,15 @@ class VirtualMachine : public VmInterface {
   void ArrayRemove(ArrayRef array, i32 index, i32 count) override;
   void ArrayRemoveLast(ArrayRef array) override;
   void ArrayClear(ArrayRef array) override;
-  StructRef StructCreate(const std::string& type_name) override;
-  Value StructGet(StructRef instance, const std::string& member) override;
-  void StructSet(StructRef instance, const std::string& member, Value value) override;
+  StructRef StructCreate(const base::String& type_name) override;
+  Value StructGet(StructRef instance, const base::String& member) override;
+  void StructSet(StructRef instance, const base::String& member, Value value) override;
 
  private:
   struct LoadedScript {
     PexFile pex;
-    std::string name;    // object (type) name, original case
-    std::string parent;  // parent class name, "" if none
+    base::String name;    // object (type) name, original case
+    base::String parent;  // parent class name, "" if none
     const Object* object = nullptr;
   };
   struct Instance {
@@ -161,58 +163,58 @@ class VirtualMachine : public VmInterface {
     // its QF_ stage-fragment script). They share one handle and member store, in
     // attach order; types[0] is the primary (drives TypeOf and the default
     // state). Method/property resolution walks every attached script's chain.
-    std::vector<std::string> types;
-    std::unordered_map<std::string, Value> members;
-    std::string state;  // "" = default/empty state
-    const std::string& primary_type() const {
-      static const std::string kEmpty;
+    base::Vector<base::String> types;
+    base::UnorderedMap<base::String, Value> members;
+    base::String state;  // "" = default/empty state
+    const base::String& primary_type() const {
+      static const base::String kEmpty;
       return types.empty() ? kEmpty : types.front();
     }
   };
   struct Resolved {
     LoadedScript* script = nullptr;
     const Function* fn = nullptr;
-    std::string defining_type;  // script type that owns fn, for native lookup
+    base::String defining_type;  // script type that owns fn, for native lookup
   };
 
-  LoadedScript* FindScript(const std::string& type);
+  LoadedScript* FindScript(const base::String& type);
   Instance* FindInstance(ObjectRef instance);
 
   // Resolves method on inst, starting the chain walk at start_type (the
   // instance type for normal calls, the parent type for parent calls).
-  bool ResolveMethod(Instance& inst, const std::string& method, const std::string& start_type,
+  bool ResolveMethod(Instance& inst, const base::String& method, const base::String& start_type,
                      Resolved* out);
   // Resolves method across every script attached to inst (each script's own
   // inheritance chain, in attach order); the first match wins. This is how a
   // stage fragment finds its function regardless of which attached script the
   // function lives on.
-  bool ResolveMethodAny(Instance& inst, const std::string& method, Resolved* out);
-  const Property* ResolveProperty(Instance& inst, const std::string& name,
+  bool ResolveMethodAny(Instance& inst, const base::String& method, Resolved* out);
+  const Property* ResolveProperty(Instance& inst, const base::String& name,
                                   LoadedScript** owner_script);
-  Value Invoke(const Resolved& target, ObjectRef self, std::vector<Value> args,
-               const std::string& method_name);
-  void SeedMembers(Instance& inst, const std::string& type);
+  Value Invoke(const Resolved& target, ObjectRef self, base::Vector<Value> args,
+               const base::String& method_name);
+  void SeedMembers(Instance& inst, const base::String& type);
   bool ArrayValid(ArrayRef array) const { return array.id != 0 && array.id <= arrays_.size(); }
   bool StructValid(StructRef s) const { return s.id != 0 && s.id <= structs_.size(); }
-  void WarnUnbound(const std::string& type, const std::string& function);
+  void WarnUnbound(const base::String& type, const base::String& function);
   // Appends a native invocation to the trace ring when tracing is enabled.
-  void RecordNative(const std::string& type, const std::string& function);
+  void RecordNative(const base::String& type, const base::String& function);
 
   static constexpr size_t kNativeTraceCap = 256;
   bool native_trace_enabled_ = false;
   u64 native_call_count_ = 0;
-  std::vector<NativeCall> native_trace_;  // ring, oldest at front
+  base::Vector<NativeCall> native_trace_;  // ring, oldest at front
 
   const NativeRegistry* natives_;
-  std::function<bool(ObjectRef, const std::string&)> type_resolver_;
-  std::unordered_map<std::string, LoadedScript> scripts_;  // key: lowercased type
-  std::unordered_map<u64, Instance> instances_;
+  std::function<bool(ObjectRef, const base::String&)> type_resolver_;
+  base::UnorderedMap<base::String, LoadedScript> scripts_;  // key: lowercased type
+  base::UnorderedMap<u64, Instance> instances_;
   u64 next_handle_ = 1;
-  std::vector<std::vector<Value>> arrays_;  // 1-based; index 0 reserved as None
-  std::vector<std::unordered_map<std::string, Value>> structs_;  // 1-based; Fallout structs
-  std::vector<std::string> call_stack_;     // executing script type, for parent calls
-  std::unordered_set<std::string> warned_;  // unbound natives warned once
-  LatentRequest latent_;                    // pending Wait, set just before a fiber yields
+  base::Vector<base::Vector<Value>> arrays_;  // 1-based; index 0 reserved as None
+  base::Vector<base::UnorderedMap<base::String, Value>> structs_;  // 1-based; Fallout structs
+  base::Vector<base::String> call_stack_;    // executing script type, for parent calls
+  base::UnorderedSet<base::String> warned_;  // unbound natives warned once
+  LatentRequest latent_;                     // pending Wait, set just before a fiber yields
 };
 
 }  // namespace rx::script::papyrus

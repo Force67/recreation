@@ -1,10 +1,11 @@
 // script_lifecycletest: deterministic reference attachment lifecycle checks.
 
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <initializer_list>
-#include <string>
-#include <unordered_map>
-#include <utility>
 
 #include "asset/vfs.h"
 #include "components/bethesda/script_attachment.h"
@@ -15,6 +16,9 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::papyrus;
 
 int g_failures = 0;
@@ -26,18 +30,18 @@ void Check(const char* what, bool ok) {
 
 struct PexBuilder {
   PexFile pex;
-  std::unordered_map<std::string, StringIndex> strings;
+  base::UnorderedMap<base::String, StringIndex> strings;
 
-  StringIndex String(const std::string& value) {
-    auto it = strings.find(value);
-    if (it != strings.end()) return it->second;
+  StringIndex String(const base::String& value) {
+    auto* it = strings.find(value);
+    if (it != nullptr) return *it;
     const auto index = static_cast<StringIndex>(pex.string_table.size());
     pex.string_table.push_back(value);
     strings.emplace(value, index);
     return index;
   }
 
-  VariableData Identifier(const std::string& value) {
+  VariableData Identifier(const base::String& value) {
     return {VariableData::Type::kIdentifier, String(value), 0, 0.0f, false};
   }
 };
@@ -46,7 +50,7 @@ VariableData Integer(rx::i32 value) {
   return {VariableData::Type::kInteger, kInvalidString, value, 0.0f, false};
 }
 
-PexFile MakeScript(const std::string& name, bool lifecycle_events) {
+PexFile MakeScript(const base::String& name, bool lifecycle_events) {
   PexBuilder builder;
   Object object;
   object.name = builder.String(name);
@@ -55,32 +59,31 @@ PexFile MakeScript(const std::string& name, bool lifecycle_events) {
   State state;
   state.name = builder.String("");
   if (lifecycle_events) {
-    const std::string events = name + "Events";
+    const base::String events = name + "Events";
     object.variables.push_back({builder.String(events), builder.String("int"), 0, Integer(0)});
 
     Function on_init;
     on_init.return_type = builder.String("");
     on_init.code.push_back({Op::kAssign, {builder.Identifier(events), Integer(1)}, {}});
-    state.functions.push_back({builder.String("OnInit"), std::move(on_init)});
+    state.functions.push_back({builder.String("OnInit"), base::move(on_init)});
 
     Function on_load;
     on_load.return_type = builder.String("");
-    on_load.code.push_back({Op::kIAdd,
-                            {builder.Identifier(events), builder.Identifier(events), Integer(10)},
-                            {}});
-    state.functions.push_back({builder.String("OnLoad"), std::move(on_load)});
+    on_load.code.push_back(
+        {Op::kIAdd, {builder.Identifier(events), builder.Identifier(events), Integer(10)}, {}});
+    state.functions.push_back({builder.String("OnLoad"), base::move(on_load)});
   }
-  object.states.push_back(std::move(state));
-  builder.pex.objects.push_back(std::move(object));
-  return std::move(builder.pex);
+  object.states.push_back(base::move(state));
+  builder.pex.objects.push_back(base::move(object));
+  return base::move(builder.pex);
 }
 
-void AddScript(rx::script::ScriptSystem& system, const std::string& name,
+void AddScript(rx::script::ScriptSystem& system, const base::String& name,
                bool lifecycle_events = false) {
-  std::string loaded =
+  base::String loaded =
       system.guest()
           .SubmitFor([pex = MakeScript(name, lifecycle_events)](VirtualMachine& vm) mutable {
-            return vm.AddScript(std::move(pex));
+            return vm.AddScript(base::move(pex));
           })
           .get();
   Check(("loaded " + name).c_str(), loaded == name);
@@ -92,7 +95,7 @@ bethesda::ScriptAttachment Attachment(std::initializer_list<const char*> names) 
   return attachment;
 }
 
-rx::i32 Events(rx::script::ScriptSystem& system, rx::u64 handle, const std::string& script) {
+rx::i32 Events(rx::script::ScriptSystem& system, rx::u64 handle, const base::String& script) {
   return system.guest()
       .SubmitFor([handle, member = script + "Events"](VirtualMachine& vm) {
         Value* value = vm.MemberVar(ObjectRef{handle}, member);

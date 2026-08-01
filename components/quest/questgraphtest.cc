@@ -2,15 +2,21 @@
 // traversal (Start/Advance/Tick/PostEvent, on-enter actions, condition- and
 // event-driven transitions). No game data needed, so it runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
 #include "components/quest/quest_graph.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -25,37 +31,37 @@ void Check(const char* what, bool ok) {
 // Records every side effect the graph drives, so tests can assert ordering and
 // content.
 struct RecordingSink : QuestActionSink {
-  std::vector<i32> entered;
-  std::vector<std::string> log;
+  base::Vector<i32> entered;
+  base::Vector<base::String> log;
   bool completed = false;
   bool failed = false;
 
-  void OnEnterNode(u64, i32 node) override { entered.push_back(node); }
-  void SetObjectiveDisplayed(u64, i32 objective, bool displayed) override {
-    log.push_back("disp " + std::to_string(objective) + "=" + (displayed ? "1" : "0"));
+  void OnEnterNode(rx::u64, i32 node) override { entered.push_back(node); }
+  void SetObjectiveDisplayed(rx::u64, i32 objective, bool displayed) override {
+    log.push_back("disp " + base::ToString(objective) + "=" + (displayed ? "1" : "0"));
   }
-  void SetObjectiveCompleted(u64, i32 objective, bool done) override {
-    log.push_back("comp " + std::to_string(objective) + "=" + (done ? "1" : "0"));
+  void SetObjectiveCompleted(rx::u64, i32 objective, bool done) override {
+    log.push_back("comp " + base::ToString(objective) + "=" + (done ? "1" : "0"));
   }
-  void RunScriptFragment(u64, i32 node, const std::string& fn) override {
-    log.push_back("frag " + std::to_string(node) + ":" + fn);
+  void RunScriptFragment(rx::u64, i32 node, const base::String& fn) override {
+    log.push_back("frag " + base::ToString(node) + ":" + fn);
   }
-  void CompleteQuest(u64) override { completed = true; }
-  void FailQuest(u64) override { failed = true; }
+  void CompleteQuest(rx::u64) override { completed = true; }
+  void FailQuest(rx::u64) override { failed = true; }
 };
 
 // A condition context whose only knowledge is the quest's current stage, set by
 // the test, so GetStage-based transitions can be driven deterministically.
 struct StageContext : ConditionContext {
   float stage = 0.0f;
-  float GetStage(u64) const override { return stage; }
+  float GetStage(rx::u64) const override { return stage; }
 };
 
-QuestNode Phase(i32 id, std::string log) {
+QuestNode Phase(i32 id, base::String log) {
   QuestNode n;
   n.id = id;
   n.kind = NodeKind::kPhase;
-  n.log_entry = std::move(log);
+  n.log_entry = base::move(log);
   return n;
 }
 

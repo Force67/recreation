@@ -1,9 +1,8 @@
 #ifndef RECREATION_BETHESDA_HEAD_MORPH_H_
 #define RECREATION_BETHESDA_HEAD_MORPH_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "asset/mesh.h"
 #include "components/bethesda/tri.h"
@@ -25,7 +24,7 @@ constexpr u32 kNam9Count = 18;
 
 // A resolved tri morph request: a morph name plus the weight to apply it at.
 struct MorphWeight {
-  std::string name;
+  base::String name;
   f32 weight = 0;
 };
 
@@ -53,7 +52,7 @@ void CollectFaceMorphs(const f32 nam9[kNam9Count], const i32 nama[4],
 // not recompute normals: call asset::RecomputeNormalsTangents or SubdivideLoop
 // after.
 bool ApplyHeadMorphs(asset::MeshLod& lod, const TriMorphSet* race_tri,
-                     const std::string& race_morph, const TriMorphSet* chargen_tri,
+                     const base::String& race_morph, const TriMorphSet* chargen_tri,
                      const base::Vector<MorphWeight>& chargen);
 
 }  // namespace rx::bethesda

@@ -1,6 +1,7 @@
 #include "runtime/actor/player_controller.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -57,7 +58,7 @@ Vec3 ForwardFromYaw(f32 yaw) { return {std::sin(yaw), 0.0f, -std::cos(yaw)}; }
 }  // namespace
 
 PlayerController::PlayerController(EngineContext& ctx, ActorSystem& actors,
-                                  const InputMap& input_map)
+                                   const InputMap& input_map)
     : ctx_(ctx), actors_(actors), input_map_(input_map) {}
 
 PlayerController::~PlayerController() = default;
@@ -74,8 +75,7 @@ bool PlayerController::Assemble() {
   // --- Movement settings: MOVT-decoded speeds, documented defaults elsewhere --
   const int n = bethesda::LoadMovementTypes(*ctx_.records, &movement_types_);
   auto speed_units = [&](const char* editor_id, bool run, f32 fallback) -> f32 {
-    if (const bethesda::MovementType* mt =
-            bethesda::FindMovementType(movement_types_, editor_id);
+    if (const bethesda::MovementType* mt = bethesda::FindMovementType(movement_types_, editor_id);
         mt && mt->has_speeds) {
       const f32 v = run ? mt->forward_run : mt->forward_walk;
       if (v > 1.0f) return v;
@@ -83,8 +83,8 @@ bool PlayerController::Assemble() {
     return fallback;
   };
   character::CharacterMovementSettings move;
-  move.walk_speed = speed_units("NPC_Default_MT", false, kDefaultWalkUnits) * kUnit;  // MOVT
-  move.run_speed = speed_units("NPC_Default_MT", true, kDefaultRunUnits) * kUnit;      // MOVT
+  move.walk_speed = speed_units("NPC_Default_MT", false, kDefaultWalkUnits) * kUnit;       // MOVT
+  move.run_speed = speed_units("NPC_Default_MT", true, kDefaultRunUnits) * kUnit;          // MOVT
   move.sprint_speed = speed_units("NPC_Sprinting_MT", true, kDefaultSprintUnits) * kUnit;  // MOVT
   move.crouch_speed = speed_units("NPC_Sneaking_MT", true, kDefaultSneakUnits) * kUnit;    // MOVT
   move.ground_acceleration = 45.0f;  // TUNED: Skyrim reaches full speed in ~0.12 s; keeps
@@ -99,8 +99,8 @@ bool PlayerController::Assemble() {
   // total arc versus ~0.47 s / ~0.94 s at 9.81 -- noticeably snappier without changing the
   // jump height or the Skyrim silhouette. In-game the brisk arc reads better; the floaty
   // 9.81 arc felt mushy on landings. Set EXPLICITLY (not inherited) so the choice is visible.
-  move.gravity = 16.0f;              // TUNED: brisk, responsive jump/fall arc (was 9.81)
-  move.step_height = 0.4f;           // TUNED
+  move.gravity = 16.0f;               // TUNED: brisk, responsive jump/fall arc (was 9.81)
+  move.step_height = 0.4f;            // TUNED
   move.max_slope_angle = 0.9599311f;  // ~55 deg, TUNED
 
   // --- Game-feel: body-yaw turn smoothing (engine-driven, third person only) ---
@@ -112,14 +112,15 @@ bool PlayerController::Assemble() {
   move.pivot_turn_half_life = 0.05f;  // TUNED (engine default): faster chase for ~180 reversals
   move.pivot_angle = 2.4434610f;      // ~140 deg: beyond this the pivot rate applies
   // --- Game-feel: gait target-speed blend + crisp stop --------------------------
-  move.speed_blend_time = 0.18f;      // TUNED (engine default): walk<->run<->sprint target blend
-  move.stop_speed_epsilon = 0.05f;    // TUNED (engine default): zero horizontal vel below this
+  move.speed_blend_time = 0.18f;    // TUNED (engine default): walk<->run<->sprint target blend
+  move.stop_speed_epsilon = 0.05f;  // TUNED (engine default): zero horizontal vel below this
   // --- Game-feel: jump forgiveness (invisible responsiveness, no authenticity cost) ---
-  move.jump_buffer_time = 0.12f;      // TUNED (engine default): pre-land buffered jump window
-  move.coyote_time = 0.12f;           // TUNED (engine default): post-ledge grace window
+  move.jump_buffer_time = 0.12f;  // TUNED (engine default): pre-land buffered jump window
+  move.coyote_time = 0.12f;       // TUNED (engine default): post-ledge grace window
 
   RX_INFO(
-      "player: MOVT types={} -> walk {:.3f} run {:.3f} sprint {:.3f} sneak {:.3f} m/s, jump {:.3f} m",
+      "player: MOVT types={} -> walk {:.3f} run {:.3f} sprint {:.3f} sneak {:.3f} m/s, jump {:.3f} "
+      "m",
       n, move.walk_speed, move.run_speed, move.sprint_speed, move.crouch_speed, move.jump_height);
 
   // --- Capsule + eye geometry -------------------------------------------------
@@ -137,17 +138,17 @@ bool PlayerController::Assemble() {
   // The camera anchor's vertical eases over stairs/steps so the eye glides; horizontal
   // stays raw. A subtle, fast-recovering dip on real landings. Engine defaults read right
   // on the Bannered Mare stairs (eye glides, no head-pop) so they stay explicit.
-  shape.eye_step_half_life = 0.06f;    // TUNED (engine default): grounded vertical eye smoothing
-  shape.landing_dip_min_speed = 2.5f;  // TUNED (engine default): no dip below this impact speed
-  shape.landing_dip_scale = 0.03f;     // TUNED (engine default): metres of dip per m/s over min
-  shape.landing_dip_max = 0.14f;       // TUNED (engine default): subtle hard cap
-  shape.landing_dip_half_life = 0.09f; // TUNED (engine default): fast recovery
+  shape.eye_step_half_life = 0.06f;     // TUNED (engine default): grounded vertical eye smoothing
+  shape.landing_dip_min_speed = 2.5f;   // TUNED (engine default): no dip below this impact speed
+  shape.landing_dip_scale = 0.03f;      // TUNED (engine default): metres of dip per m/s over min
+  shape.landing_dip_max = 0.14f;        // TUNED (engine default): subtle hard cap
+  shape.landing_dip_half_life = 0.09f;  // TUNED (engine default): fast recovery
 
   // --- Third-person camera rig (INI-sourced offsets/zoom) ---------------------
-  view_settings_.fp_pitch_limit = 1.4835f;      // ~85 deg
-  view_settings_.tp_distance = 2.6f;            // TUNED default rest distance
-  view_settings_.tp_min_distance = 155.0f * kUnit;  // INI fVanityModeMinDist 155 u
-  view_settings_.tp_max_distance = 600.0f * kUnit;  // INI fVanityModeMaxDist 600 u
+  view_settings_.fp_pitch_limit = 1.4835f;            // ~85 deg
+  view_settings_.tp_distance = 2.6f;                  // TUNED default rest distance
+  view_settings_.tp_min_distance = 155.0f * kUnit;    // INI fVanityModeMinDist 155 u
+  view_settings_.tp_max_distance = 600.0f * kUnit;    // INI fVanityModeMaxDist 600 u
   view_settings_.tp_shoulder_offset = 30.0f * kUnit;  // INI fOverShoulderPosX 30 u
   view_settings_.tp_height_offset = -10.0f * kUnit;   // INI fOverShoulderPosZ -10 u
   view_settings_.tp_pitch_min = -1.1f;
@@ -161,7 +162,7 @@ bool PlayerController::Assemble() {
   Vec3 feet{};
   actors_.PlayerWorldPos(&feet);
   const f32 radius = shape.standing_radius;
-  const f32 half_height = std::max(shape.standing_height * 0.5f - radius, 0.01f);
+  const f32 half_height = base::Max(shape.standing_height * 0.5f - radius, 0.01f);
 
   world.Add(player_, scene::Transform{.position = {feet.x, feet.y, feet.z}});
   world.Add(player_, move);
@@ -183,8 +184,10 @@ bool PlayerController::Assemble() {
 
   // Debug/capture hook: RX_PLAYER_VIEW=fp|tp forces the initial view mode.
   if (const char* v = std::getenv("RX_PLAYER_VIEW")) {
-    if (std::strcmp(v, "fp") == 0) ctx_.third_person = false;
-    else if (std::strcmp(v, "tp") == 0) ctx_.third_person = true;
+    if (std::strcmp(v, "fp") == 0)
+      ctx_.third_person = false;
+    else if (std::strcmp(v, "tp") == 0)
+      ctx_.third_person = true;
   }
 
   // ctx_.third_person is the live source of truth (the FP-equipment layer gates on
@@ -238,11 +241,12 @@ void PlayerController::ApplyZoom(f32 wheel) {
     if (!boom) return;
     const f32 desired = boom->distance - step;  // scroll up (wheel>0) zooms in
     if (desired < view_settings_.tp_min_distance - 1e-3f && wheel > 0.0f) {
-      ctx_.third_person = false;  // zoom past the minimum -> first person (smooth toggle next reconcile)
+      ctx_.third_person =
+          false;  // zoom past the minimum -> first person (smooth toggle next reconcile)
       return;
     }
     boom->distance =
-        std::clamp(desired, view_settings_.tp_min_distance, view_settings_.tp_max_distance);
+        base::Clamp(desired, view_settings_.tp_min_distance, view_settings_.tp_max_distance);
   } else if (wheel < 0.0f) {
     // First person, scroll down -> back to third person at the minimum distance.
     ctx_.third_person = true;
@@ -269,14 +273,14 @@ void PlayerController::FillIntent(const InputState& input, const ActionState& ac
     yaw_delta += actions.axis(Axis::kLookX) * input_map_.look_sens_pad * dt;
     pitch_delta -= actions.axis(Axis::kLookY) * input_map_.look_sens_pad * dt * inv;
   }
-  cam_pitch_ = std::clamp(cam_pitch_ + pitch_delta,
-                          tp ? view_settings_.tp_pitch_min : -view_settings_.fp_pitch_limit,
-                          tp ? view_settings_.tp_pitch_max : view_settings_.fp_pitch_limit);
+  cam_pitch_ = base::Clamp(cam_pitch_ + pitch_delta,
+                           tp ? view_settings_.tp_pitch_min : -view_settings_.fp_pitch_limit,
+                           tp ? view_settings_.tp_pitch_max : view_settings_.fp_pitch_limit);
   // Debug/capture hook: a scripted probe can pin the first-person look pitch to
   // aim at the floor (e.g. to frame a dropped item) via ctx_.debug_look_pitch.
   if (!tp && ctx_.debug_look_pitch < 1e8f)
-    cam_pitch_ = std::clamp(ctx_.debug_look_pitch, -view_settings_.fp_pitch_limit,
-                            view_settings_.fp_pitch_limit);
+    cam_pitch_ = base::Clamp(ctx_.debug_look_pitch, -view_settings_.fp_pitch_limit,
+                             view_settings_.fp_pitch_limit);
 
   // --- Move input ------------------------------------------------------------
   f32 fwd = 0, right = 0;
@@ -288,8 +292,10 @@ void PlayerController::FillIntent(const InputState& input, const ActionState& ac
     const f32 l = Length(m);
     if (l > 1e-3f) {
       const f32 target = std::atan2(m.x, -m.z);  // camera yaw whose forward == move
-      if (tp) cam_yaw_ = WrapPi(cam_yaw_ + WrapPi(target - cam_yaw_) * std::min(1.0f, dt * 4.0f));
-      else state->yaw = WrapPi(state->yaw + WrapPi(target - state->yaw) * std::min(1.0f, dt * 4.0f));
+      if (tp)
+        cam_yaw_ = WrapPi(cam_yaw_ + WrapPi(target - cam_yaw_) * base::Min(1.0f, dt * 4.0f));
+      else
+        state->yaw = WrapPi(state->yaw + WrapPi(target - state->yaw) * base::Min(1.0f, dt * 4.0f));
     }
     intent->move = l > 1e-3f ? m * (1.0f / l) : Vec3{0, 0, 0};
     intent->gait = character::CharacterGait::kRun;
@@ -355,8 +361,8 @@ void PlayerController::PublishCamera() {
 }
 
 void PlayerController::Update(f32 dt, const InputState& input, const ActionState& actions,
-                             bool allow, bool auto_walk_active, const Vec3& auto_move,
-                             Vec3* out_feet) {
+                              bool allow, bool auto_walk_active, const Vec3& auto_move,
+                              Vec3* out_feet) {
   if (!assembled_ || dt <= 0.0f) return;
   ecs::World& world = *ctx_.world;
   physics::PhysicsWorld& phys = *ctx_.physics;
@@ -384,7 +390,7 @@ void PlayerController::Update(f32 dt, const InputState& input, const ActionState
       orbit->max_pitch = view_settings_.fp_pitch_limit;
       orbit->yaw = 0.0f;  // yaw comes from the anchor heading in first person
     }
-    orbit->pitch = std::clamp(cam_pitch_, orbit->min_pitch, orbit->max_pitch);
+    orbit->pitch = base::Clamp(cam_pitch_, orbit->min_pitch, orbit->max_pitch);
   }
 
   // rx character + camera-rig pipeline (README staged order).
@@ -424,9 +430,11 @@ void PlayerController::Update(f32 dt, const InputState& input, const ActionState
         loco_debug_t_ = 0.0f;
         const f32 vel_heading = std::atan2(state->velocity.x, state->velocity.z);  // biped conv.
         const f32 face_err = WrapPi(biped_facing - vel_heading) * 180.0f / 3.14159265f;
-        RX_INFO("loco: spd {:.2f} gait {:.2f} face {:+.0f} vel {:+.0f} err {:+.0f} deg grounded {} pivot {}",
-                planar, state->gait_speed, biped_facing * 57.29578f, vel_heading * 57.29578f,
-                face_err, state->grounded ? 1 : 0, state->pivoting ? 1 : 0);
+        RX_INFO(
+            "loco: spd {:.2f} gait {:.2f} face {:+.0f} vel {:+.0f} err {:+.0f} deg grounded {} "
+            "pivot {}",
+            planar, state->gait_speed, biped_facing * 57.29578f, vel_heading * 57.29578f, face_err,
+            state->grounded ? 1 : 0, state->pivoting ? 1 : 0);
       }
     }
   }

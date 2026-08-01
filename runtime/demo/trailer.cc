@@ -1,15 +1,19 @@
 #include "runtime/demo/trailer.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 
 namespace rx {
 
 const char* TrailerRenderModeLabel(TrailerRenderMode mode) {
   switch (mode) {
-    case TrailerRenderMode::kRaster: return "RASTERIZED";
-    case TrailerRenderMode::kRayTracing: return "RAY TRACING  ULTRA";
-    case TrailerRenderMode::kPathTracing: return "PATH TRACING  REFERENCE";
+    case TrailerRenderMode::kRaster:
+      return "RASTERIZED";
+    case TrailerRenderMode::kRayTracing:
+      return "RAY TRACING  ULTRA";
+    case TrailerRenderMode::kPathTracing:
+      return "PATH TRACING  REFERENCE";
   }
   return "";
 }
@@ -38,8 +42,8 @@ f32 Smooth(f32 x) {
 // ramps down over `out`, 0 after `end`.
 f32 Envelope(f32 t, f32 start, f32 end, f32 in, f32 out) {
   if (t <= start || t >= end) return 0.0f;
-  return std::min(Smooth((t - start) / std::max(in, 1e-3f)),
-                  Smooth((end - t) / std::max(out, 1e-3f)));
+  return base::Min(Smooth((t - start) / base::Max(in, 1e-3f)),
+                   Smooth((end - t) / base::Max(out, 1e-3f)));
 }
 
 weather::WeatherState KindState(weather::WeatherDef::Kind kind) {
@@ -51,10 +55,14 @@ weather::WeatherState KindState(weather::WeatherDef::Kind kind) {
 
 const char* WeatherName(weather::WeatherDef::Kind kind) {
   switch (kind) {
-    case weather::WeatherDef::Kind::kPleasant: return "CLEAR";
-    case weather::WeatherDef::Kind::kCloudy: return "OVERCAST";
-    case weather::WeatherDef::Kind::kRainy: return "STORM";
-    case weather::WeatherDef::Kind::kSnow: return "BLIZZARD";
+    case weather::WeatherDef::Kind::kPleasant:
+      return "CLEAR";
+    case weather::WeatherDef::Kind::kCloudy:
+      return "OVERCAST";
+    case weather::WeatherDef::Kind::kRainy:
+      return "STORM";
+    case weather::WeatherDef::Kind::kSnow:
+      return "BLIZZARD";
   }
   return "";
 }
@@ -82,7 +90,7 @@ int Wrap(int i, int n) { return ((i % n) + n) % n; }
 
 TrailerState TrailerDirector::At(f32 t) const {
   TrailerState st;
-  t = std::max(0.0f, t);
+  t = base::Max(0.0f, t);
   // No real end during tests / single-shot use: treat as effectively endless so
   // the letterbox holds open instead of snapping shut.
   const f32 end = duration_ > 0.0f ? duration_ : t + 1.0e6f;
@@ -109,13 +117,13 @@ TrailerState TrailerDirector::At(f32 t) const {
   // --- Render mode: stepped cycle, begins after the intro card ---
   f32 mode_dip = 1.0f;
   {
-    const f32 mt = std::max(0.0f, t - kIntro);
+    const f32 mt = base::Max(0.0f, t - kIntro);
     const int idx = static_cast<int>(std::floor(mt / kModeHold));
     st.mode = kModeCycle[Wrap(idx, kModeCount)];
     o.badge = TrailerRenderModeLabel(st.mode);
     // Dip the badge alpha briefly at each swap so the label reads as changing.
     const f32 ml = mt - static_cast<f32>(idx) * kModeHold;
-    mode_dip = std::min(Smooth(ml / kModeFade), Smooth((kModeHold - ml) / kModeFade));
+    mode_dip = base::Min(Smooth(ml / kModeFade), Smooth((kModeHold - ml) / kModeFade));
   }
 
   // --- Chrome alphas ---
@@ -126,11 +134,12 @@ TrailerState TrailerDirector::At(f32 t) const {
   // both reads as a scene change and hides the unload/stream-in of the next game.
   const f32 fade_in = 1.0f - Smooth(t / kFade);
   const f32 fade_out = duration_ > 0.0f ? Smooth((t - (duration_ - kFade)) / kFade) : 0.0f;
-  o.fade = std::max(fade_in, fade_out);
+  o.fade = base::Max(fade_in, fade_out);
   for (size_t k = 1; k < beats_.size(); ++k) {
     const f32 b = beats_[k].start;
-    const f32 cut = t <= b ? Smooth((t - (b - kCutIn)) / kCutIn) : Smooth((b + kCutOut - t) / kCutOut);
-    o.fade = std::max(o.fade, cut);
+    const f32 cut =
+        t <= b ? Smooth((t - (b - kCutIn)) / kCutIn) : Smooth((b + kCutOut - t) / kCutOut);
+    o.fade = base::Max(o.fade, cut);
   }
 
   // Intro card: centered title, alive only during the opening hold.

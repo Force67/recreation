@@ -1,8 +1,8 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_EXT_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVES_EXT_H_
 
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
@@ -16,15 +16,15 @@
 namespace rx::script::skyrim {
 
 namespace ext {
-using Args = std::vector<papyrus::Value>;
+using Args = base::Vector<papyrus::Value>;
 
 inline f32 ArgF(const Args& a, size_t i) { return i < a.size() ? a[i].ToFloat() : 0.0f; }
 inline i32 ArgI(const Args& a, size_t i) { return i < a.size() ? a[i].ToInt() : 0; }
 inline bool ArgB(const Args& a, size_t i, bool fallback) {
   return i < a.size() ? a[i].ToBool() : fallback;
 }
-inline std::string ArgS(const Args& a, size_t i) {
-  return i < a.size() ? a[i].ToString() : std::string();
+inline base::String ArgS(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToString() : base::String();
 }
 inline papyrus::ObjectRef ArgO(const Args& a, size_t i) {
   return i < a.size() ? a[i].as_object() : papyrus::ObjectRef{};

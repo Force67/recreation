@@ -33,9 +33,8 @@ void Check(const char* what, bool ok) {
 
 // A quest with the replicated fields set plus some text/name, which must NOT
 // survive the round trip (clients resolve text locally), tagged with a domain.
-DomainQuestStatus MakeQuest(rx::u64 handle, rx::i32 stage, bool running, bool active,
-                            bool complete, std::vector<ObjectiveStatus> objectives = {},
-                            rx::u8 domain = 0) {
+DomainQuestStatus MakeQuest(rx::u64 handle, rx::i32 stage, bool running, bool active, bool complete,
+                            base::Vector<ObjectiveStatus> objectives = {}, rx::u8 domain = 0) {
   QuestStatus q;
   q.handle = handle;
   q.stage = stage;
@@ -44,7 +43,7 @@ DomainQuestStatus MakeQuest(rx::u64 handle, rx::i32 stage, bool running, bool ac
   q.complete = complete;
   q.name = "should not travel";
   q.log_entry = "should not travel";
-  q.objectives = std::move(objectives);
+  q.objectives = base::move(objectives);
   return DomainQuestStatus{domain, std::move(q)};
 }
 
@@ -69,8 +68,7 @@ bool SameReplicatedFields(const DomainQuestStatus& da, const DomainQuestStatus& 
   for (size_t i = 0; i < a.objectives.size(); ++i) {
     const ObjectiveStatus& oa = a.objectives[i];
     const ObjectiveStatus& ob = b.objectives[i];
-    if (oa.index != ob.index || oa.displayed != ob.displayed ||
-        oa.completed != ob.completed) {
+    if (oa.index != ob.index || oa.displayed != ob.displayed || oa.completed != ob.completed) {
       return false;
     }
   }
@@ -117,10 +115,8 @@ void TestRoundTrip() {
   Check("negative stage preserved", (*decoded)[2].status.stage == -1);
 
   // An empty snapshot is a valid update carrying zero quests.
-  std::optional<std::vector<DomainQuestStatus>> empty =
-      DecodeQuestUpdate(EncodeQuestUpdate({}));
-  Check("empty snapshot decodes to zero quests",
-        empty.has_value() && empty->empty());
+  std::optional<std::vector<DomainQuestStatus>> empty = DecodeQuestUpdate(EncodeQuestUpdate({}));
+  Check("empty snapshot decodes to zero quests", empty.has_value() && empty->empty());
 }
 
 void TestDomainRouting() {
@@ -134,8 +130,7 @@ void TestDomainRouting() {
       DecodeQuestUpdate(EncodeQuestUpdate(quests));
   Check("both domains decode", decoded.has_value() && decoded->size() == 2);
   if (!decoded) return;
-  Check("domain tags preserved",
-        (*decoded)[0].domain == 0 && (*decoded)[1].domain == 1);
+  Check("domain tags preserved", (*decoded)[0].domain == 0 && (*decoded)[1].domain == 1);
   Check("same handle, distinct stages per domain",
         (*decoded)[0].status.handle == (*decoded)[1].status.handle &&
             (*decoded)[0].status.stage == 10 && (*decoded)[1].status.stage == 50);
@@ -146,16 +141,14 @@ void TestDomainRouting() {
   std::vector<DomainQuestStatus> snap = quests;
   snap[0].status.revision = 1;
   snap[1].status.revision = 1;
-  Check("both domains sent on first build",
-        DecodeQuestUpdate(rep.Build(snap))->size() == 2);
+  Check("both domains sent on first build", DecodeQuestUpdate(rep.Build(snap))->size() == 2);
   Check("unchanged sends nothing", rep.Build(snap).empty());
   // Advance only the Fallout (domain 1) quest; the Skyrim one stays put.
   snap[1].status.revision = 2;
   snap[1].status.stage = 60;
   std::optional<std::vector<DomainQuestStatus>> d = DecodeQuestUpdate(rep.Build(snap));
   Check("only the changed domain's quest sent",
-        d.has_value() && d->size() == 1 && (*d)[0].domain == 1 &&
-            (*d)[0].status.stage == 60);
+        d.has_value() && d->size() == 1 && (*d)[0].domain == 1 && (*d)[0].status.stage == 60);
 }
 
 void TestDeltas() {
@@ -228,19 +221,16 @@ void TestApplySink() {
   std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
 
   std::vector<DomainQuestStatus> received;
-  const bool ok = ApplyQuestUpdate(
-      blob, [&](rx::u8 domain, const QuestStatus& q) {
-        received.push_back(DomainQuestStatus{domain, q});
-      });
+  const bool ok = ApplyQuestUpdate(blob, [&](rx::u8 domain, const QuestStatus& q) {
+    received.push_back(DomainQuestStatus{domain, q});
+  });
   Check("apply succeeds", ok);
   Check("sink invoked per quest", received.size() == 2);
   Check("first quest delivered to its domain",
-        received.size() == 2 && received[0].domain == 0 &&
-            received[0].status.handle == 0x10ull && received[0].status.stage == 5 &&
-            received[0].status.objectives.size() == 1);
+        received.size() == 2 && received[0].domain == 0 && received[0].status.handle == 0x10ull &&
+            received[0].status.stage == 5 && received[0].status.objectives.size() == 1);
   Check("second quest delivered to its domain",
-        received.size() == 2 && received[1].domain == 1 &&
-            received[1].status.handle == 0x20ull);
+        received.size() == 2 && received[1].domain == 1 && received[1].status.handle == 0x20ull);
 }
 
 void TestCorrupt() {

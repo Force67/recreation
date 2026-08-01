@@ -1,6 +1,11 @@
+#include "core/log.h"
 #include "components/script/script_system.h"
 
-#include "core/log.h"
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/vm.h"
 
@@ -22,7 +27,7 @@ ScriptSystem::ScriptSystem(bethesda::Game game, asset::Vfs* vfs, skyrim::SkyrimB
     // Let the VM resolve a bare reference's type (placed/alias/spawned refs with
     // no script) so `GetReference() as Actor` and similar casts work; without it
     // the Civil War reinforcement classifiers fail on every cell-less soldier.
-    guest_.set_type_resolver([bindings](ObjectRef ref, const std::string& type) {
+    guest_.set_type_resolver([bindings](ObjectRef ref, const base::String& type) {
       return bindings->RefIsType(ref, type);
     });
   }
@@ -31,7 +36,7 @@ ScriptSystem::ScriptSystem(bethesda::Game game, asset::Vfs* vfs, skyrim::SkyrimB
 
 ScriptSystem::~ScriptSystem() { guest_.Stop(); }
 
-std::string ScriptSystem::EnsureScriptLoaded(const std::string& name) {
+base::String ScriptSystem::EnsureScriptLoaded(const base::String& name) {
   if (name.empty()) return "";
   // Already loaded?
   bool present = guest_.SubmitFor([name](VirtualMachine& vm) { return vm.HasScript(name); }).get();
@@ -42,16 +47,16 @@ std::string ScriptSystem::EnsureScriptLoaded(const std::string& name) {
     RX_DEBUG("script: scripts/{}.pex not found", name);
     return "";
   }
-  std::vector<u8> bytes(blob->begin(), blob->end());
-  std::string type = guest_
-                         .SubmitFor([b = std::move(bytes)](VirtualMachine& vm) {
-                           return vm.LoadScript(ByteSpan(b.data(), b.size()));
-                         })
-                         .get();
+  base::Vector<u8> bytes(blob->begin(), blob->end());
+  base::String type = guest_
+                          .SubmitFor([b = base::move(bytes)](VirtualMachine& vm) {
+                            return vm.LoadScript(ByteSpan(b.data(), b.size()));
+                          })
+                          .get();
   if (type.empty()) return "";
 
   // Load the parent chain so inherited natives and members resolve.
-  std::string parent =
+  base::String parent =
       guest_.SubmitFor([type](VirtualMachine& vm) { return vm.ParentClassOf(type); }).get();
   if (!parent.empty()) EnsureScriptLoaded(parent);
   return type;
@@ -127,8 +132,8 @@ void SeedProperty(VirtualMachine& vm, ObjectRef inst, const bethesda::ScriptProp
 
 }  // namespace
 
-std::vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
-                                                   const bethesda::ScriptAttachment& att) {
+base::Vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
+                                                    const bethesda::ScriptAttachment& att) {
   return AttachScriptsWithStatus(form_id, att).created;
 }
 
@@ -136,10 +141,10 @@ ScriptSystem::AttachmentResult ScriptSystem::AttachScriptsWithStatus(
     u64 form_id, const bethesda::ScriptAttachment& att) {
   AttachmentResult result;
   for (const bethesda::ScriptEntry& entry : att.scripts) {
-    std::string type = EnsureScriptLoaded(entry.name);
+    base::String type = EnsureScriptLoaded(entry.name);
     if (type.empty()) {
       result.complete = false;
-      if (warned_unloadable_.insert(entry.name).second)
+      if (warned_unloadable_.insert(entry.name))
         RX_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
       continue;
     }
@@ -147,7 +152,7 @@ ScriptSystem::AttachmentResult ScriptSystem::AttachScriptsWithStatus(
         guest_
             .SubmitFor([type, form_id](VirtualMachine& vm) {
               ObjectRef created = vm.CreateInstanceWithHandle(type, form_id);
-              return std::pair{
+              return base::Pair{
                   created, created.handle != 0 || vm.HasAttachedScript(ObjectRef{form_id}, type)};
             })
             .get();

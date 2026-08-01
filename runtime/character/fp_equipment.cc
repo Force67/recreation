@@ -1,11 +1,13 @@
 #include "runtime/character/fp_equipment.h"
 
+#include <base/algorithm.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
 
 #include "runtime/actor/actor_system.h"
 #include "asset/asset_id.h"
@@ -102,8 +104,7 @@ void FpEquipment::Update(f32 dt) {
   // rendering a weapon the player no longer carries.
   if (equipped_item_ != inventory::kInvalidItemDef && state_ != State::kUnequipping &&
       state_ != State::kSheathed) {
-    const inventory::Inventory* inv =
-        ctx_.world->Get<inventory::Inventory>(actors_.PlayerEntity());
+    const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(actors_.PlayerEntity());
     if (!inv || inventory::InventoryCount(*inv, equipped_item_) == 0) BeginUnequip();
   }
 
@@ -175,45 +176,49 @@ bool FpEquipment::ProbePickupNearestWeapon() {
   // frame on the 1h rig). Prefer the sword when the cell has one.
   u64 best = 0, best_sword = 0;
   f32 best_d2 = 1e30f, best_sword_d2 = 1e30f;
-  ctx_.world->Each<world::FormLink, world::Transform>(
-      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
-        const u64 handle = link.form.packed();
-        const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
-                                          static_cast<u32>(handle & 0xffffffffu)};
-        const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
-        if (!stored) return;
-        bethesda::Record rec;
-        if (!ctx_.records->Parse(refr, &rec)) return;
-        const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
-        if (!name || name->data.size() < 4) return;
-        u32 base_raw;
-        std::memcpy(&base_raw, name->data.data(), 4);
-        const bethesda::GlobalFormId base =
-            ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
-        const bethesda::RecordStore::StoredRecord* bstored = ctx_.records->Find(base);
-        if (!bstored || bstored->header.type != kWeapType) return;
-        const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y,
-                  dz = t.position[2] - ppos.z;
-        const f32 d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < best_d2) { best_d2 = d2; best = handle; }
-        bethesda::Record brec;
-        if (ctx_.records->Parse(base, &brec)) {
-          std::string model = brec.GetString(FourCc('M', 'O', 'D', 'L'));
-          for (char& c : model) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-          if (model.find("sword") != std::string::npos &&
-              model.find("greatsword") == std::string::npos && d2 < best_sword_d2) {
-            best_sword_d2 = d2;
-            best_sword = handle;
-          }
-        }
-      });
-  if (best_sword != 0) { best = best_sword; best_d2 = best_sword_d2; }
+  ctx_.world->Each<world::FormLink, world::Transform>([&](ecs::Entity, world::FormLink& link,
+                                                          world::Transform& t) {
+    const u64 handle = link.form.packed();
+    const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
+                                      static_cast<u32>(handle & 0xffffffffu)};
+    const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
+    if (!stored) return;
+    bethesda::Record rec;
+    if (!ctx_.records->Parse(refr, &rec)) return;
+    const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
+    if (!name || name->data.size() < 4) return;
+    u32 base_raw;
+    std::memcpy(&base_raw, name->data.data(), 4);
+    const bethesda::GlobalFormId base =
+        ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
+    const bethesda::RecordStore::StoredRecord* bstored = ctx_.records->Find(base);
+    if (!bstored || bstored->header.type != kWeapType) return;
+    const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y, dz = t.position[2] - ppos.z;
+    const f32 d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < best_d2) {
+      best_d2 = d2;
+      best = handle;
+    }
+    bethesda::Record brec;
+    if (ctx_.records->Parse(base, &brec)) {
+      base::String model = brec.GetString(FourCc('M', 'O', 'D', 'L'));
+      for (char& c : model) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (model.find("sword") != base::String::npos &&
+          model.find("greatsword") == base::String::npos && d2 < best_sword_d2) {
+        best_sword_d2 = d2;
+        best_sword = handle;
+      }
+    }
+  });
+  if (best_sword != 0) {
+    best = best_sword;
+    best_d2 = best_sword_d2;
+  }
   if (best == 0) {
     RX_INFO("FP_PROBE: no loose weapon reference in the loaded cells");
     return false;
   }
-  RX_INFO("FP_PROBE: picking up nearest weapon ref 0x{:x} at {:.1f} m", best,
-          std::sqrt(best_d2));
+  RX_INFO("FP_PROBE: picking up nearest weapon ref 0x{:x} at {:.1f} m", best, std::sqrt(best_d2));
   return ctx_.items->TryPickUp(best);
 }
 
@@ -228,13 +233,12 @@ void FpEquipment::ProbeForceDraw() {
     if (sword.hash != 0) return;
     bethesda::Record rec;
     if (!ctx_.records->Parse(id, &rec)) return;
-    std::string model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
+    base::String model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
     for (char& c : model) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     asset::AssetId rid{};
     if (!ctx_.streamer->PrepareItemModel(id, &rid) || rid.hash == 0) return;
     if (any_mesh.hash == 0) any_mesh = rid;
-    if (model.find("sword") != std::string::npos &&
-        model.find("greatsword") == std::string::npos)
+    if (model.find("sword") != base::String::npos && model.find("greatsword") == base::String::npos)
       sword = rid;
   });
   const asset::AssetId mesh = sword.hash != 0 ? sword : any_mesh;
@@ -255,7 +259,7 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
     ctx_.third_person = false;
     probe_forced_view_ = true;
   }
-  const std::string dir = (std::string(kDir) == "1") ? std::string(".") : std::string(kDir);
+  const base::String dir = (base::String(kDir) == "1") ? base::String(".") : base::String(kDir);
 
   switch (probe_phase_) {
     case 0:  // let cells stream, then pick up + draw a weapon
@@ -272,12 +276,12 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
       // whole slash, so the draw (sword swept up into view, ~t=1.1s) is the frame
       // that reads as "weapon in motion". Capture it, then the settled idle.
       if (!swing_shot_ && probe_t_ >= 1.1f) {
-        ctx_.renderer->CaptureScreenshot(dir + "/rec_fp_sword_swing.png");
+        ctx_.renderer->CaptureScreenshot((dir + "/rec_fp_sword_swing.png").c_str());
         RX_INFO("FP_PROBE: captured {}/rec_fp_sword_swing.png (draw motion)", dir);
         swing_shot_ = true;
       }
       if ((state_ == State::kDrawn && probe_t_ >= 2.7f) || probe_t_ >= 9.0f) {
-        ctx_.renderer->CaptureScreenshot(dir + "/rec_fp_sword_idle.png");
+        ctx_.renderer->CaptureScreenshot((dir + "/rec_fp_sword_idle.png").c_str());
         RX_INFO("FP_PROBE: captured {}/rec_fp_sword_idle.png (state {})", dir,
                 static_cast<int>(state_));
         probe_phase_ = 2;
@@ -324,16 +328,20 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
           const f32 d2 = dx * dx + dz * dz;
           if (d2 < best_d2) {
             best_d2 = d2;
-            ipos[0] = wi.last_pos[0]; ipos[1] = wi.last_pos[1]; ipos[2] = wi.last_pos[2];
+            ipos[0] = wi.last_pos[0];
+            ipos[1] = wi.last_pos[1];
+            ipos[2] = wi.last_pos[2];
             found = true;
           }
         });
         if (found) {
           const f32 dx = ipos[0] - eye.x, dy = ipos[1] - eye.y, dz = ipos[2] - eye.z;
           const f32 horiz = std::sqrt(dx * dx + dz * dz);
-          ctx_.debug_look_pitch = std::atan2(dy, std::max(horiz, 0.01f));
-          RX_INFO("FP_PROBE: dropped sword rests at ({:.2f},{:.2f},{:.2f}) {:.1f} m ahead; pitch {:.2f}",
-                  ipos[0], ipos[1], ipos[2], horiz, ctx_.debug_look_pitch);
+          ctx_.debug_look_pitch = std::atan2(dy, base::Max(horiz, 0.01f));
+          RX_INFO(
+              "FP_PROBE: dropped sword rests at ({:.2f},{:.2f},{:.2f}) {:.1f} m ahead; pitch "
+              "{:.2f}",
+              ipos[0], ipos[1], ipos[2], horiz, ctx_.debug_look_pitch);
         }
         probe_phase_ = 6;
         probe_t_ = 0;
@@ -341,7 +349,7 @@ void FpEquipment::MaybeRunProbe(f32 dt) {
       break;
     case 6:  // let the new look pitch apply for a couple frames, then capture
       if (probe_t_ >= 0.4f) {
-        ctx_.renderer->CaptureScreenshot(dir + "/rec_sword_dropped.png");
+        ctx_.renderer->CaptureScreenshot((dir + "/rec_sword_dropped.png").c_str());
         RX_INFO("FP_PROBE: captured {}/rec_sword_dropped.png", dir);
         probe_phase_ = 7;
         probe_t_ = 0;

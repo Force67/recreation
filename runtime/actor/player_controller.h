@@ -1,7 +1,7 @@
 #ifndef RECREATION_RUNTIME_ACTOR_PLAYER_CONTROLLER_H_
 #define RECREATION_RUNTIME_ACTOR_PLAYER_CONTROLLER_H_
 
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
 
 #include "components/bethesda/movement_type.h"
 #include "character/character.h"
@@ -63,18 +63,18 @@ class PlayerController {
   const InputMap& input_map_;
 
   bool assembled_ = false;
-  ecs::Entity player_{};          // the player actor entity (rx components live here)
-  ecs::Entity camera_output_{};   // CameraOutput sink read back each frame
+  ecs::Entity player_{};         // the player actor entity (rx components live here)
+  ecs::Entity camera_output_{};  // CameraOutput sink read back each frame
 
   character::CharacterViewSettings view_settings_;
-  std::unordered_map<u64, bethesda::MovementType> movement_types_;
+  base::UnorderedMap<u64, bethesda::MovementType> movement_types_;
 
   // Third-person camera yaw is independent of the body heading (Skyrim: standing
   // still the camera orbits without turning the body). First person drives the
   // body/look heading directly through the character intent. Pitch is shared.
-  f32 cam_yaw_ = 0;      // third-person free-orbit yaw (radians)
-  f32 cam_pitch_ = 0;    // camera pitch, both modes (radians)
-  f32 loco_debug_t_ = 0; // RX_LOCO_DEBUG trace throttle accumulator (seconds)
+  f32 cam_yaw_ = 0;       // third-person free-orbit yaw (radians)
+  f32 cam_pitch_ = 0;     // camera pitch, both modes (radians)
+  f32 loco_debug_t_ = 0;  // RX_LOCO_DEBUG trace throttle accumulator (seconds)
   bool was_third_person_ = true;
 
   Vec3 eye_position_{};

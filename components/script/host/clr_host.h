@@ -1,10 +1,9 @@
 #ifndef RECREATION_SCRIPT_HOST_CLR_HOST_H_
 #define RECREATION_SCRIPT_HOST_CLR_HOST_H_
 
-#include <string>
-#include <utility>
-#include <vector>
-
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 namespace rx::script::host {
 
 // Hosts the .NET CoreCLR runtime in process and resolves a managed entrypoint.
@@ -38,10 +37,10 @@ class ClrHost {
   //                  runtime rejects is logged and skipped, not fatal.
   // Returns false (and leaves available() false) if .NET is not present or the
   // entrypoint cannot be resolved.
-  bool Initialize(const std::string& dotnet_root, const std::string& runtime_config_path,
-                  const std::string& assembly_path, const std::string& type_name,
-                  const std::string& method_name,
-                  const std::vector<std::pair<std::string, std::string>>& properties = {});
+  bool Initialize(const base::String& dotnet_root, const base::String& runtime_config_path,
+                  const base::String& assembly_path, const base::String& type_name,
+                  const base::String& method_name,
+                  const base::Vector<base::Pair<base::String, base::String>>& properties = {});
 
   bool available() const { return entry_ != nullptr; }
 
@@ -52,9 +51,9 @@ class ClrHost {
   void Shutdown();
 
  private:
-  void* library_ = nullptr;       // dlopen handle for libhostfxr
-  void* host_handle_ = nullptr;   // hostfxr_handle
-  void* close_fn_ = nullptr;      // hostfxr_close_fn
+  void* library_ = nullptr;        // dlopen handle for libhostfxr
+  void* host_handle_ = nullptr;    // hostfxr_handle
+  void* close_fn_ = nullptr;       // hostfxr_close_fn
   int (*entry_)(void*) = nullptr;  // resolved managed entrypoint
 };
 

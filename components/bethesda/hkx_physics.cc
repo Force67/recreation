@@ -1,7 +1,12 @@
 #include "components/bethesda/hkx_physics.h"
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
-#include <unordered_map>
 
 #include "core/log.h"
 
@@ -15,16 +20,16 @@ namespace {
 namespace off {
 // hkaSkeleton
 constexpr u64 kSkeletonName = 0x10;
-constexpr u64 kSkeletonParents = 0x18;   // hkArray<i16>
-constexpr u64 kSkeletonBones = 0x28;     // hkArray<hkaBone{name*, bool}> (16B)
-constexpr u64 kSkeletonRefPose = 0x38;   // hkArray<hkQsTransform> (48B)
+constexpr u64 kSkeletonParents = 0x18;  // hkArray<i16>
+constexpr u64 kSkeletonBones = 0x28;    // hkArray<hkaBone{name*, bool}> (16B)
+constexpr u64 kSkeletonRefPose = 0x38;  // hkArray<hkQsTransform> (48B)
 // hkpPhysicsData
 constexpr u64 kPhysicsDataSystems = 0x18;  // hkArray<hkpPhysicsSystem*>
 // hkpPhysicsSystem
 constexpr u64 kSystemRigidBodies = 0x10;  // hkArray<hkpRigidBody*>
 constexpr u64 kSystemConstraints = 0x20;  // hkArray<hkpConstraintInstance*>
 // hkpRigidBody
-constexpr u64 kBodyShape = 0x20;      // collidable.shape
+constexpr u64 kBodyShape = 0x20;  // collidable.shape
 constexpr u64 kBodyName = 0xB0;
 constexpr u64 kBodyFriction = 0xD4;
 constexpr u64 kBodyRestitution = 0xD8;
@@ -33,14 +38,14 @@ constexpr u64 kBodyPosition = 0x1A0;  // motionState.transform translation
 constexpr u64 kBodyRotation = 0x1D0;  // sweptTransform rotation0 (quat)
 constexpr u64 kBodyInvMass = 0x22C;   // inertiaAndInvMass.w
 // Convex shapes
-constexpr u64 kShapeRadius = 0x20;         // hkpConvexShape::radius
-constexpr u64 kCapsuleA = 0x30;            // float4 (w = radius)
+constexpr u64 kShapeRadius = 0x20;  // hkpConvexShape::radius
+constexpr u64 kCapsuleA = 0x30;     // float4 (w = radius)
 constexpr u64 kCapsuleB = 0x40;
 constexpr u64 kBoxHalfExtents = 0x30;
 constexpr u64 kConvexRotatedVerts = 0x50;  // hkArray<hkFourTransposedPoints>
 constexpr u64 kConvexNumVerts = 0x60;
 // hkpListShape / hkpTransformShape / hkpMoppBvTreeShape
-constexpr u64 kListChildren = 0x30;     // hkArray<ChildInfo{shape*, u32, u32, u32}> (24B?)
+constexpr u64 kListChildren = 0x30;  // hkArray<ChildInfo{shape*, u32, u32, u32}> (24B?)
 // hkpConvexTransform/TranslateShape: convex radius +0x20, child shape ptr
 // +0x30, then the placement (full hkTransform / translate float4) at +0x40
 // (verified: dragon wing membranes).
@@ -56,7 +61,7 @@ constexpr u64 kConstraintEntityA = 0x28;
 constexpr u64 kConstraintEntityB = 0x30;
 constexpr u64 kConstraintName = 0x50;
 // hkpRagdollConstraintData atoms (relative to the data object)
-constexpr u64 kRagdollXfA = 0x30;   // hkTransform (3 basis columns + origin)
+constexpr u64 kRagdollXfA = 0x30;  // hkTransform (3 basis columns + origin)
 constexpr u64 kRagdollXfB = 0x70;
 constexpr u64 kRagdollTwistMin = 0x134;
 constexpr u64 kRagdollTwistMax = 0x138;
@@ -93,8 +98,8 @@ void ReadTransform12(const HkxFile& hkx, u64 at, f32 out[12]) {
 HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
   HkxShape shape;
   if (at == HkxFile::kNull || depth > 8) return shape;
-  std::string_view cls = hkx.class_of(at);
-  shape.class_name = std::string(cls);
+  base::StringRef cls = hkx.class_of(at);
+  shape.class_name = base::String(cls);
 
   if (cls == "hkpCapsuleShape") {
     shape.kind = HkxShape::Kind::kCapsule;
@@ -119,8 +124,8 @@ HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
       u64 base = verts + static_cast<u64>(blk) * 48;
       for (u32 i = 0; i < 4; ++i) {
         if (shape.vertices.size() >= count) break;
-        shape.vertices.push_back({hkx.F32(base + i * 4), hkx.F32(base + 16 + i * 4),
-                                  hkx.F32(base + 32 + i * 4)});
+        shape.vertices.push_back(
+            {hkx.F32(base + i * 4), hkx.F32(base + 16 + i * 4), hkx.F32(base + 32 + i * 4)});
       }
     }
   } else if (cls == "hkpListShape") {
@@ -160,14 +165,14 @@ HkxShape DecodeShape(const HkxFile& hkx, u64 at, u32 depth) {
 
 HkxSkeleton DecodeSkeleton(const HkxFile& hkx, u64 at) {
   HkxSkeleton skeleton;
-  skeleton.name = std::string(hkx.CString(at + off::kSkeletonName));
+  skeleton.name = base::String(hkx.CString(at + off::kSkeletonName));
   u32 parent_count = 0, bone_count = 0, pose_count = 0;
   u64 parents = hkx.Array(at + off::kSkeletonParents, &parent_count);
   u64 bones = hkx.Array(at + off::kSkeletonBones, &bone_count);
   u64 pose = hkx.Array(at + off::kSkeletonRefPose, &pose_count);
   for (u32 i = 0; i < bone_count; ++i) {
     HkxBone bone;
-    bone.name = std::string(hkx.CString(bones + static_cast<u64>(i) * 16));
+    bone.name = base::String(hkx.CString(bones + static_cast<u64>(i) * 16));
     if (i < parent_count && parents != HkxFile::kNull) bone.parent = hkx.I16(parents + i * 2);
     if (i < pose_count && pose != HkxFile::kNull) {
       u64 t = pose + static_cast<u64>(i) * 48;  // hkQsTransform: T, Q, S float4s
@@ -175,7 +180,7 @@ HkxSkeleton DecodeSkeleton(const HkxFile& hkx, u64 at) {
       for (u32 c = 0; c < 4; ++c) bone.rotation[c] = hkx.F32(t + 16 + c * 4);
       bone.scale = hkx.F32(t + 32);
     }
-    skeleton.bones.push_back(std::move(bone));
+    skeleton.bones.push_back(base::move(bone));
   }
   return skeleton;
 }
@@ -184,8 +189,8 @@ HkxSkeleton DecodeSkeleton(const HkxFile& hkx, u64 at) {
 
 HkxPhysics DecodePhysics(const HkxFile& hkx) {
   HkxPhysics physics;
-  std::unordered_map<u64, i32> body_index;   // packfile offset -> bodies index
-  std::unordered_map<u64, i32> skeleton_index;
+  base::UnorderedMap<u64, i32> body_index;  // packfile offset -> bodies index
+  base::UnorderedMap<u64, i32> skeleton_index;
 
   // Bodies and skeletons first so constraints/ragdolls can reference them.
   for (const HkxObject& obj : hkx.objects()) {
@@ -195,7 +200,7 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
     } else if (obj.class_name == "hkpRigidBody") {
       HkxRigidBody body;
       body.object_offset = obj.offset;
-      body.name = std::string(hkx.CString(obj.offset + off::kBodyName));
+      body.name = base::String(hkx.CString(obj.offset + off::kBodyName));
       body.friction = hkx.F32(obj.offset + off::kBodyFriction);
       body.restitution = hkx.F32(obj.offset + off::kBodyRestitution);
       body.motion_type = hkx.U8(obj.offset + off::kBodyMotionType);
@@ -208,14 +213,14 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
       u64 shape = hkx.Pointer(obj.offset + off::kBodyShape);
       if (shape != HkxFile::kNull) body.shape = DecodeShape(hkx, shape, 0);
       body_index[obj.offset] = static_cast<i32>(physics.bodies.size());
-      physics.bodies.push_back(std::move(body));
+      physics.bodies.push_back(base::move(body));
     }
   }
 
   auto body_of = [&](u64 pointer_slot) {
     u64 target = hkx.Pointer(pointer_slot);
-    auto it = body_index.find(target);
-    return it == body_index.end() ? -1 : it->second;
+    auto* it = body_index.find(target);
+    return it == nullptr ? -1 : *it;
   };
 
   // Vanilla files serialize every constraint TWICE - one full instance+data
@@ -223,7 +228,7 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
   // instance - so walking all hkpConstraintInstance objects double-counts.
   // The physics system's constraint array is the authoritative set; fall
   // back to the flat object walk only when no system exists.
-  std::vector<u64> constraint_offsets;
+  base::Vector<u64> constraint_offsets;
   for (const HkxObject& obj : hkx.objects()) {
     if (obj.class_name != "hkpPhysicsSystem") continue;
     u32 count = 0;
@@ -242,12 +247,12 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
     {
       const HkxObject obj{instance, hkx.class_of(instance)};
       HkxConstraint constraint;
-      constraint.name = std::string(hkx.CString(obj.offset + off::kConstraintName));
+      constraint.name = base::String(hkx.CString(obj.offset + off::kConstraintName));
       constraint.body_a = body_of(obj.offset + off::kConstraintEntityA);
       constraint.body_b = body_of(obj.offset + off::kConstraintEntityB);
       u64 data = hkx.Pointer(obj.offset + off::kConstraintData);
       if (data != HkxFile::kNull) {
-        std::string_view cls = hkx.class_of(data);
+        base::StringRef cls = hkx.class_of(data);
         if (cls == "hkpRagdollConstraintData") {
           constraint.kind = HkxConstraint::Kind::kRagdoll;
           ReadTransform12(hkx, data + off::kRagdollXfA, constraint.frame_a);
@@ -265,7 +270,7 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
           constraint.hinge_max = hkx.F32(data + off::kHingeMax);
         }
       }
-      physics.constraints.push_back(std::move(constraint));
+      physics.constraints.push_back(base::move(constraint));
     }
   }
 
@@ -281,9 +286,9 @@ HkxPhysics DecodePhysics(const HkxFile& hkx) {
       ragdoll.bone_to_body.push_back(havok_body);
     }
     u64 skeleton = hkx.Pointer(obj.offset + off::kRagdollSkeleton);
-    auto it = skeleton_index.find(skeleton);
-    ragdoll.skeleton = it == skeleton_index.end() ? -1 : it->second;
-    physics.ragdoll = std::move(ragdoll);
+    auto* it = skeleton_index.find(skeleton);
+    ragdoll.skeleton = it == nullptr ? -1 : *it;
+    physics.ragdoll = base::move(ragdoll);
   }
   return physics;
 }

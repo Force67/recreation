@@ -1,7 +1,7 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVE_STATE_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_NATIVE_STATE_H_
 
-#include <string>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/script/papyrus/value.h"
@@ -14,23 +14,23 @@ namespace rx::script::skyrim::state {
 
 using papyrus::ObjectRef;
 
-bool GetFlag(ObjectRef owner, const std::string& key, bool fallback = false);
-void SetFlag(ObjectRef owner, const std::string& key, bool value);
+bool GetFlag(ObjectRef owner, const base::String& key, bool fallback = false);
+void SetFlag(ObjectRef owner, const base::String& key, bool value);
 
-i32 GetInt(ObjectRef owner, const std::string& key, i32 fallback = 0);
-void SetInt(ObjectRef owner, const std::string& key, i32 value);
+i32 GetInt(ObjectRef owner, const base::String& key, i32 fallback = 0);
+void SetInt(ObjectRef owner, const base::String& key, i32 value);
 
-f32 GetFloat(ObjectRef owner, const std::string& key, f32 fallback = 0.0f);
-void SetFloat(ObjectRef owner, const std::string& key, f32 value);
+f32 GetFloat(ObjectRef owner, const base::String& key, f32 fallback = 0.0f);
+void SetFloat(ObjectRef owner, const base::String& key, f32 value);
 
-ObjectRef GetRef(ObjectRef owner, const std::string& key);
-void SetRef(ObjectRef owner, const std::string& key, ObjectRef value);
+ObjectRef GetRef(ObjectRef owner, const base::String& key);
+void SetRef(ObjectRef owner, const base::String& key, ObjectRef value);
 
 // Set-valued state, for the collection natives (an actor's perks, spells, shouts).
-bool HasMember(ObjectRef owner, const std::string& key, ObjectRef member);
-void AddMember(ObjectRef owner, const std::string& key, ObjectRef member);
-void RemoveMember(ObjectRef owner, const std::string& key, ObjectRef member);
-i32 MemberCount(ObjectRef owner, const std::string& key);
+bool HasMember(ObjectRef owner, const base::String& key, ObjectRef member);
+void AddMember(ObjectRef owner, const base::String& key, ObjectRef member);
+void RemoveMember(ObjectRef owner, const base::String& key, ObjectRef member);
+i32 MemberCount(ObjectRef owner, const base::String& key);
 
 // Drops every stored value for one object (ObjectReference.Reset, ResetQuest).
 void Clear(ObjectRef owner);

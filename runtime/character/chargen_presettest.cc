@@ -5,9 +5,10 @@
 // rejected, so the save/load persistence format stays stable. Needs no game
 // data, so it runs in the ctest gate (mirrors editor_layouttest).
 
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdio>
-#include <string>
 
 #include "runtime/character/chargen_layout.h"
 
@@ -54,7 +55,7 @@ int main() {
   in.nam9.emplace_back(5, -0.8f);
   in.morphs.emplace_back("NoseLong", 0.75f);
 
-  const std::string text = SerializeCharGenPreset(in);
+  const base::String text = SerializeCharGenPreset(in);
   Check("serializes with the version header", text.rfind("# recreation chargen preset", 0) == 0);
 
   CharGenPreset out;
@@ -65,31 +66,33 @@ int main() {
   Check("subdiv survives", out.subdiv == in.subdiv);
   Check("hairstyle survives", out.hair_style == in.hair_style);
   Check("haircolor survives", out.hair_color == in.hair_color);
-  Check("skin survives",
-        Near(out.skin[0], in.skin[0]) && Near(out.skin[1], in.skin[1]) && Near(out.skin[2], in.skin[2]));
-  Check("hair colour survives",
-        Near(out.hair[0], in.hair[0]) && Near(out.hair[1], in.hair[1]) && Near(out.hair[2], in.hair[2]));
-  Check("nama survives", out.nama[0] == 7 && out.nama[1] == -1 && out.nama[2] == 12 && out.nama[3] == 4);
+  Check("skin survives", Near(out.skin[0], in.skin[0]) && Near(out.skin[1], in.skin[1]) &&
+                             Near(out.skin[2], in.skin[2]));
+  Check("hair colour survives", Near(out.hair[0], in.hair[0]) && Near(out.hair[1], in.hair[1]) &&
+                                    Near(out.hair[2], in.hair[2]));
+  Check("nama survives",
+        out.nama[0] == 7 && out.nama[1] == -1 && out.nama[2] == 12 && out.nama[3] == 4);
   Check("nam9 count survives", out.nam9.size() == 2);
-  Check("nam9 values survive",
-        out.nam9.size() == 2 && out.nam9[0].first == 0 && Near(out.nam9[0].second, 0.35f) &&
-            out.nam9[1].first == 5 && Near(out.nam9[1].second, -0.8f));
-  Check("morphs survive",
-        out.morphs.size() == 1 && out.morphs[0].first == "NoseLong" && Near(out.morphs[0].second, 0.75f));
+  Check("nam9 values survive", out.nam9.size() == 2 && out.nam9[0].first == 0 &&
+                                   Near(out.nam9[0].second, 0.35f) && out.nam9[1].first == 5 &&
+                                   Near(out.nam9[1].second, -0.8f));
+  Check("morphs survive", out.morphs.size() == 1 && out.morphs[0].first == "NoseLong" &&
+                              Near(out.morphs[0].second, 0.75f));
 
   // Non-presets are rejected (nothing recognized to read).
   CharGenPreset scratch;
   Check("rejects an empty document", !ParseCharGenPreset("", &scratch));
-  Check("rejects a comment-only document", !ParseCharGenPreset("# recreation chargen preset v1\n", &scratch));
+  Check("rejects a comment-only document",
+        !ParseCharGenPreset("# recreation chargen preset v1\n", &scratch));
   Check("rejects unrelated text", !ParseCharGenPreset("hello world\nfoo bar\n", &scratch));
 
   // A hand-written document parses to the right values (format contract).
   CharGenPreset hand;
   Check("parses a hand-written document",
         ParseCharGenPreset("race BretonRace\nsex 0\nnam9 2 0.5\n", &hand));
-  Check("hand document values",
-        hand.race == "BretonRace" && hand.sex == 0 && hand.nam9.size() == 1 &&
-            hand.nam9[0].first == 2 && Near(hand.nam9[0].second, 0.5f));
+  Check("hand document values", hand.race == "BretonRace" && hand.sex == 0 &&
+                                    hand.nam9.size() == 1 && hand.nam9[0].first == 2 &&
+                                    Near(hand.nam9[0].second, 0.5f));
 
   std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "passed", g_failures,
               g_failures == 1 ? "" : "s");

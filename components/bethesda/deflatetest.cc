@@ -4,13 +4,17 @@
 // the encoder actually shrinks compressible data. Needs no game data and runs
 // in the ctest gate. Modeled on ba2test.cc.
 
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
 
 #include "components/bethesda/compression.h"
 #include "core/types.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
 namespace {
@@ -30,13 +34,13 @@ size_t RoundTrip(const char* name, const base::Vector<u8>& in) {
 
   base::Vector<u8> back;
   back.resize(in.size());
-  bool ok = ZlibInflate(ByteSpan(stream.data(), stream.size()),
-                        in.empty() ? nullptr : back.data(), in.size());
+  bool ok = ZlibInflate(ByteSpan(stream.data(), stream.size()), in.empty() ? nullptr : back.data(),
+                        in.size());
   bool same = ok;
   for (size_t i = 0; same && i < in.size(); ++i) {
     if (back[i] != in[i]) same = false;
   }
-  std::string label = std::string("round-trips: ") + name;
+  base::String label = base::String("round-trips: ") + name;
   Check(label.c_str(), same);
   return same ? stream.size() : 0;
 }
@@ -125,9 +129,9 @@ int main() {
   // repeated sentence so matches and literal frequencies vary more. Exercises
   // the dynamic path over a bigger, more realistic literal/length histogram.
   {
-    const char* words[] = {"the",  "quick",  "brown", "fox",   "and",    "dog",    "run",
-                           "jump", "over",   "lazy",  "river", "forest", "under",  "bright",
-                           "moon", "light",  "again", "while", "water",  "stone"};
+    const char* words[] = {"the",  "quick", "brown", "fox",   "and",    "dog",   "run",
+                           "jump", "over",  "lazy",  "river", "forest", "under", "bright",
+                           "moon", "light", "again", "while", "water",  "stone"};
     base::Vector<u8> in;
     u32 state = 0x9e3779b9u;
     while (in.size() < 20000) {

@@ -1,5 +1,8 @@
 #include "components/script/papyrus/value.h"
 
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -8,12 +11,12 @@
 namespace rx::script::papyrus {
 namespace {
 
-const std::string kEmpty;
+const base::String kEmpty;
 
 // libc++ (the NDK toolchain) does not implement std::from_chars for floating
 // point and deletes the overload, so fall back to strtof there. Both do a
 // locale-independent decimal parse, so the result matches the desktop path.
-f32 ParseFloat(const std::string& s) {
+f32 ParseFloat(const base::String& s) {
 #if defined(_LIBCPP_VERSION)
   return std::strtof(s.c_str(), nullptr);
 #else
@@ -25,15 +28,15 @@ f32 ParseFloat(const std::string& s) {
 
 // Papyrus float-to-string keeps trailing fractional digits trimmed, matching
 // how the game prints floats in logs and HUD text.
-std::string FloatToString(f32 v) {
-  std::string s = std::format("{}", v);
+base::String FloatToString(f32 v) {
+  base::String s = std::format("{}", v);
   return s;
 }
 
 }  // namespace
 
-const std::string& Value::as_string() const {
-  if (type_ == ValueType::kString) return std::get<std::string>(data_);
+const base::String& Value::as_string() const {
+  if (type_ == ValueType::kString) return std::get<base::String>(data_);
   return kEmpty;
 }
 
@@ -46,7 +49,7 @@ i32 Value::ToInt() const {
     case ValueType::kBool:
       return std::get<bool>(data_) ? 1 : 0;
     case ValueType::kString: {
-      const std::string& s = std::get<std::string>(data_);
+      const base::String& s = std::get<base::String>(data_);
       i32 out = 0;
       std::from_chars(s.data(), s.data() + s.size(), out);
       return out;
@@ -65,7 +68,7 @@ f32 Value::ToFloat() const {
     case ValueType::kBool:
       return std::get<bool>(data_) ? 1.0f : 0.0f;
     case ValueType::kString:
-      return ParseFloat(std::get<std::string>(data_));
+      return ParseFloat(std::get<base::String>(data_));
     default:
       return 0;
   }
@@ -82,7 +85,7 @@ bool Value::ToBool() const {
     case ValueType::kBool:
       return std::get<bool>(data_);
     case ValueType::kString:
-      return !std::get<std::string>(data_).empty();
+      return !std::get<base::String>(data_).empty();
     case ValueType::kObject:
       return std::get<ObjectRef>(data_).handle != 0;
     case ValueType::kArray:
@@ -93,18 +96,18 @@ bool Value::ToBool() const {
   return false;
 }
 
-std::string Value::ToString() const {
+base::String Value::ToString() const {
   switch (type_) {
     case ValueType::kNone:
       return "None";
     case ValueType::kInt:
-      return std::to_string(std::get<i32>(data_));
+      return base::ToString(std::get<i32>(data_));
     case ValueType::kFloat:
       return FloatToString(std::get<f32>(data_));
     case ValueType::kBool:
       return std::get<bool>(data_) ? "True" : "False";
     case ValueType::kString:
-      return std::get<std::string>(data_);
+      return std::get<base::String>(data_);
     case ValueType::kObject:
       return std::format("[object {:#x}]", std::get<ObjectRef>(data_).handle);
     case ValueType::kArray:
@@ -117,13 +120,12 @@ std::string Value::ToString() const {
 
 bool Value::Equals(const Value& other) const {
   // None equals only None.
-  if (type_ == ValueType::kNone || other.type_ == ValueType::kNone)
-    return type_ == other.type_;
+  if (type_ == ValueType::kNone || other.type_ == ValueType::kNone) return type_ == other.type_;
 
   // Strings compare textually only against strings.
   if (type_ == ValueType::kString || other.type_ == ValueType::kString) {
     if (type_ != other.type_) return false;
-    return std::get<std::string>(data_) == std::get<std::string>(other.data_);
+    return std::get<base::String>(data_) == std::get<base::String>(other.data_);
   }
 
   if (type_ == ValueType::kObject || other.type_ == ValueType::kObject)
@@ -141,7 +143,7 @@ bool Value::Equals(const Value& other) const {
 
 int Value::Compare(const Value& other) const {
   if (type_ == ValueType::kString && other.type_ == ValueType::kString) {
-    int c = std::get<std::string>(data_).compare(std::get<std::string>(other.data_));
+    int c = std::get<base::String>(data_).compare(std::get<base::String>(other.data_));
     return c < 0 ? -1 : c > 0 ? 1 : 0;
   }
   if (type_ == ValueType::kFloat || other.type_ == ValueType::kFloat) {

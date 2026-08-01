@@ -1,7 +1,7 @@
 #ifndef RECREATION_BETHESDA_PLANET_H_
 #define RECREATION_BETHESDA_PLANET_H_
 
-#include <string>
+#include <base/strings/xstring.h>
 
 #include "asset/vfs.h"
 #include "components/bethesda/biom.h"
@@ -15,12 +15,12 @@ namespace rx::bethesda {
 // a ground surface: resolved from a BIOM record (its terrain material layers
 // LNAM -> LTEX -> .mat, and the map colour BMC as a fallback tint).
 struct BiomeGround {
-  u32 form_id = 0;            // raw BIOM FormID
-  std::string editor_id;     // e.g. "CrateredNoLife09"
-  std::string surface;       // SNAM archetype, e.g. "Cratered"
-  std::string ground_mat;    // first LTEX's .mat path (Materials\Terrain\...mat)
-  std::string base_color;    // resolved diffuse texture ("textures/...dds"), may be empty
-  std::string normal;        // resolved normal texture, may be empty
+  u32 form_id = 0;                   // raw BIOM FormID
+  base::String editor_id;            // e.g. "CrateredNoLife09"
+  base::String surface;              // SNAM archetype, e.g. "Cratered"
+  base::String ground_mat;           // first LTEX's .mat path (Materials\Terrain\...mat)
+  base::String base_color;           // resolved diffuse texture ("textures/...dds"), may be empty
+  base::String normal;               // resolved normal texture, may be empty
   f32 tint[3] = {0.5f, 0.5f, 0.5f};  // BMC map colour, linear 0..1 (fallback ground colour)
   bool valid = false;
 };
@@ -35,7 +35,7 @@ BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMateri
 // A resolved procedural-planet target: its biome map plus per-biome ground data,
 // ready to drive tile generation. Loaded from planetdata/biomemaps/<name>.biom.
 struct PlanetSurface {
-  std::string name;   // the .biom stem passed in (e.g. "zeta ophiuchi ii")
+  base::String name;  // the .biom stem passed in (e.g. "zeta ophiuchi ii")
   BiomeMap map;       // decoded .biom
   // Ground data for each biome id in map.biome_ids, same order.
   base::Vector<BiomeGround> grounds;
@@ -48,7 +48,7 @@ struct PlanetSurface {
 // few known DLC subdirectories. Returns valid=false when the file is missing or
 // malformed.
 PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs, const RecordStore& records,
-                                const StarfieldMaterialDb& mat_db, const std::string& biom_name,
+                                const StarfieldMaterialDb& mat_db, const base::String& biom_name,
                                 u16 biom_plugin);
 
 }  // namespace rx::bethesda

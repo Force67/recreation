@@ -1,3 +1,8 @@
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -5,8 +10,6 @@
 #include <iterator>
 #include <limits>
 #include <random>
-#include <string>
-#include <vector>
 
 #include "components/world/terrain_edits.h"
 
@@ -20,11 +23,10 @@ void Check(bool condition, const char* message) {
   ++failures;
 }
 
-std::optional<rx::f32> FlatBase(rx::i32, rx::i32) { return 100.0f; }
+base::Optional<rx::f32> FlatBase(rx::i32, rx::i32) { return 100.0f; }
 
 rx::u64 Fingerprint(rx::world::TerrainCellKey cell) {
-  return 0x9e3779b97f4a7c15ull ^
-         (static_cast<rx::u64>(static_cast<rx::u32>(cell.x)) << 32) ^
+  return 0x9e3779b97f4a7c15ull ^ (static_cast<rx::u64>(static_cast<rx::u32>(cell.x)) << 32) ^
          static_cast<rx::u32>(cell.y);
 }
 
@@ -33,15 +35,13 @@ void FingerprintTouched(rx::world::TerrainEdits* edits) {
     edits->SetCellFingerprint(cell, Fingerprint(cell));
 }
 
-std::vector<rx::u8> ReadBytes(const std::filesystem::path& path) {
-  std::ifstream input(path, std::ios::binary);
-  return {std::istreambuf_iterator<char>(input),
-          std::istreambuf_iterator<char>()};
+base::Vector<rx::u8> ReadBytes(const std::filesystem::path& path) {
+  std::ifstream input(path.c_str(), std::ios::binary);
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
-void WriteBytes(const std::filesystem::path& path,
-                const std::vector<rx::u8>& bytes) {
-  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+void WriteBytes(const std::filesystem::path& path, const base::Vector<rx::u8>& bytes) {
+  std::ofstream output(path.c_str(), std::ios::binary | std::ios::trunc);
   output.write(reinterpret_cast<const char*>(bytes.data()),
                static_cast<std::streamsize>(bytes.size()));
 }
@@ -57,13 +57,12 @@ void TestCanonicalBordersAndNegativeCells() {
   brush.strength = 2.0f;
   TerrainEditChange border = edits.ApplyBrush(brush, FlatBase);
   Check(border.samples.size() == 1, "border brush edits one canonical sample");
-  Check(border.cells == std::vector<TerrainCellKey>({{0, 0}, {1, 0}}),
+  Check(border.cells == base::Vector<TerrainCellKey>({{0, 0}, {1, 0}}),
         "canonical edge marks both sharing cells");
-  Check(edits.SampleDelta(32, 5) == 2.0f,
-        "canonical border stores one final delta");
+  Check(edits.SampleDelta(32, 5) == 2.0f, "canonical border stores one final delta");
 
-  std::vector<rx::f32> base(33 * 33, 100.0f);
-  std::vector<rx::f32> west(33 * 33), east(33 * 33);
+  base::Vector<rx::f32> base(33 * 33, 100.0f);
+  base::Vector<rx::f32> west(33 * 33), east(33 * 33);
   Check(edits.ComposeCell({0, 0}, base, west), "compose west border cell");
   Check(edits.ComposeCell({1, 0}, base, east), "compose east border cell");
   Check(west[5 * 33 + 32] == 102.0f && east[5 * 33] == 102.0f,
@@ -75,13 +74,10 @@ void TestCanonicalBordersAndNegativeCells() {
   brush.center_y = -32;
   brush.radius = 0.25f;
   TerrainEditChange corner = negative.ApplyBrush(brush, FlatBase);
-  const std::vector<TerrainCellKey> expected = {
-      {-2, -2}, {-2, -1}, {-1, -2}, {-1, -1}};
-  Check(corner.cells == expected,
-        "negative canonical corner reaches all four sharing cells");
-  std::vector<rx::f32> southwest(33 * 33);
-  Check(negative.ComposeCell({-2, -2}, base, southwest),
-        "compose negative cell");
+  const base::Vector<TerrainCellKey> expected = {{-2, -2}, {-2, -1}, {-1, -2}, {-1, -1}};
+  Check(corner.cells == expected, "negative canonical corner reaches all four sharing cells");
+  base::Vector<rx::f32> southwest(33 * 33);
+  Check(negative.ComposeCell({-2, -2}, base, southwest), "compose negative cell");
   Check(southwest[32 * 33 + 32] == 102.0f,
         "negative floor division maps shared corner to local 32,32");
 }
@@ -115,8 +111,7 @@ void TestMergeRevertAndCompose() {
         "reset change can be undone");
 
   TerrainEditChange out_of_range;
-  out_of_range.samples.push_back(
-      {{1, 1}, 0.0f, std::numeric_limits<rx::f32>::max()});
+  out_of_range.samples.push_back({{1, 1}, 0.0f, std::numeric_limits<rx::f32>::max()});
   out_of_range.cells.push_back({0, 0});
   Check(!edits.ApplyChange(out_of_range),
         "out-of-range quantized deltas are rejected before mutation");
@@ -125,82 +120,73 @@ void TestMergeRevertAndCompose() {
 void TestPersistenceValidation() {
   using namespace rx::world;
   TerrainEdits edits;
-  const std::string world = "skyrimse:tamriel@skyrim.esm";
+  const base::String world = "skyrimse:tamriel@skyrim.esm";
   edits.BindWorld(world);
   TerrainBrush brush;
   brush.center_x = -32;
   brush.center_y = 0;
   brush.radius = 2.2f;
   brush.strength = 0.101f;
-  Check(!edits.ApplyBrush(brush, FlatBase).empty(),
-        "persistence fixture has sparse edits");
+  Check(!edits.ApplyBrush(brush, FlatBase).empty(), "persistence fixture has sparse edits");
 
   const std::filesystem::path root =
       std::filesystem::temp_directory_path() /
-      ("recreation-terrain-edittest-" +
-       std::to_string(std::random_device{}()));
-  std::filesystem::create_directories(root);
+      ("recreation-terrain-edittest-" + base::ToString(std::random_device{}())).c_str();
+  std::filesystem::create_directories(root.c_str());
   const std::filesystem::path first = root / "first.recterrain";
   const std::filesystem::path second = root / "second.recterrain";
-  std::string error;
+  base::String error;
   Check(!SaveTerrainEdits(edits, first.string(), &error) &&
-            error.find("fingerprint") != std::string::npos,
+            error.find("fingerprint") != base::String::npos,
         "saving rejects touched cells without a base fingerprint");
   FingerprintTouched(&edits);
-  Check(SaveTerrainEdits(edits, first.string(), &error),
-        "save compact terrain diff");
+  Check(SaveTerrainEdits(edits, first.string(), &error), "save compact terrain diff");
   Check(SaveTerrainEdits(edits, first.string(), &error),
         "save atomically replaces an existing terrain diff");
-  Check(SaveTerrainEdits(edits, second.string(), &error),
-        "save deterministic terrain diff again");
-  const std::vector<rx::u8> bytes = ReadBytes(first);
+  Check(SaveTerrainEdits(edits, second.string(), &error), "save deterministic terrain diff again");
+  const base::Vector<rx::u8> bytes = ReadBytes(first);
   Check(bytes == ReadBytes(second), "terrain diff bytes are deterministic");
   Check(bytes.size() < 2048, "sparse terrain diff stays compact");
 
   const auto valid_fingerprint = [](TerrainCellKey cell) {
-    return std::optional<rx::u64>(Fingerprint(cell));
+    return base::Optional<rx::u64>(Fingerprint(cell));
   };
   TerrainEdits loaded;
-  Check(LoadTerrainEdits(first.string(), world, valid_fingerprint, &loaded,
-                         &error),
+  Check(LoadTerrainEdits(first.string(), world, valid_fingerprint, &loaded, &error),
         "load quantized terrain diff");
   Check(loaded.sample_count() == edits.sample_count() && !loaded.dirty(),
         "loaded diff preserves samples and starts clean");
-  Check(std::abs(loaded.SampleDelta(-32, 0) - edits.SampleDelta(-32, 0)) <=
-            1.0f / 256.0f,
+  Check(std::abs(loaded.SampleDelta(-32, 0) - edits.SampleDelta(-32, 0)) <= 1.0f / 256.0f,
         "quantized load retains sub-centimeter engine precision");
 
   TerrainEdits rejected;
-  Check(!LoadTerrainEdits(first.string(), "fallout4:commonwealth@fallout4.esm",
-                          valid_fingerprint, &rejected, &error) &&
-            error.find("worldspace mismatch") != std::string::npos,
+  Check(!LoadTerrainEdits(first.string(), "fallout4:commonwealth@fallout4.esm", valid_fingerprint,
+                          &rejected, &error) &&
+            error.find("worldspace mismatch") != base::String::npos,
         "wrong worldspace is clearly rejected");
   const auto wrong_fingerprint = [](TerrainCellKey cell) {
-    return std::optional<rx::u64>(Fingerprint(cell) + 1);
+    return base::Optional<rx::u64>(Fingerprint(cell) + 1);
   };
-  Check(!LoadTerrainEdits(first.string(), world, wrong_fingerprint, &rejected,
-                          &error) &&
-            error.find("fingerprint mismatch") != std::string::npos,
+  Check(!LoadTerrainEdits(first.string(), world, wrong_fingerprint, &rejected, &error) &&
+            error.find("fingerprint mismatch") != base::String::npos,
         "changed base source is clearly rejected");
 
-  std::vector<rx::u8> corrupt = bytes;
+  base::Vector<rx::u8> corrupt = bytes;
   corrupt[corrupt.size() / 2] ^= 0x80;
   const std::filesystem::path corrupt_path = root / "corrupt.recterrain";
   WriteBytes(corrupt_path, corrupt);
-  Check(!LoadTerrainEdits(corrupt_path.string(), world, valid_fingerprint,
-                          &rejected, &error) &&
-            error.find("checksum") != std::string::npos,
+  Check(!LoadTerrainEdits(corrupt_path.string(), world, valid_fingerprint, &rejected, &error) &&
+            error.find("checksum") != base::String::npos,
         "corruption is rejected by checksum");
 
   corrupt.resize(corrupt.size() / 2);
   const std::filesystem::path truncated_path = root / "truncated.recterrain";
   WriteBytes(truncated_path, corrupt);
-  Check(!LoadTerrainEdits(truncated_path.string(), world, valid_fingerprint,
-                          &rejected, &error),
+  Check(!LoadTerrainEdits(truncated_path.string(), world, valid_fingerprint, &rejected, &error),
         "truncated terrain diff is rejected");
 
   std::error_code ignored;
-  std::filesystem::remove_all(root, ignored);
+  std::filesystem::remove_all(root.c_str(), ignored);
 }
 
 }  // namespace

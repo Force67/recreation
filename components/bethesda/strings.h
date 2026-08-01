@@ -1,8 +1,6 @@
 #ifndef RECREATION_BETHESDA_STRINGS_H_
 #define RECREATION_BETHESDA_STRINGS_H_
 
-#include <string>
-
 #include <base/containers/unordered_map.h>
 #include <base/strings/xstring.h>
 
@@ -19,7 +17,7 @@ class StringTable {
   // `plugin` is the load-order index the strings belong to. String ids are only
   // unique within one plugin, so the table keeps them per plugin as well as in a
   // flat, first-wins map for callers that do not know which plugin a record is from.
-  bool Load(const asset::Vfs& vfs, const std::string& plugin_name, const std::string& language,
+  bool Load(const asset::Vfs& vfs, const base::String& plugin_name, const base::String& language,
             u16 plugin = kAnyPlugin);
 
   static constexpr u16 kAnyPlugin = 0xffff;
@@ -31,7 +29,7 @@ class StringTable {
   size_t size() const { return strings_.size(); }
 
  private:
-  bool LoadFile(const asset::Vfs& vfs, const std::string& path, bool length_prefixed, u16 plugin);
+  bool LoadFile(const asset::Vfs& vfs, const base::String& path, bool length_prefixed, u16 plugin);
 
   base::UnorderedMap<u32, base::String> strings_;
   base::UnorderedMap<u64, base::String> by_plugin_;  // (plugin << 32 | id) -> string

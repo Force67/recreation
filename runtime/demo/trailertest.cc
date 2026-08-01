@@ -3,6 +3,8 @@
 // inside its region window (and never under the intro card), and the chrome
 // alphas (letterbox / fade / intro) behave at the ends. No game data, so it runs
 // in the default ctest gate.
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 
 #include "runtime/demo/trailer.h"
@@ -52,8 +54,7 @@ int main() {
   // --- Location lower-third ---
   check("no location title under the intro", dir.At(1.0f).overlay.title_alpha < 0.01f);
   check("skyrim title in its window", dir.At(10.0f).overlay.title == "SKYRIM");
-  check("skyrim subtitle in its window",
-        dir.At(10.0f).overlay.subtitle == "THE ELDER SCROLLS V");
+  check("skyrim subtitle in its window", dir.At(10.0f).overlay.subtitle == "THE ELDER SCROLLS V");
   check("fallout title in its window", dir.At(30.0f).overlay.title == "FALLOUT 4");
   check("location title actually visible", dir.At(30.0f).overlay.title_alpha > 0.5f);
 
@@ -67,7 +68,7 @@ int main() {
   check("clear is not snowing", !dir.At(0.5f).weather.snow);
   // Slot 3 (blizzard) lands around t = 3 * (9 + 3) = 36s.
   check("blizzard slot snows", dir.At(37.0f).weather.snow);
-  check("weather tag named at t=0", dir.At(0.5f).overlay.weather_tag == std::string("CLEAR"));
+  check("weather tag named at t=0", dir.At(0.5f).overlay.weather_tag == base::String("CLEAR"));
 
   // --- Render mode cycle: ray tracing, then path tracer, starting post-intro ---
   // kIntro = 4, kModeHold = 12: slot 0 ~ [4,16), slot 1 ~ [16,28), slot 0 ~ [28,40).
@@ -75,8 +76,8 @@ int main() {
   check("path tracing second", dir.At(20.0f).mode == TrailerRenderMode::kPathTracing);
   check("ray tracing third", dir.At(32.0f).mode == TrailerRenderMode::kRayTracing);
   check("badge names path tracing",
-        dir.At(20.0f).overlay.badge == std::string(rx::TrailerRenderModeLabel(
-                                           TrailerRenderMode::kPathTracing)));
+        dir.At(20.0f).overlay.badge ==
+            base::String(rx::TrailerRenderModeLabel(TrailerRenderMode::kPathTracing)));
 
   // --- Multi-game: active-beat index drives which map stays resident ---
   check("active beat 0 in first window", dir.ActiveBeatIndex(10.0f) == 0);

@@ -1,16 +1,18 @@
-#include "runtime/app/engine.h"
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
 
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <utility>
-
-#include <base/option.h>
 
 #include "core/log.h"
 #include "core/math.h"
+#include "runtime/actor/player_controller.h"
+#include "runtime/app/engine.h"
 #include "runtime/interaction/item_bridge.h"
 #include "runtime/actor/player_controller.h"
 #include "components/world/components.h"
@@ -114,7 +116,7 @@ void Engine::UpdateCamera(f32 frame_delta) {
       actors_->HasPlayer()) {
     ctx_.walk_mode = !ctx_.walk_mode;
     RX_INFO("walk mode {}",
-             ctx_.walk_mode ? "on (WASD move, Shift run, Space jump, C view)" : "off");
+            ctx_.walk_mode ? "on (WASD move, Shift run, Space jump, C view)" : "off");
   }
   if (actions_->pressed(Action::kToggleThirdPerson) && !menu && !kb && !modal && !editor_on)
     ctx_.third_person = !ctx_.third_person;
@@ -199,7 +201,7 @@ void Engine::LookCameraAt(const Vec3& eye, const Vec3& center) {
   camera_.set_position(eye);
   Vec3 d = Normalize(center - eye);
   camera_.set_yaw_pitch(std::atan2(d.x, -d.z),
-                        std::asin(std::clamp(d.y, -1.0f, 1.0f)));  // forward() convention
+                        std::asin(base::Clamp(d.y, -1.0f, 1.0f)));  // forward() convention
 }
 
 void Engine::DriveCamera(f32 dt) {
@@ -246,8 +248,8 @@ void Engine::DriveCamera(f32 dt) {
         ctx_.walk_mode = false;         // the cinematic owns the camera
         game_ui_.SetHudVisible(false);  // clean frames: no crosshair / compass / bars
         RX_INFO("showcase: {} waypoints over {} region(s), {:.1f}s{}", showcase_.size(),
-                 showcase_regions_.size(), showcase_.duration(),
-                 showcase_shot_dir_.empty() ? "" : " (capturing)");
+                showcase_regions_.size(), showcase_.duration(),
+                showcase_shot_dir_.empty() ? "" : " (capturing)");
         // The trailer rides the same path, adding the weather/render-mode cycle
         // and the title cards. It owns the weather and the render settings while
         // it runs, so the debug panels step aside for clean frames.
@@ -258,7 +260,7 @@ void Engine::DriveCamera(f32 dt) {
             debug_ui_.SetAllVisible(false);
             debug_ui_.SetTrailerOverlay(&current_trailer_overlay_);
             RX_INFO("trailer: {} title card(s) over {:.1f}s", showcase_regions_.size(),
-                     trailer_.duration());
+                    trailer_.duration());
           }
         }
       } else {
@@ -294,9 +296,8 @@ void Engine::DriveCamera(f32 dt) {
         if (trailer_loading_ &&
             (TrailerActiveLoaded() || trailer_load_elapsed_ >= kTrailerMaxLoadHold)) {
           trailer_loading_ = false;
-          RX_INFO("trailer: {} ready ({:.1f}s){}",
-                   showcase_regions_[trailer_active_domain_].name, trailer_load_elapsed_,
-                   TrailerActiveLoaded() ? "" : " [timeout]");
+          RX_INFO("trailer: {} ready ({:.1f}s){}", showcase_regions_[trailer_active_domain_].name,
+                  trailer_load_elapsed_, TrailerActiveLoaded() ? "" : " [timeout]");
         }
       }
       TrailerState ts = trailer_.At(cam_time_);
@@ -316,10 +317,10 @@ void Engine::DriveCamera(f32 dt) {
         ts.overlay.badge_alpha = 0.0f;
         ts.overlay.loading = true;
       }
-      current_trailer_overlay_ = std::move(ts.overlay);
+      current_trailer_overlay_ = base::move(ts.overlay);
     }
     if (!showcase_shot_dir_.empty()) {
-      std::string label;
+      base::String label;
       int idx = showcase_.CaptureCrossed(prev, cam_time_, &label);
       if (idx >= 0) {
         for (char& ch : label) {
@@ -339,8 +340,8 @@ void Engine::DriveCamera(f32 dt) {
       // half-second-plus frame (cold streaming/IO hitches, not GPU time). Real
       // mid-flight stutter (down to ~2 fps) is still counted, so it shows up.
       if (dt > 0 && dt < 0.5f && cam_time_ >= 1.0f && !trailer_loading_) {
-        showcase_dt_min_ = std::min(showcase_dt_min_, dt);
-        showcase_dt_max_ = std::max(showcase_dt_max_, dt);
+        showcase_dt_min_ = base::Min(showcase_dt_min_, dt);
+        showcase_dt_max_ = base::Max(showcase_dt_max_, dt);
         showcase_bench_time_ += dt;
         ++showcase_frames_;
       }
@@ -349,9 +350,9 @@ void Engine::DriveCamera(f32 dt) {
         f32 avg =
             showcase_frames_ > 0 ? showcase_bench_time_ / static_cast<f32>(showcase_frames_) : 0.0f;
         RX_INFO("showcase done: {} frames over {:.1f}s, avg {:.0f} fps (min {:.0f}, max {:.0f})",
-                 showcase_frames_, showcase_bench_time_, avg > 0 ? 1.0f / avg : 0.0f,
-                 showcase_dt_max_ > 0 ? 1.0f / showcase_dt_max_ : 0.0f,
-                 showcase_dt_min_ > 0 ? 1.0f / showcase_dt_min_ : 0.0f);
+                showcase_frames_, showcase_bench_time_, avg > 0 ? 1.0f / avg : 0.0f,
+                showcase_dt_max_ > 0 ? 1.0f / showcase_dt_max_ : 0.0f,
+                showcase_dt_min_ > 0 ? 1.0f / showcase_dt_min_ : 0.0f);
         if (showcase_quit_) RequestQuit();
       }
     }
@@ -371,7 +372,7 @@ void Engine::DriveCamera(f32 dt) {
       }
     }
     f32 span = hi->t - lo->t;
-    f32 u = span > 1e-5f ? std::clamp((cam_time_ - lo->t) / span, 0.0f, 1.0f) : 0.0f;
+    f32 u = span > 1e-5f ? base::Clamp((cam_time_ - lo->t) / span, 0.0f, 1.0f) : 0.0f;
     auto mix = [&](const Vec3& a, const Vec3& b) { return a + (b - a) * u; };
     LookCameraAt(mix(lo->pos, hi->pos), mix(lo->target, hi->target));
   }
@@ -388,8 +389,8 @@ void Engine::BuildShowcase() {
   // Per-worldspace drone beats, as offsets in metres from the region centre C
   // (ground level). Regions are placed along +X (east), so each pass enters from
   // the west and exits east, which keeps the glide between worldspaces short.
-  auto wp = [](Vec3 eye, Vec3 look, f32 travel, bool capture, std::string label) {
-    return ShowcaseCamera::Waypoint{eye, look, travel, capture, std::move(label)};
+  auto wp = [](Vec3 eye, Vec3 look, f32 travel, bool capture, base::String label) {
+    return ShowcaseCamera::Waypoint{eye, look, travel, capture, base::move(label)};
   };
   // Lead-in: hold on the opening vantage so the primary world (which streams
   // around the camera) has time to populate before the move and the first
@@ -404,7 +405,7 @@ void Engine::BuildShowcase() {
   // good YouTube frame can be picked from the set. Files sort by play order.
   for (size_t k = 0; k < showcase_regions_.size(); ++k) {
     const Vec3 c = showcase_regions_[k].center;
-    const std::string& n = showcase_regions_[k].name;
+    const base::String& n = showcase_regions_[k].name;
     // Flythrough time this region's block starts (the camera leaving the prior
     // region's last beat), so the trailer can fade its location title in here.
     showcase_region_start_.push_back(showcase_.duration());
@@ -431,14 +432,14 @@ namespace {
 // A clean trailer caption for a loaded game: a short title plus a tagline,
 // derived from the content domain's profile name (uppercased as a fallback).
 struct TrailerCaption {
-  std::string title;
-  std::string subtitle;
+  base::String title;
+  base::String subtitle;
 };
-std::string Upper(std::string s) {
+base::String Upper(base::String s) {
   for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   return s;
 }
-TrailerCaption CaptionFor(const std::string& name) {
+TrailerCaption CaptionFor(const base::String& name) {
   if (name.rfind("Skyrim", 0) == 0) return {"SKYRIM", "THE ELDER SCROLLS V"};
   if (name.rfind("Fallout 4", 0) == 0) return {"FALLOUT 4", "THE COMMONWEALTH"};
   if (name.rfind("Fallout 76", 0) == 0) return {"FALLOUT 76", "APPALACHIA"};
@@ -457,7 +458,7 @@ void Engine::BuildTrailer() {
     const f32 start = k < showcase_region_start_.size() ? showcase_region_start_[k] : 0.0f;
     const f32 end = (k + 1 < showcase_region_start_.size()) ? showcase_region_start_[k + 1] : total;
     TrailerCaption cap = CaptionFor(showcase_regions_[k].name);
-    trailer_.AddBeat({start, end, std::move(cap.title), std::move(cap.subtitle)});
+    trailer_.AddBeat({start, end, base::move(cap.title), base::move(cap.subtitle)});
   }
   trailer_.set_duration(total);
 }
@@ -516,7 +517,8 @@ world::CellStreamer* Engine::TrailerStreamer(int region_index) {
   if (region_index < 0 || static_cast<size_t>(region_index) >= showcase_regions_.size())
     return nullptr;
   world::CellStreamer* s = showcase_regions_[region_index].streamer;
-  return s ? s : streamer_.get();  // null region streamer means the primary game
+  return s ? s
+           : (streamer_ ? &*streamer_ : nullptr);  // null region streamer means the primary game
 }
 
 void Engine::SetupTrailerStreaming() {
@@ -535,8 +537,8 @@ void Engine::SetupTrailerStreaming() {
   //  - the region's ground is aligned to the camera's height, so the drone never
   //    clips below the terrain (secondary worlds sit at their own LAND height).
   world::CellStreamer::Settings preload;
-  preload.load_radius = 3;     // ~120 m of resident near cells around the subject
-  preload.mesh_budget = 48;    // load fast (hidden behind the black loading hold)
+  preload.load_radius = 3;   // ~120 m of resident near cells around the subject
+  preload.mesh_budget = 48;  // load fast (hidden behind the black loading hold)
   preload.ref_budget = 768;
   preload.distant_lod = true;  // horizon fill (RX_DISTANT_LOD also forces this on)
   preload.distant_budget = 12;
@@ -586,7 +588,7 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
   // locomotion + FP/TP camera live in the controller; this function is now input
   // gathering (auto-walk, melee, battle cam) plus delegation.
   if (!player_controller_)
-    player_controller_ = std::make_unique<PlayerController>(ctx_, *actors_, *input_map_);
+    player_controller_ = base::MakeUnique<PlayerController>(ctx_, *actors_, *input_map_);
   if (!player_controller_->assembled() && !player_controller_->Assemble()) return;
 
   // Auto-walk test hook: head for the active quest marker / guide mark when one is

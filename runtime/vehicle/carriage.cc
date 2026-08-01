@@ -1,6 +1,7 @@
 #include "runtime/vehicle/carriage.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 #include <cstdlib>
 
@@ -115,9 +116,8 @@ void CarriageSystem::Spawn(const Vec3& origin) {
 
   // Carriage: spawn behind the horse, a little high, and let it settle.
   world::CarriageConfig cfg;
-  const Vec3 carriage_pos =
-      Vec3{horse_start.x, ground + 0.6f, horse_start.z} -
-      tangent * (horse_hitch_back_ + cfg.tongue_z + cfg.rest_length);
+  const Vec3 carriage_pos = Vec3{horse_start.x, ground + 0.6f, horse_start.z} -
+                            tangent * (horse_hitch_back_ + cfg.tongue_z + cfg.rest_length);
   if (!rig_.Spawn(*ctx_.physics, carriage_pos, yaw, cfg)) {
     RX_WARN("carriage: could not create the free-rolling vehicle");
     return;
@@ -153,9 +153,9 @@ void CarriageSystem::Spawn(const Vec3& origin) {
   // Horse: the creature rig when the data is present, else a graybox body.
   horse_entity_ = ecs::Entity{};
   if (actors_) {
-    horse_entity_ = actors_->SpawnCreatureNpc(
-        "horse", "meshes/actors/horse/animations/walkforward.hkx",
-        Vec3{horse_start.x, ground, horse_start.z}, yaw);
+    horse_entity_ =
+        actors_->SpawnCreatureNpc("horse", "meshes/actors/horse/animations/walkforward.hkx",
+                                  Vec3{horse_start.x, ground, horse_start.z}, yaw);
     horse_is_rig_ = ctx_.world->IsAlive(horse_entity_);
   }
   if (!horse_is_rig_) {
@@ -165,8 +165,8 @@ void CarriageSystem::Spawn(const Vec3& origin) {
                                      0.20f, 0.14f, draw);
     horse_entity_ = ctx_.world->Create();
     f32 hr[4] = {0, std::sin(yaw * 0.5f), 0, std::cos(yaw * 0.5f)};
-    ctx_.world->Add(horse_entity_, TransformAt(Vec3{horse_start.x, ground + 0.9f, horse_start.z},
-                                               hr));
+    ctx_.world->Add(horse_entity_,
+                    TransformAt(Vec3{horse_start.x, ground + 0.9f, horse_start.z}, hr));
     ctx_.world->Add(horse_entity_, world::Renderable{body.id});
     // A head box parented forward+up reads the horse's facing; a child entity
     // keeps it rigid to the body transform via the scene Parent component.
@@ -252,8 +252,7 @@ void CarriageSystem::UpdateRide(f32 dt) {
   if (ctx_.camera) {
     ctx_.camera->set_position(eye);
     const Vec3 d = Normalize(target - eye);
-    ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z),
-                               std::asin(std::clamp(d.y, -1.0f, 1.0f)));
+    ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(base::Clamp(d.y, -1.0f, 1.0f)));
   }
 }
 

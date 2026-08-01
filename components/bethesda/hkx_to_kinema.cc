@@ -1,28 +1,27 @@
 #include "components/bethesda/hkx_to_kinema.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
 
 namespace rx::bethesda {
 
-std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
-                                          const std::vector<ClipEvent>* events) {
+base::Vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
+                                           const base::Vector<ClipEvent>* events) {
   const kinema::u32 tracks = animation.num_tracks;
-  const kinema::u32 frames = std::max(animation.num_frames, 1u);
-  const kinema::f32 rate =
-      animation.frame_duration > 0 ? 1.0f / animation.frame_duration : 30.0f;
+  const kinema::u32 frames = base::Max(animation.num_frames, 1u);
+  const kinema::f32 rate = animation.frame_duration > 0 ? 1.0f / animation.frame_duration : 30.0f;
 
   kinema::ClipBuilder builder(tracks, frames, rate);
   builder.SetAdditive(animation.additive);
 
-  std::vector<HkxTrackPose> pose;
+  base::Vector<HkxTrackPose> pose;
   for (kinema::u32 f = 0; f < frames; ++f) {
-    kinema::f32 time = std::min(static_cast<kinema::f32>(f) * animation.frame_duration,
-                                animation.duration);
+    kinema::f32 time =
+        base::Min(static_cast<kinema::f32>(f) * animation.frame_duration, animation.duration);
     SampleAnimation(animation, time, &pose);
     for (kinema::u32 t = 0; t < tracks && t < pose.size(); ++t) {
       const HkxTrackPose& s = pose[t];
-      builder.SetSample(f, t,
-                        kinema::Vec3{s.translation.x, s.translation.y, s.translation.z},
+      builder.SetSample(f, t, kinema::Vec3{s.translation.x, s.translation.y, s.translation.z},
                         kinema::Quat{s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]},
                         s.scale);
     }
@@ -35,37 +34,38 @@ std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const A
   if (events) {
     for (const ClipEvent& event : *events) builder.AddEvent(event.name, event.time);
   }
-  return builder.Build();
+  const std::vector<kinema::u8> encoded = builder.Build();
+  return base::Vector<kinema::u8>(encoded.begin(), encoded.end());
 }
 
-std::vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
-                                                  const base::Vector<i32>& track_to_skeleton,
-                                                  const asset::Skeleton& skeleton,
-                                                  const AnimMotion* motion,
-                                                  const std::vector<ClipEvent>* events) {
+base::Vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
+                                                   const base::Vector<i32>& track_to_skeleton,
+                                                   const asset::Skeleton& skeleton,
+                                                   const AnimMotion* motion,
+                                                   const base::Vector<ClipEvent>* events) {
   const kinema::u32 tracks = animation.num_tracks;
   const kinema::u32 bones = static_cast<kinema::u32>(skeleton.bones.size());
-  const kinema::u32 frames = std::max(animation.num_frames, 1u);
-  const kinema::f32 rate =
-      animation.frame_duration > 0 ? 1.0f / animation.frame_duration : 30.0f;
+  const kinema::u32 frames = base::Max(animation.num_frames, 1u);
+  const kinema::f32 rate = animation.frame_duration > 0 ? 1.0f / animation.frame_duration : 30.0f;
 
   kinema::ClipBuilder builder(bones, frames, rate);
   builder.SetAdditive(animation.additive);
 
-  std::vector<HkxTrackPose> pose;
+  base::Vector<HkxTrackPose> pose;
   for (kinema::u32 f = 0; f < frames; ++f) {
     // Start every bone at its bind so bones the animation never touches keep
     // their rest pose in the skeleton-space blob.
     for (kinema::u32 b = 0; b < bones; ++b) {
       const asset::Bone& bone = skeleton.bones[b];
-      builder.SetSample(f, b, kinema::Vec3{bone.bind_translation.x, bone.bind_translation.y,
-                                           bone.bind_translation.z},
-                        kinema::Quat{bone.bind_rotation.x, bone.bind_rotation.y,
-                                     bone.bind_rotation.z, bone.bind_rotation.w},
-                        bone.bind_scale);
+      builder.SetSample(
+          f, b,
+          kinema::Vec3{bone.bind_translation.x, bone.bind_translation.y, bone.bind_translation.z},
+          kinema::Quat{bone.bind_rotation.x, bone.bind_rotation.y, bone.bind_rotation.z,
+                       bone.bind_rotation.w},
+          bone.bind_scale);
     }
-    kinema::f32 time = std::min(static_cast<kinema::f32>(f) * animation.frame_duration,
-                                animation.duration);
+    kinema::f32 time =
+        base::Min(static_cast<kinema::f32>(f) * animation.frame_duration, animation.duration);
     SampleAnimation(animation, time, &pose);
     for (kinema::u32 t = 0; t < tracks && t < pose.size() && t < track_to_skeleton.size(); ++t) {
       const i32 bone = track_to_skeleton[t];
@@ -85,7 +85,8 @@ std::vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
   if (events) {
     for (const ClipEvent& event : *events) builder.AddEvent(event.name, event.time);
   }
-  return builder.Build();
+  const std::vector<kinema::u8> encoded = builder.Build();
+  return base::Vector<kinema::u8>(encoded.begin(), encoded.end());
 }
 
 }  // namespace rx::bethesda

@@ -1,10 +1,12 @@
 #include "runtime/app/engine.h"
 
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
+
 #include <cstdlib>
 #include <cstring>
-#include <utility>
-
-#include <base/option.h>
 
 #include "asset/primitives.h"
 #include "core/feature_registry.h"
@@ -14,8 +16,6 @@
 #include "components/world/components.h"
 
 #if defined(RECREATION_HAS_UGUI)
-#include <string>
-
 #include "asset/pack.h"
 #include "runtime/ui/shader_pack.h"
 #endif
@@ -43,7 +43,7 @@ base::Option<const char*> SunDir{"sun.dir", nullptr, "RX_SUN_DIR"};
 base::Option<const char*> ShaderPackOpt{"shader.pack", nullptr, "RECREATION_SHADER_PACK"};
 base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER_DIR"};
 
-std::string ShaderPackPath() {
+base::String ShaderPackPath() {
   if (const char* env = ShaderPackOpt.get(); env && *env) return env;
 #ifdef RECREATION_SHADER_PACK_DEFAULT
   return RECREATION_SHADER_PACK_DEFAULT;
@@ -75,10 +75,10 @@ bool Engine::OnInitialize(app::Services& services) {
   // before any pipeline is built, then route shader-blob lookup through the Vfs.
   // Missing/partial archives fall through to the blobs embedded in the binary.
   if (vfs_) {
-    const std::string pack = ShaderPackPath();
-    if (auto provider = asset::MakePackFileProvider(pack)) {
-      vfs_->Mount("shaders", std::move(provider));
-      RX_INFO("shaders: mounted {} under shaders://", pack);
+    const base::String pack = ShaderPackPath();
+    if (auto provider = asset::MakePackFileProvider(pack.c_str())) {
+      vfs_->Mount("shaders", base::move(provider));
+      RX_INFO("shaders: mounted {} under shaders://", pack.c_str());
     } else {
       RX_WARN("shaders: {} unavailable, using embedded shader blobs", pack);
     }
@@ -91,7 +91,7 @@ bool Engine::OnInitialize(app::Services& services) {
 #endif
 
   // Quest-driven world effects hold a World&, so build them now the world exists.
-  quest_world_ = std::make_unique<world::QuestWorld>(*world_);
+  quest_world_ = base::MakeUnique<world::QuestWorld>(*world_);
   // When SunDir is set the world clock stops driving the day/night cycle.
   drive_sun_from_clock_ = SunDir.get() == nullptr;
 
@@ -127,34 +127,36 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.records = &records_;
   ctx_.strings = &strings_;
   ctx_.dialogue = &dialogue_;
-  ctx_.quest_world = quest_world_.get();
+  ctx_.quest_world = (quest_world_ ? &*quest_world_ : nullptr);
   ctx_.debug_ui = &debug_ui_;
   ctx_.request_quit = [this] { RequestQuit(); };
   ctx_.game_ui = &game_ui_;
   ctx_.physics_entities = &physics_entities_;
   ctx_.audio = audio_;
   ctx_.actions = actions_;  // resolved input for the first-person equip key
-  actors_ = std::make_unique<ActorSystem>(ctx_);
-  interaction_ = std::make_unique<InteractionSystem>(ctx_, actors_.get());
-  items_ = std::make_unique<ItemBridge>(ctx_, actors_.get());
-  ctx_.items = items_.get();
-  npc_ = std::make_unique<NpcDirector>(ctx_, actors_.get());
-  quest_ = std::make_unique<QuestDirector>(ctx_, actors_.get());
-  demos_ = std::make_unique<DemoScenes>(ctx_, actors_.get());
-  carriage_ = std::make_unique<CarriageSystem>(ctx_, actors_.get());
-  helgen_ = std::make_unique<HelgenIntro>(ctx_, actors_.get());
-  packages_ = std::make_unique<AiPackageDirector>(ctx_, actors_.get(), npc_.get());
-  cutscene_ =
-      std::make_unique<CutsceneDirector>(ctx_, actors_.get(), npc_.get(), packages_.get());
-  cutscene_->set_interaction(interaction_.get());
-  npc_->set_siblings(interaction_.get(), quest_.get());
-  quest_->set_siblings(npc_.get(), interaction_.get());
-  quest_->set_cutscenes(packages_.get(), cutscene_.get());
+  actors_ = base::MakeUnique<ActorSystem>(ctx_);
+  interaction_ = base::MakeUnique<InteractionSystem>(ctx_, (actors_ ? &*actors_ : nullptr));
+  items_ = base::MakeUnique<ItemBridge>(ctx_, (actors_ ? &*actors_ : nullptr));
+  ctx_.items = (items_ ? &*items_ : nullptr);
+  npc_ = base::MakeUnique<NpcDirector>(ctx_, (actors_ ? &*actors_ : nullptr));
+  quest_ = base::MakeUnique<QuestDirector>(ctx_, (actors_ ? &*actors_ : nullptr));
+  demos_ = base::MakeUnique<DemoScenes>(ctx_, (actors_ ? &*actors_ : nullptr));
+  carriage_ = base::MakeUnique<CarriageSystem>(ctx_, (actors_ ? &*actors_ : nullptr));
+  helgen_ = base::MakeUnique<HelgenIntro>(ctx_, (actors_ ? &*actors_ : nullptr));
+  packages_ = base::MakeUnique<AiPackageDirector>(ctx_, (actors_ ? &*actors_ : nullptr),
+                                                  (npc_ ? &*npc_ : nullptr));
+  cutscene_ = base::MakeUnique<CutsceneDirector>(ctx_, (actors_ ? &*actors_ : nullptr),
+                                                 (npc_ ? &*npc_ : nullptr),
+                                                 (packages_ ? &*packages_ : nullptr));
+  cutscene_->set_interaction((interaction_ ? &*interaction_ : nullptr));
+  npc_->set_siblings((interaction_ ? &*interaction_ : nullptr), (quest_ ? &*quest_ : nullptr));
+  quest_->set_siblings((npc_ ? &*npc_ : nullptr), (interaction_ ? &*interaction_ : nullptr));
+  quest_->set_cutscenes((packages_ ? &*packages_ : nullptr), (cutscene_ ? &*cutscene_ : nullptr));
   // The live map editor (windowed client only). Constructed after game_ui_ is up
   // so it can register its overlay event sink; ticked from UpdateCamera.
-  if (!config_.headless) editor_ = std::make_unique<MapEditor>(ctx_);
+  if (!config_.headless) editor_ = base::MakeUnique<MapEditor>(ctx_);
   // Character creation (RX_CHARGEN); Enter() runs once game data has loaded.
-  if (!config_.headless) chargen_ = std::make_unique<CharGen>(ctx_);
+  if (!config_.headless) chargen_ = base::MakeUnique<CharGen>(ctx_);
 
   // Place NPC / other-player collision capsules at their current transforms
   // before each sim step, so the player's character controller collides with
@@ -269,27 +271,27 @@ void Engine::OnShutdown() {
   // Called by the host while the renderer is idle but still alive, and after the
   // host has already stopped the audio device. The host owns the renderer/jobs
   // teardown; here the game drops its own state in the order its threads need.
-  SaveControls();  // persist any in-session rebinds / sensitivity changes
+  SaveControls();              // persist any in-session rebinds / sensitivity changes
   if (items_) items_->Save();  // persist inventory + world items + removed refs
   // Run managed teardown while the guest is still alive (its shutdown callbacks
   // dispatch through the bridge), then stop the guest so no more events reach the
   // host, then destroy the host. This exact order keeps the event sink, which
   // the guest thread holds, valid until the guest is joined.
   if (managed_) managed_->Shutdown();
-  scripts_.reset();
+  scripts_.Reset();
   // Streaming prefetch jobs read domain records/assets; drain them before the
   // domains go away (the host's own WaitIdle runs only after OnShutdown).
   if (jobs_) jobs_->WaitIdle();
   extra_streamers_.clear();  // reference domain records/assets; drop before the domains
   extra_domains_.clear();    // joins each secondary guest thread before teardown
-  managed_.reset();
+  managed_.Reset();
   // GPU-dependent UI resources, released while the renderer is still alive.
   if (!config_.headless) {
     game_ui_.Shutdown();
     debug_ui_.Shutdown();
   }
 #if RECREATION_HAS_NET
-  bubble_viz_.reset();  // owns a raw pipeline; drop it while the device lives
+  bubble_viz_.Reset();  // owns a raw pipeline; drop it while the device lives
 #endif
 }
 

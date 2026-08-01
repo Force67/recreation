@@ -1,6 +1,10 @@
 #include "runtime/ui/platform_hud.h"
 
-#include <utility>
+#include <base/containers/array.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
 
 namespace rx {
 namespace {
@@ -8,45 +12,49 @@ namespace {
 // Small typed argument readers, tolerant of a short or mistyped argument list so a
 // malformed managed call degrades instead of crashing. ArgStr returns by value:
 // papyrus::Value::ToString() yields a temporary, so a reference would dangle.
-std::string ArgStr(const std::vector<script::papyrus::Value>& a, size_t i) {
-  return i < a.size() ? a[i].ToString() : std::string();
+base::String ArgStr(const base::Vector<script::papyrus::Value>& a, size_t i) {
+  return i < a.size() ? a[i].ToString() : base::String();
 }
-int ArgInt(const std::vector<script::papyrus::Value>& a, size_t i) {
+int ArgInt(const base::Vector<script::papyrus::Value>& a, size_t i) {
   return i < a.size() ? a[i].ToInt() : 0;
 }
-f32 ArgF(const std::vector<script::papyrus::Value>& a, size_t i) {
+f32 ArgF(const base::Vector<script::papyrus::Value>& a, size_t i) {
   return i < a.size() ? a[i].ToFloat() : 0.0f;
 }
 
 }  // namespace
 
-void PlatformHud::Submit(const std::string& type, const std::string& func,
-                         const std::vector<script::papyrus::Value>& args) {
+void PlatformHud::Submit(const base::String& type, const base::String& func,
+                         const base::Vector<script::papyrus::Value>& args) {
   std::lock_guard<std::mutex> lock(mu_);
   if (type == "Hud") {
     if (func == "Notify") {
-      notices_.push_back({ArgStr(args, 0), ArgInt(args, 1),
-                          args.size() > 2 ? ArgF(args, 2) : 4.0f});
+      notices_.push_back(
+          {ArgStr(args, 0), ArgInt(args, 1), args.size() > 2 ? ArgF(args, 2) : 4.0f});
     } else if (func == "ChatLine") {
-      PlatformChatLine line{ArgStr(args, 0), ArgStr(args, 1),
-                            static_cast<u32>(ArgInt(args, 2))};
+      PlatformChatLine line{ArgStr(args, 0), ArgStr(args, 1), static_cast<u32>(ArgInt(args, 2))};
       chat_pending_.push_back(line);
-      chat_log_.push_back(std::move(line));
+      chat_log_.push_back(base::move(line));
       while (chat_log_.size() > kChatLogCap) chat_log_.pop_front();
     } else if (func == "Prompt") {
-      const std::string id = ArgStr(args, 0);
+      const base::String id = ArgStr(args, 0);
       prompts_[id] = {id, ArgStr(args, 1), ArgStr(args, 2)};
     } else if (func == "ClearPrompt") {
       prompts_.erase(ArgStr(args, 0));
     } else if (func == "Blip") {
-      const std::string id = ArgStr(args, 0);
-      blips_[id] = {id,           ArgF(args, 1),  ArgF(args, 2),
-                    ArgF(args, 3), ArgStr(args, 4), ArgInt(args, 5),
-                    static_cast<u32>(ArgInt(args, 6)), ArgInt(args, 7) != 0};
+      const base::String id = ArgStr(args, 0);
+      blips_[id] = {id,
+                    ArgF(args, 1),
+                    ArgF(args, 2),
+                    ArgF(args, 3),
+                    ArgStr(args, 4),
+                    ArgInt(args, 5),
+                    static_cast<u32>(ArgInt(args, 6)),
+                    ArgInt(args, 7) != 0};
     } else if (func == "ClearBlip") {
       blips_.erase(ArgStr(args, 0));
     } else if (func == "Waypoint") {
-      waypoint_ = std::array<f32, 3>{ArgF(args, 0), ArgF(args, 1), ArgF(args, 2)};
+      waypoint_ = base::Array<f32, 3>{ArgF(args, 0), ArgF(args, 1), ArgF(args, 2)};
     } else if (func == "ClearWaypoint") {
       waypoint_.reset();
     } else if (func == "Nametag") {
@@ -66,7 +74,7 @@ void PlatformHud::Submit(const std::string& type, const std::string& func,
       PlatformScoreRow row;
       row.player = args.empty() ? 0 : args[0].ToInt();
       for (size_t i = 1; i < args.size(); ++i) row.cells.push_back(args[i].ToString());
-      scoreboard_.rows.push_back(std::move(row));
+      scoreboard_.rows.push_back(base::move(row));
     } else if (func == "HideScoreboard") {
       scoreboard_.open = false;
       scoreboard_.rows.clear();
@@ -78,42 +86,41 @@ void PlatformHud::Submit(const std::string& type, const std::string& func,
       pending_connect_ = ArgStr(args, 0);
     } else if (func == "SpawnObject" || func == "MoveObject") {
       // (id, model, x, y, z, rx, ry, rz)
-      entity_ops_.push_back({func == "SpawnObject" ? PlatformEntityOp::Kind::kSpawn
-                                                    : PlatformEntityOp::Kind::kMove,
-                             ArgInt(args, 0), ArgStr(args, 1), ArgF(args, 2), ArgF(args, 3),
-                             ArgF(args, 4)});
+      entity_ops_.push_back(
+          {func == "SpawnObject" ? PlatformEntityOp::Kind::kSpawn : PlatformEntityOp::Kind::kMove,
+           ArgInt(args, 0), ArgStr(args, 1), ArgF(args, 2), ArgF(args, 3), ArgF(args, 4)});
     } else if (func == "DeleteObject") {
       entity_ops_.push_back({PlatformEntityOp::Kind::kDelete, ArgInt(args, 0), "", 0, 0, 0});
     }
   }
 }
 
-std::vector<PlatformNotice> PlatformHud::DrainNotices() {
+base::Vector<PlatformNotice> PlatformHud::DrainNotices() {
   std::lock_guard<std::mutex> lock(mu_);
-  return std::move(notices_);  // leaves notices_ empty
+  return base::move(notices_);  // leaves notices_ empty
 }
 
-std::vector<PlatformChatLine> PlatformHud::DrainChat() {
+base::Vector<PlatformChatLine> PlatformHud::DrainChat() {
   std::lock_guard<std::mutex> lock(mu_);
-  return std::move(chat_pending_);
+  return base::move(chat_pending_);
 }
 
-std::vector<PlatformChatLine> PlatformHud::ChatLog() const {
+base::Vector<PlatformChatLine> PlatformHud::ChatLog() const {
   std::lock_guard<std::mutex> lock(mu_);
   return {chat_log_.begin(), chat_log_.end()};
 }
 
-std::vector<PlatformPrompt> PlatformHud::Prompts() const {
+base::Vector<PlatformPrompt> PlatformHud::Prompts() const {
   std::lock_guard<std::mutex> lock(mu_);
-  std::vector<PlatformPrompt> out;
+  base::Vector<PlatformPrompt> out;
   out.reserve(prompts_.size());
   for (const auto& [id, p] : prompts_) out.push_back(p);
   return out;
 }
 
-std::vector<PlatformBlip> PlatformHud::Blips() const {
+base::Vector<PlatformBlip> PlatformHud::Blips() const {
   std::lock_guard<std::mutex> lock(mu_);
-  std::vector<PlatformBlip> out;
+  base::Vector<PlatformBlip> out;
   out.reserve(blips_.size());
   for (const auto& [id, b] : blips_) out.push_back(b);
   return out;
@@ -124,19 +131,19 @@ PlatformScoreboard PlatformHud::Scoreboard() const {
   return scoreboard_;
 }
 
-std::optional<std::array<f32, 3>> PlatformHud::Waypoint() const {
+base::Optional<base::Array<f32, 3>> PlatformHud::Waypoint() const {
   std::lock_guard<std::mutex> lock(mu_);
   return waypoint_;
 }
 
-std::vector<PlatformEntityOp> PlatformHud::DrainEntityOps() {
+base::Vector<PlatformEntityOp> PlatformHud::DrainEntityOps() {
   std::lock_guard<std::mutex> lock(mu_);
-  return std::move(entity_ops_);
+  return base::move(entity_ops_);
 }
 
-std::vector<PlatformNametag> PlatformHud::DrainNametags() {
+base::Vector<PlatformNametag> PlatformHud::DrainNametags() {
   std::lock_guard<std::mutex> lock(mu_);
-  return std::move(nametags_);
+  return base::move(nametags_);
 }
 
 void PlatformHud::SetLocalPos(f32 x, f32 y, f32 z) {
@@ -144,14 +151,14 @@ void PlatformHud::SetLocalPos(f32 x, f32 y, f32 z) {
   local_pos_ = {x, y, z};
 }
 
-std::array<f32, 3> PlatformHud::LocalPos() const {
+base::Array<f32, 3> PlatformHud::LocalPos() const {
   std::lock_guard<std::mutex> lock(mu_);
   return local_pos_;
 }
 
-std::optional<std::string> PlatformHud::TakePendingConnect() {
+base::Optional<base::String> PlatformHud::TakePendingConnect() {
   std::lock_guard<std::mutex> lock(mu_);
-  std::optional<std::string> out = std::move(pending_connect_);
+  base::Optional<base::String> out = base::move(pending_connect_);
   pending_connect_.reset();
   return out;
 }

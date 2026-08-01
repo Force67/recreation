@@ -6,9 +6,9 @@
 // data needed, so it runs in the ctest gate. Skyrim v5 is covered by the tests
 // that parse shipped Skyrim plugins.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/script_attachment.h"
 #include "core/types.h"
@@ -22,15 +22,15 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU8(std::vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
-void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+void PutU8(base::Vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v));
   b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutStr(std::vector<rx::u8>& b, const char* s) {  // u16 len + bytes, no terminator
+void PutStr(base::Vector<rx::u8>& b, const char* s) {  // u16 len + bytes, no terminator
   rx::u16 n = 0;
   while (s[n]) ++n;
   PutU16(b, n);
@@ -41,7 +41,7 @@ void PutStr(std::vector<rx::u8>& b, const char* s) {  // u16 len + bytes, no ter
 // property, the FO4-specific type the parser must skip to stay aligned.
 void TestScriptSectionType17() {
   std::puts("vmad v6 script section (type 17):");
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   PutU16(b, 6);  // version (Fallout 4)
   PutU16(b, 2);  // object format
   PutU16(b, 1);  // script count
@@ -73,7 +73,7 @@ void TestScriptSectionType17() {
 // fragment entry that follows reads the wrong bytes.
 void TestQuestFragmentHeader() {
   std::puts("vmad v6 quest fragment header:");
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   PutU16(b, 6);  // version
   PutU16(b, 2);  // object format
   PutU16(b, 1);  // script count
@@ -97,7 +97,7 @@ void TestQuestFragmentHeader() {
   PutStr(b, "Fragment_Stage_0025_Item_00");
 
   rx::bethesda::ScriptAttachment att;
-  std::vector<rx::bethesda::QuestStageFragment> frags;
+  base::Vector<rx::bethesda::QuestStageFragment> frags;
   const bool ok = rx::bethesda::ParseQuestFragments(rx::ByteSpan(b.data(), b.size()), &att, &frags);
   Check("parses", ok);
   Check("one fragment", frags.size() == 1);

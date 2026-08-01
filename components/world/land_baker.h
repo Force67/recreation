@@ -1,10 +1,9 @@
 #ifndef RECREATION_WORLD_LAND_BAKER_H_
 #define RECREATION_WORLD_LAND_BAKER_H_
 
-#include <string>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "asset/asset_database.h"
 #include "components/bethesda/load_order.h"
@@ -26,8 +25,7 @@ class LandBaker {
 
   // Returns the baked texture id, or a zero id when the LAND record carries
   // no texture layers (caller keeps its default land material).
-  asset::AssetId BakeAlbedo(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
-                            i16 grid_y);
+  asset::AssetId BakeAlbedo(const bethesda::Record& land, u16 land_plugin, i16 grid_x, i16 grid_y);
 
   // Runtime-splat inputs for a cell: up to three full-resolution land textures
   // (the most-covered LTEX) plus a small weight map blending them. The shader
@@ -56,8 +54,7 @@ class LandBaker {
     asset::AssetId weights_b;  // palette slots 4-7
     bool ok = false;
   };
-  SplatBakeV2 BakeSplatV2(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
-                          i16 grid_y);
+  SplatBakeV2 BakeSplatV2(const bethesda::Record& land, u16 land_plugin, i16 grid_x, i16 grid_y);
 
   size_t baked_count() const { return baked_; }
 
@@ -80,7 +77,7 @@ class LandBaker {
   const Layer* DefaultLayer();
   bool DecodeTexture(const asset::Texture& texture, Layer* out) const;
   // Resolves an LTEX (0 = default) to its diffuse texture path / loaded asset.
-  std::string LayerDiffusePath(u64 ltex_packed) const;
+  base::String LayerDiffusePath(u64 ltex_packed) const;
   asset::AssetId LayerAsset(u64 ltex_packed);
   // The LTEX texture set's normal map (TX01); zero id when the set has none.
   asset::AssetId LayerNormalAsset(u64 ltex_packed);

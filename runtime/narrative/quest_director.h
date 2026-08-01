@@ -1,11 +1,10 @@
 #ifndef RECREATION_RUNTIME_NARRATIVE_QUEST_DIRECTOR_H_
 #define RECREATION_RUNTIME_NARRATIVE_QUEST_DIRECTOR_H_
 
-#include <string>
-#include <vector>
-
+#include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/math.h"
 #include "runtime/app/engine_context.h"
@@ -68,13 +67,13 @@ class QuestDirector {
   NativeTracePanel* native_trace_panel() { return &native_trace_panel_; }
 
   // Headless debug aids (RX_QUEST_REPORT / RX_DIALOGUE_REPORT / RX_SCENE_REPORT).
-  void ReportQuestToCompletion(const std::string& edid);
+  void ReportQuestToCompletion(const base::String& edid);
   // Lists every loaded quest whose editor id begins with `prefix` (case
   // insensitive; empty lists all), one line each: handle, priority, stage and
   // objective counts, completion stage, name. The fast way to survey a whole
   // questline (e.g. RX_QUEST_LIST=CW) without reloading data per quest.
-  void ReportQuestList(const std::string& prefix);
-  void ReportDialogue(const std::string& edid);
+  void ReportQuestList(const base::String& prefix);
+  void ReportDialogue(const base::String& edid);
   // Headless check that the real Civil War reinforcement Papyrus runs: start the
   // fort-siege quest, fill a soldier alias with an actor, kill it, and report
   // whether the reinforcement pool globals decremented (soldier death ->
@@ -83,10 +82,10 @@ class QuestDirector {
   // Attaches a quest's SCEN scripts and fires their begin/phase/end fragments,
   // reporting which advance the journal, the end-to-end check that real scene
   // fragments (Self.GetOwningQuest().SetStage(N)) drive the quest natively.
-  void ReportSceneFragments(const std::string& edid);
+  void ReportSceneFragments(const base::String& edid);
   // Like ReportSceneFragments but plays each scene through the timer-driven
   // ScenePlayer (begin/phase/end over simulated time), the live cue mechanism.
-  void ReportScenePlay(const std::string& edid);
+  void ReportScenePlay(const base::String& edid);
   // Parses a quest's SCEN scripts and registers them with the bindings so the
   // quest's own stage fragments can Scene.Start them at runtime. Call before the
   // quest runs (main thread; AttachScripts marshals to the guest).
@@ -94,10 +93,10 @@ class QuestDirector {
   // Headless self-drive check: attach a quest's scenes, start it, and tick the
   // ScenePlayer so its stage fragments Start scenes whose fragments SetStage,
   // reporting how far the quest drives itself natively.
-  void ReportSceneLive(const std::string& edid);
+  void ReportSceneLive(const base::String& edid);
 
   // Editor-id -> quest handle (0 if unknown); used by the npc director's scene.
-  u64 FindQuestHandle(const std::string& edid) const;
+  u64 FindQuestHandle(const base::String& edid) const;
   base::Vector<QuestMarker>& markers() { return quest_markers_; }
   void Select(u64 handle) { quest_panel_.selected = handle; }
 
@@ -122,8 +121,8 @@ class QuestDirector {
   void PinJournalSlot(int i);
 
  private:
-  void UpdateQuestHud(const std::vector<quest::QuestStatus>& running);
-  void UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& running);
+  void UpdateQuestHud(const base::Vector<quest::QuestStatus>& running);
+  void UpdateObjectiveMarkers(const base::Vector<quest::QuestStatus>& running);
   void DriveObjectiveMarkerHud(bool active, const Vec3& pos);
   void IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin);
   bool ObjectiveTargetFor(u64 quest, i32 objective, Vec3* out) const;
@@ -145,7 +144,7 @@ class QuestDirector {
   DebugUi& debug_ui_;
   GameUi& game_ui_;
 
-  base::Vector<std::pair<u64, std::string>> quest_records_;
+  base::Vector<base::Pair<u64, base::String>> quest_records_;
   QuestPanel quest_panel_;
   f32 quest_ui_timer_ = 0;
   u64 hud_tracked_quest_ = 0;

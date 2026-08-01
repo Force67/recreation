@@ -1,9 +1,9 @@
 #include "components/bethesda/biom.h"
 
-#include <algorithm>
-#include <cstring>
-#include <unordered_map>
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
 
+#include <cstring>
 namespace rx::bethesda {
 namespace {
 
@@ -68,15 +68,15 @@ u32 BiomeMap::BiomeAt(u32 hemisphere, u32 x, u32 y) const {
   if (hemisphere > 1) hemisphere = 0;
   const Hemisphere& hemi = hemispheres[hemisphere];
   if (hemi.biome.size() != kCells) return 0;
-  x = std::min(x, kDim - 1);
-  y = std::min(y, kDim - 1);
+  x = base::Min(x, kDim - 1);
+  y = base::Min(y, kDim - 1);
   return hemi.biome[y * kDim + x];
 }
 
 u32 BiomeMap::DominantBiome() const {
   const Hemisphere& hemi = hemispheres[0];
   if (hemi.biome.size() != kCells) return 0;
-  std::unordered_map<u32, u32> counts;
+  base::UnorderedMap<u32, u32> counts;
   for (u32 id : hemi.biome) ++counts[id];
   u32 best = 0, best_count = 0;
   for (const auto& [id, count] : counts) {

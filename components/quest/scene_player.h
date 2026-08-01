@@ -1,8 +1,8 @@
 #ifndef RECREATION_QUEST_SCENE_PLAYER_H_
 #define RECREATION_QUEST_SCENE_PLAYER_H_
 
-#include <unordered_map>
-#include <vector>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 
@@ -30,7 +30,7 @@ class ScenePlayer {
   // carry a fragment; `phase_seconds` is how long each plays. Fires SceneBegin
   // and the first phase's begin immediately; a scene with no phases fires
   // SceneBegin then SceneEnd at once. Starting a playing scene restarts it.
-  void Start(u64 scene, std::vector<u32> phases, f32 phase_seconds, ScenePlayerSink& sink);
+  void Start(u64 scene, base::Vector<u32> phases, f32 phase_seconds, ScenePlayerSink& sink);
   // Ends a scene now: fires the current phase's end (if mid-phase) then SceneEnd.
   // No-op if the scene is not playing.
   void Stop(u64 scene, ScenePlayerSink& sink);
@@ -42,12 +42,12 @@ class ScenePlayer {
 
  private:
   struct Active {
-    std::vector<u32> phases;
+    base::Vector<u32> phases;
     size_t current = 0;  // index of the phase currently playing
     f32 timer = 0;       // seconds spent in the current phase
     f32 period = 1.0f;   // seconds per phase
   };
-  std::unordered_map<u64, Active> active_;
+  base::UnorderedMap<u64, Active> active_;
 };
 
 }  // namespace rx::quest

@@ -1,9 +1,8 @@
 #ifndef RECREATION_BETHESDA_GAME_PROFILE_H_
 #define RECREATION_BETHESDA_GAME_PROFILE_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -28,21 +27,21 @@ enum class ArchiveFormat : u8 { kBsa, kBa2 };
 // (master file names, archive extensions).
 struct GameProfile {
   Game game = Game::kUnknown;
-  std::string name;
+  base::String name;
   ArchiveFormat archive_format = ArchiveFormat::kBsa;
-  f32 plugin_version = 0;          // HEDR version field
-  // Elements stay std::string: master names feed path concatenation and
+  f32 plugin_version = 0;  // HEDR version field
+  // Elements stay base::String: master names feed path concatenation and
   // std::ifstream in the loaders.
-  base::Vector<std::string> base_masters;
-  std::string exterior_worldspace;  // editor id of the main outdoor worldspace
+  base::Vector<base::String> base_masters;
+  base::String exterior_worldspace;  // editor id of the main outdoor worldspace
   // World-position units. Skyrim/Fallout author REFR positions in game units
   // (~70 per metre) on a 4096-unit exterior cell grid; Starfield authors them
   // in metres on a 100 m grid (meshes still convert into game-unit space).
-  f32 cell_size = 4096.0f;        // record units per exterior cell edge
-  f32 units_to_meters = 0.01428f; // record position units -> engine metres
+  f32 cell_size = 4096.0f;         // record units per exterior cell edge
+  f32 units_to_meters = 0.01428f;  // record position units -> engine metres
   // Localized string file language token: Skyrim ships "english", the Fallout
   // games "en" (strings/<plugin>_<token>.strings).
-  std::string string_language = "english";
+  base::String string_language = "english";
   bool supports_esl = true;
   bool has_loose_script_source = true;
   // On disk record/group header size. Oblivion's TES4 headers are 20 bytes
@@ -54,7 +53,7 @@ struct GameProfile {
   bool flat_tes3 = false;
 
   static const GameProfile& For(Game game);
-  static Game DetectFromDataDir(const std::string& data_dir);
+  static Game DetectFromDataDir(const base::String& data_dir);
 };
 
 }  // namespace rx::bethesda

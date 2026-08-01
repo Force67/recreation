@@ -62,8 +62,8 @@ int main() {
   const std::filesystem::path dir =
       std::filesystem::temp_directory_path() / "recreation_prop_streamingtest";
   std::error_code ec;
-  std::filesystem::remove_all(dir, ec);
-  std::filesystem::create_directories(dir, ec);
+  std::filesystem::remove_all(dir.c_str(), ec);
+  std::filesystem::create_directories(dir.c_str(), ec);
   rx::bethesda::GameProfile profile;
   profile.game = rx::bethesda::Game::kSkyrimSe;
   profile.name = "test";
@@ -71,7 +71,7 @@ int main() {
   rx::bethesda::PluginWriter plugin(profile);
   plugin.set_master(true);
   rx::bethesda::RecordBuilder source_record(FourCc('S', 'T', 'A', 'T'),
-                                             rx::bethesda::RawFormId{0x00000800});
+                                            rx::bethesda::RawFormId{0x00000800});
   source_record.EditorId("InertPackChild");
   plugin.AddRecord(source_record.record());
   const std::filesystem::path plugin_path = dir / "PackSource.esm";
@@ -88,7 +88,7 @@ int main() {
   bindings.SetRuntimeForm(owner, source.packed(), runtime);
   Check("inert synthetic child resolves record-backed natives",
         bindings.GetFormType(rx::script::papyrus::ObjectRef{runtime}) == 35);
-  std::filesystem::remove_all(dir, ec);
+  std::filesystem::remove_all(dir.c_str(), ec);
 
   if (failures == 0) {
     std::puts("prop streaming: all checks passed");

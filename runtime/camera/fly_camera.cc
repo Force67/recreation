@@ -1,6 +1,7 @@
 #include "runtime/camera/fly_camera.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 
 namespace rx {
@@ -18,7 +19,7 @@ void FlyCamera::Update(const InputState& input, const ActionState& actions, bool
     pitch_ -= input.mouse_dy * sensitivity;
     if (input.wheel != 0) {
       speed *= std::pow(1.2f, input.wheel);
-      speed = std::clamp(speed, 0.1f, 200.0f);
+      speed = base::Clamp(speed, 0.1f, 200.0f);
     }
   }
   // Right-stick look (rate based), no button needed.
@@ -26,7 +27,7 @@ void FlyCamera::Update(const InputState& input, const ActionState& actions, bool
     yaw_ += actions.axis(Axis::kLookX) * pad_sensitivity * dt;
     pitch_ -= actions.axis(Axis::kLookY) * pad_sensitivity * dt * (invert_y ? -1.0f : 1.0f);
   }
-  pitch_ = std::clamp(pitch_, -1.55f, 1.55f);
+  pitch_ = base::Clamp(pitch_, -1.55f, 1.55f);
 
   if (!allow_keyboard) return;
 

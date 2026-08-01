@@ -1,9 +1,10 @@
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
+#include <base/containers/pair.h>
+#include <base/containers/set.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include "components/script/papyrus/transpile_internal.h"
 
@@ -24,7 +25,7 @@ class Decompiler {
         case_fns_(ctx.case_fns),
         opts_(ctx.opts) {}
 
-  void Emit(const Function& fn, std::string& out, int indent, const std::string& value_alias) {
+  void Emit(const Function& fn, base::String& out, int indent, const base::String& value_alias) {
     fn_ = &fn;
     value_alias_ = value_alias;
     temp_expr_.clear();
@@ -43,7 +44,7 @@ class Decompiler {
     // goto rendering otherwise. The pass collects the hoisted-temp set, declared
     // at the top below: such a temp is written and read across sibling blocks, so
     // a block-local `var` would not be in scope at every use.
-    std::string scratch;
+    base::String scratch;
     out_ = &scratch;
     bool ok = EmitStructured(0, static_cast<int>(fn.code.size()));
     if (!ok) {
@@ -57,7 +58,7 @@ class Decompiler {
 
     out_ = &out;
     for (const auto& [local, papyrus_type] : materialized_) {
-      std::string ty = DeclTypeFor(papyrus_type, harness());
+      base::String ty = DeclTypeFor(papyrus_type, harness());
       if (ty == "void") ty = harness() ? "dynamic" : "object";  // a temp always holds a value
       Line(ty + " " + local + " = default;");
     }
@@ -65,37 +66,34 @@ class Decompiler {
   }
 
  private:
-  const std::string& Name(const VariableData& v) const { return pex_.Str(v.string_index); }
+  const base::String& Name(const VariableData& v) const { return pex_.Str(v.string_index); }
 
   // The C# name a non-temp identifier reads or writes as. An auto-property's
   // backing slot resolves to the property, a member, property, or local folds to
   // its declared casing, and a setter's value parameter becomes C#'s `value`.
-  std::string RefName(const std::string& raw) const {
+  base::String RefName(const base::String& raw) const {
     if (!value_alias_.empty() && IEquals(raw, value_alias_.c_str())) return "value";
     if (backing_) {
-      auto it = backing_->find(raw);
-      if (it != backing_->end()) return it->second;
+      if (const base::String* renamed = backing_->find(raw)) return *renamed;
     }
-    auto it = local_case_.find(ToLower(raw));
-    if (it != local_case_.end()) return it->second;
+    auto* it = local_case_.find(ToLower(raw));
+    if (it != nullptr) return *it;
     return Sanitize(raw);
   }
 
   // The C# name a self-call resolves to: a field-collision rename wins, then the
   // function's declared casing, else the sanitised name.
-  std::string SelfFn(const std::string& raw) const {
+  base::String SelfFn(const base::String& raw) const {
     if (fn_rename_) {
-      auto it = fn_rename_->find(raw);
-      if (it != fn_rename_->end()) return it->second;
+      if (const base::String* renamed = fn_rename_->find(raw)) return *renamed;
     }
     if (case_fns_) {
-      auto it = case_fns_->find(ToLower(raw));
-      if (it != case_fns_->end()) return it->second;
+      if (const base::String* cased = case_fns_->find(ToLower(raw))) return *cased;
     }
     return Sanitize(raw);
   }
-  bool IsLocal(const std::string& name) const { return locals_.count(name) != 0; }
-  bool IsTemp(const std::string& name) const {
+  bool IsLocal(const base::String& name) const { return locals_.count(name) != 0; }
+  bool IsTemp(const base::String& name) const {
     return name.size() >= 2 && name[0] == ':' && name[1] == ':' && IsLocal(name);
   }
 
@@ -103,7 +101,7 @@ class Decompiler {
     locals_.clear();
     // Seed the case-folding table from the object-level names, then let this
     // function's params and locals shadow them.
-    local_case_ = case_names_ ? *case_names_ : std::unordered_map<std::string, std::string>{};
+    local_case_ = case_names_ ? *case_names_ : base::UnorderedMap<base::String, base::String>{};
     for (const TypedName& p : fn_->params) {
       type_of_[pex_.Str(p.name)] = pex_.Str(p.type);
       local_case_[ToLower(pex_.Str(p.name))] = Sanitize(pex_.Str(p.name));
@@ -129,26 +127,31 @@ class Decompiler {
     }
   }
 
-  std::string Read(const VariableData& v) {
+  base::String Read(const VariableData& v) {
     switch (v.type) {
-      case VariableData::Type::kNone:    return "null";
-      case VariableData::Type::kString:  return EscapeString(Name(v));
-      case VariableData::Type::kInteger: return std::to_string(v.int_value);
-      case VariableData::Type::kFloat:   return FormatFloat(v.float_value);
-      case VariableData::Type::kBool:    return v.bool_value ? "true" : "false";
+      case VariableData::Type::kNone:
+        return "null";
+      case VariableData::Type::kString:
+        return EscapeString(Name(v));
+      case VariableData::Type::kInteger:
+        return base::ToString(v.int_value);
+      case VariableData::Type::kFloat:
+        return FormatFloat(v.float_value);
+      case VariableData::Type::kBool:
+        return v.bool_value ? "true" : "false";
       case VariableData::Type::kIdentifier: {
-        const std::string& n = Name(v);
+        const base::String& n = Name(v);
         if (IEquals(n, "self")) return "this";
-        auto it = temp_expr_.find(n);
-        if (it != temp_expr_.end()) return it->second;
+        auto* it = temp_expr_.find(n);
+        if (it != nullptr) return *it;
         return RefName(n);
       }
     }
     return "null";
   }
 
-  std::string CallArgs(const Instruction& in) {
-    std::string s;
+  base::String CallArgs(const Instruction& in) {
+    base::String s;
     for (size_t i = 0; i < in.var_args.size(); ++i) {
       if (i) s += ", ";
       s += Read(in.var_args[i]);
@@ -156,27 +159,32 @@ class Decompiler {
     return s;
   }
 
-  std::string ElemType(const VariableData& dest) {
+  base::String ElemType(const VariableData& dest) {
     if (harness()) return "dynamic";
-    auto it = type_of_.find(Name(dest));
-    std::string t = it != type_of_.end() ? it->second : "var";
+    auto* it = type_of_.find(Name(dest));
+    base::String t = it != nullptr ? *it : "var";
     if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0) t.resize(t.size() - 2);
     return CsType(t);
   }
 
   // The Papyrus base type of an operand (lower-cased, array suffix stripped), or
   // "" if unknown.
-  std::string SrcType(const VariableData& v) {
-    std::string t;
+  base::String SrcType(const VariableData& v) {
+    base::String t;
     switch (v.type) {
-      case VariableData::Type::kInteger: return "int";
-      case VariableData::Type::kFloat:   return "float";
-      case VariableData::Type::kBool:    return "bool";
-      case VariableData::Type::kString:  return "string";
-      case VariableData::Type::kNone:    return "none";
+      case VariableData::Type::kInteger:
+        return "int";
+      case VariableData::Type::kFloat:
+        return "float";
+      case VariableData::Type::kBool:
+        return "bool";
+      case VariableData::Type::kString:
+        return "string";
+      case VariableData::Type::kNone:
+        return "none";
       case VariableData::Type::kIdentifier: {
-        auto it = type_of_.find(Name(v));
-        t = it != type_of_.end() ? ToLower(it->second) : "";
+        auto* it = type_of_.find(Name(v));
+        t = it != nullptr ? ToLower(*it) : "";
         break;
       }
     }
@@ -188,14 +196,14 @@ class Decompiler {
   // conversions Papyrus allows but C# does not (int to bool, int to float,
   // anything to string), so dropping one would change an argument's type. The
   // destination's declared type is the target.
-  std::string BuildCast(const VariableData& dest, const VariableData& src_op) {
-    std::string src = Read(src_op);
-    std::string raw;
-    auto it = type_of_.find(Name(dest));
-    if (it != type_of_.end()) raw = it->second;
-    std::string tt = ToLower(raw);
+  base::String BuildCast(const VariableData& dest, const VariableData& src_op) {
+    base::String src = Read(src_op);
+    base::String raw;
+    auto* it = type_of_.find(Name(dest));
+    if (it != nullptr) raw = *it;
+    base::String tt = ToLower(raw);
     if (tt.size() >= 2 && tt.compare(tt.size() - 2, 2, "[]") == 0) tt.resize(tt.size() - 2);
-    std::string st = SrcType(src_op);
+    base::String st = SrcType(src_op);
     if (tt.empty() || tt == st) return src;
     if (tt == "bool") {
       if (st == "int" || st == "float") return "(" + src + " != 0)";
@@ -211,48 +219,66 @@ class Decompiler {
 
   // The right-hand-side expression for a value-producing opcode, self-delimited
   // (binary forms parenthesised) so it can be substituted into another expression.
-  std::string BuildExpr(const Instruction& in) {
+  base::String BuildExpr(const Instruction& in) {
     const auto& a = in.args;
-    auto bin = [&](const char* op) {
-      return "(" + Read(a[1]) + " " + op + " " + Read(a[2]) + ")";
-    };
+    auto bin = [&](const char* op) { return "(" + Read(a[1]) + " " + op + " " + Read(a[2]) + ")"; };
     switch (in.op) {
-      case Op::kIAdd: case Op::kFAdd: return bin("+");
-      case Op::kISub: case Op::kFSub: return bin("-");
-      case Op::kIMul: case Op::kFMul: return bin("*");
-      case Op::kIDiv: case Op::kFDiv: return bin("/");
-      case Op::kIMod:                 return bin("%");
-      case Op::kStrCat:               return bin("+");
-      case Op::kCmpEq:                return bin("==");
-      case Op::kCmpLt:                return bin("<");
-      case Op::kCmpLe:                return bin("<=");
-      case Op::kCmpGt:                return bin(">");
-      case Op::kCmpGe:                return bin(">=");
-      case Op::kNot:                  return "(!" + Read(a[1]) + ")";
-      case Op::kINeg: case Op::kFNeg: return "(-" + Read(a[1]) + ")";
-      case Op::kAssign:               return Read(a[1]);
-      case Op::kCast:                 return BuildCast(a[0], a[1]);
+      case Op::kIAdd:
+      case Op::kFAdd:
+        return bin("+");
+      case Op::kISub:
+      case Op::kFSub:
+        return bin("-");
+      case Op::kIMul:
+      case Op::kFMul:
+        return bin("*");
+      case Op::kIDiv:
+      case Op::kFDiv:
+        return bin("/");
+      case Op::kIMod:
+        return bin("%");
+      case Op::kStrCat:
+        return bin("+");
+      case Op::kCmpEq:
+        return bin("==");
+      case Op::kCmpLt:
+        return bin("<");
+      case Op::kCmpLe:
+        return bin("<=");
+      case Op::kCmpGt:
+        return bin(">");
+      case Op::kCmpGe:
+        return bin(">=");
+      case Op::kNot:
+        return "(!" + Read(a[1]) + ")";
+      case Op::kINeg:
+      case Op::kFNeg:
+        return "(-" + Read(a[1]) + ")";
+      case Op::kAssign:
+        return Read(a[1]);
+      case Op::kCast:
+        return BuildCast(a[0], a[1]);
       case Op::kCallMethod: {
-        std::string tgt = Read(a[1]);
-        std::string method = tgt == "this" ? SelfFn(Name(a[0])) : Sanitize(Name(a[0]));
-        std::string call = method + "(" + CallArgs(in) + ")";
+        base::String tgt = Read(a[1]);
+        base::String method = tgt == "this" ? SelfFn(Name(a[0])) : Sanitize(Name(a[0]));
+        base::String call = method + "(" + CallArgs(in) + ")";
         if (tgt != "this") return tgt + "." + call;
         // A bare self-call may target a method inherited from a parent script. The
         // harness has no base type, so it routes through dynamic.
         return harness() ? "((dynamic)this)." + call : call;
       }
       case Op::kCallParent: {
-        std::string call = SelfFn(Name(a[0])) + "(" + CallArgs(in) + ")";
+        base::String call = SelfFn(Name(a[0])) + "(" + CallArgs(in) + ")";
         return harness() ? "((dynamic)this)." + call : "base." + call;
       }
       case Op::kCallStatic: {
-        std::string type = CsType(Name(a[0]));
-        std::string method = Sanitize(Name(a[1]));
+        base::String type = CsType(Name(a[0]));
+        base::String method = Sanitize(Name(a[1]));
         // The same global may be reached as Game.GetPlayer and game.getplayer; a
         // case-sensitive C# target cannot host both, so the harness funnels every
         // static call through one dynamic helper.
         if (harness()) {
-          std::string args = CallArgs(in);
+          base::String args = CallArgs(in);
           return "__Native(\"" + type + "." + Name(a[1]) + "\"" +
                  (args.empty() ? "" : ", " + args) + ")";
         }
@@ -263,22 +289,27 @@ class Decompiler {
         return type + "." + method + "(" + CallArgs(in) + ")";
       }
       case Op::kPropGet: {
-        std::string tgt = Read(a[1]);
+        base::String tgt = Read(a[1]);
         return tgt == "this" ? RefName(Name(a[0])) : tgt + "." + Sanitize(Name(a[0]));
       }
-      case Op::kArrayCreate:     return "new " + ElemType(a[0]) + "[" + Read(a[1]) + "]";
-      case Op::kArrayLength:     return Read(a[1]) + ".Length";
-      case Op::kArrayGetElement: return Read(a[1]) + "[" + Read(a[2]) + "]";
-      case Op::kArrayFindElement:  return Read(a[0]) + ".Find(" + Read(a[2]) + ", " + Read(a[3]) + ")";
-      case Op::kArrayRFindElement: return Read(a[0]) + ".RFind(" + Read(a[2]) + ", " + Read(a[3]) + ")";
+      case Op::kArrayCreate:
+        return "new " + ElemType(a[0]) + "[" + Read(a[1]) + "]";
+      case Op::kArrayLength:
+        return Read(a[1]) + ".Length";
+      case Op::kArrayGetElement:
+        return Read(a[1]) + "[" + Read(a[2]) + "]";
+      case Op::kArrayFindElement:
+        return Read(a[0]) + ".Find(" + Read(a[2]) + ", " + Read(a[3]) + ")";
+      case Op::kArrayRFindElement:
+        return Read(a[0]) + ".RFind(" + Read(a[2]) + ", " + Read(a[3]) + ")";
       case Op::kIs: {
-        std::string type = CsType(Name(a[2]));
+        base::String type = CsType(Name(a[2]));
         if (harness()) return "__Is(" + Read(a[1]) + ")";
         if (sink()) sink()->ref_types.insert(type);
         return "(" + Read(a[1]) + " is " + type + ")";
       }
       default:
-        return "default /* unsupported opcode " + std::string(GetOpInfo(in.op).mnemonic) + " */";
+        return "default /* unsupported opcode " + base::String(GetOpInfo(in.op).mnemonic) + " */";
     }
   }
 
@@ -288,31 +319,33 @@ class Decompiler {
   void EmitInstruction(const Instruction& in) {
     const auto& a = in.args;
     switch (in.op) {
-      case Op::kNop:    return;
+      case Op::kNop:
+        return;
       case Op::kReturn:
         Line(a.empty() || a[0].type == VariableData::Type::kNone ? "return;"
                                                                  : "return " + Read(a[0]) + ";");
         return;
       case Op::kPropSet: {
-        std::string tgt = Read(a[1]);
-        std::string lhs = tgt == "this" ? RefName(Name(a[0])) : tgt + "." + Sanitize(Name(a[0]));
+        base::String tgt = Read(a[1]);
+        base::String lhs = tgt == "this" ? RefName(Name(a[0])) : tgt + "." + Sanitize(Name(a[0]));
         Line(lhs + " = " + Read(a[2]) + ";");
         return;
       }
       case Op::kArraySetElement:
         Line(Read(a[0]) + "[" + Read(a[1]) + "] = " + Read(a[2]) + ";");
         return;
-      default: break;
+      default:
+        break;
     }
 
     const Roles r = RolesOf(in.op);
     if (r.dest < 0) {
-      if (in.op != Op::kNop) Line("// " + std::string(GetOpInfo(in.op).mnemonic));
+      if (in.op != Op::kNop) Line("// " + base::String(GetOpInfo(in.op).mnemonic));
       return;
     }
     const VariableData& dest = a[r.dest];
-    const std::string& dname = Name(dest);
-    std::string expr = BuildExpr(in);
+    const base::String& dname = Name(dest);
+    base::String expr = BuildExpr(in);
 
     if (IsTemp(dname)) {
       int rc = read_count_[dname];
@@ -331,22 +364,22 @@ class Decompiler {
         // result) and reads it at the merge, so every write must land in the same
         // variable. The declaration is hoisted to function scope for the same
         // cross-block reason.
-        auto nit = mat_name_.find(dname);
-        std::string local;
-        if (nit != mat_name_.end()) {
-          local = nit->second;
+        auto* nit = mat_name_.find(dname);
+        base::String local;
+        if (nit != nullptr) {
+          local = *nit;
         } else {
-          local = "_t" + std::to_string(mat_counter_++);
+          local = "_t" + base::ToString(mat_counter_++);
           mat_name_[dname] = local;
-          auto it = type_of_.find(dname);
-          materialized_.push_back({local, it != type_of_.end() ? it->second : "var"});
+          auto* it = type_of_.find(dname);
+          materialized_.push_back({local, it != nullptr ? *it : "var"});
         }
         Line(local + " = " + expr + ";");
         temp_expr_[dname] = local;
       }
       return;
     }
-    std::string lhs = RefName(dname);
+    base::String lhs = RefName(dname);
     if (lhs == expr) return;  // a redundant no-op cast (x = x)
     Line(lhs + " = " + expr + ";");
   }
@@ -354,7 +387,7 @@ class Decompiler {
   // True when no branch crosses the boundary of [lo,hi): nothing inside jumps out
   // except to a target in `exits` or an enclosing loop edge, and nothing outside
   // jumps into the middle. Ranges that fail this guard go to the goto renderer.
-  bool IsClean(int lo, int hi, const std::set<int>& exits) {
+  bool IsClean(int lo, int hi, const base::Set<int>& exits) {
     const auto& code = fn_->code;
     auto is_loop_edge = [&](int t) {
       for (const auto& l : loops_)
@@ -377,7 +410,7 @@ class Decompiler {
 
   // C# break and continue only reach the innermost loop, so a jump to an outer
   // loop's edge cannot be structured.
-  const std::pair<int, int>* InnerLoop() const {
+  const base::Pair<int, int>* InnerLoop() const {
     return loops_.empty() ? nullptr : &loops_.back();
   }
 
@@ -400,7 +433,7 @@ class Decompiler {
         continue;
       }
       int target = i + JumpRel(in);
-      const std::pair<int, int>* loop = InnerLoop();
+      const base::Pair<int, int>* loop = InnerLoop();
 
       if (in.op == Op::kJmp) {
         // The compiler litters bodies with jumps to the next instruction (a
@@ -411,10 +444,13 @@ class Decompiler {
         return false;
       }
 
-      std::string cond = Read(in.args[0]);
+      base::String cond = Read(in.args[0]);
       bool jmpf = (in.op == Op::kJmpF);
-      auto neg = [&](const std::string& c) { return "!(" + c + ")"; };
-      if (target == i + 1) { ++i; continue; }
+      auto neg = [&](const base::String& c) { return "!(" + c + ")"; };
+      if (target == i + 1) {
+        ++i;
+        continue;
+      }
       if (loop && target == loop->second) {
         Line("if (" + (jmpf ? neg(cond) : cond) + ") break;");
         ++i;
@@ -429,7 +465,7 @@ class Decompiler {
       // Forward conditional becomes if / if-else. JmpF runs the body when the
       // condition is true, JmpT is the inverse.
       if (target <= i || target > hi) return false;
-      std::string if_cond = jmpf ? cond : neg(cond);
+      base::String if_cond = jmpf ? cond : neg(cond);
 
       // The then-block's last instruction is an unconditional forward jump over
       // the else block to the shared merge point.
@@ -500,7 +536,7 @@ class Decompiler {
   // jump target, jumps become gotos.
   void EmitGoto() {
     const auto& code = fn_->code;
-    std::set<int> labels;
+    base::Set<int> labels;
     for (int i = 0; i < static_cast<int>(code.size()); ++i)
       if (IsBranch(code[i].op)) labels.insert(i + JumpRel(code[i]));
 
@@ -508,13 +544,13 @@ class Decompiler {
       if (labels.count(i)) {
         int saved = indent_;
         indent_ = 0;
-        Line("L" + std::to_string(i) + ":;");
+        Line("L" + base::ToString(i) + ":;");
         indent_ = saved;
       }
       const Instruction& in = code[i];
       if (IsBranch(in.op)) {
         int tgt = i + JumpRel(in);
-        std::string lbl = "goto L" + std::to_string(tgt) + ";";
+        base::String lbl = "goto L" + base::ToString(tgt) + ";";
         if (in.op == Op::kJmp)
           Line(lbl);
         else if (in.op == Op::kJmpT)
@@ -527,7 +563,7 @@ class Decompiler {
     }
   }
 
-  void Line(const std::string& s) {
+  void Line(const base::String& s) {
     out_->append(static_cast<size_t>(indent_) * 4, ' ');
     out_->append(s);
     out_->push_back('\n');
@@ -537,30 +573,30 @@ class Decompiler {
   HarnessSink* sink() const { return opts_ ? opts_->sink : nullptr; }
 
   const PexFile& pex_;
-  const std::unordered_map<std::string, std::string>* backing_ = nullptr;
-  const std::unordered_map<std::string, std::string>* fn_rename_ = nullptr;
-  const std::unordered_map<std::string, std::string>* case_names_ = nullptr;
-  const std::unordered_map<std::string, std::string>* case_fns_ = nullptr;
-  std::unordered_map<std::string, std::string> local_case_;
-  std::string value_alias_;
+  const base::UnorderedMap<base::String, base::String>* backing_ = nullptr;
+  const base::UnorderedMap<base::String, base::String>* fn_rename_ = nullptr;
+  const base::UnorderedMap<base::String, base::String>* case_names_ = nullptr;
+  const base::UnorderedMap<base::String, base::String>* case_fns_ = nullptr;
+  base::UnorderedMap<base::String, base::String> local_case_;
+  base::String value_alias_;
   const TranspileOptions* opts_ = nullptr;
   const Function* fn_ = nullptr;
-  std::unordered_set<std::string> locals_;
-  std::unordered_map<std::string, std::string> type_of_;
-  std::unordered_map<std::string, std::string> temp_expr_;
-  std::unordered_map<std::string, int> read_count_;
-  std::string* out_ = nullptr;
+  base::UnorderedSet<base::String> locals_;
+  base::UnorderedMap<base::String, base::String> type_of_;
+  base::UnorderedMap<base::String, base::String> temp_expr_;
+  base::UnorderedMap<base::String, int> read_count_;
+  base::String* out_ = nullptr;
   int indent_ = 0;
   int mat_counter_ = 0;
-  std::vector<std::pair<int, int>> loops_;
-  std::vector<std::pair<std::string, std::string>> materialized_;
-  std::unordered_map<std::string, std::string> mat_name_;
+  base::Vector<base::Pair<int, int>> loops_;
+  base::Vector<base::Pair<base::String, base::String>> materialized_;
+  base::UnorderedMap<base::String, base::String> mat_name_;
 };
 
 }  // namespace
 
-void DecompileFunction(const DecompileCtx& ctx, const Function& fn, std::string& out, int indent,
-                       const std::string& value_alias) {
+void DecompileFunction(const DecompileCtx& ctx, const Function& fn, base::String& out, int indent,
+                       const base::String& value_alias) {
   Decompiler(ctx).Emit(fn, out, indent, value_alias);
 }
 

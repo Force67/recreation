@@ -1,8 +1,8 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_TRANSPILE_H_
 #define RECREATION_SCRIPT_PAPYRUS_TRANSPILE_H_
 
-#include <set>
-#include <string>
+#include <base/containers/set.h>
+#include <base/strings/xstring.h>
 
 #include "components/script/papyrus/pex.h"
 
@@ -12,9 +12,9 @@ namespace rx::script::papyrus {
 // generated C# can be fed to a real C# compiler with nothing else present. The
 // caller accumulates one sink across a whole corpus and then emits the stub.
 struct HarnessSink {
-  std::set<std::string> declared_types;  // every class the corpus itself defines
-  std::set<std::string> ref_types;       // types named in `is`/static calls
-  std::set<std::string> static_calls;    // "Type.Method" pairs reached statically
+  base::Set<base::String> declared_types;  // every class the corpus itself defines
+  base::Set<base::String> ref_types;       // types named in `is`/static calls
+  base::Set<base::String> static_calls;    // "Type.Method" pairs reached statically
 };
 
 // EXPERIMENTAL. Recompiles a parsed Papyrus program back into C# source that
@@ -32,7 +32,7 @@ struct HarnessSink {
 // compilable representation rather than a wrong-but-pretty guess.
 struct TranspileOptions {
   // Namespace the emitted classes are placed in.
-  std::string namespace_name = "Recreation.Decompiled";
+  base::String namespace_name = "Recreation.Decompiled";
   // When true, every function is preceded by its raw bytecode as a comment block
   // (handy for eyeballing how a body was reconstructed).
   bool emit_disasm_comments = false;
@@ -53,15 +53,15 @@ struct TranspileOptions {
 
 // Transpiles every object in pex into one C# compilation unit and returns it.
 // Never fails: unmodelled constructs degrade to comments, not errors.
-std::string TranspileToCSharp(const PexFile& pex, const TranspileOptions& opts = {});
+base::String TranspileToCSharp(const PexFile& pex, const TranspileOptions& opts = {});
 
 // Transpiles one function into a self-contained `public static` C# method named
 // cs_name (no class context, concrete types). Intended for pure functions:
 // no engine calls, properties, or member access, so the result compiles and
 // runs against nothing but the BCL. This is what the differential tester
 // (`pex2cs --difftest`) executes side by side with the Papyrus VM.
-std::string TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
-                                      const std::string& cs_name);
+base::String TranspileFunctionToCSharp(const PexFile& pex, const Function& fn,
+                                       const base::String& cs_name);
 
 }  // namespace rx::script::papyrus
 

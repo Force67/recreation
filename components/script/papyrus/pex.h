@@ -1,8 +1,8 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_PEX_H_
 #define RECREATION_SCRIPT_PAPYRUS_PEX_H_
 
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/script/papyrus/opcode.h"
@@ -38,8 +38,8 @@ struct VariableData {
 // operands; var_args holds the trailing argument list of a call opcode.
 struct Instruction {
   Op op = Op::kNop;
-  std::vector<VariableData> args;
-  std::vector<VariableData> var_args;
+  base::Vector<VariableData> args;
+  base::Vector<VariableData> var_args;
 };
 
 // name + type, both string indices. Used for parameters, locals and members.
@@ -54,9 +54,9 @@ struct Function {
   u32 user_flags = 0;
   bool is_global = false;
   bool is_native = false;
-  std::vector<TypedName> params;
-  std::vector<TypedName> locals;
-  std::vector<Instruction> code;
+  base::Vector<TypedName> params;
+  base::Vector<TypedName> locals;
+  base::Vector<Instruction> code;
 };
 
 struct NamedFunction {
@@ -66,7 +66,7 @@ struct NamedFunction {
 
 struct State {
   StringIndex name = kInvalidString;  // the empty string indexes the default state
-  std::vector<NamedFunction> functions;
+  base::Vector<NamedFunction> functions;
 };
 
 struct Property {
@@ -98,9 +98,9 @@ struct Object {
   StringIndex doc_string = kInvalidString;
   u32 user_flags = 0;
   StringIndex auto_state_name = kInvalidString;
-  std::vector<MemberVariable> variables;
-  std::vector<Property> properties;
-  std::vector<State> states;
+  base::Vector<MemberVariable> variables;
+  base::Vector<Property> properties;
+  base::Vector<State> states;
 };
 
 struct DebugFunction {
@@ -108,7 +108,7 @@ struct DebugFunction {
   StringIndex state_name = kInvalidString;
   StringIndex function_name = kInvalidString;
   u8 function_type = 0;
-  std::vector<u16> line_numbers;
+  base::Vector<u16> line_numbers;
 };
 
 // A parsed .pex file: the immutable, game-agnostic program the VM links and
@@ -120,26 +120,26 @@ struct PexFile {
   u8 minor_version = 0;
   u16 game_id = 0;  // 1 = Skyrim, 2 = Fallout 4
   u64 compilation_time = 0;
-  std::string source_file_name;
-  std::string user_name;
-  std::string machine_name;
+  base::String source_file_name;
+  base::String user_name;
+  base::String machine_name;
 
-  std::vector<std::string> string_table;
+  base::Vector<base::String> string_table;
 
   bool has_debug_info = false;
   u64 modification_time = 0;
-  std::vector<DebugFunction> debug_functions;
+  base::Vector<DebugFunction> debug_functions;
 
   struct UserFlag {
     StringIndex name = kInvalidString;
     u8 bit_index = 0;
   };
-  std::vector<UserFlag> user_flags;
+  base::Vector<UserFlag> user_flags;
 
-  std::vector<Object> objects;
+  base::Vector<Object> objects;
 
   // Resolves a string index. Out-of-range or kInvalidString yields "".
-  const std::string& Str(StringIndex index) const;
+  const base::String& Str(StringIndex index) const;
 };
 
 // Parses a .pex blob into out. Detects byte order from the magic, validates

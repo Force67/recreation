@@ -4,9 +4,10 @@
 // Helpers shared between the Engine translation units (engine*.cc). Kept inline
 // in a header so each unit that needs them gets one definition.
 
+#include <base/strings/xstring.h>
+
 #include <cstdarg>
 #include <cstdio>
-#include <string>
 
 #include "components/bethesda/game_profile.h"
 #include "core/math.h"
@@ -17,7 +18,7 @@ namespace rx {
 // A stable per-game slug stored in the editor's layout file, so a saved
 // placement reloads against the same game next run. Shared by the content-load
 // and main-menu Engine translation units.
-inline std::string GameSlug(bethesda::Game game) {
+inline base::String GameSlug(bethesda::Game game) {
   switch (game) {
     case bethesda::Game::kSkyrimSe:
       return "skyrimse";
@@ -38,12 +39,12 @@ inline std::string GameSlug(bethesda::Game game) {
   }
 }
 
-// printf into a std::string. Attributed so the compiler still type-checks the
+// printf into a base::String. Attributed so the compiler still type-checks the
 // format at each call site (GCC/Clang only; MSVC has no equivalent here).
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 1, 2)))
 #endif
-inline std::string Fmt(const char* fmt, ...) {
+inline base::String Fmt(const char* fmt, ...) {
   char buf[600];
   va_list ap;
   va_start(ap, fmt);

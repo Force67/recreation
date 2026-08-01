@@ -1,16 +1,18 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 
-#include <array>
+#include <base/containers/array.h>
+#include <base/containers/map.h>
+#include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <map>
-#include <memory>
 #include <mutex>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/load_order.h"
@@ -86,7 +88,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // it suspends instead of returning at once. Set by the runtime to the guest's
   // RunScript; called only on the guest thread. Unset leaves fragments inline.
   void set_fiber_runner(std::function<void(std::function<void()>)> run) {
-    fiber_runner_ = std::move(run);
+    fiber_runner_ = base::move(run);
   }
 
   // The fragment provenance the fiber scheduler keeps local to each activation: the
@@ -103,18 +105,18 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // when null, no events are emitted. Called on the guest thread, so the sink
   // must be thread-safe (the runtime enqueues for the main thread to drain).
   void set_event_sink(std::function<void(const host::ManagedEvent&)> sink) {
-    event_sink_ = std::move(sink);
+    event_sink_ = base::move(sink);
   }
 
   // Refreshes the world-space position snapshot the proximity query reads. Called
   // by the runtime each frame on the main thread; it takes the snapshot mutex, so
   // it is the one method on these bindings safe to call off the guest thread.
-  void UpdatePositionSnapshot(const std::vector<std::pair<u64, std::array<f32, 3>>>& positions);
+  void UpdatePositionSnapshot(const base::Vector<base::Pair<u64, base::Array<f32, 3>>>& positions);
 
   // Refreshes the set of actors moving at a running pace, derived by the runtime
   // from frame-to-frame displacement. Called on the main thread; shares the
   // snapshot mutex, read by Actor.IsRunning on the guest thread.
-  void UpdateMovingActors(const std::vector<u64>& running);
+  void UpdateMovingActors(const base::Vector<u64>& running);
 
   // Replica mode (a multiplayer client): the server is authoritative for quests
   // and quest-driven world state, so the client's own scripts must not mutate
@@ -132,17 +134,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // ref->alias index so the guest's RaiseEvent can route engine-raised events
   // (OnActivate, OnTrigger*) to alias scripts, matching how the bindings route
   // their own native-raised events. Guest thread only.
-  std::vector<papyrus::ObjectRef> AliasesFilledBy(papyrus::ObjectRef ref) const;
+  base::Vector<papyrus::ObjectRef> AliasesFilledBy(papyrus::ObjectRef ref) const;
 
   // Registers the Papyrus function a quest runs when it reaches `stage` (from
   // the QUST VMAD fragments). A stage can carry several conditioned log entries
   // and the game runs only the one whose conditions pass, so register each with
   // its entry index and gate; `conditions` must already have its form ids
   // resolved. The 3-argument form registers an unconditional single entry.
-  void SetStageFragment(u64 quest, i32 stage, i32 entry, std::string function,
+  void SetStageFragment(u64 quest, i32 stage, i32 entry, base::String function,
                         quest::ConditionList conditions);
-  void SetStageFragment(u64 quest, i32 stage, std::string function) {
-    SetStageFragment(quest, stage, 0, std::move(function), {});
+  void SetStageFragment(u64 quest, i32 stage, base::String function) {
+    SetStageFragment(quest, stage, 0, base::move(function), {});
   }
 
   // Registers a scene's Papyrus fragments (from its SCEN VMAD): the begin/end and
@@ -174,7 +176,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   };
   void set_live_scene_playback(bool on) { live_scene_playback_ = on; }
   bool live_scene_playback() const { return live_scene_playback_; }
-  void DrainSceneRequests(std::vector<SceneRequest>& out);
+  void DrainSceneRequests(base::Vector<SceneRequest>& out);
   // Reported back by the director so Scene.IsPlaying answers truthfully while the
   // main thread owns playback.
   void SetScenePlayingLive(u64 scene, bool playing);
@@ -186,7 +188,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Runs one of a package's fragments (on-begin / on-end / on-change) through the
   // VM, attributed to its owning quest. This is how a travel package advances the
   // journal when its actor arrives.
-  void RunPackageFragment(u64 package, const std::string& function);
+  void RunPackageFragment(u64 package, const base::String& function);
   // How many scene begin-fragments have run (scenes that have played). Lets a
   // driver confirm the Scene.Start path actually fired.
   u32 scenes_begun() const { return scenes_begun_; }
@@ -201,25 +203,25 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // systems push from the guest thread; the runtime snapshots them onto the HUD
   // on the main thread, so the store is mutex-guarded like live_positions_.
   struct HudGauge {
-    std::string id;
-    std::string label;
+    base::String id;
+    base::String label;
     f32 fraction = 0;
     u32 color = 0;  // packed rgba8; 0 = HUD default
   };
-  void SetHudGauge(const std::string& id, f32 fraction, const std::string& label,
+  void SetHudGauge(const base::String& id, f32 fraction, const base::String& label,
                    u32 color) override;
-  void ClearHudGauge(const std::string& id) override;
-  void SnapshotHudGauges(std::vector<HudGauge>& out) const;
+  void ClearHudGauge(const base::String& id) override;
+  void SnapshotHudGauges(base::Vector<HudGauge>& out) const;
 
   // War-map state (a hold's name + owner), pushed by managed code and snapshotted
   // onto the war-map panel. Mutex-guarded like the gauges.
   struct WarHold {
-    std::string name;
+    base::String name;
     i32 owner = 0;  // 0 neutral, 1 Imperial, 2 Stormcloak
   };
-  void SetWarHold(i32 index, const std::string& name, i32 owner) override;
+  void SetWarHold(i32 index, const base::String& name, i32 owner) override;
   void SetWarProgress(f32 imperial_fraction) override;
-  void SnapshotWarMap(std::vector<WarHold>& out, f32& imperial_fraction) const;
+  void SnapshotWarMap(base::Vector<WarHold>& out, f32& imperial_fraction) const;
 
   // Applies a server-replicated quest status on a multiplayer client and, when it
   // carries a fresh stage, fires the managed QuestStageChanged event so C# mods
@@ -242,14 +244,14 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Form data, from records.
   u32 GetFormId(papyrus::ObjectRef form) override;
   i32 GetFormType(papyrus::ObjectRef form) override;
-  bool RefIsType(papyrus::ObjectRef ref, const std::string& type_name) override;
-  std::string GetName(papyrus::ObjectRef form) override;
+  bool RefIsType(papyrus::ObjectRef ref, const base::String& type_name) override;
+  base::String GetName(papyrus::ObjectRef form) override;
   bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
   i32 GetKeywordCount(papyrus::ObjectRef form) override;
   papyrus::ObjectRef GetNthKeyword(i32 index) override;
   papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) override;
   papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) override;
-  std::string GetBookSkill(papyrus::ObjectRef book) override;
+  base::String GetBookSkill(papyrus::ObjectRef book) override;
   f32 GetWeight(papyrus::ObjectRef form) override;
   i32 GetGoldValue(papyrus::ObjectRef form) override;
   i32 GetWeaponDamage(papyrus::ObjectRef weapon) override;
@@ -265,7 +267,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetNthShoutWord(i32 index) override;
   papyrus::ObjectRef GetNthShoutSpell(i32 index) override;
   f32 GetNthShoutRecoveryTime(i32 index) override;
-  std::string GetMagicEffectActorValue(papyrus::ObjectRef effect) override;
+  base::String GetMagicEffectActorValue(papyrus::ObjectRef effect) override;
   bool GetMagicEffectDetrimental(papyrus::ObjectRef effect) override;
   f32 GetMagicEffectBaseCost(papyrus::ObjectRef effect) override;
   i32 GetSpellCost(papyrus::ObjectRef spell) override;
@@ -298,7 +300,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetRaceSpellCount(papyrus::ObjectRef race) override;
   papyrus::ObjectRef GetNthRaceSpell(i32 index) override;
   i32 GetRaceSkillBonusCount(papyrus::ObjectRef race) override;
-  std::string GetNthRaceSkillBonusSkill(i32 index) override;
+  base::String GetNthRaceSkillBonusSkill(i32 index) override;
   i32 GetNthRaceSkillBonusValue(i32 index) override;
 
   i32 GetNearbyRefs(papyrus::ObjectRef center, f32 radius) override;
@@ -362,13 +364,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   f32 GetRealHoursPassed() override;  // real wall-clock hours since load
 
   // Actor values (new system): permanent base + damageable current.
-  f32 GetActorValue(papyrus::ObjectRef actor, const std::string& av) override;
-  f32 GetBaseActorValue(papyrus::ObjectRef actor, const std::string& av) override;
-  f32 GetActorValuePercentage(papyrus::ObjectRef actor, const std::string& av) override;
-  void SetActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) override;
-  void ForceActorValue(papyrus::ObjectRef actor, const std::string& av, f32 value) override;
-  void ModActorValue(papyrus::ObjectRef actor, const std::string& av, f32 delta) override;
-  void RestoreActorValue(papyrus::ObjectRef actor, const std::string& av, f32 amount) override;
+  f32 GetActorValue(papyrus::ObjectRef actor, const base::String& av) override;
+  f32 GetBaseActorValue(papyrus::ObjectRef actor, const base::String& av) override;
+  f32 GetActorValuePercentage(papyrus::ObjectRef actor, const base::String& av) override;
+  void SetActorValue(papyrus::ObjectRef actor, const base::String& av, f32 value) override;
+  void ForceActorValue(papyrus::ObjectRef actor, const base::String& av, f32 value) override;
+  void ModActorValue(papyrus::ObjectRef actor, const base::String& av, f32 delta) override;
+  void RestoreActorValue(papyrus::ObjectRef actor, const base::String& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
   void Resurrect(papyrus::ObjectRef actor) override;
   bool IsInCombat(papyrus::ObjectRef actor) override;
@@ -394,7 +396,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // "Battle for Whiterun" and "<Global=CWPercentPoolRemainingAttacker>" shows the
   // number. Unknown tokens are left in place. Guest-thread only (touches the
   // quest system + records). Returns raw unchanged when it carries no token.
-  std::string ResolveQuestText(u64 quest, const std::string& raw);
+  base::String ResolveQuestText(u64 quest, const base::String& raw);
 
   // Inventory (new system).
   i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) override;
@@ -421,7 +423,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetStage(papyrus::ObjectRef quest) override;
   void SetStage(papyrus::ObjectRef quest, i32 stage) override;
   bool GetStageDone(papyrus::ObjectRef quest, i32 stage) override;
-  std::string GetJournalEntry(papyrus::ObjectRef quest) override;
+  base::String GetJournalEntry(papyrus::ObjectRef quest) override;
   bool IsRunning(papyrus::ObjectRef quest) override;
   void StartQuest(papyrus::ObjectRef quest) override;
   void StopQuest(papyrus::ObjectRef quest) override;
@@ -446,7 +448,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // quest::QuestActionSink: the graph drives stage entry through here. State and
   // dedup still live in quest_system_ (SetStage records the stage before the
   // graph runs), so this only needs to run the stage's Papyrus fragment.
-  void RunScriptFragment(u64 quest, i32 node, const std::string& fragment) override;
+  void RunScriptFragment(u64 quest, i32 node, const base::String& fragment) override;
 
  private:
   struct ActorValue {
@@ -476,7 +478,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     u64 output = 0;
     i32 output_count = 1;
     u64 workbench = 0;  // BNAM keyword (the station type that crafts it)
-    std::vector<CraftingInput> inputs;
+    base::Vector<CraftingInput> inputs;
   };
   void BuildRecipes();                      // fills recipe_cache_ from every COBJ record
   const Recipe* RecipeAt(i32 index) const;  // bounds-checked, nullptr if out of range
@@ -489,7 +491,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   struct LeveledList {
     i32 chance_none = 0;
     i32 flags = 0;
-    std::vector<LeveledEntry> entries;
+    base::Vector<LeveledEntry> entries;
   };
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   // Reads a 4-byte form-id subrecord off `from`'s record and resolves it
@@ -502,31 +504,31 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // XNAM): 0 neutral, 1 enemy, 2 ally, 3 friend. Backs GetReaction when no runtime
   // override is set.
   i32 AuthoredFactionReaction(papyrus::ObjectRef faction, papyrus::ObjectRef other);
-  std::array<f32, 3> Position(papyrus::ObjectRef ref);
-  ActorValue& Av(papyrus::ObjectRef actor, const std::string& av);
+  base::Array<f32, 3> Position(papyrus::ObjectRef ref);
+  ActorValue& Av(papyrus::ObjectRef actor, const base::String& av);
 
   const bethesda::RecordStore* records_ = nullptr;
   const bethesda::StringTable* strings_ = nullptr;
   papyrus::ObjectRef player_;
-  std::unordered_map<u64, std::unordered_map<std::string, ActorValue>> actor_values_;
-  std::unordered_map<u64, std::unordered_map<u64, i32>> inventory_;
-  std::unordered_map<u64, std::unordered_set<u64>> equipped_;  // actor -> equipped item forms
-  std::unordered_map<u64, std::array<f32, 3>> positions_;      // SetPosition/MoveTo overrides
-  std::unordered_map<u64, f32> scales_;                        // SetScale overrides (default 1.0)
+  base::UnorderedMap<u64, base::UnorderedMap<base::String, ActorValue>> actor_values_;
+  base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> inventory_;
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;  // actor -> equipped item forms
+  base::UnorderedMap<u64, base::Array<f32, 3>> positions_;     // SetPosition/MoveTo overrides
+  base::UnorderedMap<u64, f32> scales_;                        // SetScale overrides (default 1.0)
   struct LockState {
     bool locked = false;
     i32 level = 0;
   };
-  std::unordered_map<u64, LockState> locks_;
-  std::unordered_map<u64, bool> open_;
-  std::unordered_map<u64, bool> disabled_;  // Disable() state, for IsDisabled
+  base::UnorderedMap<u64, LockState> locks_;
+  base::UnorderedMap<u64, bool> open_;
+  base::UnorderedMap<u64, bool> disabled_;  // Disable() state, for IsDisabled
   mutable std::mutex source_forms_mutex_;
-  std::unordered_map<u64, u64> source_forms_;
-  std::unordered_map<u64, std::unordered_map<u64, u64>> runtime_forms_;
-  std::unordered_map<u64, u64> alias_fills_;  // alias handle -> ForceRefTo override ref
+  base::UnorderedMap<u64, u64> source_forms_;
+  base::UnorderedMap<u64, base::UnorderedMap<u64, u64>> runtime_forms_;
+  base::UnorderedMap<u64, u64> alias_fills_;  // alias handle -> ForceRefTo override ref
   // Reverse index: a filled ref -> the alias handles it fills, so a dying actor's
   // death dispatches to its alias scripts (CWReinforcementAliasScript.OnDeath).
-  std::unordered_map<u64, std::vector<u64>> ref_to_aliases_;
+  base::UnorderedMap<u64, base::Vector<u64>> ref_to_aliases_;
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
@@ -546,10 +548,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // order. RunStageFragmentBody runs the first whose conditions pass.
   struct StageFragment {
     i32 entry = 0;
-    std::string function;
+    base::String function;
     quest::ConditionList conditions;
   };
-  std::unordered_map<u64, std::unordered_map<i32, std::vector<StageFragment>>> stage_fragments_;
+  base::UnorderedMap<u64, base::UnorderedMap<i32, base::Vector<StageFragment>>> stage_fragments_;
   // The native graph for a quest plus its live traversal. Built lazily from the
   // quest's definition + fragments the first time it is started/advanced, so by
   // then both are registered. Heap-held so the instance's graph pointer is
@@ -557,9 +559,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   struct QuestRuntime {
     quest::QuestGraph graph;
     quest::QuestInstance instance;
-    explicit QuestRuntime(quest::QuestGraph g) : graph(std::move(g)), instance(&graph) {}
+    explicit QuestRuntime(quest::QuestGraph g) : graph(base::move(g)), instance(&graph) {}
   };
-  std::unordered_map<u64, std::unique_ptr<QuestRuntime>> quest_runtime_;
+  base::UnorderedMap<u64, base::UniquePointer<QuestRuntime>> quest_runtime_;
   QuestRuntime& Runtime(u64 quest);
   papyrus::VirtualMachine* vm_ = nullptr;
   int fragment_depth_ = 0;  // guards stage->fragment->SetStage recursion
@@ -577,17 +579,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     u64 owning_quest = 0;
     bethesda::SceneFragments frags;
   };
-  std::unordered_map<u64, SceneFragmentSet> scene_fragments_;
-  std::unordered_map<u64, u64> info_owning_quest_;     // INFO handle -> owning quest
-  std::unordered_map<u64, u64> package_owning_quest_;  // PACK handle -> owning quest
+  base::UnorderedMap<u64, SceneFragmentSet> scene_fragments_;
+  base::UnorderedMap<u64, u64> info_owning_quest_;     // INFO handle -> owning quest
+  base::UnorderedMap<u64, u64> package_owning_quest_;  // PACK handle -> owning quest
   // Scene.Start/Stop calls waiting for the main-thread cutscene director, and the
   // set it reports as playing. Crosses threads, so both are mutex guarded.
   bool live_scene_playback_ = false;
   mutable std::mutex scene_requests_mutex_;
-  std::vector<SceneRequest> scene_requests_;
-  std::unordered_set<u64> scenes_playing_live_;
+  base::Vector<SceneRequest> scene_requests_;
+  base::UnorderedSet<u64> scenes_playing_live_;
   // Runs one scene fragment function via the VM, attributed to its owning quest.
-  void RunSceneFragment(u64 scene, u64 owning_quest, const std::string& function);
+  void RunSceneFragment(u64 scene, u64 owning_quest, const base::String& function);
   // Plays the scenes a quest fragment Started, firing their phase fragments over
   // time. Lives here (guest thread) so the Scene.Start native can reach it.
   quest::ScenePlayer scene_player_;
@@ -597,32 +599,32 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // script instance, if it defines a handler, a silent no-op without a VM or
   // handler. Runs synchronously on the guest thread (the bindings' only caller),
   // so a handler that mutates state is visible immediately to the caller.
-  void RaiseFormEvent(u64 target, const char* event, std::vector<papyrus::Value> args);
+  void RaiseFormEvent(u64 target, const char* event, base::Vector<papyrus::Value> args);
   // Raises the event on the target form and on every quest alias it currently
   // fills, so both the ref's own script and its alias scripts handle it. This is
   // the routing OnDeath uses (a soldier's death reaches its reinforcement alias);
   // OnHit and OnCombatStateChanged share it.
-  void RaiseFormAndAliasEvent(u64 target, const char* event, std::vector<papyrus::Value> args);
+  void RaiseFormAndAliasEvent(u64 target, const char* event, base::Vector<papyrus::Value> args);
   // Fires OnDying/OnDeath once when an actor's health first reaches zero, and
   // re-arms if it is healed back above zero.
   void MaybeNotifyDeath(papyrus::ObjectRef actor);
-  std::unordered_set<u64> dead_;                // actors that have already announced OnDeath
-  std::unordered_map<u64, u64> combat_target_;  // attacker -> target it is fighting
+  base::UnorderedSet<u64> dead_;                // actors that have already announced OnDeath
+  base::UnorderedMap<u64, u64> combat_target_;  // attacker -> target it is fighting
   // The actor whose swing is currently being resolved, so MaybeNotifyDeath can
   // attribute the kill (OnDeath's killer arg, the kActorDied event's b field).
   papyrus::ObjectRef last_attacker_{0};
-  std::unordered_map<u64, std::unordered_map<u64, i32>> faction_ranks_;  // actor -> faction -> rank
+  base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> faction_ranks_;  // actor -> faction -> rank
   // Last GetFactionCount result (authored faction handle + rank), read by the
   // GetNthFaction* accessors.
-  std::vector<std::pair<u64, i32>> faction_cache_;
-  std::unordered_map<u64, std::unordered_map<u64, i32>> reactions_;    // faction -> other
-  std::unordered_map<u64, i32> crime_gold_;                            // faction -> gold
-  std::array<bool, SkyrimBindings::kControlCount> player_controls_{};  // true = enabled
+  base::Vector<base::Pair<u64, i32>> faction_cache_;
+  base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> reactions_;     // faction -> other
+  base::UnorderedMap<u64, i32> crime_gold_;                             // faction -> gold
+  base::Array<bool, SkyrimBindings::kControlCount> player_controls_{};  // true = enabled
   bool player_controls_init_ = false;
-  std::unordered_map<u64, f32> global_values_;             // GlobalVariable overrides
-  std::map<std::pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
-  std::unordered_map<u64, u64> location_fills_;      // location-alias handle -> location handle
-  std::map<std::pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
+  base::UnorderedMap<u64, f32> global_values_;               // GlobalVariable overrides
+  base::Map<base::Pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
+  base::UnorderedMap<u64, u64> location_fills_;        // location-alias handle -> location handle
+  base::Map<base::Pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
   // The day/night clock and the packed handles of the globals that proxy it.
   // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).
   WorldClock* clock_ = nullptr;
@@ -635,37 +637,38 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // so the mutex guards both it and the cached last result. This is the only
   // bindings state touched from two threads.
   std::mutex live_positions_mutex_;
-  std::unordered_map<u64, std::array<f32, 3>> live_positions_;
-  std::unordered_set<u64> running_actors_;  // moving at a run pace this frame
+  base::UnorderedMap<u64, base::Array<f32, 3>> live_positions_;
+  base::UnorderedSet<u64> running_actors_;  // moving at a run pace this frame
   // Managed HUD gauges, id-keyed, insertion-ordered for a stable HUD layout.
   // Written on the guest thread (SetHudGauge), read on the main thread
   // (SnapshotHudGauges); guarded by its own mutex.
   mutable std::mutex hud_gauges_mutex_;
-  std::vector<HudGauge> hud_gauges_;
+  base::Vector<HudGauge> hud_gauges_;
   mutable std::mutex war_map_mutex_;
-  std::vector<WarHold> war_holds_;
+  base::Vector<WarHold> war_holds_;
   f32 war_progress_ = 0.0f;
-  std::vector<std::pair<u64, f32>> nearby_cache_;  // last result: (handle, distance in game units)
+  base::Vector<base::Pair<u64, f32>>
+      nearby_cache_;  // last result: (handle, distance in game units)
   // Last GetMagicEffectCount result, read by the GetNthMagicEffect* accessors.
   // Guest-thread only (record parsing), so it needs no lock.
-  std::vector<MagicEffectData> magic_effect_cache_;
+  base::Vector<MagicEffectData> magic_effect_cache_;
   // Last GetShoutWordCount result, read by the GetNthShout* accessors. Guest
   // thread only.
-  std::vector<ShoutWordData> shout_word_cache_;
+  base::Vector<ShoutWordData> shout_word_cache_;
   // Last GetKeywordCount result (resolved keyword handles), read by GetNthKeyword.
-  std::vector<u64> keyword_cache_;
+  base::Vector<u64> keyword_cache_;
   // Last GetRaceSpellCount result (resolved spell handles), read by GetNthRaceSpell.
-  std::vector<u64> race_spell_cache_;
+  base::Vector<u64> race_spell_cache_;
   // Last GetRaceSkillBonusCount result as (skill AV index, bonus) pairs.
-  std::vector<std::pair<i32, i32>> race_skill_cache_;
+  base::Vector<base::Pair<i32, i32>> race_skill_cache_;
   // Every COBJ recipe, built lazily on first GetRecipeCount and reused after.
-  std::vector<Recipe> recipe_cache_;
+  base::Vector<Recipe> recipe_cache_;
   bool recipes_built_ = false;
   // Last leveled list parsed by GetLeveledListCount; the other LVLI accessors
   // read it. Guest-thread only, like the other record caches.
   LeveledList leveled_cache_;
   // Last form list parsed by GetFormListSize; GetNthListForm reads it.
-  std::vector<papyrus::ObjectRef> form_list_cache_;
+  base::Vector<papyrus::ObjectRef> form_list_cache_;
   // The audio system the sound natives play through, and the SOUN/SNDR lookup
   // built lazily on first use. Both null/empty until the runtime wires audio.
   audio::AudioSystem* audio_ = nullptr;

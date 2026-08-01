@@ -1,5 +1,6 @@
 #include "components/gamenet/session.h"
 
+#include <base/algorithm.h>
 #include <nanobuf.h>
 
 #include <algorithm>
@@ -49,9 +50,9 @@ ReplicationHooks GameHooks() {
 }
 
 template <typename Send>
-void SendWorldCommandChunks(const std::vector<world::WorldCommand>& commands, Send&& send) {
-  for (size_t begin = 0; begin < commands.size(); begin += kMaxWorldCommandsPerMessage) {
-    const size_t end = std::min(commands.size(), begin + kMaxWorldCommandsPerMessage);
+void SendWorldCommandChunks(const base::Vector<world::WorldCommand>& commands, Send&& send) {
+  for (mem_size begin = 0; begin < commands.size(); begin += kMaxWorldCommandsPerMessage) {
+    const mem_size end = base::Min<mem_size>(commands.size(), begin + kMaxWorldCommandsPerMessage);
     std::vector<world::WorldCommand> chunk(commands.begin() + begin, commands.begin() + end);
     std::vector<u8> payload = EncodeWorldCommands(chunk);
     if (payload.size() <= kMaxWorldCommandPayload) send(std::move(payload));
@@ -165,7 +166,10 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
 
 void GameServerSession::BroadcastQuests() {
   if (!quest_source_ || inner_.client_count() == 0) return;
-  std::vector<u8> blob = quest_replicator_.Build(quest_source_());
+  // The wire codec is std-typed; the source is recreation-side and base-typed.
+  const base::Vector<DomainQuestStatus> snapshot = quest_source_();
+  std::vector<u8> blob =
+      quest_replicator_.Build(std::vector<DomainQuestStatus>(snapshot.begin(), snapshot.end()));
   if (blob.empty()) return;  // nothing changed this tick
 
   // Unlike snapshots, quest progress must not be lost, so it rides the
@@ -197,7 +201,7 @@ void GameServerSession::BroadcastWarMap() {
                    /*reliable=*/true, tx::network::PacketPriority::Low);
 }
 
-void GameServerSession::SendWorldCommands(const std::vector<world::WorldCommand>& commands) {
+void GameServerSession::SendWorldCommands(const base::Vector<world::WorldCommand>& commands) {
   if (inner_.client_count() == 0 || commands.empty()) return;
   // Reliable, like quests: a dropped spawn or cleanup would desync a client's
   // world from the host's permanently.

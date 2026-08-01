@@ -7,12 +7,16 @@
 // flagged native, and checks each against the Skyrim native table. Grounds the
 // "every script fn handler" goal in the real, finite set the game ships.
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/map.h>
+#include <base/containers/pair.h>
+#include <base/containers/set.h>
+#include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <filesystem>
-#include <map>
-#include <set>
-#include <string>
 
 #include "components/bethesda/archive.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
@@ -22,16 +26,19 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::papyrus;
 
-std::string Lower(std::string s) {
-  std::ranges::transform(s, s.begin(), [](char c) { return (char)std::tolower((unsigned char)c); });
+base::String Lower(base::String s) {
+  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
-void CollectNatives(const PexFile& pex, std::map<std::string, std::set<std::string>>& by_type) {
+void CollectNatives(const PexFile& pex, base::Map<base::String, base::Set<base::String>>& by_type) {
   for (const Object& obj : pex.objects) {
-    std::string type = pex.Str(obj.name);
+    base::String type = pex.Str(obj.name);
     for (const State& st : obj.states)
       for (const NamedFunction& nf : st.functions)
         if (nf.function.is_native) by_type[type].insert(pex.Str(nf.name));
@@ -45,21 +52,21 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: %s <data_dir> [--list-missing]\n", argv[0]);
     return 2;
   }
-  std::string data_dir = argv[1];
-  bool list_missing = argc > 2 && std::string(argv[2]) == "--list-missing";
+  base::String data_dir = argv[1];
+  bool list_missing = argc > 2 && base::String(argv[2]) == "--list-missing";
 
-  std::map<std::string, std::set<std::string>> by_type;  // script type -> native fn names
+  base::Map<base::String, base::Set<base::String>> by_type;  // script type -> native fn names
   int scripts_scanned = 0;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec)) {
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec)) {
     auto provider = bethesda::OpenArchive(entry.path().string());
     if (!provider) continue;
-    std::set<std::string> script_paths;
-    provider->Enumerate([&](std::string_view path) {
+    base::Set<base::String> script_paths;
+    provider->Enumerate([&](base::StringRef path) {
       if (path.starts_with("scripts/") && path.ends_with(".pex"))
-        script_paths.emplace(path);
+        script_paths.insert(base::String(path));
     });
-    for (const std::string& path : script_paths) {
+    for (const base::String& path : script_paths) {
       auto blob = provider->Read(path);
       if (!blob) continue;
       PexFile pex;
@@ -77,9 +84,9 @@ int main(int argc, char** argv) {
 
   int total = 0;
   int handled = 0;
-  std::map<std::string, std::pair<int, int>> per_type;  // type -> {handled, total}
+  base::Map<base::String, base::Pair<int, int>> per_type;  // type -> {handled, total}
   for (const auto& [type, fns] : by_type)
-    for (const std::string& fn : fns) {
+    for (const base::String& fn : fns) {
       ++total;
       bool ok = reg.Find(type, fn) != nullptr;
       if (ok) ++handled;
@@ -94,10 +101,10 @@ int main(int argc, char** argv) {
               total ? 100.0 * handled / total : 0.0);
 
   // The script types with the most native surface, and how much is covered.
-  std::vector<std::pair<std::string, std::pair<int, int>>> ranked(per_type.begin(), per_type.end());
-  std::ranges::sort(ranked, [](const auto& a, const auto& b) {
-    return a.second.second > b.second.second;
-  });
+  base::Vector<base::Pair<base::String, base::Pair<int, int>>> ranked;
+  for (const auto& entry : per_type) ranked.push_back({entry.first, entry.second});
+  base::Sort(ranked.begin(), ranked.end(),
+             [](const auto& a, const auto& b) { return a.second.second > b.second.second; });
   std::printf("top native-declaring types (handled/total):\n");
   for (size_t i = 0; i < ranked.size() && i < 15; ++i)
     std::printf("  %-24s %d/%d\n", ranked[i].first.c_str(), ranked[i].second.first,

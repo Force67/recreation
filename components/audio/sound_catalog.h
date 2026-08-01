@@ -1,8 +1,8 @@
 #ifndef RECREATION_AUDIO_SOUND_CATALOG_H_
 #define RECREATION_AUDIO_SOUND_CATALOG_H_
 
-#include <string>
 #include <base/containers/unordered_map.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -25,12 +25,12 @@ class SoundCatalog {
 
   // The asset path (e.g. "sound/fx/...") for a SOUN or SNDR form, or empty when
   // the form is unknown or carries no file.
-  std::string PathFor(bethesda::GlobalFormId form) const;
+  base::String PathFor(bethesda::GlobalFormId form) const;
 
   size_t size() const { return paths_.size(); }
 
  private:
-  base::UnorderedMap<u64, std::string> paths_;  // form.packed() -> normalized asset path
+  base::UnorderedMap<u64, base::String> paths_;  // form.packed() -> normalized asset path
 };
 
 }  // namespace rx::audio

@@ -1,8 +1,8 @@
 #ifndef RECREATION_QUEST_QUEST_IMPORT_H_
 #define RECREATION_QUEST_QUEST_IMPORT_H_
 
-#include <string>
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/quest/quest_def.h"
@@ -21,7 +21,7 @@ namespace rx::quest {
 // edges (a later step). start_node is the lowest stage carrying a fragment, or
 // the lowest stage otherwise, matching StartQuest's opening-stage choice.
 QuestGraph BuildQuestGraph(const QuestDef& def,
-                           const std::unordered_map<i32, std::string>& stage_fragments);
+                           const base::UnorderedMap<i32, base::String>& stage_fragments);
 
 }  // namespace rx::quest
 

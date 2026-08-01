@@ -1,9 +1,9 @@
 #ifndef RECREATION_BETHESDA_MATERIAL_DB_H_
 #define RECREATION_BETHESDA_MATERIAL_DB_H_
 
-#include <string>
-#include <string_view>
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -30,12 +30,12 @@ class StarfieldMaterialDb {
   // Resolved texture vfs paths ("textures/...dds") for a material, plus the
   // scalar PBR hint the reader can infer. Absent maps stay empty.
   struct Resolved {
-    std::string base_color;
-    std::string normal;
-    std::string emissive;
-    std::string roughness;  // TextureSet slot 3
-    std::string metallic;   // TextureSet slot 4
-    std::string ao;         // TextureSet slot 5 (ambient occlusion)
+    base::String base_color;
+    base::String normal;
+    base::String emissive;
+    base::String roughness;  // TextureSet slot 3
+    base::String metallic;   // TextureSet slot 4
+    base::String ao;         // TextureSet slot 5 (ambient occlusion)
     // The CDB does not expose a scalar metalness through the TextureFile leaves
     // this reader follows, so a bound metallic map is the metal signal: with a
     // slot-4 map present the surface is treated as a metal (factor 1); the
@@ -45,12 +45,12 @@ class StarfieldMaterialDb {
 
   // Resolves a material path ("Materials\X\Y.mat"). Returns false when the
   // material is not in the database. `out` is only written on a hit.
-  bool Lookup(std::string_view mat_path, Resolved* out) const;
+  bool Lookup(base::StringRef mat_path, Resolved* out) const;
 
   // Legacy 3-slot lookup kept for callers that only need color/normal/emissive.
   // Outputs are left untouched when a map is absent.
-  bool Lookup(std::string_view mat_path, std::string* base_color, std::string* normal,
-              std::string* emissive) const;
+  bool Lookup(base::StringRef mat_path, base::String* base_color, base::String* normal,
+              base::String* emissive) const;
 
   bool empty() const { return by_resource_.empty() && by_stem_.empty(); }
   size_t size() const { return by_resource_.size() + by_stem_.size(); }
@@ -67,16 +67,16 @@ class StarfieldMaterialDb {
       return file == r.file && ext == r.ext && dir == r.dir;
     }
   };
-  static ResourceId HashResource(std::string_view path);
+  static ResourceId HashResource(base::StringRef path);
 
  private:
   struct Textures {
-    std::string base_color;
-    std::string normal;
-    std::string emissive;
-    std::string roughness;
-    std::string metallic;
-    std::string ao;
+    base::String base_color;
+    base::String normal;
+    base::String emissive;
+    base::String roughness;
+    base::String metallic;
+    base::String ao;
   };
   struct ResourceIdHash {
     size_t operator()(const ResourceId& id) const {
@@ -88,10 +88,10 @@ class StarfieldMaterialDb {
   void BuildStemIndex(ByteSpan cdb);
 
   // material path hash -> textures (object-graph resolution, primary).
-  std::unordered_map<ResourceId, Textures, ResourceIdHash> by_resource_;
+  base::UnorderedMap<ResourceId, Textures, ResourceIdHash> by_resource_;
   // material stem (lower case file name of the .mat, no extension) -> textures
   // (TextureSet-name scan, fallback).
-  std::unordered_map<std::string, Textures> by_stem_;
+  base::UnorderedMap<base::String, Textures> by_stem_;
 };
 
 }  // namespace rx::bethesda

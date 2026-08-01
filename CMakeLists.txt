@@ -302,8 +302,10 @@ if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
     CACHE FILEPATH "" FORCE)
   add_subdirectory(${RECREATION_LIBULTRAGUI_DIR} libultragui EXCLUDE_FROM_ALL)
   # The three recreation-owned backends above are compiled into libultragui, so
-  # that target needs recreation's header root to resolve "runtime/ui/...".
+  # that target needs recreation's header root to resolve "runtime/ui/..." and
+  # equilibrium::base for the base:: containers those backends use.
   target_include_directories(ultragui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(ultragui PRIVATE equilibrium::base)
   set(RECREATION_HAS_UGUI ON)
   message(STATUS "libultragui found, hud enabled")
 else()

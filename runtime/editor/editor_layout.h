@@ -1,8 +1,9 @@
 #ifndef RECREATION_RUNTIME_EDITOR_EDITOR_LAYOUT_H_
 #define RECREATION_RUNTIME_EDITOR_EDITOR_LAYOUT_H_
 
+#include <base/strings/xstring.h>
+
 #include <sstream>
-#include <string>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -16,7 +17,7 @@ namespace rx::editor {
 // format and its parser live here, header-only, so the ctest gate can round-trip
 // them without the engine.
 struct LayoutEntry {
-  std::string domain;  // game slug; never contains whitespace
+  base::String domain;  // game slug; never contains whitespace
   bethesda::GlobalFormId base;
   f32 pos[3] = {0, 0, 0};
   f32 rot[4] = {0, 0, 0, 1};
@@ -24,29 +25,33 @@ struct LayoutEntry {
 };
 
 // "place <domain> <plugin> <local_id> <px py pz> <qx qy qz qw> <scale>".
-inline std::string FormatPlaceLine(const LayoutEntry& e) {
+inline base::String FormatPlaceLine(const LayoutEntry& e) {
   std::ostringstream out;
-  out << "place " << (e.domain.empty() ? "primary" : e.domain) << ' ' << e.base.plugin << ' '
-      << e.base.local_id << ' ' << e.pos[0] << ' ' << e.pos[1] << ' ' << e.pos[2] << ' ' << e.rot[0]
-      << ' ' << e.rot[1] << ' ' << e.rot[2] << ' ' << e.rot[3] << ' ' << e.scale;
-  return out.str();
+  out << "place " << (e.domain.empty() ? "primary" : e.domain.c_str()) << ' ' << e.base.plugin
+      << ' ' << e.base.local_id << ' ' << e.pos[0] << ' ' << e.pos[1] << ' ' << e.pos[2] << ' '
+      << e.rot[0] << ' ' << e.rot[1] << ' ' << e.rot[2] << ' ' << e.rot[3] << ' ' << e.scale;
+  const std::string text = out.str();
+  return base::String(text.c_str(), text.size());
 }
 
 // Parses one layout line into `out`. Returns false for blanks, comments (a line
 // starting with '#') and any line that is not a well-formed "place" record, so
 // the loader can skip them.
-inline bool ParsePlaceLine(const std::string& line, LayoutEntry* out) {
+inline bool ParsePlaceLine(const base::String& line, LayoutEntry* out) {
   if (line.empty() || line[0] == '#') return false;
-  std::istringstream ss(line);
+  // istringstream extracts into std::string; the fields land in base::String.
+  std::istringstream ss(line.c_str());
   std::string tag;
   ss >> tag;
   if (tag != "place") return false;
   unsigned plugin = 0, local = 0;
   LayoutEntry e;
-  if (!(ss >> e.domain >> plugin >> local >> e.pos[0] >> e.pos[1] >> e.pos[2] >> e.rot[0] >>
+  std::string domain;
+  if (!(ss >> domain >> plugin >> local >> e.pos[0] >> e.pos[1] >> e.pos[2] >> e.rot[0] >>
         e.rot[1] >> e.rot[2] >> e.rot[3] >> e.scale)) {
     return false;
   }
+  e.domain.assign(domain.c_str(), domain.size());
   e.base = bethesda::GlobalFormId{static_cast<u16>(plugin), static_cast<u32>(local)};
   *out = e;
   return true;

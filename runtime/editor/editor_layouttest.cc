@@ -4,9 +4,10 @@
 // save/load persistence format stays stable. Needs no game data, so it runs in
 // the ctest gate.
 
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdio>
-#include <string>
 
 #include "runtime/editor/editor_layout.h"
 
@@ -44,7 +45,7 @@ int main() {
   in.rot[3] = 0.7071f;
   in.scale = 1.25f;
 
-  const std::string line = FormatPlaceLine(in);
+  const base::String line = FormatPlaceLine(in);
   Check("formats with the place tag", line.rfind("place ", 0) == 0);
 
   LayoutEntry out;

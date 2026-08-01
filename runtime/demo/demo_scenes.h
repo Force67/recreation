@@ -1,10 +1,8 @@
 #ifndef RECREATION_RUNTIME_DEMO_DEMO_SCENES_H_
 #define RECREATION_RUNTIME_DEMO_DEMO_SCENES_H_
 
-#include <memory>
-#include <vector>
-
 #include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
 
 #include "core/math.h"
 #include "runtime/app/engine_context.h"
@@ -79,7 +77,7 @@ class DemoScenes {
   u32 gpu_particle_count_ = 0;  // > 0 selects the gpu-simulated fountain
   Vec3 gpu_particle_emitter_{0, 0, 0};
   base::Vector<render::Decal> demo_decals_;
-  u32 gpu_particle_mode_ = 0;         // 1 = fire (buoyant flames + embers)
+  u32 gpu_particle_mode_ = 0;  // 1 = fire (buoyant flames + embers)
   f32 gpu_particle_radius_ = 0.3f;
   f32 gpu_particle_intensity_ = 1.0f;
   f32 fire_time_ = 0.0f;  // drives the campfire light flicker
@@ -95,11 +93,11 @@ class DemoScenes {
 
   // FaceGen head demo state: the shared builder (stable address; the faces cache
   // pointers into it) and one editable FaceState per assembled head.
-  std::unique_ptr<FaceBuilder> face_builder_;
-  std::vector<FaceState> faces_;
+  base::UniquePointer<FaceBuilder> face_builder_;
+  base::Vector<FaceState> faces_;
 
-  base::Vector<u32> hair_grooms_;      // strand-hair demo groom handles
-  u32 hair_orbit_groom_ = 0;           // the groom driven on a slow orbit
+  base::Vector<u32> hair_grooms_;  // strand-hair demo groom handles
+  u32 hair_orbit_groom_ = 0;       // the groom driven on a slow orbit
   Vec3 hair_orbit_center_{0, 0, 0};
   f32 hair_time_ = 0;
 };

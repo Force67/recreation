@@ -1,10 +1,16 @@
+#include <base/containers/map.h>
+#include <base/containers/set.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <map>
-#include <set>
 #include <string>
 
 #include "asset/vfs.h"
@@ -31,7 +37,7 @@ constexpr rx::u32 kModl = rx::FourCc('M', 'O', 'D', 'L');
 
 // Dumps the raw subrecords of one exterior CELL record (plus the worldspace
 // DNAM/NAM2) so per-game DATA/XCLW layouts can be checked byte-for-byte.
-int DumpCellRecord(const std::string& data_dir, int x, int y) {
+int DumpCellRecord(const base::String& data_dir, int x, int y) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -40,14 +46,12 @@ int DumpCellRecord(const std::string& data_dir, int x, int y) {
   GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
   Record wrld;
   if (records.Parse(world, &wrld)) {
-    std::printf("WRLD %04x:%06x %s\n", world.plugin, world.local_id,
-                wrld.GetString(kEdid).c_str());
+    std::printf("WRLD %04x:%06x %s\n", world.plugin, world.local_id, wrld.GetString(kEdid).c_str());
     for (const Subrecord& sub : wrld.subrecords) {
       char t[5] = {};
       std::memcpy(t, &sub.type, 4);
       std::printf("  %s %4zu ", t, static_cast<size_t>(sub.data.size()));
-      for (size_t i = 0; i < sub.data.size() && i < 160; ++i)
-        std::printf("%02x", sub.data[i]);
+      for (size_t i = 0; i < sub.data.size() && i < 160; ++i) std::printf("%02x", sub.data[i]);
       std::printf("\n");
     }
   }
@@ -68,8 +72,7 @@ int DumpCellRecord(const std::string& data_dir, int x, int y) {
     char t[5] = {};
     std::memcpy(t, &sub.type, 4);
     std::printf("  %s %4zu ", t, static_cast<size_t>(sub.data.size()));
-    for (size_t i = 0; i < sub.data.size() && i < 48; ++i)
-      std::printf("%02x", sub.data[i]);
+    for (size_t i = 0; i < sub.data.size() && i < 48; ++i) std::printf("%02x", sub.data[i]);
     std::printf("\n");
   }
   return 0;
@@ -80,7 +83,7 @@ int DumpCellRecord(const std::string& data_dir, int x, int y) {
 // (XLKR) that chain markers into a path or bind a cart to its horse, and the
 // enable parent (XESP) that switches them on. The reverse-engineering entry
 // point for anything scripted out of placed refs.
-int DumpRefs(const std::string& data_dir, const std::string& match) {
+int DumpRefs(const base::String& data_dir, const base::String& match) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -92,25 +95,25 @@ int DumpRefs(const std::string& data_dir, const std::string& match) {
 
   auto edid_of = [&](GlobalFormId id) {
     Record r;
-    return records.Parse(id, &r) ? r.GetString(kEdid) : std::string();
+    return records.Parse(id, &r) ? r.GetString(kEdid) : base::String();
   };
 
   // A bare hex id selects one reference; anything else is an editor-id substring
   // (the anonymous markers a path chains through carry no editor id at all).
   rx::u32 want_id = 0;
-  if (match.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos && match.size() >= 4)
-    want_id = static_cast<rx::u32>(std::stoul(match, nullptr, 16));
+  if (match.find_first_not_of("0123456789abcdefABCDEF") == base::String::npos && match.size() >= 4)
+    want_id = static_cast<rx::u32>(std::stoul(match.c_str(), nullptr, 16));
 
   int shown = 0;
   for (rx::u32 type : {rx::FourCc('R', 'E', 'F', 'R'), rx::FourCc('A', 'C', 'H', 'R')}) {
     records.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
       Record refr;
       if (!records.Parse(id, &refr)) return;
-      const std::string edid = refr.GetString(kEdid);
-      if (want_id ? id.local_id != want_id : edid.find(match) == std::string::npos) return;
+      const base::String edid = refr.GetString(kEdid);
+      if (want_id ? id.local_id != want_id : edid.find(match) == base::String::npos) return;
       ++shown;
 
-      std::string base_edid;
+      base::String base_edid;
       char base_type[5] = {};
       if (const Subrecord* name = refr.Find(kName); name && name->data.size() >= 4) {
         rx::u32 raw;
@@ -137,10 +140,9 @@ int DumpRefs(const std::string& data_dir, const std::string& match) {
         rx::u32 keyword_raw, ref_raw;
         std::memcpy(&keyword_raw, sub.data.data(), 4);
         std::memcpy(&ref_raw, sub.data.data() + 4, 4);
-        const GlobalFormId keyword = records.ResolveFrom(RawFormId{keyword_raw},
-                                                        stored.winning_plugin);
-        const GlobalFormId target = records.ResolveFrom(RawFormId{ref_raw},
-                                                        stored.winning_plugin);
+        const GlobalFormId keyword =
+            records.ResolveFrom(RawFormId{keyword_raw}, stored.winning_plugin);
+        const GlobalFormId target = records.ResolveFrom(RawFormId{ref_raw}, stored.winning_plugin);
         std::printf("    -> linked %04x:%06x %s (keyword %04x:%06x %s)\n", target.plugin,
                     target.local_id, edid_of(target).c_str(), keyword.plugin, keyword.local_id,
                     edid_of(keyword).c_str());
@@ -149,8 +151,8 @@ int DumpRefs(const std::string& data_dir, const std::string& match) {
         rx::u32 parent_raw, flags;
         std::memcpy(&parent_raw, xesp->data.data(), 4);
         std::memcpy(&flags, xesp->data.data() + 4, 4);
-        const GlobalFormId parent = records.ResolveFrom(RawFormId{parent_raw},
-                                                        stored.winning_plugin);
+        const GlobalFormId parent =
+            records.ResolveFrom(RawFormId{parent_raw}, stored.winning_plugin);
         std::printf("    -> enable parent %s (flags %u)\n", edid_of(parent).c_str(), flags);
       }
     });
@@ -162,7 +164,7 @@ int DumpRefs(const std::string& data_dir, const std::string& match) {
 // Lists a quest's reference aliases: what fills each one and the AI packages it
 // stacks on whoever does. Alias packages (ALPC) are how a quest tells a scripted
 // actor where to walk, so this is the read-out for anything that moves.
-int DumpQuestAliases(const std::string& data_dir, const std::string& which) {
+int DumpQuestAliases(const base::String& data_dir, const base::String& which) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -186,10 +188,10 @@ int DumpQuestAliases(const std::string& data_dir, const std::string& which) {
               def.aliases.size());
 
   auto describe = [&](rx::u32 raw) {
-    if (!raw) return std::string();
+    if (!raw) return base::String();
     const GlobalFormId id = records.ResolveFrom(RawFormId{raw}, stored->winning_plugin);
     Record r;
-    return records.Parse(id, &r) ? r.GetString(kEdid) : std::string();
+    return records.Parse(id, &r) ? r.GetString(kEdid) : base::String();
   };
 
   for (const rx::quest::AliasDef& alias : def.aliases) {
@@ -201,7 +203,7 @@ int DumpQuestAliases(const std::string& data_dir, const std::string& which) {
       Record prec;
       if (!records.Parse(pack, &prec)) continue;
       const rx::quest::PackageDef pd = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
-      std::string target;
+      base::String target;
       if (pd.target.kind == rx::quest::PackageTarget::Kind::kReference && pd.target.ref) {
         const GlobalFormId t{static_cast<rx::u16>(pd.target.ref >> 32),
                              static_cast<rx::u32>(pd.target.ref)};
@@ -225,7 +227,7 @@ int DumpQuestAliases(const std::string& data_dir, const std::string& which) {
 
 // Lists an actor's AI packages (the NPC_'s PKID run) with each package's
 // decoded destination, which is how a scripted actor is told where to walk.
-int DumpNpcPackages(const std::string& data_dir, const std::string& which) {
+int DumpNpcPackages(const base::String& data_dir, const base::String& which) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -244,12 +246,12 @@ int DumpNpcPackages(const std::string& data_dir, const std::string& which) {
     Record prec;
     if (pack.local_id != 0 && records.Parse(pack, &prec)) {
       const rx::quest::PackageDef def = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
-      std::printf("PACK %04x:%06x %s type=%u flags=%08x travel=%d target_kind=%d raw_kind=%u "
-                  "ref=%016llx alias=%d radius=%.0f\n",
-                  pack.plugin, pack.local_id, which.c_str(), def.type, def.flags, def.is_travel,
-                  static_cast<int>(def.target.kind), def.target.raw_kind,
-                  static_cast<unsigned long long>(def.target.ref), def.target.alias,
-                  def.target.radius);
+      std::printf(
+          "PACK %04x:%06x %s type=%u flags=%08x travel=%d target_kind=%d raw_kind=%u "
+          "ref=%016llx alias=%d radius=%.0f\n",
+          pack.plugin, pack.local_id, which.c_str(), def.type, def.flags, def.is_travel,
+          static_cast<int>(def.target.kind), def.target.raw_kind,
+          static_cast<unsigned long long>(def.target.ref), def.target.alias, def.target.radius);
       for (const Subrecord& sub : prec.subrecords) {
         char t[5] = {};
         std::memcpy(t, &sub.type, 4);
@@ -285,14 +287,25 @@ int DumpNpcPackages(const std::string& data_dir, const std::string& which) {
     const rx::quest::PackageDef def = rx::quest::ParsePackageRecord(pack.packed(), prec, records);
     const char* kind = "none";
     switch (def.target.kind) {
-      case rx::quest::PackageTarget::Kind::kReference: kind = "reference"; break;
-      case rx::quest::PackageTarget::Kind::kAlias: kind = "alias"; break;
-      case rx::quest::PackageTarget::Kind::kLinkedRef: kind = "linked-ref"; break;
-      case rx::quest::PackageTarget::Kind::kSelf: kind = "self"; break;
-      case rx::quest::PackageTarget::Kind::kLocation: kind = "location"; break;
-      case rx::quest::PackageTarget::Kind::kNone: break;
+      case rx::quest::PackageTarget::Kind::kReference:
+        kind = "reference";
+        break;
+      case rx::quest::PackageTarget::Kind::kAlias:
+        kind = "alias";
+        break;
+      case rx::quest::PackageTarget::Kind::kLinkedRef:
+        kind = "linked-ref";
+        break;
+      case rx::quest::PackageTarget::Kind::kSelf:
+        kind = "self";
+        break;
+      case rx::quest::PackageTarget::Kind::kLocation:
+        kind = "location";
+        break;
+      case rx::quest::PackageTarget::Kind::kNone:
+        break;
     }
-    std::string target_edid;
+    base::String target_edid;
     if (def.target.kind == rx::quest::PackageTarget::Kind::kReference && def.target.ref) {
       const GlobalFormId t{static_cast<rx::u16>(def.target.ref >> 32),
                            static_cast<rx::u32>(def.target.ref)};
@@ -308,7 +321,7 @@ int DumpNpcPackages(const std::string& data_dir, const std::string& which) {
 
 // Lists the refs of one exterior cell with their base record info, for
 // chasing down "what is that thing on screen" questions.
-int DumpCellRefs(const std::string& data_dir, int x, int y) {
+int DumpCellRefs(const base::String& data_dir, int x, int y) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -333,12 +346,13 @@ int DumpCellRefs(const std::string& data_dir, int x, int y) {
     if (!name || name->data.size() < 4) continue;
     rx::u32 base_raw;
     std::memcpy(&base_raw, name->data.data(), 4);
-    GlobalFormId base_id = records.ResolveFrom(RawFormId{base_raw}, records.Find(id)->winning_plugin);
+    GlobalFormId base_id =
+        records.ResolveFrom(RawFormId{base_raw}, records.Find(id)->winning_plugin);
     const RecordStore::StoredRecord* base_stored = records.Find(base_id);
     char type[5] = {};
     if (base_stored) std::memcpy(type, &base_stored->header.type, 4);
     Record base;
-    std::string edid, model;
+    base::String edid, model;
     if (base_stored && records.Parse(base_id, &base)) {
       edid = base.GetString(kEdid);
       model = base.GetString(kModl);
@@ -353,7 +367,7 @@ int DumpCellRefs(const std::string& data_dir, int x, int y) {
 
 // Dumps the LAND texture layers of one exterior cell, for grass placement
 // work.
-int DumpLand(const std::string& data_dir, int x, int y) {
+int DumpLand(const base::String& data_dir, int x, int y) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -368,21 +382,20 @@ int DumpLand(const std::string& data_dir, int x, int y) {
     std::printf("no land at %d,%d\n", x, y);
     return 1;
   }
-  GlobalFormId land_id{static_cast<rx::u16>(cell->land >> 32),
-                       static_cast<rx::u32>(cell->land)};
+  GlobalFormId land_id{static_cast<rx::u16>(cell->land >> 32), static_cast<rx::u32>(cell->land)};
   Record land;
   if (!records.Parse(land_id, &land)) return 1;
   rx::u16 plugin = records.Find(land_id)->winning_plugin;
 
   auto ltex_name = [&](rx::u32 raw) {
-    if (raw == 0) return std::string("(default)");
+    if (raw == 0) return base::String("(default)");
     GlobalFormId id = records.ResolveFrom(RawFormId{raw}, plugin);
     Record ltex;
     char buffer[64];
-    std::string edid;
+    base::String edid;
     if (records.Parse(id, &ltex)) edid = ltex.GetString(kEdid);
     std::snprintf(buffer, sizeof(buffer), "%04x:%06x %s", id.plugin, id.local_id, edid.c_str());
-    return std::string(buffer);
+    return base::String(buffer);
   };
 
   constexpr rx::u32 kBtxt = rx::FourCc('B', 'T', 'X', 'T');
@@ -412,44 +425,45 @@ int DumpLand(const std::string& data_dir, int x, int y) {
 
 // Dumps every GRAS record and the LTEX -> GRAS links, for grass placement
 // work.
-int DumpGrass(const std::string& data_dir) {
+int DumpGrass(const base::String& data_dir) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
   constexpr rx::u32 kGnam = rx::FourCc('G', 'N', 'A', 'M');
-  records.EachOfType(rx::FourCc('G', 'R', 'A', 'S'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    Record gras;
-    if (!records.Parse(id, &gras)) return;
-    const Subrecord* data = gras.Find(kData);
-    std::printf("GRAS %04x:%06x %-24s model=%s data=%zu\n", id.plugin, id.local_id,
-                gras.GetString(kEdid).c_str(), gras.GetString(kModl).c_str(),
-                data ? static_cast<size_t>(data->data.size()) : 0);
-    if (data && data->data.size() >= 32) {
-      const rx::u8* d = data->data.data();
-      rx::u16 units_from_water;
-      rx::u32 water_type;
-      float pos_range, height_range, color_range, wave_period;
-      std::memcpy(&units_from_water, d + 4, 2);
-      std::memcpy(&water_type, d + 8, 4);
-      std::memcpy(&pos_range, d + 12, 4);
-      std::memcpy(&height_range, d + 16, 4);
-      std::memcpy(&color_range, d + 20, 4);
-      std::memcpy(&wave_period, d + 24, 4);
-      std::printf("  density=%u slope=%u..%u water=%u type=%u posR=%.1f heightR=%.1f "
-                  "colorR=%.2f wave=%.2f flags=%02x\n",
-                  d[0], d[1], d[2], units_from_water, water_type, pos_range, height_range,
-                  color_range, wave_period, d[28]);
-    }
-  });
+  records.EachOfType(
+      rx::FourCc('G', 'R', 'A', 'S'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+        Record gras;
+        if (!records.Parse(id, &gras)) return;
+        const Subrecord* data = gras.Find(kData);
+        std::printf("GRAS %04x:%06x %-24s model=%s data=%zu\n", id.plugin, id.local_id,
+                    gras.GetString(kEdid).c_str(), gras.GetString(kModl).c_str(),
+                    data ? static_cast<size_t>(data->data.size()) : 0);
+        if (data && data->data.size() >= 32) {
+          const rx::u8* d = data->data.data();
+          rx::u16 units_from_water;
+          rx::u32 water_type;
+          float pos_range, height_range, color_range, wave_period;
+          std::memcpy(&units_from_water, d + 4, 2);
+          std::memcpy(&water_type, d + 8, 4);
+          std::memcpy(&pos_range, d + 12, 4);
+          std::memcpy(&height_range, d + 16, 4);
+          std::memcpy(&color_range, d + 20, 4);
+          std::memcpy(&wave_period, d + 24, 4);
+          std::printf(
+              "  density=%u slope=%u..%u water=%u type=%u posR=%.1f heightR=%.1f "
+              "colorR=%.2f wave=%.2f flags=%02x\n",
+              d[0], d[1], d[2], units_from_water, water_type, pos_range, height_range, color_range,
+              wave_period, d[28]);
+        }
+      });
 
-  records.EachOfType(rx::FourCc('L', 'T', 'E', 'X'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
+  records.EachOfType(rx::FourCc('L', 'T', 'E', 'X'), [&](GlobalFormId id,
+                                                         const RecordStore::StoredRecord& stored) {
     Record ltex;
     if (!records.Parse(id, &ltex)) return;
-    std::string grass;
+    base::String grass;
     for (const Subrecord& sub : ltex.subrecords) {
       if (sub.type != kGnam || sub.data.size() < 4) continue;
       rx::u32 raw;
@@ -470,7 +484,7 @@ int DumpGrass(const std::string& data_dir) {
 // Dumps each WTHR record's subrecords (type + size), and decodes the NAM0
 // weather-colour block as RGBA quads, for wiring authored weather colours into
 // the physical sky. Run on a data dir: esminfo <data-dir> wthr [limit].
-int DumpWeather(const std::string& data_dir, int limit) {
+int DumpWeather(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -478,69 +492,70 @@ int DumpWeather(const std::string& data_dir, int limit) {
 
   constexpr rx::u32 kNam0 = rx::FourCc('N', 'A', 'M', '0');
   int shown = 0;
-  records.EachOfType(rx::FourCc('W', 'T', 'H', 'R'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (limit > 0 && shown >= limit) return;
-    Record w;
-    if (!records.Parse(id, &w)) return;
-    ++shown;
-    std::printf("WTHR %04x:%06x %s\n", id.plugin, id.local_id, w.GetString(kEdid).c_str());
-    for (const Subrecord& sub : w.subrecords) {
-      char t[5] = {};
-      std::memcpy(t, &sub.type, 4);
-      std::printf("  %s  %zu\n", t, static_cast<size_t>(sub.data.size()));
-    }
-    constexpr rx::u32 kDalc = rx::FourCc('D', 'A', 'L', 'C');
-    int dalc_i = 0;
-    for (const Subrecord& sub : w.subrecords) {
-      if (sub.type != kDalc || sub.data.size() < 24) continue;
-      const rx::u8* d = sub.data.data();
-      std::printf("  DALC[%d]:", dalc_i++);
-      for (int k = 0; k < 6; ++k)  // X+ X- Y+ Y- Z+ Z- hemisphere ambient (RGBA)
-        std::printf(" %3u/%3u/%3u", d[k * 4], d[k * 4 + 1], d[k * 4 + 2]);
-      std::printf("\n");
-    }
-    // DATA holds the gameplay knobs: wind speed, trans delta, sun glare/damage,
-    // precip fade in/out, thunder fade in/out + frequency, the classification
-    // flags byte, the lightning colour and the wind direction/range.
-    constexpr rx::u32 kData = rx::FourCc('D', 'A', 'T', 'A');
-    if (const Subrecord* data = w.Find(kData); data && data->data.size() >= 15) {
-      const rx::u8* d = data->data.data();
-      std::printf("  DATA: wind %u trans %u glare %u dmg %u precip fade %u/%u"
-                  " thunder fade %u/%u freq %u flags 0x%02x lightning %u/%u/%u",
-                  d[0], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11], d[12], d[13],
-                  d[14]);
-      if (data->data.size() >= 19)
-        std::printf(" fx %u winddir %u dirrange %u", d[15], d[16], d[17]);
-      std::printf("\n");
-    }
-    // SNAM entries: (sound formid, type) pairs - 0 default, 1 precip, 2 wind, 3 thunder.
-    constexpr rx::u32 kSnam = rx::FourCc('S', 'N', 'A', 'M');
-    for (const Subrecord& sub : w.subrecords) {
-      if (sub.type != kSnam || sub.data.size() < 8) continue;
-      rx::u32 snd = 0, kind = 0;
-      std::memcpy(&snd, sub.data.data(), 4);
-      std::memcpy(&kind, sub.data.data() + 4, 4);
-      static const char* kSnamKind[] = {"default", "precip", "wind", "thunder"};
-      std::printf("  SNAM: %08x %s\n", snd, kind < 4 ? kSnamKind[kind] : "?");
-    }
-    // FNAM: fog distances (day near/far, night near/far, then pow/max pairs).
-    constexpr rx::u32 kFnam = rx::FourCc('F', 'N', 'A', 'M');
-    if (const Subrecord* fnam = w.Find(kFnam); fnam && fnam->data.size() >= 16) {
-      const float* f = reinterpret_cast<const float*>(fnam->data.data());
-      std::printf("  FNAM: day %.0f..%.0f night %.0f..%.0f", f[0], f[2], f[1], f[3]);
-      if (fnam->data.size() >= 32) std::printf(" pow %.2f/%.2f max %.2f/%.2f", f[4], f[5], f[6], f[7]);
-      std::printf("\n");
-    }
-    if (const Subrecord* nam0 = w.Find(kNam0); nam0 && nam0->data.size() % 16 == 0) {
-      const rx::u8* d = nam0->data.data();
-      size_t quads = nam0->data.size() / 4;  // RGBA bytes; 4 times-of-day per type
-      std::printf("  NAM0 decoded (%zu colours, 4 per type = dawn/day/dusk/night):\n", quads);
-      for (size_t i = 0; i < quads; ++i)
-        std::printf("    [%2zu] %3u %3u %3u %3u%s", i, d[i * 4 + 0], d[i * 4 + 1], d[i * 4 + 2],
-                    d[i * 4 + 3], (i % 4 == 3) ? "\n" : "  ");
-    }
-  });
+  records.EachOfType(
+      rx::FourCc('W', 'T', 'H', 'R'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+        if (limit > 0 && shown >= limit) return;
+        Record w;
+        if (!records.Parse(id, &w)) return;
+        ++shown;
+        std::printf("WTHR %04x:%06x %s\n", id.plugin, id.local_id, w.GetString(kEdid).c_str());
+        for (const Subrecord& sub : w.subrecords) {
+          char t[5] = {};
+          std::memcpy(t, &sub.type, 4);
+          std::printf("  %s  %zu\n", t, static_cast<size_t>(sub.data.size()));
+        }
+        constexpr rx::u32 kDalc = rx::FourCc('D', 'A', 'L', 'C');
+        int dalc_i = 0;
+        for (const Subrecord& sub : w.subrecords) {
+          if (sub.type != kDalc || sub.data.size() < 24) continue;
+          const rx::u8* d = sub.data.data();
+          std::printf("  DALC[%d]:", dalc_i++);
+          for (int k = 0; k < 6; ++k)  // X+ X- Y+ Y- Z+ Z- hemisphere ambient (RGBA)
+            std::printf(" %3u/%3u/%3u", d[k * 4], d[k * 4 + 1], d[k * 4 + 2]);
+          std::printf("\n");
+        }
+        // DATA holds the gameplay knobs: wind speed, trans delta, sun glare/damage,
+        // precip fade in/out, thunder fade in/out + frequency, the classification
+        // flags byte, the lightning colour and the wind direction/range.
+        constexpr rx::u32 kData = rx::FourCc('D', 'A', 'T', 'A');
+        if (const Subrecord* data = w.Find(kData); data && data->data.size() >= 15) {
+          const rx::u8* d = data->data.data();
+          std::printf(
+              "  DATA: wind %u trans %u glare %u dmg %u precip fade %u/%u"
+              " thunder fade %u/%u freq %u flags 0x%02x lightning %u/%u/%u",
+              d[0], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11], d[12], d[13], d[14]);
+          if (data->data.size() >= 19)
+            std::printf(" fx %u winddir %u dirrange %u", d[15], d[16], d[17]);
+          std::printf("\n");
+        }
+        // SNAM entries: (sound formid, type) pairs - 0 default, 1 precip, 2 wind, 3 thunder.
+        constexpr rx::u32 kSnam = rx::FourCc('S', 'N', 'A', 'M');
+        for (const Subrecord& sub : w.subrecords) {
+          if (sub.type != kSnam || sub.data.size() < 8) continue;
+          rx::u32 snd = 0, kind = 0;
+          std::memcpy(&snd, sub.data.data(), 4);
+          std::memcpy(&kind, sub.data.data() + 4, 4);
+          static const char* kSnamKind[] = {"default", "precip", "wind", "thunder"};
+          std::printf("  SNAM: %08x %s\n", snd, kind < 4 ? kSnamKind[kind] : "?");
+        }
+        // FNAM: fog distances (day near/far, night near/far, then pow/max pairs).
+        constexpr rx::u32 kFnam = rx::FourCc('F', 'N', 'A', 'M');
+        if (const Subrecord* fnam = w.Find(kFnam); fnam && fnam->data.size() >= 16) {
+          const float* f = reinterpret_cast<const float*>(fnam->data.data());
+          std::printf("  FNAM: day %.0f..%.0f night %.0f..%.0f", f[0], f[2], f[1], f[3]);
+          if (fnam->data.size() >= 32)
+            std::printf(" pow %.2f/%.2f max %.2f/%.2f", f[4], f[5], f[6], f[7]);
+          std::printf("\n");
+        }
+        if (const Subrecord* nam0 = w.Find(kNam0); nam0 && nam0->data.size() % 16 == 0) {
+          const rx::u8* d = nam0->data.data();
+          size_t quads = nam0->data.size() / 4;  // RGBA bytes; 4 times-of-day per type
+          std::printf("  NAM0 decoded (%zu colours, 4 per type = dawn/day/dusk/night):\n", quads);
+          for (size_t i = 0; i < quads; ++i)
+            std::printf("    [%2zu] %3u %3u %3u %3u%s", i, d[i * 4 + 0], d[i * 4 + 1], d[i * 4 + 2],
+                        d[i * 4 + 3], (i % 4 == 3) ? "\n" : "  ");
+        }
+      });
   return 0;
 }
 
@@ -548,7 +563,7 @@ int DumpWeather(const std::string& data_dir, int limit) {
 // Shallow/Deep/Reflection RGBA quads at offsets 40/44/48, plus the above-water
 // fog near/far/amount floats, to verify the offsets against real data.
 // esminfo <data-dir> watr [limit].
-int DumpWater(const std::string& data_dir, int limit) {
+int DumpWater(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -558,24 +573,25 @@ int DumpWater(const std::string& data_dir, int limit) {
   int shown = 0, total = 0;
   records.EachOfType(rx::FourCc('W', 'A', 'T', 'R'),
                      [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    ++total;
-    if (limit > 0 && shown >= limit) return;
-    Record w;
-    if (!records.Parse(id, &w)) return;
-    const Subrecord* dnam = w.Find(kDnam);
-    if (!dnam || dnam->data.size() < 52) return;
-    ++shown;
-    const rx::u8* d = dnam->data.data();
-    float fog_near, fog_far, fog_amount = 0;
-    std::memcpy(&fog_near, d + 32, 4);
-    std::memcpy(&fog_far, d + 36, 4);
-    if (dnam->data.size() >= 136) std::memcpy(&fog_amount, d + 132, 4);
-    std::printf("WATR %04x:%06x %-28s dnam=%zu  shallow=%3u,%3u,%3u deep=%3u,%3u,%3u "
-                "refl=%3u,%3u,%3u  fog near=%.0f far=%.0f amt=%.2f\n",
-                id.plugin, id.local_id, w.GetString(kEdid).c_str(),
-                static_cast<size_t>(dnam->data.size()), d[40], d[41], d[42], d[44], d[45], d[46],
-                d[48], d[49], d[50], fog_near, fog_far, fog_amount);
-  });
+                       ++total;
+                       if (limit > 0 && shown >= limit) return;
+                       Record w;
+                       if (!records.Parse(id, &w)) return;
+                       const Subrecord* dnam = w.Find(kDnam);
+                       if (!dnam || dnam->data.size() < 52) return;
+                       ++shown;
+                       const rx::u8* d = dnam->data.data();
+                       float fog_near, fog_far, fog_amount = 0;
+                       std::memcpy(&fog_near, d + 32, 4);
+                       std::memcpy(&fog_far, d + 36, 4);
+                       if (dnam->data.size() >= 136) std::memcpy(&fog_amount, d + 132, 4);
+                       std::printf(
+                           "WATR %04x:%06x %-28s dnam=%zu  shallow=%3u,%3u,%3u deep=%3u,%3u,%3u "
+                           "refl=%3u,%3u,%3u  fog near=%.0f far=%.0f amt=%.2f\n",
+                           id.plugin, id.local_id, w.GetString(kEdid).c_str(),
+                           static_cast<size_t>(dnam->data.size()), d[40], d[41], d[42], d[44],
+                           d[45], d[46], d[48], d[49], d[50], fog_near, fog_far, fog_amount);
+                     });
   std::printf("total WATR: %d\n", total);
   return 0;
 }
@@ -584,7 +600,7 @@ int DumpWater(const std::string& data_dir, int limit) {
 // from the worldspace NAM2 default, with their grid coords + water editor id,
 // for finding a positive test pose (marsh/blood/spring water bodies).
 // esminfo <data-dir> cellwater [limit].
-int DumpCellWater(const std::string& data_dir, int limit) {
+int DumpCellWater(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -625,7 +641,7 @@ int DumpCellWater(const std::string& data_dir, int limit) {
     GlobalFormId water = records.ResolveFrom(RawFormId{raw}, records.Find(cell_id)->winning_plugin);
     if (water == default_water) continue;
     Record watr;
-    std::string edid = records.Parse(water, &watr) ? watr.GetString(kEdid) : std::string();
+    base::String edid = records.Parse(water, &watr) ? watr.GetString(kEdid) : base::String();
     std::printf("cell %4d,%4d  water %04x:%06x %s\n", x, y, water.plugin, water.local_id,
                 edid.c_str());
     ++shown;
@@ -637,37 +653,36 @@ int DumpCellWater(const std::string& data_dir, int limit) {
 // load order, splits them into primary-worldspace exterior vs elsewhere, and
 // dumps a sample's full subrecord list (XPRM box? XSCL? rotation?) plus the
 // base TXST's diffuse/normal paths. esminfo <data-dir> txstrefs [limit].
-int DumpTxstRefs(const std::string& data_dir, int limit) {
+int DumpTxstRefs(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
-  std::set<rx::u64> txst_ids;
-  records.EachOfType(rx::FourCc('T', 'X', 'S', 'T'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    txst_ids.insert(id.packed());
-  });
+  base::Set<rx::u64> txst_ids;
+  records.EachOfType(
+      rx::FourCc('T', 'X', 'S', 'T'),
+      [&](GlobalFormId id, const RecordStore::StoredRecord&) { txst_ids.insert(id.packed()); });
   std::printf("TXST records: %zu\n", txst_ids.size());
 
   // Refs of the primary worldspace's exterior grid, to split the counts and
   // report which cells decals cluster in (screenshot poses).
-  std::map<rx::u64, rx::u32> exterior_refs;  // ref -> grid key
+  base::Map<rx::u64, rx::u32> exterior_refs;  // ref -> grid key
   GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
   if (const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world)) {
     for (auto kv : *grid)
       for (rx::u64 packed : kv.value.refs) exterior_refs.emplace(packed, kv.key);
   }
-  std::map<rx::u32, int> per_cell;
+  base::Map<rx::u32, int> per_cell;
 
   constexpr rx::u32 kXprm = rx::FourCc('X', 'P', 'R', 'M');
   constexpr rx::u32 kXscl = rx::FourCc('X', 'S', 'C', 'L');
   constexpr rx::u32 kTx00 = rx::FourCc('T', 'X', '0', '0');
   constexpr rx::u32 kTx01 = rx::FourCc('T', 'X', '0', '1');
   int refr_total = 0, total = 0, exterior = 0, with_xprm = 0, shown = 0;
-  std::map<rx::u64, int> per_base;
-  records.EachOfType(rx::FourCc('R', 'E', 'F', 'R'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord& stored) {
+  base::Map<rx::u64, int> per_base;
+  records.EachOfType(rx::FourCc('R', 'E', 'F', 'R'), [&](GlobalFormId id,
+                                                         const RecordStore::StoredRecord& stored) {
     ++refr_total;
     Record refr;
     if (!records.Parse(id, &refr)) return;
@@ -679,7 +694,7 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
     if (!txst_ids.count(base_id.packed())) return;
     ++total;
     ++per_base[base_id.packed()];
-    auto ext = exterior_refs.find(id.packed());
+    const auto ext = exterior_refs.find(id.packed());
     bool in_exterior = ext != exterior_refs.end();
     if (in_exterior) {
       ++exterior;
@@ -690,7 +705,7 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
     ++shown;
 
     Record base;
-    std::string edid, tx00, tx01;
+    base::String edid, tx00, tx01;
     if (records.Parse(base_id, &base)) {
       edid = base.GetString(kEdid);
       tx00 = base.GetString(kTx00);
@@ -702,11 +717,12 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
     float scale = 1.0f;
     if (const Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4)
       std::memcpy(&scale, xscl->data.data(), 4);
-    std::printf("REFR %04x:%06x %s base %04x:%06x %-28s pos (%.0f,%.0f,%.0f) rot "
-                "(%.2f,%.2f,%.2f) scale %.2f\n",
-                id.plugin, id.local_id, in_exterior ? "ext" : "int", base_id.plugin,
-                base_id.local_id, edid.c_str(), placement[0], placement[1], placement[2],
-                placement[3], placement[4], placement[5], scale);
+    std::printf(
+        "REFR %04x:%06x %s base %04x:%06x %-28s pos (%.0f,%.0f,%.0f) rot "
+        "(%.2f,%.2f,%.2f) scale %.2f\n",
+        id.plugin, id.local_id, in_exterior ? "ext" : "int", base_id.plugin, base_id.local_id,
+        edid.c_str(), placement[0], placement[1], placement[2], placement[3], placement[4],
+        placement[5], scale);
     for (const Subrecord& sub : refr.subrecords) {
       char t[5] = {};
       std::memcpy(t, &sub.type, 4);
@@ -722,10 +738,11 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
     if (!tx01.empty()) std::printf("  TX01 %s\n", tx01.c_str());
   });
   std::printf("REFRs scanned: %d\n", refr_total);
-  std::printf("TXST-based REFRs: %d (exterior %s: %d, elsewhere: %d, with XPRM: %d, distinct "
-              "bases: %zu)\n",
-              total, profile.exterior_worldspace.c_str(), exterior, total - exterior, with_xprm,
-              per_base.size());
+  std::printf(
+      "TXST-based REFRs: %d (exterior %s: %d, elsewhere: %d, with XPRM: %d, distinct "
+      "bases: %zu)\n",
+      total, profile.exterior_worldspace.c_str(), exterior, total - exterior, with_xprm,
+      per_base.size());
 
   // Placed bases with their DODT decal data (widths/heights/depth in game
   // units), the numbers the engine needs for projection box extents.
@@ -740,8 +757,8 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
       float v[5];
       std::memcpy(v, dodt->data.data(), 20);
       const rx::u8* d = dodt->data.data();
-      std::printf(" DODT w %.0f..%.0f h %.0f..%.0f depth %.0f flags %02x color %u,%u,%u",
-                  v[0], v[1], v[2], v[3], v[4], d[29], d[32], d[33], d[34]);
+      std::printf(" DODT w %.0f..%.0f h %.0f..%.0f depth %.0f flags %02x color %u,%u,%u", v[0],
+                  v[1], v[2], v[3], v[4], d[29], d[32], d[33], d[34]);
     } else {
       std::printf(" (no DODT)");
     }
@@ -768,7 +785,7 @@ int DumpTxstRefs(const std::string& data_dir, int limit) {
 // fog-far colour, fog max, light fade begin/end, and a u32 Inherits flag field
 // selecting per-group between the cell and its template. A non-numeric second
 // arg filters by editor-id substring. esminfo <data-dir> xcll [limit|name].
-int DumpInteriorLighting(const std::string& data_dir, int limit, const std::string& name_filter) {
+int DumpInteriorLighting(const base::String& data_dir, int limit, const base::String& name_filter) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -777,19 +794,19 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
   constexpr rx::u32 kXcll = rx::FourCc('X', 'C', 'L', 'L');
   constexpr rx::u32 kLtmp = rx::FourCc('L', 'T', 'M', 'P');
   auto col = [](const rx::u8* d) {
-    return std::string(std::to_string(d[0]) + "," + std::to_string(d[1]) + "," +
-                       std::to_string(d[2]));
+    return base::String(base::ToString(d[0]) + "," + base::ToString(d[1]) + "," +
+                        base::ToString(d[2]));
   };
   int shown = 0, interiors = 0, with_xcll = 0;
-  records.EachOfType(rx::FourCc('C', 'E', 'L', 'L'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+  records.EachOfType(rx::FourCc('C', 'E', 'L', 'L'), [&](GlobalFormId id,
+                                                         const RecordStore::StoredRecord&) {
     Record cell;
     if (!records.Parse(id, &cell)) return;
     const Subrecord* data = cell.Find(kData);
     if (!data || data->data.empty() || !(data->data[0] & 0x01)) return;  // interior flag
     ++interiors;
-    std::string edid = cell.GetString(kEdid);
-    if (!name_filter.empty() && edid.find(name_filter) == std::string::npos) return;
+    base::String edid = cell.GetString(kEdid);
+    if (!name_filter.empty() && edid.find(name_filter) == base::String::npos) return;
     const Subrecord* xcll = cell.Find(kXcll);
     const Subrecord* ltmp = cell.Find(kLtmp);
     if (!xcll && !ltmp) return;
@@ -803,7 +820,7 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
       std::memcpy(&raw, ltmp->data.data(), 4);
       GlobalFormId t = records.ResolveFrom(RawFormId{raw}, records.Find(id)->winning_plugin);
       Record lgtm;
-      std::string ledid = records.Parse(t, &lgtm) ? lgtm.GetString(kEdid) : std::string();
+      base::String ledid = records.Parse(t, &lgtm) ? lgtm.GetString(kEdid) : base::String();
       std::printf(" LTMP %04x:%06x %s", t.plugin, t.local_id, ledid.c_str());
     }
     std::printf("\n");
@@ -842,9 +859,8 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
       std::memcpy(&fade_end, d + 84, 4);
       std::memcpy(&inherits, d + 88, 4);
       std::printf("\n  lightFade %.0f..%.0f  inherits=0x%03x [", fade_begin, fade_end, inherits);
-      const char* names[] = {"ambient", "directional", "fogColor", "fogNear",
-                             "fogFar",  "dirRot",       "dirFade",  "clip",
-                             "fogPow",  "fogMax",       "lightFade"};
+      const char* names[] = {"ambient", "directional", "fogColor", "fogNear", "fogFar",   "dirRot",
+                             "dirFade", "clip",        "fogPow",   "fogMax",  "lightFade"};
       for (int b = 0; b < 11; ++b)
         if (inherits & (1u << b)) std::printf("%s ", names[b]);
       std::printf("]");
@@ -860,7 +876,7 @@ int DumpInteriorLighting(const std::string& data_dir, int limit, const std::stri
 // the inherit flags) plus its DALC directional-ambient subrecord, to cross-check
 // the XCLL offsets and see the template values interiors inherit.
 // esminfo <data-dir> lgtm [limit].
-int DumpLightingTemplates(const std::string& data_dir, int limit) {
+int DumpLightingTemplates(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -868,12 +884,12 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
 
   constexpr rx::u32 kDalc = rx::FourCc('D', 'A', 'L', 'C');
   auto col = [](const rx::u8* d) {
-    return std::string(std::to_string(d[0]) + "," + std::to_string(d[1]) + "," +
-                       std::to_string(d[2]));
+    return base::String(base::ToString(d[0]) + "," + base::ToString(d[1]) + "," +
+                        base::ToString(d[2]));
   };
   int shown = 0, total = 0;
-  records.EachOfType(rx::FourCc('L', 'G', 'T', 'M'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+  records.EachOfType(rx::FourCc('L', 'G', 'T', 'M'), [&](GlobalFormId id,
+                                                         const RecordStore::StoredRecord&) {
     ++total;
     if (limit > 0 && shown >= limit) return;
     Record r;
@@ -886,11 +902,11 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
     std::memcpy(&fog_near, d + 12, 4);
     std::memcpy(&fog_far, d + 16, 4);
     std::memcpy(&fog_pow, d + 36, 4);
-    std::printf("LGTM %04x:%06x %-28s data=%zu ambient=%s directional=%s fogNear=%s "
-                "near=%.0f far=%.0f pow=%.2f",
-                id.plugin, id.local_id, r.GetString(kEdid).c_str(),
-                static_cast<size_t>(data->data.size()), col(d).c_str(), col(d + 4).c_str(),
-                col(d + 8).c_str(), fog_near, fog_far, fog_pow);
+    std::printf(
+        "LGTM %04x:%06x %-28s data=%zu ambient=%s directional=%s fogNear=%s "
+        "near=%.0f far=%.0f pow=%.2f",
+        id.plugin, id.local_id, r.GetString(kEdid).c_str(), static_cast<size_t>(data->data.size()),
+        col(d).c_str(), col(d + 4).c_str(), col(d + 8).c_str(), fog_near, fog_far, fog_pow);
     if (data->data.size() >= 80) std::printf(" fogFar=%s", col(d + 72).c_str());
     if (const Subrecord* dalc = r.Find(kDalc); dalc && dalc->data.size() >= 24)
       std::printf(" DALC X+=%s Z-=%s", col(dalc->data.data()).c_str(),
@@ -904,7 +920,7 @@ int DumpLightingTemplates(const std::string& data_dir, int limit) {
 // Dumps a SCEN scene as the runtime reads it: the owning quest, its aliases,
 // and every phase's dialogue beat with the speaker's alias name and the real
 // response text. esminfo <data-dir> scene <SCEN editor id or hex form id>.
-int DumpScene(const std::string& data_dir, const std::string& which) {
+int DumpScene(const base::String& data_dir, const base::String& which) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -914,17 +930,17 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
   // archives, same as the engine's own load.
   rx::asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto provider = OpenArchive(entry.path().string())) vfs.Mount(std::move(provider));
-  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto provider = OpenArchive(entry.path().string())) vfs.Mount(base::move(provider));
+  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir.c_str()));
   StringTable strings;
-  for (const std::string& plugin : order.plugins())
+  for (const base::String& plugin : order.plugins())
     strings.Load(vfs, plugin, profile.string_language);
 
   GlobalFormId scene{};
-  if (which.rfind("0x", 0) == 0 || which.find_first_not_of("0123456789abcdefABCDEF") ==
-                                       std::string::npos) {
-    scene = GlobalFormId{0, static_cast<rx::u32>(std::stoul(which, nullptr, 16))};
+  if (which.rfind("0x", 0) == 0 ||
+      which.find_first_not_of("0123456789abcdefABCDEF") == base::String::npos) {
+    scene = GlobalFormId{0, static_cast<rx::u32>(std::stoul(which.c_str(), nullptr, 16))};
   } else {
     records.EachOfType(rx::FourCc('S', 'C', 'E', 'N'),
                        [&](GlobalFormId id, const RecordStore::StoredRecord&) {
@@ -938,8 +954,7 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
     std::printf("no SCEN '%s'\n", which.c_str());
     return 1;
   }
-  const rx::quest::SceneDef def =
-      rx::quest::ParseSceneRecord(scene.packed(), record, &records);
+  const rx::quest::SceneDef def = rx::quest::ParseSceneRecord(scene.packed(), record, &records);
   std::printf("SCEN %04x:%06x %s: quest %016llx, %zu actors, %zu phases, %zu actions\n",
               scene.plugin, scene.local_id, record.GetString(kEdid).c_str(),
               static_cast<unsigned long long>(def.quest), def.actors.size(), def.phases.size(),
@@ -953,8 +968,7 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
 
   rx::quest::QuestDef quest;
   if (def.quest != 0) {
-    const GlobalFormId qid{static_cast<rx::u16>(def.quest >> 32),
-                           static_cast<rx::u32>(def.quest)};
+    const GlobalFormId qid{static_cast<rx::u16>(def.quest >> 32), static_cast<rx::u32>(def.quest)};
     Record qrec;
     if (records.Parse(qid, &qrec)) {
       quest = rx::quest::ParseQuestDefinition(def.quest, qrec, &strings);
@@ -964,7 +978,7 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
   }
   auto alias_name = [&](int alias) {
     const rx::quest::AliasDef* a = quest.FindAlias(alias);
-    return a && !a->name.empty() ? a->name : std::string("alias") + std::to_string(alias);
+    return a && !a->name.empty() ? a->name : base::String("alias") + base::ToString(alias);
   };
 
   for (const rx::quest::SceneActionDef& action : def.actions) {
@@ -974,7 +988,7 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
       const GlobalFormId pack{static_cast<rx::u16>(action.package >> 32),
                               static_cast<rx::u32>(action.package)};
       Record prec;
-      std::string name, target;
+      base::String name, target;
       if (records.Parse(pack, &prec)) {
         name = prec.GetString(kEdid);
         const rx::quest::PackageDef def =
@@ -1016,7 +1030,7 @@ int DumpScene(const std::string& data_dir, const std::string& which) {
 // Generic: dumps each record of a four-character type with its editor id and
 // subrecord (type, size) list, for reverse-engineering an unfamiliar record.
 // esminfo <data-dir> dump <TYPE> [limit].
-int DumpType(const std::string& data_dir, const std::string& type, int limit) {
+int DumpType(const base::String& data_dir, const base::String& type, int limit) {
   if (type.size() != 4) {
     std::printf("type must be 4 chars\n");
     return 1;
@@ -1053,7 +1067,7 @@ int DumpType(const std::string& data_dir, const std::string& type, int limit) {
 // files (race morph / chargen morph), texture set and valid-races formlist.
 // For seeing what parts and morph tris the chargen system has to work with.
 // esminfo <data-dir> hdpt [limit].
-int DumpHeadParts(const std::string& data_dir, int limit) {
+int DumpHeadParts(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -1061,29 +1075,29 @@ int DumpHeadParts(const std::string& data_dir, int limit) {
 
   const char* kTypes[] = {"misc", "face", "eyes", "hair", "facialhair", "scar", "eyebrows"};
   int shown = 0, total = 0;
-  records.EachOfType(rx::FourCc('H', 'D', 'P', 'T'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    ++total;
-    if (limit > 0 && shown >= limit) return;
-    std::optional<HeadPart> part = ResolveHeadPart(records, id);
-    if (!part) return;
-    ++shown;
-    rx::u32 t = static_cast<rx::u32>(part->type);
-    std::printf("HDPT %04x:%06x %-32s type=%s flags=%02x\n", id.plugin, id.local_id,
-                part->editor_id.c_str(), t < 7 ? kTypes[t] : "?", part->flags);
-    if (!part->model.empty()) std::printf("  MODL %s\n", part->model.c_str());
-    for (const HeadPartTri& tri : part->tris)
-      std::printf("  tri[type=%u] %s\n", tri.type, tri.path.c_str());
-    if (part->texture_set.plugin != 0xffff)
-      std::printf("  TNAM %04x:%06x\n", part->texture_set.plugin, part->texture_set.local_id);
-    if (part->valid_races.plugin != 0xffff)
-      std::printf("  RNAM %04x:%06x\n", part->valid_races.plugin, part->valid_races.local_id);
-    if (!part->extra_parts.empty()) {
-      std::printf("  HNAM extra:");
-      for (GlobalFormId e : part->extra_parts) std::printf(" %04x:%06x", e.plugin, e.local_id);
-      std::printf("\n");
-    }
-  });
+  records.EachOfType(
+      rx::FourCc('H', 'D', 'P', 'T'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+        ++total;
+        if (limit > 0 && shown >= limit) return;
+        base::Optional<HeadPart> part = ResolveHeadPart(records, id);
+        if (!part) return;
+        ++shown;
+        rx::u32 t = static_cast<rx::u32>(part->type);
+        std::printf("HDPT %04x:%06x %-32s type=%s flags=%02x\n", id.plugin, id.local_id,
+                    part->editor_id.c_str(), t < 7 ? kTypes[t] : "?", part->flags);
+        if (!part->model.empty()) std::printf("  MODL %s\n", part->model.c_str());
+        for (const HeadPartTri& tri : part->tris)
+          std::printf("  tri[type=%u] %s\n", tri.type, tri.path.c_str());
+        if (part->texture_set.plugin != 0xffff)
+          std::printf("  TNAM %04x:%06x\n", part->texture_set.plugin, part->texture_set.local_id);
+        if (part->valid_races.plugin != 0xffff)
+          std::printf("  RNAM %04x:%06x\n", part->valid_races.plugin, part->valid_races.local_id);
+        if (!part->extra_parts.empty()) {
+          std::printf("  HNAM extra:");
+          for (GlobalFormId e : part->extra_parts) std::printf(" %04x:%06x", e.plugin, e.local_id);
+          std::printf("\n");
+        }
+      });
   std::printf("total HDPT: %d\n", total);
   return 0;
 }
@@ -1092,32 +1106,33 @@ int DumpHeadParts(const std::string& data_dir, int limit) {
 // NAM9 slider values, NAMA face-part indices, tint layers (index + rgba +
 // interpolation), skin tone and hair color. The query is an editor id substring
 // or a "plugin:local" / hex form id. esminfo <data-dir> npcface <query>.
-int DumpNpcFace(const std::string& data_dir, const std::string& query) {
+int DumpNpcFace(const base::String& data_dir, const base::String& query) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
   if (!records.LoadAll(data_dir, order, profile)) return 1;
 
   GlobalFormId target{0xffff, 0};
-  if (size_t colon = query.find(':'); colon != std::string::npos) {
-    target.plugin = static_cast<rx::u16>(std::stoul(query.substr(0, colon), nullptr, 16));
-    target.local_id = static_cast<rx::u32>(std::stoul(query.substr(colon + 1), nullptr, 16));
+  if (size_t colon = query.find(':'); colon != base::String::npos) {
+    target.plugin = static_cast<rx::u16>(std::stoul(query.substr(0, colon).c_str(), nullptr, 16));
+    target.local_id =
+        static_cast<rx::u32>(std::stoul(query.substr(colon + 1).c_str(), nullptr, 16));
   } else {
     records.EachOfType(rx::FourCc('N', 'P', 'C', '_'),
                        [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-      if (target.plugin != 0xffff) return;
-      Record r;
-      if (!records.Parse(id, &r)) return;
-      if (r.GetString(kEdid) == query) target = id;
-    });
+                         if (target.plugin != 0xffff) return;
+                         Record r;
+                         if (!records.Parse(id, &r)) return;
+                         if (r.GetString(kEdid) == query) target = id;
+                       });
     if (target.plugin == 0xffff) {  // fall back to substring match
-      records.EachOfType(rx::FourCc('N', 'P', 'C', '_'),
-                         [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-        if (target.plugin != 0xffff) return;
-        Record r;
-        if (records.Parse(id, &r) && r.GetString(kEdid).find(query) != std::string::npos)
-          target = id;
-      });
+      records.EachOfType(
+          rx::FourCc('N', 'P', 'C', '_'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+            if (target.plugin != 0xffff) return;
+            Record r;
+            if (records.Parse(id, &r) && r.GetString(kEdid).find(query) != base::String::npos)
+              target = id;
+          });
     }
   }
   if (target.plugin == 0xffff) {
@@ -1125,27 +1140,27 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
     return 1;
   }
 
-  std::optional<NpcFaceData> face = ResolveNpcFace(records, target);
+  base::Optional<NpcFaceData> face = ResolveNpcFace(records, target);
   if (!face) {
     std::printf("%04x:%06x is not an NPC_\n", target.plugin, target.local_id);
     return 1;
   }
   std::printf("NPC_ %04x:%06x %s\n", face->id.plugin, face->id.local_id, face->editor_id.c_str());
-  if (std::optional<RaceHeadData> race = ResolveRaceHead(records, face->race)) {
+  if (base::Optional<RaceHeadData> race = ResolveRaceHead(records, face->race)) {
     const RaceSexHead& m = race->male;
-    std::printf("  race %04x:%06x %s (male: %zu default parts, %zu tint layers, %zu presets; "
-                "female: %zu parts, %zu tint layers)\n",
-                face->race.plugin, face->race.local_id, race->editor_id.c_str(),
-                static_cast<size_t>(m.parts.size()), static_cast<size_t>(m.tint_layers.size()),
-                static_cast<size_t>(m.presets.size()),
-                static_cast<size_t>(race->female.parts.size()),
-                static_cast<size_t>(race->female.tint_layers.size()));
+    std::printf(
+        "  race %04x:%06x %s (male: %zu default parts, %zu tint layers, %zu presets; "
+        "female: %zu parts, %zu tint layers)\n",
+        face->race.plugin, face->race.local_id, race->editor_id.c_str(),
+        static_cast<size_t>(m.parts.size()), static_cast<size_t>(m.tint_layers.size()),
+        static_cast<size_t>(m.presets.size()), static_cast<size_t>(race->female.parts.size()),
+        static_cast<size_t>(race->female.tint_layers.size()));
   }
 
   const char* kTypes[] = {"misc", "face", "eyes", "hair", "facialhair", "scar", "eyebrows"};
   std::printf("  head parts (%zu):\n", static_cast<size_t>(face->head_parts.size()));
   for (GlobalFormId hp : face->head_parts) {
-    std::optional<HeadPart> part = ResolveHeadPart(records, hp);
+    base::Optional<HeadPart> part = ResolveHeadPart(records, hp);
     if (!part) {
       std::printf("    %04x:%06x (unresolved)\n", hp.plugin, hp.local_id);
       continue;
@@ -1169,9 +1184,9 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
     std::printf("  QNAM skin tone: %.3f %.3f %.3f\n", face->skin_tone[0], face->skin_tone[1],
                 face->skin_tone[2]);
   if (face->hair_color.plugin != 0xffff) {
-    std::optional<ColorForm> c = ResolveColorForm(records, face->hair_color);
-    std::printf("  HCLF hair color %04x:%06x %s", face->hair_color.plugin, face->hair_color.local_id,
-                c ? c->editor_id.c_str() : "");
+    base::Optional<ColorForm> c = ResolveColorForm(records, face->hair_color);
+    std::printf("  HCLF hair color %04x:%06x %s", face->hair_color.plugin,
+                face->hair_color.local_id, c ? c->editor_id.c_str() : "");
     if (c) std::printf(" rgba=%u,%u,%u,%u", c->rgba[0], c->rgba[1], c->rgba[2], c->rgba[3]);
     std::printf("\n");
   }
@@ -1189,19 +1204,19 @@ int DumpNpcFace(const std::string& data_dir, const std::string& query) {
 
 // Parses a .tri morph file from the vfs and lists its vertex count and named
 // morphs (+ scale and delta count). esminfo <data-dir> tri <vfs-path>.
-int DumpTri(const std::string& data_dir, const std::string& path) {
+int DumpTri(const base::String& data_dir, const base::String& path) {
   rx::asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto p = OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
-  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto p = OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
+  vfs.Mount(rx::asset::MakeLooseFileProvider(data_dir.c_str()));
 
   auto bytes = vfs.Read(path);
   if (!bytes) {
     std::printf("not in vfs: %s\n", path.c_str());
     return 1;
   }
-  std::optional<TriMorphSet> tri = ParseTri(rx::ByteSpan(bytes->data(), bytes->size()));
+  base::Optional<TriMorphSet> tri = ParseTri(rx::ByteSpan(bytes->data(), bytes->size()));
   if (!tri) {
     std::printf("not a valid FRTRI003 file: %s\n", path.c_str());
     return 1;
@@ -1221,73 +1236,72 @@ int DumpTri(const std::string& data_dir, const std::string& path) {
 // coordinate it lists that exterior cell's refs instead.
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::printf("usage: esminfo <plugin.esm> [game: skyrimse|fo4|fo76|starfield|oblivion|morrowind]\n");
+    std::printf(
+        "usage: esminfo <plugin.esm> [game: skyrimse|fo4|fo76|starfield|oblivion|morrowind]\n");
     std::printf("       esminfo <data-dir> cell <x,y>\n");
     std::printf("       esminfo <data-dir> gras\n");
     return 1;
   }
 
-  if (argc >= 3 && std::string(argv[2]) == "gras") return DumpGrass(argv[1]);
+  if (argc >= 3 && base::String(argv[2]) == "gras") return DumpGrass(argv[1]);
 
-  if (argc >= 3 && std::string(argv[2]) == "wthr")
+  if (argc >= 3 && base::String(argv[2]) == "wthr")
     return DumpWeather(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 3 && std::string(argv[2]) == "watr")
+  if (argc >= 3 && base::String(argv[2]) == "watr")
     return DumpWater(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 3 && std::string(argv[2]) == "cellwater")
+  if (argc >= 3 && base::String(argv[2]) == "cellwater")
     return DumpCellWater(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 3 && std::string(argv[2]) == "txstrefs")
+  if (argc >= 3 && base::String(argv[2]) == "txstrefs")
     return DumpTxstRefs(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 3 && std::string(argv[2]) == "xcll") {
+  if (argc >= 3 && base::String(argv[2]) == "xcll") {
     int limit = 0;
-    std::string name;
+    base::String name;
     if (argc >= 4) {
-      const std::string arg = argv[3];
+      const base::String arg = argv[3];
       if (!arg.empty() && std::all_of(arg.begin(), arg.end(), ::isdigit))
-        limit = std::stoi(arg);
+        limit = std::stoi(arg.c_str());
       else
         name = arg;
     }
     return DumpInteriorLighting(argv[1], limit, name);
   }
 
-  if (argc >= 3 && std::string(argv[2]) == "lgtm")
+  if (argc >= 3 && base::String(argv[2]) == "lgtm")
     return DumpLightingTemplates(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 3 && std::string(argv[2]) == "hdpt")
+  if (argc >= 3 && base::String(argv[2]) == "hdpt")
     return DumpHeadParts(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
-  if (argc >= 4 && std::string(argv[2]) == "npcface")
-    return DumpNpcFace(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "npcface") return DumpNpcFace(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "tri")
-    return DumpTri(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "tri") return DumpTri(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "dump")
+  if (argc >= 4 && base::String(argv[2]) == "dump")
     return DumpType(argv[1], argv[3], argc >= 5 ? std::stoi(argv[4]) : 0);
 
-  if (argc >= 4 && std::string(argv[2]) == "scene") return DumpScene(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "scene") return DumpScene(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "refs") return DumpRefs(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "refs") return DumpRefs(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "packages") return DumpNpcPackages(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "packages") return DumpNpcPackages(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "aliases") return DumpQuestAliases(argv[1], argv[3]);
+  if (argc >= 4 && base::String(argv[2]) == "aliases") return DumpQuestAliases(argv[1], argv[3]);
 
-  if (argc >= 4 && std::string(argv[2]) == "land") {
-    std::string coords = argv[3];
+  if (argc >= 4 && base::String(argv[2]) == "land") {
+    base::String coords = argv[3];
     size_t comma = coords.find(',');
-    if (comma == std::string::npos) return 1;
-    return DumpLand(argv[1], std::stoi(coords.substr(0, comma)),
-                    std::stoi(coords.substr(comma + 1)));
+    if (comma == base::String::npos) return 1;
+    return DumpLand(argv[1], std::stoi(coords.substr(0, comma).c_str()),
+                    std::stoi(coords.substr(comma + 1).c_str()));
   }
 
-  if (argc >= 4 && std::string(argv[2]) == "form") {
+  if (argc >= 4 && base::String(argv[2]) == "form") {
     const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(argv[1]));
-    auto order = LoadOrder::FromPluginsTxt(std::string(argv[1]) + "/../plugins.txt", profile);
+    auto order = LoadOrder::FromPluginsTxt(base::String(argv[1]) + "/../plugins.txt", profile);
     RecordStore records;
     if (!records.LoadAll(argv[1], order, profile)) return 1;
     GlobalFormId id{0, static_cast<rx::u32>(std::stoul(argv[3], nullptr, 16))};
@@ -1304,7 +1318,7 @@ int main(int argc, char** argv) {
     for (const Subrecord& sub : r.subrecords) {
       char st[5] = {};
       std::memcpy(st, &sub.type, 4);
-      std::string ascii;
+      base::String ascii;
       for (size_t i = 0; i < sub.data.size() && i < 64; ++i) {
         char c = static_cast<char>(sub.data[i]);
         ascii.push_back((c >= 32 && c < 127) ? c : '.');
@@ -1314,25 +1328,25 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (argc >= 4 && std::string(argv[2]) == "cellrec") {
-    std::string coords = argv[3];
+  if (argc >= 4 && base::String(argv[2]) == "cellrec") {
+    base::String coords = argv[3];
     size_t comma = coords.find(',');
-    if (comma == std::string::npos) return 1;
-    return DumpCellRecord(argv[1], std::stoi(coords.substr(0, comma)),
-                          std::stoi(coords.substr(comma + 1)));
+    if (comma == base::String::npos) return 1;
+    return DumpCellRecord(argv[1], std::stoi(coords.substr(0, comma).c_str()),
+                          std::stoi(coords.substr(comma + 1).c_str()));
   }
 
-  if (argc >= 4 && std::string(argv[2]) == "cell") {
-    std::string coords = argv[3];
+  if (argc >= 4 && base::String(argv[2]) == "cell") {
+    base::String coords = argv[3];
     size_t comma = coords.find(',');
-    if (comma == std::string::npos) return 1;
-    return DumpCellRefs(argv[1], std::stoi(coords.substr(0, comma)),
-                        std::stoi(coords.substr(comma + 1)));
+    if (comma == base::String::npos) return 1;
+    return DumpCellRefs(argv[1], std::stoi(coords.substr(0, comma).c_str()),
+                        std::stoi(coords.substr(comma + 1).c_str()));
   }
 
   Game game = Game::kSkyrimSe;
   if (argc > 2) {
-    std::string id = argv[2];
+    base::String id = argv[2];
     if (id == "fo4") game = Game::kFallout4;
     if (id == "fo76") game = Game::kFallout76;
     if (id == "starfield") game = Game::kStarfield;
@@ -1352,7 +1366,7 @@ int main(int argc, char** argv) {
     std::printf("  requires %s\n", master.c_str());
   }
 
-  std::map<std::string, int> counts;
+  base::Map<base::String, int> counts;
   plugin->VisitRecords([&](Record& record) {
     char type[5] = {};
     std::memcpy(type, &record.header.type, 4);

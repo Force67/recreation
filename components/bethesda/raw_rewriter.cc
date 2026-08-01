@@ -1,5 +1,10 @@
 #include "components/bethesda/raw_rewriter.h"
 
+#include <base/containers/unordered_set.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 #include <fstream>
 
@@ -23,21 +28,23 @@ void PutPod(base::Vector<u8>* out, const T& v) {
 
 }  // namespace
 
-std::optional<RawRewriter> RawRewriter::Open(const std::string& path) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
+base::Optional<RawRewriter> RawRewriter::Open(const base::String& path) {
+  std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
   if (!file) {
     RX_ERROR("cannot open plugin for rewrite: {}", path);
-    return std::nullopt;
+    return base::nullopt;
   }
   base::Vector<u8> bytes;
   bytes.resize(static_cast<size_t>(file.tellg()));
   file.seekg(0);
   file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-  return std::optional<RawRewriter>{std::in_place, std::move(bytes)};
+  base::Optional<RawRewriter> rewriter;
+  rewriter.emplace(base::move(bytes));
+  return rewriter;
 }
 
 void RawRewriter::Replace(u32 raw_form_id, base::Vector<u8> encoded) {
-  replace_[raw_form_id] = std::move(encoded);
+  replace_[raw_form_id] = base::move(encoded);
 }
 
 void RawRewriter::Delete(u32 raw_form_id) { deleted_.insert(raw_form_id); }
@@ -82,8 +89,8 @@ void RawRewriter::EmitRegion(size_t pos, size_t end, base::Vector<u8>* out) cons
     u32 raw = header.form_id.value;
     if (deleted_.count(raw)) {
       // dropped from output
-    } else if (auto it = replace_.find(raw); it != replace_.end()) {
-      PutBytes(out, it->second.data(), it->second.size());
+    } else if (auto* it = replace_.find(raw); it != nullptr) {
+      PutBytes(out, it->data(), it->size());
     } else {
       PutBytes(out, d + pos, record_end - pos);  // verbatim, preserving compression/flags
     }
@@ -108,7 +115,7 @@ base::Vector<u8> RawRewriter::Build() const {
 
   // Walk the top-level groups so inserts can be appended into the matching type
   // group; group bodies (and any nested edits) go through EmitRegion.
-  std::unordered_set<u32> consumed;
+  base::UnorderedSet<u32> consumed;
   size_t pos = tes4_end;
   while (pos + sizeof(GroupHeader) <= end) {
     u32 type;
@@ -123,8 +130,8 @@ base::Vector<u8> RawRewriter::Build() const {
     base::Vector<u8> body;
     EmitRegion(pos + sizeof(GroupHeader), group_end, &body);
     if (group.group_type == 0) {  // top-level type group: label is the record type
-      if (auto it = inserts_.find(group.label); it != inserts_.end()) {
-        PutBytes(&body, it->second.data(), it->second.size());
+      if (auto* it = inserts_.find(group.label); it != nullptr) {
+        PutBytes(&body, it->data(), it->size());
         consumed.insert(group.label);
       }
     }
@@ -150,9 +157,9 @@ base::Vector<u8> RawRewriter::Build() const {
   return out;
 }
 
-bool RawRewriter::Save(const std::string& path) const {
+bool RawRewriter::Save(const base::String& path) const {
   base::Vector<u8> bytes = Build();
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  std::ofstream file(path.c_str(), std::ios::binary | std::ios::trunc);
   if (!file) {
     RX_ERROR("cannot open plugin for writing: {}", path);
     return false;

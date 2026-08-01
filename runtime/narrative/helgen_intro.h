@@ -1,10 +1,8 @@
 #ifndef RECREATION_RUNTIME_NARRATIVE_HELGEN_INTRO_H_
 #define RECREATION_RUNTIME_NARRATIVE_HELGEN_INTRO_H_
 
-#include <string>
-#include <vector>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/math.h"
@@ -55,8 +53,8 @@ class HelgenIntro {
   // One spoken beat, in the order its scene phase plays it.
   struct Line {
     i32 phase = 0;
-    std::string speaker;  // the MQ101 alias name, which is how the scene casts it
-    std::string text;
+    base::String speaker;  // the MQ101 alias name, which is how the scene casts it
+    base::String text;
     f32 start = 0;  // cutscene seconds
     f32 end = 0;
   };
@@ -64,7 +62,7 @@ class HelgenIntro {
   // Somebody riding in the cart; their clip seats them.
   struct Passenger {
     ecs::Entity entity;
-    std::string alias;  // matched against a Line's speaker for the camera
+    base::String alias;  // matched against a Line's speaker for the camera
   };
 
   // Resolves the route from the quest alias's travel packages. Cached; false
@@ -90,13 +88,13 @@ class HelgenIntro {
   f32 GroundY(f32 x, f32 z, f32 fallback) const;
   // The NPC_ base a reference alias fills with, via its forced reference or
   // unique-actor rule. Zero when the alias is absent or fills some other way.
-  bethesda::GlobalFormId AliasActor(const std::string& name) const;
+  bethesda::GlobalFormId AliasActor(const base::String& name) const;
   // The NPC_ base behind a placed actor reference, by its editor id.
-  bethesda::GlobalFormId RefBase(const std::string& editor_id) const;
+  bethesda::GlobalFormId RefBase(const base::String& editor_id) const;
   // A point in the cart's local space, in the world, this frame.
   Vec3 CartLocal(const Vec3& offset) const;
   // World position of a rider's head, by MQ101 alias. False if they are absent.
-  bool RiderHead(const std::string& alias, Vec3* out) const;
+  bool RiderHead(const base::String& alias, Vec3* out) const;
   // A point down the road ahead of the cart, at eye height.
   Vec3 RoadAhead() const;
 
@@ -111,9 +109,9 @@ class HelgenIntro {
   f32 speed_ = 2.2f;     // cart pace, set so the ride lands on the closing lines
   f32 route_length_ = 0;
 
-  quest::QuestDef quest_;        // the owning quest, for aliases and packages
-  u16 quest_plugin_ = 0;         // its plugin, to resolve the raw ids it carries
-  u64 quest_handle_ = 0;         // packed form id, for stage queries
+  quest::QuestDef quest_;  // the owning quest, for aliases and packages
+  u16 quest_plugin_ = 0;   // its plugin, to resolve the raw ids it carries
+  u64 quest_handle_ = 0;   // packed form id, for stage queries
 
   // The horse's AI packages in record order (highest priority first), which is
   // the order SelectActivePackage expects. `arc` is how far along the route that
@@ -127,10 +125,10 @@ class HelgenIntro {
   };
   base::Vector<Leg> legs_;
   int active_leg_ = -1;
-  i32 advanced_stage_ = -1;  // last stage this drove the quest to, so it fires once
+  i32 advanced_stage_ = -1;      // last stage this drove the quest to, so it fires once
   base::Vector<Vec3> route_;     // engine-space route, from the alias packages
   base::Vector<f32> route_arc_;  // cumulative arc length at each waypoint
-  std::vector<Line> lines_;
+  base::Vector<Line> lines_;
   size_t line_ = 0;  // index of the line currently on screen
 
   // Live cart pose, rebuilt each frame from the route and the terrain.

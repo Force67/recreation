@@ -2,11 +2,11 @@
 // game-data dependency: Loop subdivision (engine/asset/subdivide) and the
 // NAM9/NAMA -> chargen morph mapping (engine/bethesda/head_morph).
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdio>
-#include <string>
-
-#include <base/containers/vector.h>
 
 #include "asset/mesh.h"
 #include "asset/subdivide.h"
@@ -112,9 +112,9 @@ void TestMorphMapping() {
   std::printf("NAM9/NAMA -> chargen morph mapping:\n");
   f32 nam9[rx::bethesda::kNam9Count] = {};
   // index 0 = NoseLong (negative -> NoseShort), 1 = NoseUp (positive), 9 = BrowsUp.
-  nam9[0] = -1.0f;  // NoseLong slider pushed negative
-  nam9[1] = 0.5f;   // NoseUp
-  nam9[9] = -0.8f;  // BrowsUp negative -> BrowDown
+  nam9[0] = -1.0f;               // NoseLong slider pushed negative
+  nam9[1] = 0.5f;                // NoseUp
+  nam9[9] = -0.8f;               // BrowsUp negative -> BrowDown
   i32 nama[4] = {3, -1, 17, 4};  // nose type 3, eyes 17, mouth 4, brows none
 
   base::Vector<rx::bethesda::MorphWeight> out;
@@ -148,7 +148,7 @@ void TestMorphMapping() {
 
   // Slider labels enumerate for the UI.
   Check("slider 1 label is NoseUp",
-        std::string(rx::bethesda::Nam9SliderInfo(1).label) == "NoseUp");
+        base::String(rx::bethesda::Nam9SliderInfo(1).label) == "NoseUp");
 }
 
 }  // namespace

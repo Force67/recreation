@@ -1,8 +1,11 @@
 #include "components/bethesda/string_writer.h"
 
+#include <base/containers/unordered_map.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 #include <fstream>
-#include <unordered_map>
 
 #include "core/log.h"
 
@@ -18,13 +21,13 @@ void PutU32(base::Vector<u8>* out, u32 v) { PutBytes(out, &v, sizeof(v)); }
 
 }  // namespace
 
-u32 StringTableWriter::Add(std::string_view text) {
+u32 StringTableWriter::Add(base::StringRef text) {
   u32 id = next_id_++;
-  entries_.push_back(Entry{id, std::string(text)});
+  entries_.push_back(Entry{id, base::String(text)});
   return id;
 }
 
-void StringTableWriter::Set(u32 id, std::string_view text) {
+void StringTableWriter::Set(u32 id, base::StringRef text) {
   for (Entry& e : entries_) {
     if (e.id == id) {
       e.text.assign(text);
@@ -32,7 +35,7 @@ void StringTableWriter::Set(u32 id, std::string_view text) {
       return;
     }
   }
-  entries_.push_back(Entry{id, std::string(text)});
+  entries_.push_back(Entry{id, base::String(text)});
   if (id >= next_id_) next_id_ = id + 1;
 }
 
@@ -50,12 +53,12 @@ base::Vector<u8> StringTableWriter::Build(bool length_prefixed) const {
   base::Vector<u8> data;
   base::Vector<u32> offsets;  // parallel to entries_
   offsets.reserve(entries_.size());
-  std::unordered_map<std::string, u32> seen;  // text -> data-block offset
+  base::UnorderedMap<base::String, u32> seen;  // text -> data-block offset
 
   for (const Entry& e : entries_) {
-    auto it = seen.find(e.text);
-    if (it != seen.end()) {
-      offsets.push_back(it->second);
+    auto* it = seen.find(e.text);
+    if (it != nullptr) {
+      offsets.push_back(*it);
       continue;
     }
     u32 offset = static_cast<u32>(data.size());
@@ -88,9 +91,9 @@ base::Vector<u8> StringTableWriter::Build(bool length_prefixed) const {
 #pragma GCC diagnostic pop
 #endif
 
-bool StringTableWriter::Save(const std::string& path, bool length_prefixed) const {
+bool StringTableWriter::Save(const base::String& path, bool length_prefixed) const {
   base::Vector<u8> bytes = Build(length_prefixed);
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  std::ofstream file(path.c_str(), std::ios::binary | std::ios::trunc);
   if (!file) {
     RX_ERROR("cannot open string table for writing: {}", path);
     return false;

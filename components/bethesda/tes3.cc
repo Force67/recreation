@@ -7,11 +7,14 @@
 
 #include "components/bethesda/tes3.h"
 
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <string>
-#include <unordered_map>
 
 #include "core/log.h"
 
@@ -48,9 +51,9 @@ constexpr u32 kBtxt = FourCc('B', 'T', 'X', 'T');
 constexpr u32 kAtxt = FourCc('A', 'T', 'X', 'T');
 constexpr u32 kVtxt = FourCc('V', 'T', 'X', 'T');
 
-constexpr u32 kTes3GridPoints = 65;   // 65x65 LAND vertices per 8192-unit cell
-constexpr u32 kGridPoints = 33;       // 33x33 per virtual 4096-unit cell
-constexpr u32 kQuadGrid = 17;         // VTXT opacity grid per quadrant
+constexpr u32 kTes3GridPoints = 65;  // 65x65 LAND vertices per 8192-unit cell
+constexpr u32 kGridPoints = 33;      // 33x33 per virtual 4096-unit cell
+constexpr u32 kQuadGrid = 17;        // VTXT opacity grid per quadrant
 constexpr u16 kCellFlagHasWater = 0x2;
 constexpr f32 kVirtualCellSize = 4096.0f;
 
@@ -113,13 +116,13 @@ const SubSpan* FindSub(const base::Vector<SubSpan>& subs, u32 type) {
   return nullptr;
 }
 
-std::string SubString(const SubSpan& sub) {
+base::String SubString(const SubSpan& sub) {
   size_t len = sub.data.size();
   while (len > 0 && sub.data[len - 1] == 0) --len;
-  return std::string(reinterpret_cast<const char*>(sub.data.data()), len);
+  return base::String(reinterpret_cast<const char*>(sub.data.data()), len);
 }
 
-std::string Lower(std::string s) {
+base::String Lower(base::String s) {
   for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
@@ -152,7 +155,7 @@ class Emitter {
     Append(data, size);
   }
 
-  void SubString(u32 type, const std::string& s) { Sub(type, s.c_str(), s.size() + 1); }
+  void SubString(u32 type, const base::String& s) { Sub(type, s.c_str(), s.size() + 1); }
 
   void End() {
     rec_.payload_size = static_cast<u32>(out_->arena.size()) - rec_.payload_offset;
@@ -196,9 +199,7 @@ bool DecodeTes3Heights(ByteSpan vhgt, f32* out) {
   return true;
 }
 
-i8 ClampDelta(f32 d) {
-  return static_cast<i8>(std::clamp(d, -128.0f, 127.0f));
-}
+i8 ClampDelta(f32 d) { return static_cast<i8>(base::Clamp(d, -128.0f, 127.0f)); }
 
 }  // namespace
 
@@ -233,20 +234,20 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
   u32 next_id = 1;
   auto take_id = [&next_id] { return next_id++; };
 
-  std::unordered_map<std::string, u32> base_ids;   // lowercased string id -> form id
-  std::unordered_map<u32, u32> ltex_by_index;      // LTEX INTV -> LTEX form id
-  std::unordered_map<u32, u32> txst_by_ltex;       // LTEX form id -> TXST form id
+  base::UnorderedMap<base::String, u32> base_ids;  // lowercased string id -> form id
+  base::UnorderedMap<u32, u32> ltex_by_index;      // LTEX INTV -> LTEX form id
+  base::UnorderedMap<u32, u32> txst_by_ltex;       // LTEX form id -> TXST form id
   struct LtexInfo {
     u32 ltex_id;
     u32 txst_id;
-    std::string name;
-    std::string texture;
+    base::String name;
+    base::String texture;
   };
   base::Vector<LtexInfo> ltexes;
   base::Vector<const Tes3Record*> bases;
   base::Vector<const Tes3Record*> cells;
   base::Vector<const Tes3Record*> lands;
-  std::unordered_map<u32, u32> virtual_cells;  // virtual grid key -> CELL form id
+  base::UnorderedMap<u32, u32> virtual_cells;  // virtual grid key -> CELL form id
 
   const u32 wrld_id = take_id();
 
@@ -259,7 +260,7 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     def.texture = "_land_default.dds";
     ltex_by_index[0xffffffffu] = def.ltex_id;  // sentinel key for "index 0"
     txst_by_ltex[def.ltex_id] = def.txst_id;
-    ltexes.push_back(std::move(def));
+    ltexes.push_back(base::move(def));
   }
 
   base::Vector<SubSpan> subs;
@@ -279,7 +280,7 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       info.name = SubString(*name);
       // The referenced .tga/.bmp ships as .dds inside the archives.
       info.texture = SubString(*path);
-      if (size_t dot = info.texture.rfind('.'); dot != std::string::npos) {
+      if (size_t dot = info.texture.rfind('.'); dot != base::String::npos) {
         info.texture = info.texture.substr(0, dot);
       }
       info.texture += ".dds";
@@ -287,7 +288,7 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       std::memcpy(&index, intv->data.data(), 4);
       ltex_by_index[index] = info.ltex_id;
       txst_by_ltex[info.ltex_id] = info.txst_id;
-      ltexes.push_back(std::move(info));
+      ltexes.push_back(base::move(info));
     } else if (IsBaseType(rec.type)) {
       subs.clear();
       if (!WalkSubrecords(rec.payload, &subs)) continue;
@@ -339,10 +340,10 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     subs.clear();
     if (!WalkSubrecords(rec->payload, &subs)) continue;
     const SubSpan* name = FindSub(subs, kName);
-    std::string id_string = SubString(*name);
-    auto it = base_ids.find(Lower(id_string));
-    if (it == base_ids.end()) continue;
-    emit.Begin(rec->type, it->second, top);
+    base::String id_string = SubString(*name);
+    auto* it = base_ids.find(Lower(id_string));
+    if (it == nullptr) continue;
+    emit.Begin(rec->type, *it, top);
     emit.SubString(kEdid, id_string);
     if (const SubSpan* modl = FindSub(subs, kModl)) {
       emit.Sub(kModl, modl->data.data(), modl->data.size());
@@ -372,9 +373,9 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     std::memcpy(&gy, cdata->data.data() + 8, 4);
     for (i32 vy = gy * 2; vy < gy * 2 + 2; ++vy) {
       for (i32 vx = gx * 2; vx < gx * 2 + 2; ++vx) {
-        auto it = virtual_cells.find(GridKey(vx, vy));
-        if (it == virtual_cells.end()) continue;
-        emit.Begin(kCell, it->second, world_ctx);
+        auto* it = virtual_cells.find(GridKey(vx, vy));
+        if (it == nullptr) continue;
+        emit.Begin(kCell, *it, world_ctx);
         u16 flags16 = kCellFlagHasWater;
         emit.Sub(kData, &flags16, 2);
         i32 grid[2] = {vx, vy};
@@ -416,8 +417,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
         ++refs_skipped;
         continue;
       }
-      auto base = base_ids.find(Lower(SubString(*rname)));
-      if (base == base_ids.end()) {
+      auto* base = base_ids.find(Lower(SubString(*rname)));
+      if (base == nullptr) {
         ++refs_skipped;  // NPCs, creatures, leveled lists: not translated yet
         continue;
       }
@@ -425,16 +426,16 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       std::memcpy(pos, rdata->data.data(), 8);
       i32 vx = static_cast<i32>(std::floor(pos[0] / kVirtualCellSize));
       i32 vy = static_cast<i32>(std::floor(pos[1] / kVirtualCellSize));
-      auto cell_it = virtual_cells.find(GridKey(vx, vy));
-      if (cell_it == virtual_cells.end()) {
+      auto* cell_it = virtual_cells.find(GridKey(vx, vy));
+      if (cell_it == nullptr) {
         ++refs_skipped;
         continue;
       }
       GroupContext ref_ctx = world_ctx;
-      ref_ctx.cell = RawFormId{cell_it->second};
+      ref_ctx.cell = RawFormId{*cell_it};
       ref_ctx.cell_group_type = 9;
       emit.Begin(kRefr, take_id(), ref_ctx);
-      emit.Sub(kName, &base->second, 4);
+      emit.Sub(kName, &*base, 4);
       if (rscale && rscale->data.size() >= 4) emit.Sub(kXscl, rscale->data.data(), 4);
       emit.Sub(kData, rdata->data.data(), 24);
       emit.End();
@@ -477,22 +478,22 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
       }
     }
     auto ltex_for = [&](u16 v) -> u32 {
-      auto it = ltex_by_index.find(v == 0 ? 0xffffffffu : v - 1);
-      if (it == ltex_by_index.end()) it = ltex_by_index.find(0xffffffffu);
-      return it->second;
+      auto* it = ltex_by_index.find(v == 0 ? 0xffffffffu : v - 1);
+      if (it == nullptr) it = ltex_by_index.find(0xffffffffu);
+      return *it;
     };
 
     for (u32 quad_y = 0; quad_y < 2; ++quad_y) {
       for (u32 quad_x = 0; quad_x < 2; ++quad_x) {
         i32 vx = gx * 2 + static_cast<i32>(quad_x);
         i32 vy = gy * 2 + static_cast<i32>(quad_y);
-        auto cell_it = virtual_cells.find(GridKey(vx, vy));
-        if (cell_it == virtual_cells.end()) continue;
+        auto* cell_it = virtual_cells.find(GridKey(vx, vy));
+        if (cell_it == nullptr) continue;
         const u32 r0 = quad_y * (kGridPoints - 1);
         const u32 c0 = quad_x * (kGridPoints - 1);
 
         GroupContext land_ctx = world_ctx;
-        land_ctx.cell = RawFormId{cell_it->second};
+        land_ctx.cell = RawFormId{*cell_it};
         land_ctx.cell_group_type = 9;
         emit.Begin(kLand, take_id(), land_ctx);
 
@@ -521,8 +522,7 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
           u8 vnml_out[kGridPoints * kGridPoints * 3];
           for (u32 r = 0; r < kGridPoints; ++r) {
             std::memcpy(vnml_out + r * kGridPoints * 3,
-                        vnml->data.data() + ((r0 + r) * kTes3GridPoints + c0) * 3,
-                        kGridPoints * 3);
+                        vnml->data.data() + ((r0 + r) * kTes3GridPoints + c0) * 3, kGridPoints * 3);
           }
           emit.Sub(kVnml, vnml_out, sizeof(vnml_out));
         }
@@ -530,8 +530,7 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
           u8 vclr_out[kGridPoints * kGridPoints * 3];
           for (u32 r = 0; r < kGridPoints; ++r) {
             std::memcpy(vclr_out + r * kGridPoints * 3,
-                        vclr->data.data() + ((r0 + r) * kTes3GridPoints + c0) * 3,
-                        kGridPoints * 3);
+                        vclr->data.data() + ((r0 + r) * kTes3GridPoints + c0) * 3, kGridPoints * 3);
           }
           emit.Sub(kVclr, vclr_out, sizeof(vclr_out));
         }
@@ -587,8 +586,8 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
               u8 vtxt[kQuadGrid * kQuadGrid * 8];
               u32 entries = 0;
               for (u32 g = 0; g < kQuadGrid * kQuadGrid; ++g) {
-                u32 cx = std::min(3u, (g % kQuadGrid) / 4);
-                u32 cy = std::min(3u, (g / kQuadGrid) / 4);
+                u32 cx = base::Min(3u, (g % kQuadGrid) / 4);
+                u32 cy = base::Min(3u, (g / kQuadGrid) / 4);
                 if (texels[cy * 4 + cx] != v) continue;
                 u16 position = static_cast<u16>(g);
                 f32 opacity = 1.0f;
@@ -607,10 +606,11 @@ bool TranslateTes3(ByteSpan data, Tes3Translation* out) {
     }
   }
 
-  RX_INFO("tes3: {} source records -> {} synthesized ({} bases, {} exterior cells -> {} virtual, "
-           "{} refs placed / {} skipped, {} land quadrants, {} land textures)",
-           records.size(), out->records.size(), bases.size(), cells.size(), virtual_cells.size(),
-           refs_emitted, refs_skipped, lands_emitted, ltexes.size());
+  RX_INFO(
+      "tes3: {} source records -> {} synthesized ({} bases, {} exterior cells -> {} virtual, "
+      "{} refs placed / {} skipped, {} land quadrants, {} land textures)",
+      records.size(), out->records.size(), bases.size(), cells.size(), virtual_cells.size(),
+      refs_emitted, refs_skipped, lands_emitted, ltexes.size());
   return true;
 }
 

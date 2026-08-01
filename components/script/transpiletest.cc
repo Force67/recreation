@@ -5,10 +5,12 @@
 // a modder would expect, exercising temp inlining, control-flow structuring,
 // members, and auto properties.
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "components/script/papyrus/pex.h"
 #include "components/script/papyrus/transpile.h"
@@ -20,11 +22,11 @@ using namespace rx::script::papyrus;
 // Interns strings into a PexFile's table and hands back stable indices.
 struct Builder {
   PexFile pex;
-  std::unordered_map<std::string, StringIndex> table;
+  base::UnorderedMap<base::String, StringIndex> table;
 
-  StringIndex S(const std::string& s) {
-    auto it = table.find(s);
-    if (it != table.end()) return it->second;
+  StringIndex S(const base::String& s) {
+    auto* it = table.find(s);
+    if (it != nullptr) return *it;
     auto idx = static_cast<StringIndex>(pex.string_table.size());
     pex.string_table.push_back(s);
     table[s] = idx;
@@ -32,22 +34,20 @@ struct Builder {
   }
 };
 
-VariableData Id(Builder& b, const std::string& n) {
+VariableData Id(Builder& b, const base::String& n) {
   return {VariableData::Type::kIdentifier, b.S(n), 0, 0.0f, false};
 }
-VariableData IntV(int v) {
-  return {VariableData::Type::kInteger, kInvalidString, v, 0.0f, false};
-}
-VariableData StrV(Builder& b, const std::string& s) {
+VariableData IntV(int v) { return {VariableData::Type::kInteger, kInvalidString, v, 0.0f, false}; }
+VariableData StrV(Builder& b, const base::String& s) {
   return {VariableData::Type::kString, b.S(s), 0, 0.0f, false};
 }
 
-Instruction In(Op op, std::vector<VariableData> args, std::vector<VariableData> var = {}) {
-  return {op, std::move(args), std::move(var)};
+Instruction In(Op op, base::Vector<VariableData> args, base::Vector<VariableData> var = {}) {
+  return {op, base::move(args), base::move(var)};
 }
 
-bool Has(const std::string& hay, const std::string& needle) {
-  return hay.find(needle) != std::string::npos;
+bool Has(const base::String& hay, const base::String& needle) {
+  return hay.find(needle) != base::String::npos;
 }
 
 }  // namespace
@@ -84,8 +84,8 @@ int main() {
       In(Op::kAssign, {Id(b, "i"), IntV(0)}),
       In(Op::kCmpLt, {Id(b, "::temp0"), Id(b, "i"), IntV(10)}),  // loop header (index 1)
       In(Op::kJmpF, {Id(b, "::temp0"), IntV(5)}),                // exit -> index 7
-      In(Op::kCallStatic,
-         {Id(b, "Debug"), Id(b, "Notification"), Id(b, "::temp2")}, {StrV(b, "hi")}),
+      In(Op::kCallStatic, {Id(b, "Debug"), Id(b, "Notification"), Id(b, "::temp2")},
+         {StrV(b, "hi")}),
       In(Op::kIAdd, {Id(b, "::temp1"), Id(b, "i"), IntV(1)}),
       In(Op::kAssign, {Id(b, "i"), Id(b, "::temp1")}),
       In(Op::kJmp, {IntV(-5)}),  // back-edge to index 1
@@ -101,13 +101,13 @@ int main() {
   classify.locals.push_back({b.S("::temp1"), b.S("int")});
   classify.code = {
       In(Op::kCmpEq, {Id(b, "::temp0"), Id(b, "n"), IntV(1)}),
-      In(Op::kJmpF, {Id(b, "::temp0"), IntV(3)}),                                  // -> 4
+      In(Op::kJmpF, {Id(b, "::temp0"), IntV(3)}),  // -> 4
       In(Op::kCallStatic, {Id(b, "Debug"), Id(b, "Trace"), Id(b, "::temp1")}, {StrV(b, "A")}),
-      In(Op::kJmp, {IntV(6)}),                                                     // -> END(9)
-      In(Op::kCmpEq, {Id(b, "::temp0"), Id(b, "n"), IntV(2)}),                     // 4
-      In(Op::kJmpF, {Id(b, "::temp0"), IntV(3)}),                                  // -> 8
+      In(Op::kJmp, {IntV(6)}),                                  // -> END(9)
+      In(Op::kCmpEq, {Id(b, "::temp0"), Id(b, "n"), IntV(2)}),  // 4
+      In(Op::kJmpF, {Id(b, "::temp0"), IntV(3)}),               // -> 8
       In(Op::kCallStatic, {Id(b, "Debug"), Id(b, "Trace"), Id(b, "::temp1")}, {StrV(b, "B")}),
-      In(Op::kJmp, {IntV(2)}),                                                     // -> END(9)
+      In(Op::kJmp, {IntV(2)}),  // -> END(9)
       In(Op::kCallStatic, {Id(b, "Debug"), Id(b, "Trace"), Id(b, "::temp1")}, {StrV(b, "C")}),  // 8
   };
 
@@ -161,7 +161,7 @@ int main() {
   obj.states.push_back(def);
   b.pex.objects.push_back(obj);
 
-  const std::string cs = TranspileToCSharp(b.pex);
+  const base::String cs = TranspileToCSharp(b.pex);
   std::printf("---- emitted ----\n%s----\n", cs.c_str());
 
   check("class extends Quest", Has(cs, "public class MyQuest : Quest"));
@@ -185,8 +185,8 @@ int main() {
   check("auto-prop backing field suppressed", !Has(cs, "MyRef_var"));
   check("backing read routed to property", Has(cs, "MyRef.Enable();"));
   check("multi-line doc fully commented", Has(cs, "// line one") && Has(cs, "// line two"));
-  check("short-circuit: writes share one slot",
-        Has(cs, "_t0 = a;") && Has(cs, "_t0 = b;") && Has(cs, "return _t0;") && !Has(cs, "_t1 = b;"));
+  check("short-circuit: writes share one slot", Has(cs, "_t0 = a;") && Has(cs, "_t0 = b;") &&
+                                                    Has(cs, "return _t0;") && !Has(cs, "_t1 = b;"));
   check("no raw temp leaked", !Has(cs, "::temp"));
   check("no goto fallback needed", !Has(cs, "goto L"));
 

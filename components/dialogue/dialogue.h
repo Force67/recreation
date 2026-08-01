@@ -4,6 +4,7 @@
 #include <string>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -25,10 +26,10 @@ using Handle = u64;
 // runs when the line plays (this is what advances a quest, e.g. via SetStage).
 struct Response {
   Handle info = 0;
-  std::string player_line;  // RNAM prompt, falls back to the topic text
-  std::string npc_line;     // first NAM1 response text
-  std::string fragment_script;    // TIF_<info> script, empty if none
-  std::string fragment_function;  // begin fragment function, e.g. "Fragment_0"
+  base::String player_line;        // RNAM prompt, falls back to the topic text
+  base::String npc_line;           // first NAM1 response text
+  base::String fragment_script;    // TIF_<info> script, empty if none
+  base::String fragment_function;  // begin fragment function, e.g. "Fragment_0"
   // Native condition list parsed from the INFO's CTDA. The response is only
   // available when these pass. ParseInfoRecord leaves the form-id params raw;
   // ParseTopic resolves them so they can be evaluated against engine state.
@@ -38,9 +39,9 @@ struct Response {
 // One DIAL topic and the responses under it.
 struct Topic {
   Handle dial = 0;
-  std::string editor_id;
-  std::string text;    // FULL topic prompt
-  Handle quest = 0;    // QNAM quest handle, 0 if the topic is not quest-bound
+  base::String editor_id;
+  base::String text;  // FULL topic prompt
+  Handle quest = 0;   // QNAM quest handle, 0 if the topic is not quest-bound
   i32 priority = 0;
   base::Vector<Response> responses;
 };
@@ -52,7 +53,7 @@ struct Topic {
 // unique within a plugin, so a DLC line needs its own table or it reads back as
 // whatever the base game wrote at that id.
 Response ParseInfoRecord(const bethesda::Record& record, Handle info,
-                         const std::string& topic_text, const bethesda::StringTable* strings,
+                         const base::String& topic_text, const bethesda::StringTable* strings,
                          u16 plugin = 0xffff);
 
 // Parses one DIAL topic and its INFO children. `strings` resolves localized
@@ -67,7 +68,7 @@ bool ResponseAvailable(const Response& response, const quest::ConditionContext& 
 // Flattens the responses of `topics` to those currently available under `ctx`,
 // in topic then response order -- the player's dialogue menu for an NPC.
 base::Vector<Response> AvailableResponses(const base::Vector<Topic>& topics,
-                                         const quest::ConditionContext& ctx);
+                                          const quest::ConditionContext& ctx);
 
 // A startup index from quest handle to the DIAL topics bound to it (by QNAM),
 // so opening dialogue for a quest does not rescan every topic.

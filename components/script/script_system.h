@@ -1,10 +1,12 @@
 #ifndef RECREATION_SCRIPT_SCRIPT_SYSTEM_H_
 #define RECREATION_SCRIPT_SCRIPT_SYSTEM_H_
 
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <unordered_set>
-#include <vector>
 
 #include "asset/vfs.h"
 #include "components/bethesda/game_profile.h"
@@ -27,7 +29,7 @@ namespace rx::script {
 class ScriptSystem {
  public:
   struct AttachmentResult {
-    std::vector<papyrus::ObjectRef> created;
+    base::Vector<papyrus::ObjectRef> created;
     bool any_attached = false;
     bool complete = true;
   };
@@ -39,12 +41,13 @@ class ScriptSystem {
 
   // Loads name.pex and its ancestor chain from the VFS into the guest. Returns
   // the loaded type name, or "" if the root script is missing. Idempotent.
-  std::string EnsureScriptLoaded(const std::string& name);
+  base::String EnsureScriptLoaded(const base::String& name);
 
   // Instantiates every script attached to form_id, seeds properties, raises
   // OnInit, and returns the created instance handles. Re-attaching to a form
   // that already has instances is a no-op for the already-present scripts.
-  std::vector<papyrus::ObjectRef> AttachScripts(u64 form_id, const bethesda::ScriptAttachment& att);
+  base::Vector<papyrus::ObjectRef> AttachScripts(u64 form_id,
+                                                 const bethesda::ScriptAttachment& att);
 
   // As above, but also reports whether every named script is now attached. A
   // missing script leaves complete=false so streamed references can retry only
@@ -67,7 +70,7 @@ class ScriptSystem {
   // i.e. the form goes live in the world. The runtime uses it to notify the
   // managed scripting world (a FormLoaded event). Only fires when at least one
   // script instance was created.
-  void set_on_scripts_attached(std::function<void(u64)> cb) { on_attach_ = std::move(cb); }
+  void set_on_scripts_attached(std::function<void(u64)> cb) { on_attach_ = base::move(cb); }
 
   PapyrusGuest& guest() { return guest_; }
   size_t loaded_script_count();
@@ -79,7 +82,7 @@ class ScriptSystem {
   // Script names we have already reported as unloadable, so a game whose
   // bytecode the VM cannot execute yet (Starfield) warns once per script
   // instead of once per attachment.
-  std::unordered_set<std::string> warned_unloadable_;
+  base::UnorderedSet<base::String> warned_unloadable_;
 };
 
 }  // namespace rx::script

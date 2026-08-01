@@ -1,7 +1,8 @@
 #ifndef RECREATION_BETHESDA_CONVERTERS_H_
 #define RECREATION_BETHESDA_CONVERTERS_H_
 
-#include <string>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "asset/asset_database.h"
 #include "asset/texture.h"
@@ -16,15 +17,15 @@ namespace rx::bethesda {
 // decision for the ambiguous UNORM color formats. Returns null on an
 // unsupported or truncated source. Exposed for the asset layer and tests.
 base::UniquePointer<asset::Texture> ConvertDds(ByteSpan data, asset::AssetId id,
-                                               std::string_view path);
+                                               base::StringRef path);
 
 // The subset of a Fallout 4 BGSM (lighting) / BGEM (effect) material file the
 // engine uses: the base-colour and normal texture paths (normalized vfs paths;
 // normal is empty for BGEM) and, for BGSM, the smoothness mapped to PBR
 // roughness. roughness is negative when unknown, so a caller keeps its default.
 struct BgsmMaterial {
-  std::string diffuse;
-  std::string normal;
+  base::String diffuse;
+  base::String normal;
   f32 roughness = -1.0f;
 };
 
@@ -44,7 +45,7 @@ class StarfieldMaterialDb;
 base::UniquePointer<asset::Mesh> ConvertStarfieldSkinnedNif(asset::AssetDatabase& database,
                                                             const StarfieldMaterialDb& mat_db,
                                                             ByteSpan data, asset::AssetId id,
-                                                            std::string_view path);
+                                                            base::StringRef path);
 
 // Hooks the bethesda format converters into the asset database:
 //   .nif        -> asset::Mesh

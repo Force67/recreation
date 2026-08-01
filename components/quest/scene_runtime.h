@@ -1,9 +1,10 @@
 #ifndef RECREATION_QUEST_SCENE_RUNTIME_H_
 #define RECREATION_QUEST_SCENE_RUNTIME_H_
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
@@ -28,15 +29,15 @@ struct SceneBeat {
   enum class Kind : u8 { kDialogue, kPackage, kTimer };
 
   Kind kind = Kind::kDialogue;
-  i32 phase = 0;      // SNAM, the phase the beat starts in
-  i32 end_phase = 0;  // ENAM, the last phase it spans (a package holds across phases)
-  i32 alias = -1;     // scene actor alias index
-  u64 actor = 0;      // performer form handle, 0 when the alias filled nothing
-  u64 info = 0;       // kDialogue: the INFO that plays; its fragment runs with the line
-  u64 package = 0;    // kPackage: the PACK the performer runs while in its window
-  f32 seconds = 0;    // kDialogue: how long the line takes; kTimer: the wait
-  std::string speaker;     // display name, for the subtitle
-  std::string text;        // subtitle text; empty for a beat with no localized line
+  i32 phase = 0;           // SNAM, the phase the beat starts in
+  i32 end_phase = 0;       // ENAM, the last phase it spans (a package holds across phases)
+  i32 alias = -1;          // scene actor alias index
+  u64 actor = 0;           // performer form handle, 0 when the alias filled nothing
+  u64 info = 0;            // kDialogue: the INFO that plays; its fragment runs with the line
+  u64 package = 0;         // kPackage: the PACK the performer runs while in its window
+  f32 seconds = 0;         // kDialogue: how long the line takes; kTimer: the wait
+  base::String speaker;    // display name, for the subtitle
+  base::String text;       // subtitle text; empty for a beat with no localized line
   i32 look_at_alias = -1;  // HTID head-track target, which is also who to cut to
 };
 
@@ -46,9 +47,9 @@ struct ScenePlan {
   u64 scene = 0;
   u64 quest = 0;
   u32 flags = 0;
-  std::vector<i32> phases;                // ascending, every phase the scene declares
-  std::vector<ConditionList> completion;  // parallel to `phases`
-  std::vector<SceneBeat> beats;
+  base::Vector<i32> phases;                // ascending, every phase the scene declares
+  base::Vector<ConditionList> completion;  // parallel to `phases`
+  base::Vector<SceneBeat> beats;
 
   bool empty() const { return phases.empty() && beats.empty(); }
 };
@@ -65,17 +66,18 @@ struct ScenePlanBindings {
   // Scene actor alias index -> performer form handle (0 when unfilled).
   std::function<u64(i32 alias)> actor;
   // Scene actor alias index -> display name (the quest's alias name).
-  std::function<std::string(i32 alias)> alias_name;
+  std::function<base::String(i32 alias)> alias_name;
   // A dialogue action's topic spoken by the actor in `alias` (resolved to `speaker`,
   // which is 0 when the alias has no placed reference): which INFO plays, the
   // subtitle, and how long the line lasts (the voice clip's length where there is
   // one). The alias is passed as well as the reference because a scene's cast is
   // often unplaced, and the alias still names the NPC whose voice type files the
   // recording. False when there is nothing to say, which drops the beat.
-  std::function<bool(i32 alias, u64 topic, u64 speaker, u64* info, std::string* text, f32* seconds)>
+  std::function<bool(i32 alias, u64 topic, u64 speaker, u64* info, base::String* text,
+                     f32* seconds)>
       line;
   // Raw CTDA payloads -> the native condition IR, with form ids resolved.
-  std::function<ConditionList(const std::vector<SceneRawCondition>&)> conditions;
+  std::function<ConditionList(const base::Vector<SceneRawCondition>&)> conditions;
 };
 
 // How long a dialogue beat holds when nothing resolved a duration for it.
@@ -149,14 +151,14 @@ class SceneRuntime {
 
   const ScenePlan* plan_ = nullptr;
   size_t phase_index_ = 0;
-  std::vector<size_t> line_queue_;  // beats left to speak in this phase
+  base::Vector<size_t> line_queue_;  // beats left to speak in this phase
   size_t line_cursor_ = 0;
   size_t line_beat_ = kNoBeat;  // beat index of the line on screen
-  std::vector<size_t> active_packages_;
-  f32 time_ = 0;         // seconds since the scene began
-  f32 line_time_ = 0;    // seconds the current line has been on screen
-  f32 phase_time_ = 0;   // seconds spent in the current phase
-  f32 phase_wait_ = 0;   // remaining wait from this phase's timer actions
+  base::Vector<size_t> active_packages_;
+  f32 time_ = 0;        // seconds since the scene began
+  f32 line_time_ = 0;   // seconds the current line has been on screen
+  f32 phase_time_ = 0;  // seconds spent in the current phase
+  f32 phase_wait_ = 0;  // remaining wait from this phase's timer actions
   f32 phase_timeout_ = 30.0f;
   static constexpr size_t kNoBeat = static_cast<size_t>(-1);
 };

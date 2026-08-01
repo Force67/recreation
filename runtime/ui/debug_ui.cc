@@ -1,8 +1,18 @@
 #include "runtime/ui/debug_ui.h"
 
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
+
 #include "runtime/camera/fly_camera.h"
 
 #if defined(RECREATION_HAS_IMGUI)
+
+#include <SDL3/SDL.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_vulkan.h>
 
 #include <algorithm>
 #include <cctype>
@@ -10,15 +20,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <string>
-#include <vector>
-
-#include <base/option.h>
-
-#include <SDL3/SDL.h>
-#include <imgui.h>
-#include <imgui_impl_sdl3.h>
-#include <imgui_impl_vulkan.h>
 
 #include "core/log.h"
 #include "render/core/presets.h"
@@ -50,7 +51,7 @@ std::filesystem::path PresetDir() {
 // and drawn downscaled so the giant captions stay crisp. Bold first, then the
 // regular weight; null if the system has none (titles fall back to the default).
 const char* FindTitleFont() {
-  static std::string resolved;
+  static base::String resolved;
   if (!resolved.empty()) return resolved.c_str();
   static const char* candidates[] = {
 #if defined(_WIN32)
@@ -79,11 +80,22 @@ const char* kQualities[] = {"Native AA (1.0x)", "Quality (1.5x)", "Balanced (1.7
                             "Performance (2.0x)"};
 const char* kTonemaps[] = {"ACES", "Reinhard", "None", "AgX"};
 const char* kColorGrades[] = {"Neutral", "Warm", "Cool", "Cinematic", "Custom (.cube)"};
-const char* kDebugViews[] = {"Off",         "Base color",   "World normal",
-                             "Roughness",   "Metallic",     "Ambient occlusion",
-                             "Indirect GI", "Direct light", "Emissive", "Reflection",
-                             "Overdraw",    "Bounds (BVH)", "Temporal history",
-                             "Motion vectors", "Ray count", "Light complexity"};
+const char* kDebugViews[] = {"Off",
+                             "Base color",
+                             "World normal",
+                             "Roughness",
+                             "Metallic",
+                             "Ambient occlusion",
+                             "Indirect GI",
+                             "Direct light",
+                             "Emissive",
+                             "Reflection",
+                             "Overdraw",
+                             "Bounds (BVH)",
+                             "Temporal history",
+                             "Motion vectors",
+                             "Ray count",
+                             "Light complexity"};
 
 // FPS readout colour bands: green above smooth, amber in the warning band, red
 // once it slips below playable.
@@ -94,7 +106,7 @@ constexpr f32 kFpsWarn = 30.0f;
 const char* kPresets[] = {"Custom",  "Auto-detect", "Android", "Steam Deck", "Low end",
                           "Console", "Medium",      "High",    "Ultra"};
 const render::QualityPreset kPresetValues[] = {
-    render::QualityPreset::kAuto,      // unused for row 0
+    render::QualityPreset::kAuto,  // unused for row 0
     render::QualityPreset::kAuto,      render::QualityPreset::kAndroid,
     render::QualityPreset::kSteamDeck, render::QualityPreset::kLowEnd,
     render::QualityPreset::kConsole,   render::QualityPreset::kMedium,
@@ -137,8 +149,8 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   info.QueueFamily = vk.graphics_family;
   info.Queue = vk.graphics_queue;
   info.DescriptorPoolSize = 64;  // backend manages its own pool
-  info.MinImageCount = std::max(2u, renderer.swapchain_image_count());
-  info.ImageCount = std::max(2u, renderer.swapchain_image_count());
+  info.MinImageCount = base::Max(2u, renderer.swapchain_image_count());
+  info.ImageCount = base::Max(2u, renderer.swapchain_image_count());
   info.UseDynamicRendering = true;
   info.PipelineInfoMain.PipelineRenderingCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
@@ -150,14 +162,12 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
     return false;
   }
 
-  window.set_event_hook([](const void* event) {
-    ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
-  });
+  window.set_event_hook(
+      [](const void* event) { ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event)); });
 
   // RX_HIDE_DEBUG_UI starts with the imgui overlays hidden, so the libultragui
   // HUD has the screen to itself for clean screenshots (cf. RECREATION_UI_MENU).
-  if (HideDebugUi)
-    visible_ = trace_visible_ = quests_visible_ = false;
+  if (HideDebugUi) visible_ = trace_visible_ = quests_visible_ = false;
   window_ = &window;
   initialized_ = true;
   RX_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
@@ -212,8 +222,8 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
     ImGui::SetNextWindowSize({460, 640}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Renderer (F1 hides)")) {
       if (caps) ImGui::TextWrapped("%s", caps->adapter_name.c_str());
-      ImGui::Text("output %ux%u  render %ux%u", renderer.output_width(),
-                  renderer.output_height(), renderer.render_width(), renderer.render_height());
+      ImGui::Text("output %ux%u  render %ux%u", renderer.output_width(), renderer.output_height(),
+                  renderer.render_width(), renderer.render_height());
       // The fps figure turns amber then red as it drops past the thresholds.
       const f32 fps = frame_delta > 0 ? 1.0f / frame_delta : 0.0f;
       const ImVec4 fps_col = fps >= kFpsGood   ? ImVec4{0.45f, 0.92f, 0.45f, 1.0f}
@@ -245,12 +255,12 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         if (preset_files_.empty()) {
           ImGui::TextDisabled("no .ini in %s", PresetDir().string().c_str());
         } else {
-          std::vector<const char*> names;
+          base::Vector<const char*> names;
           names.reserve(preset_files_.size());
           for (const auto& f : preset_files_) names.push_back(f.c_str());
           ImGui::Combo("File", &preset_file_choice_, names.data(), static_cast<int>(names.size()));
           if (ImGui::Button("Load")) {
-            const auto path = PresetDir() / preset_files_[preset_file_choice_];
+            const auto path = PresetDir() / preset_files_[preset_file_choice_].c_str();
             if (render::LoadSettingsIni(path, settings)) {
               preset_choice_ = 0;  // settings are file-tuned now, not a hardware tier
               preset_status_ = "loaded " + preset_files_[preset_file_choice_];
@@ -266,9 +276,9 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
         ImGui::InputText("##presetname", preset_save_name_, sizeof(preset_save_name_));
         ImGui::SameLine();
         if (ImGui::Button("Save")) {
-          std::string fn = preset_save_name_[0] ? preset_save_name_ : "custom";
+          base::String fn = preset_save_name_[0] ? preset_save_name_ : "custom";
           if (fn.size() < 4 || fn.compare(fn.size() - 4, 4, ".ini") != 0) fn += ".ini";
-          const auto path = PresetDir() / fn;
+          const auto path = PresetDir() / fn.c_str();
           if (render::SaveSettingsIni(path, settings)) {
             preset_status_ = "saved " + fn;
             RX_INFO("render preset: saved {}", path.string());
@@ -344,7 +354,7 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
       if (ImGui::BeginTabBar("trace_tabs")) {
         if (ImGui::BeginTabItem("Recent")) {
           if (ImGui::BeginChild("recent", {0, 0})) {
-            for (const std::string& call : trace->recent) ImGui::TextUnformatted(call.c_str());
+            for (const base::String& call : trace->recent) ImGui::TextUnformatted(call.c_str());
           }
           ImGui::EndChild();
           ImGui::EndTabItem();
@@ -381,10 +391,10 @@ void DebugUi::Build(render::Renderer& renderer, FlyCamera& camera, f32 frame_del
 }
 
 void DebugUi::DrawDisplayTab(render::Renderer& renderer, render::RenderSettings& settings) {
-  int aa = settings.aa_mode == render::AntiAliasingMode::kNone   ? 0
-           : settings.aa_mode == render::AntiAliasingMode::kTaa   ? 1
-           : settings.upscaler == render::UpscalerKind::kDlss     ? 3
-                                                                  : 2;
+  int aa = settings.aa_mode == render::AntiAliasingMode::kNone  ? 0
+           : settings.aa_mode == render::AntiAliasingMode::kTaa ? 1
+           : settings.upscaler == render::UpscalerKind::kDlss   ? 3
+                                                                : 2;
   if (ImGui::Combo("Mode", &aa, kAaModes, IM_ARRAYSIZE(kAaModes))) {
     switch (aa) {
       case 0:
@@ -691,8 +701,7 @@ void DebugUi::DrawDiagnosticsTab(render::Renderer& renderer, FlyCamera& camera,
     }
   }
 
-  if (render::Device* device = renderer.device();
-      device && ImGui::CollapsingHeader("GPU memory")) {
+  if (render::Device* device = renderer.device(); device && ImGui::CollapsingHeader("GPU memory")) {
     render::Device::MemoryBudget mem = device->memory_budget();
     const f64 mb = 1.0 / (1024.0 * 1024.0);
     ImGui::Text("used %.0f / %.0f MB", mem.used_bytes * mb, mem.budget_bytes * mb);
@@ -714,10 +723,10 @@ void DebugUi::DrawDiagnosticsTab(render::Renderer& renderer, FlyCamera& camera,
   if (const render::RenderGraph::Stats& g = renderer.graph_stats();
       !g.passes.empty() && ImGui::CollapsingHeader("Frame graph")) {
     ImGui::Text("%zu passes, %u barriers", g.passes.size(), g.barrier_count);
-    if (ImGui::BeginTable("fg_passes", 4,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                              ImGuiTableFlags_SizingStretchProp,
-                          {0, 180})) {
+    if (ImGui::BeginTable(
+            "fg_passes", 4,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+            {0, 180})) {
       ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch);
       ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed, 24);
       ImGui::TableSetupColumn("W", ImGuiTableColumnFlags_WidthFixed, 24);
@@ -768,10 +777,10 @@ void DebugUi::DrawStageChart(render::Renderer& renderer) {
     const char* name;
     f32 ms;
   };
-  std::vector<Bar> bars;
+  base::Vector<Bar> bars;
   bars.reserve(timings.size());
   for (const auto& t : timings) bars.push_back({t.name.c_str(), t.ms});
-  std::sort(bars.begin(), bars.end(), [](const Bar& a, const Bar& b) { return a.ms > b.ms; });
+  base::Sort(bars.begin(), bars.end(), [](const Bar& a, const Bar& b) { return a.ms > b.ms; });
 
   constexpr int kMaxBars = 6;
   f32 other_ms = 0.0f;
@@ -831,8 +840,8 @@ void DebugUi::DrawStageChart(render::Renderer& renderer) {
                       IM_COL32(255, 255, 255, 16), 3.5f);
     const f32 fill_w = content_w * fclamp;
     if (fill_w > 1.0f) {
-      const ImU32 col = IM_COL32(lerp8(78, 240, fclamp), lerp8(201, 104, fclamp),
-                                 lerp8(176, 82, fclamp), 235);
+      const ImU32 col =
+          IM_COL32(lerp8(78, 240, fclamp), lerp8(201, 104, fclamp), lerp8(176, 82, fclamp), 235);
       dl->AddRectFilled({content_x, y}, {content_x + fill_w, y + row_h}, col, 3.5f);
     }
 
@@ -865,7 +874,7 @@ void DebugUi::DrawTrailerOverlay() {
     const int a = static_cast<int>(alpha * 255.0f + 0.5f);
     const ImU32 fg = (rgb & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24);
     const ImU32 sh = IM_COL32(0, 0, 0, static_cast<int>(alpha * 170.0f));
-    const f32 o = std::max(1.0f, size * 0.045f);
+    const f32 o = base::Max(1.0f, size * 0.045f);
     dl->AddText(font, size, {pos.x + o, pos.y + o}, sh, s);
     dl->AddText(font, size, pos, fg, s);
   };
@@ -931,7 +940,7 @@ void DebugUi::DrawTrailerOverlay() {
                 t.caption_speaker.c_str());
     }
     const ImU32 shadow = IM_COL32(0, 0, 0, static_cast<int>(t.caption_alpha * 170.0f));
-    const f32 o = std::max(1.0f, cs * 0.045f);
+    const f32 o = base::Max(1.0f, cs * 0.045f);
     dl->AddText(font, cs, {x + o, y + o}, shadow, t.caption.c_str(), nullptr, wrap);
     dl->AddText(font, cs, {x, y}, (kWhite & 0x00FFFFFFu) | (static_cast<ImU32>(a) << 24),
                 t.caption.c_str(), nullptr, wrap);
@@ -952,14 +961,16 @@ void DebugUi::DrawTrailerOverlay() {
   // black wash, with animated trailing dots so it never looks frozen.
   if (t.loading) {
     const f32 ls = H * 0.030f;
-    const std::string base =
-        t.loading_label.empty() ? std::string("LOADING") : ("LOADING   " + t.loading_label);
+    const base::String base =
+        t.loading_label.empty() ? base::String("LOADING") : ("LOADING   " + t.loading_label);
     const ImVec2 bsz = measure(ls, base.c_str());
     const f32 lx = (W - bsz.x) * 0.5f;
     const f32 ly = H * 0.5f - ls * 0.5f;
     draw_text(ls, {lx, ly}, kWhite, 1.0f, base.c_str());
     const int n = static_cast<int>(ImGui::GetTime() * 2.0) % 4;
-    if (n > 0) draw_text(ls, {lx + bsz.x, ly}, kGold, 1.0f, std::string(static_cast<size_t>(n), '.').c_str());
+    if (n > 0)
+      draw_text(ls, {lx + bsz.x, ly}, kGold, 1.0f,
+                base::String(static_cast<size_t>(n), '.').c_str());
   }
 }
 
@@ -971,7 +982,7 @@ void DebugUi::ScanPresetFiles() {
     if (entry.is_regular_file(ec) && entry.path().extension() == ".ini")
       preset_files_.push_back(entry.path().filename().string());
   }
-  std::sort(preset_files_.begin(), preset_files_.end());
+  base::Sort(preset_files_.begin(), preset_files_.end());
   if (preset_file_choice_ >= static_cast<int>(preset_files_.size())) preset_file_choice_ = 0;
 }
 
@@ -983,7 +994,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
 
   // NPC follow: toggle the reference the player is looking at as a follower.
   if (quests->look_target != 0 && quests->set_follower) {
-    ImGui::TextUnformatted(quests->look_label.empty() ? "(look target)" : quests->look_label.c_str());
+    ImGui::TextUnformatted(quests->look_label.empty() ? "(look target)"
+                                                      : quests->look_label.c_str());
     ImGui::SameLine();
     if (quests->look_following) {
       if (ImGui::SmallButton("Stop following")) quests->set_follower(quests->look_target, false);
@@ -999,23 +1011,23 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   static char filter[64] = "";
   ImGui::SetNextItemWidth(-1);
   ImGui::InputTextWithHint("##questfilter", "filter quests by name", filter, sizeof(filter));
-  std::string needle = filter;
+  base::String needle = filter;
   std::transform(needle.begin(), needle.end(), needle.begin(),
                  [](unsigned char c) { return std::tolower(c); });
 
-  if (ImGui::BeginTable("quest_list", 3,
-                        ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                            ImGuiTableFlags_SizingStretchProp,
-                        {0, 200})) {
+  if (ImGui::BeginTable(
+          "quest_list", 3,
+          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp,
+          {0, 200})) {
     ImGui::TableSetupColumn("Quest", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 80);
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 60);
     for (const QuestPanel::Quest& q : quests->quests) {
       if (!needle.empty()) {
-        std::string name = q.name;
+        base::String name = q.name;
         std::transform(name.begin(), name.end(), name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        if (name.find(needle) == std::string::npos) continue;
+        if (name.find(needle) == base::String::npos) continue;
       }
       ImGui::TableNextRow();
       ImGui::PushID(static_cast<int>(q.handle));
@@ -1050,8 +1062,7 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   ImGui::Separator();
   if (q) ImGui::Text("%s", q->name.c_str());
   ImGui::SameLine();
-  ImGui::TextDisabled("%s  0x%llx", d.editor_id.c_str(),
-                      static_cast<unsigned long long>(d.handle));
+  ImGui::TextDisabled("%s  0x%llx", d.editor_id.c_str(), static_cast<unsigned long long>(d.handle));
 
   ImGui::PushID("detail");
   if (q && q->running) {
@@ -1117,7 +1128,8 @@ void DebugUi::RenderQuestPanel(QuestPanel* quests) {
       if (ImGui::SmallButton("Clear")) quests->clear_markers();
     }
     if (current_obj >= 0)
-      ImGui::TextDisabled("objective %d -> reaching advances to stage %d", current_obj, marker_stage);
+      ImGui::TextDisabled("objective %d -> reaching advances to stage %d", current_obj,
+                          marker_stage);
     else
       ImGui::TextDisabled("no current objective to mark");
   }

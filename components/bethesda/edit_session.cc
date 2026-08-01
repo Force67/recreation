@@ -1,10 +1,14 @@
 #include "components/bethesda/edit_session.h"
 
-#include <algorithm>
+#include <base/containers/map.h>
+#include <base/containers/pair.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cstring>
 #include <filesystem>
-#include <map>
 
 #include "components/bethesda/plugin.h"
 #include "components/bethesda/raw_rewriter.h"
@@ -45,7 +49,7 @@ u32 PackGrid(i32 x, i32 y) {
   return (static_cast<u32>(static_cast<u16>(x)) << 16) | static_cast<u16>(y);
 }
 
-bool IEquals(std::string_view a, std::string_view b) {
+bool IEquals(base::StringRef a, base::StringRef b) {
   if (a.size() != b.size()) return false;
   for (size_t i = 0; i < a.size(); ++i) {
     if (std::tolower(static_cast<unsigned char>(a[i])) !=
@@ -58,7 +62,7 @@ bool IEquals(std::string_view a, std::string_view b) {
 
 }  // namespace
 
-u16 EditSession::AddMasterName(const std::string& name) {
+u16 EditSession::AddMasterName(const base::String& name) {
   for (u16 i = 0; i < masters_.size(); ++i) {
     if (IEquals(masters_[i], name)) return i;
   }
@@ -75,15 +79,15 @@ bool EditSession::RequireChain(u16 plugin) {
   // The output plugin must begin with this plugin's masters followed by the
   // plugin itself, so the mod-index prefix the verbatim body relies on is
   // preserved.
-  base::Vector<std::string> chain;
-  for (const std::string& m : pf->masters()) chain.push_back(m);
+  base::Vector<base::String> chain;
+  for (const base::String& m : pf->masters()) chain.push_back(m);
   chain.push_back(order_.plugins()[plugin]);
 
   for (u16 k = 0; k < chain.size(); ++k) {
     if (k < masters_.size()) {
       if (!IEquals(masters_[k], chain[k])) {
         RX_ERROR("edit: master order conflict at {} ({} vs {})", k, masters_[k].c_str(),
-                  chain[k].c_str());
+                 chain[k].c_str());
         return false;
       }
     } else {
@@ -102,7 +106,7 @@ RawFormId EditSession::Ref(GlobalFormId id) {
     if (id.plugin == kOutputPlugin || id.plugin == in_place_plugin_) {
       mod_index = static_cast<u16>(in_place_masters_.size());
     } else {
-      const std::string& name = order_.plugins()[id.plugin];
+      const base::String& name = order_.plugins()[id.plugin];
       mod_index = static_cast<u16>(in_place_masters_.size());  // fallback: self
       for (u16 i = 0; i < in_place_masters_.size(); ++i) {
         if (IEquals(in_place_masters_[i], name)) {
@@ -131,7 +135,7 @@ bool EditSession::SetInPlaceTarget(u16 plugin_index) {
   in_place_ = true;
   in_place_plugin_ = plugin_index;
   in_place_masters_.clear();
-  for (const std::string& m : pf->masters()) in_place_masters_.push_back(m);
+  for (const base::String& m : pf->masters()) in_place_masters_.push_back(m);
 
   // New records inserted in place must not collide with the plugin's existing
   // forms, so start allocating above its highest self-defined local id.
@@ -164,7 +168,7 @@ bool EditSession::ApplyEditsTo(RawRewriter& rewriter) {
       Record out = BuildOutput(entry);
       base::Vector<u8> encoded;
       EncodeRecord(out, &encoded);
-      rewriter.Insert(out.header.type, std::move(encoded));
+      rewriter.Insert(out.header.type, base::move(encoded));
       continue;
     }
     // Only records that belong to the target plugin can be substituted in place.
@@ -179,14 +183,14 @@ bool EditSession::ApplyEditsTo(RawRewriter& rewriter) {
     bool compress = (entry.record.header.flags & kRecordFlagCompressed) != 0;
     base::Vector<u8> encoded;
     EncodeRecord(out, &encoded, compress);
-    rewriter.Replace(raw, std::move(encoded));
+    rewriter.Replace(raw, base::move(encoded));
   }
   return true;
 }
 
 EditSession::Entry* EditSession::FindEntry(GlobalFormId handle) {
-  auto it = entries_.find(handle.packed());
-  return it == entries_.end() ? nullptr : &it->second;
+  auto* it = entries_.find(handle.packed());
+  return it == nullptr ? nullptr : &*it;
 }
 
 EditSession::Entry& EditSession::NewEntry(GlobalFormId handle) {
@@ -259,14 +263,14 @@ bool EditSession::SetField(GlobalFormId handle, u32 type, ByteSpan bytes) {
   return PutField(handle, type, bytes, /*replace=*/true);
 }
 
-bool EditSession::SetEditorId(GlobalFormId handle, std::string_view editor_id) {
+bool EditSession::SetEditorId(GlobalFormId handle, base::StringRef editor_id) {
   base::Vector<u8> buffer;
   buffer.insert(buffer.end(), editor_id.begin(), editor_id.end());
   buffer.push_back(0);
   return SetField(handle, kEdid, ByteSpan(buffer.data(), buffer.size()));
 }
 
-bool EditSession::SetLocalizedString(GlobalFormId handle, u32 field_type, std::string_view text,
+bool EditSession::SetLocalizedString(GlobalFormId handle, u32 field_type, base::StringRef text,
                                      StringFile file) {
   u32 id = next_string_id_++;
   StringTableWriter& table = file == StringFile::kStrings     ? strings_
@@ -294,7 +298,7 @@ bool EditSession::RemoveField(GlobalFormId handle, u32 type) {
   Entry* entry = FindEntry(handle);
   if (!entry) return false;
   auto& subs = entry->record.subrecords;
-  for (Subrecord* it = subs.begin(); it != subs.end(); ++it) {
+  for (Subrecord* it = subs.begin(); it != nullptr; ++it) {
     if (it->type == type) {
       subs.erase(it);
       return true;
@@ -303,14 +307,13 @@ bool EditSession::RemoveField(GlobalFormId handle, u32 type) {
   return false;
 }
 
-bool EditSession::PlaceInInteriorCell(GlobalFormId cell, GlobalFormId reference,
-                                      bool persistent) {
+bool EditSession::PlaceInInteriorCell(GlobalFormId cell, GlobalFormId reference, bool persistent) {
   if (!FindEntry(cell) || !FindEntry(reference)) {
     RX_ERROR("edit: cell and reference must be created or overridden before placement");
     return false;
   }
-  auto it = cell_children_.find(cell.packed());
-  if (it == cell_children_.end()) cell_order_.push_back(cell.packed());
+  auto* it = cell_children_.find(cell.packed());
+  if (it == nullptr) cell_order_.push_back(cell.packed());
   CellChildren& children = cell_children_[cell.packed()];
   (persistent ? children.persistent : children.temporary).push_back(reference);
   claimed_.insert(cell.packed());
@@ -323,8 +326,8 @@ bool EditSession::AddTopicInfo(GlobalFormId dialogue, GlobalFormId info) {
     RX_ERROR("edit: dialogue and info must be created or overridden before linking");
     return false;
   }
-  auto it = topic_infos_.find(dialogue.packed());
-  if (it == topic_infos_.end()) dial_order_.push_back(dialogue.packed());
+  auto* it = topic_infos_.find(dialogue.packed());
+  if (it == nullptr) dial_order_.push_back(dialogue.packed());
   topic_infos_[dialogue.packed()].push_back(info);
   claimed_.insert(dialogue.packed());
   claimed_.insert(info.packed());
@@ -337,8 +340,8 @@ bool EditSession::PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell
     RX_ERROR("edit: worldspace, cell and reference must all exist before placement");
     return false;
   }
-  auto it = world_cells_.find(worldspace.packed());
-  if (it == world_cells_.end()) world_order_.push_back(worldspace.packed());
+  auto* it = world_cells_.find(worldspace.packed());
+  if (it == nullptr) world_order_.push_back(worldspace.packed());
   base::Vector<GlobalFormId>& cells = world_cells_[worldspace.packed()];
   if (!cells.Contains(cell)) cells.push_back(cell);
 
@@ -401,9 +404,10 @@ base::Vector<u8> EditSession::BuildCellGroup(u32* count) {
   // and UESP's Mod File Format/CELL. This engine's own loader keys cells off the
   // children group labels, not these numbers; the values exist purely so the
   // output is valid for the real games and displays correctly in xEdit/CK.
-  std::map<u32, std::map<u32, base::Vector<u64>>> bins;
+  base::Map<u32, base::Map<u32, base::Vector<u64>>> bins;
   for (u64 packed : cell_order_) {
-    Entry* entry = FindEntry(GlobalFormId{static_cast<u16>(packed >> 32), static_cast<u32>(packed)});
+    Entry* entry =
+        FindEntry(GlobalFormId{static_cast<u16>(packed >> 32), static_cast<u32>(packed)});
     u32 local = entry->handle.local_id & 0xffffff;
     bins[local % 10][(local / 10) % 10].push_back(packed);
   }
@@ -443,7 +447,7 @@ base::Vector<u8> EditSession::BuildWorldGroup(u32* count) {
     // sub-block coords, each packed X-high/Y-low by PackGrid. Confirmed against
     // xEdit (wbSubBlockFromGridCell / wbBlockFromSubBlock / wbGridCellToGroupLabel)
     // and UESP's Mod File Format/CELL.
-    std::map<std::pair<i32, i32>, std::map<std::pair<i32, i32>, base::Vector<u64>>> bins;
+    base::Map<base::Pair<i32, i32>, base::Map<base::Pair<i32, i32>, base::Vector<u64>>> bins;
     for (GlobalFormId cell : world_cells_[wpacked]) {
       Entry* entry = FindEntry(cell);
       i32 x = 0, y = 0;
@@ -466,9 +470,8 @@ base::Vector<u8> EditSession::BuildWorldGroup(u32* count) {
       for (const auto& [subblock, cells] : subblocks) {
         base::Vector<u8> sub_body;
         for (u64 packed : cells) {
-          EncodeCellChildren(
-              GlobalFormId{static_cast<u16>(packed >> 32), static_cast<u32>(packed)}, &sub_body,
-              count);
+          EncodeCellChildren(GlobalFormId{static_cast<u16>(packed >> 32), static_cast<u32>(packed)},
+                             &sub_body, count);
         }
         EmitGroup(kGroupExteriorSubBlock, PackGrid(subblock.first, subblock.second),
                   ByteSpan(sub_body.data(), sub_body.size()), &block_body);
@@ -501,16 +504,16 @@ base::Vector<u8> EditSession::BuildDialGroup(u32* count) {
   return top;
 }
 
-bool EditSession::WriteStringFiles(const std::string& plugin_path) {
+bool EditSession::WriteStringFiles(const base::String& plugin_path) {
   namespace fs = std::filesystem;
-  fs::path plugin(plugin_path);
-  std::string base = plugin.stem().string();  // plugin name without extension
+  fs::path plugin(plugin_path.c_str());
+  base::String base = plugin.stem().string();  // plugin name without extension
   fs::path dir = plugin.parent_path() / "strings";
   std::error_code ec;
-  fs::create_directories(dir, ec);
+  fs::create_directories(dir.c_str(), ec);
 
-  const std::string& lang = profile_.string_language;
-  const std::string prefix = (dir / (base + "_" + lang)).string();
+  const base::String& lang = profile_.string_language;
+  const base::String prefix = (dir / (base + "_" + lang).c_str()).string();
   bool ok = true;
   // Each file is written only when it holds strings; the id space is shared.
   if (strings_.size()) ok &= strings_.Save(prefix + ".strings", /*length_prefixed=*/false);
@@ -519,7 +522,7 @@ bool EditSession::WriteStringFiles(const std::string& plugin_path) {
   return ok;
 }
 
-bool EditSession::Save(const std::string& path, const SaveOptions& options) {
+bool EditSession::Save(const base::String& path, const SaveOptions& options) {
   const bool localized = options.localized || localized_;
   PluginWriter writer(profile_);
   writer.set_author(options.author)
@@ -527,7 +530,7 @@ bool EditSession::Save(const std::string& path, const SaveOptions& options) {
       .set_master(options.is_master)
       .set_light(options.is_light)
       .set_localized(localized);
-  for (const std::string& master : masters_) writer.add_master(master);
+  for (const base::String& master : masters_) writer.add_master(master);
   writer.set_next_object_id(next_local_id_);
 
   // Flat pass: every entry not claimed by a nested structure.

@@ -1,12 +1,16 @@
 #include "runtime/demo/demo_scenes.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
-#include <string>
-
-#include <base/option.h>
 
 #include "runtime/actor/actor_system.h"
 #include "asset/asset_database.h"
@@ -213,7 +217,8 @@ void DemoScenes::CreateMaterialDemoScene() {
   // roughness ramp as a control. One material + mesh per sphere.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/matdemo/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -222,7 +227,7 @@ void DemoScenes::CreateMaterialDemoScene() {
 
   int counter = 0;
   auto spawn = [&](Vec3 pos, asset::Material mat) {
-    std::string tag = "builtin/matdemo/" + std::to_string(counter++);
+    base::String tag = "builtin/matdemo/" + base::ToString(counter++);
     mat.id = asset::MakeAssetId(tag + "/mat");
     asset::Mesh sphere = asset::MakeSphere(0.5f, 32, 48, asset::MakeAssetId(tag + "/mesh"));
     sphere.lods[0].submeshes[0].material = mat.id;
@@ -355,7 +360,7 @@ void DemoScenes::UpdateParticles(f32 dt, render::FrameView& view) {
     inst.color[0] = p.color.x;
     inst.color[1] = p.color.y;
     inst.color[2] = p.color.z;
-    inst.color[3] = t * t * 0.8f;  // fade out over life
+    inst.color[3] = t * t * 0.8f;                         // fade out over life
     inst.prev_pos[0] = p.position.x - p.velocity.x * dt;  // one frame back, for the motion vector
     inst.prev_pos[1] = p.position.y - p.velocity.y * dt;
     inst.prev_pos[2] = p.position.z - p.velocity.z * dt;
@@ -369,7 +374,8 @@ void DemoScenes::CreateGaussianDemoScene() {
   // Demonstrates the non-triangle primitive path projecting and blending splats.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/gsplat/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -396,7 +402,7 @@ void DemoScenes::CreateGaussianDemoScene() {
   for (u32 i = 0; i < kCount; ++i) {
     f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(kCount);
     f32 y = 1.0f - 2.0f * t;
-    f32 r = std::sqrt(std::max(0.0f, 1.0f - y * y));
+    f32 r = std::sqrt(base::Max(0.0f, 1.0f - y * y));
     f32 phi = static_cast<f32>(i) * golden;
     Vec3 dir{std::cos(phi) * r, y, std::sin(phi) * r};
     render::GaussianInstance g;
@@ -424,7 +430,8 @@ void DemoScenes::CreateLodDemoScene() {
   // so the near sphere is smooth and the far ones turn visibly faceted.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/loddemo/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -443,7 +450,7 @@ void DemoScenes::CreateLodDemoScene() {
   // Three spheres at increasing distance, landing on lod 0 / 1 / 2 in turn.
   const Vec3 pos[3] = {{-1.6f, 0.9f, 4.5f}, {1.5f, 0.9f, 2.0f}, {-1.3f, 0.9f, -0.5f}};
   for (int i = 0; i < 3; ++i) {
-    std::string tag = "builtin/loddemo/" + std::to_string(i);
+    base::String tag = "builtin/loddemo/" + base::ToString(i);
     asset::Mesh sphere = asset::MakeLodSphere(1.2f, asset::MakeAssetId(tag + "/mesh"));
     for (asset::MeshLod& lod : sphere.lods) lod.submeshes[0].material = mat.id;
     if (!config_.headless) renderer_.UploadMesh(sphere);
@@ -489,13 +496,14 @@ void DemoScenes::CreateCornellDemoScene() {
     world_.Add(e, world::Renderable{mesh.id});
   };
   auto box = [&](f32 hx, f32 hy, f32 hz) {
-    return asset::MakeBox(hx, hy, hz, asset::MakeAssetId("builtin/cornell/" + std::to_string(counter++)));
+    return asset::MakeBox(hx, hy, hz,
+                          asset::MakeAssetId("builtin/cornell/" + base::ToString(counter++)));
   };
 
-  add(box(2.0f, 0.1f, 2.0f), white, {0, -0.1f, 0});   // floor (top at y = 0)
-  add(box(2.0f, 1.6f, 0.1f), white, {0, 1.5f, -2.0f});  // back wall
-  add(box(0.1f, 1.6f, 2.0f), red, {-2.0f, 1.5f, 0});    // left wall (red)
-  add(box(0.1f, 1.6f, 2.0f), green, {2.0f, 1.5f, 0});   // right wall (green)
+  add(box(2.0f, 0.1f, 2.0f), white, {0, -0.1f, 0});           // floor (top at y = 0)
+  add(box(2.0f, 1.6f, 0.1f), white, {0, 1.5f, -2.0f});        // back wall
+  add(box(0.1f, 1.6f, 2.0f), red, {-2.0f, 1.5f, 0});          // left wall (red)
+  add(box(0.1f, 1.6f, 2.0f), green, {2.0f, 1.5f, 0});         // right wall (green)
   add(box(0.45f, 0.9f, 0.45f), white, {-0.7f, 0.9f, -0.6f});  // tall box
   add(box(0.45f, 0.45f, 0.45f), white, {0.7f, 0.45f, 0.4f});  // short box
 
@@ -510,7 +518,8 @@ void DemoScenes::CreateGpuParticleDemoScene() {
   // past the ~20k the cpu fountain caps at, proving the compute sim runs.
   asset::Mesh ground = asset::MakeCube(12.0f, asset::MakeAssetId("builtin/gpufx/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -611,7 +620,7 @@ void DemoScenes::CreateImposterDemoScene() {
     seed = seed * 1664525u + 1013904223u;
     return static_cast<f32>(seed >> 8) / 16777216.0f;
   };
-  std::vector<render::ImposterPass::Instance> instances;
+  base::Vector<render::ImposterPass::Instance> instances;
   for (int i = 0; i < 4000; ++i) {
     f32 ang = next_rand() * 6.2831853f;
     f32 dist = 22.0f + next_rand() * 170.0f;
@@ -626,8 +635,7 @@ void DemoScenes::CreateImposterDemoScene() {
     f32 ang = next_rand() * 6.2831853f;
     f32 dist = 6.0f + next_rand() * 12.0f;
     ecs::Entity t = world_.Create();
-    world_.Add(t, world::Transform{.position = {std::cos(ang) * dist, 0.0f,
-                                                std::sin(ang) * dist}});
+    world_.Add(t, world::Transform{.position = {std::cos(ang) * dist, 0.0f, std::sin(ang) * dist}});
     world_.Add(t, world::Renderable{tree.id});
   }
   if (!config_.headless) renderer_.BakeImposter(tree, instances);
@@ -694,7 +702,7 @@ void DemoScenes::CreateStrandHairDemoScene() {
   }
   asset::Vfs vfs;
   for (const auto& entry : fs::directory_iterator(data_dir, ec)) {
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
   }
   asset::AssetDatabase db(vfs);
   const auto& profile =
@@ -709,11 +717,17 @@ void DemoScenes::CreateStrandHairDemoScene() {
   };
   const HairSpec specs[] = {
       {"meshes/actors/character/character assets/hair/hairlonghumanm.nif",
-       "textures/actors/character/hair/hairlong.dds", {0.50f, 0.36f, 0.24f}, false},  // brown, long
+       "textures/actors/character/hair/hairlong.dds",
+       {0.50f, 0.36f, 0.24f},
+       false},  // brown, long
       {"meshes/actors/character/character assets/hair/hairshorthumanf.nif",
-       "textures/actors/character/hair/hairshort.dds", {0.78f, 0.36f, 0.22f}, false},  // auburn, short
+       "textures/actors/character/hair/hairshort.dds",
+       {0.78f, 0.36f, 0.22f},
+       false},  // auburn, short
       {"meshes/actors/character/character assets/hair/elf/female/hair05.nif",
-       "textures/actors/character/hair/hairlong.dds", {1.10f, 0.95f, 0.62f}, true},  // blonde, orbiting
+       "textures/actors/character/hair/hairlong.dds",
+       {1.10f, 0.95f, 0.62f},
+       true},  // blonde, orbiting
   };
   const f32 xs[] = {-0.62f, 0.0f, 0.62f};
 
@@ -736,7 +750,7 @@ void DemoScenes::CreateStrandHairDemoScene() {
     const asset::Texture* diffuse = nullptr;
     for (const asset::Material& m : conv.materials) {
       if (!m.base_color) continue;
-      for (const std::string& tp : conv.texture_paths) {
+      for (const base::String& tp : conv.texture_paths) {
         if (asset::MakeAssetId(tp).hash == m.base_color.hash) {
           diffuse = db.LoadTexture(tp);
           break;
@@ -768,9 +782,9 @@ void DemoScenes::CreateStrandHairDemoScene() {
     Vec3 hc = head_center;
     f32 hr = head_radius;
     renderer_.HairGroomHead(id, &hc, &hr);
-    asset::Mesh head = asset::MakeSphere(hr * 0.58f, 24, 36,
-                                         asset::MakeAssetId(std::string("builtin/strands/head") +
-                                                            std::to_string(i)));
+    asset::Mesh head = asset::MakeSphere(
+        hr * 0.58f, 24, 36,
+        asset::MakeAssetId(base::String("builtin/strands/head") + base::ToString(i)));
     head.lods[0].submeshes.push_back({0, static_cast<u32>(head.lods[0].indices.size()), skin.id});
     renderer_.UploadMesh(head);
     ecs::Entity h = world_.Create();
@@ -857,8 +871,7 @@ void DemoScenes::CreateVirtualTextureDemoScene() {
       {0, static_cast<u32>(ground.lods[0].indices.size()), vt_mat.id});
   // A few reference blocks so scale and shadows read.
   asset::Mesh block = asset::MakeBox(2.0f, 2.0f, 2.0f, asset::MakeAssetId("builtin/vt/block"));
-  block.lods[0].submeshes.push_back(
-      {0, static_cast<u32>(block.lods[0].indices.size()), vt_mat.id});
+  block.lods[0].submeshes.push_back({0, static_cast<u32>(block.lods[0].indices.size()), vt_mat.id});
   if (!config_.headless) {
     renderer_.UploadMesh(ground);
     renderer_.UploadMesh(block);
@@ -892,10 +905,10 @@ void DemoScenes::CreateBrickDemoScene() {
     f32 fy = row - std::floor(row);
     f32 fx = col - std::floor(col);
     auto channel = [](f32 t, f32 w) {
-      f32 d = std::min(t, 1.0f - t) / w;  // distance to the mortar line
-      return std::min(d, 1.0f);
+      f32 d = base::Min(t, 1.0f - t) / w;  // distance to the mortar line
+      return base::Min(d, 1.0f);
     };
-    f32 h = std::min(channel(fx, 0.06f), channel(fy, 0.10f));
+    f32 h = base::Min(channel(fx, 0.06f), channel(fy, 0.10f));
     h = h * h * (3.0f - 2.0f * h);  // rounded shoulder
     // Slight per-brick height variation + surface grain.
     u32 bx = static_cast<u32>(col), by = static_cast<u32>(row);
@@ -919,8 +932,7 @@ void DemoScenes::CreateBrickDemoScene() {
       f32 u = (x + 0.5f) / kTex, v = (y + 0.5f) / kTex;
       f32 h = brick_height(u, v);
       size_t o = (static_cast<size_t>(y) * kTex + x) * 4;
-      height.data[o] = height.data[o + 1] = height.data[o + 2] =
-          static_cast<u8>(h * 255.0f);
+      height.data[o] = height.data[o + 1] = height.data[o + 2] = static_cast<u8>(h * 255.0f);
       height.data[o + 3] = 255;
       // Normal from height finite differences (tangent space, +z out).
       f32 e = 1.0f / kTex;
@@ -1006,7 +1018,7 @@ void DemoScenes::CreateBrickDemoScene() {
     f32 ang = std::atan2(dv, du);
     f32 rim = 0.75f + 0.18f * std::sin(ang * arms + seed_base) +
               0.12f * std::sin(ang * (arms * 2 + 1) + seed_base * 1.7f);
-    return std::max(0.0f, 1.0f - r / rim);
+    return base::Max(0.0f, 1.0f - r / rim);
   };
   for (u32 y = 0; y < atlas.height; ++y) {
     for (u32 x = 0; x < atlas.width; ++x) {
@@ -1015,7 +1027,7 @@ void DemoScenes::CreateBrickDemoScene() {
       if (x < 256) {  // blood
         f32 u = (x + 0.5f) / 256.0f;
         f32 m = blob(u, v, 3, 7);
-        f32 a = m > 0.02f ? std::min(1.0f, m * 2.2f) : 0.0f;
+        f32 a = m > 0.02f ? base::Min(1.0f, m * 2.2f) : 0.0f;
         atlas.data[o] = static_cast<u8>(90 + 40 * m);
         atlas.data[o + 1] = static_cast<u8>(8 + 10 * m);
         atlas.data[o + 2] = static_cast<u8>(8 + 8 * m);
@@ -1024,7 +1036,7 @@ void DemoScenes::CreateBrickDemoScene() {
         f32 u = (x - 256 + 0.5f) / 256.0f;
         f32 m = blob(u, v, 11, 9);
         f32 grain = 0.7f + 0.3f * blob(std::fmod(u * 5.0f, 1.0f), std::fmod(v * 5.0f, 1.0f), 5, 5);
-        f32 a = m > 0.05f ? std::min(1.0f, m * 1.6f) * grain : 0.0f;
+        f32 a = m > 0.05f ? base::Min(1.0f, m * 1.6f) * grain : 0.0f;
         atlas.data[o] = static_cast<u8>(40 + 25 * m);
         atlas.data[o + 1] = static_cast<u8>(85 + 60 * m * grain);
         atlas.data[o + 2] = static_cast<u8>(28 + 15 * m);
@@ -1058,7 +1070,7 @@ void DemoScenes::CreateBrickDemoScene() {
         nx = (moss_height(u - e, v) - moss_height(u + e, v)) * 3.0f;
         ny = (moss_height(u, v - e) - moss_height(u, v + e)) * 3.0f;
       }
-      f32 nz = std::sqrt(std::max(1.0f - nx * nx - ny * ny, 0.05f));
+      f32 nz = std::sqrt(base::Max(1.0f - nx * nx - ny * ny, 0.05f));
       channels.data[o] = static_cast<u8>((nx * 0.5f + 0.5f) * 255.0f);
       channels.data[o + 1] = static_cast<u8>((ny * 0.5f + 0.5f) * 255.0f);
       channels.data[o + 2] = static_cast<u8>((nz * 0.5f + 0.5f) * 255.0f);
@@ -1071,8 +1083,7 @@ void DemoScenes::CreateBrickDemoScene() {
     renderer_.SetDecalAtlas(atlas.id, channels.id);
   }
   // A blood splat + moss patches projected onto the pom wall and the floor.
-  auto make_decal = [](Vec3 pos, Vec3 normal, Vec3 up_hint, f32 w, f32 h, f32 depth,
-                       bool moss) {
+  auto make_decal = [](Vec3 pos, Vec3 normal, Vec3 up_hint, f32 w, f32 h, f32 depth, bool moss) {
     render::Decal d;
     Vec3 n = Normalize(normal);
     Vec3 t = Normalize(Cross(up_hint, n));
@@ -1133,8 +1144,7 @@ void DemoScenes::CreateSssDemoScene() {
   floor_mat.base_color_factor[2] = 0.32f;
   floor_mat.roughness_factor = 0.9f;
   if (!config_.headless) renderer_.UploadMaterial(floor_mat);
-  asset::Mesh ground =
-      asset::MakeBox(8.0f, 0.15f, 6.0f, asset::MakeAssetId("builtin/sss/ground"));
+  asset::Mesh ground = asset::MakeBox(8.0f, 0.15f, 6.0f, asset::MakeAssetId("builtin/sss/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
   if (!config_.headless) renderer_.UploadMesh(ground);
@@ -1144,7 +1154,7 @@ void DemoScenes::CreateSssDemoScene() {
 
   auto spawn_sphere = [&](Vec3 pos, f32 radius, bool skin, f32 perfusion, const char* tag) {
     asset::Material mat;
-    mat.id = asset::MakeAssetId(std::string("builtin/sss/mat_") + tag);
+    mat.id = asset::MakeAssetId(base::String("builtin/sss/mat_") + tag);
     mat.base_color_factor[0] = 0.62f;
     mat.base_color_factor[1] = 0.44f;
     mat.base_color_factor[2] = 0.34f;
@@ -1165,7 +1175,7 @@ void DemoScenes::CreateSssDemoScene() {
     mat.skin_params.mfp[2] = 0.20f;
     mat.skin_params.perfusion = perfusion;
     asset::Mesh sphere =
-        asset::MakeSphere(radius, 48, 64, asset::MakeAssetId(std::string("builtin/sss/") + tag));
+        asset::MakeSphere(radius, 48, 64, asset::MakeAssetId(base::String("builtin/sss/") + tag));
     sphere.lods[0].submeshes[0].material = mat.id;
     if (!config_.headless) {
       renderer_.UploadMaterial(mat);
@@ -1190,14 +1200,14 @@ void DemoScenes::CreateSssDemoScene() {
   // the left is the plain ggx control blob.
   auto spawn_hair = [&](Vec3 pos, bool hair, const char* tag) {
     asset::Material mat;
-    mat.id = asset::MakeAssetId(std::string("builtin/sss/hairmat_") + tag);
+    mat.id = asset::MakeAssetId(base::String("builtin/sss/hairmat_") + tag);
     mat.base_color_factor[0] = 0.16f;
     mat.base_color_factor[1] = 0.10f;
     mat.base_color_factor[2] = 0.06f;
     mat.roughness_factor = 0.45f;
     mat.hair = hair;
     asset::Mesh sphere = asset::MakeSphere(
-        0.45f, 48, 64, asset::MakeAssetId(std::string("builtin/sss/hair_") + tag));
+        0.45f, 48, 64, asset::MakeAssetId(base::String("builtin/sss/hair_") + tag));
     sphere.lods[0].submeshes[0].material = mat.id;
     if (!config_.headless) {
       renderer_.UploadMaterial(mat);
@@ -1214,8 +1224,7 @@ void DemoScenes::CreateSssDemoScene() {
   // camera-facing hemisphere: that edge is where the diffusion reads
   // (softening + red bleed). Smoothly lit spheres alone would show nothing -
   // a gaussian preserves linear ramps.
-  asset::Mesh pole =
-      asset::MakeBox(0.035f, 0.7f, 0.035f, asset::MakeAssetId("builtin/sss/pole"));
+  asset::Mesh pole = asset::MakeBox(0.035f, 0.7f, 0.035f, asset::MakeAssetId("builtin/sss/pole"));
   pole.lods[0].submeshes.push_back(
       {0, static_cast<u32>(pole.lods[0].indices.size()), floor_mat.id});
   if (!config_.headless) renderer_.UploadMesh(pole);
@@ -1242,7 +1251,7 @@ void DemoScenes::CreateSssDemoScene() {
 
 void DemoScenes::CreateFacesDemoScene() {
   if (config_.headless || !ctx_.records) return;
-  face_builder_ = std::make_unique<FaceBuilder>(ctx_);
+  face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
 
   // A spread of distinct real faces across races (Nord, Orc, High Elf, Redguard,
   // Nord female) for stronger race blends, with the exaggerated head placed next
@@ -1262,14 +1271,15 @@ void DemoScenes::CreateFacesDemoScene() {
   bethesda::GlobalFormId ids[std::size(wanted)];
   for (auto& id : ids) id = bethesda::GlobalFormId{0xffff, 0};
   const u32 kEdid = FourCc('E', 'D', 'I', 'D');
-  ctx_.records->EachOfType(FourCc('N', 'P', 'C', '_'),
-                           [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
-    bethesda::Record r;
-    if (!ctx_.records->Parse(id, &r)) return;
-    std::string edid = r.GetString(kEdid);
-    for (int i = 0; i < count; ++i)
-      if (ids[i].plugin == 0xffff && edid == wanted[i].edid) ids[i] = id;
-  });
+  ctx_.records->EachOfType(
+      FourCc('N', 'P', 'C', '_'),
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+        bethesda::Record r;
+        if (!ctx_.records->Parse(id, &r)) return;
+        base::String edid = r.GetString(kEdid);
+        for (int i = 0; i < count; ++i)
+          if (ids[i].plugin == 0xffff && edid == wanted[i].edid) ids[i] = id;
+      });
 
   // Bethesda object space (Z-up, game units) -> engine (Y-up, metres): the head
   // vertices already sit at head height above the feet, so the entity origin
@@ -1301,8 +1311,8 @@ void DemoScenes::CreateFacesDemoScene() {
     }
     f32 ms = fs.RebuildAndUpload();
     RX_INFO("faces demo: '{}' built {} parts in {:.2f} ms (subdiv {})", wanted[i].edid,
-             fs.parts().size(), ms, fs.subdiv_levels());
-    faces_.push_back(std::move(fs));
+            fs.parts().size(), ms, fs.subdiv_levels());
+    faces_.push_back(base::move(fs));
 
     const f32 x = x0 + spacing * i;
     for (const BuiltFacePart& part : faces_.back().parts()) {
@@ -1318,20 +1328,20 @@ void DemoScenes::CreateFacesDemoScene() {
     // times that same scale, so a translation to the head position drops it on.
     const FaceState& built_face = faces_.back();
     if (!built_face.hair_model().empty()) {
-      std::string hair_path = asset::NormalizePath(built_face.hair_model());
+      base::String hair_path = asset::NormalizePath(built_face.hair_model());
       if (!hair_path.starts_with("meshes/")) hair_path = "meshes/" + hair_path;
       if (auto bytes = ctx_.vfs->Read(hair_path)) {
         bethesda::NifConversion conv = bethesda::ConvertNifRigid(
             ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(hair_path), hair_path);
         if (conv.mesh && !conv.mesh->lods.empty() && !conv.mesh->lods[0].vertices.empty()) {
           const asset::Texture* diffuse = nullptr;
-          for (const std::string& tp : conv.texture_paths) {
+          for (const base::String& tp : conv.texture_paths) {
             diffuse = ctx_.assets->LoadTexture(tp);
             if (diffuse) break;
           }
           const f32* hc = built_face.hair_color();
           render::GroomParams params;
-          params.recenter = true;  // scalp -> groom origin; anchored on the head below
+          params.recenter = true;             // scalp -> groom origin; anchored on the head below
           params.units_to_meters = 0.01428f;  // game units -> metres (matches the cell streamer)
           params.tint = {hc[0], hc[1], hc[2]};
           params.diffuse = diffuse;
@@ -1339,7 +1349,7 @@ void DemoScenes::CreateFacesDemoScene() {
           params.children_per_guide = 32;
           params.strand_width = 0.0015f;
           params.clump_radius = 0.007f;  // wider clumps fill gaps (no see-through)
-          params.frizz = 0.25f;  // groomed flyaway (curl de-slabs independently)
+          params.frizz = 0.25f;          // groomed flyaway (curl de-slabs independently)
           // Standalone hair NIFs are authored head-local at the origin, but the
           // facegen face part carries the body-height offset, so drop the groom
           // onto the face's crown (bounds centre + up*radius in game units, then
@@ -1373,11 +1383,11 @@ void DemoScenes::CreateFacesDemoScene() {
   auto look_at = [&](Vec3 eye, Vec3 target) {
     Vec3 d = Normalize(target - eye);
     camera_.set_position(eye);
-    camera_.set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(std::clamp(d.y, -1.0f, 1.0f)));
+    camera_.set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(base::Clamp(d.y, -1.0f, 1.0f)));
   };
   const f32 head_y = 1.72f;  // face centre floats here; necks hang below
   switch (FaceShot.get()) {
-    case 1: {  // 3/4 hero portrait of the first head (Balgruuf), head ~60% tall
+    case 1: {             // 3/4 hero portrait of the first head (Balgruuf), head ~60% tall
       const f32 hx = x0;  // first head's x
       look_at({hx + 0.13f, head_y + 0.02f, -0.37f}, {hx, head_y - 0.03f, 0.02f});
       break;
@@ -1413,7 +1423,8 @@ void DemoScenes::CreateFireDemoScene() {
   wood.roughness_factor = 0.85f;
   if (!config_.headless) renderer_.UploadMaterial(wood);
 
-  asset::Mesh ground = asset::MakeBox(30.0f, 0.2f, 30.0f, asset::MakeAssetId("builtin/fire/ground"));
+  asset::Mesh ground =
+      asset::MakeBox(30.0f, 0.2f, 30.0f, asset::MakeAssetId("builtin/fire/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), stone.id});
   if (!config_.headless) renderer_.UploadMesh(ground);
@@ -1430,9 +1441,9 @@ void DemoScenes::CreateFireDemoScene() {
     f32 a = static_cast<f32>(i) * 1.2566f;
     Quat q = QuatFromAxisAngle({0, 1, 0}, a);
     ecs::Entity e = world_.Create();
-    world_.Add(e, world::Transform{.position = {std::cos(a) * 0.28f, 0.10f + 0.02f * i,
-                                                std::sin(a) * 0.28f},
-                                   .rotation = {q.x, q.y, q.z, q.w}});
+    world_.Add(e, world::Transform{
+                      .position = {std::cos(a) * 0.28f, 0.10f + 0.02f * i, std::sin(a) * 0.28f},
+                      .rotation = {q.x, q.y, q.z, q.w}});
     world_.Add(e, world::Renderable{log.id});
   }
   asset::Mesh rock = asset::MakeSphere(0.45f, 16, 24, asset::MakeAssetId("builtin/fire/rock"));
@@ -1535,7 +1546,8 @@ void DemoScenes::CreateFurDemoScene() {
   // depth occluder) under the shell-fur pass that draws the coat.
   asset::Mesh ground = asset::MakeCube(12.0f, asset::MakeAssetId("builtin/fur/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -1571,7 +1583,8 @@ void DemoScenes::CreateAutoLodDemoScene() {
   // the gpu picks the decimated lods with distance.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/autolod/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -1613,7 +1626,8 @@ void DemoScenes::CreateOitDemoScene() {
   // blended oit composites them with no sorting, so every layer shows through.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/oit/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
@@ -1653,7 +1667,7 @@ void DemoScenes::CreateOitDemoScene() {
   camera_.set_yaw_pitch(0.0f, -0.06f);
   camera_.speed = 3.0f;
   RX_INFO("oit demo: {} overlapping transparent spheres{}", oit_instances_.size(),
-           reverse ? " (reversed order)" : "");
+          reverse ? " (reversed order)" : "");
 }
 
 void DemoScenes::CreateOcclusionDemoScene() {
@@ -1701,7 +1715,7 @@ void DemoScenes::CreateOcclusionDemoScene() {
       f32 x = -1.1f + gx * 0.2f;
       f32 y = 0.7f + gy * 0.2f;
       f32 z = -2.0f - (gx % 3) * 0.6f;
-      std::string tag = "builtin/occl/c" + std::to_string(idx++);
+      base::String tag = "builtin/occl/c" + base::ToString(idx++);
       add_box(asset::MakeCube(0.04f, asset::MakeAssetId(tag)), cube_mat, {x, y, z});
     }
   }
@@ -1724,7 +1738,8 @@ void DemoScenes::CreatePointLightDemoScene() {
   floor_mat.metallic_factor = 0.0f;
   if (!config_.headless) renderer_.UploadMaterial(floor_mat);
 
-  asset::Mesh ground = asset::MakeBox(6.0f, 0.1f, 6.0f, asset::MakeAssetId("builtin/lights/ground"));
+  asset::Mesh ground =
+      asset::MakeBox(6.0f, 0.1f, 6.0f, asset::MakeAssetId("builtin/lights/ground"));
   ground.lods[0].submeshes.push_back(
       {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
   if (!config_.headless) renderer_.UploadMesh(ground);
@@ -1735,7 +1750,7 @@ void DemoScenes::CreatePointLightDemoScene() {
   // A few low bumps so the lights wrap over shapes, not just a flat plane.
   for (int i = 0; i < 5; ++i) {
     f32 x = -3.2f + i * 1.6f;
-    std::string tag = "builtin/lights/bump" + std::to_string(i);
+    base::String tag = "builtin/lights/bump" + base::ToString(i);
     asset::Mesh s = asset::MakeSphere(0.6f, 24, 32, asset::MakeAssetId(tag));
     s.lods[0].submeshes.push_back({0, static_cast<u32>(s.lods[0].indices.size()), floor_mat.id});
     if (!config_.headless) renderer_.UploadMesh(s);
@@ -1768,9 +1783,11 @@ void DemoScenes::CreatePointLightDemoScene() {
     spot.color_intensity[0] = 1.0f; spot.color_intensity[1] = 0.95f;
     spot.color_intensity[2] = 0.8f; spot.color_intensity[3] = 20.0f;
     f32 dir[3] = {0.35f, -0.85f, -0.4f};
-    f32 len = std::sqrt(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
-    spot.direction_type[0] = dir[0]/len; spot.direction_type[1] = dir[1]/len;
-    spot.direction_type[2] = dir[2]/len; spot.direction_type[3] = 1.0f;  // spot
+    f32 len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    spot.direction_type[0] = dir[0] / len;
+    spot.direction_type[1] = dir[1] / len;
+    spot.direction_type[2] = dir[2] / len;
+    spot.direction_type[3] = 1.0f;     // spot
     spot.params[0] = std::cos(0.28f);  // inner ~16 deg
     spot.params[1] = std::cos(0.45f);  // outer ~26 deg
     demo_lights_.push_back(spot);
@@ -1778,8 +1795,10 @@ void DemoScenes::CreatePointLightDemoScene() {
     render::PointLight ball;
     ball.pos_radius[0] = 4.6f; ball.pos_radius[1] = 0.7f; ball.pos_radius[2] = 2.2f;
     ball.pos_radius[3] = 6.0f;
-    ball.color_intensity[0] = 1.0f; ball.color_intensity[1] = 0.6f;
-    ball.color_intensity[2] = 0.25f; ball.color_intensity[3] = 8.0f;
+    ball.color_intensity[0] = 1.0f;
+    ball.color_intensity[1] = 0.6f;
+    ball.color_intensity[2] = 0.25f;
+    ball.color_intensity[3] = 8.0f;
     ball.direction_type[3] = 2.0f;  // sphere area
     ball.params[0] = 0.35f;         // source radius
     demo_lights_.push_back(ball);
@@ -1787,12 +1806,16 @@ void DemoScenes::CreatePointLightDemoScene() {
     render::PointLight panel;
     panel.pos_radius[0] = 0.0f; panel.pos_radius[1] = 1.6f; panel.pos_radius[2] = -3.2f;
     panel.pos_radius[3] = 8.0f;
-    panel.color_intensity[0] = 0.4f; panel.color_intensity[1] = 0.7f;
-    panel.color_intensity[2] = 1.0f; panel.color_intensity[3] = 6.0f;
-    panel.direction_type[0] = 0.0f; panel.direction_type[1] = 0.0f;
-    panel.direction_type[2] = 1.0f; panel.direction_type[3] = 3.0f;  // rect area
-    panel.params[0] = 1.4f;  // half width
-    panel.params[1] = 0.8f;  // half height
+    panel.color_intensity[0] = 0.4f;
+    panel.color_intensity[1] = 0.7f;
+    panel.color_intensity[2] = 1.0f;
+    panel.color_intensity[3] = 6.0f;
+    panel.direction_type[0] = 0.0f;
+    panel.direction_type[1] = 0.0f;
+    panel.direction_type[2] = 1.0f;
+    panel.direction_type[3] = 3.0f;  // rect area
+    panel.params[0] = 1.4f;          // half width
+    panel.params[1] = 0.8f;          // half height
     demo_lights_.push_back(panel);
   }
 
@@ -1810,7 +1833,7 @@ void DemoScenes::CreatePointLightDemoScene() {
     world_.Add(e, world::Renderable{pillar.id});
   }
 
-  ctx_.scene_owns_sun = true;  // keep the day/night clock off the staged dusk
+  ctx_.scene_owns_sun = true;                  // keep the day/night clock off the staged dusk
   renderer_.settings().sun_intensity = 0.25f;  // dim the sun + ibl so the point lights dominate
   renderer_.settings().sun_direction = {0.2f, -0.25f, -0.95f};
   renderer_.settings().ibl = false;
@@ -1833,7 +1856,8 @@ void DemoScenes::CreateMeshletDemoScene() {
   // it into clusters, frustum/cone-culls them, and tints each a distinct color
   // so the decomposition is visible. The mesh is not a normal Renderable; the
   // renderer draws it via the meshlet pass (watch "meshlet: N meshlets ...").
-  asset::Mesh sphere = asset::MakeSphere(1.5f, 64, 128, asset::MakeAssetId("builtin/meshlet/sphere"));
+  asset::Mesh sphere =
+      asset::MakeSphere(1.5f, 64, 128, asset::MakeAssetId("builtin/meshlet/sphere"));
   if (!config_.headless) renderer_.UploadMeshletMesh(sphere);
 
   camera_.set_position({0.0f, 0.0f, 4.5f});
@@ -1848,16 +1872,17 @@ void DemoScenes::CreateMaterialXDemoScene() {
   // imported standard_surface lobes can be eyeballed against the source.
   asset::Mesh ground = asset::MakeCube(8.0f, asset::MakeAssetId("builtin/mtlx/ground"));
   for (asset::MeshLod& lod : ground.lods) {
-    if (lod.submeshes.empty()) lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
+    if (lod.submeshes.empty())
+      lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), {}});
   }
   if (!config_.headless) renderer_.UploadMesh(ground);
   ecs::Entity floor = world_.Create();
   world_.Add(floor, world::Transform{.position = {0, -8.6f, 0}});  // top at y = -0.6
   world_.Add(floor, world::Renderable{ground.id});
 
-  base::Vector<std::string> paths;
+  base::Vector<base::String> paths;
   if (const char* env = Mtlx.get()) {
-    std::string s = env, cur;
+    base::String s = env, cur;
     for (char c : s) {
       if (c == ',') {
         if (!cur.empty()) paths.push_back(cur);
@@ -1873,10 +1898,10 @@ void DemoScenes::CreateMaterialXDemoScene() {
   int n = static_cast<int>(paths.size());
   for (int i = 0; i < n; ++i) {
     asset::Material mat;
-    mat.id = asset::MakeAssetId("builtin/mtlx/mat" + std::to_string(i));
-    if (!asset::LoadMaterialX(paths[i], &mat)) continue;
+    mat.id = asset::MakeAssetId("builtin/mtlx/mat" + base::ToString(i));
+    if (!asset::LoadMaterialX(paths[i].c_str(), &mat)) continue;
     if (!config_.headless) renderer_.UploadMaterial(mat);
-    std::string tag = "builtin/mtlx/sphere" + std::to_string(i);
+    base::String tag = "builtin/mtlx/sphere" + base::ToString(i);
     asset::Mesh sphere = asset::MakeSphere(0.6f, 40, 60, asset::MakeAssetId(tag));
     sphere.lods[0].submeshes[0].material = mat.id;
     if (!config_.headless) renderer_.UploadMesh(sphere);
@@ -2026,8 +2051,5 @@ void DemoScenes::CreateDemoScene() {
   actors_->CreateTestCharacter();
   RX_INFO("no game data given, spinning a cube instead");
 }
-
-
-
 
 }  // namespace rx

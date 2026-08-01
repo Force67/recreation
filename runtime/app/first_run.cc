@@ -1,16 +1,17 @@
-#include "runtime/app/engine.h"
+#include <base/containers/array.h>
+#include <base/containers/map.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <string>
-
-#include <base/option.h>
 
 #include "components/bethesda/game_profile.h"
 #include "core/log.h"
+#include "runtime/app/engine.h"
 #include "runtime/app/engine_internal.h"
 
 #ifdef _WIN32
@@ -58,14 +59,14 @@ fs::path SetupDir() {
 }
 
 fs::path SetupFile() { return SetupDir() / "setup.ini"; }
-std::string DefaultModsDir() { return (SetupDir() / "mods").string(); }
+base::String DefaultModsDir() { return (SetupDir() / "mods").string(); }
 
 // The three wizard columns, in order, with the env/persist keys and the nicer
 // display name shown on the locate page.
 struct GameSpec {
   bethesda::Game game;
-  const char* key;       // setup.ini key
-  const char* display;   // locate-page label
+  const char* key;      // setup.ini key
+  const char* display;  // locate-page label
 };
 const GameSpec kGameSpecs[3] = {
     {bethesda::Game::kSkyrimSe, "skyrim_data", "Skyrim Special Edition"},
@@ -74,15 +75,17 @@ const GameSpec kGameSpecs[3] = {
 };
 
 // Parse setup.ini into a flat key=value map. Missing file -> empty map.
-std::map<std::string, std::string> ReadIni() {
-  std::map<std::string, std::string> kv;
+base::Map<base::String, base::String> ReadIni() {
+  base::Map<base::String, base::String> kv;
   std::ifstream f(SetupFile());
   if (!f) return kv;
-  std::string line;
-  while (std::getline(f, line)) {
-    const size_t eq = line.find('=');
-    if (eq == std::string::npos) continue;
-    std::string k = line.substr(0, eq), v = line.substr(eq + 1);
+  // std::getline fills a std::string; each line is copied into a base::String.
+  std::string source;
+  while (std::getline(f, source)) {
+    const base::String line(source.c_str(), source.size());
+    const mem_size eq = line.find('=');
+    if (eq == base::String::npos) continue;
+    base::String k = line.substr(0, eq), v = line.substr(eq + 1);
     while (!v.empty() && (v.back() == '\r' || v.back() == '\n')) v.pop_back();
     kv[k] = v;
   }
@@ -93,10 +96,10 @@ std::map<std::string, std::string> ReadIni() {
 // user cancelled or no picker is available). Uses the same shell-out approach as
 // the menu's OpenUrl: zenity/kdialog on Linux, NSOpenPanel via osascript on
 // macOS, a FolderBrowserDialog via PowerShell on Windows.
-std::string RunPicker(const std::string& cmd) {
+base::String RunPicker(const base::String& cmd) {
   FILE* p = popen(cmd.c_str(), "r");
   if (!p) return "";
-  std::string out;
+  base::String out;
   char buf[1024];
   size_t n;
   while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
@@ -105,12 +108,12 @@ std::string RunPicker(const std::string& cmd) {
   return out;
 }
 
-std::string PickFolder(const std::string& title) {
+base::String PickFolder(const base::String& title) {
   // Test hook: skip the GUI dialog and return a fixed path. Lets the browse flow
   // run without a display (headless capture, CI).
   if (const char* o = PickOverride.get()) return o;
 #if defined(_WIN32)
-  const std::string cmd =
+  const base::String cmd =
       "powershell -NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
       "$f=New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description='" +
       title + "'; if($f.ShowDialog() -eq 'OK'){Write-Output $f.SelectedPath}\"";
@@ -119,8 +122,8 @@ std::string PickFolder(const std::string& title) {
   return RunPicker("osascript -e 'POSIX path of (choose folder with prompt \"" + title +
                    "\")' 2>/dev/null");
 #else
-  std::string p = RunPicker("zenity --file-selection --directory --title=\"" + title +
-                            "\" 2>/dev/null");
+  base::String p =
+      RunPicker("zenity --file-selection --directory --title=\"" + title + "\" 2>/dev/null");
   if (p.empty())
     p = RunPicker("kdialog --getexistingdirectory \"$HOME\" --title \"" + title + "\" 2>/dev/null");
   return p;
@@ -131,14 +134,14 @@ std::string PickFolder(const std::string& title) {
 // neither the folder nor its Data subfolder holds that game's master plugin.
 // Players sometimes pick the game root rather than its Data folder, so both are
 // checked; the returned path is the one that actually contains the master.
-std::string ResolvePickedDataDir(bethesda::Game game, const std::string& picked) {
+base::String ResolvePickedDataDir(bethesda::Game game, const base::String& picked) {
   const auto& profile = bethesda::GameProfile::For(game);
   if (profile.base_masters.empty()) return picked;  // unknown game: accept as-is
-  const std::string master(profile.base_masters[0].c_str());
+  const base::String master(profile.base_masters[0].c_str());
   std::error_code ec;
-  if (fs::exists(fs::path(picked) / master, ec)) return picked;
-  const fs::path data = fs::path(picked) / "Data";
-  if (fs::exists(data / master, ec)) return data.string();
+  if (fs::exists(fs::path(picked.c_str()) / master.c_str(), ec)) return picked;
+  const fs::path data = fs::path(picked.c_str()) / "Data";
+  if (fs::exists(data / master.c_str(), ec)) return data.string();
   return "";
 }
 
@@ -149,7 +152,7 @@ std::string ResolvePickedDataDir(bethesda::Game game, const std::string& picked)
 // reads config_.extra_domains). Safe to call even when no setup.ini exists.
 void LoadSetupConfig(Engine& engine) {
   Engine* const self = &engine;
-  const std::map<std::string, std::string> kv = ReadIni();
+  const base::Map<base::String, base::String> kv = ReadIni();
   if (kv.empty()) return;
   for (const GameSpec& spec : kGameSpecs) {
     const auto it = kv.find(spec.key);
@@ -190,7 +193,7 @@ namespace {
 // Persist the wizard's choices and the done marker that suppresses it on later
 // launches. data_dirs holds each column's located path ("" if not found); the
 // privileged caller (Engine::UpdateFirstRun) gathers it from menu_universes_.
-void WriteSetupIni(const std::array<std::string, 3>& data_dirs, const std::string& mods_dir,
+void WriteSetupIni(const base::Array<base::String, 3>& data_dirs, const base::String& mods_dir,
                    const FirstRunRequest& r) {
   std::error_code ec;
   fs::create_directories(SetupDir(), ec);
@@ -201,8 +204,8 @@ void WriteSetupIni(const std::array<std::string, 3>& data_dirs, const std::strin
   }
   f << "done=1\n";
   for (int i = 0; i < 3; ++i)
-    if (!data_dirs[i].empty()) f << kGameSpecs[i].key << "=" << data_dirs[i] << "\n";
-  f << "mods_dir=" << (mods_dir.empty() ? DefaultModsDir() : mods_dir) << "\n";
+    if (!data_dirs[i].empty()) f << kGameSpecs[i].key << "=" << data_dirs[i].c_str() << "\n";
+  f << "mods_dir=" << (mods_dir.empty() ? DefaultModsDir() : mods_dir).c_str() << "\n";
   f << "default_mode=" << r.mode << "\n";
   f << "difficulty=" << r.difficulty << "\n";
   f << "enable_mods=" << (r.enable_mods ? 1 : 0) << "\n";
@@ -219,10 +222,10 @@ void Engine::UpdateFirstRun(f32 dt) {
 
   // Validate a picked folder to game `idx`'s Data dir and mark it available.
   // Shared by the browse click and the auto-browse test hook below.
-  auto accept_folder = [this](int idx, const std::string& picked) {
+  auto accept_folder = [this](int idx, const base::String& picked) {
     if (idx < 0 || idx >= 3 || picked.empty()) return;
     MenuUniverse& u = menu_universes_[idx];
-    const std::string data = ResolvePickedDataDir(u.game, picked);
+    const base::String data = ResolvePickedDataDir(u.game, picked);
     if (data.empty()) {
       RX_WARN("first-run: {} not found under {}", u.name, picked);
       return;
@@ -275,14 +278,14 @@ void Engine::UpdateFirstRun(f32 dt) {
       break;
     }
     case FirstRunRequest::Kind::kBrowseMods: {
-      const std::string p = PickFolder("Choose the Recreation mods directory");
+      const base::String p = PickFolder("Choose the Recreation mods directory");
       if (!p.empty()) first_run_mods_dir_ = p;
       break;
     }
     case FirstRunRequest::Kind::kLaunch: {
       // Fold the located universes into config_.extra_domains so the SetupMainMenu
       // that follows re-resolves to the same paths, and gather them for the ini.
-      std::array<std::string, 3> data_dirs;
+      base::Array<base::String, 3> data_dirs;
       for (int i = 0; i < 3; ++i) {
         const MenuUniverse& u = menu_universes_[i];
         if (!u.available || u.data_dir.empty()) continue;

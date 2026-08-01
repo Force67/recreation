@@ -1,11 +1,11 @@
 #ifndef RECREATION_MODSTREAM_STREAM_FILTER_H_
 #define RECREATION_MODSTREAM_STREAM_FILTER_H_
 
-#include <filesystem>
-#include <string>
-#include <string_view>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
+#include <filesystem>
 namespace rx::modstream {
 
 // A per-resource deny list controlling which files reach clients, so server-only
@@ -22,22 +22,22 @@ class StreamFilter {
   StreamFilter() = default;
 
   // Parses the contents of a `.streamignore`.
-  static StreamFilter Parse(std::string_view text);
+  static StreamFilter Parse(base::StringRef text);
 
   // Loads and parses `path`, or returns an empty filter if it does not exist.
   static StreamFilter FromFile(const std::filesystem::path& path);
 
   // True if a file at this normalized resource-relative path must not be streamed.
-  bool Excludes(std::string_view normalized_rel_path) const;
+  bool Excludes(base::StringRef normalized_rel_path) const;
 
   bool empty() const {
     return dir_prefixes_.empty() && exact_paths_.empty() && ext_suffixes_.empty();
   }
 
  private:
-  std::vector<std::string> dir_prefixes_;  // e.g. "server/"
-  std::vector<std::string> exact_paths_;   // e.g. "secrets.cfg"
-  std::vector<std::string> ext_suffixes_;  // e.g. ".bak"
+  base::Vector<base::String> dir_prefixes_;  // e.g. "server/"
+  base::Vector<base::String> exact_paths_;   // e.g. "secrets.cfg"
+  base::Vector<base::String> ext_suffixes_;  // e.g. ".bak"
 };
 
 }  // namespace rx::modstream

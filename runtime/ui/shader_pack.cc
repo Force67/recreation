@@ -1,7 +1,10 @@
 #include "runtime/ui/shader_pack.h"
 
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
-#include <string>
 
 #include "core/log.h"
 
@@ -12,15 +15,14 @@ asset::Vfs* g_vfs = nullptr;
 
 void SetVfs(asset::Vfs* vfs) { g_vfs = vfs; }
 
-base::Vector<u8> Load(std::string_view stem, const void* fallback,
-                      size_t fallback_size) {
+base::Vector<u8> Load(base::StringRef stem, const void* fallback, size_t fallback_size) {
   if (g_vfs) {
-    std::string path = "shaders://";
+    base::String path = "shaders://";
     path.append(stem);
     path.append(".spv");
     if (auto bytes = g_vfs->Read(path)) {
       RX_TRACE("shader {} loaded from {} ({} bytes)", stem, path, bytes->size());
-      return std::move(*bytes);
+      return base::move(*bytes);
     }
   }
   // No archive mounted, or the entry is absent: hand back the embedded blob.

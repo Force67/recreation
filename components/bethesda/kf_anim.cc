@@ -1,11 +1,12 @@
 #include "components/bethesda/kf_anim.h"
 
-#include <cmath>
-#include <cstring>
-#include <string>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
+#include <cmath>
+#include <cstring>
 
 #include "components/bethesda/nif.h"
 #include "core/log.h"
@@ -70,9 +71,11 @@ bool ReadTransformData(Reader& r, TransformKeys* out) {
       if (!r.ok || count > (1u << 20)) return false;
       u32 type = count > 0 ? r.Read<u32>() : 1;
       for (u32 i = 0; i < count; ++i) {
-        r.Skip(8);                        // time + value
-        if (type == 2) r.Skip(8);         // quadratic tangents
-        else if (type == 3) r.Skip(12);   // tbc
+        r.Skip(8);  // time + value
+        if (type == 2)
+          r.Skip(8);  // quadratic tangents
+        else if (type == 3)
+          r.Skip(12);  // tbc
       }
     }
   } else {
@@ -102,8 +105,10 @@ bool ReadTransformData(Reader& r, TransformKeys* out) {
     key.p[0] = r.Read<f32>();
     key.p[1] = r.Read<f32>();
     key.p[2] = r.Read<f32>();
-    if (pos_type == 2) r.Skip(24);       // in/out tangents
-    else if (pos_type == 3) r.Skip(12);  // tbc
+    if (pos_type == 2)
+      r.Skip(24);  // in/out tangents
+    else if (pos_type == 3)
+      r.Skip(12);  // tbc
     if (!r.ok) return false;
     out->pos.push_back(key);
   }
@@ -190,13 +195,13 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   u32 block_count = static_cast<u32>(header->block_sizes.size());
   if (block_count == 0) return false;
 
-  auto block_type = [&](u32 index) -> const std::string& {
+  auto block_type = [&](u32 index) -> const base::String& {
     return header->block_types[header->block_type_index[index]];
   };
   auto block_reader = [&](u32 index) {
     return Reader{data.subspan(header->block_offsets[index], header->block_sizes[index])};
   };
-  auto string_at = [&](i32 index) -> std::string {
+  auto string_at = [&](i32 index) -> base::String {
     if (index < 0 || static_cast<u32>(index) >= header->strings.size()) return {};
     return header->strings[index];
   };
@@ -206,7 +211,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   base::UnorderedMap<u32, u32> basis_counts;
   base::UnorderedMap<u32, TransformKeys> transform_data;
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = block_type(i);
+    const base::String& type = block_type(i);
     if (type == "NiBSplineData") {
       Reader r = block_reader(i);
       BSplineData out_data;
@@ -218,7 +223,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
       if (!r.ok || short_count > (1u << 24)) continue;
       out_data.shorts.reserve(short_count);
       for (u32 s = 0; s < short_count && r.ok; ++s) out_data.shorts.push_back(r.Read<i16>());
-      if (r.ok) spline_data.emplace(i, std::move(out_data));
+      if (r.ok) spline_data.emplace(i, base::move(out_data));
     } else if (type == "NiBSplineBasisData") {
       Reader r = block_reader(i);
       u32 count = r.Read<u32>();
@@ -226,7 +231,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     } else if (type == "NiTransformData" || type == "NiKeyframeData") {
       Reader r = block_reader(i);
       TransformKeys keys;
-      if (ReadTransformData(r, &keys)) transform_data.emplace(i, std::move(keys));
+      if (ReadTransformData(r, &keys)) transform_data.emplace(i, base::move(keys));
     }
   }
 
@@ -234,7 +239,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   base::UnorderedMap<u32, BSplineInterp> bspline_interps;
   base::UnorderedMap<u32, i32> transform_interps;  // block -> NiTransformData block
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = block_type(i);
+    const base::String& type = block_type(i);
     if (type == "NiBSplineCompTransformInterpolator") {
       Reader r = block_reader(i);
       BSplineInterp interp;
@@ -290,13 +295,13 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   for (u32 i = 0; i < controlled_count; ++i) {
     ControlledBlock block;
     block.interpolator = r.Read<i32>();
-    r.Skip(4);           // controller ref
-    r.Skip(1);           // priority
+    r.Skip(4);  // controller ref
+    r.Skip(1);  // priority
     block.node_name = r.Read<i32>();
-    r.Skip(4);           // property type
-    r.Skip(4);           // controller type
-    r.Skip(4);           // controller id
-    r.Skip(4);           // interpolator id
+    r.Skip(4);  // property type
+    r.Skip(4);  // controller type
+    r.Skip(4);  // controller id
+    r.Skip(4);  // interpolator id
     if (!r.ok) return false;
     controlled.push_back(block);
   }
@@ -321,7 +326,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
   if (sample_count > 4096) sample_count = 4096;
 
   for (const ControlledBlock& block : controlled) {
-    std::string bone_name = string_at(block.node_name);
+    base::String bone_name = string_at(block.node_name);
     if (bone_name.empty()) continue;
     i32 bone = skeleton.Find(bone_name);
     if (bone < 0) continue;  // the clip drives a bone this skeleton lacks
@@ -332,12 +337,12 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     track.bone = bone;
 
     if (const BSplineInterp* interp = bspline_interps.find(interp_block)) {
-      const BSplineData* curve =
-          interp->spline_data >= 0 ? spline_data.find(static_cast<u32>(interp->spline_data))
-                                   : nullptr;
-      const u32* control_count =
-          interp->basis_data >= 0 ? basis_counts.find(static_cast<u32>(interp->basis_data))
-                                  : nullptr;
+      const BSplineData* curve = interp->spline_data >= 0
+                                     ? spline_data.find(static_cast<u32>(interp->spline_data))
+                                     : nullptr;
+      const u32* control_count = interp->basis_data >= 0
+                                     ? basis_counts.find(static_cast<u32>(interp->basis_data))
+                                     : nullptr;
       if (!curve || !control_count) continue;
       bool has_rot = interp->rotation_offset != kNoOffset;
       bool has_pos = interp->translation_offset != kNoOffset;
@@ -386,7 +391,7 @@ bool ConvertKfAnimation(ByteSpan data, asset::AssetId id, const asset::Skeleton&
     if (bone_name == "Bip01" || bone_name == "Bip01 NonAccum") track.pos.clear();
 
     if (track.rot.empty() && track.pos.empty()) continue;
-    out->tracks.push_back(std::move(track));
+    out->tracks.push_back(base::move(track));
   }
 
   if (out->tracks.empty()) {

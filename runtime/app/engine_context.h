@@ -1,10 +1,10 @@
 #ifndef RECREATION_RUNTIME_APP_ENGINE_CONTEXT_H_
 #define RECREATION_RUNTIME_APP_ENGINE_CONTEXT_H_
 
-#include <functional>
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
+#include <functional>
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
@@ -43,16 +43,16 @@ struct ActionState;  // core/input_actions.h; resolved device-agnostic input
 // Skyrim and Fallout 4 content stay live in one process at the same time.
 struct ExtraDomainConfig {
   bethesda::Game game = bethesda::Game::kUnknown;  // kUnknown = autodetect
-  std::string data_dir;
-  std::string plugins_txt;
+  base::String data_dir;
+  base::String plugins_txt;
 };
 
 struct EngineConfig {
-  std::string data_dir;
-  std::string plugins_txt;
+  base::String data_dir;
+  base::String plugins_txt;
   base::Vector<ExtraDomainConfig> extra_domains;
-  std::string gltf_path;  // standalone gltf/glb scene (e.g. sponza)
-  std::string demo_scene;  // "water" = empty map with a water sheet
+  base::String gltf_path;   // standalone gltf/glb scene (e.g. sponza)
+  base::String demo_scene;  // "water" = empty map with a water sheet
   // Open the NEXUS main menu instead of loading content directly; the player
   // picks a universe there and the engine loads it on demand (EnterUniverse).
   // Defaults on for a bare windowed launch with no content source.
@@ -69,7 +69,7 @@ struct EngineConfig {
   bool start_cell_explicit = false;
   // Interior cell to load instead of streaming the exterior worldspace.
   // Editor id ("WhiterunBanneredMare") or a hex load order form id ("0x...").
-  std::string interior;
+  base::String interior;
   f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
   // Cap on quest scripts instantiated at load (0 = all). The quest browser
   // lists what's attached; the default attaches every scripted quest.
@@ -81,17 +81,17 @@ struct EngineConfig {
   bool headless = false;
   bool host_server = false;
   u16 port = 29700;
-  std::string connect_address;
-  std::string player_name = "player";
+  base::String connect_address;
+  base::String player_name = "player";
   u32 max_clients = 64;
   // Server: directory of streamable UGC resources (FiveM-style). Each immediate
   // subdirectory is a resource catalogued and offered to joining clients. Empty
   // leaves asset streaming off.
-  std::string mods_dir;
+  base::String mods_dir;
   // Client: where streamed mod content is cached, content-addressed. Empty falls
   // back to "recreation_asset_cache" beside the working directory. A connecting
   // client always streams the host's mods into this cache.
-  std::string asset_cache_dir;
+  base::String asset_cache_dir;
 };
 
 // A dynamic physics body mirrored into an ECS transform after each step.

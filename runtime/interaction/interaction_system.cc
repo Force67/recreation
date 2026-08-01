@@ -1,11 +1,13 @@
 #include "runtime/interaction/interaction_system.h"
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iterator>
-#include <string>
-#include <vector>
 
 #include "runtime/actor/actor_system.h"
 #include "components/bethesda/script_attachment.h"
@@ -39,7 +41,7 @@ void InteractionSystem::SyncHud() {
   // Mark the highlighted option with a caret so the pad/keyboard selection is
   // visible (matches the journal's tracked-quest caret convention).
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
-    const std::string& line = dialogue_session_.options[i].player_line;
+    const base::String& line = dialogue_session_.options[i].player_line;
     dv.options.push_back(static_cast<int>(i) == dialogue_session_.selected ? "▶ " + line : line);
   }
   game_ui_.SetDialogue(dv);
@@ -52,7 +54,7 @@ void InteractionSystem::SyncHud() {
   game_ui_.SetContainer(cv);
 }
 
-std::string InteractionSystem::RecordName(bethesda::GlobalFormId id) {
+base::String InteractionSystem::RecordName(bethesda::GlobalFormId id) {
   bethesda::Record record;
   if (!records_.Parse(id, &record)) return {};
   const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L'));
@@ -62,12 +64,12 @@ std::string InteractionSystem::RecordName(bethesda::GlobalFormId id) {
   if (full->data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, full->data.data(), 4);
-    if (const base::String* s = strings_.Find(string_id)) return std::string(s->c_str());
+    if (const base::String* s = strings_.Find(string_id)) return base::String(s->c_str());
   }
   return record.GetString(FourCc('F', 'U', 'L', 'L'));
 }
 
-std::string InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
+base::String InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
   // The carriage is a synthetic (record-less) ref; its prompt comes from the
   // carriage system, not the record store.
   if (ctx_.carriage_label)
@@ -79,8 +81,8 @@ std::string InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
 
   // The placed reference points at its base object through NAME; the base
   // carries the displayed name and the type that picks the verb.
-  std::string verb = "Activate";
-  std::string name;
+  base::String verb = "Activate";
+  base::String name;
   if (const bethesda::Subrecord* nm = record.Find(FourCc('N', 'A', 'M', 'E'));
       nm && nm->data.size() >= 4) {
     u32 raw;
@@ -110,7 +112,6 @@ std::string InteractionSystem::ActivationLabel(bethesda::GlobalFormId refr) {
           break;
         default:
           break;
-
       }
       name = RecordName(base);
     }
@@ -267,7 +268,7 @@ void InteractionSystem::OpenDialogue(u64 npc) {
               i32 priority;
               bool keyed;
             };
-            std::vector<Scored> candidates;
+            base::Vector<Scored> candidates;
             for (const quest::QuestStatus& q : binds->quest_system().AllStatuses()) {
               if (!q.running) continue;
               for (dialogue::Handle dial : dialogue_.TopicsForQuest(q.handle)) {
@@ -286,7 +287,7 @@ void InteractionSystem::OpenDialogue(u64 npc) {
                   opt.info = r.info;
                   opt.quest = q.handle;
                   opt.fragment_function = r.fragment_function;
-                  candidates.push_back({std::move(opt), t.priority, fit == SpeakerFit::kKeyed});
+                  candidates.push_back({base::move(opt), t.priority, fit == SpeakerFit::kKeyed});
                 }
               }
             }
@@ -299,7 +300,7 @@ void InteractionSystem::OpenDialogue(u64 npc) {
             constexpr size_t kMaxOptions = 4;  // the dialogue panel shows four rows
             for (Scored& c : candidates) {
               if (s.options.size() >= kMaxOptions) break;
-              s.options.push_back(std::move(c.opt));
+              s.options.push_back(base::move(c.opt));
             }
             return s;
           })
@@ -358,7 +359,7 @@ void InteractionSystem::RunInfoFragment(u64 info, u64 owning_quest) {
   // instance + seeds properties the first time), register the topic's quest so
   // GetOwningQuest() resolves, then run the begin fragment on it.
   ctx_.scripts->AttachScripts(info, attachment);
-  const std::string fn = frags.begin.function;
+  const base::String fn = frags.begin.function;
   auto* binds = ctx_.bindings;
   ctx_.scripts->guest().Submit(
       [binds, info, owning_quest, fn](script::papyrus::VirtualMachine& vm) {
@@ -414,7 +415,7 @@ void InteractionSystem::RaiseActivate(u64 handle) {
       command.op = world::WorldOp::kSetOpen;
       command.handle = handle;
       command.enabled = !door->open;
-      const std::vector<world::WorldCommand> commands{command};
+      const base::Vector<world::WorldCommand> commands{command};
       quest_world_.Apply(commands);
 #if RECREATION_HAS_NET
       if (ctx_.server_session) ctx_.server_session->SendWorldCommands(commands);
@@ -458,10 +459,10 @@ bool InteractionSystem::AttachReferenceScripts(u64 handle) {
       if (!ctx_.streamer) return resolved;
       const bethesda::GlobalFormId source_id{static_cast<u16>(resolved >> 32),
                                              static_cast<u32>(resolved)};
-      const u64 runtime = instance_children
-                              ? ctx_.streamer->RuntimeHandleForInstanceChild(world_, handle,
-                                                                             source_id)
-                              : ctx_.streamer->RuntimeHandleForSource(world_, handle, source_id);
+      const u64 runtime =
+          instance_children
+              ? ctx_.streamer->RuntimeHandleForInstanceChild(world_, handle, source_id)
+              : ctx_.streamer->RuntimeHandleForSource(world_, handle, source_id);
       if (ctx_.bindings) ctx_.bindings->SetRuntimeForm(handle, resolved, runtime);
       return runtime;
     };
@@ -709,9 +710,9 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
     ci.count = count;
     ci.name = RecordName(item);
     if (ci.name.empty()) ci.name = "(item)";
-    s.items.push_back(std::move(ci));
+    s.items.push_back(base::move(ci));
   }
-  container_session_ = std::move(s);
+  container_session_ = base::move(s);
   RX_INFO("container: opened '{}' ({} items)", container_session_.name,
           container_session_.items.size());
   return true;

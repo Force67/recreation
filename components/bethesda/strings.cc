@@ -1,24 +1,24 @@
 #include "components/bethesda/strings.h"
 
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "core/log.h"
 
 namespace rx::bethesda {
 
-bool StringTable::Load(const asset::Vfs& vfs, const std::string& plugin_name,
-                       const std::string& language, u16 plugin) {
-  std::string base = plugin_name.substr(0, plugin_name.rfind('.'));
-  std::string prefix = "strings/" + base + "_" + language;
+bool StringTable::Load(const asset::Vfs& vfs, const base::String& plugin_name,
+                       const base::String& language, u16 plugin) {
+  base::String base = plugin_name.substr(0, plugin_name.rfind('.'));
+  base::String prefix = "strings/" + base + "_" + language;
   bool any = LoadFile(vfs, prefix + ".strings", false, plugin);
   any |= LoadFile(vfs, prefix + ".dlstrings", true, plugin);
   any |= LoadFile(vfs, prefix + ".ilstrings", true, plugin);
   return any;
 }
 
-const base::String* StringTable::Find(u32 string_id) const {
-  return strings_.find(string_id);
-}
+const base::String* StringTable::Find(u32 string_id) const { return strings_.find(string_id); }
 
 const base::String* StringTable::Find(u32 string_id, u16 plugin) const {
   if (plugin != kAnyPlugin)
@@ -27,7 +27,7 @@ const base::String* StringTable::Find(u32 string_id, u16 plugin) const {
   return strings_.find(string_id);
 }
 
-bool StringTable::LoadFile(const asset::Vfs& vfs, const std::string& path, bool length_prefixed,
+bool StringTable::LoadFile(const asset::Vfs& vfs, const base::String& path, bool length_prefixed,
                            u16 plugin) {
   auto bytes = vfs.Read(path);
   if (!bytes || bytes->size() < 8) return false;

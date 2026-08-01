@@ -1,8 +1,8 @@
 #ifndef RECREATION_RUNTIME_APP_CONTENT_DOMAIN_H_
 #define RECREATION_RUNTIME_APP_CONTENT_DOMAIN_H_
 
-#include <memory>
-#include <string>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
@@ -39,7 +39,7 @@ class ContentDomain {
   // bindings + guest VM. replica_mode marks a multiplayer client whose scripts
   // must not mutate authoritative state. Returns false if the data is missing
   // or no supported game is present.
-  bool Load(bethesda::Game game, const std::string& data_dir, const std::string& plugins_txt,
+  bool Load(bethesda::Game game, const base::String& data_dir, const base::String& plugins_txt,
             bool replica_mode);
 
   // Instantiates every quest with a Papyrus script so the domain's microvm runs
@@ -54,30 +54,34 @@ class ContentDomain {
 
   bethesda::Game game() const { return game_; }
   const bethesda::GameProfile& profile() const { return *profile_; }
-  const std::string& data_dir() const { return data_dir_; }
+  const base::String& data_dir() const { return data_dir_; }
 
   asset::Vfs& vfs() { return vfs_; }
   asset::AssetDatabase& assets() { return *assets_; }
   bethesda::RecordStore& records() { return records_; }
   bethesda::StringTable& strings() { return strings_; }
   dialogue::DialogueDb& dialogue() { return dialogue_; }
-  script::skyrim::RecordBackedSkyrimBindings* bindings() { return bindings_.get(); }
-  script::ScriptSystem* scripts() { return scripts_.get(); }
+  // base::UniquePointer has no get(); the address of the pointee is the
+  // non-owning handle callers want.
+  script::skyrim::RecordBackedSkyrimBindings* bindings() {
+    return bindings_ ? &*bindings_ : nullptr;
+  }
+  script::ScriptSystem* scripts() { return scripts_ ? &*scripts_ : nullptr; }
 
  private:
   bethesda::Game game_ = bethesda::Game::kUnknown;
   const bethesda::GameProfile* profile_ = nullptr;
-  std::string data_dir_;
+  base::String data_dir_;
 
   asset::Vfs vfs_;
-  std::unique_ptr<asset::AssetDatabase> assets_;
+  base::UniquePointer<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   bethesda::StringTable strings_;
   dialogue::DialogueDb dialogue_;
   // bindings_ before scripts_: the guest thread (which calls the bindings) is
   // joined in ScriptSystem's destructor before the bindings are torn down.
-  std::unique_ptr<script::skyrim::RecordBackedSkyrimBindings> bindings_;
-  std::unique_ptr<script::ScriptSystem> scripts_;
+  base::UniquePointer<script::skyrim::RecordBackedSkyrimBindings> bindings_;
+  base::UniquePointer<script::ScriptSystem> scripts_;
 };
 
 }  // namespace rx

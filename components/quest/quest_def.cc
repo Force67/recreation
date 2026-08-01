@@ -1,5 +1,8 @@
 #include "components/quest/quest_def.h"
 
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "components/bethesda/record.h"
@@ -13,18 +16,18 @@ namespace {
 // Resolves a localized string subrecord: a 4-byte string id in a localized
 // plugin, inline zero-terminated text otherwise. Mirrors the binding's FULL
 // handling so quest text reads identically.
-std::string ResolveLString(const bethesda::Subrecord& sub, const bethesda::StringTable* strings) {
+base::String ResolveLString(const bethesda::Subrecord& sub, const bethesda::StringTable* strings) {
   if (strings && sub.data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, sub.data.data(), 4);
-    if (const base::String* s = strings->Find(string_id)) return std::string(s->c_str());
+    if (const base::String* s = strings->Find(string_id)) return base::String(s->c_str());
   }
   // Inline text: bytes up to the terminator.
   const char* p = reinterpret_cast<const char*>(sub.data.data());
   size_t n = sub.data.size();
   size_t len = 0;
   while (len < n && p[len] != '\0') ++len;
-  return std::string(p, len);
+  return base::String(p, len);
 }
 
 template <typename T>
@@ -115,8 +118,7 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
       case kDnam:
         // DNAM: flags(u16), priority(u8), ... Priority sits at byte offset 2; the
         // low flag bit (0x01) is Start Game Enabled.
-        if (sub.data.size() >= 2)
-          def.start_game_enabled = (sub.data.data()[0] & 0x01) != 0;
+        if (sub.data.size() >= 2) def.start_game_enabled = (sub.data.data()[0] & 0x01) != 0;
         if (sub.data.size() >= 3) def.priority = sub.data.data()[2];
         break;
       case kIndx:
@@ -134,16 +136,17 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         for (const StageDef& existing : def.stages)
           if (existing.index == cur_stage) ++stage.entry;
         if (sub.data.size() >= 1) stage.complete_quest = (sub.data.data()[0] & 0x01) != 0;
-        def.stages.push_back(std::move(stage));
+        def.stages.push_back(base::move(stage));
         break;
       }
       case kCnam:
-        if (in_stage && !def.stages.empty()) def.stages.back().log_entry = ResolveLString(sub, strings);
+        if (in_stage && !def.stages.empty())
+          def.stages.back().log_entry = ResolveLString(sub, strings);
         break;
       case kQobj: {
         ObjectiveDef obj;
         obj.index = static_cast<i16>(ReadLe<u16>(sub));
-        def.objectives.push_back(std::move(obj));
+        def.objectives.push_back(base::move(obj));
         in_objective = true;
         in_stage = false;
         in_alias = false;
@@ -178,8 +181,7 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         }
         break;
       case kAlfr:
-        if (in_alias && !def.aliases.empty())
-          def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
+        if (in_alias && !def.aliases.empty()) def.aliases.back().forced_ref_raw = ReadLe<u32>(sub);
         break;
       case kAlua:
         if (in_alias && !def.aliases.empty())
@@ -193,20 +195,17 @@ QuestDef ParseQuestDefinition(u64 handle, const bethesda::Record& record,
         if (in_alias && !def.aliases.empty()) def.aliases.back().find_matching = true;
         break;
       case kAlrt:
-        if (in_alias && !def.aliases.empty())
-          def.aliases.back().ref_type_raw = ReadLe<u32>(sub);
+        if (in_alias && !def.aliases.empty()) def.aliases.back().ref_type_raw = ReadLe<u32>(sub);
         break;
       case kAlfi:
-        if (in_alias && !def.aliases.empty())
-          def.aliases.back().find_in_parent = ReadLe<i32>(sub);
+        if (in_alias && !def.aliases.empty()) def.aliases.back().find_in_parent = ReadLe<i32>(sub);
         break;
       case kAleq:
         if (in_alias && !def.aliases.empty())
           def.aliases.back().external_quest_raw = ReadLe<u32>(sub);
         break;
       case kAlea:
-        if (in_alias && !def.aliases.empty())
-          def.aliases.back().external_alias = ReadLe<i32>(sub);
+        if (in_alias && !def.aliases.empty()) def.aliases.back().external_alias = ReadLe<i32>(sub);
         break;
       case kAlpc:
         if (in_alias && !def.aliases.empty())

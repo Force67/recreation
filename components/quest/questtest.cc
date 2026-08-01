@@ -1,10 +1,11 @@
 // questtest: deterministic checks for the engine-side quest system and the
 // QUST definition parser. No game data needed, so it runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/record.h"
 #include "core/types.h"
@@ -12,6 +13,9 @@
 #include "components/quest/quest_system.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -26,7 +30,7 @@ void Check(const char* what, bool ok) {
 // Backing store for the synthetic record's subrecord spans; the spans point
 // into these buffers, so they must outlive the record.
 struct Buffers {
-  std::vector<std::vector<u8>> store;
+  base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
     if (n) std::memcpy(b.data(), p, n);
@@ -44,7 +48,7 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   bethesda::Subrecord sub;
   sub.type = type;
   sub.data = data;
-  r.subrecords.push_back(std::move(sub));
+  r.subrecords.push_back(base::move(sub));
 }
 
 // Builds an MQ101-shaped QUST record: a name, three stages (the last completes
@@ -184,8 +188,8 @@ void TestApplyRemote() {
   Check("client stage matches", client.GetStage(h) == 10);
   Check("client objective mirrored", client.IsObjectiveDisplayed(h, 10));
   QuestStatus cs = client.Status(h);
-  Check("client text resolved locally from def", cs.objectives.size() == 2 &&
-                                                     cs.objectives[0].text == "Escape Helgen Keep");
+  Check("client text resolved locally from def",
+        cs.objectives.size() == 2 && cs.objectives[0].text == "Escape Helgen Keep");
 }
 
 // Regressions for review findings: a remotely-applied complete bit must hold

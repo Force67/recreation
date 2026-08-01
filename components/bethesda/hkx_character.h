@@ -7,8 +7,8 @@
 // by index into this list, which is how root motion and trigger events from
 // the boundanims sidecars are keyed back to .hkx files on disk.
 
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/hkx.h"
 
@@ -16,7 +16,7 @@ namespace rx::bethesda {
 
 // animationNames from the first hkbCharacterStringData in the file
 // ("Animations\MT_WalkForward.hkx", ...). Empty when the file has none.
-std::vector<std::string> DecodeAnimationNames(const HkxFile& hkx);
+base::Vector<base::String> DecodeAnimationNames(const HkxFile& hkx);
 
 }  // namespace rx::bethesda
 

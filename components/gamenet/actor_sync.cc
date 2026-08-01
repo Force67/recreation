@@ -1,10 +1,11 @@
 #include "components/gamenet/actor_sync.h"
 
+#include <nanobuf.h>
+
 #include <cmath>
 #include <cstring>
 
-#include <nanobuf.h>
-
+#include "components/world/components.h"
 #include "net/replication.h"
 #include "components/world/components.h"
 
@@ -70,27 +71,26 @@ bool Changed(const ActorState& a, const ActorState& b) {
 std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors) {
   nanobuf::Writer writer;
   writer.Begin(/*fixed_len=*/6);
-  writer.PutOffsetList<ActorState>(/*slot=*/2, actors,
-                                   [](nanobuf::Writer& w, const ActorState& a) {
-                                     std::vector<u8> rec = EncodeRecord(a);
-                                     return w.HeapBytes(rec);
-                                   });
+  writer.PutOffsetList<ActorState>(/*slot=*/2, actors, [](nanobuf::Writer& w, const ActorState& a) {
+    std::vector<u8> rec = EncodeRecord(a);
+    return w.HeapBytes(rec);
+  });
   return writer.TakeBuffer();
 }
 
-std::optional<std::vector<ActorState>> DecodeActorStates(ByteSpan data) {
+base::Optional<base::Vector<ActorState>> DecodeActorStates(ByteSpan data) {
   std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
-  if (!view) return std::nullopt;
+  if (!view) return base::nullopt;
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
-  if (!records) return std::nullopt;
+  if (!records) return base::nullopt;
 
-  std::vector<ActorState> out;
+  base::Vector<ActorState> out;
   out.reserve(records->size());
   for (size_t i = 0; i < records->size(); ++i) {
     std::optional<nanobuf::BytesView> bytes = records->Get(i);
-    if (!bytes) return std::nullopt;
+    if (!bytes) return base::nullopt;
     ActorState a;
-    if (!DecodeRecord(bytes->data, bytes->size, &a)) return std::nullopt;
+    if (!DecodeRecord(bytes->data, bytes->size, &a)) return base::nullopt;
     out.push_back(a);
   }
   return out;
@@ -127,7 +127,7 @@ std::vector<ActorState> ActorReplicator::Build(const std::vector<ActorState>& sn
 }
 
 void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
-                      const std::vector<ActorState>& actors, f32 lerp_duration) {
+                      const base::Vector<ActorState>& actors, f32 lerp_duration) {
   for (const ActorState& a : actors) {
     ecs::Entity entity = registry.Find(a.form);
     if (!world.IsAlive(entity) || world.Has<world::Hidden>(entity) ||

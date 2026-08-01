@@ -1,6 +1,7 @@
 #include "runtime/actor/nav_bubble.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 
 #include "runtime/app/engine_context.h"
@@ -9,10 +10,10 @@
 namespace rx {
 namespace {
 
-constexpr f32 kBubbleRadius = 36.0f;   // meters of navmesh kept around the player
-constexpr f32 kDropRadius = 90.0f;     // tiles farther than this are released
-constexpr u32 kTilesPerTick = 3;       // time-sliced builds per Update
-constexpr u32 kRepathsPerTick = 4;     // corridor replans shared by all actors
+constexpr f32 kBubbleRadius = 36.0f;      // meters of navmesh kept around the player
+constexpr f32 kDropRadius = 90.0f;        // tiles farther than this are released
+constexpr u32 kTilesPerTick = 3;          // time-sliced builds per Update
+constexpr u32 kRepathsPerTick = 4;        // corridor replans shared by all actors
 constexpr f32 kEmptyRetrySeconds = 1.5f;  // recheck holes (cell streamed in late)
 constexpr f32 kAgentIdleSeconds = 6.0f;   // corridor state dropped after this
 
@@ -82,8 +83,8 @@ void NavBubble::BuildAround(const Vec3& focus) {
       missing.push_back({tx, tz, d2});
     }
   }
-  std::sort(missing.begin(), missing.end(),
-            [](const Want& a, const Want& b) { return a.dist2 < b.dist2; });
+  base::Sort(missing.begin(), missing.end(),
+             [](const Want& a, const Want& b) { return a.dist2 < b.dist2; });
 
   nav::SampleFn sampler = [this](f32 x, f32 z, nav::Sample& out) {
     return SampleTerrain(x, z, out);
@@ -139,9 +140,7 @@ void NavBubble::Update(const Vec3& focus, f32 dt) {
   }
 }
 
-bool NavBubble::Covers(const Vec3& pos) const {
-  return mesh_.ClampToWalkable(pos, 1.2f).valid();
-}
+bool NavBubble::Covers(const Vec3& pos) const { return mesh_.ClampToWalkable(pos, 1.2f).valid(); }
 
 Vec3 NavBubble::Step(u64 id, const Vec3& from, const Vec3& goal) {
   Agent& agent = agents_[id];

@@ -3,11 +3,13 @@
 // queries). Drives them through the native registry against a mock binding, so
 // it needs no game assets and asserts exact values.
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
@@ -20,6 +22,9 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using rx::script::papyrus::NativeFunction;
 using rx::script::papyrus::NativeRegistry;
 using rx::script::papyrus::ObjectRef;
@@ -33,23 +38,24 @@ class MockBindings : public SkyrimBindings {
  public:
   f32 game_time = 0.0f;
   f32 base_health = 0.0f;
-  std::vector<std::pair<ObjectRef, i32>> inventory;
-  std::vector<ObjectRef> list_forms;  // base FLST entries
+  base::Vector<base::Pair<ObjectRef, i32>> inventory;
+  base::Vector<ObjectRef> list_forms;  // base FLST entries
   i32 crime_gold = 0;
-  std::vector<std::pair<ObjectRef, bool>> effects;  // (effect, detrimental) for the item under test
+  base::Vector<base::Pair<ObjectRef, bool>>
+      effects;  // (effect, detrimental) for the item under test
   ObjectRef last_played;
   i32 voice_id = 7;
   ObjectRef follow_actor;
   bool following = false;
 
   f32 GetCurrentGameTime() override { return game_time; }
-  f32 GetGameSettingFloat(const std::string&) override { return 42.7f; }
-  f32 GetBaseActorValue(ObjectRef, const std::string&) override { return base_health; }
+  f32 GetGameSettingFloat(const base::String&) override { return 42.7f; }
+  f32 GetBaseActorValue(ObjectRef, const base::String&) override { return base_health; }
   i32 GetCrimeGold(ObjectRef) override { return crime_gold; }
   i32 GetMagicEffectCount(ObjectRef) override { return static_cast<i32>(effects.size()); }
   ObjectRef GetNthMagicEffectId(i32 index) override {
     return index >= 0 && index < static_cast<i32>(effects.size()) ? effects[index].first
-                                                                   : ObjectRef{};
+                                                                  : ObjectRef{};
   }
   bool GetMagicEffectDetrimental(ObjectRef effect) override {
     for (const auto& [e, det] : effects)
@@ -92,7 +98,7 @@ class MockBindings : public SkyrimBindings {
   i32 GetNumItems(ObjectRef) override { return static_cast<i32>(inventory.size()); }
   ObjectRef GetNthForm(ObjectRef, i32 index) override {
     return index >= 0 && index < static_cast<i32>(inventory.size()) ? inventory[index].first
-                                                                     : ObjectRef{};
+                                                                    : ObjectRef{};
   }
   i32 GetItemCount(ObjectRef, ObjectRef item) override {
     for (const auto& [form, count] : inventory)
@@ -121,11 +127,11 @@ int main() {
     std::printf("  %-44s %s\n", what, ok ? "ok" : "FAIL");
     if (!ok) ++failures;
   };
-  auto callOn = [&](ObjectRef self, const char* type, const char* fn, std::vector<Value> args) {
+  auto callOn = [&](ObjectRef self, const char* type, const char* fn, base::Vector<Value> args) {
     const NativeFunction* f = reg.Find(type, fn);
     return f ? (*f)(vm, self, args) : Value();
   };
-  auto call = [&](const char* type, const char* fn, std::vector<Value> args) {
+  auto call = [&](const char* type, const char* fn, base::Vector<Value> args) {
     return callOn(ObjectRef{0x14}, type, fn, args);
   };
   auto near = [](f32 a, f32 b) { return std::fabs(a - b) < 0.001f; };
@@ -169,10 +175,13 @@ int main() {
   // FormList: base record entries plus a runtime addition.
   ObjectRef list{0x300}, formA{0x301}, formB{0x302}, runtime{0x303};
   bindings.list_forms = {formA, formB};
-  auto on = [&](const char* fn, std::vector<Value> args) { return callOn(list, "FormList", fn, args); };
+  auto on = [&](const char* fn, base::Vector<Value> args) {
+    return callOn(list, "FormList", fn, args);
+  };
   check("FormList base size", on("GetSize", {}).ToInt() == 2);
   check("FormList base HasForm", on("HasForm", {Value::Object(formA)}).ToBool());
-  check("FormList GetAt reads record", on("GetAt", {Value::Int(1)}).as_object().handle == formB.handle);
+  check("FormList GetAt reads record",
+        on("GetAt", {Value::Int(1)}).as_object().handle == formB.handle);
   check("FormList Find returns index", on("Find", {Value::Object(formB)}).ToInt() == 1);
   on("AddForm", {Value::Object(runtime)});
   check("FormList size includes runtime add", on("GetSize", {}).ToInt() == 3);
@@ -223,8 +232,9 @@ int main() {
   bindings.linked_ref = door;
   bindings.parent_cell = hall;
   check("GetLinkedRef returns the binding's linked ref",
-        callOn(lever, "ObjectReference", "GetLinkedRef", {Value::Object(openKw)}).as_object().handle ==
-            door.handle);
+        callOn(lever, "ObjectReference", "GetLinkedRef", {Value::Object(openKw)})
+                .as_object()
+                .handle == door.handle);
   check("GetLinkedRef forwards the keyword", bindings.linked_keyword.handle == openKw.handle);
   check("GetParentCell returns the binding's cell",
         callOn(door, "ObjectReference", "GetParentCell", {}).as_object().handle == hall.handle);
@@ -268,8 +278,7 @@ int main() {
   // Actor.IsRunning routes to the binding.
   bindings.actor_running = true;
   check("IsRunning returns the binding result", call("Actor", "IsRunning", {}).ToBool());
-  check("IsRunning queries self",
-        bindings.running_actor.handle == 0x14);
+  check("IsRunning queries self", bindings.running_actor.handle == 0x14);
 
   // Alias.GetOwningQuest unpacks the quest from the alias handle.
   ObjectRef alias{rx::script::papyrus::EncodeAliasHandle(0xABC, 4)};
@@ -282,11 +291,11 @@ int main() {
   // a string argument. The guest binds these in its constructor.
   {
     rx::script::PapyrusGuest guest(rx::bethesda::Game::kSkyrimSe);
-    std::vector<std::pair<std::string, std::string>> cmds;
+    base::Vector<base::Pair<base::String, base::String>> cmds;
     guest.set_on_debug_command(
-        [&](const std::string& verb, const std::string& arg) { cmds.emplace_back(verb, arg); });
+        [&](const base::String& verb, const base::String& arg) { cmds.emplace_back(verb, arg); });
     VirtualMachine gvm(&guest.natives());
-    auto dbg = [&](const char* fn, std::vector<Value> a) {
+    auto dbg = [&](const char* fn, base::Vector<Value> a) {
       const NativeFunction* f = guest.natives().Find("Debug", fn);
       if (f) (*f)(gvm, ObjectRef{0x14}, a);
     };
@@ -295,7 +304,8 @@ int main() {
     dbg("ToggleMenus", {});
     dbg("SetGodMode", {Value::Bool(true)});
     check("QuitGame routes as a command", !cmds.empty() && cmds[0].first == "QuitGame");
-    check("TakeScreenshot routes as a command", cmds.size() > 1 && cmds[1].first == "TakeScreenshot");
+    check("TakeScreenshot routes as a command",
+          cmds.size() > 1 && cmds[1].first == "TakeScreenshot");
     check("ToggleMenus routes as a command", cmds.size() > 2 && cmds[2].first == "ToggleMenus");
     check("SetGodMode forwards its bool argument",
           cmds.size() > 3 && cmds[3].first == "SetGodMode" && cmds[3].second == "1");
@@ -312,8 +322,8 @@ int main() {
     check("game-time timers registered on every timer type", all_registered);
     const NativeFunction* sched = guest.natives().Find("Form", "RegisterForSingleUpdateGameTime");
     const NativeFunction* cancel = guest.natives().Find("Form", "UnregisterForUpdateGameTime");
-    std::vector<Value> two_hours = {Value::Float(2.0f)};
-    std::vector<Value> none_args;
+    base::Vector<Value> two_hours = {Value::Float(2.0f)};
+    base::Vector<Value> none_args;
     (*sched)(gvm, ObjectRef{0x42}, two_hours);
     (*cancel)(gvm, ObjectRef{0x42}, none_args);
     check("game-time schedule and cancel run without error", true);
@@ -328,7 +338,8 @@ int main() {
                              "RegisterForSingleLOSLost", "UnregisterForLOS"})
         los_registered = los_registered && guest.natives().Find(t, fn) != nullptr;
     check("line-of-sight watches registered on every type", los_registered);
-    std::vector<Value> watch_args = {Value::Object(ObjectRef{0x50}), Value::Object(ObjectRef{0x51})};
+    base::Vector<Value> watch_args = {Value::Object(ObjectRef{0x50}),
+                                      Value::Object(ObjectRef{0x51})};
     (*guest.natives().Find("Form", "RegisterForLOS"))(gvm, ObjectRef{0x52}, watch_args);
     (*guest.natives().Find("Form", "UnregisterForLOS"))(gvm, ObjectRef{0x52}, watch_args);
     check("line-of-sight register and unregister run without error", true);

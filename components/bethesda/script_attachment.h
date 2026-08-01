@@ -1,9 +1,10 @@
 #ifndef RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_
 #define RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <vector>
 
 #include "core/types.h"
 
@@ -21,33 +22,33 @@ struct ScriptObjectValue {
 };
 
 struct ScriptProperty {
-  std::string name;
+  base::String name;
   u8 type = 0;  // 1 object, 2 string, 3 int, 4 float, 5 bool, 11-15 arrays
   u8 status = 0;
 
   i32 int_value = 0;
   f32 float_value = 0;
   bool bool_value = false;
-  std::string string_value;
+  base::String string_value;
   ScriptObjectValue object_value;
 
-  std::vector<i32> int_array;
-  std::vector<f32> float_array;
-  std::vector<u8> bool_array;
-  std::vector<std::string> string_array;
-  std::vector<ScriptObjectValue> object_array;
+  base::Vector<i32> int_array;
+  base::Vector<f32> float_array;
+  base::Vector<u8> bool_array;
+  base::Vector<base::String> string_array;
+  base::Vector<ScriptObjectValue> object_array;
 };
 
 struct ScriptEntry {
-  std::string name;  // compiled script object name (scripts/<name>.pex)
+  base::String name;  // compiled script object name (scripts/<name>.pex)
   u8 status = 0;
-  std::vector<ScriptProperty> properties;
+  base::Vector<ScriptProperty> properties;
 };
 
 struct ScriptAttachment {
   i16 version = 0;
   i16 object_format = 0;
-  std::vector<ScriptEntry> scripts;
+  base::Vector<ScriptEntry> scripts;
 };
 
 // One quest stage's Papyrus fragment: the function the engine runs when the
@@ -60,8 +61,8 @@ struct QuestStageFragment {
   // one whose conditions pass, so a dispatcher that ignores this picks a
   // fragment at random -- which is how MQ101's opening ends up jumping stages.
   i32 log_entry = 0;
-  std::string script_name;
-  std::string function;
+  base::String script_name;
+  base::String function;
 };
 
 // Parses a VMAD subrecord body. Only the script list is read (the per-record
@@ -92,16 +93,16 @@ struct QuestAliasScripts {
 // can be instantiated). Returns false if the script section is malformed; a
 // malformed fragment/alias tail leaves whatever parsed cleanly.
 bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
-                         std::vector<QuestStageFragment>* fragments,
-                         std::vector<QuestAliasScripts>* alias_scripts = nullptr);
+                         base::Vector<QuestStageFragment>* fragments,
+                         base::Vector<QuestAliasScripts>* alias_scripts = nullptr);
 
 // A dialogue response's Papyrus fragments: the function run when the line
 // starts (begin) and ends (end). They live on the auto-generated TIF_<info>
 // script. An empty `script_name` means the response has no fragment of that
 // kind.
 struct InfoFragment {
-  std::string script_name;
-  std::string function;
+  base::String script_name;
+  base::String function;
 };
 struct InfoFragments {
   InfoFragment begin;
@@ -118,8 +119,8 @@ bool ParseInfoFragments(ByteSpan vmad, ScriptAttachment* out, InfoFragments* fra
 // fragments are what call Quest.SetStage to advance the journal as the scene
 // plays. An empty `script_name` means the scene has no fragment of that kind.
 struct SceneFragment {
-  std::string script_name;
-  std::string function;
+  base::String script_name;
+  base::String function;
 };
 struct ScenePhaseFragment {
   u32 phase = 0;         // phase number this fragment runs at
@@ -127,9 +128,9 @@ struct ScenePhaseFragment {
   SceneFragment fragment;
 };
 struct SceneFragments {
-  SceneFragment begin;                     // run when the scene starts
-  SceneFragment end;                       // run when the scene ends
-  std::vector<ScenePhaseFragment> phases;  // per-phase begin fragments
+  SceneFragment begin;                      // run when the scene starts
+  SceneFragment end;                        // run when the scene ends
+  base::Vector<ScenePhaseFragment> phases;  // per-phase begin fragments
 };
 
 // Parses a SCEN VMAD: the script list (into `out`) plus the scene begin/end and
@@ -142,8 +143,8 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
 // journey -- Skyrim's cart-horse patrol packages set the next quest stage there,
 // which is what lets the following package take over.
 struct PackageFragment {
-  std::string script_name;
-  std::string function;
+  base::String script_name;
+  base::String function;
 
   bool valid() const { return !script_name.empty() && !function.empty(); }
 };

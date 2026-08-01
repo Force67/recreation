@@ -1,15 +1,16 @@
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/strings/xstring.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <memory>
 #include <span>
 #include <string>
-#include <unordered_map>
-#include <utility>
 
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
@@ -82,10 +83,10 @@ bool LoadGameData(Engine& engine) {
 
   MountArchives(engine);
   // Loose files mount last so they win over archives.
-  self->vfs_->Mount(asset::MakeLooseFileProvider(self->config_.data_dir));
+  self->vfs_->Mount(asset::MakeLooseFileProvider(self->config_.data_dir.c_str()));
 
-  self->assets_ = std::make_unique<asset::AssetDatabase>(*self->vfs_);
-  self->ctx_.assets = self->assets_.get();
+  self->assets_ = base::MakeUnique<asset::AssetDatabase>(*self->vfs_);
+  self->ctx_.assets = (self->assets_ ? &*self->assets_ : nullptr);
   bethesda::RegisterConverters(*self->assets_, profile);
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(self->config_.plugins_txt, profile);
@@ -119,8 +120,8 @@ bool LoadGameData(Engine& engine) {
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
   self->script_bindings_ =
-      std::make_unique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
-  self->ctx_.bindings = self->script_bindings_.get();
+      base::MakeUnique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
+  self->ctx_.bindings = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
   self->script_bindings_->set_strings(&self->strings_);
   self->script_bindings_->set_player(rx::script::papyrus::ObjectRef{0x14});  // Skyrim player ref
   self->script_bindings_->set_audio(self->audio_);  // Sound.Play routes here
@@ -175,8 +176,8 @@ bool LoadGameData(Engine& engine) {
     if (forced_kind) {
       base::String s = Weather.get() ? Weather.get() : "clear";
       const rx::weather::WeatherDef::Kind kind =
-          (s == "rain" || s == "rainy")    ? rx::weather::WeatherDef::Kind::kRainy
-          : (s == "snow")                  ? rx::weather::WeatherDef::Kind::kSnow
+          (s == "rain" || s == "rainy")     ? rx::weather::WeatherDef::Kind::kRainy
+          : (s == "snow")                   ? rx::weather::WeatherDef::Kind::kSnow
           : (s == "cloud" || s == "cloudy") ? rx::weather::WeatherDef::Kind::kCloudy
                                             : rx::weather::WeatherDef::Kind::kPleasant;
       climate.clear();
@@ -188,8 +189,7 @@ bool LoadGameData(Engine& engine) {
         forced.DeriveFromKind();
         climate = {{forced, 1}};
       }
-      RX_INFO("weather: pinned to '{}' ({} real weathers of that kind)", s.c_str(),
-              climate.size());
+      RX_INFO("weather: pinned to '{}' ({} real weathers of that kind)", s.c_str(), climate.size());
     }
 
     // Per-region weather: the REGN areas override the worldspace climate where
@@ -223,8 +223,7 @@ bool LoadGameData(Engine& engine) {
                                           : bethesda::GlobalFormId{};
     self->sound_catalog_.Build(self->records_);
     self->region_ambience_.Build(self->records_, ws);
-    self->ambient_director_.Configure(self->audio_, &self->sound_catalog_,
-                                      &self->region_ambience_);
+    self->ambient_director_.Configure(self->audio_, &self->sound_catalog_, &self->region_ambience_);
     // Weather audio (rain/wind beds, thunder claps) resolves its WTHR sound
     // forms through the same catalog.
     self->director_.BindAudio(self->audio_, &self->sound_catalog_);
@@ -236,7 +235,7 @@ bool LoadGameData(Engine& engine) {
       int ok = 0, missing = 0, undecodable = 0;
       for (u64 region : self->region_ambience_.RegionForms()) {
         for (const bethesda::GlobalFormId& snd : self->region_ambience_.SoundsFor(region)) {
-          const std::string path = self->sound_catalog_.PathFor(snd);
+          const base::String path = self->sound_catalog_.PathFor(snd);
           if (path.empty()) continue;
           if (!self->audio_->HasAsset(path)) {
             RX_INFO("audio dump: region {:x} sound {:x} -> {} (missing)", region, snd.packed(),
@@ -300,11 +299,11 @@ bool LoadGameData(Engine& engine) {
   self->script_bindings_->set_replica_mode(!self->config_.connect_address.empty());
   if (self->script_bindings_->replica_mode())
     RX_INFO("multiplayer client: quests run server-authoritative (replica mode)");
-  self->scripts_ = std::make_unique<rx::script::ScriptSystem>(self->game_, self->vfs_,
-                                                              self->script_bindings_.get());
-  self->ctx_.scripts = self->scripts_.get();
+  self->scripts_ = base::MakeUnique<rx::script::ScriptSystem>(
+      self->game_, self->vfs_, (self->script_bindings_ ? &*self->script_bindings_ : nullptr));
+  self->ctx_.scripts = (self->scripts_ ? &*self->scripts_ : nullptr);
   self->quest_world_->set_on_door_state([self](u64 handle, bool locked, bool open) {
-    auto* bindings = self->script_bindings_.get();
+    auto* bindings = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
     self->scripts_->guest().Submit(
         [bindings, handle, locked, open](rx::script::papyrus::VirtualMachine&) {
           bindings->SetDoorStateLocal(handle, locked, open);
@@ -314,13 +313,13 @@ bool LoadGameData(Engine& engine) {
   // suspends like a script-triggered fragment instead of returning at once.
   self->script_bindings_->set_fiber_runner(
       [guest = &self->scripts_->guest()](std::function<void()> body) {
-        guest->RunScript(std::move(body));
+        guest->RunScript(base::move(body));
       });
   // Keep each suspended fragment's provenance (quest + recursion depth) fiber-local
   // across a Wait that lets a different fragment run: a fresh activation starts from
   // the baseline, and a resumed one gets its own values back.
   {
-    auto* binds = self->script_bindings_.get();
+    auto* binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
     self->scripts_->guest().set_fiber_context_hooks(
         [binds] {
           binds->set_active_quest(0);
@@ -340,7 +339,7 @@ bool LoadGameData(Engine& engine) {
   // raised events (OnActivate, OnTrigger*) through the bindings' ref->alias index,
   // so alias scripts hear them like the bindings' own native-raised events do.
   {
-    auto* binds = self->script_bindings_.get();
+    auto* binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
     auto* guest = &self->scripts_->guest();
     guest->Submit([binds, guest](rx::script::papyrus::VirtualMachine& vm) {
       binds->set_vm(&vm);
@@ -354,11 +353,11 @@ bool LoadGameData(Engine& engine) {
   {
     auto* guest = &self->scripts_->guest();
     guest->Submit([guest, self](rx::script::papyrus::VirtualMachine&) {
-      guest->set_on_notification([self](const std::string& message) {
+      guest->set_on_notification([self](const base::String& message) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
       });
-      guest->set_on_debug_command([self](const std::string& verb, const std::string& arg) {
+      guest->set_on_debug_command([self](const base::String& verb, const base::String& arg) {
         std::lock_guard<std::mutex> lock(self->debug_cmd_mutex_);
         self->pending_debug_cmds_.emplace_back(verb, arg);
       });
@@ -367,8 +366,8 @@ bool LoadGameData(Engine& engine) {
         return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
                                               rx::script::papyrus::ObjectRef{target});
       });
-      guest->set_on_platform_hud([self](const std::string& type, const std::string& func,
-                                        const std::vector<rx::script::papyrus::Value>& args) {
+      guest->set_on_platform_hud([self](const base::String& type, const base::String& func,
+                                        const base::Vector<rx::script::papyrus::Value>& args) {
         self->platform_hud_.Submit(type, func, args);
       });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
@@ -384,10 +383,9 @@ bool LoadGameData(Engine& engine) {
   // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
   BootManagedScripting(engine);
   {
-    auto* scripts = self->scripts_.get();
-    auto* managed = self->managed_.get();
-    self->quest_world_->set_on_register(
-        [scripts](u64 form) { scripts->NotifyFormReloaded(form); });
+    auto* scripts = (self->scripts_ ? &*self->scripts_ : nullptr);
+    auto* managed = (self->managed_ ? &*self->managed_ : nullptr);
+    self->quest_world_->set_on_register([scripts](u64 form) { scripts->NotifyFormReloaded(form); });
     self->quest_world_->set_on_unregister([scripts, managed](u64 form) {
       scripts->RaiseFormUnloadEvent(form);
       if (managed)
@@ -456,12 +454,12 @@ bool LoadGameData(Engine& engine) {
     return true;
   }
 
-  self->streamer_ = std::make_unique<world::CellStreamer>(self->records_, profile, *self->assets_);
-  self->ctx_.streamer = self->streamer_.get();
+  self->streamer_ = base::MakeUnique<world::CellStreamer>(self->records_, profile, *self->assets_);
+  self->ctx_.streamer = (self->streamer_ ? &*self->streamer_ : nullptr);
   // Forward load-door cell transitions to the managed world (LocationChanged), so
   // mods react to where the player is. Runs on the main thread; drained next frame.
   if (self->managed_) {
-    auto* host = self->managed_.get();
+    auto* host = (self->managed_ ? &*self->managed_ : nullptr);
     self->streamer_->set_on_location_change([host](u64 cell, bool interior) {
       host->QueueEvent(
           {rx::script::host::ManagedEventId::kLocationChanged, cell, 0, interior ? 1 : 0, 0.0f});
@@ -471,7 +469,7 @@ bool LoadGameData(Engine& engine) {
   self->streamer_->set_job_system(self->jobs_);
   // Register streamed NPCs in the quest world so quests can target them and
   // clients can apply replicated actor transforms by form id.
-  self->streamer_->set_quest_world(self->quest_world_.get());
+  self->streamer_->set_quest_world((self->quest_world_ ? &*self->quest_world_ : nullptr));
   self->quest_world_->set_on_reference_changed([self](u64 handle) {
     if (self->streamer_) self->streamer_->SyncReference(*self->world_, handle);
   });
@@ -519,7 +517,7 @@ bool LoadGameData(Engine& engine) {
     };
     uploads.begin_batch = [self] { self->renderer_->BeginUploadBatch(); };
     uploads.end_batch = [self] { self->renderer_->FlushUploadBatch(); };
-    self->streamer_->SetUploads(std::move(uploads));
+    self->streamer_->SetUploads(base::move(uploads));
   }
 
   // RX_STARFIELD_PLANET=<planet> boots into a synthesized procedural landing
@@ -608,8 +606,9 @@ bool LoadGameData(Engine& engine) {
   RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
           self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
-  self->showcase_regions_.push_back(
-      {{start.x, ground, start.z}, std::string(profile.name), self->streamer_.get()});
+  self->showcase_regions_.push_back({{start.x, ground, start.z},
+                                     base::String(profile.name),
+                                     (self->streamer_ ? &*self->streamer_ : nullptr)});
   // RX_VENUE_PROBE rates the spawn cell for staging a field battle: how flat the
   // ground is within a 14 m ring and whether any of it is under water. A good
   // showcase venue has a small max-drop and zero submerged samples. Headless +
@@ -622,7 +621,7 @@ bool LoadGameData(Engine& engine) {
       const f32 px = start.x + std::sin(a) * 14.0f, pz = start.z - std::cos(a) * 14.0f;
       f32 h = ground;
       if (self->streamer_->GroundHeight(px, pz, &h)) {
-        max_drop = std::max(max_drop, std::abs(h - ground));
+        max_drop = base::Max(max_drop, std::abs(h - ground));
         ++sampled;
       }
       f32 wh;
@@ -638,15 +637,15 @@ bool LoadGameData(Engine& engine) {
   // Tell the editor which games' assets it can place: the primary, then each
   // secondary content domain (so a Fallout 4 prop can be dropped into Skyrim).
   if (self->editor_) {
-    std::vector<EditorPlaceDomain> domains;
-    domains.push_back({std::string(profile.name), GameSlug(self->game_), &self->records_,
-                       &self->strings_, self->streamer_.get()});
+    base::Vector<EditorPlaceDomain> domains;
+    domains.push_back({base::String(profile.name), GameSlug(self->game_), &self->records_,
+                       &self->strings_, (self->streamer_ ? &*self->streamer_ : nullptr)});
     for (size_t i = 0; i < self->extra_domains_.size() && i < self->extra_streamers_.size(); ++i) {
       ContentDomain& d = *self->extra_domains_[i];
-      domains.push_back({std::string(d.profile().name), GameSlug(d.profile().game), &d.records(),
-                         &d.strings(), self->extra_streamers_[i].get()});
+      domains.push_back({base::String(d.profile().name), GameSlug(d.profile().game), &d.records(),
+                         &d.strings(), &*self->extra_streamers_[i]});
     }
-    self->editor_->SetPlaceDomains(std::move(domains));
+    self->editor_->SetPlaceDomains(base::move(domains));
   }
   return true;
 }
@@ -689,7 +688,7 @@ void SetupExtraStreamers(Engine& engine) {
       region_y = forced_y;
     }
     auto streamer =
-        std::make_unique<world::CellStreamer>(domain.records(), domain.profile(), domain.assets());
+        base::MakeUnique<world::CellStreamer>(domain.records(), domain.profile(), domain.assets());
 
     // Namespace this domain's mesh ids so they cannot collide with the primary
     // game's (shared asset paths hash the same). A large odd multiplier keeps
@@ -746,26 +745,25 @@ void SetupExtraStreamers(Engine& engine) {
     };
     uploads.begin_batch = [self] { self->renderer_->BeginUploadBatch(); };
     uploads.end_batch = [self] { self->renderer_->FlushUploadBatch(); };
-    streamer->SetUploads(std::move(uploads));
+    streamer->SetUploads(base::move(uploads));
     if (streamer->SelectWorldspace(domain.profile().exterior_worldspace)) {
       RX_INFO("secondary worldspace rendering: {} cell {},{} placed at ({:.0f}, {:.0f}, {:.0f})",
               domain.profile().name, region_x, region_y, place.x, place.y, place.z);
       // The showcase flies over each rendered region; its ground baseline sits the
       // same 10m below the placed camera-height anchor as the primary's does.
-      self->showcase_regions_.push_back({{place.x, place.y - 10.0f, place.z},
-                                         std::string(domain.profile().name),
-                                         streamer.get()});
+      self->showcase_regions_.push_back(
+          {{place.x, place.y - 10.0f, place.z}, base::String(domain.profile().name), &*streamer});
     } else {
       RX_WARN("secondary domain {} has no worldspace '{}': not rendered, assets still placeable",
               domain.profile().name, domain.profile().exterior_worldspace);
     }
     // Kept parallel to extra_domains_ even when not rendered, so the editor can
     // place this game's assets (PlaceObject needs the per-domain streamer/salt).
-    self->extra_streamers_.push_back(std::move(streamer));
+    self->extra_streamers_.push_back(base::move(streamer));
   }
 }
 
-bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
+bool LoadPlanetTile(Engine& engine, const base::String& biom_name) {
   Engine* const self = &engine;
 
   // Resolve real biome ground textures through the compiled material database
@@ -776,7 +774,7 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
     mat_db.Build(ByteSpan(cdb->data(), cdb->size()));
 
   // The .biom biome ids are base-game FormIDs (Starfield.esm, load index 0).
-  self->planet_surface_ = std::make_unique<bethesda::PlanetSurface>(bethesda::LoadPlanetSurface(
+  self->planet_surface_ = base::MakeUnique<bethesda::PlanetSurface>(bethesda::LoadPlanetSurface(
       *self->vfs_, self->records_, mat_db, biom_name, /*biom_plugin=*/0));
   if (!self->planet_surface_->valid) {
     RX_ERROR("planet tile: could not load '{}'", biom_name);
@@ -787,7 +785,7 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
   config.cell_size = bethesda::GameProfile::For(self->game_).cell_size;
   config.units_to_meters = bethesda::GameProfile::For(self->game_).units_to_meters;
   self->planet_tile_ =
-      std::make_unique<world::PlanetTile>(*self->assets_, *self->planet_surface_, config);
+      base::MakeUnique<world::PlanetTile>(*self->assets_, *self->planet_surface_, config);
   if (!self->config_.headless) {
     world::PlanetTile::Uploads uploads;
     uploads.mesh = [self](const asset::Mesh& mesh) { return self->renderer_->UploadMesh(mesh); };
@@ -795,7 +793,7 @@ bool LoadPlanetTile(Engine& engine, const std::string& biom_name) {
     uploads.material = [self](const asset::Material& m) {
       return self->renderer_->UploadMaterial(m);
     };
-    self->planet_tile_->SetUploads(std::move(uploads));
+    self->planet_tile_->SetUploads(base::move(uploads));
   }
   if (self->physics_->initialized()) self->planet_tile_->set_physics(self->physics_);
 
@@ -820,7 +818,7 @@ bool LoadInterior(Engine& engine) {
   bethesda::GlobalFormId cell_id;
   if (self->config_.interior.starts_with("0x") || self->config_.interior.starts_with("0X")) {
     // Load order form id: top byte is the plugin index for full plugins.
-    u32 raw = static_cast<u32>(std::stoul(self->config_.interior.substr(2), nullptr, 16));
+    u32 raw = static_cast<u32>(std::stoul(self->config_.interior.substr(2).c_str(), nullptr, 16));
     cell_id = {static_cast<u16>(raw >> 24), raw & 0xffffff};
   } else {
     cell_id = self->records_.FindInteriorCell(self->config_.interior);
@@ -846,7 +844,7 @@ bool LoadInterior(Engine& engine) {
 void LoadExtraDomains(Engine& engine) {
   Engine* const self = &engine;
   for (const ExtraDomainConfig& cfg : self->config_.extra_domains) {
-    auto domain = std::make_unique<ContentDomain>();
+    auto domain = base::MakeUnique<ContentDomain>();
     // A multiplayer client mirrors the host, so secondary domains are replicas
     // there too: their scripts read content but do not drive authoritative state.
     if (!domain->Load(cfg.game, cfg.data_dir, cfg.plugins_txt,
@@ -857,11 +855,11 @@ void LoadExtraDomains(Engine& engine) {
     // Surface its Debug.Notification on the same HUD toast as the primary game.
     auto* guest = &domain->scripts()->guest();
     guest->Submit([guest, self](rx::script::papyrus::VirtualMachine&) {
-      guest->set_on_notification([self](const std::string& message) {
+      guest->set_on_notification([self](const base::String& message) {
         std::lock_guard<std::mutex> lock(self->notification_mutex_);
         self->pending_notifications_.push_back(message);
       });
-      guest->set_on_debug_command([self](const std::string& verb, const std::string& arg) {
+      guest->set_on_debug_command([self](const base::String& verb, const base::String& arg) {
         std::lock_guard<std::mutex> lock(self->debug_cmd_mutex_);
         self->pending_debug_cmds_.emplace_back(verb, arg);
       });
@@ -870,8 +868,8 @@ void LoadExtraDomains(Engine& engine) {
         return self->script_bindings_->HasLos(rx::script::papyrus::ObjectRef{viewer},
                                               rx::script::papyrus::ObjectRef{target});
       });
-      guest->set_on_platform_hud([self](const std::string& type, const std::string& func,
-                                        const std::vector<rx::script::papyrus::Value>& args) {
+      guest->set_on_platform_hud([self](const base::String& type, const base::String& func,
+                                        const base::Vector<rx::script::papyrus::Value>& args) {
         self->platform_hud_.Submit(type, func, args);
       });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
@@ -880,24 +878,25 @@ void LoadExtraDomains(Engine& engine) {
     domain->AttachQuestScripts(self->config_.max_quest_scripts);
     RX_INFO("secondary domain live: {} ({} records, isolated microvm)", domain->profile().name,
             domain->records().record_count());
-    self->extra_domains_.push_back(std::move(domain));
+    self->extra_domains_.push_back(base::move(domain));
   }
 }
 
 void MountArchives(Engine& engine) {
   Engine* const self = &engine;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(self->config_.data_dir, ec)) {
-    std::string path = entry.path().string();
+  for (const auto& entry :
+       std::filesystem::directory_iterator(self->config_.data_dir.c_str(), ec)) {
+    base::String path = entry.path().string();
     // TODO: archive order should follow plugin order plus the ini resource
     // lists, alphabetical is a placeholder.
-    if (auto provider = bethesda::OpenArchive(path)) self->vfs_->Mount(std::move(provider));
+    if (auto provider = bethesda::OpenArchive(path)) self->vfs_->Mount(base::move(provider));
   }
 }
 
 bool Engine::LoadGltfScene() {
   asset::GltfScene scene;
-  if (!asset::LoadGltfScene(config_.gltf_path, &scene)) return false;
+  if (!asset::LoadGltfScene(config_.gltf_path.c_str(), &scene)) return false;
 
   if (!config_.headless) {
     for (const asset::Texture& texture : scene.textures) {

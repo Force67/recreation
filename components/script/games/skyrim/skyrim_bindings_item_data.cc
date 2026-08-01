@@ -4,11 +4,12 @@
 // All parsed from the form's record. Split out of skyrim_bindings.cc to keep that
 // file from becoming a god file; the rest of the class lives there and in the
 // other skyrim_bindings_*.cc units.
-#include "components/script/games/skyrim/skyrim_bindings.h"
+#include <base/strings/xstring.h>
 
 #include <cstring>
 
 #include "components/bethesda/record.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
 
 namespace rx::script::skyrim {
 namespace {
@@ -51,25 +52,44 @@ u32 ReadU32(const bethesda::Subrecord* sub, size_t offset) {
 // actor-value store keys on, so a skill book's gain routes to the right value.
 const char* SkillAvName(u32 index) {
   switch (index) {
-    case 6: return "OneHanded";
-    case 7: return "TwoHanded";
-    case 8: return "Marksman";
-    case 9: return "Block";
-    case 10: return "Smithing";
-    case 11: return "HeavyArmor";
-    case 12: return "LightArmor";
-    case 13: return "Pickpocket";
-    case 14: return "Lockpicking";
-    case 15: return "Sneak";
-    case 16: return "Alchemy";
-    case 17: return "Speechcraft";
-    case 18: return "Alteration";
-    case 19: return "Conjuration";
-    case 20: return "Destruction";
-    case 21: return "Illusion";
-    case 22: return "Restoration";
-    case 23: return "Enchanting";
-    default: return "";
+    case 6:
+      return "OneHanded";
+    case 7:
+      return "TwoHanded";
+    case 8:
+      return "Marksman";
+    case 9:
+      return "Block";
+    case 10:
+      return "Smithing";
+    case 11:
+      return "HeavyArmor";
+    case 12:
+      return "LightArmor";
+    case 13:
+      return "Pickpocket";
+    case 14:
+      return "Lockpicking";
+    case 15:
+      return "Sneak";
+    case 16:
+      return "Alchemy";
+    case 17:
+      return "Speechcraft";
+    case 18:
+      return "Alteration";
+    case 19:
+      return "Conjuration";
+    case 20:
+      return "Destruction";
+    case 21:
+      return "Illusion";
+    case 22:
+      return "Restoration";
+    case 23:
+      return "Enchanting";
+    default:
+      return "";
   }
 }
 
@@ -81,29 +101,52 @@ const char* SkillAvName(u32 index) {
 // skips what it cannot apply.
 const char* EffectAvName(i32 index) {
   switch (index) {
-    case 24: return "Health";
-    case 25: return "Magicka";
-    case 26: return "Stamina";
-    case 30: return "SpeedMult";
-    case 32: return "CarryWeight";
-    case 34: return "MeleeDamage";
-    case 35: return "UnarmedDamage";
-    case 39: return "DamageResist";  // armor rating
-    case 40: return "PoisonResist";
-    case 41: return "ResistFire";
-    case 42: return "ResistShock";
-    case 43: return "ResistFrost";
-    case 44: return "ResistMagic";
-    case 45: return "ResistDisease";
-    case 108: return "AlterationPowerMod";
-    case 109: return "ConjurationPowerMod";
-    case 110: return "DestructionPowerMod";
-    case 111: return "IllusionPowerMod";
-    case 112: return "RestorationPowerMod";
-    case 155: return "HealRate";
-    case 156: return "MagickaRate";
-    case 157: return "StaminaRate";
-    default: return SkillAvName(static_cast<u32>(index));  // skills run 6..23
+    case 24:
+      return "Health";
+    case 25:
+      return "Magicka";
+    case 26:
+      return "Stamina";
+    case 30:
+      return "SpeedMult";
+    case 32:
+      return "CarryWeight";
+    case 34:
+      return "MeleeDamage";
+    case 35:
+      return "UnarmedDamage";
+    case 39:
+      return "DamageResist";  // armor rating
+    case 40:
+      return "PoisonResist";
+    case 41:
+      return "ResistFire";
+    case 42:
+      return "ResistShock";
+    case 43:
+      return "ResistFrost";
+    case 44:
+      return "ResistMagic";
+    case 45:
+      return "ResistDisease";
+    case 108:
+      return "AlterationPowerMod";
+    case 109:
+      return "ConjurationPowerMod";
+    case 110:
+      return "DestructionPowerMod";
+    case 111:
+      return "IllusionPowerMod";
+    case 112:
+      return "RestorationPowerMod";
+    case 155:
+      return "HealRate";
+    case 156:
+      return "MagickaRate";
+    case 157:
+      return "StaminaRate";
+    default:
+      return SkillAvName(static_cast<u32>(index));  // skills run 6..23
   }
 }
 
@@ -138,7 +181,7 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
       records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed()};
 }
 
-std::string RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
+base::String RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
   if (!records_) return "";
   bethesda::Record rec;
   if (!records_->Parse(ToFormId(book), &rec)) return "";
@@ -279,8 +322,10 @@ i32 RecordBackedSkyrimBindings::GetShoutWordCount(ObjectRef shout) {
     std::memcpy(&word_raw, sub.data.data(), 4);
     std::memcpy(&spell_raw, sub.data.data() + 4, 4);
     ShoutWordData entry;
-    entry.word = records_->ResolveFrom(bethesda::RawFormId{word_raw}, stored->winning_plugin).packed();
-    entry.spell = records_->ResolveFrom(bethesda::RawFormId{spell_raw}, stored->winning_plugin).packed();
+    entry.word =
+        records_->ResolveFrom(bethesda::RawFormId{word_raw}, stored->winning_plugin).packed();
+    entry.spell =
+        records_->ResolveFrom(bethesda::RawFormId{spell_raw}, stored->winning_plugin).packed();
     std::memcpy(&entry.recovery, sub.data.data() + 8, 4);
     shout_word_cache_.push_back(entry);
   }
@@ -307,7 +352,7 @@ i32 RecordBackedSkyrimBindings::GetNthMagicEffectDuration(i32 index) {
   return magic_effect_cache_[static_cast<size_t>(index)].duration;
 }
 
-std::string RecordBackedSkyrimBindings::GetMagicEffectActorValue(ObjectRef effect) {
+base::String RecordBackedSkyrimBindings::GetMagicEffectActorValue(ObjectRef effect) {
   if (!records_) return "";
   bethesda::Record rec;
   if (!records_->Parse(ToFormId(effect), &rec)) return "";
@@ -420,7 +465,8 @@ i32 RecordBackedSkyrimBindings::GetRaceSkillBonusCount(ObjectRef race) {
   race_skill_cache_.clear();
   if (!records_) return 0;
   bethesda::Record rec;
-  if (!records_->Parse(ToFormId(race), &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E')) return 0;
+  if (!records_->Parse(ToFormId(race), &rec) || rec.header.type != FourCc('R', 'A', 'C', 'E'))
+    return 0;
   // RACE DATA opens with seven { uint8 skill-AV; uint8 bonus } pairs; an unused
   // slot has skill 255.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
@@ -434,7 +480,7 @@ i32 RecordBackedSkyrimBindings::GetRaceSkillBonusCount(ObjectRef race) {
   return static_cast<i32>(race_skill_cache_.size());
 }
 
-std::string RecordBackedSkyrimBindings::GetNthRaceSkillBonusSkill(i32 index) {
+base::String RecordBackedSkyrimBindings::GetNthRaceSkillBonusSkill(i32 index) {
   if (index < 0 || static_cast<size_t>(index) >= race_skill_cache_.size()) return "";
   return SkillAvName(static_cast<u32>(race_skill_cache_[static_cast<size_t>(index)].first));
 }

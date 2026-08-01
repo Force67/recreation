@@ -1,16 +1,19 @@
 #include "runtime/narrative/quest_director.h"
 
+#include <base/algorithm.h>
+#include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
 #include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include "runtime/actor/actor_system.h"
 #include "runtime/actor/ai_package_director.h"
@@ -65,16 +68,16 @@ base::Option<const char*> CutsceneReport{"cutscene.report", nullptr, "RX_CUTSCEN
 // One of a quest's scenes: its handle, editor id, and parsed Papyrus fragments.
 struct SceneJob {
   u64 handle = 0;
-  std::string edid;
+  base::String edid;
   bethesda::SceneFragments frags;
 };
 
 // Parses every SCEN owned by `quest`, attaches its SF_ script so the VM can run
 // the Fragment_N functions, and returns the jobs. Main-thread only: AttachScripts
 // marshals to the guest, which would deadlock if called from it.
-std::vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
-                                        script::ScriptSystem* scripts, u64 quest) {
-  std::vector<SceneJob> jobs;
+base::Vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
+                                         script::ScriptSystem* scripts, u64 quest) {
+  base::Vector<SceneJob> jobs;
   records.EachOfType(
       FourCc('S', 'C', 'E', 'N'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
@@ -91,7 +94,7 @@ std::vector<SceneJob> GatherQuestScenes(bethesda::RecordStore& records,
           return;
         ResolveAttachmentForms(records, stored.winning_plugin, &att);
         scripts->AttachScripts(id.packed(), att);
-        jobs.push_back({id.packed(), rec.GetString(FourCc('E', 'D', 'I', 'D')), std::move(frags)});
+        jobs.push_back({id.packed(), rec.GetString(FourCc('E', 'D', 'I', 'D')), base::move(frags)});
       });
   return jobs;
 }
@@ -121,7 +124,7 @@ QuestDirector::QuestDirector(EngineContext& ctx, ActorSystem* actors)
       debug_ui_(*ctx.debug_ui),
       game_ui_(*ctx.game_ui) {}
 
-u64 QuestDirector::FindQuestHandle(const std::string& edid) const {
+u64 QuestDirector::FindQuestHandle(const base::String& edid) const {
   for (const auto& [handle, name] : quest_records_)
     if (name == edid) return handle;
   return 0;
@@ -152,8 +155,8 @@ void QuestDirector::AttachQuestScripts() {
         const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'));
         if (!vmad) return;
         bethesda::ScriptAttachment attachment;
-        std::vector<bethesda::QuestStageFragment> fragments;
-        std::vector<bethesda::QuestAliasScripts> alias_scripts;
+        base::Vector<bethesda::QuestStageFragment> fragments;
+        base::Vector<bethesda::QuestAliasScripts> alias_scripts;
         if (!bethesda::ParseQuestFragments(vmad->data, &attachment, &fragments, &alias_scripts) ||
             attachment.scripts.empty())
           return;
@@ -190,8 +193,8 @@ void QuestDirector::AttachQuestScripts() {
         // Key the record list by editor id: it is the stable
         // handle RX_START_QUEST and the debugger match on. The
         // panel's display name comes from the quest definition.
-        std::string edid = !def.editor_id.empty() ? def.editor_id : std::to_string(id.local_id);
-        quest_records_.push_back({handle, std::move(edid)});
+        base::String edid = !def.editor_id.empty() ? def.editor_id : base::ToString(id.local_id);
+        quest_records_.push_back({handle, base::move(edid)});
         // Register the stage->fragment map and definition on the
         // guest thread (the bindings' only caller) so SetStage runs
         // the quest's authored logic and snapshots carry its text.
@@ -203,21 +206,21 @@ void QuestDirector::AttachQuestScripts() {
         if (sge) ++autostarted;
         // The per-log-entry condition gates, taken before the definition moves
         // to the guest and with their form ids resolved so they can evaluate.
-        std::vector<quest::StageDef> stage_gates = def.stages;
+        base::Vector<quest::StageDef> stage_gates = def.stages;
         for (quest::StageDef& s : stage_gates)
           quest::ResolveConditionForms(s.conditions, *ctx_.records, id.plugin);
         auto* binds = ctx_.bindings;
         ctx_.scripts->guest().Submit(
-            [binds, handle, sge, stage_gates = std::move(stage_gates), def = std::move(def),
-             fragments = std::move(fragments)](rx::script::papyrus::VirtualMachine&) mutable {
-              binds->quest_system().SetDefinition(std::move(def));
+            [binds, handle, sge, stage_gates = base::move(stage_gates), def = base::move(def),
+             fragments = base::move(fragments)](rx::script::papyrus::VirtualMachine&) mutable {
+              binds->quest_system().SetDefinition(base::move(def));
               for (const auto& f : fragments) {
                 // A stage's log entries are conditioned; hand each fragment the
                 // gate of the entry it belongs to so only the right one runs.
                 quest::ConditionList gate;
                 for (const quest::StageDef& s : stage_gates)
                   if (s.index == f.stage && s.entry == f.log_entry) gate = s.conditions;
-                binds->SetStageFragment(handle, f.stage, f.log_entry, f.function, std::move(gate));
+                binds->SetStageFragment(handle, f.stage, f.log_entry, f.function, base::move(gate));
               }
               if (sge) binds->StartQuest(rx::script::papyrus::ObjectRef{handle});
             });
@@ -237,10 +240,10 @@ void QuestDirector::AttachQuestScripts() {
   // :stage drives it to that stage, e.g. RX_START_QUEST=MQ101:160 to surface an
   // objective on the HUD.
   if (const char* want = StartQuest.get()) {
-    std::string spec = want;
-    std::string edid = spec;
+    base::String spec = want;
+    base::String edid = spec;
     i32 start_stage = -1;
-    if (size_t colon = spec.find(':'); colon != std::string::npos) {
+    if (size_t colon = spec.find(':'); colon != base::String::npos) {
       edid = spec.substr(0, colon);
       start_stage = std::atoi(spec.c_str() + colon + 1);
     }
@@ -370,7 +373,7 @@ void QuestDirector::AttachQuestScripts() {
       // commit the join quest. Unset leaves the player unaligned (the campaign
       // treats that as the Legion).
       if (const char* side = CwSide.get()) {
-        const bool stormcloak = std::string(side) == "stormcloak";
+        const bool stormcloak = base::String(side) == "stormcloak";
         npc_->set_enlist_quest(FindQuestHandle(stormcloak ? "CW00B" : "CW00A"));
       }
       ctx_.scripts->guest().Submit([binds, siege](rx::script::papyrus::VirtualMachine&) {
@@ -392,7 +395,7 @@ void QuestDirector::AttachQuestScripts() {
   if (Journal) journal_open_ = true;
 }
 
-void QuestDirector::ReportDialogue(const std::string& edid) {
+void QuestDirector::ReportDialogue(const base::String& edid) {
   u64 handle = 0;
   for (const auto& [h, name] : quest_records_) {
     if (name == edid) {
@@ -424,7 +427,7 @@ void QuestDirector::ReportDialogue(const std::string& edid) {
     const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
     if (stored) ResolveAttachmentForms(records_, stored->winning_plugin, &att);
     ctx_.scripts->AttachScripts(info, att);
-    std::string fn = frags.begin.function;
+    base::String fn = frags.begin.function;
     return ctx_.scripts->guest()
         .SubmitFor([info, fn](script::papyrus::VirtualMachine& vm) {
           return vm.TryCall(script::papyrus::ObjectRef{info}, fn, {});
@@ -461,7 +464,7 @@ void QuestDirector::ReportDialogue(const std::string& edid) {
   std::fflush(stdout);
 }
 
-void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
+void QuestDirector::ReportQuestToCompletion(const base::String& edid) {
   u64 handle = 0;
   for (const auto& [h, name] : quest_records_) {
     if (name == edid) {
@@ -477,14 +480,14 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
   auto* binds = ctx_.bindings;
   // Drive and snapshot on the guest thread (the bindings' only legal caller);
   // build the human-readable report there and print it on return.
-  std::string report =
+  base::String report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle](rx::script::papyrus::VirtualMachine&) {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
             const ObjectRef ref{handle};
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
@@ -511,13 +514,13 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
             emit(Fmt("  start -> running=%d stage=%d", qs.IsRunning(handle), qs.GetStage(handle)));
             // Walk the defined stages in ascending order; each SetStage runs the
             // stage's authored fragment (objectives, ref enables, chained stages).
-            std::vector<i32> order;
+            base::Vector<i32> order;
             for (const quest::StageDef& s : def->stages) order.push_back(s.index);
-            std::sort(order.begin(), order.end());
+            base::Sort(order.begin(), order.end());
             order.erase(std::unique(order.begin(), order.end()), order.end());
             for (i32 stage : order) {
               binds->SetStage(ref, stage);
-              std::string shown;
+              base::String shown;
               for (const quest::ObjectiveDef& o : def->objectives)
                 if (qs.IsObjectiveDisplayed(handle, o.index)) shown += Fmt(" [%d]", o.index);
               emit(Fmt("  set stage %d -> stage=%d complete=%d displayed:%s", stage,
@@ -543,38 +546,38 @@ void QuestDirector::ReportQuestToCompletion(const std::string& edid) {
   std::fflush(stdout);
 }
 
-void QuestDirector::ReportQuestList(const std::string& prefix) {
+void QuestDirector::ReportQuestList(const base::String& prefix) {
   auto* binds = ctx_.bindings;
-  std::string lower_prefix = prefix;
+  base::String lower_prefix = prefix;
   std::transform(lower_prefix.begin(), lower_prefix.end(), lower_prefix.begin(),
                  [](unsigned char c) { return std::tolower(c); });
 
   // Snapshot the definitions on the guest thread (the only legal QuestSystem
   // caller), sort by editor id, and print on return.
-  std::vector<std::pair<u64, std::string>> records(quest_records_.begin(), quest_records_.end());
-  std::string report =
+  base::Vector<base::Pair<u64, base::String>> records(quest_records_.begin(), quest_records_.end());
+  base::String report =
       ctx_.scripts->guest()
-          .SubmitFor([binds, records = std::move(records),
+          .SubmitFor([binds, records = base::move(records),
                       lower_prefix](rx::script::papyrus::VirtualMachine&) mutable {
             quest::QuestSystem& qs = binds->quest_system();
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
 
-            std::vector<const quest::QuestDef*> defs;
+            base::Vector<const quest::QuestDef*> defs;
             for (const auto& [h, name] : records) {
-              std::string low = name;
+              base::String low = name;
               std::transform(low.begin(), low.end(), low.begin(),
                              [](unsigned char c) { return std::tolower(c); });
               if (!lower_prefix.empty() && low.rfind(lower_prefix, 0) != 0) continue;
               if (const quest::QuestDef* def = qs.Definition(h)) defs.push_back(def);
             }
-            std::sort(defs.begin(), defs.end(),
-                      [](const quest::QuestDef* a, const quest::QuestDef* b) {
-                        return a->editor_id < b->editor_id;
-                      });
+            base::Sort(defs.begin(), defs.end(),
+                       [](const quest::QuestDef* a, const quest::QuestDef* b) {
+                         return a->editor_id < b->editor_id;
+                       });
             emit(Fmt("=== %zu quest(s) matching prefix '%s' ===", defs.size(),
                      lower_prefix.c_str()));
             for (const quest::QuestDef* def : defs)
@@ -616,7 +619,7 @@ void QuestDirector::ReportReinforcementTest() {
         // Each entry is {LocationRefType: u32, Reference: u32}; stride 8.
         const size_t stride = 8, count = s.data.size() / stride;
         int attackers = 0;
-        std::string sample;
+        base::String sample;
         for (size_t i = 0; i < count; ++i) {
           u32 rt = 0, ref = 0;
           std::memcpy(&rt, s.data.data() + i * stride, 4);
@@ -639,13 +642,13 @@ void QuestDirector::ReportReinforcementTest() {
   // GlobalVariable property). In a live game the master quest's setup fills that
   // link; headless we wire it so the propget -> SetValue global write resolves.
   const u64 cw_master = FindQuestHandle("CW");
-  std::string report =
+  base::String report =
       ctx_.scripts->guest()
           .SubmitFor([binds, siege, pct_atk, pool_atk,
                       cw_master](rx::script::papyrus::VirtualMachine& vm) {
             using rx::script::papyrus::ObjectRef;
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
@@ -655,7 +658,7 @@ void QuestDirector::ReportReinforcementTest() {
             i32 alias_id = -1;
             for (i32 id = 0; id < 60; ++id) {
               const ObjectRef ah{rx::script::papyrus::EncodeAliasHandle(siege, id)};
-              if (vm.TypeOf(ah).find("Reinforcement") != std::string::npos) {
+              if (vm.TypeOf(ah).find("Reinforcement") != base::String::npos) {
                 alias_id = id;
                 break;
               }
@@ -669,7 +672,7 @@ void QuestDirector::ReportReinforcementTest() {
             // these are the slots the siege binds to the fort's placed soldier refs.
             if (const quest::QuestDef* qd = binds->quest_system().Definition(siege)) {
               int fm = 0;
-              std::string sample;
+              base::String sample;
               for (const quest::AliasDef& al : qd->aliases) {
                 if (!al.find_matching) continue;
                 ++fm;
@@ -712,7 +715,7 @@ void QuestDirector::ReportReinforcementTest() {
                     ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, fort_alias)},
                     ObjectRef{0x019183});
               vm.Call(ObjectRef{siege}, "Fragment_0", {});
-              auto memo = [&](const char* v) -> std::string {
+              auto memo = [&](const char* v) -> base::String {
                 rx::script::papyrus::Value* p = vm.MemberVar(ObjectRef{siege}, v);
                 if (!p) return "(absent)";
                 if (p->type() == rx::script::papyrus::ValueType::kObject)
@@ -726,7 +729,7 @@ void QuestDirector::ReportReinforcementTest() {
               u64 gen_ref = 0;
               for (i32 id = 0; id < 60; ++id)
                 if (vm.TypeOf(ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, id)})
-                        .find("Reinforcement") != std::string::npos) {
+                        .find("Reinforcement") != base::String::npos) {
                   gen_ref = binds
                                 ->AliasReference(
                                     ObjectRef{rx::script::papyrus::EncodeAliasHandle(siege, id)})
@@ -743,15 +746,15 @@ void QuestDirector::ReportReinforcementTest() {
               // registration slots and the attack-point / owner state the
               // self-driving respawn loop keys off of.
               {
-                std::string all;
-                for (const std::string& n : vm.MemberNames(ObjectRef{siege})) {
+                base::String all;
+                for (const base::String& n : vm.MemberNames(ObjectRef{siege})) {
                   all += ' ';
                   all += n;
                 }
                 emit(Fmt("  siege members:%s", all.c_str()));
                 if (cw_master) {
-                  std::string cm;
-                  for (const std::string& n : vm.MemberNames(ObjectRef{cw_master})) {
+                  base::String cm;
+                  for (const base::String& n : vm.MemberNames(ObjectRef{cw_master})) {
                     cm += ' ';
                     cm += n;
                   }
@@ -902,7 +905,7 @@ void QuestDirector::ReportReinforcementTest() {
                     vm.Call(ObjectRef{cw_master}, "GetAttacker", {Value::Object(point)}).as_int(),
                     iSons, static_cast<unsigned long long>(handle(ctl("AttackPoint")))));
 
-                auto find_slot = [&]() -> std::string {
+                auto find_slot = [&]() -> base::String {
                   for (int i = 1; i <= 20; ++i)
                     if (handle(ctl(Fmt("A%d", i).c_str())) == slot_h) return Fmt("A%d", i);
                   return "(unregistered)";
@@ -915,7 +918,7 @@ void QuestDirector::ReportReinforcementTest() {
                 // `... as Actor` cast on the cell-less ref) and compares the side
                 // to GetAttacker(AttackPoint).
                 vm.Call(ObjectRef{siege}, "RegisterAlias", {Value::Object(ObjectRef{slot_h})});
-                const std::string aslot = find_slot();
+                const base::String aslot = find_slot();
                 emit(Fmt("  registered trooper -> %s", aslot.c_str()));
 
                 const f32 pool_before = ctl("::PoolAttacker_var")->as_float();
@@ -946,24 +949,24 @@ void QuestDirector::ReportReinforcementTest() {
   std::fflush(stdout);
 }
 
-void QuestDirector::ReportSceneFragments(const std::string& edid) {
+void QuestDirector::ReportSceneFragments(const base::String& edid) {
   const u64 handle = FindQuestHandle(edid);
   if (handle == 0 || !ctx_.scripts) {
     std::printf("scene report: no quest matching '%s'\n", edid.c_str());
     return;
   }
 
-  std::vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
+  base::Vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
 
   auto* binds = ctx_.bindings;
-  std::string report =
+  base::String report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle, edid,
-                      jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
+                      jobs = base::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
@@ -982,7 +985,7 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
                        static_cast<unsigned long long>(j.handle), j.frags.begin.function.c_str(),
                        j.frags.end.function.c_str(), j.frags.phases.size()));
               i32 before = qs.GetStage(handle);
-              auto note = [&](const std::string& what) {
+              auto note = [&](const base::String& what) {
                 const i32 now = qs.GetStage(handle);
                 if (now != before) {
                   emit(Fmt("  %s -> stage %d", what.c_str(), now));
@@ -992,9 +995,9 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
               };
               binds->RunSceneBegin(j.handle);
               note(Fmt("begin %s", j.frags.begin.function.c_str()));
-              std::vector<u32> phases;
+              base::Vector<u32> phases;
               for (const auto& p : j.frags.phases) phases.push_back(p.phase);
-              std::sort(phases.begin(), phases.end());
+              base::Sort(phases.begin(), phases.end());
               phases.erase(std::unique(phases.begin(), phases.end()), phases.end());
               for (u32 phase : phases)
                 for (bool on_begin : {true, false}) {
@@ -1015,18 +1018,18 @@ void QuestDirector::ReportSceneFragments(const std::string& edid) {
 
 void QuestDirector::AttachQuestScenes(u64 quest) {
   if (!ctx_.scripts || !ctx_.bindings) return;
-  std::vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, quest);
+  base::Vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, quest);
   if (jobs.empty()) return;
   const size_t n = jobs.size();
   auto* binds = ctx_.bindings;
   ctx_.scripts->guest().Submit(
-      [binds, quest, jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
-        for (SceneJob& j : jobs) binds->SetSceneFragments(j.handle, quest, std::move(j.frags));
+      [binds, quest, jobs = base::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
+        for (SceneJob& j : jobs) binds->SetSceneFragments(j.handle, quest, base::move(j.frags));
       });
   RX_INFO("quest: attached {} scene script(s) for 0x{:x}", n, quest);
 }
 
-void QuestDirector::ReportSceneLive(const std::string& edid) {
+void QuestDirector::ReportSceneLive(const base::String& edid) {
   const u64 handle = FindQuestHandle(edid);
   if (handle == 0 || !ctx_.scripts) {
     std::printf("scene live: no quest matching '%s'\n", edid.c_str());
@@ -1038,13 +1041,13 @@ void QuestDirector::ReportSceneLive(const std::string& edid) {
   // Start the quest, then tick the ScenePlayer: its stage fragments Start scenes,
   // whose fragments SetStage, which run more stage fragments. We report how far
   // it gets on its own (no breadcrumb, no direct stages).
-  std::string report =
+  base::String report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle, edid](rx::script::papyrus::VirtualMachine&) {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
@@ -1063,9 +1066,9 @@ void QuestDirector::ReportSceneLive(const std::string& edid) {
             // headless. Setting a stage runs its fragment; where that fragment
             // calls Scene.Start, the scene plays here and its own fragments drive
             // further stages. So this shows the scenes participating natively.
-            std::vector<i32> order;
+            base::Vector<i32> order;
             for (const quest::StageDef& s : def->stages) order.push_back(s.index);
-            std::sort(order.begin(), order.end());
+            base::Sort(order.begin(), order.end());
             order.erase(std::unique(order.begin(), order.end()), order.end());
 
             constexpr f32 kDt = 0.5f;
@@ -1090,27 +1093,27 @@ void QuestDirector::ReportSceneLive(const std::string& edid) {
   std::fflush(stdout);
 }
 
-void QuestDirector::ReportScenePlay(const std::string& edid) {
+void QuestDirector::ReportScenePlay(const base::String& edid) {
   const u64 handle = FindQuestHandle(edid);
   if (handle == 0 || !ctx_.scripts) {
     std::printf("scene play: no quest matching '%s'\n", edid.c_str());
     return;
   }
-  std::vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
+  base::Vector<SceneJob> jobs = GatherQuestScenes(records_, ctx_.scripts, handle);
 
   auto* binds = ctx_.bindings;
   // Drive each scene through the ScenePlayer over simulated time (the live
   // mechanism, vs ReportSceneFragments which fires every fragment at once), and
   // report which advance the journal. All on the guest thread, the bindings'
   // only legal caller, so the player's cues can call the fragment runners.
-  std::string report =
+  base::String report =
       ctx_.scripts->guest()
           .SubmitFor([binds, handle, edid,
-                      jobs = std::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
+                      jobs = base::move(jobs)](rx::script::papyrus::VirtualMachine&) mutable {
             using rx::script::papyrus::ObjectRef;
             quest::QuestSystem& qs = binds->quest_system();
-            std::string r;
-            auto emit = [&](const std::string& line) {
+            base::String r;
+            auto emit = [&](const base::String& line) {
               r += line;
               r += '\n';
             };
@@ -1127,9 +1130,9 @@ void QuestDirector::ReportScenePlay(const std::string& edid) {
             int advancing = 0;
             for (SceneJob& j : jobs) {
               binds->SetSceneFragments(j.handle, handle, j.frags);
-              std::vector<u32> phases;
+              base::Vector<u32> phases;
               for (const auto& p : j.frags.phases) phases.push_back(p.phase);
-              std::sort(phases.begin(), phases.end());
+              base::Sort(phases.begin(), phases.end());
               phases.erase(std::unique(phases.begin(), phases.end()), phases.end());
 
               const i32 before = qs.GetStage(handle);
@@ -1237,20 +1240,20 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
   if (!quest_panel_.quests.empty() && quest_ui_timer_ > 0.0f) return;
   quest_ui_timer_ = 0.2f;
   auto* binds = ctx_.bindings;
-  base::Vector<std::pair<u64, std::string>> src = quest_records_;
+  base::Vector<base::Pair<u64, base::String>> src = quest_records_;
   u64 selected = quest_panel_.selected;
 
   struct Snapshot {
-    std::vector<QuestPanel::Quest> panel;
-    std::vector<quest::QuestStatus> running;
+    base::Vector<QuestPanel::Quest> panel;
+    base::Vector<quest::QuestStatus> running;
     QuestPanel::Detail detail;
     // Every quest the system has touched, which is wider than the panel list: the
     // panel only lists quests with Papyrus attached, while the game's conversation
     // scenes belong to script-less dialogue quests that still start and run.
-    std::vector<quest::QuestStatus> all;
+    base::Vector<quest::QuestStatus> all;
     // Stages already set, per running quest: the other half (with the current
     // stage) of what a records condition gate reads.
-    std::vector<std::pair<u64, std::vector<i32>>> stages_done;
+    base::Vector<base::Pair<u64, base::Vector<i32>>> stages_done;
   };
   Snapshot snap =
       ctx_.scripts->guest()
@@ -1260,7 +1263,7 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
             out.panel.reserve(src.size());
             for (const auto& [handle, edid] : src) {
               const quest::QuestDef* def = qs.Definition(handle);
-              std::string name = (def && !def->name.empty()) ? def->name : edid;
+              base::String name = (def && !def->name.empty()) ? def->name : edid;
               out.panel.push_back({binds->ResolveQuestText(handle, name), handle,
                                    qs.IsRunning(handle), qs.IsActive(handle), qs.IsComplete(handle),
                                    qs.GetStage(handle)});
@@ -1270,11 +1273,11 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
             // Mirror the done-stage set of every running quest for the main
             // thread's condition evaluation (AI packages, scene phase gates).
             for (const quest::QuestStatus& q : out.running) {
-              std::vector<i32> done;
+              base::Vector<i32> done;
               if (const quest::QuestDef* def = qs.Definition(q.handle))
                 for (const quest::StageDef& st : def->stages)
                   if (qs.GetStageDone(q.handle, st.index)) done.push_back(st.index);
-              out.stages_done.push_back({q.handle, std::move(done)});
+              out.stages_done.push_back({q.handle, base::move(done)});
             }
             // Expand <Alias=>/<Global=> tokens in the live HUD text against the
             // filled aliases and global values (guest thread owns both).
@@ -1311,10 +1314,10 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
     e.complete = q.complete;
     for (auto& [handle, done] : snap.stages_done)
       if (handle == q.handle) e.done = done;
-    quest_state_.Set(q.handle, std::move(e));
+    quest_state_.Set(q.handle, base::move(e));
   }
-  quest_panel_.quests = std::move(snap.panel);
-  quest_panel_.detail = std::move(snap.detail);
+  quest_panel_.quests = base::move(snap.panel);
+  quest_panel_.detail = base::move(snap.detail);
   // Surface the look-target and counts so the debugger can toggle follow and
   // show how much is armed.
   const u64 look = interaction_->activate_target();
@@ -1327,7 +1330,7 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
   UpdateObjectiveMarkers(snap.running);
 }
 
-void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& running) {
+void QuestDirector::UpdateQuestHud(const base::Vector<quest::QuestStatus>& running) {
   // The tracked quest is the player's pinned one (from the journal) if it is
   // still running, otherwise the most recently changed.
   const quest::QuestStatus* tracked = nullptr;
@@ -1351,15 +1354,15 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
 
   // Player journal: the active quests, most recent first, capped to the HUD's
   // row pool; the tracked quest is the highlighted entry.
-  std::vector<const quest::QuestStatus*> sorted;
+  base::Vector<const quest::QuestStatus*> sorted;
   sorted.reserve(running.size());
   for (const quest::QuestStatus& q : running)
     if (in_journal(q)) sorted.push_back(&q);
-  std::sort(sorted.begin(), sorted.end(),
-            [](const quest::QuestStatus* a, const quest::QuestStatus* b) {
-              return a->revision > b->revision;
-            });
-  std::vector<HudQuest> journal;
+  base::Sort(sorted.begin(), sorted.end(),
+             [](const quest::QuestStatus* a, const quest::QuestStatus* b) {
+               return a->revision > b->revision;
+             });
+  base::Vector<HudQuest> journal;
   journal_handles_.clear();
   int journal_selected = -1;
   for (const quest::QuestStatus* q : sorted) {
@@ -1371,7 +1374,7 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
     if (tracked && q->handle == tracked->handle)
       journal_selected = static_cast<int>(journal.size());
     journal_handles_.push_back(q->handle);
-    journal.push_back(std::move(hq));
+    journal.push_back(base::move(hq));
   }
   game_ui_.SetJournal(journal_open_, journal, journal_selected);
 
@@ -1402,7 +1405,7 @@ void QuestDirector::UpdateQuestHud(const std::vector<quest::QuestStatus>& runnin
   }
 }
 
-void QuestDirector::UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& running) {
+void QuestDirector::UpdateObjectiveMarkers(const base::Vector<quest::QuestStatus>& running) {
   // A multiplayer client never owns markers or triggers; it shows the host's
   // replicated marker, driven from its own camera.
 #if RECREATION_HAS_NET
@@ -1630,25 +1633,27 @@ void QuestDirector::RefreshNativeTrace(f32 dt) {
   using NativeCall = script::papyrus::VirtualMachine::NativeCall;
   auto snap = ctx_.scripts->guest()
                   .SubmitFor([](script::papyrus::VirtualMachine& vm) {
-                    return std::pair<u64, std::vector<NativeCall>>(vm.native_call_count(),
-                                                                   vm.native_trace_log());
+                    return base::Pair<u64, base::Vector<NativeCall>>(vm.native_call_count(),
+                                                                     vm.native_trace_log());
                   })
                   .get();
   native_trace_panel_.total = snap.first;
-  const std::vector<NativeCall>& log = snap.second;
+  const base::Vector<NativeCall>& log = snap.second;
 
   native_trace_panel_.recent.clear();
   native_trace_panel_.recent.reserve(log.size());
   for (auto it = log.rbegin(); it != log.rend(); ++it)
     native_trace_panel_.recent.push_back(it->script_type + "." + it->function);
 
-  std::unordered_map<std::string, u32> counts;
+  base::UnorderedMap<base::String, u32> counts;
   for (const NativeCall& c : log) ++counts[c.script_type + "." + c.function];
-  std::vector<std::pair<std::string, u32>> top(counts.begin(), counts.end());
-  std::sort(top.begin(), top.end(),
-            [](const auto& a, const auto& b) { return a.second > b.second; });
+  base::Vector<base::Pair<base::String, u32>> top;
+  top.reserve(counts.size());
+  for (auto entry : counts) top.push_back({entry.key, entry.value});
+  base::Sort(top.begin(), top.end(),
+             [](const auto& a, const auto& b) { return a.second > b.second; });
   if (top.size() > 40) top.resize(40);
-  native_trace_panel_.top = std::move(top);
+  native_trace_panel_.top = base::move(top);
 }
 
 }  // namespace rx

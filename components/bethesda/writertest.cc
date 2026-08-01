@@ -5,12 +5,13 @@
 // proves the writer is the inverse of the reader: parse -> encode -> parse is
 // stable and, for an uncompressed record, byte identical.
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "components/bethesda/compression.h"
 #include "components/bethesda/game_profile.h"
@@ -19,6 +20,9 @@
 #include "core/types.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
 namespace {
@@ -45,7 +49,7 @@ void TestRecordRoundTrip() {
   builder.EditorId("TestSword");
   u32 data_value = 0xdeadbeef;
   builder.FieldPod(kData, data_value);
-  std::vector<u8> big(70000, 0xab);  // > 0xffff, forces an XXXX escape
+  base::Vector<u8> big(70000, 0xab);  // > 0xffff, forces an XXXX escape
   builder.Field(kBigx, ByteSpan(big.data(), big.size()));
 
   base::Vector<u8> encoded;
@@ -67,8 +71,8 @@ void TestRecordRoundTrip() {
   Check("data field", d && d->data.size() == 4 && std::memcmp(d->data.data(), &data_value, 4) == 0);
   const Subrecord* b = parsed.Find(kBigx);
   Check("xxxx field size", b && b->data.size() == big.size());
-  Check("xxxx field bytes", b && b->data.size() == big.size() && b->data[0] == 0xab &&
-                                b->data[big.size() - 1] == 0xab);
+  Check("xxxx field bytes",
+        b && b->data.size() == big.size() && b->data[0] == 0xab && b->data[big.size() - 1] == 0xab);
 
   // parse -> encode must be byte identical (uncompressed round-trip).
   base::Vector<u8> reencoded;
@@ -79,7 +83,7 @@ void TestRecordRoundTrip() {
 }
 
 // Writes a whole plugin and reads it back through the real PluginFile loader.
-void TestPluginRoundTrip(const std::string& dir) {
+void TestPluginRoundTrip(const base::String& dir) {
   std::printf("plugin round-trip:\n");
   const GameProfile& profile = GameProfile::For(Game::kSkyrimSe);
 
@@ -95,7 +99,7 @@ void TestPluginRoundTrip(const std::string& dir) {
   writer.AddRecord(helm_a.record());
   writer.AddRecord(sword_b.record());
 
-  const std::string path = dir + "/rec_writertest.esp";
+  const base::String path = dir + "/rec_writertest.esp";
   Check("save", writer.Save(path));
 
   auto plugin = PluginFile::Open(path, profile);
@@ -104,9 +108,8 @@ void TestPluginRoundTrip(const std::string& dir) {
   Check("masters parsed", plugin->masters().size() == 1 && plugin->masters()[0] == "Skyrim.esm");
   Check("hedr record count", plugin->record_count() == 3);
 
-  std::vector<std::pair<u32, std::string>> got;
-  plugin->VisitRecords(
-      [&](Record& r) { got.emplace_back(r.header.type, r.GetString(kEdid)); });
+  base::Vector<base::Pair<u32, base::String>> got;
+  plugin->VisitRecords([&](Record& r) { got.emplace_back(r.header.type, r.GetString(kEdid)); });
   Check("visited 3 records", got.size() == 3);
   // Groups emit in first-seen type order (WEAP then ARMO); records keep
   // insertion order within a group.
@@ -115,17 +118,17 @@ void TestPluginRoundTrip(const std::string& dir) {
   Check("order: ARMO HelmA", got.size() > 2 && got[2].first == kArmo && got[2].second == "HelmA");
 
   std::error_code ec;
-  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.c_str(), ec);
 }
 
 // Compresses records and reads them back through the loader's decompress path.
-void TestCompression(const std::string& dir) {
+void TestCompression(const base::String& dir) {
   std::printf("compression:\n");
   // Direct codec round-trip on data with a repeated pattern.
-  std::vector<u8> raw(5000);
+  base::Vector<u8> raw(5000);
   for (size_t i = 0; i < raw.size(); ++i) raw[i] = static_cast<u8>(i * 7 + 3);
   base::Vector<u8> stream = ZlibDeflateStored(ByteSpan(raw.data(), raw.size()));
-  std::vector<u8> back(raw.size());
+  base::Vector<u8> back(raw.size());
   Check("inflate(deflate(x)) succeeds",
         ZlibInflate(ByteSpan(stream.data(), stream.size()), back.data(), back.size()));
   Check("inflate(deflate(x)) == x", std::memcmp(back.data(), raw.data(), raw.size()) == 0);
@@ -139,7 +142,7 @@ void TestCompression(const std::string& dir) {
   book.Field(FourCc('D', 'E', 'S', 'C'), ByteSpan(raw.data(), raw.size()));
   writer.AddRecord(book.record());
 
-  const std::string path = dir + "/rec_writertest_z.esp";
+  const base::String path = dir + "/rec_writertest_z.esp";
   Check("save compressed", writer.Save(path));
 
   auto plugin = PluginFile::Open(path, profile);
@@ -160,13 +163,13 @@ void TestCompression(const std::string& dir) {
   Check("compressed record decodes", found && desc_ok);
 
   std::error_code ec;
-  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.c_str(), ec);
 }
 
 }  // namespace
 
 int main() {
-  const std::string dir = std::filesystem::temp_directory_path().string();
+  const base::String dir = std::filesystem::temp_directory_path().string();
   TestRecordRoundTrip();
   TestPluginRoundTrip(dir);
   TestCompression(dir);

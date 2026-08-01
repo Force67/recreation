@@ -3,14 +3,16 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <span>
-#include <string>
-#include <string_view>
 
 #include "asset/asset_database.h"
 #include "components/bethesda/game_profile.h"
@@ -124,7 +126,7 @@ class CellStreamer {
     announced_idle_ = false;
     distant_discovered_ = false;
   }
-  void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
+  void SetUploads(Uploads uploads) { uploads_ = base::move(uploads); }
 
   // Water height for cells with the has-water flag when neither the cell
   // (XCLW) nor the worldspace (WRLD DNAM) provides one. Oblivion WRLDs carry
@@ -159,7 +161,7 @@ class CellStreamer {
   // id (0 when going outside) and whether it is interior. The runtime forwards
   // it to the managed world as a LocationChanged event.
   void set_on_location_change(std::function<void(u64, bool)> cb) {
-    on_location_change_ = std::move(cb);
+    on_location_change_ = base::move(cb);
   }
 
   // Consulted before a placed reference is instantiated: returns true to skip a
@@ -167,7 +169,7 @@ class CellStreamer {
   // this so a picked-up world item stays gone after the cell streams out and
   // back in (persistent ref removal). Unset = nothing is suppressed.
   void set_ref_suppressor(std::function<bool(u64 ref_handle)> fn) {
-    ref_suppressor_ = std::move(fn);
+    ref_suppressor_ = base::move(fn);
   }
 
   // Converts + uploads a base form's world model to the shared renderer (salted
@@ -176,10 +178,11 @@ class CellStreamer {
   // MeshForBase) exposes the geometry bounds a caller needs to build a collision
   // shape. Null when the base resolves to no usable model. The item system uses
   // this to give a dropped item its real visual + a box shape from its bounds.
-  const asset::Mesh* PrepareItemModel(bethesda::GlobalFormId base_id, asset::AssetId* out_render_id);
+  const asset::Mesh* PrepareItemModel(bethesda::GlobalFormId base_id,
+                                      asset::AssetId* out_render_id);
 
   // Picks the worldspace to stream, e.g. "Tamriel". False if missing.
-  bool SelectWorldspace(std::string_view editor_id);
+  bool SelectWorldspace(base::StringRef editor_id);
 
   // Called each sim tick with the camera position in engine units.
   void Update(ecs::World& world, const Vec3& camera_position);
@@ -199,7 +202,7 @@ class CellStreamer {
   bool in_interior() const { return interior_active_; }
   void SyncReference(ecs::World& world, u64 handle);
   u64 RuntimeHandleForSource(ecs::World& world, u64 owner_handle,
-                              bethesda::GlobalFormId source) const;
+                             bethesda::GlobalFormId source) const;
   u64 RuntimeHandleForInstanceChild(ecs::World& world, u64 instance_handle,
                                     bethesda::GlobalFormId source) const;
 
@@ -255,21 +258,19 @@ class CellStreamer {
   // Each call is one live dab; the editor merges a drag's dabs into one change.
   TerrainEditChange ApplyTerrainBrush(ecs::World& world, TerrainBrushMode mode, f32 engine_x,
                                       f32 engine_z, f32 radius_meters, f32 strength,
-                                      f32 flatten_engine_y = 0.0f,
-                                      bool rebuild = true);
-  void RefreshTerrainGeometry(ecs::World& world,
-                              const TerrainEditChange& change);
+                                      f32 flatten_engine_y = 0.0f, bool rebuild = true);
+  void RefreshTerrainGeometry(ecs::World& world, const TerrainEditChange& change);
   bool ApplyTerrainChange(ecs::World& world, const TerrainEditChange& change);
   bool RevertTerrainChange(ecs::World& world, const TerrainEditChange& change);
   // Rebuilds terrain-derived grass and water after a complete stroke. Terrain
   // geometry itself refreshes live per dab; expensive scatter work is deferred.
   void RefreshTerrainDerived(ecs::World& world, const TerrainEditChange& change);
   TerrainEditChange ResetTerrainEdits(ecs::World& world);
-  bool SaveTerrainEdits(const std::string& path, std::string* error = nullptr);
-  bool LoadTerrainEdits(ecs::World& world, const std::string& path, std::string* error = nullptr);
+  bool SaveTerrainEdits(const base::String& path, base::String* error = nullptr);
+  bool LoadTerrainEdits(ecs::World& world, const base::String& path, base::String* error = nullptr);
   size_t terrain_edit_sample_count() const { return terrain_edits_.sample_count(); }
   bool terrain_edits_dirty() const { return terrain_edits_.dirty(); }
-  const std::string& terrain_world_identity() const { return terrain_edits_.world_identity(); }
+  const base::String& terrain_world_identity() const { return terrain_edits_.world_identity(); }
   f32 terrain_sample_spacing() const { return cell_size_ * units_to_meters_ / 32.0f; }
 
   // World-space rect (min_x, min_z, max_x, max_z) of the contiguous cell ring
@@ -364,15 +365,15 @@ class CellStreamer {
   bool DecodeBaseTerrain(i32 grid_x, i32 grid_y, f32* heights) const;
   bool ComposeTerrain(i32 grid_x, i32 grid_y, f32* heights) const;
   bool TerrainNormalsAffected(TerrainCellKey cell) const;
-  std::optional<f32> BaseTerrainSample(i32 global_x, i32 global_y) const;
+  base::Optional<f32> BaseTerrainSample(i32 global_x, i32 global_y) const;
   u64 TerrainBaseFingerprint(TerrainCellKey cell) const;
-  void RegisterTerrainFingerprints(const std::vector<TerrainCellKey>& cells);
-  void RebuildTerrainCells(ecs::World& world, const std::vector<TerrainCellKey>& cells);
-  void RebuildTerrainDerivedCells(ecs::World& world, const std::vector<TerrainCellKey>& cells);
-  void SyncTerrainRayTracing(const std::vector<TerrainCellKey>& cells);
+  void RegisterTerrainFingerprints(const base::Vector<TerrainCellKey>& cells);
+  void RebuildTerrainCells(ecs::World& world, const base::Vector<TerrainCellKey>& cells);
+  void RebuildTerrainDerivedCells(ecs::World& world, const base::Vector<TerrainCellKey>& cells);
+  void SyncTerrainRayTracing(const base::Vector<TerrainCellKey>& cells);
   bool RebuildTerrainCell(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
-  void UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heights,
-                                 i32 grid_x, i32 grid_y) const;
+  void UpdateTerrainMeshVertices(asset::Mesh* mesh, const f32* heights, i32 grid_x,
+                                 i32 grid_y) const;
   // Distant LOD: discovers the coarsest .btr (terrain) + .bto (object) quads of
   // the streamed worldspace once, then drains them under a budget. They cover the
   // whole map cheaply (a few dozen quads) so the mesh-shader cull does the rest.
@@ -386,8 +387,8 @@ class CellStreamer {
   // cell spawn composed onto the given Bethesda-space transform (position,
   // rotation quaternion, uniform scale). Recurses into nested pack-ins.
   bool SpawnPackIn(ecs::World& world, i16 grid_x, i16 grid_y, bethesda::GlobalFormId pkin_id,
-                    const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
-                    bool interior, int depth, u64 instance_handle, u64 root_owner = 0);
+                   const f32 position[3], const f32 rotation[4], f32 scale, LoadedCell& cell,
+                   bool interior, int depth, u64 instance_handle, u64 root_owner = 0);
   void ExpandPackInRoot(ecs::World& world, ecs::Entity entity, u64 handle, LoadedCell& cell);
   bool SpawnWater(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell);
   bool SpawnGrass(ecs::World& world, i16 grid_x, i16 grid_y, LoadedCell& cell,
@@ -470,7 +471,7 @@ class CellStreamer {
   bool has_fixed_anchor_ = false;
   u64 mesh_id_salt_ = 0;  // namespaces mesh ids in the shared renderer (per domain)
   bethesda::GlobalFormId worldspace_;
-  std::string worldspace_edid_;  // lowercased, for building distant LOD paths
+  base::String worldspace_edid_;  // lowercased, for building distant LOD paths
   const bethesda::RecordStore::ExteriorGrid* grid_ = nullptr;
   base::UnorderedMap<u32, LoadedCell> loaded_;
   // References that outlived the cell they were authored in, because something
@@ -486,7 +487,7 @@ class CellStreamer {
   // Distant LOD quads (the coarsest .btr/.bto of the worldspace). Discovered once
   // on first Update, then drained: each becomes a persistent renderable proxy.
   struct DistantQuad {
-    std::string path;
+    base::String path;
     i32 cell_x = 0;  // SW cell of the quad (only used by terrain, which is quad-local)
     i32 cell_y = 0;
     bool object = false;  // .bto: vertices are absolute world; .btr: quad-local

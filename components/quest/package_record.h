@@ -1,7 +1,7 @@
 #ifndef RECREATION_QUEST_PACKAGE_RECORD_H_
 #define RECREATION_QUEST_PACKAGE_RECORD_H_
 
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
@@ -73,9 +73,9 @@ struct PackageTarget {
 
 // The decoded shape of one AI package.
 struct PackageDef {
-  u64 handle = 0;        // packed GlobalFormId of the PACK record
-  u16 type = 0;          // PKDT template/procedure type byte
-  u32 flags = 0;         // PKDT flags
+  u64 handle = 0;          // packed GlobalFormId of the PACK record
+  u16 type = 0;            // PKDT template/procedure type byte
+  u32 flags = 0;           // PKDT flags
   bool is_travel = false;  // the package moves the actor to a distinct target
   PackageTarget target;
   // The CTDA gate on this package. An actor runs the highest-priority package
@@ -89,7 +89,7 @@ struct PackageDef {
 // conditions pass. Bethesda stores an alias's packages highest-priority first,
 // so pass them in record order and the winner is the game's own choice. Returns
 // -1 when none qualify (the actor falls back to its base AI).
-int SelectActivePackage(const std::vector<PackageDef>& packages, const ConditionContext& ctx);
+int SelectActivePackage(const base::Vector<PackageDef>& packages, const ConditionContext& ctx);
 
 // Parses one already-decoded PACK record into a PackageDef. `handle` is the
 // package's packed form id. `records` resolves the plugin-relative form ids the
@@ -120,8 +120,8 @@ struct RouteStop {
 // This is how a quest encodes a journey without scripting any motion: MQ101's
 // cart horse walks five patrol packages in turn, each package's fragment setting
 // the stage that lets the next one take over.
-std::vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
-                                               const AliasDef& alias, u16 quest_plugin);
+base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
+                                                const AliasDef& alias, u16 quest_plugin);
 
 }  // namespace rx::quest
 

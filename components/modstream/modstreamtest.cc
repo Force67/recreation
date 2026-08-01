@@ -4,10 +4,15 @@
 // mounts it back through the asset Vfs, and verifies the bytes come out intact.
 // No game data and no socket are involved, so it runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <string>
+#include <optional>
 #include <vector>
 
 #include "asset/vfs.h"
@@ -24,6 +29,9 @@
 
 namespace fs = std::filesystem;
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::modstream;
 
 namespace {
@@ -35,20 +43,20 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void WriteFile(const fs::path& path, const std::string& contents) {
+void WriteFile(const fs::path& path, const base::String& contents) {
   fs::create_directories(path.parent_path());
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
   out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
 }
 
-const ResourceFile* FindFile(const ModResource& resource, const std::string& path) {
+const ResourceFile* FindFile(const ModResource& resource, const base::String& path) {
   for (const ResourceFile& f : resource.files) {
     if (f.path == path) return &f;
   }
   return nullptr;
 }
 
-const ModResource* FindResource(const ModManifest& manifest, const std::string& name) {
+const ModResource* FindResource(const ModManifest& manifest, const base::String& name) {
   for (const ModResource& r : manifest.resources) {
     if (r.name == name) return &r;
   }
@@ -62,17 +70,17 @@ int main() {
 
   const fs::path tmp = fs::temp_directory_path() / "rec_modstream_test";
   std::error_code ec;
-  fs::remove_all(tmp, ec);
+  fs::remove_all(tmp.c_str(), ec);
   const fs::path mods_dir = tmp / "server_mods";
   const fs::path cache_dir = tmp / "client_cache";
   const fs::path stage_dir = tmp / "transfer_stage";
-  fs::create_directories(stage_dir);
+  fs::create_directories(stage_dir.c_str());
 
   // A "weapons" resource with a mesh and a texture, and an "audio" resource that
   // re-uses the exact same texture bytes (to exercise content-hash dedup).
-  const std::string mesh = "MESH-bytes-0123456789";
-  const std::string shared_tex = std::string("TEX") + std::string(5000, 'x');
-  const std::string sound = "RIFFsound-data";
+  const base::String mesh = "MESH-bytes-0123456789";
+  const base::String shared_tex = base::String("TEX") + base::String(5000, 'x');
+  const base::String sound = "RIFFsound-data";
   WriteFile(mods_dir / "weapons" / "meshes" / "sword.nif", mesh);
   WriteFile(mods_dir / "weapons" / "textures" / "sword.dds", shared_tex);
   WriteFile(mods_dir / "audio" / "textures" / "icon.dds", shared_tex);
@@ -83,8 +91,7 @@ int main() {
     const ContentHash a = HashBytes(mesh.data(), mesh.size());
     const ContentHash b = HashBytes(mesh.data(), mesh.size());
     Check("HashBytes is deterministic", a == b);
-    Check("different bytes hash differently",
-          HashBytes(sound.data(), sound.size()) != a);
+    Check("different bytes hash differently", HashBytes(sound.data(), sound.size()) != a);
 
     ContentHasher chunked;
     chunked.Update(mesh.data(), 4);
@@ -97,10 +104,9 @@ int main() {
   }
 
   // --- catalog ---
-  std::optional<ModCatalog> catalog = ModCatalog::Build(mods_dir);
+  base::Optional<ModCatalog> catalog = ModCatalog::Build(mods_dir);
   Check("ModCatalog::Build succeeds", catalog.has_value());
-  Check("ModCatalog::Build rejects a missing dir",
-        !ModCatalog::Build(tmp / "does_not_exist"));
+  Check("ModCatalog::Build rejects a missing dir", !ModCatalog::Build(tmp / "does_not_exist"));
   if (!catalog) {
     std::printf("modstreamtest: %d failure(s)\n", g_failures + 1);
     return 1;
@@ -109,27 +115,25 @@ int main() {
   const ModManifest& manifest = catalog->manifest();
   Check("two resources catalogued", manifest.resources.size() == 2);
   // Resources are sorted by name, so "audio" precedes "weapons".
-  Check("resources sorted by name",
-        manifest.resources.size() == 2 && manifest.resources[0].name == "audio" &&
-            manifest.resources[1].name == "weapons");
+  Check("resources sorted by name", manifest.resources.size() == 2 &&
+                                        manifest.resources[0].name == "audio" &&
+                                        manifest.resources[1].name == "weapons");
 
   const ModResource* weapons = FindResource(manifest, "weapons");
   Check("weapons resource present", weapons != nullptr);
   if (weapons) {
     // Files sorted by path: meshes/sword.nif before textures/sword.dds.
-    Check("weapons files sorted by path",
-          weapons->files.size() == 2 &&
-              weapons->files[0].path == "meshes/sword.nif" &&
-              weapons->files[1].path == "textures/sword.dds");
+    Check("weapons files sorted by path", weapons->files.size() == 2 &&
+                                              weapons->files[0].path == "meshes/sword.nif" &&
+                                              weapons->files[1].path == "textures/sword.dds");
     const ResourceFile* nif = FindFile(*weapons, "meshes/sword.nif");
     Check("file size recorded", nif && nif->size == mesh.size());
-    Check("file hash recorded",
-          nif && nif->hash == HashBytes(mesh.data(), mesh.size()));
+    Check("file hash recorded", nif && nif->hash == HashBytes(mesh.data(), mesh.size()));
   }
 
-  Check("manifest totals", manifest.TotalFiles() == 4 &&
-                               manifest.TotalBytes() ==
-                                   mesh.size() + 2 * shared_tex.size() + sound.size());
+  Check("manifest totals",
+        manifest.TotalFiles() == 4 &&
+            manifest.TotalBytes() == mesh.size() + 2 * shared_tex.size() + sound.size());
 
   const ContentHash tex_hash = HashBytes(shared_tex.data(), shared_tex.size());
   const auto tex_path = catalog->PathForHash(tex_hash);
@@ -149,7 +153,8 @@ int main() {
 
     // Live reload swaps the mod providers: unmount them, and the content is gone.
     const size_t removed = host_vfs.UnmountByPrefix("modstream:");
-    Check("unmount drops one provider per resource", removed == catalog->manifest().resources.size());
+    Check("unmount drops one provider per resource",
+          removed == catalog->manifest().resources.size());
     Check("unmounted content no longer resolves", !host_vfs.Read("meshes/sword.nif"));
     modstream::MountCatalog(host_vfs, *catalog);  // re-mount, as a reload would
     Check("re-mounted content resolves again", host_vfs.Read("meshes/sword.nif").has_value());
@@ -157,17 +162,16 @@ int main() {
 
   // --- stream filter (selective distribution: keep server-only files off clients) ---
   {
-    const StreamFilter f = StreamFilter::Parse(
-        "# keep server bits off clients\nserver/\nsecrets.cfg\n*.bak\n\n");
+    const StreamFilter f =
+        StreamFilter::Parse("# keep server bits off clients\nserver/\nsecrets.cfg\n*.bak\n\n");
     Check("filter excludes a directory prefix", f.Excludes("server/logic.lua"));
     Check("filter excludes an exact path", f.Excludes("secrets.cfg"));
     Check("filter excludes an extension", f.Excludes("data/save.bak"));
     Check("filter passes a normal file", !f.Excludes("meshes/sword.nif"));
     Check("filter is case/slash normalized",
           StreamFilter::Parse("Server\\\n").Excludes("server/x.txt"));
-    Check("empty filter excludes nothing",
-          StreamFilter::Parse("# only comments\n").empty() &&
-              !StreamFilter::Parse("").Excludes("anything"));
+    Check("empty filter excludes nothing", StreamFilter::Parse("# only comments\n").empty() &&
+                                               !StreamFilter::Parse("").Excludes("anything"));
   }
 
   // A resource whose .streamignore hides a server dir, a config and the ignore
@@ -178,7 +182,7 @@ int main() {
     WriteFile(filtered / "meshes" / "rock.nif", "ROCK");
     WriteFile(filtered / "server" / "rules.lua", "secret server logic");
     WriteFile(filtered / "admin.cfg", "password=hunter2");
-    std::optional<ModCatalog> c2 = ModCatalog::Build(mods_dir);
+    base::Optional<ModCatalog> c2 = ModCatalog::Build(mods_dir);
     Check("rebuild with a filtered resource succeeds", c2.has_value());
     const ModResource* world = c2 ? FindResource(c2->manifest(), "world") : nullptr;
     Check("filtered resource catalogues only the client file",
@@ -188,15 +192,14 @@ int main() {
             !c2->PathForHash(HashBytes("secret server logic", 19)) &&
                 !c2->PathForHash(HashBytes("password=hunter2", 16)));
     }
-    fs::remove_all(filtered, ec);
+    fs::remove_all(filtered.c_str(), ec);
   }
 
   // --- manifest codec round-trip and rejection ---
   std::vector<u8> encoded = EncodeManifest(manifest);
   std::optional<ModManifest> decoded = DecodeManifest(encoded);
   Check("manifest round-trips through the codec", decoded && *decoded == manifest);
-  Check("codec rejects a truncated buffer",
-        !DecodeManifest(encoded.data(), encoded.size() - 1));
+  Check("codec rejects a truncated buffer", !DecodeManifest(encoded.data(), encoded.size() - 1));
   {
     std::vector<u8> bad = encoded;
     bad[0] ^= 0xff;  // corrupt the magic
@@ -221,8 +224,7 @@ int main() {
     const std::vector<u8> req = EncodeHashRequest(hashes);
     const auto decoded_req = DecodeHashRequest(req.data(), req.size(), 8);
     Check("hash request round-trips", decoded_req && *decoded_req == hashes);
-    Check("hash request rejects an over-count cap",
-          !DecodeHashRequest(req.data(), req.size(), 2));
+    Check("hash request rejects an over-count cap", !DecodeHashRequest(req.data(), req.size(), 2));
     Check("hash request rejects a truncated body",
           !DecodeHashRequest(req.data(), req.size() - 1, 8));
     Check("hash request rejects trailing bytes", [&] {
@@ -241,23 +243,25 @@ int main() {
     const u32 chunks = ManifestChunkCount(total);
     Check("chunk count splits correctly", chunks == 2);
     std::vector<u8> blob(total, 0x5a);
-    const std::vector<u8> c0 = EncodeManifestChunk(7, total, chunks, 0, blob.data(), kManifestChunkPayload);
-    const std::vector<u8> c1 = EncodeManifestChunk(7, total, chunks, 1, blob.data() + kManifestChunkPayload, 100);
+    const std::vector<u8> c0 =
+        EncodeManifestChunk(7, total, chunks, 0, blob.data(), kManifestChunkPayload);
+    const std::vector<u8> c1 =
+        EncodeManifestChunk(7, total, chunks, 1, blob.data() + kManifestChunkPayload, 100);
     const auto v0 = DecodeManifestChunk(c0.data(), c0.size());
     const auto v1 = DecodeManifestChunk(c1.data(), c1.size());
-    Check("first chunk decodes full payload",
-          v0 && v0->generation == 7 && v0->chunk_index == 0 && v0->payload_len == kManifestChunkPayload);
-    Check("last chunk decodes the remainder",
-          v1 && v1->chunk_index == 1 && v1->payload_len == 100);
+    Check("first chunk decodes full payload", v0 && v0->generation == 7 && v0->chunk_index == 0 &&
+                                                  v0->payload_len == kManifestChunkPayload);
+    Check("last chunk decodes the remainder", v1 && v1->chunk_index == 1 && v1->payload_len == 100);
     Check("chunk rejects a header-only buffer", !DecodeManifestChunk(c0.data(), 15));
-    Check("chunk rejects a wrong payload length",
-          !DecodeManifestChunk(c0.data(), c0.size() - 1));
+    Check("chunk rejects a wrong payload length", !DecodeManifestChunk(c0.data(), c0.size() - 1));
     Check("chunk rejects an out-of-range index", [&] {
-      std::vector<u8> bad = EncodeManifestChunk(7, total, chunks, 5, blob.data(), kManifestChunkPayload);
+      std::vector<u8> bad =
+          EncodeManifestChunk(7, total, chunks, 5, blob.data(), kManifestChunkPayload);
       return !DecodeManifestChunk(bad.data(), bad.size());
     }());
     Check("chunk rejects an inconsistent count", [&] {
-      std::vector<u8> bad = EncodeManifestChunk(7, total, 99, 0, blob.data(), kManifestChunkPayload);
+      std::vector<u8> bad =
+          EncodeManifestChunk(7, total, 99, 0, blob.data(), kManifestChunkPayload);
       return !DecodeManifestChunk(bad.data(), bad.size());
     }());
     Check("chunk rejects a zero total", [&] {
@@ -272,7 +276,7 @@ int main() {
     const auto src = catalog->PathForHash(need.hash);
     Check("server can serve every planned hash", src.has_value());
     if (!src) continue;
-    const fs::path staged = stage_dir / (std::to_string(need.hash) + ".part");
+    const fs::path staged = stage_dir / (base::ToString(need.hash) + ".part").c_str();
     fs::copy_file(*src, staged, fs::copy_options::overwrite_existing, ec);
     const auto stored = store.Adopt(need.hash, staged);
     Check("store adopts a verified transfer", stored.has_value());
@@ -285,10 +289,9 @@ int main() {
     WriteFile(bogus, "not what the hash claims");
     Check("store rejects a hash mismatch", !store.Adopt(tex_hash, bogus));
     Check("rejected transfer leaves no cache entry or temp file",
-          store.Has(tex_hash) && !fs::exists(bogus));
+          store.Has(tex_hash) && !fs::exists(bogus.c_str()));
   }
-  Check("Store rejects a mismatched buffer",
-        !store.Store(tex_hash, std::vector<u8>{1, 2, 3}));
+  Check("Store rejects a mismatched buffer", !store.Store(tex_hash, base::Vector<u8>{1, 2, 3}));
 
   // --- mount the manifest back through the Vfs and read content out ---
   asset::Vfs vfs;
@@ -299,11 +302,10 @@ int main() {
         read_mesh && read_mesh->size() == mesh.size() &&
             std::equal(read_mesh->begin(), read_mesh->end(), mesh.begin()));
   auto read_sound = vfs.Read("sound/hit.wav");
-  Check("Vfs serves a streamed sound",
-        read_sound && read_sound->size() == sound.size());
+  Check("Vfs serves a streamed sound", read_sound && read_sound->size() == sound.size());
   Check("Vfs reports a missing path absent", !vfs.Read("meshes/missing.nif"));
 
-  fs::remove_all(tmp, ec);
+  fs::remove_all(tmp.c_str(), ec);
   std::printf("modstreamtest: %d failure(s)\n", g_failures);
   return g_failures ? 1 : 0;
 }

@@ -1,11 +1,12 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_NATIVE_H_
 #define RECREATION_SCRIPT_PAPYRUS_NATIVE_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 #include "components/script/papyrus/value.h"
 
@@ -17,7 +18,7 @@ class VirtualMachine;
 // functions. args are the call arguments; the return is the function's result
 // (None for void). Natives reach the engine through the VM's game bindings.
 using NativeFunction =
-    std::function<Value(VirtualMachine& vm, ObjectRef self, std::vector<Value>& args)>;
+    std::function<Value(VirtualMachine& vm, ObjectRef self, base::Vector<Value>& args)>;
 
 // The per-game native surface: a flat table keyed by script type + function
 // name. This is the one component that differs between Skyrim, Fallout 4 and
@@ -26,14 +27,14 @@ using NativeFunction =
 // Papyrus name resolution.
 class NativeRegistry {
  public:
-  void Register(std::string_view script_type, std::string_view function, NativeFunction fn);
-  const NativeFunction* Find(std::string_view script_type, std::string_view function) const;
+  void Register(base::StringRef script_type, base::StringRef function, NativeFunction fn);
+  const NativeFunction* Find(base::StringRef script_type, base::StringRef function) const;
 
   size_t size() const { return table_.size(); }
 
  private:
-  static std::string Key(std::string_view script_type, std::string_view function);
-  std::unordered_map<std::string, NativeFunction> table_;
+  static base::String Key(base::StringRef script_type, base::StringRef function);
+  base::UnorderedMap<base::String, NativeFunction> table_;
 };
 
 }  // namespace rx::script::papyrus

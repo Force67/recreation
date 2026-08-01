@@ -1,8 +1,9 @@
-#include "components/script/games/skyrim/skyrim_natives_ext.h"
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <cmath>
-#include <string>
 
+#include "components/script/games/skyrim/skyrim_natives_ext.h"
 namespace rx::script::skyrim {
 
 using papyrus::ObjectRef;
@@ -24,11 +25,11 @@ void RegisterUtilityExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
     i32 hours = total_minutes / 60;
     i32 minutes = total_minutes % 60;
     auto pad = [](i32 v) {
-      std::string s = std::to_string(v);
+      base::String s = base::ToString(v);
       return s.size() < 2 ? "0" + s : s;
     };
-    std::string out = "Day " + std::to_string(static_cast<i64>(days)) + ", " + pad(hours) +
-                      ":" + pad(minutes);
+    base::String out =
+        "Day " + base::ToString(static_cast<i64>(days)) + ", " + pad(hours) + ":" + pad(minutes);
     return Value::Str(out);
   });
 

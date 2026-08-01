@@ -2,6 +2,8 @@
 // world simulates exactly like a listen server, clients receive it through
 // snapshots.
 
+#include <base/strings/xstring.h>
+
 #include <csignal>
 #include <cstring>
 #include <string>
@@ -35,7 +37,7 @@ void PrintUsage() {
   RX_INFO("  --mods-dir <path>     UGC resources to stream to clients (FiveM-style)");
 }
 
-rx::bethesda::Game ParseGame(const std::string& id) {
+rx::bethesda::Game ParseGame(const base::String& id) {
   if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
   if (id == "fo4") return rx::bethesda::Game::kFallout4;
   if (id == "fo76") return rx::bethesda::Game::kFallout76;
@@ -53,15 +55,21 @@ int main(int argc, char** argv) {
   config.host_server = true;
 
   for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+    base::String arg = argv[i];
+    auto next = [&]() -> base::String { return i + 1 < argc ? argv[++i] : ""; };
 
-    if (arg == "--data-dir") config.data_dir = next();
-    else if (arg == "--plugins") config.plugins_txt = next();
-    else if (arg == "--game") config.game = ParseGame(next());
-    else if (arg == "--port") config.port = static_cast<rx::u16>(std::stoi(next()));
-    else if (arg == "--max-clients") config.max_clients = static_cast<rx::u32>(std::stoi(next()));
-    else if (arg == "--mods-dir") config.mods_dir = next();
+    if (arg == "--data-dir")
+      config.data_dir = next();
+    else if (arg == "--plugins")
+      config.plugins_txt = next();
+    else if (arg == "--game")
+      config.game = ParseGame(next());
+    else if (arg == "--port")
+      config.port = static_cast<rx::u16>(std::stoi(next().c_str()));
+    else if (arg == "--max-clients")
+      config.max_clients = static_cast<rx::u32>(std::stoi(next().c_str()));
+    else if (arg == "--mods-dir")
+      config.mods_dir = next();
     else {
       PrintUsage();
       return arg == "--help" ? 0 : 1;

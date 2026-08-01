@@ -1,9 +1,10 @@
 #include "runtime/ui/gui_backend.h"
 
+#include <base/algorithm.h>
+#include <ugui/render/vertex.h>
+
 #include <algorithm>
 #include <cstring>
-
-#include <ugui/render/vertex.h>
 
 #include "render/util/shader_util.h"
 #include "runtime/ui/shader_pack.h"
@@ -41,8 +42,7 @@ void RhiFormatToVk(ugui::RHIFormat f, VkFormat& fmt, uint32_t& pixel_size) {
 
 }  // namespace
 
-uint32_t GuiRenderBackend::FindMemoryType(uint32_t type_filter,
-                                          VkMemoryPropertyFlags props) const {
+uint32_t GuiRenderBackend::FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags props) const {
   VkPhysicalDeviceMemoryProperties mp;
   vkGetPhysicalDeviceMemoryProperties(info_.physical_device, &mp);
   for (uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
@@ -135,8 +135,8 @@ VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs, size_t vs_s
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
   ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-  VkPipelineViewportStateCreateInfo vp{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+  VkPipelineViewportStateCreateInfo vp{.sType =
+                                           VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
   vp.viewportCount = 1;
   vp.scissorCount = 1;
 
@@ -171,13 +171,13 @@ VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs, size_t vs_s
   cb.pAttachments = &ba;
 
   VkDynamicState dyn[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-  VkPipelineDynamicStateCreateInfo ds{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+  VkPipelineDynamicStateCreateInfo ds{.sType =
+                                          VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
   ds.dynamicStateCount = 2;
   ds.pDynamicStates = dyn;
 
-  VkPipelineRenderingCreateInfo rendering{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+  VkPipelineRenderingCreateInfo rendering{.sType =
+                                              VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
   rendering.colorAttachmentCount = 1;
   rendering.pColorAttachmentFormats = &info_.color_format;
 
@@ -283,8 +283,8 @@ GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w, uint32_t h, 
   barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                       0, nullptr, 0, nullptr, 1, &barrier);
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       0, 0, nullptr, 0, nullptr, 1, &barrier);
   vkEndCommandBuffer(cmd);
   VkSubmitInfo si{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO};
   si.commandBufferCount = 1;
@@ -338,8 +338,7 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
   b.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   b.descriptorCount = 1;
   b.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  VkDescriptorSetLayoutCreateInfo lci{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  VkDescriptorSetLayoutCreateInfo lci{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   lci.bindingCount = 1;
   lci.pBindings = &b;
   if (vkCreateDescriptorSetLayout(info_.device, &lci, nullptr, &set_layout_) != VK_SUCCESS)
@@ -383,14 +382,14 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
       shaderpack::Load("ugui_frost.vs", k_ugui_frost_vs_hlsl, sizeof(k_ugui_frost_vs_hlsl));
   const base::Vector<u8> frost_ps =
       shaderpack::Load("ugui_frost.ps", k_ugui_frost_ps_hlsl, sizeof(k_ugui_frost_ps_hlsl));
-  quad_pipeline_ = CreatePipeline(quad_vs.data(), quad_vs.size(),
-                                  quad_ps.data(), quad_ps.size(), 9);
-  text_pipeline_ = CreatePipeline(text_vs.data(), text_vs.size(),
-                                  text_ps.data(), text_ps.size(), 3);
+  quad_pipeline_ =
+      CreatePipeline(quad_vs.data(), quad_vs.size(), quad_ps.data(), quad_ps.size(), 9);
+  text_pipeline_ =
+      CreatePipeline(text_vs.data(), text_vs.size(), text_ps.data(), text_ps.size(), 3);
   // The frosted-glass pipeline shares the quad vertex layout and pipeline layout
   // (one combined image sampler = the blurred backdrop; vertex push constant).
-  frost_pipeline_ = CreatePipeline(frost_vs.data(), frost_vs.size(),
-                                   frost_ps.data(), frost_ps.size(), 9);
+  frost_pipeline_ =
+      CreatePipeline(frost_vs.data(), frost_vs.size(), frost_ps.data(), frost_ps.size(), 9);
   if (!quad_pipeline_ || !text_pipeline_ || !frost_pipeline_) return false;
 
   uint32_t white = 0xFFFFFFFFu;
@@ -421,7 +420,7 @@ void GuiRenderBackend::Shutdown() {
     DestroyBuffer(f.text_idx);
   }
   frames_.clear();
-  for (auto& kv : user_textures_) FreeTexture(kv.second.tex);
+  for (auto kv : user_textures_) FreeTexture(kv.value.tex);
   user_textures_.clear();
   FreeTexture(font_);
   FreeTexture(white_);
@@ -436,9 +435,7 @@ void GuiRenderBackend::Shutdown() {
   info_ = {};
 }
 
-void GuiRenderBackend::NewFrame() {
-  frame_index_ = (frame_index_ + 1) % info_.frames_in_flight;
-}
+void GuiRenderBackend::NewFrame() { frame_index_ = (frame_index_ + 1) % info_.frames_in_flight; }
 
 void GuiRenderBackend::SetBackdrop(VkImageView view, VkSampler sampler) {
   backdrop_view_ = view;
@@ -517,21 +514,21 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
     } else if (c.texture_id == ugui::kNullTextureId) {
       set = white_.set;
     } else {
-      auto it = user_textures_.find(c.texture_id);
-      set = it != user_textures_.end() ? it->second.tex.set : white_.set;
+      auto* it = user_textures_.find(c.texture_id);
+      set = it != nullptr ? it->tex.set : white_.set;
     }
     if (set == VK_NULL_HANDLE) set = white_.set;
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &set, 0,
                             nullptr);
 
     VkRect2D scissor{};
-    float x0 = std::max(0.0f, c.clip_rect.x) * sx;
-    float y0 = std::max(0.0f, c.clip_rect.y) * sy;
-    float x1 = std::max(0.0f, c.clip_rect.x + c.clip_rect.w) * sx;
-    float y1 = std::max(0.0f, c.clip_rect.y + c.clip_rect.h) * sy;
+    float x0 = base::Max(0.0f, c.clip_rect.x) * sx;
+    float y0 = base::Max(0.0f, c.clip_rect.y) * sy;
+    float x1 = base::Max(0.0f, c.clip_rect.x + c.clip_rect.w) * sx;
+    float y1 = base::Max(0.0f, c.clip_rect.y + c.clip_rect.h) * sy;
     scissor.offset = {static_cast<int32_t>(x0), static_cast<int32_t>(y0)};
-    scissor.extent = {static_cast<uint32_t>(std::max(0.0f, x1 - x0)),
-                      static_cast<uint32_t>(std::max(0.0f, y1 - y0))};
+    scissor.extent = {static_cast<uint32_t>(base::Max(0.0f, x1 - x0)),
+                      static_cast<uint32_t>(base::Max(0.0f, y1 - y0))};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     GpuBuffer& vb = c.is_text ? fb.text_vtx : fb.quad_vtx;
@@ -561,20 +558,20 @@ ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width, uint32_t height,
 }
 
 void GuiRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
-  auto it = user_textures_.find(id);
-  if (it == user_textures_.end() || !pixels) return;
-  UserTexture& ut = it->second;
+  auto* it = user_textures_.find(id);
+  if (it == nullptr || !pixels) return;
+  UserTexture& ut = *it;
   vkDeviceWaitIdle(info_.device);
   FreeTexture(ut.tex);
   ut.tex = MakeTexture(ut.width, ut.height, ut.fmt, ut.pixel_size, pixels, ut.sampler);
 }
 
 void GuiRenderBackend::DestroyTexture(ugui::TextureId id) {
-  auto it = user_textures_.find(id);
-  if (it == user_textures_.end()) return;
+  auto* it = user_textures_.find(id);
+  if (it == nullptr) return;
   vkDeviceWaitIdle(info_.device);
-  FreeTexture(it->second.tex);
-  user_textures_.erase(it);
+  FreeTexture(it->tex);
+  user_textures_.erase(id);
 }
 
 }  // namespace rx::ui

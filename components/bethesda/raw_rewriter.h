@@ -1,12 +1,12 @@
 #ifndef RECREATION_BETHESDA_RAW_REWRITER_H_
 #define RECREATION_BETHESDA_RAW_REWRITER_H_
 
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -26,8 +26,8 @@ namespace rx::bethesda {
 // authoring brand new content stays in EditSession/PluginWriter.
 class RawRewriter {
  public:
-  static std::optional<RawRewriter> Open(const std::string& path);
-  explicit RawRewriter(base::Vector<u8> bytes) : bytes_(std::move(bytes)) {}
+  static base::Optional<RawRewriter> Open(const base::String& path);
+  explicit RawRewriter(base::Vector<u8> bytes) : bytes_(base::move(bytes)) {}
 
   // Substitutes a record's full encoded bytes (24-byte header + payload) by its
   // on-disk RawFormId value. `encoded` must be a complete record as produced by
@@ -46,7 +46,7 @@ class RawRewriter {
   // Rewrites the plugin: TES4 verbatim, then the group tree with edits applied
   // and enclosing group sizes recomputed.
   base::Vector<u8> Build() const;
-  bool Save(const std::string& path) const;
+  bool Save(const base::String& path) const;
 
   const base::Vector<u8>& bytes() const { return bytes_; }
 
@@ -54,9 +54,9 @@ class RawRewriter {
   void EmitRegion(size_t pos, size_t end, base::Vector<u8>* out) const;
 
   base::Vector<u8> bytes_;
-  std::unordered_map<u32, base::Vector<u8>> replace_;
-  std::unordered_set<u32> deleted_;
-  std::unordered_map<u32, base::Vector<u8>> inserts_;  // record type -> encoded records
+  base::UnorderedMap<u32, base::Vector<u8>> replace_;
+  base::UnorderedSet<u32> deleted_;
+  base::UnorderedMap<u32, base::Vector<u8>> inserts_;  // record type -> encoded records
 };
 
 }  // namespace rx::bethesda

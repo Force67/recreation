@@ -1,6 +1,8 @@
 #include "components/bethesda/planet.h"
 
-#include <algorithm>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "components/bethesda/record.h"
@@ -59,7 +61,7 @@ BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMateri
     const GlobalFormId ltex_id = records.ResolveFrom(RawFormId{ltex_raw}, biome_owner);
     Record ltex;
     if (ltex_id.plugin == 0xffff || !records.Parse(ltex_id, &ltex)) continue;
-    std::string mat = ltex.GetString(kBnam);  // "Materials\Terrain\...mat"
+    base::String mat = ltex.GetString(kBnam);  // "Materials\Terrain\...mat"
     if (mat.empty()) continue;
     out.ground_mat = mat;
     StarfieldMaterialDb::Resolved r;
@@ -75,20 +77,21 @@ BiomeGround ResolveBiomeGround(const RecordStore& records, const StarfieldMateri
 }
 
 PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs, const RecordStore& records,
-                                const StarfieldMaterialDb& mat_db, const std::string& biom_name,
+                                const StarfieldMaterialDb& mat_db, const base::String& biom_name,
                                 u16 biom_plugin) {
   PlanetSurface surface;
   surface.name = biom_name;
 
   // The Vfs normalizes case/slashes, so a plain lowercase path resolves the base
   // game files; a couple of DLC subdirs are tried as a courtesy.
-  const std::string candidates[] = {
+  const base::String candidates[] = {
       "planetdata/biomemaps/" + biom_name + ".biom",
       "planetdata/biomemaps/shatteredspace.esm/" + biom_name + ".biom",
       "planetdata/biomemaps/dlc001/" + biom_name + ".biom",
   };
+  // vfs::Read is an rx API returning std::optional.
   std::optional<base::Vector<u8>> bytes;
-  for (const std::string& path : candidates) {
+  for (const base::String& path : candidates) {
     bytes = vfs.Read(path);
     if (bytes) break;
   }

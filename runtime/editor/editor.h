@@ -1,14 +1,12 @@
 #ifndef RECREATION_RUNTIME_EDITOR_EDITOR_H_
 #define RECREATION_RUNTIME_EDITOR_EDITOR_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
-
-#include <memory>
-#include <optional>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <base/memory/unique_pointer.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/math.h"
@@ -46,8 +44,8 @@ struct InputState;
 // beside the primary game's content). `tag` is a stable slug stored in the
 // layout file so a saved placement reloads against the right game.
 struct EditorPlaceDomain {
-  std::string name;
-  std::string tag;
+  base::String name;
+  base::String tag;
   bethesda::RecordStore* records = nullptr;
   bethesda::StringTable* strings = nullptr;
   world::CellStreamer* streamer = nullptr;
@@ -92,7 +90,7 @@ class MapEditor {
   // The games whose assets the editor can place (domain 0 = primary). The engine
   // wires this once data has loaded; if never called the editor falls back to
   // the primary content domain alone.
-  void SetPlaceDomains(std::vector<EditorPlaceDomain> domains);
+  void SetPlaceDomains(base::Vector<EditorPlaceDomain> domains);
 
   // Enter or leave editor mode. Entering drops walk mode, frees the cursor and
   // arms the overlay; leaving clears the selection and the armed brush.
@@ -116,11 +114,11 @@ class MapEditor {
   // One placeable base form discovered in the load order.
   struct CatalogEntry {
     bethesda::GlobalFormId base;
-    std::string name;       // displayed FULL name, falling back to the editor id
-    std::string editor_id;  // EDID
-    u32 type = 0;           // record fourcc (STAT, TREE, ...)
-    int category = 0;       // index into the category tabs
-    int domain = 0;         // which game it came from (index into domains_)
+    base::String name;       // displayed FULL name, falling back to the editor id
+    base::String editor_id;  // EDID
+    u32 type = 0;            // record fourcc (STAT, TREE, ...)
+    int category = 0;        // index into the category tabs
+    int domain = 0;          // which game it came from (index into domains_)
   };
 
   // An object the editor placed (so it can be counted, re-selected and, later,
@@ -130,11 +128,11 @@ class MapEditor {
   struct PlacedObject {
     ecs::Entity entity;
     bethesda::GlobalFormId base;
-    std::string name;
+    base::String name;
     int domain = 0;
     int category = 0;
     u32 type = 0;
-    std::string editor_id;
+    base::String editor_id;
   };
 
   // One flattened scene-tree row's target, parallel to the pushed view rows, so
@@ -162,7 +160,7 @@ class MapEditor {
     ecs::Entity entity;           // kPlace/kTransform target
     bethesda::GlobalFormId base;  // kDelete/kPlace base form
     world::Transform transform;   // kTransform: prior transform; kDelete: where it was
-    std::string name;
+    base::String name;
     int domain = 0;  // kDelete: the game to re-place from
     world::TerrainEditChange terrain;
     // kTerrain: true when terrain currently holds new_delta (undo reverts it),
@@ -199,7 +197,7 @@ class MapEditor {
   // engine-space transform), so a building survives a restart. SaveLayout writes
   // placed_; LoadLayout re-places each line through the streamer. Both report a
   // status message and return the count written/read.
-  std::optional<int> SaveLayout();
+  base::Optional<int> SaveLayout();
   int LoadLayout();
   bool SaveTerrain();
   bool LoadTerrain();
@@ -241,10 +239,10 @@ class MapEditor {
   // Performs one undo/redo step's action and returns the op that reverses it, so
   // undo and redo share one symmetric path (the inverse just moves to the other
   // stack). Mutates the world / placed_ / selected_.
-  std::optional<UndoOp> ApplyAndInvert(const UndoOp& op);
+  base::Optional<UndoOp> ApplyAndInvert(const UndoOp& op);
   void PushEdit(const UndoOp& op);           // record an edit; clears the redo stack
   void RecordTransform(ecs::Entity entity);  // push a kTransform undo snapshot
-  void SetStatus(std::string message);
+  void SetStatus(base::String message);
   void PushView();
 
   // --- picking / placement geometry ---
@@ -265,14 +263,14 @@ class MapEditor {
   bool active_ = false;
 
   // The games whose assets can be placed (domain 0 = primary game).
-  std::vector<EditorPlaceDomain> domains_;
+  base::Vector<EditorPlaceDomain> domains_;
 
   // Catalog + browser filter state.
-  std::vector<CatalogEntry> catalog_;
-  std::vector<int> filtered_;  // indices into catalog_ matching search_/category_
+  base::Vector<CatalogEntry> catalog_;
+  base::Vector<int> filtered_;  // indices into catalog_ matching search_/category_
   bool catalog_built_ = false;
   int category_ = 0;
-  std::string search_;
+  base::String search_;
   int page_first_ = 0;           // scroll offset into filtered_
   int brush_ = -1;               // catalog_ index of the armed asset, or -1
   f32 brush_yaw_ = 0;            // yaw the next placement faces (R orients it)
@@ -284,19 +282,19 @@ class MapEditor {
   // Left dock: Scene tree / Assets tabs, a tree search box, per-group expand
   // state and a scroll window into the flattened tree.
   int left_tab_ = 0;  // 0 = Scene, 1 = Assets
-  std::string scene_search_;
+  base::String scene_search_;
   bool scene_search_focused_ = false;
   bool root_expanded_ = true;
   bool group_expanded_[kEditorCategoryCount] = {};  // set true in the ctor
   int tree_scroll_ = 0;
-  std::vector<TreeNode> tree_targets_;  // visible window, parallel to view rows
+  base::Vector<TreeNode> tree_targets_;  // visible window, parallel to view rows
 
   // Asset-card thumbnails: rendered on demand (a few per frame), cached to disk.
-  std::unique_ptr<Thumbnailer> thumber_;
+  base::UniquePointer<Thumbnailer> thumber_;
   bool thumber_tried_ = false;
-  std::unordered_map<u64, u64> thumb_tex_;  // base form id -> ugui TextureId
-  std::unordered_set<u64> thumb_failed_;    // base form ids that won't render
-  std::string thumb_dir_;
+  base::UnorderedMap<u64, u64> thumb_tex_;  // base form id -> ugui TextureId
+  base::UnorderedSet<u64> thumb_failed_;    // base form ids that won't render
+  base::String thumb_dir_;
 
   // Live placement preview ("ghost"): a transient entity, excluded from picking
   // and never saved, that tracks the aim point while a brush is armed.
@@ -306,12 +304,12 @@ class MapEditor {
   // Selection (a set, for multi-select) + active tool. The "primary" is the last
   // one added; the inspector, reticle and move pivot follow it. Shift-click adds
   // or removes; a plain click replaces.
-  std::vector<ecs::Entity> selected_;
+  base::Vector<ecs::Entity> selected_;
   int tool_ = 0;         // 0 select, 1 move, 2 rotate, 3 scale
   bool moving_ = false;  // G-grab gesture: the selection follows the aim point
-  std::vector<world::Transform> move_origins_;  // per-selected transform at grab start
-  Vec3 move_pivot_{};                           // primary's position at grab start
-  bool prev_lmb_ = false;                       // left-button edge detection (clicks, not holds)
+  base::Vector<world::Transform> move_origins_;  // per-selected transform at grab start
+  Vec3 move_pivot_{};                            // primary's position at grab start
+  bool prev_lmb_ = false;                        // left-button edge detection (clicks, not holds)
 
   // Terrain sculpt mode. A drag merges its live dabs into terrain_stroke_, then
   // contributes exactly one reversible operation to the shared undo stack.
@@ -321,7 +319,7 @@ class MapEditor {
   f32 terrain_strength_ = 0.25f;
   bool terrain_stroke_active_ = false;
   world::TerrainEditChange terrain_stroke_;
-  std::vector<world::TerrainCellKey> terrain_stroke_cells_;
+  base::Vector<world::TerrainCellKey> terrain_stroke_cells_;
   Vec3 terrain_last_dab_{};
   Vec3 terrain_aim_{};
   f32 terrain_flatten_y_ = 0.0f;
@@ -334,11 +332,11 @@ class MapEditor {
   f32 marquee_x0_ = 0, marquee_y0_ = 0, marquee_x1_ = 0, marquee_y1_ = 0;
 
   // Current prefab (a reusable group) and whether a click stamps it.
-  std::vector<PrefabMember> prefab_;
+  base::Vector<PrefabMember> prefab_;
   bool prefab_armed_ = false;
 
   // base form id -> emissive params (nullopt = not a light), built lazily.
-  mutable std::unordered_map<u64, std::optional<LightParams>> light_cache_;
+  mutable base::UnorderedMap<u64, base::Optional<LightParams>> light_cache_;
 
   // Paint-scatter: holding the place button and dragging drops a copy every
   // `scatter_spacing_` metres, each at a varied yaw, for fast forests / clutter.
@@ -346,16 +344,16 @@ class MapEditor {
   f32 scatter_spacing_ = 1.5f;
   u32 scatter_count_ = 0;
 
-  std::vector<PlacedObject> placed_;
-  std::vector<UndoOp> undo_;
-  std::vector<UndoOp> redo_;  // cleared by any fresh edit (PushEdit)
+  base::Vector<PlacedObject> placed_;
+  base::Vector<UndoOp> undo_;
+  base::Vector<UndoOp> redo_;  // cleared by any fresh edit (PushEdit)
 
-  std::string status_;
+  base::String status_;
   f32 status_age_ = 0;
   u32 next_synth_id_ = 1;  // local id for placed objects' synthetic form links
 
-  std::string layout_path_;           // where SaveLayout/LoadLayout read and write
-  std::string terrain_path_;          // REC_TERRAIN_EDITS or layout-adjacent default
+  base::String layout_path_;          // where SaveLayout/LoadLayout read and write
+  base::String terrain_path_;         // REC_TERRAIN_EDITS or layout-adjacent default
   bool layout_loaded_ = false;        // auto-load the saved layout once, on first entry
   bool terrain_load_failed_ = false;  // preserve a rejected diff until a retry succeeds
 };

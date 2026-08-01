@@ -4,12 +4,13 @@
 // Both paths use uncompressed entries (packed size 0), so no zlib stream is
 // involved; the codec itself is covered by reading the shipped archives.
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/archive.h"
 #include "core/types.h"
@@ -26,38 +27,38 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU16(std::vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
-void PutU32(std::vector<u8>& b, u32 v) {
+void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
+void PutU32(base::Vector<u8>& b, u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
 }
-void PutU64(std::vector<u8>& b, u64 v) {
+void PutU64(base::Vector<u8>& b, u64 v) {
   for (int i = 0; i < 8; ++i) b.push_back(u8(v >> (8 * i)));
 }
-void PutBytes(std::vector<u8>& b, const char* s, size_t n) {
+void PutBytes(base::Vector<u8>& b, const char* s, size_t n) {
   for (size_t i = 0; i < n; ++i) b.push_back(static_cast<u8>(s[i]));
 }
 
 // Writes `bytes` to a temp .ba2 and opens it through OpenArchive.
-base::UniquePointer<rx::asset::FileProvider> OpenSynthetic(const std::vector<u8>& bytes,
-                                                            const std::string& path) {
-  std::ofstream out(path, std::ios::binary);
+base::UniquePointer<rx::asset::FileProvider> OpenSynthetic(const base::Vector<u8>& bytes,
+                                                           const base::String& path) {
+  std::ofstream out(path.c_str(), std::ios::binary);
   out.write(reinterpret_cast<const char*>(bytes.data()),
             static_cast<std::streamsize>(bytes.size()));
   out.close();
   return rx::bethesda::OpenArchive(path);
 }
 
-void TestGnrl(const std::string& dir) {
+void TestGnrl(const base::String& dir) {
   std::puts("ba2 GNRL round trip:");
-  const std::vector<u8> payload = {0xDE, 0xAD, 0xBE, 0xEF, 'n', 'i', 'f', 0x01};
-  const std::string name = "Meshes\\Test\\Thing.nif";  // backslash, mixed case
+  const base::Vector<u8> payload = {0xDE, 0xAD, 0xBE, 0xEF, 'n', 'i', 'f', 0x01};
+  const base::String name = "Meshes\\Test\\Thing.nif";  // backslash, mixed case
 
   constexpr u64 kHeaderSize = 24;
   constexpr u64 kRecordSize = 36;
   const u64 data_offset = kHeaderSize + kRecordSize;
   const u64 name_table_offset = data_offset + payload.size();
 
-  std::vector<u8> b;
+  base::Vector<u8> b;
   PutBytes(b, "BTDX", 4);
   PutU32(b, 1);  // version
   PutBytes(b, "GNRL", 4);
@@ -84,7 +85,7 @@ void TestGnrl(const std::string& dir) {
   if (!provider) return;
 
   // Lookups are by the normalized (lower-case, forward-slash) path.
-  const std::string key = "meshes/test/thing.nif";
+  const base::String key = "meshes/test/thing.nif";
   Check("contains by normalized path", provider->Contains(key));
   Check("missing path absent", !provider->Contains("meshes/nope.nif"));
 
@@ -98,12 +99,12 @@ void TestGnrl(const std::string& dir) {
   }
 }
 
-void TestDx10(const std::string& dir) {
+void TestDx10(const base::String& dir) {
   std::puts("ba2 DX10 round trip:");
   // One 4x4 BC7 block (16 bytes) as the single mip-0 chunk.
-  std::vector<u8> mip0(16);
+  base::Vector<u8> mip0(16);
   for (size_t i = 0; i < mip0.size(); ++i) mip0[i] = static_cast<u8>(i + 1);
-  const std::string name = "Textures\\Test\\Albedo_d.DDS";
+  const base::String name = "Textures\\Test\\Albedo_d.DDS";
 
   constexpr u64 kHeaderSize = 24;
   constexpr u64 kTexHeaderSize = 24;
@@ -113,7 +114,7 @@ void TestDx10(const std::string& dir) {
   constexpr u16 kWidth = 4, kHeight = 4;
   constexpr u8 kDxgiBc7 = 98;
 
-  std::vector<u8> b;
+  base::Vector<u8> b;
   PutBytes(b, "BTDX", 4);
   PutU32(b, 7);  // version (texture archives ship v7/8)
   PutBytes(b, "DX10", 4);
@@ -123,16 +124,16 @@ void TestDx10(const std::string& dir) {
   // 24-byte tex header.
   PutU32(b, 0);  // name hash
   PutBytes(b, "dds\0", 4);
-  PutU32(b, 0);  // dir hash
-  b.push_back(0);             // unknown
-  b.push_back(1);             // chunk count
-  PutU16(b, kChunkSize);      // chunk header size
+  PutU32(b, 0);           // dir hash
+  b.push_back(0);         // unknown
+  b.push_back(1);         // chunk count
+  PutU16(b, kChunkSize);  // chunk header size
   PutU16(b, kHeight);
   PutU16(b, kWidth);
-  b.push_back(1);             // mip count
-  b.push_back(kDxgiBc7);      // dxgi format
-  b.push_back(0);             // is cubemap
-  b.push_back(0);             // tile mode
+  b.push_back(1);         // mip count
+  b.push_back(kDxgiBc7);  // dxgi format
+  b.push_back(0);         // is cubemap
+  b.push_back(0);         // tile mode
 
   // 24-byte chunk.
   PutU64(b, chunk_data_offset);
@@ -151,7 +152,7 @@ void TestDx10(const std::string& dir) {
   Check("opens", provider != nullptr);
   if (!provider) return;
 
-  const std::string key = "textures/test/albedo_d.dds";
+  const base::String key = "textures/test/albedo_d.dds";
   Check("contains by normalized path", provider->Contains(key));
   auto dds = provider->Read(key);
   Check("reads", dds.has_value());
@@ -179,10 +180,10 @@ void TestDx10(const std::string& dir) {
 // the 24-byte header and the first record. The reader must skip it, otherwise
 // every offset is 8 bytes short. This builds a v2 GNRL archive with that field
 // and confirms a clean read.
-void TestStarfieldGnrl(const std::string& dir) {
+void TestStarfieldGnrl(const base::String& dir) {
   std::puts("ba2 Starfield (v2) GNRL round trip:");
-  const std::vector<u8> payload = {'m', 'e', 's', 'h', 0x02, 0x00, 0x00, 0x00};
-  const std::string name = "Geometries\\ABCD\\1234.mesh";
+  const base::Vector<u8> payload = {'m', 'e', 's', 'h', 0x02, 0x00, 0x00, 0x00};
+  const base::String name = "Geometries\\ABCD\\1234.mesh";
 
   constexpr u64 kHeaderSize = 24;
   constexpr u64 kExtraHeaderSize = 8;  // the v2/v3 u64
@@ -190,7 +191,7 @@ void TestStarfieldGnrl(const std::string& dir) {
   const u64 data_offset = kHeaderSize + kExtraHeaderSize + kRecordSize;
   const u64 name_table_offset = data_offset + payload.size();
 
-  std::vector<u8> b;
+  base::Vector<u8> b;
   PutBytes(b, "BTDX", 4);
   PutU32(b, 2);  // version (Starfield general archives ship v2)
   PutBytes(b, "GNRL", 4);
@@ -200,7 +201,7 @@ void TestStarfieldGnrl(const std::string& dir) {
 
   PutU32(b, 0);  // name hash
   PutBytes(b, "mesh", 4);
-  PutU32(b, 0);  // dir hash
+  PutU32(b, 0);           // dir hash
   PutU32(b, 0x00100100);  // flags as seen in shipped archives
   PutU64(b, data_offset);
   PutU32(b, 0);  // packed size 0 => stored uncompressed
@@ -216,7 +217,7 @@ void TestStarfieldGnrl(const std::string& dir) {
   Check("opens", provider != nullptr);
   if (!provider) return;
 
-  const std::string key = "geometries/abcd/1234.mesh";
+  const base::String key = "geometries/abcd/1234.mesh";
   Check("contains by normalized path", provider->Contains(key));
   auto data = provider->Read(key);
   Check("reads", data.has_value());
@@ -231,11 +232,11 @@ void TestStarfieldGnrl(const std::string& dir) {
 // Starfield v3 texture archives put a u64 AND a u32 (12 bytes) between the
 // header and the records, where v2 has only the u64. Reading the v2 size here
 // would land on garbage texture dimensions; this confirms the v3 offset.
-void TestStarfieldV3Dx10(const std::string& dir) {
+void TestStarfieldV3Dx10(const base::String& dir) {
   std::puts("ba2 Starfield (v3) DX10 round trip:");
-  std::vector<u8> mip0(16);
+  base::Vector<u8> mip0(16);
   for (size_t i = 0; i < mip0.size(); ++i) mip0[i] = static_cast<u8>(i + 1);
-  const std::string name = "Textures\\Land\\Rock_color.DDS";
+  const base::String name = "Textures\\Land\\Rock_color.DDS";
 
   constexpr u64 kHeaderSize = 24;
   constexpr u64 kExtraHeaderSize = 12;  // v3: u64 + u32
@@ -246,7 +247,7 @@ void TestStarfieldV3Dx10(const std::string& dir) {
   constexpr u16 kWidth = 4, kHeight = 4;
   constexpr u8 kDxgiBc7 = 98;
 
-  std::vector<u8> b;
+  base::Vector<u8> b;
   PutBytes(b, "BTDX", 4);
   PutU32(b, 3);  // version
   PutBytes(b, "DX10", 4);
@@ -259,11 +260,11 @@ void TestStarfieldV3Dx10(const std::string& dir) {
   PutBytes(b, "dds\0", 4);
   PutU32(b, 0);  // dir hash
   b.push_back(0);
-  b.push_back(1);             // chunk count
+  b.push_back(1);  // chunk count
   PutU16(b, kChunkSize);
   PutU16(b, kHeight);
   PutU16(b, kWidth);
-  b.push_back(1);             // mip count
+  b.push_back(1);  // mip count
   b.push_back(kDxgiBc7);
   b.push_back(0);
   b.push_back(0);
@@ -300,16 +301,16 @@ void TestStarfieldV3Dx10(const std::string& dir) {
 }  // namespace
 
 int main() {
-  const std::string dir = std::filesystem::temp_directory_path().string();
+  const base::String dir = std::filesystem::temp_directory_path().string();
   TestGnrl(dir);
   TestDx10(dir);
   TestStarfieldGnrl(dir);
   TestStarfieldV3Dx10(dir);
   std::error_code ec;
-  std::filesystem::remove(dir + "/rec_ba2test_gnrl.ba2", ec);
-  std::filesystem::remove(dir + "/rec_ba2test_dx10.ba2", ec);
-  std::filesystem::remove(dir + "/rec_ba2test_sf.ba2", ec);
-  std::filesystem::remove(dir + "/rec_ba2test_sf_v3.ba2", ec);
+  std::filesystem::remove(base::String(dir + "/rec_ba2test_gnrl.ba2").c_str(), ec);
+  std::filesystem::remove(base::String(dir + "/rec_ba2test_dx10.ba2").c_str(), ec);
+  std::filesystem::remove(base::String(dir + "/rec_ba2test_sf.ba2").c_str(), ec);
+  std::filesystem::remove(base::String(dir + "/rec_ba2test_sf_v3.ba2").c_str(), ec);
   if (g_failures == 0) {
     std::puts("ba2: all checks passed");
     return 0;

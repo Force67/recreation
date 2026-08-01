@@ -1,10 +1,14 @@
 #include "runtime/character/face.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <chrono>
 #include <cmath>
-
-#include <base/option.h>
 
 #include "asset/asset_database.h"
 #include "asset/subdivide.h"
@@ -24,16 +28,16 @@ static base::Option<int> HeadSubdiv{"head.subdiv", 1, "RX_HEAD_SUBDIV",
 namespace {
 
 // HDPT model paths are stored backslashed and without the meshes/ root.
-std::string ModelPath(const std::string& model) {
-  std::string path = asset::NormalizePath(model);
+base::String ModelPath(const base::String& model) {
+  base::String path = asset::NormalizePath(model);
   if (!path.starts_with("meshes/")) path = "meshes/" + path;
   return path;
 }
 
 // TXST/NIF texture paths are stored backslashed without the textures/ root.
-std::string TexturePath(const std::string& tex) {
+base::String TexturePath(const base::String& tex) {
   if (tex.empty()) return {};
-  std::string path = asset::NormalizePath(tex);
+  base::String path = asset::NormalizePath(tex);
   if (!path.starts_with("textures/")) path = "textures/" + path;
   return path;
 }
@@ -41,10 +45,10 @@ std::string TexturePath(const std::string& tex) {
 // Bethesda head/face normals ship as model-space maps (_msn): the shader must
 // take the object-space normal path, not the tangent-space TBN (which smears
 // them into bruised streaks). Eye/brow tangent-space _n maps stay tangent.
-bool IsModelSpaceNormal(const std::string& path) {
+bool IsModelSpaceNormal(const base::String& path) {
   size_t dot = path.rfind('.');
-  std::string_view stem = dot == std::string::npos ? std::string_view{path}
-                                                   : std::string_view{path}.substr(0, dot);
+  base::StringRef stem =
+      dot == base::String::npos ? base::StringRef{path} : base::StringRef{path}.subslice(0, dot);
   return stem.ends_with("_msn");
 }
 
@@ -85,13 +89,13 @@ size_t MipOffset(const asset::Texture& t, u32 mip, u32* w, u32* h) {
   size_t block = t.format == asset::TextureFormat::kBc1 ? 8 : 16;
   size_t offset = 0;
   for (u32 m = 0; m < mip; ++m) {
-    u32 mw = std::max(1u, t.width >> m);
-    u32 mh = std::max(1u, t.height >> m);
-    offset += compressed ? ((mw + 3) / 4) * ((mh + 3) / 4) * block
-                         : static_cast<size_t>(mw) * mh * 4;
+    u32 mw = base::Max(1u, t.width >> m);
+    u32 mh = base::Max(1u, t.height >> m);
+    offset +=
+        compressed ? ((mw + 3) / 4) * ((mh + 3) / 4) * block : static_cast<size_t>(mw) * mh * 4;
   }
-  *w = std::max(1u, t.width >> mip);
-  *h = std::max(1u, t.height >> mip);
+  *w = base::Max(1u, t.width >> mip);
+  *h = base::Max(1u, t.height >> mip);
   return offset;
 }
 
@@ -105,7 +109,7 @@ bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
   }
   u32 mip = 0;
   for (u32 m = 0; m + 1 < t.mip_count; ++m) {
-    if (std::max(t.width >> (m + 1), t.height >> (m + 1)) < max_dim) break;
+    if (base::Max(t.width >> (m + 1), t.height >> (m + 1)) < max_dim) break;
     mip = m + 1;
   }
   u32 w, h;
@@ -123,8 +127,7 @@ bool DecodeToRgb8(const asset::Texture& t, u32 max_dim, u32* out_w, u32* out_h,
     if (offset + static_cast<size_t>(bw) * bh * block_size > t.data.size()) return false;
     for (u32 by = 0; by < bh; ++by)
       for (u32 bx = 0; bx < bw; ++bx) {
-        const u8* block =
-            t.data.data() + offset + (static_cast<size_t>(by) * bw + bx) * block_size;
+        const u8* block = t.data.data() + offset + (static_cast<size_t>(by) * bw + bx) * block_size;
         u8 colors[16][3];
         DecodeBc1Block(block + (alpha_block ? 8 : 0), alpha_block, colors);
         for (u32 py = 0; py < 4; ++py)
@@ -155,8 +158,8 @@ void RecomputeBounds(asset::Mesh& mesh) {
   f32 lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
   for (const asset::Vertex& v : mesh.lods[0].vertices)
     for (int k = 0; k < 3; ++k) {
-      lo[k] = std::min(lo[k], v.position[k]);
-      hi[k] = std::max(hi[k], v.position[k]);
+      lo[k] = base::Min(lo[k], v.position[k]);
+      hi[k] = base::Max(hi[k], v.position[k]);
     }
   f32 r2 = 0;
   for (int k = 0; k < 3; ++k) {
@@ -171,37 +174,35 @@ void RecomputeBounds(asset::Mesh& mesh) {
 
 FaceBuilder::FaceBuilder(EngineContext& ctx) : ctx_(ctx) {}
 
-const bethesda::TriMorphSet* FaceBuilder::Tri(const std::string& vfs_path) {
-  std::string path = ModelPath(vfs_path);
+const bethesda::TriMorphSet* FaceBuilder::Tri(const base::String& vfs_path) {
+  base::String path = ModelPath(vfs_path);
   u64 key = asset::MakeAssetId(path).hash;
-  if (auto* cached = tri_cache_.find(key))
-    return (*cached)->vertex_count ? &**cached : nullptr;
+  if (auto* cached = tri_cache_.find(key)) return (*cached)->vertex_count ? &**cached : nullptr;
   auto set = base::MakeUnique<bethesda::TriMorphSet>();  // 0 verts == absent
   if (auto bytes = ctx_.vfs->Read(path)) {
     if (auto parsed = bethesda::ParseTri(ByteSpan(bytes->data(), bytes->size())))
-      *set = std::move(*parsed);
+      *set = base::move(*parsed);
     else
       RX_WARN("face: tri parse failed {}", path);
   }
   bool ok = set->vertex_count != 0;
-  auto* slot = tri_cache_.insert(key, std::move(set)).first;
+  auto* slot = tri_cache_.insert(key, base::move(set)).first;
   return ok ? &**slot : nullptr;
 }
 
-const asset::Mesh* FaceBuilder::BasePartMesh(const std::string& model_path) {
-  std::string path = ModelPath(model_path);
+const asset::Mesh* FaceBuilder::BasePartMesh(const base::String& model_path) {
+  base::String path = ModelPath(model_path);
   u64 key = asset::MakeAssetId(path).hash;
-  if (auto* cached = mesh_cache_.find(key))
-    return (*cached)->lods.empty() ? nullptr : &**cached;
+  if (auto* cached = mesh_cache_.find(key)) return (*cached)->lods.empty() ? nullptr : &**cached;
 
   auto mesh = base::MakeUnique<asset::Mesh>();  // empty lods == absent
   if (auto bytes = ctx_.vfs->Read(path)) {
-    bethesda::NifConversion conv =
-        bethesda::ConvertNifRigid(ByteSpan(bytes->data(), bytes->size()),
-                                  asset::MakeAssetId(path), path);
+    bethesda::NifConversion conv = bethesda::ConvertNifRigid(ByteSpan(bytes->data(), bytes->size()),
+                                                             asset::MakeAssetId(path), path);
     if (conv.mesh && !conv.mesh->lods.empty() && !conv.mesh->lods[0].vertices.empty()) {
-      for (const std::string& tex : conv.texture_paths)
-        if (const asset::Texture* t = ctx_.assets->LoadTexture(tex)) ctx_.renderer->UploadTexture(*t);
+      for (const base::String& tex : conv.texture_paths)
+        if (const asset::Texture* t = ctx_.assets->LoadTexture(tex))
+          ctx_.renderer->UploadTexture(*t);
       for (const asset::Material& m : conv.materials) {
         ctx_.assets->AddMaterial(m);
         ctx_.renderer->UploadMaterial(m);
@@ -210,31 +211,31 @@ const asset::Mesh* FaceBuilder::BasePartMesh(const std::string& model_path) {
       // reuse the racial skin as its base and keep the authored normal map.
       if (!conv.materials.empty() && !part_tex_.find(key)) {
         PartTextures pt;
-        auto path_of = [&](asset::AssetId id) -> std::string {
-          for (const std::string& tp : conv.texture_paths)
+        auto path_of = [&](asset::AssetId id) -> base::String {
+          for (const base::String& tp : conv.texture_paths)
             if (asset::MakeAssetId(tp).hash == id.hash) return tp;
           return {};
         };
         pt.diffuse = path_of(conv.materials[0].base_color);
         pt.normal = path_of(conv.materials[0].normal);
-        part_tex_.insert(key, std::move(pt));
+        part_tex_.insert(key, base::move(pt));
       }
-      *mesh = std::move(*conv.mesh);
+      *mesh = base::move(*conv.mesh);
     }
   } else {
     RX_WARN("face: head part mesh not found {}", path);
   }
   bool ok = !mesh->lods.empty();
-  auto* slot = mesh_cache_.insert(key, std::move(mesh)).first;
+  auto* slot = mesh_cache_.insert(key, base::move(mesh)).first;
   return ok ? &**slot : nullptr;
 }
 
-const FaceBuilder::PartTextures* FaceBuilder::Textures(const std::string& model_path) {
+const FaceBuilder::PartTextures* FaceBuilder::Textures(const base::String& model_path) {
   u64 key = asset::MakeAssetId(ModelPath(model_path)).hash;
   return part_tex_.find(key);
 }
 
-const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const std::string& path) {
+const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const base::String& path) {
   u64 key = asset::MakeAssetId(path).hash;
   if (auto* cached = decoded_cache_.find(key)) return (*cached)->w ? &**cached : nullptr;
   auto dec = base::MakeUnique<Decoded>();  // w==0 == absent
@@ -242,7 +243,7 @@ const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const std::string& path)
     DecodeToRgb8(*t, 512, &dec->w, &dec->h, &dec->rgb);
   }
   bool ok = dec->w != 0;
-  auto* slot = decoded_cache_.insert(key, std::move(dec)).first;
+  auto* slot = decoded_cache_.insert(key, base::move(dec)).first;
   return ok ? &**slot : nullptr;
 }
 
@@ -261,7 +262,7 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
 
   *out = FaceState{};
   out->builder_ = this;
-  out->subdiv_levels_ = static_cast<u32>(std::clamp(HeadSubdiv.get(), 0, 2));
+  out->subdiv_levels_ = static_cast<u32>(base::Clamp(HeadSubdiv.get(), 0, 2));
   out->female_ = face->female;
   out->race_morph_ = race->editor_id;  // race tri morphs are named by race EDID
   for (u32 i = 0; i < bethesda::kNam9Count; ++i)
@@ -278,7 +279,7 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     if (auto part = bethesda::ResolveHeadPart(*ctx_.records, hp)) {
       u32 t = static_cast<u32>(part->type);
       if (t < 7) overrides[t] = true;
-      npc_parts.push_back(std::move(*part));
+      npc_parts.push_back(base::move(*part));
     }
   }
   base::Vector<bethesda::HeadPart> merged;
@@ -287,13 +288,12 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     if (auto part = bethesda::ResolveHeadPart(*ctx_.records, rp.head_part)) {
       u32 t = static_cast<u32>(part->type);
       if (t < 7 && overrides[t]) continue;
-      merged.push_back(std::move(*part));
+      merged.push_back(base::move(*part));
     }
   }
-  for (bethesda::HeadPart& p : npc_parts) merged.push_back(std::move(p));
+  for (bethesda::HeadPart& p : npc_parts) merged.push_back(base::move(p));
 
-  const std::string npc_tag =
-      std::to_string(npc.plugin) + "_" + std::to_string(npc.local_id);
+  const base::String npc_tag = base::ToString(npc.plugin) + "_" + base::ToString(npc.local_id);
   for (const bethesda::HeadPart& hp : merged) {
     if (hp.model.empty()) continue;
     if (hp.type == bethesda::HeadPartType::kHair) out->hair_model_ = hp.model;
@@ -306,12 +306,14 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     part.label = hp.editor_id;
     // NAM0 marker 0 = race-blend tri, 2 = chargen tri (1 = base/expression).
     for (const bethesda::HeadPartTri& tri : hp.tris) {
-      if (tri.type == 0) part.race_tri = Tri(tri.path);
-      else if (tri.type == 2) part.chargen_tri = Tri(tri.path);
+      if (tri.type == 0)
+        part.race_tri = Tri(tri.path);
+      else if (tri.type == 2)
+        part.chargen_tri = Tri(tri.path);
     }
     part.out_id = asset::MakeAssetId("facegen/" + npc_tag + "/" + hp.editor_id);
     part.model = hp.model;
-    out->parts_.push_back(std::move(part));
+    out->parts_.push_back(base::move(part));
   }
   if (out->parts_.empty()) {
     RX_WARN("face: no renderable head parts for {}", face->editor_id);
@@ -343,15 +345,18 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
     if (nl.interpolation == 0) continue;
     const bethesda::RaceTintLayer* rl = nullptr;
     for (const bethesda::RaceTintLayer& cand : sex.tint_layers)
-      if (cand.index == nl.index) { rl = &cand; break; }
+      if (cand.index == nl.index) {
+        rl = &cand;
+        break;
+      }
     FaceState::TintLayer layer;
     if (rl) {
       layer.mask = TexturePath(rl->mask_texture);
       layer.type = rl->mask_type;
     }
     for (int k = 0; k < 3; ++k) layer.color[k] = nl.color[k] / 255.0f;
-    layer.alpha = std::clamp(static_cast<f32>(nl.interpolation) / 100.0f, 0.0f, 1.0f);
-    out->tint_layers_.push_back(std::move(layer));
+    layer.alpha = base::Clamp(static_cast<f32>(nl.interpolation) / 100.0f, 0.0f, 1.0f);
+    out->tint_layers_.push_back(base::move(layer));
   }
   out->tint_dirty_ = true;
   f32 bake_ms = out->BakeFaceTint();
@@ -405,8 +410,8 @@ bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   }
 
   RX_INFO("face: assembled {} ({} parts, {}, race {}, {} tint layers, facetint bake {:.2f} ms)",
-           face->editor_id, out->parts_.size(), face->female ? "female" : "male", race->editor_id,
-           out->tint_layers_.size(), bake_ms);
+          face->editor_id, out->parts_.size(), face->female ? "female" : "male", race->editor_id,
+          out->tint_layers_.size(), bake_ms);
   return true;
 }
 
@@ -418,7 +423,7 @@ void FaceState::SetNama(u32 slot, i32 index) {
   if (slot < 4) nama_[slot] = index;
 }
 
-void FaceState::SetMorph(const std::string& chargen_morph, f32 weight) {
+void FaceState::SetMorph(const base::String& chargen_morph, f32 weight) {
   for (bethesda::MorphWeight& w : extra_) {
     if (w.name == chargen_morph) {
       w.weight = weight;
@@ -428,9 +433,9 @@ void FaceState::SetMorph(const std::string& chargen_morph, f32 weight) {
   if (weight != 0.0f) extra_.push_back({chargen_morph, weight});
 }
 
-void FaceState::SetRaceBlend(const std::string& race_morph) { race_morph_ = race_morph; }
+void FaceState::SetRaceBlend(const base::String& race_morph) { race_morph_ = race_morph; }
 
-void FaceState::SetSubdivLevels(u32 levels) { subdiv_levels_ = std::min(levels, 3u); }
+void FaceState::SetSubdivLevels(u32 levels) { subdiv_levels_ = base::Min(levels, 3u); }
 
 void FaceState::SetSkinTone(f32 r, f32 g, f32 b) {
   skin_tone_[0] = r;
@@ -481,7 +486,7 @@ f32 FaceState::BakeFaceTint() {
 
   // Version the ids so a live re-bake actually replaces the GPU texture/material
   // (UploadTexture / UploadMaterial early-out on a known id).
-  const std::string ver = std::to_string(tint_version_);
+  const base::String ver = base::ToString(tint_version_);
   face_texture_ = asset::MakeAssetId("facetint/tex/" + npc_tag_ + "/" + ver);
   face_material_ = asset::MakeAssetId("facetint/mat/" + npc_tag_ + "/" + ver);
 
@@ -505,7 +510,7 @@ f32 FaceState::BakeFaceTint() {
       for (int k = 0; k < 3; ++k) {
         c[k] = base->rgb[i * 3 + k] / 255.0f;
         if (!has_skin_layer) c[k] *= skin_tone_[k];
-        c[k] = std::clamp(c[k], 0.0f, 1.0f);
+        c[k] = base::Clamp(c[k], 0.0f, 1.0f);
       }
       for (const Layer& l : layers) {
         f32 cov = 1.0f;
@@ -519,7 +524,7 @@ f32 FaceState::BakeFaceTint() {
         for (int k = 0; k < 3; ++k) c[k] = c[k] + (Overlay(c[k], l.color[k]) - c[k]) * a;
       }
       u8* dst = &tex.data[i * 4];
-      for (int k = 0; k < 3; ++k) dst[k] = static_cast<u8>(std::clamp(c[k], 0.0f, 1.0f) * 255.0f);
+      for (int k = 0; k < 3; ++k) dst[k] = static_cast<u8>(base::Clamp(c[k], 0.0f, 1.0f) * 255.0f);
       dst[3] = 255;
     }
   }
@@ -557,8 +562,8 @@ f32 FaceState::BakeFaceTint() {
   return std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
-base::Vector<std::string> FaceState::ChargenMorphNames() const {
-  base::Vector<std::string> names;
+base::Vector<base::String> FaceState::ChargenMorphNames() const {
+  base::Vector<base::String> names;
   for (const Part& p : parts_) {
     if (p.type != bethesda::HeadPartType::kFace || !p.chargen_tri) continue;
     for (const bethesda::TriMorph& m : p.chargen_tri->morphs) names.push_back(m.name);

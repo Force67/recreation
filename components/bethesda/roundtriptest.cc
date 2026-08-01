@@ -17,12 +17,13 @@
 //       compressed, where bytes legitimately differ because P0 stores). Missing
 //       data never fails CI: it prints a skip and returns 0.
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/load_order.h"
@@ -32,6 +33,9 @@
 #include "core/types.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
 namespace {
@@ -66,19 +70,19 @@ GameProfile TestProfile() {
 // One field the synthetic writer adds and the reader must reproduce exactly.
 struct ExpectedField {
   u32 type = 0;
-  std::vector<u8> bytes;
+  base::Vector<u8> bytes;
 };
 
 // The whole expected content of one authored record, keyed by form id, so the
 // out-of-add-order (grouped-by-type) file walk can match each record back.
 struct ExpectedRecord {
   u32 type = 0;
-  std::vector<ExpectedField> fields;
+  base::Vector<ExpectedField> fields;
 };
 
 // Compares parsed subrecords against what was authored, positionally: the
 // writer preserves field order, so encode->parse must too.
-bool FieldsMatch(const base::Vector<Subrecord>& got, const std::vector<ExpectedField>& want) {
+bool FieldsMatch(const base::Vector<Subrecord>& got, const base::Vector<ExpectedField>& want) {
   if (got.size() != want.size()) return false;
   for (size_t i = 0; i < want.size(); ++i) {
     if (got[i].type != want[i].type) return false;
@@ -102,25 +106,25 @@ ExpectedField MakeFull(const char* s) {
 // -------------------------------------------------------------------------
 // (1) Synthetic byte-identity round trip.
 // -------------------------------------------------------------------------
-void SyntheticRoundTrip(const std::string& dir) {
+void SyntheticRoundTrip(const base::String& dir) {
   std::puts("synthetic byte-identity round trip:");
-  const std::string path = dir + "/rec_roundtrip.esp";
+  const base::String path = dir + "/rec_roundtrip.esp";
   const GameProfile profile = TestProfile();
 
-  std::unordered_map<u32, ExpectedRecord> expected;  // form-id value -> content
+  base::UnorderedMap<u32, ExpectedRecord> expected;  // form-id value -> content
 
   PluginWriter writer(profile);
   writer.set_author("roundtrip").set_master(false).add_master("Skyrim.esm");
 
   // Helper: author a record with the given fields and remember what we wrote.
-  auto author = [&](u32 rec_type, u32 form_value, const std::vector<ExpectedField>& fields) {
+  auto author = [&](u32 rec_type, u32 form_value, const base::Vector<ExpectedField>& fields) {
     RecordBuilder builder(rec_type, RawFormId{form_value});
     // Keep the field bytes alive for the duration of AddRecord via `fields`.
     for (const ExpectedField& f : fields) {
       if (f.type == kEdid) {
         // Author EDID through the string helper the reader expects (NUL kept).
-        std::string id(reinterpret_cast<const char*>(f.bytes.data()),
-                       f.bytes.empty() ? 0 : f.bytes.size() - 1);
+        base::String id(reinterpret_cast<const char*>(f.bytes.data()),
+                        f.bytes.empty() ? 0 : f.bytes.size() - 1);
         builder.EditorId(id);
       } else {
         builder.Field(f.type, ByteSpan(f.bytes.data(), f.bytes.size()));
@@ -137,7 +141,7 @@ void SyntheticRoundTrip(const std::string& dir) {
     f.bytes.push_back(0);
     return f;
   };
-  auto pod = [](u32 type, const std::vector<u8>& b) { return ExpectedField{type, b}; };
+  auto pod = [](u32 type, const base::Vector<u8>& b) { return ExpectedField{type, b}; };
 
   // WEAP #1: EDID + a 10-byte DATA + a small FULL. Multiple subrecords.
   author(kWeap, 0x00000800,
@@ -152,7 +156,7 @@ void SyntheticRoundTrip(const std::string& dir) {
   // encode and re-parse sides, plus ordinary fields around it so the escape is
   // exercised mid-record.
   {
-    std::vector<u8> big(0x10001);  // 65537 bytes, one past the u16 boundary
+    base::Vector<u8> big(0x10001);  // 65537 bytes, one past the u16 boundary
     for (size_t i = 0; i < big.size(); ++i) big[i] = static_cast<u8>(i * 31 + 7);
     author(kArmo, 0x00000803,
            {edid("BigArmor"), pod(kModl, big), pod(kData, {5, 0, 0, 0, 0, 0, 0, 0})});
@@ -164,7 +168,7 @@ void SyntheticRoundTrip(const std::string& dir) {
   Check("reopen synthetic plugin", plugin.has_value());
   if (!plugin) {
     std::error_code ec;
-    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path.c_str(), ec);
     return;
   }
 
@@ -188,9 +192,9 @@ void SyntheticRoundTrip(const std::string& dir) {
     }
 
     // Structural check: parsed subrecords must equal what we authored.
-    auto it = expected.find(header.form_id.value);
-    if (it == expected.end() || parsed.header.type != it->second.type ||
-        !FieldsMatch(parsed.subrecords, it->second.fields)) {
+    auto* it = expected.find(header.form_id.value);
+    if (it == nullptr || parsed.header.type != it->type ||
+        !FieldsMatch(parsed.subrecords, it->fields)) {
       all_matched_content = false;
     }
 
@@ -199,7 +203,7 @@ void SyntheticRoundTrip(const std::string& dir) {
     auto encoded = base::Vector<u8>{};
     EncodeRecord(parsed, &encoded);
 
-    std::vector<u8> original;
+    base::Vector<u8> original;
     original.resize(sizeof(RecordHeader) + payload.size());
     std::memcpy(original.data(), &header, sizeof(RecordHeader));
     if (!payload.empty()) {
@@ -221,7 +225,7 @@ void SyntheticRoundTrip(const std::string& dir) {
   Check("byte-identical count == record count", byte_identical == expected.size());
 
   std::error_code ec;
-  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.c_str(), ec);
 }
 
 // -------------------------------------------------------------------------
@@ -251,7 +255,7 @@ bool SubrecordsEqual(const base::Vector<Subrecord>& a, const base::Vector<Subrec
   return true;
 }
 
-void RealPluginFidelity(const std::string& data_dir) {
+void RealPluginFidelity(const base::String& data_dir) {
   std::puts("real-plugin fidelity:");
   namespace fs = std::filesystem;
 
@@ -266,8 +270,8 @@ void RealPluginFidelity(const std::string& data_dir) {
   // avoids depending on a plugins.txt location and keeps the pass defensive.
   LoadOrder order;
   size_t appended = 0;
-  for (const std::string& master : profile.base_masters) {
-    if (fs::exists(fs::path(data_dir) / master)) {
+  for (const base::String& master : profile.base_masters) {
+    if (fs::exists(fs::path(data_dir.c_str()) / master.c_str())) {
       order.Append(master);
       ++appended;
     }
@@ -313,7 +317,7 @@ void RealPluginFidelity(const std::string& data_dir) {
       const bool was_compressed = (stored.header.flags & kRecordFlagCompressed) != 0;
       if (!was_compressed) {
         // Original was stored uncompressed: encode must reproduce it exactly.
-        std::vector<u8> original;
+        base::Vector<u8> original;
         original.resize(sizeof(RecordHeader) + stored.payload.size());
         std::memcpy(original.data(), &stored.header, sizeof(RecordHeader));
         if (!stored.payload.empty()) {
@@ -363,7 +367,7 @@ void RealPluginFidelity(const std::string& data_dir) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::string dir = std::filesystem::temp_directory_path().string();
+  const base::String dir = std::filesystem::temp_directory_path().string();
 
   SyntheticRoundTrip(dir);
 

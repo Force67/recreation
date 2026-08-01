@@ -3,8 +3,9 @@
 // cooking, tempering, tanning -- so parsing it once exposes the whole crafting
 // surface to the managed (C#) crafting logic. Split from skyrim_bindings.cc to
 // keep that unit from growing into a god file.
+#include <base/memory/move.h>
+
 #include <cstring>
-#include <utility>
 
 #include "components/bethesda/record.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
@@ -52,7 +53,7 @@ void RecordBackedSkyrimBindings::BuildRecipes() {
             recipe.output_count = quantity;
           }
         }
-        if (recipe.output != 0) recipe_cache_.push_back(std::move(recipe));
+        if (recipe.output != 0) recipe_cache_.push_back(base::move(recipe));
       });
 }
 

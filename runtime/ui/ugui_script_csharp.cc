@@ -15,8 +15,8 @@
 // methods and the free-function WidgetOps. That matches how the Lua backend
 // leans on the active registry.
 
-#include "runtime/ui/ugui_csharp_host.h"
-
+#include <base/containers/unordered_map.h>
+#include <base/strings/xstring.h>
 #include <ugui/scripting/script_runtime.h>
 #include <ugui/style/enums.h>
 #include <ugui/widgets/button.h>
@@ -28,9 +28,8 @@
 #include <ugui/widgets/widget_registry.h>
 
 #include <cstring>
-#include <string>
-#include <unordered_map>
 
+#include "runtime/ui/ugui_csharp_host.h"
 namespace ugui {
 namespace {
 
@@ -45,8 +44,8 @@ inline wid Unpack(std::uint64_t v) {
 // Process-global name->widget registry, shared by the (single) ScriptRuntime and
 // the WidgetOps free functions so a C# handler's ugui.find resolves the same set
 // the runtime registered on load.
-std::unordered_map<std::string, wid>& Registry() {
-  static std::unordered_map<std::string, wid> registry;
+base::UnorderedMap<base::String, wid>& Registry() {
+  static base::UnorderedMap<base::String, wid> registry;
   return registry;
 }
 
@@ -71,8 +70,8 @@ namespace {
 
 std::uint64_t OpFind(const char* name) {
   if (!name) return 0;
-  auto it = Registry().find(name);
-  return it != Registry().end() ? Pack(it->second) : 0;
+  auto* it = Registry().find(name);
+  return it != nullptr ? Pack(*it) : 0;
 }
 
 std::int32_t OpGetText(std::uint64_t widget, char* buf, std::int32_t buf_len) {
@@ -164,7 +163,7 @@ void OpSetVisible(std::uint64_t widget, std::int32_t visible) {
 }
 
 constexpr rx::ugui_cs::WidgetOps kWidgetOps = {
-    OpFind,     OpGetText,    OpSetText,     OpGetChecked,  OpSetChecked, OpGetValue,
+    OpFind,     OpGetText,     OpSetText,     OpGetChecked, OpSetChecked, OpGetValue,
     OpSetValue, OpGetSelected, OpSetSelected, OpGetVisible, OpSetVisible,
 };
 
@@ -202,8 +201,8 @@ void ScriptRuntime::ClearWidgetRegistry() { Registry().clear(); }
 
 wid ScriptRuntime::FindRegisteredWidget(const char* name) const {
   if (!name) return kNullWidget;
-  auto it = Registry().find(name);
-  return it != Registry().end() ? it->second : kNullWidget;
+  auto* it = Registry().find(name);
+  return it != nullptr ? *it : kNullWidget;
 }
 
 // The crossing point: a ugui handler fired, route it to the host (the managed
@@ -225,7 +224,7 @@ static void WireChangeHandlersRecursive(ScriptRuntime& rt, wid w) {
       World& wr = *WidgetRegistry::Active();
       WidgetNode* node = wr.Get<WidgetNode>(w);
       if (!node) return;
-      std::string handler = "on_" + node->name;
+      base::String handler = "on_" + node->name;
       rt.CallHandler(handler.c_str(), w);
     };
     if (n->kind == WidgetKind::kDropdown)

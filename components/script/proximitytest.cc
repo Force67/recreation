@@ -1,10 +1,11 @@
 // proximitytest: the record-backed bindings' proximity query over a position
 // snapshot. Needs no game data, so it runs in the default ctest gate; it checks
 // the distance test and the game->engine unit conversion directly.
-#include <array>
+#include <base/containers/array.h>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+
 #include <cstdio>
-#include <utility>
-#include <vector>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"
 
@@ -15,11 +16,11 @@ int main() {
   RecordBackedSkyrimBindings bindings;  // no records needed for proximity
 
   // Engine-space positions: the centre at the origin, two close refs and one far.
-  std::vector<std::pair<rx::u64, std::array<rx::f32, 3>>> snapshot = {
-      {0x14, {0.0f, 0.0f, 0.0f}},     // centre
-      {0x100, {3.0f, 0.0f, 0.0f}},    // 3 m away
-      {0x101, {0.0f, 4.0f, 0.0f}},    // 4 m away
-      {0x102, {1000.0f, 0.0f, 0.0f}}, // far
+  base::Vector<base::Pair<rx::u64, base::Array<rx::f32, 3>>> snapshot = {
+      {0x14, {0.0f, 0.0f, 0.0f}},      // centre
+      {0x100, {3.0f, 0.0f, 0.0f}},     // 3 m away
+      {0x101, {0.0f, 4.0f, 0.0f}},     // 4 m away
+      {0x102, {1000.0f, 0.0f, 0.0f}},  // far
   };
   bindings.UpdatePositionSnapshot(snapshot);
 

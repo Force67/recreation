@@ -7,10 +7,12 @@
 // (owning quest 0x0003372b), which is how the parser was validated against the
 // Helgen intro/escort scenes.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
@@ -19,6 +21,9 @@
 #include "components/quest/scene_record.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -32,7 +37,7 @@ void Check(const char* what, bool ok) {
 
 // Backing store for the synthetic record's subrecord spans.
 struct Buffers {
-  std::vector<std::vector<u8>> store;
+  base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
     if (n) std::memcpy(b.data(), p, n);
@@ -51,18 +56,18 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   bethesda::Subrecord sub;
   sub.type = type;
   sub.data = data;
-  r.subrecords.push_back(std::move(sub));
+  r.subrecords.push_back(base::move(sub));
 }
 
 // Flat little-endian appenders for hand-building a VMAD byte stream.
-void AppendU16(std::vector<u8>& v, u16 x) {
+void AppendU16(base::Vector<u8>& v, u16 x) {
   v.push_back(static_cast<u8>(x));
   v.push_back(static_cast<u8>(x >> 8));
 }
-void AppendU32(std::vector<u8>& v, u32 x) {
+void AppendU32(base::Vector<u8>& v, u32 x) {
   for (int i = 0; i < 4; ++i) v.push_back(static_cast<u8>(x >> (8 * i)));
 }
-void AppendWStr(std::vector<u8>& v, const char* s) {
+void AppendWStr(base::Vector<u8>& v, const char* s) {
   u16 len = static_cast<u16>(std::strlen(s));
   AppendU16(v, len);
   v.insert(v.end(), s, s + len);
@@ -71,24 +76,24 @@ void AppendWStr(std::vector<u8>& v, const char* s) {
 // A SCEN VMAD with no user scripts, a begin + end scene fragment, and one
 // phase-end fragment for phase 4. Mirrors the SSE fragment layout the parser
 // reads (version, flags, shared file name, begin/end, phase count, entries).
-std::vector<u8> MakeSceneVmad() {
-  std::vector<u8> v;
-  AppendU16(v, 5);    // script section version
-  AppendU16(v, 2);    // object format
-  AppendU16(v, 0);    // script count
-  v.push_back(2);     // fragment version
-  v.push_back(0x03);  // flags: begin + end present
+base::Vector<u8> MakeSceneVmad() {
+  base::Vector<u8> v;
+  AppendU16(v, 5);           // script section version
+  AppendU16(v, 2);           // object format
+  AppendU16(v, 0);           // script count
+  v.push_back(2);            // fragment version
+  v.push_back(0x03);         // flags: begin + end present
   AppendWStr(v, "SF_Test");  // shared file name
   v.push_back(0);            // begin: unknown
   AppendWStr(v, "SF_Test");
   AppendWStr(v, "Fragment_Begin");
-  v.push_back(0);            // end: unknown
+  v.push_back(0);  // end: unknown
   AppendWStr(v, "SF_Test");
   AppendWStr(v, "Fragment_End");
-  AppendU16(v, 1);           // phase count
-  v.push_back(2);            // phase fragment kind: 2 = phase-end
-  AppendU32(v, 4);           // phase number
-  v.push_back(0);            // unknown
+  AppendU16(v, 1);  // phase count
+  v.push_back(2);   // phase fragment kind: 2 = phase-end
+  AppendU32(v, 4);  // phase number
+  v.push_back(0);   // unknown
   AppendWStr(v, "SF_Test");
   AppendWStr(v, "Fragment_P4");
   return v;
@@ -159,10 +164,10 @@ bethesda::Record MakeScene(Buffers& buf) {
   Add(r, FourCc('N', 'A', 'M', '0'), buf.U8(0));
   Add(r, FourCc('A', 'L', 'I', 'D'), buf.I32(84));
   Add(r, FourCc('I', 'N', 'A', 'M'), buf.U32(3));
-  Add(r, FourCc('S', 'N', 'A', 'M'), buf.I32(0));    // start phase
-  Add(r, FourCc('E', 'N', 'A', 'M'), buf.I32(1));    // end phase
+  Add(r, FourCc('S', 'N', 'A', 'M'), buf.I32(0));     // start phase
+  Add(r, FourCc('E', 'N', 'A', 'M'), buf.I32(1));     // end phase
   Add(r, FourCc('S', 'N', 'A', 'M'), buf.F32(5.0f));  // timer duration
-  Add(r, FourCc('A', 'N', 'A', 'M'), buf.Empty());   // close action 2
+  Add(r, FourCc('A', 'N', 'A', 'M'), buf.Empty());    // close action 2
 
   // Trailer: owning quest (scene-level PNAM), action counter, version data.
   Add(r, FourCc('P', 'N', 'A', 'M'), buf.U32(0x0003372b));  // MQ101
@@ -183,13 +188,13 @@ void TestParse() {
 
   Check("two actors", def.actors.size() == 2);
   Check("actor 0 alias 84", !def.actors.empty() && def.actors[0].alias == 84);
-  Check("actor 1 alias/flags2", def.actors.size() == 2 && def.actors[1].alias == 85 &&
-                                    def.actors[1].flags2 == 26);
+  Check("actor 1 alias/flags2",
+        def.actors.size() == 2 && def.actors[1].alias == 85 && def.actors[1].flags2 == 26);
 
   Check("two phases", def.phases.size() == 2);
-  Check("phase 0 index 0, no conditions",
-        def.phases.size() == 2 && def.phases[0].index == 0 && def.phases[0].begin.empty() &&
-            def.phases[0].completion.empty());
+  Check("phase 0 index 0, no conditions", def.phases.size() == 2 && def.phases[0].index == 0 &&
+                                              def.phases[0].begin.empty() &&
+                                              def.phases[0].completion.empty());
   Check("phase 1 has one completion CTDA",
         def.phases.size() == 2 && def.phases[1].index == 1 && def.phases[1].begin.empty() &&
             def.phases[1].completion.size() == 1 && def.phases[1].completion[0].ctda.size() == 32);
@@ -223,13 +228,13 @@ void TestEmpty() {
   std::puts("scene parse (empty/sparse):");
   bethesda::Record r;  // no subrecords at all
   SceneDef def = ParseSceneRecord(7, r, nullptr);
-  Check("empty scene does not crash", def.handle == 7 && def.phases.empty() &&
-                                          def.actors.empty() && def.actions.empty());
+  Check("empty scene does not crash",
+        def.handle == 7 && def.phases.empty() && def.actors.empty() && def.actions.empty());
 }
 
 void TestFragments() {
   std::puts("scene vmad fragments:");
-  std::vector<u8> vmad = MakeSceneVmad();
+  base::Vector<u8> vmad = MakeSceneVmad();
   bethesda::ScriptAttachment att;
   bethesda::SceneFragments frags;
   bool ok = bethesda::ParseSceneFragments(ByteSpan(vmad.data(), vmad.size()), &att, &frags);
@@ -245,7 +250,7 @@ void TestFragments() {
   }
 
   // A truncated tail must not crash and must leave the fragments empty.
-  std::vector<u8> truncated(vmad.begin(), vmad.begin() + 10);
+  base::Vector<u8> truncated(vmad.begin(), vmad.begin() + 10);
   bethesda::SceneFragments frags2;
   bethesda::ParseSceneFragments(ByteSpan(truncated.data(), truncated.size()), &att, &frags2);
   Check("truncated tail -> no fragments",
@@ -254,7 +259,7 @@ void TestFragments() {
 
 // Dumps the real MQ101 SCEN scenes when a data dir is given. Validation only;
 // not part of the deterministic gate.
-int DumpReal(const std::string& data_dir) {
+int DumpReal(const base::String& data_dir) {
   using namespace rx::bethesda;
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
@@ -266,49 +271,48 @@ int DumpReal(const std::string& data_dir) {
 
   constexpr rx::u64 kMq101 = 0x0003372bull;  // MQ101 owning quest handle (Skyrim.esm)
   int scenes = 0;
-  records.EachOfType(FourCc('S', 'C', 'E', 'N'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       Record rec;
-                       if (!records.Parse(id, &rec)) return;
-                       SceneDef def = ParseSceneRecord(id.packed(), rec, &records);
-                       // Resolve MQ101's handle for the load order to compare.
-                       GlobalFormId mq = records.ResolveFrom(RawFormId{kMq101}, id.plugin);
-                       if (def.quest != mq.packed() && def.quest != kMq101) return;
-                       ++scenes;
-                       std::printf("SCEN %04x:%06x  %s\n", id.plugin, id.local_id,
-                                   rec.GetString(FourCc('E', 'D', 'I', 'D')).c_str());
-                       std::printf("  flags=%u  quest=%llx  actors=%zu  phases=%zu  actions=%zu\n",
-                                   def.flags, (unsigned long long)def.quest, def.actors.size(),
-                                   def.phases.size(), def.actions.size());
-                       for (const SceneActionDef& a : def.actions) {
-                         const char* k = a.kind == SceneActionDef::Kind::kDialogue  ? "dialogue"
-                                         : a.kind == SceneActionDef::Kind::kPackage  ? "package"
-                                         : a.kind == SceneActionDef::Kind::kTimer    ? "timer"
-                                                                                     : "unknown";
-                         std::printf("    action %-8s alias=%d phases=%d..%d topic=%llx pkg=%llx\n",
-                                     k, a.actor_alias, a.start_phase, a.end_phase,
-                                     (unsigned long long)a.topic, (unsigned long long)a.package);
-                       }
-                       // Scene Papyrus fragments: the scene begin/end and per-phase
-                       // functions that call SetStage to drive the journal.
-                       for (const Subrecord& s : rec.subrecords) {
-                         if (s.type != FourCc('V', 'M', 'A', 'D')) continue;
-                         ScriptAttachment att;
-                         SceneFragments frags;
-                         if (!ParseSceneFragments(s.data, &att, &frags)) {
-                           std::printf("  frags PARSE FAILED\n");
-                           ++g_failures;
-                           break;
-                         }
-                         std::printf("  frags begin='%s' end='%s' phases=%zu\n",
-                                     frags.begin.function.c_str(), frags.end.function.c_str(),
-                                     frags.phases.size());
-                         for (const ScenePhaseFragment& p : frags.phases)
-                           std::printf("    phase %u %-5s -> %s\n", p.phase,
-                                       p.on_begin ? "begin" : "end", p.fragment.function.c_str());
-                         break;
-                       }
-                     });
+  records.EachOfType(
+      FourCc('S', 'C', 'E', 'N'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+        Record rec;
+        if (!records.Parse(id, &rec)) return;
+        SceneDef def = ParseSceneRecord(id.packed(), rec, &records);
+        // Resolve MQ101's handle for the load order to compare.
+        GlobalFormId mq = records.ResolveFrom(RawFormId{kMq101}, id.plugin);
+        if (def.quest != mq.packed() && def.quest != kMq101) return;
+        ++scenes;
+        std::printf("SCEN %04x:%06x  %s\n", id.plugin, id.local_id,
+                    rec.GetString(FourCc('E', 'D', 'I', 'D')).c_str());
+        std::printf("  flags=%u  quest=%llx  actors=%zu  phases=%zu  actions=%zu\n", def.flags,
+                    (unsigned long long)def.quest, def.actors.size(), def.phases.size(),
+                    def.actions.size());
+        for (const SceneActionDef& a : def.actions) {
+          const char* k = a.kind == SceneActionDef::Kind::kDialogue  ? "dialogue"
+                          : a.kind == SceneActionDef::Kind::kPackage ? "package"
+                          : a.kind == SceneActionDef::Kind::kTimer   ? "timer"
+                                                                     : "unknown";
+          std::printf("    action %-8s alias=%d phases=%d..%d topic=%llx pkg=%llx\n", k,
+                      a.actor_alias, a.start_phase, a.end_phase, (unsigned long long)a.topic,
+                      (unsigned long long)a.package);
+        }
+        // Scene Papyrus fragments: the scene begin/end and per-phase
+        // functions that call SetStage to drive the journal.
+        for (const Subrecord& s : rec.subrecords) {
+          if (s.type != FourCc('V', 'M', 'A', 'D')) continue;
+          ScriptAttachment att;
+          SceneFragments frags;
+          if (!ParseSceneFragments(s.data, &att, &frags)) {
+            std::printf("  frags PARSE FAILED\n");
+            ++g_failures;
+            break;
+          }
+          std::printf("  frags begin='%s' end='%s' phases=%zu\n", frags.begin.function.c_str(),
+                      frags.end.function.c_str(), frags.phases.size());
+          for (const ScenePhaseFragment& p : frags.phases)
+            std::printf("    phase %u %-5s -> %s\n", p.phase, p.on_begin ? "begin" : "end",
+                        p.fragment.function.c_str());
+          break;
+        }
+      });
   std::printf("MQ101 scenes parsed: %d\n", scenes);
   return scenes > 0 ? 0 : 1;
 }

@@ -1,12 +1,15 @@
 #include "components/world/land_baker.h"
 
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <string>
 #include <thread>
-
-#include <base/option.h>
 
 #include "core/log.h"
 
@@ -45,7 +48,7 @@ void ParallelRows(u32 count, F&& body) {
   for (unsigned t = 0; t < threads; ++t) {
     u32 lo = t * chunk;
     if (lo >= count) break;
-    u32 hi = std::min(count, lo + chunk);
+    u32 hi = base::Min(count, lo + chunk);
     pool.emplace_back([lo, hi, &body] {
       for (u32 i = lo; i < hi; ++i) body(i);
     });
@@ -80,11 +83,11 @@ u8 LinearToSrgb(f32 v) {
     for (u32 i = 0; i < 4096; ++i) {
       f32 c = static_cast<f32>(i) / 4095.0f;
       f32 s = c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
-      t[i] = static_cast<u8>(std::clamp(s, 0.0f, 1.0f) * 255.0f + 0.5f);
+      t[i] = static_cast<u8>(base::Clamp(s, 0.0f, 1.0f) * 255.0f + 0.5f);
     }
     return t;
   }();
-  v = std::clamp(v, 0.0f, 1.0f);
+  v = base::Clamp(v, 0.0f, 1.0f);
   return table[static_cast<u32>(v * 4095.0f + 0.5f)];
 }
 
@@ -126,18 +129,18 @@ void DecodeBc1Colors(const u8* block, bool always_four, u8 out[16][3]) {
 
 size_t MipOffset(const asset::Texture& texture, u32 mip, u32* width, u32* height) {
   bool compressed = texture.format != asset::TextureFormat::kRgba8;
-  size_t block = (texture.format == asset::TextureFormat::kBc1 ||
-                  texture.format == asset::TextureFormat::kBc4)
-                     ? 8
-                     : 16;
+  size_t block =
+      (texture.format == asset::TextureFormat::kBc1 || texture.format == asset::TextureFormat::kBc4)
+          ? 8
+          : 16;
   size_t offset = 0;
   for (u32 m = 0; m < mip; ++m) {
-    u32 w = std::max(1u, texture.width >> m);
-    u32 h = std::max(1u, texture.height >> m);
+    u32 w = base::Max(1u, texture.width >> m);
+    u32 h = base::Max(1u, texture.height >> m);
     offset += compressed ? ((w + 3) / 4) * ((h + 3) / 4) * block : static_cast<size_t>(w) * h * 4;
   }
-  *width = std::max(1u, texture.width >> mip);
-  *height = std::max(1u, texture.height >> mip);
+  *width = base::Max(1u, texture.width >> mip);
+  *height = base::Max(1u, texture.height >> mip);
   return offset;
 }
 
@@ -178,7 +181,7 @@ bool ParseLandLayers(const bethesda::RecordStore& records, const bethesda::Recor
         std::memcpy(&position, sub.data.data() + i, 2);
         std::memcpy(&opacity, sub.data.data() + i + 4, 4);
         if (position < kQuadGrid * kQuadGrid) {
-          open->opacity[position] = std::clamp(opacity, 0.0f, 1.0f);
+          open->opacity[position] = base::Clamp(opacity, 0.0f, 1.0f);
         }
       }
     }
@@ -198,7 +201,7 @@ bool LandBaker::DecodeTexture(const asset::Texture& texture, Layer* out) const {
   // The smallest mip still at or above the sampling resolution.
   u32 mip = 0;
   for (u32 m = 0; m + 1 < texture.mip_count; ++m) {
-    if (std::max(texture.width >> (m + 1), texture.height >> (m + 1)) < layer_size_) break;
+    if (base::Max(texture.width >> (m + 1), texture.height >> (m + 1)) < layer_size_) break;
     mip = m + 1;
   }
   u32 width, height;
@@ -218,8 +221,8 @@ bool LandBaker::DecodeTexture(const asset::Texture& texture, Layer* out) const {
     if (offset + static_cast<size_t>(bw) * bh * block_size > texture.data.size()) return false;
     for (u32 by = 0; by < bh; ++by) {
       for (u32 bx = 0; bx < bw; ++bx) {
-        const u8* block = texture.data.data() + offset +
-                          (static_cast<size_t>(by) * bw + bx) * block_size;
+        const u8* block =
+            texture.data.data() + offset + (static_cast<size_t>(by) * bw + bx) * block_size;
         u8 colors[16][3];
         DecodeBc1Colors(block + (alpha_block ? 8 : 0), alpha_block, colors);
         for (u32 py = 0; py < 4; ++py) {
@@ -257,7 +260,7 @@ bool LandBaker::DecodeTexture(const asset::Texture& texture, Layer* out) const {
 
 void LandBaker::EnsureBakeSize() {
   if (bake_size_ != 0) return;
-  layer_size_ = static_cast<u32>(std::clamp(LandBakeTexels.get(), 16, 256));
+  layer_size_ = static_cast<u32>(base::Clamp(LandBakeTexels.get(), 16, 256));
   bake_size_ = layer_size_ * static_cast<u32>(kCellSize / kRepeatUnits);  // 8x
 }
 
@@ -281,12 +284,12 @@ const LandBaker::Layer* LandBaker::DefaultLayer() {
 // LTEX -> TNAM -> TXST -> TX<slot> texture path (TX00 diffuse, TX01 normal).
 // Oblivion LTEX records have no TNAM/TXST; the ICON subrecord names the
 // diffuse relative to textures/landscape/, with "_n.dds" siblings for normals.
-static std::string TxstPath(const bethesda::RecordStore& records, u64 ltex_packed, u32 tx_type) {
+static base::String TxstPath(const bethesda::RecordStore& records, u64 ltex_packed, u32 tx_type) {
   if (ltex_packed == 0) return {};
   bethesda::GlobalFormId ltex_id{static_cast<u16>(ltex_packed >> 32),
                                  static_cast<u32>(ltex_packed)};
   bethesda::Record ltex;
-  std::string path;
+  base::String path;
   if (records.Parse(ltex_id, &ltex)) {
     if (const bethesda::Subrecord* tnam = ltex.Find(kTnam); tnam && tnam->data.size() >= 4) {
       u32 raw;
@@ -297,7 +300,7 @@ static std::string TxstPath(const bethesda::RecordStore& records, u64 ltex_packe
         bethesda::Record txst;
         if (records.Parse(txst_id, &txst)) path = txst.GetString(tx_type);
       }
-    } else if (std::string icon = ltex.GetString(FourCc('I', 'C', 'O', 'N')); !icon.empty()) {
+    } else if (base::String icon = ltex.GetString(FourCc('I', 'C', 'O', 'N')); !icon.empty()) {
       path = "landscape/" + asset::NormalizePath(icon);
       if (tx_type == kTx01 && path.ends_with(".dds")) {
         path = path.substr(0, path.size() - 4) + "_n.dds";
@@ -310,13 +313,13 @@ static std::string TxstPath(const bethesda::RecordStore& records, u64 ltex_packe
   return path;
 }
 
-std::string LandBaker::LayerDiffusePath(u64 ltex_packed) const {
+base::String LandBaker::LayerDiffusePath(u64 ltex_packed) const {
   if (ltex_packed == 0) return "textures/landscape/tundra01.dds";
   return TxstPath(records_, ltex_packed, kTx00);
 }
 
 asset::AssetId LandBaker::LayerAsset(u64 ltex_packed) {
-  std::string path = LayerDiffusePath(ltex_packed);
+  base::String path = LayerDiffusePath(ltex_packed);
   if (path.empty()) path = "textures/landscape/tundra01.dds";
   if (const asset::Texture* texture = assets_.LoadTexture(path)) return texture->id;
   // Oblivion's stand-in for untextured land.
@@ -327,8 +330,8 @@ asset::AssetId LandBaker::LayerAsset(u64 ltex_packed) {
 }
 
 asset::AssetId LandBaker::LayerNormalAsset(u64 ltex_packed) {
-  std::string path = ltex_packed == 0 ? "textures/landscape/tundra01_n.dds"
-                                      : TxstPath(records_, ltex_packed, kTx01);
+  base::String path = ltex_packed == 0 ? "textures/landscape/tundra01_n.dds"
+                                       : TxstPath(records_, ltex_packed, kTx01);
   if (path.empty()) return {};
   if (const asset::Texture* texture = assets_.LoadTexture(path)) return texture->id;
   return {};  // flat normal; the shader skips layers without one
@@ -340,7 +343,7 @@ const LandBaker::Layer* LandBaker::LayerFor(u64 ltex_packed) {
     return known->size != 0 ? known : DefaultLayer();
   }
   Layer* layer = layers_.emplace(ltex_packed).first;
-  std::string path = LayerDiffusePath(ltex_packed);
+  base::String path = LayerDiffusePath(ltex_packed);
   if (!path.empty()) {
     if (const asset::Texture* texture = assets_.LoadTexture(path)) {
       DecodeTexture(*texture, layer);
@@ -386,8 +389,8 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
     f32 v = -world_y / kRepeatUnits;
     u -= std::floor(u);
     v -= std::floor(v);
-    u32 x = std::min(layer.size - 1, static_cast<u32>(u * static_cast<f32>(layer.size)));
-    u32 y = std::min(layer.size - 1, static_cast<u32>(v * static_cast<f32>(layer.size)));
+    u32 x = base::Min(layer.size - 1, static_cast<u32>(u * static_cast<f32>(layer.size)));
+    u32 y = base::Min(layer.size - 1, static_cast<u32>(v * static_cast<f32>(layer.size)));
     const f32* texel = layer.rgb.data() + (static_cast<size_t>(y) * layer.size + x) * 3;
     out[0] = texel[0];
     out[1] = texel[1];
@@ -395,8 +398,8 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
   };
 
   asset::Texture texture;
-  std::string name = any ? "land/albedo/" + std::to_string(grid_x) + "_" + std::to_string(grid_y)
-                         : "land/albedo/default";
+  base::String name = any ? "land/albedo/" + base::ToString(grid_x) + "_" + base::ToString(grid_y)
+                          : "land/albedo/default";
   texture.id = asset::MakeAssetId(name);
   texture.format = asset::TextureFormat::kRgba8;
   texture.width = bake_size_;
@@ -420,14 +423,14 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
       f32 ly = (static_cast<f32>(ty) + 0.5f) / bake_size_ * kCellSize;
       f32 world_y = static_cast<f32>(grid_y) * kCellSize + ly;
       f32 gy = (static_cast<f32>(qy) + 0.5f) / kQuadTexels * (kQuadGrid - 1);
-      u32 cy = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+      u32 cy = base::Min(static_cast<u32>(gy), kQuadGrid - 2);
       f32 fy = gy - static_cast<f32>(cy);
       for (u32 qx = 0; qx < kQuadTexels; ++qx) {
         u32 tx = tx0 + qx;
         f32 lx = (static_cast<f32>(tx) + 0.5f) / bake_size_ * kCellSize;
         f32 world_x = static_cast<f32>(grid_x) * kCellSize + lx;
         f32 gx = (static_cast<f32>(qx) + 0.5f) / kQuadTexels * (kQuadGrid - 1);
-        u32 cx = std::min(static_cast<u32>(gx), kQuadGrid - 2);
+        u32 cx = base::Min(static_cast<u32>(gx), kQuadGrid - 2);
         f32 fx = gx - static_cast<f32>(cx);
 
         f32 color[3];
@@ -454,14 +457,14 @@ asset::AssetId LandBaker::BakeAlbedo(const bethesda::Record& land, u16 land_plug
   }
 
   asset::AssetId id = texture.id;
-  assets_.AddTexture(std::move(texture));
+  assets_.AddTexture(base::move(texture));
   ++baked_;
   if (!any) default_albedo_ = id;
   return id;
 }
 
-LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land_plugin,
-                                          i16 grid_x, i16 grid_y) {
+LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
+                                          i16 grid_y) {
   u64 base[4] = {};
   base::Vector<QuadLayer> layers;
   ParseLandLayers(records_, land, land_plugin, base, layers);
@@ -509,7 +512,8 @@ LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land
   };
 
   SplatBake out;
-  for (u32 s = 0; s < 3; ++s) out.layers[s] = best[s] >= 0.0f ? LayerAsset(palette[s]) : asset::AssetId{};
+  for (u32 s = 0; s < 3; ++s)
+    out.layers[s] = best[s] >= 0.0f ? LayerAsset(palette[s]) : asset::AssetId{};
   if (!out.layers[0]) return out;  // ok stays false; caller keeps the bake path
   for (u32 s = 1; s < 3; ++s)
     if (!out.layers[s]) out.layers[s] = out.layers[0];
@@ -521,8 +525,8 @@ LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land
   constexpr u32 kCtrl = 64;
   constexpr u32 kHalf = kCtrl / 2;
   asset::Texture control;
-  control.id = asset::MakeAssetId("land/splat/" + std::to_string(grid_x) + "_" +
-                                  std::to_string(grid_y));
+  control.id =
+      asset::MakeAssetId("land/splat/" + base::ToString(grid_x) + "_" + base::ToString(grid_y));
   control.format = asset::TextureFormat::kRgba8;
   control.width = kCtrl;
   control.height = kCtrl;
@@ -531,13 +535,13 @@ LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land
   for (u32 ty = 0; ty < kCtrl; ++ty) {
     u32 qy = ty >= kHalf ? ty - kHalf : ty;
     f32 gy = (static_cast<f32>(qy) + 0.5f) / kHalf * (kQuadGrid - 1);
-    u32 cy = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+    u32 cy = base::Min(static_cast<u32>(gy), kQuadGrid - 2);
     f32 fy = gy - static_cast<f32>(cy);
     for (u32 tx = 0; tx < kCtrl; ++tx) {
       u32 quadrant = (tx >= kHalf ? 1u : 0u) | (ty >= kHalf ? 2u : 0u);
       u32 qx = tx >= kHalf ? tx - kHalf : tx;
       f32 gx = (static_cast<f32>(qx) + 0.5f) / kHalf * (kQuadGrid - 1);
-      u32 cx = std::min(static_cast<u32>(gx), kQuadGrid - 2);
+      u32 cx = base::Min(static_cast<u32>(gx), kQuadGrid - 2);
       f32 fx = gx - static_cast<f32>(cx);
 
       f32 w[3] = {0, 0, 0};
@@ -554,14 +558,14 @@ LandBaker::SplatBake LandBaker::BakeSplat(const bethesda::Record& land, u16 land
         w[s] += op;
       }
       u8* dst = control.data.data() + (static_cast<size_t>(ty) * kCtrl + tx) * 4;
-      dst[0] = static_cast<u8>(std::clamp(w[0], 0.0f, 1.0f) * 255.0f + 0.5f);
-      dst[1] = static_cast<u8>(std::clamp(w[1], 0.0f, 1.0f) * 255.0f + 0.5f);
-      dst[2] = static_cast<u8>(std::clamp(w[2], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[0] = static_cast<u8>(base::Clamp(w[0], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[1] = static_cast<u8>(base::Clamp(w[1], 0.0f, 1.0f) * 255.0f + 0.5f);
+      dst[2] = static_cast<u8>(base::Clamp(w[2], 0.0f, 1.0f) * 255.0f + 0.5f);
       dst[3] = 0xff;
     }
   }
   out.control = control.id;
-  assets_.AddTexture(std::move(control));
+  assets_.AddTexture(base::move(control));
   ++baked_;
   out.ok = true;
   return out;
@@ -596,11 +600,12 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
     for (f32 o : l.opacity) sum += o;
     add_cov(l.ltex, sum / (kQuadGrid * kQuadGrid));
   }
-  std::sort(cov.begin(), cov.end(), [](const Cov& a, const Cov& b) { return a.weight > b.weight; });
+  base::Sort(cov.begin(), cov.end(),
+             [](const Cov& a, const Cov& b) { return a.weight > b.weight; });
 
   SplatBakeV2 out;
   u64 palette[kMaxLayers] = {};
-  u32 count = std::min(static_cast<u32>(cov.size()), kMaxLayers);
+  u32 count = base::Min(static_cast<u32>(cov.size()), kMaxLayers);
   for (u32 s = 0; s < count; ++s) palette[s] = cov[s].ltex;
   auto slot_of = [&](u64 ltex) -> u32 {
     for (u32 s = 0; s < count; ++s)
@@ -629,8 +634,8 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
   constexpr u32 kHalf = kCtrl / 2;
   auto make_control = [&](const char* tag) {
     asset::Texture t;
-    t.id = asset::MakeAssetId("land/" + std::string(tag) + "/" + std::to_string(grid_x) + "_" +
-                              std::to_string(grid_y));
+    t.id = asset::MakeAssetId("land/" + base::String(tag) + "/" + base::ToString(grid_x) + "_" +
+                              base::ToString(grid_y));
     t.format = asset::TextureFormat::kRgba8;
     t.width = kCtrl;
     t.height = kCtrl;
@@ -643,13 +648,13 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
   for (u32 ty = 0; ty < kCtrl; ++ty) {
     u32 qy = ty >= kHalf ? ty - kHalf : ty;
     f32 gy = (static_cast<f32>(qy) + 0.5f) / kHalf * (kQuadGrid - 1);
-    u32 cy = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+    u32 cy = base::Min(static_cast<u32>(gy), kQuadGrid - 2);
     f32 fy = gy - static_cast<f32>(cy);
     for (u32 tx = 0; tx < kCtrl; ++tx) {
       u32 quadrant = (tx >= kHalf ? 1u : 0u) | (ty >= kHalf ? 2u : 0u);
       u32 qx = tx >= kHalf ? tx - kHalf : tx;
       f32 gx = (static_cast<f32>(qx) + 0.5f) / kHalf * (kQuadGrid - 1);
-      u32 cx = std::min(static_cast<u32>(gx), kQuadGrid - 2);
+      u32 cx = base::Min(static_cast<u32>(gx), kQuadGrid - 2);
       f32 fx = gx - static_cast<f32>(cx);
 
       f32 w[kMaxLayers] = {};
@@ -667,16 +672,15 @@ LandBaker::SplatBakeV2 LandBaker::BakeSplatV2(const bethesda::Record& land, u16 
       }
       size_t at = (static_cast<size_t>(ty) * kCtrl + tx) * 4;
       for (u32 k = 0; k < 4; ++k) {
-        weights_a.data[at + k] = static_cast<u8>(std::clamp(w[k], 0.0f, 1.0f) * 255.0f + 0.5f);
-        weights_b.data[at + k] =
-            static_cast<u8>(std::clamp(w[4 + k], 0.0f, 1.0f) * 255.0f + 0.5f);
+        weights_a.data[at + k] = static_cast<u8>(base::Clamp(w[k], 0.0f, 1.0f) * 255.0f + 0.5f);
+        weights_b.data[at + k] = static_cast<u8>(base::Clamp(w[4 + k], 0.0f, 1.0f) * 255.0f + 0.5f);
       }
     }
   }
   out.weights_a = weights_a.id;
   out.weights_b = weights_b.id;
-  assets_.AddTexture(std::move(weights_a));
-  assets_.AddTexture(std::move(weights_b));
+  assets_.AddTexture(base::move(weights_a));
+  assets_.AddTexture(base::move(weights_b));
   ++baked_;
   out.ok = true;
   return out;

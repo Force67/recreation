@@ -1,5 +1,10 @@
 #include "components/script/host/clr_host.h"
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -8,7 +13,6 @@
 
 #include <cstdlib>
 #include <filesystem>
-#include <string>
 
 #include "core/log.h"
 
@@ -31,11 +35,11 @@ void* OsLoadLibrary(const char* utf8_path) {
 void* OsGetSymbol(void* lib, const char* name) {
   return reinterpret_cast<void*>(::GetProcAddress(reinterpret_cast<HMODULE>(lib), name));
 }
-std::string OsLoadError() { return "error " + std::to_string(::GetLastError()); }
+base::String OsLoadError() { return "error " + base::ToString(::GetLastError()); }
 
 // hostfxr's UTF-16 entry points need the UTF-8 std::strings widened; the
 // returned temporary outlives the call expression it is passed into.
-std::wstring ToCharT(const std::string& s) {
+std::wstring ToCharT(const base::String& s) {
   const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
   std::wstring wide(n > 1 ? n - 1 : 0, L'\0');
   if (n > 1) ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, wide.data(), n);
@@ -47,11 +51,11 @@ constexpr const char* kHostFxrName = "libhostfxr.so";
 
 void* OsLoadLibrary(const char* path) { return ::dlopen(path, RTLD_LAZY | RTLD_GLOBAL); }
 void* OsGetSymbol(void* lib, const char* name) { return ::dlsym(lib, name); }
-std::string OsLoadError() {
+base::String OsLoadError() {
   const char* e = ::dlerror();
   return e ? e : "unknown error";
 }
-const std::string& ToCharT(const std::string& s) { return s; }
+const base::String& ToCharT(const base::String& s) { return s; }
 #endif
 
 using hostfxr_handle = void*;
@@ -68,16 +72,17 @@ using load_assembly_and_get_function_pointer_fn = int (*)(const char_t*, const c
 
 // Picks the newest host/fxr/<version>/libhostfxr.so under a .NET root, choosing
 // by version directory name (lexicographic, good enough for the x.y.z layout).
-std::string FindHostFxr(const std::string& dotnet_root) {
+base::String FindHostFxr(const base::String& dotnet_root) {
   namespace fs = std::filesystem;
   std::error_code ec;
-  std::string best_version;
-  std::string best_path;
-  for (const auto& entry : fs::directory_iterator(fs::path(dotnet_root) / "host" / "fxr", ec)) {
+  base::String best_version;
+  base::String best_path;
+  for (const auto& entry :
+       fs::directory_iterator(fs::path(dotnet_root.c_str()) / "host" / "fxr", ec)) {
     if (!entry.is_directory()) continue;
     fs::path candidate = entry.path() / kHostFxrName;
-    std::string version = entry.path().filename().string();
-    if (fs::exists(candidate) && version > best_version) {
+    base::String version = entry.path().filename().string();
+    if (fs::exists(candidate.c_str()) && version > best_version) {
       best_version = version;
       best_path = candidate.string();
     }
@@ -89,11 +94,11 @@ std::string FindHostFxr(const std::string& dotnet_root) {
 
 ClrHost::~ClrHost() { Shutdown(); }
 
-bool ClrHost::Initialize(const std::string& dotnet_root, const std::string& runtime_config_path,
-                         const std::string& assembly_path, const std::string& type_name,
-                         const std::string& method_name,
-                         const std::vector<std::pair<std::string, std::string>>& properties) {
-  std::string root = dotnet_root;
+bool ClrHost::Initialize(const base::String& dotnet_root, const base::String& runtime_config_path,
+                         const base::String& assembly_path, const base::String& type_name,
+                         const base::String& method_name,
+                         const base::Vector<base::Pair<base::String, base::String>>& properties) {
+  base::String root = dotnet_root;
   if (root.empty()) {
     if (const char* env = std::getenv("DOTNET_ROOT")) root = env;
   }
@@ -102,7 +107,7 @@ bool ClrHost::Initialize(const std::string& dotnet_root, const std::string& runt
     return false;
   }
 
-  std::string fxr_path = FindHostFxr(root);
+  base::String fxr_path = FindHostFxr(root);
   if (fxr_path.empty()) {
     RX_WARN("clr: libhostfxr.so not found under {}, managed scripting disabled", root);
     return false;
@@ -126,7 +131,7 @@ bool ClrHost::Initialize(const std::string& dotnet_root, const std::string& runt
   int rc = init(ToCharT(runtime_config_path).c_str(), nullptr, &handle);
   if (rc < 0 || !handle) {
     RX_WARN("clr: initialize_for_runtime_config({}) failed: 0x{:x}", runtime_config_path,
-             static_cast<unsigned>(rc));
+            static_cast<unsigned>(rc));
     return false;
   }
   host_handle_ = handle;
@@ -147,7 +152,7 @@ bool ClrHost::Initialize(const std::string& dotnet_root, const std::string& runt
         const int prc = set_prop(handle, name.c_str(), value.c_str());
         if (prc != 0)
           RX_WARN("clr: runtime property {}={} rejected: 0x{:x}", kv.first, kv.second,
-                   static_cast<unsigned>(prc));
+                  static_cast<unsigned>(prc));
         else
           RX_INFO("clr: runtime property {}={}", kv.first, kv.second);
       }

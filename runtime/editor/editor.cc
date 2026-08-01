@@ -1,6 +1,13 @@
 #include "runtime/editor/editor.h"
 
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/optional.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cctype>
@@ -9,7 +16,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <utility>
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
@@ -47,7 +53,7 @@ const char* const kGridLabels[] = {"0.5 m", "1 m", "2 m", "4 m", "8 m"};
 constexpr int kGridCount = 5;
 
 // The scene-tree group label for a catalog category (0 / unknown -> "Objects").
-std::string GroupName(int category) {
+base::String GroupName(int category) {
   if (category >= 1 && category < kEditorCategoryCount) return kEditorCategories[category];
   return "Objects";
 }
@@ -94,13 +100,13 @@ void MapEditor::Toggle() {
   if (ctx_.game_ui) PushView();
 }
 
-void MapEditor::SetStatus(std::string message) {
-  status_ = std::move(message);
+void MapEditor::SetStatus(base::String message) {
+  status_ = base::move(message);
   status_age_ = 0;
 }
 
-void MapEditor::SetPlaceDomains(std::vector<EditorPlaceDomain> domains) {
-  domains_ = std::move(domains);
+void MapEditor::SetPlaceDomains(base::Vector<EditorPlaceDomain> domains) {
+  domains_ = base::move(domains);
   catalog_built_ = false;  // rebuild against the new domain set next time it opens
 }
 
@@ -117,10 +123,9 @@ world::CellStreamer* MapEditor::StreamerFor(int domain) const {
 
 const MapEditor::LightParams* MapEditor::LightFor(bethesda::GlobalFormId base, int domain) const {
   const u64 key = base.packed();
-  if (auto it = light_cache_.find(key); it != light_cache_.end())
-    return it->second ? &*it->second : nullptr;
+  if (auto* it = light_cache_.find(key); it != nullptr) return *it ? &**it : nullptr;
 
-  std::optional<LightParams> result;
+  base::Optional<LightParams> result;
   if (domain >= 0 && domain < static_cast<int>(domains_.size()) && domains_[domain].records) {
     bethesda::RecordStore& records = *domains_[domain].records;
     const bethesda::RecordStore::StoredRecord* stored = records.Find(base);
@@ -145,7 +150,7 @@ const MapEditor::LightParams* MapEditor::LightFor(bethesda::GlobalFormId base, i
     }
   }
   auto [it, _] = light_cache_.emplace(key, result);
-  return it->second ? &*it->second : nullptr;
+  return *it ? &**it : nullptr;
 }
 
 void MapEditor::CollectLights(base::Vector<render::PointLight>& out) const {
@@ -268,7 +273,7 @@ void MapEditor::Update(const InputState& input, f32 dt, bool allow_input) {
 void MapEditor::UpdateSearchInput(const InputState& input) {
   // Edit whichever search box has focus: the asset filter or the scene tree.
   const bool scene = scene_search_focused_;
-  std::string& buf = scene ? scene_search_ : search_;
+  base::String& buf = scene ? scene_search_ : search_;
   bool changed = false;
   for (u8 i = 0; i < input.text_len; ++i) {
     const char c = input.text[i];
@@ -402,17 +407,17 @@ void MapEditor::FinishTerrainStroke() {
   world::TerrainEditChange refresh = terrain_stroke_;
   refresh.cells.insert(refresh.cells.end(), terrain_stroke_cells_.begin(),
                        terrain_stroke_cells_.end());
-  std::sort(refresh.cells.begin(), refresh.cells.end());
+  base::Sort(refresh.cells.begin(), refresh.cells.end());
   refresh.cells.erase(std::unique(refresh.cells.begin(), refresh.cells.end()), refresh.cells.end());
   if (!refresh.cells.empty() && ctx_.streamer && ctx_.world)
     ctx_.streamer->RefreshTerrainDerived(*ctx_.world, refresh);
   if (!terrain_stroke_.empty()) {
     UndoOp op;
     op.kind = UndoKind::kTerrain;
-    op.terrain = std::move(terrain_stroke_);
+    op.terrain = base::move(terrain_stroke_);
     op.terrain_applied = true;
     PushEdit(op);
-    SetStatus("Terrain stroke: " + std::to_string(op.terrain.samples.size()) + " samples");
+    SetStatus("Terrain stroke: " + base::ToString(op.terrain.samples.size()) + " samples");
   }
   terrain_stroke_ = {};
   terrain_stroke_cells_.clear();
@@ -437,8 +442,8 @@ void MapEditor::UpdateTerrainStroke(const InputState& input) {
         SetStatus("Terrain stroke merge rejected");
         return false;
       }
-      terrain_stroke_ = std::move(merged_stroke);
-      frame_change = std::move(merged_frame);
+      terrain_stroke_ = base::move(merged_stroke);
+      frame_change = base::move(merged_frame);
       terrain_stroke_cells_.insert(terrain_stroke_cells_.end(), change.cells.begin(),
                                    change.cells.end());
       return true;
@@ -459,23 +464,23 @@ void MapEditor::UpdateTerrainStroke(const InputState& input) {
       world::TerrainEditChange change = ctx_.streamer->ApplyTerrainBrush(
           *ctx_.world, mode, terrain_aim_.x, terrain_aim_.z, terrain_radius_, terrain_strength_,
           terrain_flatten_y_, false);
-      record_dab(std::move(change));
+      record_dab(base::move(change));
     } else {
       const f32 dx = terrain_aim_.x - terrain_last_dab_.x;
       const f32 dz = terrain_aim_.z - terrain_last_dab_.z;
       const f32 spacing =
-          std::max(ctx_.streamer->terrain_sample_spacing() * 0.75f, terrain_radius_ * 0.2f);
+          base::Max(ctx_.streamer->terrain_sample_spacing() * 0.75f, terrain_radius_ * 0.2f);
       const f32 distance = std::hypot(dx, dz);
       if (distance >= spacing) {
         const Vec3 start = terrain_last_dab_;
-        const int steps = std::min(64, static_cast<int>(distance / spacing));
+        const int steps = base::Min(64, static_cast<int>(distance / spacing));
         for (int i = 1; i <= steps; ++i) {
           const Vec3 position =
               start + (terrain_aim_ - start) * (static_cast<f32>(i) * spacing / distance);
           world::TerrainEditChange change = ctx_.streamer->ApplyTerrainBrush(
               *ctx_.world, mode, position.x, position.z, terrain_radius_, terrain_strength_,
               terrain_flatten_y_, false);
-          if (!record_dab(std::move(change))) break;
+          if (!record_dab(base::move(change))) break;
           terrain_last_dab_ = position;
         }
         SetStatus("Sculpting terrain");
@@ -650,7 +655,7 @@ void MapEditor::PlaceDemoBuild() {
   }
 
   RX_INFO("editor: demo build placed {} objects across {} game(s)", total, domains_.size());
-  SetStatus("Demo build: placed " + std::to_string(total) + " objects");
+  SetStatus("Demo build: placed " + base::ToString(total) + " objects");
   SaveLayout();
 }
 
@@ -704,7 +709,7 @@ void MapEditor::SelectUnderCursor(const InputState& input, bool additive) {
   if (additive) {
     // Shift-click toggles the object in the set, building a multi-selection.
     auto it = std::find(selected_.begin(), selected_.end(), hit);
-    if (it != selected_.end())
+    if (it != nullptr)
       selected_.erase(it);
     else
       selected_.push_back(hit);
@@ -712,7 +717,7 @@ void MapEditor::SelectUnderCursor(const InputState& input, bool additive) {
     selected_ = {hit};
   }
   const size_t n = selected_.size();
-  SetStatus(n <= 1 ? "Selected" : std::to_string(n) + " selected");
+  SetStatus(n <= 1 ? "Selected" : base::ToString(n) + " selected");
 }
 
 void MapEditor::DeleteSelection() {
@@ -741,13 +746,13 @@ void MapEditor::DeleteSelection() {
                      [&](const PlacedObject& p) { return !ctx_.world->IsAlive(p.entity); }),
       placed_.end());
   selected_.clear();
-  SetStatus("Deleted " + std::to_string(deleted));
+  SetStatus("Deleted " + base::ToString(deleted));
 }
 
 void MapEditor::DuplicateSelection() {
   PruneDeadSelection();
   if (selected_.empty()) return;
-  std::vector<ecs::Entity> copies;
+  base::Vector<ecs::Entity> copies;
   for (ecs::Entity e : selected_) {
     const world::Transform* t = ctx_.world->Get<world::Transform>(e);
     const int pi = FindPlaced(e);
@@ -768,8 +773,8 @@ void MapEditor::DuplicateSelection() {
     SetStatus("Only placed assets can be duplicated");
     return;
   }
-  selected_ = std::move(copies);  // select the new copies, ready to drag away
-  SetStatus("Duplicated " + std::to_string(selected_.size()));
+  selected_ = base::move(copies);  // select the new copies, ready to drag away
+  SetStatus("Duplicated " + base::ToString(selected_.size()));
 }
 
 void MapEditor::RotateSelection(f32 radians) {
@@ -794,7 +799,7 @@ void MapEditor::ScaleSelection(f32 factor) {
     RecordTransform(e);
     world::Transform* t = ctx_.world->Get<world::Transform>(e);
     if (!t) continue;
-    t->scale = std::clamp(t->scale * factor, kUnitsToMeters * 0.05f, kUnitsToMeters * 50.0f);
+    t->scale = base::Clamp(t->scale * factor, kUnitsToMeters * 0.05f, kUnitsToMeters * 50.0f);
   }
 }
 
@@ -842,13 +847,13 @@ void MapEditor::SaveSelectionAsPrefab() {
   prefab_armed_ = true;
   brush_ = -1;  // stamping a prefab replaces the single-asset brush
   ClearGhost();
-  SetStatus("Prefab saved (" + std::to_string(prefab_.size()) +
+  SetStatus("Prefab saved (" + base::ToString(prefab_.size()) +
             " parts). Click to stamp, Esc to clear.");
 }
 
 void MapEditor::StampPrefab(const Vec3& at) {
   if (prefab_.empty()) return;
-  std::vector<ecs::Entity> stamped;
+  base::Vector<ecs::Entity> stamped;
   for (const PrefabMember& m : prefab_) {
     world::CellStreamer* streamer = StreamerFor(m.domain);
     if (!streamer) continue;
@@ -860,12 +865,12 @@ void MapEditor::StampPrefab(const Vec3& at) {
     stamped.push_back(e);
   }
   if (!stamped.empty()) {
-    selected_ = std::move(stamped);  // select the new copies
-    SetStatus("Stamped prefab (" + std::to_string(selected_.size()) + " parts)");
+    selected_ = base::move(stamped);  // select the new copies
+    SetStatus("Stamped prefab (" + base::ToString(selected_.size()) + " parts)");
   }
 }
 
-std::optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
+base::Optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
   UndoOp inv = op;
   switch (op.kind) {
     case UndoKind::kPlace: {
@@ -873,7 +878,7 @@ std::optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
       inv.kind = UndoKind::kDelete;
       if (const world::Transform* t = ctx_.world->Get<world::Transform>(op.entity))
         inv.transform = *t;
-      if (!ctx_.world->IsAlive(op.entity)) return std::nullopt;
+      if (!ctx_.world->IsAlive(op.entity)) return base::nullopt;
       ctx_.world->Destroy(op.entity);
       placed_.erase(std::remove_if(placed_.begin(), placed_.end(),
                                    [&](const PlacedObject& p) { return p.entity == op.entity; }),
@@ -895,7 +900,7 @@ std::optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
         placed_.push_back({e, op.base, op.name, op.domain});
         selected_ = {e};
       }
-      if (e == ecs::kInvalidEntity) return std::nullopt;
+      if (e == ecs::kInvalidEntity) return base::nullopt;
       inv.kind = UndoKind::kPlace;
       inv.entity = e;
       break;
@@ -907,18 +912,18 @@ std::optional<MapEditor::UndoOp> MapEditor::ApplyAndInvert(const UndoOp& op) {
         inv.transform = *t;
         *t = op.transform;
       } else {
-        return std::nullopt;
+        return base::nullopt;
       }
       break;
     }
     case UndoKind::kTerrain: {
-      if (!ctx_.streamer || !ctx_.world) return std::nullopt;
+      if (!ctx_.streamer || !ctx_.world) return base::nullopt;
       const bool ok = op.terrain_applied
                           ? ctx_.streamer->RevertTerrainChange(*ctx_.world, op.terrain)
                           : ctx_.streamer->ApplyTerrainChange(*ctx_.world, op.terrain);
       if (!ok) {
         SetStatus("Terrain undo rejected: edit state changed");
-        return std::nullopt;
+        return base::nullopt;
       }
       inv.terrain_applied = !op.terrain_applied;
       break;
@@ -934,10 +939,10 @@ void MapEditor::Undo() {
     return;
   }
   UndoOp op = undo_.back();
-  std::optional<UndoOp> inverse = ApplyAndInvert(op);
+  base::Optional<UndoOp> inverse = ApplyAndInvert(op);
   if (!inverse) return;
   undo_.pop_back();
-  redo_.push_back(std::move(*inverse));
+  redo_.push_back(base::move(*inverse));
   SetStatus("Undid");
 }
 
@@ -948,10 +953,10 @@ void MapEditor::Redo() {
     return;
   }
   UndoOp op = redo_.back();
-  std::optional<UndoOp> inverse = ApplyAndInvert(op);
+  base::Optional<UndoOp> inverse = ApplyAndInvert(op);
   if (!inverse) return;
   redo_.pop_back();
-  undo_.push_back(std::move(*inverse));
+  undo_.push_back(base::move(*inverse));
   SetStatus("Redid");
 }
 
@@ -1122,8 +1127,8 @@ bool MapEditor::ProjectToScreen(const Vec3& world, f32* sx, f32* sy) const {
 }
 
 void MapEditor::BoxSelect(f32 x0, f32 y0, f32 x1, f32 y1, bool additive) {
-  const f32 lo_x = std::min(x0, x1), hi_x = std::max(x0, x1);
-  const f32 lo_y = std::min(y0, y1), hi_y = std::max(y0, y1);
+  const f32 lo_x = base::Min(x0, x1), hi_x = base::Max(x0, x1);
+  const f32 lo_y = base::Min(y0, y1), hi_y = base::Max(y0, y1);
   if (!additive) selected_.clear();
   ctx_.world->Each<world::Transform, world::Renderable>(
       [&](ecs::Entity e, world::Transform& t, world::Renderable&) {
@@ -1135,7 +1140,7 @@ void MapEditor::BoxSelect(f32 x0, f32 y0, f32 x1, f32 y1, bool additive) {
           selected_.push_back(e);
       });
   SetStatus(selected_.empty() ? "Nothing in the box"
-                              : std::to_string(selected_.size()) + " selected");
+                              : base::ToString(selected_.size()) + " selected");
 }
 
 void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
@@ -1241,7 +1246,7 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       break;
     }
     case K::kTreeScroll:
-      tree_scroll_ = std::max(0, tree_scroll_ + e.index * kEdTreeRows);
+      tree_scroll_ = base::Max(0, tree_scroll_ + e.index * kEdTreeRows);
       break;
     case K::kCategory:
       if (e.index >= 0 && e.index < kEditorCategoryCount) {
@@ -1256,8 +1261,8 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
       break;
     }
     case K::kCardScroll:
-      page_first_ = std::clamp(page_first_ + e.index * kEdCards, 0,
-                               std::max(0, static_cast<int>(filtered_.size()) - 1));
+      page_first_ = base::Clamp(page_first_ + e.index * kEdCards, 0,
+                                base::Max(0, static_cast<int>(filtered_.size()) - 1));
       break;
     case K::kFocusScene:
       scene_search_focused_ = true;
@@ -1284,21 +1289,21 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
     case K::kGridCycle:
       grid_index_ = (grid_index_ + 1) % kGridCount;
       snap_grid_ = kGridSizes[grid_index_];
-      SetStatus(std::string("Grid ") + kGridLabels[grid_index_]);
+      SetStatus(base::String("Grid ") + kGridLabels[grid_index_]);
       break;
     case K::kTerrainMode:
       if (e.index >= 0 && e.index < 4) {
         EnterTerrainMode(static_cast<world::TerrainBrushMode>(e.index));
         static const char* names[] = {"Raise", "Lower", "Smooth", "Flatten"};
-        SetStatus(std::string("Terrain brush: ") + names[e.index]);
+        SetStatus(base::String("Terrain brush: ") + names[e.index]);
       }
       break;
     case K::kTerrainRadius:
-      terrain_radius_ = std::clamp(terrain_radius_ * (e.index < 0 ? 0.8f : 1.25f), 0.5f, 100.0f);
+      terrain_radius_ = base::Clamp(terrain_radius_ * (e.index < 0 ? 0.8f : 1.25f), 0.5f, 100.0f);
       break;
     case K::kTerrainStrength:
       terrain_strength_ =
-          std::clamp(terrain_strength_ * (e.index < 0 ? 0.8f : 1.25f), 0.01f, 10.0f);
+          base::Clamp(terrain_strength_ * (e.index < 0 ? 0.8f : 1.25f), 0.01f, 10.0f);
       break;
     case K::kTerrainReset:
       if (ctx_.streamer && ctx_.world) {
@@ -1307,7 +1312,7 @@ void MapEditor::HandleUiEvent(const EditorUiEvent& e) {
         if (!change.empty()) {
           UndoOp op;
           op.kind = UndoKind::kTerrain;
-          op.terrain = std::move(change);
+          op.terrain = base::move(change);
           op.terrain_applied = true;
           PushEdit(op);
           SetStatus("Terrain edits reset (undo available)");
@@ -1321,16 +1326,16 @@ const asset::Mesh* MapEditor::MeshForCatalog(const CatalogEntry& e) {
   if (e.domain != 0 || !ctx_.assets || !ctx_.records) return nullptr;
   bethesda::Record rec;
   if (!ctx_.records->Parse(e.base, &rec)) return nullptr;
-  std::string model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
+  base::String model = rec.GetString(FourCc('M', 'O', 'D', 'L'));
   if (model.empty()) return nullptr;
-  std::string path = asset::NormalizePath(model);
+  base::String path = asset::NormalizePath(model);
   if (path.rfind("meshes/", 0) != 0) path = "meshes/" + path;
   return ctx_.assets->LoadMesh(path);
 }
 
 u64 MapEditor::ThumbTexFor(u64 base_packed) const {
-  auto it = thumb_tex_.find(base_packed);
-  return it != thumb_tex_.end() ? it->second : 0;
+  auto* it = thumb_tex_.find(base_packed);
+  return it != nullptr ? *it : 0;
 }
 
 void MapEditor::GenerateThumbnails() {
@@ -1339,14 +1344,14 @@ void MapEditor::GenerateThumbnails() {
   if (!thumber_) {
     if (thumber_tried_) return;
     thumber_tried_ = true;
-    thumber_ = std::make_unique<Thumbnailer>();
+    thumber_ = base::MakeUnique<Thumbnailer>();
     if (!thumber_->Init(*ctx_.renderer, 128)) {
-      thumber_.reset();
+      thumber_.Reset();
       return;
     }
     thumb_dir_ = "thumbs";
     std::error_code ec;
-    std::filesystem::create_directories(thumb_dir_, ec);
+    std::filesystem::create_directories(thumb_dir_.c_str(), ec);
   }
   if (!thumber_->ready()) return;
 
@@ -1354,7 +1359,7 @@ void MapEditor::GenerateThumbnails() {
   // previewed in a previous session. Keyed by base form id so the asset cards
   // and the inspector's model thumbnail share one cache.
   int budget = 2;
-  std::vector<u8> pixels;
+  base::Vector<u8> pixels;
   auto ensure = [&](u64 key, auto get_mesh) {
     if (budget <= 0 || thumb_tex_.count(key) || thumb_failed_.count(key)) return;
     char path[80];
@@ -1414,12 +1419,12 @@ void MapEditor::PushView() {
     return;
   }
   GenerateThumbnails();
-  auto lower = [](std::string x) {
+  auto lower = [](base::String x) {
     for (char& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return x;
   };
   // Long editor ids overrun the fixed tree rows / asset cards; ellipsize them.
-  auto clip = [](const std::string& s, size_t n) {
+  auto clip = [](const base::String& s, size_t n) {
     return s.size() > n ? s.substr(0, n) + "…" : s;
   };
 
@@ -1444,9 +1449,9 @@ void MapEditor::PushView() {
   v.asset_search_focused = search_focused_;
 
   // --- scene hierarchy: root -> non-empty category groups -> object leaves ---
-  const std::string needle = scene_search_.empty() ? "" : lower(scene_search_);
-  std::vector<EditorView::TreeRow> rows;
-  std::vector<TreeNode> flat;
+  const base::String needle = scene_search_.empty() ? "" : lower(scene_search_);
+  base::Vector<EditorView::TreeRow> rows;
+  base::Vector<TreeNode> flat;
   {
     EditorView::TreeRow r;
     r.depth = 0;
@@ -1458,19 +1463,19 @@ void MapEditor::PushView() {
   }
   if (root_expanded_) {
     for (int cat = 0; cat < kEditorCategoryCount; ++cat) {
-      std::vector<const PlacedObject*> objs;
+      base::Vector<const PlacedObject*> objs;
       for (const PlacedObject& p : placed_) {
         if (!ctx_.world->IsAlive(p.entity)) continue;
         const int pc = (p.category >= 1 && p.category < kEditorCategoryCount) ? p.category : 0;
         if (pc != cat) continue;
-        if (!needle.empty() && lower(p.name).find(needle) == std::string::npos) continue;
+        if (!needle.empty() && lower(p.name).find(needle) == base::String::npos) continue;
         objs.push_back(&p);
       }
       if (objs.empty()) continue;
       EditorView::TreeRow g;
       g.depth = 1;
       g.icon = 1;
-      g.name = GroupName(cat) + "  (" + std::to_string(objs.size()) + ")";
+      g.name = GroupName(cat) + "  (" + base::ToString(objs.size()) + ")";
       g.expand = group_expanded_[cat] ? 2 : 1;
       rows.push_back(g);
       flat.push_back({1, cat, ecs::kInvalidEntity});
@@ -1489,7 +1494,7 @@ void MapEditor::PushView() {
   }
   v.tree_total = static_cast<int>(rows.size());
   tree_scroll_ =
-      std::clamp(tree_scroll_, 0, std::max(0, static_cast<int>(rows.size()) - kEdTreeRows));
+      base::Clamp(tree_scroll_, 0, base::Max(0, static_cast<int>(rows.size()) - kEdTreeRows));
   tree_targets_.clear();
   for (int i = 0; i < kEdTreeRows && tree_scroll_ + i < static_cast<int>(rows.size()); ++i) {
     v.tree.push_back(rows[tree_scroll_ + i]);
@@ -1500,11 +1505,11 @@ void MapEditor::PushView() {
   for (int i = 0; i < kEditorCategoryCount; ++i) v.tabs.push_back(kEditorCategories[i]);
   v.tab = category_;
   {
-    const std::string an = search_.empty() ? "" : lower(search_);
-    std::vector<int> counts(kEditorCategoryCount, 0);
+    const base::String an = search_.empty() ? "" : lower(search_);
+    base::Vector<int> counts(kEditorCategoryCount, 0);
     for (const CatalogEntry& e : catalog_) {
-      if (!an.empty() && lower(e.name).find(an) == std::string::npos &&
-          lower(e.editor_id).find(an) == std::string::npos)
+      if (!an.empty() && lower(e.name).find(an) == base::String::npos &&
+          lower(e.editor_id).find(an) == base::String::npos)
         continue;
       ++counts[0];
       if (e.category >= 1 && e.category < kEditorCategoryCount) ++counts[e.category];
@@ -1529,7 +1534,7 @@ void MapEditor::PushView() {
                                                                      : 0x2a2f3aff;
     c.armed = brush_ == filtered_[idx];
     c.thumb = ThumbTexFor(e.base.packed());
-    v.cards.push_back(std::move(c));
+    v.cards.push_back(base::move(c));
   }
 
   // Marquee box (only once it is an actual drag, not a click).
@@ -1547,7 +1552,7 @@ void MapEditor::PushView() {
       v.has_selection = true;
       for (int a = 0; a < 3; ++a) v.pos[a] = t->position[a];
       Quat q{t->rotation[0], t->rotation[1], t->rotation[2], t->rotation[3]};
-      const f32 sinp = std::clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f);
+      const f32 sinp = base::Clamp(2.0f * (q.w * q.x - q.y * q.z), -1.0f, 1.0f);
       v.rot[0] = std::asin(sinp) * 57.29578f;
       v.rot[1] = std::atan2(2.0f * (q.w * q.y + q.z * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y)) *
                  57.29578f;
@@ -1575,7 +1580,7 @@ void MapEditor::PushView() {
                             static_cast<char>((po->type >> 24) & 0xff), '\0'};
         v.sel_type = po->type ? tc : "";
         v.sel_static = po->category == 1;
-        v.material_name = (v.sel_type.empty() ? std::string("Default") : v.sel_type) + "_mat";
+        v.material_name = (v.sel_type.empty() ? base::String("Default") : v.sel_type) + "_mat";
         v.model_thumb = ThumbTexFor(po->base.packed());
         v.tags.push_back(GroupName(po->category));
         if (domains_.size() > 1 && po->domain >= 0 &&
@@ -1584,7 +1589,7 @@ void MapEditor::PushView() {
       } else {
         v.tags.push_back("Object");
       }
-      if (selected_.size() > 1) v.sel_name = std::to_string(selected_.size()) + " objects";
+      if (selected_.size() > 1) v.sel_name = base::ToString(selected_.size()) + " objects";
 
       // Project the bounding sphere to the screen for the tracking bracket.
       Vec3 wc{t->position[0], t->position[1], t->position[2]};

@@ -1,11 +1,11 @@
 #ifndef RECREATION_RUNTIME_UI_THUMBNAILER_H_
 #define RECREATION_RUNTIME_UI_THUMBNAILER_H_
 
-#include <cstdint>
-#include <memory>
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
 
+#include <cstdint>
 namespace rx {
 
 namespace asset {
@@ -37,16 +37,16 @@ class Thumbnailer {
 
   // Renders `mesh` (LOD 0) framed in a 3/4 orthographic view into `out` as
   // size*size RGBA8 pixels (transparent background). False on any failure.
-  bool Render(const asset::Mesh& mesh, std::vector<std::uint8_t>& out);
+  bool Render(const asset::Mesh& mesh, base::Vector<std::uint8_t>& out);
 
   // Disk cache helpers (PNG at the configured size). LoadCached returns false if
   // the file is missing or not size*size.
-  bool LoadCached(const std::string& path, std::vector<std::uint8_t>& out) const;
-  void SaveCached(const std::string& path, const std::vector<std::uint8_t>& rgba) const;
+  bool LoadCached(const base::String& path, base::Vector<std::uint8_t>& out) const;
+  void SaveCached(const base::String& path, const base::Vector<std::uint8_t>& rgba) const;
 
  private:
   struct Impl;
-  std::unique_ptr<Impl> impl_;
+  base::UniquePointer<Impl> impl_;
 };
 
 }  // namespace rx

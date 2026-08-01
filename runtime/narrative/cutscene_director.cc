@@ -1,14 +1,22 @@
+#include "runtime/actor/actor_system.h"
+#include "runtime/actor/ai_package_director.h"
 #include "runtime/narrative/cutscene_director.h"
+
+#include <base/algorithm.h>
+#include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
-#include <base/option.h>
-
-#include "runtime/actor/actor_system.h"
-#include "runtime/actor/ai_package_director.h"
 #include "components/bethesda/record.h"
 #include "components/bethesda/strings.h"
 #include "components/bethesda/script_attachment.h"
@@ -115,13 +123,13 @@ class CutsceneDirector::Sink : public quest::SceneRuntimeSink {
     // Speak it. The clip plays from the speaker's head so it pans with the camera.
     p_.voice = 0;
     p_.voice_hold = 0;
-    auto voice = d_.voice_cache_.find(beat.info);
-    if (SceneVoice && SceneSoak == 0 && voice != d_.voice_cache_.end() &&
-        !voice->second.path.empty() && d_.ctx_.audio) {
+    auto* voice = d_.voice_cache_.find(beat.info);
+    if (SceneVoice && SceneSoak == 0 && voice != nullptr && !voice->path.empty() && d_.ctx_.audio) {
       Vec3 head;
-      if (!d_.HeadOf(beat.actor, &head)) head = d_.ctx_.camera ? d_.ctx_.camera->position() : Vec3{};
-      p_.voice = d_.ctx_.audio->PlayAt(voice->second.path, head);
-      p_.voice_hold = voice->second.seconds;
+      if (!d_.HeadOf(beat.actor, &head))
+        head = d_.ctx_.camera ? d_.ctx_.camera->position() : Vec3{};
+      p_.voice = d_.ctx_.audio->PlayAt(voice->path, head);
+      p_.voice_hold = voice->seconds;
     }
     // The line's own Papyrus (a TIF_ fragment on the INFO) runs with it: scene
     // dialogue is one of the ways the game advances a quest.
@@ -146,9 +154,8 @@ class CutsceneDirector::Sink : public quest::SceneRuntimeSink {
 
   bool ConditionsPass(const quest::ConditionList& conditions) override {
     if (!d_.quests_) return true;
-    WorldConditionContext ctx(*d_.quests_, [this](u64 handle, Vec3* out) {
-      return d_.HeadOf(handle, out);
-    });
+    WorldConditionContext ctx(*d_.quests_,
+                              [this](u64 handle, Vec3* out) { return d_.HeadOf(handle, out); });
     return quest::Evaluate(conditions, ctx);
   }
 
@@ -164,47 +171,46 @@ CutsceneDirector::CutsceneDirector(EngineContext& ctx, ActorSystem* actors, NpcD
     : ctx_(ctx), actors_(actors), npc_(npc), packages_(packages) {}
 
 CutsceneDirector::~CutsceneDirector() {
-  for (const std::string& line : LiveCoverage()) RX_INFO("{}", line);
+  for (const base::String& line : LiveCoverage()) RX_INFO("{}", line);
 }
 
-std::vector<std::string> CutsceneDirector::LiveCoverage() {
-  std::vector<std::string> out;
+base::Vector<base::String> CutsceneDirector::LiveCoverage() {
+  base::Vector<base::String> out;
   if (live_started_.empty()) return out;
   out.push_back(Fmt("cutscene: this run started %zu scene(s), %zu spoke a line, over %zu quest(s)",
                     live_started_.size(), live_spoken_.size(), live_quests_.size()));
   // A scene that has a line and never spoke it is the interesting failure; one with
   // no dialogue at all (a package or timer scene) is silent by design.
-  std::vector<std::string> silent;
+  base::Vector<base::String> silent;
   for (u64 scene : live_with_text_) {
     if (live_spoken_.count(scene)) continue;
-    auto it = scene_index_.find(scene);
-    silent.push_back(it == scene_index_.end() ? Fmt("%llx", scene)
-                                              : scenes_[it->second].editor_id);
+    auto* it = scene_index_.find(scene);
+    silent.push_back(it == nullptr ? Fmt("%llx", scene) : scenes_[*it].editor_id);
   }
-  std::sort(silent.begin(), silent.end());
-  std::string list;
+  base::Sort(silent.begin(), silent.end());
+  base::String list;
   for (size_t i = 0; i < silent.size() && i < 20; ++i) list += (i ? ", " : "") + silent[i];
   out.push_back(Fmt("cutscene: %zu scene(s) had a line and did not speak it%s%s", silent.size(),
                     silent.empty() ? "" : ": ", list.c_str()));
   // Which scenes spoke, grouped under their quest's editor id, so a run's log is
   // itself the evidence for the verified table.
-  std::unordered_map<u64, std::vector<std::string>> by_quest;
+  base::UnorderedMap<u64, base::Vector<base::String>> by_quest;
   for (u64 scene : live_spoken_) {
-    auto it = scene_index_.find(scene);
-    if (it == scene_index_.end()) continue;
-    const SceneEntry& entry = scenes_[it->second];
+    auto* it = scene_index_.find(scene);
+    if (it == nullptr) continue;
+    const SceneEntry& entry = scenes_[*it];
     by_quest[entry.quest].push_back(entry.editor_id);
   }
-  std::vector<std::pair<std::string, u64>> quests;
+  base::Vector<base::Pair<base::String, u64>> quests;
   for (const auto& [quest, scenes] : by_quest) {
     const quest::QuestDef* def = QuestDefinition(quest);
     quests.push_back({def && !def->editor_id.empty() ? def->editor_id : Fmt("%llx", quest), quest});
   }
-  std::sort(quests.begin(), quests.end());
+  base::Sort(quests.begin(), quests.end());
   for (const auto& [edid, quest] : quests) {
-    std::vector<std::string>& scenes = by_quest[quest];
-    std::sort(scenes.begin(), scenes.end());
-    std::string list;
+    base::Vector<base::String>& scenes = by_quest[quest];
+    base::Sort(scenes.begin(), scenes.end());
+    base::String list;
     for (size_t i = 0; i < scenes.size() && i < 6; ++i) list += (i ? ", " : "") + scenes[i];
     if (scenes.size() > 6) list += Fmt(", +%zu more", scenes.size() - 6);
     out.push_back(Fmt("cutscene:   %-34s %2zu scene(s) spoke: %s", edid.c_str(), scenes.size(),
@@ -230,7 +236,7 @@ void CutsceneDirector::IndexScenes() {
         entry.editor_id = record.GetString(FourCc('E', 'D', 'I', 'D'));
         scene_index_[entry.scene] = scenes_.size();
         by_quest_[def.quest].push_back(scenes_.size());
-        scenes_.push_back(std::move(entry));
+        scenes_.push_back(base::move(entry));
       });
   int auto_start = 0;
   for (const SceneEntry& e : scenes_)
@@ -243,15 +249,15 @@ void CutsceneDirector::IndexScenes() {
 }
 
 const quest::QuestDef* CutsceneDirector::QuestDefinition(u64 quest) {
-  auto it = quest_defs_.find(quest);
-  if (it != quest_defs_.end()) return &it->second;
+  auto* it = quest_defs_.find(quest);
+  if (it != nullptr) return &*it;
   if (!ctx_.records) return nullptr;
   const bethesda::GlobalFormId id{static_cast<u16>(quest >> 32), static_cast<u32>(quest)};
   bethesda::Record record;
   if (!ctx_.records->Parse(id, &record)) return nullptr;
   quest::QuestDef def = quest::ParseQuestDefinition(quest, record, ctx_.strings);
-  auto [pos, ok] = quest_defs_.emplace(quest, std::move(def));
-  return &pos->second;
+  auto [value, inserted] = quest_defs_.emplace(quest, base::move(def));
+  return value;
 }
 
 u64 CutsceneDirector::LiveRefForBase(u64 base) const {
@@ -270,8 +276,8 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
   if (!ctx_.scripts || !ctx_.bindings) return;
   const quest::QuestDef* qdef = QuestDefinition(entry.quest);
   if (!qdef) return;
-  std::vector<i32> unresolved;
-  std::vector<i32> find_matching;
+  base::Vector<i32> unresolved;
+  base::Vector<i32> find_matching;
   for (const quest::SceneActorDef& actor : def.actors) {
     const u64 key = script::papyrus::EncodeAliasHandle(entry.quest, static_cast<u32>(actor.alias));
     if (live_alias_refs_.count(key)) continue;
@@ -285,9 +291,8 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
     // A unique actor names one NPC; a created alias names the base the quest makes
     // its reference from. Either way the base is the identity, so bind to whichever
     // instance of it is in the world.
-    const u32 base_raw = adef ? (adef->unique_actor_raw ? adef->unique_actor_raw
-                                                        : adef->created_base_raw)
-                              : 0;
+    const u32 base_raw =
+        adef ? (adef->unique_actor_raw ? adef->unique_actor_raw : adef->created_base_raw) : 0;
     if (base_raw != 0 && ctx_.records) {
       const u64 base =
           ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, entry.plugin).packed();
@@ -307,16 +312,15 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
   if (unresolved.empty()) return;
   auto* binds = ctx_.bindings;
   const u64 quest = entry.quest;
-  std::vector<std::pair<i32, u64>> filled =
+  base::Vector<base::Pair<i32, u64>> filled =
       ctx_.scripts->guest()
           .SubmitFor([binds, quest, unresolved, location](script::papyrus::VirtualMachine&) {
-            std::vector<std::pair<i32, u64>> out;
+            base::Vector<base::Pair<i32, u64>> out;
             if (location != 0)
               binds->FillFindMatchingAliases(script::papyrus::ObjectRef{quest},
                                              script::papyrus::ObjectRef{location});
             for (i32 alias : unresolved) {
-              const u64 handle =
-                  script::papyrus::EncodeAliasHandle(quest, static_cast<u32>(alias));
+              const u64 handle = script::papyrus::EncodeAliasHandle(quest, static_cast<u32>(alias));
               const u64 ref = binds->AliasReference(script::papyrus::ObjectRef{handle}).handle;
               if (ref != 0) out.push_back({alias, ref});
             }
@@ -359,17 +363,17 @@ u64 CutsceneDirector::AliasReference(const quest::QuestDef& def, i32 alias, u16 
   // The player fills their own alias; the scene needs to know that so it can aim
   // its lines and its camera at them.
   if (a->name == "Player") return kPlayerHandle;
-  auto live = live_alias_refs_.find(
+  auto* live = live_alias_refs_.find(
       script::papyrus::EncodeAliasHandle(def.handle, static_cast<u32>(alias)));
-  return live != live_alias_refs_.end() ? live->second : 0;
+  return live != nullptr ? *live : 0;
 }
 
-std::string CutsceneDirector::AliasName(const quest::QuestDef& def, i32 alias) const {
+base::String CutsceneDirector::AliasName(const quest::QuestDef& def, i32 alias) const {
   const quest::AliasDef* a = def.FindAlias(alias);
-  return a ? a->name : std::string();
+  return a ? a->name : base::String();
 }
 
-std::string CutsceneDirector::SpeakerName(const quest::QuestDef& def, i32 alias, u16 plugin) {
+base::String CutsceneDirector::SpeakerName(const quest::QuestDef& def, i32 alias, u16 plugin) {
   const u64 ref = AliasReference(def, alias, plugin);
   if (ref != 0 && ref != kPlayerHandle && ctx_.records) {
     // The performer's own name, from the NPC_ behind the placed reference. Only a
@@ -399,17 +403,17 @@ std::string CutsceneDirector::SpeakerName(const quest::QuestDef& def, i32 alias,
           u32 id = 0;
           std::memcpy(&id, full->data.data(), 4);
           if (const base::String* text = ctx_.strings->Find(id, npc_stored->winning_plugin))
-            if (text->size() > 0) return std::string(text->c_str());
+            if (text->size() > 0) return base::String(text->c_str());
         }
-        const std::string inline_text = npc.GetString(FourCc('F', 'U', 'L', 'L'));
+        const base::String inline_text = npc.GetString(FourCc('F', 'U', 'L', 'L'));
         if (!inline_text.empty()) return inline_text;
       }
     }
   }
-  std::string name = AliasName(def, alias);
+  base::String name = AliasName(def, alias);
   // Alias names read like "MG01MirabelleAlias"; drop the suffix so a caption does
   // not shout the modeller's naming convention at the player.
-  constexpr std::string_view kSuffix = "Alias";
+  constexpr base::StringRef kSuffix = "Alias";
   if (name.size() > kSuffix.size() &&
       name.compare(name.size() - kSuffix.size(), kSuffix.size(), kSuffix) == 0)
     name.resize(name.size() - kSuffix.size());
@@ -422,7 +426,7 @@ bool CutsceneDirector::PlayerInCast(const quest::ScenePlan& plan) const {
   return false;
 }
 
-std::string CutsceneDirector::VoiceTypeFor(const SceneEntry& entry, i32 alias, u64 speaker) {
+base::String CutsceneDirector::VoiceTypeFor(const SceneEntry& entry, i32 alias, u64 speaker) {
   if (speaker == kPlayerHandle) return {};  // the player has no recorded lines
   // A placed reference names its base NPC, which carries the voice type.
   if (speaker != 0) {
@@ -433,7 +437,7 @@ std::string CutsceneDirector::VoiceTypeFor(const SceneEntry& entry, i32 alias, u
         const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(ref);
         const bethesda::GlobalFormId base = ctx_.records->ResolveFrom(
             bethesda::RawFormId{base_raw}, stored ? stored->winning_plugin : entry.plugin);
-        const std::string voice = dialogue::VoiceTypeEditorId(*ctx_.records, base);
+        const base::String voice = dialogue::VoiceTypeEditorId(*ctx_.records, base);
         if (!voice.empty()) return voice;
       }
     }
@@ -450,13 +454,13 @@ std::string CutsceneDirector::VoiceTypeFor(const SceneEntry& entry, i32 alias, u
 }
 
 CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& entry, i32 alias,
-                                                          u64 topic, u64 topic_quest, u64 speaker,
-                                                          u64 info, int response_index,
-                                                          const std::string& text) {
+                                                           u64 topic, u64 topic_quest, u64 speaker,
+                                                           u64 info, int response_index,
+                                                           const base::String& text) {
   VoiceLine line;
   line.seconds = dialogue::EstimateLineSeconds(text);
   if (!ctx_.records || info == 0) return line;
-  const std::string voice_type = VoiceTypeFor(entry, alias, speaker);
+  const base::String voice_type = VoiceTypeFor(entry, alias, speaker);
   if (voice_type.empty()) return line;
   line.had_voice_type = true;
 
@@ -465,7 +469,7 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
   // still resolves. The name-building path below stays as the fallback.
   if (ctx_.vfs) {
     voices_.Build(*ctx_.vfs);
-    const std::string indexed = voices_.Find(static_cast<u32>(info & 0xffffffffu), voice_type);
+    const base::String indexed = voices_.Find(static_cast<u32>(info & 0xffffffffu), voice_type);
     if (!indexed.empty()) {
       line.path = indexed;
       if (auto bytes = ctx_.vfs->Read(indexed)) {
@@ -480,14 +484,14 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
   // The file is named after the quest that owns the TOPIC, which is not always the
   // quest that owns the scene: scenes borrow each other's dialogue (a town's shared
   // topics, a questline's greetings), and the recording stays filed under its own.
-  std::vector<std::string> quest_names;
+  base::Vector<base::String> quest_names;
   if (topic_quest != 0 && topic_quest != entry.quest)
     if (const quest::QuestDef* tq = QuestDefinition(topic_quest))
       if (!tq->editor_id.empty()) quest_names.push_back(tq->editor_id);
   const quest::QuestDef* qdef = QuestDefinition(entry.quest);
   if (qdef && !qdef->editor_id.empty()) quest_names.push_back(qdef->editor_id);
-  if (quest_names.empty()) quest_names.push_back(std::string());
-  std::string topic_edid;
+  if (quest_names.empty()) quest_names.push_back(base::String());
+  base::String topic_edid;
   if (topic) {
     bethesda::Record dial;
     if (ctx_.records->Parse(
@@ -497,20 +501,19 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
   // Voice assets are filed under the plugin that authored the line; the master the
   // quest came from is the first guess, then whatever else is loaded that could
   // override it.
-  base::Vector<std::string> plugins;
-  if (const bethesda::PluginFile* p = ctx_.records->PluginAt(
-          static_cast<u16>(info >> 32)))
+  base::Vector<base::String> plugins;
+  if (const bethesda::PluginFile* p = ctx_.records->PluginAt(static_cast<u16>(info >> 32)))
     plugins.push_back(p->file_name());
   if (const bethesda::PluginFile* p = ctx_.records->PluginAt(entry.plugin))
     plugins.push_back(p->file_name());
 
-  base::Vector<std::string> candidates;
-  for (const std::string& quest_edid : quest_names)
-    for (std::string& path :
+  base::Vector<base::String> candidates;
+  for (const base::String& quest_edid : quest_names)
+    for (base::String& path :
          dialogue::VoiceFileCandidates(plugins, voice_type, quest_edid, topic_edid,
                                        static_cast<u32>(info & 0xffffffffu), response_index))
-      candidates.push_back(std::move(path));
-  for (const std::string& path : candidates) {
+      candidates.push_back(base::move(path));
+  for (const base::String& path : candidates) {
     if (ctx_.audio && !ctx_.audio->HasAsset(path)) continue;
     line.path = path;
     // Length straight off the clip's header: the recording's own pacing is what the
@@ -527,7 +530,7 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
 }
 
 bool CutsceneDirector::ResolveLine(const SceneEntry& entry, i32 alias, u64 topic, u64 speaker,
-                                   u64* info, std::string* text, f32* seconds) {
+                                   u64* info, base::String* text, f32* seconds) {
   if (!ctx_.records || topic == 0) return false;
   const bethesda::GlobalFormId dial{static_cast<u16>(topic >> 32), static_cast<u32>(topic)};
   const dialogue::Topic parsed = dialogue::ParseTopic(*ctx_.records, dial, ctx_.strings);
@@ -545,15 +548,15 @@ bool CutsceneDirector::ResolveLine(const SceneEntry& entry, i32 alias, u64 topic
   }
   *info = pick->info;
   *text = pick->npc_line;
-  auto cached = voice_cache_.find(pick->info);
-  if (cached == voice_cache_.end()) {
+  auto* cached = voice_cache_.find(pick->info);
+  if (cached == nullptr) {
     // The response index in the file name counts responses on the INFO, not INFOs
     // in the topic; scene lines are single-response, so 1 is right for them.
     VoiceLine voice =
         ResolveVoice(entry, alias, topic, parsed.quest, speaker, pick->info, 1, pick->npc_line);
-    cached = voice_cache_.emplace(pick->info, std::move(voice)).first;
+    cached = voice_cache_.emplace(pick->info, base::move(voice)).first;
   }
-  *seconds = cached->second.seconds;
+  *seconds = cached->seconds;
   (void)index;
   return true;
 }
@@ -567,11 +570,11 @@ quest::ScenePlan CutsceneDirector::BuildPlan(const SceneEntry& entry, const ques
     bindings.actor = [this, &q, plugin](i32 alias) { return AliasReference(q, alias, plugin); };
     bindings.alias_name = [this, &q, plugin](i32 alias) { return SpeakerName(q, alias, plugin); };
   }
-  bindings.line = [this, &entry](i32 alias, u64 topic, u64 speaker, u64* info, std::string* text,
+  bindings.line = [this, &entry](i32 alias, u64 topic, u64 speaker, u64* info, base::String* text,
                                  f32* seconds) {
     return ResolveLine(entry, alias, topic, speaker, info, text, seconds);
   };
-  bindings.conditions = [this, &entry](const std::vector<quest::SceneRawCondition>& raw) {
+  bindings.conditions = [this, &entry](const base::Vector<quest::SceneRawCondition>& raw) {
     quest::ConditionList out;
     for (const quest::SceneRawCondition& c : raw) {
       quest::Comparison cmp;
@@ -605,13 +608,13 @@ void CutsceneDirector::EnsureSceneScripts(SceneEntry& entry) {
   const u64 scene = entry.scene;
   const u64 quest = entry.quest;
   ctx_.scripts->guest().Submit(
-      [binds, scene, quest, frags = std::move(frags)](script::papyrus::VirtualMachine&) mutable {
-        binds->SetSceneFragments(scene, quest, std::move(frags));
+      [binds, scene, quest, frags = base::move(frags)](script::papyrus::VirtualMachine&) mutable {
+        binds->SetSceneFragments(scene, quest, base::move(frags));
       });
 }
 
-void CutsceneDirector::EnableCast(u64 quest, const std::string& editor_id,
-                                  const std::vector<u64>& cast) {
+void CutsceneDirector::EnableCast(u64 quest, const base::String& editor_id,
+                                  const base::Vector<u64>& cast) {
   // A scene's performers have to be present: the games place their set pieces
   // initially disabled and switch them on as the quest reaches them, so a scene
   // whose cast is still disabled has outrun that switch. Enabling them goes through
@@ -619,7 +622,7 @@ void CutsceneDirector::EnableCast(u64 quest, const std::string& editor_id,
   // with it. Retried while the scene plays, because a performer only becomes
   // reachable once its cell has streamed in.
   if (!ctx_.quest_world || !ctx_.world) return;
-  std::vector<world::WorldCommand> enable;
+  base::Vector<world::WorldCommand> enable;
   for (u64 ref : cast) {
     const ecs::Entity e = ctx_.quest_world->Find(ref);
     if (!ctx_.world->IsAlive(e) || !ctx_.world->Has<world::Hidden>(e)) continue;
@@ -635,7 +638,7 @@ void CutsceneDirector::EnableCast(u64 quest, const std::string& editor_id,
   RX_INFO("cutscene: {} switched on {} of its cast", editor_id, enable.size());
 }
 
-void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
+void CutsceneDirector::GroundCast(const base::Vector<u64>& cast) {
   // Exteriors only. Indoors the authored placement is already on the right floor,
   // and a downward ray happily lands on a table or the storey above, which lifts the
   // performer (and with it the camera) out of the room.
@@ -671,7 +674,7 @@ void CutsceneDirector::GroundCast(const std::vector<u64>& cast) {
   }
 }
 
-void CutsceneDirector::PoseCast(const std::vector<u64>& cast) {
+void CutsceneDirector::PoseCast(const base::Vector<u64>& cast) {
   // The game's standing movement idle: the clip every actor holds when it is doing
   // nothing else, and the one that puts a talking actor on its feet.
   static constexpr const char* kIdleClip = "meshes/actors/character/animations/mt_idle_a_base.hkx";
@@ -701,7 +704,7 @@ void CutsceneDirector::RunSceneCue(u64 scene, int phase, bool on_begin, bool sce
       });
 }
 
-u64 CutsceneDirector::FindQuestByEditorId(const std::string& editor_id) {
+u64 CutsceneDirector::FindQuestByEditorId(const base::String& editor_id) {
   for (const auto& [quest, indices] : by_quest_) {
     const quest::QuestDef* def = QuestDefinition(quest);
     if (def && def->editor_id == editor_id) return quest;
@@ -732,7 +735,7 @@ u64 CutsceneDirector::SceneLocationForm(const SceneEntry& entry, const quest::Sc
   return 0;
 }
 
-std::string CutsceneDirector::SceneLocation(const SceneEntry& entry, const quest::SceneDef& def) {
+base::String CutsceneDirector::SceneLocation(const SceneEntry& entry, const quest::SceneDef& def) {
   const quest::QuestDef* qdef = QuestDefinition(entry.quest);
   if (!qdef || !ctx_.records) return {};
   for (const quest::SceneActorDef& actor : def.actors) {
@@ -743,7 +746,7 @@ std::string CutsceneDirector::SceneLocation(const SceneEntry& entry, const quest
     if (cell.plugin != 0xffff) {
       bethesda::Record crec;
       if (ctx_.records->Parse(cell, &crec)) {
-        const std::string edid = crec.GetString(FourCc('E', 'D', 'I', 'D'));
+        const base::String edid = crec.GetString(FourCc('E', 'D', 'I', 'D'));
         if (!edid.empty()) return edid;
       }
       continue;
@@ -761,30 +764,29 @@ std::string CutsceneDirector::SceneLocation(const SceneEntry& entry, const quest
 bool CutsceneDirector::ArmedSceneLocation(Vec3* pos) {
   if (armed_quest_ == 0 || !ctx_.records) return false;
 
-  auto it = by_quest_.find(armed_quest_);
-  if (it == by_quest_.end()) return false;
+  auto* it = by_quest_.find(armed_quest_);
+  if (it == nullptr) return false;
   const quest::QuestDef* qdef = QuestDefinition(armed_quest_);
   if (!qdef) return false;
   // Prefer the scene that starts with the quest (that is the one about to play),
   // then any of its scenes, and inside it the first performer with a placement.
-  std::vector<size_t> order;
-  for (size_t index : it->second)
+  base::Vector<size_t> order;
+  for (size_t index : *it)
     if (scenes_[index].flags & quest::kSceneBeginOnQuestStart) order.push_back(index);
-  for (size_t index : it->second) order.push_back(index);
+  for (size_t index : *it) order.push_back(index);
   for (size_t index : order) {
     const SceneEntry& entry = scenes_[index];
     bethesda::Record record;
-    if (!ctx_.records->Parse(
-            bethesda::GlobalFormId{static_cast<u16>(entry.scene >> 32),
-                                   static_cast<u32>(entry.scene)},
-            &record))
+    if (!ctx_.records->Parse(bethesda::GlobalFormId{static_cast<u16>(entry.scene >> 32),
+                                                    static_cast<u32>(entry.scene)},
+                             &record))
       continue;
     const quest::SceneDef def = quest::ParseSceneRecord(entry.scene, record, ctx_.records);
     // Where the scene happens is where its cast stands. Take the medoid of their
     // placements rather than the first one: a cast is spread over everyone's own
     // mark (some of them at the far end of the sequence), and the medoid lands in
     // the group the scene actually opens on.
-    std::vector<std::pair<std::string, Vec3>> cast;
+    base::Vector<base::Pair<base::String, Vec3>> cast;
     for (const quest::SceneActorDef& actor : def.actors) {
       const u64 ref = AliasReference(*qdef, actor.alias, entry.plugin);
       if (ref == 0 || ref == kPlayerHandle) continue;
@@ -816,10 +818,10 @@ bool CutsceneDirector::ArmedSceneLocation(Vec3* pos) {
 }
 
 bool CutsceneDirector::StartScene(u64 scene) {
-  auto it = scene_index_.find(scene);
-  if (it == scene_index_.end()) return false;
+  auto* it = scene_index_.find(scene);
+  if (it == nullptr) return false;
   if (IsPlaying(scene)) return true;
-  SceneEntry& entry = scenes_[it->second];
+  SceneEntry& entry = scenes_[*it];
   const bethesda::GlobalFormId id{static_cast<u16>(scene >> 32), static_cast<u32>(scene)};
   bethesda::Record record;
   if (!ctx_.records || !ctx_.records->Parse(id, &record)) return false;
@@ -828,7 +830,7 @@ bool CutsceneDirector::StartScene(u64 scene) {
   live_started_.insert(scene);
   EnsureSceneScripts(entry);
   ResolveLiveCast(entry, def);
-  auto playing = std::make_unique<Playing>();
+  auto playing = base::MakeUnique<Playing>();
   playing->scene = scene;
   playing->quest = entry.quest;
   playing->plugin = entry.plugin;
@@ -855,7 +857,7 @@ bool CutsceneDirector::StartScene(u64 scene) {
   Sink sink(*this, p);
   p.runtime.Start(&p.plan, sink);
   if (ctx_.bindings) ctx_.bindings->SetScenePlayingLive(scene, true);
-  playing_.push_back(std::move(playing));
+  playing_.push_back(base::move(playing));
   return true;
 }
 
@@ -878,9 +880,9 @@ bool CutsceneDirector::IsPlaying(u64 scene) const {
 }
 
 void CutsceneDirector::OnQuestStarted(u64 quest) {
-  auto it = by_quest_.find(quest);
-  if (it == by_quest_.end()) return;
-  for (size_t index : it->second) {
+  auto* it = by_quest_.find(quest);
+  if (it == nullptr) return;
+  for (size_t index : *it) {
     if (!(scenes_[index].flags & quest::kSceneBeginOnQuestStart)) continue;
     RX_INFO("cutscene: {} starts with its quest", scenes_[index].editor_id);
     StartScene(scenes_[index].scene);
@@ -971,7 +973,7 @@ void CutsceneDirector::DriveCamera(f32 dt) {
     if (subject && !armed && distance >= best) continue;
     if (subject && !subject->caption.empty() && p->caption.empty()) continue;
     if (subject && subject->quest == armed_quest_ && armed_quest_ != 0 && !armed) continue;
-    subject = p.get();
+    subject = &*p;
     speaker_head = head;
     best = distance;
   }
@@ -984,7 +986,7 @@ void CutsceneDirector::DriveCamera(f32 dt) {
       Vec3 head;
       if (!LiveActor(p->speaker) || !HeadOf(p->speaker, &head)) break;
       if (Length(head - viewer) > kWatchRadius && p->quest != armed_quest_) break;
-      subject = p.get();
+      subject = &*p;
       speaker_head = head;
       break;
     }
@@ -1005,7 +1007,7 @@ void CutsceneDirector::DriveCamera(f32 dt) {
         if (!actors_->HasNpcInstance(e)) continue;
         RX_DEBUG("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
                  actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
-        subject = p.get();
+        subject = &*p;
         establishing = true;
         break;
       }
@@ -1043,7 +1045,7 @@ void CutsceneDirector::DriveCamera(f32 dt) {
   if (ctx_.streamer && !ctx_.streamer->in_interior()) {
     f32 ground = 0;
     if (ctx_.streamer->GroundHeight(want_framing.eye[0], want_framing.eye[2], &ground))
-      want_framing.eye[1] = std::max(want_framing.eye[1], ground + 0.6f);
+      want_framing.eye[1] = base::Max(want_framing.eye[1], ground + 0.6f);
   }
   // And keep the subject in sight: on a slope the ground between camera and actor
   // rises into the shot, which frames an empty hillside with the performance behind
@@ -1091,12 +1093,12 @@ void CutsceneDirector::UpdateOverlay(f32 dt) {
   // any other playing scene get to caption itself.
   const Playing* caption = nullptr;
   for (const auto& p : playing_)
-    if (!p->caption.empty() && p->scene == subject_scene_) caption = p.get();
+    if (!p->caption.empty() && p->scene == subject_scene_) caption = &*p;
   if (!caption && subject_scene_ == 0)
     for (const auto& p : playing_)
-      if (!p->caption.empty()) caption = p.get();
+      if (!p->caption.empty()) caption = &*p;
   const bool show = caption != nullptr;
-  caption_fade_ = std::clamp(caption_fade_ + (show ? dt * 4.0f : -dt * 4.0f), 0.0f, 1.0f);
+  caption_fade_ = base::Clamp(caption_fade_ + (show ? dt * 4.0f : -dt * 4.0f), 0.0f, 1.0f);
   overlay_ = TrailerOverlay{};
   overlay_.active = owns_view_ || caption_fade_ > 0.01f;
   if (!overlay_.active) return;
@@ -1113,7 +1115,7 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
   // A cutscene runs on wall-clock time, but the frame after a cell load can be
   // seconds long; letting that through would fast-forward a whole conversation in
   // one tick. Cap the step at a slow frame instead.
-  dt = std::min(dt, 0.25f);
+  dt = base::Min(dt, 0.25f);
 #if RECREATION_HAS_NET
   const bool replica = ctx_.client_session != nullptr;
 #else
@@ -1122,7 +1124,7 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
 
   // Scenes the guest asked for (Scene.Start / Scene.Stop inside a fragment).
   if (ctx_.bindings && !replica) {
-    std::vector<script::skyrim::RecordBackedSkyrimBindings::SceneRequest> requests;
+    base::Vector<script::skyrim::RecordBackedSkyrimBindings::SceneRequest> requests;
     ctx_.bindings->DrainSceneRequests(requests);
     for (const auto& r : requests) {
       if (r.start)
@@ -1141,7 +1143,7 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
     if (soak_cursor_ >= scenes_.size() && playing_.empty() && !soak_done_) {
       soak_done_ = true;
       RX_INFO("cutscene: soak finished, {} scene(s) would not start", soak_failed_);
-      for (const std::string& line : LiveCoverage()) RX_INFO("{}", line);
+      for (const base::String& line : LiveCoverage()) RX_INFO("{}", line);
       if (ctx_.request_quit) ctx_.request_quit();
     }
   }
@@ -1195,29 +1197,28 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
   quests_ = nullptr;
 }
 
-void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
-  std::string want = prefix;
+void CutsceneDirector::ReportQuestCutscenes(const base::String& prefix) {
+  base::String want = prefix;
   std::transform(want.begin(), want.end(), want.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   if (want == "all") want.clear();  // every quest that owns a scene
 
   // Group the indexed scenes by quest, keeping the quests in editor-id order so a
   // questline reads top to bottom.
-  std::vector<std::pair<std::string, u64>> quests;
+  base::Vector<base::Pair<base::String, u64>> quests;
   for (const auto& [quest, indices] : by_quest_) {
     const quest::QuestDef* def = QuestDefinition(quest);
     if (!def) continue;
-    std::string edid = def->editor_id;
-    std::string low = edid;
+    base::String edid = def->editor_id;
+    base::String low = edid;
     std::transform(low.begin(), low.end(), low.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (!want.empty() && low.rfind(want, 0) != 0) continue;
-    quests.push_back({std::move(edid), quest});
+    quests.push_back({base::move(edid), quest});
   }
-  std::sort(quests.begin(), quests.end());
+  base::Sort(quests.begin(), quests.end());
 
-  std::printf("=== cutscenes for %zu quest(s) matching '%s' ===\n", quests.size(),
-              prefix.c_str());
+  std::printf("=== cutscenes for %zu quest(s) matching '%s' ===\n", quests.size(), prefix.c_str());
   int total_scenes = 0, total_lines = 0, total_voiced = 0;
   // Why a spoken line ends up unvoiced: the speaker has no voice type (an alias
   // nothing fills, a creature, the player) or the named clip is not in the archives.
@@ -1227,12 +1228,12 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
   int cast_total = 0, cast_bound = 0, scenes_cast_bound = 0, scenes_cast_none = 0;
   // Which condition functions hold a phase back, so widening the main-thread quest
   // mirror can be aimed at the ones scenes actually use.
-  std::unordered_map<u16, int> gate_functions;
+  base::UnorderedMap<u16, int> gate_functions;
   for (const auto& [edid, quest] : quests) {
     const quest::QuestDef* def = QuestDefinition(quest);
     int q_scenes = 0, q_lines = 0, q_voiced = 0, q_packages = 0;
     f32 q_seconds = 0;
-    std::string detail;
+    base::String detail;
     for (size_t index : by_quest_[quest]) {
       SceneEntry& entry = scenes_[index];
       bethesda::Record record;
@@ -1251,12 +1252,12 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
         }
         if (beat.kind != quest::SceneBeat::Kind::kDialogue) continue;
         if (!beat.text.empty()) ++lines;
-        auto voice = voice_cache_.find(beat.info);
-        if (voice != voice_cache_.end()) {
-          if (!voice->second.path.empty())
+        auto* voice = voice_cache_.find(beat.info);
+        if (voice != nullptr) {
+          if (!voice->path.empty())
             ++voiced;
           else if (!beat.text.empty())
-            voice->second.had_voice_type ? ++no_clip : ++no_voice_type;
+            voice->had_voice_type ? ++no_clip : ++no_voice_type;
         }
         seconds += beat.seconds;
       }
@@ -1281,18 +1282,18 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
       if (!want.empty())
         for (const quest::SceneActorDef& actor : sdef.actors) {
           const quest::AliasDef* adef = def ? def->FindAlias(actor.alias) : nullptr;
-          detail += Fmt("      cast %-24s alias %3d forced=%06x unique=%06x match=%d -> %llx\n",
-                        adef ? adef->name.c_str() : "?", actor.alias,
-                        adef ? adef->forced_ref_raw : 0, adef ? adef->unique_actor_raw : 0,
-                        adef ? adef->find_matching : 0,
-                        static_cast<unsigned long long>(
-                            def ? AliasReference(*def, actor.alias, entry.plugin) : 0));
+          detail +=
+              Fmt("      cast %-24s alias %3d forced=%06x unique=%06x match=%d -> %llx\n",
+                  adef ? adef->name.c_str() : "?", actor.alias, adef ? adef->forced_ref_raw : 0,
+                  adef ? adef->unique_actor_raw : 0, adef ? adef->find_matching : 0,
+                  static_cast<unsigned long long>(
+                      def ? AliasReference(*def, actor.alias, entry.plugin) : 0));
         }
-      detail +=
-          Fmt("    %-34s %2zu phases %3zu beats %3d lines %3d voiced %2d packages %5.0fs  %-28s%s\n",
-              entry.editor_id.c_str(), plan.phases.size(), plan.beats.size(), lines, voiced,
-              packages, seconds, SceneLocation(entry, sdef).c_str(),
-              (entry.flags & quest::kSceneBeginOnQuestStart) ? " [starts with quest]" : "");
+      detail += Fmt(
+          "    %-34s %2zu phases %3zu beats %3d lines %3d voiced %2d packages %5.0fs  %-28s%s\n",
+          entry.editor_id.c_str(), plan.phases.size(), plan.beats.size(), lines, voiced, packages,
+          seconds, SceneLocation(entry, sdef).c_str(),
+          (entry.flags & quest::kSceneBeginOnQuestStart) ? " [starts with quest]" : "");
     }
     std::printf("  %-28s %s: %d scene(s), %d line(s), %d voiced, %d package beat(s), %.0fs\n",
                 edid.c_str(), def && !def->name.empty() ? def->name.c_str() : "", q_scenes, q_lines,
@@ -1310,14 +1311,14 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
       "=== %d performer(s), %d bound to a reference by the records; %d scene(s) with their "
       "whole cast bound, %d with none ===\n",
       cast_total, cast_bound, scenes_cast_bound, scenes_cast_none);
-  std::vector<std::pair<int, u16>> gates;
+  base::Vector<base::Pair<int, u16>> gates;
   int gate_total = 0;
   for (const auto& [func, count] : gate_functions) {
     gates.push_back({count, func});
     gate_total += count;
   }
-  std::sort(gates.rbegin(), gates.rend());
-  std::string top;
+  base::Sort(gates.begin(), gates.end(), [](const auto& a, const auto& b) { return b < a; });
+  base::String top;
   for (size_t i = 0; i < gates.size() && i < 8; ++i)
     top += Fmt(" %u:%d", gates[i].second, gates[i].first);
   std::printf("=== %d phase gate condition(s), most used CK function:count%s ===\n", gate_total,
@@ -1325,13 +1326,13 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
   std::fflush(stdout);
 }
 
-std::vector<std::string> CutsceneDirector::Report() const {
-  std::vector<std::string> out;
+base::Vector<base::String> CutsceneDirector::Report() const {
+  base::Vector<base::String> out;
   for (const auto& p : playing_) {
     char line[256];
     const quest::SceneBeat* beat = p->runtime.speaking();
-    std::snprintf(line, sizeof(line), "%s phase %d%s%s", p->editor_id.c_str(),
-                  p->runtime.phase(), beat ? "  " : "",
+    std::snprintf(line, sizeof(line), "%s phase %d%s%s", p->editor_id.c_str(), p->runtime.phase(),
+                  beat ? "  " : "",
                   beat ? (beat->speaker + ": " + beat->text).substr(0, 90).c_str() : "");
     out.push_back(line);
   }

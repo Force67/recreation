@@ -1,12 +1,16 @@
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/optional.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
-#include <optional>
-#include <thread>
-#include <utility>
 
 #include "components/bethesda/record.h"
 #include "core/log.h"
@@ -29,7 +33,7 @@ namespace rx {
 
 // Case-insensitive ASCII string compare, for matching a NetEntity model against a
 // record's editor id.
-static bool EqualsIgnoreCase(const std::string& a, const std::string& b) {
+static bool EqualsIgnoreCase(const base::String& a, const base::String& b) {
   if (a.size() != b.size()) return false;
   for (size_t i = 0; i < a.size(); ++i) {
     if (std::tolower(static_cast<unsigned char>(a[i])) !=
@@ -49,11 +53,12 @@ static base::Option<float> NavDebugRadius{"nav.debug.radius", 16.0f, "REC_NAV_DE
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "RX_UI_SHOT_FRAMES"};
 // RX_FIXED_DT (golden-image capture) is owned by app::Host now.
 
-void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) {
+void Engine::ApplyDebugCommand(const base::String& verb, const base::String& arg) {
   if (verb == "QuitGame") {
     RequestQuit();
   } else if (verb == "TakeScreenshot") {
-    renderer_->CaptureScreenshot("Screenshot" + std::to_string(screenshot_index_++) + ".png");
+    renderer_->CaptureScreenshot(
+        ("Screenshot" + base::ToString(screenshot_index_++) + ".png").c_str());
   } else if (verb == "ToggleCollisions") {
     debug_flags_.collisions_disabled = !debug_flags_.collisions_disabled;
   } else if (verb == "ToggleAI") {
@@ -69,7 +74,7 @@ void Engine::ApplyDebugCommand(const std::string& verb, const std::string& arg) 
 }
 
 void Engine::ApplyQuestWorld() {
-  std::vector<world::WorldCommand> commands = quest_world_queue_.Drain();
+  base::Vector<world::WorldCommand> commands = quest_world_queue_.Drain();
   if (commands.empty()) return;
   quest_world_->Apply(commands);  // host/single-player: apply locally + record provenance
 #if RECREATION_HAS_NET
@@ -95,19 +100,19 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
   if (pushers.empty()) return;
 
   constexpr f32 kPushRadius = 0.6f;  // ~capsule radius in meters
-  world_->Each<world::Npc, world::Transform>([&](ecs::Entity entity, world::Npc&,
-                                                 world::Transform& nt) {
-    if (world_->Has<world::Hidden>(entity) || world_->Has<world::Deleted>(entity)) return;
-    for (const Vec3& p : pushers) {
-      const float pusher[3] = {p.x, p.y, p.z};
-      float out[3];
-      if (world::ShoveOutOfRadius(pusher, nt.position, kPushRadius, out)) {
-        nt.position[0] = out[0];
-        nt.position[1] = out[1];
-        nt.position[2] = out[2];
-      }
-    }
-  });
+  world_->Each<world::Npc, world::Transform>(
+      [&](ecs::Entity entity, world::Npc&, world::Transform& nt) {
+        if (world_->Has<world::Hidden>(entity) || world_->Has<world::Deleted>(entity)) return;
+        for (const Vec3& p : pushers) {
+          const float pusher[3] = {p.x, p.y, p.z};
+          float out[3];
+          if (world::ShoveOutOfRadius(pusher, nt.position, kPushRadius, out)) {
+            nt.position[0] = out[0];
+            nt.position[1] = out[1];
+            nt.position[2] = out[2];
+          }
+        }
+      });
 }
 
 // Frame-cadence game simulation, driven by app::Host::OnSimulate in both
@@ -148,13 +153,12 @@ void Engine::OnSimulate(f32 frame_delta) {
       // units/s; gate above a walk to avoid flagging idle drift.
       constexpr f32 kRunSpeed = 175.0f;  // units per second
       const f32 fd = frame_delta;
-      std::vector<u64> running;
+      base::Vector<u64> running;
       if (fd > 0.0f) {
         for (const auto& [handle, pos] : position_snapshot_) {
-          auto prev = prev_positions_.find(handle);
-          if (prev == prev_positions_.end()) continue;
-          const f32 dx = pos[0] - prev->second[0], dy = pos[1] - prev->second[1],
-                    dz = pos[2] - prev->second[2];
+          auto* prev = prev_positions_.find(handle);
+          if (prev == nullptr) continue;
+          const f32 dx = pos[0] - (*prev)[0], dy = pos[1] - (*prev)[1], dz = pos[2] - (*prev)[2];
           if (std::sqrt(dx * dx + dy * dy + dz * dz) / fd >= kRunSpeed) running.push_back(handle);
         }
       }
@@ -232,7 +236,7 @@ void Engine::OnSimulate(f32 frame_delta) {
     // bipeds); the actor sync then streams their movement. Drained every frame so
     // single-player simply discards them.
     {
-      std::vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
+      base::Vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
 #if RECREATION_HAS_NET
       if (server_session_ && !spawns.empty()) server_session_->SendWorldCommands(spawns);
 #endif
@@ -280,7 +284,7 @@ void Engine::OnUpdate(f32 frame_delta) {
         wt.indoors = streamer_ && streamer_->in_interior();
         // RX_LIGHTNING holds the flash at a fixed level (testing the strike).
         director_.set_flash_pin(Lightning.overridden() ? base::Optional<f32>(Lightning.get())
-                                                      : base::Optional<f32>());
+                                                       : base::Optional<f32>());
         director_.Update(wt, &renderer_->settings().weather, &renderer_->settings());
       }
       // Ambient audio bed: resolve the REGN region the player stands in (its own
@@ -391,7 +395,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
             view.draws.push_back({renderable.mesh.hash, current, prev ? *prev : current});
             transforms.insert(key, current);
           });
-      prev_transforms_ = std::move(transforms);
+      prev_transforms_ = base::move(transforms);
       const size_t draws_before_actors = view.draws.size();
       actors_->EmitDraws(view);
       // RX_ACTOR_DUMP: how much of the frame's draw list the indirect-draw build
@@ -424,7 +428,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         }
         if (bubbles && bubbles->size() > 0 && renderer_) {
           if (!bubble_viz_) {
-            bubble_viz_ = std::make_unique<net::BubbleVisualizer>();
+            bubble_viz_ = base::MakeUnique<net::BubbleVisualizer>();
             bubble_viz_->Init(*renderer_);  // stays inert off the vulkan backend
           }
           bubble_viz_->Emit(view, *bubbles);
@@ -448,7 +452,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         view.debug_lines =
             std::span<const render::DebugLine>(nav_debug_lines_.begin(), nav_debug_lines_.size());
       }
-      if (editor_) editor_->CollectLights(view.lights);  // placed torches/lamps light the scene
+      if (editor_) editor_->CollectLights(view.lights);      // placed torches/lamps light the scene
       if (streamer_) streamer_->CollectLights(view.lights);  // streamed LIGH refs light the world
       if (streamer_) {
         streamer_->CollectDecals(view.decals);  // streamed TXST refs project decals
@@ -472,16 +476,16 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
                       quest_->native_trace_panel());
       // Drain queued Debug.Notification messages onto the HUD toast.
       {
-        std::vector<std::string> notifications;
+        base::Vector<base::String> notifications;
         {
           std::lock_guard<std::mutex> lock(notification_mutex_);
           notifications.swap(pending_notifications_);
         }
-        for (const std::string& message : notifications) game_ui_.FlashQuestUpdate(message);
+        for (const base::String& message : notifications) game_ui_.FlashQuestUpdate(message);
       }
       // Drain Debug.* engine commands (quit, screenshot, dev toggles).
       {
-        std::vector<std::pair<std::string, std::string>> cmds;
+        base::Vector<base::Pair<base::String, base::String>> cmds;
         {
           std::lock_guard<std::mutex> lock(debug_cmd_mutex_);
           cmds.swap(pending_debug_cmds_);
@@ -505,26 +509,26 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       // first cell, the name, gets the widest field) and hand the panel the lines.
       {
         const PlatformScoreboard sb = platform_hud_.Scoreboard();
-        auto pad = [](const std::string& s, size_t width) {
-          std::string out = s;
+        auto pad = [](const base::String& s, size_t width) {
+          base::String out = s;
           if (out.size() < width) out.append(width - out.size(), ' ');
           return out;
         };
-        auto format_cells = [&pad](const std::vector<std::string>& cells) {
-          std::string line;
+        auto format_cells = [&pad](const base::Vector<base::String>& cells) {
+          base::String line;
           for (size_t i = 0; i < cells.size(); ++i) line += pad(cells[i], i == 0 ? 26 : 12);
           return line;
         };
-        std::vector<std::string> rows;
+        base::Vector<base::String> rows;
         rows.reserve(sb.rows.size());
         for (const PlatformScoreRow& r : sb.rows) rows.push_back(format_cells(r.cells));
         game_ui_.SetScoreboard(sb.open, sb.title, format_cells(sb.headers), rows);
       }
       // Interaction prompts: format each as "[KEY]  label" for the bottom stack.
       {
-        std::vector<std::string> prompts;
+        base::Vector<base::String> prompts;
         for (const PlatformPrompt& p : platform_hud_.Prompts()) {
-          std::string line;
+          base::String line;
           if (!p.key.empty()) line += "[" + p.key + "]  ";
           line += p.label;
           prompts.push_back(line);
@@ -545,7 +549,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         const Vec3 eye = camera_.position();
         const Vec3 tgt = camera_.target();
         const float fwd[3] = {tgt.x - eye.x, 0.0f, tgt.z - eye.z};
-        std::vector<GameUi::CompassBlip> cblips;
+        base::Vector<GameUi::CompassBlip> cblips;
         for (const PlatformBlip& b : platform_hud_.Blips()) {
           const float to[3] = {b.x - eye.x, 0.0f, b.z - eye.z};
           const float bearing = world::MarkerCompassBearingDeg(fwd, to);
@@ -555,13 +559,13 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         }
         game_ui_.SetCompassBlips(cblips);
       }
-      if (std::optional<std::string> addr = platform_hud_.TakePendingConnect())
+      if (base::Optional<base::String> addr = platform_hud_.TakePendingConnect())
         RX_INFO("[platform] connect requested: {}", *addr);
       // Floating player nametags: project each world-space label to screen pixels
       // for the 2D HUD, dropping ones behind the camera or off-screen.
       {
-        const std::vector<PlatformNametag> tags = platform_hud_.DrainNametags();
-        std::vector<GameUi::Nametag> screen_tags;
+        const base::Vector<PlatformNametag> tags = platform_hud_.DrainNametags();
+        base::Vector<GameUi::Nametag> screen_tags;
         const Vec3 eye = camera_.position();
         const Vec3 cf = camera_.forward();
         const Vec3 cr = Normalize(Cross(cf, Vec3{0, 1, 0}));
@@ -596,22 +600,23 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
               if (!records_.Parse(id, &record)) return;
               const bethesda::Subrecord* modl = record.Find(FourCc('M', 'O', 'D', 'L'));
               if (!modl || modl->data.empty()) return;
-              std::string path(reinterpret_cast<const char*>(modl->data.data()), modl->data.size());
-              if (size_t z = path.find('\0'); z != std::string::npos) path.resize(z);
+              base::String path(reinterpret_cast<const char*>(modl->data.data()),
+                                modl->data.size());
+              if (size_t z = path.find('\0'); z != base::String::npos) path.resize(z);
               for (char& c : path)
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
               // Need a real world mesh; skip markers, effects and the non-world art
               // (load screens, UI) that carry a model but never render in the cell.
-              if (path.find(".nif") == std::string::npos) return;
+              if (path.find(".nif") == base::String::npos) return;
               for (const char* bad : {"marker", "fx\\", "loadscreen", "interface", "effects\\"}) {
-                if (path.find(bad) != std::string::npos) return;
+                if (path.find(bad) != base::String::npos) return;
               }
               // Prefer a compact, recognizable prop for the placeholder; otherwise
               // take the first acceptable static found.
-              const bool nice = path.find("barrel") != std::string::npos ||
-                                path.find("crate") != std::string::npos ||
-                                path.find("rock") != std::string::npos ||
-                                path.find("boulder") != std::string::npos;
+              const bool nice = path.find("barrel") != base::String::npos ||
+                                path.find("crate") != base::String::npos ||
+                                path.find("rock") != base::String::npos ||
+                                path.find("boulder") != base::String::npos;
               if (!nice && net_entity_base_fallback_.local_id == 0) net_entity_base_fallback_ = id;
               if (nice) net_entity_base_ = id;
             });
@@ -625,9 +630,9 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           // when it is empty or unknown. Cached, since the lookup scans records.
           bethesda::GlobalFormId form = net_entity_base_;
           if (!op.model.empty()) {
-            auto cached = net_model_cache_.find(op.model);
-            if (cached != net_model_cache_.end()) {
-              form = cached->second;
+            auto* cached = net_model_cache_.find(op.model);
+            if (cached != nullptr) {
+              form = *cached;
             } else {
               bethesda::GlobalFormId resolved{};
               for (u32 type : {FourCc('S', 'T', 'A', 'T'), FourCc('M', 'S', 'T', 'T'),
@@ -672,9 +677,9 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       // Surface managed HUD gauges (oxygen, radiation, ...) pushed via Hud.Gauge
       // by the primary game's gameplay systems.
       if (script_bindings_) {
-        std::vector<script::skyrim::RecordBackedSkyrimBindings::HudGauge> gauges;
+        base::Vector<script::skyrim::RecordBackedSkyrimBindings::HudGauge> gauges;
         script_bindings_->SnapshotHudGauges(gauges);
-        std::vector<HudGauge> hud;
+        base::Vector<HudGauge> hud;
         hud.reserve(gauges.size());
         for (const auto& g : gauges) hud.push_back({g.id, g.label, g.fraction, g.color});
         // A staged battle adds two reinforcement bars (the modern read-out of who
@@ -690,10 +695,10 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
 
         // War map (M): the managed Civil War campaign pushes each hold's owner;
         // snapshot it onto the toggle-able panel.
-        std::vector<script::skyrim::RecordBackedSkyrimBindings::WarHold> war_holds;
+        base::Vector<script::skyrim::RecordBackedSkyrimBindings::WarHold> war_holds;
         f32 war_progress = 0.0f;
         script_bindings_->SnapshotWarMap(war_holds, war_progress);
-        std::vector<GameUi::WarHoldEntry> holds;
+        base::Vector<GameUi::WarHoldEntry> holds;
         holds.reserve(war_holds.size());
         for (const auto& h : war_holds) holds.push_back({h.name, h.owner});
         game_ui_.SetWarMap(war_map_open_, holds, war_progress);

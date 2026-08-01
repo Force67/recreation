@@ -1,10 +1,13 @@
 #ifndef RECREATION_RUNTIME_CHARACTER_CHARGEN_LAYOUT_H_
 #define RECREATION_RUNTIME_CHARACTER_CHARGEN_LAYOUT_H_
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <sstream>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "core/types.h"
 
@@ -18,23 +21,23 @@ namespace rx::chargen {
 // so the ctest gate can round-trip them without the engine (mirrors
 // runtime/editor_layout.h).
 struct CharGenPreset {
-  std::string race = "NordRace";  // race-blend morph name (RACE EDID)
-  int sex = 0;                    // 0 male, 1 female
-  int preset = 0;                 // index into the race/sex RPRM preset list
-  int subdiv = 1;                 // loop-subdivision levels on the head parts
-  int hair_style = -1;            // index into the race/sex hair HDPT list (-1 keep)
-  int hair_color = -1;            // index into the race/sex AHCM list (-1 keep)
+  base::String race = "NordRace";  // race-blend morph name (RACE EDID)
+  int sex = 0;                     // 0 male, 1 female
+  int preset = 0;                  // index into the race/sex RPRM preset list
+  int subdiv = 1;                  // loop-subdivision levels on the head parts
+  int hair_style = -1;             // index into the race/sex hair HDPT list (-1 keep)
+  int hair_color = -1;             // index into the race/sex AHCM list (-1 keep)
   f32 skin[3] = {0.6f, 0.5f, 0.45f};
   f32 hair[3] = {0.32f, 0.24f, 0.18f};
-  int nama[4] = {-1, -1, -1, -1};             // nose, brows, eyes, mouth
-  std::vector<std::pair<int, f32>> nam9;      // sparse: (slider index, value)
-  std::vector<std::pair<std::string, f32>> morphs;  // layered chargen morphs
+  int nama[4] = {-1, -1, -1, -1};                      // nose, brows, eyes, mouth
+  base::Vector<base::Pair<int, f32>> nam9;             // sparse: (slider index, value)
+  base::Vector<base::Pair<base::String, f32>> morphs;  // layered chargen morphs
 };
 
-inline std::string SerializeCharGenPreset(const CharGenPreset& p) {
+inline base::String SerializeCharGenPreset(const CharGenPreset& p) {
   std::ostringstream out;
   out << "# recreation chargen preset v1\n";
-  out << "race " << (p.race.empty() ? "NordRace" : p.race) << '\n';
+  out << "race " << (p.race.empty() ? "NordRace" : p.race.c_str()) << '\n';
   out << "sex " << p.sex << '\n';
   out << "preset " << p.preset << '\n';
   out << "subdiv " << p.subdiv << '\n';
@@ -44,18 +47,20 @@ inline std::string SerializeCharGenPreset(const CharGenPreset& p) {
   out << "hair " << p.hair[0] << ' ' << p.hair[1] << ' ' << p.hair[2] << '\n';
   out << "nama " << p.nama[0] << ' ' << p.nama[1] << ' ' << p.nama[2] << ' ' << p.nama[3] << '\n';
   for (const auto& [i, v] : p.nam9) out << "nam9 " << i << ' ' << v << '\n';
-  for (const auto& [name, w] : p.morphs) out << "morph " << name << ' ' << w << '\n';
-  return out.str();
+  for (const auto& [name, w] : p.morphs) out << "morph " << name.c_str() << ' ' << w << '\n';
+  const std::string text = out.str();
+  return base::String(text.c_str(), text.size());
 }
 
 // Parses a whole preset document into `out`. Unknown lines, comments (leading
 // '#') and blanks are skipped. Returns true when at least one recognized field
 // was read, so a truncated or unrelated file reports failure and the caller keeps
 // its defaults.
-inline bool ParseCharGenPreset(const std::string& text, CharGenPreset* out) {
+inline bool ParseCharGenPreset(const base::String& text, CharGenPreset* out) {
   CharGenPreset p;
   bool any = false;
-  std::istringstream in(text);
+  // istringstream reads into std::string; the parsed fields land in base::String.
+  std::istringstream in(text.c_str());
   std::string line;
   while (std::getline(in, line)) {
     if (line.empty() || line[0] == '#') continue;
@@ -63,7 +68,9 @@ inline bool ParseCharGenPreset(const std::string& text, CharGenPreset* out) {
     std::string tag;
     ss >> tag;
     if (tag == "race") {
-      ss >> p.race;
+      std::string race;
+      ss >> race;
+      p.race.assign(race.c_str(), race.size());
       any = true;
     } else if (tag == "sex") {
       ss >> p.sex;
@@ -100,12 +107,12 @@ inline bool ParseCharGenPreset(const std::string& text, CharGenPreset* out) {
       std::string name;
       f32 w = 0;
       if (ss >> name >> w) {
-        p.morphs.emplace_back(std::move(name), w);
+        p.morphs.emplace_back(base::String(name.c_str(), name.size()), w);
         any = true;
       }
     }
   }
-  if (any) *out = std::move(p);
+  if (any) *out = base::move(p);
   return any;
 }
 

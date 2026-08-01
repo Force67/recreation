@@ -1,12 +1,16 @@
 #include "components/quest/quest_import.h"
 
-#include <algorithm>
-#include <vector>
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
 
+#include <algorithm>
 namespace rx::quest {
 
 QuestGraph BuildQuestGraph(const QuestDef& def,
-                           const std::unordered_map<i32, std::string>& stage_fragments) {
+                           const base::UnorderedMap<i32, base::String>& stage_fragments) {
   QuestGraph graph;
   graph.handle = def.handle;
 
@@ -15,14 +19,13 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
   // display text (last entry wins, as the journal shows the latest). Stages that
   // exist only as a fragment (no def entry) still get a node, so the script's
   // SetStage always lands on a real node.
-  std::vector<i32> indices;
+  base::Vector<i32> indices;
   auto add_index = [&](i32 index) {
-    if (std::find(indices.begin(), indices.end(), index) == indices.end())
-      indices.push_back(index);
+    if (std::find(indices.begin(), indices.end(), index) == indices.end()) indices.push_back(index);
   };
   for (const StageDef& s : def.stages) add_index(s.index);
   for (const auto& [stage, fn] : stage_fragments) add_index(stage);
-  std::sort(indices.begin(), indices.end());
+  base::Sort(indices.begin(), indices.end());
 
   // CompletionStage() is the lowest stage flagged complete; mark its node so the
   // graph is self-describing (the importer-faithful representation). Any stage
@@ -33,11 +36,11 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
     node.kind = NodeKind::kPhase;
     if (const StageDef* sd = def.FindStage(index)) node.log_entry = sd->log_entry;
 
-    if (auto it = stage_fragments.find(index); it != stage_fragments.end() && !it->second.empty()) {
+    if (auto* it = stage_fragments.find(index); it != nullptr && !it->empty()) {
       Action frag;
       frag.kind = ActionKind::kRunScriptFragment;
-      frag.fragment = it->second;
-      node.on_enter.push_back(std::move(frag));
+      frag.fragment = *it;
+      node.on_enter.push_back(base::move(frag));
     }
 
     // A stage index is "completing" if any of its QSDT entries set the flag.
@@ -47,17 +50,17 @@ QuestGraph BuildQuestGraph(const QuestDef& def,
     if (completes) {
       Action done;
       done.kind = ActionKind::kCompleteQuest;
-      node.on_enter.push_back(std::move(done));
+      node.on_enter.push_back(base::move(done));
     }
 
-    graph.nodes.push_back(std::move(node));
+    graph.nodes.push_back(base::move(node));
   }
 
   // Opening stage: lowest stage carrying a fragment; failing that, the lowest
   // stage; failing that (a stageless quest), 0.
   graph.start_node = indices.empty() ? 0 : indices.front();
   for (i32 index : indices) {
-    if (auto it = stage_fragments.find(index); it != stage_fragments.end() && !it->second.empty()) {
+    if (auto* it = stage_fragments.find(index); it != nullptr && !it->empty()) {
       graph.start_node = index;
       break;
     }

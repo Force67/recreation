@@ -7,10 +7,12 @@
 // the form, seed its properties from the editor-baked values, and raise OnInit.
 // Verifies the chain loaded and a property round-trips.
 
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <filesystem>
-#include <optional>
-#include <string>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
@@ -23,6 +25,9 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 using rx::script::ScriptSystem;
 using rx::script::papyrus::ObjectRef;
@@ -34,8 +39,8 @@ struct Found {
 };
 
 // First record of `type` carrying at least one script with a property.
-std::optional<Found> FindScripted(RecordStore& records, u32 type) {
-  std::optional<Found> result;
+base::Optional<Found> FindScripted(RecordStore& records, u32 type) {
+  base::Optional<Found> result;
   records.EachOfType(type, [&](GlobalFormId id, const RecordStore::StoredRecord&) {
     if (result) return;
     Record rec;
@@ -46,7 +51,7 @@ std::optional<Found> FindScripted(RecordStore& records, u32 type) {
     if (!ParseScriptAttachment(vmad->data, &att)) return;
     for (const ScriptEntry& s : att.scripts)
       if (!s.properties.empty()) {
-        result = Found{id, std::move(att)};
+        result = Found{id, base::move(att)};
         return;
       }
   });
@@ -60,12 +65,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: %s <data_dir>\n", argv[0]);
     return 2;
   }
-  std::string data_dir = argv[1];
+  base::String data_dir = argv[1];
 
   asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
 
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
@@ -75,7 +80,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::optional<Found> found = FindScripted(records, FourCc('Q', 'U', 'S', 'T'));
+  base::Optional<Found> found = FindScripted(records, FourCc('Q', 'U', 'S', 'T'));
   if (!found) {
     std::printf("no scripted quest found\n");
     return 1;

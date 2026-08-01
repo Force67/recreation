@@ -1,5 +1,10 @@
 #include "components/script/papyrus_guest.h"
 
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 
 #include "core/log.h"
@@ -58,7 +63,7 @@ void PapyrusGuest::ThreadMain() {
         if (stop_) return;
         continue;
       }
-      job = std::move(queue_.front());
+      job = base::move(queue_.front());
       queue_.pop_front();
     }
     job(vm_);
@@ -68,27 +73,28 @@ void PapyrusGuest::ThreadMain() {
 void PapyrusGuest::Submit(MoveOnlyFunction<void(VirtualMachine&)> fn) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    queue_.push_back(std::move(fn));
+    queue_.push_back(base::move(fn));
   }
   wake_.notify_one();
 }
 
-std::future<std::string> PapyrusGuest::LoadScript(std::vector<u8> pex) {
-  return SubmitFor([pex = std::move(pex)](VirtualMachine& vm) {
+std::future<base::String> PapyrusGuest::LoadScript(base::Vector<u8> pex) {
+  return SubmitFor([pex = base::move(pex)](VirtualMachine& vm) {
     return vm.LoadScript(ByteSpan(pex.data(), pex.size()));
   });
 }
 
-std::future<ObjectRef> PapyrusGuest::CreateInstance(std::string type) {
-  return SubmitFor([type = std::move(type)](VirtualMachine& vm) { return vm.CreateInstance(type); });
+std::future<ObjectRef> PapyrusGuest::CreateInstance(base::String type) {
+  return SubmitFor(
+      [type = base::move(type)](VirtualMachine& vm) { return vm.CreateInstance(type); });
 }
 
-void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<Value> args) {
+void PapyrusGuest::RaiseEvent(ObjectRef target, base::String event, base::Vector<Value> args) {
   // Events are optional handlers; TryCall dispatches only if the target defines
   // one and never warns otherwise, so broadcasting to every form is cheap.
-  Submit([this, target, event = std::move(event),
-          args = std::move(args)](VirtualMachine& vm) mutable {
-    RunScript([this, &vm, target, event = std::move(event), args = std::move(args)]() mutable {
+  Submit([this, target, event = base::move(event),
+          args = base::move(args)](VirtualMachine& vm) mutable {
+    RunScript([this, &vm, target, event = base::move(event), args = base::move(args)]() mutable {
       vm.TryCall(target, event, args);
       // Also reach the scripts on any quest alias the target fills, so an alias's
       // OnActivate/OnTriggerEnter handler runs (native-raised events already route
@@ -99,12 +105,12 @@ void PapyrusGuest::RaiseEvent(ObjectRef target, std::string event, std::vector<V
   });
 }
 
-void PapyrusGuest::RaiseScriptEvent(ObjectRef target, std::string script_type, std::string event,
-                                    std::vector<Value> args) {
-  Submit([this, target, script_type = std::move(script_type), event = std::move(event),
-          args = std::move(args)](VirtualMachine& vm) mutable {
-    RunScript([this, &vm, target, script_type = std::move(script_type),
-               event = std::move(event), args = std::move(args)]() mutable {
+void PapyrusGuest::RaiseScriptEvent(ObjectRef target, base::String script_type, base::String event,
+                                    base::Vector<Value> args) {
+  Submit([this, target, script_type = base::move(script_type), event = base::move(event),
+          args = base::move(args)](VirtualMachine& vm) mutable {
+    RunScript([this, &vm, target, script_type = base::move(script_type), event = base::move(event),
+               args = base::move(args)]() mutable {
       vm.TryCallScript(target, script_type, event, args);
       if (alias_resolver_)
         for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
@@ -112,10 +118,10 @@ void PapyrusGuest::RaiseScriptEvent(ObjectRef target, std::string script_type, s
   });
 }
 
-void PapyrusGuest::RaiseEventAll(ObjectRef target, std::string event, std::vector<Value> args) {
-  Submit([this, target, event = std::move(event),
-          args = std::move(args)](VirtualMachine& vm) mutable {
-    RunScript([this, &vm, target, event = std::move(event), args = std::move(args)]() mutable {
+void PapyrusGuest::RaiseEventAll(ObjectRef target, base::String event, base::Vector<Value> args) {
+  Submit([this, target, event = base::move(event),
+          args = base::move(args)](VirtualMachine& vm) mutable {
+    RunScript([this, &vm, target, event = base::move(event), args = base::move(args)]() mutable {
       vm.TryCallAll(target, event, args);
       if (alias_resolver_)
         for (ObjectRef alias : alias_resolver_(target)) vm.TryCallAll(alias, event, args);
@@ -133,7 +139,7 @@ void PapyrusGuest::ScheduleUpdate(ObjectRef target, f64 due, f64 interval) {
 }
 
 void PapyrusGuest::CancelUpdate(ObjectRef target) {
-  std::erase_if(updates_, [&](const ScheduledUpdate& u) { return u.target == target; });
+  base::EraseIf(updates_, [&](const ScheduledUpdate& u) { return u.target == target; });
 }
 
 void PapyrusGuest::ScheduleGameUpdate(ObjectRef target, f64 due, f64 interval) {
@@ -142,13 +148,13 @@ void PapyrusGuest::ScheduleGameUpdate(ObjectRef target, f64 due, f64 interval) {
 }
 
 void PapyrusGuest::CancelGameUpdate(ObjectRef target) {
-  std::erase_if(game_updates_, [&](const ScheduledUpdate& u) { return u.target == target; });
+  base::EraseIf(game_updates_, [&](const ScheduledUpdate& u) { return u.target == target; });
 }
 
 void PapyrusGuest::AdvanceGameUpdates(f64 now) {
   // Same snapshot-then-fire discipline as AdvanceUpdates: a handler may reschedule
   // itself and must not fire again this tick.
-  std::vector<ObjectRef> due;
+  base::Vector<ObjectRef> due;
   for (ScheduledUpdate& u : game_updates_)
     if (u.due <= now) due.push_back(u.target);
   for (ObjectRef target : due) {
@@ -170,7 +176,7 @@ void PapyrusGuest::AddLosWatch(LosWatch watch) {
 }
 
 void PapyrusGuest::RemoveLosWatch(ObjectRef registrant, ObjectRef viewer, ObjectRef target) {
-  std::erase_if(los_watches_, [&](const LosWatch& w) {
+  base::EraseIf(los_watches_, [&](const LosWatch& w) {
     return w.registrant == registrant && w.viewer == viewer && w.target == target;
   });
 }
@@ -183,20 +189,21 @@ void PapyrusGuest::AdvanceLosWatches() {
     ObjectRef registrant, viewer, target;
     bool gained;
   };
-  std::vector<Fired> fired;
-  std::vector<size_t> drop;
+  base::Vector<Fired> fired;
+  base::Vector<size_t> drop;
   for (size_t i = 0; i < los_watches_.size(); ++i) {
     LosWatch& w = los_watches_[i];
     bool now = los_provider_(w.viewer.handle, w.target.handle);
     if (now == w.has_los) continue;
     w.has_los = now;
-    const bool wants = (now && w.mode != LosMode::kSingleLost) ||
-                       (!now && w.mode != LosMode::kSingleGain);
+    const bool wants =
+        (now && w.mode != LosMode::kSingleLost) || (!now && w.mode != LosMode::kSingleGain);
     if (!wants) continue;
     fired.push_back({w.registrant, w.viewer, w.target, now});
     if (w.mode != LosMode::kBoth) drop.push_back(i);
   }
-  for (auto it = drop.rbegin(); it != drop.rend(); ++it) los_watches_.erase(los_watches_.begin() + *it);
+  for (auto it = drop.rbegin(); it != drop.rend(); ++it)
+    los_watches_.erase(los_watches_.begin() + *it);
   for (const Fired& f : fired)
     RunScript([this, f] {
       vm_.TryCall(f.registrant, f.gained ? "OnGainLOS" : "OnLostLOS",
@@ -205,7 +212,7 @@ void PapyrusGuest::AdvanceLosWatches() {
 }
 
 void PapyrusGuest::RunScript(std::function<void()> body) {
-  fiber_sched_.Run(std::move(body), clock_, GameNow());
+  fiber_sched_.Run(base::move(body), clock_, GameNow());
 }
 
 void PapyrusGuest::AdvanceUpdates(f64 dt) {
@@ -216,7 +223,7 @@ void PapyrusGuest::AdvanceUpdates(f64 dt) {
   AdvanceLosWatches();
   // Snapshot the due set first: an OnUpdate handler may reschedule itself, and
   // we must not fire that new registration in the same tick.
-  std::vector<ObjectRef> due;
+  base::Vector<ObjectRef> due;
   for (ScheduledUpdate& u : updates_)
     if (u.due <= clock_) due.push_back(u.target);
   for (ObjectRef target : due) {
@@ -237,17 +244,17 @@ void PapyrusGuest::BindEngineNatives() {
   // ActiveMagicEffect (they are distinct base classes), so register under each:
   // a ReferenceAlias-derived script (the Civil War per-soldier behavior layer)
   // reaches them through Alias, not Form. They schedule against this guest's clock.
-  auto reg_single = [this](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+  auto reg_single = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
     f64 secs = args.empty() ? 0 : args[0].ToFloat();
     ScheduleUpdate(self, clock_ + secs, 0);
     return Value();
   };
-  auto reg_update = [this](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+  auto reg_update = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
     f64 secs = args.empty() ? 0 : args[0].ToFloat();
     ScheduleUpdate(self, clock_ + secs, secs > 0 ? secs : 0);
     return Value();
   };
-  auto unreg = [this](VirtualMachine&, ObjectRef self, std::vector<Value>&) {
+  auto unreg = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>&) {
     CancelUpdate(self);
     return Value();
   };
@@ -261,17 +268,19 @@ void PapyrusGuest::BindEngineNatives() {
   // is the reference, so a script can wait a number of in-game hours and receive
   // OnUpdateGameTime. Without a provider these never fire.
   auto game_now = [this] { return game_time_provider_ ? game_time_provider_() : 0.0; };
-  auto reg_gt_single = [this, game_now](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+  auto reg_gt_single = [this, game_now](VirtualMachine&, ObjectRef self,
+                                        base::Vector<Value>& args) {
     f64 hours = args.empty() ? 0 : args[0].ToFloat();
     ScheduleGameUpdate(self, game_now() + hours / 24.0, 0);
     return Value();
   };
-  auto reg_gt_update = [this, game_now](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+  auto reg_gt_update = [this, game_now](VirtualMachine&, ObjectRef self,
+                                        base::Vector<Value>& args) {
     f64 interval = (args.empty() ? 0 : args[0].ToFloat()) / 24.0;
     ScheduleGameUpdate(self, game_now() + interval, interval > 0 ? interval : 0);
     return Value();
   };
-  auto unreg_gt = [this](VirtualMachine&, ObjectRef self, std::vector<Value>&) {
+  auto unreg_gt = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>&) {
     CancelGameUpdate(self);
     return Value();
   };
@@ -289,7 +298,7 @@ void PapyrusGuest::BindEngineNatives() {
     return los_provider_ ? los_provider_(v.handle, t.handle) : false;
   };
   auto make_los = [this, los_now](LosMode mode) {
-    return [this, los_now, mode](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+    return [this, los_now, mode](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
       if (args.size() < 2) return Value();
       ObjectRef viewer = args[0].as_object();
       ObjectRef target = args[1].as_object();
@@ -297,7 +306,7 @@ void PapyrusGuest::BindEngineNatives() {
       return Value();
     };
   };
-  auto unreg_los = [this](VirtualMachine&, ObjectRef self, std::vector<Value>& args) {
+  auto unreg_los = [this](VirtualMachine&, ObjectRef self, base::Vector<Value>& args) {
     if (args.size() >= 2) RemoveLosWatch(self, args[0].as_object(), args[1].as_object());
     return Value();
   };
@@ -309,22 +318,22 @@ void PapyrusGuest::BindEngineNatives() {
   }
 
   // Debug output: the most common engine-independent Papyrus natives.
-  auto trace = [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+  auto trace = [](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
     RX_INFO("[papyrus] {}", args.empty() ? "" : args[0].ToString());
     return Value();
   };
   natives_.Register("Debug", "Trace", trace);
   // TraceUser writes to a named user log (arg 1); keep the channel in the line.
   natives_.Register("Debug", "TraceUser",
-                    [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-                      const std::string log = args.size() > 1 ? args[1].ToString() : "user";
+                    [](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
+                      const base::String log = args.size() > 1 ? args[1].ToString() : "user";
                       RX_INFO("[papyrus:{}] {}", log, args.empty() ? "" : args[0].ToString());
                       return Value();
                     });
   // A message box and a notification both surface on the HUD when the runtime
   // wires a handler, and the trace log either way for diagnostics.
-  auto surface = [this](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-    const std::string message = args.empty() ? "" : args[0].ToString();
+  auto surface = [this](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
+    const base::String message = args.empty() ? "" : args[0].ToString();
     RX_INFO("[papyrus] notification: {}", message);
     if (on_notification_) on_notification_(message);
     return Value();
@@ -336,9 +345,9 @@ void PapyrusGuest::BindEngineNatives() {
   // Each forwards a verb to the runtime, which applies the real action on the main
   // loop. Registered here because Debug is shared across every game's guest.
   auto cmd = [this](const char* verb) {
-    std::string v = verb;
+    base::String v = verb;
     natives_.Register("Debug", v.c_str(),
-                      [this, v](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+                      [this, v](VirtualMachine&, ObjectRef, base::Vector<Value>&) {
                         if (on_debug_command_) on_debug_command_(v, "");
                         return Value();
                       });
@@ -349,9 +358,9 @@ void PapyrusGuest::BindEngineNatives() {
   cmd("ToggleAI");
   cmd("ToggleMenus");
   auto flag_cmd = [this](const char* verb) {
-    std::string v = verb;
+    base::String v = verb;
     natives_.Register("Debug", v.c_str(),
-                      [this, v](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                      [this, v](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
                         const bool on = args.empty() ? false : args[0].ToBool();
                         if (on_debug_command_) on_debug_command_(v, on ? "1" : "0");
                         return Value();
@@ -366,10 +375,10 @@ void PapyrusGuest::BindEngineNatives() {
   // the main loop drains onto the on-screen HUD. Registering them here means a
   // server's UI works the same in every game's guest.
   auto reg_platform = [this](const char* type, const char* func) {
-    std::string t = type;
-    std::string f = func;
+    base::String t = type;
+    base::String f = func;
     natives_.Register(type, func,
-                      [this, t, f](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
+                      [this, t, f](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
                         if (on_platform_hud_) on_platform_hud_(t, f, args);
                         return Value();
                       });
@@ -387,7 +396,7 @@ void PapyrusGuest::BindEngineNatives() {
   // fire-and-forget calls above.
   for (int axis = 0; axis < 3; ++axis) {
     const char* name = axis == 0 ? "LocalPosX" : (axis == 1 ? "LocalPosY" : "LocalPosZ");
-    natives_.Register("Net", name, [this, axis](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+    natives_.Register("Net", name, [this, axis](VirtualMachine&, ObjectRef, base::Vector<Value>&) {
       return Value::Float(local_pos_provider_ ? local_pos_provider_()[axis] : 0.0f);
     });
   }

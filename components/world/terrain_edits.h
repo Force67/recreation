@@ -1,14 +1,15 @@
 #ifndef RECREATION_WORLD_TERRAIN_EDITS_H_
 #define RECREATION_WORLD_TERRAIN_EDITS_H_
 
+#include <base/containers/map.h>
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <compare>
 #include <functional>
-#include <map>
-#include <optional>
 #include <span>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include "core/types.h"
 
@@ -55,10 +56,10 @@ struct TerrainSampleChange {
 };
 
 struct TerrainEditChange {
-  std::vector<TerrainSampleChange> samples;
+  base::Vector<TerrainSampleChange> samples;
   // Every cell that displays one of samples, including cardinal/diagonal cells
   // sharing an edge or corner. Sorted and unique.
-  std::vector<TerrainCellKey> cells;
+  base::Vector<TerrainCellKey> cells;
 
   bool empty() const { return samples.empty(); }
 };
@@ -68,65 +69,58 @@ struct TerrainEditChange {
 // representation; it never owns or mutates original plugin/archive data.
 class TerrainEdits {
  public:
-  using BaseHeight =
-      std::function<std::optional<f32>(i32 global_x, i32 global_y)>;
-  using FingerprintLookup =
-      std::function<std::optional<u64>(TerrainCellKey cell)>;
+  using BaseHeight = std::function<base::Optional<f32>(i32 global_x, i32 global_y)>;
+  using FingerprintLookup = std::function<base::Optional<u64>(TerrainCellKey cell)>;
 
-  void BindWorld(std::string identity);
-  const std::string& world_identity() const { return world_identity_; }
+  void BindWorld(base::String identity);
+  const base::String& world_identity() const { return world_identity_; }
 
   f32 SampleDelta(i32 global_x, i32 global_y) const;
   bool AffectsCell(TerrainCellKey cell) const;
   bool ComposeCell(TerrainCellKey cell, std::span<const f32> base_heights,
                    std::span<f32> composed_heights) const;
 
-  TerrainEditChange ApplyBrush(const TerrainBrush& brush,
-                               const BaseHeight& base_height);
+  TerrainEditChange ApplyBrush(const TerrainBrush& brush, const BaseHeight& base_height);
   bool ApplyChange(const TerrainEditChange& change);
   bool RevertChange(const TerrainEditChange& change);
   // Removes every sample and returns the already-applied reversible change.
   TerrainEditChange Clear();
 
   void SetCellFingerprint(TerrainCellKey cell, u64 fingerprint);
-  std::optional<u64> CellFingerprint(TerrainCellKey cell) const;
+  base::Optional<u64> CellFingerprint(TerrainCellKey cell) const;
 
-  size_t sample_count() const { return samples_.size(); }
-  size_t fingerprint_count() const { return fingerprints_.size(); }
+  mem_size sample_count() const { return samples_.size(); }
+  mem_size fingerprint_count() const { return fingerprints_.size(); }
   bool dirty() const { return dirty_; }
-  std::vector<TerrainCellKey> dirty_cells() const;
-  std::vector<TerrainCellKey> touched_cells() const;
+  base::Vector<TerrainCellKey> dirty_cells() const;
+  base::Vector<TerrainCellKey> touched_cells() const;
   void MarkSaved();
 
  private:
   bool SetChangeState(const TerrainEditChange& change, bool use_new);
 
-  std::string world_identity_;
-  std::map<TerrainSampleKey, f32> samples_;
-  std::map<TerrainCellKey, u64> fingerprints_;
-  std::map<TerrainCellKey, bool> dirty_cells_;
+  base::String world_identity_;
+  base::Map<TerrainSampleKey, f32> samples_;
+  base::Map<TerrainCellKey, u64> fingerprints_;
+  base::Map<TerrainCellKey, bool> dirty_cells_;
   bool dirty_ = false;
 
-  friend bool SaveTerrainEdits(const TerrainEdits&, const std::string&,
-                               std::string*);
-  friend bool LoadTerrainEdits(const std::string&, std::string_view,
-                               const FingerprintLookup&, TerrainEdits*,
-                               std::string*);
+  friend bool SaveTerrainEdits(const TerrainEdits&, const base::String&, base::String*);
+  friend bool LoadTerrainEdits(const base::String&, base::StringRef, const FingerprintLookup&,
+                               TerrainEdits*, base::String*);
 };
 
 // Appends an already-applied dab to a stroke. Repeated samples retain the
 // stroke's first old delta and the dab's final delta.
-bool MergeTerrainEditChanges(TerrainEditChange* stroke,
-                             const TerrainEditChange& dab);
+bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange& dab);
 
 // Versioned little-endian Recreation terrain diff (.recterrain). Save writes a
 // sibling temporary file then renames it over the destination.
-bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
-                      std::string* error = nullptr);
-bool LoadTerrainEdits(const std::string& file_path,
-                      std::string_view expected_world_identity,
-                      const TerrainEdits::FingerprintLookup& fingerprints,
-                      TerrainEdits* edits, std::string* error = nullptr);
+bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
+                      base::String* error = nullptr);
+bool LoadTerrainEdits(const base::String& file_path, base::StringRef expected_world_identity,
+                      const TerrainEdits::FingerprintLookup& fingerprints, TerrainEdits* edits,
+                      base::String* error = nullptr);
 
 }  // namespace rx::world
 

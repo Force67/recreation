@@ -1,9 +1,11 @@
 #include "components/script/host/guest_bridge.h"
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #include "components/script/papyrus/value.h"
 #include "components/script/papyrus_guest.h"
@@ -25,7 +27,7 @@ PapyrusGuest& Guest(void* ctx) { return *Ctx(ctx).guest; }
 // all managed code needs: it copies the string into a managed string before
 // making another call. The boundary is synchronous and single-threaded per host.
 ApiValue ToApi(const Value& v) {
-  thread_local std::string scratch;
+  thread_local base::String scratch;
   ApiValue out{};
   switch (v.type()) {
     case ValueType::kInt:
@@ -71,7 +73,7 @@ Value FromApi(const ApiValue& v) {
     case ApiKind::kBool:
       return Value::Bool(v.i != 0);
     case ApiKind::kString:
-      return Value::Str(v.s ? std::string(v.s) : std::string());
+      return Value::Str(v.s ? base::String(v.s) : base::String());
     case ApiKind::kObject:
       return Value::Object(ObjectRef{v.h});
     case ApiKind::kArray:
@@ -81,32 +83,32 @@ Value FromApi(const ApiValue& v) {
   }
 }
 
-std::vector<Value> FromApiArgs(const ApiValue* args, std::int32_t argc) {
-  std::vector<Value> out;
+base::Vector<Value> FromApiArgs(const ApiValue* args, std::int32_t argc) {
+  base::Vector<Value> out;
   out.reserve(argc > 0 ? static_cast<size_t>(argc) : 0);
   for (std::int32_t i = 0; i < argc; ++i) out.push_back(FromApi(args[i]));
   return out;
 }
 
 std::int32_t IsScriptLoaded(void* ctx, const char* type) {
-  std::string name = type ? type : "";
+  base::String name = type ? type : "";
   return Guest(ctx).Dispatch([name](VirtualMachine& vm) { return vm.HasScript(name) ? 1 : 0; });
 }
 
 std::int32_t LoadScript(void* ctx, const char* type) {
-  std::string name = type ? type : "";
+  base::String name = type ? type : "";
   auto& loader = Ctx(ctx).loader;
   if (loader) return loader(name) ? 1 : 0;
   return IsScriptLoaded(ctx, type);
 }
 
 std::uint64_t CreateInstance(void* ctx, const char* type) {
-  std::string name = type ? type : "";
+  base::String name = type ? type : "";
   return Guest(ctx).Dispatch([name](VirtualMachine& vm) { return vm.CreateInstance(name); }).handle;
 }
 
 std::int32_t TypeOf(void* ctx, std::uint64_t handle, char* buf, std::int32_t buf_len) {
-  std::string type =
+  base::String type =
       Guest(ctx).Dispatch([handle](VirtualMachine& vm) { return vm.TypeOf(ObjectRef{handle}); });
   if (buf && buf_len > 0) {
     std::int32_t n = std::min<std::int32_t>(buf_len - 1, static_cast<std::int32_t>(type.size()));
@@ -118,37 +120,37 @@ std::int32_t TypeOf(void* ctx, std::uint64_t handle, char* buf, std::int32_t buf
 
 void CallGlobal(void* ctx, const char* type, const char* func, const ApiValue* args,
                 std::int32_t argc, ApiValue* result) {
-  std::string t = type ? type : "";
-  std::string f = func ? func : "";
-  std::vector<Value> a = FromApiArgs(args, argc);
-  Value r = Guest(ctx).Dispatch([t, f, a = std::move(a)](VirtualMachine& vm) mutable {
-    return vm.CallGlobal(t, f, std::move(a));
+  base::String t = type ? type : "";
+  base::String f = func ? func : "";
+  base::Vector<Value> a = FromApiArgs(args, argc);
+  Value r = Guest(ctx).Dispatch([t, f, a = base::move(a)](VirtualMachine& vm) mutable {
+    return vm.CallGlobal(t, f, base::move(a));
   });
   if (result) *result = ToApi(r);
 }
 
 void CallMethod(void* ctx, std::uint64_t self, const char* func, const ApiValue* args,
                 std::int32_t argc, ApiValue* result) {
-  std::string f = func ? func : "";
-  std::vector<Value> a = FromApiArgs(args, argc);
-  Value r = Guest(ctx).Dispatch([self, f, a = std::move(a)](VirtualMachine& vm) mutable {
-    return vm.Call(ObjectRef{self}, f, std::move(a));
+  base::String f = func ? func : "";
+  base::Vector<Value> a = FromApiArgs(args, argc);
+  Value r = Guest(ctx).Dispatch([self, f, a = base::move(a)](VirtualMachine& vm) mutable {
+    return vm.Call(ObjectRef{self}, f, base::move(a));
   });
   if (result) *result = ToApi(r);
 }
 
 void GetProperty(void* ctx, std::uint64_t self, const char* name, ApiValue* result) {
-  std::string p = name ? name : "";
+  base::String p = name ? name : "";
   Value r = Guest(ctx).Dispatch(
       [self, p](VirtualMachine& vm) { return vm.GetProperty(ObjectRef{self}, p); });
   if (result) *result = ToApi(r);
 }
 
 void SetProperty(void* ctx, std::uint64_t self, const char* name, ApiValue value) {
-  std::string p = name ? name : "";
+  base::String p = name ? name : "";
   Value v = FromApi(value);
-  Guest(ctx).Dispatch([self, p, v = std::move(v)](VirtualMachine& vm) mutable {
-    vm.SetProperty(ObjectRef{self}, p, std::move(v));
+  Guest(ctx).Dispatch([self, p, v = base::move(v)](VirtualMachine& vm) mutable {
+    vm.SetProperty(ObjectRef{self}, p, base::move(v));
     return 0;
   });
 }

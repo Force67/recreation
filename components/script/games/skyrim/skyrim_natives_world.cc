@@ -1,3 +1,5 @@
+#include <base/strings/to_string.h>
+
 #include "components/script/games/skyrim/skyrim_native_state.h"
 #include "components/script/games/skyrim/skyrim_natives_ext.h"
 
@@ -27,7 +29,7 @@ void RegisterWorldExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Quest", "FailAllObjectives",
                [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
   reg.Register("Quest", "IsObjectiveFailed", [](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(st::GetFlag(self, "objFailed_" + std::to_string(ArgI(a, 0))));
+    return Value::Bool(st::GetFlag(self, "objFailed_" + base::ToString(ArgI(a, 0))));
   });
   // IsStageDone is the Quest-side mirror of GetStageDone (RegisterQuest), so route
   // it to the same binding.
@@ -127,8 +129,7 @@ void RegisterWorldExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Object(ObjectRef{}); });
   reg.Register("ActorBase", "GetDeadCount",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
-  reg.Register("ActorBase", "SetOutfit",
-               [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
+  reg.Register("ActorBase", "SetOutfit", [](VirtualMachine&, ObjectRef, Args&) { return Value(); });
 }
 
 }  // namespace rx::script::skyrim

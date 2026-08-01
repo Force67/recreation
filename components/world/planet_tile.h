@@ -1,8 +1,9 @@
 #ifndef RECREATION_WORLD_PLANET_TILE_H_
 #define RECREATION_WORLD_PLANET_TILE_H_
 
+#include <base/memory/move.h>
+
 #include <functional>
-#include <string>
 
 #include "asset/asset_database.h"
 #include "components/bethesda/planet.h"
@@ -33,7 +34,7 @@ class PlanetTile {
   };
 
   struct Config {
-    i32 radius = 2;         // cells each side of the origin (radius=2 -> 5x5 tile)
+    i32 radius = 2;           // cells each side of the origin (radius=2 -> 5x5 tile)
     f32 cell_size = 4096.0f;  // Bethesda units per cell edge
     f32 units_to_meters = 0.01428f;
     f32 height_scale = 320.0f;  // peak-to-valley relief in Bethesda units (~4.6 m)
@@ -44,7 +45,7 @@ class PlanetTile {
              const Config& config)
       : assets_(assets), surface_(surface), config_(config) {}
 
-  void SetUploads(Uploads uploads) { uploads_ = std::move(uploads); }
+  void SetUploads(Uploads uploads) { uploads_ = base::move(uploads); }
   void set_physics(physics::PhysicsWorld* physics) { physics_ = physics; }
 
   // Realizes the whole tile into `world`: terrain meshes + colliders + scatter.

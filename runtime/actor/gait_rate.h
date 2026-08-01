@@ -1,7 +1,7 @@
 #ifndef RECREATION_RUNTIME_ACTOR_GAIT_RATE_H_
 #define RECREATION_RUNTIME_ACTOR_GAIT_RATE_H_
 
-#include <algorithm>
+#include <base/algorithm.h>
 
 #include "core/types.h"
 
@@ -23,10 +23,10 @@ namespace rx {
 // tracks the ground instead of sliding. Returned in "authored walk cadence" units
 // (the leader play-rate the SyncGroup / phase clock expects).
 inline f32 GaitPlaybackRate(f32 speed, f32 walk_speed, f32 run_speed) {
-  const f32 w = std::max(walk_speed, 0.05f);
-  const f32 r = std::max(run_speed, w + 0.1f);
-  const f32 ref = std::clamp(speed, w, r);  // nearest authored speed within [walk, run]
-  const f32 correction = std::clamp(speed / ref, 0.7f, 1.4f);  // ~1 inside the blend range
+  const f32 w = base::Max(walk_speed, 0.05f);
+  const f32 r = base::Max(run_speed, w + 0.1f);
+  const f32 ref = base::Clamp(speed, w, r);  // nearest authored speed within [walk, run]
+  const f32 correction = base::Clamp(speed / ref, 0.7f, 1.4f);  // ~1 inside the blend range
   return (ref / w) * correction;
 }
 

@@ -1,6 +1,9 @@
 // dialoguetest: checks INFO response parsing and the INFO VMAD fragment parser
 // (the fragment is what advances a quest when a line plays). No game data.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include <cstdio>
 #include <cstring>
 #include <base/containers/vector.h>
@@ -12,6 +15,9 @@
 #include "components/dialogue/dialogue.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 
 namespace {
 
@@ -46,10 +52,10 @@ void AppendWStr(base::Vector<u8>& v, const char* s) {
 // An INFO VMAD with no scripts and a single begin fragment.
 base::Vector<u8> MakeInfoVmad(const char* script, const char* function) {
   base::Vector<u8> v;
-  AppendU16(v, 5);  // version
-  AppendU16(v, 2);  // object format
-  AppendU16(v, 0);  // script count
-  v.push_back(2);   // fragment version
+  AppendU16(v, 5);    // version
+  AppendU16(v, 2);    // object format
+  AppendU16(v, 0);    // script count
+  v.push_back(2);     // fragment version
   v.push_back(0x01);  // flags: begin fragment present
   AppendWStr(v, "");  // shared file name
   v.push_back(0);     // begin: unknown byte

@@ -1,5 +1,9 @@
 #include "components/bethesda/hkx.h"
 
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+
 #include <cstring>
 
 namespace rx::bethesda {
@@ -28,9 +32,9 @@ u32 ReadU32(const u8* p) {
 
 }  // namespace
 
-std::optional<HkxFile> HkxFile::Parse(const u8* bytes, size_t size) {
-  if (size < 64) return std::nullopt;
-  if (ReadU32(bytes) != kMagic0 || ReadU32(bytes + 4) != kMagic1) return std::nullopt;
+base::Optional<HkxFile> HkxFile::Parse(const u8* bytes, size_t size) {
+  if (size < 64) return base::nullopt;
+  if (ReadU32(bytes) != kMagic0 || ReadU32(bytes + 4) != kMagic1) return base::nullopt;
 
   HkxFile file;
   const u32 file_version = ReadU32(bytes + 12);
@@ -41,35 +45,33 @@ std::optional<HkxFile> HkxFile::Parse(const u8* bytes, size_t size) {
   // the {classnames, types, data} triple, so we identify by tag instead.
   file.content_version_.assign(reinterpret_cast<const char*>(bytes + 40),
                                strnlen(reinterpret_cast<const char*>(bytes + 40), 16));
-  if (!little_endian) return std::nullopt;  // big-endian consoles: not ours
+  if (!little_endian) return base::nullopt;  // big-endian consoles: not ours
   // v8/v9 are the hk2010-2013 era (Skyrim LE/SE and most mod toolchains);
   // v11 is hk2014 (Fallout 4/76). v11 pads every section header to 64 bytes.
-  if (file_version != 8 && file_version != 9 && file_version != 11) return std::nullopt;
+  if (file_version != 8 && file_version != 9 && file_version != 11) return base::nullopt;
   const size_t section_stride = file_version >= 11 ? 64 : sizeof(SectionHeader);
-  if (file.pointer_size_ != 4 && file.pointer_size_ != 8) return std::nullopt;
-  if (num_sections == 0 || num_sections > 8) return std::nullopt;
-  if (64 + static_cast<size_t>(num_sections) * section_stride > size) return std::nullopt;
+  if (file.pointer_size_ != 4 && file.pointer_size_ != 8) return base::nullopt;
+  if (num_sections == 0 || num_sections > 8) return base::nullopt;
+  if (64 + static_cast<size_t>(num_sections) * section_stride > size) return base::nullopt;
 
   const SectionHeader* classnames = nullptr;
   const SectionHeader* data = nullptr;
-  std::vector<const SectionHeader*> sections(num_sections);
+  base::Vector<const SectionHeader*> sections(num_sections);
   for (u32 i = 0; i < num_sections; ++i) {
-    const auto* section =
-        reinterpret_cast<const SectionHeader*>(bytes + 64 + i * section_stride);
+    const auto* section = reinterpret_cast<const SectionHeader*>(bytes + 64 + i * section_stride);
     sections[i] = section;
-    std::string_view tag(section->tag, strnlen(section->tag, 19));
+    base::StringRef tag(section->tag, strnlen(section->tag, 19));
     if (tag == "__classnames__") classnames = section;
     if (tag == "__data__") data = section;
   }
-  if (!classnames || !data) return std::nullopt;
+  if (!classnames || !data) return base::nullopt;
 
   auto section_valid = [&](const SectionHeader* s) {
     return static_cast<size_t>(s->absolute_data_start) + s->end_offset <= size &&
-           s->local_fixups_offset <= s->end_offset &&
-           s->global_fixups_offset <= s->end_offset &&
+           s->local_fixups_offset <= s->end_offset && s->global_fixups_offset <= s->end_offset &&
            s->virtual_fixups_offset <= s->end_offset;
   };
-  if (!section_valid(classnames) || !section_valid(data)) return std::nullopt;
+  if (!section_valid(classnames) || !section_valid(data)) return base::nullopt;
 
   file.classnames_.assign(reinterpret_cast<const char*>(bytes + classnames->absolute_data_start),
                           classnames->local_fixups_offset);  // names end where fixups begin
@@ -110,19 +112,17 @@ std::optional<HkxFile> HkxFile::Parse(const u8* bytes, size_t size) {
     if (name_off >= file.classnames_.size()) continue;
     const char* name = file.classnames_.c_str() + name_off;
     file.object_at_[obj] = static_cast<u32>(file.objects_.size());
-    file.objects_.push_back({obj, std::string_view(name)});
+    file.objects_.push_back({obj, base::StringRef(name)});
   }
   return file;
 }
 
-std::string_view HkxFile::class_of(u64 offset) const {
-  auto it = object_at_.find(offset);
-  return it == object_at_.end() ? std::string_view{} : objects_[it->second].class_name;
+base::StringRef HkxFile::class_of(u64 offset) const {
+  auto* it = object_at_.find(offset);
+  return it == nullptr ? base::StringRef{} : objects_[*it].class_name;
 }
 
-u8 HkxFile::U8(u64 offset) const {
-  return offset + 1 <= data_.size() ? data_[offset] : 0;
-}
+u8 HkxFile::U8(u64 offset) const { return offset + 1 <= data_.size() ? data_[offset] : 0; }
 u16 HkxFile::U16(u64 offset) const {
   if (offset + 2 > data_.size()) return 0;
   u16 v;
@@ -155,16 +155,16 @@ f32 HkxFile::F32(u64 offset) const {
 }
 
 u64 HkxFile::Pointer(u64 offset) const {
-  auto it = pointers_.find(offset);
-  return it == pointers_.end() ? kNull : it->second;
+  auto* it = pointers_.find(offset);
+  return it == nullptr ? kNull : *it;
 }
 
-std::string_view HkxFile::CString(u64 offset) const {
+base::StringRef HkxFile::CString(u64 offset) const {
   u64 target = Pointer(offset);
   if (target == kNull || target >= data_.size()) return {};
   const char* start = reinterpret_cast<const char*>(data_.data() + target);
   size_t max = data_.size() - target;
-  return std::string_view(start, strnlen(start, max));
+  return base::StringRef(start, strnlen(start, max));
 }
 
 u64 HkxFile::Array(u64 offset, u32* count) const {

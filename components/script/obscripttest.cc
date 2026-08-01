@@ -8,59 +8,65 @@
 // control flow, arithmetic, set statements, quest stages, globals and calls all
 // take effect.
 
+#include <base/containers/unordered_map.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <filesystem>
-#include <string>
-#include <unordered_map>
 
 #include "components/script/obscript/obscript.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::obscript;
 
 namespace {
 
 int failures = 0;
-#define CHECK(cond)                                             \
-  do {                                                          \
-    if (!(cond)) {                                              \
+#define CHECK(cond)                                              \
+  do {                                                           \
+    if (!(cond)) {                                               \
       std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); \
-      ++failures;                                               \
-    }                                                           \
+      ++failures;                                                \
+    }                                                            \
   } while (0)
 
 // Records everything the interpreter does so the test can assert on it.
 class MockHost : public Host {
  public:
-  std::unordered_map<std::string, f32> globals;
-  std::unordered_map<std::string, i32> stages;
-  std::unordered_map<std::string, f32> remote;  // "owner.var" -> value
-  base::Vector<std::string> calls;
+  base::UnorderedMap<base::String, f32> globals;
+  base::UnorderedMap<base::String, i32> stages;
+  base::UnorderedMap<base::String, f32> remote;  // "owner.var" -> value
+  base::Vector<base::String> calls;
 
-  f32 GetGlobal(std::string_view id) override {
-    auto it = globals.find(std::string(id));
-    return it != globals.end() ? it->second : 0;
+  f32 GetGlobal(base::StringRef id) override {
+    auto* it = globals.find(base::String(id));
+    return it != nullptr ? *it : 0;
   }
-  void SetGlobal(std::string_view id, f32 v) override { globals[std::string(id)] = v; }
-  i32 GetStage(std::string_view q) override {
-    auto it = stages.find(std::string(q));
-    return it != stages.end() ? it->second : 0;
+  void SetGlobal(base::StringRef id, f32 v) override { globals[base::String(id)] = v; }
+  i32 GetStage(base::StringRef q) override {
+    auto* it = stages.find(base::String(q));
+    return it != nullptr ? *it : 0;
   }
-  void SetStage(std::string_view q, i32 s) override { stages[std::string(q)] = s; }
-  f32 GetRemoteVar(std::string_view o, std::string_view v) override {
-    auto it = remote.find(std::string(o) + "." + std::string(v));
-    return it != remote.end() ? it->second : 0;
+  void SetStage(base::StringRef q, i32 s) override { stages[base::String(q)] = s; }
+  f32 GetRemoteVar(base::StringRef o, base::StringRef v) override {
+    auto* it = remote.find(base::String(o) + "." + base::String(v));
+    return it != nullptr ? *it : 0;
   }
-  void SetRemoteVar(std::string_view o, std::string_view v, f32 val) override {
-    remote[std::string(o) + "." + std::string(v)] = val;
+  void SetRemoteVar(base::StringRef o, base::StringRef v, f32 val) override {
+    remote[base::String(o) + "." + base::String(v)] = val;
   }
-  f32 Call(std::string_view target, std::string_view fn, const base::Vector<f32>& args,
-           const base::Vector<std::string>& text) override {
-    std::string s(target);
+  f32 Call(base::StringRef target, base::StringRef fn, const base::Vector<f32>& args,
+           const base::Vector<base::String>& text) override {
+    base::String s(target);
     if (!s.empty()) s += ".";
-    s += std::string(fn);
-    for (const std::string& t : text) s += " " + t;
-    for (f32 a : args) s += " " + std::to_string(static_cast<int>(a));
+    s += base::String(fn);
+    for (const base::String& t : text) s += " " + t;
+    for (f32 a : args) s += " " + base::ToString(static_cast<int>(a));
     calls.push_back(s);
     return 0;
   }

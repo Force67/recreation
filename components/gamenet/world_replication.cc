@@ -94,21 +94,21 @@ std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& comm
   return writer.TakeBuffer();
 }
 
-std::optional<std::vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data) {
-  if (data.size() > kMaxWorldCommandPayload) return std::nullopt;
+base::Optional<base::Vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data) {
+  if (data.size() > kMaxWorldCommandPayload) return base::nullopt;
   std::optional<nanobuf::View> view = nanobuf::View::Parse(data.data(), data.size());
-  if (!view) return std::nullopt;
+  if (!view) return base::nullopt;
   std::optional<nanobuf::BytesList> records = view->BytesListAt(/*slot=*/2);
-  if (!records) return std::nullopt;
-  if (records->size() > kMaxWorldCommandsPerMessage) return std::nullopt;
+  if (!records) return base::nullopt;
+  if (records->size() > kMaxWorldCommandsPerMessage) return base::nullopt;
 
-  std::vector<world::WorldCommand> out;
+  base::Vector<world::WorldCommand> out;
   out.reserve(records->size());
   for (size_t i = 0; i < records->size(); ++i) {
     std::optional<nanobuf::BytesView> bytes = records->Get(i);
-    if (!bytes) return std::nullopt;
+    if (!bytes) return base::nullopt;
     world::WorldCommand cmd;
-    if (!DecodeRecord(bytes->data, bytes->size, &cmd)) return std::nullopt;
+    if (!DecodeRecord(bytes->data, bytes->size, &cmd)) return base::nullopt;
     out.push_back(cmd);
   }
   return out;

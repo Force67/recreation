@@ -3,6 +3,10 @@
 // quest created or changed via CleanupQuest. Headless (no renderer), so it runs
 // in the ctest gate.
 
+#include <base/containers/array.h>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+
 #include <cstdint>
 #include <cstdio>
 
@@ -12,11 +16,14 @@
 #include "components/world/quest_world.h"
 
 // Handles are addressed with std::uint64_t here rather than rx::u64: linking the
-// world (-> physics -> arch_types) makes the bare name `u64` ambiguous in this
+// world (-> physics -> arch_types) makes the bare name `rx::u64` ambiguous in this
 // global scope. The WorldCommand fields are rx::u64 and convert implicitly.
 using Handle = std::uint64_t;
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using rx::world::Hidden;
 using rx::world::QuestWorld;
 using rx::world::Transform;
@@ -139,7 +146,7 @@ int main() {
   qw.Apply(q);
   Check("door mutations reach ECS",
         world.Get<world::DoorState>(pre)->locked && world.Get<world::DoorState>(pre)->open);
-  const std::vector<WorldCommand> door_snapshot = qw.SnapshotDoorStates();
+  const base::Vector<WorldCommand> door_snapshot = qw.SnapshotDoorStates();
   Check("door mutations are available for join snapshots", door_snapshot.size() == 4);
 
   ecs::World join_world;
@@ -202,8 +209,7 @@ int main() {
 
   qw.Apply({SetDoor(WorldOp::kSetOpen, DOOR_Q1, REFR, true),
             SetDoor(WorldOp::kSetOpen, DOOR_Q2, REFR, false), Cleanup(DOOR_Q2)});
-  Check("newer open cleanup reveals the older quest value",
-        world.Get<world::DoorState>(pre)->open);
+  Check("newer open cleanup reveals the older quest value", world.Get<world::DoorState>(pre)->open);
   qw.Apply({Cleanup(DOOR_Q1)});
   Check("newer-first open cleanup returns to authored state",
         !world.Get<world::DoorState>(pre)->open);
@@ -293,7 +299,7 @@ int main() {
   Check("deferred Enable unhides an initially-disabled logical ref",
         !world.Has<Hidden>(disabled_ref));
   world.Add(disabled_ref, Hidden{});
-  std::vector<std::pair<rx::u64, std::array<f32, 3>>> hidden_positions;
+  base::Vector<base::Pair<rx::u64, base::Array<f32, 3>>> hidden_positions;
   qw.SnapshotPositions(hidden_positions);
   bool hidden_snapshotted = false;
   for (const auto& [handle, _] : hidden_positions)
@@ -358,7 +364,7 @@ int main() {
   erase.handle = DELETED;
   q.Push(erase);
   qw.Apply(q);
-  std::vector<std::pair<rx::u64, std::array<f32, 3>>> positions;
+  base::Vector<base::Pair<rx::u64, base::Array<f32, 3>>> positions;
   qw.SnapshotPositions(positions);
   bool deleted_visible = false;
   for (const auto& [handle, _] : positions) deleted_visible |= handle == DELETED;

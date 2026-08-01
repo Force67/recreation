@@ -1,11 +1,10 @@
 #ifndef RECREATION_BETHESDA_TRI_H_
 #define RECREATION_BETHESDA_TRI_H_
 
-#include <optional>
-#include <string>
-#include <string_view>
-
 #include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -48,8 +47,8 @@ struct TriDelta {
 };
 
 struct TriMorph {
-  std::string name;
-  f32 scale = 0;  // per-morph multiplier: applied delta = scale * TriDelta
+  base::String name;
+  f32 scale = 0;                  // per-morph multiplier: applied delta = scale * TriDelta
   base::Vector<TriDelta> deltas;  // one per base vertex
 };
 
@@ -62,12 +61,12 @@ struct TriMorphSet {
   base::Vector<TriMorph> modifiers;
 
   // Case sensitive exact match; null when absent.
-  const TriMorph* FindMorph(std::string_view name) const;
+  const TriMorph* FindMorph(base::StringRef name) const;
 };
 
 // Parses a Skyrim FRTRI003 blob. Bounds checks every field and returns an
 // empty optional on a bad magic, an overrun, or an implausible count.
-std::optional<TriMorphSet> ParseTri(ByteSpan data);
+base::Optional<TriMorphSet> ParseTri(ByteSpan data);
 
 // Adds a weighted morph into an xyz-interleaved position array in place.
 // `positions` holds vertex_count*3 floats in the tri's vertex order. Applies

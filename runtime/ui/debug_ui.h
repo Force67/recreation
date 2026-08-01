@@ -4,12 +4,13 @@
 // The overlay records raw Vulkan (imgui_impl_vulkan); the rhi headers pulled in
 // via renderer.h are backend-agnostic, so the VkFormat member below needs volk
 // directly (cf. gui_backend.h).
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
 #include <volk.h>
 
 #include <functional>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "core/types.h"
 #include "core/window.h"
@@ -33,7 +34,7 @@ class FlyCamera;
 // form id (its papyrus instance handle).
 struct QuestPanel {
   struct Quest {
-    std::string name;
+    base::String name;
     u64 handle = 0;
     bool running = false;
     bool active = true;
@@ -43,26 +44,26 @@ struct QuestPanel {
   // One journal stage of the selected quest, with the engine's done flag.
   struct Stage {
     i32 index = 0;
-    std::string log;
+    base::String log;
     bool done = false;
   };
   // One objective of the selected quest, with its live display state.
   struct Objective {
     i32 index = 0;
-    std::string text;
+    base::String text;
     bool displayed = false;
     bool completed = false;
   };
   // Full breakdown of the selected quest, filled by the engine for `selected`.
   struct Detail {
     u64 handle = 0;  // matches `selected` once the engine has filled it
-    std::string editor_id;
+    base::String editor_id;
     i32 completion_stage = -1;  // stage that completes the quest, -1 if none
-    std::vector<Stage> stages;
-    std::vector<Objective> objectives;
+    base::Vector<Stage> stages;
+    base::Vector<Objective> objectives;
   };
   bool available = false;
-  std::vector<Quest> quests;
+  base::Vector<Quest> quests;
   u64 selected = 0;  // UI -> engine: which quest to expand in `detail`
   Detail detail;     // engine -> UI: breakdown of `selected`
   std::function<void(u64 handle, bool run)> set_running;
@@ -74,7 +75,7 @@ struct QuestPanel {
   // none), its HUD label, and whether it is already a follower. The button wires
   // to the engine's follower registry. follower_count is shown live.
   u64 look_target = 0;
-  std::string look_label;
+  base::String look_label;
   bool look_following = false;
   int follower_count = 0;
   std::function<void(u64 npc, bool follow)> set_follower;
@@ -92,9 +93,9 @@ struct QuestPanel {
 // wires Clear back to the guest thread.
 struct NativeTracePanel {
   bool available = false;
-  u64 total = 0;                          // native calls since tracing began
-  std::vector<std::string> recent;        // "Type.Function", newest first
-  std::vector<std::pair<std::string, u32>> top;  // name -> count, busiest first
+  u64 total = 0;                                    // native calls since tracing began
+  base::Vector<base::String> recent;                // "Type.Function", newest first
+  base::Vector<base::Pair<base::String, u32>> top;  // name -> count, busiest first
   std::function<void()> clear;
 };
 
@@ -132,7 +133,7 @@ class DebugUi {
                    std::function<void()> strike_now = {}) {
     weather_enable_ = enable;
     weather_state_ = state;
-    weather_strike_ = std::move(strike_now);
+    weather_strike_ = base::move(strike_now);
   }
   // The trailer's per-frame chrome (letterbox, fades, title cards, render-mode
   // badge), drawn onto the foreground draw list. Null disables it.
@@ -180,7 +181,7 @@ class DebugUi {
 
   bool initialized_ = false;
   bool visible_ = true;
-  Window* window_ = nullptr;  // for the live system-HDR state in the Display tab
+  Window* window_ = nullptr;    // for the live system-HDR state in the Display tab
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
   // Per-pass GPU timestamps follow overlay visibility; the boot value
@@ -188,21 +189,21 @@ class DebugUi {
   bool gpu_timings_latched_ = false;
   bool gpu_timings_forced_ = false;
   bool show_demo_ = false;
-  WorldClock* clock_ = nullptr;  // day/night cycle, for the Lighting time controls
+  WorldClock* clock_ = nullptr;     // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel
   weather::WeatherState* weather_state_ = nullptr;
-  std::function<void()> weather_strike_;  // director test hook: force a strike
+  std::function<void()> weather_strike_;     // director test hook: force a strike
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
-  int preset_choice_ = 0;  // 0 = custom/hand-tuned, else a QualityPreset combo row
+  int preset_choice_ = 0;         // 0 = custom/hand-tuned, else a QualityPreset combo row
   // Editable .ini render presets (engine/render/presets): the discovered file
   // list (lazy-scanned, rescannable), the combo selection, the save-as name
   // buffer and the last load/save status line.
-  std::vector<std::string> preset_files_;
+  base::Vector<base::String> preset_files_;
   bool preset_files_scanned_ = false;
   int preset_file_choice_ = 0;
   char preset_save_name_[64] = "custom";
-  std::string preset_status_;
+  base::String preset_status_;
   // The set-stage InputInt tracks the selected quest: switching selection resets
   // it instead of carrying a stale stage from the previously expanded quest.
   u64 quest_stage_input_handle_ = 0;

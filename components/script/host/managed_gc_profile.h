@@ -1,11 +1,11 @@
 #ifndef RECREATION_SCRIPT_HOST_MANAGED_GC_PROFILE_H_
 #define RECREATION_SCRIPT_HOST_MANAGED_GC_PROFILE_H_
 
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <vector>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
+#include <cstdint>
 namespace rx::script::host {
 
 // The .NET runtime's garbage collector and heap behaviour are configurable per
@@ -21,18 +21,18 @@ namespace rx::script::host {
 // ClrHost::Initialize). Kept as a small pure function so it is easy to test and
 // to see exactly which knobs each profile sets.
 
-using GcProperty = std::pair<std::string, std::string>;
+using GcProperty = base::Pair<base::String, base::String>;
 
 // Picks the profile name for this build and role: "server" for a dedicated host
 // (realm 0), "constrained" on a memory-limited platform, "desktop" otherwise.
 // RECREATION_MANAGED_GC overrides the choice (for ops and testing).
-std::string ResolveGcProfileName(std::int32_t realm);
+base::String ResolveGcProfileName(std::int32_t realm);
 
 // Builds the runtime properties for a named profile ("server" | "constrained" |
 // "desktop"; anything else falls back to "desktop"). Per-knob environment
 // overrides are applied last: RECREATION_MANAGED_GC_HEAP_PERCENT,
 // RECREATION_MANAGED_GC_CONSERVE (0-9), RECREATION_MANAGED_GC_SERVER (0/1).
-std::vector<GcProperty> ManagedGcProfile(const std::string& name);
+base::Vector<GcProperty> ManagedGcProfile(const base::String& name);
 
 }  // namespace rx::script::host
 

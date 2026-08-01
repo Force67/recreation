@@ -1,12 +1,12 @@
 #ifndef RECREATION_BETHESDA_PLUGIN_H_
 #define RECREATION_BETHESDA_PLUGIN_H_
 
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
+#include <functional>
 
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/record.h"
@@ -38,7 +38,7 @@ bool ParseRecordPayload(const RecordHeader& header, ByteSpan payload, Record* ou
 // mark a light plugin.
 class PluginFile {
  public:
-  static std::optional<PluginFile> Open(const std::string& path, const GameProfile& profile);
+  static base::Optional<PluginFile> Open(const base::String& path, const GameProfile& profile);
 
   // Out of line: the unique Tes3Translation member is incomplete here.
   PluginFile(PluginFile&&) noexcept;
@@ -58,8 +58,8 @@ class PluginFile {
   // the record store builds its lazy index from.
   bool VisitRecordsRaw(const RawRecordVisitor& visitor) const;
 
-  const std::string& file_name() const { return file_name_; }
-  const base::Vector<std::string>& masters() const { return masters_; }
+  const base::String& file_name() const { return file_name_; }
+  const base::Vector<base::String>& masters() const { return masters_; }
   bool is_master() const { return (header_flags_ & kPluginFlagMaster) != 0; }
   bool is_light() const { return is_light_; }
   bool is_localized() const { return (header_flags_ & kPluginFlagLocalized) != 0; }
@@ -71,11 +71,11 @@ class PluginFile {
 
   bool ParseHeader(const GameProfile& profile);
 
-  std::string file_name_;
+  base::String file_name_;
   base::Vector<u8> data_;
-  // Elements stay std::string: master names flow into LoadOrder::IndexOf and
-  // std::ranges::find against GameProfile::base_masters.
-  base::Vector<std::string> masters_;
+  // Elements stay base::String: master names flow into LoadOrder::IndexOf and
+  // base::Vector::find against GameProfile::base_masters.
+  base::Vector<base::String> masters_;
   u32 header_flags_ = 0;
   f32 version_ = 0;
   u32 record_count_ = 0;
@@ -87,7 +87,7 @@ class PluginFile {
   // Morrowind: the flat TES3 file translated into modern records at load;
   // when set, the raw walk iterates the synthesized records instead of the
   // file bytes (which are dropped after translation).
-  std::unique_ptr<Tes3Translation> tes3_;
+  base::UniquePointer<Tes3Translation> tes3_;
 };
 
 }  // namespace rx::bethesda

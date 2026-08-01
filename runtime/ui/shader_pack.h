@@ -1,10 +1,10 @@
 #ifndef RECREATION_RUNTIME_UI_SHADER_PACK_H_
 #define RECREATION_RUNTIME_UI_SHADER_PACK_H_
 
-#include <cstddef>
-#include <string_view>
-
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+
+#include <cstddef>
 
 #include "asset/vfs.h"
 #include "core/types.h"
@@ -29,8 +29,7 @@ void SetVfs(asset::Vfs* vfs);
 // .hlsl extension and stage suffix intact, e.g. "ugui_quad.vs"; the loader
 // resolves shaders://<stem>.spv. On any miss it returns a copy of the embedded
 // fallback bytes, so the result is always the correct blob for the shader.
-base::Vector<u8> Load(std::string_view stem, const void* fallback,
-                      size_t fallback_size);
+base::Vector<u8> Load(base::StringRef stem, const void* fallback, size_t fallback_size);
 
 }  // namespace rx::shaderpack
 

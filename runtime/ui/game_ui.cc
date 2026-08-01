@@ -1,10 +1,18 @@
 #include "runtime/ui/game_ui.h"
 
+#include <base/algorithm.h>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include "runtime/camera/fly_camera.h"
 
 #if defined(RECREATION_HAS_UGUI)
 
-#include <base/option.h>
 #include <ugui/core/color.h>
 #include <ugui/style/style.h>
 #include <ugui/ultragui.h>
@@ -20,8 +28,6 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <string>
-#include <vector>
 
 #include "core/log.h"
 #include "core/window.h"
@@ -91,8 +97,8 @@ constexpr int kFirstRunGames = 3;  // game rows on the locate page
 // symbol set, so toolbar / tree / inspector icons are drawn as little stacks of
 // filled and outlined rectangles inside an 18x18 relative box, the same trick
 // the crosshair uses. `col` is the mark colour.
-std::string Glyph(const std::string& k, const char* col) {
-  std::string c;
+base::String Glyph(const base::String& k, const char* col) {
+  base::String c;
   char b[256];
   auto R = [&](float x, float y, float w, float h, const char* cc, float r = 0) {
     std::snprintf(b, sizeof(b),
@@ -214,12 +220,12 @@ std::string Glyph(const std::string& k, const char* col) {
 // filled and toggled each frame) and starts hidden; the engine collapses
 // editor_root until the editor is on. Names are matched by the click router
 // (btn_tool*, btn_giz*, btn_ltab*, ed_trow*, btn_btab*, cl_row*, card*, ...).
-std::string BuildEditorSection() {
+base::String BuildEditorSection() {
   const char* AC = "#6c7bf5";   // accent indigo
   const char* TXP = "#e6e9f2";  // primary text / icons
   const char* TXS = "#9aa3b5";  // secondary text
   const char* TXM = "#6b7488";  // muted text
-  std::string s;
+  base::String s;
   char buf[2048];
 
   // --- reticle, marquee box and selection bracket (static, world overlays) ---
@@ -265,7 +271,7 @@ std::string BuildEditorSection() {
   s += buf;
   const char* giz[4] = {"hand", "move", "rotate", "scale"};
   for (int i = 0; i < 4; ++i) {
-    s += "      panel btn_giz" + std::to_string(i) +
+    s += "      panel btn_giz" + base::ToString(i) +
          " { padding: 6; corner-radius: 7; background: #ffffff00; cursor: pointer;"
          " :hover { background: #ffffff14; }\n        " +
          Glyph(giz[i], TXP) + "      }\n";
@@ -321,11 +327,11 @@ std::string BuildEditorSection() {
   for (int i = 0; i < kEdToolBtns; ++i) {
     if (i == 5)
       s += "        panel { width: 1; height: 28; background: #ffffff1c; margin: 0 6; }\n";
-    s += "        panel btn_tool" + std::to_string(i) +
+    s += "        panel btn_tool" + base::ToString(i) +
          " { layout: column; align: center; justify: center; gap: 3; padding: 5 8;"
          " corner-radius: 9; cursor: pointer; background: #ffffff00; :hover { background: "
          "#ffffff12; }\n          " +
-         Glyph(tkind[i], TXP) + "          text btn_tool" + std::to_string(i) + "_lbl { text: \"" +
+         Glyph(tkind[i], TXP) + "          text btn_tool" + base::ToString(i) + "_lbl { text: \"" +
          tlabel[i] + "\"; font-size: 10; color: " + TXS + "; }\n        }\n";
   }
   s += "      }\n";  // close ed_tb_tools
@@ -381,7 +387,7 @@ std::string BuildEditorSection() {
   s += "      panel ed_tree { layout: column; align: start; gap: 1; padding: 2 6; width: 100%;"
        " flex-grow: 1; overflow: hidden;\n";
   for (int i = 0; i < kEdTreeRows; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     s += "        panel ed_trow" + id +
          " { layout: row; align: center; gap: 5; padding: 4 6; width: 100%; corner-radius: 6;"
          " cursor: pointer; background: #ffffff00; :hover { background: #ffffff10; }\n"
@@ -434,20 +440,20 @@ std::string BuildEditorSection() {
          "\"; font-size: 12; color: " + TXP + "; letter-spacing: 1; flex-grow: 1; }\n          " +
          Glyph("kebab", TXM) + "        }\n";
   };
-  auto chip = [&](const char* letter, const char* lcol, const std::string& valname) {
+  auto chip = [&](const char* letter, const char* lcol, const base::String& valname) {
     s += "          panel { layout: row; align: center; gap: 4; flex-grow: 1; background: #0e1016;"
          " corner-radius: 6; padding: 5 6; border-color: #ffffff12; border-width: 1;\n"
          "            text { text: \"" +
-         std::string(letter) + "\"; font-size: 11; color: " + lcol +
+         base::String(letter) + "\"; font-size: 11; color: " + lcol +
          "; }\n"
          "            text " +
          valname + " { text: \"0\"; font-size: 11; color: #d6dbe7; flex-grow: 1; }\n          }\n";
   };
-  auto xyzrow = [&](const char* label, const std::string& px, const std::string& py,
-                    const std::string& pz, bool lock) {
+  auto xyzrow = [&](const char* label, const base::String& px, const base::String& py,
+                    const base::String& pz, bool lock) {
     s += "        panel { layout: row; align: center; gap: 8; width: 100%;\n"
          "          text { text: \"" +
-         std::string(label) + "\"; font-size: 12; color: " + TXS +
+         base::String(label) + "\"; font-size: 12; color: " + TXS +
          "; width: 56; }\n"
          "          panel { layout: row; align: center; gap: 5; flex-grow: 1;\n";
     chip("X", "#e5564b", px);
@@ -459,10 +465,10 @@ std::string BuildEditorSection() {
            Glyph("lock", TXM) + "          }\n";
     s += "          }\n        }\n";
   };
-  auto toggle = [&](const char* label, const std::string& name) {
+  auto toggle = [&](const char* label, const base::String& name) {
     s += "        panel { layout: row; align: center; justify: space-between; width: 100%;\n"
          "          text { text: \"" +
-         std::string(label) +
+         base::String(label) +
          "\"; font-size: 12; color: #c2c9d6; }\n"
          "          panel " +
          name + " { width: 34; height: 18; corner-radius: 9; background: " + AC +
@@ -601,10 +607,10 @@ std::string BuildEditorSection() {
   section("Tags");
   s += "        panel ed_tags { layout: row; align: center; gap: 6; width: 100%;\n";
   for (int i = 0; i < kEdTags; ++i)
-    s += "          panel ed_tag" + std::to_string(i) +
+    s += "          panel ed_tag" + base::ToString(i) +
          " { background: #6c7bf52e; corner-radius: 6; padding: 5 9;"
          " text ed_tag" +
-         std::to_string(i) + "_t { text: \"\"; font-size: 11; color: #b9c0ff; } }\n";
+         base::ToString(i) + "_t { text: \"\"; font-size: 11; color: #b9c0ff; } }\n";
   s += "          panel { padding: 5; corner-radius: 6; background: #ffffff0c; cursor: pointer; "
        ":hover { background: #ffffff18; } " +
        Glyph("plus", TXM) + "          }\n";
@@ -624,14 +630,14 @@ std::string BuildEditorSection() {
        "12; height: 40;\n"
        "        panel ed_btabs { layout: row; align: center; gap: 2;\n";
   for (int i = 0; i < kEdTabs; ++i)
-    s += "          panel btn_btab" + std::to_string(i) +
+    s += "          panel btn_btab" + base::ToString(i) +
          " { layout: column; align: center; gap: 6; padding: 9 9; cursor: pointer; background: "
          "#ffffff00;\n"
          "            text btn_btab" +
-         std::to_string(i) +
+         base::ToString(i) +
          "_t { text: \"\"; font-size: 12; color: #9aa3b5; }\n"
          "            panel btn_btab" +
-         std::to_string(i) +
+         base::ToString(i) +
          "_ul { width: 100%; height: 2; corner-radius: 1; background: #6c7bf500; }\n          }\n";
   s += "          panel { padding: 8; background: #ffffff00; cursor: pointer; :hover { background: "
        "#ffffff12; } " +
@@ -663,20 +669,20 @@ std::string BuildEditorSection() {
        "            button ed_asset_clear { text: \"x\"; font-size: 11; color: #6b7488; "
        "background: #ffffff00; cursor: pointer; :hover { color: #e6e9f2; } }\n          }\n";
   for (int i = 0; i < kEdCatRows; ++i)
-    s += "          panel cl_row" + std::to_string(i) +
+    s += "          panel cl_row" + base::ToString(i) +
          " { layout: row; align: center; justify: space-between; width: 100%; padding: 5 8;"
          " corner-radius: 6; background: #ffffff00; cursor: pointer; :hover { background: "
          "#ffffff0e; }\n"
          "            text cl_row" +
-         std::to_string(i) +
+         base::ToString(i) +
          "_n { text: \"\"; font-size: 12; color: #c2c9d6; }\n"
          "            text cl_row" +
-         std::to_string(i) + "_c { text: \"\"; font-size: 11; color: #6b7488; }\n          }\n";
+         base::ToString(i) + "_c { text: \"\"; font-size: 11; color: #6b7488; }\n          }\n";
   s += "        }\n        panel { width: 1; height: 100%; background: #ffffff0c; }\n";
   s += "        panel ed_cards { layout: row; align: start; gap: 12; flex-grow: 1; padding: 12 14; "
        "overflow: hidden;\n";
   for (int i = 0; i < kEdCards; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     s += "          panel card" + id +
          " { layout: column; align: center; gap: 6; width: 86; cursor: pointer;\n"
          "            panel card" +
@@ -736,13 +742,13 @@ std::string BuildEditorSection() {
 // tabs + actions; right dock = the pooled slider/cycler rows for the active page.
 // Everything is pooled (fixed widget counts, filled and toggled each frame) and
 // starts hidden; the engine collapses cg_root until chargen is entered.
-std::string BuildCharGenSection() {
+base::String BuildCharGenSection() {
   const char* FLD = "#0e1016";  // sunken field
   const char* AC = "#6c7bf5";   // accent indigo
   const char* TXP = "#e6e9f2";  // primary text
   const char* TXS = "#9aa3b5";  // secondary text
   const char* TXM = "#6b7488";  // muted text
-  std::string s;
+  base::String s;
   char buf[1400];
 
   const float contentW = kCgLeftW - 2 * kCgPad;
@@ -765,7 +771,7 @@ std::string BuildCharGenSection() {
   s += buf;
   // Race rows (pooled).
   for (int i = 0; i < kCgRaceRows; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     std::snprintf(buf, sizeof(buf),
                   "      panel cg_race%s { position: absolute; left: %g; top: %g; width: %g;"
                   " height: %g; corner-radius: 6; background: #ffffff00; cursor: pointer;"
@@ -819,7 +825,7 @@ std::string BuildCharGenSection() {
   // Page tabs.
   const char* pages[3] = {"Face", "Advanced", "Look"};
   for (int i = 0; i < 3; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     std::snprintf(buf, sizeof(buf),
                   "      panel cg_page%s { position: absolute; left: %g; top: %g; width: %g;"
                   " height: 32; corner-radius: 7; background: %s; layout: column; justify: center;"
@@ -869,7 +875,7 @@ std::string BuildCharGenSection() {
       kCgTop, kCgRightW, kCgTop, TXP, TXM, FLD, TXP, FLD, TXP);
   s += buf;
   for (int i = 0; i < kCgSliderRows; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     std::snprintf(
         buf, sizeof(buf),
         "      panel cg_row%s { position: absolute; left: 8; top: %g; width: %g;"
@@ -924,9 +930,9 @@ fs::path UiDir() {
 }
 
 // Read one .ugui fragment. Returns its text, or "" (with a warning) if missing.
-std::string LoadUiFragment(const char* name) {
+base::String LoadUiFragment(const char* name) {
   const fs::path p = UiDir() / name;
-  std::ifstream f(p, std::ios::binary);
+  std::ifstream f(p.c_str(), std::ios::binary);
   if (!f) {
     RX_WARN("ui: fragment not found: {}", p.string());
     return {};
@@ -938,8 +944,8 @@ std::string LoadUiFragment(const char* name) {
 
 // The scrolling compass topbar. Procedural: the cardinal strip is generated per
 // index (colour/size by direction), so it stays in code rather than a fragment.
-std::string BuildTopbarSection() {
-  std::string s = R"(
+base::String BuildTopbarSection() {
+  base::String s = R"(
   panel topbar {
     position: absolute; top: 0; left: 0; width: 100vw; height: 64;
     layout: row; justify: center; align: start; padding: 16 0 0 0;
@@ -956,8 +962,8 @@ std::string BuildTopbarSection() {
     bool north = (i % 8) == 0;
     const char* color = north ? "#ffcc55" : (major ? "#e8ecf6" : "#6b7488");
     int font = major ? 15 : 11;
-    s += "        text cl" + std::to_string(i) + " { text: \"" + card +
-         "\"; width: 70; text-align: center; font-size: " + std::to_string(font) +
+    s += "        text cl" + base::ToString(i) + " { text: \"" + card +
+         "\"; width: 70; text-align: center; font-size: " + base::ToString(font) +
          "; color: " + color +
          "; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }\n";
   }
@@ -974,7 +980,7 @@ std::string BuildTopbarSection() {
 )";
   // A pool of map-blip pips, positioned and coloured each frame from SetCompassBlips.
   for (int i = 0; i < kCompassBlips; ++i) {
-    s += "      panel blip_pip" + std::to_string(i) +
+    s += "      panel blip_pip" + base::ToString(i) +
          " { position: absolute; top: 11; left: 0; width: 7; height: 7; corner-radius: 4;"
          " background: #ffffff; border-color: #000000aa; border-width: 1; visibility: collapsed; "
          "}\n";
@@ -990,8 +996,8 @@ std::string BuildTopbarSection() {
 // code (topbar, editor, main menu), and the static screens loaded from the
 // .ugui fragments, all siblings of root in draw order. The pause/front menus are
 // concatenated last so they overlay everything.
-std::string BuildUi() {
-  std::string s = "\npanel root {\n  width: 100vw; height: 100vh; position: relative;\n";
+base::String BuildUi() {
+  base::String s = "\npanel root {\n  width: 100vw; height: 100vh; position: relative;\n";
   s += BuildTopbarSection();        // procedural: scrolling compass
   s += LoadUiFragment("hud.ugui");  // crosshair
   s += LoadUiFragment("vitals.ugui");
@@ -1016,7 +1022,7 @@ std::string BuildUi() {
 }
 
 const char* FindFont() {
-  static std::string resolved;
+  static base::String resolved;
   if (const char* env = UiFont.get(); env && fs::exists(env)) {
     resolved = env;
     return resolved.c_str();
@@ -1030,9 +1036,9 @@ const char* FindFont() {
     pclose(p);
     if (n > 0) {
       buf[n] = '\0';
-      std::string path(buf);
+      base::String path(buf);
       while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
-      if (!path.empty() && fs::exists(path)) {
+      if (!path.empty() && fs::exists(path.c_str())) {
         resolved = path;
         return resolved.c_str();
       }
@@ -1062,7 +1068,7 @@ const char* FindFont() {
 // The monospace face for technical/data text (load-order indices, ids, paths).
 // fontconfig first, then the usual DejaVu Sans Mono locations. Null if none.
 const char* FindMonoFont() {
-  static std::string resolved;
+  static base::String resolved;
   if (const char* env = UiFontMono.get(); env && fs::exists(env)) {
     resolved = env;
     return resolved.c_str();
@@ -1074,9 +1080,9 @@ const char* FindMonoFont() {
     pclose(p);
     if (n > 0) {
       buf[n] = '\0';
-      std::string path(buf);
+      base::String path(buf);
       while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
-      if (!path.empty() && fs::exists(path)) {
+      if (!path.empty() && fs::exists(path.c_str())) {
         resolved = path;
         return resolved.c_str();
       }
@@ -1126,22 +1132,22 @@ struct GameUi::Impl {
   // fragment's mtime and rebuilds the tree when one changes.
   bool hot_reload = false;
   float reload_timer = 0.0f;  // throttle the mtime poll
-  std::vector<fs::file_time_type> fragment_mtimes;
+  base::Vector<fs::file_time_type> fragment_mtimes;
 
   // Quest HUD state, set by the engine and applied each frame.
   HudQuest quest;
-  std::vector<HudGauge> hud_gauges;     // managed gameplay bars (oxygen, rads, ...)
-  std::vector<std::string> chat_lines;  // multiplayer chat box, newest last
-  bool scoreboard_open = false;         // multiplayer scoreboard (hold-Tab list)
-  std::string scoreboard_title;
-  std::string scoreboard_header;
-  std::vector<std::string> scoreboard_rows;
-  std::vector<std::string> mp_prompts;             // multiplayer interaction prompts
-  std::vector<GameUi::CompassBlip> compass_blips;  // map blips on the compass
-  std::vector<GameUi::Nametag> nametags;           // floating world-space labels
-  std::string toast_text;
+  base::Vector<HudGauge> hud_gauges;      // managed gameplay bars (oxygen, rads, ...)
+  base::Vector<base::String> chat_lines;  // multiplayer chat box, newest last
+  bool scoreboard_open = false;           // multiplayer scoreboard (hold-Tab list)
+  base::String scoreboard_title;
+  base::String scoreboard_header;
+  base::Vector<base::String> scoreboard_rows;
+  base::Vector<base::String> mp_prompts;            // multiplayer interaction prompts
+  base::Vector<GameUi::CompassBlip> compass_blips;  // map blips on the compass
+  base::Vector<GameUi::Nametag> nametags;           // floating world-space labels
+  base::String toast_text;
   float toast_age = kToastSeconds + 1.0f;  // starts expired, so hidden
-  std::string activate_prompt;
+  base::String activate_prompt;
   DialogueView dialogue;
   ContainerView container;
   // Objective compass waypoint, driven by the engine each frame.
@@ -1150,12 +1156,12 @@ struct GameUi::Impl {
   float marker_distance = 0.0f;  // meters
   // Quest journal overlay, driven by the engine.
   bool journal_open = false;
-  std::vector<HudQuest> journal;
+  base::Vector<HudQuest> journal;
   int journal_selected = -1;
 
   // War-map overlay, driven by the managed Civil War campaign.
   bool war_map_open = false;
-  std::vector<GameUi::WarHoldEntry> war_holds;
+  base::Vector<GameUi::WarHoldEntry> war_holds;
   float war_progress = 0.0f;
 
   // Map editor overlay state and the sink that receives its widget clicks.
@@ -1178,12 +1184,12 @@ struct GameUi::Impl {
   int mm_mp_mode = 0;   // last multiplayer choice: 0 host, 1 join
   MainMenuRequest mm_request;
   MainMenuStats mm_stats;
-  std::vector<std::string> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
-  std::vector<bool> mm_available{true, true, true};
-  std::vector<std::string> mm_mods;
-  std::vector<MenuNewsItem> mm_news;
+  base::Vector<base::String> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
+  base::Vector<bool> mm_available{true, true, true};
+  base::Vector<base::String> mm_mods;
+  base::Vector<MenuNewsItem> mm_news;
   u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};
-  std::vector<std::pair<std::string, u64>> mm_glyphs;  // emblem widget -> texture
+  base::Vector<base::Pair<base::String, u64>> mm_glyphs;  // emblem widget -> texture
   bool mm_prev_open = false;  // edge-detect to hide the gameplay HUD while open
 
   // First-run setup wizard state. The wizard owns its page (fr_step) and its
@@ -1304,7 +1310,7 @@ struct GameUi::Impl {
   // visibility state the rebuild reset to markup defaults. Per-frame value
   // updates (HUD text, editor view, main-menu data) refresh the rest next frame.
   void ReloadUi() {
-    const std::string doc = BuildUi();
+    const base::String doc = BuildUi();
     ui.LoadUiString(doc.c_str(), "hud");
     CaptureFragmentMtimes();
     const bool hud = !editor.active;
@@ -1358,14 +1364,14 @@ void GameUi::Impl::ApplyEditorView() {
   SetVisible("editor_root", editor.active);
   if (!editor.active) return;
 
-  auto setText = [&](const std::string& n, const std::string& t) {
+  auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
-  auto setLeft = [&](const std::string& n, float v) {
+  auto setLeft = [&](const base::String& n, float v) {
     SetStyleField(
         n.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); }, v);
   };
-  auto setWidth = [&](const std::string& n, float v) {
+  auto setWidth = [&](const base::String& n, float v) {
     SetStyleField(n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Px(v); }, v);
   };
 
@@ -1376,13 +1382,13 @@ void GameUi::Impl::ApplyEditorView() {
 
   // Toolbar: highlight the active tool; gizmo bar mirrors the gizmo mode.
   for (int i = 0; i < kEdToolBtns; ++i) {
-    const std::string id = "btn_tool" + std::to_string(i);
+    const base::String id = "btn_tool" + base::ToString(i);
     const bool on = i == editor.tool;
     SetBackground(id.c_str(), on ? kEdAccent : kEdClear);
     SetTextColor((id + "_lbl").c_str(), on ? kEdTxP : kEdTxS);
   }
   for (int i = 0; i < 4; ++i)
-    SetBackground(("btn_giz" + std::to_string(i)).c_str(),
+    SetBackground(("btn_giz" + base::ToString(i)).c_str(),
                   i == editor.gizmo ? kEdAccent : kEdClear);
 
   // Left dock tabs.
@@ -1402,7 +1408,7 @@ void GameUi::Impl::ApplyEditorView() {
 
   // Scene hierarchy tree rows.
   for (int i = 0; i < kEdTreeRows; ++i) {
-    const std::string row = "ed_trow" + std::to_string(i);
+    const base::String row = "ed_trow" + base::ToString(i);
     if (i < static_cast<int>(editor.tree.size())) {
       const EditorView::TreeRow& tr = editor.tree[i];
       SetVisible(row.c_str(), true);
@@ -1432,19 +1438,19 @@ void GameUi::Impl::ApplyEditorView() {
     for (int i = 0; i < 4; ++i) {
       const bool active = i == editor.terrain_brush_mode;
       SetBackground(mode_ids[i], active ? kEdAccent : kEdField);
-      SetTextColor((std::string(mode_ids[i]) + "_t").c_str(), active ? kEdTxP : kEdTxS);
+      SetTextColor((base::String(mode_ids[i]) + "_t").c_str(), active ? kEdTxP : kEdTxS);
     }
     char value[64];
     std::snprintf(value, sizeof(value), "%.1f m", editor.terrain_radius);
     setText("ed_terrain_radius", value);
     std::snprintf(value, sizeof(value), "%.2f", editor.terrain_strength);
     setText("ed_terrain_strength", value);
-    setText("ed_terrain_samples", std::to_string(editor.terrain_sample_count));
+    setText("ed_terrain_samples", base::ToString(editor.terrain_sample_count));
     setText("ed_terrain_dirty", editor.terrain_dirty ? "Unsaved" : "Saved");
     SetBackground("ed_terrain_dirty_chip",
                   editor.terrain_dirty ? Rgba(0xe8b54a2eu) : Rgba(0x46c46324u));
     SetTextColor("ed_terrain_dirty", editor.terrain_dirty ? Rgba(0xf0c86affu) : Rgba(0x70d88affu));
-    std::string path = editor.terrain_path;
+    base::String path = editor.terrain_path;
     if (path.size() > 38) path = "..." + path.substr(path.size() - 35);
     setText("ed_terrain_path", path.empty() ? "editor_layout.recterrain" : path);
   }
@@ -1469,13 +1475,13 @@ void GameUi::Impl::ApplyEditorView() {
     SetBackground("ed_insp_static", editor.sel_static ? kEdAccent : kEdField);
     auto toggle = [&](const char* name, bool on) {
       SetBackground(name, on ? kEdAccent : kEdToggleOff);
-      setLeft(std::string(name) + "_k", on ? 18.0f : 2.0f);
+      setLeft(base::String(name) + "_k", on ? 18.0f : 2.0f);
     };
     toggle("ed_tg_cast", editor.cast_shadow);
     toggle("ed_tg_recv", editor.receive_shadow);
     toggle("ed_tg_lm", editor.lightmap_static);
     for (int i = 0; i < kEdTags; ++i) {
-      const std::string t = "ed_tag" + std::to_string(i);
+      const base::String t = "ed_tag" + base::ToString(i);
       if (i < static_cast<int>(editor.tags.size())) {
         SetVisible(t.c_str(), true);
         setText(t + "_t", editor.tags[i]);
@@ -1487,7 +1493,7 @@ void GameUi::Impl::ApplyEditorView() {
 
   // Asset-browser tabs.
   for (int i = 0; i < kEdTabs; ++i) {
-    const std::string id = "btn_btab" + std::to_string(i);
+    const base::String id = "btn_btab" + base::ToString(i);
     if (i < static_cast<int>(editor.tabs.size())) {
       SetVisible(id.c_str(), true);
       setText(id + "_t", editor.tabs[i]);
@@ -1510,11 +1516,11 @@ void GameUi::Impl::ApplyEditorView() {
 
   // Category list with counts.
   for (int i = 0; i < kEdCatRows; ++i) {
-    const std::string id = "cl_row" + std::to_string(i);
+    const base::String id = "cl_row" + base::ToString(i);
     if (i < static_cast<int>(editor.cats.size())) {
       SetVisible(id.c_str(), true);
       setText(id + "_n", editor.cats[i].name);
-      setText(id + "_c", std::to_string(editor.cats[i].count));
+      setText(id + "_c", base::ToString(editor.cats[i].count));
       const bool on = editor.cats[i].active;
       SetBackground(id.c_str(), on ? kEdAccentSoft : kEdClear);
       SetTextColor((id + "_n").c_str(), on ? kEdTxP : kEdCat);
@@ -1525,7 +1531,7 @@ void GameUi::Impl::ApplyEditorView() {
 
   // Asset cards.
   for (int i = 0; i < kEdCards; ++i) {
-    const std::string id = "card" + std::to_string(i);
+    const base::String id = "card" + base::ToString(i);
     if (i < static_cast<int>(editor.cards.size())) {
       const EditorView::Card& cd = editor.cards[i];
       SetVisible(id.c_str(), true);
@@ -1557,8 +1563,8 @@ void GameUi::Impl::ApplyEditorView() {
   // Marquee box-select rectangle.
   SetVisible("ed_marquee", editor.marquee_active);
   if (editor.marquee_active) {
-    const float x0 = std::min(editor.marquee[0], editor.marquee[2]);
-    const float y0 = std::min(editor.marquee[1], editor.marquee[3]);
+    const float x0 = base::Min(editor.marquee[0], editor.marquee[2]);
+    const float y0 = base::Min(editor.marquee[1], editor.marquee[3]);
     const float w = std::fabs(editor.marquee[2] - editor.marquee[0]);
     const float h = std::fabs(editor.marquee[3] - editor.marquee[1]);
     setLeft("ed_marquee", x0);
@@ -1604,16 +1610,16 @@ void GameUi::Impl::ApplyCharGenView() {
   SetVisible("cg_root", chargen.active);
   if (!chargen.active) return;
 
-  auto setText = [&](const std::string& n, const std::string& t) {
+  auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
-  auto setFill = [&](const std::string& n, float pct) {
+  auto setFill = [&](const base::String& n, float pct) {
     SetStyleField(n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); }, pct);
   };
 
   // Race list.
   for (int i = 0; i < kCgRaceRows; ++i) {
-    const std::string row = "cg_race" + std::to_string(i);
+    const base::String row = "cg_race" + base::ToString(i);
     if (i < static_cast<int>(chargen.races.size())) {
       SetVisible(row.c_str(), true);
       setText(row + "_t", chargen.races[i]);
@@ -1631,7 +1637,7 @@ void GameUi::Impl::ApplyCharGenView() {
   SetTextColor("cg_sexm_t", chargen.sex == 0 ? kEdTxP : kEdTxS);
   SetTextColor("cg_sexf_t", chargen.sex == 1 ? kEdTxP : kEdTxS);
   for (int i = 0; i < 3; ++i) {
-    const std::string tab = "cg_page" + std::to_string(i);
+    const base::String tab = "cg_page" + base::ToString(i);
     const bool on = i == chargen.page;
     SetBackground(tab.c_str(), on ? kEdAccent : kEdField);
     SetTextColor((tab + "_t").c_str(), on ? kEdTxP : kEdTxS);
@@ -1644,20 +1650,20 @@ void GameUi::Impl::ApplyCharGenView() {
   if (chargen.row_total > kCgSliderRows) {
     char b[64];
     std::snprintf(b, sizeof(b), "%d-%d / %d", chargen.row_first + 1,
-                  std::min(chargen.row_first + kCgSliderRows, chargen.row_total),
+                  base::Min(chargen.row_first + kCgSliderRows, chargen.row_total),
                   chargen.row_total);
     setText("cg_scinfo", b);
   } else {
     setText("cg_scinfo", "");
   }
   for (int i = 0; i < kCgSliderRows; ++i) {
-    const std::string row = "cg_row" + std::to_string(i);
+    const base::String row = "cg_row" + base::ToString(i);
     if (i < static_cast<int>(chargen.rows.size())) {
       const CharGenView::Row& r = chargen.rows[i];
       SetVisible(row.c_str(), true);
       setText(row + "_lbl", r.label);
       setText(row + "_val", r.value);
-      setFill(row + "_fill", std::clamp(r.fill, 0.0f, 1.0f) * 100.0f);
+      setFill(row + "_fill", base::Clamp(r.fill, 0.0f, 1.0f) * 100.0f);
       const bool sw = r.swatch != 0;
       SetVisible((row + "_sw").c_str(), sw);
       if (sw) SetBackground((row + "_sw").c_str(), Rgba(r.swatch));
@@ -1675,13 +1681,13 @@ bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
   for (int depth = 0; depth < 8 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
     if (n) {
-      const std::string name = n->name.c_str();
+      const base::String name = n->name.c_str();
       auto pref = [&](const char* p) -> int {
         const size_t pl = std::strlen(p);
         if (name.size() >= pl && name.compare(0, pl, p) == 0) return std::atoi(name.c_str() + pl);
         return -1;
       };
-      auto has = [&](const char* sub) { return name.find(sub) != std::string::npos; };
+      auto has = [&](const char* sub) { return name.find(sub) != base::String::npos; };
       using K = EditorUiEvent::Kind;
       EditorUiEvent e;
       if (int i = pref("ed_trow"); i >= 0) {
@@ -1817,7 +1823,7 @@ void GameUi::Impl::ApplyMainMenu() {
     return;
   }
   mm_prev_open = true;
-  auto setText = [&](const std::string& n, const std::string& t) {
+  auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
 
@@ -1828,7 +1834,7 @@ void GameUi::Impl::ApplyMainMenu() {
   // Columns: live backdrop image (only when a texture is set), selection accent,
   // label text + availability dimming.
   for (int i = 0; i < kMenuUniverses; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     const bool has_bg = mm_backdrop[i] != 0;
     if (has_bg)
       ugui::SetImageTexture(ui.FindWidget(("mm_bg" + id).c_str()), mm_backdrop[i], 1.0f, 1.0f);
@@ -1846,7 +1852,7 @@ void GameUi::Impl::ApplyMainMenu() {
   // :selected state carries the eased pill background; the caret and text colour
   // track the same index so keyboard and mouse share one highlight.
   for (int i = 0; i < kMenuNavItems; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     const bool on = i == mm_nav;
     ugui::SetSelected(ui.world(), ui.FindWidget(("mm_nav" + id).c_str()), on);
     SetVisible(("mm_caret" + id).c_str(), on);
@@ -1857,21 +1863,21 @@ void GameUi::Impl::ApplyMainMenu() {
   }
 
   // Profile banner: real handle + system line; peer count only when in session.
-  const std::string sysline =
+  const base::String sysline =
       mm_stats.in_game && !mm_stats.universe.empty()
-          ? ("Level " + std::to_string(mm_stats.level) + "  ·  " + mm_stats.universe)
+          ? ("Level " + base::ToString(mm_stats.level) + "  ·  " + mm_stats.universe)
           : (mm_stats.account + (mm_stats.machine.empty() ? "" : "@" + mm_stats.machine));
   setText("mm_pname", mm_stats.player_name.empty() ? mm_stats.account : mm_stats.player_name);
   setText("mm_psys", sysline);
   SetVisible("mm_pnet", mm_stats.players_online > 0);
-  setText("mm_pcount", std::to_string(mm_stats.players_online));
+  setText("mm_pcount", base::ToString(mm_stats.players_online));
 
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
   // NEWS rail: pooled rows filled from CHANGELOG.md (most-recent first).
   for (int i = 0; i < kMenuNewsRows; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     const bool on = i < static_cast<int>(mm_news.size());
     SetVisible(("news" + id).c_str(), on);
     if (on) {
@@ -1900,7 +1906,7 @@ void GameUi::Impl::ApplyMainMenu() {
   }
   if (mm_screen == 2) {
     for (int i = 0; i < kMenuModRows; ++i) {
-      const std::string id = std::to_string(i);
+      const base::String id = base::ToString(i);
       const bool row = i < static_cast<int>(mm_mods.size());
       SetVisible(("mm_mod" + id).c_str(), row);
       if (row) setText("mm_modt" + id, mm_mods[i]);
@@ -1915,9 +1921,9 @@ void GameUi::Impl::ApplyMainMenu() {
                              : "Local profile");
     setText("mm_pf_account", mm_stats.account.empty() ? "-" : mm_stats.account);
     setText("mm_pf_machine", mm_stats.machine.empty() ? "-" : mm_stats.machine);
-    const std::string session =
+    const base::String session =
         mm_stats.players_online > 0
-            ? (std::to_string(mm_stats.players_online) + " online")
+            ? (base::ToString(mm_stats.players_online) + " online")
             : (mm_stats.net_status.empty() ? "Single-player" : mm_stats.net_status);
     setText("mm_pf_session", session);
     setText("mm_pf_build", mm_stats.build.empty() ? "-" : ("v" + mm_stats.build));
@@ -1929,13 +1935,13 @@ void GameUi::Impl::ApplyMainMenu() {
       auto bar = [&](const char* fill, float v) {
         SetStyleField(
             fill, [](ugui::Style& s, float x) { s.width = ugui::Length::Pct(x); },
-            std::clamp(v, 0.0f, 1.0f) * 100.0f);
+            base::Clamp(v, 0.0f, 1.0f) * 100.0f);
       };
       bar("mm_pf_health", mm_stats.health);
       bar("mm_pf_magicka", mm_stats.magicka);
       bar("mm_pf_stamina", mm_stats.stamina);
-      setText("mm_pf_gold", std::to_string(mm_stats.gold));
-      setText("mm_pf_quests", std::to_string(mm_stats.active_quests));
+      setText("mm_pf_gold", base::ToString(mm_stats.gold));
+      setText("mm_pf_quests", base::ToString(mm_stats.active_quests));
       setText("mm_pf_loc", mm_stats.location.empty() ? "-" : mm_stats.location);
     }
   }
@@ -1973,7 +1979,7 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
   for (int depth = 0; depth < 10 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
     if (n) {
-      const std::string name = n->name.c_str();
+      const base::String name = n->name.c_str();
       // Match "<prefix><digit>" so labels like mm_navt2 don't alias mm_nav.
       auto pref = [&](const char* p) -> int {
         const size_t pl = std::strlen(p);
@@ -2044,32 +2050,32 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
 void GameUi::Impl::ApplyFirstRun() {
   SetVisible("firstrun", first_run_open);
   if (!first_run_open) return;
-  auto setText = [&](const std::string& n, const std::string& t) {
+  auto setText = [&](const base::String& n, const base::String& t) {
     ugui::SetText(ui.FindWidget(n.c_str()), t.c_str());
   };
 
   // Pages: exactly one visible.
   for (int i = 0; i < kFirstRunSteps; ++i)
-    SetVisible(("fr_step" + std::to_string(i)).c_str(), i == fr_step);
+    SetVisible(("fr_step" + base::ToString(i)).c_str(), i == fr_step);
 
   // Progress rail: nodes filled up to (and including) the current page; the
   // segments between filled nodes glow gold.
   for (int i = 0; i < kFirstRunSteps; ++i) {
     const bool done = i < fr_step, active = i == fr_step;
-    SetBackground(("fr_node" + std::to_string(i)).c_str(),
+    SetBackground(("fr_node" + base::ToString(i)).c_str(),
                   active ? Rgba(0xffcc55ffu) : (done ? Rgba(0xffcc55ccu) : Rgba(0x00000000u)));
   }
   for (int i = 0; i < kFirstRunSteps - 1; ++i)
-    SetBackground(("fr_seg" + std::to_string(i)).c_str(),
+    SetBackground(("fr_seg" + base::ToString(i)).c_str(),
                   i < fr_step ? Rgba(0xffcc55ffu) : Rgba(0xffffff14u));
 
   // Page 2: located games.
   for (int i = 0; i < kFirstRunGames; ++i) {
-    const std::string id = std::to_string(i);
+    const base::String id = base::ToString(i);
     const bool found = i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located;
     if (i < static_cast<int>(fr_view.games.size()) && !fr_view.games[i].name.empty())
       setText("fr_name" + id, fr_view.games[i].name);
-    setText("fr_path" + id, found ? fr_view.games[i].path : std::string("Not located"));
+    setText("fr_path" + id, found ? fr_view.games[i].path : base::String("Not located"));
     SetTextColor(("fr_path" + id).c_str(), found ? Rgba(0x8a93a8ffu) : Rgba(0x6b7488ffu));
     setText("fr_stat" + id, found ? "Located" : "Not found");
     SetTextColor(("fr_stat" + id).c_str(), found ? Rgba(0x5fcf80ffu) : Rgba(0x6b7488ffu));
@@ -2080,28 +2086,28 @@ void GameUi::Impl::ApplyFirstRun() {
   // Page 3: dropdowns + toggles.
   static const char* const kModes[4] = {"Exploration", "Story", "Survival", "Sandbox"};
   static const char* const kDiffs[4] = {"Novice", "Normal", "Hard", "Legendary"};
-  setText("fr_modeval", kModes[std::clamp(fr_mode, 0, 3)]);
-  setText("fr_diffval", kDiffs[std::clamp(fr_diff, 0, 3)]);
+  setText("fr_modeval", kModes[base::Clamp(fr_mode, 0, 3)]);
+  setText("fr_diffval", kDiffs[base::Clamp(fr_diff, 0, 3)]);
   SetVisible("fr_modemenu", fr_dropdown == 0);
   SetVisible("fr_diffmenu", fr_dropdown == 1);
   for (int k = 0; k < 4; ++k) {
-    SetVisible(("fr_modetick" + std::to_string(k)).c_str(), k == fr_mode);
-    SetVisible(("fr_difftick" + std::to_string(k)).c_str(), k == fr_diff);
+    SetVisible(("fr_modetick" + base::ToString(k)).c_str(), k == fr_mode);
+    SetVisible(("fr_difftick" + base::ToString(k)).c_str(), k == fr_diff);
   }
   for (int i = 0; i < 3; ++i) {
-    SetBackground(("fr_chkbox" + std::to_string(i)).c_str(),
+    SetBackground(("fr_chkbox" + base::ToString(i)).c_str(),
                   fr_check[i] ? Rgba(0xffcc55ffu) : Rgba(0x070a10ffu));
-    SetVisible(("fr_chkmk" + std::to_string(i)).c_str(), fr_check[i]);
+    SetVisible(("fr_chkmk" + base::ToString(i)).c_str(), fr_check[i]);
   }
 
   // Page 4: mods dir + recommended space.
   setText("fr_modspath_t",
-          fr_view.mods_dir.empty() ? std::string("~/.recreation/mods") : fr_view.mods_dir);
+          fr_view.mods_dir.empty() ? base::String("~/.recreation/mods") : fr_view.mods_dir);
   if (!fr_view.space_label.empty()) setText("fr_space", fr_view.space_label);
 
   // Page 5: a check badge on each located universe.
   for (int i = 0; i < kFirstRunGames; ++i)
-    SetVisible(("fr_sealbadge" + std::to_string(i)).c_str(),
+    SetVisible(("fr_sealbadge" + base::ToString(i)).c_str(),
                i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located);
 }
 
@@ -2135,7 +2141,7 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
   for (int depth = 0; depth < 10 && w.valid(); ++depth) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
     if (n) {
-      const std::string name = n->name.c_str();
+      const base::String name = n->name.c_str();
       auto pref = [&](const char* p) -> int {
         const size_t pl = std::strlen(p);
         if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
@@ -2200,7 +2206,7 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
   return true;
 }
 
-GameUi::GameUi() : impl_(std::make_unique<Impl>()) {}
+GameUi::GameUi() : impl_(base::MakeUnique<Impl>()) {}
 GameUi::~GameUi() { Shutdown(); }
 
 bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
@@ -2255,7 +2261,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   }
   impl_->ui.set_texture_backend(&impl_->backend);
 
-  std::string doc = BuildUi();
+  base::String doc = BuildUi();
   impl_->ui.LoadUiString(doc.c_str(), "hud");
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
@@ -2263,7 +2269,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->CaptureFragmentMtimes();
   if (impl_->hot_reload) RX_INFO("ui: hot reload on, watching {}", UiDir().string());
 
-  Impl* impl = impl_.get();
+  Impl* impl = (impl_ ? &*impl_ : nullptr);
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft) return;
     if (impl->RouteFirstRunClick(w)) return;  // the setup wizard owns this click
@@ -2283,7 +2289,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
       impl->ApplyMenuVisibility();
     } else if (n->name == "btn_quit") {
       impl->quit_requested = true;
-    } else if (n->name.rfind("rebind_", 0) == 0 && n->name.find('_', 7) == std::string::npos) {
+    } else if (n->name.rfind("rebind_", 0) == 0 && n->name.find('_', 7) == base::String::npos) {
       // A rebind row (rebind_<N>): ask the engine to capture the next input.
       impl->settings_request = {SettingsRequest::Kind::kRebind, std::atoi(n->name.c_str() + 7), 0};
     } else if (n->name == "btn_skbm_dec") {
@@ -2356,7 +2362,7 @@ bool GameUi::main_menu_open() const { return impl_->initialized && impl_->main_m
 void GameUi::MainMenuMove(int dx, int dy) {
   if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0) return;
   if (dy) impl_->mm_nav = (impl_->mm_nav + dy + kMenuNavItems) % kMenuNavItems;
-  if (dx) impl_->mm_universe = std::clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
+  if (dx) impl_->mm_universe = base::Clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
 }
 
 void GameUi::MainMenuActivate() {
@@ -2377,8 +2383,8 @@ bool GameUi::MainMenuAtRoot() const {
   return impl_->initialized && impl_->main_menu_open && impl_->mm_screen == 0;
 }
 
-void GameUi::SetMainMenuUniverses(const std::vector<std::string>& names,
-                                  const std::vector<bool>& available) {
+void GameUi::SetMainMenuUniverses(const base::Vector<base::String>& names,
+                                  const base::Vector<bool>& available) {
   if (!impl_->initialized) return;
   if (!names.empty()) impl_->mm_universe_names = names;
   if (!available.empty()) impl_->mm_available = available;
@@ -2389,7 +2395,7 @@ void GameUi::SetMainMenuBackdrop(int universe, u64 texture) {
   impl_->mm_backdrop[universe] = texture;
 }
 
-void GameUi::SetMainMenuGlyph(const std::string& widget, u64 texture) {
+void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
   if (!impl_->initialized) return;
   for (auto& [name, tex] : impl_->mm_glyphs)
     if (name == widget) {
@@ -2403,11 +2409,11 @@ void GameUi::SetMainMenuStats(const MainMenuStats& stats) {
   if (impl_->initialized) impl_->mm_stats = stats;
 }
 
-void GameUi::SetMainMenuMods(const std::vector<std::string>& mods) {
+void GameUi::SetMainMenuMods(const base::Vector<base::String>& mods) {
   if (impl_->initialized) impl_->mm_mods = mods;
 }
 
-void GameUi::SetMainMenuNews(const std::vector<MenuNewsItem>& news) {
+void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>& news) {
   if (impl_->initialized) impl_->mm_news = news;
 }
 
@@ -2469,9 +2475,9 @@ bool GameUi::settings_open() const { return impl_->initialized && impl_->setting
 
 void GameUi::SetControlsView(const ControlsView& view) {
   if (!impl_->initialized) return;
-  Impl* impl = impl_.get();
+  Impl* impl = (impl_ ? &*impl_ : nullptr);
   for (size_t i = 0; i < view.rows.size(); ++i) {
-    const std::string base = "rebind_" + std::to_string(i);
+    const base::String base = "rebind_" + base::ToString(i);
     ugui::SetText(impl->ui.FindWidget((base + "_lbl").c_str()), view.rows[i].label.c_str());
     ugui::SetText(impl->ui.FindWidget((base + "_key").c_str()), view.rows[i].binding.c_str());
   }
@@ -2495,12 +2501,12 @@ void GameUi::SetQuest(const HudQuest& quest) {
   if (impl_->initialized) impl_->quest = quest;
 }
 
-void GameUi::SetChatLines(const std::vector<std::string>& lines) {
+void GameUi::SetChatLines(const base::Vector<base::String>& lines) {
   if (impl_->initialized) impl_->chat_lines = lines;
 }
 
-void GameUi::SetScoreboard(bool open, const std::string& title, const std::string& header,
-                           const std::vector<std::string>& rows) {
+void GameUi::SetScoreboard(bool open, const base::String& title, const base::String& header,
+                           const base::Vector<base::String>& rows) {
   if (!impl_->initialized) return;
   impl_->scoreboard_open = open;
   impl_->scoreboard_title = title;
@@ -2508,29 +2514,29 @@ void GameUi::SetScoreboard(bool open, const std::string& title, const std::strin
   impl_->scoreboard_rows = rows;
 }
 
-void GameUi::SetPrompts(const std::vector<std::string>& prompts) {
+void GameUi::SetPrompts(const base::Vector<base::String>& prompts) {
   if (impl_->initialized) impl_->mp_prompts = prompts;
 }
 
-void GameUi::SetCompassBlips(const std::vector<CompassBlip>& blips) {
+void GameUi::SetCompassBlips(const base::Vector<CompassBlip>& blips) {
   if (impl_->initialized) impl_->compass_blips = blips;
 }
 
-void GameUi::SetNametags(const std::vector<Nametag>& nametags) {
+void GameUi::SetNametags(const base::Vector<Nametag>& nametags) {
   if (impl_->initialized) impl_->nametags = nametags;
 }
 
-void GameUi::SetHudGauges(const std::vector<HudGauge>& gauges) {
+void GameUi::SetHudGauges(const base::Vector<HudGauge>& gauges) {
   if (impl_->initialized) impl_->hud_gauges = gauges;
 }
 
-void GameUi::FlashQuestUpdate(const std::string& message) {
+void GameUi::FlashQuestUpdate(const base::String& message) {
   if (!impl_->initialized) return;
   impl_->toast_text = message;
   impl_->toast_age = 0.0f;
 }
 
-void GameUi::SetActivatePrompt(const std::string& prompt) {
+void GameUi::SetActivatePrompt(const base::String& prompt) {
   if (impl_->initialized) impl_->activate_prompt = prompt;
 }
 
@@ -2557,14 +2563,15 @@ void GameUi::SetContainer(const ContainerView& container) {
   if (impl_->initialized) impl_->container = container;
 }
 
-void GameUi::SetWarMap(bool open, const std::vector<WarHoldEntry>& holds, float imperial_fraction) {
+void GameUi::SetWarMap(bool open, const base::Vector<WarHoldEntry>& holds,
+                       float imperial_fraction) {
   if (!impl_->initialized) return;
   impl_->war_map_open = open;
   impl_->war_holds = holds;
   impl_->war_progress = imperial_fraction;
 }
 
-void GameUi::SetJournal(bool open, const std::vector<HudQuest>& quests, int selected) {
+void GameUi::SetJournal(bool open, const base::Vector<HudQuest>& quests, int selected) {
   if (!impl_->initialized) return;
   impl_->journal_open = open;
   impl_->journal = quests;
@@ -2576,7 +2583,7 @@ void GameUi::SetEditorView(const EditorView& view) {
 }
 
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink) {
-  if (impl_->initialized) impl_->editor_sink = std::move(sink);
+  if (impl_->initialized) impl_->editor_sink = base::move(sink);
 }
 
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
@@ -2597,7 +2604,7 @@ u64 GameUi::CreateUiTexture(int width, int height, const u8* rgba) {
 void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera, f32 frame_delta,
                    render::FrameView* view) {
   if (!impl_->initialized) return;
-  Impl* impl = impl_.get();
+  Impl* impl = (impl_ ? &*impl_ : nullptr);
 
   // Hot reload: poll the .ugui fragments a few times a second and rebuild the
   // tree in place when one is edited. Gated on RECREATION_UI_HOT_RELOAD.
@@ -2713,7 +2720,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->SetVisible("quest_marker_box", impl->marker_active);
   if (impl->marker_active) {
     float off = impl->marker_bearing / 45.0f * kCompassLabel;
-    off = std::clamp(off, -(kCompassCenter - 8.0f), kCompassCenter - 8.0f);
+    off = base::Clamp(off, -(kCompassCenter - 8.0f), kCompassCenter - 8.0f);
     impl->SetStyleField(
         "quest_pip", [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
         kCompassCenter + off - 4.5f);
@@ -2725,11 +2732,11 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // Map blips on the compass: one pip per blip at its bearing, in its colour. The
   // pool caps how many show at once; the caller already dropped off-screen ones.
   for (int i = 0; i < kCompassBlips; ++i) {
-    const std::string pip = "blip_pip" + std::to_string(i);
+    const base::String pip = "blip_pip" + base::ToString(i);
     if (static_cast<size_t>(i) < impl->compass_blips.size()) {
       const GameUi::CompassBlip& b = impl->compass_blips[i];
       float off = b.bearing_deg / 45.0f * kCompassLabel;
-      off = std::clamp(off, -(kCompassCenter - 8.0f), kCompassCenter - 8.0f);
+      off = base::Clamp(off, -(kCompassCenter - 8.0f), kCompassCenter - 8.0f);
       impl->SetStyleField(
           pip.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
           kCompassCenter + off - 3.5f);
@@ -2744,7 +2751,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   bool moving = in.key(Key::kW) || in.key(Key::kA) || in.key(Key::kS) || in.key(Key::kD);
   bool sprinting = in.key(Key::kLeftShift) && moving;
   impl->stamina += (sprinting ? -0.45f : 0.30f) * frame_delta;
-  impl->stamina = std::clamp(impl->stamina, 0.0f, 1.0f);
+  impl->stamina = base::Clamp(impl->stamina, 0.0f, 1.0f);
   impl->SetStyleField(
       "bar_stamina_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
       impl->stamina * 100.0f);
@@ -2764,14 +2771,14 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // Managed gameplay gauges (oxygen, radiation, ...): the pooled labeled bar
   // stack above the vitals, one row per active gauge.
   for (int i = 0; i < kHudGaugeRows; ++i) {
-    const std::string row = "hud_gauge" + std::to_string(i);
+    const base::String row = "hud_gauge" + base::ToString(i);
     if (i < static_cast<int>(impl->hud_gauges.size())) {
       const HudGauge& g = impl->hud_gauges[i];
       impl->SetVisible(row.c_str(), true);
       ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), g.label.c_str());
       impl->SetStyleField((row + "_fill").c_str(),
                           [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
-                          std::clamp(g.fraction, 0.0f, 1.0f) * 100.0f);
+                          base::Clamp(g.fraction, 0.0f, 1.0f) * 100.0f);
       impl->SetBackground((row + "_fill").c_str(), Rgba(g.color ? g.color : 0x5d92e8ffu));
     } else {
       impl->SetVisible(row.c_str(), false);
@@ -2784,9 +2791,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->SetVisible("chat_box", chat_on);
   if (chat_on) {
     const int count = static_cast<int>(impl->chat_lines.size());
-    const int first = std::max(0, count - kChatRows);  // tail window
+    const int first = base::Max(0, count - kChatRows);  // tail window
     for (int i = 0; i < kChatRows; ++i) {
-      const std::string row = "chat_line" + std::to_string(i);
+      const base::String row = "chat_line" + base::ToString(i);
       const int src = first + i;
       if (src < count) {
         ugui::SetText(impl->ui.FindWidget(row.c_str()), impl->chat_lines[src].c_str());
@@ -2804,7 +2811,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
                   impl->scoreboard_title.empty() ? "Players" : impl->scoreboard_title.c_str());
     ugui::SetText(impl->ui.FindWidget("scoreboard_header"), impl->scoreboard_header.c_str());
     for (int i = 0; i < kScoreRows; ++i) {
-      const std::string row = "scoreboard_row" + std::to_string(i);
+      const base::String row = "scoreboard_row" + base::ToString(i);
       if (static_cast<size_t>(i) < impl->scoreboard_rows.size()) {
         ugui::SetText(impl->ui.FindWidget(row.c_str()), impl->scoreboard_rows[i].c_str());
         impl->SetVisible(row.c_str(), true);
@@ -2820,7 +2827,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->SetVisible("mp_prompt_box", prompts_on);
   if (prompts_on) {
     for (int i = 0; i < kPromptRows; ++i) {
-      const std::string row = "mp_prompt" + std::to_string(i);
+      const base::String row = "mp_prompt" + base::ToString(i);
       if (static_cast<size_t>(i) < impl->mp_prompts.size()) {
         ugui::SetText(impl->ui.FindWidget(row.c_str()), impl->mp_prompts[i].c_str());
         impl->SetVisible(row.c_str(), true);
@@ -2834,7 +2841,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   // engine projects the world position; we centre the pill on it (a rough half
   // width per character) and bias it up so it floats above the player.
   for (int i = 0; i < kNametags; ++i) {
-    const std::string tag = "nametag" + std::to_string(i);
+    const base::String tag = "nametag" + base::ToString(i);
     if (static_cast<size_t>(i) < impl->nametags.size()) {
       const GameUi::Nametag& n = impl->nametags[i];
       ugui::SetText(impl->ui.FindWidget((tag + "_txt").c_str()), n.label.c_str());
@@ -2855,11 +2862,11 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->SetVisible("questtracker", has_quest);
   if (has_quest) ugui::SetText(impl->ui.FindWidget("quest_title"), impl->quest.title.c_str());
   for (int i = 0; i < kQuestObjectiveRows; ++i) {
-    std::string row = "quest_obj" + std::to_string(i);
+    base::String row = "quest_obj" + base::ToString(i);
     if (has_quest && static_cast<size_t>(i) < impl->quest.objectives.size()) {
       const HudQuest::Objective& o = impl->quest.objectives[i];
       // A check for done objectives, a bullet for the rest.
-      std::string line = (o.completed ? "✓  " : "•  ") + o.text;
+      base::String line = (o.completed ? "✓  " : "•  ") + o.text;
       ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
       impl->SetVisible(row.c_str(), true);
     } else {
@@ -2886,9 +2893,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     ugui::SetText(impl->ui.FindWidget("dialogue_speaker"), dlg.speaker.c_str());
     ugui::SetText(impl->ui.FindWidget("dialogue_npc"), dlg.npc_line.c_str());
     for (int i = 0; i < kDialogueOptionRows; ++i) {
-      const std::string row = "dialogue_opt" + std::to_string(i);
+      const base::String row = "dialogue_opt" + base::ToString(i);
       if (i < static_cast<int>(dlg.options.size())) {
-        const std::string line = std::to_string(i + 1) + ". " + dlg.options[i];
+        const base::String line = base::ToString(i + 1) + ". " + dlg.options[i];
         ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
         impl->SetVisible(row.c_str(), true);
       } else {
@@ -2903,10 +2910,10 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   if (cont.open) {
     ugui::SetText(impl->ui.FindWidget("container_head"), cont.name.c_str());
     for (int i = 0; i < kContainerRows; ++i) {
-      const std::string row = "container_item" + std::to_string(i);
+      const base::String row = "container_item" + base::ToString(i);
       if (i < static_cast<int>(cont.items.size())) {
-        std::string line = cont.items[i].name;
-        if (cont.items[i].count > 1) line += "  x" + std::to_string(cont.items[i].count);
+        base::String line = cont.items[i].name;
+        if (cont.items[i].count > 1) line += "  x" + base::ToString(cont.items[i].count);
         ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
         impl->SetVisible(row.c_str(), true);
       } else {
@@ -2925,10 +2932,10 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   impl->SetVisible("journal_box", impl->journal_open);
   if (impl->journal_open) {
     for (int i = 0; i < kJournalRows; ++i) {
-      const std::string row = "journal_q" + std::to_string(i);
+      const base::String row = "journal_q" + base::ToString(i);
       if (i < static_cast<int>(impl->journal.size())) {
-        const std::string mark = i == impl->journal_selected ? "▶ " : "   ";
-        const std::string line = mark + std::to_string(i + 1) + ". " + impl->journal[i].title;
+        const base::String mark = i == impl->journal_selected ? "▶ " : "   ";
+        const base::String line = mark + base::ToString(i + 1) + ". " + impl->journal[i].title;
         ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
         impl->SetVisible(row.c_str(), true);
       } else {
@@ -2940,9 +2947,9 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
                               ? &impl->journal[impl->journal_selected]
                               : nullptr;
     for (int i = 0; i < kJournalObjRows; ++i) {
-      const std::string row = "journal_obj" + std::to_string(i);
+      const base::String row = "journal_obj" + base::ToString(i);
       if (sel && i < static_cast<int>(sel->objectives.size())) {
-        const std::string line =
+        const base::String line =
             (sel->objectives[i].completed ? "✓  " : "•  ") + sel->objectives[i].text;
         ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
         impl->SetVisible(row.c_str(), true);
@@ -2958,7 +2965,7 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
   if (impl->war_map_open) {
     int imperial = 0, stormcloak = 0;
     for (int i = 0; i < kWarHoldRows; ++i) {
-      const std::string row = "war_hold" + std::to_string(i);
+      const base::String row = "war_hold" + base::ToString(i);
       if (i < static_cast<int>(impl->war_holds.size())) {
         const GameUi::WarHoldEntry& h = impl->war_holds[i];
         const char* owner = h.owner == 1 ? "Imperial" : h.owner == 2 ? "Stormcloak" : "Contested";
@@ -2980,10 +2987,10 @@ void GameUi::Build(Window& window, render::Renderer& renderer, FlyCamera& camera
     ugui::SetText(impl->ui.FindWidget("war_map_sub"), sub);
     impl->SetStyleField(
         "war_bar_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
-        std::clamp(impl->war_progress, 0.0f, 1.0f) * 100.0f);
+        base::Clamp(impl->war_progress, 0.0f, 1.0f) * 100.0f);
     char prog[96];
     std::snprintf(prog, sizeof(prog), "Imperial control: %d%%",
-                  static_cast<int>(std::clamp(impl->war_progress, 0.0f, 1.0f) * 100.0f + 0.5f));
+                  static_cast<int>(base::Clamp(impl->war_progress, 0.0f, 1.0f) * 100.0f + 0.5f));
     ugui::SetText(impl->ui.FindWidget("war_map_progress"), prog);
   }
 
@@ -3044,21 +3051,21 @@ bool GameUi::Initialize(Window&, render::Renderer&) { return false; }
 void GameUi::Shutdown() {}
 void GameUi::Build(Window&, render::Renderer&, FlyCamera&, f32, render::FrameView*) {}
 void GameUi::SetQuest(const HudQuest&) {}
-void GameUi::SetChatLines(const std::vector<std::string>&) {}
-void GameUi::SetScoreboard(bool, const std::string&, const std::string&,
-                           const std::vector<std::string>&) {}
-void GameUi::SetPrompts(const std::vector<std::string>&) {}
-void GameUi::SetCompassBlips(const std::vector<CompassBlip>&) {}
-void GameUi::SetNametags(const std::vector<Nametag>&) {}
-void GameUi::SetHudGauges(const std::vector<HudGauge>&) {}
-void GameUi::FlashQuestUpdate(const std::string&) {}
-void GameUi::SetActivatePrompt(const std::string&) {}
+void GameUi::SetChatLines(const base::Vector<base::String>&) {}
+void GameUi::SetScoreboard(bool, const base::String&, const base::String&,
+                           const base::Vector<base::String>&) {}
+void GameUi::SetPrompts(const base::Vector<base::String>&) {}
+void GameUi::SetCompassBlips(const base::Vector<CompassBlip>&) {}
+void GameUi::SetNametags(const base::Vector<Nametag>&) {}
+void GameUi::SetHudGauges(const base::Vector<HudGauge>&) {}
+void GameUi::FlashQuestUpdate(const base::String&) {}
+void GameUi::SetActivatePrompt(const base::String&) {}
 void GameUi::SetHudVisible(bool) {}
 void GameUi::SetObjectiveMarker(bool, float, float) {}
 void GameUi::SetDialogue(const DialogueView&) {}
 void GameUi::SetContainer(const ContainerView&) {}
-void GameUi::SetJournal(bool, const std::vector<HudQuest>&, int) {}
-void GameUi::SetWarMap(bool, const std::vector<WarHoldEntry>&, float) {}
+void GameUi::SetJournal(bool, const base::Vector<HudQuest>&, int) {}
+void GameUi::SetWarMap(bool, const base::Vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
@@ -3080,12 +3087,12 @@ void GameUi::MainMenuMove(int, int) {}
 void GameUi::MainMenuActivate() {}
 bool GameUi::MainMenuBack() { return false; }
 bool GameUi::MainMenuAtRoot() const { return false; }
-void GameUi::SetMainMenuUniverses(const std::vector<std::string>&, const std::vector<bool>&) {}
+void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
-void GameUi::SetMainMenuMods(const std::vector<std::string>&) {}
-void GameUi::SetMainMenuNews(const std::vector<MenuNewsItem>&) {}
-void GameUi::SetMainMenuGlyph(const std::string&, u64) {}
+void GameUi::SetMainMenuMods(const base::Vector<base::String>&) {}
+void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>&) {}
+void GameUi::SetMainMenuGlyph(const base::String&, u64) {}
 int GameUi::selected_universe() const { return 0; }
 MainMenuRequest GameUi::PollMainMenuRequest() { return {}; }
 void GameUi::OpenFirstRun() {}

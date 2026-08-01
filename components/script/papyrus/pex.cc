@@ -1,5 +1,8 @@
 #include "components/script/papyrus/pex.h"
 
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "core/log.h"
@@ -50,10 +53,10 @@ class Reader {
     std::memcpy(&r, &v, 4);
     return r;
   }
-  std::string Str() {
+  base::String Str() {
     u16 len = U16();
     if (!Need(len)) return {};
-    std::string s(reinterpret_cast<const char*>(data_.data() + pos_), len);
+    base::String s(reinterpret_cast<const char*>(data_.data() + pos_), len);
     pos_ += len;
     return s;
   }
@@ -136,7 +139,7 @@ Function ReadFunction(Reader& r) {
       i32 n = count.int_value;
       for (i32 a = 0; a < n && r.ok(); ++a) insn.var_args.push_back(ReadVarData(r));
     }
-    f.code.push_back(std::move(insn));
+    f.code.push_back(base::move(insn));
   }
   return f;
 }
@@ -183,7 +186,7 @@ Object ReadObject(Reader& r, bool fallout) {
     v.user_flags = r.U32();
     v.initial_value = ReadVarData(r);
     if (fallout) r.U8();  // member variable const flag
-    o.variables.push_back(std::move(v));
+    o.variables.push_back(base::move(v));
   }
 
   u16 prop_count = r.U16();
@@ -207,7 +210,7 @@ Object ReadObject(Reader& r, bool fallout) {
         p.has_setter = true;
       }
     }
-    o.properties.push_back(std::move(p));
+    o.properties.push_back(base::move(p));
   }
 
   u16 state_count = r.U16();
@@ -221,9 +224,9 @@ Object ReadObject(Reader& r, bool fallout) {
       NamedFunction nf;
       nf.name = r.U16();
       nf.function = ReadFunction(r);
-      s.functions.push_back(std::move(nf));
+      s.functions.push_back(base::move(nf));
     }
-    o.states.push_back(std::move(s));
+    o.states.push_back(base::move(s));
   }
   return o;
 }
@@ -250,11 +253,11 @@ void SkipFalloutDebugExtras(Reader& r) {
   }
 }
 
-const std::string kEmpty;
+const base::String kEmpty;
 
 }  // namespace
 
-const std::string& PexFile::Str(StringIndex index) const {
+const base::String& PexFile::Str(StringIndex index) const {
   if (index >= string_table.size()) return kEmpty;
   return string_table[index];
 }
@@ -303,7 +306,7 @@ bool ParsePex(ByteSpan data, PexFile* out) {
       u16 line_count = r.U16();
       d.line_numbers.reserve(line_count);
       for (u16 j = 0; j < line_count; ++j) d.line_numbers.push_back(r.U16());
-      out->debug_functions.push_back(std::move(d));
+      out->debug_functions.push_back(base::move(d));
     }
     if (out->game_id != 1) SkipFalloutDebugExtras(r);
   }
@@ -320,8 +323,7 @@ bool ParsePex(ByteSpan data, PexFile* out) {
   u16 object_count = r.U16();
   out->objects.reserve(object_count);
   const bool fallout = out->game_id != 1;  // Skyrim is 1; FO4/76 add object fields
-  for (u16 i = 0; i < object_count && r.ok(); ++i)
-    out->objects.push_back(ReadObject(r, fallout));
+  for (u16 i = 0; i < object_count && r.ok(); ++i) out->objects.push_back(ReadObject(r, fallout));
 
   if (!r.ok()) {
     RX_WARN("pex: truncated or malformed near byte {}", r.pos());

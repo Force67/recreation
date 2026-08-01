@@ -1,13 +1,18 @@
 // scene_playertest: checks the timer-driven ScenePlayer fires begin/phase/end
 // cues in order. Deterministic (no game data), runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "components/quest/scene_player.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -20,13 +25,13 @@ void Check(const char* what, bool ok) {
 
 // Records the cue sequence as readable strings so order is easy to assert.
 struct RecordingSink : ScenePlayerSink {
-  std::vector<std::string> log;
-  void SceneBegin(u64 scene) override { log.push_back("begin " + std::to_string(scene)); }
-  void ScenePhase(u64 scene, u32 phase, bool on_begin) override {
-    log.push_back("phase " + std::to_string(scene) + ":" + std::to_string(phase) +
+  base::Vector<base::String> log;
+  void SceneBegin(rx::u64 scene) override { log.push_back("begin " + base::ToString(scene)); }
+  void ScenePhase(rx::u64 scene, u32 phase, bool on_begin) override {
+    log.push_back("phase " + base::ToString(scene) + ":" + base::ToString(phase) +
                   (on_begin ? " begin" : " end"));
   }
-  void SceneEnd(u64 scene) override { log.push_back("end " + std::to_string(scene)); }
+  void SceneEnd(rx::u64 scene) override { log.push_back("end " + base::ToString(scene)); }
 };
 
 void TestTwoPhases() {

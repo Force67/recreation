@@ -6,9 +6,10 @@
 // positions, then the fixed uv1/uv2/color/normal/tangent stream sequence). No
 // game data needed, so it runs in the ctest gate.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <cstring>
-#include <vector>
 
 #include "components/bethesda/starfield_mesh.h"
 #include "core/types.h"
@@ -22,15 +23,15 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v));
   b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutI16(std::vector<rx::u8>& b, rx::i16 v) { PutU16(b, static_cast<rx::u16>(v)); }
-void PutF32(std::vector<rx::u8>& b, float f) {
+void PutI16(base::Vector<rx::u8>& b, rx::i16 v) { PutU16(b, static_cast<rx::u16>(v)); }
+void PutF32(base::Vector<rx::u8>& b, float f) {
   rx::u32 v;
   std::memcpy(&v, &f, 4);
   PutU32(b, v);
@@ -49,7 +50,7 @@ int main() {
       {-q, -q, 0}, {q, -q, 0}, {q, q, 0}, {-q, q, 0}};
   const rx::u16 indices[6] = {0, 1, 2, 0, 2, 3};
 
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   PutU32(b, 2);  // version
   PutU32(b, 6);  // index count
   for (rx::u16 i : indices) PutU16(b, i);

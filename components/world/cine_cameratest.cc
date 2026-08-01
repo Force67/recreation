@@ -9,6 +9,9 @@
 #include "components/world/cine_camera.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::world;
 
 namespace {
@@ -50,12 +53,12 @@ void TestShots() {
   Check("from off to one side", std::fabs(two.eye[2]) > 1.0f);
 
   const CineFraming close = SolveShot(ShotKind::kCloseUp, speaker, listener, 0, p);
-  Check("a close-up is tight on the speaker", Dist(close.eye, speaker) < p.close + 0.2f &&
-                                                  Dist(close.target, speaker) < 0.01f);
+  Check("a close-up is tight on the speaker",
+        Dist(close.eye, speaker) < p.close + 0.2f && Dist(close.target, speaker) < 0.01f);
 
   const CineFraming wide = SolveShot(ShotKind::kWide, speaker, listener, 0, p);
-  Check("a wide pulls back and up", Dist(wide.eye, wide.target) > Dist(two.eye, two.target) &&
-                                        wide.eye[1] > two.eye[1]);
+  Check("a wide pulls back and up",
+        Dist(wide.eye, wide.target) > Dist(two.eye, two.target) && wide.eye[1] > two.eye[1]);
 
   // A lone speaker (no distinct listener) still gets a framed angle from the yaw.
   const CineFraming solo = SolveShot(ShotKind::kOverShoulder, speaker, speaker, 0, p);
@@ -99,8 +102,8 @@ void TestEase() {
   Check("easing moves toward the goal without arriving", mid.eye[0] > 0.0f && mid.eye[0] < 10.0f);
   CineFraming cur = from;
   for (int i = 0; i < 200; ++i) cur = EaseFraming(cur, to, 0.016f, 6.0f);
-  Check("and converges on it", std::fabs(cur.eye[0] - 10.0f) < 0.05f &&
-                                  std::fabs(cur.target[1] - 4.0f) < 0.05f);
+  Check("and converges on it",
+        std::fabs(cur.eye[0] - 10.0f) < 0.05f && std::fabs(cur.target[1] - 4.0f) < 0.05f);
 }
 
 void TestPushIn() {

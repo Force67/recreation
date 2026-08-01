@@ -1,8 +1,9 @@
 #ifndef RECREATION_RUNTIME_DEMO_TRAILER_H_
 #define RECREATION_RUNTIME_DEMO_TRAILER_H_
 
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/weather/weather.h"
@@ -26,27 +27,27 @@ struct TrailerOverlay {
   f32 letterbox = 0.0f;  // 0..1 of the cinematic bars' full height
   f32 fade = 0.0f;       // 0..1 black wash (fade in at the start, out at the end)
 
-  std::string title;     // location title (game), e.g. "SKYRIM"
-  std::string subtitle;  // worldspace / tagline under it
+  base::String title;     // location title (game), e.g. "SKYRIM"
+  base::String subtitle;  // worldspace / tagline under it
   f32 title_alpha = 0.0f;
 
-  std::string badge;        // render-mode label, e.g. "PATH TRACING  REFERENCE"
-  std::string weather_tag;  // live weather name under the badge
+  base::String badge;        // render-mode label, e.g. "PATH TRACING  REFERENCE"
+  base::String weather_tag;  // live weather name under the badge
   f32 badge_alpha = 0.0f;
 
-  std::string intro_title;     // centered opening card
-  std::string intro_subtitle;
+  base::String intro_title;  // centered opening card
+  base::String intro_subtitle;
   f32 intro_alpha = 0.0f;
 
   // Spoken-line caption above the bottom bar: who is talking and what they say.
-  std::string caption_speaker;
-  std::string caption;
+  base::String caption_speaker;
+  base::String caption;
   f32 caption_alpha = 0.0f;
 
   // Small loading screen shown over black while a freshly cut-to game streams in
   // (set by the engine, not the timeline). loading_label names the incoming game.
   bool loading = false;
-  std::string loading_label;
+  base::String loading_label;
 };
 
 struct TrailerState {
@@ -66,15 +67,15 @@ class TrailerDirector {
   struct Beat {
     f32 start = 0.0f;
     f32 end = 0.0f;
-    std::string title;
-    std::string subtitle;
+    base::String title;
+    base::String subtitle;
   };
 
-  void set_intro(std::string title, std::string subtitle) {
-    intro_title_ = std::move(title);
-    intro_subtitle_ = std::move(subtitle);
+  void set_intro(base::String title, base::String subtitle) {
+    intro_title_ = base::move(title);
+    intro_subtitle_ = base::move(subtitle);
   }
-  void AddBeat(Beat beat) { beats_.push_back(std::move(beat)); }
+  void AddBeat(Beat beat) { beats_.push_back(base::move(beat)); }
   void set_duration(f32 seconds) { duration_ = seconds; }
 
   bool empty() const { return beats_.empty(); }
@@ -87,9 +88,9 @@ class TrailerDirector {
   int ActiveBeatIndex(f32 t) const;
 
  private:
-  std::string intro_title_ = "RECREATION";
-  std::string intro_subtitle_;
-  std::vector<Beat> beats_;
+  base::String intro_title_ = "RECREATION";
+  base::String intro_subtitle_;
+  base::Vector<Beat> beats_;
   f32 duration_ = 0.0f;
 };
 

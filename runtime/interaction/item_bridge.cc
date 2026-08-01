@@ -1,13 +1,15 @@
 #include "runtime/interaction/item_bridge.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <vector>
 
 #include "runtime/actor/actor_system.h"
 #include "asset/asset_id.h"
@@ -77,17 +79,17 @@ bool IsValueWeightType(u32 type) {
 }
 
 // --- little-endian byte helpers for the per-profile item blob ---
-void PutU32(std::vector<u8>& b, u32 v) {
+void PutU32(base::Vector<u8>& b, u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
 }
-void PutU16(std::vector<u8>& b, u16 v) {
+void PutU16(base::Vector<u8>& b, u16 v) {
   b.push_back(u8(v));
   b.push_back(u8(v >> 8));
 }
-void PutU64(std::vector<u8>& b, u64 v) {
+void PutU64(base::Vector<u8>& b, u64 v) {
   for (int i = 0; i < 8; ++i) b.push_back(u8(v >> (8 * i)));
 }
-void PutBytes(std::vector<u8>& b, const std::vector<u8>& v) {
+void PutBytes(base::Vector<u8>& b, const base::Vector<u8>& v) {
   PutU32(b, u32(v.size()));
   b.insert(b.end(), v.begin(), v.end());
 }
@@ -117,10 +119,13 @@ struct Reader {
     p += 8;
     return v;
   }
-  std::vector<u8> Bytes() {
+  base::Vector<u8> Bytes() {
     u32 n = U32();
-    if (p + n > end) { ok = false; return {}; }
-    std::vector<u8> v(p, p + n);
+    if (p + n > end) {
+      ok = false;
+      return {};
+    }
+    base::Vector<u8> v(p, p + n);
     p += n;
     return v;
   }
@@ -133,8 +138,8 @@ std::filesystem::path ConfigDir() {
   return fs::path("recreation_config");
 }
 
-std::string SanitizeProfile(const std::string& name) {
-  std::string out;
+base::String SanitizeProfile(const base::String& name) {
+  base::String out;
   for (char c : name) {
     out.push_back((std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_');
   }
@@ -151,9 +156,9 @@ ItemBridge::ItemBridge(EngineContext& ctx, ActorSystem* actors) : ctx_(ctx), act
   world_store_.set_cell_size(32.0f);  // metres; a coarse spatial bucket for dormant loot
 }
 
-std::string ItemBridge::SavePath() const {
-  std::string profile = SanitizeProfile(ctx_.config ? ctx_.config->player_name : "player");
-  return (ConfigDir() / "profiles" / profile / "items.bin").string();
+base::String ItemBridge::SavePath() const {
+  base::String profile = SanitizeProfile(ctx_.config ? ctx_.config->player_name : "player");
+  return (ConfigDir() / "profiles" / profile.c_str() / "items.bin").string();
 }
 
 bool ItemBridge::IsItemBase(bethesda::GlobalFormId base) const {
@@ -203,7 +208,7 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
 
   // Mass: derive a plausible kg from the game weight, clamped so a feather and a
   // greatsword both tumble believably.
-  def.mass = std::clamp(weight > 0.0f ? weight * 0.5f : 0.2f, 0.1f, 100.0f);
+  def.mass = base::Clamp(weight > 0.0f ? weight * 0.5f : 0.2f, 0.1f, 100.0f);
   def.friction = 0.6f;
   def.restitution = 0.05f;
   def.scale = kUnitsToMeters;  // the box's shape-unit -> metre scale (mesh is game-unit space)
@@ -211,8 +216,8 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
   // World mesh + a box collision shape from its bounds, via the streamer's model
   // pipeline (converts + uploads to the shared renderer, salted for this domain).
   asset::AssetId render_id{};
-  const asset::Mesh* mesh = ctx_.streamer ? ctx_.streamer->PrepareItemModel(base, &render_id)
-                                          : nullptr;
+  const asset::Mesh* mesh =
+      ctx_.streamer ? ctx_.streamer->PrepareItemModel(base, &render_id) : nullptr;
   if (mesh) {
     def.world_mesh = render_id;
     // Collision box from the lod-0 vertex AABB. Item NIFs are NOT symmetric about
@@ -226,16 +231,19 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
     if (!mesh->lods.empty()) {
       for (const asset::Vertex& v : mesh->lods[0].vertices) {
         for (int k = 0; k < 3; ++k) {
-          mn[k] = std::min(mn[k], v.position[k]);
-          mx[k] = std::max(mx[k], v.position[k]);
+          mn[k] = base::Min(mn[k], v.position[k]);
+          mx[k] = base::Max(mx[k], v.position[k]);
         }
       }
     }
-    if (mn[0] > mx[0]) { mn[0] = mn[1] = mn[2] = -2.0f; mx[0] = mx[1] = mx[2] = 2.0f; }
+    if (mn[0] > mx[0]) {
+      mn[0] = mn[1] = mn[2] = -2.0f;
+      mx[0] = mx[1] = mx[2] = 2.0f;
+    }
     // Half extents and centre offset, in game units (scaled by def.scale later).
-    const f32 half[3] = {std::max((mx[0] - mn[0]) * 0.5f, 2.0f),
-                         std::max((mx[1] - mn[1]) * 0.5f, 2.0f),
-                         std::max((mx[2] - mn[2]) * 0.5f, 2.0f)};
+    const f32 half[3] = {base::Max((mx[0] - mn[0]) * 0.5f, 2.0f),
+                         base::Max((mx[1] - mn[1]) * 0.5f, 2.0f),
+                         base::Max((mx[2] - mn[2]) * 0.5f, 2.0f)};
     const f32 ctr[3] = {(mx[0] + mn[0]) * 0.5f, (mx[1] + mn[1]) * 0.5f, (mx[2] + mn[2]) * 0.5f};
     physics::ShapeDesc box;
     box.kind = physics::ShapeDesc::Kind::kBox;
@@ -258,7 +266,7 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
 
 inventory::ItemDefId ItemBridge::DefForBase(bethesda::GlobalFormId base) {
   const u64 key = base.packed();
-  if (auto it = base_to_def_.find(key); it != base_to_def_.end()) return it->second;
+  if (auto* it = base_to_def_.find(key); it != nullptr) return *it;
   inventory::ItemDef def;
   if (!BuildDef(base, &def)) return inventory::kInvalidItemDef;
   const inventory::ItemDefId id = next_def_id_++;
@@ -315,7 +323,7 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
   if (ctx_.quest_world) ctx_.quest_world->Unregister(ref_handle);
   removed_refs_.insert(ref_handle);
 
-  std::string display = RecordNameFor(base);
+  base::String display = RecordNameFor(base);
   if (display.empty()) display = "item";
   if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Picked up " + display);
   RX_INFO("item: picked up '{}' x{} (ref 0x{:x}, base {:04x}:{:06x})", display, added, ref_handle,
@@ -324,7 +332,7 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
   return true;
 }
 
-std::string ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
+base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
   if (!ctx_.records) return {};
   bethesda::Record record;
   if (!ctx_.records->Parse(id, &record)) return {};
@@ -333,7 +341,7 @@ std::string ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
   if (ctx_.strings && full->data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, full->data.data(), 4);
-    if (const base::String* s = ctx_.strings->Find(string_id)) return std::string(s->c_str());
+    if (const base::String* s = ctx_.strings->Find(string_id)) return base::String(s->c_str());
   }
   return record.GetString(FourCc('F', 'U', 'L', 'L'));
 }
@@ -367,7 +375,10 @@ void ItemBridge::DropLast() {
   spawn.position[0] = ppos.x + fwd.x * 0.6f;
   spawn.position[1] = ppos.y + 1.0f;
   spawn.position[2] = ppos.z + fwd.z * 0.6f;
-  spawn.rotation[0] = 0; spawn.rotation[1] = 0; spawn.rotation[2] = 0; spawn.rotation[3] = 1;
+  spawn.rotation[0] = 0;
+  spawn.rotation[1] = 0;
+  spawn.rotation[2] = 0;
+  spawn.rotation[3] = 1;
   spawn.scale = kUnitsToMeters;  // render the NIF at world size (matches placed refs)
 
   const inventory::ItemDefId item = inv->entries[entry].item;
@@ -380,9 +391,9 @@ void ItemBridge::DropLast() {
       inventory::DropItem(*ctx_.world, *ctx_.physics, catalog_, player, entry, 1, spawn, impulse);
   if (dropped == ecs::kInvalidEntity) return;
 
-  std::string display = def ? RecordNameFor(def_to_base_.count(item) ? def_to_base_.at(item)
-                                                                     : bethesda::GlobalFormId{})
-                            : std::string();
+  base::String display = def ? RecordNameFor(def_to_base_.count(item) ? def_to_base_.at(item)
+                                                                      : bethesda::GlobalFormId{})
+                             : base::String();
   if (display.empty()) display = "item";
   if (ctx_.game_ui) ctx_.game_ui->FlashQuestUpdate("Dropped " + display);
   RX_INFO("item: dropped '{}' at ({:.2f},{:.2f},{:.2f})", display, spawn.position[0],
@@ -430,27 +441,29 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
   // Find the nearest loose item reference to the player.
   u64 best = 0;
   f32 best_d2 = 1e30f;
-  ctx_.world->Each<world::FormLink, world::Transform>(
-      [&](ecs::Entity, world::FormLink& link, world::Transform& t) {
-        const u64 handle = link.form.packed();
-        const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
-                                          static_cast<u32>(handle & 0xffffffffu)};
-        const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
-        if (!stored) return;
-        bethesda::Record rec;
-        if (!ctx_.records->Parse(refr, &rec)) return;
-        const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
-        if (!name || name->data.size() < 4) return;
-        u32 base_raw;
-        std::memcpy(&base_raw, name->data.data(), 4);
-        const bethesda::GlobalFormId base =
-            ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
-        if (!IsItemBase(base)) return;
-        const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y,
-                  dz = t.position[2] - ppos.z;
-        const f32 d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < best_d2) { best_d2 = d2; best = handle; }
-      });
+  ctx_.world->Each<world::FormLink, world::Transform>([&](ecs::Entity, world::FormLink& link,
+                                                          world::Transform& t) {
+    const u64 handle = link.form.packed();
+    const bethesda::GlobalFormId refr{static_cast<u16>(handle >> 32),
+                                      static_cast<u32>(handle & 0xffffffffu)};
+    const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(refr);
+    if (!stored) return;
+    bethesda::Record rec;
+    if (!ctx_.records->Parse(refr, &rec)) return;
+    const bethesda::Subrecord* name = rec.Find(FourCc('N', 'A', 'M', 'E'));
+    if (!name || name->data.size() < 4) return;
+    u32 base_raw;
+    std::memcpy(&base_raw, name->data.data(), 4);
+    const bethesda::GlobalFormId base =
+        ctx_.records->ResolveFrom(bethesda::RawFormId{base_raw}, stored->winning_plugin);
+    if (!IsItemBase(base)) return;
+    const f32 dx = t.position[0] - ppos.x, dy = t.position[1] - ppos.y, dz = t.position[2] - ppos.z;
+    const f32 d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < best_d2) {
+      best_d2 = d2;
+      best = handle;
+    }
+  });
 
   if (best == 0) {
     RX_INFO("ITEM_PROBE: no loose item reference found in the loaded world");
@@ -458,18 +471,18 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
   }
   RX_INFO("ITEM_PROBE: nearest item ref 0x{:x} at {:.1f} m; picking up", best, std::sqrt(best_d2));
   const bool picked = TryPickUp(best);
-  RX_INFO("ITEM_PROBE: pickup {} -> inventory has {} stack(s)", picked ? "OK" : "FAILED",
-          [&] {
-            const ecs::Entity p = actors_->PlayerEntity();
-            const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(p);
-            u32 n = 0;
-            if (inv)
-              for (const auto& e : inv->entries)
-                if (e.count > 0) ++n;
-            return n;
-          }());
+  RX_INFO("ITEM_PROBE: pickup {} -> inventory has {} stack(s)", picked ? "OK" : "FAILED", [&] {
+    const ecs::Entity p = actors_->PlayerEntity();
+    const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(p);
+    u32 n = 0;
+    if (inv)
+      for (const auto& e : inv->entries)
+        if (e.count > 0) ++n;
+    return n;
+  }());
   DropLast();
-  RX_INFO("ITEM_PROBE: dropped; removed_refs={}, world-item entities follow at next sync", removed_refs_.size());
+  RX_INFO("ITEM_PROBE: dropped; removed_refs={}, world-item entities follow at next sync",
+          removed_refs_.size());
 }
 
 void ItemBridge::OnPlayerReady() {
@@ -484,12 +497,13 @@ void ItemBridge::OnPlayerReady() {
     // Cells around the spawn may have streamed in before the suppressor was set;
     // destroy any already-placed ref we know was removed.
     if (!removed_refs_.empty() && ctx_.world) {
-      std::vector<ecs::Entity> victims;
+      base::Vector<ecs::Entity> victims;
       ctx_.world->Each<world::FormLink>([&](ecs::Entity e, world::FormLink& link) {
         if (removed_refs_.count(link.form.packed())) victims.push_back(e);
       });
       for (ecs::Entity e : victims) {
-        if (ctx_.quest_world) ctx_.quest_world->Unregister(ctx_.world->Get<world::FormLink>(e)->form.packed());
+        if (ctx_.quest_world)
+          ctx_.quest_world->Unregister(ctx_.world->Get<world::FormLink>(e)->form.packed());
         ctx_.world->Destroy(e);
       }
     }
@@ -498,7 +512,7 @@ void ItemBridge::OnPlayerReady() {
 
 void ItemBridge::Save() const {
   if (!ctx_.world) return;
-  std::vector<u8> blob;
+  base::Vector<u8> blob;
   PutU32(blob, kBlobMagic);
   PutU32(blob, kBlobVersion);
 
@@ -516,13 +530,16 @@ void ItemBridge::Save() const {
   for (u64 h : removed_refs_) PutU64(blob, h);
 
   // rx inventory + world-item blobs.
-  PutBytes(blob, inventory::SaveInventories(*ctx_.world));
-  PutBytes(blob, inventory::SaveWorldItems(*ctx_.world, world_store_));
+  // rx::inventory serializes into std::vector; copy across the boundary.
+  const std::vector<u8> inventories = inventory::SaveInventories(*ctx_.world);
+  const std::vector<u8> world_items = inventory::SaveWorldItems(*ctx_.world, world_store_);
+  PutBytes(blob, base::Vector<u8>(inventories.begin(), inventories.end()));
+  PutBytes(blob, base::Vector<u8>(world_items.begin(), world_items.end()));
 
-  const std::string path = SavePath();
+  const base::String path = SavePath();
   std::error_code ec;
-  std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  std::filesystem::create_directories(std::filesystem::path(path.c_str()).parent_path(), ec);
+  std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
   if (!out) {
     RX_WARN("item: could not write {}", path);
     return;
@@ -532,10 +549,10 @@ void ItemBridge::Save() const {
 }
 
 bool ItemBridge::Load() {
-  const std::string path = SavePath();
-  std::ifstream in(path, std::ios::binary);
+  const base::String path = SavePath();
+  std::ifstream in(path.c_str(), std::ios::binary);
   if (!in) return false;  // fresh profile
-  std::vector<u8> blob((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  base::Vector<u8> blob((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   Reader r(blob.data(), blob.size());
   if (r.U32() != kBlobMagic || r.U32() != kBlobVersion) {
     RX_WARN("item: {} is not a v{} item blob, ignoring", path, kBlobVersion);
@@ -555,21 +572,23 @@ bool ItemBridge::Load() {
     catalog_.Register(id, def);
     base_to_def_[base.packed()] = id;
     def_to_base_[id] = base;
-    next_def_id_ = std::max(next_def_id_, id + 1);
+    next_def_id_ = base::Max(next_def_id_, id + 1);
   }
 
   const u32 removed = r.U32();
   for (u32 i = 0; i < removed && r.ok; ++i) removed_refs_.insert(r.U64());
 
-  const std::vector<u8> inv_blob = r.Bytes();
-  const std::vector<u8> wi_blob = r.Bytes();
+  const base::Vector<u8> inv_blob = r.Bytes();
+  const base::Vector<u8> wi_blob = r.Bytes();
   if (!r.ok) {
     RX_WARN("item: {} truncated, partial load", path);
     return false;
   }
-  if (!inv_blob.empty()) inventory::LoadInventories(*ctx_.world, inv_blob);
+  if (!inv_blob.empty())
+    inventory::LoadInventories(*ctx_.world, std::vector<u8>(inv_blob.begin(), inv_blob.end()));
   if (!wi_blob.empty() && ctx_.physics)
-    inventory::LoadWorldItems(*ctx_.world, *ctx_.physics, catalog_, world_store_, wi_blob);
+    inventory::LoadWorldItems(*ctx_.world, *ctx_.physics, catalog_, world_store_,
+                              std::vector<u8>(wi_blob.begin(), wi_blob.end()));
 
   // Count what came back, for restart verification.
   u32 live_items = 0;
@@ -579,9 +598,10 @@ bool ItemBridge::Load() {
   if (const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player))
     for (const auto& e : inv->entries)
       if (e.count > 0) ++inv_stacks;
-  RX_INFO("item: loaded {} defs, {} removed refs, {} inventory stack(s), {} live + {} dormant world "
-          "item(s) from {}",
-          defs, removed, inv_stacks, live_items, world_store_.size(), path);
+  RX_INFO(
+      "item: loaded {} defs, {} removed refs, {} inventory stack(s), {} live + {} dormant world "
+      "item(s) from {}",
+      defs, removed, inv_stacks, live_items, world_store_.size(), path);
   return true;
 }
 

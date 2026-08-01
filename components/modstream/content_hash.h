@@ -1,8 +1,9 @@
 #ifndef RECREATION_MODSTREAM_CONTENT_HASH_H_
 #define RECREATION_MODSTREAM_CONTENT_HASH_H_
 
+#include <base/optional.h>
+
 #include <filesystem>
-#include <optional>
 
 #include "core/types.h"
 #include "components/modstream/mod_resource.h"
@@ -16,7 +17,7 @@ ContentHash HashBytes(const void* data, size_t size);
 // Streams `path` through the same hash without ever holding the whole file in
 // memory, so it scales to multi-hundred-megabyte mod assets. Returns nullopt if
 // the file cannot be opened or read.
-std::optional<ContentHash> HashFile(const std::filesystem::path& path);
+base::Optional<ContentHash> HashFile(const std::filesystem::path& path);
 
 // Incremental FNV-1a state, for hashing a file as its bytes arrive in chunks.
 // Seed, Update for each chunk, read `value` when done.

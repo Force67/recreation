@@ -1,10 +1,9 @@
 #ifndef RECREATION_BETHESDA_STRING_WRITER_H_
 #define RECREATION_BETHESDA_STRING_WRITER_H_
 
-#include <string>
-#include <string_view>
-
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -26,26 +25,26 @@ class StringTableWriter {
  public:
   // Interns `text` and returns its assigned string id. Ids are sequential and
   // start at 1 (0 is reserved by the plugin format to mean "no string").
-  u32 Add(std::string_view text);
+  u32 Add(base::StringRef text);
 
   // Records `text` under an explicit id, overwriting any prior text for that
   // id. Used when the caller already owns the id space (e.g. ids carried in a
   // record being re-localized). Keeps auto-assignment past the largest id seen.
-  void Set(u32 id, std::string_view text);
+  void Set(u32 id, base::StringRef text);
 
   // Serializes the whole file. length_prefixed=false for .strings, true for
   // .dlstrings/.ilstrings. Identical strings share a single data-block slot.
   base::Vector<u8> Build(bool length_prefixed) const;
 
   // Builds and writes the file. Returns false if the file cannot be opened.
-  bool Save(const std::string& path, bool length_prefixed) const;
+  bool Save(const base::String& path, bool length_prefixed) const;
 
   size_t size() const { return entries_.size(); }
 
  private:
   struct Entry {
     u32 id;
-    std::string text;
+    base::String text;
   };
 
   base::Vector<Entry> entries_;

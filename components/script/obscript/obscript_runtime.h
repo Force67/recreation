@@ -1,9 +1,9 @@
 #ifndef RECREATION_SCRIPT_OBSCRIPT_OBSCRIPT_RUNTIME_H_
 #define RECREATION_SCRIPT_OBSCRIPT_OBSCRIPT_RUNTIME_H_
 
-#include <memory>
-#include <string>
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/script/obscript/obscript.h"
@@ -29,11 +29,11 @@ class Runtime {
   int block_count() const { return block_count_; }
 
   // A parsed script by its object name (case sensitive as authored), or null.
-  const Script* Find(const std::string& name) const;
+  const Script* Find(const base::String& name) const;
 
   // Instantiates a script by name against `host` and runs its `event` block.
   // Returns false when the script or the block is absent.
-  bool RunBlock(const std::string& name, std::string_view event, Host& host);
+  bool RunBlock(const base::String& name, base::StringRef event, Host& host);
 
   // Logs a summary: script/block counts and the block-type histogram, then runs
   // a few representative scripts through a tracing host and logs their effects.
@@ -41,8 +41,8 @@ class Runtime {
   void Report() const;
 
  private:
-  std::unordered_map<std::string, Script> scripts_;  // object name -> parsed script
-  std::unordered_map<std::string, int> block_types_;  // event -> count, for the report
+  base::UnorderedMap<base::String, Script> scripts_;   // object name -> parsed script
+  base::UnorderedMap<base::String, int> block_types_;  // event -> count, for the report
   int block_count_ = 0;
 };
 

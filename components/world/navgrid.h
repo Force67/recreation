@@ -1,8 +1,9 @@
 #ifndef RECREATION_WORLD_NAVGRID_H_
 #define RECREATION_WORLD_NAVGRID_H_
 
+#include <base/containers/vector.h>
+
 #include <functional>
-#include <vector>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -31,8 +32,8 @@ class NavGrid {
   // half_extent] at `cell_m` resolution. A cell is walkable when the probe finds
   // a floor within `step_tolerance` meters of `walk_height` (the actor's foot
   // height, typically center.y). Sampling is one probe per cell, paid once.
-  void Build(const Vec3& center, f32 half_extent_m, f32 cell_m, f32 walk_height,
-             f32 step_tolerance, const FloorProbe& probe);
+  void Build(const Vec3& center, f32 half_extent_m, f32 cell_m, f32 walk_height, f32 step_tolerance,
+             const FloorProbe& probe);
 
   // True when `p` lies inside the built region shrunk by one cell, so a query
   // near the edge triggers a rebuild before the route runs off the grid.
@@ -65,11 +66,11 @@ class NavGrid {
   f32 origin_x_ = 0;  // world x of the region min corner
   f32 origin_z_ = 0;  // world z of the region min corner
   f32 cell_m_ = 1;
-  int width_ = 0;   // cells per side (square grid)
+  int width_ = 0;  // cells per side (square grid)
   f32 walk_height_ = 0;
 
-  std::vector<bool> walkable_;
-  std::vector<f32> floor_y_;
+  base::Vector<bool> walkable_;
+  base::Vector<f32> floor_y_;
 };
 
 }  // namespace rx::world

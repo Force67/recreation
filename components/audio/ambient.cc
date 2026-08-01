@@ -1,8 +1,9 @@
+#include "components/audio/ambient.h"
+
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
-
-#include "components/audio/ambient.h"
+#include <base/strings/xstring.h>
 
 #include <cstring>
 
@@ -88,7 +89,8 @@ void RegionAmbience::Build(const bethesda::RecordStore& records,
         }
       }
     }
-    if (region.polygon.size() >= 3 && !region.sounds.empty()) regions_.push_back(base::move(region));
+    if (region.polygon.size() >= 3 && !region.sounds.empty())
+      regions_.push_back(base::move(region));
   });
   RX_INFO("audio: {} regions carry ambient sounds", regions_.size());
 }
@@ -119,7 +121,7 @@ base::Vector<u64> RegionAmbience::RegionForms() const {
   return forms;
 }
 
-AmbientDecision DecideAmbient(const std::string& current, const std::string& target) {
+AmbientDecision DecideAmbient(const base::String& current, const base::String& target) {
   if (current == target) return {};  // already on the right bed (or both silent)
   AmbientDecision decision;
   decision.stop_current = !current.empty();
@@ -127,14 +129,14 @@ AmbientDecision DecideAmbient(const std::string& current, const std::string& tar
   return decision;
 }
 
-std::string AmbientDirector::Resolve(const AmbientContext& context) const {
+base::String AmbientDirector::Resolve(const AmbientContext& context) const {
   if (!catalog_ || !regions_) return {};
   // Exterior region ambience: the first of the region's sounds that resolves to a
   // file the Vfs can load. Interiors fall back to their own systems (acoustic
   // spaces / cell music), which stay silent here rather than play the outdoors.
   if (context.interior || context.region == 0) return {};
   for (const bethesda::GlobalFormId& form : regions_->SoundsFor(context.region)) {
-    std::string path = catalog_->PathFor(form);
+    base::String path = catalog_->PathFor(form);
     if (path.empty()) continue;
     // Skip a sound whose file is not actually present, so a region with a missing
     // first variation still falls through to one that plays instead of going mute.
@@ -146,7 +148,7 @@ std::string AmbientDirector::Resolve(const AmbientContext& context) const {
 
 void AmbientDirector::Update(const AmbientContext& context) {
   if (!audio_) return;
-  const std::string target = Resolve(context);
+  const base::String target = Resolve(context);
   const AmbientDecision decision = DecideAmbient(current_path_, target);
   if (!decision.stop_current && !decision.start_target) return;  // unchanged
 

@@ -1,16 +1,14 @@
 #ifndef RECREATION_RUNTIME_ACTOR_ACTOR_SYSTEM_H_
 #define RECREATION_RUNTIME_ACTOR_ACTOR_SYSTEM_H_
 
-#include <optional>
-#include <string>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+#include <kinema/kinema.h>
 
 #include <memory>
-#include <unordered_map>
-
-#include <kinema/kinema.h>
 
 #include "anim/locomotion.h"
 #include "components/bethesda/animation_data.h"
@@ -76,7 +74,7 @@ class ActorSystem {
   // seat as a baked COM offset, so planting the actor on the furniture origin and
   // holding the clip puts them in the chair (or the cart bed). False when the entity
   // has no actor instance or the clip is missing.
-  bool PlayNpcClip(ecs::Entity npc, const std::string& clip_path);
+  bool PlayNpcClip(ecs::Entity npc, const base::String& clip_path);
   // Whether a streamed NPC entity has a skinned actor instance, i.e. whether it is
   // being drawn at all. What tells a scene director that its cast is really on
   // screen rather than merely present in the ECS.
@@ -99,7 +97,7 @@ class ActorSystem {
   // legs) but the caller owns its world position, driving the returned entity's
   // world::Transform each step. Returns a dead entity if the rig data is
   // absent, so callers fall back to a graybox. Used by the carriage horse.
-  ecs::Entity SpawnCreatureNpc(const std::string& name, const std::string& clip_override,
+  ecs::Entity SpawnCreatureNpc(const base::String& name, const base::String& clip_override,
                                const Vec3& position, f32 yaw);
   // Spawns a human NPC the caller drives: a full actor wearing `base`'s
   // assembled FaceGen head and holding `clip_path` on a loop. `outfit` is a
@@ -109,7 +107,7 @@ class ActorSystem {
   // with, which is how a furniture animation seats an actor. Used by the Helgen
   // intro to fill the cart with the game's own cart-prisoner idles. Returns a
   // dead entity when the body assets are unavailable.
-  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base, const std::string& clip_path,
+  ecs::Entity SpawnScriptedNpc(bethesda::GlobalFormId base, const base::String& clip_path,
                                const Vec3& position, f32 yaw, int outfit = 0);
 
   // --- Per-frame ---
@@ -129,7 +127,7 @@ class ActorSystem {
   // to the rig's WEAPON node; a 0 id clears it.
   void SetFpWeapon(asset::AssetId mesh);
   void ClearFpWeapon();
-  void PlayFpClip(FpClip clip);       // (re)starts a clip on the FP rig
+  void PlayFpClip(FpClip clip);  // (re)starts a clip on the FP rig
   bool FpClipDone() const { return fp_clip_done_; }
   // Roots the FP skeleton to the camera so the arms sit in the lower frame.
   void SetFpRootView(const Vec3& eye, const Vec3& target);
@@ -159,7 +157,7 @@ class ActorSystem {
     // false when no block matched the clip.
     bethesda::AnimMotion motion;
     bool has_motion = false;
-    std::vector<bethesda::ClipEvent> events;
+    base::Vector<bethesda::ClipEvent> events;
     // Transcoded kinema blob (uniform quantized keys): the fast runtime
     // sampling path; the spline data above stays as the RX_KINEMA=0
     // fallback and decode-time reference.
@@ -177,7 +175,7 @@ class ActorSystem {
   // the hkbCharacterStringData animation list (creature clip ids index it).
   struct ProjectAnimData {
     bethesda::AnimationData data;
-    std::vector<std::string> animation_names;
+    base::Vector<base::String> animation_names;
   };
   struct Actor {
     ecs::Entity entity;
@@ -200,10 +198,10 @@ class ActorSystem {
     kinema::StateMachineInstance loco_sm;
     kinema::PoseArena loco_arena;
     kinema::SyncGroup loco_sync;
-    bool loco_synced = false;      // foot-sync usable (walk/run share footfall markers)
-    std::vector<f32> loco_params;  // [0]=speed (m/s), [1]=phase [0,1)
-    f32 loco_prev_phase = 0;       // last frame's normalized locomotion phase
-    f32 loco_phase = 0;            // plain phase accumulator when not foot-synced
+    bool loco_synced = false;       // foot-sync usable (walk/run share footfall markers)
+    base::Vector<f32> loco_params;  // [0]=speed (m/s), [1]=phase [0,1)
+    f32 loco_prev_phase = 0;        // last frame's normalized locomotion phase
+    f32 loco_phase = 0;             // plain phase accumulator when not foot-synced
     // RX_ANIM_B: a debug driver that scripts the locomotion speed through
     // idle -> walk -> run so the bringup scene exercises the machine's
     // inertialized transitions (replaces the old hand-rolled clip-cycle dance).
@@ -231,7 +229,7 @@ class ActorSystem {
     // carriage horse): the looping clip still animates the legs in place, but
     // its extracted root motion is not integrated into the entity transform.
     bool external_position = false;
-    f32 speed = 0;        // planar speed feeding the gait
+    f32 speed = 0;                              // planar speed feeding the gait
     Mat4 skeleton_to_local = Mat4::Identity();  // skeleton space -> entity local
     Mat4 prev_model = Mat4::Identity();
     bool foot_ik = false;
@@ -258,19 +256,19 @@ class ActorSystem {
   // Plays a spline-compressed .hkx clip on the actor (replacing the
   // procedural gait). Resolves tracks to bones through the character
   // skeleton.hkx (cached). False when the file is missing or undecodable.
-  bool CreateCreatureActor(const std::string& name, const std::string& clip_override);
+  bool CreateCreatureActor(const base::String& name, const base::String& clip_override);
   // Loads a creature's skeleton + skinned body + a looping clip into `out`
   // without creating an entity; the shared rig-load behind CreateCreatureActor
   // and SpawnCreatureNpc.
-  bool LoadCreatureRig(const std::string& name, const std::string& clip_override, Actor* out);
-  bool PlayHavokClip(Actor& actor, const std::string& animation_path,
-                     const std::string& skeleton_hkx_path, const std::string& actor_name);
+  bool LoadCreatureRig(const base::String& name, const base::String& clip_override, Actor* out);
+  bool PlayHavokClip(Actor& actor, const base::String& animation_path,
+                     const base::String& skeleton_hkx_path, const base::String& actor_name);
   // Decodes + transcodes a clip against the actor's skeleton without touching
   // playback state (PlayHavokClip is this plus assign-and-play). Used to preload
   // the clip-cycle / additive layers. Null on a missing or unmatched file.
-  std::shared_ptr<HavokClip> LoadHavokClip(const Actor& actor, const std::string& animation_path,
-                                           const std::string& skeleton_hkx_path,
-                                           const std::string& actor_name);
+  std::shared_ptr<HavokClip> LoadHavokClip(const Actor& actor, const base::String& animation_path,
+                                           const base::String& skeleton_hkx_path,
+                                           const base::String& actor_name);
   // Samples a clip at `time` and maps its tracks into skeleton-bone space (bind
   // pose for untouched bones), through the same kinema/spline paths as the tick.
   void SampleHavokClipToPose(const Actor& actor, const HavokClip& clip, f32 time,
@@ -283,7 +281,7 @@ class ActorSystem {
   // from real transcoded clips (cached in character_locomotion_). Null when the
   // clips are missing/undecodable, so callers fall back to the existing path.
   std::shared_ptr<const LocomotionArchetype> BuildCharacterLocomotion(
-      const Actor& actor, const std::string& skeleton_hkx_path, const std::string& actor_name);
+      const Actor& actor, const base::String& skeleton_hkx_path, const base::String& actor_name);
   // Binds an actor to a locomotion archetype: sizes its instance/arena/foot-sync
   // (one-time allocation, no per-frame heap traffic).
   void AttachLocomotion(Actor& actor, std::shared_ptr<const LocomotionArchetype> arch);
@@ -291,13 +289,13 @@ class ActorSystem {
   // drives the speed/phase params, foot-syncs the gait, routes footstep events
   // and applies the machine's transition-blended root motion. dt seconds.
   void UpdateLocomotion(Actor& actor, f32 dt);
-  const bethesda::HkxSkeleton* LoadHavokSkeleton(const std::string& skeleton_hkx_path);
+  const bethesda::HkxSkeleton* LoadHavokSkeleton(const base::String& skeleton_hkx_path);
   // Cached animationdata sidecars for an actor folder ("character", "troll").
-  const ProjectAnimData* LoadProjectAnimData(const std::string& actor_name);
+  const ProjectAnimData* LoadProjectAnimData(const base::String& actor_name);
   // Root motion + events for one animation file, resolved through the project
   // data (clip-name match, animation-list index, then unique duration), each
   // gated on the motion duration agreeing with the decoded animation.
-  void ResolveClipMotion(const ProjectAnimData& project, const std::string& animation_path,
+  void ResolveClipMotion(const ProjectAnimData& project, const base::String& animation_path,
                          HavokClip* clip);
   // Lazily builds + caches the worn-armour template for a battle side (team 1
   // imperial, team 2 stormcloak), falling back to the bare body template.
@@ -309,7 +307,7 @@ class ActorSystem {
   // Null when none of them parse, leaving the procedural gait in charge.
   std::shared_ptr<const KfLocomotion> LoadFalloutLocomotion(const Actor& actor);
   void LoadBuiltinActorTemplate(Actor* out);
-  bool LoadActorPart(const std::string& path, Actor& actor, i32 attach_bone = -1);
+  bool LoadActorPart(const base::String& path, Actor& actor, i32 attach_bone = -1);
   // Attaches head-part meshes riding the head bone. With a valid `npc` it
   // assembles + morphs that NPC's FaceGen head (face/eyes/brows/beard/hair);
   // otherwise (player, soldiers) it falls back to the default male head + hair.
@@ -317,18 +315,18 @@ class ActorSystem {
   // Builds a strand groom from a hair nif and rides it on the head bone. Replaces
   // the flat card hair when RX_STRAND_HAIR is on. No-op if the nif has no usable
   // geometry.
-  void AttachHairGroom(Actor& actor, const std::string& hair_model, const Vec3& tint,
+  void AttachHairGroom(Actor& actor, const base::String& hair_model, const Vec3& tint,
                        i32 head_bone, const Mat4& inverse_bind);
-  bool LoadStarfieldActorPart(const std::string& path, Actor& actor,
+  bool LoadStarfieldActorPart(const base::String& path, Actor& actor,
                               const bethesda::StarfieldMaterialDb& mat_db);
-  base::Vector<std::string> FindHeadPartModels(u32 part_type, u32 max);
+  base::Vector<base::String> FindHeadPartModels(u32 part_type, u32 max);
   void UpdateOneActor(Actor& actor, f32 dt);
   void EmitOneActor(Actor& actor, render::FrameView& view);
 
   // First-person rig internals (see the FpClip primitives in the public block).
   const HavokClip* CurrentFpClip() const;
-  void AdvanceFpRig(f32 dt);                 // sample the active clip into the pose
-  void EmitFpRig(render::FrameView& view);   // append arm/hand + weapon draws
+  void AdvanceFpRig(f32 dt);                // sample the active clip into the pose
+  void EmitFpRig(render::FrameView& view);  // append arm/hand + weapon draws
 
   EngineContext& ctx_;
   ecs::World& world_;
@@ -340,13 +338,13 @@ class ActorSystem {
   bethesda::RecordStore& records_;
   // Cached havok skeletons by path (the animation track name source; one per
   // creature rig) and a per-tick sampling scratch buffer.
-  std::unordered_map<std::string, std::unique_ptr<bethesda::HkxSkeleton>> havok_skeletons_;
-  std::vector<bethesda::HkxTrackPose> havok_sample_;
-  std::unordered_map<std::string, std::unique_ptr<ProjectAnimData>> project_anim_data_;
+  base::UnorderedMap<base::String, base::UniquePointer<bethesda::HkxSkeleton>> havok_skeletons_;
+  base::Vector<bethesda::HkxTrackPose> havok_sample_;
+  base::UnorderedMap<base::String, base::UniquePointer<ProjectAnimData>> project_anim_data_;
   // Kinema sampling scratch (SoA, sized to the widest clip seen this frame).
-  std::vector<kinema::Vec3> kinema_t_;
-  std::vector<kinema::Quat> kinema_r_;
-  std::vector<f32> kinema_s_;
+  base::Vector<kinema::Vec3> kinema_t_;
+  base::Vector<kinema::Quat> kinema_r_;
+  base::Vector<f32> kinema_s_;
 
   // Shared idle/walk/run locomotion machine for the human character skeleton,
   // built lazily from real clips the first time an actor asks for it.
@@ -354,34 +352,35 @@ class ActorSystem {
 
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
-  std::optional<Actor> npc_template_;
-  std::optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
+  base::Optional<Actor> npc_template_;
+  base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
   base::UnorderedMap<u64, Actor> npc_actors_;
   base::Vector<u64> scratch_dead_actors_;
   base::UnorderedMap<u64, physics::BodyId> solid_bodies_;
-  std::unique_ptr<FaceBuilder> face_builder_;  // lazily built; owns the head caches
+  base::UniquePointer<FaceBuilder> face_builder_;  // lazily built; owns the head caches
 
   // First-person weapon rig: its own _1stperson skeleton actor (arms/hands +
   // a weapon riding the WEAPON node), played through the 1hm first-person clip
   // set and rooted to the camera each frame. Built lazily on the first draw.
-  std::unique_ptr<FpEquipment> fp_;            // equip state machine + input
-  std::optional<Actor> fp_actor_;              // the FP arms rig (null until built)
-  bool fp_ready_ = false;                      // rig + clips loaded
-  bool fp_engaged_ = false;                    // advance the pose this frame
-  bool fp_visible_ = false;                    // emit draws + hide the TP body
+  base::UniquePointer<FpEquipment> fp_;  // equip state machine + input
+  base::Optional<Actor> fp_actor_;       // the FP arms rig (null until built)
+  bool fp_ready_ = false;                // rig + clips loaded
+  bool fp_engaged_ = false;              // advance the pose this frame
+  bool fp_visible_ = false;              // emit draws + hide the TP body
   bool fp_clip_done_ = false;
-  bool actor_dump_done_ = false;  // RX_ACTOR_DUMP fires once                  // active one-shot clip finished
-  bool fp_clip_loop_ = true;                   // idle loops; one-shots don't
+  bool actor_dump_done_ =
+      false;  // RX_ACTOR_DUMP fires once                  // active one-shot clip finished
+  bool fp_clip_loop_ = true;  // idle loops; one-shots don't
   FpClip fp_current_ = FpClip::kIdle;
   f32 fp_clip_time_ = 0;
-  i32 fp_weapon_bone_ = -1;                    // "WEAPON" node in the FP skeleton
-  Mat4 fp_weapon_inv_bind_ = Mat4::Identity(); // inverse bind of the WEAPON node
-  i32 fp_cam_bone_ = -1;                       // "Camera1st [Cam1]" node
-  Vec3 fp_cam_offset_{};                       // bind Cam1 position, local metres
-  bool fp_has_weapon_ = false;                 // a weapon part is attached
-  Mat4 fp_view_ = Mat4::Identity();            // camera-to-world for this frame
-  Mat4 fp_prev_model_ = Mat4::Identity();      // previous FP model (motion vectors)
-  Mat4 fp_prev_weapon_ = Mat4::Identity();     // previous weapon transform (motion vectors)
+  i32 fp_weapon_bone_ = -1;                     // "WEAPON" node in the FP skeleton
+  Mat4 fp_weapon_inv_bind_ = Mat4::Identity();  // inverse bind of the WEAPON node
+  i32 fp_cam_bone_ = -1;                        // "Camera1st [Cam1]" node
+  Vec3 fp_cam_offset_{};                        // bind Cam1 position, local metres
+  bool fp_has_weapon_ = false;                  // a weapon part is attached
+  Mat4 fp_view_ = Mat4::Identity();             // camera-to-world for this frame
+  Mat4 fp_prev_model_ = Mat4::Identity();       // previous FP model (motion vectors)
+  Mat4 fp_prev_weapon_ = Mat4::Identity();      // previous weapon transform (motion vectors)
   std::shared_ptr<const HavokClip> fp_idle_, fp_equip_, fp_unequip_, fp_attack_;
 };
 

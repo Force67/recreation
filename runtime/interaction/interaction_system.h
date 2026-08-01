@@ -3,9 +3,7 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
-
-#include <string>
-#include <vector>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/record.h"
 #include "core/input_actions.h"
@@ -62,39 +60,39 @@ class InteractionSystem {
 
   // Activation prompt state, surfaced to the quest debugger.
   u64 activate_target() const { return activate_target_; }
-  const std::string& activate_label() const { return activate_label_; }
+  const base::String& activate_label() const { return activate_label_; }
   bool dialogue_open() const { return dialogue_session_.open; }
   bool container_open() const { return container_session_.open; }
 
-  std::string ActivationLabel(bethesda::GlobalFormId refr);
-  std::string RecordName(bethesda::GlobalFormId id);
+  base::String ActivationLabel(bethesda::GlobalFormId refr);
+  base::String RecordName(bethesda::GlobalFormId id);
 
  private:
   // One selectable conversation line plus the INFO fragment it runs.
   struct DialogueOption {
-    std::string player_line;
-    std::string npc_line;
+    base::String player_line;
+    base::String npc_line;
     u64 info = 0;
     u64 quest = 0;
-    std::string fragment_function;
+    base::String fragment_function;
   };
   struct DialogueSession {
     bool open = false;
     u64 npc = 0;
-    std::string speaker;
-    std::string npc_line;
-    std::vector<DialogueOption> options;
+    base::String speaker;
+    base::String npc_line;
+    base::Vector<DialogueOption> options;
     int selected = 0;  // highlighted option for keyboard/gamepad navigation
   };
   struct ContainerItem {
-    std::string name;
+    base::String name;
     i32 count = 0;
   };
   struct ContainerSession {
     bool open = false;
     u64 container = 0;
-    std::string name;
-    std::vector<ContainerItem> items;
+    base::String name;
+    base::Vector<ContainerItem> items;
   };
 
   EngineContext& ctx_;
@@ -119,7 +117,7 @@ class InteractionSystem {
   DialogueSession dialogue_session_;
   ContainerSession container_session_;
   u64 activate_target_ = 0;
-  std::string activate_label_;
+  base::String activate_label_;
   // Trigger references, keyed by form handle, plus the set of refs already
   // examined (so each ref's record is parsed for a primitive/script only once).
   base::UnorderedMap<u64, TriggerVolume> triggers_;

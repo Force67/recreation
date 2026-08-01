@@ -1,9 +1,9 @@
 #ifndef RECREATION_RUNTIME_INTERACTION_ITEM_BRIDGE_H_
 #define RECREATION_RUNTIME_INTERACTION_ITEM_BRIDGE_H_
 
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/math.h"
@@ -64,7 +64,7 @@ class ItemBridge {
   void Save() const;
   // Returns the suppression predicate the cell streamer consults so a picked-up
   // reference is never re-placed after it streams out and back in.
-  const std::unordered_set<u64>& removed_refs() const { return removed_refs_; }
+  const base::UnorderedSet<u64>& removed_refs() const { return removed_refs_; }
 
   // Read-only view of the item catalog, so the first-person equip layer can map
   // an inventory ItemDefId to its def (WEAP flag + hand mesh). The catalog stays
@@ -83,9 +83,9 @@ class ItemBridge {
   // The player's Inventory component entity (creates the component lazily).
   ecs::Entity PlayerInventoryEntity();
   // Localized display name (FULL) of a record, empty when it has none.
-  std::string RecordNameFor(bethesda::GlobalFormId id) const;
+  base::String RecordNameFor(bethesda::GlobalFormId id) const;
 
-  std::string SavePath() const;
+  base::String SavePath() const;
   bool Load();
 
   EngineContext& ctx_;
@@ -95,15 +95,15 @@ class ItemBridge {
   inventory::WorldItemStore world_store_;
   // Item base form (packed) -> catalog def id, and the reverse, so a saved def
   // id rebinds to the same base record across sessions.
-  std::unordered_map<u64, inventory::ItemDefId> base_to_def_;
-  std::unordered_map<inventory::ItemDefId, bethesda::GlobalFormId> def_to_base_;
+  base::UnorderedMap<u64, inventory::ItemDefId> base_to_def_;
+  base::UnorderedMap<inventory::ItemDefId, bethesda::GlobalFormId> def_to_base_;
   inventory::ItemDefId next_def_id_ = 1;
   // Loose item references the player has taken; the cell streamer skips these so
   // they stay gone across streaming and reloads.
-  std::unordered_set<u64> removed_refs_;
+  base::UnorderedSet<u64> removed_refs_;
 
-  bool loaded_ = false;      // persisted state applied this session
-  f32 autosave_timer_ = 0;   // seconds since the last autosave
+  bool loaded_ = false;     // persisted state applied this session
+  f32 autosave_timer_ = 0;  // seconds since the last autosave
 
   // RX_ITEM_PROBE debug harness: once, a few seconds after the world settles,
   // pick up the nearest loose item and drop it, logging each step so a headless

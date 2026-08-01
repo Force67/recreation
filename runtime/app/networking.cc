@@ -1,10 +1,11 @@
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
 
 #include <cstdlib>
-#include <optional>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "asset/primitives.h"
 #include "core/log.h"
@@ -50,32 +51,32 @@ bool StartNetworking(Engine& engine) {
   // unreadable mods directory is a hard error, not a silent skip.
   if (self->config_.host_server) {
     if (!self->config_.mods_dir.empty()) {
-      std::optional<modstream::ModCatalog> catalog =
-          modstream::ModCatalog::Build(self->config_.mods_dir);
+      base::Optional<modstream::ModCatalog> catalog =
+          modstream::ModCatalog::Build(self->config_.mods_dir.c_str());
       if (!catalog) {
-        RX_ERROR("net: could not catalog mods directory '{}'", self->config_.mods_dir);
+        RX_ERROR("net: could not catalog mods directory '{}'", self->config_.mods_dir.c_str());
         return false;
       }
       RX_INFO("net: offering {} mod files ({} bytes) from {}", catalog->manifest().TotalFiles(),
-              catalog->manifest().TotalBytes(), self->config_.mods_dir);
-      self->mod_catalog_ = std::make_unique<modstream::ModCatalog>(std::move(*catalog));
-      net_config.mod_catalog = self->mod_catalog_.get();
+              catalog->manifest().TotalBytes(), self->config_.mods_dir.c_str());
+      self->mod_catalog_ = base::MakeUnique<modstream::ModCatalog>(base::move(*catalog));
+      net_config.mod_catalog = (self->mod_catalog_ ? &*self->mod_catalog_ : nullptr);
       // Mount the host's own mods so a listen server (and headless physics/nav)
       // sees exactly what it streams to clients. Mounted after the base game, so
       // mods win, just like loose files.
       modstream::MountCatalog(*self->vfs_, *self->mod_catalog_);
     }
   } else if (!self->config_.connect_address.empty()) {
-    const std::string cache_dir = self->config_.asset_cache_dir.empty()
-                                      ? std::string("recreation_asset_cache")
-                                      : self->config_.asset_cache_dir;
-    self->content_store_ = std::make_unique<modstream::ContentStore>(cache_dir);
-    net_config.content_store = self->content_store_.get();
+    const base::String cache_dir = self->config_.asset_cache_dir.empty()
+                                       ? base::String("recreation_asset_cache")
+                                       : self->config_.asset_cache_dir;
+    self->content_store_ = base::MakeUnique<modstream::ContentStore>(cache_dir.c_str());
+    net_config.content_store = (self->content_store_ ? &*self->content_store_ : nullptr);
   }
 
   if (self->config_.host_server) {
-    auto server = std::make_unique<net::GameServerSession>(std::move(net_config));
-    self->server_session_ = server.get();
+    auto server = base::MakeUnique<net::GameServerSession>(base::move(net_config));
+    self->server_session_ = &*server;
     self->ctx_.server_session = self->server_session_;
     self->server_session_->SetWorldCommandSource(
         [self]() { return self->quest_world_->SnapshotDoorStates(); });
@@ -83,10 +84,10 @@ bool StartNetworking(Engine& engine) {
     // clients are connected, so the guest round-trip costs nothing while idle.
     // Quest state lives on the guest thread, so we marshal the read onto it.
     if (self->scripts_ && self->script_bindings_) {
-      self->server_session_->SetQuestSource([self]() -> std::vector<net::DomainQuestStatus> {
+      self->server_session_->SetQuestSource([self]() -> base::Vector<net::DomainQuestStatus> {
         // Replicate every loaded game's journal, each tagged with its domain so
         // the client routes it to the matching game.
-        std::vector<net::DomainQuestStatus> all;
+        base::Vector<net::DomainQuestStatus> all;
         auto collect = [&](u8 domain, rx::script::ScriptSystem* scripts,
                            rx::script::skyrim::RecordBackedSkyrimBindings* binds) {
           if (!scripts || !binds) return;
@@ -95,9 +96,10 @@ bool StartNetworking(Engine& engine) {
                                 return binds->quest_system().AllStatuses();
                               })
                               .get();
-          for (quest::QuestStatus& s : statuses) all.push_back({domain, std::move(s)});
+          for (quest::QuestStatus& s : statuses) all.push_back({domain, base::move(s)});
         };
-        collect(0, self->scripts_.get(), self->script_bindings_.get());
+        collect(0, (self->scripts_ ? &*self->scripts_ : nullptr),
+                (self->script_bindings_ ? &*self->script_bindings_ : nullptr));
         for (size_t i = 0; i < self->extra_domains_.size(); ++i) {
           collect(static_cast<u8>(i + 1), self->extra_domains_[i]->scripts(),
                   self->extra_domains_[i]->bindings());
@@ -108,12 +110,12 @@ bool StartNetworking(Engine& engine) {
       // it: the session ships it to clients whenever it changes (or one joins).
       self->server_session_->SetWarMapSource([self]() -> net::WarMapState {
         net::WarMapState board;
-        std::vector<script::skyrim::RecordBackedSkyrimBindings::WarHold> holds;
+        base::Vector<script::skyrim::RecordBackedSkyrimBindings::WarHold> holds;
         f32 fraction = 0.0f;
         self->script_bindings_->SnapshotWarMap(holds, fraction);
         board.imperial_fraction = fraction;
         board.holds.reserve(holds.size());
-        for (const auto& h : holds) board.holds.push_back({h.name, h.owner});
+        for (const auto& h : holds) board.holds.push_back({h.name.c_str(), h.owner});
         return board;
       });
       // A client activating a reference runs OnActivate authoritatively here; the
@@ -131,7 +133,7 @@ bool StartNetworking(Engine& engine) {
       // normal quest update.
       self->server_session_->SetStageRequestSink([self](const net::StageRequest& r) {
         if (!self->scripts_) return;
-        auto* binds = self->script_bindings_.get();
+        auto* binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
         self->scripts_->guest().Submit([binds, r](script::papyrus::VirtualMachine&) {
           const script::papyrus::ObjectRef ref{r.quest};
           switch (r.op) {
@@ -183,11 +185,11 @@ bool StartNetworking(Engine& engine) {
       self->ctx_.server_session = nullptr;
       return false;
     }
-    self->session_ = std::move(server);
+    self->session_ = base::move(server);
   } else if (!self->config_.connect_address.empty()) {
     net_config.address = base::String(self->config_.connect_address.c_str());
-    auto client = std::make_unique<net::GameClientSession>(std::move(net_config));
-    self->client_session_ = client.get();
+    auto client = base::MakeUnique<net::GameClientSession>(base::move(net_config));
+    self->client_session_ = &*client;
     self->ctx_.client_session = self->client_session_;
     // Mirror the server's journal onto our quest system. ApplyStatus mutates
     // quest state, so it has to run on the guest thread like every other write.
@@ -198,8 +200,8 @@ bool StartNetworking(Engine& engine) {
         rx::script::ScriptSystem* scripts = nullptr;
         rx::script::skyrim::RecordBackedSkyrimBindings* binds = nullptr;
         if (domain == 0) {
-          scripts = self->scripts_.get();
-          binds = self->script_bindings_.get();
+          scripts = (self->scripts_ ? &*self->scripts_ : nullptr);
+          binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
         } else if (static_cast<size_t>(domain - 1) < self->extra_domains_.size()) {
           scripts = self->extra_domains_[domain - 1]->scripts();
           binds = self->extra_domains_[domain - 1]->bindings();
@@ -219,12 +221,12 @@ bool StartNetworking(Engine& engine) {
       // cleanup). Runs in the net sim stage on the main thread, which owns the
       // ECS, so applying straight to QuestWorld is safe.
       self->client_session_->SetWorldCommandSink(
-          [self](const std::vector<world::WorldCommand>& cmds) {
+          [self](const base::Vector<world::WorldCommand>& cmds) {
             self->quest_world_->Apply(cmds);
           });
       // Mirror authoritative NPC movement onto our existing (cell-loaded) NPC
       // entities, interpolated between updates.
-      self->client_session_->SetActorSink([self](const std::vector<net::ActorState>& actors) {
+      self->client_session_->SetActorSink([self](const base::Vector<net::ActorState>& actors) {
         net::ApplyActorStates(*self->world_, *self->quest_world_, actors, 0.1f);
       });
       // Show the host's active objective waypoint on our own compass: store its
@@ -248,7 +250,7 @@ bool StartNetworking(Engine& engine) {
       self->ctx_.client_session = nullptr;
       return false;
     }
-    self->session_ = std::move(client);
+    self->session_ = base::move(client);
     // Mount the streamed mods into the asset Vfs once the whole manifest has
     // landed in the cache, so the host's custom content resolves like loose files.
     if (self->content_store_ && self->client_session_->asset_stream()) {
@@ -287,7 +289,8 @@ void ReloadMods(Engine& engine) {
   if (self->config_.mods_dir.empty() || !self->server_session_ || !self->mod_catalog_) {
     return;  // not hosting a mods directory; nothing to reload
   }
-  std::optional<modstream::ModCatalog> fresh = modstream::ModCatalog::Build(self->config_.mods_dir);
+  base::Optional<modstream::ModCatalog> fresh =
+      modstream::ModCatalog::Build(self->config_.mods_dir.c_str());
   if (!fresh) {
     RX_ERROR("net: mod reload failed to catalog '{}', keeping the current set",
              self->config_.mods_dir);
@@ -298,9 +301,9 @@ void ReloadMods(Engine& engine) {
 
   // Point the session at the new catalog before the old one is destroyed, then
   // swap ownership: the new catalog object's address is stable across the move.
-  auto next = std::make_unique<modstream::ModCatalog>(std::move(*fresh));
+  auto next = base::MakeUnique<modstream::ModCatalog>(base::move(*fresh));
   self->server_session_->ReloadCatalog(*next);
-  self->mod_catalog_ = std::move(next);
+  self->mod_catalog_ = base::move(next);
 
   // Re-mount on the host: drop the old mod providers and mount the new catalog,
   // on the main thread where nothing is reading the Vfs.

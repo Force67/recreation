@@ -12,10 +12,10 @@
 // project's hkbCharacterStringData::animationNames (hkx_character.h), which
 // is how the blocks tie back to files on disk.
 
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -32,31 +32,31 @@ struct MotionKey {
 // one); (0, identity) at t=0 is implicit.
 struct AnimMotion {
   f32 duration = 0;
-  std::vector<MotionKey> translation;
-  std::vector<MotionKey> rotation;
+  base::Vector<MotionKey> translation;
+  base::Vector<MotionKey> rotation;
 };
 
 struct ClipEvent {
-  std::string name;
+  base::String name;
   f32 time = 0;  // seconds from clip start
 };
 
 struct ClipData {
-  std::string name;  // behavior clip generator name ("MT_WalkForward")
+  base::String name;  // behavior clip generator name ("MT_WalkForward")
   i32 animation_index = -1;
   f32 playback_speed = 1;
   f32 crop_start = 0;
   f32 crop_end = 0;
-  std::vector<ClipEvent> events;
+  base::Vector<ClipEvent> events;
 };
 
 struct AnimationData {
-  std::vector<ClipData> clips;
-  std::unordered_map<i32, AnimMotion> motion;  // by animation cache index
+  base::Vector<ClipData> clips;
+  base::UnorderedMap<i32, AnimMotion> motion;  // by animation cache index
 };
 
 // Parses a project file + its boundanims sidecar (either may be empty).
-AnimationData ParseAnimationData(std::string_view project_text, std::string_view motion_text);
+AnimationData ParseAnimationData(base::StringRef project_text, base::StringRef motion_text);
 
 // Piecewise-linear cumulative translation at `time` (clamped to the key range).
 Vec3 SampleMotionTranslation(const AnimMotion& motion, f32 time);

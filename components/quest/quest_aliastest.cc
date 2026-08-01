@@ -3,11 +3,13 @@
 // objective compass and ReferenceAlias.GetReference depend on (ALFR forced
 // reference, ALUA unique actor, QSTA objective targets). No game data needed.
 
+#include <base/containers/deque.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <deque>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/record.h"
 #include "core/types.h"
@@ -37,25 +39,25 @@ void Check(const char* what, bool ok) {
 // A deque keeps element addresses stable as more subrecords are appended.
 struct QustBuilder {
   Record record;
-  std::deque<std::vector<rx::u8>> store;
+  base::SimpleDeque<base::Vector<rx::u8>> store;
 
-  void Add(u32 type, std::vector<rx::u8> bytes) {
-    store.push_back(std::move(bytes));
+  void Add(u32 type, base::Vector<rx::u8> bytes) {
+    store.push_back(base::move(bytes));
     Subrecord s;
     s.type = type;
     s.data = ByteSpan(store.back().data(), store.back().size());
     record.subrecords.push_back(s);
   }
-  void AddStr(u32 type, const std::string& s) {
-    std::vector<rx::u8> b(s.begin(), s.end());
+  void AddStr(u32 type, const base::String& s) {
+    base::Vector<rx::u8> b(s.begin(), s.end());
     b.push_back(0);
-    Add(type, std::move(b));
+    Add(type, base::move(b));
   }
   template <typename T>
   void AddLe(u32 type, T value) {
-    std::vector<rx::u8> b(sizeof(T));
+    base::Vector<rx::u8> b(sizeof(T));
     std::memcpy(b.data(), &value, sizeof(T));
-    Add(type, std::move(b));
+    Add(type, base::move(b));
   }
 };
 
@@ -84,7 +86,8 @@ int main() {
   b.AddLe<u32>(FourCc('A', 'L', 'U', 'A'), 0x000A1234u);
   b.Add(FourCc('A', 'L', 'E', 'D'), {});
 
-  const QuestDef def = ParseQuestDefinition(/*handle=*/0x0003372bull, b.record, /*strings=*/nullptr);
+  const QuestDef def =
+      ParseQuestDefinition(/*handle=*/0x0003372bull, b.record, /*strings=*/nullptr);
 
   Check("editor id parsed", def.editor_id == "MQ101Test");
   Check("name parsed", def.name == "Unbound");

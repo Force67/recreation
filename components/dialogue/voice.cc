@@ -1,8 +1,10 @@
+#include "components/dialogue/voice.h"
+
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
-
-#include "components/dialogue/voice.h"
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cctype>
@@ -16,7 +18,7 @@
 namespace rx::dialogue {
 namespace {
 
-std::string Lower(std::string s) {
+base::String Lower(base::String s) {
   std::transform(s.begin(), s.end(), s.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return s;
@@ -31,31 +33,31 @@ u32 FormIdAt(const bethesda::Subrecord* sub) {
 
 }  // namespace
 
-std::string VoiceFilePath(const std::string& plugin_file, const std::string& voice_type,
-                          const std::string& quest_edid, const std::string& topic_edid,
-                          u32 info_local_id, int response_index) {
+base::String VoiceFilePath(const base::String& plugin_file, const base::String& voice_type,
+                           const base::String& quest_edid, const base::String& topic_edid,
+                           u32 info_local_id, int response_index) {
   char tail[64];
   std::snprintf(tail, sizeof(tail), "_%08x_%d.fuz", info_local_id, response_index);
   return Lower("sound/voice/" + plugin_file + "/" + voice_type + "/" + quest_edid + "_" +
                topic_edid + tail);
 }
 
-base::Vector<std::string> VoiceFileCandidates(const base::Vector<std::string>& plugin_files,
-                                             const std::string& voice_type,
-                                             const std::string& quest_edid,
-                                             const std::string& topic_edid, u32 info_local_id,
-                                             int response_index) {
-  base::Vector<std::string> out;
+base::Vector<base::String> VoiceFileCandidates(const base::Vector<base::String>& plugin_files,
+                                               const base::String& voice_type,
+                                               const base::String& quest_edid,
+                                               const base::String& topic_edid, u32 info_local_id,
+                                               int response_index) {
+  base::Vector<base::String> out;
   if (voice_type.empty()) return out;
-  for (const std::string& plugin : plugin_files) {
+  for (const base::String& plugin : plugin_files) {
     if (plugin.empty()) continue;
     out.push_back(
         VoiceFilePath(plugin, voice_type, quest_edid, topic_edid, info_local_id, response_index));
     // Scene dialogue is normally filed with an empty topic segment even when the
     // DIAL does carry an editor id, so probe that spelling too.
     if (!topic_edid.empty())
-      out.push_back(VoiceFilePath(plugin, voice_type, quest_edid, {}, info_local_id,
-                                  response_index));
+      out.push_back(
+          VoiceFilePath(plugin, voice_type, quest_edid, {}, info_local_id, response_index));
     if (response_index != 1)
       out.push_back(VoiceFilePath(plugin, voice_type, quest_edid, topic_edid, info_local_id, 1));
   }
@@ -63,7 +65,7 @@ base::Vector<std::string> VoiceFileCandidates(const base::Vector<std::string>& p
   return out;
 }
 
-std::string VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::GlobalFormId npc) {
+base::String VoiceTypeEditorId(const bethesda::RecordStore& records, bethesda::GlobalFormId npc) {
   // An NPC that inherits its traits from a template carries no VTCK of its own,
   // so walk the TPLT chain (bounded, records can be authored into a cycle).
   bethesda::GlobalFormId current = npc;
@@ -108,27 +110,27 @@ bool TagAt(ByteSpan bytes, size_t offset, const char* tag) {
 
 }  // namespace
 
-bool VoiceIndex::ParsePath(std::string_view path, u32* info_local_id, std::string* voice_type) {
+bool VoiceIndex::ParsePath(base::StringRef path, u32* info_local_id, base::String* voice_type) {
   // sound/voice/<plugin>/<voice type>/<quest>_<topic>_<info hex8>_<n>.fuz
   if (path.size() < 8 || path.rfind(".fuz") != path.size() - 4) return false;
   const size_t slash = path.rfind('/');
-  if (slash == std::string_view::npos || slash == 0) return false;
+  if (slash == base::StringRef::npos || slash == 0) return false;
   const size_t voice_start = path.rfind('/', slash - 1);
-  if (voice_start == std::string_view::npos) return false;
-  const std::string_view name = path.substr(slash + 1, path.size() - slash - 5);  // drop ".fuz"
+  if (voice_start == base::StringRef::npos) return false;
+  const base::StringRef name = path.substr(slash + 1, path.size() - slash - 5);  // drop ".fuz"
   // The id is the second-to-last underscore-separated field.
   const size_t last = name.rfind('_');
-  if (last == std::string_view::npos || last == 0) return false;
+  if (last == base::StringRef::npos || last == 0) return false;
   const size_t prev = name.rfind('_', last - 1);
-  if (prev == std::string_view::npos) return false;
-  const std::string_view id = name.substr(prev + 1, last - prev - 1);
+  if (prev == base::StringRef::npos) return false;
+  const base::StringRef id = name.substr(prev + 1, last - prev - 1);
   if (id.size() != 8) return false;
   u32 value = 0;
   for (char c : id) {
     const int digit = (c >= '0' && c <= '9')   ? c - '0'
                       : (c >= 'a' && c <= 'f') ? c - 'a' + 10
                       : (c >= 'A' && c <= 'F') ? c - 'A' + 10
-                                              : -1;
+                                               : -1;
     if (digit < 0) return false;
     value = value * 16 + static_cast<u32>(digit);
   }
@@ -140,19 +142,19 @@ bool VoiceIndex::ParsePath(std::string_view path, u32* info_local_id, std::strin
 void VoiceIndex::Build(const asset::Vfs& vfs) {
   if (built_) return;
   built_ = true;
-  vfs.Enumerate([&](std::string_view path) {
+  vfs.Enumerate([&](base::StringRef path) {
     if (path.rfind("sound/voice/", 0) != 0) return;
     u32 info = 0;
-    std::string voice_type;
+    base::String voice_type;
     if (!ParsePath(path, &info, &voice_type)) return;
-    by_info_[info].push_back({base::move(voice_type), std::string(path)});
+    by_info_[info].push_back({base::move(voice_type), base::String(path)});
   });
 }
 
-std::string VoiceIndex::Find(u32 info_local_id, const std::string& voice_type) const {
+base::String VoiceIndex::Find(u32 info_local_id, const base::String& voice_type) const {
   const base::Vector<Clip>* clips = by_info_.find(info_local_id);
   if (!clips) return {};
-  const std::string want = Lower(voice_type);
+  const base::String want = Lower(voice_type);
   for (const Clip& clip : *clips)
     if (clip.voice_type == want) return clip.path;
   // A line recorded for one voice type only (a unique actor) still belongs to this
@@ -198,7 +200,7 @@ f32 ClipSeconds(ByteSpan bytes) {
   return 0.0f;
 }
 
-f32 EstimateLineSeconds(const std::string& text) {
+f32 EstimateLineSeconds(const base::String& text) {
   // ~14 characters a second reads like spoken delivery; the floor keeps a short
   // interjection on screen and the ceiling stops a paragraph from parking a phase.
   const f32 read = 0.9f + static_cast<f32>(text.size()) / 14.0f;

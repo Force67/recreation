@@ -2,14 +2,18 @@
 // gives cutscene lines their real length. Checks the path format against real
 // Skyrim file names and the candidate order. Pure, no game data.
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cstdio>
-#include <string>
-#include <base/containers/vector.h>
 
 #include "components/dialogue/voice.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::dialogue;
 
 namespace {
@@ -39,23 +43,22 @@ void TestPaths() {
 
 void TestCandidates() {
   std::puts("voice (candidates):");
-  const base::Vector<std::string> plugins = {"Skyrim.esm", "Update.esm"};
-  const base::Vector<std::string> got =
+  const base::Vector<base::String> plugins = {"Skyrim.esm", "Update.esm"};
+  const base::Vector<base::String> got =
       VoiceFileCandidates(plugins, "MaleNord", "MQ101", "SomeTopic", 0x3374b, 2);
   Check("the plugin the line came from is probed first",
-        !got.empty() && got[0].find("skyrim.esm") != std::string::npos);
+        !got.empty() && got[0].find("skyrim.esm") != base::String::npos);
   Check("the empty-topic spelling is probed too",
         std::find(got.begin(), got.end(),
-                  std::string("sound/voice/skyrim.esm/malenord/mq101__0003374b_2.fuz")) !=
+                  base::String("sound/voice/skyrim.esm/malenord/mq101__0003374b_2.fuz")) !=
             got.end());
   Check("the first response is probed as a fallback",
         std::find(got.begin(), got.end(),
-                  std::string("sound/voice/skyrim.esm/malenord/mq101_sometopic_0003374b_1.fuz")) !=
+                  base::String("sound/voice/skyrim.esm/malenord/mq101_sometopic_0003374b_1.fuz")) !=
             got.end());
-  Check("every plugin is covered",
-        std::find_if(got.begin(), got.end(), [](const std::string& p) {
-          return p.find("update.esm") != std::string::npos;
-        }) != got.end());
+  Check("every plugin is covered", std::find_if(got.begin(), got.end(), [](const base::String& p) {
+                                     return p.find("update.esm") != base::String::npos;
+                                   }) != got.end());
   Check("a voiceless speaker yields nothing to probe",
         VoiceFileCandidates(plugins, "", "MQ101", "", 1, 1).empty());
 }
@@ -74,9 +77,9 @@ base::Vector<rx::u8> MakeFuz() {
   auto put_u32 = [&](rx::u32 v) { put(&v, 4); };
   auto put_u16 = [&](rx::u16 v) { put(&v, 2); };
   put("FUZE", 4);
-  put_u32(1);   // version
-  put_u32(4);   // lipsync block size
-  put_u32(0);   // the block itself
+  put_u32(1);  // version
+  put_u32(4);  // lipsync block size
+  put_u32(0);  // the block itself
   put("RIFF", 4);
   put_u32(0);  // riff size, unused by the reader
   put("XWMA", 4);
@@ -111,7 +114,7 @@ void TestClipSeconds() {
 void TestIndexParse() {
   std::puts("voice (archive index naming):");
   rx::u32 info = 0;
-  std::string voice;
+  base::String voice;
   Check("a scene line parses to its info id and voice type",
         VoiceIndex::ParsePath("sound/voice/skyrim.esm/malenord/mq101__0003374b_1.fuz", &info,
                               &voice) &&

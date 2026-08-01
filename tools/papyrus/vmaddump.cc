@@ -7,10 +7,12 @@
 // `max` records of that type carrying scripts, the attached script names and
 // their baked-in property values.
 
+#include <base/containers/vector.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <functional>
-#include <string>
 
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
@@ -19,32 +21,35 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
-std::string PropertySummary(const ScriptProperty& p) {
+base::String PropertySummary(const ScriptProperty& p) {
   switch (p.type) {
     case 1:
-      return std::string("object form=") + std::to_string(p.object_value.form_id);
+      return base::String("object form=") + base::ToString(p.object_value.form_id);
     case 2:
       return "string \"" + p.string_value + "\"";
     case 3:
-      return "int " + std::to_string(p.int_value);
+      return "int " + base::ToString(p.int_value);
     case 4:
-      return "float " + std::to_string(p.float_value);
+      return "float " + base::ToString(p.float_value);
     case 5:
-      return std::string("bool ") + (p.bool_value ? "true" : "false");
+      return base::String("bool ") + (p.bool_value ? "true" : "false");
     case 11:
-      return "object[" + std::to_string(p.object_array.size()) + "]";
+      return "object[" + base::ToString(p.object_array.size()) + "]";
     case 12:
-      return "string[" + std::to_string(p.string_array.size()) + "]";
+      return "string[" + base::ToString(p.string_array.size()) + "]";
     case 13:
-      return "int[" + std::to_string(p.int_array.size()) + "]";
+      return "int[" + base::ToString(p.int_array.size()) + "]";
     case 14:
-      return "float[" + std::to_string(p.float_array.size()) + "]";
+      return "float[" + base::ToString(p.float_array.size()) + "]";
     case 15:
-      return "bool[" + std::to_string(p.bool_array.size()) + "]";
+      return "bool[" + base::ToString(p.bool_array.size()) + "]";
     default:
-      return "type " + std::to_string(p.type);
+      return "type " + base::ToString(p.type);
   }
 }
 
@@ -55,7 +60,7 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: %s <data_dir> [RECORD_TYPE] [max]\n", argv[0]);
     return 2;
   }
-  std::string data_dir = argv[1];
+  base::String data_dir = argv[1];
   char sig[4] = {'Q', 'U', 'S', 'T'};
   if (argc > 2)
     for (int i = 0; i < 4; ++i) sig[i] = argv[2][i] ? argv[2][i] : ' ';
@@ -79,7 +84,7 @@ int main(int argc, char** argv) {
     const Subrecord* vmad = rec.Find(FourCc('V', 'M', 'A', 'D'));
     if (!vmad) return;
     ScriptAttachment att;
-    std::vector<QuestStageFragment> fragments;
+    base::Vector<QuestStageFragment> fragments;
     bool is_quest = type == FourCc('Q', 'U', 'S', 'T');
     bool ok = is_quest ? ParseQuestFragments(vmad->data, &att, &fragments)
                        : ParseScriptAttachment(vmad->data, &att);

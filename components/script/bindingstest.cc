@@ -6,10 +6,11 @@
 // behavior, and the record-backed form natives (type, keywords) against a real
 // weapon record pulled from the loaded plugins.
 
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <optional>
-#include <string>
 
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
@@ -19,6 +20,9 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 using rx::script::papyrus::ObjectRef;
 using rx::script::skyrim::RecordBackedSkyrimBindings;
@@ -32,7 +36,7 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: %s <data_dir>\n", argv[0]);
     return 2;
   }
-  std::string data_dir = argv[1];
+  base::String data_dir = argv[1];
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
   RecordStore records;
@@ -94,23 +98,24 @@ int main(int argc, char** argv) {
   }
 
   // Form data from the real RecordStore: first weapon's GetType and a keyword.
-  std::optional<GlobalFormId> weapon;
+  base::Optional<GlobalFormId> weapon;
   u32 weapon_keyword = 0;
-  records.EachOfType(FourCc('W', 'E', 'A', 'P'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (weapon) return;
-    Record rec;
-    if (!records.Parse(id, &rec)) return;
-    const Subrecord* kwda = rec.Find(FourCc('K', 'W', 'D', 'A'));
-    if (!kwda || kwda->data.size() < 4) return;  // pick one with a keyword to test
-    weapon = id;
-    std::memcpy(&weapon_keyword, kwda->data.data(), 4);
-  });
+  records.EachOfType(FourCc('W', 'E', 'A', 'P'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (weapon) return;
+                       Record rec;
+                       if (!records.Parse(id, &rec)) return;
+                       const Subrecord* kwda = rec.Find(FourCc('K', 'W', 'D', 'A'));
+                       if (!kwda || kwda->data.size() < 4)
+                         return;  // pick one with a keyword to test
+                       weapon = id;
+                       std::memcpy(&weapon_keyword, kwda->data.data(), 4);
+                     });
 
   if (weapon) {
     ObjectRef w{Handle(*weapon)};
     check("real WEAP GetType == 42", bindings.GetFormType(w) == 42);
-    check("real WEAP has its first keyword",
-          bindings.HasKeyword(w, ObjectRef{weapon_keyword}));
+    check("real WEAP has its first keyword", bindings.HasKeyword(w, ObjectRef{weapon_keyword}));
     check("real WEAP lacks bogus keyword", !bindings.HasKeyword(w, ObjectRef{0xBADF00D}));
     std::printf("  (weapon %04x:%06x, GetType=%d)\n", weapon->plugin, weapon->local_id,
                 bindings.GetFormType(w));
@@ -131,32 +136,31 @@ int main(int argc, char** argv) {
   if (weapon) {
     const ObjectRef actor{0xACC01};
     ObjectRef w{Handle(*weapon)};
-    check("no equipped weapon before equipping",
-          bindings.GetEquippedWeapon(actor).handle == 0);
+    check("no equipped weapon before equipping", bindings.GetEquippedWeapon(actor).handle == 0);
     bindings.EquipItem(actor, w);
     check("GetEquippedWeapon returns the equipped WEAP",
           bindings.GetEquippedWeapon(actor).handle == w.handle);
     check("IsEquipped true for the worn weapon", bindings.IsEquipped(actor, w));
     bindings.UnequipItem(actor, w);
-    check("GetEquippedWeapon clears on unequip",
-          bindings.GetEquippedWeapon(actor).handle == 0);
+    check("GetEquippedWeapon clears on unequip", bindings.GetEquippedWeapon(actor).handle == 0);
   }
 
   // Shield bridge: find a real ARMO whose biped template carries the shield slot
   // (39 -> bit 9 of the BOD2/BODT first u32) and confirm GetEquippedShield surfaces
   // it. Also validates that bit against real data.
-  std::optional<GlobalFormId> shield;
-  records.EachOfType(FourCc('A', 'R', 'M', 'O'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (shield) return;
-    Record rec;
-    if (!records.Parse(id, &rec)) return;
-    const Subrecord* bod = rec.Find(FourCc('B', 'O', 'D', '2'));
-    if (!bod) bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
-    if (!bod || bod->data.size() < 4) return;
-    u32 flags;
-    std::memcpy(&flags, bod->data.data(), 4);
-    if (flags & (1u << 9)) shield = id;
-  });
+  base::Optional<GlobalFormId> shield;
+  records.EachOfType(FourCc('A', 'R', 'M', 'O'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (shield) return;
+                       Record rec;
+                       if (!records.Parse(id, &rec)) return;
+                       const Subrecord* bod = rec.Find(FourCc('B', 'O', 'D', '2'));
+                       if (!bod) bod = rec.Find(FourCc('B', 'O', 'D', 'T'));
+                       if (!bod || bod->data.size() < 4) return;
+                       u32 flags;
+                       std::memcpy(&flags, bod->data.data(), 4);
+                       if (flags & (1u << 9)) shield = id;
+                     });
   if (shield) {
     const ObjectRef actor{0xACC02};
     ObjectRef s{Handle(*shield)};
@@ -164,42 +168,44 @@ int main(int argc, char** argv) {
     check("GetEquippedShield returns the equipped shield ARMO",
           bindings.GetEquippedShield(actor).handle == s.handle);
     bindings.UnequipItem(actor, s);
-    check("GetEquippedShield clears on unequip",
-          bindings.GetEquippedShield(actor).handle == 0);
+    check("GetEquippedShield clears on unequip", bindings.GetEquippedShield(actor).handle == 0);
     std::printf("  (shield %04x:%06x)\n", shield->plugin, shield->local_id);
   } else {
     std::printf("  (no shield ARMO found; biped shield-bit unverified)\n");
   }
 
   // ActorBase data from a real NPC_ record.
-  std::optional<GlobalFormId> npc_base;
-  records.EachOfType(FourCc('N', 'P', 'C', '_'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (npc_base) return;
-    Record rec;
-    if (records.Parse(id, &rec) && rec.Find(FourCc('R', 'N', 'A', 'M'))) npc_base = id;
-  });
+  base::Optional<GlobalFormId> npc_base;
+  records.EachOfType(FourCc('N', 'P', 'C', '_'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (npc_base) return;
+                       Record rec;
+                       if (records.Parse(id, &rec) && rec.Find(FourCc('R', 'N', 'A', 'M')))
+                         npc_base = id;
+                     });
   if (npc_base) {
     ObjectRef base{Handle(*npc_base)};
     i32 sex = bindings.GetSex(base);
     check("NPC GetSex is 0 or 1", sex == 0 || sex == 1);
     check("NPC GetRace returns a form", bindings.GetRace(base).handle != 0);
     std::printf("  (npc %04x:%06x, sex=%d, race=%llx, essential=%d)\n", npc_base->plugin,
-                npc_base->local_id, sex,
-                (unsigned long long)bindings.GetRace(base).handle, bindings.IsEssential(base));
+                npc_base->local_id, sex, (unsigned long long)bindings.GetRace(base).handle,
+                bindings.IsEssential(base));
   }
 
   // Spatial natives (records-authored placement + override store).
-  std::optional<GlobalFormId> ref;
+  base::Optional<GlobalFormId> ref;
   f32 authored[3] = {0, 0, 0};
-  records.EachOfType(FourCc('R', 'E', 'F', 'R'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (ref) return;
-    Record rec;
-    if (!records.Parse(id, &rec)) return;
-    const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-    if (!data || data->data.size() < 12) return;
-    ref = id;
-    std::memcpy(authored, data->data.data(), 12);
-  });
+  records.EachOfType(FourCc('R', 'E', 'F', 'R'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (ref) return;
+                       Record rec;
+                       if (!records.Parse(id, &rec)) return;
+                       const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+                       if (!data || data->data.size() < 12) return;
+                       ref = id;
+                       std::memcpy(authored, data->data.data(), 12);
+                     });
   if (ref) {
     ObjectRef r{Handle(*ref)};
     check("REFR GetPositionX matches authored DATA", bindings.GetPositionX(r) == authored[0]);
@@ -214,43 +220,47 @@ int main(int argc, char** argv) {
   }
 
   // Record-backed object queries: GetBaseObject and Cell.IsInterior.
-  std::optional<GlobalFormId> placed;
-  records.EachOfType(FourCc('R', 'E', 'F', 'R'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (placed) return;
-    Record rec;
-    if (records.Parse(id, &rec) && rec.Find(FourCc('N', 'A', 'M', 'E'))) placed = id;
-  });
+  base::Optional<GlobalFormId> placed;
+  records.EachOfType(FourCc('R', 'E', 'F', 'R'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (placed) return;
+                       Record rec;
+                       if (records.Parse(id, &rec) && rec.Find(FourCc('N', 'A', 'M', 'E')))
+                         placed = id;
+                     });
   if (placed)
     check("REFR GetBaseObject resolves a base form",
           bindings.GetBaseObject(ObjectRef{Handle(*placed)}).handle != 0);
 
-  std::optional<GlobalFormId> cell;
+  base::Optional<GlobalFormId> cell;
   bool cell_interior = false;
-  records.EachOfType(FourCc('C', 'E', 'L', 'L'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (cell) return;
-    Record rec;
-    if (!records.Parse(id, &rec)) return;
-    const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-    if (!data || data->data.empty()) return;
-    cell = id;
-    cell_interior = (data->data[0] & 0x1) != 0;
-  });
+  records.EachOfType(FourCc('C', 'E', 'L', 'L'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (cell) return;
+                       Record rec;
+                       if (!records.Parse(id, &rec)) return;
+                       const Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+                       if (!data || data->data.empty()) return;
+                       cell = id;
+                       cell_interior = (data->data[0] & 0x1) != 0;
+                     });
   if (cell)
     check("CELL IsInterior matches DATA flag",
           bindings.IsInterior(ObjectRef{Handle(*cell)}) == cell_interior);
 
   // GlobalVariable: authored value from GLOB record, then override.
-  std::optional<GlobalFormId> glob;
+  base::Optional<GlobalFormId> glob;
   f32 glob_authored = 0;
-  records.EachOfType(FourCc('G', 'L', 'O', 'B'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-    if (glob) return;
-    Record rec;
-    if (!records.Parse(id, &rec)) return;
-    const Subrecord* fltv = rec.Find(FourCc('F', 'L', 'T', 'V'));
-    if (!fltv || fltv->data.size() < 4) return;
-    glob = id;
-    std::memcpy(&glob_authored, fltv->data.data(), 4);
-  });
+  records.EachOfType(FourCc('G', 'L', 'O', 'B'),
+                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+                       if (glob) return;
+                       Record rec;
+                       if (!records.Parse(id, &rec)) return;
+                       const Subrecord* fltv = rec.Find(FourCc('F', 'L', 'T', 'V'));
+                       if (!fltv || fltv->data.size() < 4) return;
+                       glob = id;
+                       std::memcpy(&glob_authored, fltv->data.data(), 4);
+                     });
   if (glob) {
     ObjectRef g{Handle(*glob)};
     check("global value matches authored FLTV", bindings.GetGlobalValue(g) == glob_authored);

@@ -1,6 +1,9 @@
 #ifndef RECREATION_NET_WORLD_REPLICATION_H_
 #define RECREATION_NET_WORLD_REPLICATION_H_
 
+#include <base/containers/vector.h>
+#include <base/optional.h>
+
 #include <optional>
 #include <vector>
 
@@ -25,7 +28,7 @@ std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& comm
 
 // Inverse of EncodeWorldCommands. Returns nullopt on a truncated or corrupt
 // blob, never reading out of bounds.
-std::optional<std::vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data);
+base::Optional<base::Vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data);
 
 }  // namespace rx::net
 

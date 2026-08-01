@@ -1,11 +1,12 @@
 #ifndef RECREATION_BETHESDA_LOAD_ORDER_H_
 #define RECREATION_BETHESDA_LOAD_ORDER_H_
 
-#include <string>
-#include <unordered_map>
-
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
+#include <string>
 
 #include "components/bethesda/plugin.h"
 
@@ -15,25 +16,25 @@ namespace rx::bethesda {
 // are enabled) with base game masters forced to the front, like the games do.
 class LoadOrder {
  public:
-  static LoadOrder FromPluginsTxt(const std::string& plugins_txt_path, const GameProfile& profile);
+  static LoadOrder FromPluginsTxt(const base::String& plugins_txt_path, const GameProfile& profile);
 
-  void Append(std::string plugin_file_name);
+  void Append(base::String plugin_file_name);
 
   // Resolves a raw form id from `referencing_plugin` against its master list
   // into a load order independent id.
   GlobalFormId Resolve(RawFormId raw, u16 referencing_plugin,
-                       const base::Vector<std::string>& masters) const;
+                       const base::Vector<base::String>& masters) const;
 
-  u16 IndexOf(const std::string& file_name) const;
-  const base::Vector<std::string>& plugins() const { return plugins_; }
+  u16 IndexOf(const base::String& file_name) const;
+  const base::Vector<base::String>& plugins() const { return plugins_; }
 
  private:
-  // Elements stay std::string: plugin names come from std::getline and feed
+  // Elements stay base::String: plugin names come from std::getline and feed
   // std::filesystem style path concatenation.
-  base::Vector<std::string> plugins_;
-  // std::string keyed map stays STL: std::string lacks the character_type
+  base::Vector<base::String> plugins_;
+  // base::String keyed map stays STL: base::String lacks the character_type
   // typedef base::UnorderedMap needs for automatic string hashing.
-  std::unordered_map<std::string, u16> index_by_name_;
+  base::UnorderedMap<base::String, u16> index_by_name_;
 };
 
 // The merged view of all loaded plugins. Conflicts resolve by last loaded
@@ -45,7 +46,7 @@ class RecordStore {
  public:
   // Loads every enabled plugin and merges records. Returns false if a
   // required master is missing.
-  bool LoadAll(const std::string& data_dir, const LoadOrder& order, const GameProfile& profile);
+  bool LoadAll(const base::String& data_dir, const LoadOrder& order, const GameProfile& profile);
 
   struct StoredRecord {
     RecordHeader header;
@@ -91,15 +92,15 @@ class RecordStore {
 
   // Finds a worldspace by editor id, e.g. "Tamriel". Invalid plugin 0xffff
   // when not found.
-  GlobalFormId FindWorldspace(std::string_view editor_id) const;
+  GlobalFormId FindWorldspace(base::StringRef editor_id) const;
 
   // Finds an interior cell by editor id, e.g. "WhiterunBanneredMare". Parses
   // every CELL record, so this is a one-time startup cost.
-  GlobalFormId FindInteriorCell(std::string_view editor_id) const;
+  GlobalFormId FindInteriorCell(base::StringRef editor_id) const;
 
   // Finds a global variable (GLOB) by editor id, e.g. "GameHour". Invalid
   // plugin 0xffff when not found. Used to map the time globals onto the clock.
-  GlobalFormId FindGlobal(std::string_view editor_id) const;
+  GlobalFormId FindGlobal(base::StringRef editor_id) const;
 
   // All REFR children (persistent and temporary) of an interior cell.
   const base::Vector<u64>* InteriorRefs(GlobalFormId cell) const;
@@ -126,8 +127,8 @@ class RecordStore {
   };
 
   LoadOrder order_;
-  base::Vector<PluginFile> plugins_;             // keeps payload spans alive
-  base::Vector<const PluginFile*> by_order_;     // load order index -> plugin, may be null
+  base::Vector<PluginFile> plugins_;          // keeps payload spans alive
+  base::Vector<const PluginFile*> by_order_;  // load order index -> plugin, may be null
   base::UnorderedMap<u64, StoredRecord> records_;
   base::UnorderedMap<u32, base::Vector<u64>> by_type_;
   base::UnorderedMap<u64, ExteriorGrid> exterior_;       // worldspace -> grid

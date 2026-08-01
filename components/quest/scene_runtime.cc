@@ -1,5 +1,10 @@
 #include "components/quest/scene_runtime.h"
 
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 
 namespace rx::quest {
@@ -25,27 +30,27 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
     plan.completion.push_back(ConditionList{});
   }
   // Sort phases ascending, keeping each phase's completion gate with it.
-  std::vector<size_t> order(plan.phases.size());
+  base::Vector<size_t> order(plan.phases.size());
   for (size_t i = 0; i < order.size(); ++i) order[i] = i;
   std::stable_sort(order.begin(), order.end(),
                    [&](size_t a, size_t b) { return plan.phases[a] < plan.phases[b]; });
-  std::vector<i32> phases;
-  std::vector<ConditionList> completion;
+  base::Vector<i32> phases;
+  base::Vector<ConditionList> completion;
   for (size_t i : order) {
     phases.push_back(plan.phases[i]);
     completion.push_back(plan.completion[i]);
   }
-  plan.phases = std::move(phases);
-  plan.completion = std::move(completion);
+  plan.phases = base::move(phases);
+  plan.completion = base::move(completion);
 
   auto name_of = [&](i32 alias) {
-    return bindings.alias_name ? bindings.alias_name(alias) : std::string();
+    return bindings.alias_name ? bindings.alias_name(alias) : base::String();
   };
 
   for (const SceneActionDef& a : def.actions) {
     SceneBeat beat;
     beat.phase = a.start_phase;
-    beat.end_phase = std::max(a.end_phase, a.start_phase);
+    beat.end_phase = base::Max(a.end_phase, a.start_phase);
     beat.alias = a.actor_alias;
     beat.actor = bindings.actor ? bindings.actor(a.actor_alias) : 0;
     beat.speaker = name_of(a.actor_alias);
@@ -56,17 +61,17 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
         beat.seconds = kSceneDefaultLineSeconds;
         if (bindings.line) {
           u64 info = 0;
-          std::string text;
+          base::String text;
           f32 seconds = beat.seconds;
           if (bindings.line(a.actor_alias, a.topic, beat.actor, &info, &text, &seconds)) {
             beat.info = info;
-            beat.text = std::move(text);
+            beat.text = base::move(text);
             beat.seconds = seconds;
           }
         }
         // A line with a delay authored on it (DMIN/DMAX) holds the phase that
         // much longer before the next speaker starts.
-        beat.seconds += std::max(a.delay_min, 0.0f);
+        beat.seconds += base::Max(a.delay_min, 0.0f);
         break;
       }
       case SceneActionDef::Kind::kPackage:
@@ -81,7 +86,7 @@ ScenePlan BuildScenePlan(const SceneDef& def, const ScenePlanBindings& bindings)
       case SceneActionDef::Kind::kUnknown:
         continue;
     }
-    plan.beats.push_back(std::move(beat));
+    plan.beats.push_back(base::move(beat));
   }
 
   // Play order: by phase, then record order inside the phase.
@@ -139,7 +144,7 @@ void SceneRuntime::EnterPhase(size_t index, SceneRuntimeSink& sink) {
     const SceneBeat& beat = plan_->beats[i];
     if (beat.phase != phase) continue;
     if (beat.kind == SceneBeat::Kind::kDialogue) line_queue_.push_back(i);
-    if (beat.kind == SceneBeat::Kind::kTimer) phase_wait_ = std::max(phase_wait_, beat.seconds);
+    if (beat.kind == SceneBeat::Kind::kTimer) phase_wait_ = base::Max(phase_wait_, beat.seconds);
   }
   OpenPackages(phase, sink);
   StartNextLine(sink);

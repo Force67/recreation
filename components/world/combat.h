@@ -1,9 +1,10 @@
 #ifndef RECREATION_WORLD_COMBAT_H_
 #define RECREATION_WORLD_COMBAT_H_
 
+#include <base/containers/vector.h>
+
 #include <cmath>
 #include <mutex>
-#include <vector>
 
 #include "core/types.h"
 
@@ -98,16 +99,16 @@ class CombatEventQueue {
     std::lock_guard<std::mutex> lock(mutex_);
     pending_.push_back(e);
   }
-  std::vector<CombatEvent> Drain() {
+  base::Vector<CombatEvent> Drain() {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<CombatEvent> out;
+    base::Vector<CombatEvent> out;
     out.swap(pending_);
     return out;
   }
 
  private:
   std::mutex mutex_;
-  std::vector<CombatEvent> pending_;
+  base::Vector<CombatEvent> pending_;
 };
 
 }  // namespace rx::world

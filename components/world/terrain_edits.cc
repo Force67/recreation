@@ -1,20 +1,26 @@
 #include "components/world/terrain_edits.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/map.h>
+#include <base/containers/set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
-#include <set>
 #include <system_error>
-#include <utility>
-
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 // Keep <windows.h> from defining min/max as macros; they clobber
-// std::numeric_limits<>::max() / std::max() used throughout this file.
+// std::numeric_limits<>::max() / base::Max() used throughout this file.
 #define NOMINMAX
 #include <windows.h>
 #endif
@@ -25,8 +31,7 @@ namespace {
 constexpr i64 kCellQuads = 32;
 constexpr size_t kCellSamples = 33 * 33;
 constexpr i32 kQuantization = 256;  // 1/256 game unit (0.0056 cm in Skyrim).
-constexpr i32 kMaximumQuantized =
-    (std::numeric_limits<i32>::max() / kQuantization) * kQuantization;
+constexpr i32 kMaximumQuantized = (std::numeric_limits<i32>::max() / kQuantization) * kQuantization;
 constexpr f32 kMaximumDelta = static_cast<f32>(kMaximumQuantized) / kQuantization;
 constexpr f32 kMaximumBrushRadius = 1024.0f;
 constexpr u32 kMaximumSamples = 4u * 1024u * 1024u;
@@ -48,94 +53,85 @@ i64 PositiveMod(i64 value, i64 divisor) {
   return result < 0 ? result + divisor : result;
 }
 
-bool IsSortedUnique(const std::vector<TerrainCellKey>& cells) {
-  return std::adjacent_find(cells.begin(), cells.end(),
-                            [](TerrainCellKey a, TerrainCellKey b) {
-                              return !(a < b);
-                            }) == cells.end();
+bool IsSortedUnique(const base::Vector<TerrainCellKey>& cells) {
+  return std::adjacent_find(cells.begin(), cells.end(), [](TerrainCellKey a, TerrainCellKey b) {
+           return !(a < b);
+         }) == cells.end();
 }
 
-bool IsSortedUnique(const std::vector<TerrainSampleChange>& samples) {
-  return std::adjacent_find(
-             samples.begin(), samples.end(),
-             [](const TerrainSampleChange& a, const TerrainSampleChange& b) {
-               return !(a.sample < b.sample);
-             }) == samples.end();
+bool IsSortedUnique(const base::Vector<TerrainSampleChange>& samples) {
+  return std::adjacent_find(samples.begin(), samples.end(),
+                            [](const TerrainSampleChange& a, const TerrainSampleChange& b) {
+                              return !(a.sample < b.sample);
+                            }) == samples.end();
 }
 
-std::vector<TerrainCellKey> SharedCells(TerrainSampleKey sample) {
+base::Vector<TerrainCellKey> SharedCells(TerrainSampleKey sample) {
   const i64 owner_x = FloorDiv(sample.x, kCellQuads);
   const i64 owner_y = FloorDiv(sample.y, kCellQuads);
   const bool edge_x = PositiveMod(sample.x, kCellQuads) == 0;
   const bool edge_y = PositiveMod(sample.y, kCellQuads) == 0;
-  std::vector<TerrainCellKey> result;
+  base::Vector<TerrainCellKey> result;
   result.reserve((edge_x ? 2 : 1) * (edge_y ? 2 : 1));
   for (i64 y : {owner_y, owner_y - 1}) {
     if (y != owner_y && !edge_y) continue;
     for (i64 x : {owner_x, owner_x - 1}) {
       if (x != owner_x && !edge_x) continue;
-      if (x < std::numeric_limits<i32>::min() ||
-          x > std::numeric_limits<i32>::max() ||
-          y < std::numeric_limits<i32>::min() ||
-          y > std::numeric_limits<i32>::max()) {
+      if (x < std::numeric_limits<i32>::min() || x > std::numeric_limits<i32>::max() ||
+          y < std::numeric_limits<i32>::min() || y > std::numeric_limits<i32>::max()) {
         continue;
       }
       result.push_back({static_cast<i32>(x), static_cast<i32>(y)});
     }
   }
-  std::sort(result.begin(), result.end());
+  base::Sort(result.begin(), result.end());
   return result;
 }
 
 void CollectCells(TerrainEditChange* change) {
-  std::set<TerrainCellKey> cells;
+  base::Set<TerrainCellKey> cells;
   for (const TerrainSampleChange& sample : change->samples) {
-    const std::vector<TerrainCellKey> shared = SharedCells(sample.sample);
-    cells.insert(shared.begin(), shared.end());
+    const base::Vector<TerrainCellKey> shared = SharedCells(sample.sample);
+    for (const TerrainCellKey& cell : shared) cells.insert(cell);
   }
   change->cells.assign(cells.begin(), cells.end());
 }
 
-std::optional<f32> QuantizeDelta(double value) {
+base::Optional<f32> QuantizeDelta(double value) {
   if (!std::isfinite(value) || std::abs(value) > kMaximumDelta) {
-    return std::nullopt;
+    return base::nullopt;
   }
   const double quantized = std::round(value * kQuantization) / kQuantization;
   if (!std::isfinite(quantized) || std::abs(quantized) > kMaximumDelta) {
-    return std::nullopt;
+    return base::nullopt;
   }
   return static_cast<f32>(quantized);
 }
 
-void SetError(std::string* error, std::string message) {
-  if (error) *error = std::move(message);
+void SetError(base::String* error, base::String message) {
+  if (error) *error = base::move(message);
 }
 
-void AppendU16(std::vector<u8>* bytes, u16 value) {
+void AppendU16(base::Vector<u8>* bytes, u16 value) {
   bytes->push_back(static_cast<u8>(value));
   bytes->push_back(static_cast<u8>(value >> 8));
 }
 
-void AppendU32(std::vector<u8>* bytes, u32 value) {
-  for (u32 shift = 0; shift < 32; shift += 8)
-    bytes->push_back(static_cast<u8>(value >> shift));
+void AppendU32(base::Vector<u8>* bytes, u32 value) {
+  for (u32 shift = 0; shift < 32; shift += 8) bytes->push_back(static_cast<u8>(value >> shift));
 }
 
-void AppendI32(std::vector<u8>* bytes, i32 value) {
-  AppendU32(bytes, static_cast<u32>(value));
-}
+void AppendI32(base::Vector<u8>* bytes, i32 value) { AppendU32(bytes, static_cast<u32>(value)); }
 
-void AppendU64(std::vector<u8>* bytes, u64 value) {
-  for (u32 shift = 0; shift < 64; shift += 8)
-    bytes->push_back(static_cast<u8>(value >> shift));
+void AppendU64(base::Vector<u8>* bytes, u64 value) {
+  for (u32 shift = 0; shift < 64; shift += 8) bytes->push_back(static_cast<u8>(value >> shift));
 }
 
 u32 Crc32(std::span<const u8> bytes) {
   u32 crc = 0xffffffffu;
   for (u8 byte : bytes) {
     crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit)
-      crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+    for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
   }
   return ~crc;
 }
@@ -151,8 +147,7 @@ class Reader {
   }
   bool ReadU16(u16* value) {
     if (!Has(2)) return false;
-    *value = static_cast<u16>(bytes_[offset_]) |
-             static_cast<u16>(bytes_[offset_ + 1]) << 8;
+    *value = static_cast<u16>(bytes_[offset_]) | static_cast<u16>(bytes_[offset_ + 1]) << 8;
     offset_ += 2;
     return true;
   }
@@ -176,7 +171,7 @@ class Reader {
       *value |= static_cast<u64>(bytes_[offset_++]) << shift;
     return true;
   }
-  bool ReadString(size_t size, std::string* value) {
+  bool ReadString(size_t size, base::String* value) {
     if (!Has(size)) return false;
     value->assign(reinterpret_cast<const char*>(bytes_.data() + offset_), size);
     offset_ += size;
@@ -201,14 +196,14 @@ struct EncodedSample {
 struct EncodedCell {
   TerrainCellKey key;
   u64 fingerprint = 0;
-  std::vector<EncodedSample> samples;
+  base::Vector<EncodedSample> samples;
 };
 
 }  // namespace
 
-void TerrainEdits::BindWorld(std::string identity) {
+void TerrainEdits::BindWorld(base::String identity) {
   if (identity == world_identity_) return;
-  world_identity_ = std::move(identity);
+  world_identity_ = base::move(identity);
   samples_.clear();
   fingerprints_.clear();
   dirty_cells_.clear();
@@ -231,8 +226,7 @@ bool TerrainEdits::AffectsCell(TerrainCellKey cell) const {
           global_y > std::numeric_limits<i32>::max()) {
         continue;
       }
-      if (samples_.contains(
-              {static_cast<i32>(global_x), static_cast<i32>(global_y)})) {
+      if (samples_.contains({static_cast<i32>(global_x), static_cast<i32>(global_y)})) {
         return true;
       }
     }
@@ -240,11 +234,9 @@ bool TerrainEdits::AffectsCell(TerrainCellKey cell) const {
   return false;
 }
 
-bool TerrainEdits::ComposeCell(TerrainCellKey cell,
-                               std::span<const f32> base_heights,
+bool TerrainEdits::ComposeCell(TerrainCellKey cell, std::span<const f32> base_heights,
                                std::span<f32> composed_heights) const {
-  if (base_heights.size() != kCellSamples ||
-      composed_heights.size() != kCellSamples) {
+  if (base_heights.size() != kCellSamples || composed_heights.size() != kCellSamples) {
     return false;
   }
   for (i32 row = 0; row <= kCellQuads; ++row) {
@@ -252,18 +244,15 @@ bool TerrainEdits::ComposeCell(TerrainCellKey cell,
       const size_t index = static_cast<size_t>(row) * 33 + col;
       const i64 global_x = static_cast<i64>(cell.x) * kCellQuads + col;
       const i64 global_y = static_cast<i64>(cell.y) * kCellQuads + row;
-      if (!std::isfinite(base_heights[index]) ||
-          global_x < std::numeric_limits<i32>::min() ||
+      if (!std::isfinite(base_heights[index]) || global_x < std::numeric_limits<i32>::min() ||
           global_x > std::numeric_limits<i32>::max() ||
           global_y < std::numeric_limits<i32>::min() ||
           global_y > std::numeric_limits<i32>::max()) {
         return false;
       }
-      const double height =
-          static_cast<double>(base_heights[index]) +
-          SampleDelta(static_cast<i32>(global_x), static_cast<i32>(global_y));
-      if (!std::isfinite(height) ||
-          std::abs(height) > std::numeric_limits<f32>::max()) {
+      const double height = static_cast<double>(base_heights[index]) +
+                            SampleDelta(static_cast<i32>(global_x), static_cast<i32>(global_y));
+      if (!std::isfinite(height) || std::abs(height) > std::numeric_limits<f32>::max()) {
         return false;
       }
       composed_heights[index] = static_cast<f32>(height);
@@ -273,15 +262,13 @@ bool TerrainEdits::ComposeCell(TerrainCellKey cell,
 }
 
 TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
-                                            const BaseHeight& base_height) {
+                                           const BaseHeight& base_height) {
   TerrainEditChange change;
-  if (!base_height || !std::isfinite(brush.center_x) ||
-      !std::isfinite(brush.center_y) || !std::isfinite(brush.radius) ||
-      brush.radius <= 0 || brush.radius > kMaximumBrushRadius ||
-      !std::isfinite(brush.strength) || brush.strength <= 0 ||
-      !std::isfinite(brush.falloff) || brush.falloff < 0 ||
-      (brush.mode == TerrainBrushMode::kFlatten &&
-       !std::isfinite(brush.flatten_target))) {
+  if (!base_height || !std::isfinite(brush.center_x) || !std::isfinite(brush.center_y) ||
+      !std::isfinite(brush.radius) || brush.radius <= 0 || brush.radius > kMaximumBrushRadius ||
+      !std::isfinite(brush.strength) || brush.strength <= 0 || !std::isfinite(brush.falloff) ||
+      brush.falloff < 0 ||
+      (brush.mode == TerrainBrushMode::kFlatten && !std::isfinite(brush.flatten_target))) {
     return change;
   }
 
@@ -291,37 +278,31 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
   const double max_y = std::floor(static_cast<double>(brush.center_y) + brush.radius);
   // Keep one coordinate of headroom for smooth-neighbor probes and loop
   // increments; this also avoids signed overflow at the lattice extremes.
-  if (min_x <= std::numeric_limits<i32>::min() ||
-      max_x >= std::numeric_limits<i32>::max() ||
-      min_y <= std::numeric_limits<i32>::min() ||
-      max_y >= std::numeric_limits<i32>::max()) {
+  if (min_x <= std::numeric_limits<i32>::min() || max_x >= std::numeric_limits<i32>::max() ||
+      min_y <= std::numeric_limits<i32>::min() || max_y >= std::numeric_limits<i32>::max()) {
     return change;
   }
 
-  auto current_height = [&](i32 x, i32 y) -> std::optional<f32> {
-    std::optional<f32> base = base_height(x, y);
-    if (!base || !std::isfinite(*base)) return std::nullopt;
+  auto current_height = [&](i32 x, i32 y) -> base::Optional<f32> {
+    base::Optional<f32> base = base_height(x, y);
+    if (!base || !std::isfinite(*base)) return base::nullopt;
     const double current = static_cast<double>(*base) + SampleDelta(x, y);
-    if (!std::isfinite(current) ||
-        std::abs(current) > std::numeric_limits<f32>::max()) {
-      return std::nullopt;
+    if (!std::isfinite(current) || std::abs(current) > std::numeric_limits<f32>::max()) {
+      return base::nullopt;
     }
     return static_cast<f32>(current);
   };
 
   for (i32 x = static_cast<i32>(min_x); x <= static_cast<i32>(max_x); ++x) {
     for (i32 y = static_cast<i32>(min_y); y <= static_cast<i32>(max_y); ++y) {
-      const f32 distance = static_cast<f32>(std::hypot(
-          static_cast<double>(x) - brush.center_x,
-          static_cast<double>(y) - brush.center_y));
+      const f32 distance = static_cast<f32>(std::hypot(static_cast<double>(x) - brush.center_x,
+                                                       static_cast<double>(y) - brush.center_y));
       if (distance > brush.radius) continue;
-      const f32 radial = std::max(0.0f, 1.0f - distance / brush.radius);
-      const f32 influence = brush.falloff == 0
-                                ? 1.0f
-                                : std::pow(radial, brush.falloff);
+      const f32 radial = base::Max(0.0f, 1.0f - distance / brush.radius);
+      const f32 influence = brush.falloff == 0 ? 1.0f : std::pow(radial, brush.falloff);
       if (influence <= 0) continue;
 
-      const std::optional<f32> base = base_height(x, y);
+      const base::Optional<f32> base = base_height(x, y);
       if (!base || !std::isfinite(*base)) continue;
       const f32 old_delta = SampleDelta(x, y);
       const f32 old_height = *base + old_delta;
@@ -336,29 +317,26 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
         case TerrainBrushMode::kSmooth: {
           f32 total = 0;
           u32 count = 0;
-          for (const TerrainSampleKey neighbor : {
-                   TerrainSampleKey{x - 1, y}, TerrainSampleKey{x + 1, y},
-                   TerrainSampleKey{x, y - 1}, TerrainSampleKey{x, y + 1}}) {
-            if (const std::optional<f32> value =
-                    current_height(neighbor.x, neighbor.y)) {
+          for (const TerrainSampleKey neighbor :
+               {TerrainSampleKey{x - 1, y}, TerrainSampleKey{x + 1, y}, TerrainSampleKey{x, y - 1},
+                TerrainSampleKey{x, y + 1}}) {
+            if (const base::Optional<f32> value = current_height(neighbor.x, neighbor.y)) {
               total += *value;
               ++count;
             }
           }
           if (count == 0) continue;
-          const f32 amount =
-              std::clamp(brush.strength * influence, 0.0f, 1.0f);
+          const f32 amount = base::Clamp(brush.strength * influence, 0.0f, 1.0f);
           new_delta += (total / count - old_height) * amount;
           break;
         }
         case TerrainBrushMode::kFlatten: {
-          const f32 amount =
-              std::clamp(brush.strength * influence, 0.0f, 1.0f);
+          const f32 amount = base::Clamp(brush.strength * influence, 0.0f, 1.0f);
           new_delta += (brush.flatten_target - old_height) * amount;
           break;
         }
       }
-      const std::optional<f32> quantized = QuantizeDelta(new_delta);
+      const base::Optional<f32> quantized = QuantizeDelta(new_delta);
       if (!quantized || *quantized == old_delta) continue;
       change.samples.push_back({{x, y}, old_delta, *quantized});
     }
@@ -368,20 +346,18 @@ TerrainEditChange TerrainEdits::ApplyBrush(const TerrainBrush& brush,
   return change;
 }
 
-bool TerrainEdits::SetChangeState(const TerrainEditChange& change,
-                                  bool use_new) {
+bool TerrainEdits::SetChangeState(const TerrainEditChange& change, bool use_new) {
   if (!IsSortedUnique(change.samples) || !IsSortedUnique(change.cells)) {
     return false;
   }
   for (const TerrainSampleChange& sample : change.samples) {
     const f32 expected = use_new ? sample.old_delta : sample.new_delta;
     const f32 wanted = use_new ? sample.new_delta : sample.old_delta;
-    if (!std::isfinite(expected) || !std::isfinite(wanted) ||
-        std::abs(wanted) > kMaximumDelta ||
+    if (!std::isfinite(expected) || !std::isfinite(wanted) || std::abs(wanted) > kMaximumDelta ||
         SampleDelta(sample.sample.x, sample.sample.y) != expected) {
       return false;
     }
-    const std::vector<TerrainCellKey> shared = SharedCells(sample.sample);
+    const base::Vector<TerrainCellKey> shared = SharedCells(sample.sample);
     for (TerrainCellKey cell : shared) {
       if (!std::binary_search(change.cells.begin(), change.cells.end(), cell)) {
         return false;
@@ -412,8 +388,7 @@ bool TerrainEdits::RevertChange(const TerrainEditChange& change) {
 TerrainEditChange TerrainEdits::Clear() {
   TerrainEditChange change;
   change.samples.reserve(samples_.size());
-  for (const auto& [sample, delta] : samples_)
-    change.samples.push_back({sample, delta, 0.0f});
+  for (const auto& [sample, delta] : samples_) change.samples.push_back({sample, delta, 0.0f});
   CollectCells(&change);
   if (!change.empty() && !ApplyChange(change)) return {};
   return change;
@@ -423,14 +398,14 @@ void TerrainEdits::SetCellFingerprint(TerrainCellKey cell, u64 fingerprint) {
   fingerprints_[cell] = fingerprint;
 }
 
-std::optional<u64> TerrainEdits::CellFingerprint(TerrainCellKey cell) const {
+base::Optional<u64> TerrainEdits::CellFingerprint(TerrainCellKey cell) const {
   const auto found = fingerprints_.find(cell);
-  if (found == fingerprints_.end()) return std::nullopt;
+  if (found == fingerprints_.end()) return base::nullopt;
   return found->second;
 }
 
-std::vector<TerrainCellKey> TerrainEdits::dirty_cells() const {
-  std::vector<TerrainCellKey> result;
+base::Vector<TerrainCellKey> TerrainEdits::dirty_cells() const {
+  base::Vector<TerrainCellKey> result;
   result.reserve(dirty_cells_.size());
   for (const auto& [cell, ignored] : dirty_cells_) {
     (void)ignored;
@@ -439,12 +414,12 @@ std::vector<TerrainCellKey> TerrainEdits::dirty_cells() const {
   return result;
 }
 
-std::vector<TerrainCellKey> TerrainEdits::touched_cells() const {
-  std::set<TerrainCellKey> touched;
+base::Vector<TerrainCellKey> TerrainEdits::touched_cells() const {
+  base::Set<TerrainCellKey> touched;
   for (const auto& [sample, ignored] : samples_) {
     (void)ignored;
-    const std::vector<TerrainCellKey> shared = SharedCells(sample);
-    touched.insert(shared.begin(), shared.end());
+    const base::Vector<TerrainCellKey> shared = SharedCells(sample);
+    for (const TerrainCellKey& cell : shared) touched.insert(cell);
   }
   return {touched.begin(), touched.end()};
 }
@@ -454,8 +429,7 @@ void TerrainEdits::MarkSaved() {
   dirty_cells_.clear();
 }
 
-bool MergeTerrainEditChanges(TerrainEditChange* stroke,
-                             const TerrainEditChange& dab) {
+bool MergeTerrainEditChanges(TerrainEditChange* stroke, const TerrainEditChange& dab) {
   if (!stroke || !IsSortedUnique(dab.samples) || !IsSortedUnique(dab.cells)) {
     return false;
   }
@@ -478,8 +452,7 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke,
          stroke->samples[old_index].sample < dab.samples[dab_index].sample)) {
       merged.samples.push_back(stroke->samples[old_index++]);
     } else if (old_index == stroke->samples.size() ||
-               dab.samples[dab_index].sample <
-                   stroke->samples[old_index].sample) {
+               dab.samples[dab_index].sample < stroke->samples[old_index].sample) {
       merged.samples.push_back(dab.samples[dab_index++]);
     } else {
       const TerrainSampleChange& old = stroke->samples[old_index++];
@@ -492,25 +465,23 @@ bool MergeTerrainEditChanges(TerrainEditChange* stroke,
     }
   }
   CollectCells(&merged);
-  *stroke = std::move(merged);
+  *stroke = base::move(merged);
   return true;
 }
 
-bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
-                      std::string* error) {
-  if (edits.world_identity_.empty() ||
-      edits.world_identity_.size() > kMaximumWorldBytes) {
+bool SaveTerrainEdits(const TerrainEdits& edits, const base::String& file_path,
+                      base::String* error) {
+  if (edits.world_identity_.empty() || edits.world_identity_.size() > kMaximumWorldBytes) {
     SetError(error, "terrain diff has no valid worldspace identity");
     return false;
   }
 
-  std::map<TerrainCellKey, EncodedCell> cells;
+  base::Map<TerrainCellKey, EncodedCell> cells;
   u32 sample_count = 0;
   for (const auto& [sample, delta] : edits.samples_) {
     const double scaled = static_cast<double>(delta) * kQuantization;
     if (!std::isfinite(delta) || std::abs(delta) > kMaximumDelta ||
-        scaled < std::numeric_limits<i32>::min() ||
-        scaled > std::numeric_limits<i32>::max()) {
+        scaled < std::numeric_limits<i32>::min() || scaled > std::numeric_limits<i32>::max()) {
       SetError(error, "terrain diff contains a non-finite or out-of-range delta");
       return false;
     }
@@ -518,19 +489,16 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
     if (quantized == 0) continue;
     const i64 owner_x = FloorDiv(sample.x, kCellQuads);
     const i64 owner_y = FloorDiv(sample.y, kCellQuads);
-    if (owner_x < std::numeric_limits<i32>::min() ||
-        owner_x > std::numeric_limits<i32>::max() ||
-        owner_y < std::numeric_limits<i32>::min() ||
-        owner_y > std::numeric_limits<i32>::max()) {
+    if (owner_x < std::numeric_limits<i32>::min() || owner_x > std::numeric_limits<i32>::max() ||
+        owner_y < std::numeric_limits<i32>::min() || owner_y > std::numeric_limits<i32>::max()) {
       SetError(error, "terrain sample lies outside the supported cell range");
       return false;
     }
     TerrainCellKey owner{static_cast<i32>(owner_x), static_cast<i32>(owner_y)};
     EncodedCell& encoded = cells[owner];
     encoded.key = owner;
-    encoded.samples.push_back(
-        {static_cast<u8>(PositiveMod(sample.x, kCellQuads)),
-         static_cast<u8>(PositiveMod(sample.y, kCellQuads)), quantized});
+    encoded.samples.push_back({static_cast<u8>(PositiveMod(sample.x, kCellQuads)),
+                               static_cast<u8>(PositiveMod(sample.y, kCellQuads)), quantized});
     for (TerrainCellKey shared : SharedCells(sample)) cells[shared].key = shared;
     if (++sample_count > kMaximumSamples) {
       SetError(error, "terrain diff exceeds the sample limit");
@@ -542,13 +510,12 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
     return false;
   }
   for (auto& [key, cell] : cells) {
-    if (const auto found = edits.fingerprints_.find(key);
-        found != edits.fingerprints_.end()) {
+    if (const auto found = edits.fingerprints_.find(key); found != edits.fingerprints_.end()) {
       cell.fingerprint = found->second;
     }
     if (cell.fingerprint == 0) {
       SetError(error, "terrain diff is missing a base fingerprint at cell " +
-                          std::to_string(key.x) + "," + std::to_string(key.y));
+                          base::ToString(key.x) + "," + base::ToString(key.y));
       return false;
     }
   }
@@ -561,7 +528,7 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
     return false;
   }
 
-  std::vector<u8> bytes;
+  base::Vector<u8> bytes;
   bytes.reserve(static_cast<size_t>(total_bytes));
   bytes.insert(bytes.end(), std::begin(kMagic), std::end(kMagic));
   AppendU16(&bytes, kFormatVersion);
@@ -572,8 +539,7 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
   AppendU32(&bytes, kQuantization);
   AppendU32(&bytes, 0);
   AppendU64(&bytes, payload_bytes);
-  bytes.insert(bytes.end(), edits.world_identity_.begin(),
-               edits.world_identity_.end());
+  bytes.insert(bytes.end(), edits.world_identity_.begin(), edits.world_identity_.end());
   for (const auto& [key, cell] : cells) {
     AppendI32(&bytes, key.x);
     AppendI32(&bytes, key.y);
@@ -587,10 +553,10 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
   }
   AppendU32(&bytes, Crc32(bytes));
 
-  const std::filesystem::path destination(file_path);
+  const std::filesystem::path destination(file_path.c_str());
   const std::filesystem::path temporary = destination.string() + ".tmp";
   {
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    std::ofstream output(temporary.c_str(), std::ios::binary | std::ios::trunc);
     if (!output) {
       SetError(error, "cannot open terrain diff temporary file for writing");
       return false;
@@ -601,23 +567,22 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
     if (!output) {
       output.close();
       std::error_code ignored;
-      std::filesystem::remove(temporary, ignored);
+      std::filesystem::remove(temporary.c_str(), ignored);
       SetError(error, "failed while writing terrain diff temporary file");
       return false;
     }
   }
   std::error_code rename_error;
-  std::filesystem::rename(temporary, destination, rename_error);
+  std::filesystem::rename(temporary.c_str(), destination, rename_error);
 #if defined(_WIN32)
-  if (rename_error &&
-      MoveFileExW(temporary.c_str(), destination.c_str(),
-                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+  if (rename_error && MoveFileExW(temporary.c_str(), destination.c_str(),
+                                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
     rename_error.clear();
   }
 #endif
   if (rename_error) {
     std::error_code ignored;
-    std::filesystem::remove(temporary, ignored);
+    std::filesystem::remove(temporary.c_str(), ignored);
     SetError(error, "cannot replace terrain diff: " + rename_error.message());
     return false;
   }
@@ -625,15 +590,14 @@ bool SaveTerrainEdits(const TerrainEdits& edits, const std::string& file_path,
   return true;
 }
 
-bool LoadTerrainEdits(const std::string& file_path,
-                      std::string_view expected_world_identity,
-                      const TerrainEdits::FingerprintLookup& fingerprints,
-                      TerrainEdits* edits, std::string* error) {
+bool LoadTerrainEdits(const base::String& file_path, base::StringRef expected_world_identity,
+                      const TerrainEdits::FingerprintLookup& fingerprints, TerrainEdits* edits,
+                      base::String* error) {
   if (!edits || expected_world_identity.empty() || !fingerprints) {
     SetError(error, "terrain diff load has no destination, worldspace, or fingerprint source");
     return false;
   }
-  std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+  std::ifstream input(file_path.c_str(), std::ios::binary | std::ios::ate);
   if (!input) {
     SetError(error, "cannot open terrain diff");
     return false;
@@ -645,7 +609,7 @@ bool LoadTerrainEdits(const std::string& file_path,
     return false;
   }
   input.seekg(0);
-  std::vector<u8> bytes(static_cast<size_t>(length));
+  base::Vector<u8> bytes(static_cast<size_t>(length));
   input.read(reinterpret_cast<char*>(bytes.data()), length);
   if (!input) {
     SetError(error, "failed while reading terrain diff");
@@ -654,10 +618,8 @@ bool LoadTerrainEdits(const std::string& file_path,
   u32 stored_checksum = 0;
   const size_t checksum_offset = bytes.size() - 4;
   for (u32 shift = 0; shift < 32; shift += 8)
-    stored_checksum |= static_cast<u32>(bytes[checksum_offset + shift / 8])
-                       << shift;
-  if (stored_checksum !=
-      Crc32(std::span<const u8>(bytes.data(), checksum_offset))) {
+    stored_checksum |= static_cast<u32>(bytes[checksum_offset + shift / 8]) << shift;
+  if (stored_checksum != Crc32(std::span<const u8>(bytes.data(), checksum_offset))) {
     SetError(error, "terrain diff checksum mismatch");
     return false;
   }
@@ -681,22 +643,21 @@ bool LoadTerrainEdits(const std::string& file_path,
     SetError(error, "terrain diff header is truncated");
     return false;
   }
-  if (version != kFormatVersion || header_bytes != kHeaderBytes ||
-      quantization != kQuantization || reserved != 0 || world_bytes == 0 ||
-      world_bytes > kMaximumWorldBytes || cell_count > kMaximumCells ||
-      sample_count > kMaximumSamples || payload_bytes != reader.remaining()) {
+  if (version != kFormatVersion || header_bytes != kHeaderBytes || quantization != kQuantization ||
+      reserved != 0 || world_bytes == 0 || world_bytes > kMaximumWorldBytes ||
+      cell_count > kMaximumCells || sample_count > kMaximumSamples ||
+      payload_bytes != reader.remaining()) {
     SetError(error, "terrain diff header contains unsupported or invalid values");
     return false;
   }
-  std::string world_identity;
+  base::String world_identity;
   if (!reader.ReadString(world_bytes, &world_identity)) {
     SetError(error, "terrain diff worldspace identity is truncated");
     return false;
   }
   if (world_identity != expected_world_identity) {
-    SetError(error, "terrain diff worldspace mismatch: file is bound to '" +
-                        world_identity + "', active world is '" +
-                        std::string(expected_world_identity) + "'");
+    SetError(error, "terrain diff worldspace mismatch: file is bound to '" + world_identity +
+                        "', active world is '" + base::String(expected_world_identity) + "'");
     return false;
   }
 
@@ -709,9 +670,8 @@ bool LoadTerrainEdits(const std::string& file_path,
     TerrainCellKey cell;
     u64 fingerprint = 0;
     u32 cell_samples = 0;
-    if (!reader.ReadI32(&cell.x) || !reader.ReadI32(&cell.y) ||
-        !reader.ReadU64(&fingerprint) || !reader.ReadU32(&cell_samples) ||
-        cell_samples > sample_count - decoded_samples) {
+    if (!reader.ReadI32(&cell.x) || !reader.ReadI32(&cell.y) || !reader.ReadU64(&fingerprint) ||
+        !reader.ReadU32(&cell_samples) || cell_samples > sample_count - decoded_samples) {
       SetError(error, "terrain diff cell table is truncated or invalid");
       return false;
     }
@@ -725,11 +685,10 @@ bool LoadTerrainEdits(const std::string& file_path,
       SetError(error, "terrain diff cell has no base fingerprint");
       return false;
     }
-    const std::optional<u64> active = fingerprints(cell);
+    const base::Optional<u64> active = fingerprints(cell);
     if (!active || *active != fingerprint) {
-      SetError(error, "terrain diff base fingerprint mismatch at cell " +
-                          std::to_string(cell.x) + "," +
-                          std::to_string(cell.y));
+      SetError(error, "terrain diff base fingerprint mismatch at cell " + base::ToString(cell.x) +
+                          "," + base::ToString(cell.y));
       return false;
     }
     loaded.fingerprints_[cell] = fingerprint;
@@ -738,9 +697,8 @@ bool LoadTerrainEdits(const std::string& file_path,
     for (u32 sample_index = 0; sample_index < cell_samples; ++sample_index) {
       u8 local_x = 0, local_y = 0;
       i32 quantized = 0;
-      if (!reader.ReadU8(&local_x) || !reader.ReadU8(&local_y) ||
-          !reader.ReadI32(&quantized) || local_x >= kCellQuads ||
-          local_y >= kCellQuads || quantized == 0 ||
+      if (!reader.ReadU8(&local_x) || !reader.ReadU8(&local_y) || !reader.ReadI32(&quantized) ||
+          local_x >= kCellQuads || local_y >= kCellQuads || quantized == 0 ||
           quantized < -kMaximumQuantized || quantized > kMaximumQuantized) {
         SetError(error, "terrain diff sample table is truncated or invalid");
         return false;
@@ -754,18 +712,14 @@ bool LoadTerrainEdits(const std::string& file_path,
         SetError(error, "terrain diff sample coordinate overflows the lattice");
         return false;
       }
-      TerrainSampleKey sample{static_cast<i32>(global_x),
-                              static_cast<i32>(global_y)};
+      TerrainSampleKey sample{static_cast<i32>(global_x), static_cast<i32>(global_y)};
       if (has_previous_sample && !(previous_sample < sample)) {
         SetError(error, "terrain diff samples are not strictly sorted");
         return false;
       }
       previous_sample = sample;
       has_previous_sample = true;
-      if (!loaded.samples_
-               .emplace(sample,
-                        static_cast<f32>(quantized) / kQuantization)
-               .second) {
+      if (!loaded.samples_.emplace(sample, static_cast<f32>(quantized) / kQuantization).second) {
         SetError(error, "terrain diff contains duplicate samples");
         return false;
       }
@@ -786,7 +740,7 @@ bool LoadTerrainEdits(const std::string& file_path,
     }
   }
   loaded.MarkSaved();
-  *edits = std::move(loaded);
+  *edits = base::move(loaded);
   if (error) error->clear();
   return true;
 }

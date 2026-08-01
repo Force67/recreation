@@ -3,9 +3,10 @@
 // skyrim_bindings.cc) overrides them. Reading the record here lets GetFactionRank
 // fall back to authored membership and lets managed code enumerate an actor's
 // factions. Split out to keep skyrim_bindings.cc from becoming a god file.
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+
 #include <cstring>
-#include <utility>
-#include <vector>
 
 #include "components/bethesda/record.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
@@ -31,7 +32,8 @@ bool ResolveNpc(const bethesda::RecordStore* records, bethesda::GlobalFormId id,
   if (!name || name->data.size() < 4) return false;
   u32 raw;
   std::memcpy(&raw, name->data.data(), 4);
-  const bethesda::GlobalFormId base = records->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
+  const bethesda::GlobalFormId base =
+      records->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
   const bethesda::RecordStore::StoredRecord* bstored = records->Find(base);
   if (!bstored || !records->Parse(base, out) || out->header.type != FourCc('N', 'P', 'C', '_'))
     return false;
@@ -42,7 +44,7 @@ bool ResolveNpc(const bethesda::RecordStore* records, bethesda::GlobalFormId id,
 // Reads the NPC_'s SNAM faction entries as (faction handle, rank). SNAM is 8
 // bytes: { formid faction; int8 rank; uint8[3] unused }.
 void ReadFactions(const bethesda::RecordStore* records, const bethesda::Record& npc, u16 plugin,
-                  std::vector<std::pair<u64, i32>>* out) {
+                  base::Vector<base::Pair<u64, i32>>* out) {
   for (const bethesda::Subrecord& sub : npc.subrecords) {
     if (sub.type != FourCc('S', 'N', 'A', 'M') || sub.data.size() < 5) continue;
     u32 raw;
@@ -80,7 +82,7 @@ i32 RecordBackedSkyrimBindings::AuthoredFactionRank(ObjectRef actor, ObjectRef f
   u16 plugin;
   if (!ResolveNpc(records_, ToFormId(actor), &npc, &plugin)) return -2;
   // A local list so a query during enumeration does not clobber faction_cache_.
-  std::vector<std::pair<u64, i32>> factions;
+  base::Vector<base::Pair<u64, i32>> factions;
   ReadFactions(records_, npc, plugin, &factions);
   for (const auto& [handle, rank] : factions)
     if (handle == faction.handle) return rank;
@@ -111,7 +113,8 @@ i32 RecordBackedSkyrimBindings::AuthoredFactionReaction(ObjectRef faction, Objec
     if (sub.type != FourCc('X', 'N', 'A', 'M') || sub.data.size() < 12) continue;
     u32 raw;
     std::memcpy(&raw, sub.data.data(), 4);
-    if (records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed() != other.handle)
+    if (records_->ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin).packed() !=
+        other.handle)
       continue;
     u32 reaction;
     std::memcpy(&reaction, sub.data.data() + 8, 4);

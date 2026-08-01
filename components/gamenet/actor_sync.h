@@ -1,11 +1,12 @@
 #ifndef RECREATION_NET_ACTOR_SYNC_H_
 #define RECREATION_NET_ACTOR_SYNC_H_
 
+#include <base/containers/unordered_map.h>
+
 #include <optional>
 #include <vector>
 
-#include <base/containers/unordered_map.h>
-
+#include "components/world/quest_world.h"
 #include "core/types.h"
 #include "ecs/world.h"
 #include "components/world/quest_world.h"
@@ -24,7 +25,7 @@ struct ActorState {
 };
 
 std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors);
-std::optional<std::vector<ActorState>> DecodeActorStates(ByteSpan data);
+base::Optional<base::Vector<ActorState>> DecodeActorStates(ByteSpan data);
 
 // Walks every NPC entity and returns its current transform. The authoritative
 // snapshot the server deltas before sending.
@@ -47,7 +48,7 @@ class ActorReplicator {
 // the (unreliable, low-rate) updates. Unknown / not-yet-streamed forms are
 // skipped.
 void ApplyActorStates(ecs::World& world, const world::QuestWorld& registry,
-                      const std::vector<ActorState>& actors, f32 lerp_duration);
+                      const base::Vector<ActorState>& actors, f32 lerp_duration);
 
 }  // namespace rx::net
 

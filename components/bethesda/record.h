@@ -1,9 +1,8 @@
 #ifndef RECREATION_BETHESDA_RECORD_H_
 #define RECREATION_BETHESDA_RECORD_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -55,7 +54,7 @@ struct Record {
   base::Vector<Subrecord> subrecords;
 
   const Subrecord* Find(u32 fourcc) const;
-  std::string GetString(u32 fourcc) const;  // zero terminated subrecord as string
+  base::String GetString(u32 fourcc) const;  // zero terminated subrecord as string
 };
 
 }  // namespace rx::bethesda

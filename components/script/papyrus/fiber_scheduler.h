@@ -1,9 +1,11 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_FIBER_SCHEDULER_H_
 #define RECREATION_SCRIPT_PAPYRUS_FIBER_SCHEDULER_H_
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+
 #include <functional>
-#include <memory>
-#include <vector>
 
 #include "core/types.h"
 #include "components/script/papyrus/fiber.h"
@@ -28,7 +30,7 @@ namespace rx::script::papyrus {
 class FiberScheduler {
  public:
   explicit FiberScheduler(std::function<LatentRequest()> take_request)
-      : take_request_(std::move(take_request)) {}
+      : take_request_(base::move(take_request)) {}
 
   // Optional per-activation context that must stay fiber-local across a suspend
   // (the bindings' quest provenance and fragment-recursion depth). `reset`
@@ -38,8 +40,8 @@ class FiberScheduler {
   // runs it just before resuming the fiber. Without hooks, no context is tracked.
   void set_context_hooks(std::function<void()> reset,
                          std::function<std::function<void()>()> capture) {
-    reset_context_ = std::move(reset);
-    capture_context_ = std::move(capture);
+    reset_context_ = base::move(reset);
+    capture_context_ = base::move(capture);
   }
 
   // Runs `body` on a fresh fiber at the given clock. Returns true if it suspended
@@ -54,19 +56,19 @@ class FiberScheduler {
 
  private:
   struct Parked {
-    std::unique_ptr<Fiber> fiber;
-    f64 real_due;                  // resume when real_now >= this; <0 if not a real-time wait
-    f64 game_due;                  // resume when game_now >= this; <0 if not a game-time wait
+    base::UniquePointer<Fiber> fiber;
+    f64 real_due;                   // resume when real_now >= this; <0 if not a real-time wait
+    f64 game_due;                   // resume when game_now >= this; <0 if not a game-time wait
     std::function<void()> restore;  // re-establishes this fiber's context before resume
   };
 
   // Reads the just-yielded fiber's wait request and stores it as a deadline.
-  void Park(std::unique_ptr<Fiber> fiber, f64 real_now, f64 game_now);
+  void Park(base::UniquePointer<Fiber> fiber, f64 real_now, f64 game_now);
 
   std::function<LatentRequest()> take_request_;
   std::function<void()> reset_context_;
   std::function<std::function<void()>()> capture_context_;
-  std::vector<Parked> parked_;
+  base::Vector<Parked> parked_;
 };
 
 }  // namespace rx::script::papyrus

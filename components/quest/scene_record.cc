@@ -1,5 +1,7 @@
 #include "components/quest/scene_record.h"
 
+#include <base/memory/move.h>
+
 #include <cstring>
 
 #include "components/bethesda/load_order.h"
@@ -82,14 +84,14 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
   auto flush_phase = [&] {
     if (phase_open) {
       phase.index = phase_counter++;
-      def.phases.push_back(std::move(phase));
+      def.phases.push_back(base::move(phase));
       phase = ScenePhaseDef{};
     }
     phase_open = false;
     phase_in_completion = false;
   };
   auto flush_action = [&] {
-    if (action_open) def.actions.push_back(std::move(action));
+    if (action_open) def.actions.push_back(base::move(action));
     action = SceneActionDef{};
     action_open = false;
     action_end_seen = false;
@@ -136,7 +138,7 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
         if (section == Section::kPhases && phase_open) {
           SceneRawCondition cond;
           cond.ctda.assign(sub.data.begin(), sub.data.end());
-          (phase_in_completion ? phase.completion : phase.begin).push_back(std::move(cond));
+          (phase_in_completion ? phase.completion : phase.begin).push_back(base::move(cond));
         }
         break;
       case kWnam:
@@ -154,7 +156,7 @@ SceneDef ParseSceneRecord(u64 handle, const bethesda::Record& record,
         } else {
           SceneActorDef actor;
           actor.alias = ReadLe<i32>(sub);
-          def.actors.push_back(std::move(actor));
+          def.actors.push_back(base::move(actor));
         }
         break;
       case kLnam:

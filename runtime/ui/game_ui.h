@@ -1,10 +1,11 @@
 #ifndef RECREATION_RUNTIME_UI_GAME_UI_H_
 #define RECREATION_RUNTIME_UI_GAME_UI_H_
 
+#include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <memory>
-#include <string>
-#include <vector>
 
 #include "core/types.h"
 
@@ -22,19 +23,19 @@ struct FrameView;
 // hides the tracker.
 struct HudQuest {
   struct Objective {
-    std::string text;
+    base::String text;
     bool completed = false;
   };
-  std::string title;
-  std::vector<Objective> objectives;
+  base::String title;
+  base::Vector<Objective> objectives;
 };
 
 // A persistent labeled HUD gauge pushed from managed gameplay (oxygen, radiation,
 // adrenaline, ...) through the Hud.Gauge native. The engine snapshots the live
 // set each frame; an empty list hides the gauge stack.
 struct HudGauge {
-  std::string id;
-  std::string label;
+  base::String id;
+  base::String label;
   float fraction = 0;  // 0..1
   u32 color = 0;       // packed rgba8; 0 = HUD default
 };
@@ -43,21 +44,21 @@ struct HudGauge {
 // and the numbered player topics to choose from. open == false hides the panel.
 struct DialogueView {
   bool open = false;
-  std::string speaker;
-  std::string npc_line;
-  std::vector<std::string> options;
+  base::String speaker;
+  base::String npc_line;
+  base::Vector<base::String> options;
 };
 
 // The open container the loot panel shows: its name and the items inside (name
 // + count). open == false hides the panel.
 struct ContainerView {
   struct Item {
-    std::string name;
+    base::String name;
     int count = 0;
   };
   bool open = false;
-  std::string name;
-  std::vector<Item> items;
+  base::String name;
+  base::Vector<Item> items;
 };
 
 // Editor overlay geometry, shared by the layout (game_ui.cc) and the pointer
@@ -84,28 +85,28 @@ struct EditorView {
 
   // --- left dock: scene tree / assets tabs ---
   int left_tab = 0;  // 0 = Scene, 1 = Assets
-  std::string scene_search;
+  base::String scene_search;
   bool scene_search_focused = false;
   struct TreeRow {
     int depth = 0;  // indent level (0 root, 1 group, 2 leaf)
     int icon = 0;   // 0 root, 1 group, 2 light, 3 mesh
-    std::string name;
+    base::String name;
     bool selected = false;  // part of the editor selection
     bool hidden = false;    // eye toggled off (world::Hidden)
     int expand = 0;         // 0 leaf, 1 collapsed, 2 expanded
   };
-  std::vector<TreeRow> tree;  // the visible window of the flattened tree
-  int tree_total = 0;         // total flattened rows (for the pager)
+  base::Vector<TreeRow> tree;  // the visible window of the flattened tree
+  int tree_total = 0;          // total flattened rows (for the pager)
 
   // --- viewport overlays ---
   int gizmo = 1;  // highlighted gizmo button: 0 hand, 1 move, 2 rotate, 3 scale
 
   // --- right dock: inspector ---
   bool has_selection = false;
-  std::string sel_name;  // object display name
-  std::string sel_type;  // record fourcc, e.g. "STAT"
-  std::string model_name;
-  std::string material_name;
+  base::String sel_name;  // object display name
+  base::String sel_type;  // record fourcc, e.g. "STAT"
+  base::String model_name;
+  base::String material_name;
   u64 model_thumb = 0;  // rendered preview of the selected model (0 = none)
   float pos[3] = {0, 0, 0};
   float rot[3] = {0, 0, 0};  // euler degrees (pitch, yaw, roll)
@@ -114,7 +115,7 @@ struct EditorView {
   bool cast_shadow = true;
   bool receive_shadow = true;
   bool lightmap_static = false;
-  std::vector<std::string> tags;
+  base::Vector<base::String> tags;
   int sel_count = 0;  // number of objects selected
   // Screen-space selection bracket (window pixels).
   bool sel_on_screen = false;
@@ -127,36 +128,36 @@ struct EditorView {
   float terrain_strength = 0.25f;
   size_t terrain_sample_count = 0;
   bool terrain_dirty = false;
-  std::string terrain_path;
+  base::String terrain_path;
 
   // Marquee box-select rectangle (window pixels). Inactive hides it.
   bool marquee_active = false;
   float marquee[4] = {0, 0, 0, 0};  // x0, y0, x1, y1
 
   // --- bottom dock: asset browser ---
-  std::vector<std::string> tabs;  // category tab labels
-  int tab = 0;                    // active tab (== category index)
-  std::string asset_search;
+  base::Vector<base::String> tabs;  // category tab labels
+  int tab = 0;                      // active tab (== category index)
+  base::String asset_search;
   bool asset_search_focused = false;
   struct CatRow {
-    std::string name;
+    base::String name;
     int count = 0;
     bool active = false;
   };
-  std::vector<CatRow> cats;
+  base::Vector<CatRow> cats;
   struct Card {
-    std::string name;
+    base::String name;
     u64 thumb = 0;  // ugui TextureId for the rendered preview (0 = none yet)
     u32 color = 0;  // placeholder swatch colour (rgba8) until the thumb is ready
     bool armed = false;
   };
-  std::vector<Card> cards;
+  base::Vector<Card> cards;
   int card_total = 0;  // total filtered entries (for paging)
   int card_first = 0;  // index of cards[0] within the filtered set
 
   // --- status bar ---
-  std::string status;  // "Ready" / transient confirmation
-  std::string grid_label = "1 m";
+  base::String status;  // "Ready" / transient confirmation
+  base::String grid_label = "1 m";
   bool snapping = false;
   int object_count = 0;  // editor-placed objects so far
 };
@@ -192,54 +193,54 @@ constexpr float kCgTrackW = 164.0f;  // track width
 struct CharGenView {
   bool active = false;
   // --- left dock ---
-  std::vector<std::string> races;  // playable race display names
-  int race = 0;                    // selected race index
-  int sex = 0;                     // 0 male, 1 female
-  std::string preset_label;        // e.g. "Preset 2 / 6"
-  int page = 0;                    // 0 Face, 1 Advanced, 2 Appearance
-  std::string status;              // transient confirmation ("Saved ...")
+  base::Vector<base::String> races;  // playable race display names
+  int race = 0;                      // selected race index
+  int sex = 0;                       // 0 male, 1 female
+  base::String preset_label;         // e.g. "Preset 2 / 6"
+  int page = 0;                      // 0 Face, 1 Advanced, 2 Appearance
+  base::String status;               // transient confirmation ("Saved ...")
   // --- right dock: the active page's controls ---
-  std::string page_title;
+  base::String page_title;
   struct Row {
-    std::string label;
-    std::string value;  // formatted value / index text
-    float fill = 0;     // 0..1 track fill (sliders); cyclers centre at 0.5
-    int kind = 0;       // 0 slider, 1 cycler
-    u32 swatch = 0;     // small colour chip (rgba8); 0 = none
+    base::String label;
+    base::String value;  // formatted value / index text
+    float fill = 0;      // 0..1 track fill (sliders); cyclers centre at 0.5
+    int kind = 0;        // 0 slider, 1 cycler
+    u32 swatch = 0;      // small colour chip (rgba8); 0 = none
   };
-  std::vector<Row> rows;  // the visible window of the page's controls
-  int row_total = 0;      // total controls on the page (for the pager)
-  int row_first = 0;      // index of rows[0] within the page's control list
+  base::Vector<Row> rows;  // the visible window of the page's controls
+  int row_total = 0;       // total controls on the page (for the pager)
+  int row_first = 0;       // index of rows[0] within the page's control list
 };
 
 // Live data the engine feeds the NEXUS main menu each frame: the player banner,
 // the network status line, and the per-column "available" flags. Read by the
 // menu's profile/multiplayer/status widgets; all optional, sensible defaults.
 struct MainMenuStats {
-  std::string player_name;  // the local profile handle (account or --name)
+  base::String player_name;  // the local profile handle (account or --name)
   int level = 0;
   bool in_game = false;                        // a universe is loaded and being played
-  std::string universe;                        // loaded game's display name (empty = none yet)
-  std::string location;                        // current cell/region, when in game
+  base::String universe;                       // loaded game's display name (empty = none yet)
+  base::String location;                       // current cell/region, when in game
   float health = 1, magicka = 1, stamina = 1;  // 0..1 vitals, when in game
   int gold = 0;
   int active_quests = 0;
-  int players_online = 0;  // connected peers (host or client), 0 = offline
-  std::string net_status;  // "Offline" / "Hosting :29700" / "Connected ..."
+  int players_online = 0;   // connected peers (host or client), 0 = offline
+  base::String net_status;  // "Offline" / "Hosting :29700" / "Connected ..."
 
   // Real local-profile / system identity, shown on the front screen before any
   // universe is loaded (the profile is the machine account, not an RPG hero).
-  std::string account;          // OS login name
-  std::string machine;          // hostname
-  std::string build;            // engine version string
+  base::String account;         // OS login name
+  base::String machine;         // hostname
+  base::String build;           // engine version string
   int universes_available = 0;  // detected, playable universes
 };
 
 // One entry on the menu's NEWS rail, parsed from CHANGELOG.md: a short headline
 // and a detail line (version + date).
 struct MenuNewsItem {
-  std::string title;
-  std::string detail;
+  base::String title;
+  base::String detail;
 };
 
 // A request the main menu raises for the engine to act on. The engine polls it
@@ -250,8 +251,8 @@ struct MainMenuRequest {
   enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit, kOpenUrl };
   Kind kind = Kind::kNone;
   int universe = 0;          // 0 Skyrim, 1 Fallout 4, 2 Starfield
-  std::string address;       // join target ("ip[:port]"), for kJoinServer
-  std::string url;           // external link to open, for kOpenUrl
+  base::String address;      // join target ("ip[:port]"), for kJoinServer
+  base::String url;          // external link to open, for kOpenUrl
   bool multiplayer = false;  // kEnterUniverse also opened a session
 };
 
@@ -261,13 +262,13 @@ struct MainMenuRequest {
 // step and selection state. This only mirrors what the engine resolved or browsed.
 struct FirstRunView {
   struct Game {
-    std::string name;  // display name (e.g. "Skyrim Special Edition")
-    std::string path;  // located data dir, empty if not found
+    base::String name;  // display name (e.g. "Skyrim Special Edition")
+    base::String path;  // located data dir, empty if not found
     bool located = false;
   };
-  std::vector<Game> games;  // up to three, column order
-  std::string mods_dir;     // current mods directory
-  std::string space_label = "50 GB";
+  base::Vector<Game> games;  // up to three, column order
+  base::String mods_dir;     // current mods directory
+  base::String space_label = "50 GB";
 };
 
 // A request the first-run wizard raises for the engine to act on, mirroring
@@ -291,14 +292,14 @@ struct FirstRunRequest {
 // curated set of gameplay actions. A row marked `capturing` is awaiting an input
 // to bind ("Press any key / button...").
 struct ControlsRow {
-  std::string label;    // action display name, e.g. "Jump"
-  std::string binding;  // current binding label, or the capture prompt
+  base::String label;    // action display name, e.g. "Jump"
+  base::String binding;  // current binding label, or the capture prompt
   bool capturing = false;
 };
 struct ControlsView {
-  std::vector<ControlsRow> rows;
-  std::string sens_kbm;  // formatted mouse look sensitivity
-  std::string sens_pad;  // formatted gamepad look sensitivity
+  base::Vector<ControlsRow> rows;
+  base::String sens_kbm;  // formatted mouse look sensitivity
+  base::String sens_pad;  // formatted gamepad look sensitivity
   bool invert_y = false;
   bool gamepad = false;  // a pad is connected (drives glyph hints)
 };
@@ -370,18 +371,18 @@ class GameUi {
   void SetQuest(const HudQuest& quest);
   // Persistent managed gameplay gauges (oxygen, radiation, ...), shown as a
   // labeled bar stack above the vitals. Replaces the whole set each frame.
-  void SetHudGauges(const std::vector<HudGauge>& gauges);
+  void SetHudGauges(const base::Vector<HudGauge>& gauges);
   // The multiplayer chat box lines (newest last); the box shows the last several
   // and collapses when empty. Fed from the platform chat channel each frame.
-  void SetChatLines(const std::vector<std::string>& lines);
+  void SetChatLines(const base::Vector<base::String>& lines);
   // The multiplayer scoreboard (hold-Tab player list). `open` shows the centered
   // panel; `header` is the column header line and `rows` the pre-formatted player
   // rows. Fed from the platform scoreboard channel each frame.
-  void SetScoreboard(bool open, const std::string& title, const std::string& header,
-                     const std::vector<std::string>& rows);
+  void SetScoreboard(bool open, const base::String& title, const base::String& header,
+                     const base::Vector<base::String>& rows);
   // Multiplayer interaction prompts (already formatted, e.g. "[E]  Open"), shown
   // as a bottom-centre stack. Fed from the platform prompt channel each frame.
-  void SetPrompts(const std::vector<std::string>& prompts);
+  void SetPrompts(const base::Vector<base::String>& prompts);
   // Map blips placed on the compass: each is a bearing (0 ahead, + to the right of
   // where the player looks) and a packed rgba8 colour. Off-screen ones are dropped
   // by the caller. Fed from the platform map channel each frame.
@@ -389,17 +390,17 @@ class GameUi {
     float bearing_deg = 0;
     u32 color = 0xffffffffu;
   };
-  void SetCompassBlips(const std::vector<CompassBlip>& blips);
+  void SetCompassBlips(const base::Vector<CompassBlip>& blips);
   // Floating world-space labels (player nametags) already projected to screen
   // pixels by the engine. Fed from the platform nametag channel each frame.
   struct Nametag {
-    std::string label;
+    base::String label;
     float sx = 0, sy = 0;  // screen position (pixels)
     u32 color = 0xffffffffu;
   };
-  void SetNametags(const std::vector<Nametag>& nametags);
-  void FlashQuestUpdate(const std::string& message);
-  void SetActivatePrompt(const std::string& prompt);
+  void SetNametags(const base::Vector<Nametag>& nametags);
+  void FlashQuestUpdate(const base::String& message);
+  void SetActivatePrompt(const base::String& prompt);
   // Objective compass waypoint. active shows a pip on the compass at
   // bearing_deg (0 = dead ahead, positive = to the right of where the player
   // looks) and a distance readout; inactive hides both.
@@ -411,17 +412,17 @@ class GameUi {
   // Quest journal overlay: `open` shows a numbered list of the player's active
   // quests; `selected` (a 0-based index into `quests`, or < 0) highlights the
   // tracked one and lists its objectives. Pressing its number pins that quest.
-  void SetJournal(bool open, const std::vector<HudQuest>& quests, int selected);
+  void SetJournal(bool open, const base::Vector<HudQuest>& quests, int selected);
 
   // War-map overlay: the Civil War campaign board. `open` shows the panel; each
   // hold carries its name and owner (0 neutral, 1 Imperial, 2 Stormcloak), and
   // `imperial_fraction` (0..1) drives the war-progress bar. Pushed by the managed
   // Civil War campaign and snapshotted onto the panel.
   struct WarHoldEntry {
-    std::string name;
+    base::String name;
     int owner = 0;
   };
-  void SetWarMap(bool open, const std::vector<WarHoldEntry>& holds, float imperial_fraction);
+  void SetWarMap(bool open, const base::Vector<WarHoldEntry>& holds, float imperial_fraction);
 
   // Hide or show the gameplay HUD (compass, crosshair, vitals, readout) without
   // touching the pause menu. The cinematic showcase hides it for clean frames.
@@ -476,17 +477,17 @@ class GameUi {
   // The names/availability of the three universes (greyed out if data is
   // missing), the per-column live backdrop texture, the player/network banner,
   // and the loaded C# mod list shown on the Mods screen. All optional.
-  void SetMainMenuUniverses(const std::vector<std::string>& names,
-                            const std::vector<bool>& available);
+  void SetMainMenuUniverses(const base::Vector<base::String>& names,
+                            const base::Vector<bool>& available);
   void SetMainMenuBackdrop(int universe, u64 texture);
   // Bind a procedurally-painted emblem texture to a named image widget in the
   // menu (e.g. "gl_nexus", "gl_skyrim"). Rebound each frame so it survives a
   // hot-reload rebuild of the widget tree.
-  void SetMainMenuGlyph(const std::string& widget, u64 texture);
+  void SetMainMenuGlyph(const base::String& widget, u64 texture);
   void SetMainMenuStats(const MainMenuStats& stats);
-  void SetMainMenuMods(const std::vector<std::string>& mods);
+  void SetMainMenuMods(const base::Vector<base::String>& mods);
   // The NEWS rail entries (most-recent first), parsed from CHANGELOG.md.
-  void SetMainMenuNews(const std::vector<MenuNewsItem>& news);
+  void SetMainMenuNews(const base::Vector<MenuNewsItem>& news);
   // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
   int selected_universe() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.
@@ -510,7 +511,7 @@ class GameUi {
 
  private:
   struct Impl;
-  std::unique_ptr<Impl> impl_;
+  base::UniquePointer<Impl> impl_;
 };
 
 }  // namespace rx

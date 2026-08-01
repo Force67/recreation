@@ -1,7 +1,7 @@
 #ifndef RECREATION_QUEST_CONDITION_H_
 #define RECREATION_QUEST_CONDITION_H_
 
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 
@@ -44,13 +44,13 @@ enum class RunOn : u8 {
 // complete, it is an intentionally partial, high-confidence subset of the
 // Creation Kit's condition-function enum, extended as coverage is needed.
 enum class Func : u16 {
-  kRaw = 0,       // not in the table; raw_function carries the original CK id
-  kGetDistance,   // CK 1: distance from the run-on ref to ref param1
-  kGetActorValue, // CK 14: actor value param1 of the run-on ref
-  kGetItemCount,  // CK 47: count of item param1 held by the run-on ref
-  kGetStage,      // CK 58: current journal stage of quest param1
-  kGetStageDone,  // CK 59: whether stage param2 of quest param1 has been set
-  kGetIsId,       // CK 72: the run-on ref's base form equals param1
+  kRaw = 0,        // not in the table; raw_function carries the original CK id
+  kGetDistance,    // CK 1: distance from the run-on ref to ref param1
+  kGetActorValue,  // CK 14: actor value param1 of the run-on ref
+  kGetItemCount,   // CK 47: count of item param1 held by the run-on ref
+  kGetStage,       // CK 58: current journal stage of quest param1
+  kGetStageDone,   // CK 59: whether stage param2 of quest param1 has been set
+  kGetIsId,        // CK 72: the run-on ref's base form equals param1
 };
 
 // One CTDA comparison: function(params...) <op> value.
@@ -78,7 +78,7 @@ struct Comparison {
 // A condition list. Comparisons linked by or_next form OR-groups; the groups
 // are ANDed together. An empty list is vacuously true.
 struct ConditionList {
-  std::vector<Comparison> comparisons;
+  base::Vector<Comparison> comparisons;
 
   bool empty() const { return comparisons.empty(); }
 };

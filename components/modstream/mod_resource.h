@@ -1,8 +1,8 @@
 #ifndef RECREATION_MODSTREAM_MOD_RESOURCE_H_
 #define RECREATION_MODSTREAM_MOD_RESOURCE_H_
 
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 
@@ -18,7 +18,7 @@ using ContentHash = u64;
 // One file inside a resource: its path relative to the resource root, the byte
 // size, and the content hash a client diffs against its local cache.
 struct ResourceFile {
-  std::string path;  // forward-slash, relative to the resource root
+  base::String path;  // forward-slash, relative to the resource root
   u64 size = 0;
   ContentHash hash = 0;
 
@@ -29,8 +29,8 @@ struct ResourceFile {
 // subdirectory of the server mods directory. Files are kept sorted by path so a
 // rebuilt manifest is byte-stable for the same content.
 struct ModResource {
-  std::string name;
-  std::vector<ResourceFile> files;
+  base::String name;
+  base::Vector<ResourceFile> files;
 
   bool operator==(const ModResource&) const = default;
 };
@@ -38,7 +38,7 @@ struct ModResource {
 // The full set of resources a server offers. Sent to every joining client, who
 // diffs it against its cache and pulls only the files it is missing.
 struct ModManifest {
-  std::vector<ModResource> resources;
+  base::Vector<ModResource> resources;
 
   u64 TotalBytes() const;
   size_t TotalFiles() const;

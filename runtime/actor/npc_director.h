@@ -2,10 +2,9 @@
 #define RECREATION_RUNTIME_ACTOR_NPC_DIRECTOR_H_
 
 #include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
-
-#include <unordered_set>
-#include <vector>
+#include <base/memory/move.h>
 
 #include "core/math.h"
 #include "ecs/world.h"
@@ -107,8 +106,8 @@ class NpcDirector {
   u64 SpawnSoldier(const Vec3& pos, i32 team);
   // Spawn commands the host must replicate to clients so they build the same
   // soldier bipeds (drained + sent each frame by the engine; empty otherwise).
-  std::vector<world::WorldCommand> DrainReplicatedSpawns() {
-    return std::move(replicated_spawns_);
+  base::Vector<world::WorldCommand> DrainReplicatedSpawns() {
+    return base::move(replicated_spawns_);
   }
   // RX_CW_FIELD_BATTLE: spawns two lines of soldiers in the open in front of the
   // player and lets them charge and clash, framed for the camera (spawning,
@@ -202,7 +201,7 @@ class NpcDirector {
   physics::PhysicsWorld& physics_;
 
   world::NavGrid navgrid_;  // cached interior routing for followers/guides/player
-  NavBubble nav_;          // exterior cost-aware navmesh (streamed terrain)
+  NavBubble nav_;           // exterior cost-aware navmesh (streamed terrain)
   base::UnorderedMap<u64, i32> followers_;
   base::UnorderedMap<u64, Vec3> guides_;
   // Ambient-wander state per nearby NPC (keyed by its form handle), pruned each
@@ -236,28 +235,28 @@ class NpcDirector {
   f32 cw00_demo_timer_ = 0;
   bool cw_field_pending_ = false;
   bool cw_field_active_ = false;
-  f32 cw_field_warmup_ = 0;     // let terrain stream before placing soldiers
-  u32 cw_spawn_seq_ = 1;        // synthetic-handle counter for spawned soldiers
+  f32 cw_field_warmup_ = 0;  // let terrain stream before placing soldiers
+  u32 cw_spawn_seq_ = 1;     // synthetic-handle counter for spawned soldiers
   base::Vector<u64> cw_field_soldiers_;
-  Vec3 cw_field_center_{};      // battle midpoint, for the spectator camera
-  Vec3 cw_field_fwd_{};         // clash axis (team 1 -> team 2)
-  std::vector<world::WorldCommand> replicated_spawns_;  // soldier spawns to mirror to clients
+  Vec3 cw_field_center_{};  // battle midpoint, for the spectator camera
+  Vec3 cw_field_fwd_{};     // clash axis (team 1 -> team 2)
+  base::Vector<world::WorldCommand> replicated_spawns_;  // soldier spawns to mirror to clients
   f32 cw_field_resync_ = 0;  // periodic re-broadcast so a late client gets the soldiers
-  u64 cw_battle_quest_ = 0;     // quest the battle outcome advances (0 = none)
+  u64 cw_battle_quest_ = 0;  // quest the battle outcome advances (0 = none)
   i32 cw_battle_win_stage_ = -1;
   // Civil War authored-reinforcement-pool integration (set_battle_siege_pool).
-  u64 cw_siege_quest_ = 0;      // the fort-siege quest (carries ModifyPool); 0 = off
-  u64 cw_siege_master_ = 0;     // CW master quest (carries the pool globals)
-  u64 cw_enlist_quest_ = 0;     // intro quest to advance once the battle stages; 0 = off
+  u64 cw_siege_quest_ = 0;   // the fort-siege quest (carries ModifyPool); 0 = off
+  u64 cw_siege_master_ = 0;  // CW master quest (carries the pool globals)
+  u64 cw_enlist_quest_ = 0;  // intro quest to advance once the battle stages; 0 = off
   bool cw_siege_pool_seeded_ = false;
-  f32 cw_pool_atk_start_ = 0, cw_pool_def_start_ = 0;    // starting strengths, for the bars
+  f32 cw_pool_atk_start_ = 0, cw_pool_def_start_ = 0;  // starting strengths, for the bars
   // Main-thread mirror of each pool, decremented as the engine charges a death.
   // The bars read this (not the live global, which the script thread writes) so
   // the HUD never races the guest's reinforcement writes.
   f32 cw_pool_atk_cur_ = 0, cw_pool_def_cur_ = 0;
-  std::unordered_set<u64> cw_pool_counted_;  // soldiers already charged to the pool
+  base::UnorderedSet<u64> cw_pool_counted_;  // soldiers already charged to the pool
   bool cw_battle_resolved_ = false;
-  f32 cw_battle_grace_ = 0;     // elapsed battle time, for the resolve timeout
+  f32 cw_battle_grace_ = 0;  // elapsed battle time, for the resolve timeout
   u64 ambient_rng_ = 0x243f6a8885a308d3ull;
   f32 AmbientRand(f32 lo, f32 hi);
   bool mq101_demo_pending_ = false;

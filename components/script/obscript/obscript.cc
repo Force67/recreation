@@ -1,5 +1,9 @@
 #include "components/script/obscript/obscript.h"
 
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -7,13 +11,13 @@
 namespace rx::script::obscript {
 namespace {
 
-std::string Lower(std::string_view s) {
-  std::string out(s);
+base::String Lower(base::StringRef s) {
+  base::String out(s);
   for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return out;
 }
 
-bool IEquals(std::string_view a, std::string_view b) {
+bool IEquals(base::StringRef a, base::StringRef b) {
   if (a.size() != b.size()) return false;
   for (size_t i = 0; i < a.size(); ++i)
     if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
@@ -21,7 +25,7 @@ bool IEquals(std::string_view a, std::string_view b) {
   return true;
 }
 
-std::string_view Trim(std::string_view s) {
+base::StringRef Trim(base::StringRef s) {
   size_t b = 0, e = s.size();
   while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
   while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
@@ -32,13 +36,13 @@ std::string_view Trim(std::string_view s) {
 // authored case (editor ids are resolved case insensitively by the host).
 struct Token {
   enum Kind { kNumber, kIdent, kOp, kString, kEnd } kind = kEnd;
-  std::string text;
+  base::String text;
   f32 number = 0;
 };
 
 // Splits a line into tokens. Handles numbers, dotted identifiers, quoted
 // strings, and the operator set (== != <= >= && || < > + - * / =).
-base::Vector<Token> Tokenize(std::string_view line) {
+base::Vector<Token> Tokenize(base::StringRef line) {
   base::Vector<Token> out;
   size_t i = 0;
   while (i < line.size()) {
@@ -50,7 +54,7 @@ base::Vector<Token> Tokenize(std::string_view line) {
     if (c == '"') {
       size_t j = i + 1;
       while (j < line.size() && line[j] != '"') ++j;
-      out.push_back({Token::kString, std::string(line.substr(i + 1, j - i - 1)), 0});
+      out.push_back({Token::kString, base::String(line.substr(i + 1, j - i - 1)), 0});
       i = j < line.size() ? j + 1 : j;
       continue;
     }
@@ -60,9 +64,9 @@ base::Vector<Token> Tokenize(std::string_view line) {
       while (j < line.size() &&
              (std::isdigit(static_cast<unsigned char>(line[j])) || line[j] == '.'))
         ++j;
-      Token t{Token::kNumber, std::string(line.substr(i, j - i)), 0};
+      Token t{Token::kNumber, base::String(line.substr(i, j - i)), 0};
       t.number = static_cast<f32>(std::atof(t.text.c_str()));
-      out.push_back(std::move(t));
+      out.push_back(base::move(t));
       i = j;
       continue;
     }
@@ -71,7 +75,7 @@ base::Vector<Token> Tokenize(std::string_view line) {
       while (j < line.size() && (std::isalnum(static_cast<unsigned char>(line[j])) ||
                                  line[j] == '_' || line[j] == '.'))
         ++j;
-      out.push_back({Token::kIdent, std::string(line.substr(i, j - i)), 0});
+      out.push_back({Token::kIdent, base::String(line.substr(i, j - i)), 0});
       i = j;
       continue;
     }
@@ -79,7 +83,7 @@ base::Vector<Token> Tokenize(std::string_view line) {
     static const char* kTwo[] = {"==", "!=", "<=", ">=", "&&", "||"};
     bool matched = false;
     if (i + 1 < line.size()) {
-      std::string two = std::string(line.substr(i, 2));
+      base::String two = base::String(line.substr(i, 2));
       for (const char* op : kTwo) {
         if (two == op) {
           out.push_back({Token::kOp, two, 0});
@@ -90,36 +94,36 @@ base::Vector<Token> Tokenize(std::string_view line) {
       }
     }
     if (matched) continue;
-    out.push_back({Token::kOp, std::string(1, c), 0});
+    out.push_back({Token::kOp, base::String(1, c), 0});
     ++i;
   }
   out.push_back({Token::kEnd, "", 0});
   return out;
 }
 
-std::string FirstWord(std::string_view line) {
-  std::string_view t = Trim(line);
+base::String FirstWord(base::StringRef line) {
+  base::StringRef t = Trim(line);
   size_t sp = 0;
   while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp]))) ++sp;
-  return std::string(t.substr(0, sp));
+  return base::String(t.substr(0, sp));
 }
 
-std::string AfterFirstWord(std::string_view line) {
-  std::string_view t = Trim(line);
+base::String AfterFirstWord(base::StringRef line) {
+  base::StringRef t = Trim(line);
   size_t sp = 0;
   while (sp < t.size() && !std::isspace(static_cast<unsigned char>(t[sp]))) ++sp;
-  return std::string(Trim(t.substr(sp)));
+  return base::String(Trim(t.substr(sp)));
 }
 
 }  // namespace
 
-bool Parse(std::string_view source, Script* out) {
+bool Parse(base::StringRef source, Script* out) {
   *out = Script{};
   // Split into cleaned lines: strip ';' comments (outside quotes) and trim.
-  base::Vector<std::string> raw;
+  base::Vector<base::String> raw;
   size_t start = 0;
   auto flush = [&](size_t end) {
-    std::string_view line = source.substr(start, end - start);
+    base::StringRef line = source.substr(start, end - start);
     bool in_string = false;
     size_t cut = line.size();
     for (size_t i = 0; i < line.size(); ++i) {
@@ -129,8 +133,8 @@ bool Parse(std::string_view source, Script* out) {
         break;
       }
     }
-    std::string_view trimmed = Trim(line.substr(0, cut));
-    if (!trimmed.empty()) raw.push_back(std::string(trimmed));
+    base::StringRef trimmed = Trim(line.substr(0, cut));
+    if (!trimmed.empty()) raw.push_back(base::String(trimmed));
   };
   for (size_t i = 0; i <= source.size(); ++i) {
     if (i == source.size() || source[i] == '\n' || source[i] == '\r') {
@@ -141,8 +145,8 @@ bool Parse(std::string_view source, Script* out) {
 
   bool have_name = false;
   Script::Block* current = nullptr;
-  for (const std::string& line : raw) {
-    std::string w = Lower(FirstWord(line));
+  for (const base::String& line : raw) {
+    base::String w = Lower(FirstWord(line));
     if (!have_name) {
       if (w == "scriptname" || w == "scn") {
         out->name = AfterFirstWord(line);
@@ -152,20 +156,24 @@ bool Parse(std::string_view source, Script* out) {
     }
     if (!current) {
       if (w == "begin") {
-        std::string rest = AfterFirstWord(line);
+        base::String rest = AfterFirstWord(line);
         Script::Block block;
         block.type = Lower(FirstWord(rest));
         block.param = AfterFirstWord(rest);
-        out->blocks.push_back(std::move(block));
+        out->blocks.push_back(base::move(block));
         current = &out->blocks[out->blocks.size() - 1];
         continue;
       }
       Script::VarKind kind;
-      if (w == "short" || w == "int" || w == "long") kind = Script::VarKind::kShort;
-      else if (w == "float") kind = Script::VarKind::kFloat;
-      else if (w == "ref" || w == "reference") kind = Script::VarKind::kRef;
-      else continue;  // ScriptName duplicates, unknown directives: skip
-      std::string var = FirstWord(AfterFirstWord(line));
+      if (w == "short" || w == "int" || w == "long")
+        kind = Script::VarKind::kShort;
+      else if (w == "float")
+        kind = Script::VarKind::kFloat;
+      else if (w == "ref" || w == "reference")
+        kind = Script::VarKind::kRef;
+      else
+        continue;  // ScriptName duplicates, unknown directives: skip
+      base::String var = FirstWord(AfterFirstWord(line));
       if (!var.empty()) out->vars.push_back({Lower(var), kind});
       continue;
     }
@@ -273,27 +281,27 @@ Instance::Instance(const Script* script, Host* host) : script_(script), host_(ho
   for (const Script::Var& v : script_->vars) locals_[v.name] = 0.0f;
 }
 
-f32 Instance::GetVar(std::string_view name) const {
-  auto it = locals_.find(Lower(name));
-  return it != locals_.end() ? it->second : 0.0f;
+f32 Instance::GetVar(base::StringRef name) const {
+  auto* it = locals_.find(Lower(name));
+  return it != nullptr ? *it : 0.0f;
 }
 
-void Instance::SetVar(std::string_view name, f32 value) { locals_[Lower(name)] = value; }
+void Instance::SetVar(base::StringRef name, f32 value) { locals_[Lower(name)] = value; }
 
 namespace {
 
 // Reads a value referenced by an identifier: a local variable, a dotted remote
 // reference (Quest.Var / Ref.GetStage), or a bare global.
-f32 ResolveIdent(const std::string& ident, Instance* self, Host* host) {
+f32 ResolveIdent(const base::String& ident, Instance* self, Host* host) {
   size_t dot = ident.find('.');
-  if (dot == std::string::npos) {
+  if (dot == base::String::npos) {
     // A declared local wins; otherwise treat the bare name as a global.
     for (const Script::Var& v : self->script().vars)
       if (IEquals(v.name, ident)) return self->GetVar(ident);
     return host->GetGlobal(ident);
   }
-  std::string owner = ident.substr(0, dot);
-  std::string member = ident.substr(dot + 1);
+  base::String owner = ident.substr(0, dot);
+  base::String member = ident.substr(dot + 1);
   if (IEquals(member, "getstage")) return static_cast<f32>(host->GetStage(owner));
   return host->GetRemoteVar(owner, member);
 }
@@ -311,12 +319,12 @@ f32 Eval::Primary() {
     return v;
   }
   if (t.kind == Token::kIdent) {
-    std::string ident = t.text;
+    base::String ident = t.text;
     Next();
     // getstage <quest>: the one expression function we special case; its single
     // argument is a bare quest editor id, not a nested expression.
     if (IEquals(ident, "getstage") && Peek().kind == Token::kIdent) {
-      std::string quest = Next().text;
+      base::String quest = Next().text;
       return static_cast<f32>(host_->GetStage(quest));
     }
     return ResolveIdent(ident, self_, host_);
@@ -326,9 +334,9 @@ f32 Eval::Primary() {
 }
 
 // Assigns to a set target: a local, a dotted remote var, or a bare global.
-void Assign(Instance* self, Host* host, const std::string& lval, f32 value) {
+void Assign(Instance* self, Host* host, const base::String& lval, f32 value) {
   size_t dot = lval.find('.');
-  if (dot != std::string::npos) {
+  if (dot != base::String::npos) {
     host->SetRemoteVar(lval.substr(0, dot), lval.substr(dot + 1), value);
     return;
   }
@@ -342,12 +350,12 @@ void Assign(Instance* self, Host* host, const std::string& lval, f32 value) {
 }
 
 // Executes a non-control statement line (set / function call).
-void ExecStatement(const std::string& line, Instance* self, Host* host) {
+void ExecStatement(const base::String& line, Instance* self, Host* host) {
   base::Vector<Token> tokens = Tokenize(line);
   if (tokens.empty() || tokens[0].kind == Token::kEnd) return;
   if (tokens[0].kind == Token::kIdent && IEquals(tokens[0].text, "set")) {
     if (tokens.size() < 4 || tokens[1].kind != Token::kIdent) return;
-    const std::string& lval = tokens[1].text;
+    const base::String& lval = tokens[1].text;
     // tokens[2] is "to"; evaluate the rest.
     base::Vector<Token> rhs;
     for (size_t i = 3; i < tokens.size(); ++i) rhs.push_back(tokens[i]);
@@ -357,15 +365,15 @@ void ExecStatement(const std::string& line, Instance* self, Host* host) {
   }
   // Function-call statement: [Target.]Func arg...
   if (tokens[0].kind != Token::kIdent) return;
-  std::string call = tokens[0].text;
-  std::string target, fn = call;
+  base::String call = tokens[0].text;
+  base::String target, fn = call;
   size_t dot = call.find('.');
-  if (dot != std::string::npos) {
+  if (dot != base::String::npos) {
     target = call.substr(0, dot);
     fn = call.substr(dot + 1);
   }
   base::Vector<f32> args;
-  base::Vector<std::string> text_args;
+  base::Vector<base::String> text_args;
   for (size_t i = 1; i < tokens.size(); ++i) {
     const Token& t = tokens[i];
     if (t.kind == Token::kNumber) {
@@ -378,8 +386,10 @@ void ExecStatement(const std::string& line, Instance* self, Host* host) {
       bool is_local = false;
       for (const Script::Var& v : self->script().vars)
         if (IEquals(v.name, t.text)) is_local = true;
-      if (is_local) args.push_back(self->GetVar(t.text));
-      else text_args.push_back(t.text);
+      if (is_local)
+        args.push_back(self->GetVar(t.text));
+      else
+        text_args.push_back(t.text);
     }
   }
   if (IEquals(fn, "setstage") && !args.empty()) {
@@ -391,55 +401,55 @@ void ExecStatement(const std::string& line, Instance* self, Host* host) {
 
 // An if-branch: the condition text ("" means else) and its body line range.
 struct Segment {
-  std::string cond;
+  base::String cond;
   size_t body_start = 0;
   size_t body_end = 0;
 };
 
 // Scans an if block starting at `if_index`, collecting its branch segments;
 // returns the index of the matching endif (or the line count if unterminated).
-size_t ScanIf(const base::Vector<std::string>& lines, size_t if_index,
+size_t ScanIf(const base::Vector<base::String>& lines, size_t if_index,
               base::Vector<Segment>* segs) {
   Segment cur;
   cur.cond = AfterFirstWord(lines[if_index]);
   cur.body_start = if_index + 1;
   int depth = 0;
   for (size_t i = if_index + 1; i < lines.size(); ++i) {
-    std::string w = Lower(FirstWord(lines[i]));
+    base::String w = Lower(FirstWord(lines[i]));
     if (w == "if") {
       ++depth;
     } else if (w == "endif") {
       if (depth == 0) {
         cur.body_end = i;
-        segs->push_back(std::move(cur));
+        segs->push_back(base::move(cur));
         return i;
       }
       --depth;
     } else if (depth == 0 && w == "elseif") {
       cur.body_end = i;
-      segs->push_back(std::move(cur));
+      segs->push_back(base::move(cur));
       cur = Segment{};
       cur.cond = AfterFirstWord(lines[i]);
       cur.body_start = i + 1;
     } else if (depth == 0 && w == "else") {
       cur.body_end = i;
-      segs->push_back(std::move(cur));
+      segs->push_back(base::move(cur));
       cur = Segment{};
       cur.body_start = i + 1;  // empty cond = always
     }
   }
   cur.body_end = lines.size();
-  segs->push_back(std::move(cur));
+  segs->push_back(base::move(cur));
   return lines.size();
 }
 
 enum class Flow { kNormal, kReturn };
 
-Flow ExecRange(const base::Vector<std::string>& lines, size_t lo, size_t hi, Instance* self,
+Flow ExecRange(const base::Vector<base::String>& lines, size_t lo, size_t hi, Instance* self,
                Host* host) {
   size_t i = lo;
   while (i < hi) {
-    std::string w = Lower(FirstWord(lines[i]));
+    base::String w = Lower(FirstWord(lines[i]));
     if (w == "if") {
       base::Vector<Segment> segs;
       size_t endif = ScanIf(lines, i, &segs);
@@ -472,7 +482,7 @@ Flow ExecRange(const base::Vector<std::string>& lines, size_t lo, size_t hi, Ins
 
 }  // namespace
 
-bool Instance::Run(std::string_view event, std::string_view param) {
+bool Instance::Run(base::StringRef event, base::StringRef param) {
   for (const Script::Block& block : script_->blocks) {
     if (!IEquals(block.type, event)) continue;
     if (!param.empty() && !block.param.empty() && !IEquals(block.param, param)) continue;

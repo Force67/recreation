@@ -1,5 +1,8 @@
 #include "components/script/host/managed_gc_profile.h"
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -7,7 +10,7 @@
 namespace rx::script::host {
 namespace {
 
-std::string Lower(std::string s) {
+base::String Lower(base::String s) {
   std::transform(s.begin(), s.end(), s.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return s;
@@ -21,13 +24,13 @@ const char* Env(const char* name) {
 bool EnvTruthy(const char* name) {
   const char* v = Env(name);
   if (!v) return false;
-  const std::string s = Lower(v);
+  const base::String s = Lower(v);
   return s == "1" || s == "true" || s == "yes" || s == "on";
 }
 
 // Sets a property, replacing any existing entry with the same name so env
 // overrides win over the profile default.
-void Set(std::vector<GcProperty>& props, const std::string& name, const std::string& value) {
+void Set(base::Vector<GcProperty>& props, const base::String& name, const base::String& value) {
   for (GcProperty& p : props)
     if (p.first == name) {
       p.second = value;
@@ -38,9 +41,9 @@ void Set(std::vector<GcProperty>& props, const std::string& name, const std::str
 
 }  // namespace
 
-std::string ResolveGcProfileName(std::int32_t realm) {
+base::String ResolveGcProfileName(std::int32_t realm) {
   if (const char* forced = Env("RECREATION_MANAGED_GC")) {
-    const std::string name = Lower(forced);
+    const base::String name = Lower(forced);
     if (name == "server" || name == "constrained" || name == "desktop") return name;
   }
   if (realm == 0) return "server";  // dedicated host
@@ -51,8 +54,8 @@ std::string ResolveGcProfileName(std::int32_t realm) {
 #endif
 }
 
-std::vector<GcProperty> ManagedGcProfile(const std::string& name) {
-  std::vector<GcProperty> props;
+base::Vector<GcProperty> ManagedGcProfile(const base::String& name) {
+  base::Vector<GcProperty> props;
   // Background (concurrent) GC on every profile: it collects gen2 off the mutator
   // thread, so the guest thread the managed world runs on does not stall a frame
   // on a full collection.

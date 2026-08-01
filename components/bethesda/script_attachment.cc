@@ -1,5 +1,9 @@
 #include "components/bethesda/script_attachment.h"
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "core/log.h"
@@ -40,10 +44,10 @@ class Reader {
     return r;
   }
   // VMAD strings are uint16 length prefixed, no terminator.
-  std::string Str() {
+  base::String Str() {
     u16 len = U16();
     if (!Need(len)) return {};
-    std::string s(reinterpret_cast<const char*>(data_.data() + pos_), len);
+    base::String s(reinterpret_cast<const char*>(data_.data() + pos_), len);
     pos_ += len;
     return s;
   }
@@ -189,7 +193,7 @@ void ReadPropertyValue(Reader& r, i16 object_format, ScriptProperty* p) {
 // Reads a VMAD script list (count + each script's name/status/properties) given
 // the section's already-read version and object format. Shared by the top-level
 // script section and the per-alias script sections in a QUST fragment tail.
-bool ReadScriptList(Reader& r, i16 version, i16 object_format, std::vector<ScriptEntry>* scripts) {
+bool ReadScriptList(Reader& r, i16 version, i16 object_format, base::Vector<ScriptEntry>* scripts) {
   const bool has_status = version >= 4;
   u16 script_count = r.U16();
   scripts->reserve(scripts->size() + script_count);
@@ -205,9 +209,9 @@ bool ReadScriptList(Reader& r, i16 version, i16 object_format, std::vector<Scrip
       prop.type = r.U8();
       if (has_status) prop.status = r.U8();
       ReadPropertyValue(r, object_format, &prop);
-      entry.properties.push_back(std::move(prop));
+      entry.properties.push_back(base::move(prop));
     }
-    scripts->push_back(std::move(entry));
+    scripts->push_back(base::move(entry));
   }
   return r.ok();
 }
@@ -266,8 +270,8 @@ void ResolveScriptObjectForms(ScriptAttachment* attachment, const std::function<
 }
 
 bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
-                         std::vector<QuestStageFragment>* fragments,
-                         std::vector<QuestAliasScripts>* alias_scripts) {
+                         base::Vector<QuestStageFragment>* fragments,
+                         base::Vector<QuestAliasScripts>* alias_scripts) {
   Reader r(vmad);
   if (!ReadScriptsSection(r, out)) return false;
 
@@ -286,7 +290,7 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
     r.U8();  // per-fragment flags, unused
     f.script_name = r.Str();
     f.function = r.Str();
-    if (r.ok()) fragments->push_back(std::move(f));
+    if (r.ok()) fragments->push_back(base::move(f));
   }
 
   // Alias scripts follow: a count, then per alias a VMAD object (carrying the
@@ -306,7 +310,7 @@ bool ParseQuestFragments(ByteSpan vmad, ScriptAttachment* out,
           (a.scripts.object_format != 1 && a.scripts.object_format != 2))
         break;  // malformed alias header: cannot size the rest safely
       if (!ReadScriptList(r, a.scripts.version, a.scripts.object_format, &a.scripts.scripts)) break;
-      if (!a.scripts.scripts.empty()) alias_scripts->push_back(std::move(a));
+      if (!a.scripts.scripts.empty()) alias_scripts->push_back(base::move(a));
     }
   }
   return true;
@@ -373,7 +377,7 @@ bool ParseSceneFragments(ByteSpan vmad, ScriptAttachment* out, SceneFragments* f
     p.on_begin = kind != 2;
     p.fragment.script_name = r.Str();
     p.fragment.function = r.Str();
-    if (r.ok()) frags->phases.push_back(std::move(p));
+    if (r.ok()) frags->phases.push_back(base::move(p));
   }
   if (!r.ok()) {
     frags->begin = SceneFragment{};

@@ -8,7 +8,14 @@
 // storage; cross-object calls and properties return None. This isolates the
 // interpreter so its opcode handling can be checked end to end.
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -16,10 +23,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <thread>
-#include <utility>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
@@ -45,34 +48,37 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::papyrus;
 
 // Minimal VM backing for the interpreter: one instance's member variables, a
 // flat array heap, and a current state string. Calls and properties are stubs.
 class TestVm : public VmInterface {
  public:
-  std::unordered_map<std::string, Value> members;
-  std::vector<std::pair<std::string, Value>> property_sets;  // recorded for tests
+  base::UnorderedMap<base::String, Value> members;
+  base::Vector<base::Pair<base::String, Value>> property_sets;  // recorded for tests
 
-  Value CallMethod(ObjectRef, const std::string&, std::vector<Value>) override { return Value(); }
-  Value CallStatic(const std::string&, const std::string&, std::vector<Value>) override {
+  Value CallMethod(ObjectRef, const base::String&, base::Vector<Value>) override { return Value(); }
+  Value CallStatic(const base::String&, const base::String&, base::Vector<Value>) override {
     return Value();
   }
-  Value CallParent(ObjectRef, const std::string&, std::vector<Value>) override { return Value(); }
-  Value GetProperty(ObjectRef, const std::string&) override { return Value(); }
-  void SetProperty(ObjectRef, const std::string& p, Value v) override {
-    property_sets.emplace_back(p, std::move(v));
+  Value CallParent(ObjectRef, const base::String&, base::Vector<Value>) override { return Value(); }
+  Value GetProperty(ObjectRef, const base::String&) override { return Value(); }
+  void SetProperty(ObjectRef, const base::String& p, Value v) override {
+    property_sets.emplace_back(p, base::move(v));
   }
-  Value* MemberVar(ObjectRef, const std::string& name) override {
-    auto it = members.find(name);
-    return it == members.end() ? nullptr : &it->second;
+  Value* MemberVar(ObjectRef, const base::String& name) override {
+    auto* it = members.find(name);
+    return it == nullptr ? nullptr : &*it;
   }
-  std::string CurrentState(ObjectRef) override { return state_; }
-  void GotoState(ObjectRef, const std::string& s) override { state_ = s; }
-  bool IsObjectOfType(ObjectRef, const std::string&) override { return true; }
+  base::String CurrentState(ObjectRef) override { return state_; }
+  void GotoState(ObjectRef, const base::String& s) override { state_ = s; }
+  bool IsObjectOfType(ObjectRef, const base::String&) override { return true; }
 
-  ArrayRef ArrayCreate(const std::string&, i32 size) override {
-    arrays_.emplace_back(std::max(0, size));
+  ArrayRef ArrayCreate(const base::String&, i32 size) override {
+    arrays_.emplace_back(base::Max(0, size));
     return ArrayRef{static_cast<u32>(arrays_.size())};  // 1-based; 0 = None
   }
   i32 ArrayLength(ArrayRef a) override {
@@ -82,19 +88,20 @@ class TestVm : public VmInterface {
     return Valid(a) && i >= 0 && i < (i32)arrays_[a.id - 1].size() ? arrays_[a.id - 1][i] : Value();
   }
   void ArraySet(ArrayRef a, i32 i, Value v) override {
-    if (Valid(a) && i >= 0 && i < (i32)arrays_[a.id - 1].size()) arrays_[a.id - 1][i] = std::move(v);
+    if (Valid(a) && i >= 0 && i < (i32)arrays_[a.id - 1].size())
+      arrays_[a.id - 1][i] = base::move(v);
   }
   i32 ArrayFind(ArrayRef a, const Value& v, i32 start) override {
     if (!Valid(a)) return -1;
     const auto& arr = arrays_[a.id - 1];
-    for (i32 i = std::max(0, start); i < (i32)arr.size(); ++i)
+    for (i32 i = base::Max(0, start); i < (i32)arr.size(); ++i)
       if (arr[i].Equals(v)) return i;
     return -1;
   }
   i32 ArrayRFind(ArrayRef a, const Value& v, i32 start) override {
     if (!Valid(a)) return -1;
     const auto& arr = arrays_[a.id - 1];
-    i32 from = start < 0 ? (i32)arr.size() - 1 : std::min(start, (i32)arr.size() - 1);
+    i32 from = start < 0 ? (i32)arr.size() - 1 : base::Min(start, (i32)arr.size() - 1);
     for (i32 i = from; i >= 0; --i)
       if (arr[i].Equals(v)) return i;
     return -1;
@@ -110,7 +117,7 @@ class TestVm : public VmInterface {
   void ArrayRemove(ArrayRef a, i32 i, i32 c) override {
     if (!Valid(a) || c <= 0 || i < 0 || i >= (i32)arrays_[a.id - 1].size()) return;
     auto& arr = arrays_[a.id - 1];
-    arr.erase(arr.begin() + i, arr.begin() + std::min(i + c, (i32)arr.size()));
+    arr.erase(arr.begin() + i, arr.begin() + base::Min(i + c, (i32)arr.size()));
   }
   void ArrayRemoveLast(ArrayRef a) override {
     if (Valid(a) && !arrays_[a.id - 1].empty()) arrays_[a.id - 1].pop_back();
@@ -118,37 +125,39 @@ class TestVm : public VmInterface {
   void ArrayClear(ArrayRef a) override {
     if (Valid(a)) arrays_[a.id - 1].clear();
   }
-  StructRef StructCreate(const std::string&) override {
+  StructRef StructCreate(const base::String&) override {
     structs_.emplace_back();
     return StructRef{static_cast<u32>(structs_.size())};
   }
-  Value StructGet(StructRef s, const std::string& m) override {
+  Value StructGet(StructRef s, const base::String& m) override {
     if (s.id == 0 || s.id > structs_.size()) return Value();
-    auto it = structs_[s.id - 1].find(m);
-    return it == structs_[s.id - 1].end() ? Value() : it->second;
+    const Value* member = structs_[s.id - 1].find(m);
+    return member ? *member : Value();
   }
-  void StructSet(StructRef s, const std::string& m, Value v) override {
-    if (s.id != 0 && s.id <= structs_.size()) structs_[s.id - 1][m] = std::move(v);
+  void StructSet(StructRef s, const base::String& m, Value v) override {
+    if (s.id != 0 && s.id <= structs_.size()) structs_[s.id - 1][m] = base::move(v);
   }
 
  private:
   bool Valid(ArrayRef a) const { return a.id != 0 && a.id <= arrays_.size(); }
-  std::vector<std::vector<Value>> arrays_;
-  std::vector<std::unordered_map<std::string, Value>> structs_;
-  std::string state_;
+  base::Vector<base::Vector<Value>> arrays_;
+  base::Vector<base::UnorderedMap<base::String, Value>> structs_;
+  base::String state_;
 };
 
 // Builds a tiny .pex in memory so the interpreter runs over a known program.
 struct Builder {
   PexFile pex;
   Object obj;
-  StringIndex S(const std::string& s) {
+  StringIndex S(const base::String& s) {
     for (StringIndex i = 0; i < pex.string_table.size(); ++i)
       if (pex.string_table[i] == s) return i;
     pex.string_table.push_back(s);
     return static_cast<StringIndex>(pex.string_table.size() - 1);
   }
-  VariableData Id(const std::string& n) { return {VariableData::Type::kIdentifier, S(n), 0, 0, false}; }
+  VariableData Id(const base::String& n) {
+    return {VariableData::Type::kIdentifier, S(n), 0, 0, false};
+  }
   VariableData IntV(i32 v) {
     VariableData d;
     d.type = VariableData::Type::kInteger;
@@ -161,12 +170,12 @@ struct Builder {
     d.float_value = v;
     return d;
   }
-  VariableData StrV(const std::string& s) {
+  VariableData StrV(const base::String& s) {
     return {VariableData::Type::kString, S(s), 0, 0, false};
   }
 };
 
-Instruction Make(Op op, std::vector<VariableData> args) { return {op, std::move(args), {}}; }
+Instruction Make(Op op, base::Vector<VariableData> args) { return {op, base::move(args), {}}; }
 
 int SelfTest() {
   int failures = 0;
@@ -194,14 +203,14 @@ int SelfTest() {
   fn.locals.push_back({b.S("t"), b.S("Bool")});
   fn.locals.push_back({b.S("r"), b.S("String")});
   fn.code = {
-      Make(Op::kAssign, {b.Id("acc"), b.IntV(0)}),           // 0
-      Make(Op::kAssign, {b.Id("i"), b.IntV(1)}),             // 1
-      Make(Op::kIAdd, {b.Id("acc"), b.Id("acc"), b.Id("i")}),  // 2 loop
-      Make(Op::kIAdd, {b.Id("i"), b.Id("i"), b.IntV(1)}),    // 3
-      Make(Op::kCmpLe, {b.Id("t"), b.Id("i"), b.Id("n")}),   // 4
-      Make(Op::kJmpT, {b.Id("t"), b.IntV(-3)}),              // 5 -> 2
+      Make(Op::kAssign, {b.Id("acc"), b.IntV(0)}),                  // 0
+      Make(Op::kAssign, {b.Id("i"), b.IntV(1)}),                    // 1
+      Make(Op::kIAdd, {b.Id("acc"), b.Id("acc"), b.Id("i")}),       // 2 loop
+      Make(Op::kIAdd, {b.Id("i"), b.Id("i"), b.IntV(1)}),           // 3
+      Make(Op::kCmpLe, {b.Id("t"), b.Id("i"), b.Id("n")}),          // 4
+      Make(Op::kJmpT, {b.Id("t"), b.IntV(-3)}),                     // 5 -> 2
       Make(Op::kStrCat, {b.Id("r"), b.StrV("sum="), b.Id("acc")}),  // 6
-      Make(Op::kReturn, {b.Id("r")}),                        // 7
+      Make(Op::kReturn, {b.Id("r")}),                               // 7
   };
   TestVm vm;
   Value out = ExecuteFunction(b.pex, b.obj, fn, ObjectRef{1}, {Value::Int(5)}, vm);
@@ -229,11 +238,11 @@ int SelfTest() {
   rf.locals.push_back({b.S("rlen"), b.S("Int")});
   rf.code = {
       Make(Op::kArrayCreate, {b.Id("arr"), b.IntV(0)}),
-      Make(Op::kArrayAdd, {b.Id("arr"), b.IntV(5), b.IntV(3)}),       // [5,5,5]
-      Make(Op::kArrayAdd, {b.Id("arr"), b.IntV(9), b.IntV(1)}),       // [5,5,5,9]
-      Make(Op::kArrayInsert, {b.Id("arr"), b.IntV(7), b.IntV(0)}),    // [7,5,5,5,9]
-      Make(Op::kArrayRemoveLast, {b.Id("arr")}),                      // [7,5,5,5]
-      Make(Op::kArrayRemove, {b.Id("arr"), b.IntV(1), b.IntV(2)}),    // [7,5]
+      Make(Op::kArrayAdd, {b.Id("arr"), b.IntV(5), b.IntV(3)}),     // [5,5,5]
+      Make(Op::kArrayAdd, {b.Id("arr"), b.IntV(9), b.IntV(1)}),     // [5,5,5,9]
+      Make(Op::kArrayInsert, {b.Id("arr"), b.IntV(7), b.IntV(0)}),  // [7,5,5,5,9]
+      Make(Op::kArrayRemoveLast, {b.Id("arr")}),                    // [7,5,5,5]
+      Make(Op::kArrayRemove, {b.Id("arr"), b.IntV(1), b.IntV(2)}),  // [7,5]
       Make(Op::kArrayLength, {b.Id("rlen"), b.Id("arr")}),
       Make(Op::kReturn, {b.Id("rlen")}),
   };
@@ -288,10 +297,10 @@ int SelfTest() {
     };
     State def;
     def.name = lb.S("");
-    def.functions.push_back({lb.S("OnSignal"), std::move(on_signal)});
-    lb.obj.states.push_back(std::move(def));
+    def.functions.push_back({lb.S("OnSignal"), base::move(on_signal)});
+    lb.obj.states.push_back(base::move(def));
     lb.pex.objects.push_back(lb.obj);  // MakeScript is defined later in this file
-    ev_vm.AddScript(std::move(lb.pex));
+    ev_vm.AddScript(base::move(lb.pex));
     ObjectRef listener = ev_vm.CreateInstance("Listener");
     auto hits_of = [&] {
       Value* m = ev_vm.MemberVar(listener, "::Hits_var");
@@ -324,11 +333,11 @@ int SelfTest() {
       on_init.code = {Make(Op::kReturn, {})};
       State def;
       def.name = mainb.S("");
-      def.functions.push_back({mainb.S("OnInit"), std::move(on_init)});
-      mainb.obj.states.push_back(std::move(def));
+      def.functions.push_back({mainb.S("OnInit"), base::move(on_init)});
+      mainb.obj.states.push_back(base::move(def));
     }
     mainb.pex.objects.push_back(mainb.obj);
-    ms_vm.AddScript(std::move(mainb.pex));
+    ms_vm.AddScript(base::move(mainb.pex));
     // QF_ fragment script: a Fragment_3 that returns a sentinel int.
     Builder qfb;
     qfb.obj.name = qfb.S("QF_CWTest");
@@ -340,15 +349,15 @@ int SelfTest() {
       frag.code = {Make(Op::kAssign, {qfb.Id("r"), qfb.IntV(77)}), Make(Op::kReturn, {qfb.Id("r")})};
       State def;
       def.name = qfb.S("");
-      def.functions.push_back({qfb.S("Fragment_3"), std::move(frag)});
-      qfb.obj.states.push_back(std::move(def));
+      def.functions.push_back({qfb.S("Fragment_3"), base::move(frag)});
+      qfb.obj.states.push_back(base::move(def));
     }
     qfb.pex.objects.push_back(qfb.obj);
-    ms_vm.AddScript(std::move(qfb.pex));
+    ms_vm.AddScript(base::move(qfb.pex));
 
     const unsigned long long kHandle = 0x3372b;
     ObjectRef a = ms_vm.CreateInstanceWithHandle("CWMainScript", kHandle);
-    ObjectRef b2 = ms_vm.CreateInstanceWithHandle("QF_CWTest", kHandle);  // second attach
+    ObjectRef b2 = ms_vm.CreateInstanceWithHandle("QF_CWTest", kHandle);   // second attach
     ObjectRef dup = ms_vm.CreateInstanceWithHandle("QF_CWTest", kHandle);  // duplicate
     check("first script attaches", a.handle == kHandle);
     check("second script attaches to same handle", b2.handle == kHandle);
@@ -389,10 +398,10 @@ int SelfTest() {
     };
     State def2;
     def2.name = ob2.S("");
-    def2.functions.push_back({ob2.S("OnItemAdded"), std::move(on_added)});
-    ob2.obj.states.push_back(std::move(def2));
+    def2.functions.push_back({ob2.S("OnItemAdded"), base::move(on_added)});
+    ob2.obj.states.push_back(base::move(def2));
     ob2.pex.objects.push_back(ob2.obj);
-    it_vm.AddScript(std::move(ob2.pex));
+    it_vm.AddScript(base::move(ob2.pex));
     ObjectRef container = it_vm.CreateInstance("ObjectReference");
 
     rx::script::skyrim::RecordBackedSkyrimBindings bindings;
@@ -431,10 +440,10 @@ int SelfTest() {
     };
     State hdef;
     hdef.name = hb.S("");
-    hdef.functions.push_back({hb.S("OnHit"), std::move(on_hit)});
-    hb.obj.states.push_back(std::move(hdef));
+    hdef.functions.push_back({hb.S("OnHit"), base::move(on_hit)});
+    hb.obj.states.push_back(base::move(hdef));
     hb.pex.objects.push_back(hb.obj);
-    hit_vm.AddScript(std::move(hb.pex));
+    hit_vm.AddScript(base::move(hb.pex));
     ObjectRef victim = hit_vm.CreateInstance("ObjectReference");
 
     rx::script::skyrim::RecordBackedSkyrimBindings bindings;
@@ -478,10 +487,10 @@ int SelfTest() {
     };
     State cdef;
     cdef.name = cb.S("");
-    cdef.functions.push_back({cb.S("OnCombatStateChanged"), std::move(on_combat)});
-    cb.obj.states.push_back(std::move(cdef));
+    cdef.functions.push_back({cb.S("OnCombatStateChanged"), base::move(on_combat)});
+    cb.obj.states.push_back(base::move(cdef));
     cb.pex.objects.push_back(cb.obj);
-    cs_vm.AddScript(std::move(cb.pex));
+    cs_vm.AddScript(base::move(cb.pex));
     ObjectRef fighter = cs_vm.CreateInstance("Actor");
 
     rx::script::skyrim::RecordBackedSkyrimBindings bindings;
@@ -514,7 +523,7 @@ int SelfTest() {
     bindings.SetActorValue(fighter, "health", 100.0f);
     const ObjectRef doomed{0xF0E03};
     bindings.SetActorValue(doomed, "health", 10.0f);
-    bindings.StartCombat(fighter, doomed);  // call 3: state 1
+    bindings.StartCombat(fighter, doomed);            // call 3: state 1
     bindings.ApplyMeleeHit(fighter, doomed, 999.0f);  // doomed dies -> fighter disengages
     check("target death disengages the attacker", !bindings.IsInCombat(fighter));
     st = cs_vm.MemberVar(fighter, "::State_var");
@@ -566,11 +575,11 @@ int SelfTest() {
     };
     State adef;
     adef.name = ab.S("");
-    adef.functions.push_back({ab.S("OnObjectEquipped"), std::move(on_eq)});
-    adef.functions.push_back({ab.S("OnObjectUnequipped"), std::move(on_uneq)});
-    ab.obj.states.push_back(std::move(adef));
+    adef.functions.push_back({ab.S("OnObjectEquipped"), base::move(on_eq)});
+    adef.functions.push_back({ab.S("OnObjectUnequipped"), base::move(on_uneq)});
+    ab.obj.states.push_back(base::move(adef));
     ab.pex.objects.push_back(ab.obj);
-    eq_vm.AddScript(std::move(ab.pex));
+    eq_vm.AddScript(base::move(ab.pex));
     ObjectRef actor = eq_vm.CreateInstance("EquipActor");
 
     // Item script: flips a flag on OnEquipped/OnUnequipped.
@@ -588,11 +597,11 @@ int SelfTest() {
     ioff.code = {Make(Op::kAssign, {ib.Id("::On_var"), ib.IntV(0)}), Make(Op::kReturn, {})};
     State idef;
     idef.name = ib.S("");
-    idef.functions.push_back({ib.S("OnEquipped"), std::move(ion)});
-    idef.functions.push_back({ib.S("OnUnequipped"), std::move(ioff)});
-    ib.obj.states.push_back(std::move(idef));
+    idef.functions.push_back({ib.S("OnEquipped"), base::move(ion)});
+    idef.functions.push_back({ib.S("OnUnequipped"), base::move(ioff)});
+    ib.obj.states.push_back(base::move(idef));
     ib.pex.objects.push_back(ib.obj);
-    eq_vm.AddScript(std::move(ib.pex));
+    eq_vm.AddScript(base::move(ib.pex));
     ObjectRef item = eq_vm.CreateInstance("EquipItemScr");
 
     rx::script::skyrim::RecordBackedSkyrimBindings bindings;
@@ -646,10 +655,10 @@ int SelfTest() {
     };
     State adef;
     adef.name = ab.S("");
-    adef.functions.push_back({ab.S("OnDeath"), std::move(on_death)});
-    ab.obj.states.push_back(std::move(adef));
+    adef.functions.push_back({ab.S("OnDeath"), base::move(on_death)});
+    ab.obj.states.push_back(base::move(adef));
     ab.pex.objects.push_back(ab.obj);
-    al_vm.AddScript(std::move(ab.pex));
+    al_vm.AddScript(base::move(ab.pex));
 
     const unsigned long long alias_handle =
         rx::script::papyrus::EncodeAliasHandle(/*quest=*/0x83042, /*alias_id=*/1);
@@ -675,12 +684,11 @@ int SelfTest() {
   // a base type, instead of silently returning None. None (handle 0) does not.
   {
     NativeRegistry bare_natives;
-    bare_natives.Register("ObjectReference", "Is3DLoaded",
-                          [](VirtualMachine&, ObjectRef, std::vector<Value>&) {
-                            return Value::Bool(true);
-                          });
+    bare_natives.Register(
+        "ObjectReference", "Is3DLoaded",
+        [](VirtualMachine&, ObjectRef, base::Vector<Value>&) { return Value::Bool(true); });
     bare_natives.Register("ReferenceAlias", "GetReference",
-                          [](VirtualMachine&, ObjectRef self, std::vector<Value>&) {
+                          [](VirtualMachine&, ObjectRef self, base::Vector<Value>&) {
                             return Value::Object(ObjectRef{self.handle + 1});
                           });
     VirtualMachine bare_vm(&bare_natives);
@@ -699,7 +707,7 @@ int SelfTest() {
   return failures ? 1 : 0;
 }
 
-const Function* FindFunction(const PexFile& pex, const Object& obj, const std::string& name,
+const Function* FindFunction(const PexFile& pex, const Object& obj, const base::String& name,
                              const Object** owner) {
   for (const State& s : obj.states)
     for (const NamedFunction& nf : s.functions)
@@ -712,64 +720,108 @@ const Function* FindFunction(const PexFile& pex, const Object& obj, const std::s
 
 const char* OpMnemonic(Op op) {
   switch (op) {
-    case Op::kNop: return "nop";
-    case Op::kIAdd: return "iadd";
-    case Op::kFAdd: return "fadd";
-    case Op::kISub: return "isub";
-    case Op::kFSub: return "fsub";
-    case Op::kIMul: return "imul";
-    case Op::kFMul: return "fmul";
-    case Op::kIDiv: return "idiv";
-    case Op::kFDiv: return "fdiv";
-    case Op::kIMod: return "imod";
-    case Op::kNot: return "not";
-    case Op::kINeg: return "ineg";
-    case Op::kFNeg: return "fneg";
-    case Op::kAssign: return "assign";
-    case Op::kCast: return "cast";
-    case Op::kCmpEq: return "cmp_eq";
-    case Op::kCmpLt: return "cmp_lt";
-    case Op::kCmpLe: return "cmp_le";
-    case Op::kCmpGt: return "cmp_gt";
-    case Op::kCmpGe: return "cmp_ge";
-    case Op::kJmp: return "jmp";
-    case Op::kJmpT: return "jmpt";
-    case Op::kJmpF: return "jmpf";
-    case Op::kCallMethod: return "callmethod";
-    case Op::kCallParent: return "callparent";
-    case Op::kCallStatic: return "callstatic";
-    case Op::kReturn: return "return";
-    case Op::kStrCat: return "strcat";
-    case Op::kPropGet: return "propget";
-    case Op::kPropSet: return "propset";
-    case Op::kArrayCreate: return "array_create";
-    case Op::kArrayLength: return "array_length";
-    case Op::kArrayGetElement: return "array_get";
-    case Op::kArraySetElement: return "array_set";
-    case Op::kArrayFindElement: return "array_find";
-    case Op::kArrayRFindElement: return "array_rfind";
-    default: return "op";
+    case Op::kNop:
+      return "nop";
+    case Op::kIAdd:
+      return "iadd";
+    case Op::kFAdd:
+      return "fadd";
+    case Op::kISub:
+      return "isub";
+    case Op::kFSub:
+      return "fsub";
+    case Op::kIMul:
+      return "imul";
+    case Op::kFMul:
+      return "fmul";
+    case Op::kIDiv:
+      return "idiv";
+    case Op::kFDiv:
+      return "fdiv";
+    case Op::kIMod:
+      return "imod";
+    case Op::kNot:
+      return "not";
+    case Op::kINeg:
+      return "ineg";
+    case Op::kFNeg:
+      return "fneg";
+    case Op::kAssign:
+      return "assign";
+    case Op::kCast:
+      return "cast";
+    case Op::kCmpEq:
+      return "cmp_eq";
+    case Op::kCmpLt:
+      return "cmp_lt";
+    case Op::kCmpLe:
+      return "cmp_le";
+    case Op::kCmpGt:
+      return "cmp_gt";
+    case Op::kCmpGe:
+      return "cmp_ge";
+    case Op::kJmp:
+      return "jmp";
+    case Op::kJmpT:
+      return "jmpt";
+    case Op::kJmpF:
+      return "jmpf";
+    case Op::kCallMethod:
+      return "callmethod";
+    case Op::kCallParent:
+      return "callparent";
+    case Op::kCallStatic:
+      return "callstatic";
+    case Op::kReturn:
+      return "return";
+    case Op::kStrCat:
+      return "strcat";
+    case Op::kPropGet:
+      return "propget";
+    case Op::kPropSet:
+      return "propset";
+    case Op::kArrayCreate:
+      return "array_create";
+    case Op::kArrayLength:
+      return "array_length";
+    case Op::kArrayGetElement:
+      return "array_get";
+    case Op::kArraySetElement:
+      return "array_set";
+    case Op::kArrayFindElement:
+      return "array_find";
+    case Op::kArrayRFindElement:
+      return "array_rfind";
+    default:
+      return "op";
   }
 }
 
-std::string FmtArg(const PexFile& pex, const VariableData& v) {
+base::String FmtArg(const PexFile& pex, const VariableData& v) {
   switch (v.type) {
-    case VariableData::Type::kIdentifier: return pex.Str(v.string_index);
-    case VariableData::Type::kString: return "\"" + pex.Str(v.string_index) + "\"";
-    case VariableData::Type::kInteger: return std::to_string(v.int_value);
-    case VariableData::Type::kFloat: return std::to_string(v.float_value);
-    case VariableData::Type::kBool: return v.bool_value ? "true" : "false";
-    default: return "None";
+    case VariableData::Type::kIdentifier:
+      return pex.Str(v.string_index);
+    case VariableData::Type::kString:
+      return "\"" + pex.Str(v.string_index) + "\"";
+    case VariableData::Type::kInteger:
+      return base::ToString(v.int_value);
+    case VariableData::Type::kFloat:
+      return base::ToString(v.float_value);
+    case VariableData::Type::kBool:
+      return v.bool_value ? "true" : "false";
+    default:
+      return "None";
   }
 }
 
 // Prints one non-native function's bytecode so a runaway loop (a backward jump)
 // and what it polls (the call targets inside it) can be read off directly.
-int DisasmReal(const std::string& data_dir, const std::string& script, const std::string& function) {
+int DisasmReal(const base::String& data_dir, const base::String& script,
+               const base::String& function) {
   asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
   auto blob = vfs.Read("scripts/" + script + ".pex");
   if (!blob) {
     std::printf("not found: scripts/%s.pex\n", script.c_str());
@@ -786,9 +838,9 @@ int DisasmReal(const std::string& data_dir, const std::string& script, const std
     std::printf("%s : %s\n", pex.Str(obj.name).c_str(), pex.Str(obj.parent_class).c_str());
     for (const State& s : obj.states)
       for (const NamedFunction& nf : s.functions)
-        std::printf("  %s%s%s\n", pex.Str(nf.name).c_str(),
-                    nf.function.is_native ? " (native)" : "",
-                    s.name == obj.auto_state_name ? "" : (" [state " + pex.Str(s.name) + "]").c_str());
+        std::printf(
+            "  %s%s%s\n", pex.Str(nf.name).c_str(), nf.function.is_native ? " (native)" : "",
+            s.name == obj.auto_state_name ? "" : (" [state " + pex.Str(s.name) + "]").c_str());
     return 0;
   }
   // "@vars" dumps the object header (member variables and properties with their
@@ -810,7 +862,7 @@ int DisasmReal(const std::string& data_dir, const std::string& script, const std
   std::printf("%s.%s  (%zu instructions)\n", script.c_str(), function.c_str(), fn->code.size());
   for (size_t i = 0; i < fn->code.size(); ++i) {
     const Instruction& in = fn->code[i];
-    std::string line = "  " + std::to_string(i) + ": " + OpMnemonic(in.op);
+    base::String line = "  " + base::ToString(i) + ": " + OpMnemonic(in.op);
     for (const VariableData& a : in.args) line += " " + FmtArg(pex, a);
     if (!in.var_args.empty()) {
       line += " [";
@@ -823,11 +875,12 @@ int DisasmReal(const std::string& data_dir, const std::string& script, const std
   return 0;
 }
 
-int RunReal(const std::string& data_dir, const std::string& script, const std::string& function) {
+int RunReal(const base::String& data_dir, const base::String& script,
+            const base::String& function) {
   asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
 
   auto blob = vfs.Read("scripts/" + script + ".pex");
   if (!blob) {
@@ -882,11 +935,11 @@ int RunReal(const std::string& data_dir, const std::string& script, const std::s
 
 // Exercises the full VM (load, instantiate, dispatch, properties, states)
 // against the shipped TrapBase script.
-int VmTest(const std::string& data_dir) {
+int VmTest(const base::String& data_dir) {
   asset::Vfs vfs;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec))
-    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(p));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec))
+    if (auto p = bethesda::OpenArchive(entry.path().string())) vfs.Mount(base::move(p));
   auto blob = vfs.Read("scripts/TrapBase.pex");
   if (!blob) {
     std::printf("TrapBase.pex not found\n");
@@ -895,7 +948,7 @@ int VmTest(const std::string& data_dir) {
 
   NativeRegistry natives;  // empty: base-class natives stay unbound (return None)
   VirtualMachine vm(&natives);
-  std::string type = vm.LoadScript(ByteSpan(blob->data(), blob->size()));
+  base::String type = vm.LoadScript(ByteSpan(blob->data(), blob->size()));
   ObjectRef inst = vm.CreateInstance(type);
 
   int failures = 0;
@@ -936,7 +989,7 @@ int VmTest(const std::string& data_dir) {
 // Builds a one-object script in memory and returns the PexFile.
 PexFile MakeScript(Builder& b) {
   b.pex.objects.push_back(b.obj);
-  return std::move(b.pex);
+  return base::move(b.pex);
 }
 
 struct TickerScripts {
@@ -958,8 +1011,8 @@ TickerScripts BuildTickerScripts() {
     reg.params.push_back({fb.S("afInterval"), fb.S("Float")});
     State def;
     def.name = fb.S("");
-    def.functions.push_back({fb.S("RegisterForSingleUpdate"), std::move(reg)});
-    fb.obj.states.push_back(std::move(def));
+    def.functions.push_back({fb.S("RegisterForSingleUpdate"), base::move(reg)});
+    fb.obj.states.push_back(base::move(def));
   }
 
   Builder tb;
@@ -996,9 +1049,9 @@ TickerScripts BuildTickerScripts() {
 
     State def;
     def.name = tb.S("");
-    def.functions.push_back({tb.S("begin"), std::move(begin)});
-    def.functions.push_back({tb.S("OnUpdate"), std::move(on_update)});
-    tb.obj.states.push_back(std::move(def));
+    def.functions.push_back({tb.S("begin"), base::move(begin)});
+    def.functions.push_back({tb.S("OnUpdate"), base::move(on_update)});
+    tb.obj.states.push_back(base::move(def));
   }
 
   return {MakeScript(fb), MakeScript(tb)};
@@ -1011,17 +1064,21 @@ int GuestTest() {
   using rx::script::PapyrusGuest;
 
   TickerScripts scripts = BuildTickerScripts();
-  PexFile form = std::move(scripts.form);
-  PexFile ticker = std::move(scripts.ticker);
+  PexFile form = base::move(scripts.form);
+  PexFile ticker = base::move(scripts.ticker);
 
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
   guest.Start();
-  guest.SubmitFor([f = std::move(form)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(f));
-      }).get();
-  guest.SubmitFor([t = std::move(ticker)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(t));
-      }).get();
+  guest
+      .SubmitFor([f = base::move(form)](VirtualMachine& vm) mutable {
+        return vm.AddScript(base::move(f));
+      })
+      .get();
+  guest
+      .SubmitFor([t = base::move(ticker)](VirtualMachine& vm) mutable {
+        return vm.AddScript(base::move(t));
+      })
+      .get();
   ObjectRef inst = guest.CreateInstance("Ticker").get();
 
   auto read_count = [&] {
@@ -1039,9 +1096,8 @@ int GuestTest() {
     if (!ok) ++failures;
   };
 
-  check("instance created on guest thread", guest.SubmitFor([inst](VirtualMachine& vm) {
-                                                   return vm.IsAlive(inst);
-                                                 }).get());
+  check("instance created on guest thread",
+        guest.SubmitFor([inst](VirtualMachine& vm) { return vm.IsAlive(inst); }).get());
   check("count starts at 0", read_count() == 0);
 
   guest.RaiseEvent(inst, "begin");  // schedules a single update 0.5s out
@@ -1073,37 +1129,47 @@ int GuestTest() {
       };
       State def;
       def.name = b.S("");
-      def.functions.push_back({b.S("OnPing"), std::move(on_ping)});
-      b.obj.states.push_back(std::move(def));
+      def.functions.push_back({b.S("OnPing"), base::move(on_ping)});
+      b.obj.states.push_back(base::move(def));
       b.pex.objects.push_back(b.obj);
-      return std::move(b.pex);
+      return base::move(b.pex);
     };
-    guest.SubmitFor([f = ping_script("PingRef")](VirtualMachine& vm) mutable {
-           return vm.AddScript(std::move(f));
-         }).get();
-    guest.SubmitFor([f = ping_script("PingAlias")](VirtualMachine& vm) mutable {
-           return vm.AddScript(std::move(f));
-         }).get();
+    guest
+        .SubmitFor([f = ping_script("PingRef")](VirtualMachine& vm) mutable {
+          return vm.AddScript(base::move(f));
+        })
+        .get();
+    guest
+        .SubmitFor([f = ping_script("PingAlias")](VirtualMachine& vm) mutable {
+          return vm.AddScript(base::move(f));
+        })
+        .get();
 
     const ObjectRef ref{0x9001};
     const unsigned long long alias_handle =
         rx::script::papyrus::EncodeAliasHandle(/*quest=*/0x9002, /*alias_id=*/2);
-    guest.SubmitFor([ref](VirtualMachine& vm) {
-           return vm.CreateInstanceWithHandle("PingRef", ref.handle);
-         }).get();
-    guest.SubmitFor([alias_handle](VirtualMachine& vm) {
-           return vm.CreateInstanceWithHandle("PingAlias", alias_handle);
-         }).get();
+    guest
+        .SubmitFor([ref](VirtualMachine& vm) {
+          return vm.CreateInstanceWithHandle("PingRef", ref.handle);
+        })
+        .get();
+    guest
+        .SubmitFor([alias_handle](VirtualMachine& vm) {
+          return vm.CreateInstanceWithHandle("PingAlias", alias_handle);
+        })
+        .get();
     // Set the resolver on the guest thread (its only safe writer), mapping the ref
     // to the one alias it fills.
-    guest.SubmitFor([&guest, ref, alias_handle](VirtualMachine&) {
-           guest.set_alias_resolver([ref, alias_handle](ObjectRef r) {
-             std::vector<ObjectRef> out;
-             if (r.handle == ref.handle) out.push_back(ObjectRef{alias_handle});
-             return out;
-           });
-           return 0;
-         }).get();
+    guest
+        .SubmitFor([&guest, ref, alias_handle](VirtualMachine&) {
+          guest.set_alias_resolver([ref, alias_handle](ObjectRef r) {
+            base::Vector<ObjectRef> out;
+            if (r.handle == ref.handle) out.push_back(ObjectRef{alias_handle});
+            return out;
+          });
+          return 0;
+        })
+        .get();
 
     guest.RaiseEvent(ref, "OnPing");
     guest.SubmitFor([](VirtualMachine&) { return 0; }).get();  // flush the async RaiseEvent
@@ -1129,14 +1195,14 @@ int GuestTest() {
 struct TestBindings : rx::script::skyrim::SkyrimBindings {
   ObjectRef GetPlayer() override { return ObjectRef{0x14}; }
   f32 GetPositionX(ObjectRef) override { return 1.0f; }
-  f32 GetActorValue(ObjectRef, const std::string& av) override {
+  f32 GetActorValue(ObjectRef, const base::String& av) override {
     return (av == "Health" || av == "health") ? 100.0f : 0.0f;
   }
   i32 GetLevel(ObjectRef) override { return 5; }
   bool IsDead(ObjectRef) override { return false; }
   bool IsInCombat(ObjectRef) override { return true; }
   i32 GetItemCount(ObjectRef, ObjectRef) override { return 3; }
-  std::unordered_map<rx::u64, i32> stages;
+  base::UnorderedMap<rx::u64, i32> stages;
   i32 GetStage(ObjectRef q) override { return stages.count(q.handle) ? stages[q.handle] : 0; }
   void SetStage(ObjectRef q, i32 s) override { stages[q.handle] = s; }
 };
@@ -1147,7 +1213,7 @@ struct TestBindings : rx::script::skyrim::SkyrimBindings {
 // and run an instance lifecycle (create, call, tick, read a property). The
 // managed side returns its failure count; this asserts it is zero. Skips
 // cleanly (rc 0) when no .NET runtime is present.
-int HostTest(const std::string& runtime_config, const std::string& assembly) {
+int HostTest(const base::String& runtime_config, const base::String& assembly) {
   using rx::script::PapyrusGuest;
 
   TestBindings bindings;
@@ -1155,12 +1221,16 @@ int HostTest(const std::string& runtime_config, const std::string& assembly) {
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
   rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   guest.Start();
-  guest.SubmitFor([f = std::move(scripts.form)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(f));
-      }).get();
-  guest.SubmitFor([t = std::move(scripts.ticker)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(t));
-      }).get();
+  guest
+      .SubmitFor([f = base::move(scripts.form)](VirtualMachine& vm) mutable {
+        return vm.AddScript(base::move(f));
+      })
+      .get();
+  guest
+      .SubmitFor([t = base::move(scripts.ticker)](VirtualMachine& vm) mutable {
+        return vm.AddScript(base::move(t));
+      })
+      .get();
 
   rx::script::host::BridgeContext bridge_ctx{&guest, {}};
   rx::script::host::ScriptBridge bridge = rx::script::host::MakeScriptBridge(bridge_ctx);
@@ -1189,7 +1259,7 @@ int HostTest(const std::string& runtime_config, const std::string& assembly) {
 // base. That round trip proves the full path: engine tick -> managed OnUpdate ->
 // SDK call back into the engine -> bindings state changes -> engine observes.
 // Skips cleanly (rc 0) when no .NET runtime is present.
-int ManagedHostTest(const std::string& runtime_config, const std::string& assembly) {
+int ManagedHostTest(const base::String& runtime_config, const base::String& assembly) {
   using rx::script::PapyrusGuest;
   using rx::script::skyrim::RecordBackedSkyrimBindings;
 
@@ -1236,12 +1306,12 @@ int ManagedHostTest(const std::string& runtime_config, const std::string& assemb
 
 // A native method on a synthetic script (is_native, no body).
 NamedFunction NativeMethod(Builder& b, const char* name,
-                           std::vector<std::pair<const char*, const char*>> params) {
+                           base::Vector<base::Pair<const char*, const char*>> params) {
   Function fn;
   fn.is_native = true;
   fn.return_type = b.S("");
   for (auto& p : params) fn.params.push_back({b.S(p.first), b.S(p.second)});
-  return {b.S(name), std::move(fn)};
+  return {b.S(name), base::move(fn)};
 }
 
 // Engine bindings stub with known values, so native results are checkable.
@@ -1263,7 +1333,7 @@ int SkyrimTest() {
     def.name = ob.S("");
     def.functions.push_back(NativeMethod(ob, "GetPositionX", {}));
     def.functions.push_back(NativeMethod(ob, "GetItemCount", {{"akItem", "Form"}}));
-    ob.obj.states.push_back(std::move(def));
+    ob.obj.states.push_back(base::move(def));
   }
   vm.AddScript(MakeScript(ob));
 
@@ -1277,7 +1347,7 @@ int SkyrimTest() {
     def.functions.push_back(NativeMethod(ac, "GetLevel", {}));
     def.functions.push_back(NativeMethod(ac, "IsDead", {}));
     def.functions.push_back(NativeMethod(ac, "IsInCombat", {}));
-    ac.obj.states.push_back(std::move(def));
+    ac.obj.states.push_back(base::move(def));
   }
   vm.AddScript(MakeScript(ac));
   ObjectRef actor = vm.CreateInstance("Actor");
@@ -1290,15 +1360,18 @@ int SkyrimTest() {
   auto nearly = [](f32 a, f32 b) { return std::fabs(a - b) < 0.001f; };
 
   // Globals (no script needed; resolved straight from the native table).
-  check("Math.Sqrt(16) == 4", nearly(vm.CallGlobal("Math", "Sqrt", {Value::Float(16)}).ToFloat(), 4));
+  check("Math.Sqrt(16) == 4",
+        nearly(vm.CallGlobal("Math", "Sqrt", {Value::Float(16)}).ToFloat(), 4));
   check("Math.Abs(-3) == 3", nearly(vm.CallGlobal("Math", "Abs", {Value::Float(-3)}).ToFloat(), 3));
   check("Math.Floor(3.9) == 3", vm.CallGlobal("Math", "Floor", {Value::Float(3.9f)}).ToInt() == 3);
   check("Math.Ceiling(3.1) == 4",
         vm.CallGlobal("Math", "Ceiling", {Value::Float(3.1f)}).ToInt() == 4);
   check("Math.Pow(2,10) == 1024",
         nearly(vm.CallGlobal("Math", "Pow", {Value::Float(2), Value::Float(10)}).ToFloat(), 1024));
-  check("Math.Sin(90deg) == 1", nearly(vm.CallGlobal("Math", "Sin", {Value::Float(90)}).ToFloat(), 1));
-  check("Math.Cos(0deg) == 1", nearly(vm.CallGlobal("Math", "Cos", {Value::Float(0)}).ToFloat(), 1));
+  check("Math.Sin(90deg) == 1",
+        nearly(vm.CallGlobal("Math", "Sin", {Value::Float(90)}).ToFloat(), 1));
+  check("Math.Cos(0deg) == 1",
+        nearly(vm.CallGlobal("Math", "Cos", {Value::Float(0)}).ToFloat(), 1));
   check("Utility.RandomInt(7,7) == 7",
         vm.CallGlobal("Utility", "RandomInt", {Value::Int(7), Value::Int(7)}).ToInt() == 7);
   check("Game.GetPlayer() == 0x14",
@@ -1324,7 +1397,7 @@ int SkyrimTest() {
     def.name = qb.S("");
     def.functions.push_back(NativeMethod(qb, "SetStage", {{"aiStage", "Int"}}));
     def.functions.push_back(NativeMethod(qb, "GetStage", {}));
-    qb.obj.states.push_back(std::move(def));
+    qb.obj.states.push_back(base::move(def));
   }
   vm.AddScript(MakeScript(qb));
   ObjectRef quest = vm.CreateInstance("Quest");
@@ -1359,20 +1432,22 @@ int ConcurrencyTest() {
     cb.obj.variables.push_back(n);
     State def;
     def.name = cb.S("");
-    cb.obj.states.push_back(std::move(def));
+    cb.obj.states.push_back(base::move(def));
   }
   PexFile counter = MakeScript(cb);
 
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
   guest.Start();
-  guest.SubmitFor([c = std::move(counter)](VirtualMachine& vm) mutable {
-        return vm.AddScript(std::move(c));
-      }).get();
+  guest
+      .SubmitFor([c = base::move(counter)](VirtualMachine& vm) mutable {
+        return vm.AddScript(base::move(c));
+      })
+      .get();
   ObjectRef shared = guest.CreateInstance("Counter").get();
 
   const int kThreads = 8, kPerThread = 1500;
   std::atomic<int> bad_handles{0};
-  std::vector<std::thread> threads;
+  base::Vector<std::thread> threads;
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&] {
       for (int i = 0; i < kPerThread; ++i) {
@@ -1420,7 +1495,7 @@ int SeparationTest() {
 
   NativeRegistry foreign;
   foreign.Register("Workshop", "GetObjectCount",
-                   [](VirtualMachine&, ObjectRef, std::vector<Value>&) { return Value::Int(76); });
+                   [](VirtualMachine&, ObjectRef, base::Vector<Value>&) { return Value::Int(76); });
   VirtualMachine vm(&foreign);
 
   Builder b;
@@ -1436,9 +1511,9 @@ int SeparationTest() {
   f.code = {cs, Make(Op::kReturn, {b.Id("r")})};
   State def;
   def.name = b.S("");
-  def.functions.push_back({b.S("run"), std::move(f)});
-  b.obj.states.push_back(std::move(def));
-  std::string type = vm.AddScript(MakeScript(b));
+  def.functions.push_back({b.S("run"), base::move(f)});
+  b.obj.states.push_back(base::move(def));
+  base::String type = vm.AddScript(MakeScript(b));
 
   check("VM core dispatches a foreign-game native", vm.CallGlobal(type, "run", {}).ToInt() == 76);
   check("no skyrim surface in a foreign table", foreign.Find("Math", "Sqrt") == nullptr);
@@ -1467,8 +1542,8 @@ int TraceTest() {
   vm.CallGlobal("Utility", "RandomInt", {Value::Int(1), Value::Int(1)});
   check("3 native calls counted", vm.native_call_count() == 3);
   check("3 calls in the ring", vm.native_trace_log().size() == 3);
-  check("oldest is Math.Sqrt", !vm.native_trace_log().empty() &&
-                                   vm.native_trace_log().front().function == "Sqrt");
+  check("oldest is Math.Sqrt",
+        !vm.native_trace_log().empty() && vm.native_trace_log().front().function == "Sqrt");
   check("newest is Utility.RandomInt", vm.native_trace_log().back().function == "RandomInt");
 
   vm.ClearNativeTrace();
@@ -1485,11 +1560,13 @@ int TraceTest() {
   rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), nullptr);
   guest.Start();
   guest.Submit([](VirtualMachine& g) { g.set_native_trace(true); });
-  guest.SubmitFor([](VirtualMachine& g) {
+  guest
+      .SubmitFor([](VirtualMachine& g) {
         g.CallGlobal("Math", "Sqrt", {Value::Float(16)});
         g.CallGlobal("Math", "Abs", {Value::Float(-2)});
         return 0;
-      }).get();
+      })
+      .get();
   auto log = guest.SubmitFor([](VirtualMachine& g) { return g.native_trace_log(); }).get();
   guest.Stop();
   check("guest-thread snapshot has 2 natives", log.size() == 2);
@@ -1507,7 +1584,7 @@ int TraceTest() {
 // and the profile must stay on workstation GC. Skips cleanly (rc 0) without a
 // .NET runtime. Also prints the effective config for the other profiles' manual
 // inspection.
-int GcProfileTest(const std::string& runtime_config, const std::string& assembly) {
+int GcProfileTest(const base::String& runtime_config, const base::String& assembly) {
   // Force an unmistakable 10% cap through the env-override path (also exercises
   // that plumbing), on top of the constrained profile.
 #if defined(__linux__) || defined(__APPLE__)
@@ -1555,8 +1632,7 @@ int GcProfileTest(const std::string& runtime_config, const std::string& assembly
   // If the heap-limit property took effect, the ceiling is a fraction of physical
   // memory; if it were ignored, TotalAvailableMemoryBytes would equal physical.
   if (phys > 0)
-    check("heap hard limit applied (ceiling < 50% physical)",
-          info.total_available < phys / 2);
+    check("heap hard limit applied (ceiling < 50% physical)", info.total_available < phys / 2);
 
   std::printf("%s\n", failures ? "GCPROFILETEST FAILED" : "GCPROFILETEST PASSED");
   return failures ? 1 : 0;
@@ -1571,26 +1647,24 @@ int GcProfileTest(const std::string& runtime_config, const std::string& assembly
 // results from either thread is what proves the fast path preserves behaviour,
 // and the string/growth cases prove the arena marshals correctly. Skips cleanly
 // (rc 0) when no .NET runtime is present.
-int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
+int BridgeTest(const base::String& runtime_config, const base::String& assembly) {
   using rx::script::PapyrusGuest;
 
   TestBindings bindings;
   PapyrusGuest guest(bethesda::Game::kSkyrimSe);
   rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
+  guest.natives().Register("Bench", "Echo", [](VirtualMachine&, ObjectRef, base::Vector<Value>& a) {
+    return a.empty() ? Value() : a[0];
+  });
   guest.natives().Register(
-      "Bench", "Echo", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
-        return a.empty() ? Value() : a[0];
-      });
-  guest.natives().Register(
-      "Bench", "AddInts", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
+      "Bench", "AddInts", [](VirtualMachine&, ObjectRef, base::Vector<Value>& a) {
         return Value::Int((a.size() > 0 ? a[0].ToInt() : 0) + (a.size() > 1 ? a[1].ToInt() : 0));
       });
-  guest.natives().Register(
-      "Bench", "Join", [](VirtualMachine&, ObjectRef, std::vector<Value>& a) {
-        std::string s;
-        for (const Value& v : a) s += v.ToString();
-        return Value::Str(s);
-      });
+  guest.natives().Register("Bench", "Join", [](VirtualMachine&, ObjectRef, base::Vector<Value>& a) {
+    base::String s;
+    for (const Value& v : a) s += v.ToString();
+    return Value::Str(s);
+  });
   guest.Start();
 
   rx::script::host::BridgeContext bridge_ctx{&guest, {}};
@@ -1625,7 +1699,7 @@ int BridgeTest(const std::string& runtime_config, const std::string& assembly) {
 // the two tunings: same-thread vs cross-thread ns isolates the hop cost (#1),
 // and bytes/call before vs after the NativeBackend change isolates the
 // per-call allocations (#2). Skips cleanly (rc 0) without a .NET runtime.
-int BenchBridge(const std::string& runtime_config, const std::string& assembly) {
+int BenchBridge(const base::String& runtime_config, const base::String& assembly) {
   using rx::script::PapyrusGuest;
 
   TestBindings bindings;
@@ -1633,10 +1707,10 @@ int BenchBridge(const std::string& runtime_config, const std::string& assembly) 
   rx::script::skyrim::RegisterSkyrimNatives(guest.natives(), &bindings);
   // A silent global native that echoes its first argument back, so a call can
   // exercise the string-argument marshalling path without any log spam.
-  guest.natives().Register(
-      "Bench", "Echo", [](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-        return args.empty() ? Value() : args[0];
-      });
+  guest.natives().Register("Bench", "Echo",
+                           [](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
+                             return args.empty() ? Value() : args[0];
+                           });
   guest.Start();
 
   rx::script::host::BridgeContext bridge_ctx{&guest, {}};
@@ -1671,7 +1745,7 @@ int BenchBridge(const std::string& runtime_config, const std::string& assembly) 
         host.Invoke(&a);
       auto t1 = std::chrono::steady_clock::now();
       double ns = std::chrono::duration<double, std::nano>(t1 - t0).count();
-      best_ns = std::min(best_ns, ns);
+      best_ns = base::Min(best_ns, ns);
       alloc = a.alloc_bytes;
     }
     const double calls = static_cast<double>(kIters * kCallsPerIter);
@@ -1701,20 +1775,20 @@ int BenchBridge(const std::string& runtime_config, const std::string& assembly) 
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc == 4 && std::string(argv[1]) == "bridgetest") return BridgeTest(argv[2], argv[3]);
-  if (argc == 4 && std::string(argv[1]) == "gcprofiletest") return GcProfileTest(argv[2], argv[3]);
-  if (argc == 4 && std::string(argv[1]) == "benchbridge") return BenchBridge(argv[2], argv[3]);
-  if (argc == 2 && std::string(argv[1]) == "selftest") return SelfTest();
-  if (argc == 2 && std::string(argv[1]) == "skyrimtest") return SkyrimTest();
-  if (argc == 2 && std::string(argv[1]) == "guesttest") return GuestTest();
-  if (argc == 2 && std::string(argv[1]) == "conctest") return ConcurrencyTest();
-  if (argc == 2 && std::string(argv[1]) == "separationtest") return SeparationTest();
-  if (argc == 2 && std::string(argv[1]) == "tracetest") return TraceTest();
-  if (argc == 3 && std::string(argv[1]) == "vmtest") return VmTest(argv[2]);
-  if (argc == 4 && std::string(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
-  if (argc == 4 && std::string(argv[1]) == "managedhosttest")
+  if (argc == 4 && base::String(argv[1]) == "bridgetest") return BridgeTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "gcprofiletest") return GcProfileTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "benchbridge") return BenchBridge(argv[2], argv[3]);
+  if (argc == 2 && base::String(argv[1]) == "selftest") return SelfTest();
+  if (argc == 2 && base::String(argv[1]) == "skyrimtest") return SkyrimTest();
+  if (argc == 2 && base::String(argv[1]) == "guesttest") return GuestTest();
+  if (argc == 2 && base::String(argv[1]) == "conctest") return ConcurrencyTest();
+  if (argc == 2 && base::String(argv[1]) == "separationtest") return SeparationTest();
+  if (argc == 2 && base::String(argv[1]) == "tracetest") return TraceTest();
+  if (argc == 3 && base::String(argv[1]) == "vmtest") return VmTest(argv[2]);
+  if (argc == 4 && base::String(argv[1]) == "hosttest") return HostTest(argv[2], argv[3]);
+  if (argc == 4 && base::String(argv[1]) == "managedhosttest")
     return ManagedHostTest(argv[2], argv[3]);
-  if (argc == 5 && std::string(argv[1]) == "disasm") return DisasmReal(argv[2], argv[3], argv[4]);
+  if (argc == 5 && base::String(argv[1]) == "disasm") return DisasmReal(argv[2], argv[3], argv[4]);
   if (argc == 4) return RunReal(argv[1], argv[2], argv[3]);
   std::fprintf(stderr,
                "usage: %s [selftest|skyrimtest|guesttest|conctest|separationtest]\n"

@@ -7,8 +7,6 @@
 // de Boor again. Root motion and trigger events (Bethesda sidecar data)
 // ride along in the blob.
 
-#include <vector>
-
 #include <base/containers/vector.h>
 #include <kinema/kinema.h>
 
@@ -19,8 +17,8 @@
 namespace rx::bethesda {
 
 // `motion` / `events` are optional (from the animationdata sidecars).
-std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
-                                          const std::vector<ClipEvent>* events);
+base::Vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const AnimMotion* motion,
+                                           const base::Vector<ClipEvent>* events);
 
 // Skeleton-space transcode: instead of one track per animation channel (havok
 // order), the blob carries one track per skeleton bone. Each sampled frame is
@@ -30,11 +28,11 @@ std::vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation, const A
 // kinema::StateMachine / additive layer built over the skeleton drive the actor
 // pose directly, with no per-frame track remap. Root motion + events ride along
 // exactly as TranscodeToKinema.
-std::vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
-                                                  const base::Vector<i32>& track_to_skeleton,
-                                                  const asset::Skeleton& skeleton,
-                                                  const AnimMotion* motion,
-                                                  const std::vector<ClipEvent>* events);
+base::Vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
+                                                   const base::Vector<i32>& track_to_skeleton,
+                                                   const asset::Skeleton& skeleton,
+                                                   const AnimMotion* motion,
+                                                   const base::Vector<ClipEvent>* events);
 
 }  // namespace rx::bethesda
 

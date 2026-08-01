@@ -6,12 +6,13 @@
 // wins and the authored references resolve. No game data, runs in the ctest
 // gate.
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/edit_session.h"
 #include "components/bethesda/game_profile.h"
@@ -22,6 +23,9 @@
 #include "core/types.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
 namespace {
@@ -51,12 +55,12 @@ constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 
 // Minimal reader for a non-length-prefixed .strings file: returns the text for
 // `id`, mirroring engine/bethesda/strings.cc.
-std::string ReadStringsEntry(const std::string& path, u32 id) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
+base::String ReadStringsEntry(const base::String& path, u32 id) {
+  std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
   if (!file) return {};
   size_t size = static_cast<size_t>(file.tellg());
   file.seekg(0);
-  std::vector<u8> bytes(size);
+  base::Vector<u8> bytes(size);
   file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
   if (size < 8) return {};
   u32 count = 0;
@@ -70,7 +74,7 @@ std::string ReadStringsEntry(const std::string& path, u32 id) {
     size_t pos = dir_end + offset;
     if (pos >= size) return {};
     const char* s = reinterpret_cast<const char*>(bytes.data() + pos);
-    return std::string(s, strnlen(s, size - pos));
+    return base::String(s, strnlen(s, size - pos));
   }
   return {};
 }
@@ -86,21 +90,21 @@ GameProfile TestProfile() {
 }
 
 // WEAP DATA = { u32 value; f32 weight; u16 damage }.
-std::vector<u8> WeaponData(u32 value, float weight, u16 damage) {
-  std::vector<u8> d(10);
+base::Vector<u8> WeaponData(u32 value, float weight, u16 damage) {
+  base::Vector<u8> d(10);
   std::memcpy(d.data() + 0, &value, 4);
   std::memcpy(d.data() + 4, &weight, 4);
   std::memcpy(d.data() + 8, &damage, 2);
   return d;
 }
 
-void WriteBaseMaster(const GameProfile& profile, const std::string& path) {
+void WriteBaseMaster(const GameProfile& profile, const base::String& path) {
   PluginWriter base(profile);
   base.set_author("base").set_master(true);
 
   RecordBuilder sword(kWeap, RawFormId{0x00000800});
   sword.EditorId("IronSword");
-  std::vector<u8> data = WeaponData(10, 8.0f, 7);
+  base::Vector<u8> data = WeaponData(10, 8.0f, 7);
   sword.Field(kData, ByteSpan(data.data(), data.size()));
   base.AddRecord(sword.record());
 
@@ -116,9 +120,9 @@ void WriteBaseMaster(const GameProfile& profile, const std::string& path) {
 }  // namespace
 
 int main() {
-  const std::string dir = std::filesystem::temp_directory_path().string();
-  const std::string base_path = dir + "/Base.esm";
-  const std::string patch_path = dir + "/Patch.esp";
+  const base::String dir = std::filesystem::temp_directory_path().string();
+  const base::String base_path = dir + "/Base.esm";
+  const base::String patch_path = dir + "/Patch.esp";
   const GameProfile profile = TestProfile();
 
   std::printf("author base master:\n");
@@ -139,7 +143,7 @@ int main() {
 
   // Override the vanilla sword's damage 7 -> 25.
   Check("override IronSword", session.Override(iron_sword));
-  std::vector<u8> buffed = WeaponData(10, 8.0f, 25);
+  base::Vector<u8> buffed = WeaponData(10, 8.0f, 25);
   Check("edit damage", session.SetField(iron_sword, kData, ByteSpan(buffed.data(), buffed.size())));
 
   // Create a new form list that references both base records.
@@ -154,7 +158,7 @@ int main() {
   session.SetEditorId(room, "TestRoom");
   GlobalFormId chest = session.Create(kRefr);
   Check("chest base ref", session.SetReference(chest, kName, iron_ingot));
-  std::vector<u8> placement(24, 0);  // REFR DATA: position + rotation
+  base::Vector<u8> placement(24, 0);  // REFR DATA: position + rotation
   session.SetField(chest, kData, ByteSpan(placement.data(), placement.size()));
   Check("place chest in room", session.PlaceInInteriorCell(room, chest, /*persistent=*/false));
 
@@ -209,7 +213,7 @@ int main() {
   const RecordStore::StoredRecord* loot_stored = merged.Find(loot_global);
   Check("created FLST present", loot_stored != nullptr && loot_stored->header.type == kFlst);
   Record loot_rec;
-  std::vector<GlobalFormId> refs;
+  base::Vector<GlobalFormId> refs;
   if (merged.Parse(loot_global, &loot_rec)) {
     for (const Subrecord& sub : loot_rec.subrecords) {
       if (sub.type == kLnam && sub.data.size() >= 4) {
@@ -231,7 +235,8 @@ int main() {
   const auto* room_refs = merged.InteriorRefs(room_global);
   Check("cell has 1 ref", room_refs != nullptr && room_refs->size() == 1);
   const GlobalFormId chest_global{1, chest.local_id};
-  Check("ref is the chest", room_refs && room_refs->size() == 1 && (*room_refs)[0] == chest_global.packed());
+  Check("ref is the chest",
+        room_refs && room_refs->size() == 1 && (*room_refs)[0] == chest_global.packed());
 
   // the dialogue topic's info comes back through the topic index.
   const GlobalFormId topic_global{1, topic.local_id};
@@ -246,7 +251,8 @@ int main() {
   Check("worldspace found", world_global.plugin != 0xffff);
   const auto* grid_cells = merged.ExteriorCells(world_global);
   Check("exterior grid built", grid_cells != nullptr);
-  const RecordStore::ExteriorCell* ext = grid_cells ? grid_cells->find(RecordStore::GridKey(5, 5)) : nullptr;
+  const RecordStore::ExteriorCell* ext =
+      grid_cells ? grid_cells->find(RecordStore::GridKey(5, 5)) : nullptr;
   Check("cell at (5,5)", ext != nullptr);
   const GlobalFormId tree_global{1, tree.local_id};
   Check("exterior ref is the tree",
@@ -255,7 +261,7 @@ int main() {
   // localized string authoring. A new potion's FULL name becomes a string
   // id backed by a strings/<plugin>_english.strings file.
   std::printf("localized strings:\n");
-  const std::string loc_path = dir + "/LocMod.esp";
+  const base::String loc_path = dir + "/LocMod.esp";
   EditSession lsession(store, order, profile);
   GlobalFormId potion = lsession.Create(kAlch);
   lsession.SetEditorId(potion, "TestPotion");
@@ -279,9 +285,8 @@ int main() {
     });
   }
   Check("FULL is a 4-byte string id", got_full && full_id != 0);
-  const std::string loc_strings = dir + "/strings/LocMod_english.strings";
-  Check("string id resolves to text",
-        ReadStringsEntry(loc_strings, full_id) == "Healing Draught");
+  const base::String loc_strings = dir + "/strings/LocMod_english.strings";
+  Check("string id resolves to text", ReadStringsEntry(loc_strings, full_id) == "Healing Draught");
 
   // Bridge: modify the existing Base.esm in place via EditSession + RawRewriter.
   // Buff IronSword's damage and delete IronIngot; everything else stays verbatim.
@@ -292,7 +297,7 @@ int main() {
   EditSession inplace(store, order, profile);
   Check("set in-place target", inplace.SetInPlaceTarget(base_index));
   Check("override sword in place", inplace.Override(iron_sword));
-  std::vector<u8> reforged = WeaponData(10, 8.0f, 99);
+  base::Vector<u8> reforged = WeaponData(10, 8.0f, 99);
   inplace.SetField(iron_sword, kData, ByteSpan(reforged.data(), reforged.size()));
   Check("remove ingot in place", inplace.Remove(iron_ingot));
   // Insert a brand new weapon into the existing plugin (non-colliding id).
@@ -301,7 +306,7 @@ int main() {
   Check("inserted id avoids collision", blade.local_id > 0x801);
   Check("apply edits to rewriter", rewriter && inplace.ApplyEditsTo(*rewriter));
 
-  const std::string edited_path = dir + "/Base_edited.esm";
+  const base::String edited_path = dir + "/Base_edited.esm";
   Check("save rewritten base", rewriter && rewriter->Save(edited_path));
 
   LoadOrder order3;
@@ -324,11 +329,11 @@ int main() {
   Check("inserted blade edid", inserted.GetString(kEdid) == "InsertedBlade");
 
   std::error_code ec;
-  std::filesystem::remove(loc_path, ec);
-  std::filesystem::remove(loc_strings, ec);
-  std::filesystem::remove(edited_path, ec);
-  std::filesystem::remove(base_path, ec);
-  std::filesystem::remove(patch_path, ec);
+  std::filesystem::remove(loc_path.c_str(), ec);
+  std::filesystem::remove(loc_strings.c_str(), ec);
+  std::filesystem::remove(edited_path.c_str(), ec);
+  std::filesystem::remove(base_path.c_str(), ec);
+  std::filesystem::remove(patch_path.c_str(), ec);
 
   if (g_failures == 0) {
     std::puts("edit_session: all checks passed");

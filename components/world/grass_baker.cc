@@ -1,11 +1,13 @@
 #include "components/world/grass_baker.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstring>
-#include <string>
-
-#include <base/option.h>
 
 #include "core/log.h"
 
@@ -78,10 +80,10 @@ struct SurfaceSample {
 
 SurfaceSample SampleSurface(const f32* heights, f32 x, f32 y) {
   constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
-  f32 gx = std::clamp(x / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
-  f32 gy = std::clamp(y / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
-  u32 c = std::min(static_cast<u32>(gx), kLandGridPoints - 2);
-  u32 r = std::min(static_cast<u32>(gy), kLandGridPoints - 2);
+  f32 gx = base::Clamp(x / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
+  f32 gy = base::Clamp(y / kSpacing, 0.0f, static_cast<f32>(kLandGridPoints - 1));
+  u32 c = base::Min(static_cast<u32>(gx), kLandGridPoints - 2);
+  u32 r = base::Min(static_cast<u32>(gy), kLandGridPoints - 2);
   f32 fx = gx - static_cast<f32>(c);
   f32 fy = gy - static_cast<f32>(r);
   const f32* row = heights + r * kLandGridPoints + c;
@@ -92,18 +94,16 @@ SurfaceSample SampleSurface(const f32* heights, f32 x, f32 y) {
   Vec3 normal;
   SurfaceSample result;
   if (fx + fy <= 1.0f) {
-    result.height = southwest + fx * (southeast - southwest) +
-                    fy * (northwest - southwest);
-    normal = Normalize(Cross(Vec3{kSpacing, 0, southeast - southwest},
-                             Vec3{0, kSpacing, northwest - southwest}));
+    result.height = southwest + fx * (southeast - southwest) + fy * (northwest - southwest);
+    normal = Normalize(
+        Cross(Vec3{kSpacing, 0, southeast - southwest}, Vec3{0, kSpacing, northwest - southwest}));
   } else {
-    result.height = northeast + (1.0f - fx) * (northwest - northeast) +
-                    (1.0f - fy) * (southeast - northeast);
+    result.height =
+        northeast + (1.0f - fx) * (northwest - northeast) + (1.0f - fy) * (southeast - northeast);
     normal = Normalize(Cross(Vec3{-kSpacing, 0, northwest - northeast},
                              Vec3{0, -kSpacing, southeast - northeast}));
   }
-  result.slope_degrees =
-      std::acos(std::clamp(normal.z, -1.0f, 1.0f)) * 57.29578f;
+  result.slope_degrees = std::acos(base::Clamp(normal.z, -1.0f, 1.0f)) * 57.29578f;
   return result;
 }
 
@@ -112,13 +112,13 @@ SurfaceSample SampleSurface(const f32* heights, f32 x, f32 y) {
 f32 SlopeDegrees(const bethesda::Subrecord* vnml, f32 x, f32 y) {
   if (!vnml || vnml->data.size() < kLandGridPoints * kLandGridPoints * 3) return 0;
   constexpr f32 kSpacing = kCellSize / (kLandGridPoints - 1);
-  u32 c = std::min(kLandGridPoints - 1, static_cast<u32>(std::max(0.0f, x / kSpacing + 0.5f)));
-  u32 r = std::min(kLandGridPoints - 1, static_cast<u32>(std::max(0.0f, y / kSpacing + 0.5f)));
+  u32 c = base::Min(kLandGridPoints - 1, static_cast<u32>(base::Max(0.0f, x / kSpacing + 0.5f)));
+  u32 r = base::Min(kLandGridPoints - 1, static_cast<u32>(base::Max(0.0f, y / kSpacing + 0.5f)));
   const i8* n = reinterpret_cast<const i8*>(vnml->data.data() + (r * kLandGridPoints + c) * 3);
   f32 length = std::sqrt(static_cast<f32>(n[0]) * n[0] + static_cast<f32>(n[1]) * n[1] +
                          static_cast<f32>(n[2]) * n[2]);
   if (length <= 0) return 0;
-  f32 nz = std::clamp(static_cast<f32>(n[2]) / length, -1.0f, 1.0f);
+  f32 nz = base::Clamp(static_cast<f32>(n[2]) / length, -1.0f, 1.0f);
   return std::acos(nz) * 57.29578f;
 }
 
@@ -155,10 +155,10 @@ struct QuadLayer {
 // Bilinear ATXT layer opacity at a quadrant-local position in game units.
 f32 LayerOpacity(const QuadLayer& layer, f32 qx, f32 qy) {
   constexpr f32 kQuadSize = kCellSize * 0.5f;
-  f32 gx = std::clamp(qx / kQuadSize, 0.0f, 1.0f) * (kQuadGrid - 1);
-  f32 gy = std::clamp(qy / kQuadSize, 0.0f, 1.0f) * (kQuadGrid - 1);
-  u32 c = std::min(static_cast<u32>(gx), kQuadGrid - 2);
-  u32 r = std::min(static_cast<u32>(gy), kQuadGrid - 2);
+  f32 gx = base::Clamp(qx / kQuadSize, 0.0f, 1.0f) * (kQuadGrid - 1);
+  f32 gy = base::Clamp(qy / kQuadSize, 0.0f, 1.0f) * (kQuadGrid - 1);
+  u32 c = base::Min(static_cast<u32>(gx), kQuadGrid - 2);
+  u32 r = base::Min(static_cast<u32>(gy), kQuadGrid - 2);
   f32 fx = gx - static_cast<f32>(c);
   f32 fy = gy - static_cast<f32>(r);
   const f32* o = layer.opacity;
@@ -215,9 +215,9 @@ const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
     std::memcpy(&type->color_range, d + 20, 4);
   }
 
-  std::string model = gras.GetString(kModl);
+  base::String model = gras.GetString(kModl);
   if (!model.empty()) {
-    std::string path = asset::NormalizePath(model);
+    base::String path = asset::NormalizePath(model);
     if (!path.starts_with("meshes/")) path = "meshes/" + path;
     type->model = assets_.LoadMesh(path);
     if (type->model && type->model->lods.empty()) type->model = nullptr;
@@ -236,7 +236,7 @@ const GrassBaker::GrassType* GrassBaker::TypeFor(u64 gras_packed) {
 const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_plugin, i16 grid_x,
                                          i16 grid_y, f32 water_height, f32 density_scale,
                                          std::span<const f32> height_override) {
-  std::string name = "grass/" + std::to_string(grid_x) + "_" + std::to_string(grid_y);
+  base::String name = "grass/" + base::ToString(grid_x) + "_" + base::ToString(grid_y);
   asset::AssetId mesh_id = asset::MakeAssetId(name);
   if (height_override.empty()) {
     if (const asset::Mesh* cached = assets_.FindMesh(mesh_id)) return cached;
@@ -282,7 +282,7 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
         std::memcpy(&position, sub.data.data() + i, 2);
         std::memcpy(&opacity, sub.data.data() + i + 4, 4);
         if (position < kQuadGrid * kQuadGrid) {
-          open->opacity[position] = std::clamp(opacity, 0.0f, 1.0f);
+          open->opacity[position] = base::Clamp(opacity, 0.0f, 1.0f);
         }
       }
     }
@@ -374,15 +374,14 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
 
       for (const GrassType* type : *best) {
         if (rng.Uniform() >= type->density * density_scale) continue;
-        const f32 slope = edited_heights
-                              ? SampleSurface(heights, px, py).slope_degrees
-                              : SlopeDegrees(vnml, px, py);
+        const f32 slope = edited_heights ? SampleSurface(heights, px, py).slope_degrees
+                                         : SlopeDegrees(vnml, px, py);
         if (slope < type->min_slope || slope > type->max_slope) continue;
 
         f32 wx = px + (rng.Uniform() * 2 - 1) * type->position_range;
         f32 wy = py + (rng.Uniform() * 2 - 1) * type->position_range;
-        f32 wz = SampleSurface(heights, wx, wy).height +
-                 (rng.Uniform() * 2 - 1) * type->height_range;
+        f32 wz =
+            SampleSurface(heights, wx, wy).height + (rng.Uniform() * 2 - 1) * type->height_range;
         if (!WaterOk(type->water_type, type->units_from_water, wz - water_height)) continue;
 
         f32 yaw = rng.Uniform() * 6.2831853f;
@@ -424,8 +423,8 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
           }
         }
         f32 reach = type->model->bounds_radius * scale;
-        min_z = std::min(min_z, wz - reach);
-        max_z = std::max(max_z, wz + reach);
+        min_z = base::Min(min_z, wz - reach);
+        max_z = base::Max(max_z, wz + reach);
         ++instances;
         break;  // one instance per sample point
       }
@@ -451,8 +450,8 @@ const asset::Mesh* GrassBaker::BuildCell(const bethesda::Record& land, u16 land_
   total_vertices_ += lod.vertices.size();
   RX_INFO("grass {},{}: {} instances, {} verts, {} submeshes", grid_x, grid_y, instances,
           lod.vertices.size(), lod.submeshes.size());
-  return height_override.empty() ? assets_.AddMesh(std::move(built))
-                                 : assets_.ReplaceMesh(std::move(built));
+  return height_override.empty() ? assets_.AddMesh(base::move(built))
+                                 : assets_.ReplaceMesh(base::move(built));
 }
 
 }  // namespace rx::world

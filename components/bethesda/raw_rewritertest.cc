@@ -5,11 +5,13 @@
 // replace/delete must reload correctly with recomputed group sizes. No game
 // data, runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/plugin.h"
@@ -19,6 +21,9 @@
 #include "core/types.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::bethesda;
 
 namespace {
@@ -61,7 +66,7 @@ base::Vector<u8> AuthorPlugin(const GameProfile& profile, bool compress) {
 void TestByteIdentity(const GameProfile& profile, bool compress) {
   std::printf("byte-identity (%s):\n", compress ? "compressed" : "uncompressed");
   base::Vector<u8> original = AuthorPlugin(profile, compress);
-  RawRewriter rewriter(std::move(original));
+  RawRewriter rewriter(base::move(original));
   base::Vector<u8> rebuilt = rewriter.Build();
   Check("unedited rewrite is byte-identical", BytesEqual(rewriter.bytes(), rebuilt));
 }
@@ -81,15 +86,15 @@ void TestDeletedRecordPreserved(const GameProfile& profile) {
   writer.AddRecord(gone.record());
 
   base::Vector<u8> original = writer.Build();
-  RawRewriter rewriter(std::move(original));
+  RawRewriter rewriter(base::move(original));
   Check("rewrite keeps the deleted record verbatim",
         BytesEqual(rewriter.bytes(), rewriter.Build()));
 }
 
-void TestReplaceAndDelete(const std::string& dir, const GameProfile& profile) {
+void TestReplaceAndDelete(const base::String& dir, const GameProfile& profile) {
   std::printf("replace + delete:\n");
   base::Vector<u8> original = AuthorPlugin(profile, /*compress=*/false);
-  RawRewriter rewriter(std::move(original));
+  RawRewriter rewriter(base::move(original));
 
   // Replace SwordA (0x01000800) with a bigger encoded record (longer editor id
   // + an extra field) to force enclosing group-size recomputation.
@@ -99,12 +104,12 @@ void TestReplaceAndDelete(const std::string& dir, const GameProfile& profile) {
   bigger.FieldPod(FourCc('D', 'A', 'T', 'A'), extra);
   base::Vector<u8> encoded;
   EncodeRecord(bigger.record(), &encoded);
-  rewriter.Replace(0x01000800, std::move(encoded));
+  rewriter.Replace(0x01000800, base::move(encoded));
 
   // Delete HelmA (0x01000801).
   rewriter.Delete(0x01000801);
 
-  const std::string path = dir + "/rec_rewrite.esp";
+  const base::String path = dir + "/rec_rewrite.esp";
   Check("save rewritten", rewriter.Save(path));
 
   const GameProfile& p = profile;
@@ -112,7 +117,7 @@ void TestReplaceAndDelete(const std::string& dir, const GameProfile& profile) {
   Check("rewritten plugin opens", plugin.has_value());
   if (!plugin) return;
 
-  std::vector<std::string> weap_edids;
+  base::Vector<base::String> weap_edids;
   bool saw_armo = false;
   bool structure_ok = true;
   plugin->VisitRecords([&](Record& r) {
@@ -124,7 +129,7 @@ void TestReplaceAndDelete(const std::string& dir, const GameProfile& profile) {
   Check("HelmA (ARMO) is gone", !saw_armo);
   Check("both swords remain", weap_edids.size() == 2);
   bool has_reforged = false, has_swordb = false;
-  for (const std::string& e : weap_edids) {
+  for (const base::String& e : weap_edids) {
     if (e == "SwordA_Reforged_With_A_Much_Longer_Name") has_reforged = true;
     if (e == "SwordB") has_swordb = true;
   }
@@ -133,13 +138,13 @@ void TestReplaceAndDelete(const std::string& dir, const GameProfile& profile) {
   (void)structure_ok;
 
   std::error_code ec;
-  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.c_str(), ec);
 }
 
 }  // namespace
 
 int main() {
-  const std::string dir = std::filesystem::temp_directory_path().string();
+  const base::String dir = std::filesystem::temp_directory_path().string();
   const GameProfile& profile = GameProfile::For(Game::kSkyrimSe);
 
   TestByteIdentity(profile, /*compress=*/false);

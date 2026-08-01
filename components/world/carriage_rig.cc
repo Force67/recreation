@@ -1,6 +1,7 @@
 #include "components/world/carriage_rig.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+
 #include <cmath>
 
 namespace rx::world {
@@ -27,8 +28,7 @@ bool CarriageRig::Spawn(physics::PhysicsWorld& world, const Vec3& position, f32 
   return body_ != 0;
 }
 
-bool CarriageRig::Pose(const physics::PhysicsWorld& world, Vec3* position,
-                       f32 rotation[4]) const {
+bool CarriageRig::Pose(const physics::PhysicsWorld& world, Vec3* position, f32 rotation[4]) const {
   if (!vehicle_) return false;
   return world.GetVehicleTransform(vehicle_, position, rotation);
 }
@@ -65,7 +65,7 @@ void CarriageRig::Step(physics::PhysicsWorld& world, const Vec3& hitch_target,
   const f32 spring = cfg_.hitch_stiffness * (dist - cfg_.rest_length);
   const f32 damp = cfg_.hitch_damping * Dot(horse_velocity - tongue_vel, dir);
   f32 mag = spring + damp;
-  mag = std::clamp(mag, -cfg_.max_hitch_force, cfg_.max_hitch_force);
+  mag = base::Clamp(mag, -cfg_.max_hitch_force, cfg_.max_hitch_force);
   world.AddForceAtPoint(body_, dir * mag, tongue);
 
   // Turntable steering: signed ground-plane yaw of the pull direction relative
@@ -79,15 +79,13 @@ void CarriageRig::Step(physics::PhysicsWorld& world, const Vec3& hitch_target,
     const Vec3 dn = Normalize(flat_dir);
     const f32 cross_y = fn.z * dn.x - fn.x * dn.z;  // (fwd x dir).y
     const f32 yaw_err = std::atan2(cross_y, Dot(fn, dn));
-    steer = std::clamp(-yaw_err * cfg_.steer_gain, -1.0f, 1.0f);
+    steer = base::Clamp(-yaw_err * cfg_.steer_gain, -1.0f, 1.0f);
   }
   steer_ = steer;
 
   // Parking brake ramps in as the horse slows so the cart settles and holds.
   const f32 horse_speed = Length(Vec3{horse_velocity.x, 0, horse_velocity.z});
-  handbrake_ = horse_speed < cfg_.park_speed
-                   ? 1.0f - horse_speed / cfg_.park_speed
-                   : 0.0f;
+  handbrake_ = horse_speed < cfg_.park_speed ? 1.0f - horse_speed / cfg_.park_speed : 0.0f;
 
   physics::PhysicsWorld::VehicleInput input;
   input.throttle = 0;

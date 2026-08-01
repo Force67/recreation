@@ -1,12 +1,15 @@
 #include "components/bethesda/starfield_mesh.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cmath>
 #include <cstring>
 #include <functional>
-
-#include <base/containers/unordered_map.h>
 
 #include "asset/asset_id.h"
 #include "components/bethesda/nif.h"
@@ -129,8 +132,8 @@ Transform ReadAvObject(Reader& r, bool* hidden) {
 }
 
 // "<dir>\<file>" (20 hex + '\' + 20 hex) -> "geometries/<dir>/<file>.mesh".
-std::string MeshPathFromHash(std::string_view raw) {
-  std::string path = "geometries/";
+base::String MeshPathFromHash(base::StringRef raw) {
+  base::String path = "geometries/";
   path.reserve(raw.size() + 17);
   for (char c : raw) path.push_back(c == '\\' ? '/' : static_cast<char>(std::tolower(c)));
   path += ".mesh";
@@ -138,7 +141,7 @@ std::string MeshPathFromHash(std::string_view raw) {
 }
 
 // True for a 40-char "<20 hex>\<20 hex>" geometry hash reference.
-bool IsHashPath(std::string_view s) {
+bool IsHashPath(base::StringRef s) {
   if (s.size() != 41 || s[20] != '\\') return false;
   for (size_t i = 0; i < s.size(); ++i) {
     if (i == 20) continue;
@@ -156,13 +159,13 @@ bool IsHashPath(std::string_view s) {
 // that names the material) to `shader_ref` (-1 when absent). The LOD table
 // format varies for skinned geometry, so the structured parse falls back to
 // scanning the block for the hash-path pattern, which is unambiguous.
-std::string ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
+base::String ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
   *shader_ref = -1;
   *local = ReadAvObject(r, nullptr);
-  r.Skip(10 * 4);  // bounding sphere (center + radius) and box (center + half extents)
-  r.Read<i32>();   // Skin ref (-1 when not skinned)
+  r.Skip(10 * 4);              // bounding sphere (center + radius) and box (center + half extents)
+  r.Read<i32>();               // Skin ref (-1 when not skinned)
   i32 shader = r.Read<i32>();  // Shader Property ref -> the block naming the .mat
-  r.Read<i32>();   // Alpha Property ref
+  r.Read<i32>();               // Alpha Property ref
   if (r.ok) *shader_ref = shader;
   // The LOD table (BSMeshArray) followed; the shader ref doubles as a rough LOD
   // count guard for the structured path since a valid ref exceeds 64 here.
@@ -176,16 +179,16 @@ std::string ReadBsGeometry(Reader& r, Transform* local, i32* shader_ref) {
       if (!r.ok || path_len > 256) break;
       const u8* bytes = r.Bytes(path_len);
       if (!bytes) break;
-      std::string_view path(reinterpret_cast<const char*>(bytes), path_len);
+      base::StringRef path(reinterpret_cast<const char*>(bytes), path_len);
       if (IsHashPath(path)) return MeshPathFromHash(path);
     }
   }
 
   // Structured parse came up empty (e.g. a skinned geometry header variant):
   // scan the whole block for the first hash-path reference.
-  std::string_view block(reinterpret_cast<const char*>(r.data.data()), r.data.size());
+  base::StringRef block(reinterpret_cast<const char*>(r.data.data()), r.data.size());
   for (size_t i = 0; i + 41 <= block.size(); ++i) {
-    std::string_view candidate = block.substr(i, 41);
+    base::StringRef candidate = block.substr(i, 41);
     if (IsHashPath(candidate)) return MeshPathFromHash(candidate);
   }
   return {};
@@ -199,8 +202,8 @@ struct Node {
 
 struct GeometryRef {
   Transform local;
-  std::string mesh_path;
-  std::string material_path;
+  base::String mesh_path;
+  base::String material_path;
   bool hidden = false;
 };
 
@@ -214,8 +217,7 @@ void ComputeNormals(StarfieldMeshData* mesh) {
   }
   for (size_t i = 0; i + 2 < mesh->indices.size(); i += 3) {
     u32 a = mesh->indices[i], b = mesh->indices[i + 1], c = mesh->indices[i + 2];
-    if (a >= mesh->vertices.size() || b >= mesh->vertices.size() ||
-        c >= mesh->vertices.size()) {
+    if (a >= mesh->vertices.size() || b >= mesh->vertices.size() || c >= mesh->vertices.size()) {
       continue;
     }
     const f32* pa = mesh->vertices[a].position;
@@ -324,10 +326,10 @@ namespace {
 // algorithm by reading the same Vertex/index fields through a temporary view.
 void ComputeNormalsSkinned(StarfieldSkinnedMeshData* mesh) {
   StarfieldMeshData view;
-  view.vertices = std::move(mesh->vertices);
+  view.vertices = base::move(mesh->vertices);
   view.indices = mesh->indices;
   ComputeNormals(&view);
-  mesh->vertices = std::move(view.vertices);
+  mesh->vertices = base::move(view.vertices);
 }
 
 }  // namespace
@@ -453,7 +455,7 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
     }
     if (assigned != 255) {
       int delta = 255 - static_cast<int>(assigned);
-      extra.bone_weights[0] = static_cast<u8>(std::clamp(extra.bone_weights[0] + delta, 0, 255));
+      extra.bone_weights[0] = static_cast<u8>(base::Clamp(extra.bone_weights[0] + delta, 0, 255));
     }
   }
 
@@ -469,7 +471,7 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
   base::UnorderedMap<u32, Node> nodes;
   base::UnorderedMap<u32, GeometryRef> geometries;
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = header->block_types[header->block_type_index[i]];
+    const base::String& type = header->block_types[header->block_type_index[i]];
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
     if (type.ends_with("Node")) {
       Node node;
@@ -478,7 +480,7 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
       if (!r.ok || child_count > 65536) continue;
       node.children.reserve(child_count);
       for (u32 c = 0; c < child_count; ++c) node.children.push_back(r.Read<i32>());
-      if (r.ok) nodes.emplace(i, std::move(node));
+      if (r.ok) nodes.emplace(i, base::move(node));
     } else if (type == "BSGeometry") {
       GeometryRef geo;
       i32 shader_ref = -1;
@@ -487,28 +489,27 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
       // The shader-property block names the material: its NiObjectNET Name (the
       // block's first field, a header string-table index) is the ".mat" path.
       if (shader_ref >= 0 && static_cast<u32>(shader_ref) < block_count) {
-        ByteSpan block = data.subspan(header->block_offsets[shader_ref],
-                                      header->block_sizes[shader_ref]);
+        ByteSpan block =
+            data.subspan(header->block_offsets[shader_ref], header->block_sizes[shader_ref]);
         if (block.size() >= 4) {
           i32 name_index;
           std::memcpy(&name_index, block.data(), 4);
           if (name_index >= 0 && static_cast<u32>(name_index) < header->strings.size()) {
-            std::string norm = asset::NormalizePath(header->strings[name_index]);
-            if (norm.ends_with(".mat")) geo.material_path = std::move(norm);
+            base::String norm = asset::NormalizePath(header->strings[name_index]);
+            if (norm.ends_with(".mat")) geo.material_path = base::move(norm);
           }
         }
       }
-      if (!geo.mesh_path.empty()) geometries.emplace(i, std::move(geo));
+      if (!geo.mesh_path.empty()) geometries.emplace(i, base::move(geo));
     }
   }
   if (geometries.empty()) return false;
 
   base::Vector<u32> roots;
   {
-    size_t footer = header->block_offsets.empty()
-                        ? 0
-                        : header->block_offsets[block_count - 1] +
-                              header->block_sizes[block_count - 1];
+    size_t footer = header->block_offsets.empty() ? 0
+                                                  : header->block_offsets[block_count - 1] +
+                                                        header->block_sizes[block_count - 1];
     Reader r{data, footer};
     u32 root_count = r.Read<u32>();
     if (r.ok && root_count < 256) {
@@ -552,7 +553,7 @@ bool ParseStarfieldNif(ByteSpan data, base::Vector<StarfieldGeometryRef>* out) {
     ref.scale = world.s;
     ref.mesh_path = geo->mesh_path;
     ref.material_path = geo->material_path;
-    out->push_back(std::move(ref));
+    out->push_back(base::move(ref));
   }
   return !out->empty();
 }
@@ -563,7 +564,7 @@ bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGrou
   u32 block_count = static_cast<u32>(header->block_sizes.size());
 
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = header->block_types[header->block_type_index[i]];
+    const base::String& type = header->block_types[header->block_type_index[i]];
     if (type != "BSWeakReferenceNode") continue;
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
 
@@ -610,7 +611,7 @@ bool ParseStarfieldInstancedNif(ByteSpan data, base::Vector<StarfieldTerrainGrou
       u32 extra_count = r.Read<u32>();
       if (!r.ok || extra_count > 64) break;
       r.Skip(16 * extra_count);  // material swap refs, unused
-      if (r.ok && !group.instances.empty()) out->push_back(std::move(group));
+      if (r.ok && !group.instances.empty()) out->push_back(base::move(group));
     }
   }
   return !out->empty();

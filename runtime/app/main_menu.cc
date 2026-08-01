@@ -1,10 +1,19 @@
-#include "runtime/app/engine.h"
+#include <base/algorithm.h>
+#include <base/containers/array.h>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+
+#include "runtime/app/engine.h"
 
 #if !defined(_WIN32)
 #include <pwd.h>     // getpwuid for the local profile name
@@ -15,17 +24,13 @@
 #define RECREATION_VERSION "0.1.0"
 #endif
 
-#include "core/log.h"
-#include "runtime/app/engine_internal.h"
-
 #include <algorithm>  // std::max / std::clamp in the procedural backdrop painter
 #include <cmath>      // std::floor / std::sqrt / std::fabs for the scene noise
-#include <utility>    // std::move for the procedural meshes
-
-#include <array>
-#include <base/option.h>
+#include <utility>    // base::move for the procedural meshes
 
 #include "asset/mesh.h"
+#include "core/log.h"
+#include "runtime/app/engine_internal.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
 
 // The NEXUS main menu: the front door a bare windowed launch opens. Resolves the
@@ -43,17 +48,27 @@ static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU
 // previewed on the menu's Mods screen before the game loads. Skyrim and
 // Starfield ship a full layer (SkyrimMod / StarfieldMod); Fallout 4 runs the
 // shared SDK for now.
-static std::vector<std::string> MenuModulesFor(int universe) {
+static base::Vector<base::String> MenuModulesFor(int universe) {
   switch (universe) {
     case 0:
-      return {"Attribute Regeneration", "Quest Progress",     "Combat Tracker",
-              "Essential Protection",    "Injury Slowdown",    "Time of Day",
-              "Encumbrance",             "Location Discovery", "Harvesting",
-              "Book Learning",           "Racial Abilities",   "Blessing Upkeep",
-              "Vampirism",               "Lycanthropy",        "Shout Cooldown"};
+      return {"Attribute Regeneration",
+              "Quest Progress",
+              "Combat Tracker",
+              "Essential Protection",
+              "Injury Slowdown",
+              "Time of Day",
+              "Encumbrance",
+              "Location Discovery",
+              "Harvesting",
+              "Book Learning",
+              "Racial Abilities",
+              "Blessing Upkeep",
+              "Vampirism",
+              "Lycanthropy",
+              "Shout Cooldown"};
     case 2:
-      return {"Oxygen / CO2", "Environmental Hazards", "Mass Encumbrance", "Well Rested",
-              "Quest Rewards", "Combat Rewards",       "Discovery XP",     "Notifications"};
+      return {"Oxygen / CO2",  "Environmental Hazards", "Mass Encumbrance", "Well Rested",
+              "Quest Rewards", "Combat Rewards",        "Discovery XP",     "Notifications"};
     default:
       return {"Recreation SDK", "Event Bus", "Fallout 4 content domain"};
   }
@@ -79,7 +94,7 @@ void ResolveUniverses(Engine& engine) {
       "/home/vince/.local/share/Steam/steamapps/common",
       "/home/vince/.steam/steam/steamapps/common",
   };
-  auto from_config = [&](bethesda::Game g) -> std::pair<std::string, std::string> {
+  auto from_config = [&](bethesda::Game g) -> base::Pair<base::String, base::String> {
     if (self->config_.game == g && !self->config_.data_dir.empty())
       return {self->config_.data_dir, self->config_.plugins_txt};
     for (const auto& d : self->config_.extra_domains)
@@ -103,7 +118,7 @@ void ResolveUniverses(Engine& engine) {
       for (const char* root : roots) {
         std::error_code ec;
         fs::path p = fs::path(root) / specs[i].subdir;
-        if (fs::exists(p, ec)) {
+        if (fs::exists(p.c_str(), ec)) {
           u.data_dir = p.string();
           break;
         }
@@ -111,41 +126,44 @@ void ResolveUniverses(Engine& engine) {
     }
     if (u.plugins_txt.empty() && !u.data_dir.empty()) u.plugins_txt = u.data_dir + "/../plugins.txt";
     std::error_code ec;
-    u.available = !u.data_dir.empty() && fs::exists(u.data_dir, ec);
-    RX_INFO("menu universe {}: {} -> {}", i, u.name,
-             u.available ? u.data_dir : std::string("(unavailable)"));
+    u.available = !u.data_dir.empty() && fs::exists(u.data_dir.c_str(), ec);
+    RX_INFO("menu universe {}: {} -> {}", i, u.name.c_str(),
+            u.available ? u.data_dir.c_str() : "(unavailable)");
   }
 }
 
 // Parse the top `max_items` releases from a Keep-a-Changelog file into NEWS
 // entries: each release's first bullet is the headline, and "v<ver> · <date>"
 // is the detail line. Returns empty if the file is missing.
-static std::vector<MenuNewsItem> ParseChangelog(const std::string& path, int max_items) {
-  std::vector<MenuNewsItem> out;
-  std::ifstream f(path);
+static base::Vector<MenuNewsItem> ParseChangelog(const base::String& path, int max_items) {
+  base::Vector<MenuNewsItem> out;
+  std::ifstream f(path.c_str());
   if (!f) return out;
-  auto trim = [](std::string s) {
+  auto trim = [](base::String s) {
     const size_t a = s.find_first_not_of(" \t\r\n");
     const size_t b = s.find_last_not_of(" \t\r\n");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+    return a == base::String::npos ? base::String() : s.substr(a, b - a + 1);
   };
-  std::string line, ver, date;
+  base::String ver, date;
   bool want_bullet = false;
-  while (std::getline(f, line)) {
+  // std::getline fills a std::string; each line is copied into a base::String.
+  std::string source;
+  while (std::getline(f, source)) {
+    const base::String line(source.c_str(), source.size());
     if (line.rfind("## ", 0) == 0) {  // release header: "## [x.y.z] - date"
       ver.clear();
       date.clear();
       const size_t lb = line.find('['), rb = line.find(']');
-      if (lb != std::string::npos && rb != std::string::npos && rb > lb)
+      if (lb != base::String::npos && rb != base::String::npos && rb > lb)
         ver = line.substr(lb + 1, rb - lb - 1);
-      const size_t d = line.find("- ", rb == std::string::npos ? 0 : rb);
-      if (d != std::string::npos) date = trim(line.substr(d + 2));
+      const size_t d = line.find("- ", rb == base::String::npos ? 0 : rb);
+      if (d != base::String::npos) date = trim(line.substr(d + 2));
       want_bullet = true;
     } else if (want_bullet && line.rfind("- ", 0) == 0) {  // first change = headline
       MenuNewsItem it;
       it.title = trim(line.substr(2));
       it.detail = ver.empty() ? date : ("v" + ver + (date.empty() ? "" : "  \xc2\xb7  " + date));
-      out.push_back(std::move(it));
+      out.push_back(base::move(it));
       want_bullet = false;
       if (static_cast<int>(out.size()) >= max_items) break;
     }
@@ -157,15 +175,15 @@ void SetupMainMenu(Engine& engine) {
   Engine* const self = &engine;
   self->main_menu_active_ = true;
   ResolveUniverses(engine);
-  std::vector<std::string> names;
-  std::vector<bool> avail;
+  base::Vector<base::String> names;
+  base::Vector<bool> avail;
   for (const Engine::MenuUniverse& u : self->menu_universes_) {
     names.push_back(u.name);
     avail.push_back(u.available);
   }
   self->game_ui_.SetMainMenuUniverses(names, avail);
   self->game_ui_.OpenMainMenu();
-  std::vector<MenuNewsItem> news = ParseChangelog("CHANGELOG.md", 3);
+  base::Vector<MenuNewsItem> news = ParseChangelog("CHANGELOG.md", 3);
   if (news.empty()) news = {{"Welcome to Recreation", "v" RECREATION_VERSION}};
   self->game_ui_.SetMainMenuNews(news);
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
@@ -173,7 +191,8 @@ void SetupMainMenu(Engine& engine) {
   RX_INFO("nexus main menu open");
 }
 
-void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host, const std::string& join_address) {
+void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
+                   const base::String& join_address) {
   Engine* const self = &engine;
   if (idx < 0 || idx >= static_cast<int>(self->menu_universes_.size())) return;
   const Engine::MenuUniverse& u = self->menu_universes_[idx];
@@ -235,7 +254,8 @@ void Engine::UpdateMainMenu(f32 dt) {
   if (actions_->pressed(Action::kMenuUp) || in.key_pressed(Key::kW)) game_ui_.MainMenuMove(0, -1);
   if (actions_->pressed(Action::kMenuDown) || in.key_pressed(Key::kS)) game_ui_.MainMenuMove(0, +1);
   if (actions_->pressed(Action::kMenuLeft) || in.key_pressed(Key::kA)) game_ui_.MainMenuMove(-1, 0);
-  if (actions_->pressed(Action::kMenuRight) || in.key_pressed(Key::kD)) game_ui_.MainMenuMove(+1, 0);
+  if (actions_->pressed(Action::kMenuRight) || in.key_pressed(Key::kD))
+    game_ui_.MainMenuMove(+1, 0);
   if (actions_->pressed(Action::kMenuAccept) || in.key_pressed(Key::kSpace))
     game_ui_.MainMenuActivate();
   if (actions_->pressed(Action::kMenuCancel)) game_ui_.MainMenuBack();
@@ -252,7 +272,7 @@ void Engine::UpdateMainMenu(f32 dt) {
       break;
     case MainMenuRequest::Kind::kJoinServer:
       EnterUniverse(*this, req.universe, true, false,
-                    req.address.empty() ? std::string("127.0.0.1") : req.address);
+                    req.address.empty() ? base::String("127.0.0.1") : req.address);
       break;
     case MainMenuRequest::Kind::kQuit:
       RequestQuit();
@@ -260,14 +280,16 @@ void Engine::UpdateMainMenu(f32 dt) {
     case MainMenuRequest::Kind::kOpenUrl:
       if (!req.url.empty()) {
 #if defined(_WIN32)
-        const std::string cmd = "start \"\" \"" + req.url + "\"";
+        const base::String cmd = "start \"\" \"" + req.url + "\"";
 #elif defined(__APPLE__)
-        const std::string cmd = "open \"" + req.url + "\" >/dev/null 2>&1 &";
+        const base::String cmd = "open \"" + req.url + "\" >/dev/null 2>&1 &";
 #else
-        const std::string cmd = "xdg-open \"" + req.url + "\" >/dev/null 2>&1 &";
+        const base::String cmd = "xdg-open \"" + req.url + "\" >/dev/null 2>&1 &";
 #endif
-        if (std::system(cmd.c_str()) != 0) RX_WARN("could not open url {}", req.url);
-        else RX_INFO("opened url {}", req.url);
+        if (std::system(cmd.c_str()) != 0)
+          RX_WARN("could not open url {}", req.url);
+        else
+          RX_INFO("opened url {}", req.url);
       }
       break;
     case MainMenuRequest::Kind::kNone:
@@ -280,22 +302,26 @@ void Engine::RefreshMenuData() {
 
   // Real local-profile identity for the front screen: the OS account and host,
   // plus the configured multiplayer handle (falls back to the login name).
-  std::string login;
+  base::String login;
   char host[256] = {0};
 #if !defined(_WIN32)
   if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name) login = pw->pw_name;
   if (gethostname(host, sizeof(host) - 1) != 0) host[0] = '\0';
 #endif
   if (login.empty()) {
-    if (const char* u = std::getenv("USER")) login = u;
-    else if (const char* u2 = std::getenv("USERNAME")) login = u2;
+    if (const char* u = std::getenv("USER"))
+      login = u;
+    else if (const char* u2 = std::getenv("USERNAME"))
+      login = u2;
   }
   if (!host[0]) {
-    if (const char* h = std::getenv("HOSTNAME")) std::snprintf(host, sizeof(host), "%s", h);
-    else if (const char* h2 = std::getenv("COMPUTERNAME")) std::snprintf(host, sizeof(host), "%s", h2);
+    if (const char* h = std::getenv("HOSTNAME"))
+      std::snprintf(host, sizeof(host), "%s", h);
+    else if (const char* h2 = std::getenv("COMPUTERNAME"))
+      std::snprintf(host, sizeof(host), "%s", h2);
   }
 
-  const std::string handle(config_.player_name.c_str());
+  const base::String handle(config_.player_name.c_str());
   stats.account = login.empty() ? "local" : login;
   stats.machine = host[0] ? host : "this machine";
   stats.build = RECREATION_VERSION;
@@ -311,7 +337,7 @@ void Engine::RefreshMenuData() {
 #if RECREATION_HAS_NET
   if (server_session_) {
     stats.players_online = static_cast<int>(server_session_->client_count());
-    stats.net_status = "Hosting :" + std::to_string(config_.port);
+    stats.net_status = "Hosting :" + base::ToString(config_.port);
   } else if (client_session_) {
     stats.net_status = client_session_->joined() ? "Connected" : "Connecting";
   }
@@ -380,8 +406,8 @@ inline float Disc(float px, float py, float cx, float cy, float r, float soft) {
 
 // Paint one universe pane into a fresh RGBA8 buffer (straight alpha, fully
 // opaque). universe: 0 Skyrim, 1 Fallout 4, 2 Starfield.
-std::vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
-  std::vector<unsigned char> out(static_cast<size_t>(W) * H * 4);
+base::Vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
+  base::Vector<unsigned char> out(static_cast<size_t>(W) * H * 4);
   const float fw = static_cast<float>(W), fh = static_cast<float>(H);
   for (int y = 0; y < H; ++y) {
     const float fy = static_cast<float>(y);
@@ -431,7 +457,7 @@ std::vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
 // logo, so the front screen stays non-infringing.
 // ---------------------------------------------------------------------------
 struct Glyph {
-  std::vector<unsigned char> px;
+  base::Vector<unsigned char> px;
   int w = 0, h = 0;
 };
 
@@ -457,57 +483,67 @@ float SegDist(float px, float py, float ax, float ay, float bx, float by) {
   return std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
 }
 void GLine(Glyph& g, float ax, float ay, float bx, float by, float thick, Rgb col) {
-  const int x0 = std::max(0, static_cast<int>(std::min(ax, bx) - thick - 1));
-  const int x1 = std::min(g.w - 1, static_cast<int>(std::max(ax, bx) + thick + 1));
-  const int y0 = std::max(0, static_cast<int>(std::min(ay, by) - thick - 1));
-  const int y1 = std::min(g.h - 1, static_cast<int>(std::max(ay, by) + thick + 1));
+  const int x0 = base::Max(0, static_cast<int>(base::Min(ax, bx) - thick - 1));
+  const int x1 = base::Min(g.w - 1, static_cast<int>(base::Max(ax, bx) + thick + 1));
+  const int y0 = base::Max(0, static_cast<int>(base::Min(ay, by) - thick - 1));
+  const int y1 = base::Min(g.h - 1, static_cast<int>(base::Max(ay, by) + thick + 1));
   for (int y = y0; y <= y1; ++y)
     for (int x = x0; x <= x1; ++x)
-      GBlend(g, x, y, col, 1.f - Smooth(thick - 0.7f, thick + 0.7f, SegDist(x + 0.5f, y + 0.5f, ax, ay, bx, by)));
+      GBlend(g, x, y, col,
+             1.f - Smooth(thick - 0.7f, thick + 0.7f, SegDist(x + 0.5f, y + 0.5f, ax, ay, bx, by)));
 }
 void GRing(Glyph& g, float cx, float cy, float r, float thick, Rgb col) {
-  const int x0 = std::max(0, static_cast<int>(cx - r - thick - 1));
-  const int x1 = std::min(g.w - 1, static_cast<int>(cx + r + thick + 1));
-  const int y0 = std::max(0, static_cast<int>(cy - r - thick - 1));
-  const int y1 = std::min(g.h - 1, static_cast<int>(cy + r + thick + 1));
+  const int x0 = base::Max(0, static_cast<int>(cx - r - thick - 1));
+  const int x1 = base::Min(g.w - 1, static_cast<int>(cx + r + thick + 1));
+  const int y0 = base::Max(0, static_cast<int>(cy - r - thick - 1));
+  const int y1 = base::Min(g.h - 1, static_cast<int>(cy + r + thick + 1));
   for (int y = y0; y <= y1; ++y)
     for (int x = x0; x <= x1; ++x) {
-      const float d = std::fabs(std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy)) - r);
+      const float d = std::fabs(
+          std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy)) - r);
       GBlend(g, x, y, col, 1.f - Smooth(thick - 0.7f, thick + 0.7f, d));
     }
 }
 void GDisc(Glyph& g, float cx, float cy, float r, Rgb col) {
-  const int x0 = std::max(0, static_cast<int>(cx - r - 1)), x1 = std::min(g.w - 1, static_cast<int>(cx + r + 1));
-  const int y0 = std::max(0, static_cast<int>(cy - r - 1)), y1 = std::min(g.h - 1, static_cast<int>(cy + r + 1));
+  const int x0 = base::Max(0, static_cast<int>(cx - r - 1)),
+            x1 = base::Min(g.w - 1, static_cast<int>(cx + r + 1));
+  const int y0 = base::Max(0, static_cast<int>(cy - r - 1)),
+            y1 = base::Min(g.h - 1, static_cast<int>(cy + r + 1));
   for (int y = y0; y <= y1; ++y)
     for (int x = x0; x <= x1; ++x) {
-      const float d = std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
+      const float d =
+          std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
       GBlend(g, x, y, col, 1.f - Smooth(r - 0.8f, r + 0.8f, d));
     }
 }
 void GGlow(Glyph& g, float cx, float cy, float r, Rgb col, float maxA) {
-  const int x0 = std::max(0, static_cast<int>(cx - r - 1)), x1 = std::min(g.w - 1, static_cast<int>(cx + r + 1));
-  const int y0 = std::max(0, static_cast<int>(cy - r - 1)), y1 = std::min(g.h - 1, static_cast<int>(cy + r + 1));
+  const int x0 = base::Max(0, static_cast<int>(cx - r - 1)),
+            x1 = base::Min(g.w - 1, static_cast<int>(cx + r + 1));
+  const int y0 = base::Max(0, static_cast<int>(cy - r - 1)),
+            y1 = base::Min(g.h - 1, static_cast<int>(cy + r + 1));
   for (int y = y0; y <= y1; ++y)
     for (int x = x0; x <= x1; ++x) {
-      const float d = std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
+      const float d =
+          std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
       float a = maxA * (1.f - Clamp01(d / r));
       GBlend(g, x, y, col, a * a);
     }
 }
 void GTri(Glyph& g, float ax, float ay, float bx, float by, float cx, float cy, Rgb col) {
-  const int x0 = std::max(0, static_cast<int>(std::min({ax, bx, cx}) - 1));
-  const int x1 = std::min(g.w - 1, static_cast<int>(std::max({ax, bx, cx}) + 1));
-  const int y0 = std::max(0, static_cast<int>(std::min({ay, by, cy}) - 1));
-  const int y1 = std::min(g.h - 1, static_cast<int>(std::max({ay, by, cy}) + 1));
+  const int x0 = base::Max(0, static_cast<int>(base::Min(ax, base::Min(bx, cx)) - 1));
+  const int x1 = base::Min(g.w - 1, static_cast<int>(base::Max(ax, base::Max(bx, cx)) + 1));
+  const int y0 = base::Max(0, static_cast<int>(base::Min(ay, base::Min(by, cy)) - 1));
+  const int y1 = base::Min(g.h - 1, static_cast<int>(base::Max(ay, base::Max(by, cy)) + 1));
   auto edge = [](float px, float py, float x0, float y0, float x1, float y1) {
     return (px - x0) * (y1 - y0) - (py - y0) * (x1 - x0);
   };
   for (int y = y0; y <= y1; ++y)
     for (int x = x0; x <= x1; ++x) {
       const float px = x + 0.5f, py = y + 0.5f;
-      const float w0 = edge(px, py, bx, by, cx, cy), w1 = edge(px, py, cx, cy, ax, ay), w2 = edge(px, py, ax, ay, bx, by);
-      if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) GBlend(g, x, y, col, 1.f);
+      const float w0 = edge(px, py, bx, by, cx, cy), w1 = edge(px, py, cx, cy, ax, ay),
+                  w2 = edge(px, py, ax, ay, bx, by);
+      if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0))
+        GBlend(g, x, y, col, 1.f);
     }
 }
 void GEllipse(Glyph& g, float cx, float cy, float rx, float ry, float ang, float thick, Rgb col) {
@@ -524,12 +560,13 @@ void GEllipse(Glyph& g, float cx, float cy, float rx, float ry, float ang, float
 }
 
 // Build every menu emblem, keyed by the image widget it binds to.
-std::vector<std::pair<std::string, Glyph>> BuildMenuGlyphs() {
+base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
   const Rgb light{0.87f, 0.90f, 0.96f}, dim{0.58f, 0.62f, 0.72f}, tan{0.82f, 0.73f, 0.56f};
   const Rgb star{0.93f, 0.96f, 1.0f};
-  std::vector<std::pair<std::string, Glyph>> out;
+  base::Vector<base::Pair<base::String, Glyph>> out;
   auto make = [&](const char* name, int w, int h) -> Glyph& {
-    out.push_back({name, Glyph{std::vector<unsigned char>(static_cast<size_t>(w) * h * 4, 0), w, h}});
+    out.push_back(
+        {name, Glyph{base::Vector<unsigned char>(static_cast<size_t>(w) * h * 4, 0), w, h}});
     return out.back().second;
   };
 
@@ -668,7 +705,7 @@ void FaceTri(asset::MeshLod& m, V3 a, V3 b, V3 c) {
   V3 n = Vnorm(Vcross(Vsub(b, a), Vsub(c, a)));
   const V3 cen{(a.x + b.x + c.x) / 3.f, (a.y + b.y + c.y) / 3.f, (a.z + b.z + c.z) / 3.f};
   if (n.x * cen.x + n.y * cen.y + n.z * cen.z < 0.f) {
-    std::swap(b, c);
+    base::Swap(b, c);
     n = {-n.x, -n.y, -n.z};
   }
   PushVert(m, a, n); PushVert(m, b, n); PushVert(m, c, n);
@@ -678,8 +715,8 @@ asset::Mesh Finalize(asset::MeshLod&& lod) {
   float r = 0.f;
   for (size_t i = 0; i < lod.vertices.size(); ++i) {
     const asset::Vertex& v = lod.vertices[i];
-    r = std::max(r, std::sqrt(v.position[0] * v.position[0] + v.position[1] * v.position[1] +
-                              v.position[2] * v.position[2]));
+    r = base::Max(r, std::sqrt(v.position[0] * v.position[0] + v.position[1] * v.position[1] +
+                               v.position[2] * v.position[2]));
   }
   // The vertex list is the index list (every tri owns its 3 verts).
   for (size_t i = 0; i < lod.vertices.size(); ++i) lod.indices.push_back(static_cast<u32>(i));
@@ -687,7 +724,7 @@ asset::Mesh Finalize(asset::MeshLod&& lod) {
   sm.index_count = static_cast<u32>(lod.indices.size());
   lod.submeshes.push_back(sm);
   mesh.bounds_radius = r;
-  mesh.lods.push_back(std::move(lod));
+  mesh.lods.push_back(base::move(lod));
   return mesh;
 }
 
@@ -695,19 +732,20 @@ asset::Mesh Finalize(asset::MeshLod&& lod) {
 // midpoint subdivision on an icosahedron (flat-shaded for a crisp gem look).
 asset::Mesh MakeGem(int subdiv, float radius) {
   const float t = 1.6180340f;
-  const V3 base[12] = {{-1, t, 0}, {1, t, 0}, {-1, -t, 0}, {1, -t, 0},
-                       {0, -1, t}, {0, 1, t}, {0, -1, -t}, {0, 1, -t},
-                       {t, 0, -1}, {t, 0, 1}, {-t, 0, -1}, {-t, 0, 1}};
+  const V3 base[12] = {{-1, t, 0},  {1, t, 0},  {-1, -t, 0}, {1, -t, 0}, {0, -1, t},  {0, 1, t},
+                       {0, -1, -t}, {0, 1, -t}, {t, 0, -1},  {t, 0, 1},  {-t, 0, -1}, {-t, 0, 1}};
   const int faces[20][3] = {{0, 11, 5}, {0, 5, 1},  {0, 1, 7},   {0, 7, 10}, {0, 10, 11},
                             {1, 5, 9},  {5, 11, 4}, {11, 10, 2}, {10, 7, 6}, {7, 1, 8},
                             {3, 9, 4},  {3, 4, 2},  {3, 2, 6},   {3, 6, 8},  {3, 8, 9},
                             {4, 9, 5},  {2, 4, 11}, {6, 2, 10},  {8, 6, 7},  {9, 8, 1}};
-  std::vector<std::array<V3, 3>> tris;
+  base::Vector<base::Array<V3, 3>> tris;
   for (const auto& f : faces)
     tris.push_back({Vnorm(base[f[0]]), Vnorm(base[f[1]]), Vnorm(base[f[2]])});
-  auto mid = [](V3 a, V3 b) { return Vnorm(V3{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f}); };
+  auto mid = [](V3 a, V3 b) {
+    return Vnorm(V3{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f});
+  };
   for (int s = 0; s < subdiv; ++s) {
-    std::vector<std::array<V3, 3>> next;
+    base::Vector<base::Array<V3, 3>> next;
     for (const auto& tr : tris) {
       const V3 ab = mid(tr[0], tr[1]), bc = mid(tr[1], tr[2]), ca = mid(tr[2], tr[0]);
       next.push_back({tr[0], ab, ca});
@@ -720,7 +758,7 @@ asset::Mesh MakeGem(int subdiv, float radius) {
   asset::MeshLod lod;
   auto sc = [&](V3 p) { return V3{p.x * radius, p.y * radius, p.z * radius}; };
   for (const auto& tr : tris) FaceTri(lod, sc(tr[0]), sc(tr[1]), sc(tr[2]));
-  return Finalize(std::move(lod));
+  return Finalize(base::move(lod));
 }
 
 }  // namespace
@@ -730,7 +768,7 @@ void Engine::GenerateMenuBackdrops() {
   // Portrait third of a 16:9 screen (~0.59:1); stretched to fill each pane.
   const int W = 480, H = 812;
   for (int i = 0; i < 3; ++i) {
-    const std::vector<unsigned char> px = PaintBackdrop(i, W, H);
+    const base::Vector<unsigned char> px = PaintBackdrop(i, W, H);
     const u64 tex = game_ui_.CreateUiTexture(W, H, px.data());
     if (tex) {
       game_ui_.SetMainMenuBackdrop(i, tex);
@@ -751,13 +789,13 @@ void Engine::GenerateMenuBackdrops() {
     Thumbnailer thumber;
     if (thumber.Init(*renderer_, 640)) {
       const int S = thumber.size();
-      std::vector<unsigned char> px;
+      base::Vector<unsigned char> px;
       if (thumber.Render(MakeGem(1, 1.0f), px)) {
         const float tint[3] = {0.94f, 0.98f, 1.08f};  // cool platinum
         for (size_t p = 0; p + 3 < px.size(); p += 4) {
-          px[p + 0] = static_cast<unsigned char>(std::min(255.f, px[p + 0] * tint[0]));
-          px[p + 1] = static_cast<unsigned char>(std::min(255.f, px[p + 1] * tint[1]));
-          px[p + 2] = static_cast<unsigned char>(std::min(255.f, px[p + 2] * tint[2]));
+          px[p + 0] = static_cast<unsigned char>(base::Min(255.f, px[p + 0] * tint[0]));
+          px[p + 1] = static_cast<unsigned char>(base::Min(255.f, px[p + 1] * tint[1]));
+          px[p + 2] = static_cast<unsigned char>(base::Min(255.f, px[p + 2] * tint[2]));
         }
         const u64 tex = game_ui_.CreateUiTexture(S, S, px.data());
         if (tex) {
@@ -779,7 +817,7 @@ void Engine::TickMenuCapture() {
     game_ui_.SetHudVisible(false);
     debug_ui_.SetAllVisible(false);
   } else if (c == 2) {  // arm: this frame's RenderFrame writes the clean backbuffer
-    renderer_->CaptureScreenshot(menu_capture_path_);
+    renderer_->CaptureScreenshot(menu_capture_path_.c_str());
   } else if (c == 1) {  // restore the overlays for play
     game_ui_.SetHudVisible(true);
     debug_ui_.SetAllVisible(!HideDebugUi);

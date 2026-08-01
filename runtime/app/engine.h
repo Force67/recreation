@@ -1,18 +1,16 @@
 #ifndef RECREATION_RUNTIME_APP_ENGINE_H_
 #define RECREATION_RUNTIME_APP_ENGINE_H_
 
+#include <base/containers/array.h>
+#include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
 
-#include <array>
 #include <atomic>
 #include <cstdio>
-#include <memory>
 #include <mutex>
-#include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 #include "runtime/actor/actor_system.h"
 #include "app/application.h"
@@ -142,7 +140,7 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   // axes (x, z, -y). The bindings speak game units (Papyrus reads them back), so
   // every position they hand the ECS is converted here at the one crossing
   // point; QuestWorld then treats command positions as engine space.
-  static std::array<f32, 3> ToEngine(f32 x, f32 y, f32 z) {
+  static base::Array<f32, 3> ToEngine(f32 x, f32 y, f32 z) {
     constexpr f32 s = 0.01428f;
     return {x * s, z * s, -y * s};
   }
@@ -210,13 +208,13 @@ class Engine : public app::Application {
   friend bool LoadGameData(Engine&);
   friend void MountArchives(Engine&);
   friend bool LoadInterior(Engine&);
-  friend bool LoadPlanetTile(Engine&, const std::string&);
+  friend bool LoadPlanetTile(Engine&, const base::String&);
   friend void LoadExtraDomains(Engine&);
   friend void SetupExtraStreamers(Engine&);
   friend void BootManagedScripting(Engine&);
   friend void ResolveUniverses(Engine&);
   friend void SetupMainMenu(Engine&);
-  friend void EnterUniverse(Engine&, int, bool, bool, const std::string&);
+  friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
   friend void LoadSetupConfig(Engine&);
 #if RECREATION_HAS_NET
@@ -296,23 +294,23 @@ class Engine : public app::Application {
   // the screen, before a universe has been entered.
   struct MenuUniverse {
     bethesda::Game game = bethesda::Game::kUnknown;
-    std::string name;
-    std::string data_dir;
-    std::string plugins_txt;
+    base::String name;
+    base::String data_dir;
+    base::String plugins_txt;
     bool available = false;
   };
-  std::array<MenuUniverse, 3> menu_universes_;
+  base::Array<MenuUniverse, 3> menu_universes_;
   bool main_menu_active_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The
   // mods directory the wizard collects is held here until it is persisted.
   bool first_run_active_ = false;
-  std::string first_run_mods_dir_;
+  base::String first_run_mods_dir_;
   // Deferred capture of the entered world into the backdrop cache: counts down
   // after EnterUniverse, hiding the HUD for the grab frame so the cached scene
   // is clean. Idle at 0.
   int menu_capture_countdown_ = 0;
-  std::string menu_capture_path_;
+  base::String menu_capture_path_;
 
   // The app::Host owns the window/jobs/frame-timer/clock and drives the loop;
   // these are non-owning views cached from Services at OnInitialize.
@@ -348,7 +346,7 @@ class Engine : public app::Application {
   world::WorldCommandQueue quest_world_queue_;
   // Built in OnInitialize once the host's ECS world is available (it holds a
   // World&, so it cannot be constructed before the world exists).
-  std::unique_ptr<world::QuestWorld> quest_world_;
+  base::UniquePointer<world::QuestWorld> quest_world_;
   // Guest -> main combat enrollment (StartCombat/StopCombat/death), drained each
   // frame into the npc director's combat driver.
   world::CombatEventQueue combat_event_queue_;
@@ -363,41 +361,41 @@ class Engine : public app::Application {
   audio::SoundCatalog sound_catalog_;
   audio::RegionAmbience region_ambience_;
   audio::AmbientDirector ambient_director_;
-  std::unique_ptr<asset::AssetDatabase> assets_;
+  base::UniquePointer<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
   // Localized FULL/log/objective text for records (quest names, journal text).
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
   dialogue::DialogueDb dialogue_;
-  std::unique_ptr<world::CellStreamer> streamer_;
+  base::UniquePointer<world::CellStreamer> streamer_;
   // Procedural Starfield planet tile (RX_STARFIELD_PLANET): the generator plus
   // the resolved surface it reads from, kept alive for the session (the ground
   // query and any later regeneration reference them). Null in every other mode.
-  std::unique_ptr<bethesda::PlanetSurface> planet_surface_;
-  std::unique_ptr<world::PlanetTile> planet_tile_;
+  base::UniquePointer<bethesda::PlanetSurface> planet_surface_;
+  base::UniquePointer<world::PlanetTile> planet_tile_;
   // One streamer per --add-game that renders, each streaming its own worldspace
   // into the shared scene at a fixed offset (so Fallout 4's Commonwealth sits
   // beside Skyrim's Tamriel instead of overlapping it). Parallel to the matching
   // entries in extra_domains_; cleared before them in Shutdown.
-  base::Vector<std::unique_ptr<world::CellStreamer>> extra_streamers_;
+  base::Vector<base::UniquePointer<world::CellStreamer>> extra_streamers_;
   // Declared before scripts_ so the guest thread (which calls into the bindings)
   // is joined in ScriptSystem's destructor before the bindings are torn down.
-  std::unique_ptr<rx::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
-  std::unique_ptr<rx::script::ScriptSystem> scripts_;
+  base::UniquePointer<rx::script::skyrim::RecordBackedSkyrimBindings> script_bindings_;
+  base::UniquePointer<rx::script::ScriptSystem> scripts_;
   // Additional games loaded as live secondary content domains (Fallout 4 next to
   // Skyrim, say). Each owns its data and an isolated Papyrus microvm, ticked
   // every frame. Declared after scripts_ so the primary guest is unaffected by
   // their teardown; cleared explicitly in Shutdown before the managed host.
-  base::Vector<std::unique_ptr<ContentDomain>> extra_domains_;
+  base::Vector<base::UniquePointer<ContentDomain>> extra_domains_;
   // The managed (C#) scripting world, where user mods and Skyrim soft logic run.
   // Declared after scripts_ so it tears down before the guest thread it drives.
   // Null when .NET or the assembly is unavailable, leaving the engine unaffected.
-  std::unique_ptr<rx::script::host::ManagedHost> managed_;
+  base::UniquePointer<rx::script::host::ManagedHost> managed_;
   // Reused buffer for the per-frame position snapshot handed to the bindings'
   // proximity query. Main-thread only.
-  std::vector<std::pair<u64, std::array<f32, 3>>> position_snapshot_;
+  base::Vector<base::Pair<u64, base::Array<f32, 3>>> position_snapshot_;
   // Previous frame's positions, to derive each ref's speed for Actor.IsRunning.
-  std::unordered_map<u64, std::array<f32, 3>> prev_positions_;
+  base::UnorderedMap<u64, base::Array<f32, 3>> prev_positions_;
 
   render::Renderer* renderer_ = nullptr;  // owned by the host
   FlyCamera camera_;
@@ -413,7 +411,7 @@ class Engine : public app::Application {
   void SaveControls();    // write input_map_ back to controls.ini
   void ApplyControls();   // push sensitivity/invert to the camera, LED to the pad
   void UpdateSettings();  // drive the settings panel: rebind capture + sliders
-  std::string controls_path_;
+  base::String controls_path_;
   int capturing_row_ = -1;           // settings: row awaiting an input (-1 = idle)
   bool capture_prev_mouse_[3] = {};  // mouse-button edge tracking during capture
   bool weapon_trigger_ = false;      // DualSense adaptive-trigger weapon state
@@ -435,8 +433,8 @@ class Engine : public app::Application {
   // source of regression frames (RX_SHOWCASE_SHOTS=<dir>). The region centers
   // are gathered at ground level as each worldspace is placed.
   struct ShowcaseRegion {
-    Vec3 center{};     // ground-level center of the worldspace to fly over
-    std::string name;  // game/profile name, used in capture filenames
+    Vec3 center{};      // ground-level center of the worldspace to fly over
+    base::String name;  // game/profile name, used in capture filenames
     // The streamer that owns this region's content (null = the primary streamer_).
     // The trailer uses it to keep only the active game resident.
     world::CellStreamer* streamer = nullptr;
@@ -446,7 +444,7 @@ class Engine : public app::Application {
   bool cam_showcase_ = false;
   bool showcase_done_ = false;
   bool showcase_quit_ = false;  // RX_SHOWCASE_QUIT: exit when the pass ends
-  std::string showcase_shot_dir_;
+  base::String showcase_shot_dir_;
   f32 showcase_dt_min_ = 1e9f;
   f32 showcase_dt_max_ = 0;
   f32 showcase_bench_time_ = 0;  // summed dt of benchmarked frames (excludes load hitches)
@@ -478,19 +476,19 @@ class Engine : public app::Application {
   // Debug.Notification messages awaiting display, pushed from the guest thread and
   // drained to the HUD toast on the main loop.
   std::mutex notification_mutex_;
-  std::vector<std::string> pending_notifications_;
+  base::Vector<base::String> pending_notifications_;
   // Debug.* engine commands (quit, screenshot, toggles) pushed from the guest
   // thread and applied on the main loop via ApplyDebugCommand.
   std::mutex debug_cmd_mutex_;
-  std::vector<std::pair<std::string, std::string>> pending_debug_cmds_;
+  base::Vector<base::Pair<base::String, base::String>> pending_debug_cmds_;
   DebugFlags debug_flags_;
   int screenshot_index_ = 0;
-  void ApplyDebugCommand(const std::string& verb, const std::string& arg);
+  void ApplyDebugCommand(const base::String& verb, const base::String& arg);
   // Multiplayer platform HUD/Net calls (chat, notifications, prompts, scoreboard,
   // blips) pushed from the guest thread, drained onto the HUD on the main loop.
   PlatformHud platform_hud_;
   // Accumulated chat lines shown in the chat box (bounded tail of the channel).
-  std::vector<std::string> platform_chat_display_;
+  base::Vector<base::String> platform_chat_display_;
   // Networked entities a mod spawned (NetEntity id -> the ECS entity placed for it),
   // so a later move/delete finds the same object.
   base::UnorderedMap<int, ecs::Entity> net_entities_;
@@ -501,7 +499,7 @@ class Engine : public app::Application {
   bool net_entity_base_ready_ = false;
   // Resolved NetEntity model (editor id) -> base form, so a mod spawns a specific
   // object by name. Cached because the lookup scans the record store.
-  std::unordered_map<std::string, bethesda::GlobalFormId> net_model_cache_;
+  base::UnorderedMap<base::String, bethesda::GlobalFormId> net_model_cache_;
   physics::PhysicsWorld* physics_ = nullptr;  // owned by the host
   // Dynamic bodies mirrored into ECS transforms after each step.
   base::Vector<PhysicsEntity> physics_entities_;
@@ -513,24 +511,24 @@ class Engine : public app::Application {
   // Last frame's world matrices keyed by entity, for motion vectors.
   base::UnorderedMap<u64, Mat4> prev_transforms_;
 #if RECREATION_HAS_NET
-  std::unique_ptr<net::Session> session_;
+  base::UniquePointer<net::Session> session_;
   // Typed views into session_, null unless that role is active.
   net::GameServerSession* server_session_ = nullptr;
   net::GameClientSession* client_session_ = nullptr;
   // Asset streaming: the host's catalogued mods directory, and the client's
   // content cache. The session holds pointers into these, so they outlive it.
-  std::unique_ptr<modstream::ModCatalog> mod_catalog_;
-  std::unique_ptr<modstream::ContentStore> content_store_;
+  base::UniquePointer<modstream::ModCatalog> mod_catalog_;
+  base::UniquePointer<modstream::ContentStore> content_store_;
   // Scripting RPC names the managed world subscribed to (before the session
   // exists, since managed boots first). StartNetworking forwards each of these
   // from the session into managed code.
-  std::vector<std::string> managed_rpc_names_;
+  base::Vector<base::String> managed_rpc_names_;
   // Set from a signal handler to ask for a live mod reload; drained on the main
   // thread at the top of the frame, where the Vfs is not being read.
   std::atomic<bool> mod_reload_requested_{false};
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
-  std::unique_ptr<net::BubbleVisualizer> bubble_viz_;
+  base::UniquePointer<net::BubbleVisualizer> bubble_viz_;
 #endif
 
   // REC_NAV_DEBUG overlay storage: rebuilt each frame, spanned into the view.
@@ -539,30 +537,30 @@ class Engine : public app::Application {
   // Shared service bundle handed to the subsystems, plus the subsystems
   // themselves (built in Initialize once the context is populated).
   EngineContext ctx_;
-  std::unique_ptr<ActorSystem> actors_;
+  base::UniquePointer<ActorSystem> actors_;
   // Skyrim player locomotion + FP/TP camera (rx character + camera-rig pipeline).
   // Built lazily on the first walk-mode frame once the player actor exists.
-  std::unique_ptr<PlayerController> player_controller_;
-  std::unique_ptr<InteractionSystem> interaction_;
-  std::unique_ptr<ItemBridge> items_;  // item pickup/drop/persistence
-  std::unique_ptr<NpcDirector> npc_;
-  std::unique_ptr<QuestDirector> quest_;
+  base::UniquePointer<PlayerController> player_controller_;
+  base::UniquePointer<InteractionSystem> interaction_;
+  base::UniquePointer<ItemBridge> items_;  // item pickup/drop/persistence
+  base::UniquePointer<NpcDirector> npc_;
+  base::UniquePointer<QuestDirector> quest_;
   // AI packages (actors walking their authored routes) and the cutscene director
   // that plays the games' SCEN scenes over them.
-  std::unique_ptr<AiPackageDirector> packages_;
-  std::unique_ptr<CutsceneDirector> cutscene_;
+  base::UniquePointer<AiPackageDirector> packages_;
+  base::UniquePointer<CutsceneDirector> cutscene_;
   bool cutscene_active_ = false;  // a scene currently owns the camera + the HUD
-  std::unique_ptr<DemoScenes> demos_;
-  std::unique_ptr<CarriageSystem> carriage_;
+  base::UniquePointer<DemoScenes> demos_;
+  base::UniquePointer<CarriageSystem> carriage_;
   // Skyrim's opening cart ride into Helgen (RX_HELGEN_INTRO). While it runs it
   // owns the camera and the screen; helgen_active_ tracks that so the HUD and
   // debug overlays are hidden for it and restored when it ends.
-  std::unique_ptr<HelgenIntro> helgen_;
+  base::UniquePointer<HelgenIntro> helgen_;
   bool helgen_active_ = false;
   // Live map editor (windowed client only); F4 toggles it. Null in headless.
-  std::unique_ptr<MapEditor> editor_;
+  base::UniquePointer<MapEditor> editor_;
   // Character-creation screen (RX_CHARGEN boot mode). Null in headless.
-  std::unique_ptr<CharGen> chargen_;
+  base::UniquePointer<CharGen> chargen_;
 };
 
 // Engine bring-up steps, written as free functions over the engine (each a
@@ -575,7 +573,7 @@ bool LoadGameData(Engine& engine);
 void MountArchives(Engine& engine);
 bool LoadInterior(Engine& engine);
 // Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
-bool LoadPlanetTile(Engine& engine, const std::string& biom_name);
+bool LoadPlanetTile(Engine& engine, const base::String& biom_name);
 void LoadExtraDomains(Engine& engine);
 void SetupExtraStreamers(Engine& engine);
 // Boots the managed (C#) scripting world over the live guest, if a .NET runtime
@@ -589,7 +587,7 @@ void BootManagedScripting(Engine& engine);
 void ResolveUniverses(Engine& engine);
 void SetupMainMenu(Engine& engine);
 void EnterUniverse(Engine& engine, int idx, bool multiplayer, bool host,
-                   const std::string& join_address);
+                   const base::String& join_address);
 // First-run out-of-box setup. LoadSetupConfig pulls any persisted game paths /
 // mods dir into the EngineConfig before universes are resolved. FirstRunComplete
 // reports whether setup has already been finished (a marker file exists).

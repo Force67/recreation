@@ -3,6 +3,9 @@
 #include "components/quest/scene_compile.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 static int g_failures = 0;
@@ -55,16 +58,16 @@ int main() {
   def.actions.push_back(unfilled);
 
   SceneBindings b;
-  b.actor = [](i32 alias) -> u64 {
+  b.actor = [](i32 alias) -> rx::u64 {
     if (alias == 5) return 0xAC705;
     if (alias == 6) return 0xAC706;
     return 0;  // alias 9 unfilled
   };
-  b.info = [](u64 topic, u64 speaker) -> u64 {
+  b.info = [](rx::u64 topic, rx::u64 speaker) -> rx::u64 {
     if (topic == 0xD1A1 && speaker == 0xAC705) return 0x1F0;
     return 0;
   };
-  b.package_target = [](u64 package, f32 pos[3], f32* radius) {
+  b.package_target = [](rx::u64 package, f32 pos[3], f32* radius) {
     if (package != 0xBEEF) return false;
     pos[0] = 10.0f;
     pos[1] = 1.0f;

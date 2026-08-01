@@ -63,8 +63,7 @@ QuestDef MakeUnboundDef(QuestHandle handle) {
 // authoritative snapshot, apply it to the client, and report the delta size so
 // callers can assert what (if anything) went out this tick. A zero return means
 // nothing was sent.
-size_t Replicate(QuestReplicator& rep, const QuestSystem& server,
-                 QuestSystem& client) {
+size_t Replicate(QuestReplicator& rep, const QuestSystem& server, QuestSystem& client) {
   // This single-game harness replicates everything as the primary domain (0).
   std::vector<DomainQuestStatus> snapshot;
   for (QuestStatus& s : server.AllStatuses()) snapshot.push_back({0, std::move(s)});
@@ -120,10 +119,9 @@ void TestProgressionReplicates() {
   QuestStatus mid = client.Status(h);
   Check("client resolves objective text locally",
         mid.objectives.size() == 1 && mid.objectives[0].index == 10 &&
-            mid.objectives[0].text == "Escape Helgen Keep" &&
-            mid.objectives[0].displayed && !mid.objectives[0].completed);
-  Check("client log text resolved locally",
-        mid.log_entry == "Escape Helgen with Ralof or Hadvar.");
+            mid.objectives[0].text == "Escape Helgen Keep" && mid.objectives[0].displayed &&
+            !mid.objectives[0].completed);
+  Check("client log text resolved locally", mid.log_entry == "Escape Helgen with Ralof or Hadvar.");
 
   // Tick 3: server completes the objective.
   server.SetObjectiveCompleted(h, 10, true);
@@ -146,16 +144,14 @@ void TestProgressionReplicates() {
   Check("client mirrors server complete flag", cs.complete && ss.complete);
   Check("client mirrors server running flag", cs.running == ss.running);
   Check("client objective mirrors server",
-        cs.objectives.size() == 1 && cs.objectives[0].displayed &&
-            cs.objectives[0].completed);
+        cs.objectives.size() == 1 && cs.objectives[0].displayed && cs.objectives[0].completed);
 
   // The completed quest still surfaces in the client's running journal (the
   // server has not stopped it), carrying the completed objective.
-  std::vector<QuestStatus> running = client.RunningStatuses();
+  base::Vector<QuestStatus> running = client.RunningStatuses();
   Check("completed quest still running on client",
         running.size() == 1 && running[0].handle == h && running[0].complete &&
-            running[0].objectives.size() == 1 &&
-            running[0].objectives[0].completed);
+            running[0].objectives.size() == 1 && running[0].objectives[0].completed);
 
   // A final idle tick after completion must again replicate nothing.
   Check("post-completion idle sends nothing", Replicate(rep, server, client) == 0);

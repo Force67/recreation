@@ -1,9 +1,8 @@
 #ifndef RECREATION_BETHESDA_STARFIELD_MESH_H_
 #define RECREATION_BETHESDA_STARFIELD_MESH_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "asset/mesh.h"
 #include "core/types.h"
@@ -65,8 +64,8 @@ struct StarfieldGeometryRef {
   f32 rotation[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   f32 translation[3] = {0, 0, 0};
   f32 scale = 1.0f;
-  std::string mesh_path;
-  std::string material_path;  // normalized "materials/...mat", empty if none
+  base::String mesh_path;
+  base::String material_path;  // normalized "materials/...mat", empty if none
 };
 
 // Walks a Starfield NIF node graph and collects every visible BSGeometry as a

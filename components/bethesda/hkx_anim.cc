@@ -1,6 +1,11 @@
 #include "components/bethesda/hkx_anim.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstring>
 
@@ -22,12 +27,12 @@ constexpr u64 kMaxFramesPerBlock = 0x40;
 constexpr u64 kMaskAndQuantSize = 0x44;
 constexpr u64 kBlockDuration = 0x48;
 constexpr u64 kFrameDuration = 0x50;
-constexpr u64 kBlockOffsets = 0x58;   // hkArray<u32>
-constexpr u64 kData = 0x98;           // hkArray<u8>
+constexpr u64 kBlockOffsets = 0x58;  // hkArray<u32>
+constexpr u64 kData = 0x98;          // hkArray<u8>
 // hkaAnimationBinding
 constexpr u64 kBindingSkeletonName = 0x10;
 constexpr u64 kBindingAnimation = 0x18;
-constexpr u64 kBindingTrackToBone = 0x20;  // hkArray<i16>
+constexpr u64 kBindingTrackToBone = 0x20;    // hkArray<i16>
 constexpr u64 kBindingBlendHint = 0x40;      // 0 normal, 1 additive (hk2010)
 constexpr u64 kBindingBlendHint2014 = 0x50;  // after 2014's partitionIndices
 }  // namespace off
@@ -105,7 +110,7 @@ void UnpackThreeComp48(const u8* bytes, f32 out[4]) {
 
 // Reads a NURBS header: control point count - 1, degree, then the knot
 // vector (bytes).
-void ReadSplineHeader(Cursor* cursor, u16* num_items, u8* degree, std::vector<u8>* knots) {
+void ReadSplineHeader(Cursor* cursor, u16* num_items, u8* degree, base::Vector<u8>* knots) {
   *num_items = cursor->U16();
   *degree = cursor->U8();
   knots->resize(*num_items + *degree + 2);
@@ -215,17 +220,18 @@ void EvaluateSpline(const HkxAnimation::Channel& channel, f32 u, f32* out) {
   f32 work[4 * 4];  // (degree+1) points, degree <= 3
   for (int j = 0; j <= degree; ++j) {
     int idx = span - degree + j;
-    idx = std::clamp(idx, 0, point_count - 1);
-    for (u32 c = 0; c < stride; ++c) work[j * stride + c] = channel.control_points[idx * stride + c];
+    idx = base::Clamp(idx, 0, point_count - 1);
+    for (u32 c = 0; c < stride; ++c)
+      work[j * stride + c] = channel.control_points[idx * stride + c];
   }
   for (int r = 1; r <= degree; ++r) {
     for (int j = degree; j >= r; --j) {
       int i = span - degree + j;
-      f32 k0 = static_cast<f32>(knots[std::clamp(i, 0, static_cast<int>(knots.size()) - 1)]);
+      f32 k0 = static_cast<f32>(knots[base::Clamp(i, 0, static_cast<int>(knots.size()) - 1)]);
       f32 k1 = static_cast<f32>(
-          knots[std::clamp(i + degree - r + 1, 0, static_cast<int>(knots.size()) - 1)]);
+          knots[base::Clamp(i + degree - r + 1, 0, static_cast<int>(knots.size()) - 1)]);
       f32 alpha = k1 > k0 ? (u - k0) / (k1 - k0) : 0.0f;
-      alpha = std::clamp(alpha, 0.0f, 1.0f);
+      alpha = base::Clamp(alpha, 0.0f, 1.0f);
       for (u32 c = 0; c < stride; ++c) {
         work[j * stride + c] =
             (1.0f - alpha) * work[(j - 1) * stride + c] + alpha * work[j * stride + c];
@@ -245,7 +251,7 @@ void SampleChannel(const HkxAnimation::Channel& channel, f32 u, f32* out) {
 
 }  // namespace
 
-std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
+base::Optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
   u64 anim_at = HkxFile::kNull;
   for (const HkxObject& obj : hkx.objects()) {
     if (obj.class_name == "hkaSplineCompressedAnimation") {
@@ -253,7 +259,7 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
       break;
     }
   }
-  if (anim_at == HkxFile::kNull) return std::nullopt;
+  if (anim_at == HkxFile::kNull) return base::nullopt;
 
   HkxAnimation animation;
   animation.duration = hkx.F32(anim_at + off::kAnimDuration);
@@ -270,15 +276,14 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
   u32 data_size = 0;
   u64 data = hkx.Array(anim_at + off::kData, &data_size);
   if (data == HkxFile::kNull || block_offset_count < num_blocks || animation.num_tracks == 0) {
-    return std::nullopt;
+    return base::nullopt;
   }
 
   for (u32 b = 0; b < num_blocks; ++b) {
     u32 begin = hkx.U32(block_offsets + static_cast<u64>(b) * 4);
-    u32 end = b + 1 < block_offset_count
-                  ? hkx.U32(block_offsets + static_cast<u64>(b + 1) * 4)
-                  : data_size;
-    if (begin >= data_size || end > data_size || begin >= end) return std::nullopt;
+    u32 end = b + 1 < block_offset_count ? hkx.U32(block_offsets + static_cast<u64>(b + 1) * 4)
+                                         : data_size;
+    if (begin >= data_size || end > data_size || begin >= end) return base::nullopt;
 
     HkxAnimation::Block block;
     block.tracks.resize(animation.num_tracks);
@@ -288,7 +293,7 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
     struct Mask {
       u8 quant, pos, rot, scale;
     };
-    std::vector<Mask> masks(animation.num_tracks);
+    base::Vector<Mask> masks(animation.num_tracks);
     for (auto& m : masks) {
       m.quant = cursor.U8();
       m.pos = cursor.U8();
@@ -305,25 +310,25 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
       u8 scale_quant = (m.quant >> 6) & 0x3;
       HkxAnimation::Track& track = block.tracks[t];
       if (trace) {
-        std::fprintf(stderr, "track %u @ +0x%zx masks q=%02x p=%02x r=%02x s=%02x\n", t,
-                     cursor.at, m.quant, m.pos, m.rot, m.scale);
+        std::fprintf(stderr, "track %u @ +0x%zx masks q=%02x p=%02x r=%02x s=%02x\n", t, cursor.at,
+                     m.quant, m.pos, m.rot, m.scale);
       }
       ReadVectorChannel(&cursor, m.pos, pos_quant, 0.0f, &track.position);
       if (!ReadRotationChannel(&cursor, m.rot, rot_quant, &track.rotation)) {
         RX_WARN("hkx animation: unsupported rotation quantization {}", rot_quant);
-        return std::nullopt;
+        return base::nullopt;
       }
       ReadVectorChannel(&cursor, m.scale, scale_quant, 1.0f, &track.scale);
       cursor.Align(4);
     }
-    animation.blocks.push_back(std::move(block));
+    animation.blocks.push_back(base::move(block));
   }
 
   // Binding: original skeleton + optional partial-skeleton track map.
   for (const HkxObject& obj : hkx.objects()) {
     if (obj.class_name != "hkaAnimationBinding") continue;
     if (hkx.Pointer(obj.offset + off::kBindingAnimation) != anim_at) continue;
-    animation.skeleton_name = std::string(hkx.CString(obj.offset + off::kBindingSkeletonName));
+    animation.skeleton_name = base::String(hkx.CString(obj.offset + off::kBindingSkeletonName));
     u32 map_count = 0;
     u64 map = hkx.Array(obj.offset + off::kBindingTrackToBone, &map_count);
     for (u32 i = 0; i < map_count && map != HkxFile::kNull; ++i) {
@@ -338,20 +343,19 @@ std::optional<HkxAnimation> DecodeAnimation(const HkxFile& hkx) {
   return animation;
 }
 
-void SampleAnimation(const HkxAnimation& animation, f32 time, std::vector<HkxTrackPose>* out) {
+void SampleAnimation(const HkxAnimation& animation, f32 time, base::Vector<HkxTrackPose>* out) {
   out->assign(animation.num_tracks, {});
   if (animation.blocks.empty()) return;
-  time = std::clamp(time, 0.0f, animation.duration);
-  u32 block_index = animation.block_duration > 0.0f
-                        ? static_cast<u32>(time / animation.block_duration)
-                        : 0;
-  block_index = std::min(block_index, static_cast<u32>(animation.blocks.size()) - 1);
+  time = base::Clamp(time, 0.0f, animation.duration);
+  u32 block_index =
+      animation.block_duration > 0.0f ? static_cast<u32>(time / animation.block_duration) : 0;
+  block_index = base::Min(block_index, static_cast<u32>(animation.blocks.size()) - 1);
   f32 local = time - static_cast<f32>(block_index) * animation.block_duration;
   f32 u = animation.frame_duration > 0.0f ? local / animation.frame_duration : 0.0f;
   // Clamp to this block's frame range (the last block is short).
   f32 max_u = static_cast<f32>(animation.num_frames - 1 -
                                block_index * (animation.max_frames_per_block - 1));
-  u = std::clamp(u, 0.0f, std::max(max_u, 0.0f));
+  u = base::Clamp(u, 0.0f, base::Max(max_u, 0.0f));
 
   const HkxAnimation::Block& block = animation.blocks[block_index];
   for (u32 t = 0; t < animation.num_tracks && t < block.tracks.size(); ++t) {

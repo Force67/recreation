@@ -8,6 +8,8 @@
 // mod asset streaming. Everything crosses the wire as GameMessage payloads
 // through the sessions' game-message seams.
 
+#include <base/containers/vector.h>
+
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -70,7 +72,7 @@ class GameServerSession final : public Session {
   // Authoritative quest state to replicate, across every loaded game. Set by the
   // engine to collect each domain's QuestSystem::AllStatuses() tagged with its
   // domain id. When unset, no quest packets ship.
-  void SetQuestSource(std::function<std::vector<DomainQuestStatus>()> source) {
+  void SetQuestSource(std::function<base::Vector<DomainQuestStatus>()> source) {
     quest_source_ = std::move(source);
   }
 
@@ -91,8 +93,8 @@ class GameServerSession final : public Session {
 
   // Broadcasts a batch of quest-driven world commands (already drained and
   // applied locally by the host) to every client on the reliable channel.
-  void SendWorldCommands(const std::vector<world::WorldCommand>& commands);
-  void SetWorldCommandSource(std::function<std::vector<world::WorldCommand>()> source) {
+  void SendWorldCommands(const base::Vector<world::WorldCommand>& commands);
+  void SetWorldCommandSource(std::function<base::Vector<world::WorldCommand>()> source) {
     world_command_source_ = std::move(source);
   }
 
@@ -142,8 +144,8 @@ class GameServerSession final : public Session {
 
   GameSessionConfig config_;
   ServerSession inner_;
-  std::function<std::vector<DomainQuestStatus>()> quest_source_;
-  std::function<std::vector<world::WorldCommand>()> world_command_source_;
+  std::function<base::Vector<DomainQuestStatus>()> quest_source_;
+  std::function<base::Vector<world::WorldCommand>()> world_command_source_;
   std::function<WarMapState()> war_map_source_;
   std::vector<u8> last_war_map_blob_;  // last board sent, to skip unchanged ticks
   size_t last_war_map_clients_ = 0;    // re-send the board when a new client joins
@@ -192,12 +194,12 @@ class GameClientSession final : public Session {
   }
 
   // Sink invoked with the command list from every kWorldCommands received.
-  void SetWorldCommandSink(std::function<void(const std::vector<world::WorldCommand>&)> sink) {
+  void SetWorldCommandSink(std::function<void(const base::Vector<world::WorldCommand>&)> sink) {
     world_command_sink_ = std::move(sink);
   }
 
   // Sink invoked with the NPC transforms in each kActorSync received.
-  void SetActorSink(std::function<void(const std::vector<ActorState>&)> sink) {
+  void SetActorSink(std::function<void(const base::Vector<ActorState>&)> sink) {
     actor_sink_ = std::move(sink);
   }
 
@@ -215,7 +217,7 @@ class GameClientSession final : public Session {
   RpcClientChannel* rpc() { return inner_.rpc(); }
 
   // The asset-stream downloader, or null when streaming is off.
-  AssetStreamClient* asset_stream() { return asset_stream_.get(); }
+  AssetStreamClient* asset_stream() { return (asset_stream_ ? &*asset_stream_ : nullptr); }
 
   // The engine session underneath (replicated bubbles for the visualizer,
   // raw sends).
@@ -236,8 +238,8 @@ class GameClientSession final : public Session {
   std::function<void(u8 domain, const quest::QuestStatus&)> quest_sink_;
   std::function<void(const ObjectiveMarkerState&)> objective_marker_sink_;
   std::function<void(const WarMapState&)> war_map_sink_;
-  std::function<void(const std::vector<world::WorldCommand>&)> world_command_sink_;
-  std::function<void(const std::vector<ActorState>&)> actor_sink_;
+  std::function<void(const base::Vector<world::WorldCommand>&)> world_command_sink_;
+  std::function<void(const base::Vector<ActorState>&)> actor_sink_;
 };
 
 }  // namespace rx::net

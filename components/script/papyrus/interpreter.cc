@@ -1,8 +1,13 @@
 #include "components/script/papyrus/interpreter.h"
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
-#include <unordered_map>
 
 #include "core/log.h"
 #include "components/script/papyrus/fiber.h"
@@ -10,16 +15,15 @@
 namespace rx::script::papyrus {
 namespace {
 
-std::string Lower(std::string s) {
-  std::ranges::transform(s, s.begin(),
-                         [](char c) { return static_cast<char>(std::tolower((unsigned char)c)); });
+base::String Lower(base::String s) {
+  for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
 
 // Maps a declared type name to the value kind a cast produces. Script types and
 // the dynamic "var" type are not primitive coercions and are handled by Cast.
-ValueType TargetType(const std::string& type_name) {
-  std::string t = Lower(type_name);
+ValueType TargetType(const base::String& type_name) {
+  base::String t = Lower(type_name);
   if (t.size() >= 2 && t.compare(t.size() - 2, 2, "[]") == 0) return ValueType::kArray;
   if (t == "int") return ValueType::kInt;
   if (t == "float") return ValueType::kFloat;
@@ -34,15 +38,15 @@ ValueType TargetType(const std::string& type_name) {
 class Frame {
  public:
   Frame(const PexFile& pex, const Object& object, const Function& fn, ObjectRef self,
-        std::vector<Value>& args, VmInterface& vm, std::string_view fn_name)
+        base::Vector<Value>& args, VmInterface& vm, base::StringRef fn_name)
       : pex_(pex), object_(object), fn_(fn), self_(self), vm_(vm), fn_name_(fn_name) {
     for (size_t i = 0; i < fn.params.size(); ++i) {
-      const std::string& name = pex.Str(fn.params[i].name);
+      const base::String& name = pex.Str(fn.params[i].name);
       decl_types_[name] = pex.Str(fn.params[i].type);
-      regs_[name] = i < args.size() ? std::move(args[i]) : Default(fn.params[i].type);
+      regs_[name] = i < args.size() ? base::move(args[i]) : Default(fn.params[i].type);
     }
     for (const TypedName& local : fn.locals) {
-      const std::string& name = pex.Str(local.name);
+      const base::String& name = pex.Str(local.name);
       decl_types_[name] = pex.Str(local.type);
       regs_[name] = Default(local.type);
     }
@@ -66,39 +70,39 @@ class Frame {
     }
   }
 
-  std::string DeclType(const std::string& name) {
-    auto it = decl_types_.find(name);
-    if (it != decl_types_.end()) return it->second;
+  base::String DeclType(const base::String& name) {
+    auto* it = decl_types_.find(name);
+    if (it != nullptr) return *it;
     for (const MemberVariable& v : object_.variables)
       if (pex_.Str(v.name) == name) return pex_.Str(v.type);
     return "";
   }
 
-  Value ResolveRead(const std::string& name) {
+  Value ResolveRead(const base::String& name) {
     if (name == "self" || name == "parent") return Value::Object(self_);
     if (name == "::State") return Value::Str(vm_.CurrentState(self_));
-    auto it = regs_.find(name);
-    if (it != regs_.end()) return it->second;
+    auto* it = regs_.find(name);
+    if (it != nullptr) return *it;
     if (Value* m = vm_.MemberVar(self_, name)) return *m;
     return Value();
   }
 
-  void ResolveWrite(const std::string& name, Value value) {
+  void ResolveWrite(const base::String& name, Value value) {
     if (name == "::State") {
       vm_.GotoState(self_, value.ToString());
       return;
     }
     if (name == "self" || name == "parent") return;
-    auto it = regs_.find(name);
-    if (it != regs_.end()) {
-      it->second = std::move(value);
+    auto* it = regs_.find(name);
+    if (it != nullptr) {
+      *it = base::move(value);
       return;
     }
-    if (Value* m = vm_.MemberVar(self_, name)) *m = std::move(value);
+    if (Value* m = vm_.MemberVar(self_, name)) *m = base::move(value);
     // else discard (e.g. ::NoneVar that is not a declared local)
   }
 
-  std::string OperandName(const VariableData& v) const { return pex_.Str(v.string_index); }
+  base::String OperandName(const VariableData& v) const { return pex_.Str(v.string_index); }
 
   Value ReadOperand(const VariableData& v) {
     switch (v.type) {
@@ -119,11 +123,11 @@ class Frame {
   }
 
   void Write(const VariableData& dest, Value value) {
-    ResolveWrite(OperandName(dest), std::move(value));
+    ResolveWrite(OperandName(dest), base::move(value));
   }
 
-  Value Cast(const Value& value, const std::string& type_name) {
-    std::string t = Lower(type_name);
+  Value Cast(const Value& value, const base::String& type_name) {
+    base::String t = Lower(type_name);
     if (t.empty() || t == "var") return value;
     switch (TargetType(type_name)) {
       case ValueType::kInt:
@@ -145,8 +149,8 @@ class Frame {
     }
   }
 
-  std::vector<Value> CollectArgs(const Instruction& insn) {
-    std::vector<Value> out;
+  base::Vector<Value> CollectArgs(const Instruction& insn) {
+    base::Vector<Value> out;
     out.reserve(insn.var_args.size());
     for (const VariableData& a : insn.var_args) out.push_back(ReadOperand(a));
     return out;
@@ -154,7 +158,7 @@ class Frame {
 
   // Finds the index of the array element (a struct) whose `member` equals
   // `value`, scanning forward from start or backward. -1 if none.
-  i32 FindStruct(ArrayRef array, const std::string& member, const Value& value, i32 start,
+  i32 FindStruct(ArrayRef array, const base::String& member, const Value& value, i32 start,
                  bool reverse) {
     i32 n = vm_.ArrayLength(array);
     auto matches = [&](i32 i) {
@@ -162,10 +166,10 @@ class Frame {
       return e.type() == ValueType::kStruct && vm_.StructGet(e.as_struct(), member).Equals(value);
     };
     if (reverse) {
-      for (i32 i = start < 0 ? n - 1 : std::min(start, n - 1); i >= 0; --i)
+      for (i32 i = start < 0 ? n - 1 : base::Min(start, n - 1); i >= 0; --i)
         if (matches(i)) return i;
     } else {
-      for (i32 i = std::max(0, start); i < n; ++i)
+      for (i32 i = base::Max(0, start); i < n; ++i)
         if (matches(i)) return i;
     }
     return -1;
@@ -176,13 +180,13 @@ class Frame {
   const Function& fn_;
   ObjectRef self_;
   VmInterface& vm_;
-  std::string_view fn_name_;
-  std::unordered_map<std::string, Value> regs_;
-  std::unordered_map<std::string, std::string> decl_types_;
+  base::StringRef fn_name_;
+  base::UnorderedMap<base::String, Value> regs_;
+  base::UnorderedMap<base::String, base::String> decl_types_;
 };
 
 namespace {
-bool EqualsIgnoreCase(std::string_view a, std::string_view b) {
+bool EqualsIgnoreCase(base::StringRef a, base::StringRef b) {
   if (a.size() != b.size()) return false;
   for (size_t i = 0; i < a.size(); ++i)
     if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
@@ -194,7 +198,7 @@ bool EqualsIgnoreCase(std::string_view a, std::string_view b) {
 // suspension, so a fragment that polls a condition behind Wait() (e.g. "wait
 // until the actors are 3D loaded") spins forever. Recognizing the call lets the
 // interpreter bail such a loop quickly instead of grinding to the ceiling.
-bool IsLatentWait(std::string_view object, std::string_view method) {
+bool IsLatentWait(base::StringRef object, base::StringRef method) {
   if (!EqualsIgnoreCase(object, "Utility")) return false;
   return EqualsIgnoreCase(method, "Wait") || EqualsIgnoreCase(method, "WaitMenuMode") ||
          EqualsIgnoreCase(method, "WaitGameTime");
@@ -208,18 +212,18 @@ Value Frame::Run() {
   // A synchronous fragment that busy-waits on a latent Wait() makes no progress;
   // bail after a small number of waits rather than spinning to kMaxInstructions.
   constexpr u32 kMaxLatentWaits = 256;
-  const std::vector<Instruction>& code = fn_.code;
+  const base::Vector<Instruction>& code = fn_.code;
   size_t ip = 0;
   u64 executed = 0;
   u32 latent_waits = 0;
   while (ip < code.size()) {
     if (++executed > kMaxInstructions) {
       RX_WARN("papyrus: {}.{} exceeded {} instructions, aborting", pex_.Str(object_.name),
-               fn_name_.empty() ? "?" : fn_name_, kMaxInstructions);
+              fn_name_.empty() ? "?" : fn_name_, kMaxInstructions);
       return Value();
     }
     const Instruction& in = code[ip];
-    const std::vector<VariableData>& a = in.args;
+    const base::Vector<VariableData>& a = in.args;
     size_t next = ip + 1;
     switch (in.op) {
       case Op::kNop:
@@ -299,23 +303,22 @@ Value Frame::Run() {
           next = static_cast<size_t>(static_cast<i64>(ip) + ReadOperand(a[1]).ToInt());
         break;
       case Op::kCallMethod:
-        Write(a[2], vm_.CallMethod(ReadOperand(a[1]).as_object(), OperandName(a[0]),
-                                   CollectArgs(in)));
+        Write(a[2],
+              vm_.CallMethod(ReadOperand(a[1]).as_object(), OperandName(a[0]), CollectArgs(in)));
         break;
       case Op::kCallParent:
         Write(a[1], vm_.CallParent(self_, OperandName(a[0]), CollectArgs(in)));
         break;
       case Op::kCallStatic: {
-        const std::string object = OperandName(a[0]);
-        const std::string method = OperandName(a[1]);
+        const base::String object = OperandName(a[0]);
+        const base::String method = OperandName(a[1]);
         // On a fiber a latent Wait truly suspends and the loop makes real progress
         // between resumes, so it needs no guard. Off a fiber the wait returns at
         // once, so a poll loop would spin: keep bailing that case after a few spins.
-        if (IsLatentWait(object, method) && !Fiber::current() &&
-            ++latent_waits > kMaxLatentWaits) {
+        if (IsLatentWait(object, method) && !Fiber::current() && ++latent_waits > kMaxLatentWaits) {
           RX_WARN("papyrus: {}.{} bailed a latent {}.{}() wait loop after {} waits",
-                   pex_.Str(object_.name), fn_name_.empty() ? "?" : fn_name_, object, method,
-                   kMaxLatentWaits);
+                  pex_.Str(object_.name), fn_name_.empty() ? "?" : fn_name_, object, method,
+                  kMaxLatentWaits);
           return Value();
         }
         Write(a[2], vm_.CallStatic(object, method, CollectArgs(in)));
@@ -333,7 +336,7 @@ Value Frame::Run() {
         vm_.SetProperty(ReadOperand(a[1]).as_object(), OperandName(a[0]), ReadOperand(a[2]));
         break;
       case Op::kArrayCreate: {
-        std::string elem = DeclType(OperandName(a[0]));
+        base::String elem = DeclType(OperandName(a[0]));
         if (elem.size() >= 2 && elem.compare(elem.size() - 2, 2, "[]") == 0)
           elem.resize(elem.size() - 2);
         Write(a[0], Value::Array(vm_.ArrayCreate(elem, ReadOperand(a[1]).ToInt())));
@@ -359,7 +362,8 @@ Value Frame::Run() {
       // Fallout 4 / 76 opcodes. The same interpreter runs them so a Fallout
       // dialect needs no new VM core, only its own native table.
       case Op::kIs:
-        Write(a[0], Value::Bool(vm_.IsObjectOfType(ReadOperand(a[1]).as_object(), OperandName(a[2]))));
+        Write(a[0],
+              Value::Bool(vm_.IsObjectOfType(ReadOperand(a[1]).as_object(), OperandName(a[2]))));
         break;
       case Op::kStructCreate:
         Write(a[0], Value::Struct(vm_.StructCreate(DeclType(OperandName(a[0])))));
@@ -397,7 +401,7 @@ Value Frame::Run() {
         break;
       case Op::kArrayGetAllMatchingStructs: {
         ArrayRef src = ReadOperand(a[0]).as_array();
-        std::string member = OperandName(a[2]);
+        base::String member = OperandName(a[2]);
         Value match = ReadOperand(a[3]);
         ArrayRef out = vm_.ArrayCreate("", 0);
         i32 n = vm_.ArrayLength(src);
@@ -421,7 +425,7 @@ Value Frame::Run() {
 }  // namespace
 
 Value ExecuteFunction(const PexFile& pex, const Object& object, const Function& fn, ObjectRef self,
-                      std::vector<Value> args, VmInterface& vm, std::string_view function_name) {
+                      base::Vector<Value> args, VmInterface& vm, base::StringRef function_name) {
   Frame frame(pex, object, fn, self, args, vm, function_name);
   return frame.Run();
 }

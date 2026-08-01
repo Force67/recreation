@@ -1,6 +1,7 @@
 #include "components/quest/quest_graph.h"
 
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 namespace rx::quest {
 
@@ -10,9 +11,9 @@ const QuestNode* QuestGraph::FindNode(i32 id) const {
   return nullptr;
 }
 
-i64 QuestInstance::GetVar(const std::string& key, i64 fallback) const {
-  auto it = vars_.find(key);
-  return it == vars_.end() ? fallback : it->second;
+i64 QuestInstance::GetVar(const base::String& key, i64 fallback) const {
+  auto* it = vars_.find(key);
+  return it == nullptr ? fallback : *it;
 }
 
 void QuestInstance::Start(QuestActionSink& sink) { Advance(graph_->start_node, sink); }
@@ -65,7 +66,7 @@ bool QuestInstance::Tick(const ConditionContext& ctx, QuestActionSink& sink) {
   for (int guard = 0; guard < 64; ++guard) {
     bool fired = false;
     // Snapshot the frontier; Advance() mutates active_ underneath us.
-    std::vector<i32> frontier(active_.begin(), active_.end());
+    base::Vector<i32> frontier(active_.begin(), active_.end());
     for (i32 from : frontier) {
       if (!active_.count(from)) continue;
       for (const Transition& t : graph_->transitions) {
@@ -85,9 +86,9 @@ bool QuestInstance::Tick(const ConditionContext& ctx, QuestActionSink& sink) {
   return any;
 }
 
-bool QuestInstance::PostEvent(const std::string& event, QuestActionSink& sink) {
+bool QuestInstance::PostEvent(const base::String& event, QuestActionSink& sink) {
   bool any = false;
-  std::vector<i32> frontier(active_.begin(), active_.end());
+  base::Vector<i32> frontier(active_.begin(), active_.end());
   for (i32 from : frontier) {
     if (!active_.count(from)) continue;
     for (const Transition& t : graph_->transitions) {

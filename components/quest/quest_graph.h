@@ -1,10 +1,10 @@
 #ifndef RECREATION_QUEST_QUEST_GRAPH_H_
 #define RECREATION_QUEST_QUEST_GRAPH_H_
 
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
@@ -40,14 +40,14 @@ struct Action {
   ActionKind kind = ActionKind::kCompleteQuest;
   i32 objective = 0;
   bool flag = false;
-  std::string fragment;  // Papyrus function for kRunScriptFragment
+  base::String fragment;  // Papyrus function for kRunScriptFragment
 };
 
 struct QuestNode {
   i32 id = 0;  // unique within the graph; the stage index for imported quests
   NodeKind kind = NodeKind::kPhase;
-  std::string log_entry;  // journal text shown while this is the latest phase
-  std::vector<Action> on_enter;
+  base::String log_entry;  // journal text shown while this is the latest phase
+  base::Vector<Action> on_enter;
 };
 
 enum class TriggerKind : u8 {
@@ -60,7 +60,7 @@ struct Transition {
   i32 to = 0;
   TriggerKind trigger = TriggerKind::kCondition;
   ConditionList condition;  // for kCondition
-  std::string event;        // for kEvent
+  base::String event;       // for kEvent
 };
 
 // The compiled, immutable shape of one quest's graph. Built once (by the Skyrim
@@ -68,8 +68,8 @@ struct Transition {
 struct QuestGraph {
   u64 handle = 0;
   i32 start_node = 0;
-  std::vector<QuestNode> nodes;
-  std::vector<Transition> transitions;
+  base::Vector<QuestNode> nodes;
+  base::Vector<Transition> transitions;
 
   const QuestNode* FindNode(i32 id) const;
 };
@@ -84,7 +84,7 @@ class QuestActionSink {
   virtual void OnEnterNode(u64 quest, i32 node) {}
   virtual void SetObjectiveDisplayed(u64 quest, i32 objective, bool displayed) {}
   virtual void SetObjectiveCompleted(u64 quest, i32 objective, bool completed) {}
-  virtual void RunScriptFragment(u64 quest, i32 node, const std::string& fragment) {}
+  virtual void RunScriptFragment(u64 quest, i32 node, const base::String& fragment) {}
   virtual void CompleteQuest(u64 quest) {}
   virtual void FailQuest(u64 quest) {}
 };
@@ -113,7 +113,7 @@ class QuestInstance {
   bool Tick(const ConditionContext& ctx, QuestActionSink& sink);
 
   // Posts a named event, taking any active matching kEvent transition.
-  bool PostEvent(const std::string& event, QuestActionSink& sink);
+  bool PostEvent(const base::String& event, QuestActionSink& sink);
 
   bool IsActive(i32 node) const { return active_.count(node) != 0; }
   bool WasEntered(i32 node) const { return entered_.count(node) != 0; }
@@ -121,16 +121,16 @@ class QuestInstance {
   i32 CurrentStage() const { return current_stage_; }
 
   // Minimal typed blackboard for native quest variables and resolved aliases.
-  void SetVar(const std::string& key, i64 value) { vars_[key] = value; }
-  i64 GetVar(const std::string& key, i64 fallback = 0) const;
+  void SetVar(const base::String& key, i64 value) { vars_[key] = value; }
+  i64 GetVar(const base::String& key, i64 fallback = 0) const;
 
  private:
   void Enter(i32 node, QuestActionSink& sink);
 
   const QuestGraph* graph_;
-  std::unordered_set<i32> active_;
-  std::unordered_set<i32> entered_;
-  std::unordered_map<std::string, i64> vars_;
+  base::UnorderedSet<i32> active_;
+  base::UnorderedSet<i32> entered_;
+  base::UnorderedMap<base::String, i64> vars_;
   i32 current_stage_ = 0;
   bool has_stage_ = false;
 };

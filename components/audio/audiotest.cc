@@ -2,13 +2,14 @@
 // software mixer's resampling and voice lifecycle, and the 3D pan/attenuation
 // math. No device and no game data, so it runs in the default ctest gate and
 // guards the parts that never touch SDL or a sound card.
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
-#include <string>
-#include <base/containers/vector.h>
 
 #include "components/audio/ambient.h"
 #include "audio/audio_clip.h"
@@ -17,6 +18,9 @@
 #include "audio/wav.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::audio;
 
 namespace {
@@ -46,12 +50,12 @@ base::Vector<std::uint8_t> MakeSineWav(std::uint32_t rate, std::uint32_t frames,
   PutTag(w, "WAVE");
   PutTag(w, "fmt ");
   PutU32(w, 16);
-  PutU16(w, 1);             // PCM
-  PutU16(w, 1);             // mono
+  PutU16(w, 1);  // PCM
+  PutU16(w, 1);  // mono
   PutU32(w, rate);
-  PutU32(w, rate * 2);      // byte rate
-  PutU16(w, 2);             // block align
-  PutU16(w, 16);            // bits
+  PutU32(w, rate * 2);  // byte rate
+  PutU16(w, 2);         // block align
+  PutU16(w, 16);        // bits
   PutTag(w, "data");
   PutU32(w, static_cast<std::uint32_t>(data.size()));
   w.insert(w.end(), data.begin(), data.end());
@@ -77,10 +81,10 @@ int ProbeFile(const char* path) {
     return 1;
   }
   base::Vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
-                                  std::istreambuf_iterator<char>());
-  std::string p(path);
+                                   std::istreambuf_iterator<char>());
+  base::String p(path);
   const auto dot = p.find_last_of('.');
-  std::string ext = dot == std::string::npos ? "" : p.substr(dot);
+  base::String ext = dot == base::String::npos ? "" : p.substr(dot);
   auto decoder = OpenDecoder(ByteSpan{bytes.data(), bytes.size()}, ext);
   if (!decoder) {
     std::printf("audiotest: no decoder produced output for %s\n", path);
@@ -94,8 +98,7 @@ int ProbeFile(const char* path) {
     frames += got;
   }
   std::printf("audiotest: decoded %s -> %llu frames, %u ch, %u Hz\n", path,
-              static_cast<unsigned long long>(frames), decoder->channels(),
-              decoder->sample_rate());
+              static_cast<unsigned long long>(frames), decoder->channels(), decoder->sample_rate());
   return frames > 0 ? 0 : 1;
 }
 
@@ -122,8 +125,7 @@ int main(int argc, char** argv) {
   AudioClip junk;
   base::Vector<std::uint8_t> garbage(64, 0xAB);
   check("garbage WAV rejected", !DecodeWav(ByteSpan{garbage.data(), garbage.size()}, &junk));
-  check("truncated WAV rejected",
-        !DecodeWav(ByteSpan{wav.data(), 20}, &junk));
+  check("truncated WAV rejected", !DecodeWav(ByteSpan{wav.data(), 20}, &junk));
 
   // --- mixer: resample + lifecycle --------------------------------------------
   Mixer mixer;
@@ -162,9 +164,8 @@ int main(int argc, char** argv) {
   Attenuation atten;  // ref 4, max 60
   check("gain is full within ref distance", DistanceGain(2.0f, atten) == 1.0f);
   check("gain is zero past max distance", DistanceGain(80.0f, atten) == 0.0f);
-  check("gain falls off with distance",
-        DistanceGain(10.0f, atten) > DistanceGain(30.0f, atten) &&
-            DistanceGain(30.0f, atten) > 0.0f);
+  check("gain falls off with distance", DistanceGain(10.0f, atten) > DistanceGain(30.0f, atten) &&
+                                            DistanceGain(30.0f, atten) > 0.0f);
 
   Listener listener;  // at origin, facing -Z, Y up -> +X is to the right
   StereoGains right = PanForSource(listener, Vec3{8, 0, 0}, atten);
@@ -176,8 +177,8 @@ int main(int argc, char** argv) {
 
   // --- ambient bed transitions -------------------------------------------------
   auto decide = [](const char* a, const char* b) { return DecideAmbient(a, b); };
-  check("same bed is left alone", !decide("amb/a", "amb/a").stop_current &&
-                                      !decide("amb/a", "amb/a").start_target);
+  check("same bed is left alone",
+        !decide("amb/a", "amb/a").stop_current && !decide("amb/a", "amb/a").start_target);
   check("entering a bed from silence only starts",
         !decide("", "amb/a").stop_current && decide("", "amb/a").start_target);
   check("leaving to silence only stops",

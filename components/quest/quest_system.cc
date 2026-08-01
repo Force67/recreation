@@ -1,28 +1,30 @@
 #include "components/quest/quest_system.h"
 
-#include <set>
-#include <utility>
+#include <base/containers/set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/to_string.h>
 
 namespace rx::quest {
 
 void QuestSystem::SetDefinition(QuestDef def) {
   const QuestHandle handle = def.handle;
-  defs_[handle] = std::move(def);
+  defs_[handle] = base::move(def);
 }
 
 const QuestDef* QuestSystem::Definition(QuestHandle handle) const {
-  auto it = defs_.find(handle);
-  return it == defs_.end() ? nullptr : &it->second;
+  auto* it = defs_.find(handle);
+  return it == nullptr ? nullptr : &*it;
 }
 
 const QuestSystem::QuestState* QuestSystem::Peek(QuestHandle quest) const {
-  auto it = states_.find(quest);
-  return it == states_.end() ? nullptr : &it->second;
+  auto* it = states_.find(quest);
+  return it == nullptr ? nullptr : &*it;
 }
 
 void QuestSystem::Notify(QuestHandle quest, QuestEvent event) {
   ++revision_;
-  if (auto it = states_.find(quest); it != states_.end()) it->second.revision = revision_;
+  if (auto* it = states_.find(quest); it != nullptr) it->revision = revision_;
   for (auto& listener : listeners_) listener(quest, event);
 }
 
@@ -46,8 +48,8 @@ bool QuestSystem::SetStage(QuestHandle quest, i32 stage) {
 bool QuestSystem::GetStageDone(QuestHandle quest, i32 stage) const {
   const QuestState* s = Peek(quest);
   if (!s) return false;
-  auto it = s->stage_done.find(stage);
-  return it != s->stage_done.end() && it->second;
+  auto* it = s->stage_done.find(stage);
+  return it != nullptr && *it;
 }
 
 bool QuestSystem::IsRunning(QuestHandle quest) const {
@@ -93,15 +95,15 @@ void QuestSystem::SetObjectiveCompleted(QuestHandle quest, i32 objective, bool c
 bool QuestSystem::IsObjectiveDisplayed(QuestHandle quest, i32 objective) const {
   const QuestState* s = Peek(quest);
   if (!s) return false;
-  auto it = s->objective_displayed.find(objective);
-  return it != s->objective_displayed.end() && it->second;
+  auto* it = s->objective_displayed.find(objective);
+  return it != nullptr && *it;
 }
 
 bool QuestSystem::IsObjectiveCompleted(QuestHandle quest, i32 objective) const {
   const QuestState* s = Peek(quest);
   if (!s) return false;
-  auto it = s->objective_completed.find(objective);
-  return it != s->objective_completed.end() && it->second;
+  auto* it = s->objective_completed.find(objective);
+  return it != nullptr && *it;
 }
 
 bool QuestSystem::IsComplete(QuestHandle quest) const {
@@ -115,8 +117,8 @@ bool QuestSystem::IsComplete(QuestHandle quest) const {
   // completion.
   for (const StageDef& sd : def->stages) {
     if (!sd.complete_quest) continue;
-    auto it = s->stage_done.find(sd.index);
-    if (it != s->stage_done.end() && it->second) return true;
+    auto* it = s->stage_done.find(sd.index);
+    if (it != nullptr && *it) return true;
   }
   return false;
 }
@@ -134,38 +136,34 @@ void QuestSystem::FillStatus(QuestHandle quest, const QuestState& state, QuestSt
     out->name = !def->name.empty() ? def->name : def->editor_id;
     if (const StageDef* sd = def->FindStage(state.stage)) out->log_entry = sd->log_entry;
   }
-  if (out->name.empty()) out->name = std::to_string(quest);
+  if (out->name.empty()) out->name = base::ToString(quest);
 
   // Objectives in definition order, overlaid with live displayed/completed
   // bits. Any objective the script touched without a definition entry follows.
-  std::set<i32> seen;
+  base::Set<i32> seen;
   if (def) {
     for (const ObjectiveDef& od : def->objectives) {
       ObjectiveStatus os;
       os.index = od.index;
       os.text = od.text;
-      if (auto it = state.objective_displayed.find(od.index); it != state.objective_displayed.end())
-        os.displayed = it->second;
-      if (auto it = state.objective_completed.find(od.index); it != state.objective_completed.end())
-        os.completed = it->second;
-      out->objectives.push_back(std::move(os));
+      if (auto* it = state.objective_displayed.find(od.index); it != nullptr) os.displayed = *it;
+      if (auto* it = state.objective_completed.find(od.index); it != nullptr) os.completed = *it;
+      out->objectives.push_back(base::move(os));
       seen.insert(od.index);
     }
   }
   // Objectives the script touched without a definition entry, from either map
   // (an objective can be completed without ever having been displayed).
-  std::set<i32> extras;
+  base::Set<i32> extras;
   for (const auto& [index, _] : state.objective_displayed) extras.insert(index);
   for (const auto& [index, _] : state.objective_completed) extras.insert(index);
   for (i32 index : extras) {
     if (seen.count(index)) continue;
     ObjectiveStatus os;
     os.index = index;
-    if (auto it = state.objective_displayed.find(index); it != state.objective_displayed.end())
-      os.displayed = it->second;
-    if (auto it = state.objective_completed.find(index); it != state.objective_completed.end())
-      os.completed = it->second;
-    out->objectives.push_back(std::move(os));
+    if (auto* it = state.objective_displayed.find(index); it != nullptr) os.displayed = *it;
+    if (auto* it = state.objective_completed.find(index); it != nullptr) os.completed = *it;
+    out->objectives.push_back(base::move(os));
     seen.insert(index);
   }
 }
@@ -178,25 +176,25 @@ QuestStatus QuestSystem::Status(QuestHandle quest) const {
   return out;
 }
 
-std::vector<QuestStatus> QuestSystem::AllStatuses() const {
-  std::vector<QuestStatus> out;
+base::Vector<QuestStatus> QuestSystem::AllStatuses() const {
+  base::Vector<QuestStatus> out;
   out.reserve(states_.size());
   for (const auto& [handle, state] : states_) {
     QuestStatus status;
     FillStatus(handle, state, &status);
-    out.push_back(std::move(status));
+    out.push_back(base::move(status));
   }
   return out;
 }
 
-std::vector<QuestStatus> QuestSystem::RunningStatuses(bool include_inactive) const {
-  std::vector<QuestStatus> out;
+base::Vector<QuestStatus> QuestSystem::RunningStatuses(bool include_inactive) const {
+  base::Vector<QuestStatus> out;
   for (const auto& [handle, state] : states_) {
     if (!state.running) continue;
     if (!state.active && !include_inactive) continue;
     QuestStatus status;
     FillStatus(handle, state, &status);
-    out.push_back(std::move(status));
+    out.push_back(base::move(status));
   }
   return out;
 }

@@ -5,15 +5,17 @@
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android_native_app_glue.h>
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <memory>
 #include <string>
-#include <unordered_map>
 
 #include "components/bethesda/game_profile.h"
 #include "core/log.h"
@@ -25,7 +27,7 @@ namespace {
 
 constexpr const char* kTag = "recreation";
 
-rx::bethesda::Game ParseGame(const std::string& id) {
+rx::bethesda::Game ParseGame(const base::String& id) {
   if (id == "skyrimse") return rx::bethesda::Game::kSkyrimSe;
   if (id == "fo4") return rx::bethesda::Game::kFallout4;
   if (id == "fo76") return rx::bethesda::Game::kFallout76;
@@ -43,31 +45,31 @@ rx::EngineConfig LoadConfig(android_app* app) {
   rx::EngineConfig config;
   config.preset = rx::render::QualityPreset::kAndroid;
 
-  std::string path = std::string(app->activity->internalDataPath) + "/recreation.cfg";
-  std::ifstream file(path);
+  base::String path = base::String(app->activity->internalDataPath) + "/recreation.cfg";
+  std::ifstream file(path.c_str());
   if (!file) {
     __android_log_print(ANDROID_LOG_WARN, kTag, "no config at %s, using demo scene", path.c_str());
     return config;
   }
 
-  std::unordered_map<std::string, std::string> kv;
-  std::string line;
+  base::UnorderedMap<base::String, base::String> kv;
+  base::String line;
   while (std::getline(file, line)) {
     if (line.empty() || line[0] == '#') continue;
     size_t eq = line.find('=');
-    if (eq == std::string::npos) continue;
-    std::string key = line.substr(0, eq);
-    std::string value = line.substr(eq + 1);
+    if (eq == base::String::npos) continue;
+    base::String key = line.substr(0, eq);
+    base::String value = line.substr(eq + 1);
     while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) value.pop_back();
     kv[key] = value;
   }
 
-  auto get = [&](const std::string& key) -> std::string {
-    auto it = kv.find(key);
-    return it == kv.end() ? std::string() : it->second;
+  auto get = [&](const base::String& key) -> base::String {
+    auto* it = kv.find(key);
+    return it == nullptr ? base::String() : *it;
   };
 
-  std::string active = get("active");
+  base::String active = get("active");
   if (!active.empty()) {
     config.game = ParseGame(active);
     config.data_dir = get("data_dir." + active);
@@ -75,22 +77,22 @@ rx::EngineConfig LoadConfig(android_app* app) {
       config.plugins_txt = config.data_dir + "/../plugins.txt";
     }
   }
-  std::string gltf = get("gltf");
+  base::String gltf = get("gltf");
   if (!gltf.empty()) config.gltf_path = gltf;
-  std::string demo = get("demo");
+  base::String demo = get("demo");
   if (!demo.empty()) config.demo_scene = demo;
-  std::string preset = get("preset");
+  base::String preset = get("preset");
   if (!preset.empty()) config.preset = rx::render::ParsePreset(preset);
-  std::string interior = get("interior");
+  base::String interior = get("interior");
   if (!interior.empty()) config.interior = interior;
   if (get("validation") == "1") config.renderer.enable_validation = true;
   if (get("no_rt") == "1") config.renderer.enable_raytracing = false;
   // screenshot=<seconds>: the renderer reads RX_SCREENSHOT and writes the
   // frame at that time to the app's data dir, for on-device render verification
   // that does not depend on the platform screenshotter.
-  std::string shot = get("screenshot");
+  base::String shot = get("screenshot");
   if (!shot.empty()) {
-    std::string shot_path = std::string(app->activity->internalDataPath) + "/frame.png:" + shot;
+    base::String shot_path = base::String(app->activity->internalDataPath) + "/frame.png:" + shot;
     setenv("RX_SCREENSHOT", shot_path.c_str(), 1);
   }
 
@@ -102,8 +104,8 @@ rx::EngineConfig LoadConfig(android_app* app) {
 struct AppState {
   // engine before host so the host (which holds a pointer into the game) tears
   // down first.
-  std::unique_ptr<rx::Engine> engine;    // the game, built once the config is known
-  rx::app::Host host;                    // owns the subsystems + the loop
+  base::UniquePointer<rx::Engine> engine;   // the game, built once the config is known
+  rx::app::Host host;                       // owns the subsystems + the loop
   rx::AndroidWindowBase* window = nullptr;  // owned by the host post-Initialize
   rx::EngineConfig config;
   bool initialized = false;
@@ -154,8 +156,8 @@ void HandleCmd(android_app* app, int32_t cmd) {
         app_config.preset = state->config.preset;
         app_config.headless = state->config.headless;
         app_config.gather_entity_draws = false;  // the game gathers its own draws
-        state->engine = std::make_unique<rx::Engine>(state->config);
-        if (!state->host.Initialize(app_config, *state->engine, std::move(window))) {
+        state->engine = base::MakeUnique<rx::Engine>(state->config);
+        if (!state->host.Initialize(app_config, *state->engine, base::move(window))) {
           __android_log_print(ANDROID_LOG_ERROR, kTag, "engine initialization failed");
           state->finished = true;
           ANativeActivity_finish(app->activity);
@@ -224,7 +226,7 @@ int32_t HandleInput(android_app* app, AInputEvent* event) {
   // Touch x arrives in the activity's (landscape) space; the larger dimension is
   // the horizontal extent, so split the zones at half of it.
   const float mid_x =
-      0.5f * static_cast<float>(std::max(state->window->width(), state->window->height()));
+      0.5f * static_cast<float>(base::Max(state->window->width(), state->window->height()));
 
   const int32_t action = AMotionEvent_getAction(event);
   const int32_t masked = action & AMOTION_EVENT_ACTION_MASK;

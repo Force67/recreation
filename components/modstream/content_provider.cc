@@ -1,8 +1,17 @@
 #include "components/modstream/content_provider.h"
 
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <filesystem>
 #include <fstream>
-#include <unordered_map>
+#include <functional>
+#include <optional>
+#include <string>
+#include <string_view>
 
 #include "components/modstream/mod_catalog.h"
 
@@ -11,14 +20,13 @@ namespace {
 
 namespace fs = std::filesystem;
 
-std::optional<base::Vector<u8>> ReadFile(const fs::path& path) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
-  if (!file) return std::nullopt;
+base::Optional<base::Vector<u8>> ReadFile(const fs::path& path) {
+  std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
+  if (!file) return base::nullopt;
   base::Vector<u8> data(static_cast<size_t>(file.tellg()));
   file.seekg(0);
-  file.read(reinterpret_cast<char*>(data.data()),
-            static_cast<std::streamsize>(data.size()));
-  if (!file) return std::nullopt;
+  file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
+  if (!file) return base::nullopt;
   return data;
 }
 
@@ -27,52 +35,53 @@ std::optional<base::Vector<u8>> ReadFile(const fs::path& path) {
 // original mods directory), so the two mount identical content the same way.
 class ResourceProvider final : public asset::FileProvider {
  public:
-  ResourceProvider(std::string name, std::unordered_map<std::string, fs::path> paths)
-      : name_(std::move(name)), paths_(std::move(paths)) {}
+  ResourceProvider(base::String name, base::UnorderedMap<base::String, fs::path> paths)
+      : name_(base::move(name)), paths_(base::move(paths)) {}
 
   bool Contains(std::string_view normalized_path) const override {
-    return paths_.find(std::string(normalized_path)) != paths_.end();
+    return paths_.contains(base::String(normalized_path));
   }
 
   std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
-    const auto it = paths_.find(std::string(normalized_path));
-    if (it == paths_.end()) return std::nullopt;
-    return ReadFile(it->second);
+    const auto* it = paths_.find(base::String(normalized_path));
+    if (it == nullptr) return std::nullopt;
+    base::Optional<base::Vector<u8>> bytes = ReadFile(*it);
+    if (!bytes.has_value()) return std::nullopt;
+    return base::move(bytes.value());
   }
 
   void Enumerate(const std::function<void(std::string_view)>& fn) const override {
     for (const auto& [path, disk] : paths_) fn(path);
   }
 
-  std::string name() const override { return name_; }
+  std::string name() const override { return name_.c_str(); }
 
  private:
-  std::string name_;
-  std::unordered_map<std::string, fs::path> paths_;
+  base::String name_;
+  base::UnorderedMap<base::String, fs::path> paths_;
 };
 
 }  // namespace
 
-void MountManifest(asset::Vfs& vfs, const ModManifest& manifest,
-                   const ContentStore& store) {
+void MountManifest(asset::Vfs& vfs, const ModManifest& manifest, const ContentStore& store) {
   for (const ModResource& resource : manifest.resources) {
-    std::unordered_map<std::string, fs::path> paths;
+    base::UnorderedMap<base::String, fs::path> paths;
     paths.reserve(resource.files.size());
     for (const ResourceFile& file : resource.files) {
-      if (std::optional<fs::path> p = store.PathFor(file.hash)) paths.emplace(file.path, *p);
+      if (base::Optional<fs::path> p = store.PathFor(file.hash)) paths.emplace(file.path, *p);
     }
-    vfs.Mount(base::MakeUnique<ResourceProvider>("modstream:" + resource.name, std::move(paths)));
+    vfs.Mount(base::MakeUnique<ResourceProvider>("modstream:" + resource.name, base::move(paths)));
   }
 }
 
 void MountCatalog(asset::Vfs& vfs, const ModCatalog& catalog) {
   for (const ModResource& resource : catalog.manifest().resources) {
-    std::unordered_map<std::string, fs::path> paths;
+    base::UnorderedMap<base::String, fs::path> paths;
     paths.reserve(resource.files.size());
     for (const ResourceFile& file : resource.files) {
-      if (std::optional<fs::path> p = catalog.PathForHash(file.hash)) paths.emplace(file.path, *p);
+      if (base::Optional<fs::path> p = catalog.PathForHash(file.hash)) paths.emplace(file.path, *p);
     }
-    vfs.Mount(base::MakeUnique<ResourceProvider>("modstream:" + resource.name, std::move(paths)));
+    vfs.Mount(base::MakeUnique<ResourceProvider>("modstream:" + resource.name, base::move(paths)));
   }
 }
 

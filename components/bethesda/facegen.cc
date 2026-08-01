@@ -1,5 +1,8 @@
 #include "components/bethesda/facegen.h"
 
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 
 #include "components/bethesda/load_order.h"
@@ -43,11 +46,11 @@ constexpr u32 kTint = FourCc('T', 'I', 'N', 'T');
 constexpr u32 kTinp = FourCc('T', 'I', 'N', 'P');
 constexpr u32 kTind = FourCc('T', 'I', 'N', 'D');
 
-std::string SubString(const Subrecord& sub) {
+base::String SubString(const Subrecord& sub) {
   if (sub.data.empty()) return {};
   size_t len = sub.data.size();
   if (sub.data[len - 1] == 0) --len;
-  return std::string(reinterpret_cast<const char*>(sub.data.data()), len);
+  return base::String(reinterpret_cast<const char*>(sub.data.data()), len);
 }
 
 template <typename T>
@@ -66,11 +69,11 @@ GlobalFormId ReadFormRef(const RecordStore& store, const Subrecord* sub, u16 plu
 
 }  // namespace
 
-std::optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalFormId id) {
+base::Optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('T', 'X', 'S', 'T')) return std::nullopt;
+  if (!stored || stored->header.type != FourCc('T', 'X', 'S', 'T')) return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return std::nullopt;
+  if (!store.Parse(id, &rec)) return base::nullopt;
   TextureSet set;
   set.id = id;
   if (const Subrecord* s = rec.Find(FourCc('T', 'X', '0', '0'))) set.diffuse = SubString(*s);
@@ -80,11 +83,11 @@ std::optional<TextureSet> ResolveTextureSet(const RecordStore& store, GlobalForm
   return set;
 }
 
-std::optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId id) {
+base::Optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('H', 'D', 'P', 'T')) return std::nullopt;
+  if (!stored || stored->header.type != FourCc('H', 'D', 'P', 'T')) return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return std::nullopt;
+  if (!store.Parse(id, &rec)) return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   HeadPart part;
@@ -114,11 +117,11 @@ std::optional<HeadPart> ResolveHeadPart(const RecordStore& store, GlobalFormId i
   return part;
 }
 
-std::optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId id) {
+base::Optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('C', 'L', 'F', 'M')) return std::nullopt;
+  if (!stored || stored->header.type != FourCc('C', 'L', 'F', 'M')) return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return std::nullopt;
+  if (!store.Parse(id, &rec)) return base::nullopt;
   ColorForm color;
   color.id = id;
   color.editor_id = rec.GetString(kEdid);
@@ -129,12 +132,12 @@ std::optional<ColorForm> ResolveColorForm(const RecordStore& store, GlobalFormId
   return color;
 }
 
-static std::optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, GlobalFormId id,
-                                                     int depth) {
+static base::Optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, GlobalFormId id,
+                                                      int depth) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('N', 'P', 'C', '_')) return std::nullopt;
+  if (!stored || stored->header.type != FourCc('N', 'P', 'C', '_')) return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return std::nullopt;
+  if (!store.Parse(id, &rec)) return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   NpcFaceData face;
@@ -201,8 +204,7 @@ static std::optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, G
         face.has_face_parts = true;
       }
       if (face.hair_color.plugin == 0xffff) face.hair_color = tmpl->hair_color;
-      if (face.face_texture_set.plugin == 0xffff)
-        face.face_texture_set = tmpl->face_texture_set;
+      if (face.face_texture_set.plugin == 0xffff) face.face_texture_set = tmpl->face_texture_set;
       if (!face.has_skin_tone && tmpl->has_skin_tone) {
         std::memcpy(face.skin_tone, tmpl->skin_tone, sizeof(face.skin_tone));
         face.has_skin_tone = true;
@@ -213,15 +215,15 @@ static std::optional<NpcFaceData> ResolveNpcFaceImpl(const RecordStore& store, G
   return face;
 }
 
-std::optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId id) {
+base::Optional<NpcFaceData> ResolveNpcFace(const RecordStore& store, GlobalFormId id) {
   return ResolveNpcFaceImpl(store, id, 0);
 }
 
-std::optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalFormId id) {
+base::Optional<RaceHeadData> ResolveRaceHead(const RecordStore& store, GlobalFormId id) {
   const RecordStore::StoredRecord* stored = store.Find(id);
-  if (!stored || stored->header.type != FourCc('R', 'A', 'C', 'E')) return std::nullopt;
+  if (!stored || stored->header.type != FourCc('R', 'A', 'C', 'E')) return base::nullopt;
   Record rec;
-  if (!store.Parse(id, &rec)) return std::nullopt;
+  if (!store.Parse(id, &rec)) return base::nullopt;
   const u16 plugin = stored->winning_plugin;
 
   RaceHeadData race;
@@ -295,10 +297,9 @@ const char* FaceMorphName(u32 index) {
   // NAM9 slider order verified as 19 floats; semantics per UESP/CK face-part
   // advanced tab. The trailing slot has no documented label.
   static const char* kNames[kFaceMorphCount] = {
-      "NoseLong",   "NoseUp",    "JawUp",       "JawWide",   "JawForward",
-      "CheeksUp",   "CheeksBack", "EyesUp",     "EyesIn",    "BrowsUp",
-      "BrowsIn",    "BrowsBack", "LipsUp",      "LipsOut",   "ChinWide",
-      "ChinUp",     "ChinUnderbite", "EyesForward", "Unknown"};
+      "NoseLong", "NoseUp", "JawUp",         "JawWide",     "JawForward", "CheeksUp", "CheeksBack",
+      "EyesUp",   "EyesIn", "BrowsUp",       "BrowsIn",     "BrowsBack",  "LipsUp",   "LipsOut",
+      "ChinWide", "ChinUp", "ChinUnderbite", "EyesForward", "Unknown"};
   return index < kFaceMorphCount ? kNames[index] : "?";
 }
 

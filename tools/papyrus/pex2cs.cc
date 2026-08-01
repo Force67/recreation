@@ -11,19 +11,22 @@
 // it is read from scripts/<name>.pex in whichever mounted archive provides it.
 // With no out path the C# is written to stdout.
 
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/containers/pair.h>
+#include <base/containers/set.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <memory>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
@@ -36,18 +39,21 @@
 namespace {
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::papyrus;
 
-void MountArchives(asset::Vfs& vfs, const std::string& data_dir) {
+void MountArchives(asset::Vfs& vfs, const base::String& data_dir) {
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec)) {
-    std::string path = entry.path().string();
-    if (auto provider = bethesda::OpenArchive(path)) vfs.Mount(std::move(provider));
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir.c_str(), ec)) {
+    base::String path = entry.path().string();
+    if (auto provider = bethesda::OpenArchive(path)) vfs.Mount(base::move(provider));
   }
 }
 
-bool ReadFile(const std::string& path, std::vector<u8>* out) {
-  std::ifstream f(path, std::ios::binary | std::ios::ate);
+bool ReadFile(const base::String& path, base::Vector<u8>* out) {
+  std::ifstream f(path.c_str(), std::ios::binary | std::ios::ate);
   if (!f) return false;
   std::streamsize n = f.tellg();
   f.seekg(0);
@@ -55,41 +61,40 @@ bool ReadFile(const std::string& path, std::vector<u8>* out) {
   return static_cast<bool>(f.read(reinterpret_cast<char*>(out->data()), n));
 }
 
-int Emit(const PexFile& pex, const std::string& out_path, bool disasm) {
+int Emit(const PexFile& pex, const base::String& out_path, bool disasm) {
   TranspileOptions opts;
   opts.emit_disasm_comments = disasm;
-  std::string cs = TranspileToCSharp(pex, opts);
+  base::String cs = TranspileToCSharp(pex, opts);
   if (out_path.empty()) {
     std::fputs(cs.c_str(), stdout);
     return 0;
   }
-  std::ofstream f(out_path, std::ios::binary);
+  std::ofstream f(out_path.c_str(), std::ios::binary);
   if (!f) {
     std::fprintf(stderr, "cannot write %s\n", out_path.c_str());
     return 1;
   }
-  f << cs;
-  std::fprintf(stderr, "wrote %s (%zu objects, %zu bytes)\n", out_path.c_str(),
-               pex.objects.size(), cs.size());
+  f << cs.c_str();
+  std::fprintf(stderr, "wrote %s (%zu objects, %zu bytes)\n", out_path.c_str(), pex.objects.size(),
+               cs.size());
   return 0;
 }
 
 // Transpiles every scripts/*.pex in the archives and reports how much of the
 // corpus reconstructs as structured C# (vs. the goto fallback), how many parse,
 // and any unmodelled opcodes, the headline "how well does it work" numbers.
-int Audit(const std::string& data_dir) {
+int Audit(const base::String& data_dir) {
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
 
-  std::vector<std::string> scripts;
-  vfs.Enumerate([&](std::string_view p) {
-    if (p.size() > 4 && p.substr(0, 8) == "scripts/" &&
-        p.substr(p.size() - 4) == ".pex")
+  base::Vector<base::String> scripts;
+  vfs.Enumerate([&](base::StringRef p) {
+    if (p.size() > 4 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
       scripts.emplace_back(p);
   });
 
   size_t parsed = 0, failed = 0, funcs = 0, fallback = 0, unsupported = 0, fully = 0;
-  for (const std::string& path : scripts) {
+  for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
     if (!data) continue;
     PexFile pex;
@@ -98,14 +103,23 @@ int Audit(const std::string& data_dir) {
       continue;
     }
     ++parsed;
-    std::string cs = TranspileToCSharp(pex);
+    base::String cs = TranspileToCSharp(pex);
     size_t fb = 0, un = 0, pos = 0;
-    while ((pos = cs.find("not reducible", pos)) != std::string::npos) { ++fb; pos += 8; }
+    while ((pos = cs.find("not reducible", pos)) != base::String::npos) {
+      ++fb;
+      pos += 8;
+    }
     pos = 0;
-    while ((pos = cs.find("unsupported opcode", pos)) != std::string::npos) { ++un; pos += 8; }
+    while ((pos = cs.find("unsupported opcode", pos)) != base::String::npos) {
+      ++un;
+      pos += 8;
+    }
     // Count function bodies (method bodies open with ")\n    {" after a signature).
     size_t fn = 0, q = 0;
-    while ((q = cs.find("    {\n", q)) != std::string::npos) { ++fn; q += 4; }
+    while ((q = cs.find("    {\n", q)) != base::String::npos) {
+      ++fn;
+      q += 4;
+    }
     funcs += fn;
     fallback += fb;
     unsupported += un;
@@ -127,28 +141,28 @@ int Audit(const std::string& data_dir) {
 
 // Writes every scripts/*.pex in the archives to <out_dir>/<Name>.cs, for bulk
 // inspection or external (e.g. Roslyn) validation of the generated C#.
-int DumpAll(const std::string& data_dir, const std::string& out_dir) {
+int DumpAll(const base::String& data_dir, const base::String& out_dir) {
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
-  std::filesystem::create_directories(out_dir, ec);
+  std::filesystem::create_directories(out_dir.c_str(), ec);
 
-  std::vector<std::string> scripts;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Vector<base::String> scripts;
+  vfs.Enumerate([&](base::StringRef p) {
     if (p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
       scripts.emplace_back(p);
   });
 
   size_t written = 0;
-  for (const std::string& path : scripts) {
+  for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
     if (!data) continue;
     PexFile pex;
     if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) continue;
-    std::string stem = path.substr(8, path.size() - 12);  // strip "scripts/" + ".pex"
-    std::ofstream f(out_dir + "/" + stem + ".cs", std::ios::binary);
+    base::String stem = path.substr(8, path.size() - 12);  // strip "scripts/" + ".pex"
+    std::ofstream f((out_dir + "/" + stem + ".cs").c_str(), std::ios::binary);
     if (!f) continue;
-    f << TranspileToCSharp(pex);
+    f << TranspileToCSharp(pex).c_str();
     ++written;
   }
   std::fprintf(stderr, "wrote %zu .cs files to %s\n", written, out_dir.c_str());
@@ -160,14 +174,14 @@ int DumpAll(const std::string& data_dir, const std::string& out_dir) {
 // references. The directory then compiles with a stock C# compiler and no SDK,
 // which checks the reconstruction semantically (control flow, scoping, returns,
 // break/continue placement), a far stronger guarantee than a syntax parse.
-int CompileCheck(const std::string& data_dir, const std::string& out_dir) {
+int CompileCheck(const base::String& data_dir, const base::String& out_dir) {
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
-  std::filesystem::create_directories(out_dir, ec);
+  std::filesystem::create_directories(out_dir.c_str(), ec);
 
-  std::vector<std::string> scripts;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Vector<base::String> scripts;
+  vfs.Enumerate([&](base::StringRef p) {
     if (p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
       scripts.emplace_back(p);
   });
@@ -178,21 +192,21 @@ int CompileCheck(const std::string& data_dir, const std::string& out_dir) {
   opts.sink = &sink;
 
   size_t written = 0;
-  for (const std::string& path : scripts) {
+  for (const base::String& path : scripts) {
     auto data = vfs.Read(path);
     if (!data) continue;
     PexFile pex;
     if (!ParsePex(ByteSpan(data->data(), data->size()), &pex)) continue;
-    std::string stem = path.substr(8, path.size() - 12);
-    std::ofstream f(out_dir + "/" + stem + ".cs", std::ios::binary);
+    base::String stem = path.substr(8, path.size() - 12);
+    std::ofstream f((out_dir + "/" + stem + ".cs").c_str(), std::ios::binary);
     if (!f) continue;
-    f << TranspileToCSharp(pex, opts);
+    f << TranspileToCSharp(pex, opts).c_str();
     ++written;
   }
 
   // The harness funnels every engine call through two dynamic helpers, so the
   // whole external surface is this one tiny stub, no per-type guessing needed.
-  std::ofstream stub(out_dir + "/__Stubs.cs", std::ios::binary);
+  std::ofstream stub((out_dir + "/__Stubs.cs").c_str(), std::ios::binary);
   stub << "// Auto-generated harness stub: the only symbols the decompiled corpus\n"
           "// needs that it does not itself define. Everything is dynamic.\n"
           "namespace Recreation.Decompiled;\n\n"
@@ -206,21 +220,21 @@ int CompileCheck(const std::string& data_dir, const std::string& out_dir) {
   return 0;
 }
 
-std::string LowerStr(std::string s) {
+base::String LowerStr(base::String s) {
   for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return s;
 }
-bool IsPrimType(const std::string& t) {
-  std::string b = LowerStr(t);
+bool IsPrimType(const base::String& t) {
+  base::String b = LowerStr(t);
   if (b.size() >= 2 && b.compare(b.size() - 2, 2, "[]") == 0) b.resize(b.size() - 2);
   return b == "int" || b == "float" || b == "bool" || b == "string";
 }
 // A minimal C# identifier sanitizer matching the transpiler's (enough for a
 // class name): non-alnum -> '_', leading digit prefixed.
-std::string CsIdent(const std::string& n) {
-  std::string out;
+base::String CsIdent(const base::String& n) {
+  base::String out;
   for (char c : n) out.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
-  if (out.empty() || std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(out.begin(), '_');
+  if (out.empty() || std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(0, 1, '_');
   return out;
 }
 
@@ -234,16 +248,21 @@ std::string CsIdent(const std::string& n) {
 // Formats one call argument so the VM and C# sides render it identically: literal
 // primitives compare exactly, objects collapse to a single token (their identity
 // is seeded differently on each side and is not what this test checks).
-std::string FormatArg(const rx::script::papyrus::Value& v) {
+base::String FormatArg(const rx::script::papyrus::Value& v) {
   using rx::script::papyrus::ValueType;
   switch (v.type()) {
-    case ValueType::kInt: return "i" + std::to_string(v.as_int());
+    case ValueType::kInt:
+      return "i" + base::ToString(v.as_int());
     case ValueType::kFloat:
-      return "f" + std::to_string(static_cast<std::int64_t>(std::llround(v.as_float() * 1000.0)));
-    case ValueType::kBool: return v.as_bool() ? "T" : "F";
-    case ValueType::kString: return "s:" + v.as_string();
-    case ValueType::kNone: return "_";
-    default: return "o";  // object / array / struct
+      return "f" + base::ToString(static_cast<std::int64_t>(std::llround(v.as_float() * 1000.0)));
+    case ValueType::kBool:
+      return v.as_bool() ? "T" : "F";
+    case ValueType::kString:
+      return "s:" + v.as_string();
+    case ValueType::kNone:
+      return "_";
+    default:
+      return "o";  // object / array / struct
   }
 }
 
@@ -253,10 +272,10 @@ std::string FormatArg(const rx::script::papyrus::Value& v) {
 // `counter`) so chained calls keep dispatching and both sides stay in lockstep.
 void RegisterRecorders(asset::Vfs& vfs, rx::script::papyrus::NativeRegistry& reg,
                        std::shared_ptr<std::uint64_t> counter,
-                       std::shared_ptr<std::vector<std::string>> trace) {
+                       std::shared_ptr<base::Vector<base::String>> trace) {
   using namespace rx::script::papyrus;
-  std::set<std::pair<std::string, std::string>> seen;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Set<base::Pair<base::String, base::String>> seen;
+  vfs.Enumerate([&](base::StringRef p) {
     if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
       return;
     auto data = vfs.Read(p);
@@ -269,11 +288,12 @@ void RegisterRecorders(asset::Vfs& vfs, rx::script::papyrus::NativeRegistry& reg
           if (nf.function.is_native) seen.insert({pex.Str(o.name), pex.Str(nf.name)});
   });
   for (const auto& [type, func] : seen) {
-    std::string fn = func;
+    base::String fn = func;
     reg.Register(type, func,
-                 [counter, trace, fn](VirtualMachine&, ObjectRef, std::vector<Value>& args) {
-                   std::string call = fn + "(";
-                   for (size_t i = 0; i < args.size(); ++i) call += (i ? "," : "") + FormatArg(args[i]);
+                 [counter, trace, fn](VirtualMachine&, ObjectRef, base::Vector<Value>& args) {
+                   base::String call = fn + "(";
+                   for (size_t i = 0; i < args.size(); ++i)
+                     call += (i ? "," : "") + FormatArg(args[i]);
                    trace->push_back(call + ")");
                    return Value::Object(ObjectRef{(*counter)++});
                  });
@@ -342,12 +362,13 @@ namespace Recreation.Decompiled {
 }
 )CS";
 
-int RunTest(const std::string& data_dir, const std::string& script_name, const std::string& out_dir) {
+int RunTest(const base::String& data_dir, const base::String& script_name,
+            const base::String& out_dir) {
   using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
-  std::filesystem::create_directories(out_dir, ec);
+  std::filesystem::create_directories(out_dir.c_str(), ec);
 
   auto blob = vfs.Read("scripts/" + script_name + ".pex");
   if (!blob) {
@@ -360,66 +381,72 @@ int RunTest(const std::string& data_dir, const std::string& script_name, const s
     return 1;
   }
   const Object& obj = pex.objects.front();
-  std::string type_name = pex.Str(obj.name);
+  base::String type_name = pex.Str(obj.name);
 
   // VM side: run each fragment, recording its engine calls.
   auto counter = std::make_shared<std::uint64_t>(1000000);
-  auto trace = std::make_shared<std::vector<std::string>>();
+  auto trace = std::make_shared<base::Vector<base::String>>();
   NativeRegistry reg;
   RegisterRecorders(vfs, reg, counter, trace);
   VirtualMachine vm(&reg);
   // Load the script and walk its ancestor chain so inherited functions resolve.
   vm.LoadScript(ByteSpan(blob->data(), blob->size()));
-  for (std::string parent = vm.ParentClassOf(type_name); !parent.empty();) {
+  for (base::String parent = vm.ParentClassOf(type_name); !parent.empty();) {
     auto pb = vfs.Read("scripts/" + parent + ".pex");
     if (!pb) break;
-    std::string loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
+    base::String loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
     parent = loaded.empty() ? "" : vm.ParentClassOf(loaded);
   }
   ObjectRef inst = vm.CreateInstance(type_name);
   // Seed object-typed members with handles so calls on them resolve and log.
   for (const MemberVariable& v : obj.variables) {
-    std::string vt = LowerStr(pex.Str(v.type));
+    base::String vt = LowerStr(pex.Str(v.type));
     if (IsPrimType(vt)) continue;
     if (Value* slot = vm.MemberVar(inst, pex.Str(v.name)))
       *slot = Value::Object(ObjectRef{(*counter)++});
   }
 
   // Collect the quest's fragment functions (default state, no params).
-  std::vector<std::string> fragments;
+  base::Vector<base::String> fragments;
   for (const State& s : obj.states) {
     if (s.name != kInvalidString && !pex.Str(s.name).empty()) continue;
     for (const NamedFunction& nf : s.functions) {
-      const std::string& fname = pex.Str(nf.name);
-      if (fname.rfind("Fragment_", 0) == 0 && nf.function.params.empty()) fragments.push_back(fname);
+      const base::String& fname = pex.Str(nf.name);
+      if (fname.rfind("Fragment_", 0) == 0 && nf.function.params.empty())
+        fragments.push_back(fname);
     }
   }
 
-  std::ofstream vm_out(out_dir + "/vm_trace.txt", std::ios::binary);
-  for (const std::string& f : fragments) {
+  std::ofstream vm_out((out_dir + "/vm_trace.txt").c_str(), std::ios::binary);
+  for (const base::String& f : fragments) {
     trace->clear();
     vm.Call(inst, f, {});
-    std::string line = f + "|";
+    base::String line = f + "|";
     for (size_t i = 0; i < trace->size(); ++i) line += (i ? ";" : "") + (*trace)[i];
-    vm_out << line << "\n";
+    vm_out << line.c_str() << "\n";
   }
 
   // C# side: emit the recording runtime, the quest, and a driver.
-  std::ofstream(out_dir + "/Eng.cs", std::ios::binary) << kEngRuntime;
+  std::ofstream((out_dir + "/Eng.cs").c_str(), std::ios::binary) << kEngRuntime;
   TranspileOptions ropts;
   ropts.runner = true;
-  std::ofstream(out_dir + "/" + script_name + ".cs", std::ios::binary) << TranspileToCSharp(pex, ropts);
+  std::ofstream((out_dir + "/" + script_name + ".cs").c_str(), std::ios::binary)
+      << TranspileToCSharp(pex, ropts).c_str();
 
-  std::ofstream prog(out_dir + "/Program.cs", std::ios::binary);
+  std::ofstream prog((out_dir + "/Program.cs").c_str(), std::ios::binary);
   prog << "using System;\nusing Recreation.Decompiled;\n"
           "class Program { static void Main(){\n"
-          "    var q = new " << CsIdent(type_name) << "();\n";
-  for (const std::string& f : fragments)
-    prog << "    Eng.T.Clear(); try { q." << f << "(); } catch(Exception e){ Eng.T.Add(\"EXC:\"+e.GetType().Name); }"
-            " Console.WriteLine(\"" << f << "|\"+string.Join(\";\", Eng.T));\n";
+          "    var q = new "
+       << CsIdent(type_name).c_str() << "();\n";
+  for (const base::String& f : fragments)
+    prog << "    Eng.T.Clear(); try { q." << f.c_str()
+         << "(); } catch(Exception e){ Eng.T.Add(\"EXC:\"+e.GetType().Name); }"
+            " Console.WriteLine(\""
+         << f.c_str() << "|\"+string.Join(\";\", Eng.T));\n";
   prog << "}}\n";
 
-  std::fprintf(stderr, "runtest %s: %zu fragments -> %s/{vm_trace.txt, Eng.cs, %s.cs, Program.cs}\n",
+  std::fprintf(stderr,
+               "runtest %s: %zu fragments -> %s/{vm_trace.txt, Eng.cs, %s.cs, Program.cs}\n",
                script_name.c_str(), fragments.size(), out_dir.c_str(), script_name.c_str());
   return 0;
 }
@@ -430,8 +457,8 @@ int RunTest(const std::string& data_dir, const std::string& script_name, const s
 // the results. A match across every trial is behavioural evidence that the
 // reconstructed expressions and control flow compute what the bytecode does.
 
-bool IsPrimScalar(const std::string& t) {
-  std::string l = LowerStr(t);
+bool IsPrimScalar(const base::String& t) {
+  base::String l = LowerStr(t);
   return l == "int" || l == "float" || l == "bool" || l == "string";
 }
 
@@ -442,9 +469,9 @@ bool IsPure(const PexFile& pex, const Function& fn) {
   if (fn.is_native) return false;
   for (const TypedName& p : fn.params)
     if (!IsPrimScalar(LowerStr(pex.Str(p.type)))) return false;
-  std::string rt = LowerStr(pex.Str(fn.return_type));
+  base::String rt = LowerStr(pex.Str(fn.return_type));
   if (!(rt.empty() || rt == "none" || IsPrimScalar(rt))) return false;
-  std::set<std::string> names;
+  base::Set<base::String> names;
   for (const TypedName& p : fn.params) names.insert(pex.Str(p.name));
   for (const TypedName& l : fn.locals) {
     names.insert(pex.Str(l.name));
@@ -452,15 +479,23 @@ bool IsPure(const PexFile& pex, const Function& fn) {
   }
   for (const Instruction& in : fn.code) {
     switch (in.op) {
-      case Op::kCallMethod: case Op::kCallParent: case Op::kCallStatic:
-      case Op::kPropGet: case Op::kPropSet: case Op::kIs:
-      case Op::kStructCreate: case Op::kStructGet: case Op::kStructSet:
-      case Op::kArrayFindStruct: case Op::kArrayRFindStruct:
+      case Op::kCallMethod:
+      case Op::kCallParent:
+      case Op::kCallStatic:
+      case Op::kPropGet:
+      case Op::kPropSet:
+      case Op::kIs:
+      case Op::kStructCreate:
+      case Op::kStructGet:
+      case Op::kStructSet:
+      case Op::kArrayFindStruct:
+      case Op::kArrayRFindStruct:
       case Op::kArrayGetAllMatchingStructs:
         return false;
-      default: break;
+      default:
+        break;
     }
-    auto ok = [&](const std::vector<VariableData>& ops) {
+    auto ok = [&](const base::Vector<VariableData>& ops) {
       for (const VariableData& v : ops)
         if (v.type == VariableData::Type::kIdentifier && !names.count(pex.Str(v.string_index)))
           return false;
@@ -486,46 +521,49 @@ const char* InpS(int fi, int t, int p) {
 }
 
 // Formats a VM return value the same way the emitted C# formats its result.
-std::string FormatResult(const std::string& ret_lower, const rx::script::papyrus::Value& v) {
+base::String FormatResult(const base::String& ret_lower, const rx::script::papyrus::Value& v) {
   using rx::script::papyrus::Value;
-  if (ret_lower == "int") return "I" + std::to_string(v.ToInt());
+  if (ret_lower == "int") return "I" + base::ToString(v.ToInt());
   if (ret_lower == "bool") return v.ToBool() ? "B1" : "B0";
   if (ret_lower == "string") return "S" + v.ToString();
   if (ret_lower == "float")
-    return "F" + std::to_string(static_cast<std::int64_t>(std::llround(v.ToFloat() * 1000.0)));
+    return "F" + base::ToString(static_cast<std::int64_t>(std::llround(v.ToFloat() * 1000.0)));
   return "V";
 }
 
-int DiffTest(const std::string& data_dir, const std::string& out_dir) {
+int DiffTest(const base::String& data_dir, const base::String& out_dir) {
   using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
   std::error_code ec;
-  std::filesystem::create_directories(out_dir, ec);
+  std::filesystem::create_directories(out_dir.c_str(), ec);
 
-  std::vector<std::string> scripts;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Vector<base::String> scripts;
+  vfs.Enumerate([&](base::StringRef p) {
     if (p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
       scripts.emplace_back(p);
   });
-  std::sort(scripts.begin(), scripts.end());  // stable order so fi is reproducible
+  base::Sort(scripts.begin(), scripts.end());  // stable order so fi is reproducible
 
   constexpr int kTrials = 16;
   constexpr int kMaxFns = 6000;
 
-  std::ofstream vm_out(out_dir + "/vm_results.txt", std::ios::binary);
-  std::ofstream cs(out_dir + "/Diff.cs", std::ios::binary);
+  std::ofstream vm_out((out_dir + "/vm_results.txt").c_str(), std::ios::binary);
+  std::ofstream cs((out_dir + "/Diff.cs").c_str(), std::ios::binary);
   cs << "using System;\nusing System.Globalization;\n"
         "static class Diff {\n"
-        "  static long Sd(int fi,int t,int p){ return (long)fi*1000003 + (long)t*131 + (long)p*17 + 1; }\n"
+        "  static long Sd(int fi,int t,int p){ return (long)fi*1000003 + (long)t*131 + (long)p*17 "
+        "+ 1; }\n"
         "  static int InpI(int fi,int t,int p){ return (int)(((Sd(fi,t,p)%41)+41)%41) - 20; }\n"
-        "  static float InpF(int fi,int t,int p){ return (float)((double)(((Sd(fi,t,p)%4001)+4001)%4001) - 2000.0)/100.0f; }\n"
+        "  static float InpF(int fi,int t,int p){ return "
+        "(float)((double)(((Sd(fi,t,p)%4001)+4001)%4001) - 2000.0)/100.0f; }\n"
         "  static bool InpB(int fi,int t,int p){ return (((Sd(fi,t,p)%2)+2)%2)==0; }\n"
-        "  static string InpS(int fi,int t,int p){ string[] v={\"\",\"a\",\"Hello\",\"123\"}; return v[((Sd(fi,t,p)%4)+4)%4]; }\n";
+        "  static string InpS(int fi,int t,int p){ string[] v={\"\",\"a\",\"Hello\",\"123\"}; "
+        "return v[((Sd(fi,t,p)%4)+4)%4]; }\n";
 
-  std::string main_body;
+  base::String main_body;
   int fi = 0;
-  for (const std::string& path : scripts) {
+  for (const base::String& path : scripts) {
     if (fi >= kMaxFns) break;
     auto data = vfs.Read(path);
     if (!data) continue;
@@ -537,7 +575,7 @@ int DiffTest(const std::string& data_dir, const std::string& out_dir) {
     // state so a single instance serves every call.
     VirtualMachine vm(nullptr);
     PexFile pex_for_vm = pex;
-    std::string type = vm.AddScript(std::move(pex_for_vm));
+    base::String type = vm.AddScript(base::move(pex_for_vm));
     if (type.empty()) continue;
     ObjectRef inst = vm.CreateInstance(type);
 
@@ -548,50 +586,64 @@ int DiffTest(const std::string& data_dir, const std::string& out_dir) {
         if (fi >= kMaxFns) break;
         const Function& fn = nf.function;
         if (!IsPure(pex, fn)) continue;
-        std::string fname = pex.Str(nf.name);
-        std::string rt = LowerStr(pex.Str(fn.return_type));
+        base::String fname = pex.Str(nf.name);
+        base::String rt = LowerStr(pex.Str(fn.return_type));
 
         // Emit the C# method and a per-function result printer.
-        cs << TranspileFunctionToCSharp(pex, fn, "Func_" + std::to_string(fi));
+        cs << TranspileFunctionToCSharp(pex, fn, "Func_" + base::ToString(fi)).c_str();
         cs << "  static string R_" << fi << "(int t){ ";
-        std::string call = "Func_" + std::to_string(fi) + "(";
+        base::String call = "Func_" + base::ToString(fi) + "(";
         for (size_t p = 0; p < fn.params.size(); ++p) {
           if (p) call += ", ";
-          std::string pt = LowerStr(pex.Str(fn.params[p].type));
-          std::string fn_in = pt == "int" ? "InpI" : pt == "float" ? "InpF" : pt == "bool" ? "InpB" : "InpS";
-          call += fn_in + "(" + std::to_string(fi) + ",t," + std::to_string(p) + ")";
+          base::String pt = LowerStr(pex.Str(fn.params[p].type));
+          base::String fn_in = pt == "int"     ? "InpI"
+                               : pt == "float" ? "InpF"
+                               : pt == "bool"  ? "InpB"
+                                               : "InpS";
+          call += fn_in + "(" + base::ToString(fi) + ",t," + base::ToString(p) + ")";
         }
         call += ")";
-        if (rt == "int") cs << "return \"I\"+(" << call << ");";
-        else if (rt == "bool") cs << "return (" << call << ")?\"B1\":\"B0\";";
-        else if (rt == "string") cs << "return \"S\"+(" << call << ");";
-        else if (rt == "float") cs << "return \"F\"+((long)Math.Round((double)(" << call << ")*1000.0, MidpointRounding.AwayFromZero));";
-        else cs << call << "; return \"V\";";
+        if (rt == "int")
+          cs << "return \"I\"+(" << call.c_str() << ");";
+        else if (rt == "bool")
+          cs << "return (" << call.c_str() << ")?\"B1\":\"B0\";";
+        else if (rt == "string")
+          cs << "return \"S\"+(" << call.c_str() << ");";
+        else if (rt == "float")
+          cs << "return \"F\"+((long)Math.Round((double)(" << call.c_str()
+             << ")*1000.0, MidpointRounding.AwayFromZero));";
+        else
+          cs << call.c_str() << "; return \"V\";";
         cs << " }\n";
-        main_body += "    for(int t=0;t<" + std::to_string(kTrials) + ";t++) Console.WriteLine(\"" +
-                     std::to_string(fi) + "|\"+t+\"|\"+R_" + std::to_string(fi) + "(t));\n";
+        main_body += "    for(int t=0;t<" + base::ToString(kTrials) + ";t++) Console.WriteLine(\"" +
+                     base::ToString(fi) + "|\"+t+\"|\"+R_" + base::ToString(fi) + "(t));\n";
 
         // Run the same trials in the VM.
         for (int t = 0; t < kTrials; ++t) {
-          std::vector<Value> args;
+          base::Vector<Value> args;
           for (size_t p = 0; p < fn.params.size(); ++p) {
-            std::string pt = LowerStr(pex.Str(fn.params[p].type));
-            if (pt == "int") args.push_back(Value::Int(InpI(fi, t, static_cast<int>(p))));
-            else if (pt == "float") args.push_back(Value::Float(static_cast<float>(InpF(fi, t, static_cast<int>(p)))));
-            else if (pt == "bool") args.push_back(Value::Bool(InpB(fi, t, static_cast<int>(p))));
-            else args.push_back(Value::Str(InpS(fi, t, static_cast<int>(p))));
+            base::String pt = LowerStr(pex.Str(fn.params[p].type));
+            if (pt == "int")
+              args.push_back(Value::Int(InpI(fi, t, static_cast<int>(p))));
+            else if (pt == "float")
+              args.push_back(Value::Float(static_cast<float>(InpF(fi, t, static_cast<int>(p)))));
+            else if (pt == "bool")
+              args.push_back(Value::Bool(InpB(fi, t, static_cast<int>(p))));
+            else
+              args.push_back(Value::Str(InpS(fi, t, static_cast<int>(p))));
           }
           Value r = fn.is_global ? vm.CallGlobal(type, fname, args) : vm.Call(inst, fname, args);
-          vm_out << fi << "|" << t << "|" << FormatResult(rt, r) << "\n";
+          vm_out << fi << "|" << t << "|" << FormatResult(rt, r).c_str() << "\n";
         }
         ++fi;
       }
     }
   }
 
-  cs << "  static void Main(){\n" << main_body << "  }\n}\n";
-  std::fprintf(stderr, "difftest: %d pure functions, %d trials each -> %s/{vm_results.txt,Diff.cs}\n",
-               fi, kTrials, out_dir.c_str());
+  cs << "  static void Main(){\n" << main_body.c_str() << "  }\n}\n";
+  std::fprintf(stderr,
+               "difftest: %d pure functions, %d trials each -> %s/{vm_results.txt,Diff.cs}\n", fi,
+               kTrials, out_dir.c_str());
   return 0;
 }
 
@@ -600,27 +652,26 @@ int DiffTest(const std::string& data_dir, const std::string& out_dir) {
 // A script belongs to the main quest if it is a QF_MQ* stage-fragment script or
 // an MQ<digit>* quest/alias/effect script. This is the MQ1xx-MQ3xx spine; dialogue
 // TIF__ fragments are keyed by form id and fall outside this name-based scope.
-bool IsMainQuestScript(const std::string& name) {
+bool IsMainQuestScript(const base::String& name) {
   if (name.rfind("QF_MQ", 0) == 0) return true;
-  return name.size() >= 3 && name[0] == 'M' && name[1] == 'Q' &&
-         name[2] >= '0' && name[2] <= '9';
+  return name.size() >= 3 && name[0] == 'M' && name[1] == 'Q' && name[2] >= '0' && name[2] <= '9';
 }
 
 // Runs every main-quest script's parameterless default-state functions (stage
 // fragments and event handlers) through the VM and reports which engine natives
 // they actually dispatch, as a sorted Type.Function set.
-int MqTrace(const std::string& data_dir) {
+int MqTrace(const base::String& data_dir) {
   using namespace rx::script::papyrus;
   asset::Vfs vfs;
   MountArchives(vfs, data_dir);
 
   auto counter = std::make_shared<std::uint64_t>(1000000);
-  auto called = std::make_shared<std::set<std::pair<std::string, std::string>>>();
+  auto called = std::make_shared<base::Set<base::Pair<base::String, base::String>>>();
 
   // Register a recorder for every native (type, func) the archives declare. Each
   // records its own canonical identity, so the trace keys match the registry.
-  std::set<std::pair<std::string, std::string>> natives;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Set<base::Pair<base::String, base::String>> natives;
+  vfs.Enumerate([&](base::StringRef p) {
     if (!(p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex"))
       return;
     auto data = vfs.Read(p);
@@ -634,9 +685,9 @@ int MqTrace(const std::string& data_dir) {
   });
   NativeRegistry reg;
   for (const auto& [type, func] : natives) {
-    std::pair<std::string, std::string> key{type, func};
+    base::Pair<base::String, base::String> key{type, func};
     reg.Register(type, func,
-                 [counter, called, key](VirtualMachine&, ObjectRef, std::vector<Value>&) {
+                 [counter, called, key](VirtualMachine&, ObjectRef, base::Vector<Value>&) {
                    called->insert(key);
                    return Value::Object(ObjectRef{(*counter)++});
                  });
@@ -644,26 +695,26 @@ int MqTrace(const std::string& data_dir) {
 
   // Drive each main-quest script's fragments and no-param handlers.
   size_t scripts = 0;
-  std::vector<std::string> pending;
-  vfs.Enumerate([&](std::string_view p) {
+  base::Vector<base::String> pending;
+  vfs.Enumerate([&](base::StringRef p) {
     if (p.size() > 12 && p.substr(0, 8) == "scripts/" && p.substr(p.size() - 4) == ".pex")
       pending.emplace_back(p);
   });
-  for (const std::string& path : pending) {
+  for (const base::String& path : pending) {
     auto blob = vfs.Read(path);
     if (!blob) continue;
     PexFile pex;
     if (!ParsePex(ByteSpan(blob->data(), blob->size()), &pex) || pex.objects.empty()) continue;
     const Object& obj = pex.objects.front();
-    std::string type_name = pex.Str(obj.name);
+    base::String type_name = pex.Str(obj.name);
     if (!IsMainQuestScript(type_name)) continue;
 
     VirtualMachine vm(&reg);
     vm.LoadScript(ByteSpan(blob->data(), blob->size()));
-    for (std::string parent = vm.ParentClassOf(type_name); !parent.empty();) {
+    for (base::String parent = vm.ParentClassOf(type_name); !parent.empty();) {
       auto pb = vfs.Read("scripts/" + parent + ".pex");
       if (!pb) break;
-      std::string loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
+      base::String loaded = vm.LoadScript(ByteSpan(pb->data(), pb->size()));
       parent = loaded.empty() ? "" : vm.ParentClassOf(loaded);
     }
     ObjectRef inst = vm.CreateInstance(type_name);
@@ -687,14 +738,14 @@ int MqTrace(const std::string& data_dir) {
 }
 
 int main(int argc, char** argv) {
-  std::vector<std::string> args(argv + 1, argv + argc);
+  base::Vector<base::String> args(argv + 1, argv + argc);
   bool disasm = false;
-  for (auto it = args.begin(); it != args.end();) {
-    if (*it == "--disasm") {
+  for (mem_size i = 0; i < args.size();) {
+    if (args[i] == "--disasm") {
       disasm = true;
-      it = args.erase(it);
+      args.erase(i);
     } else {
-      ++it;
+      ++i;
     }
   }
 
@@ -705,8 +756,8 @@ int main(int argc, char** argv) {
   if (args.size() >= 4 && args[0] == "--runtest") return RunTest(args[1], args[2], args[3]);
   if (args.size() >= 2 && args[0] == "--mqtrace") return MqTrace(args[1]);
 
-  std::vector<u8> blob;
-  std::string out_path;
+  base::Vector<u8> blob;
+  base::String out_path;
 
   if (!args.empty() && args[0] == "--file") {
     if (args.size() < 2) {
@@ -721,7 +772,7 @@ int main(int argc, char** argv) {
   } else if (args.size() >= 2) {
     asset::Vfs vfs;
     MountArchives(vfs, args[0]);
-    std::string vpath = "scripts/" + args[1] + ".pex";
+    base::String vpath = "scripts/" + args[1] + ".pex";
     auto data = vfs.Read(vpath);
     if (!data) {
       std::fprintf(stderr, "not found in archives: %s\n", vpath.c_str());

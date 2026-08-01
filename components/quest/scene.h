@@ -1,7 +1,7 @@
 #ifndef RECREATION_QUEST_SCENE_H_
 #define RECREATION_QUEST_SCENE_H_
 
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 
@@ -16,17 +16,17 @@ namespace rx::quest {
 struct SceneAction {
   enum class Kind : u8 { kGuideTo, kSayInfo, kSetStage, kWait, kWaitPlayerNear };
   Kind kind = Kind::kWait;
-  u64 actor = 0;     // form handle for kGuideTo / kSayInfo
-  u64 info = 0;      // INFO handle for kSayInfo
-  u64 quest = 0;     // quest handle for kSetStage
-  i32 stage = 0;     // stage for kSetStage
+  u64 actor = 0;             // form handle for kGuideTo / kSayInfo
+  u64 info = 0;              // INFO handle for kSayInfo
+  u64 quest = 0;             // quest handle for kSetStage
+  i32 stage = 0;             // stage for kSetStage
   float pos[3] = {0, 0, 0};  // target for kGuideTo / kWaitPlayerNear
   float radius = 2.5f;       // arrival radius for kGuideTo / kWaitPlayerNear
   float seconds = 0;         // duration for kWait
 };
 
 struct Scene {
-  std::vector<SceneAction> actions;  // run in order, one at a time
+  base::Vector<SceneAction> actions;  // run in order, one at a time
 };
 
 // Side effects + queries a running scene needs. The engine implements this over
@@ -36,8 +36,8 @@ class SceneSink {
  public:
   virtual ~SceneSink() = default;
   virtual void GuideTo(u64 /*actor*/, const float /*pos*/[3]) {}  // start the actor walking there
-  virtual void SayInfo(u64 /*actor*/, u64 /*info*/) {}           // run the actor's INFO fragment
-  virtual void SetStage(u64 /*quest*/, i32 /*stage*/) {}         // advance the journal
+  virtual void SayInfo(u64 /*actor*/, u64 /*info*/) {}            // run the actor's INFO fragment
+  virtual void SetStage(u64 /*quest*/, i32 /*stage*/) {}          // advance the journal
   virtual bool ActorAt(u64 /*actor*/, const float /*pos*/[3], float /*radius*/) { return true; }
   virtual bool PlayerNear(const float /*pos*/[3], float /*radius*/) { return false; }
 };
@@ -50,12 +50,13 @@ class SceneRunner {
  public:
   SceneRunner() = default;
   explicit SceneRunner(const Scene* scene) : scene_(scene) {}
-  void Reset(const Scene* scene);                  // restart on a (new) scene
+  void Reset(const Scene* scene);  // restart on a (new) scene
   // Advances the scene by dt seconds. Returns true while running, false when
   // every action has completed (or there is no scene).
   bool Tick(SceneSink& sink, float dt);
-  bool running() const;                            // a scene is set and not finished
+  bool running() const;  // a scene is set and not finished
   size_t current_action() const { return index_; }
+
  private:
   const Scene* scene_ = nullptr;
   size_t index_ = 0;

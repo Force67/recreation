@@ -6,10 +6,10 @@
 // come back. No game data needed, so it runs in the ctest gate; Skyrim geometry
 // is covered by the tests that load shipped meshes.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #include "asset/asset_id.h"
 #include "components/bethesda/nif.h"
@@ -24,24 +24,24 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU8(std::vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
-void PutU16(std::vector<rx::u8>& b, rx::u16 v) {
+void PutU8(base::Vector<rx::u8>& b, rx::u8 v) { b.push_back(v); }
+void PutU16(base::Vector<rx::u8>& b, rx::u16 v) {
   b.push_back(rx::u8(v));
   b.push_back(rx::u8(v >> 8));
 }
-void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutI32(std::vector<rx::u8>& b, rx::i32 v) { PutU32(b, static_cast<rx::u32>(v)); }
-void PutU64(std::vector<rx::u8>& b, rx::u64 v) {
+void PutI32(base::Vector<rx::u8>& b, rx::i32 v) { PutU32(b, static_cast<rx::u32>(v)); }
+void PutU64(base::Vector<rx::u8>& b, rx::u64 v) {
   for (int i = 0; i < 8; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutF32(std::vector<rx::u8>& b, float f) {
+void PutF32(base::Vector<rx::u8>& b, float f) {
   rx::u32 v;
   std::memcpy(&v, &f, 4);
   PutU32(b, v);
 }
-void PutSizedStr(std::vector<rx::u8>& b, const char* s) {  // u32 len + bytes
+void PutSizedStr(base::Vector<rx::u8>& b, const char* s) {  // u32 len + bytes
   rx::u32 n = 0;
   while (s[n]) ++n;
   PutU32(b, n);
@@ -50,16 +50,16 @@ void PutSizedStr(std::vector<rx::u8>& b, const char* s) {  // u32 len + bytes
 
 // NiAVObject prefix the reader consumes: name, extra list, controller, flags,
 // transform (translation, 3x3 rotation, scale), collision ref. 72 bytes here.
-void PutAvObject(std::vector<rx::u8>& b) {
-  PutI32(b, -1);  // name (no string table entry)
-  PutU32(b, 0);   // extra data count
-  PutI32(b, -1);  // controller
-  PutU32(b, 0);   // flags (bit 0 = hidden; visible here)
+void PutAvObject(base::Vector<rx::u8>& b) {
+  PutI32(b, -1);                                // name (no string table entry)
+  PutU32(b, 0);                                 // extra data count
+  PutI32(b, -1);                                // controller
+  PutU32(b, 0);                                 // flags (bit 0 = hidden; visible here)
   for (int i = 0; i < 3; ++i) PutF32(b, 0.0f);  // translation
   const float ident[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   for (float v : ident) PutF32(b, v);  // rotation
-  PutF32(b, 1.0f);  // scale
-  PutI32(b, -1);    // collision object
+  PutF32(b, 1.0f);                     // scale
+  PutI32(b, -1);                       // collision object
 }
 
 // Builds a minimal FO4 NIF (a root NiNode over one geometry block of
@@ -69,23 +69,23 @@ void PutAvObject(std::vector<rx::u8>& b) {
 void RunCase(const char* shape_type) {
   std::printf("  -- %s --\n", shape_type);
 
-  std::vector<rx::u8> node;
+  base::Vector<rx::u8> node;
   PutAvObject(node);
-  PutU32(node, 1);   // child count
-  PutI32(node, 1);   // child -> block 1
+  PutU32(node, 1);  // child count
+  PutI32(node, 1);  // child -> block 1
 
-  std::vector<rx::u8> shape;
+  base::Vector<rx::u8> shape;
   PutAvObject(shape);
   for (int i = 0; i < 4; ++i) PutF32(shape, 0.0f);  // bounding sphere (center+radius)
-  PutI32(shape, -1);  // skin
-  PutI32(shape, -1);  // shader
-  PutI32(shape, -1);  // alpha property
+  PutI32(shape, -1);                                // skin
+  PutI32(shape, -1);                                // shader
+  PutI32(shape, -1);                                // alpha property
   // Vertex desc: kHasVertex (flag bit 0 -> desc bit 44), stride nibble = 4 (16
   // bytes), no other attributes, so positions are full-precision floats.
   PutU64(shape, (rx::u64(1) << 44) | 0x4);
   const rx::u32 triangles = 1, stride = 16;
   const rx::u16 vertices = 3;
-  PutU32(shape, triangles);   // FO4: u32 triangle count
+  PutU32(shape, triangles);  // FO4: u32 triangle count
   PutU16(shape, vertices);
   PutU32(shape, stride * vertices + 6 * triangles);  // data size = 54
   const float pos[3][3] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
@@ -100,16 +100,16 @@ void RunCase(const char* shape_type) {
   Check("node block is 80 bytes", node.size() == 80);
   Check("shape block is 172 bytes", shape.size() == 172);
 
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   const char* magic = "Gamebryo File Format, Version 20.2.0.7\n";
   for (const char* p = magic; *p; ++p) b.push_back(static_cast<rx::u8>(*p));
-  PutU32(b, 0x14020007);  // version 20.2.0.7
-  PutU8(b, 1);            // little-endian
-  PutU32(b, 12);          // user version
-  PutU32(b, 2);           // block count
-  PutU32(b, 130);         // BS stream version: Fallout 4
+  PutU32(b, 0x14020007);                    // version 20.2.0.7
+  PutU8(b, 1);                              // little-endian
+  PutU32(b, 12);                            // user version
+  PutU32(b, 2);                             // block count
+  PutU32(b, 130);                           // BS stream version: Fallout 4
   for (int i = 0; i < 4; ++i) PutU8(b, 0);  // 4 empty export strings (bs >= 130)
-  PutU16(b, 2);           // block type count
+  PutU16(b, 2);                             // block type count
   PutSizedStr(b, "NiNode");
   PutSizedStr(b, shape_type);
   PutU16(b, 0);  // block 0 type index
@@ -121,8 +121,8 @@ void RunCase(const char* shape_type) {
   PutU32(b, 0);  // group count
   b.insert(b.end(), node.begin(), node.end());
   b.insert(b.end(), shape.begin(), shape.end());
-  PutU32(b, 1);   // footer: one root
-  PutI32(b, 0);   // root -> block 0 (the node)
+  PutU32(b, 1);  // footer: one root
+  PutI32(b, 0);  // root -> block 0 (the node)
 
   rx::bethesda::NifConversion conv = rx::bethesda::ConvertNifScene(
       rx::ByteSpan(b.data(), b.size()), rx::asset::MakeAssetId("test/synthetic.nif"),

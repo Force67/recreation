@@ -1,9 +1,8 @@
 #ifndef RECREATION_RUNTIME_VEHICLE_CARRIAGE_H_
 #define RECREATION_RUNTIME_VEHICLE_CARRIAGE_H_
 
-#include <string>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/record.h"
 #include "core/math.h"
@@ -52,21 +51,21 @@ class CarriageSystem {
 
  private:
   void Spawn(const Vec3& origin);
-  Vec3 RoutePoint(f32 arc) const;          // world point on the loop at arc length
-  Vec3 RouteTangent(f32 arc) const;        // unit travel direction at arc length
+  Vec3 RoutePoint(f32 arc) const;    // world point on the loop at arc length
+  Vec3 RouteTangent(f32 arc) const;  // unit travel direction at arc length
   f32 GroundY(f32 x, f32 z, f32 y_hint) const;
-  Vec3 SeatWorld() const;                  // world seat pose from the chassis
+  Vec3 SeatWorld() const;  // world seat pose from the chassis
 
   EngineContext& ctx_;
   ActorSystem* actors_;
-  bool enabled_ = false;   // RX_CARRIAGE set
+  bool enabled_ = false;  // RX_CARRIAGE set
   bool spawned_ = false;
 
   world::CarriageRig rig_;
-  ecs::Entity body_entity_{};              // carriage chassis (mesh, mirrored pose)
-  ecs::Entity wheel_entity_[4]{};          // engine-drawn wheels
-  ecs::Entity horse_entity_{};             // kinematic mover
-  bool horse_is_rig_ = false;              // creature rig vs graybox horse
+  ecs::Entity body_entity_{};      // carriage chassis (mesh, mirrored pose)
+  ecs::Entity wheel_entity_[4]{};  // engine-drawn wheels
+  ecs::Entity horse_entity_{};     // kinematic mover
+  bool horse_is_rig_ = false;      // creature rig vs graybox horse
 
   // Route: a level loop the horse walks. Centre/radius are set at spawn.
   Vec3 route_center_{};
@@ -77,12 +76,12 @@ class CarriageSystem {
   // Where the tongue hitches on the horse: behind the horse body, at hitch
   // height. Kept level with the carriage tongue so the shaft stays horizontal.
   f32 horse_hitch_back_ = 1.1f;
-  Vec3 prev_hitch_{};      // last hitch point, for the horse hitch velocity
+  Vec3 prev_hitch_{};  // last hitch point, for the horse hitch velocity
 
   bool riding_ = false;
   bethesda::GlobalFormId carriage_form_{};  // synthetic, for activation picking
   u64 carriage_handle_ = 0;
-  std::string label_;
+  base::String label_;
 };
 
 }  // namespace rx

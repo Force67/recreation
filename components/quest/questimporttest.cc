@@ -3,10 +3,13 @@
 // as on-enter actions, completion flagged, the right opening stage -- and that
 // driving the graph reproduces the SetStage/StartQuest behavior. No game data.
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "core/types.h"
 #include "components/quest/quest_def.h"
@@ -14,6 +17,9 @@
 #include "components/quest/quest_import.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -26,18 +32,20 @@ void Check(const char* what, bool ok) {
 }
 
 struct RecordingSink : QuestActionSink {
-  std::vector<std::string> events;
-  void OnEnterNode(u64, i32 node) override { events.push_back("enter " + std::to_string(node)); }
-  void RunScriptFragment(u64, i32 node, const std::string& fn) override {
-    events.push_back("frag " + std::to_string(node) + ":" + fn);
+  base::Vector<base::String> events;
+  void OnEnterNode(rx::u64, i32 node) override {
+    events.push_back("enter " + base::ToString(node));
   }
-  void CompleteQuest(u64) override { events.push_back("complete"); }
+  void RunScriptFragment(rx::u64, i32 node, const base::String& fn) override {
+    events.push_back("frag " + base::ToString(node) + ":" + fn);
+  }
+  void CompleteQuest(rx::u64) override { events.push_back("complete"); }
 };
 
-StageDef Stage(i32 index, std::string log, bool complete) {
+StageDef Stage(i32 index, base::String log, bool complete) {
   StageDef s;
   s.index = index;
-  s.log_entry = std::move(log);
+  s.log_entry = base::move(log);
   s.complete_quest = complete;
   return s;
 }
@@ -56,12 +64,12 @@ void TestImportShape() {
   QuestDef def;
   def.handle = 0x0100ABCD;
   def.editor_id = "MQ101";
-  def.stages.push_back(Stage(0, "", false));    // silent opening stage, no fragment
+  def.stages.push_back(Stage(0, "", false));  // silent opening stage, no fragment
   def.stages.push_back(Stage(10, "Find it", false));
   def.stages.push_back(Stage(10, "Find it (revised)", false));  // duplicate index
   def.stages.push_back(Stage(200, "All done", true));           // completing stage
 
-  std::unordered_map<i32, std::string> frags;
+  base::UnorderedMap<i32, base::String> frags;
   frags[10] = "Fragment_1";
   frags[200] = "Fragment_9";
 
@@ -85,7 +93,7 @@ void TestImportDrives() {
   def.stages.push_back(Stage(10, "a", false));
   def.stages.push_back(Stage(20, "b", false));
   def.stages.push_back(Stage(30, "c", true));
-  std::unordered_map<i32, std::string> frags;
+  base::UnorderedMap<i32, base::String> frags;
   frags[10] = "F10";
   frags[20] = "F20";
   frags[30] = "F30";
@@ -95,9 +103,8 @@ void TestImportDrives() {
   QuestInstance inst(&g);
 
   inst.Start(sink);  // StartQuest kicks the opening stage
-  Check("start runs the opening fragment", sink.events.size() >= 2 &&
-                                               sink.events[0] == "enter 10" &&
-                                               sink.events[1] == "frag 10:F10");
+  Check("start runs the opening fragment",
+        sink.events.size() >= 2 && sink.events[0] == "enter 10" && sink.events[1] == "frag 10:F10");
   Check("current stage tracks the journal", inst.CurrentStage() == 10);
 
   inst.Advance(20, sink);  // a fragment SetStage-ing to 20

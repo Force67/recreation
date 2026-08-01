@@ -1,10 +1,9 @@
 #ifndef RECREATION_BETHESDA_WRITER_H_
 #define RECREATION_BETHESDA_WRITER_H_
 
-#include <string>
-#include <string_view>
-
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/record.h"
@@ -53,14 +52,14 @@ class PluginWriter {
   explicit PluginWriter(const GameProfile& profile) : profile_(profile) {}
 
   // TES4 header configuration. All optional.
-  PluginWriter& set_author(std::string author);
-  PluginWriter& set_description(std::string description);
-  PluginWriter& set_master(bool is_master);  // ESM flag
-  PluginWriter& set_light(bool is_light);     // ESL flag
+  PluginWriter& set_author(base::String author);
+  PluginWriter& set_description(base::String description);
+  PluginWriter& set_master(bool is_master);     // ESM flag
+  PluginWriter& set_light(bool is_light);       // ESL flag
   PluginWriter& set_localized(bool localized);  // strings live in .strings files
   // Appends a master file name; order defines the mod-index references resolve
   // against, exactly like the MAST subrecords the reader parses.
-  PluginWriter& add_master(std::string master_file_name);
+  PluginWriter& add_master(base::String master_file_name);
 
   // When set, records added via AddRecord are zlib compressed.
   PluginWriter& set_compress(bool compress);
@@ -86,7 +85,7 @@ class PluginWriter {
   base::Vector<u8> Build() const;
 
   // Builds and writes the plugin to disk. Returns false on I/O error.
-  bool Save(const std::string& path) const;
+  bool Save(const base::String& path) const;
 
   u32 record_count() const { return record_count_; }
 
@@ -100,9 +99,9 @@ class PluginWriter {
   Group& GroupFor(u32 type);
 
   const GameProfile& profile_;
-  std::string author_;
-  std::string description_;
-  base::Vector<std::string> masters_;
+  base::String author_;
+  base::String description_;
+  base::Vector<base::String> masters_;
   bool is_master_ = false;
   bool is_light_ = false;
   bool is_localized_ = false;
@@ -125,7 +124,7 @@ class RecordBuilder {
   // Appends a field, copying the bytes into owned storage.
   RecordBuilder& Field(u32 type, ByteSpan bytes);
   // EDID convenience: appends a zero terminated editor id.
-  RecordBuilder& EditorId(std::string_view editor_id);
+  RecordBuilder& EditorId(base::StringRef editor_id);
   // Appends a field from a trivially copyable value (little endian on the
   // supported little endian targets, matching how the reader memcpys fields).
   template <typename T>

@@ -1,9 +1,11 @@
 #ifndef RECREATION_RUNTIME_NARRATIVE_QUEST_STATE_CACHE_H_
 #define RECREATION_RUNTIME_NARRATIVE_QUEST_STATE_CACHE_H_
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include <functional>
-#include <unordered_map>
-#include <vector>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -26,35 +28,35 @@ class QuestStateCache {
     i32 stage = 0;
     bool running = false;
     bool complete = false;
-    std::vector<i32> done;  // stages that have been set, ascending
+    base::Vector<i32> done;  // stages that have been set, ascending
   };
 
-  void Set(u64 quest, Entry entry) { quests_[quest] = std::move(entry); }
+  void Set(u64 quest, Entry entry) { quests_[quest] = base::move(entry); }
   void Clear() { quests_.clear(); }
 
   i32 Stage(u64 quest) const {
-    auto it = quests_.find(quest);
-    return it == quests_.end() ? 0 : it->second.stage;
+    auto* it = quests_.find(quest);
+    return it == nullptr ? 0 : it->stage;
   }
   bool Running(u64 quest) const {
-    auto it = quests_.find(quest);
-    return it != quests_.end() && it->second.running;
+    auto* it = quests_.find(quest);
+    return it != nullptr && it->running;
   }
   bool Complete(u64 quest) const {
-    auto it = quests_.find(quest);
-    return it != quests_.end() && it->second.complete;
+    auto* it = quests_.find(quest);
+    return it != nullptr && it->complete;
   }
   bool StageDone(u64 quest, i32 stage) const {
-    auto it = quests_.find(quest);
-    if (it == quests_.end()) return false;
-    for (i32 s : it->second.done)
+    auto* it = quests_.find(quest);
+    if (it == nullptr) return false;
+    for (i32 s : it->done)
       if (s == stage) return true;
     return false;
   }
-  const std::unordered_map<u64, Entry>& entries() const { return quests_; }
+  const base::UnorderedMap<u64, Entry>& entries() const { return quests_; }
 
  private:
-  std::unordered_map<u64, Entry> quests_;
+  base::UnorderedMap<u64, Entry> quests_;
 };
 
 // Evaluates condition lists on the main thread against the quest mirror and the
@@ -66,7 +68,7 @@ class WorldConditionContext : public quest::ConditionContext {
   using PositionFn = std::function<bool(u64 handle, Vec3* out)>;
 
   WorldConditionContext(const QuestStateCache& quests, PositionFn position)
-      : quests_(quests), position_(std::move(position)) {}
+      : quests_(quests), position_(base::move(position)) {}
 
   float GetStage(u64 quest) const override { return static_cast<float>(quests_.Stage(quest)); }
   float GetStageDone(u64 quest, u64 stage) const override {

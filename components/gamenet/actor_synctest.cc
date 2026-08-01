@@ -6,14 +6,15 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "components/world/components.h"
+#include "components/world/quest_world.h"
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
 #include "runtime/actor/gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
 #include "components/gamenet/actor_sync.h"
 #include "net/replication.h"
-#include "components/world/components.h"
-#include "components/world/quest_world.h"
+#include "runtime/actor/gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
 
 using Handle = std::uint64_t;
 using rx::net::ActorReplicator;
@@ -101,11 +102,12 @@ int main() {
         client.Get<Transform>(cnpc)->position[0] == hidden_x);
 
   // Unknown form is ignored (not yet streamed / different cell).
-  std::vector<ActorState> stray(1);
+  base::Vector<ActorState> stray(1);
   stray[0].form = (Handle{9} << 32) | 0x123;
   stray[0].pos[0] = 99.0f;
   rx::net::ApplyActorStates(client, client_qw, stray, 0.1f);  // must not crash
-  Check("unknown form is ignored", client_qw.Find(stray[0].form).index == rx::ecs::kInvalidEntity.index);
+  Check("unknown form is ignored",
+        client_qw.Find(stray[0].form).index == rx::ecs::kInvalidEntity.index);
 
   // --- anti foot-slide gait playback rate (GaitPlaybackRate) ---
   // Authored gait speeds (vanilla character clips ~1.4 walk / ~4.0 run m/s).
@@ -113,7 +115,8 @@ int main() {
   auto approx = [](float a, float b) { return a > b ? a - b < 1e-4f : b - a < 1e-4f; };
   // Identity across the authored [walk, run] blend range: the blend space already
   // authors the pose for that speed, so the clock is the natural speed/walk cadence.
-  Check("rate == speed/walk at the walk clip", approx(rx::GaitPlaybackRate(kWalk, kWalk, kRun), 1.0f));
+  Check("rate == speed/walk at the walk clip",
+        approx(rx::GaitPlaybackRate(kWalk, kWalk, kRun), 1.0f));
   Check("rate == speed/walk mid-blend",
         approx(rx::GaitPlaybackRate(2.8f, kWalk, kRun), 2.8f / kWalk));
   Check("rate == run/walk at the run clip",

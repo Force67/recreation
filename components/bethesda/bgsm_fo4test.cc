@@ -3,9 +3,10 @@
 // fixed distance past the ten slots; hand-built v2 materials pin those offsets
 // (a regression there would mis-bind every FO4 texture). No game data needed.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <cstring>
-#include <vector>
 
 #include "components/bethesda/converters.h"
 #include "core/types.h"
@@ -19,16 +20,16 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU32(std::vector<rx::u8>& b, rx::u32 v) {
+void PutU32(base::Vector<rx::u8>& b, rx::u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(rx::u8(v >> (8 * i)));
 }
-void PutF32(std::vector<rx::u8>& b, float f) {
+void PutF32(base::Vector<rx::u8>& b, float f) {
   rx::u32 v;
   std::memcpy(&v, &f, 4);
   PutU32(b, v);
 }
 // A BGSM/BGEM texture slot: u32 length (including the null) + the bytes.
-void PutSlot(std::vector<rx::u8>& b, const char* s) {
+void PutSlot(base::Vector<rx::u8>& b, const char* s) {
   if (!s) {
     PutU32(b, 0);
     return;
@@ -45,16 +46,16 @@ constexpr rx::u32 kSmoothnessGap = 28;
 
 void TestBgsm() {
   std::puts("bgsm v2 textures + smoothness:");
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   for (char c : {'B', 'G', 'S', 'M'}) b.push_back(static_cast<rx::u8>(c));
-  PutU32(b, 2);  // version
+  PutU32(b, 2);                                      // version
   while (b.size() < kTextureOffset) b.push_back(0);  // pre-texture header padding
 
-  PutSlot(b, "Test\\base_d.dds");    // slot 0: diffuse
-  PutSlot(b, "Test\\base_n.dds");    // slot 1: normal
-  for (int i = 2; i < 10; ++i) PutSlot(b, nullptr);  // slots 2..9 empty
+  PutSlot(b, "Test\\base_d.dds");                               // slot 0: diffuse
+  PutSlot(b, "Test\\base_n.dds");                               // slot 1: normal
+  for (int i = 2; i < 10; ++i) PutSlot(b, nullptr);             // slots 2..9 empty
   for (rx::u32 i = 0; i < kSmoothnessGap; ++i) b.push_back(0);  // pre-smoothness block
-  PutF32(b, 0.25f);  // smoothness -> roughness 0.75
+  PutF32(b, 0.25f);                                             // smoothness -> roughness 0.75
 
   rx::bethesda::BgsmMaterial m;
   const bool ok = rx::bethesda::ParseBgsm(rx::ByteSpan(b.data(), b.size()), &m);
@@ -66,7 +67,7 @@ void TestBgsm() {
 
 void TestBgem() {
   std::puts("bgem v2 (no normal, no smoothness):");
-  std::vector<rx::u8> b;
+  base::Vector<rx::u8> b;
   for (char c : {'B', 'G', 'E', 'M'}) b.push_back(static_cast<rx::u8>(c));
   PutU32(b, 2);
   while (b.size() < kTextureOffset) b.push_back(0);
@@ -83,14 +84,14 @@ void TestBgem() {
 
 void TestRejectsOther() {
   std::puts("bgsm rejects non-v2 / non-material:");
-  std::vector<rx::u8> v20;
+  base::Vector<rx::u8> v20;
   for (char c : {'B', 'G', 'S', 'M'}) v20.push_back(static_cast<rx::u8>(c));
   PutU32(v20, 20);  // FO76 version, unsupported here
   while (v20.size() < kTextureOffset + 8) v20.push_back(0);
   rx::bethesda::BgsmMaterial m;
   Check("v20 rejected", !rx::bethesda::ParseBgsm(rx::ByteSpan(v20.data(), v20.size()), &m));
 
-  std::vector<rx::u8> junk(80, 0);
+  base::Vector<rx::u8> junk(80, 0);
   Check("non-material rejected",
         !rx::bethesda::ParseBgsm(rx::ByteSpan(junk.data(), junk.size()), &m));
 }

@@ -1,11 +1,12 @@
 #ifndef RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 #define RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 
+#include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
+
 #include <functional>
-#include <memory>
 #include <mutex>
-#include <string>
-#include <vector>
 
 #include "components/script/host/bridge.h"
 #include "components/script/host/clr_host.h"
@@ -40,15 +41,15 @@ class ManagedHost {
   // script (and its ancestor chain) from that domain's VFS by name for the
   // bridge's load_script (pass {} to load only already-present types). The guest
   // must outlive the host.
-  void AddDomain(std::string name, PapyrusGuest& guest,
-                 std::function<bool(const std::string&)> loader);
+  void AddDomain(base::String name, PapyrusGuest& guest,
+                 std::function<bool(const base::String&)> loader);
 
   // Boots the managed world over the registered domains. The paths locate the
   // .NET runtime and the Recreation.Scripting assembly (see ClrHost::Initialize).
   // Returns false (and leaves available() false) when no domain was registered,
   // or the runtime or assembly is unavailable.
-  bool Boot(const std::string& dotnet_root, const std::string& runtime_config,
-            const std::string& assembly);
+  bool Boot(const base::String& dotnet_root, const base::String& runtime_config,
+            const base::String& assembly);
 
   // Hands the managed world the ultragui widget-operation table (a
   // rx::ugui_cs::WidgetOps*, opaque here) so its UI handlers can read and mutate
@@ -97,7 +98,7 @@ class ManagedHost {
   // One registered domain. Heap allocated so its BridgeContext address (which the
   // ScriptBridge::ctx points at) stays stable as more domains are added.
   struct Domain {
-    std::string name;
+    base::String name;
     BridgeContext ctx;
     ScriptBridge bridge{};
   };
@@ -113,8 +114,8 @@ class ManagedHost {
 
   ClrHost clr_;
   PapyrusGuest* primary_guest_ = nullptr;  // domains_[0]'s guest; the managed thread
-  std::vector<std::unique_ptr<Domain>> domains_;
-  std::vector<DomainBridge> domain_table_;  // handshake view: borrows name/bridge
+  base::Vector<base::UniquePointer<Domain>> domains_;
+  base::Vector<DomainBridge> domain_table_;  // handshake view: borrows name/bridge
   HostHandshake handshake_{};
   const void* ui_widget_ops_ = nullptr;  // rx::ugui_cs::WidgetOps*, set before Boot
   RpcBridge rpc_bridge_{};               // multiplayer RPC surface, set before Boot
@@ -122,7 +123,7 @@ class ManagedHost {
   bool available_ = false;
 
   std::mutex event_mutex_;
-  std::vector<ManagedEvent> pending_events_;
+  base::Vector<ManagedEvent> pending_events_;
 };
 
 }  // namespace rx::script::host

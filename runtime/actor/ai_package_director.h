@@ -1,10 +1,8 @@
 #ifndef RECREATION_RUNTIME_ACTOR_AI_PACKAGE_DIRECTOR_H_
 #define RECREATION_RUNTIME_ACTOR_AI_PACKAGE_DIRECTOR_H_
 
-#include <string>
-#include <vector>
-
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "components/bethesda/script_attachment.h"
@@ -58,13 +56,13 @@ class AiPackageDirector {
   int travelling_count() const;
   // One line per armed alias for the debug panel: who is running what, and how far
   // they still have to walk.
-  std::vector<std::string> Report() const;
+  base::Vector<base::String> Report() const;
 
  private:
   // One package on an alias's stack, with the fragments that fire around it.
   struct Package {
     quest::PackageDef def;
-    std::string editor_id;
+    base::String editor_id;
     bethesda::PackageFragments frags;
     bethesda::ScriptAttachment scripts;
     bool has_scripts = false;
@@ -76,11 +74,11 @@ class AiPackageDirector {
     u64 quest = 0;
     u16 plugin = 0;
     i32 alias = -1;
-    std::string name;
+    base::String name;
     u64 actor = 0;  // the placed reference the alias fills, which is the form handle
-    std::vector<Package> packages;
-    int active = -1;      // index into `packages`, -1 when no gate passes
-    int forced = -1;      // a scene-assigned package, which outranks the stack
+    base::Vector<Package> packages;
+    int active = -1;  // index into `packages`, -1 when no gate passes
+    int forced = -1;  // a scene-assigned package, which outranks the stack
     u64 forced_handle = 0;
     bool has_dest = false;
     bool arrived = false;
@@ -97,7 +95,7 @@ class AiPackageDirector {
   struct Tow {
     u64 ref = 0;
     u64 parent = 0;
-    Vec3 local{};    // offset in the parent's authored frame, metres
+    Vec3 local{};  // offset in the parent's authored frame, metres
     f32 local_yaw = 0;
     bool cart = false;  // its model is a cart, so it has seated idles for its riders
     int seats = 0;      // riders taken on so far, which picks each one's idle
@@ -110,7 +108,7 @@ class AiPackageDirector {
     u64 ride = 0;
     Vec3 local{};
     f32 local_yaw = 0;
-    std::string clip;
+    base::String clip;
     bool seated = false;
   };
 
@@ -124,7 +122,7 @@ class AiPackageDirector {
   void CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_yaw);
   bool ResolveDestination(const Slot& slot, const Package& pack, Vec3* out, f32* radius) const;
   // Runs a package fragment on the guest thread (attaching its PF_ script first).
-  void FirePackageFragment(Slot& slot, Package& pack, const std::string& function);
+  void FirePackageFragment(Slot& slot, Package& pack, const base::String& function);
   bool ActorPose(u64 handle, Vec3* pos, f32* yaw) const;
   bool RefRecordPose(bethesda::GlobalFormId ref, Vec3* pos, f32* yaw) const;
   // The reference an alias fills, resolved from the records (a forced reference, or

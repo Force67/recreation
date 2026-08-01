@@ -1,13 +1,13 @@
 #ifndef RECREATION_WORLD_PATHFIND_H_
 #define RECREATION_WORLD_PATHFIND_H_
 
+#include <base/containers/vector.h>
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <queue>
-#include <vector>
-
 namespace rx::world {
 
 struct PathNode {
@@ -24,7 +24,7 @@ struct PathNode {
 // or blocked, or no path exists. `max_visited` caps the number of expanded
 // nodes (0 = unbounded) so a caller can bound the cost on a large grid.
 inline bool FindPath(int width, int height, const std::function<bool(int, int)>& blocked,
-                     PathNode start, PathNode goal, std::vector<PathNode>* out_path,
+                     PathNode start, PathNode goal, base::Vector<PathNode>* out_path,
                      int max_visited = 0) {
   out_path->clear();
   auto in_range = [&](int x, int y) { return x >= 0 && x < width && y >= 0 && y < height; };
@@ -44,16 +44,16 @@ inline bool FindPath(int width, int height, const std::function<bool(int, int)>&
   auto idx = [&](int x, int y) { return y * width + x; };
 
   const float kInf = std::numeric_limits<float>::infinity();
-  std::vector<float> g(static_cast<size_t>(width) * height, kInf);
-  std::vector<int> parent(static_cast<size_t>(width) * height, -1);
-  std::vector<bool> closed(static_cast<size_t>(width) * height, false);
+  base::Vector<float> g(static_cast<size_t>(width) * height, kInf);
+  base::Vector<int> parent(static_cast<size_t>(width) * height, -1);
+  base::Vector<bool> closed(static_cast<size_t>(width) * height, false);
 
   struct Open {
     float f;
     int x, y;
     bool operator>(const Open& o) const { return f > o.f; }
   };
-  std::priority_queue<Open, std::vector<Open>, std::greater<Open>> open;
+  std::priority_queue<Open, base::Vector<Open>, std::greater<Open>> open;
   g[idx(start.x, start.y)] = 0.0f;
   open.push({octile(start.x, start.y), start.x, start.y});
 
@@ -78,8 +78,7 @@ inline bool FindPath(int width, int height, const std::function<bool(int, int)>&
         const int nx = cur.x + dx;
         const int ny = cur.y + dy;
         if (!in_range(nx, ny) || blocked(nx, ny)) continue;
-        if (dx != 0 && dy != 0 &&
-            (blocked(cur.x + dx, cur.y) || blocked(cur.x, cur.y + dy)))
+        if (dx != 0 && dy != 0 && (blocked(cur.x + dx, cur.y) || blocked(cur.x, cur.y + dy)))
           continue;
         const int ni = idx(nx, ny);
         if (closed[ni]) continue;

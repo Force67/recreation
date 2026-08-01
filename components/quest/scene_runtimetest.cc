@@ -4,13 +4,18 @@
 // completion gate and gives up on one that never passes. Deterministic, no game
 // data, runs in the ctest gate.
 
+#include <base/containers/vector.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "components/quest/scene_runtime.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -22,7 +27,7 @@ void Check(const char* what, bool ok) {
 }
 
 struct RecordingSink : SceneRuntimeSink {
-  std::vector<std::string> log;
+  base::Vector<base::String> log;
   bool gate_passes = true;
   int gate_queries = 0;
 
@@ -31,10 +36,10 @@ struct RecordingSink : SceneRuntimeSink {
     log.push_back(completed ? "scene end" : "scene stopped");
   }
   void OnPhaseBegin(const ScenePlan&, i32 phase) override {
-    log.push_back("phase " + std::to_string(phase) + " begin");
+    log.push_back("phase " + base::ToString(phase) + " begin");
   }
   void OnPhaseEnd(const ScenePlan&, i32 phase) override {
-    log.push_back("phase " + std::to_string(phase) + " end");
+    log.push_back("phase " + base::ToString(phase) + " end");
   }
   void OnLineBegin(const ScenePlan&, const SceneBeat& b) override {
     log.push_back("say " + b.speaker + ": " + b.text);
@@ -43,10 +48,10 @@ struct RecordingSink : SceneRuntimeSink {
     log.push_back("said " + b.speaker);
   }
   void OnPackageBegin(const ScenePlan&, const SceneBeat& b) override {
-    log.push_back("package " + std::to_string(b.package) + " on");
+    log.push_back("package " + base::ToString(b.package) + " on");
   }
   void OnPackageEnd(const ScenePlan&, const SceneBeat& b) override {
-    log.push_back("package " + std::to_string(b.package) + " off");
+    log.push_back("package " + base::ToString(b.package) + " off");
   }
   bool ConditionsPass(const ConditionList&) override {
     ++gate_queries;
@@ -95,15 +100,16 @@ void TestPhaseOrder() {
   run.Start(&plan, s);
   Check("begins with the scene, the first phase, its package and its first line",
         s.log.size() == 4 && s.log[0] == "scene begin" && s.log[1] == "phase 0 begin" &&
-            s.log[2] == "package 42 on" && s.log[3] == "say Ralof: Hey, you. You're finally awake.");
+            s.log[2] == "package 42 on" &&
+            s.log[3] == "say Ralof: Hey, you. You're finally awake.");
   Check("the spoken line is queryable for the subtitle",
         run.speaking() != nullptr && run.speaking()->speaker == "Ralof");
 
   run.Tick(1.0f, s);
   Check("a line holds for its full length", s.log.size() == 4);
   run.Tick(1.1f, s);
-  Check("the next speaker follows the first",
-        s.log.size() == 6 && s.log[4] == "said Ralof" && s.log[5] == "say Lokir: Damn you Stormcloaks.");
+  Check("the next speaker follows the first", s.log.size() == 6 && s.log[4] == "said Ralof" &&
+                                                  s.log[5] == "say Lokir: Damn you Stormcloaks.");
 
   // Lokir finishing empties phase 0. Phase 1 holds nothing, so the same tick runs
   // through it into phase 2 rather than spending a frame per empty phase.
@@ -113,9 +119,8 @@ void TestPhaseOrder() {
             s.log[8] == "phase 1 begin" && s.log[9] == "phase 1 end");
   Check("the package holds across its whole window, then stops as phase 2 opens",
         s.log[10] == "package 42 off" && s.log[11] == "phase 2 begin");
-  Check("the last phase speaks its line",
-        s.log[12] == "say Ralof: Sovngarde awaits." && run.speaking() != nullptr &&
-            run.phase() == 2);
+  Check("the last phase speaks its line", s.log[12] == "say Ralof: Sovngarde awaits." &&
+                                              run.speaking() != nullptr && run.phase() == 2);
   run.Tick(1.2f, s);
   Check("the scene ends after the last phase", !run.playing() && s.log.back() == "scene end");
 }
@@ -196,9 +201,12 @@ void TestStopAndBuild() {
   def.actions.push_back(pk);
 
   ScenePlanBindings b;
-  b.actor = [](i32 alias) { return static_cast<u64>(0x1000 + alias); };
-  b.alias_name = [](i32 alias) { return alias == 3 ? std::string("Ralof") : std::string("Horse"); };
-  b.line = [](i32 alias, u64 topic, u64 speaker, u64* info, std::string* text, f32* seconds) {
+  b.actor = [](i32 alias) { return static_cast<rx::u64>(0x1000 + alias); };
+  b.alias_name = [](i32 alias) {
+    return alias == 3 ? base::String("Ralof") : base::String("Horse");
+  };
+  b.line = [](i32 alias, rx::u64 topic, rx::u64 speaker, rx::u64* info, base::String* text,
+              f32* seconds) {
     if (speaker == 0 || alias < 0) return false;
     *info = topic | 0xf0000;
     *text = topic == 0xaaa ? "first" : "last";
@@ -214,8 +222,8 @@ void TestStopAndBuild() {
             built.beats[0].actor == 0x1003 && built.beats[0].speaker == "Ralof" &&
             built.beats[0].seconds >= 3.0f);
   Check("the package keeps its window", built.beats[1].kind == SceneBeat::Kind::kPackage &&
-                                           built.beats[1].phase == 0 &&
-                                           built.beats[1].end_phase == 2);
+                                            built.beats[1].phase == 0 &&
+                                            built.beats[1].end_phase == 2);
   Check("beats are in play order", built.beats[2].phase == 5 && built.beats[2].text == "last");
 }
 

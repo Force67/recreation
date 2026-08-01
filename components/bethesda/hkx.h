@@ -11,39 +11,41 @@
 // exposes a typed cursor over the data image; the class-specific decoding
 // (skeletons, rigid bodies, shapes) lives in hkx_physics.{h,cc}.
 
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <optional>
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <vector>
 
 #include "core/types.h"
 
 namespace rx::bethesda {
 
 struct HkxObject {
-  u64 offset = 0;               // into the data image
-  std::string_view class_name;  // backed by HkxFile::classnames_
+  u64 offset = 0;              // into the data image
+  base::StringRef class_name;  // backed by HkxFile::classnames_
 };
 
 class HkxFile {
  public:
   static constexpr u64 kNull = ~0ull;
 
-  // Parses the packfile container. Returns std::nullopt when the magic,
+  // Parses the packfile container. Returns base::nullopt when the magic,
   // version, or section layout is not a packfile this reader understands.
-  static std::optional<HkxFile> Parse(const u8* bytes, size_t size);
+  static base::Optional<HkxFile> Parse(const u8* bytes, size_t size);
 
   // hk_2010.2.0-r1 etc.
-  const std::string& content_version() const { return content_version_; }
+  const base::String& content_version() const { return content_version_; }
   u32 pointer_size() const { return pointer_size_; }
 
   // Every serialized object (from the virtual fixup table), in file order.
   // The first object is the hkRootLevelContainer.
-  const std::vector<HkxObject>& objects() const { return objects_; }
+  const base::Vector<HkxObject>& objects() const { return objects_; }
   // Class name of the object AT `offset`, empty when offset is not an object
   // start (e.g. an interior array element).
-  std::string_view class_of(u64 offset) const;
+  base::StringRef class_of(u64 offset) const;
 
   // --- typed reads from the data image (bounds-checked, zero on overrun) ---
   u8 U8(u64 offset) const;
@@ -57,7 +59,7 @@ class HkxFile {
   // Returns kNull for null pointers (no fixup entry).
   u64 Pointer(u64 offset) const;
   // C string at the offset a pointer at `offset` resolves to ("" for null).
-  std::string_view CString(u64 offset) const;
+  base::StringRef CString(u64 offset) const;
 
   // hkArray<T>: { T* data; int size; int capacityAndFlags; }. `offset` is the
   // array member's offset; returns the element base (kNull when empty/null)
@@ -68,13 +70,13 @@ class HkxFile {
   const u8* data() const { return data_.data(); }
 
  private:
-  std::vector<u8> data_;         // __data__ section image
-  std::string classnames_;       // __classnames__ section image (owns the names)
-  std::string content_version_;
+  base::Vector<u8> data_;    // __data__ section image
+  base::String classnames_;  // __classnames__ section image (owns the names)
+  base::String content_version_;
   u32 pointer_size_ = 8;
-  std::unordered_map<u64, u64> pointers_;   // local+global fixups: from -> to
-  std::unordered_map<u64, u32> object_at_;  // offset -> index into objects_
-  std::vector<HkxObject> objects_;
+  base::UnorderedMap<u64, u64> pointers_;   // local+global fixups: from -> to
+  base::UnorderedMap<u64, u32> object_at_;  // offset -> index into objects_
+  base::Vector<HkxObject> objects_;
 };
 
 }  // namespace rx::bethesda

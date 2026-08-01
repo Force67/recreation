@@ -1,9 +1,10 @@
 #ifndef RECREATION_MODSTREAM_CONTENT_STORE_H_
 #define RECREATION_MODSTREAM_CONTENT_STORE_H_
 
+#include <base/containers/vector.h>
+#include <base/optional.h>
+
 #include <filesystem>
-#include <optional>
-#include <vector>
 
 #include "components/modstream/mod_resource.h"
 
@@ -22,28 +23,27 @@ class ContentStore {
   bool Has(ContentHash hash) const;
 
   // Absolute path of the cached file, or nullopt if absent.
-  std::optional<std::filesystem::path> PathFor(ContentHash hash) const;
+  base::Optional<std::filesystem::path> PathFor(ContentHash hash) const;
 
   // Writes `bytes` into the cache after verifying they hash to `expected`.
   // Rejects (returns nullopt) on a hash mismatch so corrupt or spoofed content
   // can never enter the store. The write is atomic: a temp file is renamed into
   // place only once complete.
-  std::optional<std::filesystem::path> Store(ContentHash expected,
-                                             const std::vector<u8>& bytes);
+  base::Optional<std::filesystem::path> Store(ContentHash expected, const base::Vector<u8>& bytes);
 
   // Takes ownership of a finished transfer's file: re-hashes it from disk
   // (without loading it whole), moves it into place on a match, and deletes it
   // on a mismatch. Returns the final cache path, or nullopt on mismatch or I/O
   // failure.
-  std::optional<std::filesystem::path> Adopt(ContentHash expected,
-                                             const std::filesystem::path& source);
+  base::Optional<std::filesystem::path> Adopt(ContentHash expected,
+                                              const std::filesystem::path& source);
 
   // Takes ownership of a file whose hash is not yet known: hashes it from disk,
   // moves it into the cache under that content hash, and returns the hash. Use
   // this for streamed-in content where identity comes from the bytes themselves,
   // not from a promised id. Returns nullopt on I/O failure; the source file is
   // consumed on success.
-  std::optional<ContentHash> Ingest(const std::filesystem::path& source);
+  base::Optional<ContentHash> Ingest(const std::filesystem::path& source);
 
   const std::filesystem::path& root() const { return root_; }
 

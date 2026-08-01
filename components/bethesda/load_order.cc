@@ -1,6 +1,9 @@
 #include "components/bethesda/load_order.h"
 
-#include <algorithm>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -10,44 +13,46 @@
 namespace rx::bethesda {
 namespace {
 
-std::string ToLower(std::string_view str) {
-  std::string out(str);
-  std::ranges::transform(out, out.begin(),
-                         [](char c) { return static_cast<char>(std::tolower(c)); });
+base::String ToLower(base::StringRef str) {
+  base::String out(str);
+  for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return out;
 }
 
 }  // namespace
 
-LoadOrder LoadOrder::FromPluginsTxt(const std::string& plugins_txt_path,
+LoadOrder LoadOrder::FromPluginsTxt(const base::String& plugins_txt_path,
                                     const GameProfile& profile) {
   LoadOrder order;
   for (const auto& master : profile.base_masters) order.Append(master);
 
-  std::ifstream file(plugins_txt_path);
-  std::string line;
-  while (std::getline(file, line)) {
+  std::ifstream file(plugins_txt_path.c_str());
+  // std::getline fills a std::string; the line is copied into a base::String
+  // for everything downstream.
+  std::string raw;
+  while (std::getline(file, raw)) {
+    base::String line(raw.c_str(), raw.size());
     if (line.empty() || line[0] == '#') continue;
     if (line.back() == '\r') line.pop_back();
     if (line[0] != '*') continue;  // only enabled plugins
-    std::string name = line.substr(1);
-    if (order.IndexOf(name) == 0xffff) order.Append(std::move(name));
+    base::String name = line.substr(1);
+    if (order.IndexOf(name) == 0xffff) order.Append(base::move(name));
   }
   return order;
 }
 
-void LoadOrder::Append(std::string plugin_file_name) {
+void LoadOrder::Append(base::String plugin_file_name) {
   index_by_name_.emplace(ToLower(plugin_file_name), static_cast<u16>(plugins_.size()));
-  plugins_.push_back(std::move(plugin_file_name));
+  plugins_.push_back(base::move(plugin_file_name));
 }
 
-u16 LoadOrder::IndexOf(const std::string& file_name) const {
-  auto it = index_by_name_.find(ToLower(file_name));
-  return it == index_by_name_.end() ? 0xffff : it->second;
+u16 LoadOrder::IndexOf(const base::String& file_name) const {
+  auto* it = index_by_name_.find(ToLower(file_name));
+  return it == nullptr ? 0xffff : *it;
 }
 
 GlobalFormId LoadOrder::Resolve(RawFormId raw, u16 referencing_plugin,
-                                const base::Vector<std::string>& masters) const {
+                                const base::Vector<base::String>& masters) const {
   // Mod index below the master count points at a master, otherwise the
   // record is defined by the referencing plugin itself. ESL slots cannot be
   // referenced via the FE prefix from inside a plugin's own master table.
@@ -58,7 +63,7 @@ GlobalFormId LoadOrder::Resolve(RawFormId raw, u16 referencing_plugin,
   return {referencing_plugin, raw.local_id()};
 }
 
-bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
+bool RecordStore::LoadAll(const base::String& data_dir, const LoadOrder& order,
                           const GameProfile& profile) {
   constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
   constexpr u32 kRefr = FourCc('R', 'E', 'F', 'R');
@@ -74,10 +79,10 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
   plugins_.reserve(order.plugins().size());
   by_order_.resize(order.plugins().size());
   for (u16 i = 0; i < order.plugins().size(); ++i) {
-    const std::string& name = order.plugins()[i];
+    const base::String& name = order.plugins()[i];
     auto plugin = PluginFile::Open(data_dir + "/" + name, profile);
     if (!plugin) {
-      bool required = std::ranges::find(profile.base_masters, name) != profile.base_masters.end();
+      bool required = profile.base_masters.find(name) != nullptr;
       if (required) {
         RX_ERROR("missing required master: {}", name);
         return false;
@@ -94,81 +99,81 @@ bool RecordStore::LoadAll(const std::string& data_dir, const LoadOrder& order,
     }
 
     const auto& masters = plugin->masters();
-    plugin->VisitRecordsRaw([&](const RecordHeader& header, ByteSpan payload,
-                                const GroupContext& ctx) {
-      GlobalFormId id = order.Resolve(header.form_id, i, masters);
-      auto [stored, inserted] = records_.emplace(id.packed());
-      stored->header = header;
-      stored->payload = payload;
-      stored->winning_plugin = i;
-      if (inserted) by_type_[header.type].push_back(id.packed());
+    plugin->VisitRecordsRaw(
+        [&](const RecordHeader& header, ByteSpan payload, const GroupContext& ctx) {
+          GlobalFormId id = order.Resolve(header.form_id, i, masters);
+          auto [stored, inserted] = records_.emplace(id.packed());
+          stored->header = header;
+          stored->payload = payload;
+          stored->winning_plugin = i;
+          if (inserted) by_type_[header.type].push_back(id.packed());
 
-      if (header.type == kCell && ctx.worldspace.value != 0) {
-        // Exterior cell: grid coordinate from XCLC, parsed eagerly since the
-        // streamer is keyed on it.
-        Record record;
-        if (!ParseRecordPayload(header, payload, &record)) return;
-        const Subrecord* xclc = record.Find(kXclc);
-        if (!xclc || xclc->data.size() < 8) return;
-        i32 grid[2];
-        std::memcpy(grid, xclc->data.data(), 8);
-        u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
-        u32 grid_key = GridKey(static_cast<i16>(grid[0]), static_cast<i16>(grid[1]));
-        exterior_[world].emplace(grid_key).first->cell = id.packed();
-        CellGridSlot* slot = cell_grid_.emplace(id.packed()).first;
-        slot->worldspace = world;
-        slot->grid_key = grid_key;
-      } else if ((header.type == kRefr || header.type == kAchr || header.type == kLand) &&
-                 ctx.cell.value != 0 && ctx.worldspace.value == 0) {
-        // Interior cell children, persistent and temporary alike. Placed actors
-        // (ACHR) are indexed alongside object refs so NPCs load with the cell.
-        if ((header.type == kRefr || header.type == kAchr) && inserted &&
-            (ctx.cell_group_type == 8 || ctx.cell_group_type == 9)) {
-          u64 cell = order.Resolve(ctx.cell, i, masters).packed();
-          interior_[cell].push_back(id.packed());
-          ref_interior_cell_[id.packed()] = cell;
-        }
-      } else if ((header.type == kRefr || header.type == kAchr || header.type == kLand) &&
-                 ctx.cell.value != 0 && ctx.cell_group_type == 9) {
-        // Temporary cell children, listed under their cell's grid slot.
-        u64 cell = order.Resolve(ctx.cell, i, masters).packed();
-        const CellGridSlot* slot = cell_grid_.find(cell);
-        if (!slot) return;
-        ExteriorCell* entry = exterior_[slot->worldspace].find(slot->grid_key);
-        if (!entry) return;
-        if (header.type == kLand) {
-          entry->land = id.packed();
-        } else if (inserted) {
-          // Overridden refs are already listed under their cell.
-          entry->refs.push_back(id.packed());
-        }
-      } else if ((header.type == kRefr || header.type == kAchr) && inserted &&
-                 ctx.cell_group_type == 8 && ctx.worldspace.value != 0) {
-        // Persistent worldspace refs (load doors, bridges) hang off the
-        // dummy cell; bin them by placement position so the streamer treats
-        // them like temporary refs.
-        Record record;
-        if (!ParseRecordPayload(header, payload, &record)) return;
-        const Subrecord* data = record.Find(kData);
-        if (!data || data->data.size() < 24) return;
-        f32 position[3];
-        std::memcpy(position, data->data.data(), 12);
-        i16 grid_x = static_cast<i16>(std::floor(position[0] / cell_size));
-        i16 grid_y = static_cast<i16>(std::floor(position[1] / cell_size));
-        u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
-        exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
-        ++persistent_refs;
-      } else if (header.type == kInfo && inserted && ctx.dialogue.value != 0) {
-        // Dialogue response under its DIAL topic (topic children group label).
-        topic_infos_[order.Resolve(ctx.dialogue, i, masters).packed()].push_back(id.packed());
-      }
-    });
-    plugins_.push_back(std::move(*plugin));
+          if (header.type == kCell && ctx.worldspace.value != 0) {
+            // Exterior cell: grid coordinate from XCLC, parsed eagerly since the
+            // streamer is keyed on it.
+            Record record;
+            if (!ParseRecordPayload(header, payload, &record)) return;
+            const Subrecord* xclc = record.Find(kXclc);
+            if (!xclc || xclc->data.size() < 8) return;
+            i32 grid[2];
+            std::memcpy(grid, xclc->data.data(), 8);
+            u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
+            u32 grid_key = GridKey(static_cast<i16>(grid[0]), static_cast<i16>(grid[1]));
+            exterior_[world].emplace(grid_key).first->cell = id.packed();
+            CellGridSlot* slot = cell_grid_.emplace(id.packed()).first;
+            slot->worldspace = world;
+            slot->grid_key = grid_key;
+          } else if ((header.type == kRefr || header.type == kAchr || header.type == kLand) &&
+                     ctx.cell.value != 0 && ctx.worldspace.value == 0) {
+            // Interior cell children, persistent and temporary alike. Placed actors
+            // (ACHR) are indexed alongside object refs so NPCs load with the cell.
+            if ((header.type == kRefr || header.type == kAchr) && inserted &&
+                (ctx.cell_group_type == 8 || ctx.cell_group_type == 9)) {
+              u64 cell = order.Resolve(ctx.cell, i, masters).packed();
+              interior_[cell].push_back(id.packed());
+              ref_interior_cell_[id.packed()] = cell;
+            }
+          } else if ((header.type == kRefr || header.type == kAchr || header.type == kLand) &&
+                     ctx.cell.value != 0 && ctx.cell_group_type == 9) {
+            // Temporary cell children, listed under their cell's grid slot.
+            u64 cell = order.Resolve(ctx.cell, i, masters).packed();
+            const CellGridSlot* slot = cell_grid_.find(cell);
+            if (!slot) return;
+            ExteriorCell* entry = exterior_[slot->worldspace].find(slot->grid_key);
+            if (!entry) return;
+            if (header.type == kLand) {
+              entry->land = id.packed();
+            } else if (inserted) {
+              // Overridden refs are already listed under their cell.
+              entry->refs.push_back(id.packed());
+            }
+          } else if ((header.type == kRefr || header.type == kAchr) && inserted &&
+                     ctx.cell_group_type == 8 && ctx.worldspace.value != 0) {
+            // Persistent worldspace refs (load doors, bridges) hang off the
+            // dummy cell; bin them by placement position so the streamer treats
+            // them like temporary refs.
+            Record record;
+            if (!ParseRecordPayload(header, payload, &record)) return;
+            const Subrecord* data = record.Find(kData);
+            if (!data || data->data.size() < 24) return;
+            f32 position[3];
+            std::memcpy(position, data->data.data(), 12);
+            i16 grid_x = static_cast<i16>(std::floor(position[0] / cell_size));
+            i16 grid_y = static_cast<i16>(std::floor(position[1] / cell_size));
+            u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
+            exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
+            ++persistent_refs;
+          } else if (header.type == kInfo && inserted && ctx.dialogue.value != 0) {
+            // Dialogue response under its DIAL topic (topic children group label).
+            topic_infos_[order.Resolve(ctx.dialogue, i, masters).packed()].push_back(id.packed());
+          }
+        });
+    plugins_.push_back(base::move(*plugin));
     by_order_[i] = &plugins_.back();
     RX_INFO("loaded {} ({} records total)", name, records_.size());
   }
   RX_INFO("{} persistent worldspace refs indexed, {} interior cells", persistent_refs,
-           interior_.size());
+          interior_.size());
   return true;
 }
 
@@ -202,7 +207,7 @@ const RecordStore::ExteriorGrid* RecordStore::ExteriorCells(GlobalFormId worldsp
   return exterior_.find(worldspace.packed());
 }
 
-GlobalFormId RecordStore::FindWorldspace(std::string_view editor_id) const {
+GlobalFormId RecordStore::FindWorldspace(base::StringRef editor_id) const {
   constexpr u32 kWrld = FourCc('W', 'R', 'L', 'D');
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;
@@ -215,7 +220,7 @@ GlobalFormId RecordStore::FindWorldspace(std::string_view editor_id) const {
   return found;
 }
 
-GlobalFormId RecordStore::FindInteriorCell(std::string_view editor_id) const {
+GlobalFormId RecordStore::FindInteriorCell(base::StringRef editor_id) const {
   constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;
@@ -228,7 +233,7 @@ GlobalFormId RecordStore::FindInteriorCell(std::string_view editor_id) const {
   return found;
 }
 
-GlobalFormId RecordStore::FindGlobal(std::string_view editor_id) const {
+GlobalFormId RecordStore::FindGlobal(base::StringRef editor_id) const {
   constexpr u32 kGlob = FourCc('G', 'L', 'O', 'B');
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
   GlobalFormId found;

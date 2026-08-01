@@ -1,9 +1,10 @@
 // pathfindtest: checks the A* grid pathfinder NPCs use to route around walls.
 // Pure search over small hand-built mazes, no game data.
 
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
-#include <string>
-#include <vector>
 
 #include "components/world/pathfind.h"
 
@@ -22,14 +23,14 @@ void Check(const char* what, bool ok) {
 // Builds a `blocked` lambda over a maze where '#' is a wall and any other char
 // is open. Rows are top (y=0) to bottom; columns are x.
 struct Maze {
-  std::vector<std::string> rows;
+  base::Vector<base::String> rows;
   int width() const { return static_cast<int>(rows[0].size()); }
   int height() const { return static_cast<int>(rows.size()); }
   bool blocked(int x, int y) const { return rows[y][x] == '#'; }
 };
 
 // True when no cell on the path sits on a wall.
-bool NoneBlocked(const Maze& m, const std::vector<PathNode>& path) {
+bool NoneBlocked(const Maze& m, const base::Vector<PathNode>& path) {
   for (const PathNode& p : path)
     if (m.blocked(p.x, p.y)) return false;
   return true;
@@ -37,7 +38,7 @@ bool NoneBlocked(const Maze& m, const std::vector<PathNode>& path) {
 
 // True when the path never steps diagonally between two cells whose two shared
 // orthogonal neighbors are both blocked (i.e. never cuts a wall corner).
-bool NoCornerCut(const Maze& m, const std::vector<PathNode>& path) {
+bool NoCornerCut(const Maze& m, const base::Vector<PathNode>& path) {
   for (size_t i = 1; i < path.size(); ++i) {
     const int dx = path[i].x - path[i - 1].x;
     const int dy = path[i].y - path[i - 1].y;
@@ -57,20 +58,19 @@ int main() {
   {
     Maze m{{".....", ".....", ".....", ".....", "....."}};
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {0, 0}, {4, 4}, &path);
     Check("empty grid -> path found", ok);
     Check("empty grid -> length is chebyshev + 1", path.size() == 5);
-    Check("empty grid -> endpoints match",
-          ok && path.front().x == 0 && path.front().y == 0 && path.back().x == 4 &&
-              path.back().y == 4);
+    Check("empty grid -> endpoints match", ok && path.front().x == 0 && path.front().y == 0 &&
+                                               path.back().x == 4 && path.back().y == 4);
   }
 
   // A vertical wall between start and goal forces a detour around its end.
   {
     Maze m{{".#...", ".#...", ".#...", ".#...", "....."}};
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {0, 0}, {2, 0}, &path);
     Check("walled line -> path found", ok);
     Check("walled line -> longer than straight line", path.size() > 3);
@@ -82,7 +82,7 @@ int main() {
   {
     Maze m{{".....", ".###.", ".#G#.", ".###.", "....."}};
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {0, 0}, {2, 2}, &path);
     Check("walled-off goal -> no path", !ok);
     Check("walled-off goal -> out_path empty", path.empty());
@@ -92,7 +92,7 @@ int main() {
   {
     Maze m{{".#...", "....."}};
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     Check("blocked goal -> false", !FindPath(m.width(), m.height(), blk, {0, 0}, {1, 0}, &path));
     Check("blocked goal -> out_path empty", path.empty());
     Check("blocked start -> false", !FindPath(m.width(), m.height(), blk, {1, 0}, {4, 1}, &path));
@@ -106,7 +106,7 @@ int main() {
   {
     Maze m{{"...", "...", "..."}};
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {1, 1}, {1, 1}, &path);
     Check("start == goal -> single cell", ok && path.size() == 1 && path[0].x == 1 &&
                                               path[0].y == 1);
@@ -117,7 +117,7 @@ int main() {
   {
     Maze m{{"....", ".#.#", "..#.", "...."}};  // walls at (1,1),(3,1),(2,2)
     auto blk = [&](int x, int y) { return m.blocked(x, y); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(m.width(), m.height(), blk, {1, 2}, {2, 1}, &path);
     Check("corner -> path found around", ok);
     Check("corner -> no diagonal through the wall corner", ok && NoCornerCut(m, path));
@@ -128,7 +128,7 @@ int main() {
   // only approach an illegal corner-cutting diagonal, so the goal is unreachable.
   {
     auto blk = [](int x, int y) { return (x == 1 && y == 0) || (x == 0 && y == 1); };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(2, 2, blk, {0, 0}, {1, 1}, &path);
     Check("enclosed corner goal -> no path", !ok);
   }
@@ -136,7 +136,7 @@ int main() {
   // max_visited forces a bounded give-up on a large open grid.
   {
     auto blk = [](int, int) { return false; };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(100, 100, blk, {0, 0}, {99, 99}, &path, /*max_visited=*/8);
     Check("max_visited small -> bounded give-up", !ok);
     Check("max_visited give-up -> out_path empty", path.empty());
@@ -145,7 +145,7 @@ int main() {
   // Same large grid unbounded still routes corner to corner.
   {
     auto blk = [](int, int) { return false; };
-    std::vector<PathNode> path;
+    base::Vector<PathNode> path;
     bool ok = FindPath(100, 100, blk, {0, 0}, {99, 99}, &path);
     Check("large grid unbounded -> path found", ok && path.size() == 100);
   }

@@ -1,16 +1,18 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 #define RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 
-#include <array>
+#include <base/containers/array.h>
+#include <base/containers/deque.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <condition_variable>
-#include <deque>
 #include <functional>
 #include <future>
 #include <mutex>
-#include <string>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #include "components/bethesda/game_profile.h"
 #include "core/move_only_function.h"
@@ -64,18 +66,18 @@ class PapyrusGuest {
   template <typename Fn>
   auto Dispatch(Fn fn) -> decltype(fn(std::declval<papyrus::VirtualMachine&>())) {
     if (OnGuestThread()) return fn(vm_);
-    return SubmitFor(std::move(fn)).get();
+    return SubmitFor(base::move(fn)).get();
   }
 
   // Thread-safe convenience wrappers over Submit/SubmitFor.
-  std::future<std::string> LoadScript(std::vector<u8> pex);
-  std::future<papyrus::ObjectRef> CreateInstance(std::string type);
-  void RaiseEvent(papyrus::ObjectRef target, std::string event,
-                  std::vector<papyrus::Value> args = {});
-  void RaiseScriptEvent(papyrus::ObjectRef target, std::string script_type, std::string event,
-                        std::vector<papyrus::Value> args = {});
-  void RaiseEventAll(papyrus::ObjectRef target, std::string event,
-                     std::vector<papyrus::Value> args = {});
+  std::future<base::String> LoadScript(base::Vector<u8> pex);
+  std::future<papyrus::ObjectRef> CreateInstance(base::String type);
+  void RaiseEvent(papyrus::ObjectRef target, base::String event,
+                  base::Vector<papyrus::Value> args = {});
+  void RaiseScriptEvent(papyrus::ObjectRef target, base::String script_type, base::String event,
+                        base::Vector<papyrus::Value> args = {});
+  void RaiseEventAll(papyrus::ObjectRef target, base::String event,
+                     base::Vector<papyrus::Value> args = {});
   // Advances the guest clock by dt seconds and fires any due update events.
   void Tick(f32 dt);
 
@@ -85,8 +87,8 @@ class PapyrusGuest {
 
   // Resolves a bare reference's type for `obj as Type` casts. Set before Start()
   // alongside the native table (see VirtualMachine::set_type_resolver).
-  void set_type_resolver(std::function<bool(papyrus::ObjectRef, const std::string&)> r) {
-    vm_.set_type_resolver(std::move(r));
+  void set_type_resolver(std::function<bool(papyrus::ObjectRef, const base::String&)> r) {
+    vm_.set_type_resolver(base::move(r));
   }
 
   // Expands a form reference into the quest aliases it currently fills, so an
@@ -95,34 +97,33 @@ class PapyrusGuest {
   // (OnDeath, OnHit) already do via RaiseFormAndAliasEvent. The runtime wires
   // this to the bindings' alias index; unset means no alias routing. Set on and
   // called from the guest thread.
-  void set_alias_resolver(std::function<std::vector<papyrus::ObjectRef>(papyrus::ObjectRef)> fn) {
-    alias_resolver_ = std::move(fn);
+  void set_alias_resolver(std::function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> fn) {
+    alias_resolver_ = base::move(fn);
   }
 
   // Where Debug.Notification messages go (a HUD toast in the runtime). Without a
   // handler they fall back to the trace log. Set it on the guest thread (Submit)
   // so the native, which also runs there, never races the assignment.
-  void set_on_notification(std::function<void(const std::string&)> fn) {
-    on_notification_ = std::move(fn);
+  void set_on_notification(std::function<void(const base::String&)> fn) {
+    on_notification_ = base::move(fn);
   }
 
   // Where engine-reaching Debug.* commands go (quit, screenshot, the global dev
   // toggles): a verb plus a string argument. The runtime marshals these onto the
   // main loop and performs the real action. Without a handler they are inert. Set
   // on the guest thread; read by the natives, also on the guest thread.
-  void set_on_debug_command(std::function<void(const std::string&, const std::string&)> fn) {
-    on_debug_command_ = std::move(fn);
+  void set_on_debug_command(std::function<void(const base::String&, const base::String&)> fn) {
+    on_debug_command_ = base::move(fn);
   }
 
   // Where the multiplayer platform's Hud.* / Net.* calls go (the runtime's
   // PlatformHud, drained onto the on-screen HUD). Game-agnostic: these natives are
   // bound for every guest, so a server's UI works in any universe. Without a
   // handler the calls are inert. Set and read on the guest thread.
-  void set_on_platform_hud(
-      std::function<void(const std::string&, const std::string&,
-                         const std::vector<papyrus::Value>&)>
-          fn) {
-    on_platform_hud_ = std::move(fn);
+  void set_on_platform_hud(std::function<void(const base::String&, const base::String&,
+                                              const base::Vector<papyrus::Value>&)>
+                               fn) {
+    on_platform_hud_ = base::move(fn);
   }
 
   // Supplies the local player's world position (engine space) to the Net.LocalPos*
@@ -139,22 +140,22 @@ class PapyrusGuest {
   // runtime; see FiberScheduler.
   void set_fiber_context_hooks(std::function<void()> reset,
                                std::function<std::function<void()>()> capture) {
-    fiber_sched_.set_context_hooks(std::move(reset), std::move(capture));
+    fiber_sched_.set_context_hooks(base::move(reset), base::move(capture));
   }
 
-  void set_local_pos_provider(std::function<std::array<f32, 3>()> fn) {
-    local_pos_provider_ = std::move(fn);
+  void set_local_pos_provider(std::function<base::Array<f32, 3>()> fn) {
+    local_pos_provider_ = base::move(fn);
   }
 
   // Supplies the current game time in days (WorldClock::game_days), driving the
   // RegisterForUpdateGameTime timers and their OnUpdateGameTime callbacks. Set by
   // the runtime; read on the guest thread.
-  void set_game_time_provider(std::function<f64()> fn) { game_time_provider_ = std::move(fn); }
+  void set_game_time_provider(std::function<f64()> fn) { game_time_provider_ = base::move(fn); }
 
   // Answers whether a viewer ref has line of sight to a target ref, driving the
   // RegisterForLOS watches and their OnGainLOS/OnLostLOS callbacks. Set by the
   // runtime to the binding's HasLos; read on the guest thread.
-  void set_los_provider(std::function<bool(u64, u64)> fn) { los_provider_ = std::move(fn); }
+  void set_los_provider(std::function<bool(u64, u64)> fn) { los_provider_ = base::move(fn); }
 
  private:
   struct ScheduledUpdate {
@@ -176,10 +177,10 @@ class PapyrusGuest {
   };
 
   void ThreadMain();
-  void BindEngineNatives();          // timers + debug, captured on this guest
+  void BindEngineNatives();  // timers + debug, captured on this guest
   void ScheduleUpdate(papyrus::ObjectRef target, f64 due, f64 interval);
   void CancelUpdate(papyrus::ObjectRef target);
-  void AdvanceUpdates(f64 dt);       // guest thread only
+  void AdvanceUpdates(f64 dt);  // guest thread only
   // Game-time timers: due/interval are in game days, fired when the world clock
   // (via game_time_provider_) passes them. Mirror the real-time set above.
   void ScheduleGameUpdate(papyrus::ObjectRef target, f64 due, f64 interval);
@@ -198,7 +199,7 @@ class PapyrusGuest {
   std::thread thread_;
   std::mutex mutex_;
   std::condition_variable wake_;
-  std::deque<MoveOnlyFunction<void(papyrus::VirtualMachine&)>> queue_;
+  base::SimpleDeque<MoveOnlyFunction<void(papyrus::VirtualMachine&)>> queue_;
   bool stop_ = false;
   bool running_ = false;
 
@@ -207,9 +208,9 @@ class PapyrusGuest {
   // TODO: serialize these into a savegame once one exists. Each entry is plain data
   // (target handle + due/interval, or registrant/viewer/target), so they survive a
   // save directly, unlike the fiber-parked Waits in fiber_sched_.
-  std::vector<ScheduledUpdate> updates_;
-  std::vector<ScheduledUpdate> game_updates_;
-  std::vector<LosWatch> los_watches_;
+  base::Vector<ScheduledUpdate> updates_;
+  base::Vector<ScheduledUpdate> game_updates_;
+  base::Vector<LosWatch> los_watches_;
   // Runs activations on fibers and parks the ones that hit a latent Wait. Pulls
   // each suspending activation's delay from the VM's latent request.
   papyrus::FiberScheduler fiber_sched_{[this] { return vm_.TakeLatentRequest(); }};
@@ -224,32 +225,31 @@ class PapyrusGuest {
 
   // Set once on the guest thread (see set_alias_resolver); consulted by RaiseEvent
   // to also dispatch an event to the aliases the target ref fills.
-  std::function<std::vector<papyrus::ObjectRef>(papyrus::ObjectRef)> alias_resolver_;
+  std::function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> alias_resolver_;
 
   // Set once on the guest thread (see set_on_notification); read by the
   // Debug.Notification native, also on the guest thread.
-  std::function<void(const std::string&)> on_notification_;
+  std::function<void(const base::String&)> on_notification_;
 
   // Set once on the guest thread (see set_on_debug_command); read by the Debug.*
   // engine-command natives, also on the guest thread.
-  std::function<void(const std::string&, const std::string&)> on_debug_command_;
+  std::function<void(const base::String&, const base::String&)> on_debug_command_;
 
   // Set once on the guest thread (see set_on_platform_hud); read by the platform
   // HUD/Net natives, also on the guest thread.
-  std::function<void(const std::string&, const std::string&,
-                     const std::vector<papyrus::Value>&)>
+  std::function<void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)>
       on_platform_hud_;
 
   // Set once on the guest thread (see set_local_pos_provider); read by the
   // Net.LocalPos* natives, also on the guest thread.
-  std::function<std::array<f32, 3>()> local_pos_provider_;
+  std::function<base::Array<f32, 3>()> local_pos_provider_;
 };
 
 template <typename Fn>
 auto PapyrusGuest::SubmitFor(Fn fn)
     -> std::future<decltype(fn(std::declval<papyrus::VirtualMachine&>()))> {
   using R = decltype(fn(std::declval<papyrus::VirtualMachine&>()));
-  auto task = std::make_shared<std::packaged_task<R(papyrus::VirtualMachine&)>>(std::move(fn));
+  auto task = std::make_shared<std::packaged_task<R(papyrus::VirtualMachine&)>>(base::move(fn));
   std::future<R> future = task->get_future();
   Submit([task](papyrus::VirtualMachine& vm) { (*task)(vm); });
   return future;

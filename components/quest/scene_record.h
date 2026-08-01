@@ -1,7 +1,7 @@
 #ifndef RECREATION_QUEST_SCENE_RECORD_H_
 #define RECREATION_QUEST_SCENE_RECORD_H_
 
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 
@@ -31,21 +31,21 @@ namespace rx::quest {
 // One scene action: a single beat within a phase performed by an actor alias.
 struct SceneActionDef {
   enum class Kind {
-    kDialogue,    // actor speaks a DIAL topic; `topic` is the DIAL form id
-    kPackage,     // actor runs an AI package; `package` is the PACK form id
-    kTimer,       // a wait/timer beat, no ref
-    kUnknown,     // an action type this parser does not model
+    kDialogue,  // actor speaks a DIAL topic; `topic` is the DIAL form id
+    kPackage,   // actor runs an AI package; `package` is the PACK form id
+    kTimer,     // a wait/timer beat, no ref
+    kUnknown,   // an action type this parser does not model
   };
 
   Kind kind = Kind::kUnknown;
-  u16 raw_type = 0;       // ANAM action type as stored (0 dialogue, 1 package, 2 timer)
-  i32 actor_alias = -1;   // ALID, scene alias index of the performer
-  i32 start_phase = 0;    // SNAM, phase this action begins in
-  i32 end_phase = 0;      // ENAM, phase this action ends in
-  u32 flags = 0;          // FNAM action flags, 0 when absent
+  u16 raw_type = 0;      // ANAM action type as stored (0 dialogue, 1 package, 2 timer)
+  i32 actor_alias = -1;  // ALID, scene alias index of the performer
+  i32 start_phase = 0;   // SNAM, phase this action begins in
+  i32 end_phase = 0;     // ENAM, phase this action ends in
+  u32 flags = 0;         // FNAM action flags, 0 when absent
 
-  u64 topic = 0;          // kDialogue: DIAL topic handle (packed GlobalFormId)
-  u64 package = 0;        // kPackage: PACK handle (packed GlobalFormId)
+  u64 topic = 0;             // kDialogue: DIAL topic handle (packed GlobalFormId)
+  u64 package = 0;           // kPackage: PACK handle (packed GlobalFormId)
   f32 timer_seconds = 0.0f;  // kTimer: wait duration (the SNAM after ENAM)
 
   // Dialogue-only delivery hints.
@@ -60,30 +60,30 @@ struct SceneActionDef {
 // CTDA payloads are kept raw because this worktree has no ctda.h; the runtime
 // can transpile them with the quest condition parser when it integrates.
 struct SceneRawCondition {
-  std::vector<u8> ctda;  // one CTDA subrecord payload, plugin-relative form ids
+  base::Vector<u8> ctda;  // one CTDA subrecord payload, plugin-relative form ids
 };
 
 struct ScenePhaseDef {
   i32 index = 0;
-  std::vector<SceneRawCondition> begin;       // gate to enter the phase
-  std::vector<SceneRawCondition> completion;  // gate to advance past it
+  base::Vector<SceneRawCondition> begin;       // gate to enter the phase
+  base::Vector<SceneRawCondition> completion;  // gate to advance past it
 };
 
 // One scene actor slot: a quest alias the scene animates.
 struct SceneActorDef {
-  i32 alias = -1;   // ALID, scene alias index
-  u32 flags = 0;    // LNAM behaviour flags
-  u32 flags2 = 0;   // DNAM behaviour flags
+  i32 alias = -1;  // ALID, scene alias index
+  u32 flags = 0;   // LNAM behaviour flags
+  u32 flags2 = 0;  // DNAM behaviour flags
 };
 
 // A whole scene.
 struct SceneDef {
-  u64 handle = 0;   // packed GlobalFormId of the SCEN record
-  u64 quest = 0;    // PNAM owning quest handle (packed GlobalFormId), 0 if none
-  u32 flags = 0;    // FNAM scene flags
-  std::vector<SceneActorDef> actors;
-  std::vector<ScenePhaseDef> phases;
-  std::vector<SceneActionDef> actions;
+  u64 handle = 0;  // packed GlobalFormId of the SCEN record
+  u64 quest = 0;   // PNAM owning quest handle (packed GlobalFormId), 0 if none
+  u32 flags = 0;   // FNAM scene flags
+  base::Vector<SceneActorDef> actors;
+  base::Vector<ScenePhaseDef> phases;
+  base::Vector<SceneActionDef> actions;
 };
 
 // Parses one already-decoded SCEN record into a SceneDef. `handle` is the

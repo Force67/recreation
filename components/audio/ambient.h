@@ -4,6 +4,7 @@
 #include <string>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/form_id.h"
@@ -67,7 +68,7 @@ struct AmbientDecision {
   bool stop_current = false;
   bool start_target = false;
 };
-AmbientDecision DecideAmbient(const std::string& current, const std::string& target);
+AmbientDecision DecideAmbient(const base::String& current, const base::String& target);
 
 // Drives the looping ambient bed from the player's area. Each frame it is handed
 // the current context, resolves it to a sound file, and cross-fades the bed when
@@ -86,16 +87,16 @@ class AmbientDirector {
   // Fades out the active bed (leaving an interior, unloading a game).
   void Stop();
 
-  const std::string& current_bed() const { return current_path_; }
+  const base::String& current_bed() const { return current_path_; }
 
  private:
   // The asset path the context should play, or empty for silence.
-  std::string Resolve(const AmbientContext& context) const;
+  base::String Resolve(const AmbientContext& context) const;
 
   AudioSystem* audio_ = nullptr;
   const SoundCatalog* catalog_ = nullptr;
   const RegionAmbience* regions_ = nullptr;
-  std::string current_path_;
+  base::String current_path_;
   u32 current_voice_ = 0;
 };
 

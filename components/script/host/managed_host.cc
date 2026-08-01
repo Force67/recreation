@@ -1,6 +1,9 @@
 #include "components/script/host/managed_host.h"
 
-#include <utility>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/strings/xstring.h>
 
 #include "core/log.h"
 #include "components/script/host/managed_gc_profile.h"
@@ -10,18 +13,18 @@ namespace rx::script::host {
 
 ManagedHost::~ManagedHost() { Shutdown(); }
 
-void ManagedHost::AddDomain(std::string name, PapyrusGuest& guest,
-                            std::function<bool(const std::string&)> loader) {
-  auto domain = std::make_unique<Domain>();
-  domain->name = std::move(name);
+void ManagedHost::AddDomain(base::String name, PapyrusGuest& guest,
+                            std::function<bool(const base::String&)> loader) {
+  auto domain = base::MakeUnique<Domain>();
+  domain->name = base::move(name);
   domain->ctx.guest = &guest;
-  domain->ctx.loader = std::move(loader);
+  domain->ctx.loader = base::move(loader);
   domain->bridge = MakeScriptBridge(domain->ctx);  // ctx address is stable (heap)
-  domains_.push_back(std::move(domain));
+  domains_.push_back(base::move(domain));
 }
 
-bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtime_config,
-                       const std::string& assembly) {
+bool ManagedHost::Boot(const base::String& dotnet_root, const base::String& runtime_config,
+                       const base::String& assembly) {
   if (domains_.empty()) {
     RX_WARN("managed: no content domain registered, scripting disabled");
     return false;
@@ -30,19 +33,19 @@ bool ManagedHost::Boot(const std::string& dotnet_root, const std::string& runtim
   domain_table_.reserve(domains_.size());
   for (const auto& domain : domains_)
     domain_table_.push_back({domain->name.c_str(), &domain->bridge});
-  primary_guest_ = domains_[0]->ctx.guest;    // the thread the managed world runs on
+  primary_guest_ = domains_[0]->ctx.guest;   // the thread the managed world runs on
   handshake_.bridge = &domains_[0]->bridge;  // primary, back-compatible
   handshake_.callbacks = {};
   handshake_.domain_count = static_cast<std::int32_t>(domain_table_.size());
   handshake_.domains = domain_table_.data();
   handshake_.ui_widget_ops = ui_widget_ops_;  // null when there is no UI backend
-  handshake_.rpc = rpc_bridge_;  // emit/on null when networking is off
-  handshake_.realm = realm_;     // server / client / standalone
+  handshake_.rpc = rpc_bridge_;               // emit/on null when networking is off
+  handshake_.realm = realm_;                  // server / client / standalone
 
   // Apply the per-platform / per-role GC and heap profile to the runtime before
   // it starts. Keyed by realm (dedicated server vs client vs standalone) and the
   // build platform; RECREATION_MANAGED_GC* env vars override.
-  const std::string gc_profile = ResolveGcProfileName(realm_);
+  const base::String gc_profile = ResolveGcProfileName(realm_);
   RX_INFO("managed: GC profile '{}'", gc_profile);
   if (!clr_.Initialize(dotnet_root, runtime_config, assembly,
                        "Recreation.ScriptHost, Recreation.Scripting", "Main",
@@ -88,9 +91,8 @@ std::int32_t ManagedHost::DispatchUi(const char* func_name, std::uint64_t widget
   return result;
 }
 
-void ManagedHost::DispatchRpc(const char* name, std::int32_t sender,
-                              std::int32_t from_server, const ApiValue* args,
-                              std::int32_t argc) {
+void ManagedHost::DispatchRpc(const char* name, std::int32_t sender, std::int32_t from_server,
+                              const ApiValue* args, std::int32_t argc) {
   if (!available_ || !handshake_.callbacks.dispatch_rpc) return;
   auto dispatch = handshake_.callbacks.dispatch_rpc;
   RunManaged([&] { dispatch(name, sender, from_server, args, argc); });
@@ -109,7 +111,7 @@ void ManagedHost::QueueEvent(const ManagedEvent& event) {
 
 void ManagedHost::DrainEvents() {
   if (!available_ || !handshake_.callbacks.publish_event) return;
-  std::vector<ManagedEvent> events;
+  base::Vector<ManagedEvent> events;
   {
     std::lock_guard<std::mutex> lock(event_mutex_);
     events.swap(pending_events_);

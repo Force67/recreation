@@ -1,11 +1,17 @@
 #include "components/bethesda/nif.h"
 
+#include <base/algorithm.h>
+#include <base/containers/unordered_map.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/optional.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/to_string.h>
+#include <base/strings/xstring.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#include <base/containers/unordered_map.h>
-#include <base/option.h>
 
 #include "asset/asset_id.h"
 #include "core/log.h"
@@ -26,7 +32,7 @@ base::Option<bool> NifParticles{"nif.particles", true, "RX_PARTICLES",
 base::Option<bool> NifEffectShaders{"nif.effect_shaders", true, "RX_EFFECT_SHADERS",
                                     "render nif effect-shader geometry as unlit emissive"};
 
-constexpr std::string_view kMagic = "Gamebryo File Format, Version ";
+constexpr base::StringRef kMagic = "Gamebryo File Format, Version ";
 constexpr u32 kVersion20_2_0_7 = 0x14020007;
 
 struct Reader {
@@ -219,7 +225,7 @@ Transform ReadAvObject(Reader& r, bool* hidden, i32* name_index = nullptr, bool 
 struct Node {
   Transform local;
   base::Vector<i32> children;
-  std::string name;  // resolved from the header string table, for bone matching
+  base::String name;  // resolved from the header string table, for bone matching
   bool hidden = false;
 };
 
@@ -232,9 +238,9 @@ struct Shape {
   Transform local;
   i32 shader = -1;
   i32 alpha = -1;
-  i32 data = -1;        // NiTriShape only
-  i32 skin = -1;        // NiSkinInstance/BSDismemberSkinInstance
-  Geometry geometry;    // BSTriShape only
+  i32 data = -1;      // NiTriShape only
+  i32 skin = -1;      // NiSkinInstance/BSDismemberSkinInstance
+  Geometry geometry;  // BSTriShape only
   bool hidden = false;
   bool skipped = false;
 };
@@ -248,20 +254,20 @@ struct ShaderInfo {
   f32 emissive_multiple = 1;
   f32 glossiness = 80;
   f32 refraction_strength = 0;  // screen distortion amount, SLSF1 refraction only
-  f32 env_map_scale = -1;  // environment map reflectivity (type 1); -1 = absent
+  f32 env_map_scale = -1;       // environment map reflectivity (type 1); -1 = absent
   bool effect = false;
   bool water = false;
-  std::string effect_texture;
-  std::string greyscale_texture;  // effect grayscale-to-palette lookup
+  base::String effect_texture;
+  base::String greyscale_texture;  // effect grayscale-to-palette lookup
   // BSEffectShaderProperty (Skyrim layout): emissive colour (rgba) * multiple,
   // view-angle falloff, soft-particle depth. Only used when `effect`.
   f32 effect_color[4] = {1, 1, 1, 1};
   f32 effect_scale = 1;
   f32 falloff[4] = {1, 1, 1, 1};  // start angle, stop angle, start op, stop op
   f32 soft_falloff_depth = 0;
-  std::string material_file;  // FO4 .bgsm/.bgem referenced by the shader name
-  i32 controller = -1;        // NiTimeController chain head off the property
-  f32 uv_scroll_u = 0;        // resolved animated scroll rate (uv units/sec)
+  base::String material_file;  // FO4 .bgsm/.bgem referenced by the shader name
+  i32 controller = -1;         // NiTimeController chain head off the property
+  f32 uv_scroll_u = 0;         // resolved animated scroll rate (uv units/sec)
   f32 uv_scroll_v = 0;
   f32 emissive_pulse[2] = {0, 0};  // x frequency (Hz), y amount; from a controller
 };
@@ -271,10 +277,10 @@ struct ShaderInfo {
 // controlled-variable enums differ between the two shader types (nif.xml
 // LightingShaderControlledFloat vs EffectShaderControlledVariable).
 struct FloatController {
-  i32 next = -1;         // NiTimeController::Next Controller
+  i32 next = -1;  // NiTimeController::Next Controller
   i32 interpolator = -1;
-  u32 variable = 0;      // controlled variable enum
-  bool effect = false;   // enum is EffectShaderControlledVariable when set
+  u32 variable = 0;     // controlled variable enum
+  bool effect = false;  // enum is EffectShaderControlledVariable when set
 };
 
 // NiFloatData reduced to endpoints: rate = (last.value - first.value) /
@@ -289,12 +295,12 @@ struct FloatKeys {
 
 // A NIF shader name may name a Fallout 4 material file ("materials\...\x.bgsm").
 // Folds it to the "materials/..." vfs key; returns empty for non-material names.
-std::string MaterialFilePath(std::string_view raw) {
+base::String MaterialFilePath(base::StringRef raw) {
   if (raw.empty()) return {};
-  std::string path = asset::NormalizePath(raw);
+  base::String path = asset::NormalizePath(raw);
   if (!path.ends_with(".bgsm") && !path.ends_with(".bgem")) return {};
   size_t anchor = path.rfind("materials/");
-  return anchor != std::string::npos ? path.substr(anchor) : "materials/" + path;
+  return anchor != base::String::npos ? path.substr(anchor) : "materials/" + path;
 }
 
 // Refraction shapes (heat haze, glass distortion) carry a normal map in the
@@ -368,8 +374,8 @@ struct EmitterBlock {
   f32 life = 1, life_variation = 0;
   i32 emitter_object = -1;  // NiNode the volume hangs off, -1 = the system
   f32 half_extent[3] = {0, 0, 0};
-  bool is_mesh = false;          // NiPSysMeshEmitter: emit from a mesh's volume
-  base::Vector<i32> mesh_refs;   // shapes emitted from (mesh emitter)
+  bool is_mesh = false;         // NiPSysMeshEmitter: emit from a mesh's volume
+  base::Vector<i32> mesh_refs;  // shapes emitted from (mesh emitter)
 };
 
 // BSPSysSimpleColorModifier: three colours interpolated across the particle's
@@ -425,7 +431,7 @@ struct VertexLayout {
     skin = static_cast<u32>(desc >> 28 & 0xf) * 4;
     u32 position_end = stride;
     for (u32 offset : {uv, normal, tangent, color, skin}) {
-      if (offset != 0) position_end = std::min(position_end, offset);
+      if (offset != 0) position_end = base::Min(position_end, offset);
     }
     full_precision = position_end >= 16;
   }
@@ -706,7 +712,7 @@ bool ReadSkinPartition(Reader& r, u32 bs_version, SkinPartitionBlock* out) {
       if (has_buffer && index >= vertex_count) return false;
       out->indices.push_back(index);
     }
-    out->spans.push_back(std::move(span));
+    out->spans.push_back(base::move(span));
   }
   return true;
 }
@@ -757,7 +763,7 @@ u32 ReadGeometryDataCommon(Reader& r, u32 bs_version, Geometry* out) {
     for (u32 i = 0; i < vertex_count; ++i) {
       f32 c[4];
       std::memcpy(c, colors + 16 * i, 16);
-      auto pack = [](f32 v) { return static_cast<u32>(std::clamp(v, 0.0f, 1.0f) * 255.0f); };
+      auto pack = [](f32 v) { return static_cast<u32>(base::Clamp(v, 0.0f, 1.0f) * 255.0f); };
       // Real alpha kept; the flatten loop forces it opaque except on effects.
       out->vertices[i].color = pack(c[0]) | pack(c[1]) << 8 | pack(c[2]) << 16 | pack(c[3]) << 24;
     }
@@ -839,7 +845,7 @@ bool ReadNiTriStripsData(Reader& r, u32 bs_version, Geometry* out) {
   return !out->indices.empty();
 }
 
-std::string ReadSizedString(Reader& r) {
+base::String ReadSizedString(Reader& r) {
   u32 length = r.Read<u32>();
   if (length > 4096) {
     r.ok = false;
@@ -847,33 +853,33 @@ std::string ReadSizedString(Reader& r) {
   }
   const u8* bytes = r.Bytes(length);
   if (!bytes) return {};
-  return std::string(reinterpret_cast<const char*>(bytes), length);
+  return base::String(reinterpret_cast<const char*>(bytes), length);
 }
 
-std::string NormalizeTexturePath(std::string_view raw) {
+base::String NormalizeTexturePath(base::StringRef raw) {
   if (raw.empty()) return {};
-  std::string path = asset::NormalizePath(raw);
+  base::String path = asset::NormalizePath(raw);
   // Source art paths leak build prefixes like "skyrimhd/build/pc/data/
   // textures/..."; the vfs root is the last "textures/" segment.
   size_t anchor = path.rfind("textures/");
-  if (anchor != std::string::npos) return path.substr(anchor);
+  if (anchor != base::String::npos) return path.substr(anchor);
   return "textures/" + path;
 }
 
 }  // namespace
 
-std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
-  std::string_view text(reinterpret_cast<const char*>(data.data()),
-                        std::min<size_t>(data.size(), 64));
-  if (!text.starts_with(kMagic)) return std::nullopt;
+base::Optional<NifHeader> ParseNifHeader(ByteSpan data) {
+  base::StringRef text(reinterpret_cast<const char*>(data.data()),
+                       std::min<size_t>(data.size(), 64));
+  if (!text.starts_with(kMagic)) return base::nullopt;
   size_t newline = text.find('\n');
-  if (newline == std::string_view::npos) return std::nullopt;
+  if (newline == base::StringRef::npos) return base::nullopt;
 
   Reader r{data, newline + 1};
   NifHeader header;
   header.version = r.Read<u32>();
-  if (header.version != kVersion20_2_0_7) return std::nullopt;
-  if (r.Read<u8>() != 1) return std::nullopt;  // little endian only
+  if (header.version != kVersion20_2_0_7) return base::nullopt;
+  if (r.Read<u8>() != 1) return base::nullopt;  // little endian only
   header.user_version = r.Read<u32>();
   u32 block_count = r.Read<u32>();
   // The Bethesda stream header (BS version + export author/process/export
@@ -887,7 +893,7 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   }
   header.legacy_geometry = header.user_version <= 11;
   u16 type_count = r.Read<u16>();
-  if (!r.ok || block_count > 200000 || type_count > 4096) return std::nullopt;
+  if (!r.ok || block_count > 200000 || type_count > 4096) return base::nullopt;
   header.block_types.reserve(type_count);
   for (u16 i = 0; i < type_count; ++i) header.block_types.push_back(ReadSizedString(r));
   header.block_type_index.resize(block_count);
@@ -896,24 +902,24 @@ std::optional<NifHeader> ParseNifHeader(ByteSpan data) {
   for (u32 i = 0; i < block_count; ++i) header.block_sizes[i] = r.Read<u32>();
   u32 string_count = r.Read<u32>();
   r.Skip(4);  // max string length
-  if (!r.ok || string_count > 200000) return std::nullopt;
+  if (!r.ok || string_count > 200000) return base::nullopt;
   header.strings.reserve(string_count);
   for (u32 i = 0; i < string_count; ++i) header.strings.push_back(ReadSizedString(r));
   u32 group_count = r.Read<u32>();
   r.Skip(4 * static_cast<size_t>(group_count));
-  if (!r.ok) return std::nullopt;
+  if (!r.ok) return base::nullopt;
 
   header.block_offsets.resize(block_count);
   size_t pos = r.pos;
   for (u32 i = 0; i < block_count; ++i) {
     header.block_offsets[i] = static_cast<u32>(pos);
     pos += header.block_sizes[i];
-    if (pos > data.size()) return std::nullopt;
+    if (pos > data.size()) return base::nullopt;
   }
   return header;
 }
 
-static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::string_view source_path,
+static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, base::StringRef source_path,
                                     bool keep_skin, bool rigid_fallback) {
   NifConversion result;
   auto header = ParseNifHeader(data);
@@ -928,7 +934,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   base::UnorderedMap<u32, Geometry> geometry_blocks;
   base::UnorderedMap<u32, ShaderInfo> shaders;
   base::UnorderedMap<u32, AlphaInfo> alphas;
-  base::UnorderedMap<u32, base::Vector<std::string>> texture_sets;
+  base::UnorderedMap<u32, base::Vector<base::String>> texture_sets;
   base::UnorderedMap<u32, SkinInstanceBlock> skin_instances;
   base::UnorderedMap<u32, base::Vector<Transform>> skin_datas;
   base::UnorderedMap<u32, SkinVertexWeights> skin_weights;  // classic per-vertex weights
@@ -950,7 +956,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   base::Vector<EmitterCtlrBlock> emitter_ctlrs;
 
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = header->block_types[header->block_type_index[i]];
+    const base::String& type = header->block_types[header->block_type_index[i]];
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
 
     if (type.ends_with("Node")) {
@@ -984,7 +990,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         node.children.clear();
         node.children.push_back(finest);
       }
-      if (r.ok) nodes.emplace(i, std::move(node));
+      if (r.ok) nodes.emplace(i, base::move(node));
     } else if (type == "BSTriShape" || type == "BSMeshLODTriShape" ||
                type == "BSSubIndexTriShape") {
       // BSSubIndexTriShape (FO4 static meshes) shares the BSTriShape geometry
@@ -1002,7 +1008,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (!r.ok) continue;
       if (!ReadBsTriShapeGeometry(r, header->bs_version, &shape.geometry) && shape.skin < 0)
         shape.skipped = true;
-      shapes.emplace(i, std::move(shape));
+      shapes.emplace(i, base::move(shape));
     } else if (type == "BSDynamicTriShape") {
       // Head and hair: positions live in a dynamic array, so the geometry is
       // read inline (not skinned); the actor loader rigid-attaches it.
@@ -1014,7 +1020,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       shape.alpha = r.Read<i32>();
       if (!r.ok) continue;
       if (!ReadBsDynamicTriShape(r, header->bs_version, &shape.geometry)) shape.skipped = true;
-      shapes.emplace(i, std::move(shape));
+      shapes.emplace(i, base::move(shape));
     } else if (type == "NiTriShape" || type == "NiTriStrips") {
       // Both are NiTriBasedGeom: identical shape header, the referenced data
       // block (NiTriShapeData vs NiTriStripsData) differs. Skyrim NiTriShape
@@ -1031,42 +1037,44 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (header->legacy_geometry) {
         for (i32 ref : properties) {
           if (ref < 0 || static_cast<u32>(ref) >= block_count) continue;
-          const std::string& pt = header->block_types[header->block_type_index[ref]];
-          if (pt == "NiAlphaProperty") shape.alpha = ref;
-          else if (pt.find("Shader") != std::string::npos) shape.shader = ref;
+          const base::String& pt = header->block_types[header->block_type_index[ref]];
+          if (pt == "NiAlphaProperty")
+            shape.alpha = ref;
+          else if (pt.find("Shader") != base::String::npos)
+            shape.shader = ref;
         }
       } else {
         shape.shader = r.Read<i32>();
         shape.alpha = r.Read<i32>();
       }
       if (!r.ok) continue;
-      shapes.emplace(i, std::move(shape));
+      shapes.emplace(i, base::move(shape));
     } else if (type == "NiTriShapeData") {
       Geometry geometry;
       if (ReadNiTriShapeData(r, header->bs_version, &geometry)) {
-        geometry_blocks.emplace(i, std::move(geometry));
+        geometry_blocks.emplace(i, base::move(geometry));
       }
     } else if (type == "NiTriStripsData") {
       Geometry geometry;
       if (ReadNiTriStripsData(r, header->bs_version, &geometry)) {
-        geometry_blocks.emplace(i, std::move(geometry));
+        geometry_blocks.emplace(i, base::move(geometry));
       }
     } else if (type == "NiSkinInstance" || type == "BSDismemberSkinInstance") {
       SkinInstanceBlock skin;
-      if (ReadSkinInstance(r, &skin)) skin_instances.emplace(i, std::move(skin));
+      if (ReadSkinInstance(r, &skin)) skin_instances.emplace(i, base::move(skin));
     } else if (type == "NiSkinData") {
       base::Vector<Transform> skin_to_bone;
       SkinVertexWeights weights;
       // Classic (Fallout 3 / New Vegas) skinning keeps the weights here; SSE
       // leaves them empty (they live in the packed partition buffer instead).
       if (ReadSkinData(r, &skin_to_bone, header->legacy_geometry ? &weights : nullptr)) {
-        skin_datas.emplace(i, std::move(skin_to_bone));
-        if (!weights.empty()) skin_weights.emplace(i, std::move(weights));
+        skin_datas.emplace(i, base::move(skin_to_bone));
+        if (!weights.empty()) skin_weights.emplace(i, base::move(weights));
       }
     } else if (type == "NiSkinPartition") {
       SkinPartitionBlock partition;
       if (ReadSkinPartition(r, header->bs_version, &partition)) {
-        skin_partitions.emplace(i, std::move(partition));
+        skin_partitions.emplace(i, base::move(partition));
       }
     } else if (type == "BSLightingShaderProperty") {
       ShaderInfo info;
@@ -1110,9 +1118,9 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       r.Skip(4);  // name
       u32 extra = r.Read<u32>();
       if (!r.ok || extra > 4096) continue;
-      r.Skip(4 * extra + 4);  // extra refs, controller
+      r.Skip(4 * extra + 4);      // extra refs, controller
       r.Skip(2 + 4 + 4 + 4 + 4);  // flags(u16), type, shader flags 1/2, env map scale
-      r.Skip(4);  // texture clamp mode
+      r.Skip(4);                  // texture clamp mode
       info.texture_set = r.Read<i32>();
       if (r.ok) shaders.emplace(i, info);
     } else if (type == "BSWaterShaderProperty") {
@@ -1149,14 +1157,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         info.soft_falloff_depth = r.Read<f32>();
         info.greyscale_texture = ReadSizedString(r);
       }
-      if (r.ok) shaders.emplace(i, std::move(info));
+      if (r.ok) shaders.emplace(i, base::move(info));
     } else if (type == "BSShaderTextureSet") {
       u32 count = r.Read<u32>();
       if (!r.ok || count > 32) continue;
-      base::Vector<std::string> textures;
+      base::Vector<base::String> textures;
       textures.reserve(count);
       for (u32 t = 0; t < count; ++t) textures.push_back(ReadSizedString(r));
-      if (r.ok) texture_sets.emplace(i, std::move(textures));
+      if (r.ok) texture_sets.emplace(i, base::move(textures));
     } else if (type == "NiAlphaProperty") {
       AlphaInfo info;
       r.Skip(4);  // name
@@ -1203,8 +1211,8 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
           }
           keys.last_time = t;
           keys.last_value = v;
-          keys.min_value = std::min(keys.min_value, v);
-          keys.max_value = std::max(keys.max_value, v);
+          keys.min_value = base::Min(keys.min_value, v);
+          keys.max_value = base::Max(keys.max_value, v);
         }
         if (r.ok) float_datas.emplace(i, keys);
       }
@@ -1214,9 +1222,9 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (header->bs_version < 100) continue;
       PsysBlock p;
       p.local = ReadAvObject(r, &p.hidden);
-      r.Skip(16);  // bounding sphere
+      r.Skip(16);                                 // bounding sphere
       if (header->bs_version == 155) r.Skip(24);  // FO76 bound min/max
-      r.Skip(4);   // skin ref
+      r.Skip(4);                                  // skin ref
       p.shader = r.Read<i32>();
       p.alpha = r.Read<i32>();
       r.Skip(8 + 8);  // vertex desc, far/near fade shorts
@@ -1226,7 +1234,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       if (!r.ok || modifier_count > 256) continue;
       p.modifiers.reserve(modifier_count);
       for (u32 m = 0; m < modifier_count; ++m) p.modifiers.push_back(r.Read<i32>());
-      if (r.ok) psys_blocks.emplace(i, std::move(p));
+      if (r.ok) psys_blocks.emplace(i, base::move(p));
     } else if (type == "NiPSysData") {
       r.Skip(4);  // group id
       PsysData pd;
@@ -1257,8 +1265,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
           if (r.ok && cell_w > 1e-3f && cell_h > 1e-3f) {
             u32 cols = static_cast<u32>(std::lround(1.0f / cell_w));
             u32 rows = static_cast<u32>(std::lround(1.0f / cell_h));
-            if (cols >= 1 && cols <= 15 && rows >= 1 && rows <= 15 &&
-                cols * rows >= subtex_count) {
+            if (cols >= 1 && cols <= 15 && rows >= 1 && rows <= 15 && cols * rows >= subtex_count) {
               pd.frames = static_cast<u16>(subtex_count);
               pd.cols = static_cast<u8>(cols);
               pd.rows = static_cast<u8>(rows);
@@ -1316,7 +1323,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       u32 mesh_count = r.Read<u32>();
       if (!r.ok || mesh_count > 256) continue;
       for (u32 m = 0; m < mesh_count; ++m) e.mesh_refs.push_back(r.Read<i32>());
-      if (r.ok) emitter_blocks.emplace(i, std::move(e));
+      if (r.ok) emitter_blocks.emplace(i, base::move(e));
     } else if (type == "BSPSysSimpleColorModifier") {
       ColorModBlock c;
       r.Skip(4 + 4 + 4 + 1);  // modifier name, order, target, active
@@ -1346,9 +1353,9 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   // Footer: root refs follow the last block.
   base::Vector<u32> roots;
   {
-    size_t footer = header->block_offsets.empty()
-                        ? 0
-                        : header->block_offsets[block_count - 1] + header->block_sizes[block_count - 1];
+    size_t footer = header->block_offsets.empty() ? 0
+                                                  : header->block_offsets[block_count - 1] +
+                                                        header->block_sizes[block_count - 1];
     Reader r{data, footer};
     u32 root_count = r.Read<u32>();
     if (r.ok && root_count < 256) {
@@ -1395,9 +1402,9 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         f32 mean = (keys->max_value + keys->min_value) * 0.5f;
         f32 amount = mean > 1e-4f ? (keys->max_value - keys->min_value) * 0.5f / mean : 0.0f;
         info.emissive_pulse[0] = 1.0f / duration;  // one cycle over the key span
-        info.emissive_pulse[1] = std::clamp(amount, 0.0f, 1.0f);
+        info.emissive_pulse[1] = base::Clamp(amount, 0.0f, 1.0f);
         RX_INFO("nif: emissive pulse {:.2f}Hz amount {:.2f} {}", info.emissive_pulse[0],
-                 info.emissive_pulse[1], source_path);
+                info.emissive_pulse[1], source_path);
       }
     }
   }
@@ -1410,12 +1417,12 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   // Material per distinct (shader, alpha) pair.
   base::UnorderedMap<u64, asset::AssetId> material_ids;
   auto material_for = [&](i32 shader_block, i32 alpha_block) -> asset::AssetId {
-    u64 key = static_cast<u64>(static_cast<u32>(shader_block)) << 32 | static_cast<u32>(alpha_block);
+    u64 key =
+        static_cast<u64>(static_cast<u32>(shader_block)) << 32 | static_cast<u32>(alpha_block);
     if (asset::AssetId* known = material_ids.find(key)) return *known;
 
     asset::Material material;
-    std::string name = std::string(source_path) + "#m" +
-                       std::to_string(result.materials.size());
+    base::String name = base::String(source_path) + "#m" + base::ToString(result.materials.size());
     material.id = asset::MakeAssetId(name);
 
     const ShaderInfo* shader = shaders.find(static_cast<u32>(shader_block));
@@ -1430,11 +1437,11 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       material.two_sided = true;
       material.is_water = true;
     } else if (shader) {
-      std::string diffuse, normal, height, glow;
+      base::String diffuse, normal, height, glow;
       // Glow (type 2) or the glow-map flag routes texture slot 2 to the
       // emissive slot; the emissive color/multiple tints it.
-      bool glow_mapped = !shader->effect &&
-                         (shader->shader_type == 2 || (shader->flags2 & kShaderFlag2GlowMap));
+      bool glow_mapped =
+          !shader->effect && (shader->shader_type == 2 || (shader->flags2 & kShaderFlag2GlowMap));
       // Refraction shapes carry the distortion normal map in slot 0; it must
       // never bind as a diffuse. They go to the screen-space transmission path
       // instead (glass, ice, heat haze) with the background showing through.
@@ -1465,13 +1472,13 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       // River, creek and waterfall fx surfaces carry water tile textures on
       // plain lighting shaders; they belong to the water pipeline, not the
       // generic blend path.
-      bool water_texture = diffuse.find("fxwater") != std::string::npos ||
-                           diffuse.find("watertile") != std::string::npos ||
-                           diffuse.find("fxrapids") != std::string::npos ||
-                           diffuse.find("defaultwater") != std::string::npos;
+      bool water_texture = diffuse.find("fxwater") != base::String::npos ||
+                           diffuse.find("watertile") != base::String::npos ||
+                           diffuse.find("fxrapids") != base::String::npos ||
+                           diffuse.find("defaultwater") != base::String::npos;
       // Foam overlays (whitewater, waterfall strips) stay on the blend path.
-      if (diffuse.find("whitewater") != std::string::npos ||
-          diffuse.find("waterfall") != std::string::npos) {
+      if (diffuse.find("whitewater") != base::String::npos ||
+          diffuse.find("waterfall") != base::String::npos) {
         water_texture = false;
       }
       if (water_texture) {
@@ -1489,14 +1496,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       }
       if (!diffuse.empty()) {
         material.base_color = asset::MakeAssetId(diffuse);
-        if (std::ranges::find(result.texture_paths, diffuse) == result.texture_paths.end()) {
-          result.texture_paths.push_back(std::move(diffuse));
+        if (result.texture_paths.find(diffuse) == nullptr) {
+          result.texture_paths.push_back(base::move(diffuse));
         }
       }
       if (!normal.empty()) {
         material.normal = asset::MakeAssetId(normal);
-        if (std::ranges::find(result.texture_paths, normal) == result.texture_paths.end()) {
-          result.texture_paths.push_back(std::move(normal));
+        if (result.texture_paths.find(normal) == nullptr) {
+          result.texture_paths.push_back(base::move(normal));
         }
       }
       if (!height.empty()) {
@@ -1504,14 +1511,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         // Skyrim stores no per-material depth; ~3 cm at typical 2 m texture
         // tiling reads right for stone and timber without silhouette breakup.
         material.height_scale = 0.03f;
-        if (std::ranges::find(result.texture_paths, height) == result.texture_paths.end()) {
-          result.texture_paths.push_back(std::move(height));
+        if (result.texture_paths.find(height) == nullptr) {
+          result.texture_paths.push_back(base::move(height));
         }
       }
       if (!glow.empty()) {
         material.emissive = asset::MakeAssetId(glow);
-        if (std::ranges::find(result.texture_paths, glow) == result.texture_paths.end()) {
-          result.texture_paths.push_back(std::move(glow));
+        if (result.texture_paths.find(glow) == nullptr) {
+          result.texture_paths.push_back(base::move(glow));
         }
       }
       material.two_sided = (shader->flags2 & 0x10) != 0;
@@ -1522,17 +1529,17 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       // Specular power to perceptual roughness, Karis' approximation. Env-mapped
       // surfaces relax the matte floor so the engine's IBL/RT reflections stand
       // in for the (unsupported) authored cubemap.
-      f32 gloss = std::clamp(shader->glossiness, 1.0f, 1000.0f);
+      f32 gloss = base::Clamp(shader->glossiness, 1.0f, 1000.0f);
       f32 rough_floor = env_mapped ? 0.05f : 0.2f;
       material.roughness_factor =
-          std::clamp(std::pow(2.0f / (gloss + 2.0f), 0.25f), rough_floor, 1.0f);
+          base::Clamp(std::pow(2.0f / (gloss + 2.0f), 0.25f), rough_floor, 1.0f);
       if (env_mapped) {
         // Environment Map Scale (parsed for type 1) drives reflectivity through
         // metallic, since most env-mapped Skyrim surfaces are metal; cap
         // roughness so the reflection reads.
         f32 scale = shader->env_map_scale >= 0.0f ? shader->env_map_scale : 0.6f;
-        material.metallic_factor = std::clamp(scale, 0.1f, 1.0f);
-        material.roughness_factor = std::min(material.roughness_factor, 0.35f);
+        material.metallic_factor = base::Clamp(scale, 0.1f, 1.0f);
+        material.roughness_factor = base::Min(material.roughness_factor, 0.35f);
       }
       // Emissive: own-emit fills a uniform emittance; a bound glow map modulates
       // the emissive-slot texture. A near-black glow color with a glow map means
@@ -1567,7 +1574,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         // scales the screen distortion): the base color stays white so the
         // refracted background shows untinted, and transmission forces the
         // blend path in the material system.
-        material.transmission = std::clamp(0.5f + shader->refraction_strength, 0.5f, 1.0f);
+        material.transmission = base::Clamp(0.5f + shader->refraction_strength, 0.5f, 1.0f);
         material.alpha_mode = asset::AlphaMode::kBlend;
       }
       material.uv_scroll_u = shader->uv_scroll_u;
@@ -1604,16 +1611,16 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       material.emissive_pulse[0] = shader->emissive_pulse[0];
       material.emissive_pulse[1] = shader->emissive_pulse[1];
       if (material.effect_grayscale_color && !shader->greyscale_texture.empty()) {
-        std::string palette = NormalizeTexturePath(shader->greyscale_texture);
+        base::String palette = NormalizeTexturePath(shader->greyscale_texture);
         material.emissive = asset::MakeAssetId(palette);
-        if (std::ranges::find(result.texture_paths, palette) == result.texture_paths.end()) {
-          result.texture_paths.push_back(std::move(palette));
+        if (result.texture_paths.find(palette) == nullptr) {
+          result.texture_paths.push_back(base::move(palette));
         }
       }
     }
 
     result.materials.push_back(material);
-    result.material_files.push_back(shader ? shader->material_file : std::string());
+    result.material_files.push_back(shader ? shader->material_file : base::String());
     material_ids.emplace(key, material.id);
     return material.id;
   };
@@ -1673,8 +1680,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         resolved[v] = 1;
         for (u32 w = 0; w < 4; ++w) {
           u8 local = partition->skin.bone_indices[v * 4 + w];
-          global_bones[v * 4 + w] =
-              local < span.bones.size() ? span.bones[local] : 0;
+          global_bones[v * 4 + w] = local < span.bones.size() ? span.bones[local] : 0;
         }
       }
     }
@@ -1718,7 +1724,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
   // stay in bind space, per-vertex bone indices/weights are emitted, and the
   // bones are merged (by name) into mesh->skin so a skeleton can drive them.
   base::UnorderedMap<u64, u32> skin_bone_lookup;  // name hash -> mesh->skin index
-  auto name_hash = [](const std::string& s) -> u64 {
+  auto name_hash = [](const base::String& s) -> u64 {
     u64 h = 1469598103934665603ull;
     for (char c : s) {
       h ^= static_cast<u8>(c);
@@ -1741,14 +1747,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     for (size_t b = 0; b < skin->bones.size(); ++b) {
       i32 bone_block = skin->bones[b];
       const Node* bone_node = bone_block >= 0 ? nodes.find(static_cast<u32>(bone_block)) : nullptr;
-      std::string bone_name = bone_node ? bone_node->name : std::string();
-      if (bone_name.empty()) bone_name = "Bone" + std::to_string(bone_block);
+      base::String bone_name = bone_node ? bone_node->name : base::String();
+      if (bone_name.empty()) bone_name = "Bone" + base::ToString(bone_block);
       u64 h = name_hash(bone_name);
       if (u32* known = skin_bone_lookup.find(h)) {
         bone_remap[b] = *known;
       } else {
         u32 idx = static_cast<u32>(mesh->skin.bones.size());
-        mesh->skin.bones.push_back(bone_name);
+        mesh->skin.bones.push_back(bone_name.c_str());
         mesh->skin.inverse_bind.push_back(ToMat4((*skin_to_bone)[b]));
         skin_bone_lookup.emplace(h, idx);
         bone_remap[b] = idx;
@@ -1804,8 +1810,8 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     if (!skin) return false;
     const base::Vector<Transform>* skin_to_bone = skin_datas.find(static_cast<u32>(skin->data));
     const SkinVertexWeights* weights = skin_weights.find(static_cast<u32>(skin->data));
-    const Geometry* geom = shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data))
-                                           : nullptr;
+    const Geometry* geom =
+        shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data)) : nullptr;
     if (!skin_to_bone || !weights || !geom) return false;
     if (skin_to_bone->size() != skin->bones.size() || geom->vertices.empty()) return false;
 
@@ -1814,14 +1820,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     for (size_t b = 0; b < skin->bones.size(); ++b) {
       i32 bone_block = skin->bones[b];
       const Node* bone_node = bone_block >= 0 ? nodes.find(static_cast<u32>(bone_block)) : nullptr;
-      std::string bone_name = bone_node ? bone_node->name : std::string();
-      if (bone_name.empty()) bone_name = "Bone" + std::to_string(bone_block);
+      base::String bone_name = bone_node ? bone_node->name : base::String();
+      if (bone_name.empty()) bone_name = "Bone" + base::ToString(bone_block);
       u64 h = name_hash(bone_name);
       if (u32* known = skin_bone_lookup.find(h)) {
         bone_remap[b] = *known;
       } else {
         u32 idx = static_cast<u32>(mesh->skin.bones.size());
-        mesh->skin.bones.push_back(bone_name);
+        mesh->skin.bones.push_back(bone_name.c_str());
         mesh->skin.inverse_bind.push_back(ToMat4(Compose((*skin_to_bone)[b], to_shape)));
         skin_bone_lookup.emplace(h, idx);
         bone_remap[b] = idx;
@@ -1864,7 +1870,8 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       }
       for (u32 j = 0; j < 4; ++j) {
         u32 global = j < kept ? top[j].bone : 0;
-        extra.bone_indices[j] = global < bone_remap.size() ? static_cast<u8>(bone_remap[global]) : 0;
+        extra.bone_indices[j] =
+            global < bone_remap.size() ? static_cast<u8>(bone_remap[global]) : 0;
         f32 norm = j < kept && total > 1e-5f ? top[j].weight / total : 0.0f;
         extra.bone_weights[j] = static_cast<u8>(std::lround(norm * 255.0f));
       }
@@ -1882,8 +1889,8 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     if (!skin) return false;
     const base::Vector<Transform>* skin_to_bone = skin_datas.find(static_cast<u32>(skin->data));
     const SkinVertexWeights* weights = skin_weights.find(static_cast<u32>(skin->data));
-    const Geometry* geom = shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data))
-                                           : nullptr;
+    const Geometry* geom =
+        shape.data >= 0 ? geometry_blocks.find(static_cast<u32>(shape.data)) : nullptr;
     if (!skin_to_bone || !weights || !geom) return false;
     if (skin_to_bone->size() != skin->bones.size() || geom->vertices.empty()) return false;
 
@@ -1941,13 +1948,13 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       const FloatKeys* keys =
           interp->data >= 0 ? float_datas.find(static_cast<u32>(interp->data)) : nullptr;
       // Keyed birth rate or the interpolator's constant pose value.
-      rate = keys ? std::max(keys->first_value, keys->last_value) : interp->pose;
+      rate = keys ? base::Max(keys->first_value, keys->last_value) : interp->pose;
     }
     const ShaderInfo* shader = shaders.find(static_cast<u32>(psys.shader));
     const AlphaInfo* alpha = alphas.find(static_cast<u32>(psys.alpha));
     // Additive blend (fire, glows): destination factor ONE in the alpha flags.
     bool additive = alpha && (alpha->flags & 0x0001) && ((alpha->flags >> 5) & 0xf) == 0;
-    std::string texture;
+    base::String texture;
     if (shader) {
       if (shader->effect) {
         texture = NormalizeTexturePath(shader->effect_texture);
@@ -1962,7 +1969,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     u64 texture_hash = 0;
     if (!texture.empty()) {
       texture_hash = asset::MakeAssetId(texture).hash;
-      if (std::ranges::find(result.texture_paths, texture) == result.texture_paths.end()) {
+      if (result.texture_paths.find(texture) == nullptr) {
         result.texture_paths.push_back(texture);
       }
     }
@@ -1976,16 +1983,14 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         }
       }
     }
-    RX_DEBUG("nif: psys tex='{}' additive={} rate={} alpha_flags={:#x} {}", texture, additive,
-              rate, alpha ? alpha->flags : 0u, source_path);
-    bool known_class = texture.find("fire") != std::string::npos ||
-                       texture.find("flame") != std::string::npos ||
-                       texture.find("ember") != std::string::npos ||
-                       texture.find("candle") != std::string::npos ||
-                       texture.find("smoke") != std::string::npos ||
-                       texture.find("mist") != std::string::npos ||
-                       texture.find("steam") != std::string::npos ||
-                       texture.find("fog") != std::string::npos;
+    RX_DEBUG("nif: psys tex='{}' additive={} rate={} alpha_flags={:#x} {}", texture, additive, rate,
+             alpha ? alpha->flags : 0u, source_path);
+    bool known_class =
+        texture.find("fire") != base::String::npos || texture.find("flame") != base::String::npos ||
+        texture.find("ember") != base::String::npos ||
+        texture.find("candle") != base::String::npos ||
+        texture.find("smoke") != base::String::npos || texture.find("mist") != base::String::npos ||
+        texture.find("steam") != base::String::npos || texture.find("fog") != base::String::npos;
     // No birth-rate controller and not a known ambient class: likely an
     // event-driven system (destruction splinters); a constant default rate
     // would emit phantoms forever.
@@ -2014,14 +2019,16 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
           if (ref < 0) continue;
           const Geometry* g = nullptr;
           if (const Shape* s = shapes.find(static_cast<u32>(ref))) {
-            if (!s->geometry.vertices.empty()) g = &s->geometry;
-            else if (s->data >= 0) g = geometry_blocks.find(static_cast<u32>(s->data));
+            if (!s->geometry.vertices.empty())
+              g = &s->geometry;
+            else if (s->data >= 0)
+              g = geometry_blocks.find(static_cast<u32>(s->data));
           }
           if (!g) continue;
           for (const asset::Vertex& v : g->vertices) {
             for (int k = 0; k < 3; ++k) {
-              lo[k] = std::min(lo[k], v.position[k]);
-              hi[k] = std::max(hi[k], v.position[k]);
+              lo[k] = base::Min(lo[k], v.position[k]);
+              hi[k] = base::Max(hi[k], v.position[k]);
             }
           }
           got = true;
@@ -2030,13 +2037,13 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
           for (int k = 0; k < 3; ++k) out.extent[k] = (hi[k] - lo[k]) * 0.5f * world.s;
         }
       }
-      out.spread = std::clamp(e->declination_variation, 0.0f, 3.14159f);
+      out.spread = base::Clamp(e->declination_variation, 0.0f, 3.14159f);
       out.speed_variation = e->speed_variation * world.s;
-      out.life = std::max(e->life, 0.05f);
+      out.life = base::Max(e->life, 0.05f);
       out.life_variation = e->life_variation;
-      out.size = std::max(e->radius * world.s, 0.5f);
+      out.size = base::Max(e->radius * world.s, 0.5f);
       for (int k = 0; k < 4; ++k) out.color[k] = e->color[k];
-      if (rate > 0) out.rate = std::clamp(rate, 0.1f, 200.0f);
+      if (rate > 0) out.rate = base::Clamp(rate, 0.1f, 200.0f);
       if (psys_data && psys_data->max_particles > 0) {
         out.max_particles = std::min<u32>(psys_data->max_particles, 128);
       }
@@ -2045,7 +2052,7 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         out.subtex_cols = psys_data->cols;
         out.subtex_rows = psys_data->rows;
         RX_INFO("vfx: flipbook {}x{} ({} frames) '{}' {}", psys_data->cols, psys_data->rows,
-                 psys_data->frames, texture, source_path);
+                psys_data->frames, texture, source_path);
       }
       for (i32 gm : psys.modifiers) {
         const GravityBlock* g = gm >= 0 ? gravity_blocks.find(static_cast<u32>(gm)) : nullptr;
@@ -2057,22 +2064,22 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
         for (int k = 0; k < 3; ++k) out.gravity[k] += gravity_axis[k] * g->strength * world.s;
       }
       out.additive = additive;
-      if (texture.find("fire") != std::string::npos ||
-          texture.find("flame") != std::string::npos ||
-          texture.find("ember") != std::string::npos ||
-          texture.find("candle") != std::string::npos) {
+      if (texture.find("fire") != base::String::npos ||
+          texture.find("flame") != base::String::npos ||
+          texture.find("ember") != base::String::npos ||
+          texture.find("candle") != base::String::npos) {
         out.additive = true;  // hdr radiance, bloom does the glow
         out.color[0] = 2.5f;
         out.color[1] = 1.0f;
         out.color[2] = 0.3f;
         out.color[3] = 1.0f;
-      } else if (texture.find("smoke") != std::string::npos) {
+      } else if (texture.find("smoke") != base::String::npos) {
         out.additive = false;
         out.color[0] = out.color[1] = out.color[2] = 0.05f;
         out.color[3] = 0.4f;
-      } else if (texture.find("mist") != std::string::npos ||
-                 texture.find("steam") != std::string::npos ||
-                 texture.find("fog") != std::string::npos) {
+      } else if (texture.find("mist") != base::String::npos ||
+                 texture.find("steam") != base::String::npos ||
+                 texture.find("fog") != base::String::npos) {
         out.additive = false;
         out.color[0] = 0.6f;
         out.color[1] = 0.65f;
@@ -2138,15 +2145,15 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     // weapon markers) carry effect planes that are invisible in-game: they are
     // named "*marker*" and, tellingly, bind no source texture (nothing to draw),
     // so both signals gate them out while real vfx keep their textured planes.
-    bool marker = source_path.find("marker") != std::string_view::npos ||
+    bool marker = source_path.find("marker") != base::StringRef::npos ||
                   (shader && shader->effect && shader->effect_texture.empty());
-    bool render_effect = effect_shape && NifEffectShaders.get() && header->bs_version < 130 &&
-                         !keep_skin && !marker;
+    bool render_effect =
+        effect_shape && NifEffectShaders.get() && header->bs_version < 130 && !keep_skin && !marker;
     bool refraction_shape =
         shader && !shader->effect && !shader->water &&
         (shader->flags1 & (kShaderFlag1Refraction | kShaderFlag1FireRefraction)) != 0;
-    if (shader && ((effect_shape && !render_effect) ||
-                   (refraction_shape && !NifRefraction.get()))) {
+    if (shader &&
+        ((effect_shape && !render_effect) || (refraction_shape && !NifRefraction.get()))) {
       ++result.skipped_shapes;
       continue;
     }
@@ -2251,8 +2258,8 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
       world.Rotate(src.normal, v.normal);
       world.Rotate(src.tangent, v.tangent);
       for (int k = 0; k < 3; ++k) {
-        bounds_min[k] = std::min(bounds_min[k], v.position[k]);
-        bounds_max[k] = std::max(bounds_max[k], v.position[k]);
+        bounds_min[k] = base::Min(bounds_min[k], v.position[k]);
+        bounds_max[k] = base::Max(bounds_max[k], v.position[k]);
       }
       lod.vertices.push_back(v);
       if (keep_skin && skinned) lod.skinning.push_back(baked_skin[vi]);
@@ -2299,25 +2306,24 @@ static NifConversion ConvertNifImpl(ByteSpan data, asset::AssetId id, std::strin
     mesh->skinned = true;
     result.skinned = true;
     if (mesh->skin.bones.size() > 256) {
-      RX_WARN("nif {} skins {} bones, over the 256 GPU palette limit",
-               source_path, mesh->skin.bones.size());
+      RX_WARN("nif {} skins {} bones, over the 256 GPU palette limit", source_path,
+              mesh->skin.bones.size());
     }
   }
-  result.mesh = std::move(mesh);
+  result.mesh = base::move(mesh);
   return result;
 }
 
-NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+NifConversion ConvertNifScene(ByteSpan data, asset::AssetId id, base::StringRef source_path) {
   if (IsGamebryoNifVersion(data)) return ConvertGamebryoNif(data, id, source_path);
   return ConvertNifImpl(data, id, source_path, /*keep_skin=*/false, /*rigid_fallback=*/false);
 }
 
-NifConversion ConvertNifSkinnedMesh(ByteSpan data, asset::AssetId id,
-                                    std::string_view source_path) {
+NifConversion ConvertNifSkinnedMesh(ByteSpan data, asset::AssetId id, base::StringRef source_path) {
   return ConvertNifImpl(data, id, source_path, /*keep_skin=*/true, /*rigid_fallback=*/false);
 }
 
-NifConversion ConvertNifRigid(ByteSpan data, asset::AssetId id, std::string_view source_path) {
+NifConversion ConvertNifRigid(ByteSpan data, asset::AssetId id, base::StringRef source_path) {
   return ConvertNifImpl(data, id, source_path, /*keep_skin=*/false, /*rigid_fallback=*/true);
 }
 
@@ -2328,13 +2334,13 @@ bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) 
 
   // Parse every NiNode: its name, local bind, and child block refs.
   struct RawNode {
-    std::string name;
+    base::String name;
     Transform local;
     base::Vector<i32> children;
   };
   base::UnorderedMap<u32, RawNode> raw;
   for (u32 i = 0; i < block_count; ++i) {
-    const std::string& type = header->block_types[header->block_type_index[i]];
+    const base::String& type = header->block_types[header->block_type_index[i]];
     if (!type.ends_with("Node")) continue;
     Reader r{data.subspan(header->block_offsets[i], header->block_sizes[i])};
     RawNode node;
@@ -2346,16 +2352,15 @@ bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) 
     u32 child_count = r.Read<u32>();
     if (!r.ok || child_count > 65536) continue;
     for (u32 c = 0; c < child_count; ++c) node.children.push_back(r.Read<i32>());
-    if (r.ok) raw.emplace(i, std::move(node));
+    if (r.ok) raw.emplace(i, base::move(node));
   }
   if (raw.empty()) return false;
 
   base::Vector<u32> roots;
   {
-    size_t footer = header->block_offsets.empty()
-                        ? 0
-                        : header->block_offsets[block_count - 1] +
-                              header->block_sizes[block_count - 1];
+    size_t footer = header->block_offsets.empty() ? 0
+                                                  : header->block_offsets[block_count - 1] +
+                                                        header->block_sizes[block_count - 1];
     Reader r{data, footer};
     u32 root_count = r.Read<u32>();
     if (r.ok && root_count < 256) {
@@ -2393,7 +2398,7 @@ bool ConvertNifSkeleton(ByteSpan data, asset::AssetId id, asset::Skeleton* out) 
     bone.bind_translation = {node->local.t[0], node->local.t[1], node->local.t[2]};
     bone.bind_rotation = QuatFromTransform(node->local);
     bone.bind_scale = node->local.s;
-    out->bones.push_back(std::move(bone));
+    out->bones.push_back(base::move(bone));
     for (i32 child : node->children) {
       if (child >= 0) stack.push_back({static_cast<u32>(child), index});
     }

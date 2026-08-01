@@ -1,13 +1,17 @@
+#include "runtime/actor/actor_system.h"
 #include "runtime/narrative/helgen_intro.h"
+
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
-#include <base/option.h>
-
-#include "runtime/actor/actor_system.h"
 #include "components/bethesda/record.h"
 #include "runtime/vehicle/cart_visuals.h"
 #include "core/log.h"
@@ -39,9 +43,7 @@ constexpr f32 kPi = 3.14159265358979f;
 // Bethesda Z-up game units -> engine Y-up metres, the engine's one conversion.
 constexpr f32 kBethScale = 0.01428f;
 
-Vec3 BethToEngine(f32 x, f32 y, f32 z) {
-  return {x * kBethScale, z * kBethScale, -y * kBethScale};
-}
+Vec3 BethToEngine(f32 x, f32 y, f32 z) { return {x * kBethScale, z * kBethScale, -y * kBethScale}; }
 
 // The engine yaw that turns a model's forward onto `dir`. A Bethesda model
 // faces +Y, which the axis change above maps onto -Z, so everything placed here
@@ -137,15 +139,14 @@ bool HelgenIntro::BuildRoute() {
   // read the travel packages it stacks on the horse. Each leg names a marker,
   // and each marker heads a chain of unnamed ones that shape the path between.
   bethesda::GlobalFormId quest_id{};
-  ctx_.records->EachOfType(FourCc('Q', 'U', 'S', 'T'),
-                           [&](bethesda::GlobalFormId id,
-                               const bethesda::RecordStore::StoredRecord&) {
-                             if (quest_id.local_id != 0) return;
-                             bethesda::Record r;
-                             if (ctx_.records->Parse(id, &r) &&
-                                 r.GetString(FourCc('E', 'D', 'I', 'D')) == kQuest)
-                               quest_id = id;
-                           });
+  ctx_.records->EachOfType(
+      FourCc('Q', 'U', 'S', 'T'),
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
+        if (quest_id.local_id != 0) return;
+        bethesda::Record r;
+        if (ctx_.records->Parse(id, &r) && r.GetString(FourCc('E', 'D', 'I', 'D')) == kQuest)
+          quest_id = id;
+      });
   bethesda::Record quest_record;
   if (quest_id.local_id == 0 || !ctx_.records->Parse(quest_id, &quest_record)) {
     RX_WARN("helgen: no {} quest record, cannot resolve the cart route", kQuest);
@@ -162,7 +163,7 @@ bool HelgenIntro::BuildRoute() {
     RX_WARN("helgen: {} has no '{}' alias", kQuest, kHorseAlias);
     return false;
   }
-  const std::vector<quest::RouteStop> stops =
+  const base::Vector<quest::RouteStop> stops =
       quest::ResolveAliasTravelRoute(*ctx_.records, *horse, quest_plugin_);
   if (stops.size() < 2) {
     RX_WARN("helgen: {}'s route resolved to {} stops", kHorseAlias, stops.size());
@@ -197,7 +198,7 @@ bool HelgenIntro::BuildRoute() {
         break;
       }
     }
-    legs_.push_back(std::move(leg));
+    legs_.push_back(base::move(leg));
   }
   RX_INFO("helgen: route from {}.{} packages: {} points, {:.0f} m, {} legs", kQuest, kHorseAlias,
           route_.size(), route_length_, legs_.size());
@@ -210,7 +211,7 @@ f32 HelgenIntro::PackageLimit() {
   if (!ctx_.bindings || legs_.empty()) return route_length_;
 
   script::skyrim::SkyrimConditionContext conditions(ctx_.bindings);
-  std::vector<quest::PackageDef> defs;
+  base::Vector<quest::PackageDef> defs;
   defs.reserve(legs_.size());
   for (const Leg& leg : legs_) defs.push_back(leg.def);
   const int active = quest::SelectActivePackage(defs, conditions);
@@ -227,11 +228,11 @@ f32 HelgenIntro::PackageLimit() {
 
 Vec3 HelgenIntro::RouteSample(f32 arc, Vec3* forward) const {
   const size_t last = route_.size() - 1;
-  arc = std::clamp(arc, 0.0f, route_length_);
+  arc = base::Clamp(arc, 0.0f, route_length_);
   size_t i = 0;
   while (i + 1 < last && route_arc_[i + 1] < arc) ++i;
-  const f32 span = std::max(route_arc_[i + 1] - route_arc_[i], 1e-3f);
-  const f32 t = std::clamp((arc - route_arc_[i]) / span, 0.0f, 1.0f);
+  const f32 span = base::Max(route_arc_[i + 1] - route_arc_[i], 1e-3f);
+  const f32 t = base::Clamp((arc - route_arc_[i]) / span, 0.0f, 1.0f);
   if (forward)
     *forward = Normalize(Vec3{route_[i + 1].x - route_[i].x, 0, route_[i + 1].z - route_[i].z});
   return route_[i] + (route_[i + 1] - route_[i]) * t;
@@ -252,7 +253,7 @@ void HelgenIntro::LoadDialogue() {
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         bethesda::Record r;
         if (!ctx_.records->Parse(id, &r)) return;
-        const std::string edid = r.GetString(FourCc('E', 'D', 'I', 'D'));
+        const base::String edid = r.GetString(FourCc('E', 'D', 'I', 'D'));
         for (int i = 0; i < 2; ++i)
           if (scenes[i].local_id == 0 && edid == kSceneIds[i]) scenes[i] = id;
       });
@@ -274,7 +275,7 @@ void HelgenIntro::LoadDialogue() {
     }
     i32 max_phase = 0;
     for (const quest::SceneActionDef& action : def.actions) {
-      max_phase = std::max(max_phase, action.start_phase);
+      max_phase = base::Max(max_phase, action.start_phase);
       if (action.kind != quest::SceneActionDef::Kind::kDialogue || action.topic == 0) continue;
       const bethesda::GlobalFormId dial{static_cast<u16>(action.topic >> 32),
                                         static_cast<u32>(action.topic)};
@@ -286,9 +287,9 @@ void HelgenIntro::LoadDialogue() {
         const quest::AliasDef* alias = quest.FindAlias(action.actor_alias);
         Line line;
         line.phase = phase_base + action.start_phase;
-        line.speaker = alias && !alias->name.empty() ? alias->name : std::string("Prisoner");
+        line.speaker = alias && !alias->name.empty() ? alias->name : base::String("Prisoner");
         line.text = response.npc_line;
-        lines_.push_back(std::move(line));
+        lines_.push_back(base::move(line));
         break;
       }
     }
@@ -302,7 +303,7 @@ void HelgenIntro::LoadDialogue() {
   for (Line& line : lines_) {
     const f32 read = 1.5f + 0.055f * static_cast<f32>(line.text.size());
     line.start = t;
-    line.end = t + std::clamp(read, 2.4f, 7.5f);
+    line.end = t + base::Clamp(read, 2.4f, 7.5f);
     t = line.end + 0.45f;
   }
   RX_INFO("helgen: {} spoken lines read from the MQ101 scenes, {:.0f}s of dialogue", lines_.size(),
@@ -323,7 +324,7 @@ void HelgenIntro::Spawn() {
   // Pace the cart so it rolls through the gate on the closing exchange rather
   // than arriving early and waiting there.
   const f32 talking = lines_.empty() ? 60.0f : lines_.back().end;
-  speed_ = std::clamp(route_length_ / std::max(talking - 9.0f, 20.0f), 1.2f, 4.0f);
+  speed_ = base::Clamp(route_length_ / base::Max(talking - 9.0f, 20.0f), 1.2f, 4.0f);
 
   Vec3 forward;
   const Vec3 start = RouteSample(0, &forward);
@@ -342,11 +343,9 @@ void HelgenIntro::Spawn() {
 
   // The horse: the game's creature rig walking its forward cycle in place while
   // the route tows it.
-  horse_entity_ = actors_->SpawnCreatureNpc("horse",
-                                            "meshes/actors/horse/animations/walkforward.hkx",
-                                            Vec3{start.x, GroundY(start.x, start.z, start.y),
-                                                 start.z},
-                                            yaw);
+  horse_entity_ =
+      actors_->SpawnCreatureNpc("horse", "meshes/actors/horse/animations/walkforward.hkx",
+                                Vec3{start.x, GroundY(start.x, start.z, start.y), start.z}, yaw);
 
   for (const RiderDef& rider : kRiders) {
     bethesda::GlobalFormId npc = AliasActor(rider.alias);
@@ -355,8 +354,8 @@ void HelgenIntro::Spawn() {
       RX_WARN("helgen: {} alias '{}' filled nothing", kQuest, rider.alias);
       continue;
     }
-    const ecs::Entity e = actors_->SpawnScriptedNpc(
-        npc, kClipDir + std::string(rider.clip), start, yaw, rider.outfit);
+    const ecs::Entity e = actors_->SpawnScriptedNpc(npc, kClipDir + base::String(rider.clip), start,
+                                                    yaw, rider.outfit);
     if (!ctx_.world->IsAlive(e)) continue;
     riders_.push_back({e, rider.alias});
   }
@@ -421,26 +420,25 @@ void HelgenIntro::PlaceCart() {
   }
 }
 
-bethesda::GlobalFormId HelgenIntro::RefBase(const std::string& editor_id) const {
+bethesda::GlobalFormId HelgenIntro::RefBase(const base::String& editor_id) const {
   bethesda::GlobalFormId base{};
-  ctx_.records->EachOfType(FourCc('A', 'C', 'H', 'R'),
-                           [&](bethesda::GlobalFormId id,
-                               const bethesda::RecordStore::StoredRecord& stored) {
-                             if (base.local_id != 0) return;
-                             bethesda::Record achr;
-                             if (!ctx_.records->Parse(id, &achr)) return;
-                             if (achr.GetString(FourCc('E', 'D', 'I', 'D')) != editor_id) return;
-                             const bethesda::Subrecord* name = achr.Find(FourCc('N', 'A', 'M', 'E'));
-                             if (!name || name->data.size() < 4) return;
-                             u32 raw;
-                             std::memcpy(&raw, name->data.data(), 4);
-                             base = ctx_.records->ResolveFrom(bethesda::RawFormId{raw},
-                                                             stored.winning_plugin);
-                           });
+  ctx_.records->EachOfType(
+      FourCc('A', 'C', 'H', 'R'),
+      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
+        if (base.local_id != 0) return;
+        bethesda::Record achr;
+        if (!ctx_.records->Parse(id, &achr)) return;
+        if (achr.GetString(FourCc('E', 'D', 'I', 'D')) != editor_id) return;
+        const bethesda::Subrecord* name = achr.Find(FourCc('N', 'A', 'M', 'E'));
+        if (!name || name->data.size() < 4) return;
+        u32 raw;
+        std::memcpy(&raw, name->data.data(), 4);
+        base = ctx_.records->ResolveFrom(bethesda::RawFormId{raw}, stored.winning_plugin);
+      });
   return base;
 }
 
-bethesda::GlobalFormId HelgenIntro::AliasActor(const std::string& name) const {
+bethesda::GlobalFormId HelgenIntro::AliasActor(const base::String& name) const {
   // A reference alias names its actor one of two ways: a forced reference (a
   // placed ACHR, whose NAME is the NPC_) or a unique-actor base directly.
   for (const quest::AliasDef& alias : quest_.aliases) {
@@ -467,7 +465,7 @@ Vec3 HelgenIntro::CartLocal(const Vec3& offset) const {
   return cart_pos_ + Rotate(cart_rot_, offset);
 }
 
-bool HelgenIntro::RiderHead(const std::string& alias, Vec3* out) const {
+bool HelgenIntro::RiderHead(const base::String& alias, Vec3* out) const {
   for (const Passenger& rider : riders_)
     if (rider.alias == alias) return actors_->NpcHeadWorld(rider.entity, out);
   return false;
@@ -500,7 +498,7 @@ void HelgenIntro::DriveCamera() {
     target = CartLocal(shot.at);
     // A shot placed off the cart can end up inside the mountain the road cuts
     // through; keep it above whatever ground it is standing over.
-    eye.y = std::max(eye.y, GroundY(eye.x, eye.z, eye.y) + 1.4f);
+    eye.y = base::Max(eye.y, GroundY(eye.x, eye.z, eye.y) + 1.4f);
   }
 
   // Ease onto the target so a cut turns the camera instead of snapping it.
@@ -515,7 +513,7 @@ void HelgenIntro::DriveCamera() {
   if (ctx_.camera) {
     ctx_.camera->set_position(eye);
     const Vec3 d = Normalize(cam_target_ - eye);
-    ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(std::clamp(d.y, -1.0f, 1.0f)));
+    ctx_.camera->set_yaw_pitch(std::atan2(d.x, -d.z), std::asin(base::Clamp(d.y, -1.0f, 1.0f)));
   }
 }
 
@@ -534,15 +532,14 @@ void HelgenIntro::UpdateOverlay() {
     overlay_.loading_label = "HELGEN";
     return;
   }
-  overlay_.letterbox = std::clamp(time_ / 1.5f, 0.0f, 1.0f);
-  overlay_.fade = stage_ == Stage::kArrived
-                      ? std::clamp((time_ - arrive_time_) / 3.0f, 0.0f, 1.0f)
-                      : std::clamp(1.0f - time_ / 2.5f, 0.0f, 1.0f);
+  overlay_.letterbox = base::Clamp(time_ / 1.5f, 0.0f, 1.0f);
+  overlay_.fade = stage_ == Stage::kArrived ? base::Clamp((time_ - arrive_time_) / 3.0f, 0.0f, 1.0f)
+                                            : base::Clamp(1.0f - time_ / 2.5f, 0.0f, 1.0f);
   if (time_ < 7.0f) {
     overlay_.intro_title = "HELGEN";
     overlay_.intro_subtitle = "SKYRIM - UNBOUND";
-    overlay_.intro_alpha = time_ < 5.0f ? std::clamp(time_ / 1.5f, 0.0f, 1.0f)
-                                        : std::clamp((7.0f - time_) / 2.0f, 0.0f, 1.0f);
+    overlay_.intro_alpha = time_ < 5.0f ? base::Clamp(time_ / 1.5f, 0.0f, 1.0f)
+                                        : base::Clamp((7.0f - time_) / 2.0f, 0.0f, 1.0f);
   }
   if (line_ < lines_.size()) {
     const Line& line = lines_[line_];
@@ -550,7 +547,7 @@ void HelgenIntro::UpdateOverlay() {
       overlay_.caption_speaker = line.speaker;
       overlay_.caption = line.text;
       overlay_.caption_alpha =
-          std::min({(time_ - line.start) / 0.35f, (line.end - time_) / 0.35f, 1.0f});
+          base::Min(base::Min((time_ - line.start) / 0.35f, (line.end - time_) / 0.35f), 1.0f);
     }
   }
 }
@@ -561,7 +558,7 @@ void HelgenIntro::Advance(f32 dt) {
   // leg's destination advances the journal to the next leg's stage, which is
   // what that package's own fragment does in the game.
   const f32 limit = PackageLimit();
-  arc_ = std::min(arc_ + speed_ * dt, limit);
+  arc_ = base::Min(arc_ + speed_ * dt, limit);
   if (ctx_.bindings && arc_ >= limit - 0.05f && limit < route_length_ - 0.05f) {
     i32 next = -1;
     for (const Leg& leg : legs_)

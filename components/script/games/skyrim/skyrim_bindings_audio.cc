@@ -1,5 +1,7 @@
 // Sound natives backed by the engine audio system. A Papyrus Sound is a SOUN
 // form; the catalog resolves it to an asset path that the audio system plays.
+#include <base/strings/xstring.h>
+
 #include "audio/audio_system.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
 
@@ -13,7 +15,7 @@ i32 RecordBackedSkyrimBindings::PlaySound(ObjectRef sound, ObjectRef /*source*/)
     sound_catalog_.Build(*records_);
     sound_catalog_built_ = true;
   }
-  std::string path = sound_catalog_.PathFor(ToFormId(sound));
+  base::String path = sound_catalog_.PathFor(ToFormId(sound));
   if (path.empty()) return 0;
   // A 2D one-shot for now; spatialising it at the source is a later refinement.
   return static_cast<i32>(audio_->PlayUi(path));

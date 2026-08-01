@@ -1,7 +1,9 @@
 #include "runtime/vehicle/cart_visuals.h"
 
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
-#include <string>
 
 #include "asset/primitives.h"
 
@@ -11,9 +13,7 @@ namespace {
 // Bethesda Z-up game units -> engine Y-up metres, matching the actor rigs.
 constexpr f32 kBethScale = 0.01428f;
 
-Vec3 BethToEngine(f32 x, f32 y, f32 z) {
-  return {x * kBethScale, z * kBethScale, -y * kBethScale};
-}
+Vec3 BethToEngine(f32 x, f32 y, f32 z) { return {x * kBethScale, z * kBethScale, -y * kBethScale}; }
 
 }  // namespace
 
@@ -22,9 +22,9 @@ bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const ch
   if (!assets) return false;
   const asset::Mesh* src = assets->LoadMesh(path && path[0] ? path : kBodyMesh);
   if (!src || src->lods.empty()) return false;
-  const Vec3 c = recenter ? BethToEngine(src->bounds_center[0], src->bounds_center[1],
-                                         src->bounds_center[2])
-                          : Vec3{};
+  const Vec3 c =
+      recenter ? BethToEngine(src->bounds_center[0], src->bounds_center[1], src->bounds_center[2])
+               : Vec3{};
   asset::Mesh baked = *src;
   baked.id = asset::MakeAssetId(id);
   baked.skinned = false;
@@ -41,8 +41,8 @@ bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const ch
       v.normal[2] = n.z;
     }
   }
-  const Vec3 center = BethToEngine(src->bounds_center[0], src->bounds_center[1],
-                                   src->bounds_center[2]);
+  const Vec3 center =
+      BethToEngine(src->bounds_center[0], src->bounds_center[1], src->bounds_center[2]);
   baked.bounds_center[0] = center.x - c.x;
   baked.bounds_center[1] = center.y - c.y;
   baked.bounds_center[2] = center.z - c.z;
@@ -73,7 +73,7 @@ bool BakeBody(asset::AssetDatabase* assets, render::Renderer* renderer, const ch
 asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f32 half_width,
                       bool upload) {
   asset::Material mat;
-  mat.id = asset::MakeAssetId(std::string(id) + "/mat");
+  mat.id = asset::MakeAssetId(base::String(id) + "/mat");
   mat.base_color_factor[0] = 0.12f;
   mat.base_color_factor[1] = 0.09f;
   mat.base_color_factor[2] = 0.07f;
@@ -139,7 +139,7 @@ asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f3
   }
   lod.submeshes.push_back({0, static_cast<u32>(lod.indices.size()), mat.id});
   mesh.bounds_radius = std::sqrt(radius * radius + half_width * half_width);
-  mesh.lods.push_back(std::move(lod));
+  mesh.lods.push_back(base::move(lod));
   if (upload && renderer) {
     renderer->UploadMaterial(mat);
     renderer->UploadMesh(mesh);
@@ -150,7 +150,7 @@ asset::Mesh MakeWheel(render::Renderer* renderer, const char* id, f32 radius, f3
 asset::Mesh MakeBox(render::Renderer* renderer, const char* id, Vec3 half, f32 r, f32 g, f32 b,
                     bool upload) {
   asset::Material mat;
-  mat.id = asset::MakeAssetId(std::string(id) + "/mat");
+  mat.id = asset::MakeAssetId(base::String(id) + "/mat");
   mat.base_color_factor[0] = r;
   mat.base_color_factor[1] = g;
   mat.base_color_factor[2] = b;

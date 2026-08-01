@@ -6,16 +6,20 @@
 //
 //   pexfuzz <data_dir>
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include <cstdio>
 #include <filesystem>
-#include <string>
-#include <vector>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
 #include "components/script/papyrus/pex.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::script::papyrus;
 
 int main(int argc, char** argv) {
@@ -26,11 +30,11 @@ int main(int argc, char** argv) {
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& e : std::filesystem::directory_iterator(argv[1], ec))
-    if (auto p = bethesda::OpenArchive(e.path().string())) vfs.Mount(std::move(p));
+    if (auto p = bethesda::OpenArchive(e.path().string())) vfs.Mount(base::move(p));
 
   // A spread of real scripts: tiny, medium, and a large one with deep tables.
   const char* names[] = {"scripts/trapbase.pex", "scripts/quest.pex", "scripts/actor.pex",
-                        "scripts/objectreference.pex"};
+                         "scripts/objectreference.pex"};
   long attempts = 0, accepted = 0;
   for (const char* name : names) {
     auto blob = vfs.Read(name);
@@ -38,7 +42,7 @@ int main(int argc, char** argv) {
       std::printf("skip %s (not found)\n", name);
       continue;
     }
-    std::vector<u8> full(blob->begin(), blob->end());
+    base::Vector<u8> full(blob->begin(), blob->end());
 
     // Truncation: every prefix length must be rejected or parsed, never crash.
     for (size_t len = 0; len <= full.size(); ++len) {

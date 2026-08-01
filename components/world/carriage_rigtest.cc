@@ -5,6 +5,8 @@
 // route without diverging / jackknifing, (c) settles and parking-brakes when
 // the horse stops, and (d) stays NaN-free over minutes of stepping.
 
+#include <base/algorithm.h>
+
 #include <cmath>
 #include <cstdio>
 
@@ -98,8 +100,8 @@ int main() {
   Vec3 settle_pos;
   f32 settle_rot[4];
   rig.Pose(world, &settle_pos, settle_rot);
-  const Vec3 up_after_settle = Rotate(
-      Quat{settle_rot[0], settle_rot[1], settle_rot[2], settle_rot[3]}, Vec3{0, 1, 0});
+  const Vec3 up_after_settle =
+      Rotate(Quat{settle_rot[0], settle_rot[1], settle_rot[2], settle_rot[3]}, Vec3{0, 1, 0});
   Check("upright after settling", up_after_settle.y > 0.7f);
 
   // (a) Tow straight down +Z at a trot for 4 s.
@@ -118,8 +120,8 @@ int main() {
   // (b) A sustained left turn: sweep the horse around a circle for ~8 s. The
   // cart must track it -- the tongue stays hitched (bounded distance) and the
   // chassis never swings past the shaft (no jackknife) -- and never flips.
-  f32 heading = 0.0f;               // current horse heading, radians (0 = +Z)
-  const f32 turn_radius = 7.0f;     // m
+  f32 heading = 0.0f;                        // current horse heading, radians (0 = +Z)
+  const f32 turn_radius = 7.0f;              // m
   const f32 turn_rate = trot / turn_radius;  // rad/s along the arc
   f32 max_track_angle = 0.0f;
   f32 max_hitch_dist = 0.0f;
@@ -131,18 +133,17 @@ int main() {
     horse.z += vel.z * dt;
     horse.y = hitch_y;
     step(horse, vel);
-    max_track_angle = std::max(max_track_angle, TrackingAngle(rig, world, horse));
-    max_hitch_dist = std::max(max_hitch_dist, Length(horse - rig.TonguePoint(world)));
+    max_track_angle = base::Max(max_track_angle, TrackingAngle(rig, world, horse));
+    max_hitch_dist = base::Max(max_hitch_dist, Length(horse - rig.TonguePoint(world)));
     Vec3 p;
     f32 r[4];
     rig.Pose(world, &p, r);
-    min_up = std::min(min_up, Rotate(Quat{r[0], r[1], r[2], r[3]}, Vec3{0, 1, 0}).y);
+    min_up = base::Min(min_up, Rotate(Quat{r[0], r[1], r[2], r[3]}, Vec3{0, 1, 0}).y);
   }
   std::printf("    turn: max track angle %.1f deg, max hitch dist %.2f m, min up %.2f\n",
               max_track_angle * 57.2958f, max_hitch_dist, min_up);
   Check("tracks the turn without jackknifing (< 70 deg)", max_track_angle < 1.22f);
-  Check("stays hitched through the turn (< rest + 2 m)",
-        max_hitch_dist < cfg.rest_length + 2.0f);
+  Check("stays hitched through the turn (< rest + 2 m)", max_hitch_dist < cfg.rest_length + 2.0f);
   Check("does not flip in the turn", min_up > 0.5f);
 
   // (c) Horse stops: the cart must coast to rest and hold (parking brake in).

@@ -1,5 +1,9 @@
 #include "components/bethesda/plugin.h"
 
+#include <base/memory/unique_pointer.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstring>
 #include <fstream>
 
@@ -75,7 +79,7 @@ bool DecompressRecord(ByteSpan compressed, base::Vector<u8>* out) {
   return ZlibInflate(compressed.subspan(4), out->data(), uncompressed_size);
 }
 
-bool EndsWithEsl(const std::string& path) {
+bool EndsWithEsl(const base::String& path) {
   return path.size() >= 4 &&
          (path.ends_with(".esl") || path.ends_with(".ESL") || path.ends_with(".Esl"));
 }
@@ -119,19 +123,19 @@ const Subrecord* Record::Find(u32 fourcc) const {
   return nullptr;
 }
 
-std::string Record::GetString(u32 fourcc) const {
+base::String Record::GetString(u32 fourcc) const {
   const Subrecord* sub = Find(fourcc);
   if (!sub || sub->data.empty()) return {};
   size_t len = sub->data.size();
   if (sub->data[len - 1] == 0) --len;
-  return std::string(reinterpret_cast<const char*>(sub->data.data()), len);
+  return base::String(reinterpret_cast<const char*>(sub->data.data()), len);
 }
 
-std::optional<PluginFile> PluginFile::Open(const std::string& path, const GameProfile& profile) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
+base::Optional<PluginFile> PluginFile::Open(const base::String& path, const GameProfile& profile) {
+  std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
   if (!file) {
     RX_ERROR("cannot open plugin: {}", path);
-    return std::nullopt;
+    return base::nullopt;
   }
   PluginFile plugin;
   plugin.data_.resize(static_cast<size_t>(file.tellg()));
@@ -140,11 +144,11 @@ std::optional<PluginFile> PluginFile::Open(const std::string& path, const GamePr
             static_cast<std::streamsize>(plugin.data_.size()));
 
   size_t slash = path.find_last_of("/\\");
-  plugin.file_name_ = slash == std::string::npos ? path : path.substr(slash + 1);
+  plugin.file_name_ = slash == base::String::npos ? path : path.substr(slash + 1);
 
   if (!plugin.ParseHeader(profile)) {
     RX_ERROR("bad TES4 header: {}", path);
-    return std::nullopt;
+    return base::nullopt;
   }
   if (EndsWithEsl(path)) plugin.is_light_ = true;
   return plugin;
@@ -152,8 +156,8 @@ std::optional<PluginFile> PluginFile::Open(const std::string& path, const GamePr
 
 bool PluginFile::ParseHeader(const GameProfile& profile) {
   if (profile.flat_tes3) {
-    tes3_ = std::make_unique<Tes3Translation>();
-    if (!TranslateTes3(ByteSpan(data_.data(), data_.size()), tes3_.get())) return false;
+    tes3_ = base::MakeUnique<Tes3Translation>();
+    if (!TranslateTes3(ByteSpan(data_.data(), data_.size()), &*tes3_)) return false;
     version_ = tes3_->version;
     record_count_ = tes3_->record_count;
     header_flags_ = kPluginFlagMaster;

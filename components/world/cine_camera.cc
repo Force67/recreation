@@ -1,5 +1,7 @@
 #include "components/world/cine_camera.h"
 
+#include <base/algorithm.h>
+
 #include <cmath>
 
 namespace rx::world {
@@ -47,18 +49,18 @@ CineFraming SolveShot(ShotKind kind, const f32 speaker_head[3], const f32 listen
   switch (kind) {
     case ShotKind::kOverShoulder: {
       // Behind the listener's shoulder, looking back along the axis at the speaker.
-      const V3 eye = Add(Add(Add(listener, Scale(axis, p.medium * 0.55f)),
-                             Scale(right, p.shoulder)),
-                         Scale(up, p.lift));
+      const V3 eye =
+          Add(Add(Add(listener, Scale(axis, p.medium * 0.55f)), Scale(right, p.shoulder)),
+              Scale(up, p.lift));
       Store(eye, out.eye);
       Store(speaker, out.target);
       break;
     }
     case ShotKind::kReverse: {
       // The mirrored angle: behind the speaker onto the listener, opposite shoulder.
-      const V3 eye = Add(Add(Sub(speaker, Scale(axis, p.medium * 0.55f)),
-                             Scale(right, -p.shoulder)),
-                         Scale(up, p.lift));
+      const V3 eye =
+          Add(Add(Sub(speaker, Scale(axis, p.medium * 0.55f)), Scale(right, -p.shoulder)),
+              Scale(up, p.lift));
       Store(eye, out.eye);
       Store(listener, out.target);
       break;
@@ -146,7 +148,7 @@ CineFraming EaseFraming(const CineFraming& from, const CineFraming& to, f32 dt, 
 }
 
 CineFraming PushIn(const CineFraming& shot, f32 held, f32 rate, f32 limit) {
-  const f32 amount = std::min(std::max(held, 0.0f) * rate, limit);
+  const f32 amount = base::Min(base::Max(held, 0.0f) * rate, limit);
   CineFraming out = shot;
   for (int axis = 0; axis < 3; ++axis)
     out.eye[axis] = shot.target[axis] + (shot.eye[axis] - shot.target[axis]) * (1.0f - amount);

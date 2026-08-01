@@ -1,5 +1,11 @@
 #include "components/world/quest_world.h"
 
+#include <base/algorithm.h>
+#include <base/containers/array.h>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -15,9 +21,9 @@ void WorldCommandQueue::Push(const WorldCommand& cmd) {
   commands_.push_back(cmd);
 }
 
-std::vector<WorldCommand> WorldCommandQueue::Drain() {
+base::Vector<WorldCommand> WorldCommandQueue::Drain() {
   std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<WorldCommand> out;
+  base::Vector<WorldCommand> out;
   out.swap(commands_);
   return out;
 }
@@ -26,33 +32,33 @@ void QuestWorld::Register(u64 handle, ecs::Entity entity) {
   registry_[handle] = entity;
   if (world_.IsAlive(entity)) {
     DoorState* door = world_.Get<DoorState>(entity);
-    auto override = door_overrides_.find(handle);
-    if (door && override != door_overrides_.end()) {
-      if (override->second.locked) door->locked = *override->second.locked;
-      if (override->second.open) door->open = *override->second.open;
+    auto* override = door_overrides_.find(handle);
+    if (door && override != nullptr) {
+      if (override->locked) door->locked = *override->locked;
+      if (override->open) door->open = *override->open;
       if (on_door_state_) on_door_state_(handle, door->locked, door->open);
     }
   }
-  auto pending = pending_.find(handle);
-  if (pending != pending_.end()) {
-    std::vector<WorldCommand> commands = std::move(pending->second);
-    pending_.erase(pending);
+  auto* pending = pending_.find(handle);
+  if (pending != nullptr) {
+    base::Vector<WorldCommand> commands = base::move(*pending);
+    pending_.erase(handle);
     pending_overflow_warned_.erase(handle);
     for (const WorldCommand& command : commands) ApplyOne(command);
   }
   if (on_register_ && world_.IsAlive(entity) && !world_.Has<Deleted>(entity)) on_register_(handle);
 }
 void QuestWorld::Unregister(u64 handle) {
-  auto it = registry_.find(handle);
-  if (it == registry_.end()) return;
-  const bool already_unloaded = world_.IsAlive(it->second) && world_.Has<Deleted>(it->second);
-  registry_.erase(it);
+  auto* it = registry_.find(handle);
+  if (it == nullptr) return;
+  const bool already_unloaded = world_.IsAlive(*it) && world_.Has<Deleted>(*it);
+  registry_.erase(handle);
   if (!already_unloaded && on_unregister_) on_unregister_(handle);
 }
 
 ecs::Entity QuestWorld::Find(u64 handle) const {
-  auto it = registry_.find(handle);
-  return it == registry_.end() ? ecs::kInvalidEntity : it->second;
+  auto* it = registry_.find(handle);
+  return it == nullptr ? ecs::kInvalidEntity : *it;
 }
 
 bool QuestWorld::CanActivateFrom(ecs::Entity player, u64 handle, f32 max_distance) const {
@@ -76,11 +82,11 @@ bool QuestWorld::CanActivateFrom(ecs::Entity player, u64 handle, f32 max_distanc
 void QuestWorld::RecordEffect(u64 quest, Effect effect) {
   if (quest == 0) return;
   effect.sequence = next_effect_sequence_++;
-  provenance_[quest].push_back(std::move(effect));
+  provenance_[quest].push_back(base::move(effect));
 }
 
 void QuestWorld::DeferCommand(const WorldCommand& command) {
-  std::vector<WorldCommand>& commands = pending_[command.handle];
+  base::Vector<WorldCommand>& commands = pending_[command.handle];
   const bool coalescible = command.op == WorldOp::kMove || command.op == WorldOp::kSetEnabled ||
                            command.op == WorldOp::kSetLocked || command.op == WorldOp::kSetOpen ||
                            command.op == WorldOp::kDelete;
@@ -104,7 +110,7 @@ void QuestWorld::DeferCommand(const WorldCommand& command) {
 
 void QuestWorld::Apply(WorldCommandQueue& queue) { Apply(queue.Drain()); }
 
-void QuestWorld::Apply(const std::vector<WorldCommand>& commands) {
+void QuestWorld::Apply(const base::Vector<WorldCommand>& commands) {
   for (const WorldCommand& cmd : commands) ApplyOne(cmd);
 }
 
@@ -128,7 +134,7 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
     case WorldOp::kSpawn: {
       // Idempotent: a re-sent spawn (e.g. a battle resync to a late-joining
       // client) must not duplicate an entity that already exists for this handle.
-      if (cmd.handle != 0 && registry_.find(cmd.handle) != registry_.end()) break;
+      if (cmd.handle != 0 && registry_.contains(cmd.handle)) break;
       ecs::Entity entity = world_.Create();
       Transform t;
       for (int i = 0; i < 3; ++i) t.position[i] = cmd.pos[i];
@@ -194,7 +200,7 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
       if (!door) break;
       Effect effect{EffectKind::kDoorLockedChanged, cmd.handle, {}, door->locked};
       effect.value = cmd.enabled;
-      RecordEffect(cmd.quest, std::move(effect));
+      RecordEffect(cmd.quest, base::move(effect));
       door->locked = cmd.enabled;
       door_overrides_[cmd.handle].locked = door->locked;
       if (on_door_state_) on_door_state_(cmd.handle, door->locked, door->open);
@@ -208,7 +214,7 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
       if (!door) break;
       Effect effect{EffectKind::kDoorOpenChanged, cmd.handle, {}, door->open};
       effect.value = cmd.enabled;
-      RecordEffect(cmd.quest, std::move(effect));
+      RecordEffect(cmd.quest, base::move(effect));
       door->open = cmd.enabled;
       door_overrides_[cmd.handle].open = door->open;
       if (on_door_state_) on_door_state_(cmd.handle, door->locked, door->open);
@@ -242,27 +248,28 @@ void QuestWorld::ApplyOne(const WorldCommand& cmd) {
 }
 
 void QuestWorld::CleanupQuest(u64 quest) {
-  for (auto it = pending_.begin(); it != pending_.end();) {
-    std::vector<WorldCommand>& commands = it->second;
+  // base::UnorderedMap has no erase-through-iterator, so the emptied handles
+  // are collected first and dropped after the walk.
+  base::Vector<u64> emptied;
+  for (auto entry : pending_) {
+    base::Vector<WorldCommand>& commands = entry.value;
     commands.erase(
         std::remove_if(commands.begin(), commands.end(),
                        [quest](const WorldCommand& command) { return command.quest == quest; }),
         commands.end());
-    if (commands.empty())
-      it = pending_.erase(it);
-    else
-      ++it;
+    if (commands.empty()) emptied.push_back(entry.key);
   }
+  for (u64 handle : emptied) pending_.erase(handle);
 
-  auto it = provenance_.find(quest);
-  if (it == provenance_.end()) return;
-  std::vector<Effect>& effects = it->second;
+  auto* it = provenance_.find(quest);
+  if (it == nullptr) return;
+  base::Vector<Effect>& effects = *it;
   struct DoorProperty {
     u64 handle;
     EffectKind kind;
     bool baseline;
   };
-  std::vector<DoorProperty> door_properties;
+  base::Vector<DoorProperty> door_properties;
   for (const Effect& removed : effects) {
     if (removed.kind != EffectKind::kDoorLockedChanged &&
         removed.kind != EffectKind::kDoorOpenChanged)
@@ -280,8 +287,8 @@ void QuestWorld::CleanupQuest(u64 quest) {
         if (!first || active.sequence < first->sequence) first = &active;
       }
     }
-    door_properties.push_back({removed.handle, removed.kind,
-                               first ? first->prev_value : removed.prev_value});
+    door_properties.push_back(
+        {removed.handle, removed.kind, first ? first->prev_value : removed.prev_value});
   }
   // Undo newest first so a move recorded after a spawn is reverted before the
   // spawn is destroyed (and a destroyed entity is simply skipped).
@@ -331,20 +338,19 @@ void QuestWorld::CleanupQuest(u64 quest) {
         break;
     }
   }
-  provenance_.erase(it);
+  provenance_.erase(quest);
 
   // Removing an older quest must not restore through newer surviving door
   // effects. Rebuild each affected property's predecessor chain from its stable
   // baseline, then apply the value implied by the latest survivor.
   for (const DoorProperty& property : door_properties) {
-    std::vector<Effect*> surviving;
-    for (auto& [_, active_effects] : provenance_)
+    base::Vector<Effect*> surviving;
+    for (auto [_, active_effects] : provenance_)
       for (Effect& active : active_effects)
         if (active.handle == property.handle && active.kind == property.kind)
           surviving.push_back(&active);
-    std::sort(surviving.begin(), surviving.end(), [](const Effect* a, const Effect* b) {
-      return a->sequence < b->sequence;
-    });
+    base::Sort(surviving.begin(), surviving.end(),
+               [](const Effect* a, const Effect* b) { return a->sequence < b->sequence; });
 
     bool value = property.baseline;
     for (Effect* active : surviving) {
@@ -370,7 +376,7 @@ void QuestWorld::CleanupQuest(u64 quest) {
   }
 }
 
-void QuestWorld::SnapshotPositions(std::vector<std::pair<u64, std::array<f32, 3>>>& out) const {
+void QuestWorld::SnapshotPositions(base::Vector<base::Pair<u64, base::Array<f32, 3>>>& out) const {
   out.clear();
   out.reserve(registry_.size());
   for (const auto& [handle, entity] : registry_) {
@@ -380,19 +386,19 @@ void QuestWorld::SnapshotPositions(std::vector<std::pair<u64, std::array<f32, 3>
   }
 }
 
-std::vector<WorldCommand> QuestWorld::SnapshotDoorStates() const {
-  std::vector<WorldCommand> out;
+base::Vector<WorldCommand> QuestWorld::SnapshotDoorStates() const {
+  base::Vector<WorldCommand> out;
   out.reserve(door_overrides_.size() * 4);
   auto append_state = [&](u64 handle, WorldOp op, bool current, EffectKind kind) {
     struct ActiveEffect {
       u64 quest;
       const Effect* effect;
     };
-    std::vector<ActiveEffect> effects;
+    base::Vector<ActiveEffect> effects;
     for (const auto& [quest, quest_effects] : provenance_)
       for (const Effect& effect : quest_effects)
         if (effect.handle == handle && effect.kind == kind) effects.push_back({quest, &effect});
-    std::sort(effects.begin(), effects.end(), [](const ActiveEffect& a, const ActiveEffect& b) {
+    base::Sort(effects.begin(), effects.end(), [](const ActiveEffect& a, const ActiveEffect& b) {
       return a.effect->sequence < b.effect->sequence;
     });
 
@@ -418,8 +424,7 @@ std::vector<WorldCommand> QuestWorld::SnapshotDoorStates() const {
   };
   for (const auto& [handle, state] : door_overrides_) {
     if (state.locked)
-      append_state(handle, WorldOp::kSetLocked, *state.locked,
-                   EffectKind::kDoorLockedChanged);
+      append_state(handle, WorldOp::kSetLocked, *state.locked, EffectKind::kDoorLockedChanged);
     if (state.open)
       append_state(handle, WorldOp::kSetOpen, *state.open, EffectKind::kDoorOpenChanged);
   }

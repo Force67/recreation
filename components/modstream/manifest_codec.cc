@@ -1,5 +1,7 @@
 #include "components/modstream/manifest_codec.h"
 
+#include <base/strings/string_ref.h>
+
 namespace rx::modstream {
 namespace {
 
@@ -26,7 +28,9 @@ void PutU64(std::vector<u8>& out, u64 v) {
   for (int i = 0; i < 8; ++i) out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
-void PutString(std::vector<u8>& out, const std::string& s) {
+// Takes a StringRef so the manifest's base::String fields and any plain
+// std::string both encode without a copy.
+void PutString(std::vector<u8>& out, base::StringRef s) {
   PutU16(out, static_cast<u16>(s.size()));
   out.insert(out.end(), s.begin(), s.end());
 }
@@ -39,8 +43,7 @@ class Reader {
 
   u16 U16() {
     if (!Need(2)) return 0;
-    const u16 v = static_cast<u16>(data_[pos_]) |
-                  static_cast<u16>(data_[pos_ + 1]) << 8;
+    const u16 v = static_cast<u16>(data_[pos_]) | static_cast<u16>(data_[pos_ + 1]) << 8;
     pos_ += 2;
     return v;
   }

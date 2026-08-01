@@ -5,10 +5,11 @@
 // a "_n" map is a linear normal map. A regression here washes out (or darkens)
 // every FO4 surface. No game data needed; the blobs are hand-built DX10 DDS.
 
+#include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string_view>
-#include <vector>
 
 #include "asset/asset_id.h"
 #include "components/bethesda/converters.h"
@@ -27,31 +28,37 @@ void Check(const char* what, bool ok) {
 // header layout matches ConvertDds: magic, 124-byte header (h@12, w@16,
 // mips@28, pf flags@80, fourcc@84, caps2@112), then the 20-byte DX10 tail
 // (dxgi@128) and the block payload at offset 148.
-std::vector<rx::u8> MakeDx10Dds(rx::u32 dxgi, rx::u32 block_bytes) {
-  std::vector<rx::u8> b(148, 0);
+base::Vector<rx::u8> MakeDx10Dds(rx::u32 dxgi, rx::u32 block_bytes) {
+  base::Vector<rx::u8> b(148, 0);
   auto put = [&](size_t off, rx::u32 v) { std::memcpy(b.data() + off, &v, 4); };
-  b[0] = 'D'; b[1] = 'D'; b[2] = 'S'; b[3] = ' ';
-  put(12, 4);     // height
-  put(16, 4);     // width
-  put(28, 1);     // mip count
-  put(80, 0x4);   // pixelformat flags: DDPF_FOURCC
-  b[84] = 'D'; b[85] = 'X'; b[86] = '1'; b[87] = '0';  // fourcc DX10
-  put(128, dxgi);                                      // dxgi format
-  b.resize(148 + block_bytes, 0);                      // one block of payload
+  b[0] = 'D';
+  b[1] = 'D';
+  b[2] = 'S';
+  b[3] = ' ';
+  put(12, 4);    // height
+  put(16, 4);    // width
+  put(28, 1);    // mip count
+  put(80, 0x4);  // pixelformat flags: DDPF_FOURCC
+  b[84] = 'D';
+  b[85] = 'X';
+  b[86] = '1';
+  b[87] = '0';                     // fourcc DX10
+  put(128, dxgi);                  // dxgi format
+  b.resize(148 + block_bytes, 0);  // one block of payload
   return b;
 }
 
-bool DecodeSrgb(rx::u32 dxgi, rx::u32 block_bytes, std::string_view path) {
+bool DecodeSrgb(rx::u32 dxgi, rx::u32 block_bytes, base::StringRef path) {
   auto blob = MakeDx10Dds(dxgi, block_bytes);
   auto tex = rx::bethesda::ConvertDds(rx::ByteSpan(blob.data(), blob.size()),
                                        rx::asset::MakeAssetId(path), path);
   return tex && tex->is_srgb;
 }
 
-bool Decodes(rx::u32 dxgi, rx::u32 block_bytes, std::string_view path) {
+bool Decodes(rx::u32 dxgi, rx::u32 block_bytes, base::StringRef path) {
   auto blob = MakeDx10Dds(dxgi, block_bytes);
   return rx::bethesda::ConvertDds(rx::ByteSpan(blob.data(), blob.size()),
-                                   rx::asset::MakeAssetId(path), path) != nullptr;
+                                  rx::asset::MakeAssetId(path), path) != nullptr;
 }
 
 constexpr rx::u32 kBc1Block = 8;

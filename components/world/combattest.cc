@@ -2,10 +2,11 @@
 // combat state machine (StartCombat -> ApplyMeleeHit -> death), including kill
 // attribution and the combat-disengage-on-death cleanup. No game data needed.
 
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+
 #include <cmath>
 #include <cstdio>
-#include <utility>
-#include <vector>
 
 #include "components/quest/quest_def.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
@@ -38,9 +39,9 @@ class RecordingSink : public rx::script::WorldEffectSink {
   void StartCombat(rx::u64, rx::u64 a, rx::u64 t) override { engaged.push_back({a, t}); }
   void StopCombat(rx::u64, rx::u64 a) override { disengaged.push_back(a); }
   void ActorDied(rx::u64, rx::u64 a) override { died.push_back(a); }
-  std::vector<std::pair<rx::u64, rx::u64>> engaged;
-  std::vector<rx::u64> disengaged;
-  std::vector<rx::u64> died;
+  base::Vector<base::Pair<rx::u64, rx::u64>> engaged;
+  base::Vector<rx::u64> disengaged;
+  base::Vector<rx::u64> died;
 };
 
 void TestPureHelpers() {
@@ -77,8 +78,8 @@ void TestPureHelpers() {
   q.Push({CombatOp::kEngage, 1, 2});
   q.Push({CombatOp::kDied, 2, 0});
   auto drained = q.Drain();
-  Check("queue drains in order", drained.size() == 2 && drained[0].actor == 1 &&
-                                     drained[1].op == CombatOp::kDied);
+  Check("queue drains in order",
+        drained.size() == 2 && drained[0].actor == 1 && drained[1].op == CombatOp::kDied);
   Check("queue empty after drain", q.Drain().empty());
 }
 
@@ -100,8 +101,8 @@ void TestBindingsCombat() {
   binds.StartCombat(soldier, enemy);
   Check("attacker is in combat", binds.IsInCombat(soldier));
   Check("combat target is the enemy", binds.GetCombatTarget(soldier).handle == enemy.handle);
-  Check("StartCombat routed to sink", sink.engaged.size() == 1 &&
-                                          sink.engaged[0].second == enemy.handle);
+  Check("StartCombat routed to sink",
+        sink.engaged.size() == 1 && sink.engaged[0].second == enemy.handle);
 
   binds.ApplyMeleeHit(soldier, enemy, 30.0f);
   Check("enemy survives first hit", !binds.IsDead(enemy));

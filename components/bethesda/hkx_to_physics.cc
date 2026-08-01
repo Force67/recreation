@@ -1,5 +1,7 @@
 #include "components/bethesda/hkx_to_physics.h"
 
+#include <base/memory/move.h>
+
 #include <cstring>
 
 namespace rx::bethesda {
@@ -23,14 +25,14 @@ physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
       break;
     case HkxShape::Kind::kConvexVertices:
       desc.kind = physics::ShapeDesc::Kind::kConvexHull;
-      desc.vertices = shape.vertices;
+      desc.vertices.assign(shape.vertices.begin(), shape.vertices.end());
       break;
     case HkxShape::Kind::kList:
       desc.kind = physics::ShapeDesc::Kind::kCompound;
       for (const HkxShape& child : shape.children) {
         physics::ShapeDesc converted = ToShapeDesc(child);
         if (converted.kind != physics::ShapeDesc::Kind::kInvalid) {
-          desc.children.push_back(std::move(converted));
+          desc.children.push_back(base::move(converted));
         }
       }
       if (desc.children.empty()) desc.kind = physics::ShapeDesc::Kind::kInvalid;
@@ -41,7 +43,7 @@ physics::ShapeDesc ToShapeDesc(const HkxShape& shape) {
       if (!shape.children.empty()) {
         physics::ShapeDesc converted = ToShapeDesc(shape.children[0]);
         if (converted.kind != physics::ShapeDesc::Kind::kInvalid) {
-          desc.children.push_back(std::move(converted));
+          desc.children.push_back(base::move(converted));
         }
       }
       if (desc.children.empty()) desc.kind = physics::ShapeDesc::Kind::kInvalid;

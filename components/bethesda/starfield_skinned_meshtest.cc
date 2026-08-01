@@ -5,9 +5,10 @@
 // vertex's influences to its top four, renormalized to u8 weights summing to
 // 255.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <cstring>
-#include <vector>
 
 #include "components/bethesda/starfield_mesh.h"
 #include "core/types.h"
@@ -27,12 +28,12 @@ void Check(const char* what, bool ok) {
   if (!ok) ++g_failures;
 }
 
-void PutU16(std::vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
-void PutI16(std::vector<u8>& b, i16 v) { PutU16(b, static_cast<u16>(v)); }
-void PutU32(std::vector<u8>& b, u32 v) {
+void PutU16(base::Vector<u8>& b, u16 v) { b.insert(b.end(), {u8(v), u8(v >> 8)}); }
+void PutI16(base::Vector<u8>& b, i16 v) { PutU16(b, static_cast<u16>(v)); }
+void PutU32(base::Vector<u8>& b, u32 v) {
   for (int i = 0; i < 4; ++i) b.push_back(u8(v >> (8 * i)));
 }
-void PutF32(std::vector<u8>& b, f32 v) {
+void PutF32(base::Vector<u8>& b, f32 v) {
   u32 bits;
   std::memcpy(&bits, &v, 4);
   PutU32(b, bits);
@@ -51,7 +52,7 @@ int main() {
       {0, -32767, 0},  // maps to -1.0 on y
   };
 
-  std::vector<u8> mesh;
+  base::Vector<u8> mesh;
   PutU32(mesh, 2);  // version
   PutU32(mesh, 3);  // indexCount
   PutU16(mesh, 0);
@@ -84,8 +85,8 @@ int main() {
   }
 
   rx::bethesda::StarfieldSkinnedMeshData out;
-  bool parsed = rx::bethesda::ParseStarfieldSkinnedMesh(
-      rx::ByteSpan(mesh.data(), mesh.size()), &out);
+  bool parsed =
+      rx::bethesda::ParseStarfieldSkinnedMesh(rx::ByteSpan(mesh.data(), mesh.size()), &out);
 
   std::puts("starfield skinned mesh:");
   Check("parses", parsed);
@@ -109,7 +110,8 @@ int main() {
     bool right_bones = e0.bone_indices[0] == 1 && e0.bone_indices[1] == 2 &&
                        e0.bone_indices[2] == 7 && e0.bone_indices[3] == 9;
     Check("top-four bones, weight-ordered", right_bones);
-    u32 sum0 = u32(e0.bone_weights[0]) + e0.bone_weights[1] + e0.bone_weights[2] + e0.bone_weights[3];
+    u32 sum0 =
+        u32(e0.bone_weights[0]) + e0.bone_weights[1] + e0.bone_weights[2] + e0.bone_weights[3];
     Check("weights sum to 255", sum0 == 255);
     Check("dominant bone has the largest weight",
           e0.bone_weights[0] > e0.bone_weights[1] && e0.bone_weights[1] >= e0.bone_weights[2]);

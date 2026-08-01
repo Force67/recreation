@@ -1,4 +1,4 @@
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "components/script/games/skyrim/skyrim_natives_ext.h"
 
@@ -36,7 +36,7 @@ void RegisterActorRefGetters(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
                  auto& b = Resolve(bindings);
                  // Removing items shifts the inventory indices, so collect every
                  // form up front and then remove each, rather than iterating live.
-                 std::vector<ObjectRef> forms;
+                 base::Vector<ObjectRef> forms;
                  for (i32 i = 0, n = b.GetNumItems(self); i < n; ++i) {
                    forms.push_back(b.GetNthForm(self, i));
                  }

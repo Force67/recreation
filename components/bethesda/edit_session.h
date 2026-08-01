@@ -1,12 +1,11 @@
 #ifndef RECREATION_BETHESDA_EDIT_SESSION_H_
 #define RECREATION_BETHESDA_EDIT_SESSION_H_
 
-#include <string>
-#include <string_view>
-#include <unordered_map>
-#include <unordered_set>
-
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
 
 #include "components/bethesda/form_id.h"
 #include "components/bethesda/game_profile.h"
@@ -51,9 +50,9 @@ class EditSession {
       : base_(base), order_(order), profile_(profile) {}
 
   struct SaveOptions {
-    std::string out_file_name;  // written into HEDR bookkeeping context, optional
-    std::string author;
-    std::string description;
+    base::String out_file_name;  // written into HEDR bookkeeping context, optional
+    base::String author;
+    base::String description;
     bool is_master = false;  // ESM flag
     bool is_light = false;   // ESL flag
     bool localized = false;  // ESM string files; also implied by SetLocalizedString
@@ -81,14 +80,14 @@ class EditSession {
   // Field edits on an overridden or created record (by its handle). Replace or
   // add semantics: an existing field of that type is replaced, else appended.
   bool SetField(GlobalFormId handle, u32 type, ByteSpan bytes);
-  bool SetEditorId(GlobalFormId handle, std::string_view editor_id);
+  bool SetEditorId(GlobalFormId handle, base::StringRef editor_id);
 
   // Sets a localizable text field (e.g. FULL, DESC) on a localized plugin: the
   // text is interned into the string table for `file` and the field stores the
   // assigned u32 string id instead of inline text. Marks the output localized;
   // Save then writes the strings/<plugin>_<language>.* files and sets the
   // localized flag. The id space is shared across the three files.
-  bool SetLocalizedString(GlobalFormId handle, u32 field_type, std::string_view text,
+  bool SetLocalizedString(GlobalFormId handle, u32 field_type, base::StringRef text,
                           StringFile file = StringFile::kStrings);
   // Writes a single form-id field, encoding `target` with Ref.
   bool SetReference(GlobalFormId handle, u32 field_type, GlobalFormId target);
@@ -111,11 +110,11 @@ class EditSession {
   // Places a reference inside an exterior cell of a worldspace. The cell must
   // carry an XCLC grid field (SetField with the cell's grid coordinates); the
   // block/sub-block groups are derived from it.
-  bool PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell,
-                           GlobalFormId reference, bool persistent = false);
+  bool PlaceInExteriorCell(GlobalFormId worldspace, GlobalFormId cell, GlobalFormId reference,
+                           bool persistent = false);
 
   // Serializes the override plugin to disk.
-  bool Save(const std::string& path, const SaveOptions& options);
+  bool Save(const base::String& path, const SaveOptions& options);
 
   // In-place editing bridge. Targets a single already-loaded plugin so form ids
   // resolve against that plugin's own fixed master list (no new masters, no
@@ -127,13 +126,13 @@ class EditSession {
   bool SetInPlaceTarget(u16 plugin_index);
   bool ApplyEditsTo(RawRewriter& rewriter);
 
-  const base::Vector<std::string>& masters() const { return masters_; }
+  const base::Vector<base::String>& masters() const { return masters_; }
   size_t edit_count() const { return order_of_entries_.size(); }
 
  private:
   struct Entry {
-    Record record;                            // owns decompressed + subrecords
-    base::Vector<base::Vector<u8>> storage;   // owns edited field bytes
+    Record record;                           // owns decompressed + subrecords
+    base::Vector<base::Vector<u8>> storage;  // owns edited field bytes
     GlobalFormId handle;
     bool deleted = false;
   };
@@ -145,35 +144,35 @@ class EditSession {
 
   Entry* FindEntry(GlobalFormId handle);
   Entry& NewEntry(GlobalFormId handle);
-  u16 AddMasterName(const std::string& name);  // index of name, appending if new
-  bool RequireChain(u16 plugin);               // ensure the plugin's master prefix
+  u16 AddMasterName(const base::String& name);  // index of name, appending if new
+  bool RequireChain(u16 plugin);                // ensure the plugin's master prefix
   ByteSpan Store(Entry* entry, const u8* data, size_t size);
   bool PutField(GlobalFormId handle, u32 type, ByteSpan bytes, bool replace);
-  Record BuildOutput(Entry& entry);              // header re-encoded, body copied
+  Record BuildOutput(Entry& entry);  // header re-encoded, body copied
   void EncodeEntry(GlobalFormId handle, base::Vector<u8>* out, u32* count);
   void EncodeCellChildren(GlobalFormId cell, base::Vector<u8>* out, u32* count);
-  base::Vector<u8> BuildCellGroup(u32* count);   // nested CELL top group, or empty
-  base::Vector<u8> BuildDialGroup(u32* count);   // nested DIAL top group, or empty
-  base::Vector<u8> BuildWorldGroup(u32* count);  // nested WRLD top group, or empty
-  bool WriteStringFiles(const std::string& plugin_path);  // the strings/*.* files
+  base::Vector<u8> BuildCellGroup(u32* count);             // nested CELL top group, or empty
+  base::Vector<u8> BuildDialGroup(u32* count);             // nested DIAL top group, or empty
+  base::Vector<u8> BuildWorldGroup(u32* count);            // nested WRLD top group, or empty
+  bool WriteStringFiles(const base::String& plugin_path);  // the strings/*.* files
 
   const RecordStore& base_;
   const LoadOrder& order_;
   const GameProfile& profile_;
-  base::Vector<std::string> masters_;
-  std::unordered_map<u64, Entry> entries_;
+  base::Vector<base::String> masters_;
+  base::UnorderedMap<u64, Entry> entries_;
   base::Vector<u64> order_of_entries_;  // deterministic emit order
   u32 next_local_id_ = 0x800;
 
   // Nested content: parents keep their child lists; children are marked claimed
   // so the flat pass skips them.
-  std::unordered_map<u64, CellChildren> cell_children_;
+  base::UnorderedMap<u64, CellChildren> cell_children_;
   base::Vector<u64> cell_order_;
-  std::unordered_map<u64, base::Vector<GlobalFormId>> topic_infos_;
+  base::UnorderedMap<u64, base::Vector<GlobalFormId>> topic_infos_;
   base::Vector<u64> dial_order_;
-  std::unordered_map<u64, base::Vector<GlobalFormId>> world_cells_;  // worldspace -> cells
+  base::UnorderedMap<u64, base::Vector<GlobalFormId>> world_cells_;  // worldspace -> cells
   base::Vector<u64> world_order_;
-  std::unordered_set<u64> claimed_;
+  base::UnorderedSet<u64> claimed_;
 
   // Localized string tables (shared id space across the three files).
   StringTableWriter strings_;
@@ -186,7 +185,7 @@ class EditSession {
   // master list instead of the growing patch list.
   bool in_place_ = false;
   u16 in_place_plugin_ = 0xffff;
-  base::Vector<std::string> in_place_masters_;
+  base::Vector<base::String> in_place_masters_;
 };
 
 }  // namespace rx::bethesda

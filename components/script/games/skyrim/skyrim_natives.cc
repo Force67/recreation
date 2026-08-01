@@ -1,12 +1,14 @@
+#include "core/log.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
+
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include <cmath>
 #include <numbers>
-#include <vector>
 
 #include "components/script/games/skyrim/skyrim_natives_ext.h"
-
-#include "core/log.h"
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/vm.h"
 
@@ -16,15 +18,19 @@ namespace {
 using papyrus::ObjectRef;
 using papyrus::Value;
 using papyrus::VirtualMachine;
-using Args = std::vector<Value>;
+using Args = base::Vector<Value>;
 
 constexpr f64 kDegToRad = std::numbers::pi / 180.0;
 constexpr f64 kRadToDeg = 180.0 / std::numbers::pi;
 
 f32 ArgF(const Args& a, size_t i) { return i < a.size() ? a[i].ToFloat() : 0.0f; }
 i32 ArgI(const Args& a, size_t i) { return i < a.size() ? a[i].ToInt() : 0; }
-bool ArgB(const Args& a, size_t i, bool fallback) { return i < a.size() ? a[i].ToBool() : fallback; }
-std::string ArgS(const Args& a, size_t i) { return i < a.size() ? a[i].ToString() : std::string(); }
+bool ArgB(const Args& a, size_t i, bool fallback) {
+  return i < a.size() ? a[i].ToBool() : fallback;
+}
+base::String ArgS(const Args& a, size_t i) {
+  return i < a.size() ? a[i].ToString() : base::String();
+}
 ObjectRef ArgO(const Args& a, size_t i) { return i < a.size() ? a[i].as_object() : ObjectRef{}; }
 
 // Small deterministic PRNG for Utility.Random*. Determinism makes scripted
@@ -131,14 +137,16 @@ void RegisterGameControls(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
     for (i32 c = 0; c < 8; ++c)
       if (ArgB(a, c, kDefault[c])) b.SetPlayerControl(c, enable);
   };
-  reg.Register("Game", "DisablePlayerControls", [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
-    toggle(Resolve(bindings), a, false);
-    return Value();
-  });
-  reg.Register("Game", "EnablePlayerControls", [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
-    toggle(Resolve(bindings), a, true);
-    return Value();
-  });
+  reg.Register("Game", "DisablePlayerControls",
+               [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
+                 toggle(Resolve(bindings), a, false);
+                 return Value();
+               });
+  reg.Register("Game", "EnablePlayerControls",
+               [bindings, toggle](VirtualMachine&, ObjectRef, Args& a) {
+                 toggle(Resolve(bindings), a, true);
+                 return Value();
+               });
   reg.Register("Game", "EnableFastTravel", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     Resolve(bindings).SetPlayerControl(8, ArgB(a, 0, true));
     return Value();
@@ -178,7 +186,7 @@ void RegisterUtility(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Utility", "RandomInt", [](VirtualMachine&, ObjectRef, Args& a) {
     i32 lo = a.size() > 0 ? ArgI(a, 0) : 0;
     i32 hi = a.size() > 1 ? ArgI(a, 1) : 100;
-    if (hi < lo) std::swap(lo, hi);
+    if (hi < lo) base::Swap(lo, hi);
     u32 span = static_cast<u32>(hi - lo) + 1;
     return Value::Int(lo + static_cast<i32>(NextRandom() % span));
   });
@@ -235,9 +243,10 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Game", "GetNthRecipeOutput", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Object(Resolve(bindings).GetNthRecipeOutput(ArgI(a, 0)));
   });
-  reg.Register("Game", "GetNthRecipeOutputQuantity", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Int(Resolve(bindings).GetNthRecipeOutputQuantity(ArgI(a, 0)));
-  });
+  reg.Register("Game", "GetNthRecipeOutputQuantity",
+               [bindings](VirtualMachine&, ObjectRef, Args& a) {
+                 return Value::Int(Resolve(bindings).GetNthRecipeOutputQuantity(ArgI(a, 0)));
+               });
   reg.Register("Game", "GetNthRecipeWorkbench", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Object(Resolve(bindings).GetNthRecipeWorkbench(ArgI(a, 0)));
   });
@@ -247,9 +256,10 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Game", "GetNthRecipeInput", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Object(Resolve(bindings).GetNthRecipeInput(ArgI(a, 0), ArgI(a, 1)));
   });
-  reg.Register("Game", "GetNthRecipeInputQuantity", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Int(Resolve(bindings).GetNthRecipeInputQuantity(ArgI(a, 0), ArgI(a, 1)));
-  });
+  reg.Register(
+      "Game", "GetNthRecipeInputQuantity", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+        return Value::Int(Resolve(bindings).GetNthRecipeInputQuantity(ArgI(a, 0), ArgI(a, 1)));
+      });
 
   reg.Register("Form", "GetFormID", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(static_cast<i32>(Resolve(bindings).GetFormId(self)));
@@ -275,15 +285,18 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetNthRaceSpell", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Object(Resolve(bindings).GetNthRaceSpell(ArgI(a, 0)));
   });
-  reg.Register("Form", "GetRaceSkillBonusCount", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(Resolve(bindings).GetRaceSkillBonusCount(self));
-  });
-  reg.Register("Form", "GetNthRaceSkillBonusSkill", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Str(Resolve(bindings).GetNthRaceSkillBonusSkill(ArgI(a, 0)));
-  });
-  reg.Register("Form", "GetNthRaceSkillBonusValue", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Int(Resolve(bindings).GetNthRaceSkillBonusValue(ArgI(a, 0)));
-  });
+  reg.Register("Form", "GetRaceSkillBonusCount",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetRaceSkillBonusCount(self));
+               });
+  reg.Register("Form", "GetNthRaceSkillBonusSkill",
+               [bindings](VirtualMachine&, ObjectRef, Args& a) {
+                 return Value::Str(Resolve(bindings).GetNthRaceSkillBonusSkill(ArgI(a, 0)));
+               });
+  reg.Register("Form", "GetNthRaceSkillBonusValue",
+               [bindings](VirtualMachine&, ObjectRef, Args& a) {
+                 return Value::Int(Resolve(bindings).GetNthRaceSkillBonusValue(ArgI(a, 0)));
+               });
   reg.Register("Form", "GetWeight", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Float(Resolve(bindings).GetWeight(self));
   });
@@ -358,15 +371,18 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
   reg.Register("Form", "GetNthShoutRecoveryTime", [bindings](VirtualMachine&, ObjectRef, Args& a) {
     return Value::Float(Resolve(bindings).GetNthShoutRecoveryTime(ArgI(a, 0)));
   });
-  reg.Register("Form", "GetMagicEffectActorValue", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Str(Resolve(bindings).GetMagicEffectActorValue(self));
-  });
-  reg.Register("Form", "GetMagicEffectDetrimental", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Bool(Resolve(bindings).GetMagicEffectDetrimental(self));
-  });
-  reg.Register("Form", "GetMagicEffectBaseCost", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Float(Resolve(bindings).GetMagicEffectBaseCost(self));
-  });
+  reg.Register("Form", "GetMagicEffectActorValue",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Str(Resolve(bindings).GetMagicEffectActorValue(self));
+               });
+  reg.Register("Form", "GetMagicEffectDetrimental",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Bool(Resolve(bindings).GetMagicEffectDetrimental(self));
+               });
+  reg.Register("Form", "GetMagicEffectBaseCost",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Float(Resolve(bindings).GetMagicEffectBaseCost(self));
+               });
   reg.Register("Form", "GetSpellCost", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(Resolve(bindings).GetSpellCost(self));
   });
@@ -398,35 +414,43 @@ void RegisterGameAndForms(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
 }
 
 void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
-  reg.Register("ObjectReference", "GetNearbyRefs", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Int(Resolve(bindings).GetNearbyRefs(self, ArgF(a, 0)));
-  });
-  reg.Register("ObjectReference", "GetNthNearbyRef", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Object(Resolve(bindings).GetNthNearbyRef(ArgI(a, 0)));
-  });
-  reg.Register("ObjectReference", "GetNthNearbyDistance", [bindings](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Float(Resolve(bindings).GetNthNearbyDistance(ArgI(a, 0)));
-  });
-  reg.Register("ObjectReference", "GetPositionX", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Float(Resolve(bindings).GetPositionX(self));
-  });
-  reg.Register("ObjectReference", "GetPositionY", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Float(Resolve(bindings).GetPositionY(self));
-  });
-  reg.Register("ObjectReference", "GetPositionZ", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Float(Resolve(bindings).GetPositionZ(self));
-  });
+  reg.Register("ObjectReference", "GetNearbyRefs",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Int(Resolve(bindings).GetNearbyRefs(self, ArgF(a, 0)));
+               });
+  reg.Register("ObjectReference", "GetNthNearbyRef",
+               [bindings](VirtualMachine&, ObjectRef, Args& a) {
+                 return Value::Object(Resolve(bindings).GetNthNearbyRef(ArgI(a, 0)));
+               });
+  reg.Register("ObjectReference", "GetNthNearbyDistance",
+               [bindings](VirtualMachine&, ObjectRef, Args& a) {
+                 return Value::Float(Resolve(bindings).GetNthNearbyDistance(ArgI(a, 0)));
+               });
+  reg.Register("ObjectReference", "GetPositionX",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Float(Resolve(bindings).GetPositionX(self));
+               });
+  reg.Register("ObjectReference", "GetPositionY",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Float(Resolve(bindings).GetPositionY(self));
+               });
+  reg.Register("ObjectReference", "GetPositionZ",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Float(Resolve(bindings).GetPositionZ(self));
+               });
   reg.Register("ObjectReference", "SetPosition",
                [bindings](VirtualMachine&, ObjectRef self, Args& a) {
                  Resolve(bindings).SetPosition(self, ArgF(a, 0), ArgF(a, 1), ArgF(a, 2));
                  return Value();
                });
-  reg.Register("ObjectReference", "GetDistance", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Float(Resolve(bindings).GetDistance(self, ArgO(a, 0)));
-  });
-  reg.Register("ObjectReference", "GetBaseObject", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Object(Resolve(bindings).GetBaseObject(self));
-  });
+  reg.Register("ObjectReference", "GetDistance",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Float(Resolve(bindings).GetDistance(self, ArgO(a, 0)));
+               });
+  reg.Register("ObjectReference", "GetBaseObject",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Object(Resolve(bindings).GetBaseObject(self));
+               });
   reg.Register("ObjectReference", "MoveTo", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).MoveTo(self, ArgO(a, 0));
     return Value();
@@ -451,23 +475,27 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
     Resolve(bindings).Resurrect(self);
     return Value();
   });
-  reg.Register("ObjectReference", "GetItemCount", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Int(Resolve(bindings).GetItemCount(self, ArgO(a, 0)));
-  });
+  reg.Register("ObjectReference", "GetItemCount",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Int(Resolve(bindings).GetItemCount(self, ArgO(a, 0)));
+               });
   reg.Register("ObjectReference", "AddItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).AddItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
     return Value();
   });
-  reg.Register("ObjectReference", "RemoveItem", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).RemoveItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
-    return Value();
-  });
-  reg.Register("ObjectReference", "GetNumItems", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(Resolve(bindings).GetNumItems(self));
-  });
-  reg.Register("ObjectReference", "GetNthForm", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Object(Resolve(bindings).GetNthForm(self, ArgI(a, 0)));
-  });
+  reg.Register("ObjectReference", "RemoveItem",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).RemoveItem(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1);
+                 return Value();
+               });
+  reg.Register("ObjectReference", "GetNumItems",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetNumItems(self));
+               });
+  reg.Register("ObjectReference", "GetNthForm",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Object(Resolve(bindings).GetNthForm(self, ArgI(a, 0)));
+               });
   reg.Register("ObjectReference", "Activate", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).Activate(self, ArgO(a, 0));
     return Value();
@@ -476,9 +504,11 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
     Resolve(bindings).Delete(self);
     return Value();
   });
-  reg.Register("ObjectReference", "PlaceAtMe", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Object(Resolve(bindings).PlaceAtMe(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1));
-  });
+  reg.Register("ObjectReference", "PlaceAtMe",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Object(
+                     Resolve(bindings).PlaceAtMe(self, ArgO(a, 0), a.size() > 1 ? ArgI(a, 1) : 1));
+               });
   reg.Register("ObjectReference", "GetScale", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Float(Resolve(bindings).GetScale(self));
   });
@@ -504,10 +534,11 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   reg.Register("ReferenceAlias", "GetRef", alias_ref);
   // Runtime fill: a script can point an alias at a specific ref (ForceRefTo) or
   // empty it (Clear); the fill then wins in AliasReference until cleared.
-  reg.Register("ReferenceAlias", "ForceRefTo", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).AliasForceRefTo(self, a.empty() ? ObjectRef{} : a[0].as_object());
-    return Value();
-  });
+  reg.Register(
+      "ReferenceAlias", "ForceRefTo", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+        Resolve(bindings).AliasForceRefTo(self, a.empty() ? ObjectRef{} : a[0].as_object());
+        return Value();
+      });
   reg.Register("ReferenceAlias", "Clear", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     Resolve(bindings).AliasClear(self);
     return Value();
@@ -544,16 +575,19 @@ void RegisterObjectReference(papyrus::NativeRegistry& reg, SkyrimBindings* bindi
   reg.Register("ObjectReference", "IsLocked", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Bool(Resolve(bindings).IsLocked(self));
   });
-  reg.Register("ObjectReference", "GetLockLevel", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(Resolve(bindings).GetLockLevel(self));
-  });
-  reg.Register("ObjectReference", "SetLockLevel", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).SetLockLevel(self, ArgI(a, 0));
-    return Value();
-  });
-  reg.Register("ObjectReference", "GetOpenState", [bindings](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Int(Resolve(bindings).GetOpenState(self));
-  });
+  reg.Register("ObjectReference", "GetLockLevel",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetLockLevel(self));
+               });
+  reg.Register("ObjectReference", "SetLockLevel",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).SetLockLevel(self, ArgI(a, 0));
+                 return Value();
+               });
+  reg.Register("ObjectReference", "GetOpenState",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetOpenState(self));
+               });
   reg.Register("ObjectReference", "SetOpen", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetOpen(self, ArgB(a, 0, true));
     return Value();
@@ -571,10 +605,11 @@ void RegisterGlobalVariable(papyrus::NativeRegistry& reg, SkyrimBindings* bindin
   reg.Register("GlobalVariable", "GetValueInt", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Int(static_cast<i32>(Resolve(bindings).GetGlobalValue(self)));
   });
-  reg.Register("GlobalVariable", "SetValueInt", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).SetGlobalValue(self, static_cast<f32>(ArgI(a, 0)));
-    return Value();
-  });
+  reg.Register("GlobalVariable", "SetValueInt",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).SetGlobalValue(self, static_cast<f32>(ArgI(a, 0)));
+                 return Value();
+               });
   reg.Register("GlobalVariable", "Mod", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     SkyrimBindings& b = Resolve(bindings);
     b.SetGlobalValue(self, b.GetGlobalValue(self) + ArgF(a, 0));
@@ -701,14 +736,16 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
     Resolve(bindings).SetQuestActive(self, ArgB(a, 0, true));
     return Value();
   });
-  reg.Register("Quest", "SetObjectiveDisplayed", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).SetObjectiveDisplayed(self, ArgI(a, 0), ArgB(a, 1, true));
-    return Value();
-  });
-  reg.Register("Quest", "SetObjectiveCompleted", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), ArgB(a, 1, true));
-    return Value();
-  });
+  reg.Register("Quest", "SetObjectiveDisplayed",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).SetObjectiveDisplayed(self, ArgI(a, 0), ArgB(a, 1, true));
+                 return Value();
+               });
+  reg.Register("Quest", "SetObjectiveCompleted",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), ArgB(a, 1, true));
+                 return Value();
+               });
   // A failed objective is, like a completed one, no longer an active goal, so it
   // drops off the tracker. We don't model the struck-through "failed" styling yet;
   // resolving it keeps the CW siege/mission objective flow correct.
@@ -716,12 +753,14 @@ void RegisterQuest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
     if (ArgB(a, 1, true)) Resolve(bindings).SetObjectiveCompleted(self, ArgI(a, 0), true);
     return Value();
   });
-  reg.Register("Quest", "IsObjectiveDisplayed", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(Resolve(bindings).IsObjectiveDisplayed(self, ArgI(a, 0)));
-  });
-  reg.Register("Quest", "IsObjectiveCompleted", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(Resolve(bindings).IsObjectiveCompleted(self, ArgI(a, 0)));
-  });
+  reg.Register("Quest", "IsObjectiveDisplayed",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Bool(Resolve(bindings).IsObjectiveDisplayed(self, ArgI(a, 0)));
+               });
+  reg.Register("Quest", "IsObjectiveCompleted",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Bool(Resolve(bindings).IsObjectiveCompleted(self, ArgI(a, 0)));
+               });
 }
 
 void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
@@ -731,9 +770,10 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetBaseActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Float(Resolve(bindings).GetBaseActorValue(self, ArgS(a, 0)));
   });
-  reg.Register("Actor", "GetActorValuePercentage", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Float(Resolve(bindings).GetActorValuePercentage(self, ArgS(a, 0)));
-  });
+  reg.Register("Actor", "GetActorValuePercentage",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Float(Resolve(bindings).GetActorValuePercentage(self, ArgS(a, 0)));
+               });
   reg.Register("Actor", "SetActorValue", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).SetActorValue(self, ArgS(a, 0), ArgF(a, 1));
     return Value();
@@ -769,13 +809,15 @@ void RegisterActor(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Actor", "GetCombatTarget", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetCombatTarget(self));
   });
-  reg.Register("Actor", "SetRelationshipRank", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    Resolve(bindings).SetRelationshipRank(self, ArgO(a, 0), ArgI(a, 1));
-    return Value();
-  });
-  reg.Register("Actor", "GetRelationshipRank", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Int(Resolve(bindings).GetRelationshipRank(self, ArgO(a, 0)));
-  });
+  reg.Register("Actor", "SetRelationshipRank",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 Resolve(bindings).SetRelationshipRank(self, ArgO(a, 0), ArgI(a, 1));
+                 return Value();
+               });
+  reg.Register("Actor", "GetRelationshipRank",
+               [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+                 return Value::Int(Resolve(bindings).GetRelationshipRank(self, ArgO(a, 0)));
+               });
   reg.Register("Actor", "StartCombat", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
     Resolve(bindings).StartCombat(self, ArgO(a, 0));
     return Value();

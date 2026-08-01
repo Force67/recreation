@@ -1,4 +1,6 @@
+#include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/strings/xstring.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -38,33 +40,33 @@ void BootManagedScripting(Engine& engine) {
   const bool replica = self->script_bindings_ && self->script_bindings_->replica_mode();
   const std::int32_t realm = self->config_.host_server ? 0 : (replica ? 1 : 2);
 
-  const char* dir = ScriptingDir.get();
+  const char* dir = (ScriptingDir ? &*ScriptingDir : nullptr);
   if (!dir || !*dir) {
     RX_INFO("managed: RECREATION_SCRIPTING_DIR unset, C# scripting disabled");
     return;
   }
   namespace fs = std::filesystem;
   const fs::path base(dir);
-  const std::string assembly = (base / "Recreation.Scripting.dll").string();
-  const std::string runtime_config = (base / "Recreation.Scripting.runtimeconfig.json").string();
+  const base::String assembly = (base / "Recreation.Scripting.dll").string();
+  const base::String runtime_config = (base / "Recreation.Scripting.runtimeconfig.json").string();
   std::error_code ec;
-  if (!fs::exists(assembly, ec) || !fs::exists(runtime_config, ec)) {
+  if (!fs::exists(assembly.c_str(), ec) || !fs::exists(runtime_config.c_str(), ec)) {
     RX_WARN("managed: Recreation.Scripting not found under {}", dir);
     return;
   }
-  self->managed_ = std::make_unique<rx::script::host::ManagedHost>();
+  self->managed_ = base::MakeUnique<rx::script::host::ManagedHost>();
   // Register the primary (rendered) game first, then every secondary domain, so a
   // C# mod can reach Skyrim and Fallout content at the same time. Each domain
   // dispatches into its own guest, keeping the games' state isolated.
   self->managed_->AddDomain(bethesda::GameProfile::For(self->game_).name, self->scripts_->guest(),
-                            [self](const std::string& name) {
+                            [self](const base::String& name) {
                               return !self->scripts_->EnsureScriptLoaded(name).empty();
                             });
   for (auto& domain : self->extra_domains_) {
-    ContentDomain* d = domain.get();
+    ContentDomain* d = (domain ? &*domain : nullptr);
     self->managed_->AddDomain(
         d->profile().name, d->scripts()->guest(),
-        [d](const std::string& name) { return !d->scripts()->EnsureScriptLoaded(name).empty(); });
+        [d](const base::String& name) { return !d->scripts()->EnsureScriptLoaded(name).empty(); });
   }
 #if defined(RECREATION_HAS_UGUI)
   // Let managed UI handlers read and mutate live ugui widgets. Must precede Boot:
@@ -79,20 +81,21 @@ void BootManagedScripting(Engine& engine) {
 #endif
   self->managed_->SetRealm(realm);  // server / client / standalone mod filtering
   if (!self->managed_->Boot(/*dotnet_root=*/"", runtime_config, assembly)) {
-    self->managed_.reset();  // unavailable: run without it
+    self->managed_.Reset();  // unavailable: run without it
     return;
   }
 #if defined(RECREATION_HAS_UGUI)
   // Route every ultragui handler (button clicks, on_change) into the managed
   // world now that it is up. Inert until this point, so early UI input is safe.
-  rx::ugui_cs::InstallHostDispatch(&DispatchUiToManaged, self->managed_.get());
+  rx::ugui_cs::InstallHostDispatch(&DispatchUiToManaged,
+                                   (self->managed_ ? &*self->managed_ : nullptr));
 #endif
   // Route gameplay events (death, item added, quest stage) from the bindings to
   // the managed event bus. The sink runs on the guest thread, so set it there to
   // avoid racing the guest, and have it only enqueue: the main loop drains the
   // queue into managed code (DrainEvents).
-  auto* host = self->managed_.get();
-  auto* binds = self->script_bindings_.get();
+  auto* host = (self->managed_ ? &*self->managed_ : nullptr);
+  auto* binds = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
   self->scripts_->guest().Submit([binds, host](rx::script::papyrus::VirtualMachine&) {
     binds->set_event_sink([host](const rx::script::host::ManagedEvent& e) { host->QueueEvent(e); });
   });

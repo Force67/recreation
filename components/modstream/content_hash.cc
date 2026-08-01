@@ -1,6 +1,8 @@
 #include "components/modstream/content_hash.h"
 
-#include <array>
+#include <base/containers/array.h>
+#include <base/optional.h>
+
 #include <fstream>
 
 namespace rx::modstream {
@@ -24,19 +26,19 @@ ContentHash HashBytes(const void* data, size_t size) {
   return hasher.value;
 }
 
-std::optional<ContentHash> HashFile(const std::filesystem::path& path) {
-  std::ifstream in(path, std::ios::binary);
-  if (!in) return std::nullopt;
+base::Optional<ContentHash> HashFile(const std::filesystem::path& path) {
+  std::ifstream in(path.c_str(), std::ios::binary);
+  if (!in) return base::nullopt;
 
   ContentHasher hasher;
-  std::array<char, 64 * 1024> buffer;
+  base::Array<char, 64 * 1024> buffer;
   while (in) {
     in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     const std::streamsize got = in.gcount();
     if (got > 0) hasher.Update(buffer.data(), static_cast<size_t>(got));
   }
   // eof is the expected stop condition; any other failure means a short read.
-  if (in.bad()) return std::nullopt;
+  if (in.bad()) return base::nullopt;
   return hasher.value;
 }
 

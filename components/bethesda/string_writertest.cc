@@ -7,13 +7,14 @@
 // prefix that includes the terminator). A Save round trip through a temp file
 // exercises the on-disk path too.
 
+#include <base/containers/map.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <map>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/string_writer.h"
 #include "core/types.h"
@@ -30,8 +31,8 @@ void Check(const char* what, bool ok) {
 // Minimal reimplementation of StringTable::LoadFile over a raw byte buffer,
 // kept byte-for-byte in step with engine/bethesda/strings.cc so a pass here
 // means the writer's layout is exactly what the real reader consumes.
-std::map<u32, std::string> Parse(const std::vector<u8>& bytes, bool length_prefixed, bool* ok) {
-  std::map<u32, std::string> out;
+base::Map<u32, base::String> Parse(const base::Vector<u8>& bytes, bool length_prefixed, bool* ok) {
+  base::Map<u32, base::String> out;
   *ok = false;
   if (bytes.size() < 8) return out;
 
@@ -55,37 +56,37 @@ std::map<u32, std::string> Parse(const std::vector<u8>& bytes, bool length_prefi
       u32 length = 0;
       std::memcpy(&length, start, 4);
       if (pos + 4 + length > bytes.size()) continue;
-      out[id] = std::string(start + 4, length > 0 ? length - 1 : 0);
+      out[id] = base::String(start + 4, length > 0 ? length - 1 : 0);
     } else {
       size_t max_length = bytes.size() - pos;
-      out[id] = std::string(start, strnlen(start, max_length));
+      out[id] = base::String(start, strnlen(start, max_length));
     }
   }
   *ok = true;
   return out;
 }
 
-std::vector<u8> ToVector(const base::Vector<u8>& v) {
-  return std::vector<u8>(v.data(), v.data() + v.size());
+base::Vector<u8> ToVector(const base::Vector<u8>& v) {
+  return base::Vector<u8>(v.data(), v.data() + v.size());
 }
 
-std::vector<u8> ReadFileBytes(const std::string& path) {
-  std::ifstream in(path, std::ios::binary);
-  return std::vector<u8>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+base::Vector<u8> ReadFileBytes(const base::String& path) {
+  std::ifstream in(path.c_str(), std::ios::binary);
+  return base::Vector<u8>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 // Runs a full add/build/parse round trip for one variant and asserts every id
 // maps back to the exact original text.
-void RunVariant(const char* label, bool length_prefixed, const std::string& dir) {
+void RunVariant(const char* label, bool length_prefixed, const base::String& dir) {
   std::printf("string table %s round trip:\n", label);
 
   // A mix of ordinary text, an empty string, repeated text (must dedup to one
   // data slot yet keep distinct ids), and high/non-ASCII bytes (no embedded
   // NUL, which neither variant can represent).
-  const std::string s_hello = "Hello, courier.";
-  const std::string s_empty = "";
-  const std::string s_unicode = "caf\xC3\xA9 \xF0\x9F\x97\xA1";  // "café [dagger]"
-  const std::string s_long(300, 'X');                            // spans a >255 length
+  const base::String s_hello = "Hello, courier.";
+  const base::String s_empty = "";
+  const base::String s_unicode = "caf\xC3\xA9 \xF0\x9F\x97\xA1";  // "café [dagger]"
+  const base::String s_long(300, 'X');                            // spans a >255 length
 
   rx::bethesda::StringTableWriter w;
   u32 id_hello = w.Add(s_hello);
@@ -99,7 +100,7 @@ void RunVariant(const char* label, bool length_prefixed, const std::string& dir)
   Check("size counts every id", w.size() == 5);
 
   base::Vector<u8> built = w.Build(length_prefixed);
-  std::vector<u8> bytes = ToVector(built);
+  base::Vector<u8> bytes = ToVector(built);
 
   // Header sanity: count field matches the number of directory entries.
   Check("has header", bytes.size() >= 8);
@@ -108,7 +109,7 @@ void RunVariant(const char* label, bool length_prefixed, const std::string& dir)
   Check("header count == 5", count == 5);
 
   bool parsed_ok = false;
-  std::map<u32, std::string> table = Parse(bytes, length_prefixed, &parsed_ok);
+  base::Map<u32, base::String> table = Parse(bytes, length_prefixed, &parsed_ok);
   Check("parses back", parsed_ok);
 
   Check("hello round trips", table[id_hello] == s_hello);
@@ -134,18 +135,18 @@ void RunVariant(const char* label, bool length_prefixed, const std::string& dir)
   Check("identical strings share one data slot", got && off_hello == off_dup);
 
   // Save() must produce byte-identical output on disk.
-  const std::string path = dir + "/rec_string_writertest_" + label + ".bin";
+  const base::String path = dir + "/rec_string_writertest_" + label + ".bin";
   Check("saves", w.Save(path, length_prefixed));
-  std::vector<u8> disk = ReadFileBytes(path);
+  base::Vector<u8> disk = ReadFileBytes(path);
   Check("file bytes == Build bytes", disk == bytes);
 
   bool disk_ok = false;
-  std::map<u32, std::string> from_disk = Parse(disk, length_prefixed, &disk_ok);
-  Check("file parses back", disk_ok && from_disk[id_long] == s_long &&
-                                from_disk[id_unicode] == s_unicode);
+  base::Map<u32, base::String> from_disk = Parse(disk, length_prefixed, &disk_ok);
+  Check("file parses back",
+        disk_ok && from_disk[id_long] == s_long && from_disk[id_unicode] == s_unicode);
 
   std::error_code ec;
-  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.c_str(), ec);
 }
 
 // Confirms Set() honors explicit ids and keeps auto-assignment past them.
@@ -161,7 +162,7 @@ void TestExplicitIds() {
   Check("auto id follows highest explicit id", next == 101);
 
   bool ok = false;
-  std::map<u32, std::string> table = Parse(ToVector(w.Build(true)), true, &ok);
+  base::Map<u32, base::String> table = Parse(ToVector(w.Build(true)), true, &ok);
   Check("explicit ids parse", ok);
   Check("id 100 overwritten", table[100] == "hundred-updated");
   Check("id 5 preserved", table[5] == "five");
@@ -171,7 +172,7 @@ void TestExplicitIds() {
 }  // namespace
 
 int main() {
-  const std::string dir = std::filesystem::temp_directory_path().string();
+  const base::String dir = std::filesystem::temp_directory_path().string();
   RunVariant("strings", /*length_prefixed=*/false, dir);
   RunVariant("dlstrings", /*length_prefixed=*/true, dir);
   TestExplicitIds();

@@ -1,5 +1,7 @@
 #include "components/quest/package_record.h"
 
+#include <base/containers/vector.h>
+
 #include <cstring>
 
 #include "components/bethesda/load_order.h"
@@ -170,15 +172,15 @@ PackageDef ParsePackageRecord(u64 handle, const bethesda::Record& record) {
   return ParseImpl(handle, record, nullptr);
 }
 
-int SelectActivePackage(const std::vector<PackageDef>& packages, const ConditionContext& ctx) {
+int SelectActivePackage(const base::Vector<PackageDef>& packages, const ConditionContext& ctx) {
   for (size_t i = 0; i < packages.size(); ++i)
     if (Evaluate(packages[i].conditions, ctx)) return static_cast<int>(i);
   return -1;
 }
 
-std::vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
-                                               const AliasDef& alias, u16 quest_plugin) {
-  std::vector<RouteStop> route;
+base::Vector<RouteStop> ResolveAliasTravelRoute(const bethesda::RecordStore& records,
+                                                const AliasDef& alias, u16 quest_plugin) {
+  base::Vector<RouteStop> route;
   // Highest priority first in the record, so the first leg to run is the last
   // one listed; walk the list backwards to get travel order.
   for (size_t i = alias.package_raw.size(); i-- > 0;) {

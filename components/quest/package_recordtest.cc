@@ -8,10 +8,12 @@
 // packages (the MQ101 Helgen run-to-keep markers among them), which is how the
 // PLDT/PTDA layout was validated.
 
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
 
 #include "components/bethesda/load_order.h"
 #include "components/bethesda/record.h"
@@ -19,6 +21,9 @@
 #include "components/quest/package_record.h"
 
 using namespace rx;
+// rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+// a global name, so the 64-bit spellings below are qualified; the other scalars
+// agree between the two and need no help.
 using namespace rx::quest;
 
 namespace {
@@ -32,7 +37,7 @@ void Check(const char* what, bool ok) {
 
 // Backing store for the synthetic record's subrecord spans.
 struct Buffers {
-  std::vector<std::vector<u8>> store;
+  base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
     if (n) std::memcpy(b.data(), p, n);
@@ -71,7 +76,7 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   bethesda::Subrecord sub;
   sub.type = type;
   sub.data = data;
-  r.subrecords.push_back(std::move(sub));
+  r.subrecords.push_back(base::move(sub));
 }
 
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
@@ -223,7 +228,7 @@ void TestSelectActivePackage() {
     return def;
   };
   // Listed highest priority first: the last leg outranks the earlier ones.
-  std::vector<PackageDef> packages = {leg(40), leg(30), leg(20), leg(10)};
+  base::Vector<PackageDef> packages = {leg(40), leg(30), leg(20), leg(10)};
 
   StageContext before(0);
   Check("no package qualifies before the quest starts", SelectActivePackage(packages, before) == -1);
@@ -238,9 +243,8 @@ void TestSelectActivePackage() {
   Check("the last leg wins once every gate passes", SelectActivePackage(packages, late) == 0);
 
   // An unconditional package is vacuously true, so it always qualifies.
-  std::vector<PackageDef> fallback = {leg(40), PackageDef{}};
-  Check("an unconditional package is the fallback",
-        SelectActivePackage(fallback, before) == 1);
+  base::Vector<PackageDef> fallback = {leg(40), PackageDef{}};
+  Check("an unconditional package is the fallback", SelectActivePackage(fallback, before) == 1);
   Check("empty list selects nothing", SelectActivePackage({}, before) == -1);
 }
 
@@ -248,8 +252,8 @@ void TestEmptyAndTruncated() {
   std::puts("package: empty/truncated does not crash:");
   bethesda::Record empty;
   PackageDef d0 = ParsePackageRecord(7, empty);
-  Check("empty: no target", d0.handle == 7 && d0.target.kind == PackageTarget::Kind::kNone &&
-                                !d0.is_travel);
+  Check("empty: no target",
+        d0.handle == 7 && d0.target.kind == PackageTarget::Kind::kNone && !d0.is_travel);
 
   // A PLDT shorter than the 12-byte struct must read as zeros, not over-read.
   Buffers buf;
@@ -264,7 +268,7 @@ void TestEmptyAndTruncated() {
 
 // Dumps real travel/escort packages when a data dir is given. Validation only;
 // not part of the deterministic gate.
-int DumpReal(const std::string& data_dir) {
+int DumpReal(const base::String& data_dir) {
   using namespace rx::bethesda;
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
@@ -275,30 +279,27 @@ int DumpReal(const std::string& data_dir) {
   }
 
   int travel = 0;
-  records.EachOfType(FourCc('P', 'A', 'C', 'K'),
-                     [&](GlobalFormId id, const RecordStore::StoredRecord&) {
-                       Record rec;
-                       if (!records.Parse(id, &rec)) return;
-                       std::string edid = rec.GetString(FourCc('E', 'D', 'I', 'D'));
-                       bool interesting = edid.find("MQ101") != std::string::npos ||
-                                          edid.find("Travel") != std::string::npos ||
-                                          edid.find("Escort") != std::string::npos;
-                       if (!interesting) return;
-                       PackageDef def = ParsePackageRecord(id.packed(), rec, records);
-                       if (def.target.kind == PackageTarget::Kind::kNone) return;
-                       ++travel;
-                       const char* k =
-                           def.target.kind == PackageTarget::Kind::kReference   ? "reference"
-                           : def.target.kind == PackageTarget::Kind::kAlias     ? "alias"
-                           : def.target.kind == PackageTarget::Kind::kLinkedRef ? "linkedref"
-                           : def.target.kind == PackageTarget::Kind::kSelf      ? "self"
-                                                                               : "location";
-                       std::printf(
-                           "PACK %04x:%06x %-44s travel=%d %-9s ref=%llx alias=%d r=%.0f\n",
-                           id.plugin, id.local_id, edid.c_str(), def.is_travel ? 1 : 0, k,
-                           (unsigned long long)def.target.ref, def.target.alias,
-                           def.target.radius);
-                     });
+  records.EachOfType(
+      FourCc('P', 'A', 'C', 'K'), [&](GlobalFormId id, const RecordStore::StoredRecord&) {
+        Record rec;
+        if (!records.Parse(id, &rec)) return;
+        base::String edid = rec.GetString(FourCc('E', 'D', 'I', 'D'));
+        bool interesting = edid.find("MQ101") != base::String::npos ||
+                           edid.find("Travel") != base::String::npos ||
+                           edid.find("Escort") != base::String::npos;
+        if (!interesting) return;
+        PackageDef def = ParsePackageRecord(id.packed(), rec, records);
+        if (def.target.kind == PackageTarget::Kind::kNone) return;
+        ++travel;
+        const char* k = def.target.kind == PackageTarget::Kind::kReference   ? "reference"
+                        : def.target.kind == PackageTarget::Kind::kAlias     ? "alias"
+                        : def.target.kind == PackageTarget::Kind::kLinkedRef ? "linkedref"
+                        : def.target.kind == PackageTarget::Kind::kSelf      ? "self"
+                                                                             : "location";
+        std::printf("PACK %04x:%06x %-44s travel=%d %-9s ref=%llx alias=%d r=%.0f\n", id.plugin,
+                    id.local_id, edid.c_str(), def.is_travel ? 1 : 0, k,
+                    (unsigned long long)def.target.ref, def.target.alias, def.target.radius);
+      });
   std::printf("travel-ish packages parsed: %d\n", travel);
   return travel > 0 ? 0 : 1;
 }
