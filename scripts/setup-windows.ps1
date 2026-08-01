@@ -88,14 +88,20 @@ function Do-Dxc {
     Add-ToPath "$ToolsDir\dxc\bin\x64"
     Ok "dxc installed"
   } else { Ok "dxc already on PATH" }
-  if (-not (Have glslangValidator) -and -not (Have glslang)) {
+  if (-not (Have glslangValidator)) {
     Log "downloading glslang"
     $z = Join-Path $env:TEMP 'glslang.zip'
     curl.exe -fsSL -o $z $GlslangUrl
     Expand-Archive -Force $z "$ToolsDir\glslang"
-    Add-ToPath "$ToolsDir\glslang\bin"
+    # Upstream ships only glslang.exe now, but rx (and FidelityFX) look for the
+    # historical glslangValidator name, so provide both.
+    $bin = "$ToolsDir\glslang\bin"
+    if ((Test-Path "$bin\glslang.exe") -and -not (Test-Path "$bin\glslangValidator.exe")) {
+      Copy-Item "$bin\glslang.exe" "$bin\glslangValidator.exe"
+    }
+    Add-ToPath $bin
     Ok "glslang installed"
-  } else { Ok "glslang already on PATH" }
+  } else { Ok "glslangValidator already on PATH" }
 }
 
 # rx compiles its .slang shaders with slangc (CMake finds it as RX_SLANGC), so
