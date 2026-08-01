@@ -1131,6 +1131,9 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
   // How much of the game's cast the records alone bind: a performer with no
   // reference is a scene that plays as voice and subtitles with nobody to frame.
   int cast_total = 0, cast_bound = 0, scenes_cast_bound = 0, scenes_cast_none = 0;
+  // Which condition functions hold a phase back, so widening the main-thread quest
+  // mirror can be aimed at the ones scenes actually use.
+  std::unordered_map<u16, int> gate_functions;
   for (const auto& [edid, quest] : quests) {
     const quest::QuestDef* def = QuestDefinition(quest);
     int q_scenes = 0, q_lines = 0, q_voiced = 0, q_packages = 0;
@@ -1163,6 +1166,8 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
         }
         seconds += beat.seconds;
       }
+      for (const quest::ConditionList& gate : plan.completion)
+        for (const quest::Comparison& c : gate.comparisons) ++gate_functions[c.raw_function];
       int bound = 0;
       for (const quest::SceneActorDef& actor : sdef.actors)
         if (def && AliasReference(*def, actor.alias, entry.plugin)) ++bound;
@@ -1211,6 +1216,18 @@ void CutsceneDirector::ReportQuestCutscenes(const std::string& prefix) {
       "=== %d performer(s), %d bound to a reference by the records; %d scene(s) with their "
       "whole cast bound, %d with none ===\n",
       cast_total, cast_bound, scenes_cast_bound, scenes_cast_none);
+  std::vector<std::pair<int, u16>> gates;
+  int gate_total = 0;
+  for (const auto& [func, count] : gate_functions) {
+    gates.push_back({count, func});
+    gate_total += count;
+  }
+  std::sort(gates.rbegin(), gates.rend());
+  std::string top;
+  for (size_t i = 0; i < gates.size() && i < 8; ++i)
+    top += Fmt(" %u:%d", gates[i].second, gates[i].first);
+  std::printf("=== %d phase gate condition(s), most used CK function:count%s ===\n", gate_total,
+              top.c_str());
   std::fflush(stdout);
 }
 

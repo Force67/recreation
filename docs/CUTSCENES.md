@@ -176,6 +176,10 @@ procedural gait, which is authored against the builtin biped's bones.
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as
   the player is the missing gameplay path, not a missing system.
-* **Phase completion conditions** are evaluated against the main-thread quest
-  mirror, which answers stage functions exactly and distance functions from live
-  positions; anything else reads as 0 and falls to the phase timeout.
+* **Phase completion conditions** are evaluated against the main-thread quest mirror.
+  The game's scenes carry 2132 phase-gate conditions: the mirror answers `GetStage`
+  (117), `GetStageDone` (312) and `GetDistance` (267) exactly, and the rest read as 0
+  and fall to the phase timeout, so the scene still finishes but on the timeout rather
+  than on its cue. The single biggest group is CK function 550 (907 of them), which
+  reads a quest's Papyrus script variables: answering those means mirroring script
+  state onto the main thread, the same way stage state is mirrored today.
