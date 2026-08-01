@@ -8,6 +8,7 @@
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <mutex>
 

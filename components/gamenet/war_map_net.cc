@@ -1,6 +1,9 @@
 #include "components/gamenet/war_map_net.h"
 
 #include <algorithm>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #include <nanobuf.h>
 

@@ -3,6 +3,7 @@
 
 #include <condition_variable>
 #include <future>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <utility>

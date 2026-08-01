@@ -1,3 +1,6 @@
+#include <optional>
+#include <vector>
+
 #include "components/modstream/asset_request.h"
 
 namespace rx::modstream {

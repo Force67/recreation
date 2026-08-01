@@ -10,12 +10,14 @@
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <span>
 #include <system_error>
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN

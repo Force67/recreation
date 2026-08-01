@@ -1,8 +1,10 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <span>
 
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>

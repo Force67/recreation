@@ -4,8 +4,10 @@
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 #include "asset/asset_id.h"
 

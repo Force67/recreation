@@ -3,6 +3,7 @@
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+#include <cstdint>
 #include <mutex>
 
 #include "components/script/host/managed_host.h"

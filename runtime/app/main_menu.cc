@@ -12,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 #include "runtime/app/engine.h"
 

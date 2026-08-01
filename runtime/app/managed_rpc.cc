@@ -11,6 +11,7 @@
 #if RECREATION_HAS_NET
 
 #include <cstdint>
+#include <string>
 
 #include "components/gamenet/session.h"
 #include "components/script/host/bridge.h"

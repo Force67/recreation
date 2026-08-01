@@ -1,3 +1,6 @@
+#include <optional>
+#include <vector>
+
 #include "components/gamenet/objective_marker_net.h"
 
 #include <nanobuf.h>

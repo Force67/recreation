@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "components/bethesda/script_attachment.h"

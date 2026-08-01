@@ -1,5 +1,7 @@
 #include "components/bethesda/hkx_to_kinema.h"
 
+#include <vector>
+
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
 

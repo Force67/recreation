@@ -9,6 +9,7 @@
 #include <base/option.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
+#include <cstdio>
 #include <mutex>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"

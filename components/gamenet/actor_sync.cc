@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <optional>
+#include <vector>
 
 #include "components/world/components.h"
 #include "net/replication.h"

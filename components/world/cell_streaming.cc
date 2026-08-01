@@ -11,10 +11,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <span>
 
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/starfield_mesh.h"

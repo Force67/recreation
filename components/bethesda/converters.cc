@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <string>
 
 #include "components/bethesda/material_db.h"
 #include "components/bethesda/nif.h"

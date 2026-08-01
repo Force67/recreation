@@ -14,9 +14,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <string>
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"

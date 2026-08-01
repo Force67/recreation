@@ -9,6 +9,7 @@
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
