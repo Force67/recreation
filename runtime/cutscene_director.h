@@ -156,6 +156,13 @@ class CutsceneDirector {
   // The reference an alias fills, from the records: a forced reference, or the
   // placement of the unique actor it names.
   u64 AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin) const;
+  // Asks the live quest-alias system what a scene's cast is filled with, for the
+  // aliases the records cannot answer on their own (find-matching, created, or
+  // anything the quest forced at runtime). One guest round trip per scene start,
+  // which is where a scene's cast is settled anyway.
+  void ResolveLiveCast(const SceneEntry& entry, const quest::SceneDef& def);
+  // The reference of the live instance of a base NPC, 0 when none is in the world.
+  u64 LiveRefForBase(u64 base) const;
   std::string AliasName(const quest::QuestDef& def, i32 alias) const;
   // The line a speaker says under a topic: the INFO, its subtitle and its length.
   bool ResolveLine(const SceneEntry& entry, i32 alias, u64 topic, u64 speaker, u64* info,
@@ -189,6 +196,9 @@ class CutsceneDirector {
   std::unordered_map<u64, std::vector<size_t>> by_quest_;
   std::unordered_map<u64, quest::QuestDef> quest_defs_;  // parsed on demand
   std::unordered_map<u64, VoiceLine> voice_cache_;       // INFO handle -> clip
+  // Alias fills the records could not resolve, keyed by (quest, alias), as the live
+  // alias system reports them.
+  std::unordered_map<u64, u64> live_alias_refs_;
   std::vector<std::unique_ptr<Playing>> playing_;
   std::vector<u64> quests_seen_running_;  // for the begin-on-quest-start edge
   u64 armed_quest_ = 0;

@@ -100,17 +100,28 @@ clips, packages all resolved) without a live playthrough of that quest.
 | DLC2SV01 | Dragonborn (Skaal) | 27 | 64 | 64 | Content verified | |
 | DialogueWhiterun | Whiterun City Dialogue | 9 | 48 | 48 | Content verified | The town's ambient conversations |
 
+`RX_HELGEN_INTRO` (the hand-directed cart ride that predates this) still exists and
+still runs; it spawns its own cart, horse and riders instead of using the placed
+references. It goes away once the staging gap below is closed.
+
 ## Known gaps
 
 * **Voice coverage is 43%.** 3369 lines name a clip that is not in the archives
   under the naming this resolves; most of those are Bethesda's shared "response
   data" INFOs, where the recording is filed under the INFO that owns the response
   rather than the one that plays it. Those lines still play, paced by reading time.
+* **The camera only frames a cast that resolves to live references.** A scene whose
+  aliases are forced references or unique actors binds to the instance in the world
+  (including the right one when a unique actor is placed in several cells) and the
+  dialogue camera cuts between its speakers. Scenes whose aliases are find-matching
+  or created (much of the ambient town dialogue) have no reference to point at yet,
+  so they play as voices and subtitles in the gameplay view. Filling those alias
+  kinds is the remaining work.
 * **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled,
-  are streamed and have skinned instances, but do not draw at their staged
-  positions on the mountain, so the ride's establishing shot is an empty road. The
-  scene itself (dialogue, packages, journal) runs. This is an actor/streaming
-  question rather than a scene one.
+  are streamed and have skinned instances, but do not draw at their staged positions
+  on the mountain, so the ride's establishing shot is an empty road. The scene itself
+  (dialogue, packages, journal) runs. This is an actor/streaming question rather
+  than a scene one.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as

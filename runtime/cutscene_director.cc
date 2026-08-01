@@ -20,6 +20,7 @@
 #include "quest/ctda.h"
 #include "quest/scene_record.h"
 #include "script/games/skyrim/skyrim_bindings.h"
+#include "script/papyrus/alias_handle.h"
 #include "world/cell_streaming.h"
 #include "world/components.h"
 
@@ -190,6 +191,68 @@ const quest::QuestDef* CutsceneDirector::QuestDefinition(u64 quest) {
   return &pos->second;
 }
 
+u64 CutsceneDirector::LiveRefForBase(u64 base) const {
+  if (!ctx_.world || base == 0) return 0;
+  u64 found = 0;
+  ctx_.world->Each<world::Npc, world::FormLink>(
+      [&](ecs::Entity e, world::Npc& npc, world::FormLink& link) {
+        if (found != 0 || npc.base.packed() != base) return;
+        if (ctx_.world->Has<world::Hidden>(e) || ctx_.world->Has<world::Deleted>(e)) return;
+        found = link.form.packed();
+      });
+  return found;
+}
+
+void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::SceneDef& def) {
+  if (!ctx_.scripts || !ctx_.bindings) return;
+  const quest::QuestDef* qdef = QuestDefinition(entry.quest);
+  if (!qdef) return;
+  std::vector<i32> unresolved;
+  for (const quest::SceneActorDef& actor : def.actors) {
+    const u64 key = script::papyrus::EncodeAliasHandle(entry.quest, static_cast<u32>(actor.alias));
+    if (live_alias_refs_.count(key)) continue;
+    const u64 from_records = AliasReference(*qdef, actor.alias, entry.plugin);
+    if (from_records != 0 && LiveActor(from_records)) continue;
+    // A unique actor can be placed in several cells (an interior court, a set piece
+    // up a mountain) and only one of them is in the world. Bind the alias to the
+    // instance that actually exists rather than to whichever placement the records
+    // scan happened to pick.
+    const quest::AliasDef* adef = qdef->FindAlias(actor.alias);
+    if (adef && adef->unique_actor_raw != 0 && ctx_.records) {
+      const u64 base =
+          ctx_.records->ResolveFrom(bethesda::RawFormId{adef->unique_actor_raw}, entry.plugin)
+              .packed();
+      if (const u64 live = LiveRefForBase(base)) {
+        live_alias_refs_[key] = live;
+        continue;
+      }
+    }
+    if (from_records != 0) continue;
+    unresolved.push_back(actor.alias);
+  }
+  if (unresolved.empty()) return;
+  auto* binds = ctx_.bindings;
+  const u64 quest = entry.quest;
+  std::vector<std::pair<i32, u64>> filled =
+      ctx_.scripts->guest()
+          .SubmitFor([binds, quest, unresolved](script::papyrus::VirtualMachine&) {
+            std::vector<std::pair<i32, u64>> out;
+            for (i32 alias : unresolved) {
+              const u64 handle =
+                  script::papyrus::EncodeAliasHandle(quest, static_cast<u32>(alias));
+              const u64 ref = binds->AliasReference(script::papyrus::ObjectRef{handle}).handle;
+              if (ref != 0) out.push_back({alias, ref});
+            }
+            return out;
+          })
+          .get();
+  for (const auto& [alias, ref] : filled)
+    live_alias_refs_[script::papyrus::EncodeAliasHandle(quest, static_cast<u32>(alias))] = ref;
+  if (!filled.empty())
+    RX_INFO("cutscene: {} took {} of its cast from the live alias fills", entry.editor_id,
+            filled.size());
+}
+
 u64 CutsceneDirector::AliasReference(const quest::QuestDef& def, i32 alias, u16 plugin) const {
   const quest::AliasDef* a = def.FindAlias(alias);
   if (!a || !ctx_.records) return 0;
@@ -204,7 +267,9 @@ u64 CutsceneDirector::AliasReference(const quest::QuestDef& def, i32 alias, u16 
   // The player fills their own alias; the scene needs to know that so it can aim
   // its lines and its camera at them.
   if (a->name == "Player") return kPlayerHandle;
-  return 0;
+  auto live = live_alias_refs_.find(
+      script::papyrus::EncodeAliasHandle(def.handle, static_cast<u32>(alias)));
+  return live != live_alias_refs_.end() ? live->second : 0;
 }
 
 std::string CutsceneDirector::AliasName(const quest::QuestDef& def, i32 alias) const {
@@ -548,6 +613,7 @@ bool CutsceneDirector::StartScene(u64 scene) {
   const quest::SceneDef def = quest::ParseSceneRecord(scene, record, ctx_.records);
 
   EnsureSceneScripts(entry);
+  ResolveLiveCast(entry, def);
   auto playing = std::make_unique<Playing>();
   playing->scene = scene;
   playing->quest = entry.quest;
