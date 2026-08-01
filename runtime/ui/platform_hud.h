@@ -1,14 +1,13 @@
 #ifndef RECREATION_RUNTIME_UI_PLATFORM_HUD_H_
 #define RECREATION_RUNTIME_UI_PLATFORM_HUD_H_
 
+#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/deque.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
-
-#include <mutex>
 
 #include "core/types.h"
 #include "components/script/papyrus/value.h"

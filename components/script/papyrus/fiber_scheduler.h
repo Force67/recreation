@@ -2,10 +2,9 @@
 #define RECREATION_SCRIPT_PAPYRUS_FIBER_SCHEDULER_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
-
-#include <functional>
 
 #include "core/types.h"
 #include "components/script/papyrus/fiber.h"
@@ -29,7 +28,7 @@ namespace rx::script::papyrus {
 // registrations in PapyrusGuest are already serializable and would persist first.
 class FiberScheduler {
  public:
-  explicit FiberScheduler(std::function<LatentRequest()> take_request)
+  explicit FiberScheduler(base::Function<LatentRequest()> take_request)
       : take_request_(base::move(take_request)) {}
 
   // Optional per-activation context that must stay fiber-local across a suspend
@@ -38,15 +37,15 @@ class FiberScheduler {
   // not inherit a parked fiber's in-flight values. `capture`, called when a fiber
   // yields, returns a closure that restores that fiber's context; the scheduler
   // runs it just before resuming the fiber. Without hooks, no context is tracked.
-  void set_context_hooks(std::function<void()> reset,
-                         std::function<std::function<void()>()> capture) {
+  void set_context_hooks(base::Function<void()> reset,
+                         base::Function<base::Function<void()>()> capture) {
     reset_context_ = base::move(reset);
     capture_context_ = base::move(capture);
   }
 
   // Runs `body` on a fresh fiber at the given clock. Returns true if it suspended
   // and was parked, false if it ran to completion.
-  bool Run(std::function<void()> body, f64 real_now, f64 game_now);
+  bool Run(base::Function<void()> body, f64 real_now, f64 game_now);
 
   // Resumes every parked activation whose deadline has passed; a resumed one that
   // suspends again is re-parked with a fresh deadline.
@@ -59,15 +58,15 @@ class FiberScheduler {
     base::UniquePointer<Fiber> fiber;
     f64 real_due;                   // resume when real_now >= this; <0 if not a real-time wait
     f64 game_due;                   // resume when game_now >= this; <0 if not a game-time wait
-    std::function<void()> restore;  // re-establishes this fiber's context before resume
+    base::Function<void()> restore;  // re-establishes this fiber's context before resume
   };
 
   // Reads the just-yielded fiber's wait request and stores it as a deadline.
   void Park(base::UniquePointer<Fiber> fiber, f64 real_now, f64 game_now);
 
-  std::function<LatentRequest()> take_request_;
-  std::function<void()> reset_context_;
-  std::function<std::function<void()>()> capture_context_;
+  base::Function<LatentRequest()> take_request_;
+  base::Function<void()> reset_context_;
+  base::Function<base::Function<void()>()> capture_context_;
   base::Vector<Parked> parked_;
 };
 

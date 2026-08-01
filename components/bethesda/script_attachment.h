@@ -2,9 +2,8 @@
 #define RECREATION_BETHESDA_SCRIPT_ATTACHMENT_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "core/types.h"
 
@@ -74,8 +73,8 @@ bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out);
 // VMAD. The optional second step lets instantiated templates (pack-ins) replace
 // a resolved source form with that particular instance's runtime handle.
 void ResolveScriptObjectForms(ScriptAttachment* attachment,
-                              const std::function<u64(u32 raw_form_id)>& resolve,
-                              const std::function<u64(u64 resolved_handle)>& remap = {});
+                              const base::Function<u64(u32 raw_form_id)>& resolve,
+                              const base::Function<u64(u64 resolved_handle)>& remap = {});
 
 // The Papyrus scripts attached to one quest alias (ALST/ALLS), e.g. the
 // CWReinforcementAliasScript whose OnDeath drives the Civil War reinforcement

@@ -4,10 +4,9 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "core/types.h"
 #include "components/script/papyrus/fiber.h"
@@ -60,7 +59,7 @@ class VirtualMachine : public VmInterface {
   // alias pointing at a placed actor, a freshly spawned actor, fails every
   // `GetReference() as Actor`, which silently breaks faction/owner classifiers.
   // The game supplies it (records + runtime actor state know the real kind).
-  void set_type_resolver(std::function<bool(ObjectRef, const base::String&)> r) {
+  void set_type_resolver(base::Function<bool(ObjectRef, const base::String&)> r) {
     type_resolver_ = base::move(r);
   }
   bool native_trace() const { return native_trace_enabled_; }
@@ -206,7 +205,7 @@ class VirtualMachine : public VmInterface {
   base::Vector<NativeCall> native_trace_;  // ring, oldest at front
 
   const NativeRegistry* natives_;
-  std::function<bool(ObjectRef, const base::String&)> type_resolver_;
+  base::Function<bool(ObjectRef, const base::String&)> type_resolver_;
   base::UnorderedMap<base::String, LoadedScript> scripts_;  // key: lowercased type
   base::UnorderedMap<u64, Instance> instances_;
   u64 next_handle_ = 1;

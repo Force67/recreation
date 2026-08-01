@@ -1,8 +1,9 @@
-#include "components/bethesda/load_order.h"
-
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
+
+#include "components/bethesda/load_order.h"
 
 #include <cmath>
 #include <cstring>
@@ -188,7 +189,7 @@ bool RecordStore::Parse(GlobalFormId id, Record* out) const {
 }
 
 void RecordStore::EachOfType(
-    u32 fourcc, const std::function<void(GlobalFormId, const StoredRecord&)>& fn) const {
+    u32 fourcc, const base::Function<void(GlobalFormId, const StoredRecord&)>& fn) const {
   const base::Vector<u64>* ids = by_type_.find(fourcc);
   if (!ids) return;
   for (u64 packed : *ids) {

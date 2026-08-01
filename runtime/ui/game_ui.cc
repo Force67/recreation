@@ -1,13 +1,14 @@
-#include "runtime/ui/game_ui.h"
-
 #include <base/algorithm.h>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/option.h>
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
+
+#include "runtime/ui/game_ui.h"
 
 #include "runtime/camera/fly_camera.h"
 
@@ -1166,7 +1167,7 @@ struct GameUi::Impl {
 
   // Map editor overlay state and the sink that receives its widget clicks.
   EditorView editor;
-  std::function<void(const EditorUiEvent&)> editor_sink;
+  base::Function<void(const EditorUiEvent&)> editor_sink;
   bool editor_prev_active = false;  // edge-detect to hide/restore the gameplay HUD
 
   // Character-creation overlay state (a pure view; CharGen hit-tests its own
@@ -2582,7 +2583,7 @@ void GameUi::SetEditorView(const EditorView& view) {
   if (impl_->initialized) impl_->editor = view;
 }
 
-void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink) {
+void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)> sink) {
   if (impl_->initialized) impl_->editor_sink = base::move(sink);
 }
 
@@ -3067,7 +3068,7 @@ void GameUi::SetContainer(const ContainerView&) {}
 void GameUi::SetJournal(bool, const base::Vector<HudQuest>&, int) {}
 void GameUi::SetWarMap(bool, const base::Vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
-void GameUi::SetEditorEventSink(std::function<void(const EditorUiEvent&)>) {}
+void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)>) {}
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
   if (canvas_x) *canvas_x = window_x;
   if (canvas_y) *canvas_y = window_y;

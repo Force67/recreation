@@ -1,12 +1,11 @@
 #ifndef RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 #define RECREATION_SCRIPT_HOST_MANAGED_HOST_H_
 
+#include <mutex>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
-#include <mutex>
 
 #include "components/script/host/bridge.h"
 #include "components/script/host/clr_host.h"
@@ -42,7 +41,7 @@ class ManagedHost {
   // bridge's load_script (pass {} to load only already-present types). The guest
   // must outlive the host.
   void AddDomain(base::String name, PapyrusGuest& guest,
-                 std::function<bool(const base::String&)> loader);
+                 base::Function<bool(const base::String&)> loader);
 
   // Boots the managed world over the registered domains. The paths locate the
   // .NET runtime and the Recreation.Scripting assembly (see ClrHost::Initialize).
@@ -110,7 +109,7 @@ class ManagedHost {
   // single-threaded execution): tick, events, UI, RPC and shutdown all funnel
   // through here onto the guest thread. Falls back to running inline when there
   // is no guest yet or it is not running (early init / teardown).
-  void RunManaged(const std::function<void()>& fn);
+  void RunManaged(const base::Function<void()>& fn);
 
   ClrHost clr_;
   PapyrusGuest* primary_guest_ = nullptr;  // domains_[0]'s guest; the managed thread

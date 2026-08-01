@@ -2,9 +2,8 @@
 #define RECREATION_RUNTIME_APP_ENGINE_CONTEXT_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
@@ -174,11 +173,11 @@ struct EngineContext {
   // carriage_label supplies its activation prompt; both are set by the carriage
   // system and null when no carriage is spawned.
   bool ride_active = false;
-  std::function<bool(u64)> carriage_activate;
-  std::function<const char*(u64)> carriage_label;
+  base::Function<bool(u64)> carriage_activate;
+  base::Function<const char*(u64)> carriage_label;
 
   // Ends the run from inside a subsystem (a verification sweep that has finished).
-  std::function<void()> request_quit;
+  base::Function<void()> request_quit;
 
   // Demo scenes that stage their own lighting set this so the day/night clock
   // stops re-driving sun direction/intensity/ambient every frame (RX_SUN_DIR

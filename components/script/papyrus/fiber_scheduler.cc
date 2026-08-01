@@ -1,12 +1,13 @@
-#include "components/script/papyrus/fiber_scheduler.h"
-
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 
+#include "components/script/papyrus/fiber_scheduler.h"
+
 namespace rx::script::papyrus {
 
-bool FiberScheduler::Run(std::function<void()> body, f64 real_now, f64 game_now) {
+bool FiberScheduler::Run(base::Function<void()> body, f64 real_now, f64 game_now) {
   // A fresh top-level activation starts from the baseline, not a parked fiber's
   // in-flight context (which stays with that fiber until it resumes).
   if (reset_context_) reset_context_();

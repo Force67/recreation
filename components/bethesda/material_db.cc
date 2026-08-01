@@ -1,16 +1,16 @@
-#include "components/bethesda/material_db.h"
-
 #include <base/containers/array.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/bethesda/material_db.h"
+
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 namespace rx::bethesda {
 namespace {
 
@@ -304,7 +304,7 @@ void StarfieldMaterialDb::BuildGraphIndex(ByteSpan cdb) {
   u32 last_id = 0;
   base::String last_str;
   bool have_id = false, have_str = false;
-  std::function<void(Cursor&, base::StringRef, bool, int)> read_item =
+  base::Function<void(Cursor&, base::StringRef, bool, int)> read_item =
       [&](Cursor& c, base::StringRef type_name, bool is_diff, int depth) {
         if (depth > 12) {
           c.p = c.end;

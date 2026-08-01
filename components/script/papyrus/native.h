@@ -3,10 +3,9 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "components/script/papyrus/value.h"
 
@@ -18,7 +17,7 @@ class VirtualMachine;
 // functions. args are the call arguments; the return is the function's result
 // (None for void). Natives reach the engine through the VM's game bindings.
 using NativeFunction =
-    std::function<Value(VirtualMachine& vm, ObjectRef self, base::Vector<Value>& args)>;
+    base::Function<Value(VirtualMachine& vm, ObjectRef self, base::Vector<Value>& args)>;
 
 // The per-game native surface: a flat table keyed by script type + function
 // name. This is the one component that differs between Skyrim, Fallout 4 and

@@ -2,9 +2,8 @@
 #define RECREATION_QUEST_SCENE_RUNTIME_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "core/types.h"
 #include "components/quest/condition.h"
@@ -64,20 +63,20 @@ constexpr u32 kSceneInterruptible = 0x00000010;
 // the lowering stays engine-agnostic and testable with mocks.
 struct ScenePlanBindings {
   // Scene actor alias index -> performer form handle (0 when unfilled).
-  std::function<u64(i32 alias)> actor;
+  base::Function<u64(i32 alias)> actor;
   // Scene actor alias index -> display name (the quest's alias name).
-  std::function<base::String(i32 alias)> alias_name;
+  base::Function<base::String(i32 alias)> alias_name;
   // A dialogue action's topic spoken by the actor in `alias` (resolved to `speaker`,
   // which is 0 when the alias has no placed reference): which INFO plays, the
   // subtitle, and how long the line lasts (the voice clip's length where there is
   // one). The alias is passed as well as the reference because a scene's cast is
   // often unplaced, and the alias still names the NPC whose voice type files the
   // recording. False when there is nothing to say, which drops the beat.
-  std::function<bool(i32 alias, u64 topic, u64 speaker, u64* info, base::String* text,
+  base::Function<bool(i32 alias, u64 topic, u64 speaker, u64* info, base::String* text,
                      f32* seconds)>
       line;
   // Raw CTDA payloads -> the native condition IR, with form ids resolved.
-  std::function<ConditionList(const base::Vector<SceneRawCondition>&)> conditions;
+  base::Function<ConditionList(const base::Vector<SceneRawCondition>&)> conditions;
 };
 
 // How long a dialogue beat holds when nothing resolved a duration for it.

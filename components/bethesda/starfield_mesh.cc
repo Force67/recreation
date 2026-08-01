@@ -1,16 +1,15 @@
-#include "components/bethesda/starfield_mesh.h"
-
 #include <base/algorithm.h>
 #include <base/containers/unordered_map.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/bethesda/starfield_mesh.h"
+
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <functional>
-
 #include "asset/asset_id.h"
 #include "components/bethesda/nif.h"
 #include "core/log.h"
@@ -290,7 +289,7 @@ bool ParseStarfieldMesh(ByteSpan data, StarfieldMeshData* out) {
   // by count * 4 bytes. count == 0 means the stream is absent. Only the first uv
   // and the vertex color feed the engine vertex; normals/tangents are recomputed
   // from geometry because the packed format is not yet decoded.
-  auto read_stream = [&](u32 stride, const std::function<void(u32, const u8*)>& consume) {
+  auto read_stream = [&](u32 stride, const base::Function<void(u32, const u8*)>& consume) {
     u32 count = r.Read<u32>();
     if (!r.ok) return;
     if (count == 0) return;
@@ -380,7 +379,7 @@ bool ParseStarfieldSkinnedMesh(ByteSpan data, StarfieldSkinnedMeshData* out) {
   // The five optional vertex streams, same fixed order as the rigid path. The
   // weight stream follows the last of them, so they must all be consumed even
   // when unused, to leave the reader at the weight stream.
-  auto read_stream = [&](u32 stride, const std::function<void(u32, const u8*)>& consume) {
+  auto read_stream = [&](u32 stride, const base::Function<void(u32, const u8*)>& consume) {
     u32 count = r.Read<u32>();
     if (!r.ok) return;
     if (count == 0) return;

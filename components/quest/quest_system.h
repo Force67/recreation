@@ -3,10 +3,9 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "core/types.h"
 #include "components/quest/quest_def.h"
@@ -64,7 +63,7 @@ struct QuestStatus {
 // writes onto that thread, exactly as the rest of the binding state is used.
 class QuestSystem {
  public:
-  using Listener = std::function<void(QuestHandle, QuestEvent)>;
+  using Listener = base::Function<void(QuestHandle, QuestEvent)>;
 
   QuestSystem() = default;
 

@@ -1,9 +1,8 @@
 #ifndef RECREATION_SCRIPT_HOST_GUEST_BRIDGE_H_
 #define RECREATION_SCRIPT_HOST_GUEST_BRIDGE_H_
 
+#include <base/functional/function.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "components/script/host/bridge.h"
 
@@ -22,7 +21,7 @@ struct BridgeContext {
   PapyrusGuest* guest = nullptr;
   // Returns true if the named script type is available after the call. Empty
   // means "no VFS": load_script then only reports already-loaded types.
-  std::function<bool(const base::String&)> loader;
+  base::Function<bool(const base::String&)> loader;
 };
 
 // Builds a ScriptBridge whose function pointers route through ctx. The table's

@@ -1,8 +1,9 @@
-#include "components/bethesda/script_attachment.h"
-
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
+
+#include "components/bethesda/script_attachment.h"
 
 #include <cstring>
 
@@ -252,8 +253,8 @@ bool ParseScriptAttachment(ByteSpan vmad, ScriptAttachment* out) {
   return ReadScriptsSection(r, out);
 }
 
-void ResolveScriptObjectForms(ScriptAttachment* attachment, const std::function<u64(u32)>& resolve,
-                              const std::function<u64(u64)>& remap) {
+void ResolveScriptObjectForms(ScriptAttachment* attachment, const base::Function<u64(u32)>& resolve,
+                              const base::Function<u64(u64)>& remap) {
   if (!attachment || !resolve) return;
   auto resolve_object = [&](ScriptObjectValue& object) {
     if (object.alias_id != 0xffff || object.form_id == 0) return;

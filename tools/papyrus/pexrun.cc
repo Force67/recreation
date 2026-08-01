@@ -8,6 +8,13 @@
 // storage; cross-object calls and properties return None. This isolates the
 // interpreter so its opcode handling can be checked end to end.
 
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <filesystem>
 #include <base/algorithm.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
@@ -15,14 +22,6 @@
 #include <base/memory/move.h>
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
-
-#include <atomic>
-#include <chrono>
-#include <cmath>
-#include <cstdint>
-#include <cstdio>
-#include <filesystem>
-#include <thread>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"

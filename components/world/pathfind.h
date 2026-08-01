@@ -1,13 +1,14 @@
 #ifndef RECREATION_WORLD_PATHFIND_H_
 #define RECREATION_WORLD_PATHFIND_H_
 
-#include <base/containers/vector.h>
-
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <queue>
+
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
 namespace rx::world {
 
 struct PathNode {
@@ -23,7 +24,7 @@ struct PathNode {
 // (and leaves out_path empty) when: an endpoint is out of [0,width) x [0,height)
 // or blocked, or no path exists. `max_visited` caps the number of expanded
 // nodes (0 = unbounded) so a caller can bound the cost on a large grid.
-inline bool FindPath(int width, int height, const std::function<bool(int, int)>& blocked,
+inline bool FindPath(int width, int height, const base::Function<bool(int, int)>& blocked,
                      PathNode start, PathNode goal, base::Vector<PathNode>* out_path,
                      int max_visited = 0) {
   out_path->clear();

@@ -1,18 +1,18 @@
 #ifndef RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 #define RECREATION_SCRIPT_PAPYRUS_GUEST_H_
 
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <future>
+#include <utility>
+
 #include <base/containers/array.h>
 #include <base/containers/deque.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
-
-#include <condition_variable>
-#include <functional>
-#include <future>
-#include <mutex>
-#include <thread>
-#include <utility>
 
 #include "components/bethesda/game_profile.h"
 #include "core/move_only_function.h"
@@ -87,7 +87,7 @@ class PapyrusGuest {
 
   // Resolves a bare reference's type for `obj as Type` casts. Set before Start()
   // alongside the native table (see VirtualMachine::set_type_resolver).
-  void set_type_resolver(std::function<bool(papyrus::ObjectRef, const base::String&)> r) {
+  void set_type_resolver(base::Function<bool(papyrus::ObjectRef, const base::String&)> r) {
     vm_.set_type_resolver(base::move(r));
   }
 
@@ -97,14 +97,14 @@ class PapyrusGuest {
   // (OnDeath, OnHit) already do via RaiseFormAndAliasEvent. The runtime wires
   // this to the bindings' alias index; unset means no alias routing. Set on and
   // called from the guest thread.
-  void set_alias_resolver(std::function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> fn) {
+  void set_alias_resolver(base::Function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> fn) {
     alias_resolver_ = base::move(fn);
   }
 
   // Where Debug.Notification messages go (a HUD toast in the runtime). Without a
   // handler they fall back to the trace log. Set it on the guest thread (Submit)
   // so the native, which also runs there, never races the assignment.
-  void set_on_notification(std::function<void(const base::String&)> fn) {
+  void set_on_notification(base::Function<void(const base::String&)> fn) {
     on_notification_ = base::move(fn);
   }
 
@@ -112,7 +112,7 @@ class PapyrusGuest {
   // toggles): a verb plus a string argument. The runtime marshals these onto the
   // main loop and performs the real action. Without a handler they are inert. Set
   // on the guest thread; read by the natives, also on the guest thread.
-  void set_on_debug_command(std::function<void(const base::String&, const base::String&)> fn) {
+  void set_on_debug_command(base::Function<void(const base::String&, const base::String&)> fn) {
     on_debug_command_ = base::move(fn);
   }
 
@@ -120,7 +120,7 @@ class PapyrusGuest {
   // PlatformHud, drained onto the on-screen HUD). Game-agnostic: these natives are
   // bound for every guest, so a server's UI works in any universe. Without a
   // handler the calls are inert. Set and read on the guest thread.
-  void set_on_platform_hud(std::function<void(const base::String&, const base::String&,
+  void set_on_platform_hud(base::Function<void(const base::String&, const base::String&,
                                               const base::Vector<papyrus::Value>&)>
                                fn) {
     on_platform_hud_ = base::move(fn);
@@ -133,29 +133,29 @@ class PapyrusGuest {
   // suspend it; it parks until its wait elapses. Call on the guest thread. Used by
   // the firing sites here and by the bindings' fiber runner (engine-triggered
   // stage fragments).
-  void RunScript(std::function<void()> body);
+  void RunScript(base::Function<void()> body);
 
   // Wires the per-activation context the scheduler keeps fiber-local across a
   // suspend (the bindings' quest provenance and fragment depth). Set by the
   // runtime; see FiberScheduler.
-  void set_fiber_context_hooks(std::function<void()> reset,
-                               std::function<std::function<void()>()> capture) {
+  void set_fiber_context_hooks(base::Function<void()> reset,
+                               base::Function<base::Function<void()>()> capture) {
     fiber_sched_.set_context_hooks(base::move(reset), base::move(capture));
   }
 
-  void set_local_pos_provider(std::function<base::Array<f32, 3>()> fn) {
+  void set_local_pos_provider(base::Function<base::Array<f32, 3>()> fn) {
     local_pos_provider_ = base::move(fn);
   }
 
   // Supplies the current game time in days (WorldClock::game_days), driving the
   // RegisterForUpdateGameTime timers and their OnUpdateGameTime callbacks. Set by
   // the runtime; read on the guest thread.
-  void set_game_time_provider(std::function<f64()> fn) { game_time_provider_ = base::move(fn); }
+  void set_game_time_provider(base::Function<f64()> fn) { game_time_provider_ = base::move(fn); }
 
   // Answers whether a viewer ref has line of sight to a target ref, driving the
   // RegisterForLOS watches and their OnGainLOS/OnLostLOS callbacks. Set by the
   // runtime to the binding's HasLos; read on the guest thread.
-  void set_los_provider(std::function<bool(u64, u64)> fn) { los_provider_ = base::move(fn); }
+  void set_los_provider(base::Function<bool(u64, u64)> fn) { los_provider_ = base::move(fn); }
 
  private:
   struct ScheduledUpdate {
@@ -217,32 +217,32 @@ class PapyrusGuest {
 
   // Set once on the guest thread (see set_game_time_provider); read on the guest
   // thread when scheduling and firing game-time timers.
-  std::function<f64()> game_time_provider_;
+  base::Function<f64()> game_time_provider_;
 
   // Set once on the guest thread (see set_los_provider); read on the guest thread
   // when evaluating line-of-sight watches.
-  std::function<bool(u64, u64)> los_provider_;
+  base::Function<bool(u64, u64)> los_provider_;
 
   // Set once on the guest thread (see set_alias_resolver); consulted by RaiseEvent
   // to also dispatch an event to the aliases the target ref fills.
-  std::function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> alias_resolver_;
+  base::Function<base::Vector<papyrus::ObjectRef>(papyrus::ObjectRef)> alias_resolver_;
 
   // Set once on the guest thread (see set_on_notification); read by the
   // Debug.Notification native, also on the guest thread.
-  std::function<void(const base::String&)> on_notification_;
+  base::Function<void(const base::String&)> on_notification_;
 
   // Set once on the guest thread (see set_on_debug_command); read by the Debug.*
   // engine-command natives, also on the guest thread.
-  std::function<void(const base::String&, const base::String&)> on_debug_command_;
+  base::Function<void(const base::String&, const base::String&)> on_debug_command_;
 
   // Set once on the guest thread (see set_on_platform_hud); read by the platform
   // HUD/Net natives, also on the guest thread.
-  std::function<void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)>
+  base::Function<void(const base::String&, const base::String&, const base::Vector<papyrus::Value>&)>
       on_platform_hud_;
 
   // Set once on the guest thread (see set_local_pos_provider); read by the
   // Net.LocalPos* natives, also on the guest thread.
-  std::function<base::Array<f32, 3>()> local_pos_provider_;
+  base::Function<base::Array<f32, 3>()> local_pos_provider_;
 };
 
 template <typename Fn>

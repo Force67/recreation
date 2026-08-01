@@ -1,10 +1,9 @@
 #ifndef RECREATION_WORLD_COMBAT_H_
 #define RECREATION_WORLD_COMBAT_H_
 
-#include <base/containers/vector.h>
-
-#include <cmath>
 #include <mutex>
+#include <cmath>
+#include <base/containers/vector.h>
 
 #include "core/types.h"
 

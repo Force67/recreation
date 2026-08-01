@@ -4,13 +4,13 @@
 // The overlay records raw Vulkan (imgui_impl_vulkan); the rhi headers pulled in
 // via renderer.h are backend-agnostic, so the VkFormat member below needs volk
 // directly (cf. gui_backend.h).
-#include <base/containers/pair.h>
-#include <base/containers/vector.h>
-#include <base/memory/move.h>
-#include <base/strings/xstring.h>
 #include <volk.h>
 
-#include <functional>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
 
 #include "core/types.h"
 #include "core/window.h"
@@ -66,10 +66,10 @@ struct QuestPanel {
   base::Vector<Quest> quests;
   u64 selected = 0;  // UI -> engine: which quest to expand in `detail`
   Detail detail;     // engine -> UI: breakdown of `selected`
-  std::function<void(u64 handle, bool run)> set_running;
-  std::function<void(u64 handle, i32 stage)> set_stage;
-  std::function<void(u64 handle, i32 objective, bool displayed)> set_objective_displayed;
-  std::function<void(u64 handle, i32 objective, bool completed)> set_objective_completed;
+  base::Function<void(u64 handle, bool run)> set_running;
+  base::Function<void(u64 handle, i32 stage)> set_stage;
+  base::Function<void(u64 handle, i32 objective, bool displayed)> set_objective_displayed;
+  base::Function<void(u64 handle, i32 objective, bool completed)> set_objective_completed;
 
   // NPC follow control: the reference the player is currently looking at (0 =
   // none), its HUD label, and whether it is already a follower. The button wires
@@ -78,14 +78,14 @@ struct QuestPanel {
   base::String look_label;
   bool look_following = false;
   int follower_count = 0;
-  std::function<void(u64 npc, bool follow)> set_follower;
+  base::Function<void(u64 npc, bool follow)> set_follower;
 
   // Objective waypoint authoring: drop a marker at the player for one quest
   // objective (reaching it advances the quest to advance_stage), or clear them
   // all. marker_count is the number currently authored.
   int marker_count = 0;
-  std::function<void(u64 quest, i32 objective, i32 advance_stage)> place_marker;
-  std::function<void()> clear_markers;
+  base::Function<void(u64 quest, i32 objective, i32 advance_stage)> place_marker;
+  base::Function<void()> clear_markers;
 };
 
 // Recently invoked Papyrus native functions, for the trace window. The engine
@@ -96,7 +96,7 @@ struct NativeTracePanel {
   u64 total = 0;                                    // native calls since tracing began
   base::Vector<base::String> recent;                // "Type.Function", newest first
   base::Vector<base::Pair<base::String, u32>> top;  // name -> count, busiest first
-  std::function<void()> clear;
+  base::Function<void()> clear;
 };
 
 // Dear ImGui overlay: frame stats plus live toggles for every render
@@ -130,7 +130,7 @@ class DebugUi {
   // live. `strike_now` (optional) asks the director to fire a lightning strike
   // near the camera, for testing the bolt/flash/thunder without waiting.
   void set_weather(bool* enable, weather::WeatherState* state,
-                   std::function<void()> strike_now = {}) {
+                   base::Function<void()> strike_now = {}) {
     weather_enable_ = enable;
     weather_state_ = state;
     weather_strike_ = base::move(strike_now);
@@ -192,7 +192,7 @@ class DebugUi {
   WorldClock* clock_ = nullptr;     // day/night cycle, for the Lighting time controls
   bool* weather_enable_ = nullptr;  // engine weather-override flag + state, for the Weather panel
   weather::WeatherState* weather_state_ = nullptr;
-  std::function<void()> weather_strike_;     // director test hook: force a strike
+  base::Function<void()> weather_strike_;     // director test hook: force a strike
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;         // 0 = custom/hand-tuned, else a QualityPreset combo row

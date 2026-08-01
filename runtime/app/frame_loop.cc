@@ -1,3 +1,9 @@
+#include <mutex>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
@@ -6,11 +12,6 @@
 #include <base/optional.h>
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
-
-#include <cctype>
-#include <chrono>
-#include <cmath>
-#include <cstring>
 
 #include "components/bethesda/record.h"
 #include "core/log.h"

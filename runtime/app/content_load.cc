@@ -1,16 +1,18 @@
-#include <base/algorithm.h>
-#include <base/containers/vector.h>
-#include <base/memory/move.h>
-#include <base/memory/unique_pointer.h>
-#include <base/option.h>
-#include <base/strings/xstring.h>
-
+#include <mutex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <span>
 #include <string>
+
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
+#include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
+#include <base/option.h>
+#include <base/strings/xstring.h>
 
 #include "asset/gltf_loader.h"
 #include "asset/primitives.h"
@@ -312,7 +314,7 @@ bool LoadGameData(Engine& engine) {
   // Run engine-triggered stage fragments on a fiber, so a latent Wait inside one
   // suspends like a script-triggered fragment instead of returning at once.
   self->script_bindings_->set_fiber_runner(
-      [guest = &self->scripts_->guest()](std::function<void()> body) {
+      [guest = &self->scripts_->guest()](base::Function<void()> body) {
         guest->RunScript(base::move(body));
       });
   // Keep each suspended fragment's provenance (quest + recursion depth) fiber-local
@@ -325,7 +327,7 @@ bool LoadGameData(Engine& engine) {
           binds->set_active_quest(0);
           binds->set_fragment_depth(0);
         },
-        [binds]() -> std::function<void()> {
+        [binds]() -> base::Function<void()> {
           const u64 quest = binds->active_quest();
           const int depth = binds->fragment_depth();
           return [binds, quest, depth] {

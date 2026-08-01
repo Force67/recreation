@@ -1,9 +1,8 @@
 #ifndef RECREATION_WORLD_PLANET_TILE_H_
 #define RECREATION_WORLD_PLANET_TILE_H_
 
+#include <base/functional/function.h>
 #include <base/memory/move.h>
-
-#include <functional>
 
 #include "asset/asset_database.h"
 #include "components/bethesda/planet.h"
@@ -28,9 +27,9 @@ namespace rx::world {
 class PlanetTile {
  public:
   struct Uploads {
-    std::function<bool(const asset::Mesh&)> mesh;
-    std::function<bool(const asset::Texture&)> texture;
-    std::function<bool(const asset::Material&)> material;
+    base::Function<bool(const asset::Mesh&)> mesh;
+    base::Function<bool(const asset::Texture&)> texture;
+    base::Function<bool(const asset::Material&)> material;
   };
 
   struct Config {

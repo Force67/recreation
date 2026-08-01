@@ -1,10 +1,11 @@
-#include "runtime/ui/platform_hud.h"
-
+#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
+
+#include "runtime/ui/platform_hud.h"
 
 namespace rx {
 namespace {

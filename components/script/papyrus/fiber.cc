@@ -1,6 +1,7 @@
-#include "components/script/papyrus/fiber.h"
-
+#include <base/functional/function.h>
 #include <base/memory/move.h>
+
+#include "components/script/papyrus/fiber.h"
 
 #include <cassert>
 
@@ -25,7 +26,7 @@ struct Fiber::Context {
   mco_coro* co = nullptr;
 };
 
-Fiber::Fiber(std::function<void()> entry, std::size_t stack_bytes)
+Fiber::Fiber(base::Function<void()> entry, std::size_t stack_bytes)
     : entry_(base::move(entry)), stack_bytes_(stack_bytes), ctx_(new Context) {
   mco_desc desc = mco_desc_init(&Fiber::Trampoline, stack_bytes_);
   desc.user_data = this;

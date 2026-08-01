@@ -1,23 +1,23 @@
-#include "components/script/games/skyrim/skyrim_bindings.h"
-
+#include <mutex>
 #include <base/algorithm.h>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/option.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/script/games/skyrim/skyrim_bindings.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
-
 #include "components/bethesda/record.h"
 #include "core/log.h"
 #include "components/quest/quest_def.h"
@@ -969,8 +969,8 @@ namespace {
 // "Alias=City", "Alias.ShortName=Fort", "Global=CWPercentPoolRemainingAttacker".
 // Returns false to leave an unrecognised token in place.
 bool ExpandToken(base::StringRef token, base::String* out,
-                 const std::function<base::String(base::StringRef)>& alias_name,
-                 const std::function<bool(base::StringRef, f32*)>& global_value) {
+                 const base::Function<base::String(base::StringRef)>& alias_name,
+                 const base::Function<bool(base::StringRef, f32*)>& global_value) {
   const size_t eq = token.find('=');
   if (eq == base::StringRef::npos) return false;
   base::StringRef key = token.substr(0, eq);

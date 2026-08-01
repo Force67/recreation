@@ -3,10 +3,9 @@
 
 #include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "asset/vfs.h"
 #include "components/bethesda/game_profile.h"
@@ -70,7 +69,7 @@ class ScriptSystem {
   // i.e. the form goes live in the world. The runtime uses it to notify the
   // managed scripting world (a FormLoaded event). Only fires when at least one
   // script instance was created.
-  void set_on_scripts_attached(std::function<void(u64)> cb) { on_attach_ = base::move(cb); }
+  void set_on_scripts_attached(base::Function<void(u64)> cb) { on_attach_ = base::move(cb); }
 
   PapyrusGuest& guest() { return guest_; }
   size_t loaded_script_count();
@@ -78,7 +77,7 @@ class ScriptSystem {
  private:
   asset::Vfs* vfs_;
   PapyrusGuest guest_;
-  std::function<void(u64)> on_attach_;
+  base::Function<void(u64)> on_attach_;
   // Script names we have already reported as unloadable, so a game whose
   // bytecode the VM cannot execute yet (Starfield) warns once per script
   // instead of once per attachment.

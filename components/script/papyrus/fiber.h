@@ -2,7 +2,7 @@
 #define RECREATION_SCRIPT_PAPYRUS_FIBER_H_
 
 #include <cstddef>
-#include <functional>
+#include <base/functional/function.h>
 
 #include "core/types.h"
 
@@ -33,7 +33,7 @@ struct LatentRequest {
 // activation must not migrate to another thread while suspended.
 class Fiber {
  public:
-  explicit Fiber(std::function<void()> entry, std::size_t stack_bytes = 256 * 1024);
+  explicit Fiber(base::Function<void()> entry, std::size_t stack_bytes = 256 * 1024);
   ~Fiber();
 
   Fiber(const Fiber&) = delete;
@@ -58,7 +58,7 @@ class Fiber {
   static void Trampoline(mco_coro* co);
   void Yield();
 
-  std::function<void()> entry_;
+  base::Function<void()> entry_;
   std::size_t stack_bytes_;
   bool done_ = false;
   bool started_ = false;

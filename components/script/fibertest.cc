@@ -3,9 +3,10 @@
 // when the suspend point is several calls deep and routed through the VM's
 // SuspendCurrent hook (the seam Utility.Wait will use). No game assets needed.
 
-#include <base/containers/vector.h>
-
 #include <cstdio>
+
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
 
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
@@ -225,7 +226,7 @@ int main() {
     binds.set_vm(&vm);
     binds.SetStageFragment(0x123, 10, "Fragment_10");
     int runner_calls = 0;
-    binds.set_fiber_runner([&](std::function<void()> body) {
+    binds.set_fiber_runner([&](base::Function<void()> body) {
       ++runner_calls;
       body();
     });
@@ -244,7 +245,7 @@ int main() {
     VirtualMachine vm(&reg);
     u64 ctx = 0;
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
-    sched.set_context_hooks([&] { ctx = 0; }, [&]() -> std::function<void()> {
+    sched.set_context_hooks([&] { ctx = 0; }, [&]() -> base::Function<void()> {
       const u64 c = ctx;
       return [&ctx, c] { ctx = c; };
     });
@@ -278,7 +279,7 @@ int main() {
     VirtualMachine vm(&reg);
     int depth = 0;
     FiberScheduler sched([&] { return vm.TakeLatentRequest(); });
-    sched.set_context_hooks([&] { depth = 0; }, [&]() -> std::function<void()> {
+    sched.set_context_hooks([&] { depth = 0; }, [&]() -> base::Function<void()> {
       const int d = depth;
       return [&depth, d] { depth = d; };
     });

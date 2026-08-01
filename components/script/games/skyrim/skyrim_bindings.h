@@ -1,18 +1,17 @@
 #ifndef RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 #define RECREATION_SCRIPT_GAMES_SKYRIM_SKYRIM_BINDINGS_H_
 
+#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/map.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
-#include <mutex>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/load_order.h"
@@ -87,7 +86,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Routes an engine-triggered stage fragment onto a fiber so a latent Wait inside
   // it suspends instead of returning at once. Set by the runtime to the guest's
   // RunScript; called only on the guest thread. Unset leaves fragments inline.
-  void set_fiber_runner(std::function<void(std::function<void()>)> run) {
+  void set_fiber_runner(base::Function<void(base::Function<void()>)> run) {
     fiber_runner_ = base::move(run);
   }
 
@@ -104,7 +103,7 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // item added, quest stage). Set by the runtime once the managed host is up;
   // when null, no events are emitted. Called on the guest thread, so the sink
   // must be thread-safe (the runtime enqueues for the main thread to drain).
-  void set_event_sink(std::function<void(const host::ManagedEvent&)> sink) {
+  void set_event_sink(base::Function<void(const host::ManagedEvent&)> sink) {
     event_sink_ = base::move(sink);
   }
 
@@ -532,9 +531,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
-  std::function<void(std::function<void()>)>
+  base::Function<void(base::Function<void()>)>
       fiber_runner_;  // engine-triggered fragments onto a fiber
-  std::function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above
+  base::Function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above
   // Emits a gameplay event to the managed world, if a sink is set.
   void EmitManagedEvent(host::ManagedEventId id, u64 a, u64 b, i32 i);
   bool replica_mode_ = false;  // true on a multiplayer client; see set_replica_mode

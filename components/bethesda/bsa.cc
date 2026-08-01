@@ -1,15 +1,16 @@
+#include <functional>
+#include <cstring>
+#include <fstream>
+#include <optional>
+#include <string>
+#include <string_view>
+
 #include <base/containers/unordered_map.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
-
-#include <cstring>
-#include <fstream>
-#include <functional>
-#include <optional>
-#include <string>
-#include <string_view>
 
 #include "asset/asset_id.h"
 #include "components/bethesda/archive.h"

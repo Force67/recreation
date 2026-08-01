@@ -2,10 +2,9 @@
 #define RECREATION_RUNTIME_UI_GAME_UI_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "core/types.h"
 
@@ -433,7 +432,7 @@ class GameUi {
   // hides every editor panel and restores the gameplay HUD). SetEditorEventSink
   // registers the callback that receives clicks/scrolls on the editor widgets.
   void SetEditorView(const EditorView& view);
-  void SetEditorEventSink(std::function<void(const EditorUiEvent&)> sink);
+  void SetEditorEventSink(base::Function<void(const EditorUiEvent&)> sink);
   // Converts raw window-space input to the framebuffer-sized editor canvas.
   void ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const;
 

@@ -1,9 +1,11 @@
-#include "components/script/host/managed_host.h"
-
+#include <mutex>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
+
+#include "components/script/host/managed_host.h"
 
 #include "core/log.h"
 #include "components/script/host/managed_gc_profile.h"
@@ -14,7 +16,7 @@ namespace rx::script::host {
 ManagedHost::~ManagedHost() { Shutdown(); }
 
 void ManagedHost::AddDomain(base::String name, PapyrusGuest& guest,
-                            std::function<bool(const base::String&)> loader) {
+                            base::Function<bool(const base::String&)> loader) {
   auto domain = base::MakeUnique<Domain>();
   domain->name = base::move(name);
   domain->ctx.guest = &guest;
@@ -65,7 +67,7 @@ bool ManagedHost::Boot(const base::String& dotnet_root, const base::String& runt
   return true;
 }
 
-void ManagedHost::RunManaged(const std::function<void()>& fn) {
+void ManagedHost::RunManaged(const base::Function<void()>& fn) {
   if (primary_guest_ && primary_guest_->running())
     // Dispatch runs fn inline if we are already on the guest thread (so a managed
     // callback that reaches back here cannot deadlock), else posts and blocks.

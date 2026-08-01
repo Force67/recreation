@@ -2,8 +2,7 @@
 #define RECREATION_WORLD_NAVGRID_H_
 
 #include <base/containers/vector.h>
-
-#include <functional>
+#include <base/functional/function.h>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -26,7 +25,7 @@ class NavGrid {
   // (x, z) when solid ground is found there, false over a gap. Engine-agnostic
   // so the runtime can back it with a downward physics raycast and tests can
   // back it with a synthetic room layout.
-  using FloorProbe = std::function<bool(f32 x, f32 z, f32* floor_y)>;
+  using FloorProbe = base::Function<bool(f32 x, f32 z, f32* floor_y)>;
 
   // (Re)builds the grid covering [center.xz - half_extent, center.xz +
   // half_extent] at `cell_m` resolution. A cell is walkable when the probe finds

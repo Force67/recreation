@@ -1,7 +1,7 @@
 #ifndef RECREATION_QUEST_SCENE_COMPILE_H_
 #define RECREATION_QUEST_SCENE_COMPILE_H_
 
-#include <functional>
+#include <base/functional/function.h>
 
 #include "core/types.h"
 #include "components/quest/scene.h"
@@ -17,12 +17,12 @@ namespace rx::quest {
 // world position.
 struct SceneBindings {
   // Scene actor alias index -> performer form handle (0 when unfilled).
-  std::function<u64(i32 alias)> actor;
+  base::Function<u64(i32 alias)> actor;
   // DIAL topic + speaker handle -> the INFO the speaker says under it (0 if none).
-  std::function<u64(u64 dial_topic, u64 speaker)> info;
+  base::Function<u64(u64 dial_topic, u64 speaker)> info;
   // PACK handle -> the actor's travel target world position; false when the
   // package has no resolvable destination. radius is the arrival radius.
-  std::function<bool(u64 package, f32 pos[3], f32* radius)> package_target;
+  base::Function<bool(u64 package, f32 pos[3], f32* radius)> package_target;
 };
 
 // Lowers a parsed SCEN into the engine's executable Scene: phases in index

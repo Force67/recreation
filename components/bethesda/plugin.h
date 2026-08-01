@@ -2,11 +2,10 @@
 #define RECREATION_BETHESDA_PLUGIN_H_
 
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/unique_pointer.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
-
-#include <functional>
 
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/record.h"
@@ -45,9 +44,9 @@ class PluginFile {
   PluginFile& operator=(PluginFile&&) noexcept;
   ~PluginFile();
 
-  using RecordVisitor = std::function<void(Record& record)>;
+  using RecordVisitor = base::Function<void(Record& record)>;
   using RawRecordVisitor =
-      std::function<void(const RecordHeader& header, ByteSpan payload, const GroupContext& ctx)>;
+      base::Function<void(const RecordHeader& header, ByteSpan payload, const GroupContext& ctx)>;
 
   // Walks every record in every group. Group recursion is flattened, the
   // visitor sees records in file order.

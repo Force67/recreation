@@ -3,9 +3,8 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
-
-#include <functional>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -65,7 +64,7 @@ class QuestStateCache {
 // through to 0, the conservative answer for the threshold tests these gates use.
 class WorldConditionContext : public quest::ConditionContext {
  public:
-  using PositionFn = std::function<bool(u64 handle, Vec3* out)>;
+  using PositionFn = base::Function<bool(u64 handle, Vec3* out)>;
 
   WorldConditionContext(const QuestStateCache& quests, PositionFn position)
       : quests_(quests), position_(base::move(position)) {}

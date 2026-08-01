@@ -1,18 +1,18 @@
 #ifndef RECREATION_WORLD_CELL_STREAMING_H_
 #define RECREATION_WORLD_CELL_STREAMING_H_
 
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <span>
+
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
-
-#include <atomic>
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <span>
 
 #include "asset/asset_database.h"
 #include "components/bethesda/game_profile.h"
@@ -82,21 +82,21 @@ class CellStreamer {
   bool WaterHeightAt(const Vec3& position, f32* height, Vec3* flow);
 
   struct Uploads {
-    std::function<bool(const asset::Mesh&)> mesh;
+    base::Function<bool(const asset::Mesh&)> mesh;
     // Fast path for a same-topology mesh marked dynamic_vertices. When absent
     // or rejected, terrain rebuilding falls back to mesh.
-    std::function<bool(const asset::Mesh&)> dynamic_mesh;
-    std::function<bool(asset::AssetId)> remove_dynamic_mesh;
-    std::function<bool(const asset::Mesh&)> sync_dynamic_mesh;
-    std::function<bool(const asset::Texture&)> texture;
-    std::function<bool(const asset::Material&)> material;
-    std::function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
-    std::function<void(render::InstanceGroupHandle)> remove_instances;
+    base::Function<bool(const asset::Mesh&)> dynamic_mesh;
+    base::Function<bool(asset::AssetId)> remove_dynamic_mesh;
+    base::Function<bool(const asset::Mesh&)> sync_dynamic_mesh;
+    base::Function<bool(const asset::Texture&)> texture;
+    base::Function<bool(const asset::Material&)> material;
+    base::Function<render::InstanceGroupHandle(u64, std::span<const Mat4>)> instances;
+    base::Function<void(render::InstanceGroupHandle)> remove_instances;
     // Optional: brackets a frame's mesh/buffer uploads so the renderer coalesces
     // their GPU transfers into one submit instead of a blocking round-trip per
     // buffer. Both set or both unset; unset = every upload submits on its own.
-    std::function<void()> begin_batch;
-    std::function<void()> end_batch;
+    base::Function<void()> begin_batch;
+    base::Function<void()> end_batch;
   };
 
   struct Settings {
@@ -160,7 +160,7 @@ class CellStreamer {
   // Notified on a load-door cell transition with the destination interior cell
   // id (0 when going outside) and whether it is interior. The runtime forwards
   // it to the managed world as a LocationChanged event.
-  void set_on_location_change(std::function<void(u64, bool)> cb) {
+  void set_on_location_change(base::Function<void(u64, bool)> cb) {
     on_location_change_ = base::move(cb);
   }
 
@@ -168,7 +168,7 @@ class CellStreamer {
   // ref by its form handle (GlobalFormId::packed()). The item system installs
   // this so a picked-up world item stays gone after the cell streams out and
   // back in (persistent ref removal). Unset = nothing is suppressed.
-  void set_ref_suppressor(std::function<bool(u64 ref_handle)> fn) {
+  void set_ref_suppressor(base::Function<bool(u64 ref_handle)> fn) {
     ref_suppressor_ = base::move(fn);
   }
 
@@ -501,8 +501,8 @@ class CellStreamer {
   bool interior_active_ = false;
   LoadedCell interior_cell_;
   InteriorLighting interior_lighting_;
-  std::function<void(u64, bool)> on_location_change_;  // load-door transition hook
-  std::function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
+  base::Function<void(u64, bool)> on_location_change_;  // load-door transition hook
+  base::Function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;

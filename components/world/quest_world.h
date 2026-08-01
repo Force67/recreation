@@ -1,15 +1,14 @@
 #ifndef RECREATION_WORLD_QUEST_WORLD_H_
 #define RECREATION_WORLD_QUEST_WORLD_H_
 
+#include <mutex>
 #include <base/containers/array.h>
 #include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
-
-#include <functional>
-#include <mutex>
 
 #include "asset/asset_id.h"
 #include "core/types.h"
@@ -76,20 +75,20 @@ class QuestWorld {
   void set_player_handle(u64 handle) { player_handle_ = handle; }
   // `dest_ref` is the reference the player was moved to (0 = raw coordinates),
   // so the runtime can switch cells when it names an interior.
-  void set_on_move_player(std::function<void(u64 dest_ref, f32, f32, f32)> fn) {
+  void set_on_move_player(base::Function<void(u64 dest_ref, f32, f32, f32)> fn) {
     on_move_player_ = base::move(fn);
   }
 
   // Fires when a tracked reference unloads (Unregister), so the runtime can raise
   // a managed FormUnloaded event symmetric to the scripts-attached FormLoaded.
-  void set_on_unregister(std::function<void(u64 handle)> fn) { on_unregister_ = base::move(fn); }
+  void set_on_unregister(base::Function<void(u64 handle)> fn) { on_unregister_ = base::move(fn); }
   // Fires after a reference registers and any deferred mutations have applied.
   // The runtime uses this to restore script lifecycle state on cell reload.
-  void set_on_register(std::function<void(u64 handle)> fn) { on_register_ = base::move(fn); }
-  void set_on_door_state(std::function<void(u64 handle, bool locked, bool open)> fn) {
+  void set_on_register(base::Function<void(u64 handle)> fn) { on_register_ = base::move(fn); }
+  void set_on_door_state(base::Function<void(u64 handle, bool locked, bool open)> fn) {
     on_door_state_ = base::move(fn);
   }
-  void set_on_reference_changed(std::function<void(u64 handle)> fn) {
+  void set_on_reference_changed(base::Function<void(u64 handle)> fn) {
     on_reference_changed_ = base::move(fn);
   }
 
@@ -158,11 +157,11 @@ class QuestWorld {
     base::Optional<bool> open;
   };
   base::UnorderedMap<u64, DoorOverride> door_overrides_;
-  std::function<void(u64, f32, f32, f32)> on_move_player_;
-  std::function<void(u64)> on_register_;
-  std::function<void(u64)> on_unregister_;
-  std::function<void(u64, bool, bool)> on_door_state_;
-  std::function<void(u64)> on_reference_changed_;
+  base::Function<void(u64, f32, f32, f32)> on_move_player_;
+  base::Function<void(u64)> on_register_;
+  base::Function<void(u64)> on_unregister_;
+  base::Function<void(u64, bool, bool)> on_door_state_;
+  base::Function<void(u64)> on_reference_changed_;
   u64 player_handle_ = 0x14;
   u64 next_effect_sequence_ = 1;
 };

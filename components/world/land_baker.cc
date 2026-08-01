@@ -1,16 +1,15 @@
-#include "components/world/land_baker.h"
-
+#include <thread>
 #include <base/algorithm.h>
 #include <base/memory/move.h>
 #include <base/option.h>
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
 
+#include "components/world/land_baker.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <thread>
-
 #include "core/log.h"
 
 namespace rx::world {

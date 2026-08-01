@@ -1,9 +1,12 @@
-#include "components/script/papyrus_guest.h"
-
+#include <mutex>
+#include <thread>
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/memory/move.h>
 #include <base/strings/xstring.h>
+
+#include "components/script/papyrus_guest.h"
 
 #include <algorithm>
 
@@ -211,7 +214,7 @@ void PapyrusGuest::AdvanceLosWatches() {
     });
 }
 
-void PapyrusGuest::RunScript(std::function<void()> body) {
+void PapyrusGuest::RunScript(base::Function<void()> body) {
   fiber_sched_.Run(base::move(body), clock_, GameNow());
 }
 

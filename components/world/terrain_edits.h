@@ -1,15 +1,15 @@
 #ifndef RECREATION_WORLD_TERRAIN_EDITS_H_
 #define RECREATION_WORLD_TERRAIN_EDITS_H_
 
+#include <compare>
+#include <span>
+
 #include <base/containers/map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
-
-#include <compare>
-#include <functional>
-#include <span>
 
 #include "core/types.h"
 
@@ -69,8 +69,8 @@ struct TerrainEditChange {
 // representation; it never owns or mutates original plugin/archive data.
 class TerrainEdits {
  public:
-  using BaseHeight = std::function<base::Optional<f32>(i32 global_x, i32 global_y)>;
-  using FingerprintLookup = std::function<base::Optional<u64>(TerrainCellKey cell)>;
+  using BaseHeight = base::Function<base::Optional<f32>(i32 global_x, i32 global_y)>;
+  using FingerprintLookup = base::Function<base::Optional<u64>(TerrainCellKey cell)>;
 
   void BindWorld(base::String identity);
   const base::String& world_identity() const { return world_identity_; }

@@ -1,12 +1,13 @@
 #ifndef RECREATION_BETHESDA_LOAD_ORDER_H_
 #define RECREATION_BETHESDA_LOAD_ORDER_H_
 
+#include <string>
+
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/functional/function.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
-
-#include <string>
 
 #include "components/bethesda/plugin.h"
 
@@ -61,7 +62,7 @@ class RecordStore {
 
   // Iterates winning records of one type, e.g. all CELL or all WEAP.
   void EachOfType(u32 fourcc,
-                  const std::function<void(GlobalFormId, const StoredRecord&)>& fn) const;
+                  const base::Function<void(GlobalFormId, const StoredRecord&)>& fn) const;
 
   // Resolves a raw form id found inside a record body against the masters of
   // the plugin that body came from.
