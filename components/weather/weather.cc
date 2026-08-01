@@ -133,8 +133,8 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t) {
   return s;
 }
 
-void WeatherSystem::SetClimate(std::vector<std::pair<WeatherDef, u32>> weighted) {
-  climate_ = std::move(weighted);
+void WeatherSystem::SetClimate(base::Vector<base::Pair<WeatherDef, u32>> weighted) {
+  climate_ = base::move(weighted);
   total_chance_ = 0;
   for (auto& [def, chance] : climate_) total_chance_ += (chance == 0 ? 1 : chance);
 }
@@ -184,11 +184,11 @@ WeatherState WeatherSystem::At(f64 game_days) const {
 
 namespace {
 // Ray-casting point-in-polygon test.
-bool PointInPoly(const std::vector<std::pair<f32, f32>>& poly, f32 x, f32 y) {
+bool PointInPoly(const base::Vector<base::Pair<f32, f32>>& poly, f32 x, f32 y) {
   bool inside = false;
-  const size_t n = poly.size();
+  const mem_size n = poly.size();
   if (n < 3) return false;
-  for (size_t i = 0, j = n - 1; i < n; j = i++) {
+  for (mem_size i = 0, j = n - 1; i < n; j = i++) {
     f32 xi = poly[i].first, yi = poly[i].second;
     f32 xj = poly[j].first, yj = poly[j].second;
     if (((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
@@ -197,8 +197,8 @@ bool PointInPoly(const std::vector<std::pair<f32, f32>>& poly, f32 x, f32 y) {
 }
 }  // namespace
 
-const std::vector<std::pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x, f32 y,
-                                                                        u64* out_region) const {
+const base::Vector<base::Pair<WeatherDef, u32>>* RegionWeather::ClimateAt(f32 x, f32 y,
+                                                                          u64* out_region) const {
   const Region* best = nullptr;
   for (const Region& r : regions_) {
     if (r.climate.empty()) continue;

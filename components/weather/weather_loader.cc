@@ -1,9 +1,10 @@
 #include "components/weather/weather_loader.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstring>
+
+#include <base/algorithm.h>
 
 #include "components/bethesda/record.h"
 #include "core/log.h"
@@ -27,7 +28,7 @@ constexpr u32 kSnam = FourCc('S', 'N', 'A', 'M');
 constexpr u32 kFnam = FourCc('F', 'N', 'A', 'M');
 
 // WTHR DATA classification flags byte (offset 11 in the Skyrim/FO4 layout).
-WeatherDef::Kind Classify(const bethesda::Record& rec, const std::string& edid) {
+WeatherDef::Kind Classify(const bethesda::Record& rec, const base::String& edid) {
   if (const bethesda::Subrecord* data = rec.Find(kData); data && data->data.size() >= 12) {
     u8 cls = data->data[11];
     if (cls & 0x08) return WeatherDef::Kind::kSnow;
@@ -36,9 +37,9 @@ WeatherDef::Kind Classify(const bethesda::Record& rec, const std::string& edid) 
     if (cls & 0x01) return WeatherDef::Kind::kPleasant;
   }
   // Fallback: vanilla editor ids are descriptive (SkyrimRainStorm, ...).
-  std::string l;
+  base::String l;
   for (char c : edid) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  auto has = [&](const char* s) { return l.find(s) != std::string::npos; };
+  auto has = [&](const char* s) { return l.find(s) != base::String::npos; };
   if (has("snow") || has("blizzard")) return WeatherDef::Kind::kSnow;
   if (has("rain") || has("storm") || has("thunder")) return WeatherDef::Kind::kRainy;
   if (has("cloud") || has("overcast") || has("fog")) return WeatherDef::Kind::kCloudy;
@@ -49,9 +50,9 @@ WeatherDef::Kind Classify(const bethesda::Record& rec, const std::string& edid) 
 // lightning, not rain. Recognised by editor id (RadStorm / *Radiation*) and
 // tuned onto our physical knobs. Returns true when applied.
 bool ApplyRadstorm(WeatherDef* def) {
-  std::string l;
+  base::String l;
   for (char c : def->editor_id) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  if (l.find("radstorm") == std::string::npos && l.find("radiation") == std::string::npos)
+  if (l.find("radstorm") == base::String::npos && l.find("radiation") == base::String::npos)
     return false;
   def->cloud_coverage = 0.88f;
   def->cloud_density = 1.3f;
@@ -77,11 +78,11 @@ bool ApplyColorGrade(const bethesda::Record& rec, WeatherDef* def) {
   if (!nam0 || nam0->data.size() != 272) return false;
   const u8* c = nam0->data.data() + (4 * 4 + 1) * 4;  // component 4 (Sunlight), day
   f32 r = c[0], g = c[1], b = c[2];
-  f32 m = std::max(r, std::max(g, b));
+  f32 m = base::Max(r, base::Max(g, b));
   if (m < 1.0f) return false;  // black/unset -> keep the classification tint
   // Pure cast (max channel = 1), with a floor so a saturated authored colour
   // never darkens a channel to near-black.
-  def->light_tint = {std::max(0.45f, r / m), std::max(0.45f, g / m), std::max(0.45f, b / m)};
+  def->light_tint = {base::Max(0.45f, r / m), base::Max(0.45f, g / m), base::Max(0.45f, b / m)};
   return true;
 }
 
@@ -129,7 +130,7 @@ void DecodeAuthoredFields(const bethesda::RecordStore& records, const bethesda::
     // brightness stays the renderer's. All-zero means unauthored: thundery
     // weathers then keep the bluish-white default.
     const f32 lr = d[12], lg = d[13], lb = d[14];
-    const f32 lm = std::max(lr, std::max(lg, lb));
+    const f32 lm = base::Max(lr, base::Max(lg, lb));
     if (lm >= 1.0f) {
       def->lightning_color = {lr / lm, lg / lm, lb / lm};
       lightning_authored = true;
@@ -138,10 +139,10 @@ void DecodeAuthoredFields(const bethesda::RecordStore& records, const bethesda::
     // Thundery when the record says so (a thunder sound or an authored lightning
     // colour); the editor-id heuristic in Classify/DeriveFromKind stays as the
     // fallback for records carrying neither (FO4 radstorms keep their flag).
-    std::string l;
+    base::String l;
     for (char c : def->editor_id) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     const bool edid_storm =
-        l.find("storm") != std::string::npos || l.find("thunder") != std::string::npos;
+        l.find("storm") != base::String::npos || l.find("thunder") != base::String::npos;
     def->thunder = !def->sound_thunder.empty() || lightning_authored || (def->thunder && edid_storm);
 
     // Thunder frequency byte: LOWER is MORE frequent. Map onto a strike period
@@ -167,8 +168,8 @@ void DecodeAuthoredFields(const bethesda::RecordStore& records, const bethesda::
     // and blizzards squall.
     def->gustiness = Clamp01(def->gustiness + def->wind / 30.0f * 0.4f);
     if (def->thunder && def->precipitation > 0.0f)
-      def->gustiness = std::max(def->gustiness, 0.75f);
-    if (def->snow && def->wind > 15.0f) def->gustiness = std::max(def->gustiness, 0.85f);
+      def->gustiness = base::Max(def->gustiness, 0.75f);
+    if (def->snow && def->wind > 15.0f) def->gustiness = base::Max(def->gustiness, 0.85f);
   }
 
   // FNAM fog distances refine the haze: a near fog-far plane means dense air.
@@ -178,9 +179,9 @@ void DecodeAuthoredFields(const bethesda::RecordStore& records, const bethesda::
     std::memcpy(f, fnam->data.data(), 16);
     // The day fog-far plane is the larger of floats 1/2 across the two known
     // orderings (near/far vs day/night interleave); good enough for a bound.
-    const f32 far_day = std::max(f[1], f[2]);
+    const f32 far_day = base::Max(f[1], f[2]);
     if (far_day > 1.0f && far_day < 10000.0f)
-      def->aerosol = std::max(def->aerosol, Clamp01((10000.0f - far_day) / 10000.0f) * 0.6f);
+      def->aerosol = base::Max(def->aerosol, Clamp01((10000.0f - far_day) / 10000.0f) * 0.6f);
   }
 }
 
@@ -197,38 +198,38 @@ bool ReadFormRef(const bethesda::RecordStore& records, const bethesda::Record& r
 // One WLST stride: each entry is (weather form id, chance u32, ...). The trailing
 // fields differ across games (Skyrim has no per-entry global, Fallout/Starfield
 // do), so the entry size varies; weather id and chance stay at offsets 0 and 4.
-std::vector<std::pair<WeatherDef, u32>> ParseWlst(
-    const bethesda::RecordStore& records, const u8* p, size_t sz, u16 plugin, size_t stride,
-    const std::unordered_map<u64, WeatherDef>& weathers) {
-  std::vector<std::pair<WeatherDef, u32>> out;
-  for (size_t off = 0; off + stride <= sz; off += stride) {
+base::Vector<base::Pair<WeatherDef, u32>> ParseWlst(
+    const bethesda::RecordStore& records, const u8* p, mem_size sz, u16 plugin, mem_size stride,
+    const base::UnorderedMap<u64, WeatherDef>& weathers) {
+  base::Vector<base::Pair<WeatherDef, u32>> out;
+  for (mem_size off = 0; off + stride <= sz; off += stride) {
     u32 raw, chance;
     std::memcpy(&raw, p + off, 4);
     std::memcpy(&chance, p + off + 4, 4);
     bethesda::GlobalFormId wid = records.ResolveFrom(bethesda::RawFormId{raw}, plugin);
-    auto it = weathers.find(wid.packed());
-    if (it != weathers.end() && chance > 0 && chance <= 100) out.push_back({it->second, chance});
+    const WeatherDef* found = weathers.find(wid.packed());
+    if (found && chance > 0 && chance <= 100) out.push_back({*found, chance});
   }
   return out;
 }
 
 // A weighted weather list (CLMT WLST or REGN RDWT) parsed at whichever entry
 // stride resolves the most weathers (the trailing fields differ across games).
-std::vector<std::pair<WeatherDef, u32>> BestWlst(
-    const bethesda::RecordStore& records, const u8* p, size_t sz, u16 plugin,
-    const std::unordered_map<u64, WeatherDef>& weathers) {
-  std::vector<std::pair<WeatherDef, u32>> best;
-  for (size_t stride : {8u, 12u, 16u}) {
+base::Vector<base::Pair<WeatherDef, u32>> BestWlst(
+    const bethesda::RecordStore& records, const u8* p, mem_size sz, u16 plugin,
+    const base::UnorderedMap<u64, WeatherDef>& weathers) {
+  base::Vector<base::Pair<WeatherDef, u32>> best;
+  for (mem_size stride : {8u, 12u, 16u}) {
     auto list = ParseWlst(records, p, sz, plugin, stride, weathers);
-    if (list.size() > best.size()) best = std::move(list);
+    if (list.size() > best.size()) best = base::move(list);
   }
   return best;
 }
 
 // A climate's WLST weather list.
-std::vector<std::pair<WeatherDef, u32>> FromClimate(
+base::Vector<base::Pair<WeatherDef, u32>> FromClimate(
     const bethesda::RecordStore& records, bethesda::GlobalFormId climate,
-    const std::unordered_map<u64, WeatherDef>& weathers) {
+    const base::UnorderedMap<u64, WeatherDef>& weathers) {
   const bethesda::RecordStore::StoredRecord* stored = records.Find(climate);
   bethesda::Record rec;
   if (!stored || !records.Parse(climate, &rec)) return {};
@@ -237,15 +238,15 @@ std::vector<std::pair<WeatherDef, u32>> FromClimate(
   return BestWlst(records, wlst->data.data(), wlst->data.size(), stored->winning_plugin, weathers);
 }
 
-std::vector<std::pair<WeatherDef, u32>> Synthetic(
-    const std::unordered_map<u64, WeatherDef>& weathers) {
+base::Vector<base::Pair<WeatherDef, u32>> Synthetic(
+    const base::UnorderedMap<u64, WeatherDef>& weathers) {
   const WeatherDef* rep[4] = {nullptr, nullptr, nullptr, nullptr};
-  for (auto& [id, def] : weathers) {
+  for (auto [id, def] : weathers) {
     int k = static_cast<int>(def.kind);
     if (k >= 0 && k < 4 && !rep[k]) rep[k] = &def;
   }
   const u32 weight[4] = {50, 30, 12, 8};  // pleasant, cloudy, rainy, snow
-  std::vector<std::pair<WeatherDef, u32>> out;
+  base::Vector<base::Pair<WeatherDef, u32>> out;
   for (int k = 0; k < 4; ++k)
     if (rep[k]) out.push_back({*rep[k], weight[k]});
   return out;
@@ -253,7 +254,7 @@ std::vector<std::pair<WeatherDef, u32>> Synthetic(
 
 }  // namespace
 
-int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, WeatherDef>* out) {
+int LoadWeathers(const bethesda::RecordStore& records, base::UnorderedMap<u64, WeatherDef>* out) {
   int n = 0, rad = 0, graded = 0;
   bool storm_logged = false;
   records.EachOfType(
@@ -278,11 +279,11 @@ int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, W
               "weather: storm '{}' decoded -- wind {:.1f} m/s yaw {:.2f} rad gust {:.2f} "
               "thunder every ~{:.1f}s lightning {:.2f}/{:.2f}/{:.2f} sounds precip {:x} wind {:x} "
               "thunder x{}",
-              def.editor_id, def.wind, def.wind_yaw, def.gustiness, def.thunder_period,
+              def.editor_id.c_str(), def.wind, def.wind_yaw, def.gustiness, def.thunder_period,
               def.lightning_color.x, def.lightning_color.y, def.lightning_color.z,
               def.sound_precip, def.sound_wind, def.sound_thunder.size());
         }
-        (*out)[def.form] = std::move(def);
+        (*out)[def.form] = base::move(def);
         ++n;
       });
   if (rad > 0) RX_INFO("weather: {} radiation storms", rad);
@@ -290,8 +291,8 @@ int LoadWeathers(const bethesda::RecordStore& records, std::unordered_map<u64, W
   return n;
 }
 
-std::vector<std::pair<WeatherDef, u32>> BuildClimate(
-    const bethesda::RecordStore& records, const std::unordered_map<u64, WeatherDef>& weathers,
+base::Vector<base::Pair<WeatherDef, u32>> BuildClimate(
+    const bethesda::RecordStore& records, const base::UnorderedMap<u64, WeatherDef>& weathers,
     const char* worldspace_edid, int min_worldspace_weathers) {
   if (weathers.empty()) return {};
 
@@ -317,11 +318,11 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
   }
 
   // 2) The CLMT with the most resolvable weathers.
-  std::vector<std::pair<WeatherDef, u32>> best;
+  base::Vector<base::Pair<WeatherDef, u32>> best;
   records.EachOfType(kClmt,
                      [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
                        auto list = FromClimate(records, id, weathers);
-                       if (list.size() > best.size()) best = std::move(list);
+                       if (list.size() > best.size()) best = base::move(list);
                      });
   if (best.size() >= 4) {
     RX_INFO("weather: climate from largest CLMT ({} weathers)", best.size());
@@ -335,7 +336,7 @@ std::vector<std::pair<WeatherDef, u32>> BuildClimate(
 }
 
 int LoadRegions(const bethesda::RecordStore& records,
-                const std::unordered_map<u64, WeatherDef>& weathers,
+                const base::UnorderedMap<u64, WeatherDef>& weathers,
                 bethesda::GlobalFormId worldspace, RegionWeather* out) {
   if (weathers.empty() || worldspace.plugin == 0xffff) return 0;
   int n = 0;
@@ -357,7 +358,7 @@ int LoadRegions(const bethesda::RecordStore& records,
         for (const bethesda::Subrecord& sub : rec.subrecords) {
           if (sub.type == kRpld) {
             const u8* p = sub.data.data();
-            for (size_t k = 0; k + 8 <= sub.data.size(); k += 8) {
+            for (mem_size k = 0; k + 8 <= sub.data.size(); k += 8) {
               f32 x, y;
               std::memcpy(&x, p + k, 4);
               std::memcpy(&y, p + k + 4, 4);
@@ -371,11 +372,11 @@ int LoadRegions(const bethesda::RecordStore& records,
           } else if (in_weather && sub.type == kRdwt) {
             auto list =
                 BestWlst(records, sub.data.data(), sub.data.size(), stored.winning_plugin, weathers);
-            for (auto& e : list) region.climate.push_back(std::move(e));
+            for (auto& e : list) region.climate.push_back(base::move(e));
           }
         }
         if (!region.climate.empty() && region.polygon.size() >= 3) {
-          out->Add(std::move(region));
+          out->Add(base::move(region));
           ++n;
         }
       });

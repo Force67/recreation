@@ -1,9 +1,9 @@
 #ifndef RECREATION_WEATHER_WEATHER_H_
 #define RECREATION_WEATHER_WEATHER_H_
 
-#include <string>
-#include <utility>
-#include <vector>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -16,7 +16,7 @@ namespace rx::weather {
 // clouds or flat distance fog.
 struct WeatherDef {
   u64 form = 0;
-  std::string editor_id;
+  base::String editor_id;
   enum class Kind : u8 { kPleasant, kCloudy, kRainy, kSnow };
   Kind kind = Kind::kPleasant;
 
@@ -40,7 +40,7 @@ struct WeatherDef {
   // thunder one-shot pool, as packed sound form ids a SoundCatalog resolves.
   u64 sound_precip = 0;
   u64 sound_wind = 0;
-  std::vector<u64> sound_thunder;
+  base::Vector<u64> sound_thunder;
 
   // Fills the physical knobs from the classification. A record loader can refine
   // these afterwards from the weather's authored fog / colour data.
@@ -74,24 +74,24 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t);
 struct Region {
   u64 form = 0;
   i32 priority = 0;  // higher wins where regions overlap (REGN RDAT priority)
-  std::vector<std::pair<f32, f32>> polygon;        // worldspace XY (game units)
-  std::vector<std::pair<WeatherDef, u32>> climate;  // (weather, chance)
+  base::Vector<base::Pair<f32, f32>> polygon;        // worldspace XY (game units)
+  base::Vector<base::Pair<WeatherDef, u32>> climate;  // (weather, chance)
 };
 
 // The set of weather regions in a worldspace; resolves which one's climate
 // applies at a point. Pure geometry, so it is unit-testable without game data.
 class RegionWeather {
  public:
-  void Add(Region region) { regions_.push_back(std::move(region)); }
+  void Add(Region region) { regions_.push_back(base::move(region)); }
   bool empty() const { return regions_.empty(); }
-  size_t size() const { return regions_.size(); }
+  mem_size size() const { return regions_.size(); }
   // The highest-priority region's climate containing (x, y), or null when no
   // weather region covers the point. *out_region gets that region's form (0 if
   // none), so the caller can detect transitions.
-  const std::vector<std::pair<WeatherDef, u32>>* ClimateAt(f32 x, f32 y, u64* out_region) const;
+  const base::Vector<base::Pair<WeatherDef, u32>>* ClimateAt(f32 x, f32 y, u64* out_region) const;
 
  private:
-  std::vector<Region> regions_;
+  base::Vector<Region> regions_;
 };
 
 // Selects the active weather from a climate (a weighted weather list, like a
@@ -101,7 +101,7 @@ class RegionWeather {
 class WeatherSystem {
  public:
   // (weather, chance) pairs; chance is a relative weight.
-  void SetClimate(std::vector<std::pair<WeatherDef, u32>> weighted);
+  void SetClimate(base::Vector<base::Pair<WeatherDef, u32>> weighted);
   void set_seed(u64 seed) { seed_ = seed; }
   // Hours one weather holds before it transitions, and the cross-fade length.
   void set_timing(f32 hold_hours, f32 transition_hours) {
@@ -110,7 +110,7 @@ class WeatherSystem {
   }
 
   bool empty() const { return climate_.empty(); }
-  size_t size() const { return climate_.size(); }
+  mem_size size() const { return climate_.size(); }
 
   // The blended weather at `game_days` (from the WorldClock).
   WeatherState At(f64 game_days) const;
@@ -122,7 +122,7 @@ class WeatherSystem {
 
  private:
   const WeatherDef& ForSlot(i64 slot) const;
-  std::vector<std::pair<WeatherDef, u32>> climate_;
+  base::Vector<base::Pair<WeatherDef, u32>> climate_;
   u32 total_chance_ = 0;
   u64 seed_ = 0;
   f32 hold_hours_ = 5.0f;

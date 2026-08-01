@@ -2,10 +2,11 @@
 #define RECREATION_WEATHER_DIRECTOR_H_
 
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <utility>
-#include <vector>
+
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
 
 #include "core/math.h"
 #include "core/types.h"
@@ -45,7 +46,7 @@ class Director {
  public:
   // The worldspace's default climate + its REGN region overrides. Resets the
   // active-region and cross-fade state (a new game was loaded).
-  void SetContent(std::vector<std::pair<WeatherDef, u32>> climate, RegionWeather regions,
+  void SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate, RegionWeather regions,
                   u64 seed);
 
   // Debug panel / trailer override: copies *state and pins the weather to it;
@@ -64,7 +65,7 @@ class Director {
   // The renderer's aerial-perspective baseline the aerosol haze scales.
   void set_ap_base(f32 ap_base) { ap_base_ = ap_base; }
   // RX_LIGHTNING: holds the flash scalar at a fixed level (strikes still run).
-  void set_flash_pin(std::optional<f32> pin) { flash_pin_ = pin; }
+  void set_flash_pin(base::Optional<f32> pin) { flash_pin_ = pin; }
   // Debug hook: force a strike ~distance_m from the anchor on the next Update.
   void RequestStrike(f32 distance_m) { requested_strike_m_ = distance_m; }
 
@@ -84,7 +85,7 @@ class Director {
   // A looping audio bed (rain / wind) whose gain follows the weather. The loop
   // is started once and its gain ramped; it is never restarted while playing.
   struct Bed {
-    std::string path;
+    base::String path;
     u32 voice = 0;
     f32 gain = 0.0f;
   };
@@ -100,13 +101,13 @@ class Director {
   void UpdateIntegrators(const Tick& tick);
   void UpdateStrikes(const Tick& tick, render::WeatherSettings* out);
   void UpdateAudio(const Tick& tick);
-  void UpdateBed(Bed* bed, const std::string& target_path, f32 target_gain, f32 frame_delta);
+  void UpdateBed(Bed* bed, const base::String& target_path, f32 target_gain, f32 frame_delta);
   // The def whose sounds play right now: the dominant side of the cross-fade.
   const WeatherDef& DominantDef(f64 game_days) const;
 
   WeatherSystem system_;
   RegionWeather regions_;
-  std::vector<std::pair<WeatherDef, u32>> default_climate_;
+  base::Vector<base::Pair<WeatherDef, u32>> default_climate_;
   u64 seed_ = 0;
   u64 active_region_ = 0;
   // Cross-fade over a few seconds when the region changes, instead of snapping.
@@ -119,7 +120,7 @@ class Director {
 
   bool aurora_allowed_ = false;
   f32 ap_base_ = 1.0f;
-  std::optional<f32> flash_pin_;
+  base::Optional<f32> flash_pin_;
 
   // Surface response, integrated frame-rate independently (see the .cc).
   f32 wetness_ = 0.0f;
@@ -142,7 +143,7 @@ class Director {
   const audio::SoundCatalog* catalog_ = nullptr;
   Bed precip_bed_;
   Bed wind_bed_;
-  std::vector<PendingThunder> thunder_queue_;
+  base::Vector<PendingThunder> thunder_queue_;
   bool warned_missing_thunder_ = false;
 };
 

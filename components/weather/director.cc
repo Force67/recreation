@@ -1,8 +1,8 @@
 #include "components/weather/director.h"
 
-#include <algorithm>
 #include <cmath>
-#include <cstddef>
+
+#include <base/algorithm.h>
 
 #include "audio/audio_system.h"
 #include "components/audio/sound_catalog.h"
@@ -56,7 +56,7 @@ f32 FlashEnvelope(f32 age) {
   if (age < 0.0f) return 0.0f;
   const f32 a = std::exp(-age * 9.0f);
   const f32 b = age > 0.12f ? 0.65f * std::exp(-(age - 0.12f) * 12.0f) : 0.0f;
-  return std::min(1.0f, a + b);
+  return base::Min(1.0f, a + b);
 }
 
 bethesda::GlobalFormId Unpack(u64 packed) {
@@ -68,13 +68,13 @@ const WeatherDef kNeutralDef;
 
 }  // namespace
 
-void Director::SetContent(std::vector<std::pair<WeatherDef, u32>> climate, RegionWeather regions,
+void Director::SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate, RegionWeather regions,
                           u64 seed) {
   default_climate_ = climate;
-  system_.SetClimate(std::move(climate));
+  system_.SetClimate(base::move(climate));
   system_.set_seed(seed);
   seed_ = seed;
-  regions_ = std::move(regions);
+  regions_ = base::move(regions);
   active_region_ = 0;
   region_blend_t_ = 1.0f;
   last_fired_slot_ = INT64_MIN;
@@ -171,7 +171,7 @@ void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
     // sliced into thunder-period slots, one strike per slot at a hashed phase.
     const f32 period = current_.thunder_period > 0.5f ? current_.thunder_period : 10.0f;
     const f64 storm_seconds =
-        tick.game_days * 86400.0 / static_cast<f64>(std::max(tick.timescale, 1e-3f));
+        tick.game_days * 86400.0 / static_cast<f64>(base::Max(tick.timescale, 1e-3f));
     const i64 slot = static_cast<i64>(std::floor(storm_seconds / period));
     auto fire_time = [&](i64 s) {
       return static_cast<f64>(s) * period + HashF(seed_, s, 1) * period * 0.6;
@@ -223,7 +223,7 @@ void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
   if (flash_pin_) out->lightning = *flash_pin_;
 }
 
-void Director::UpdateBed(Bed* bed, const std::string& target_path, f32 target_gain,
+void Director::UpdateBed(Bed* bed, const base::String& target_path, f32 target_gain,
                          f32 frame_delta) {
   // A changed source cross-fades: the old loop fades out on its own while the
   // fresh one ramps up from silence. The same loop is never restarted.
@@ -238,13 +238,13 @@ void Director::UpdateBed(Bed* bed, const std::string& target_path, f32 target_ga
   if (bed->path.empty()) return;
   // Ramp the gain toward the weather over ~2 s, full scale.
   const f32 step = frame_delta * 0.5f;
-  bed->gain += std::clamp(target_gain - bed->gain, -step, step);
+  bed->gain += base::Clamp(target_gain - bed->gain, -step, step);
   if (!bed->voice) {
     if (target_gain > 0.02f) {
       audio::PlayParams params;
       params.gain = 0.0f;  // the ramp below brings it in
       params.positional = false;
-      bed->voice = audio_->PlayLoop(bed->path, params);
+      bed->voice = audio_->PlayLoop(bed->path.c_str(), params);
       if (!bed->voice) bed->path.clear();  // undecodable: stop retrying this file
     }
   } else {
@@ -262,7 +262,7 @@ void Director::UpdateAudio(const Tick& tick) {
   // Rain/wind beds follow the blended weather; indoors both fall silent (the
   // interior systems own the soundscape there).
   const WeatherDef& def = DominantDef(tick.game_days);
-  std::string precip_path, wind_path;
+  base::String precip_path, wind_path;
   f32 precip_gain = 0.0f, wind_gain = 0.0f;
   if (active() && !tick.indoors) {
     if (def.sound_precip && current_.precipitation > 0.01f) {
@@ -279,15 +279,15 @@ void Director::UpdateAudio(const Tick& tick) {
 
   // Thunder claps whose sound has finished travelling. Missing files skip
   // quietly (logged once): distant mods can strip sounds without consequence.
-  for (size_t i = 0; i < thunder_queue_.size();) {
+  for (mem_size i = 0; i < thunder_queue_.size();) {
     if (tick.real_seconds < thunder_queue_[i].due_real_seconds) {
       ++i;
       continue;
     }
     const PendingThunder clap = thunder_queue_[i];
     thunder_queue_.erase(thunder_queue_.begin() + static_cast<ptrdiff_t>(i));
-    const std::string path = catalog_->PathFor(Unpack(clap.sound));
-    if (path.empty() || !audio_->HasAsset(path)) {
+    const base::String path = catalog_->PathFor(Unpack(clap.sound));
+    if (path.empty() || !audio_->HasAsset(path.c_str())) {
       if (!warned_missing_thunder_) {
         warned_missing_thunder_ = true;
         RX_INFO("weather: thunder sound {:x} unresolvable, skipping claps", clap.sound);
@@ -297,7 +297,7 @@ void Director::UpdateAudio(const Tick& tick) {
     audio::PlayParams params;
     params.gain = clap.gain;
     params.positional = true;
-    audio_->PlayAt(path, clap.position, params);
+    audio_->PlayAt(path.c_str(), clap.position, params);
   }
 }
 
@@ -312,7 +312,7 @@ void Director::Update(const Tick& tick, render::WeatherSettings* out,
   } else if (!system_.empty()) {
     current_ = system_.At(tick.game_days);
     if (region_blend_t_ < 1.0f) {
-      region_blend_t_ = std::min(1.0f, region_blend_t_ + tick.frame_delta / kRegionFadeSeconds);
+      region_blend_t_ = base::Min(1.0f, region_blend_t_ + tick.frame_delta / kRegionFadeSeconds);
       const f32 s = region_blend_t_ * region_blend_t_ * (3.0f - 2.0f * region_blend_t_);
       current_ = Lerp(region_blend_from_, current_, s);
     }

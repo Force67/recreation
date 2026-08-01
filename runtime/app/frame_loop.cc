@@ -279,8 +279,8 @@ void Engine::OnUpdate(f32 frame_delta) {
         wt.listener = anchor;
         wt.indoors = streamer_ && streamer_->in_interior();
         // RX_LIGHTNING holds the flash at a fixed level (testing the strike).
-        director_.set_flash_pin(Lightning.overridden() ? std::optional<f32>(Lightning.get())
-                                                       : std::nullopt);
+        director_.set_flash_pin(Lightning.overridden() ? base::Optional<f32>(Lightning.get())
+                                                      : base::Optional<f32>());
         director_.Update(wt, &renderer_->settings().weather, &renderer_->settings());
       }
       // Ambient audio bed: resolve the REGN region the player stands in (its own

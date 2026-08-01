@@ -151,10 +151,10 @@ bool LoadGameData(Engine& engine) {
   // Weather: parse the game's WTHR/CLMT into a climate and drive our physical
   // sky/clouds/atmosphere from it (no baked skydome). RX_WEATHER forces a kind.
   {
-    std::unordered_map<u64, rx::weather::WeatherDef> weathers;
+    base::UnorderedMap<u64, rx::weather::WeatherDef> weathers;
     const int n = rx::weather::LoadWeathers(self->records_, &weathers);
     int kinds[4] = {};
-    for (auto& [id, def] : weathers) kinds[static_cast<int>(def.kind)]++;
+    for (auto [id, def] : weathers) kinds[static_cast<int>(def.kind)]++;
     RX_INFO("weather: WTHR kinds -- pleasant {} cloudy {} rainy {} snow {}", kinds[0], kinds[1],
             kinds[2], kinds[3]);
     const bool starfield = self->game_ == bethesda::Game::kStarfield;
@@ -173,14 +173,14 @@ bool LoadGameData(Engine& engine) {
     constexpr bool kPinClearWeather = false;
     const bool forced_kind = kPinClearWeather || Weather.get() != nullptr;
     if (forced_kind) {
-      std::string s = Weather.get() ? Weather.get() : "clear";
+      base::String s = Weather.get() ? Weather.get() : "clear";
       const rx::weather::WeatherDef::Kind kind =
           (s == "rain" || s == "rainy")    ? rx::weather::WeatherDef::Kind::kRainy
           : (s == "snow")                  ? rx::weather::WeatherDef::Kind::kSnow
           : (s == "cloud" || s == "cloudy") ? rx::weather::WeatherDef::Kind::kCloudy
                                             : rx::weather::WeatherDef::Kind::kPleasant;
       climate.clear();
-      for (const auto& [id, def] : weathers)
+      for (const auto [id, def] : weathers)
         if (def.kind == kind) climate.push_back({def, 1});
       if (climate.empty()) {
         rx::weather::WeatherDef forced;
@@ -188,7 +188,8 @@ bool LoadGameData(Engine& engine) {
         forced.DeriveFromKind();
         climate = {{forced, 1}};
       }
-      RX_INFO("weather: pinned to '{}' ({} real weathers of that kind)", s, climate.size());
+      RX_INFO("weather: pinned to '{}' ({} real weathers of that kind)", s.c_str(),
+              climate.size());
     }
 
     // Per-region weather: the REGN areas override the worldspace climate where
@@ -199,8 +200,8 @@ bool LoadGameData(Engine& engine) {
       const int rn = rx::weather::LoadRegions(self->records_, weathers, ws, &regions);
       RX_INFO("weather: {} weather regions in {}", rn, worldspace);
     }
-    const size_t climate_size = climate.size();
-    self->director_.SetContent(std::move(climate), std::move(regions),
+    const mem_size climate_size = climate.size();
+    self->director_.SetContent(base::move(climate), base::move(regions),
                                0xBEE71Eull ^ static_cast<u64>(self->game_));
     self->director_.set_ap_base(self->renderer_->settings().aerial_perspective);
     RX_INFO("weather: {} WTHR records, climate {} entries", n, climate_size);
