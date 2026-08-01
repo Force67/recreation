@@ -63,6 +63,18 @@ f32 FlashEnvelope(f32 age) {
   return base::Min(1.0f, a + b);
 }
 
+// Builds one endpoint of the cloudscape weather map from a weather def. The
+// map is a seeded field, so a def is fully described by four numbers; the seed
+// comes from the form id, which keeps a given weather's formations stable.
+render::CloudscapeMapState MapOf(const WeatherDef& def) {
+  render::CloudscapeMapState map;
+  map.seed = def.form ? static_cast<u32>(Mix(def.form)) : 1u;
+  map.coverage = Clamp01(def.cloud_coverage);
+  map.cloud_type = Clamp01(def.cloud_type);
+  map.precipitation = Clamp01(def.precipitation);
+  return map;
+}
+
 bethesda::GlobalFormId Unpack(u64 packed) {
   return bethesda::GlobalFormId{static_cast<u16>(packed >> 32),
                                 static_cast<u32>(packed & 0xffffffffu)};
@@ -148,6 +160,56 @@ void Director::UpdateIntegrators(const Tick& tick) {
   }
   wetness_ = Clamp01(wetness_);
   snow_cover_ = Clamp01(snow_cover_);
+}
+
+// Drives rx's volumetric cloud deck. The weather system already exposes the
+// settled weather, the weather it is fading toward and the fade fraction,
+// which is exactly the two-endpoint blend the deck wants; everything else is
+// the blended per-frame state so a region cross-fade or a debug override is
+// reflected too.
+void Director::UpdateCloudscape(const Tick& tick, render::RenderSettings* sky) {
+  if (!cloudscape_ || !sky)
+    return;
+
+  render::CloudscapeControls& cloud = sky->cloudscape_controls;
+  if (!system_.empty()) {
+    cloud.map_a = MapOf(system_.Current(tick.game_days));
+    cloud.map_b = MapOf(system_.Target(tick.game_days));
+    cloud.map_blend = system_.Transition(tick.game_days);
+  } else {
+    // Override-only (no climate): a single endpoint built from the blend.
+    render::CloudscapeMapState map;
+    map.coverage = Clamp01(current_.cloud_coverage);
+    map.cloud_type = Clamp01(current_.cloud_type);
+    map.precipitation = Clamp01(current_.precipitation);
+    cloud.map_a = map;
+    cloud.map_b = map;
+    cloud.map_blend = 0.0f;
+  }
+
+  // The deck scrolls with the wind rather than snapping when the weather
+  // changes, so the offset is integrated here and never reset.
+  cloud_map_offset_.x += std::cos(current_.wind_yaw) * current_.wind * tick.frame_delta;
+  cloud_map_offset_.y += std::sin(current_.wind_yaw) * current_.wind * tick.frame_delta;
+  cloud.map_offset = cloud_map_offset_;
+
+  cloud.wind_yaw = current_.wind_yaw;
+  cloud.wind_speed = current_.wind;
+  cloud.vertical_skew = current_.vertical_skew;
+  cloud.turbulence = current_.turbulence;
+  cloud.density = current_.cloud_density;
+  cloud.bottom = current_.base_altitude;
+  cloud.top = current_.top_altitude;
+  cloud.anvil = Clamp01(current_.storminess);
+  cloud.darkness = Clamp01(current_.darkness);
+
+  // Ground haze rides the same weather: the authored aerosol is the dry-air
+  // baseline and wetness adds the post-rain mist on top.
+  cloud.fog_density = Clamp01(current_.aerosol * 0.6f + wetness_ * 0.25f);
+  cloud.fog_height = current_.fog_height;
+  cloud.fog_churn = current_.fog_churn;
+
+  sky->cloudscape = true;
 }
 
 void Director::UpdateStrikes(const Tick& tick, render::WeatherSettings* out) {
@@ -352,6 +414,7 @@ void Director::Update(const Tick& tick, render::WeatherSettings* out, render::Re
     out->aurora_intensity = Clamp01(current_.aurora);
   }
 
+  UpdateCloudscape(tick, sky);
   UpdateStrikes(tick, out);
   UpdateAudio(tick);
 }

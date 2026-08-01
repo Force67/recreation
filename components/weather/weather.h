@@ -22,6 +22,19 @@ struct WeatherDef {
 
   f32 cloud_coverage = 0.18f;  // volumetric cloud coverage 0..1
   f32 cloud_density = 1.0f;
+  // Cloud class + vertical structure, for rx's cloudscape deck. Authored to
+  // the class the weather represents rather than a single coverage scalar:
+  // stratus decks sit low and thin, cumulus bases ride the condensation level,
+  // and a thunderhead towers from a low base to a high anvil.
+  f32 cloud_type = 0.6f;                     // 0 stratus .. 0.5 stratocumulus .. 1 cumulus
+  f32 storminess = 0.0f;                     // 0..1 anvil: flattened tops, dark bases
+  f32 darkness = 0.0f;                       // 0..1 menace beyond what physics alone gives
+  f32 base_altitude = 1800.0f;               // metres ASL
+  f32 top_altitude = 6000.0f;                // metres ASL
+  f32 turbulence = 1.0f;                     // curl-noise distortion of the erosion detail
+  f32 vertical_skew = 700.0f;                // extra downwind drift at the layer top, metres
+  f32 fog_height = 90.0f;                    // ground-haze falloff scale, metres
+  f32 fog_churn = 0.15f;                     // 0 still .. 1 boiling vapour
   f32 aerosol = 0.0f;                        // haze / turbidity 0..1, scales aerial perspective
   f32 wind = 10.0f;                          // cloud drift, m/s
   f32 light_scale = 1.0f;                    // multiplies sun intensity (overcast dims the light)
@@ -51,6 +64,15 @@ struct WeatherDef {
 struct WeatherState {
   f32 cloud_coverage = 0.18f;
   f32 cloud_density = 1.0f;
+  f32 cloud_type = 0.6f;
+  f32 storminess = 0.0f;
+  f32 darkness = 0.0f;
+  f32 base_altitude = 1800.0f;
+  f32 top_altitude = 6000.0f;
+  f32 turbulence = 1.0f;
+  f32 vertical_skew = 700.0f;
+  f32 fog_height = 90.0f;
+  f32 fog_churn = 0.15f;
   f32 aerosol = 0.0f;
   f32 wind = 10.0f;
   f32 light_scale = 1.0f;

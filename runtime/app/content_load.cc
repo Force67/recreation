@@ -40,6 +40,8 @@ namespace rx {
 // Load-time env overrides, declared at file scope so they register before
 // InitOptionsFromEnv() populates them; see each use site for behaviour.
 static base::Option<const char*> Weather{"weather", nullptr, "RX_WEATHER"};
+// rx's volumetric cloud deck, driven by the game's own WTHR records.
+static base::Option<bool> Cloudscape{"weather.cloudscape", false, "RX_CLOUDSCAPE"};
 // RX_OBSCRIPT_REPORT parses every Fallout 3 / New Vegas SCPT and runs a sample
 // through the Obscript interpreter, logging the effects (a headless check).
 static base::Option<bool> ObscriptReport{"obscript.report", false, "RX_OBSCRIPT_REPORT"};
@@ -212,7 +214,9 @@ bool LoadGameData(Engine& engine) {
     self->director_.SetContent(base::move(climate), base::move(regions),
                                0xBEE71Eull ^ static_cast<u64>(self->game_));
     self->director_.set_ap_base(self->renderer_->settings().aerial_perspective);
-    RX_INFO("weather: {} WTHR records, climate {} entries", n, climate_size);
+    self->director_.set_cloudscape(Cloudscape.get());
+    RX_INFO("weather: {} WTHR records, climate {} entries{}", n, climate_size,
+            Cloudscape.get() ? ", cloudscape deck" : "");
   }
 
   // Ambient audio: catalogue the game's sound files (SOUN/SNDR) and the regions'
