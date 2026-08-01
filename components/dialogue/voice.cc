@@ -1,3 +1,7 @@
+#include <base/algorithm.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include "components/dialogue/voice.h"
 
 #include <algorithm>
@@ -36,12 +40,12 @@ std::string VoiceFilePath(const std::string& plugin_file, const std::string& voi
                topic_edid + tail);
 }
 
-std::vector<std::string> VoiceFileCandidates(const std::vector<std::string>& plugin_files,
+base::Vector<std::string> VoiceFileCandidates(const base::Vector<std::string>& plugin_files,
                                              const std::string& voice_type,
                                              const std::string& quest_edid,
                                              const std::string& topic_edid, u32 info_local_id,
                                              int response_index) {
-  std::vector<std::string> out;
+  base::Vector<std::string> out;
   if (voice_type.empty()) return out;
   for (const std::string& plugin : plugin_files) {
     if (plugin.empty()) continue;
@@ -141,19 +145,19 @@ void VoiceIndex::Build(const asset::Vfs& vfs) {
     u32 info = 0;
     std::string voice_type;
     if (!ParsePath(path, &info, &voice_type)) return;
-    by_info_[info].push_back({std::move(voice_type), std::string(path)});
+    by_info_[info].push_back({base::move(voice_type), std::string(path)});
   });
 }
 
 std::string VoiceIndex::Find(u32 info_local_id, const std::string& voice_type) const {
-  auto it = by_info_.find(info_local_id);
-  if (it == by_info_.end()) return {};
+  const base::Vector<Clip>* clips = by_info_.find(info_local_id);
+  if (!clips) return {};
   const std::string want = Lower(voice_type);
-  for (const Clip& clip : it->second)
+  for (const Clip& clip : *clips)
     if (clip.voice_type == want) return clip.path;
   // A line recorded for one voice type only (a unique actor) still belongs to this
   // INFO, so it is the right recording even when the speaker's type does not match.
-  return it->second.front().path;
+  return clips->front().path;
 }
 
 f32 ClipSeconds(ByteSpan bytes) {
@@ -198,7 +202,7 @@ f32 EstimateLineSeconds(const std::string& text) {
   // ~14 characters a second reads like spoken delivery; the floor keeps a short
   // interjection on screen and the ceiling stops a paragraph from parking a phase.
   const f32 read = 0.9f + static_cast<f32>(text.size()) / 14.0f;
-  return std::clamp(read, 1.6f, 9.0f);
+  return base::Clamp(read, 1.6f, 9.0f);
 }
 
 }  // namespace rx::dialogue

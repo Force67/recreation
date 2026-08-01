@@ -1,3 +1,7 @@
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include "components/audio/ambient.h"
 
 #include <cstring>
@@ -28,7 +32,7 @@ constexpr f32 kAmbientFadeIn = 2.0f;
 constexpr f32 kAmbientFadeOut = 1.5f;
 
 // Even-odd ray cast: is (x, y) inside the polygon?
-bool PointInPolygon(const std::vector<std::pair<f32, f32>>& poly, f32 x, f32 y) {
+bool PointInPolygon(const base::Vector<base::Pair<f32, f32>>& poly, f32 x, f32 y) {
   bool inside = false;
   for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
     const f32 xi = poly[i].first, yi = poly[i].second;
@@ -84,7 +88,7 @@ void RegionAmbience::Build(const bethesda::RecordStore& records,
         }
       }
     }
-    if (region.polygon.size() >= 3 && !region.sounds.empty()) regions_.push_back(std::move(region));
+    if (region.polygon.size() >= 3 && !region.sounds.empty()) regions_.push_back(base::move(region));
   });
   RX_INFO("audio: {} regions carry ambient sounds", regions_.size());
 }
@@ -102,14 +106,14 @@ u64 RegionAmbience::RegionAt(f32 x, f32 y) const {
   return best;
 }
 
-const std::vector<bethesda::GlobalFormId>& RegionAmbience::SoundsFor(u64 region) const {
+const base::Vector<bethesda::GlobalFormId>& RegionAmbience::SoundsFor(u64 region) const {
   for (const Region& r : regions_)
     if (r.form == region) return r.sounds;
   return empty_;
 }
 
-std::vector<u64> RegionAmbience::RegionForms() const {
-  std::vector<u64> forms;
+base::Vector<u64> RegionAmbience::RegionForms() const {
+  base::Vector<u64> forms;
   forms.reserve(regions_.size());
   for (const Region& r : regions_) forms.push_back(r.form);
   return forms;

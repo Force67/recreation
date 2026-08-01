@@ -1,3 +1,6 @@
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+
 #include "components/dialogue/dialogue.h"
 
 #include <cstring>
@@ -61,9 +64,9 @@ bool ResponseAvailable(const Response& response, const quest::ConditionContext& 
   return quest::Evaluate(response.conditions, ctx);
 }
 
-std::vector<Response> AvailableResponses(const std::vector<Topic>& topics,
+base::Vector<Response> AvailableResponses(const base::Vector<Topic>& topics,
                                          const quest::ConditionContext& ctx) {
-  std::vector<Response> out;
+  base::Vector<Response> out;
   for (const Topic& topic : topics)
     for (const Response& response : topic.responses)
       if (ResponseAvailable(response, ctx)) out.push_back(response);
@@ -110,7 +113,7 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
       // uses.
       quest::ResolveConditionForms(response.conditions, records,
                                    info_stored ? info_stored->winning_plugin : info.plugin);
-      out.responses.push_back(std::move(response));
+      out.responses.push_back(base::move(response));
     }
   }
   return out;
@@ -132,9 +135,9 @@ void DialogueDb::Build(const bethesda::RecordStore& records) {
                      });
 }
 
-const std::vector<Handle>& DialogueDb::TopicsForQuest(Handle quest) const {
-  auto it = by_quest_.find(quest);
-  return it == by_quest_.end() ? empty_ : it->second;
+const base::Vector<Handle>& DialogueDb::TopicsForQuest(Handle quest) const {
+  const base::Vector<Handle>* topics = by_quest_.find(quest);
+  return topics ? *topics : empty_;
 }
 
 }  // namespace rx::dialogue

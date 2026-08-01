@@ -3,8 +3,8 @@
 
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
 
 #include "components/bethesda/record.h"
 #include "components/bethesda/script_attachment.h"
@@ -24,7 +24,7 @@ void Check(const char* what, bool ok) {
 
 // Backing store for synthetic subrecord spans.
 struct Buffers {
-  std::vector<std::vector<u8>> store;
+  base::Vector<base::Vector<u8>> store;
   ByteSpan Bytes(const void* p, size_t n) {
     auto& b = store.emplace_back(n);
     if (n) std::memcpy(b.data(), p, n);
@@ -33,19 +33,19 @@ struct Buffers {
   ByteSpan Str(const char* s) { return Bytes(s, std::strlen(s) + 1); }
 };
 
-void AppendU16(std::vector<u8>& v, u16 x) {
+void AppendU16(base::Vector<u8>& v, u16 x) {
   v.push_back(static_cast<u8>(x));
   v.push_back(static_cast<u8>(x >> 8));
 }
-void AppendWStr(std::vector<u8>& v, const char* s) {
+void AppendWStr(base::Vector<u8>& v, const char* s) {
   u16 len = static_cast<u16>(std::strlen(s));
   AppendU16(v, len);
   v.insert(v.end(), s, s + len);
 }
 
 // An INFO VMAD with no scripts and a single begin fragment.
-std::vector<u8> MakeInfoVmad(const char* script, const char* function) {
-  std::vector<u8> v;
+base::Vector<u8> MakeInfoVmad(const char* script, const char* function) {
+  base::Vector<u8> v;
   AppendU16(v, 5);  // version
   AppendU16(v, 2);  // object format
   AppendU16(v, 0);  // script count
@@ -62,13 +62,13 @@ void Add(bethesda::Record& r, u32 type, ByteSpan data) {
   bethesda::Subrecord sub;
   sub.type = type;
   sub.data = data;
-  r.subrecords.push_back(std::move(sub));
+  r.subrecords.push_back(base::move(sub));
 }
 
 // A 32-byte (SE) CTDA payload: operator in the top 3 control bits, flags in the
 // low 5; comparison value; function index; param1.
-std::vector<u8> MakeCtda(u8 op_bits, u8 flags, float value, u16 function, u32 param1) {
-  std::vector<u8> b(32, 0);
+base::Vector<u8> MakeCtda(u8 op_bits, u8 flags, float value, u16 function, u32 param1) {
+  base::Vector<u8> b(32, 0);
   b[0] = static_cast<u8>((op_bits << 5) | (flags & 0x1F));
   std::memcpy(b.data() + 4, &value, 4);
   std::memcpy(b.data() + 8, &function, 2);
@@ -85,7 +85,7 @@ struct StageContext : quest::ConditionContext {
 
 void TestInfoFragments() {
   std::puts("info vmad fragments:");
-  std::vector<u8> vmad = MakeInfoVmad("TIF__010A1234", "Fragment_0");
+  base::Vector<u8> vmad = MakeInfoVmad("TIF__010A1234", "Fragment_0");
   bethesda::ScriptAttachment att;
   bethesda::InfoFragments frags;
   bool ok = bethesda::ParseInfoFragments(ByteSpan(vmad.data(), vmad.size()), &att, &frags);
@@ -96,7 +96,7 @@ void TestInfoFragments() {
   Check("no end fragment", frags.end.script_name.empty());
 
   // A truncated tail must not crash and must leave fragments empty.
-  std::vector<u8> truncated(vmad.begin(), vmad.begin() + 8);
+  base::Vector<u8> truncated(vmad.begin(), vmad.begin() + 8);
   bethesda::InfoFragments frags2;
   bethesda::ParseInfoFragments(ByteSpan(truncated.data(), truncated.size()), &att, &frags2);
   Check("truncated tail -> no begin fragment", frags2.begin.script_name.empty());
@@ -105,7 +105,7 @@ void TestInfoFragments() {
 void TestInfoRecord() {
   std::puts("info record:");
   Buffers buf;
-  std::vector<u8> vmad = MakeInfoVmad("TIF__010A1234", "Fragment_0");
+  base::Vector<u8> vmad = MakeInfoVmad("TIF__010A1234", "Fragment_0");
   bethesda::Record info;
   Add(info, FourCc('R', 'N', 'A', 'M'), buf.Str("Where are we going?"));
   Add(info, FourCc('N', 'A', 'M', '1'), buf.Str("Follow me to the keep."));
@@ -132,8 +132,8 @@ void TestInfoConditions() {
   bethesda::Record info;
   Add(info, FourCc('N', 'A', 'M', '1'), buf.Str("Quest words."));
   // GetStage(0x1234) >= 10  AND  GetStage(0x1234) < 100
-  std::vector<u8> c1 = MakeCtda(3 /* >= */, 0x00, 10.0f, 58, 0x1234);
-  std::vector<u8> c2 = MakeCtda(4 /* < */, 0x00, 100.0f, 58, 0x1234);
+  base::Vector<u8> c1 = MakeCtda(3 /* >= */, 0x00, 10.0f, 58, 0x1234);
+  base::Vector<u8> c2 = MakeCtda(4 /* < */, 0x00, 100.0f, 58, 0x1234);
   Add(info, FourCc('C', 'T', 'D', 'A'), buf.Bytes(c1.data(), c1.size()));
   Add(info, FourCc('C', 'T', 'D', 'A'), buf.Bytes(c2.data(), c2.size()));
 
@@ -192,8 +192,8 @@ void TestAvailableResponses() {
   r.conditions = StageCond(quest::CompareOp::kLess, 100.0f);  // 30<100 ok
   t2.responses.push_back(r);
 
-  std::vector<dialogue::Topic> topics{t1, t2};
-  std::vector<dialogue::Response> avail = dialogue::AvailableResponses(topics, ctx);
+  base::Vector<dialogue::Topic> topics{t1, t2};
+  base::Vector<dialogue::Response> avail = dialogue::AvailableResponses(topics, ctx);
   Check("3 of 4 responses available", avail.size() == 3);
   Check("flattened in topic then response order",
         avail.size() == 3 && avail[0].player_line == "always" && avail[1].player_line == "ge20" &&

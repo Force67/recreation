@@ -2,8 +2,8 @@
 #define RECREATION_DIALOGUE_DIALOGUE_H_
 
 #include <string>
-#include <unordered_map>
-#include <vector>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -42,7 +42,7 @@ struct Topic {
   std::string text;    // FULL topic prompt
   Handle quest = 0;    // QNAM quest handle, 0 if the topic is not quest-bound
   i32 priority = 0;
-  std::vector<Response> responses;
+  base::Vector<Response> responses;
 };
 
 // Parses one already-decoded INFO record into a Response. `topic_text` is the
@@ -66,7 +66,7 @@ bool ResponseAvailable(const Response& response, const quest::ConditionContext& 
 
 // Flattens the responses of `topics` to those currently available under `ctx`,
 // in topic then response order -- the player's dialogue menu for an NPC.
-std::vector<Response> AvailableResponses(const std::vector<Topic>& topics,
+base::Vector<Response> AvailableResponses(const base::Vector<Topic>& topics,
                                          const quest::ConditionContext& ctx);
 
 // A startup index from quest handle to the DIAL topics bound to it (by QNAM),
@@ -77,13 +77,13 @@ class DialogueDb {
   void Build(const bethesda::RecordStore& records);
 
   // DIAL handles bound to `quest`, empty if none.
-  const std::vector<Handle>& TopicsForQuest(Handle quest) const;
+  const base::Vector<Handle>& TopicsForQuest(Handle quest) const;
 
   size_t topic_count() const { return topic_count_; }
 
  private:
-  std::unordered_map<Handle, std::vector<Handle>> by_quest_;
-  std::vector<Handle> empty_;
+  base::UnorderedMap<Handle, base::Vector<Handle>> by_quest_;
+  base::Vector<Handle> empty_;
   size_t topic_count_ = 0;
 };
 

@@ -2,7 +2,7 @@
 #define RECREATION_AUDIO_SOUND_CATALOG_H_
 
 #include <string>
-#include <unordered_map>
+#include <base/containers/unordered_map.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -30,7 +30,7 @@ class SoundCatalog {
   size_t size() const { return paths_.size(); }
 
  private:
-  std::unordered_map<u64, std::string> paths_;  // form.packed() -> normalized asset path
+  base::UnorderedMap<u64, std::string> paths_;  // form.packed() -> normalized asset path
 };
 
 }  // namespace rx::audio

@@ -404,7 +404,7 @@ void QuestDirector::ReportDialogue(const std::string& edid) {
     std::printf("dialogue report: no quest matching '%s'\n", edid.c_str());
     return;
   }
-  const std::vector<dialogue::Handle>& topics = dialogue_.TopicsForQuest(handle);
+  const base::Vector<dialogue::Handle>& topics = dialogue_.TopicsForQuest(handle);
   std::printf("=== dialogue for %s (0x%llx): %zu topics ===\n", edid.c_str(),
               static_cast<unsigned long long>(handle), topics.size());
   // Attaches an INFO's TIF_ script and calls its begin fragment, returning

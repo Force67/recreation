@@ -497,14 +497,14 @@ CutsceneDirector::VoiceLine CutsceneDirector::ResolveVoice(const SceneEntry& ent
   // Voice assets are filed under the plugin that authored the line; the master the
   // quest came from is the first guess, then whatever else is loaded that could
   // override it.
-  std::vector<std::string> plugins;
+  base::Vector<std::string> plugins;
   if (const bethesda::PluginFile* p = ctx_.records->PluginAt(
           static_cast<u16>(info >> 32)))
     plugins.push_back(p->file_name());
   if (const bethesda::PluginFile* p = ctx_.records->PluginAt(entry.plugin))
     plugins.push_back(p->file_name());
 
-  std::vector<std::string> candidates;
+  base::Vector<std::string> candidates;
   for (const std::string& quest_edid : quest_names)
     for (std::string& path :
          dialogue::VoiceFileCandidates(plugins, voice_type, quest_edid, topic_edid,

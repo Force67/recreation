@@ -8,7 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "components/audio/ambient.h"
 #include "audio/audio_clip.h"
@@ -21,26 +21,26 @@ using namespace rx::audio;
 
 namespace {
 
-void PutU16(std::vector<std::uint8_t>& b, std::uint16_t v) {
+void PutU16(base::Vector<std::uint8_t>& b, std::uint16_t v) {
   b.push_back(v & 0xFF);
   b.push_back(v >> 8);
 }
-void PutU32(std::vector<std::uint8_t>& b, std::uint32_t v) {
+void PutU32(base::Vector<std::uint8_t>& b, std::uint32_t v) {
   for (int i = 0; i < 4; ++i) b.push_back((v >> (8 * i)) & 0xFF);
 }
-void PutTag(std::vector<std::uint8_t>& b, const char* t) {
+void PutTag(base::Vector<std::uint8_t>& b, const char* t) {
   for (int i = 0; i < 4; ++i) b.push_back(static_cast<std::uint8_t>(t[i]));
 }
 
 // A mono 16-bit PCM WAV holding `frames` samples of a unit-amplitude sine.
-std::vector<std::uint8_t> MakeSineWav(std::uint32_t rate, std::uint32_t frames, double hz) {
-  std::vector<std::uint8_t> data;
+base::Vector<std::uint8_t> MakeSineWav(std::uint32_t rate, std::uint32_t frames, double hz) {
+  base::Vector<std::uint8_t> data;
   for (std::uint32_t i = 0; i < frames; ++i) {
     double t = static_cast<double>(i) / rate;
     auto s = static_cast<std::int16_t>(std::sin(2.0 * 3.14159265 * hz * t) * 30000.0);
     PutU16(data, static_cast<std::uint16_t>(s));
   }
-  std::vector<std::uint8_t> w;
+  base::Vector<std::uint8_t> w;
   PutTag(w, "RIFF");
   PutU32(w, 36 + static_cast<std::uint32_t>(data.size()));
   PutTag(w, "WAVE");
@@ -58,7 +58,7 @@ std::vector<std::uint8_t> MakeSineWav(std::uint32_t rate, std::uint32_t frames, 
   return w;
 }
 
-double Rms(const std::vector<float>& buf) {
+double Rms(const base::Vector<float>& buf) {
   if (buf.empty()) return 0.0;
   double acc = 0;
   for (float s : buf) acc += static_cast<double>(s) * s;
@@ -76,7 +76,7 @@ int ProbeFile(const char* path) {
     std::printf("audiotest: cannot open %s\n", path);
     return 1;
   }
-  std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+  base::Vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)),
                                   std::istreambuf_iterator<char>());
   std::string p(path);
   const auto dot = p.find_last_of('.');
@@ -86,7 +86,7 @@ int ProbeFile(const char* path) {
     std::printf("audiotest: no decoder produced output for %s\n", path);
     return 1;
   }
-  std::vector<float> buf(4096 * (decoder->channels() ? decoder->channels() : 1));
+  base::Vector<float> buf(4096 * (decoder->channels() ? decoder->channels() : 1));
   std::uint64_t frames = 0;
   for (;;) {
     std::uint32_t got = decoder->Read(buf.data(), 4096);
@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
 
   // Garbage and truncation fail cleanly rather than crashing or succeeding.
   AudioClip junk;
-  std::vector<std::uint8_t> garbage(64, 0xAB);
+  base::Vector<std::uint8_t> garbage(64, 0xAB);
   check("garbage WAV rejected", !DecodeWav(ByteSpan{garbage.data(), garbage.size()}, &junk));
   check("truncated WAV rejected",
         !DecodeWav(ByteSpan{wav.data(), 20}, &junk));
@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
   std::uint32_t voice = mixer.Play(MakeClipDecoder(clip), params);
   check("voice id allocated", voice != 0);
 
-  std::vector<float> out(2048 * 2);
+  base::Vector<float> out(2048 * 2);
   mixer.MixInto(out.data(), 2048);  // first block applies the play command
   check("first block produces sound", Rms(out) > 0.01);
 

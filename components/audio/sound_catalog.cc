@@ -1,3 +1,5 @@
+#include <base/memory/move.h>
+
 #include "components/audio/sound_catalog.h"
 
 #include <cctype>
@@ -64,7 +66,7 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
     bethesda::Record record;
     if (!records.Parse(id, &record)) return;
     std::string path = SndrPath(record);
-    if (!path.empty()) paths_[id.packed()] = std::move(path);
+    if (!path.empty()) paths_[id.packed()] = base::move(path);
   });
 
   records.EachOfType(kSoun, [&](bethesda::GlobalFormId id,
@@ -77,8 +79,8 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
       std::memcpy(&raw, sdsc->data.data(), 4);
       const bethesda::GlobalFormId descriptor =
           records.ResolveFrom(bethesda::RawFormId{raw}, stored.winning_plugin);
-      if (auto it = paths_.find(descriptor.packed()); it != paths_.end()) {
-        paths_[id.packed()] = it->second;
+      if (const std::string* path = paths_.find(descriptor.packed())) {
+        paths_[id.packed()] = *path;
         return;
       }
     }
@@ -91,8 +93,8 @@ void SoundCatalog::Build(const bethesda::RecordStore& records) {
 }
 
 std::string SoundCatalog::PathFor(bethesda::GlobalFormId form) const {
-  auto it = paths_.find(form.packed());
-  return it != paths_.end() ? it->second : std::string{};
+  const std::string* path = paths_.find(form.packed());
+  return path ? *path : std::string{};
 }
 
 }  // namespace rx::audio

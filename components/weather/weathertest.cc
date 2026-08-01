@@ -1,10 +1,9 @@
 // weathertest: the deterministic weather selection + cross-fade logic that maps
 // a Bethesda-style climate (weighted weather list) onto our physical pipeline.
 // No game data, so it runs in the default ctest gate.
-#include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <vector>
+#include <base/algorithm.h>
 
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
@@ -74,8 +73,8 @@ int main() {
     if (a.kind == b.kind) continue;
     double t_days = (s + (1.0 - tr * 0.5)) * slot_days;  // middle of the cross-fade
     WeatherState mid = clim.At(t_days);
-    float lo = std::min(a.cloud_coverage, b.cloud_coverage);
-    float hi = std::max(a.cloud_coverage, b.cloud_coverage);
+    float lo = base::Min(a.cloud_coverage, b.cloud_coverage);
+    float hi = base::Max(a.cloud_coverage, b.cloud_coverage);
     if (clim.Transition(t_days) > 0 && mid.cloud_coverage > lo + 0.001f &&
         mid.cloud_coverage < hi - 0.001f)
       blended = true;

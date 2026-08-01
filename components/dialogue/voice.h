@@ -3,8 +3,8 @@
 
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <vector>
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
@@ -38,7 +38,7 @@ std::string VoiceFilePath(const std::string& plugin_file, const std::string& voi
 // above, then the same file under the plugin's other spellings (a master's lines
 // can be voiced in an update plugin) and with the response index dropped. The
 // caller picks the first that exists in the Vfs.
-std::vector<std::string> VoiceFileCandidates(const std::vector<std::string>& plugin_files,
+base::Vector<std::string> VoiceFileCandidates(const base::Vector<std::string>& plugin_files,
                                              const std::string& voice_type,
                                              const std::string& quest_edid,
                                              const std::string& topic_edid, u32 info_local_id,
@@ -82,7 +82,7 @@ class VoiceIndex {
     std::string voice_type;
     std::string path;
   };
-  std::unordered_map<u32, std::vector<Clip>> by_info_;
+  base::UnorderedMap<u32, base::Vector<Clip>> by_info_;
   bool built_ = false;
 };
 

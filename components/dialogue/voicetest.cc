@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
-#include <vector>
+#include <base/containers/vector.h>
 
 #include "components/dialogue/voice.h"
 
@@ -39,8 +39,8 @@ void TestPaths() {
 
 void TestCandidates() {
   std::puts("voice (candidates):");
-  const std::vector<std::string> plugins = {"Skyrim.esm", "Update.esm"};
-  const std::vector<std::string> got =
+  const base::Vector<std::string> plugins = {"Skyrim.esm", "Update.esm"};
+  const base::Vector<std::string> got =
       VoiceFileCandidates(plugins, "MaleNord", "MQ101", "SomeTopic", 0x3374b, 2);
   Check("the plugin the line came from is probed first",
         !got.empty() && got[0].find("skyrim.esm") != std::string::npos);
@@ -65,8 +65,8 @@ void TestCandidates() {
 // out of sound/voice/skyrim.esm/femalecommoner/mq101__00108ceb_1.fuz (mono 16-bit
 // 44100 Hz, 0x29000 = 167936 decoded bytes = 83968 frames = 1.904 s, which is what
 // ffprobe reports for that file).
-std::vector<rx::u8> MakeFuz() {
-  std::vector<rx::u8> out;
+base::Vector<rx::u8> MakeFuz() {
+  base::Vector<rx::u8> out;
   auto put = [&](const void* data, size_t n) {
     const rx::u8* p = static_cast<const rx::u8*>(data);
     out.insert(out.end(), p, p + n);
@@ -100,10 +100,10 @@ std::vector<rx::u8> MakeFuz() {
 
 void TestClipSeconds() {
   std::puts("voice (clip length from the header):");
-  const std::vector<rx::u8> fuz = MakeFuz();
+  const base::Vector<rx::u8> fuz = MakeFuz();
   const rx::f32 seconds = ClipSeconds(rx::ByteSpan{fuz.data(), fuz.size()});
   Check("a fuz reports its xWMA decoded length", seconds > 1.900f && seconds < 1.908f);
-  const std::vector<rx::u8> junk = {'n', 'o', 'p', 'e'};
+  const base::Vector<rx::u8> junk = {'n', 'o', 'p', 'e'};
   Check("junk reports nothing", ClipSeconds(rx::ByteSpan{junk.data(), junk.size()}) == 0.0f);
   Check("an empty buffer reports nothing", ClipSeconds(rx::ByteSpan{}) == 0.0f);
 }

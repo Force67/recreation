@@ -2,9 +2,8 @@
 #define RECREATION_AUDIO_AMBIENT_H_
 
 #include <string>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+#include <base/containers/pair.h>
+#include <base/containers/vector.h>
 
 #include "components/audio/sound_catalog.h"
 #include "components/bethesda/form_id.h"
@@ -36,10 +35,10 @@ class RegionAmbience {
 
   // The ambient sound forms for a region (resolve them through a SoundCatalog),
   // or an empty list when the region has none.
-  const std::vector<bethesda::GlobalFormId>& SoundsFor(u64 region) const;
+  const base::Vector<bethesda::GlobalFormId>& SoundsFor(u64 region) const;
 
   // The packed form id of every region carrying ambient sounds (for diagnostics).
-  std::vector<u64> RegionForms() const;
+  base::Vector<u64> RegionForms() const;
 
   bool empty() const { return regions_.empty(); }
   size_t size() const { return regions_.size(); }
@@ -48,11 +47,11 @@ class RegionAmbience {
   struct Region {
     u64 form = 0;
     i32 priority = 0;
-    std::vector<std::pair<f32, f32>> polygon;  // worldspace XY, game units
-    std::vector<bethesda::GlobalFormId> sounds;
+    base::Vector<base::Pair<f32, f32>> polygon;  // worldspace XY, game units
+    base::Vector<bethesda::GlobalFormId> sounds;
   };
-  std::vector<Region> regions_;
-  std::vector<bethesda::GlobalFormId> empty_;
+  base::Vector<Region> regions_;
+  base::Vector<bethesda::GlobalFormId> empty_;
 };
 
 // Where the player is, distilled to what picks an ambient bed.
