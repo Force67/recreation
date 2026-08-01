@@ -1,0 +1,120 @@
+# Cutscenes
+
+Skyrim's cutscenes are not movies. There is no camera data, no timeline, no baked
+animation for a conversation: a cutscene is a **SCEN record**, which is a cast of
+quest aliases, a list of phases, and per-phase actions (speak a line, run an AI
+package, wait). The game plays each line for exactly as long as its voice recording,
+frames whoever is speaking procedurally, and moves actors by handing them packages.
+The opening cart ride into Helgen is that and nothing more: travel packages on a
+horse's alias, a cart towed by its enable parent, prisoners held in place by a
+no-travel package, and a 29-phase scene speaking 20 lines over the top.
+
+So the engine plays cutscenes by running that machinery, not by scripting scenes:
+
+| System | Where | What it does |
+| --- | --- | --- |
+| Scene phase machine | `engine/quest/scene_runtime.{h,cc}` | Lowers a parsed SCEN into a `ScenePlan` and drives it: phases in order, one line at a time for its full length, packages held across their phase window, phase completion gated on the record's CTDA (with a timeout so an unreachable gate cannot wedge a scene). Pure, unit tested (`scene_runtimetest`). |
+| Dialogue camera | `engine/world/cine_camera.{h,cc}` | The shot language: over-shoulder, reverse, two-shot, close-up, wide, solved from the speaker's and listener's head positions, plus a cutting policy that cuts on a new speaker, holds a minimum, and breaks up a long speech. Pure, unit tested (`cine_cameratest`). |
+| Voice + pacing | `engine/dialogue/voice.{h,cc}` | Resolves a line's `.fuz` from the records (`sound/voice/<plugin>/<voice type>/<quest>_<topic>_<info>_<n>.fuz`) and reads its exact length out of the xWMA header, so a scene is paced by the recording rather than a guess. Unit tested (`voicetest`). |
+| AI packages | `runtime/ai_package_director.{h,cc}` | Runs the alias package stacks: picks the first package whose conditions pass, walks travel packages to their target, fires the package's Papyrus fragment on arrival, tows objects behind the actor they are enable-parented to, and carries riders (with the vehicle's seated idles) on a moving cart. |
+| Cutscene director | `runtime/cutscene_director.{h,cc}` | The live layer: indexes every SCEN by owning quest, starts scenes the way the game does, plays their lines (voice + caption + the INFO's own Papyrus fragment), fires the SCEN phase fragments that advance the journal, hands scene packages to the package driver, switches on cast that is still disabled, and drives the camera. |
+| Quest mirror | `runtime/quest_state_cache.h` | A main-thread mirror of live quest state (stage, running, stages done) so the systems that own the world can evaluate the records' condition gates without marshalling onto the Papyrus guest thread. |
+
+## How a scene starts
+
+The same two ways the game starts one:
+
+* **`Scene.Start` from Papyrus.** A quest stage fragment calls `MyScene.Start()`
+  (MQ101 alone does this for 14 of its scenes). The native queues the call for the
+  main thread, because playing a scene means moving actors, playing audio and taking
+  the camera. `Scene.Stop` / `Scene.IsPlaying` answer against live playback.
+* **The "begin on quest start" flag.** 956 of the game's 2130 scenes carry SCEN
+  flag `0x01` and need no script at all: they start when their quest comes online.
+  Skyrim's cart ride (`MQ101Scene1`) is one of them, and so is nearly every ambient
+  town conversation.
+
+## Running one
+
+```
+RX_CUTSCENE=MQ101 ./run-skyrim.sh          # start a quest and watch its scenes
+RX_CUTSCENE=DialogueRiftenKeepScene11 ./run-skyrim.sh --interior RiftenMistveilKeep
+RX_CUTSCENE_REPORT=MQ1 ./build/nix/runtime/recreation --headless --data-dir <Data>
+```
+
+| Knob | Default | Effect |
+| --- | --- | --- |
+| `RX_CUTSCENE=<quest editor id>` | off | Starts that quest at load, boots the world where its first scene plays, and lets its scenes take the camera at any range (any quest, scripted or not). |
+| `RX_CUTSCENE_REPORT=<prefix\|all>` | off | Headless: lowers every matching quest's scenes and reports cast, phases, beats, spoken lines, voiced lines, package beats, running time and where the scene plays. |
+| `RX_SCENE_CAMERA` | on | The dialogue camera. Off leaves scenes playing in the gameplay view. |
+| `RX_SCENE_VOICE` | on | Voice playback. Off falls back to reading-time pacing. |
+| `RX_SCENE_LETTERBOX` | on | Cinematic bars while a scene owns the view. |
+| `RX_CAPTURE_OFFSCREEN=1` | off | Renders captures offscreen, for screenshots on an unattended desktop (a compositor that stops compositing the window otherwise hands back a garbage frame). |
+
+Esc hands the camera back mid-scene; the scene keeps playing.
+
+## Coverage
+
+`RX_CUTSCENE_REPORT=all` over Skyrim + Update + Dawnguard + HearthFires + Dragonborn:
+
+```
+2130 scene(s) over 1281 quest(s), 956 begin with their quest
+8329 spoken line(s), 3589 with a voice clip
+  1371 unvoiced for want of a voice type, 3369 for want of the file
+```
+
+Every one of those 2130 scenes lowers to a runnable plan: phases sorted, cast
+resolved through the quest's alias table, dialogue resolved to real INFO records and
+subtitle text, packages resolved to PACK handles, phase gates transpiled from CTDA.
+An unvoiced line still plays, timed by its reading length.
+
+## Verified quests
+
+"Played live" means the engine was run on the real game data, the scene started
+itself, its lines were spoken in the authored order with their voice clips, and the
+journal moved where the scene's fragments move it. "Content verified" means the same
+data path was exercised headlessly by the coverage report (cast, phases, lines,
+clips, packages all resolved) without a live playthrough of that quest.
+
+| Quest | Name | Scenes | Lines | Voiced | Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| MQ101 | Unbound | 17 | 197 | 152 | Played live | `MQ101Scene1` (29 phases) speaks the whole cart ride in order, from "Hey, you. You're finally awake." to "Sovngarde awaits."; journal runs 0 -> 10 -> 15; the cart horse runs its patrol packages and tows the cart |
+| DialogueRiftenKeepScene11 | Riften Keep Scene 11 | 1 | 10 | 10 | Played live | Laila and Maven's audience plays on entering Mistveil Keep, voiced |
+| MG01 | First Lessons | 7 | 43 | 43 | Played live | Mirabelle/Ancano scene starts with the quest and speaks its lines |
+| DialogueMorthalInitialScene | Morthal | 1 | 7 | 0 | Played live | Jorgen/Thonnir/Aslfur argue in Highmoon Hall (unvoiced, reading-time paced) |
+| DialogueRiftenSS02Scene | Riften | 1 | 4 | 4 | Played live | Mjoll and Aerin on the Thieves Guild |
+| DialogueIvarsteadSSScene | Ivarstead | 1 | 4 | 0 | Played live | Klimmek and Gwilin on the 7000 Steps |
+| DialogueRiftenMaul | Riften Maul | 1 | 1 | 1 | Played live | Maul's forcegreet scene starts and completes |
+| T01 | The Book of Love | 1 | 2 | 2 | Played live | Markarth Temple of Dibella protocol scene |
+| MQ302 | Season Unending | 26 | 178 | 170 | Content verified | Report: every scene of the peace council lowers, 170 clips resolve |
+| MQ104 | Dragon Rising | 7 | 99 | 59 | Content verified | |
+| MQ203 | Alduin's Wall | 5 | 82 | 79 | Content verified | |
+| MQ201 | Diplomatic Immunity | 10 | 57 | 49 | Content verified | Party scenes carry their own quest (`MQ201Party`, 7 scenes) |
+| MQ206 | Alduin's Bane | 2 | 53 | 48 | Content verified | |
+| MQ105 | The Way of the Voice | 5 | 46 | 44 | Content verified | |
+| CW02A/B | The Jagged Crown | 15 | 133 | 99 | Content verified | |
+| CW03 | Message to Whiterun | 3 | 73 | 45 | Content verified | Includes `CW03SiegeScene` (29 phases) |
+| MG07 | The Staff of Magnus | 18 | 86 | 77 | Content verified | |
+| MS04 | Unfathomable Depths | 13 | 50 | 50 | Content verified | |
+| DarkBrotherhood | Dark Brotherhood | 6 | 42 | 42 | Content verified | |
+| TG08B | Thieves Guild | 19 | 43 | 42 | Content verified | |
+| DLC2SV01 | Dragonborn (Skaal) | 27 | 64 | 64 | Content verified | |
+| DialogueWhiterun | Whiterun City Dialogue | 9 | 48 | 48 | Content verified | The town's ambient conversations |
+
+## Known gaps
+
+* **Voice coverage is 43%.** 3369 lines name a clip that is not in the archives
+  under the naming this resolves; most of those are Bethesda's shared "response
+  data" INFOs, where the recording is filed under the INFO that owns the response
+  rather than the one that plays it. Those lines still play, paced by reading time.
+* **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled,
+  are streamed and have skinned instances, but do not draw at their staged
+  positions on the mountain, so the ride's establishing shot is an empty road. The
+  scene itself (dialogue, packages, journal) runs. This is an actor/streaming
+  question rather than a scene one.
+* **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
+  and arrives; the next leg is gated on a journal stage that vanilla reaches with
+  the player aboard the cart tripping the quest's own triggers. Riding the cart as
+  the player is the missing gameplay path, not a missing system.
+* **Phase completion conditions** are evaluated against the main-thread quest
+  mirror, which answers stage functions exactly and distance functions from live
+  positions; anything else reads as 0 and falls to the phase timeout.
