@@ -14,11 +14,12 @@ namespace {
 
 // A localized subrecord: a 4-byte string id in a localized plugin, inline
 // zero-terminated text otherwise. Mirrors the quest/binding text handling.
-std::string ResolveLString(const bethesda::Subrecord& sub, const bethesda::StringTable* strings) {
+std::string ResolveLString(const bethesda::Subrecord& sub, const bethesda::StringTable* strings,
+                           u16 plugin = bethesda::StringTable::kAnyPlugin) {
   if (strings && sub.data.size() >= 4) {
     u32 string_id;
     std::memcpy(&string_id, sub.data.data(), 4);
-    if (const base::String* s = strings->Find(string_id)) return std::string(s->c_str());
+    if (const base::String* s = strings->Find(string_id, plugin)) return std::string(s->c_str());
   }
   const char* p = reinterpret_cast<const char*>(sub.data.data());
   size_t n = sub.data.size();
@@ -30,15 +31,16 @@ std::string ResolveLString(const bethesda::Subrecord& sub, const bethesda::Strin
 }  // namespace
 
 Response ParseInfoRecord(const bethesda::Record& record, Handle info,
-                         const std::string& topic_text, const bethesda::StringTable* strings) {
+                         const std::string& topic_text, const bethesda::StringTable* strings,
+                         u16 plugin) {
   Response out;
   out.info = info;
   if (const bethesda::Subrecord* rnam = record.Find(FourCc('R', 'N', 'A', 'M')))
-    out.player_line = ResolveLString(*rnam, strings);
+    out.player_line = ResolveLString(*rnam, strings, plugin);
   if (out.player_line.empty()) out.player_line = topic_text;
   // The response text is the first NAM1 (one per response row, after its TRDT).
   if (const bethesda::Subrecord* nam1 = record.Find(FourCc('N', 'A', 'M', '1')))
-    out.npc_line = ResolveLString(*nam1, strings);
+    out.npc_line = ResolveLString(*nam1, strings, plugin);
 
   if (const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'))) {
     bethesda::ScriptAttachment attachment;
@@ -79,7 +81,7 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
   out.dial = dial.packed();
   out.editor_id = record.GetString(FourCc('E', 'D', 'I', 'D'));
   if (const bethesda::Subrecord* full = record.Find(FourCc('F', 'U', 'L', 'L')))
-    out.text = ResolveLString(*full, strings);
+    out.text = ResolveLString(*full, strings, stored->winning_plugin);
   if (const bethesda::Subrecord* pnam = record.Find(FourCc('P', 'N', 'A', 'M'));
       pnam && pnam->data.size() >= 4) {
     f32 priority;
@@ -99,11 +101,13 @@ Topic ParseTopic(const bethesda::RecordStore& records, bethesda::GlobalFormId di
                                   static_cast<u32>(packed & 0xffffffffu)};
       bethesda::Record info_record;
       if (!records.Parse(info, &info_record)) continue;
-      Response response = ParseInfoRecord(info_record, packed, out.text, strings);
+      const bethesda::RecordStore::StoredRecord* info_stored = records.Find(info);
+      Response response =
+          ParseInfoRecord(info_record, packed, out.text, strings,
+                          info_stored ? info_stored->winning_plugin : info.plugin);
       // Resolve the condition form ids against the INFO's own plugin, so a
       // GetStage(quest) condition names the same packed handle the quest system
       // uses.
-      const bethesda::RecordStore::StoredRecord* info_stored = records.Find(info);
       quest::ResolveConditionForms(response.conditions, records,
                                    info_stored ? info_stored->winning_plugin : info.plugin);
       out.responses.push_back(std::move(response));

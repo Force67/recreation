@@ -95,8 +95,9 @@ bool LoadGameData(Engine& engine) {
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
-  for (const std::string& plugin : order.plugins())
-    self->strings_.Load(*self->vfs_, plugin, profile.string_language);
+  for (size_t i = 0; i < order.plugins().size(); ++i)
+    self->strings_.Load(*self->vfs_, order.plugins()[i], profile.string_language,
+                        static_cast<u16>(i));
   RX_INFO("loaded {} localized strings", self->strings_.size());
 
   // Index dialogue topics by quest so an NPC conversation opens without
