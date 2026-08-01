@@ -9,7 +9,7 @@
 #include "components/bethesda/form_id.h"
 #include "core/types.h"
 #include "ecs/world.h"
-#include "gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
+#include "runtime/actor/gait_rate.h"  // header-only anti foot-slide gait rate (runtime/)
 #include "components/gamenet/actor_sync.h"
 #include "net/replication.h"
 #include "components/world/components.h"

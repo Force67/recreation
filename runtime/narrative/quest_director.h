@@ -1,0 +1,182 @@
+#ifndef RECREATION_RUNTIME_NARRATIVE_QUEST_DIRECTOR_H_
+#define RECREATION_RUNTIME_NARRATIVE_QUEST_DIRECTOR_H_
+
+#include <string>
+#include <vector>
+
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+
+#include "core/math.h"
+#include "runtime/app/engine_context.h"
+#include "components/quest/quest_def.h"
+#include "components/quest/quest_system.h"
+#include "runtime/narrative/quest_state_cache.h"
+
+namespace rx {
+
+class ActorSystem;
+class AiPackageDirector;
+class CutsceneDirector;
+class NpcDirector;
+class InteractionSystem;
+
+// A world waypoint for one quest objective: where it sends the player and the
+// stage reaching it advances to. Shared with the npc director, which authors
+// breadcrumb waypoints for the MQ101 demo.
+struct QuestMarker {
+  u64 quest = 0;
+  i32 objective = 0;
+  i32 advance_stage = -1;  // <0: display-only, never triggers
+  Vec3 pos{};
+  f32 radius = 2.5f;
+  bool fired = false;       // a trigger fires once; cleared by re-authoring
+  bool always_arm = false;  // armed regardless of which objective is current
+};
+
+// Drives everything quest-facing: instantiates the attached Papyrus quest
+// scripts, refreshes the debug overlay + native-call trace, pushes the HUD
+// tracker and journal, arms objective waypoints, and runs the headless report
+// modes. Owns the quest record list, panel snapshot, markers and objective
+// compass targets.
+class QuestDirector {
+ public:
+  QuestDirector(EngineContext& ctx, ActorSystem* actors);
+  void set_siblings(NpcDirector* npc, InteractionSystem* interaction) {
+    npc_ = npc;
+    interaction_ = interaction;
+  }
+  // The AI package driver and cutscene director are fed from here: quest arming
+  // happens where the quest definitions are parsed, and both need the live quest
+  // mirror this director refreshes.
+  void set_cutscenes(AiPackageDirector* packages, CutsceneDirector* cutscene) {
+    packages_ = packages;
+    cutscene_ = cutscene;
+  }
+  // Main-thread mirror of live quest state (stage, running, stages done),
+  // refreshed with the panel snapshot. Read by anything that has to evaluate the
+  // records' condition gates off the guest thread.
+  const QuestStateCache& quest_state() const { return quest_state_; }
+
+  // Instantiates the attached quest scripts and applies the RX_START_QUEST /
+  // RX_MQ101_* / RX_JOURNAL load-time hooks.
+  void AttachQuestScripts();
+  void RefreshQuestPanel(f32 dt);
+  void RefreshNativeTrace(f32 dt);
+  // Live overlay snapshots the debug UI reads when building the F3 / F2 windows.
+  QuestPanel* quest_panel() { return &quest_panel_; }
+  NativeTracePanel* native_trace_panel() { return &native_trace_panel_; }
+
+  // Headless debug aids (RX_QUEST_REPORT / RX_DIALOGUE_REPORT / RX_SCENE_REPORT).
+  void ReportQuestToCompletion(const std::string& edid);
+  // Lists every loaded quest whose editor id begins with `prefix` (case
+  // insensitive; empty lists all), one line each: handle, priority, stage and
+  // objective counts, completion stage, name. The fast way to survey a whole
+  // questline (e.g. RX_QUEST_LIST=CW) without reloading data per quest.
+  void ReportQuestList(const std::string& prefix);
+  void ReportDialogue(const std::string& edid);
+  // Headless check that the real Civil War reinforcement Papyrus runs: start the
+  // fort-siege quest, fill a soldier alias with an actor, kill it, and report
+  // whether the reinforcement pool globals decremented (soldier death ->
+  // CWReinforcementAliasScript.OnDeath -> registerDeath -> ModifyPool -> globals).
+  void ReportReinforcementTest();
+  // Attaches a quest's SCEN scripts and fires their begin/phase/end fragments,
+  // reporting which advance the journal, the end-to-end check that real scene
+  // fragments (Self.GetOwningQuest().SetStage(N)) drive the quest natively.
+  void ReportSceneFragments(const std::string& edid);
+  // Like ReportSceneFragments but plays each scene through the timer-driven
+  // ScenePlayer (begin/phase/end over simulated time), the live cue mechanism.
+  void ReportScenePlay(const std::string& edid);
+  // Parses a quest's SCEN scripts and registers them with the bindings so the
+  // quest's own stage fragments can Scene.Start them at runtime. Call before the
+  // quest runs (main thread; AttachScripts marshals to the guest).
+  void AttachQuestScenes(u64 quest);
+  // Headless self-drive check: attach a quest's scenes, start it, and tick the
+  // ScenePlayer so its stage fragments Start scenes whose fragments SetStage,
+  // reporting how far the quest drives itself natively.
+  void ReportSceneLive(const std::string& edid);
+
+  // Editor-id -> quest handle (0 if unknown); used by the npc director's scene.
+  u64 FindQuestHandle(const std::string& edid) const;
+  base::Vector<QuestMarker>& markers() { return quest_markers_; }
+  void Select(u64 handle) { quest_panel_.selected = handle; }
+
+  // World position of the tracked quest's current displayed objective (its
+  // forced-reference target), in the player's current space, for the guided
+  // playthrough to head toward instead of a blind facing direction. False when
+  // no resolvable target exists (the caller then falls back to facing).
+  bool CurrentObjectiveTarget(Vec3* out) const {
+    if (cur_objective_valid_) *out = cur_objective_target_;
+    return cur_objective_valid_;
+  }
+
+  // The host's replicated objective marker, mirrored onto this client's compass.
+  void SetRemoteMarker(bool active, const Vec3& pos) {
+    remote_marker_active_ = active;
+    remote_marker_pos_ = pos;
+  }
+
+  // Player journal controls (J toggles it; number keys pin a quest to track).
+  bool journal_open() const { return journal_open_; }
+  void ToggleJournal() { journal_open_ = !journal_open_; }
+  void PinJournalSlot(int i);
+
+ private:
+  void UpdateQuestHud(const std::vector<quest::QuestStatus>& running);
+  void UpdateObjectiveMarkers(const std::vector<quest::QuestStatus>& running);
+  void DriveObjectiveMarkerHud(bool active, const Vec3& pos);
+  void IndexObjectiveTargets(const quest::QuestDef& def, u16 plugin);
+  bool ObjectiveTargetFor(u64 quest, i32 objective, Vec3* out) const;
+  bool RefWorldPosition(bethesda::GlobalFormId ref, Vec3* out) const;
+
+  EngineContext& ctx_;
+  ActorSystem* actors_;
+  QuestStateCache quest_state_;
+  AiPackageDirector* packages_ = nullptr;
+  CutsceneDirector* cutscene_ = nullptr;
+  NpcDirector* npc_ = nullptr;
+  InteractionSystem* interaction_ = nullptr;
+  const EngineConfig& config_;
+  ecs::World& world_;
+  bethesda::RecordStore& records_;
+  bethesda::StringTable& strings_;
+  dialogue::DialogueDb& dialogue_;
+  FlyCamera& camera_;
+  DebugUi& debug_ui_;
+  GameUi& game_ui_;
+
+  base::Vector<std::pair<u64, std::string>> quest_records_;
+  QuestPanel quest_panel_;
+  f32 quest_ui_timer_ = 0;
+  u64 hud_tracked_quest_ = 0;
+  u32 hud_tracked_revision_ = 0;
+  bool journal_open_ = false;
+  u64 pinned_quest_ = 0;
+  base::Vector<u64> journal_handles_;
+  base::Vector<QuestMarker> quest_markers_;
+  // Objective index -> world position of its forced-reference alias, with the
+  // space that position lives in. An interior ref's position is in its own cell
+  // space, so a compass bearing to it is only meaningful while the player is in
+  // that same space (handled by ObjectiveTargetFor).
+  struct ObjTarget {
+    Vec3 pos;
+    bool interior = false;
+  };
+  base::UnorderedMap<u64, ObjTarget> objective_targets_;
+  bool sent_marker_active_ = false;
+  Vec3 sent_marker_pos_{};
+  u64 sent_marker_quest_ = 0;
+  bool remote_marker_active_ = false;
+  Vec3 remote_marker_pos_{};
+  // Cached world target of the tracked quest's current objective (same-space),
+  // refreshed each panel update for the guided playthrough to walk toward.
+  bool cur_objective_valid_ = false;
+  Vec3 cur_objective_target_{};
+  NativeTracePanel native_trace_panel_;
+  f32 trace_ui_timer_ = 0;
+  bool native_trace_on_ = false;
+};
+
+}  // namespace rx
+
+#endif  // RECREATION_RUNTIME_NARRATIVE_QUEST_DIRECTOR_H_

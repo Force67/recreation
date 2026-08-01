@@ -2,44 +2,44 @@
 # Android client). The debug overlay (imgui) and HUD (ugui) compile to stubs
 # when those middlewares are absent, so the same translation units serve all.
 set(RECREATION_RUNTIME_SOURCES
-  engine.cc
-  frame_loop.cc
-  networking.cc
-  managed_rpc.cc
-  content_load.cc
-  managed_scripting.cc
-  main_menu.cc
-  first_run.cc
-  camera_input.cc
-  controls_settings.cc
-  game_input.cc
-  content_domain.cc
-  actor_system.cc
-  player_controller.cc
-  carriage.cc
-  cart_visuals.cc
-  helgen_intro.cc
-  face.cc
-  chargen.cc
-  demo_scenes.cc
-  interaction_system.cc
-  item_bridge.cc
-  fp_equipment.cc
-  nav_service.cc
-  ai_package_director.cc
-  cutscene_director.cc
-  npc_director.cc
-  platform_hud.cc
-  quest_director.cc
-  fly_camera.cc
-  showcase_camera.cc
-  trailer.cc
-  editor.cc
-  editor_catalog.cc
-  editor_io.cc
-  thumbnailer.cc
-  debug_ui.cc
-  game_ui.cc
+  app/engine.cc
+  app/frame_loop.cc
+  app/networking.cc
+  app/managed_rpc.cc
+  app/content_load.cc
+  app/managed_scripting.cc
+  app/main_menu.cc
+  app/first_run.cc
+  app/camera_input.cc
+  app/controls_settings.cc
+  app/content_domain.cc
+  input/game_input.cc
+  camera/fly_camera.cc
+  camera/showcase_camera.cc
+  actor/actor_system.cc
+  actor/player_controller.cc
+  actor/nav_service.cc
+  actor/ai_package_director.cc
+  actor/npc_director.cc
+  character/face.cc
+  character/chargen.cc
+  character/fp_equipment.cc
+  vehicle/carriage.cc
+  vehicle/cart_visuals.cc
+  narrative/helgen_intro.cc
+  narrative/cutscene_director.cc
+  narrative/quest_director.cc
+  interaction/interaction_system.cc
+  interaction/item_bridge.cc
+  demo/demo_scenes.cc
+  demo/trailer.cc
+  editor/editor.cc
+  editor/editor_catalog.cc
+  editor/editor_io.cc
+  ui/platform_hud.cc
+  ui/thumbnailer.cc
+  ui/debug_ui.cc
+  ui/game_ui.cc
 )
 
 set(RECREATION_RUNTIME_MODULES
@@ -78,7 +78,7 @@ if(ANDROID)
     ${ANDROID_NDK}/sources/android/native_app_glue)
   target_link_libraries(android_native_app_glue PUBLIC android log)
 
-  add_library(recreation SHARED android_main.cc ${RECREATION_RUNTIME_SOURCES})
+  add_library(recreation SHARED app/android_main.cc ${RECREATION_RUNTIME_SOURCES})
   target_link_libraries(recreation PRIVATE
     ${RECREATION_RUNTIME_MODULES}
     android_native_app_glue
@@ -92,7 +92,7 @@ if(ANDROID)
   return()
 endif()
 
-add_executable(recreation main.cc ${RECREATION_RUNTIME_SOURCES})
+add_executable(recreation app/main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation PRIVATE ${RECREATION_RUNTIME_MODULES})
 target_compile_definitions(recreation PRIVATE RECREATION_VERSION="${PROJECT_VERSION}")
 recreation_set_warnings(recreation)
@@ -114,10 +114,10 @@ if(TARGET rx_imgui)
 endif()
 
 # libultragui HUD: only the windowed client builds it; the dedicated server
-# compiles game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
+# compiles ui/game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
 # with engine-embedded shaders.
 if(RECREATION_HAS_UGUI)
-  target_sources(recreation PRIVATE gui_backend.cc shader_pack.cc)
+  target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc)
   target_link_libraries(recreation PRIVATE ultragui recreation::stb)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
   # The recreation-owned HUD/thumbnail shaders ship in this archive; the engine
@@ -129,22 +129,22 @@ if(RECREATION_HAS_UGUI)
   # client reads them at startup and hot-reloads them; override with the env var
   # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
   target_compile_definitions(recreation PRIVATE
-    RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui")
+    RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/screens")
   recreation_embed_shaders(recreation
-    shaders/ugui_quad.vs.hlsl
-    shaders/ugui_quad.ps.hlsl
-    shaders/ugui_text.vs.hlsl
-    shaders/ugui_text.ps.hlsl
-    shaders/ugui_frost.vs.hlsl
-    shaders/ugui_frost.ps.hlsl
-    shaders/thumb.vs.hlsl
-    shaders/thumb.ps.hlsl
+    ui/shaders/ugui_quad.vs.hlsl
+    ui/shaders/ugui_quad.ps.hlsl
+    ui/shaders/ugui_text.vs.hlsl
+    ui/shaders/ugui_text.ps.hlsl
+    ui/shaders/ugui_frost.vs.hlsl
+    ui/shaders/ugui_frost.ps.hlsl
+    ui/shaders/thumb.vs.hlsl
+    ui/shaders/thumb.ps.hlsl
   )
 endif()
 
 # Dedicated server: same engine, headless config baked in. Still links the
 # renderer module since the engine owns one; it never initializes vulkan.
-add_executable(recreation-server server_main.cc ${RECREATION_RUNTIME_SOURCES})
+add_executable(recreation-server app/server_main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation-server PRIVATE ${RECREATION_RUNTIME_MODULES})
 recreation_set_warnings(recreation-server)
 recreation_enable_mimalloc(recreation-server)

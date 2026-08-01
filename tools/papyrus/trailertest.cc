@@ -5,7 +5,7 @@
 // in the default ctest gate.
 #include <cstdio>
 
-#include "../../runtime/trailer.h"
+#include "runtime/demo/trailer.h"
 
 using rx::TrailerDirector;
 using rx::TrailerRenderMode;

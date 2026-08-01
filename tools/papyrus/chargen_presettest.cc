@@ -9,7 +9,7 @@
 #include <cstdio>
 #include <string>
 
-#include "chargen_layout.h"
+#include "runtime/character/chargen_layout.h"
 
 namespace {
 

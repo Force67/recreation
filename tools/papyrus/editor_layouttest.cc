@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <string>
 
-#include "editor_layout.h"
+#include "runtime/editor/editor_layout.h"
 
 namespace {
 

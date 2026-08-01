@@ -82,8 +82,7 @@ target_compile_definitions(settings_initest PRIVATE
   RECREATION_PRESETS_TEST_DIR="${RECREATION_RX_DIR}/engine/render/presets")
 recreation_set_warnings(settings_initest)
 
-add_executable(trailertest trailertest.cc ${CMAKE_SOURCE_DIR}/runtime/trailer.cc)
-target_include_directories(trailertest PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
+add_executable(trailertest trailertest.cc ${CMAKE_SOURCE_DIR}/runtime/demo/trailer.cc)
 target_link_libraries(trailertest PRIVATE recreation::weather rx::core)
 recreation_set_warnings(trailertest)
 
