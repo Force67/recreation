@@ -1,0 +1,94 @@
+#ifndef RECREATION_RUNTIME_NARRATIVE_QUEST_STATE_CACHE_H_
+#define RECREATION_RUNTIME_NARRATIVE_QUEST_STATE_CACHE_H_
+
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
+#include <base/memory/move.h>
+
+#include "components/quest/condition.h"
+#include "core/math.h"
+#include "core/types.h"
+
+namespace rx {
+
+// A main-thread mirror of live quest state, refreshed from the guest thread a few
+// times a second alongside the quest HUD snapshot.
+//
+// Bethesda gates almost everything on quest stage: which AI package an actor runs,
+// when a scene phase is over, which dialogue is available. Those gates have to be
+// evaluated by the systems that own the world (the AI package driver, the cutscene
+// director), and those live on the main thread while QuestSystem is guest-thread
+// only. Mirroring the handful of numbers they read is cheaper and far simpler than
+// marshalling every evaluation.
+class QuestStateCache {
+ public:
+  struct Entry {
+    i32 stage = 0;
+    bool running = false;
+    bool complete = false;
+    base::Vector<i32> done;  // stages that have been set, ascending
+  };
+
+  void Set(u64 quest, Entry entry) { quests_[quest] = base::move(entry); }
+  void Clear() { quests_.clear(); }
+
+  i32 Stage(u64 quest) const {
+    auto* it = quests_.find(quest);
+    return it == nullptr ? 0 : it->stage;
+  }
+  bool Running(u64 quest) const {
+    auto* it = quests_.find(quest);
+    return it != nullptr && it->running;
+  }
+  bool Complete(u64 quest) const {
+    auto* it = quests_.find(quest);
+    return it != nullptr && it->complete;
+  }
+  bool StageDone(u64 quest, i32 stage) const {
+    auto* it = quests_.find(quest);
+    if (it == nullptr)
+      return false;
+    for (i32 s : it->done)
+      if (s == stage)
+        return true;
+    return false;
+  }
+  const base::UnorderedMap<u64, Entry>& entries() const { return quests_; }
+
+ private:
+  base::UnorderedMap<u64, Entry> quests_;
+};
+
+// Evaluates condition lists on the main thread against the quest mirror and the
+// live world. Stage functions come from the cache; distances are measured against
+// real positions, which the caller resolves by form handle. Anything else falls
+// through to 0, the conservative answer for the threshold tests these gates use.
+class WorldConditionContext : public quest::ConditionContext {
+ public:
+  using PositionFn = base::Function<bool(u64 handle, Vec3* out)>;
+
+  WorldConditionContext(const QuestStateCache& quests, PositionFn position)
+      : quests_(quests), position_(base::move(position)) {}
+
+  float GetStage(u64 quest) const override { return static_cast<float>(quests_.Stage(quest)); }
+  float GetStageDone(u64 quest, u64 stage) const override {
+    return quests_.StageDone(quest, static_cast<i32>(stage)) ? 1.0f : 0.0f;
+  }
+  float GetDistance(quest::RunOn, u64 reference, u64 target) const override {
+    Vec3 a, b;
+    if (!position_ || !position_(reference, &a) || !position_(target, &b))
+      return 0.0f;
+    // Game units, which is what the authored comparison values are in.
+    constexpr float kMetersToUnits = 1.0f / 0.01428f;
+    return Length(b - a) * kMetersToUnits;
+  }
+
+ private:
+  const QuestStateCache& quests_;
+  PositionFn position_;
+};
+
+}  // namespace rx
+
+#endif  // RECREATION_RUNTIME_NARRATIVE_QUEST_STATE_CACHE_H_

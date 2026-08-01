@@ -1,0 +1,230 @@
+#ifndef RECREATION_SCRIPT_PAPYRUS_VM_H_
+#define RECREATION_SCRIPT_PAPYRUS_VM_H_
+
+#include <base/containers/unordered_map.h>
+#include <base/containers/unordered_set.h>
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
+#include <base/memory/move.h>
+#include <base/strings/xstring.h>
+
+#include "components/script/papyrus/fiber.h"
+#include "components/script/papyrus/interpreter.h"
+#include "components/script/papyrus/native.h"
+#include "components/script/papyrus/pex.h"
+#include "components/script/papyrus/value.h"
+#include "core/types.h"
+
+namespace rx::script::papyrus {
+
+// The Papyrus virtual machine: a registry of loaded script types, the live
+// object instances, and the dispatch that ties them together (method/property
+// resolution across the inheritance chain, states, parent calls, arrays). It
+// implements VmInterface so the interpreter can call back into it for anything
+// that leaves a single function frame.
+//
+// One VirtualMachine is the guest world for one game. It is not internally
+// synchronized: the host runs it from a single dedicated thread (see the
+// script runtime), keeping the guest cleanly compartmentalized.
+class VirtualMachine : public VmInterface {
+ public:
+  // natives is the per-game function table (Skyrim, Fallout, ...). It must
+  // outlive the VM. Pass nullptr for a VM with no engine bindings (tests).
+  explicit VirtualMachine(const NativeRegistry* natives) : natives_(natives) {}
+
+  // Parses and registers a compiled script. The script's object name becomes a
+  // known type. Returns the type name, or "" on a parse failure.
+  base::String LoadScript(ByteSpan pex_data);
+
+  // Registers an already-parsed script. Returns the type name, or "" if the
+  // file has no object.
+  base::String AddScript(PexFile pex);
+
+  bool HasScript(const base::String& type) const;
+  size_t script_count() const { return scripts_.size(); }
+
+  // A traced native invocation: the script type that declared it, the function
+  // name, and a monotonic sequence number (1 = first since tracing began).
+  struct NativeCall {
+    base::String script_type;
+    base::String function;
+    u64 seq = 0;
+  };
+  // Native-call tracing for the debug overlay. Off by default (it copies two
+  // strings per native call); the engine turns it on only while the trace
+  // window is open. The ring keeps the most recent calls, newest last.
+  void set_native_trace(bool on) { native_trace_enabled_ = on; }
+  // Resolves the type of a bare reference (one with no scripted VM instance) for
+  // `obj as Type` casts and Is-checks. Without it a cell-less ref, a quest
+  // alias pointing at a placed actor, a freshly spawned actor, fails every
+  // `GetReference() as Actor`, which silently breaks faction/owner classifiers.
+  // The game supplies it (records + runtime actor state know the real kind).
+  void set_type_resolver(base::Function<bool(ObjectRef, const base::String&)> r) {
+    type_resolver_ = base::move(r);
+  }
+  bool native_trace() const { return native_trace_enabled_; }
+  u64 native_call_count() const { return native_call_count_; }
+  const base::Vector<NativeCall>& native_trace_log() const { return native_trace_; }
+  void ClearNativeTrace() {
+    native_trace_.clear();
+    native_call_count_ = 0;
+  }
+
+  // Instantiates a known script type. Member variables are seeded from the
+  // script's declared defaults. Returns None for an unknown type.
+  ObjectRef CreateInstance(const base::String& type);
+  // Same, but with a caller-chosen handle (the engine uses a form id, so an
+  // object reference between scripts resolves to the same instance). A handle
+  // may carry multiple script types; adding an already-present type is a no-op.
+  ObjectRef CreateInstanceWithHandle(const base::String& type, u64 handle);
+  bool HasAttachedScript(ObjectRef instance, const base::String& type) const;
+  void DestroyInstance(ObjectRef instance);
+
+  // The parent class name of a loaded type, "" if none or unknown. Used to
+  // walk and lazily load the script's ancestor chain.
+  base::String ParentClassOf(const base::String& type);
+  bool IsAlive(ObjectRef instance) const;
+  base::String TypeOf(ObjectRef instance);
+
+  // Calls a method on an instance, or a global function on a script type. These
+  // are the entry points the host and the event system use.
+  Value Call(ObjectRef self, const base::String& method, base::Vector<Value> args);
+  Value CallGlobal(const base::String& script_type,
+                   const base::String& function,
+                   base::Vector<Value> args);
+
+  // Like Call, but for optional event handlers: dispatches only when the
+  // instance exists and actually defines the method, and never warns about a
+  // missing one. Returns true if it dispatched. This lets the engine broadcast
+  // events (OnDeath, OnItemAdded, ...) to forms whose script may not handle
+  // them, without log spam.
+  bool TryCall(ObjectRef self, const base::String& method, base::Vector<Value> args);
+  // Event dispatch variants for forms carrying several independent scripts.
+  bool TryCallScript(ObjectRef self,
+                     const base::String& script_type,
+                     const base::String& method,
+                     base::Vector<Value> args);
+  bool TryCallAll(ObjectRef self, const base::String& method, const base::Vector<Value>& args);
+
+  // Suspends the script activation currently running, which must be on a Fiber:
+  // the whole interpreter call chain freezes and control returns to whoever
+  // resumed the fiber. The activation continues from here when the fiber is
+  // resumed again. Returns false (a no-op) if not running on a fiber. This is the
+  // hook latent natives (Utility.Wait) use to yield without unwinding.
+  bool SuspendCurrent();
+
+  // Records how long the current activation wants to wait, then suspends it (see
+  // SuspendCurrent). The scheduler reads the request with TakeLatentRequest after
+  // the fiber yields to decide when to resume it. Pass a real-time delay in
+  // seconds, or a game-time delay in days (the other argument negative).
+  bool SuspendCurrentFor(f64 real_seconds, f64 game_days);
+
+  // Returns and clears the pending latent request set by SuspendCurrentFor. The
+  // fiber scheduler calls this immediately after a fiber yields.
+  LatentRequest TakeLatentRequest();
+
+  // Debug-only: the member-variable names currently held by an instance, used
+  // to inspect live script state when bringing up a quest's fragments.
+  base::Vector<base::String> MemberNames(ObjectRef self);
+
+  // VmInterface, used by the interpreter.
+  Value CallMethod(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
+  Value CallStatic(const base::String& script_type,
+                   const base::String& function,
+                   base::Vector<Value> args) override;
+  Value CallParent(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
+  Value GetProperty(ObjectRef self, const base::String& property) override;
+  void SetProperty(ObjectRef self, const base::String& property, Value value) override;
+  Value* MemberVar(ObjectRef self, const base::String& name) override;
+  base::String CurrentState(ObjectRef self) override;
+  void GotoState(ObjectRef self, const base::String& state) override;
+  bool IsObjectOfType(ObjectRef obj, const base::String& type_name) override;
+  ArrayRef ArrayCreate(const base::String& element_type, i32 size) override;
+  i32 ArrayLength(ArrayRef array) override;
+  Value ArrayGet(ArrayRef array, i32 index) override;
+  void ArraySet(ArrayRef array, i32 index, Value value) override;
+  i32 ArrayFind(ArrayRef array, const Value& value, i32 start) override;
+  i32 ArrayRFind(ArrayRef array, const Value& value, i32 start) override;
+  void ArrayAdd(ArrayRef array, const Value& value, i32 count) override;
+  void ArrayInsert(ArrayRef array, i32 index, const Value& value) override;
+  void ArrayRemove(ArrayRef array, i32 index, i32 count) override;
+  void ArrayRemoveLast(ArrayRef array) override;
+  void ArrayClear(ArrayRef array) override;
+  StructRef StructCreate(const base::String& type_name) override;
+  Value StructGet(StructRef instance, const base::String& member) override;
+  void StructSet(StructRef instance, const base::String& member, Value value) override;
+
+ private:
+  struct LoadedScript {
+    PexFile pex;
+    base::String name;    // object (type) name, original case
+    base::String parent;  // parent class name, "" if none
+    const Object* object = nullptr;
+  };
+  struct Instance {
+    // A form can carry several attached scripts (e.g. a quest's main script plus
+    // its QF_ stage-fragment script). They share one handle and member store, in
+    // attach order; types[0] is the primary (drives TypeOf and the default
+    // state). Method/property resolution walks every attached script's chain.
+    base::Vector<base::String> types;
+    base::UnorderedMap<base::String, Value> members;
+    base::String state;  // "" = default/empty state
+    const base::String& primary_type() const {
+      static const base::String kEmpty;
+      return types.empty() ? kEmpty : types.front();
+    }
+  };
+  struct Resolved {
+    LoadedScript* script = nullptr;
+    const Function* fn = nullptr;
+    base::String defining_type;  // script type that owns fn, for native lookup
+  };
+
+  LoadedScript* FindScript(const base::String& type);
+  Instance* FindInstance(ObjectRef instance);
+
+  // Resolves method on inst, starting the chain walk at start_type (the
+  // instance type for normal calls, the parent type for parent calls).
+  bool ResolveMethod(Instance& inst,
+                     const base::String& method,
+                     const base::String& start_type,
+                     Resolved* out);
+  // Resolves method across every script attached to inst (each script's own
+  // inheritance chain, in attach order); the first match wins. This is how a
+  // stage fragment finds its function regardless of which attached script the
+  // function lives on.
+  bool ResolveMethodAny(Instance& inst, const base::String& method, Resolved* out);
+  const Property* ResolveProperty(Instance& inst,
+                                  const base::String& name,
+                                  LoadedScript** owner_script);
+  Value Invoke(const Resolved& target,
+               ObjectRef self,
+               base::Vector<Value> args,
+               const base::String& method_name);
+  void SeedMembers(Instance& inst, const base::String& type);
+  bool ArrayValid(ArrayRef array) const { return array.id != 0 && array.id <= arrays_.size(); }
+  bool StructValid(StructRef s) const { return s.id != 0 && s.id <= structs_.size(); }
+  void WarnUnbound(const base::String& type, const base::String& function);
+  // Appends a native invocation to the trace ring when tracing is enabled.
+  void RecordNative(const base::String& type, const base::String& function);
+
+  static constexpr size_t kNativeTraceCap = 256;
+  bool native_trace_enabled_ = false;
+  u64 native_call_count_ = 0;
+  base::Vector<NativeCall> native_trace_;  // ring, oldest at front
+
+  const NativeRegistry* natives_;
+  base::Function<bool(ObjectRef, const base::String&)> type_resolver_;
+  base::UnorderedMap<base::String, LoadedScript> scripts_;  // key: lowercased type
+  base::UnorderedMap<u64, Instance> instances_;
+  u64 next_handle_ = 1;
+  base::Vector<base::Vector<Value>> arrays_;  // 1-based; index 0 reserved as None
+  base::Vector<base::UnorderedMap<base::String, Value>> structs_;  // 1-based; Fallout structs
+  base::Vector<base::String> call_stack_;    // executing script type, for parent calls
+  base::UnorderedSet<base::String> warned_;  // unbound natives warned once
+  LatentRequest latent_;                     // pending Wait, set just before a fiber yields
+};
+
+}  // namespace rx::script::papyrus
+
+#endif  // RECREATION_SCRIPT_PAPYRUS_VM_H_

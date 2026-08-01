@@ -43,11 +43,11 @@ All on `feature/oblivion-support`:
   `ConvertNifScene`, `NifConversion.gamebryo` flag.
 - `engine/bethesda/converters.cc`: `_n.dds` normal-map convention for
   gamebryo conversions, existence-checked via the Vfs.
-- `engine/world/land_baker.cc`: LTEX ICON fallback for the terrain splat
+- `components/world/land_baker.cc`: LTEX ICON fallback for the terrain splat
   (`textures/landscape/<icon>`, `_n` derivation for the normal slot).
-- `engine/world/cell_streaming.{h,cc}` + `runtime/content_load.cc`: fallback
+- `components/world/cell_streaming.{h,cc}` + `runtime/app/content_load.cc`: fallback
   water height 0 when the WRLD has no DNAM; Weye (3,10) default start cell.
-- `runtime/main.cc`, `tools/esminfo/main.cc` (finalize commit): `--game`
+- `runtime/app/main.cc`, `tools/esminfo/main.cc` (finalize commit): `--game`
   parse + help text and esminfo game-id mapping list oblivion (and the
   previously missing starfield).
 

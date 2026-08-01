@@ -291,16 +291,21 @@ if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
   set(ULTRAGUI_VIDEO OFF CACHE BOOL "" FORCE)
   set(ULTRAGUI_PLATFORM_GLFW OFF CACHE BOOL "" FORCE)
   set(ULTRAGUI_BUILD_SHADERS OFF CACHE BOOL "" FORCE)
-  set(ULTRAGUI_PLATFORM_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ugui_platform.cc"
+  set(ULTRAGUI_PLATFORM_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_platform.cc"
     CACHE FILEPATH "" FORCE)
-  set(ULTRAGUI_RHI_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ugui_rhi.cc"
+  set(ULTRAGUI_RHI_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_rhi.cc"
     CACHE FILEPATH "" FORCE)
   # Swap ultragui's scripting runtime for recreation's: ugui handlers run in the
   # hosted .NET (C#) world instead of Lua. The backend stays library-agnostic and
-  # reaches the managed host through runtime/ugui_csharp_host.h (see that file).
-  set(ULTRAGUI_SCRIPT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ugui_script_csharp.cc"
+  # reaches the managed host through runtime/ui/ugui_csharp_host.h (see that file).
+  set(ULTRAGUI_SCRIPT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_script_csharp.cc"
     CACHE FILEPATH "" FORCE)
   add_subdirectory(${RECREATION_LIBULTRAGUI_DIR} libultragui EXCLUDE_FROM_ALL)
+  # The three recreation-owned backends above are compiled into libultragui, so
+  # that target needs recreation's header root to resolve "runtime/ui/..." and
+  # equilibrium::base for the base:: containers those backends use.
+  target_include_directories(ultragui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(ultragui PRIVATE equilibrium::base)
   set(RECREATION_HAS_UGUI ON)
   message(STATUS "libultragui found, hud enabled")
 else()
@@ -325,18 +330,20 @@ if(RECREATION_NET)
 endif()
 
 if(RECREATION_BUILD_TOOLS)
-  enable_testing()  # papyrus vm regression suite, run with `ctest`
+  # Every component registers its own tests; `ctest` runs the lot.
+  enable_testing()
 endif()
 
 foreach(module ${RECREATION_MODULES})
-  add_subdirectory(engine/${module})
+  add_subdirectory(components/${module})
 endforeach()
 
 add_subdirectory(runtime)
 
 if(RECREATION_BUILD_TOOLS)
-  enable_testing()  # papyrus vm regression suite, run with `ctest`
   add_subdirectory(tools/esminfo)
   add_subdirectory(tools/modtool)
   add_subdirectory(tools/papyrus)
+  add_subdirectory(tests/upstream)
+  add_subdirectory(sdk)  # managed (C#) build fixture and its gates
 endif()

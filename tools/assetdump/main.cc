@@ -1,20 +1,22 @@
-#include <algorithm>
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <string>
-
-#include "core/log.h"
 
 #include "anim/pose.h"
 #include "asset/asset_database.h"
 #include "asset/vfs.h"
-#include "bethesda/archive.h"
-#include "bethesda/converters.h"
-#include "bethesda/game_profile.h"
-#include "bethesda/kf_anim.h"
-#include "bethesda/nif.h"
+#include "components/bethesda/archive.h"
+#include "components/bethesda/converters.h"
+#include "components/bethesda/game_profile.h"
+#include "components/bethesda/kf_anim.h"
+#include "components/bethesda/nif.h"
+#include "core/log.h"
 
 // Loads one asset through the real Vfs + converter pipeline and dumps what
 // came out. Handy for checking NIF/DDS conversion against game data. With an
@@ -25,27 +27,32 @@ int main(int argc, char** argv) {
     return 1;
   }
   using namespace rx;
-  if (std::getenv("RX_LOG_DEBUG")) rx::SetLogLevel(rx::LogLevel::kDebug);
+  // rx::u64/i64 (long) and base/arch.h's (long long) are different types sharing
+  // a global name, so the 64-bit spellings below are qualified; the other scalars
+  // agree between the two and need no help.
+  if (std::getenv("RX_LOG_DEBUG"))
+    rx::SetLogLevel(rx::LogLevel::kDebug);
 
   asset::Vfs vfs;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(argv[1], ec)) {
-    if (auto provider = bethesda::OpenArchive(entry.path().string())) vfs.Mount(std::move(provider));
+    if (auto provider = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(provider));
   }
   vfs.Mount(asset::MakeLooseFileProvider(argv[1]));
 
   asset::AssetDatabase database(vfs);
-  const auto& profile = bethesda::GameProfile::For(
-      bethesda::GameProfile::DetectFromDataDir(argv[1]));
+  const auto& profile =
+      bethesda::GameProfile::For(bethesda::GameProfile::DetectFromDataDir(argv[1]));
   bethesda::RegisterConverters(database, profile);
 
-  std::string path = argv[2];
+  base::String path = argv[2];
   if (path == "--list") {
     // Enumerate vfs entries containing the optional substring filter (argv[3]).
-    std::string filter = argc > 3 ? argv[3] : "";
+    base::String filter = argc > 3 ? argv[3] : "";
     u32 count = 0;
-    vfs.Enumerate([&](std::string_view p) {
-      if (filter.empty() || p.find(filter) != std::string_view::npos) {
+    vfs.Enumerate([&](base::StringRef p) {
+      if (filter.empty() || p.find(filter) != base::StringRef::npos) {
         std::printf("%.*s\n", static_cast<int>(p.size()), p.data());
         ++count;
       }
@@ -56,17 +63,20 @@ int main(int argc, char** argv) {
   if (path == "--nifscan") {
     // Convert every NIF in the vfs and report the failures: the coverage
     // oracle for the sequential (no block-size-table) readers.
-    std::string filter = argc > 3 ? argv[3] : "";
-    base::Vector<std::string> nifs;
-    vfs.Enumerate([&](std::string_view p) {
-      if (!p.ends_with(".nif")) return;
-      if (!filter.empty() && p.find(filter) == std::string_view::npos) return;
-      nifs.push_back(std::string(p));
+    base::String filter = argc > 3 ? argv[3] : "";
+    base::Vector<base::String> nifs;
+    vfs.Enumerate([&](base::StringRef p) {
+      if (!p.ends_with(".nif"))
+        return;
+      if (!filter.empty() && p.find(filter) == base::StringRef::npos)
+        return;
+      nifs.push_back(base::String(p));
     });
     u32 ok = 0, failed = 0, printed = 0;
-    for (const std::string& nif : nifs) {
+    for (const base::String& nif : nifs) {
       auto bytes = vfs.Read(nif);
-      if (!bytes) continue;
+      if (!bytes)
+        continue;
       bethesda::NifConversion conversion = bethesda::ConvertNifScene(
           rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(nif), nif);
       if (conversion.mesh && !conversion.mesh->lods.empty() &&
@@ -141,7 +151,7 @@ int main(int argc, char** argv) {
       std::printf("usage: assetdump <data-dir> --skin <mesh.nif> [skeleton.nif]\n");
       return 1;
     }
-    std::string mesh_path = argv[3];
+    base::String mesh_path = argv[3];
     auto bytes = vfs.Read(asset::NormalizePath(mesh_path));
     if (!bytes) {
       std::printf("not in vfs: %s\n", mesh_path.c_str());
@@ -155,20 +165,21 @@ int main(int argc, char** argv) {
     }
     const asset::MeshLod& lod = conv.mesh->lods[0];
     std::printf("skinned=%d bones=%zu vertices=%zu indices=%zu skinning=%zu submeshes=%zu\n",
-                conv.skinned, conv.mesh->skin.bones.size(), lod.vertices.size(),
-                lod.indices.size(), lod.skinning.size(), lod.submeshes.size());
+                conv.skinned, conv.mesh->skin.bones.size(), lod.vertices.size(), lod.indices.size(),
+                lod.skinning.size(), lod.submeshes.size());
     for (const asset::Submesh& s : lod.submeshes)
       std::printf("  submesh +%u x%u\n", s.index_offset, s.index_count);
     auto bbox = [](const base::Vector<asset::Vertex>& v, const char* label) {
-      if (v.empty()) return;
+      if (v.empty())
+        return;
       f32 mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
       for (const asset::Vertex& x : v)
         for (int k = 0; k < 3; ++k) {
-          mn[k] = std::min(mn[k], x.position[k]);
-          mx[k] = std::max(mx[k], x.position[k]);
+          mn[k] = base::Min(mn[k], x.position[k]);
+          mx[k] = base::Max(mx[k], x.position[k]);
         }
-      std::printf("%s bbox (%.1f %.1f %.1f) - (%.1f %.1f %.1f)\n", label, mn[0], mn[1], mn[2], mx[0],
-                  mx[1], mx[2]);
+      std::printf("%s bbox (%.1f %.1f %.1f) - (%.1f %.1f %.1f)\n", label, mn[0], mn[1], mn[2],
+                  mx[0], mx[1], mx[2]);
     };
     bbox(lod.vertices, "bind");
 
@@ -181,7 +192,7 @@ int main(int argc, char** argv) {
       return 0;
     }
 
-    std::string skel_path = argv[4];
+    base::String skel_path = argv[4];
     auto skel_bytes = vfs.Read(asset::NormalizePath(skel_path));
     if (!skel_bytes) {
       std::printf("not in vfs: %s\n", skel_path.c_str());
@@ -204,12 +215,15 @@ int main(int argc, char** argv) {
     anim::BuildSkinPalette(bone_model, conv.mesh->skin, remap, &palette);
     u32 missing = 0, off = 0;
     for (size_t i = 0; i < conv.mesh->skin.bones.size(); ++i) {
-      if (remap[i] < 0) ++missing;
+      if (remap[i] < 0)
+        ++missing;
       // Deviation of palette[i] from identity: a correct bind pairing cancels.
       const Mat4& p = palette[i];
       f32 dev = 0;
-      for (int k = 0; k < 16; ++k) dev = std::max(dev, std::abs(p.m[k] - Mat4::Identity().m[k]));
-      if (dev > 0.5f) ++off;
+      for (int k = 0; k < 16; ++k)
+        dev = base::Max(dev, std::abs(p.m[k] - Mat4::Identity().m[k]));
+      if (dev > 0.5f)
+        ++off;
       if (i < 40)
         std::printf("  bone[%2zu] %-28s remap=%3d dev=%7.2f palette_t=(%.1f %.1f %.1f)\n", i,
                     conv.mesh->skin.bones[i].c_str(), remap[i], dev, p.m[12], p.m[13], p.m[14]);
@@ -226,9 +240,11 @@ int main(int argc, char** argv) {
         f32 acc[3] = {0, 0, 0}, total = 0;
         for (int j = 0; j < 4; ++j) {
           f32 w = e.bone_weights[j] / 255.0f;
-          if (w <= 0) continue;
+          if (w <= 0)
+            continue;
           u32 b = e.bone_indices[j];
-          if (b >= palette.size()) continue;
+          if (b >= palette.size())
+            continue;
           const Mat4& m = palette[b];
           const f32* s = lod.vertices[v].position;
           for (int k = 0; k < 3; ++k)
@@ -236,7 +252,8 @@ int main(int argc, char** argv) {
           total += w;
         }
         if (total > 1e-4f)
-          for (int k = 0; k < 3; ++k) posed[v].position[k] = acc[k] / total;
+          for (int k = 0; k < 3; ++k)
+            posed[v].position[k] = acc[k] / total;
       }
       bbox(posed, "posed");
     }
@@ -249,7 +266,8 @@ int main(int argc, char** argv) {
       return 1;
     }
     std::FILE* out = std::fopen(argv[3], "wb");
-    if (!out) return 1;
+    if (!out)
+      return 1;
     std::fwrite(bytes->data(), 1, bytes->size(), out);
     std::fclose(out);
     std::printf("wrote %zu bytes to %s\n", static_cast<size_t>(bytes->size()), argv[3]);
@@ -259,7 +277,7 @@ int main(int argc, char** argv) {
       path.ends_with(".btt")) {
     // Convert directly (LoadMesh dispatches by .nif extension; .btr/.bto won't
     // route there, so use the conversion result for geometry).
-    base::UnorderedMap<rx::u64, std::string> paths_by_id;
+    base::UnorderedMap<rx::u64, base::String> paths_by_id;
     auto bytes = vfs.Read(path);
     if (!bytes) {
       std::printf("not in vfs: %s\n", path.c_str());
@@ -267,12 +285,13 @@ int main(int argc, char** argv) {
     }
     bethesda::NifConversion conversion = bethesda::ConvertNifScene(
         rx::ByteSpan(bytes->data(), bytes->size()), asset::MakeAssetId(path), path);
-    for (const std::string& texture : conversion.texture_paths) {
+    for (const base::String& texture : conversion.texture_paths) {
       paths_by_id.emplace(asset::MakeAssetId(texture).hash, texture);
     }
-    if (conversion.skipped_shapes > 0) std::printf("skipped shapes: %u\n", conversion.skipped_shapes);
+    if (conversion.skipped_shapes > 0)
+      std::printf("skipped shapes: %u\n", conversion.skipped_shapes);
     auto path_of = [&](asset::AssetId id) -> const char* {
-      const std::string* found = paths_by_id.find(id.hash);
+      const base::String* found = paths_by_id.find(id.hash);
       return found ? found->c_str() : "";
     };
 
@@ -287,18 +306,18 @@ int main(int argc, char** argv) {
       return 1;
     }
     const asset::MeshLod& lod = mesh->lods[0];
-    std::printf("mesh: %zu vertices, %zu indices, %zu submeshes, bounds r=%.1f center=%.1f,%.1f,%.1f\n",
-                lod.vertices.size(), lod.indices.size(), lod.submeshes.size(),
-                mesh->bounds_radius, mesh->bounds_center[0], mesh->bounds_center[1],
-                mesh->bounds_center[2]);
+    std::printf(
+        "mesh: %zu vertices, %zu indices, %zu submeshes, bounds r=%.1f center=%.1f,%.1f,%.1f\n",
+        lod.vertices.size(), lod.indices.size(), lod.submeshes.size(), mesh->bounds_radius,
+        mesh->bounds_center[0], mesh->bounds_center[1], mesh->bounds_center[2]);
     if (!lod.vertices.empty()) {
       // Axis-aligned extent, which is what you need to place anything in a
       // model's own local space (seats on a cart, say) rather than by eye.
       f32 lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
       for (const asset::Vertex& v : lod.vertices)
         for (int k = 0; k < 3; ++k) {
-          lo[k] = std::min(lo[k], v.position[k]);
-          hi[k] = std::max(hi[k], v.position[k]);
+          lo[k] = base::Min(lo[k], v.position[k]);
+          hi[k] = base::Max(hi[k], v.position[k]);
         }
       std::printf("  aabb x[%.1f %.1f] y[%.1f %.1f] z[%.1f %.1f]\n", lo[0], hi[0], lo[1], hi[1],
                   lo[2], hi[2]);
@@ -310,8 +329,7 @@ int main(int argc, char** argv) {
                   v0.position[2], vn.position[0], vn.position[1], vn.position[2]);
     }
     for (const asset::Submesh& submesh : lod.submeshes) {
-      std::printf("  submesh +%u x%u material=%016llx\n", submesh.index_offset,
-                  submesh.index_count,
+      std::printf("  submesh +%u x%u material=%016llx\n", submesh.index_offset, submesh.index_count,
                   static_cast<unsigned long long>(submesh.material.hash));
       const asset::Material* material = database.FindMaterial(submesh.material);
       if (!material) {
@@ -320,22 +338,20 @@ int main(int argc, char** argv) {
       }
       std::printf("    alpha_mode=%d cutoff=%.2f two_sided=%d rough=%.2f emissive=%.2f,%.2f,%.2f\n",
                   static_cast<int>(material->alpha_mode), material->alpha_cutoff,
-                  material->two_sided, material->roughness_factor,
-                  material->emissive_factor[0], material->emissive_factor[1],
-                  material->emissive_factor[2]);
+                  material->two_sided, material->roughness_factor, material->emissive_factor[0],
+                  material->emissive_factor[1], material->emissive_factor[2]);
       std::printf("    base=%s normal=%s\n", path_of(material->base_color),
                   path_of(material->normal));
       for (asset::AssetId id : {material->base_color, material->normal}) {
-        if (!id) continue;
+        if (!id)
+          continue;
         const asset::Texture* texture = database.FindTexture(id);
         if (!texture) {
-          std::printf("    texture %016llx NOT LOADED\n",
-                      static_cast<unsigned long long>(id.hash));
+          std::printf("    texture %016llx NOT LOADED\n", static_cast<unsigned long long>(id.hash));
         } else {
           std::printf("    texture %016llx %ux%u mips=%u format=%d srgb=%d\n",
-                      static_cast<unsigned long long>(id.hash), texture->width,
-                      texture->height, texture->mip_count, static_cast<int>(texture->format),
-                      texture->is_srgb);
+                      static_cast<unsigned long long>(id.hash), texture->width, texture->height,
+                      texture->mip_count, static_cast<int>(texture->format), texture->is_srgb);
         }
       }
     }

@@ -1,0 +1,48 @@
+recreation_add_module(bethesda
+  game_profile.cc
+  plugin.cc
+  tes3.cc
+  writer.cc
+  edit_session.cc
+  raw_rewriter.cc
+  load_order.cc
+  compression.cc
+  string_writer.cc
+  bsa.cc
+  ba2.cc
+  nif.cc
+  nif_gamebryo.cc
+  hkx.cc
+  hkx_physics.cc
+  hkx_to_physics.cc
+  hkx_anim.cc
+  kf_anim.cc
+  hkx_character.cc
+  hkx_to_kinema.cc
+  animation_data.cc
+  starfield_mesh.cc
+  material_db.cc
+  biom.cc
+  planet.cc
+  movement_type.cc
+  converters.cc
+  strings.cc
+  script_attachment.cc
+  tri.cc
+  facegen.cc
+  head_morph.cc
+)
+
+target_link_libraries(recreation_bethesda PUBLIC rx::core rx::asset rx::physics kinema::kinema)
+
+# Format-reader regression tests: each parses a synthesised archive/record/mesh
+# and asserts the decoded fields, so none of them needs game data on disk.
+foreach(t
+    ba2test biomtest writertest edit_sessiontest deflatetest string_writertest
+    roundtriptest raw_rewritertest nif_fo4test nif_starfieldtest
+    starfield_skinned_meshtest material_dbtest facemorphtest bgsm_fo4test
+    dds_srgb_fo4test)
+  recreation_add_test(${t} recreation::bethesda rx::asset)
+endforeach()
+recreation_add_test(tritest recreation::bethesda)
+recreation_add_test(vmad_fo4test recreation::bethesda)

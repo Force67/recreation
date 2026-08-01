@@ -78,7 +78,7 @@ poly 0xEDB88320, no init/final xor). Verified against the shipped table:
   reports the object-graph count.
 - `engine/bethesda/converters.cc`: the load log now reports the graph count:
   `starfield material database: 77829 materials indexed (41398 via object graph)`.
-- `tools/papyrus/material_dbtest.cc`: adds a `HashResource` check (against the
+- `components/bethesda/material_dbtest.cc`: adds a `HashResource` check (against the
   verified shipped value) and a synthetic-graph round trip that wires a material
   down to its texture set and confirms it resolves by path hash. 17 checks, all
   green.

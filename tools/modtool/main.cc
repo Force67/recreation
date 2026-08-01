@@ -4,11 +4,13 @@
 // .streamignore is keeping the right files server-side before deploying. It is
 // pure tooling over the modstream catalog; it opens no socket.
 
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
 #include <cstdio>
 #include <cstring>
-#include <string>
 
-#include "modstream/mod_catalog.h"
+#include "components/modstream/mod_catalog.h"
 
 namespace {
 
@@ -18,8 +20,8 @@ void PrintUsage() {
   std::printf("  clients. Files excluded by a resource's .streamignore do not appear.\n");
 }
 
-int Inspect(const std::string& dir) {
-  std::optional<rx::modstream::ModCatalog> catalog = rx::modstream::ModCatalog::Build(dir);
+int Inspect(const base::String& dir) {
+  base::Optional<rx::modstream::ModCatalog> catalog = rx::modstream::ModCatalog::Build(dir.c_str());
   if (!catalog) {
     std::printf("modtool: cannot catalog '%s' (missing directory or an unreadable file)\n",
                 dir.c_str());
@@ -30,13 +32,13 @@ int Inspect(const std::string& dir) {
   std::printf("modtool: %s\n", dir.c_str());
   for (const rx::modstream::ModResource& resource : manifest.resources) {
     rx::u64 resource_bytes = 0;
-    for (const rx::modstream::ResourceFile& f : resource.files) resource_bytes += f.size;
+    for (const rx::modstream::ResourceFile& f : resource.files)
+      resource_bytes += f.size;
     std::printf("  resource \"%s\" (%zu files, %llu bytes)\n", resource.name.c_str(),
                 resource.files.size(), static_cast<unsigned long long>(resource_bytes));
     for (const rx::modstream::ResourceFile& f : resource.files) {
       std::printf("    %-48s %10llu  %016llx\n", f.path.c_str(),
-                  static_cast<unsigned long long>(f.size),
-                  static_cast<unsigned long long>(f.hash));
+                  static_cast<unsigned long long>(f.size), static_cast<unsigned long long>(f.hash));
     }
   }
   std::printf("  ---\n  %zu resources, %zu files, %llu bytes streamed to each client\n",
@@ -48,7 +50,8 @@ int Inspect(const std::string& dir) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc >= 3 && std::strcmp(argv[1], "inspect") == 0) return Inspect(argv[2]);
+  if (argc >= 3 && std::strcmp(argv[1], "inspect") == 0)
+    return Inspect(argv[2]);
   PrintUsage();
   return argc == 2 && std::strcmp(argv[1], "--help") == 0 ? 0 : 1;
 }
