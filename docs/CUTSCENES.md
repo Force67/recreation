@@ -158,12 +158,14 @@ procedural gait, which is authored against the builtin biped's bones.
   out along the way: the pose, the rotation, burial in the terrain (its feet are
   0.3 m above the ground), duplicate entities, physics occlusion, the
   entity/instance mapping, the renderer's per-frame bone budget, and the
-  indirect-draw command budget (`RX_ACTOR_DUMP=1` reports `1065 world + 390 actor =
-  1455 items, renderer covered 2348 commands`, so every actor draw is submitted and
-  covered). What is left is inside the renderer's own passes, in the `rx`
-  repository rather than this one; probes in its raster cull/draw loops never fire
-  for these frames, so the active pass is a different one and finding it is a
-  renderer debugging session of its own.
+  indirect-draw command budget. `RX_ACTOR_DUMP=1` reports `1065 world + 390 actor =
+  1455 items, renderer covered 2348 commands, 5016 bone matrices`: every actor draw is
+  submitted, covered by the indirect build, and inside the 8192-matrix skinning
+  palette. Temporary probes inside the renderer's own draw loops (since reverted)
+  confirm the draw arrives there with `found=true skinned=true all_blend=false` and the
+  right transform. The geometry is issued with valid inputs and lands nowhere visible,
+  which points at the skinning on the GPU side, in the `rx` repository. Chasing it
+  further needs a capture of that draw's palette rather than more engine-side logging.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as

@@ -402,9 +402,11 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         log_timer -= frame_delta;
         if (log_timer <= 0) {
           log_timer = 2.0f;
-          RX_INFO("draws: {} world + {} actor = {} items, renderer covered {} commands",
-                  draws_before_actors, view.draws.size() - draws_before_actors,
-                  view.draws.size(), renderer_->draws_total());
+          RX_INFO(
+              "draws: {} world + {} actor = {} items, renderer covered {} commands, {} bone "
+              "matrices",
+              draws_before_actors, view.draws.size() - draws_before_actors, view.draws.size(),
+              renderer_->draws_total(), view.bone_matrices.size());
         }
       }
       demos_->EmitToView(frame_delta, view);
