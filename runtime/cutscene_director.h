@@ -190,6 +190,10 @@ class CutsceneDirector {
   // Human-readable home of a scene: the interior cell its cast stands in, or the
   // exterior cell grid. Empty when none of the cast is placed.
   std::string SceneLocation(const SceneEntry& entry, const quest::SceneDef& def);
+  // The LCTN a scene plays inside (from its cast's cell), which is where a
+  // find-matching alias looks for its reference. 0 when the scene is not in a
+  // located cell.
+  u64 SceneLocationForm(const SceneEntry& entry, const quest::SceneDef& def);
   void DriveCamera(f32 dt);
   void UpdateOverlay(f32 dt);
   void RunSceneCue(u64 scene, int phase, bool on_begin, bool scene_edge);

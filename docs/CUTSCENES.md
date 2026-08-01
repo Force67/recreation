@@ -93,6 +93,7 @@ clips, packages all resolved) without a live playthrough of that quest.
 | DialogueIvarsteadSSScene | Ivarstead | 1 | 4 | 0 | Played live | Klimmek and Gwilin on the 7000 Steps |
 | DialogueRiftenMaul | Riften Maul | 1 | 1 | 1 | Played live | Maul's forcegreet scene starts and completes |
 | T01 | The Book of Love | 1 | 2 | 2 | Played live | Markarth Temple of Dibella protocol scene |
+| MS08 | In My Time Of Need | 5 | 12 | 9 | Played live | `RJBanditScene` plays in Swindlers Den with its cast framed and upright |
 | CW00SolitudeMapTableScene | Civil War council | 1 | 15 | 14 | Played live | Legate Rikke opens the war-table scene in Castle Dour ("Ulfric's planning an attack on Whiterun") and the camera takes it |
 | MQ302 | Season Unending | 26 | 178 | 170 | Content verified | Report: every scene of the peace council lowers, 170 clips resolve |
 | MQ104 | Dragon Rising | 7 | 99 | 59 | Content verified | |
@@ -137,7 +138,9 @@ procedural gait, which is authored against the builtin biped's bones.
   created objects (ALCO) bind to the instance in the world, so their scenes get a
   camera. A find-matching alias (ALFA, "any reference of this ref type inside this
   location") needs the location's ref-type table walked before it can point at
-  anyone; until then those scenes play as voice and subtitles in the gameplay view.
+  anyone; the director now hands the scene's location to the quest system's
+  find-matching fill, which covers the ones whose location carries a ref-type table,
+  and the rest still play as voice and subtitles in the gameplay view.
 * **Some staged casts are invisible.** MQ101's intro actors resolve, are enabled, are
   streamed, hold seven drawable parts and report a transform on the mountain road, yet
   nothing draws there even from a metre away (checked with `RX_SCENE_SHOT=3`). The

@@ -213,6 +213,7 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
   const quest::QuestDef* qdef = QuestDefinition(entry.quest);
   if (!qdef) return;
   std::vector<i32> unresolved;
+  std::vector<i32> find_matching;
   for (const quest::SceneActorDef& actor : def.actors) {
     const u64 key = script::papyrus::EncodeAliasHandle(entry.quest, static_cast<u32>(actor.alias));
     if (live_alias_refs_.count(key)) continue;
@@ -239,14 +240,22 @@ void CutsceneDirector::ResolveLiveCast(const SceneEntry& entry, const quest::Sce
     }
     if (from_records != 0) continue;
     unresolved.push_back(actor.alias);
+    if (adef && adef->find_matching) find_matching.push_back(actor.alias);
   }
+  // A find-matching alias names a reference type inside a location rather than a
+  // reference, so the quest system has to fill it from that location's own table of
+  // placed refs. The location is the one the scene plays in.
+  const u64 location = !find_matching.empty() ? SceneLocationForm(entry, def) : 0;
   if (unresolved.empty()) return;
   auto* binds = ctx_.bindings;
   const u64 quest = entry.quest;
   std::vector<std::pair<i32, u64>> filled =
       ctx_.scripts->guest()
-          .SubmitFor([binds, quest, unresolved](script::papyrus::VirtualMachine&) {
+          .SubmitFor([binds, quest, unresolved, location](script::papyrus::VirtualMachine&) {
             std::vector<std::pair<i32, u64>> out;
+            if (location != 0)
+              binds->FillFindMatchingAliases(script::papyrus::ObjectRef{quest},
+                                             script::papyrus::ObjectRef{location});
             for (i32 alias : unresolved) {
               const u64 handle =
                   script::papyrus::EncodeAliasHandle(quest, static_cast<u32>(alias));
@@ -600,6 +609,29 @@ u64 CutsceneDirector::FindQuestByEditorId(const std::string& editor_id) {
   return 0;
 }
 
+u64 CutsceneDirector::SceneLocationForm(const SceneEntry& entry, const quest::SceneDef& def) {
+  const quest::QuestDef* qdef = QuestDefinition(entry.quest);
+  if (!qdef || !ctx_.records) return 0;
+  for (const quest::SceneActorDef& actor : def.actors) {
+    const u64 ref = AliasReference(*qdef, actor.alias, entry.plugin);
+    if (ref == 0 || ref == kPlayerHandle) continue;
+    const bethesda::GlobalFormId id{static_cast<u16>(ref >> 32), static_cast<u32>(ref)};
+    const bethesda::GlobalFormId cell = ctx_.records->InteriorCellOfRef(id);
+    if (cell.plugin == 0xffff) continue;
+    bethesda::Record crec;
+    if (!ctx_.records->Parse(cell, &crec)) continue;
+    // XLCN: the location the cell belongs to, which is what a find-matching alias
+    // searches inside.
+    if (const u32 raw = FormAt(crec.Find(FourCc('X', 'L', 'C', 'N')))) {
+      const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(cell);
+      return ctx_.records
+          ->ResolveFrom(bethesda::RawFormId{raw}, stored ? stored->winning_plugin : entry.plugin)
+          .packed();
+    }
+  }
+  return 0;
+}
+
 std::string CutsceneDirector::SceneLocation(const SceneEntry& entry, const quest::SceneDef& def) {
   const quest::QuestDef* qdef = QuestDefinition(entry.quest);
   if (!qdef || !ctx_.records) return {};
@@ -845,8 +877,19 @@ void CutsceneDirector::DriveCamera(f32 dt) {
         // skinned instance would frame an empty spot.
         const ecs::Entity e = ctx_.quest_world->Find(ref);
         if (!actors_->HasNpcInstance(e)) continue;
-        RX_INFO("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
-                actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
+        int copies = 0;
+        Vec3 other{};
+        ctx_.world->Each<world::FormLink, world::Transform>(
+            [&](ecs::Entity dup, world::FormLink& link, world::Transform& t) {
+              if (link.form.packed() != ref) return;
+              ++copies;
+              if (dup.index != e.index) other = Vec3{t.position[0], t.position[1], t.position[2]};
+            });
+        RX_INFO(
+            "cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f}); {} entity "
+            "copies, other at ({:.0f}, {:.0f}, {:.0f})",
+            ref, actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z,
+            copies, other.x, other.y, other.z);
         subject = p.get();
         establishing = true;
         break;
