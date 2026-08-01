@@ -894,19 +894,8 @@ void CutsceneDirector::DriveCamera(f32 dt) {
         // skinned instance would frame an empty spot.
         const ecs::Entity e = ctx_.quest_world->Find(ref);
         if (!actors_->HasNpcInstance(e)) continue;
-        int copies = 0;
-        Vec3 other{};
-        ctx_.world->Each<world::FormLink, world::Transform>(
-            [&](ecs::Entity dup, world::FormLink& link, world::Transform& t) {
-              if (link.form.packed() != ref) return;
-              ++copies;
-              if (dup.index != e.index) other = Vec3{t.position[0], t.position[1], t.position[2]};
-            });
-        RX_INFO(
-            "cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f}); {} entity "
-            "copies, other at ({:.0f}, {:.0f}, {:.0f})",
-            ref, actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z,
-            copies, other.x, other.y, other.z);
+        RX_DEBUG("cutscene: establishing on 0x{:x}, {} part(s) at ({:.0f}, {:.0f}, {:.0f})", ref,
+                 actors_->NpcInstanceParts(e), speaker_head.x, speaker_head.y, speaker_head.z);
         subject = p.get();
         establishing = true;
         break;

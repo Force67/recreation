@@ -155,10 +155,15 @@ procedural gait, which is authored against the builtin biped's bones.
   ground and is handed to the renderer with the right model matrix
   (`RX_ACTOR_DUMP=1` / `RX_SKEL_DUMP=1` print it: `model t=(324.39 199.06 1361.98)`),
   yet nothing appears there, from a metre away, from above, or from any angle. Ruled
-  out along the way: the pose, the rotation, burial in the terrain, duplicate
-  entities, physics occlusion, the entity/instance mapping, and the renderer's
-  per-frame bone budget. What is left is inside the renderer's handling of that
-  draw, which lives in the `rx` repository rather than this one.
+  out along the way: the pose, the rotation, burial in the terrain (its feet are
+  0.3 m above the ground), duplicate entities, physics occlusion, the
+  entity/instance mapping, the renderer's per-frame bone budget, and the
+  indirect-draw command budget (`RX_ACTOR_DUMP=1` reports `1065 world + 390 actor =
+  1455 items, renderer covered 2348 commands`, so every actor draw is submitted and
+  covered). What is left is inside the renderer's own passes, in the `rx`
+  repository rather than this one; probes in its raster cull/draw loops never fire
+  for these frames, so the active pass is a different one and finding it is a
+  renderer debugging session of its own.
 * **The cart ride stops after its first leg.** The horse walks `MQ101CartHorse1Patrol1`
   and arrives; the next leg is gated on a journal stage that vanilla reaches with
   the player aboard the cart tripping the quest's own triggers. Riding the cart as
