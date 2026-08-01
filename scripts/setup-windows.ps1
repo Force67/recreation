@@ -31,7 +31,7 @@ $ErrorActionPreference = 'Stop'
 $RepoDir = (Resolve-Path "$PSScriptRoot\..").Path
 $DxcUrl     = 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2602.24/dxc_2026_05_27.zip'
 $SlangUrl   = 'https://github.com/shader-slang/slang/releases/download/v2026.14.1/slang-2026.14.1-windows-x86_64.zip'
-$GlslangUrl = 'https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-master-windows-Release.zip'
+$GlslangUrl = 'https://github.com/KhronosGroup/glslang/releases/download/main-tot/glslang-main-windows-x86_64-release.zip'
 $ToolsDir   = Join-Path $RepoDir 'third_party\winbin'
 $InCI       = [bool]$env:GITHUB_PATH
 
