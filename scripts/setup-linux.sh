@@ -5,12 +5,13 @@
 # compiler, the fetched third-party deps and the sibling repos, then a doctor
 # report of anything still missing. Safe to re-run.
 #
-# Usage: scripts/setup-linux.sh [--check] [--system] [--dxc] [--deps]
+# Usage: scripts/setup-linux.sh [--check] [--system] [--dxc] [--slang] [--deps]
 #                               [--minimal] [-y]
 #   (no flags)   do everything
 #   --check      report only, change nothing
 #   --system     install system packages (apt)
 #   --dxc        install the DirectX Shader Compiler
+#   --slang      install the Slang shader compiler (rx embeds .slang shaders)
 #   --deps       fetch third-party deps + clone sibling repos
 #   --minimal    system: toolchain only, skip the GUI/X11/Wayland stack
 #                (used by the headless android cross-build)
@@ -20,6 +21,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 DXC_TAG="${DXC_TAG:-v1.9.2602.24}"
 DXC_LINUX_X64_ASSET="linux_dxc_2026_05_26.x86_64.tar.gz"
+SLANG_TAG="${SLANG_TAG:-v2026.14.1}"
 ARCH="$(uname -m)"
 
 # ---- packages -------------------------------------------------------------
@@ -90,6 +92,27 @@ build_dxc_from_source() {
   ok "dxc built and installed to /usr/local"
 }
 
+# ---- slang ----------------------------------------------------------------
+# rx compiles its .slang shaders with slangc (CMake finds it as RX_SLANGC), so
+# configure fails outright without it. Upstream ships prebuilt binaries for
+# both linux arches, laid out like the dxc tarball.
+do_slang() {
+  if have slangc; then ok "slangc already on PATH ($(command -v slangc))"; return 0; fi
+  local slang_arch
+  case "$ARCH" in
+    x86_64|amd64)  slang_arch=x86_64 ;;
+    aarch64|arm64) slang_arch=aarch64 ;;
+    *) blocker "unknown arch '$ARCH' - install slangc manually"; return 0 ;;
+  esac
+  log "installing prebuilt slang $SLANG_TAG"
+  curl -fsSL \
+    "https://github.com/shader-slang/slang/releases/download/$SLANG_TAG/slang-${SLANG_TAG#v}-linux-$slang_arch.tar.gz" \
+    | $SUDO tar -xz -C /usr/local
+  $SUDO chmod +x /usr/local/bin/slangc
+  $SUDO ldconfig
+  ok "slangc installed to /usr/local"
+}
+
 # ---- third-party + siblings ----------------------------------------------
 do_thirdparty() {
   log "fetching third-party dependencies"
@@ -129,6 +152,7 @@ do_doctor() {
   if [ "${MINIMAL:-0}" != "1" ]; then
     check_tool pkg-config "pkg-config" "apt install pkg-config"
     check_tool dxc "dxc" "run: scripts/setup-linux.sh --dxc"
+    check_tool slangc "slangc" "run: scripts/setup-linux.sh --slang"
     if have glslang || have glslangValidator; then ok "glslang"
     else blocker "glslang missing - apt install glslang-tools"; fi
     if have pkg-config && pkg-config --exists freetype2 harfbuzz; then ok "freetype + harfbuzz"
@@ -145,12 +169,13 @@ do_doctor() {
 }
 
 # ---- arg parsing ----------------------------------------------------------
-DO_SYS=0 DO_DXC=0 DO_TP=0 DO_SIB=0 CHECK_ONLY=0 MINIMAL=0 ANY=0
+DO_SYS=0 DO_DXC=0 DO_SLANG=0 DO_TP=0 DO_SIB=0 CHECK_ONLY=0 MINIMAL=0 ANY=0
 for a in "$@"; do
   case "$a" in
     --check)    CHECK_ONLY=1 ;;
     --system)   DO_SYS=1; ANY=1 ;;
     --dxc)      DO_DXC=1; ANY=1 ;;
+    --slang)    DO_SLANG=1; ANY=1 ;;
     --deps)     DO_TP=1; DO_SIB=1; ANY=1 ;;
     --minimal)  MINIMAL=1 ;;
     -y|--yes)   ASSUME_YES=1 ;;
@@ -164,10 +189,11 @@ if [ "$CHECK_ONLY" = "1" ]; then do_doctor; print_report; exit $?; fi
 # Default (no action flag) means a full developer setup; granular flags (as CI
 # uses) run just that step and skip the doctor, which expects the full layout.
 DEFAULT_ALL=0
-if [ "$ANY" = "0" ]; then DO_SYS=1 DO_DXC=1 DO_TP=1 DO_SIB=1; DEFAULT_ALL=1; fi
+if [ "$ANY" = "0" ]; then DO_SYS=1 DO_DXC=1 DO_SLANG=1 DO_TP=1 DO_SIB=1; DEFAULT_ALL=1; fi
 
 [ "$DO_SYS" = "1" ] && do_system
 [ "$DO_DXC" = "1" ] && [ "$MINIMAL" != "1" ] && do_dxc
+[ "$DO_SLANG" = "1" ] && do_slang
 [ "$DO_TP"  = "1" ] && do_thirdparty
 [ "$DO_SIB" = "1" ] && do_siblings
 if [ "$DEFAULT_ALL" = "1" ]; then do_doctor; print_report || true; fi
