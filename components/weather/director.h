@@ -63,6 +63,10 @@ class Director {
 
   // Aurora is Skyrim's; other games gate it off here rather than in the defs.
   void set_aurora_allowed(bool allowed) { aurora_allowed_ = allowed; }
+  // Drives rx's volumetric cloudscape deck from the weather instead of the
+  // legacy coverage scalar. Off leaves RenderSettings::cloudscape alone.
+  void set_cloudscape(bool enabled) { cloudscape_ = enabled; }
+  bool cloudscape() const { return cloudscape_; }
   // The renderer's aerial-perspective baseline the aerosol haze scales.
   void set_ap_base(f32 ap_base) { ap_base_ = ap_base; }
   // RX_LIGHTNING: holds the flash scalar at a fixed level (strikes still run).
@@ -101,6 +105,7 @@ class Director {
   void ResolveRegion(const Tick& tick);
   void UpdateIntegrators(const Tick& tick);
   void UpdateStrikes(const Tick& tick, render::WeatherSettings* out);
+  void UpdateCloudscape(const Tick& tick, render::RenderSettings* sky);
   void UpdateAudio(const Tick& tick);
   void UpdateBed(Bed* bed, const base::String& target_path, f32 target_gain, f32 frame_delta);
   // The def whose sounds play right now: the dominant side of the cross-fade.
@@ -120,6 +125,10 @@ class Director {
   WeatherState current_;
 
   bool aurora_allowed_ = false;
+  bool cloudscape_ = false;
+  // World-space scroll of the weather map, integrated from the wind so
+  // formations keep travelling across weather changes.
+  Vec2 cloud_map_offset_{0, 0};
   f32 ap_base_ = 1.0f;
   base::Optional<f32> flash_pin_;
 

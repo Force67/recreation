@@ -235,6 +235,60 @@ int main() {
           s.weather.aurora && s.weather.aurora_intensity > 0.9f);
   }
 
+  // Cloudscape deck: off by default, and when on the two map endpoints track
+  // the weather system's settled/target pair so the deck cross-fades with the
+  // weather rather than popping.
+  {
+    Director d;
+    d.SetContent({{Make(WeatherDef::Kind::kRainy), 1}}, {}, 11);
+    rx::render::RenderSettings s;
+    Tick t;
+    t.frame_delta = 0.016f;
+    t.timescale = 1.0f;
+    d.Update(t, &s.weather, &s);
+    check("cloudscape stays off unless asked for", !s.cloudscape);
+
+    d.set_cloudscape(true);
+    d.Update(t, &s.weather, &s);
+    const auto& cloud = s.cloudscape_controls;
+    check("cloudscape deck enabled", s.cloudscape);
+    check("storm deck reads as cumulonimbus", cloud.map_a.cloud_type > 0.9f);
+    check("storm deck is anvil-heavy", cloud.anvil > 0.5f && cloud.darkness > 0.2f);
+    check("storm deck towers", cloud.top - cloud.bottom > 8000.0f);
+    check("storm deck carries the precipitation into the map", cloud.map_a.precipitation > 0.5f);
+    check("ground haze picks up the weather's aerosol", cloud.fog_density > 0.0f);
+
+    // The map scrolls with the wind instead of sitting still.
+    const rx::Vec2 before = cloud.map_offset;
+    for (int i = 0; i < 60; ++i)
+      d.Update(t, &s.weather, &s);
+    const rx::Vec2 after = s.cloudscape_controls.map_offset;
+    check("weather map advects downwind",
+          std::abs(after.x - before.x) + std::abs(after.y - before.y) > 0.0f);
+  }
+
+  // A clear sky and a storm must not describe the same deck, or the weather
+  // would only change the coverage number.
+  {
+    Director clear, storm;
+    clear.SetContent({{Make(WeatherDef::Kind::kPleasant), 1}}, {}, 3);
+    storm.SetContent({{Make(WeatherDef::Kind::kRainy), 1}}, {}, 3);
+    clear.set_cloudscape(true);
+    storm.set_cloudscape(true);
+    rx::render::RenderSettings sc, ss;
+    Tick t;
+    t.frame_delta = 0.016f;
+    t.timescale = 1.0f;
+    clear.Update(t, &sc.weather, &sc);
+    storm.Update(t, &ss.weather, &ss);
+    check("fair weather sits far below the storm anvil",
+          sc.cloudscape_controls.top < ss.cloudscape_controls.top);
+    check("fair weather is not menacing",
+          sc.cloudscape_controls.darkness < ss.cloudscape_controls.darkness);
+    check("fair weather is calmer",
+          sc.cloudscape_controls.turbulence < ss.cloudscape_controls.turbulence);
+  }
+
   std::printf("\n%s (%d failures)\n", failures ? "FAILED" : "PASSED", failures);
   return failures ? 1 : 0;
 }

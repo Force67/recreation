@@ -46,6 +46,16 @@ void WeatherDef::DeriveFromKind() {
     case Kind::kPleasant:
       cloud_coverage = 0.18f;
       cloud_density = 1.0f;
+      // Fair-weather cumulus: bases on the condensation level, modest tops.
+      cloud_type = 0.85f;
+      storminess = 0.0f;
+      darkness = 0.0f;
+      base_altitude = 1500.0f;
+      top_altitude = 4000.0f;
+      turbulence = 0.7f;
+      vertical_skew = 500.0f;
+      fog_height = 70.0f;
+      fog_churn = 0.10f;
       aerosol = 0.0f;
       light_scale = 1.0f;
       light_tint = {1, 1, 1};
@@ -58,6 +68,16 @@ void WeatherDef::DeriveFromKind() {
     case Kind::kCloudy:
       cloud_coverage = 0.55f;
       cloud_density = 1.0f;
+      // Stratocumulus deck: lower, flatter and broader than fair-weather cumulus.
+      cloud_type = 0.45f;
+      storminess = 0.05f;
+      darkness = 0.05f;
+      base_altitude = 1000.0f;
+      top_altitude = 2600.0f;
+      turbulence = 0.9f;
+      vertical_skew = 600.0f;
+      fog_height = 90.0f;
+      fog_churn = 0.15f;
       aerosol = 0.15f;
       light_scale = 0.72f;
       light_tint = {0.95f, 0.96f, 1.0f};
@@ -70,6 +90,16 @@ void WeatherDef::DeriveFromKind() {
     case Kind::kRainy:
       cloud_coverage = 0.92f;
       cloud_density = 1.4f;
+      // Cumulonimbus: a low base under a towering anvil, dark and churning.
+      cloud_type = 1.0f;
+      storminess = 0.85f;
+      darkness = 0.55f;
+      base_altitude = 700.0f;
+      top_altitude = 11000.0f;
+      turbulence = 1.5f;
+      vertical_skew = 1400.0f;
+      fog_height = 120.0f;
+      fog_churn = 0.45f;
       aerosol = 0.40f;
       light_scale = 0.42f;
       light_tint = {0.80f, 0.85f, 0.95f};
@@ -83,6 +113,16 @@ void WeatherDef::DeriveFromKind() {
     case Kind::kSnow:
       cloud_coverage = 0.85f;
       cloud_density = 1.2f;
+      // Nimbostratus: a thick, featureless ceiling sitting low over the ground.
+      cloud_type = 0.2f;
+      storminess = 0.15f;
+      darkness = 0.3f;
+      base_altitude = 600.0f;
+      top_altitude = 3500.0f;
+      turbulence = 1.1f;
+      vertical_skew = 900.0f;
+      fog_height = 140.0f;
+      fog_churn = 0.25f;
       aerosol = 0.45f;
       light_scale = 0.60f;
       light_tint = {0.92f, 0.95f, 1.0f};
@@ -99,6 +139,15 @@ WeatherState ToState(const WeatherDef& d) {
   WeatherState s;
   s.cloud_coverage = d.cloud_coverage;
   s.cloud_density = d.cloud_density;
+  s.cloud_type = d.cloud_type;
+  s.storminess = d.storminess;
+  s.darkness = d.darkness;
+  s.base_altitude = d.base_altitude;
+  s.top_altitude = d.top_altitude;
+  s.turbulence = d.turbulence;
+  s.vertical_skew = d.vertical_skew;
+  s.fog_height = d.fog_height;
+  s.fog_churn = d.fog_churn;
   s.aerosol = d.aerosol;
   s.wind = d.wind;
   s.light_scale = d.light_scale;
@@ -118,6 +167,15 @@ WeatherState Lerp(const WeatherState& a, const WeatherState& b, f32 t) {
   WeatherState s;
   s.cloud_coverage = LerpF(a.cloud_coverage, b.cloud_coverage, t);
   s.cloud_density = LerpF(a.cloud_density, b.cloud_density, t);
+  s.cloud_type = LerpF(a.cloud_type, b.cloud_type, t);
+  s.storminess = LerpF(a.storminess, b.storminess, t);
+  s.darkness = LerpF(a.darkness, b.darkness, t);
+  s.base_altitude = LerpF(a.base_altitude, b.base_altitude, t);
+  s.top_altitude = LerpF(a.top_altitude, b.top_altitude, t);
+  s.turbulence = LerpF(a.turbulence, b.turbulence, t);
+  s.vertical_skew = LerpF(a.vertical_skew, b.vertical_skew, t);
+  s.fog_height = LerpF(a.fog_height, b.fog_height, t);
+  s.fog_churn = LerpF(a.fog_churn, b.fog_churn, t);
   s.aerosol = LerpF(a.aerosol, b.aerosol, t);
   s.wind = LerpF(a.wind, b.wind, t);
   s.light_scale = LerpF(a.light_scale, b.light_scale, t);
