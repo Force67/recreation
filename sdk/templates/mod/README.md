@@ -19,7 +19,7 @@ against a pinned SDK version.
    ```sh
    cp bin/Release/net9.0/MyMod.dll  "$RECREATION_MODS_DIR/"
    ```
-   Or place it in a server resource so it streams to players (see `MODDING.md`).
+   Or place it in a server resource so it streams to players.
 
 Pin the SDK `Version` in `MyMod.csproj`. Your mod keeps working across engine
 updates until the next **major** SDK bump. The SDK reference is compile-time only,

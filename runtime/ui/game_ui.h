@@ -235,8 +235,8 @@ struct MainMenuStats {
   int universes_available = 0;  // detected, playable universes
 };
 
-// One entry on the menu's NEWS rail, parsed from CHANGELOG.md: a short headline
-// and a detail line (version + date).
+// One entry on the menu's NEWS rail: a short headline and a detail line
+// (version + date).
 struct MenuNewsItem {
   base::String title;
   base::String detail;
@@ -490,7 +490,7 @@ class GameUi {
   void SetMainMenuGlyph(const base::String& widget, u64 texture);
   void SetMainMenuStats(const MainMenuStats& stats);
   void SetMainMenuMods(const base::Vector<base::String>& mods);
-  // The NEWS rail entries (most-recent first), parsed from CHANGELOG.md.
+  // The NEWS rail entries, most-recent first.
   void SetMainMenuNews(const base::Vector<MenuNewsItem>& news);
   // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
   int selected_universe() const;

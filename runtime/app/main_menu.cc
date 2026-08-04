@@ -11,8 +11,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <string>
 
 #include "runtime/app/engine.h"
 
@@ -136,48 +134,6 @@ void ResolveUniverses(Engine& engine) {
   }
 }
 
-// Parse the top `max_items` releases from a Keep-a-Changelog file into NEWS
-// entries: each release's first bullet is the headline, and "v<ver> · <date>"
-// is the detail line. Returns empty if the file is missing.
-static base::Vector<MenuNewsItem> ParseChangelog(const base::String& path, int max_items) {
-  base::Vector<MenuNewsItem> out;
-  std::ifstream f(path.c_str());
-  if (!f)
-    return out;
-  auto trim = [](base::String s) {
-    const size_t a = s.find_first_not_of(" \t\r\n");
-    const size_t b = s.find_last_not_of(" \t\r\n");
-    return a == base::String::npos ? base::String() : s.substr(a, b - a + 1);
-  };
-  base::String ver, date;
-  bool want_bullet = false;
-  // std::getline fills a std::string; each line is copied into a base::String.
-  std::string source;
-  while (std::getline(f, source)) {
-    const base::String line(source.c_str(), source.size());
-    if (line.rfind("## ", 0) == 0) {  // release header: "## [x.y.z] - date"
-      ver.clear();
-      date.clear();
-      const size_t lb = line.find('['), rb = line.find(']');
-      if (lb != base::String::npos && rb != base::String::npos && rb > lb)
-        ver = line.substr(lb + 1, rb - lb - 1);
-      const size_t d = line.find("- ", rb == base::String::npos ? 0 : rb);
-      if (d != base::String::npos)
-        date = trim(line.substr(d + 2));
-      want_bullet = true;
-    } else if (want_bullet && line.rfind("- ", 0) == 0) {  // first change = headline
-      MenuNewsItem it;
-      it.title = trim(line.substr(2));
-      it.detail = ver.empty() ? date : ("v" + ver + (date.empty() ? "" : "  \xc2\xb7  " + date));
-      out.push_back(base::move(it));
-      want_bullet = false;
-      if (static_cast<int>(out.size()) >= max_items)
-        break;
-    }
-  }
-  return out;
-}
-
 void SetupMainMenu(Engine& engine) {
   Engine* const self = &engine;
   self->main_menu_active_ = true;
@@ -190,10 +146,7 @@ void SetupMainMenu(Engine& engine) {
   }
   self->game_ui_.SetMainMenuUniverses(names, avail);
   self->game_ui_.OpenMainMenu();
-  base::Vector<MenuNewsItem> news = ParseChangelog("CHANGELOG.md", 3);
-  if (news.empty())
-    news = {{"Welcome to Recreation", "v" RECREATION_VERSION}};
-  self->game_ui_.SetMainMenuNews(news);
+  self->game_ui_.SetMainMenuNews({{"Welcome to Recreation", "v" RECREATION_VERSION}});
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
   RX_INFO("nexus main menu open");

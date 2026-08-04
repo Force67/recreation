@@ -1894,7 +1894,7 @@ void GameUi::Impl::ApplyMainMenu() {
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
-  // NEWS rail: pooled rows filled from CHANGELOG.md (most-recent first).
+  // NEWS rail: pooled rows, most-recent first.
   for (int i = 0; i < kMenuNewsRows; ++i) {
     const base::String id = base::ToString(i);
     const bool on = i < static_cast<int>(mm_news.size());

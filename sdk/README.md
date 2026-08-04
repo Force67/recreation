@@ -42,8 +42,7 @@ dotnet build -c Release                                  # in your mod folder
 cp bin/Release/net9.0/MyMod.dll "$RECREATION_MODS_DIR/"
 ```
 
-Pin a version and your mod keeps working until the next major SDK bump. The
-streaming and multiplayer side of modding lives in `MODDING.md`.
+Pin a version and your mod keeps working until the next major SDK bump.
 
 ## Default gamemodes
 

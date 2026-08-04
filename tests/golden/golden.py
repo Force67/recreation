@@ -17,10 +17,9 @@ Typical use:
   python3 tests/golden/golden.py --profile loose
 
 Reference sets are per-GPU-stack: images from different drivers/rasterizers
-are not comparable at golden tolerances. --refs selects the set; the default
-tests/golden/refs holds the primary (NVIDIA vkrun) baseline. A scene without
-a reference runs in smoke mode instead of failing, so a fresh platform can
-bootstrap by uploading its captures and promoting them with --update.
+are not comparable at golden tolerances. --refs selects the set, defaulting
+to tests/golden/refs. A scene without a reference runs in smoke mode instead
+of failing, so a platform bootstraps by capturing and promoting with --update.
 """
 
 import argparse

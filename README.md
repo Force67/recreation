@@ -10,19 +10,23 @@ networking) only knows engine formats.
 
 ## Layout
 
+The engine itself (core, ECS, asset formats, Vulkan renderer, networking) lives
+in the sibling `rx` repo. This repo is the Bethesda content layer and the game
+runtime on top of it.
+
 | Module | Purpose |
 | --- | --- |
-| `engine/core` | platform, logging, jobs, timing, window |
-| `engine/ecs` | archetype based ECS, written from scratch |
-| `engine/asset` | engine native asset formats, VFS, asset database |
-| `engine/render` | Vulkan RHI, render graph, TAA, upscalers, raytracing |
-| `engine/bethesda` | ESM/ESL/BSA/BA2/NIF readers and converters |
-| `engine/world` | cell streaming and gameplay components |
-| `engine/net` | server authoritative replication of ECS state |
-| `engine/modstream` | content-addressed mod catalog, cache and Vfs mount |
-| `engine/rpc` | typed scripting RPC value, wire codec and registry |
-| `engine/script` | scripting host, per game Papyrus adapters |
-| `runtime` | entry point and main loop |
+| `components/bethesda` | ESM/ESL/BSA/BA2/NIF readers and converters |
+| `components/world` | cell streaming and gameplay components |
+| `components/quest` | quest definitions, stages, objectives and tracking |
+| `components/dialogue` | dialogue topics, responses and scene playback |
+| `components/audio` | ambient beds and sound catalog |
+| `components/weather` | WTHR/CLMT climate selection driving the physical sky |
+| `components/script` | scripting host, per game Papyrus and Obscript adapters |
+| `components/modstream` | content-addressed mod catalog, cache and Vfs mount |
+| `components/gamenet` | game side replication over rx's net layer |
+| `runtime` | entry point, main loop, UI, editor, actors |
+| `sdk` | C# modding and multiplayer platform |
 | `tools` | offline tooling |
 
 ### Terrain editing
@@ -32,16 +36,13 @@ The in-game map editor's Terrain tool writes a compact non-destructive
 Raise, lower, smooth, and flatten strokes update streamed LAND meshes, ground
 queries, and colliders live, with each drag grouped into one undo operation.
 
-![Recreation LAND height editing over streamed Skyrim content](docs/images/terrain-editor.png)
-
 Terrain and object layout data load on first editor entry and save together with
 F5 or the Save toolbar button. Set `REC_TERRAIN_EDITS` to choose the diff path;
 otherwise it sits beside `editor_layout.reclayout` with a world-specific
 `editor_layout.<world>_<hash>.recterrain` name. The binary format and
-source-fingerprint rules are documented in
-[`components/world/README.md`](components/world/README.md). For automated captures or a
-terrain-first authoring session, `RX_EDITOR=1` opens the editor at startup and
-`RX_EDITOR_TERRAIN=1` selects the Raise tool.
+source-fingerprint rules live in `components/world/terrain_edits.h`. For
+automated captures or a terrain-first authoring session, `RX_EDITOR=1` opens the
+editor at startup and `RX_EDITOR_TERRAIN=1` selects the Raise tool.
 
 ## Building
 
@@ -90,7 +91,7 @@ driver are found. `nix build` produces a hermetic build from the same pins.
 Mod compatibility follows the same rules the original games use. Plugins merge
 records with last loaded winning, loose files override archives, and mount
 order in the VFS decides priority. Papyrus is game specific and handled by per
-game adapters in `engine/script`.
+game adapters in `components/script`.
 
 ### Multiplayer asset streaming
 
@@ -141,5 +142,5 @@ authoritative gameplay stays on the server while client mods handle UI, local
 effects and `Rpc.Emit` requests. Authoritative mutations a client mod attempts
 are gated, so it cannot diverge from the server.
 
-See [MODDING.md](MODDING.md) for a complete worked example: a streamed resource, a
-server mod and a client mod, wired together.
+`sdk/templates/mod` is a buildable starting point, and `sdk/README.md` covers the
+managed API surface.
