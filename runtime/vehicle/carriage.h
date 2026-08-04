@@ -25,7 +25,7 @@ class ActorSystem;
 // Content: the carriage body renders from the Skyrim carriage NIF when the data
 // is mounted (else a graybox box), and the wheels are engine-drawn cylinders at
 // the physics wheel transforms; the horse uses the creature rig (else a graybox
-// body). Nothing here requires game data — with none present the whole rig is
+// body). Nothing here requires game data; with none present the whole rig is
 // graybox and still simulates.
 class CarriageSystem {
  public:

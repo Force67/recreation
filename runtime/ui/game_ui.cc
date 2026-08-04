@@ -2721,7 +2721,7 @@ void GameUi::Build(Window& window,
   }
 
   // Size the UI canvas to the actual backbuffer (swapchain) extent, not the
-  // window size — they differ on HiDPI / when the swapchain is clamped, which
+  // window size; they differ on HiDPI / when the swapchain is clamped, which
   // otherwise lays the menu out over only part of the screen (a black bar).
   const float fb_w = static_cast<float>(renderer.output_width());
   const float fb_h = static_cast<float>(renderer.output_height());

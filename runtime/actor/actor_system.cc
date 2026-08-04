@@ -70,7 +70,7 @@ static base::Option<bool> UseKinema{"anim.kinema", true, "RX_KINEMA"};
 static base::Option<bool> Mq101Scene{"mq101.scene", false, "RX_MQ101_SCENE"};
 
 // rec's Vec3/Quat share layout with kinema's (x,y,z / x,y,z,w), so a bone-space
-// SkeletonPose can back a kinema PoseView with no copy — the inertializer and
+// SkeletonPose can back a kinema PoseView with no copy; the inertializer and
 // additive layering work directly on actor.pose's arrays.
 static_assert(sizeof(Vec3) == sizeof(kinema::Vec3), "Vec3 layout mismatch");
 static_assert(sizeof(Quat) == sizeof(kinema::Quat), "Quat layout mismatch");
@@ -1351,7 +1351,7 @@ void ActorSystem::UpdateLocomotion(Actor& actor, f32 dt) {
   actor.loco_prev_phase = phase;
 
   // Root motion: the machine's transition-blended, loop-aware delta (game units,
-  // Z-up) into engine space (Y-up, metres) and the actor's facing — the same
+  // Z-up) into engine space (Y-up, metres) and the actor's facing, the same
   // basis the direct-clip path uses. Only for showcase actors; capsule-driven
   // gameplay actors keep their controller-owned position.
   if (actor.loco_apply_root && !PinRoot) {
@@ -1665,7 +1665,7 @@ void ActorSystem::UpdateOneActor(Actor& actor, f32 dt) {
   }
 
   // Additive layer (RX_KINEMA path): compose the baked additive (delta) clip onto
-  // the pose the base state produced, over the whole skeleton — untouched bones
+  // the pose the base state produced, over the whole skeleton; untouched bones
   // carry an identity delta so ApplyAdditive leaves them unchanged (item 5).
   if (use_kinema && actor.additive_baked && *actor.additive_baked) {
     const kinema::Clip* add = actor.additive_baked->get();

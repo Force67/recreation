@@ -1079,7 +1079,7 @@ static NifConversion ConvertNifImpl(ByteSpan data,
       } else if (type == "NiLODNode" && !node.children.empty()) {
         // Distance-switched detail levels (children[i] pairs with lod range i,
         // child 0 starting at the camera). Without this every level would render
-        // stacked. It's 2026 — always keep the finest (child 0).
+        // stacked. Keep the finest (child 0); distance downgrade is opt-in.
         i32 finest = node.children[0];
         node.children.clear();
         node.children.push_back(finest);

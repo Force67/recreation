@@ -398,7 +398,7 @@ inline float Smooth(float e0, float e1, float x) {
   return t * t * (3.f - 2.f * t);
 }
 
-// Deterministic value hash in [0,1) — the only randomness the painter uses.
+// Deterministic value hash in [0,1), the only randomness the painter uses.
 inline float Hash2(int x, int y, int seed) {
   u32 h = static_cast<u32>(x) * 374761393u + static_cast<u32>(y) * 668265263u +
           static_cast<u32>(seed) * 2654435761u;
@@ -443,7 +443,7 @@ base::Vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
       const float u = fx / (fw - 1.f);
       Rgb c{0.f, 0.f, 0.f};
 
-      // One cohesive dark field shared by all three panes — only a soft,
+      // One cohesive dark field shared by all three panes; only a soft,
       // universe-tinted glow behind the hero object differs, so the panes read as
       // a single continuous atmosphere rather than three coloured boxes.
       const Rgb base0{0.022f, 0.029f, 0.044f}, base1{0.044f, 0.056f, 0.080f};
@@ -479,7 +479,7 @@ base::Vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
 // A tiny anti-aliased vector-glyph toolkit. The menu's emblems (the NEXUS star,
 // the per-universe marks, the profile sigil, the social icons) are line art that
 // rectangles can't express, so they are painted per pixel into transparent RGBA8
-// and bound to image widgets. Original geometry — nothing is traced from a real
+// and bound to image widgets. Original geometry; nothing is traced from a real
 // logo, so the front screen stays non-infringing.
 // ---------------------------------------------------------------------------
 struct Glyph {
@@ -598,13 +598,13 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     return out.back().second;
   };
 
-  {  // gl_logo — a three-peak range
+  {  // gl_logo: a three-peak range
     Glyph& g = make("gl_logo", 60, 42);
     GTri(g, 2, 40, 16, 18, 30, 40, light);
     GTri(g, 15, 40, 30, 8, 45, 40, light);
     GTri(g, 31, 40, 45, 20, 58, 40, light);
   }
-  {  // gl_nexus — an eight-ray spark with a cool glow (the central wordmark mark)
+  {  // gl_nexus: an eight-ray spark with a cool glow (the central wordmark mark)
     Glyph& g = make("gl_nexus", 96, 96);
     GGlow(g, 48, 48, 46, Rgb{0.45f, 0.62f, 0.95f}, 0.10f);
     GGlow(g, 48, 48, 26, star, 0.16f);
@@ -618,7 +618,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GTri(g, 28, 68, 50.1f, 50.1f, 45.9f, 45.9f, star);
     GDisc(g, 48, 48, 3.4f, star);
   }
-  {  // gl_skyrim — an angular downward crest
+  {  // gl_skyrim: an angular downward crest
     Glyph& g = make("gl_skyrim", 60, 44);
     GLine(g, 8, 8, 52, 8, 2.4f, light);
     GLine(g, 8, 8, 30, 40, 2.4f, light);
@@ -627,7 +627,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GLine(g, 18, 8, 30, 22, 1.7f, light);
     GLine(g, 42, 8, 30, 22, 1.7f, light);
   }
-  {  // gl_fallout — an atom (three orbits + nucleus)
+  {  // gl_fallout: an atom (three orbits + nucleus)
     Glyph& g = make("gl_fallout", 64, 64);
     GRing(g, 32, 32, 6, 2.0f, light);
     GEllipse(g, 32, 32, 26, 9, 0.0f, 1.8f, light);
@@ -635,12 +635,12 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GEllipse(g, 32, 32, 26, 9, 2.0944f, 1.8f, light);
     GDisc(g, 32, 32, 3.0f, light);
   }
-  {  // gl_starfield — a ringed point (a constellation marker)
+  {  // gl_starfield: a ringed point (a constellation marker)
     Glyph& g = make("gl_starfield", 52, 52);
     GRing(g, 26, 26, 18, 2.2f, light);
     GDisc(g, 26, 26, 3.4f, light);
   }
-  {  // gl_profile — an interlaced four-fold sigil
+  {  // gl_profile: an interlaced four-fold sigil
     Glyph& g = make("gl_profile", 104, 104);
     GRing(g, 52, 52, 48, 3.0f, tan);
     GRing(g, 52, 52, 40, 1.6f, tan);
@@ -652,7 +652,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
       GRing(g, 52 + 28 * std::cos(a), 52 + 28 * std::sin(a), 12, 1.6f, tan);
     }
   }
-  {  // gl_peers — two figures
+  {  // gl_peers: two figures
     Glyph& g = make("gl_peers", 52, 36);
     GDisc(g, 34, 13, 5, dim);
     GDisc(g, 34, 40, 11, dim);
@@ -667,7 +667,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GLine(g, 9, 14, 35, 14, 1.3f, light);
     GLine(g, 9, 30, 35, 30, 1.3f, light);
   }
-  {  // gl_discord — a community/chat bubble (generic, not a brand mark)
+  {  // gl_discord: a community/chat bubble (generic, not a brand mark)
     Glyph& g = make("gl_discord", 48, 38);
     GLine(g, 9, 7, 39, 7, 1.8f, light);
     GLine(g, 9, 27, 30, 27, 1.8f, light);
@@ -677,7 +677,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GDisc(g, 19, 17, 2.2f, light);
     GDisc(g, 29, 17, 2.2f, light);
   }
-  {  // gl_changelog — a document
+  {  // gl_changelog: a document
     Glyph& g = make("gl_changelog", 40, 44);
     GLine(g, 10, 6, 30, 6, 1.8f, light);
     GLine(g, 10, 38, 30, 38, 1.8f, light);
@@ -687,7 +687,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
     GLine(g, 14, 22, 26, 22, 1.5f, light);
     GLine(g, 14, 29, 22, 29, 1.5f, light);
   }
-  {  // gl_up — a thin up chevron (bottom tagline ornament)
+  {  // gl_up: a thin up chevron (bottom tagline ornament)
     Glyph& g = make("gl_up", 32, 18);
     GLine(g, 4, 14, 16, 4, 2.0f, dim);
     GLine(g, 28, 14, 16, 4, 2.0f, dim);
@@ -705,7 +705,7 @@ base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
 }
 
 // ---------------------------------------------------------------------------
-// Procedural hero mesh — a single faceted gem rendered to a clay preview by the
+// Procedural hero mesh: a single faceted gem rendered to a clay preview by the
 // Thumbnailer and composited at the centre of the menu as the key art.
 // ---------------------------------------------------------------------------
 struct V3 {
@@ -736,7 +736,7 @@ void PushVert(asset::MeshLod& m, V3 p, V3 n) {
   m.vertices.push_back(v);
 }
 // Flat-shaded triangle; winding auto-flipped to face away from the origin
-// (valid for shapes that are star-shaped about the origin — crystal, cog).
+// (valid for shapes that are star-shaped about the origin: crystal, cog).
 void FaceTri(asset::MeshLod& m, V3 a, V3 b, V3 c) {
   V3 n = Vnorm(Vcross(Vsub(b, a), Vsub(c, a)));
   const V3 cen{(a.x + b.x + c.x) / 3.f, (a.y + b.y + c.y) / 3.f, (a.z + b.z + c.z) / 3.f};
@@ -767,7 +767,7 @@ asset::Mesh Finalize(asset::MeshLod&& lod) {
   return mesh;
 }
 
-// A faceted icosphere — the menu's single hero centerpiece. `subdiv` levels of
+// A faceted icosphere, the menu's single hero centerpiece. `subdiv` levels of
 // midpoint subdivision on an icosahedron (flat-shaded for a crisp gem look).
 asset::Mesh MakeGem(int subdiv, float radius) {
   const float t = 1.6180340f;
@@ -815,7 +815,7 @@ void Engine::GenerateMenuBackdrops() {
       RX_INFO("menu backdrop {} painted ({}x{})", GameSlug(menu_universes_[i].game), W, H);
     }
   }
-  // Emblems / icons — line art bound to the menu's image widgets.
+  // Emblems / icons: line art bound to the menu's image widgets.
   for (const auto& [name, g] : BuildMenuGlyphs()) {
     const u64 tex = game_ui_.CreateUiTexture(g.w, g.h, g.px.data());
     if (!tex)

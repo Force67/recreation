@@ -214,7 +214,7 @@ class ActorSystem {
     f32 loco_debug_t = 0;
     // Apply the machine's root motion to the entity transform (showcase/bringup
     // actors). False for capsule-driven gameplay actors, whose position is owned
-    // by the character controller — the machine only poses them.
+    // by the character controller; the machine only poses them.
     bool loco_apply_root = false;
     // Additive layer (RX_ANIM_ADDITIVE): a clip baked into a kinema additive
     // (delta) clip in skeleton space at load time, composed onto the base pose
