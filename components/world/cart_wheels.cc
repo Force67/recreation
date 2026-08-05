@@ -21,6 +21,9 @@ constexpr f32 kMaxOvality = 0.30f;    // difference between the two round extent
 // Vertices this close together are the same point. Material seams duplicate
 // them, and a wheel cut across two materials has to weld back into one island.
 constexpr f32 kWeldFraction = 1e-4f;  // of the cart's longest side
+// How far outside a rim's box a piece may poke and still be part of that wheel
+// (the tyre sits proud of the rim, the hub proud of the spokes).
+constexpr f32 kInsideSlack = 0.12f;  // of the rim's diameter
 
 struct Bounds {
   Vec3 lo{1e30f, 1e30f, 1e30f};
@@ -181,7 +184,8 @@ CartParts SplitCartWheels(const asset::Mesh& source, const base::String& name, u
     }
   }
 
-  // Which islands look like wheels.
+  // Which islands look like wheels. The rim is the one that reads as a wheel;
+  // the spokes, the hub and the tyre are separate islands sitting inside it.
   const u32 round_a = (spin_axis + 1) % 3;
   const u32 round_b = (spin_axis + 2) % 3;
   base::Vector<u32> wheel_roots;
@@ -202,6 +206,42 @@ CartParts SplitCartWheels(const asset::Mesh& source, const base::String& name, u
   if (wheel_roots.size() < 2)
     return parts;  // nothing wheel-shaped; the caller keeps the mesh as it is
 
+  // Widest ring first, so a wheel claims its own spokes rather than the other
+  // way round.
+  base::Sort(wheel_roots.begin(), wheel_roots.end(), [&](u32 a, u32 b) {
+    const Vec3 ea = island_bounds.find(a)->extent();
+    const Vec3 eb = island_bounds.find(b)->extent();
+    return base::Max(Axis(ea, round_a), Axis(ea, round_b)) >
+           base::Max(Axis(eb, round_a), Axis(eb, round_b));
+  });
+
+  // Everything that fits inside a rim turns with it: a wheel is a rim, its
+  // spokes and its hub, and drawing only the rim leaves the spokes standing
+  // still under the cart.
+  base::UnorderedMap<u32, u32> wheel_of;  // island root -> the wheel it turns with
+  base::Vector<u32> rims;
+  for (u32 root : wheel_roots) {
+    if (wheel_of.find(root))
+      continue;  // already inside a bigger rim
+    const Bounds& rim = *island_bounds.find(root);
+    const f32 slack = base::Max(Axis(rim.extent(), round_a), Axis(rim.extent(), round_b)) *
+                      kInsideSlack;
+    const u32 wheel = static_cast<u32>(rims.size());
+    rims.push_back(root);
+    for (auto entry : island_bounds) {
+      if (wheel_of.find(entry.key))
+        continue;
+      const Bounds& piece = entry.value;
+      const bool inside = piece.lo.x >= rim.lo.x - slack && piece.hi.x <= rim.hi.x + slack &&
+                          piece.lo.y >= rim.lo.y - slack && piece.hi.y <= rim.hi.y + slack &&
+                          piece.lo.z >= rim.lo.z - slack && piece.hi.z <= rim.hi.z + slack;
+      if (inside)
+        wheel_of.insert(entry.key, wheel);
+    }
+  }
+  if (rims.size() < 2)
+    return parts;
+
   // Triangle ownership: a triangle belongs to whichever island its corners are
   // in, which after the joins above is the same island for all three.
   const size_t triangles = lod.indices.size() / 3;
@@ -209,35 +249,25 @@ CartParts SplitCartWheels(const asset::Mesh& source, const base::String& name, u
   for (size_t t = 0; t < triangles; ++t)
     triangle_root[t] = islands.Find(lod.indices[t * 3]);
 
-  // Order the wheels left-front first, so index 0..3 line up with the front-left,
-  // front-right, rear-left, rear-right a four-wheel vehicle expects.
-  base::Sort(wheel_roots.begin(), wheel_roots.end(), [&](u32 a, u32 b) {
-    const Vec3 ca = island_bounds.find(a)->centre();
-    const Vec3 cb = island_bounds.find(b)->centre();
-    const f32 fa = Axis(ca, round_b), fb = Axis(cb, round_b);
-    if (fa != fb)
-      return fa > fb;  // front (further along the forward axis) first
-    return Axis(ca, spin_axis) < Axis(cb, spin_axis);
-  });
-
   base::Vector<bool> is_wheel(triangles, false);
   u32 index = 0;
-  for (u32 root : wheel_roots) {
+  for (u32 rim : rims) {
+    const u32 wheel_index = index++;
     base::Vector<bool> keep(triangles, false);
     for (size_t t = 0; t < triangles; ++t) {
-      if (triangle_root[t] != root)
+      const u32* belongs = wheel_of.find(triangle_root[t]);
+      if (!belongs || *belongs != wheel_index)
         continue;
       keep[t] = true;
       is_wheel[t] = true;
     }
-    const Bounds& bounds = *island_bounds.find(root);
+    const Bounds& bounds = *island_bounds.find(rim);
     const Vec3 extent = bounds.extent();
     CartWheel wheel;
     wheel.hub = bounds.centre();
     wheel.radius = 0.5f * base::Max(Axis(extent, round_a), Axis(extent, round_b));
-    const base::String wheel_name = name + "/wheel" + base::ToString(static_cast<int>(index));
+    const base::String wheel_name = name + "/wheel" + base::ToString(static_cast<int>(wheel_index));
     wheel.mesh = Extract(source, asset::MakeAssetId(wheel_name.c_str()), wheel.hub, keep);
-    ++index;
     if (!wheel.mesh.lods.empty())
       parts.wheels.push_back(base::move(wheel));
   }

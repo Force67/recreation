@@ -31,6 +31,8 @@ constexpr f32 kUnitsToMeters = 0.01428f;
 // Where the shaft ends on the horse: behind the animal, at hitch height, so the
 // tongue pulls level from the mark it stands on.
 constexpr f32 kHitchBehindHorse = 1.1f;
+// How high off the ground the harness carries the shaft.
+constexpr f32 kHarnessHeight = 0.9f;
 // A seated passenger's eyes above the seat piece's origin. The furniture marker
 // in the model puts a rider's root about 0.85 m up, in the cart bed; sitting on
 // the bench from there looks out over the driver without pressing the view into
@@ -481,11 +483,10 @@ Vec3 CarriageSystem::HitchPoint(const Carriage& carriage) const {
   Quat horse_rot;
   if (!RefPose(carriage.refs.horse, &horse_pos, &horse_rot))
     return {};
-  Vec3 hitch = horse_pos - ForwardOf(YawOf(horse_rot)) * kHitchBehindHorse;
-  // Hold the shaft level with the tongue so the pull has no vertical component.
-  if (ctx_.physics && carriage.rig.valid())
-    hitch.y = carriage.rig.TonguePoint(*ctx_.physics).y;
-  return hitch;
+  // Behind the animal, at the height its harness sits: the rig measures its
+  // shaft against this, so where the horse is, the cart has to be.
+  return horse_pos - ForwardOf(YawOf(horse_rot)) * kHitchBehindHorse +
+         Vec3{0, kHarnessHeight, 0};
 }
 
 void CarriageSystem::Drive(Carriage& carriage, f32 dt) {

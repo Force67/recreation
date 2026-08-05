@@ -17,7 +17,9 @@ namespace rx::world {
 // to drive, because in the original game a carriage never actually rolls. So the
 // only way to turn them is to find them in the geometry, and a wheel is the one
 // unmistakable shape in a cart: an island of triangles that is thin across one
-// axis and round about it.
+// axis and round about it. A wheel is more than one island, though -- the rim,
+// the spokes and the hub are separate pieces -- so whatever sits inside a rim
+// comes out with it and turns with it.
 //
 // Mesh space throughout, whatever units the source mesh is in.
 struct CartWheel {
@@ -28,7 +30,7 @@ struct CartWheel {
 
 struct CartParts {
   asset::Mesh body;                  // everything that is not a wheel
-  base::Vector<CartWheel> wheels;    // hub-centred, ordered left-front first
+  base::Vector<CartWheel> wheels;  // hub-centred, largest first
   bool split() const { return wheels.size() >= 2; }
 };
 

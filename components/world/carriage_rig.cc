@@ -65,13 +65,17 @@ void CarriageRig::Step(physics::PhysicsWorld& world,
   const Vec3 tongue = pos + Rotate(q, Vec3{0, cfg_.tongue_y, cfg_.tongue_z});
   const Vec3 tongue_vel = world.GetPointVelocity(body_, tongue);
 
-  // Spring-damper tow along the shaft. `stretch` is signed about rest_length so
-  // the rigid shaft pulls when the horse is ahead and pushes when the cart
-  // coasts into a stopped horse; the damper acts on the closing speed.
-  Vec3 to_hitch = hitch_target - tongue;
-  const f32 dist = Length(to_hitch);
-  const Vec3 dir = dist > 1e-4f ? to_hitch * (1.0f / dist) : fwd;
-  const f32 spring = cfg_.hitch_stiffness * (dist - cfg_.rest_length);
+  // Spring-damper tow along the shaft, in the ground plane: a shaft takes the
+  // cart forward, it does not lift it, and a pull with any height in it just
+  // rocks the cart on its springs. `stretch` is signed about rest_length so the
+  // shaft pulls when the horse is ahead and pushes when the cart coasts into a
+  // stopped horse; the damper acts on the closing speed.
+  const Vec3 to_hitch = hitch_target - tongue;
+  const Vec3 flat_to_hitch{to_hitch.x, 0, to_hitch.z};
+  const f32 planar = Length(flat_to_hitch);
+  const Vec3 dir = planar > 1e-4f ? flat_to_hitch * (1.0f / planar)
+                                  : Normalize(Vec3{fwd.x, 0, fwd.z});
+  const f32 spring = cfg_.hitch_stiffness * (planar - cfg_.rest_length);
   const f32 damp = cfg_.hitch_damping * Dot(horse_velocity - tongue_vel, dir);
   f32 mag = spring + damp;
   mag = base::Clamp(mag, -cfg_.max_hitch_force, cfg_.max_hitch_force);
@@ -82,6 +86,11 @@ void CarriageRig::Step(physics::PhysicsWorld& world,
   // a rock lets the horse walk away, winds the spring up to its clamp, and is
   // then slung down the road; the leash keeps it a cart's length behind, which
   // is where a shaft holds it.
+  // The leash measures the whole shaft, height included: a cart that drops
+  // through terrain the streamer has not caught up with is hauled back onto the
+  // end of its shaft instead of falling out of the world.
+  const f32 dist = Length(to_hitch);
+  const Vec3 leash_dir = dist > 1e-4f ? to_hitch * (1.0f / dist) : dir;
   const bool taut = dist > cfg_.rest_length + cfg_.max_shaft;
   // Stand the cart back up if the ground has thrown it past its tilt limit (see
   // CarriageConfig::max_tilt): the shaft it is harnessed to would not let it go.
@@ -97,7 +106,7 @@ void CarriageRig::Step(physics::PhysicsWorld& world,
       pose[2] = 0;
       pose[3] = std::cos(half);
     }
-    const Vec3 slack = taut ? dir * (dist - cfg_.rest_length - cfg_.max_shaft) : Vec3{};
+    const Vec3 slack = taut ? leash_dir * (dist - cfg_.rest_length - cfg_.max_shaft) : Vec3{};
     world.SetBodyPosition(body_, pos + slack, pose);
   }
 
