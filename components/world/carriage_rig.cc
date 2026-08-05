@@ -77,10 +77,33 @@ void CarriageRig::Step(physics::PhysicsWorld& world,
   mag = base::Clamp(mag, -cfg_.max_hitch_force, cfg_.max_hitch_force);
   world.AddForceAtPoint(body_, dir * mag, tongue);
 
+  // The shaft is timber, not rope: once it is this far past its rest length the
+  // cart is dragged bodily rather than sprung. Without it a cart that catches on
+  // a rock lets the horse walk away, winds the spring up to its clamp, and is
+  // then slung down the road; the leash keeps it a cart's length behind, which
+  // is where a shaft holds it.
+  const bool taut = dist > cfg_.rest_length + cfg_.max_shaft;
+  // Stand the cart back up if the ground has thrown it past its tilt limit (see
+  // CarriageConfig::max_tilt): the shaft it is harnessed to would not let it go.
+  const Vec3 flat_fwd{fwd.x, 0, fwd.z};
+  const bool capsized =
+      Rotate(q, Vec3{0, 1, 0}).y < std::cos(cfg_.max_tilt) && Length(flat_fwd) > 1e-3f;
+  if (taut || capsized) {
+    f32 pose[4] = {rot[0], rot[1], rot[2], rot[3]};
+    if (capsized) {
+      const f32 half = std::atan2(flat_fwd.x, flat_fwd.z) * 0.5f;
+      pose[0] = 0;
+      pose[1] = std::sin(half);
+      pose[2] = 0;
+      pose[3] = std::cos(half);
+    }
+    const Vec3 slack = taut ? dir * (dist - cfg_.rest_length - cfg_.max_shaft) : Vec3{};
+    world.SetBodyPosition(body_, pos + slack, pose);
+  }
+
   // Turntable steering: signed ground-plane yaw of the pull direction relative
   // to the chassis forward axis. (fwd x dir).y is negative when the target lies
   // to the right (-X), and rx's steer input is +right, hence the negation.
-  const Vec3 flat_fwd{fwd.x, 0, fwd.z};
   const Vec3 flat_dir{dir.x, 0, dir.z};
   f32 steer = 0;
   if (Length(flat_fwd) > 1e-3f && Length(flat_dir) > 1e-3f) {
