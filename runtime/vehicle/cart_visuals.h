@@ -6,10 +6,11 @@
 #include "core/math.h"
 #include "render/core/renderer.h"
 
-// Art shared by the two things in the engine that put a horse-drawn cart on
-// screen: the free-rolling carriage (carriage.cc) and the Helgen intro cutscene
-// (helgen_intro.cc). The game's own cart NIF when the data is mounted, plus
-// engine-drawn wheels and graybox parts so both still run with no game data.
+// Art for a horse-drawn cart put on screen outside the cell streamer, which is
+// the Helgen intro cutscene (helgen_intro.cc): the game's own cart NIF when the
+// data is mounted, plus engine-drawn wheels and graybox parts so the scene still
+// runs with no game data. The hold carriages draw from their streamed placements
+// instead (vehicle/carriage.cc).
 namespace rx::cart {
 
 // The Skyrim fast-travel carriage body (CartFurniture, 0x00090048).

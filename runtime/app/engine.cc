@@ -142,7 +142,8 @@ bool Engine::OnInitialize(app::Services& services) {
   npc_ = base::MakeUnique<NpcDirector>(ctx_, (actors_ ? &*actors_ : nullptr));
   quest_ = base::MakeUnique<QuestDirector>(ctx_, (actors_ ? &*actors_ : nullptr));
   demos_ = base::MakeUnique<DemoScenes>(ctx_, (actors_ ? &*actors_ : nullptr));
-  carriage_ = base::MakeUnique<CarriageSystem>(ctx_, (actors_ ? &*actors_ : nullptr));
+  carriage_ = base::MakeUnique<CarriageSystem>(ctx_, (actors_ ? &*actors_ : nullptr),
+                                               (npc_ ? &*npc_ : nullptr));
   helgen_ = base::MakeUnique<HelgenIntro>(ctx_, (actors_ ? &*actors_ : nullptr));
   packages_ = base::MakeUnique<AiPackageDirector>(ctx_, (actors_ ? &*actors_ : nullptr),
                                                   (npc_ ? &*npc_ : nullptr));
@@ -169,7 +170,7 @@ bool Engine::OnInitialize(app::Services& services) {
 
   // The carriage horse + hitch tow/steer are staged before the physics step
   // (DriveVehicle input and the tow force must land before Jolt integrates);
-  // the wheel render transforms are read back after it.
+  // the cart's pieces are placed from the chassis after it.
   scheduler_->AddSystem(ecs::Stage::kPreSim, "carriage_step",
                         [this](ecs::World&, f32 dt) { carriage_->Step(dt); });
   scheduler_->AddSystem(ecs::Stage::kPostSim, "carriage_render",
