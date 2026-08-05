@@ -6,6 +6,7 @@
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
 
 #include "components/script/papyrus/fiber.h"
@@ -215,7 +216,11 @@ class VirtualMachine : public VmInterface {
 
   const NativeRegistry* natives_;
   base::Function<bool(ObjectRef, const base::String&)> type_resolver_;
-  base::UnorderedMap<base::String, LoadedScript> scripts_;  // key: lowercased type
+  // Held behind a pointer so a script loaded later cannot move the ones already
+  // there: a running function borrows its script's PexFile for the whole call,
+  // and a fragment that waits (Skyrim's opening waits inside a stage fragment)
+  // is still holding that borrow while the world streams in more scripts.
+  base::UnorderedMap<base::String, base::UniquePointer<LoadedScript>> scripts_;  // key: lower type
   base::UnorderedMap<u64, Instance> instances_;
   u64 next_handle_ = 1;
   base::Vector<base::Vector<Value>> arrays_;  // 1-based; index 0 reserved as None

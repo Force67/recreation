@@ -79,14 +79,15 @@ base::String VirtualMachine::LoadScript(ByteSpan pex_data) {
 base::String VirtualMachine::AddScript(PexFile pex) {
   if (pex.objects.empty())
     return "";
-  LoadedScript ls;
-  ls.pex = base::move(pex);
-  ls.name = ls.pex.Str(ls.pex.objects[0].name);
-  ls.parent = ls.pex.Str(ls.pex.objects[0].parent_class);
-  base::String key = Lower(ls.name);
-  LoadedScript& stored = (scripts_[key] = base::move(ls));
-  stored.object = &stored.pex.objects[0];  // fix pointer after the move
-  return stored.name;
+  auto ls = base::MakeUnique<LoadedScript>();
+  ls->pex = base::move(pex);
+  ls->name = ls->pex.Str(ls->pex.objects[0].name);
+  ls->parent = ls->pex.Str(ls->pex.objects[0].parent_class);
+  ls->object = &ls->pex.objects[0];
+  base::String key = Lower(ls->name);
+  base::String name = ls->name;
+  scripts_[key] = base::move(ls);
+  return name;
 }
 
 bool VirtualMachine::HasScript(const base::String& type) const {
@@ -95,7 +96,7 @@ bool VirtualMachine::HasScript(const base::String& type) const {
 
 VirtualMachine::LoadedScript* VirtualMachine::FindScript(const base::String& type) {
   auto* it = scripts_.find(Lower(type));
-  return it == nullptr ? nullptr : &*it;
+  return it == nullptr ? nullptr : &**it;
 }
 
 VirtualMachine::Instance* VirtualMachine::FindInstance(ObjectRef instance) {
