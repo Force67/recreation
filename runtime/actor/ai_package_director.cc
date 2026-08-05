@@ -68,6 +68,16 @@ u32 FormAt(const bethesda::Subrecord* sub, size_t offset) {
   return raw;
 }
 
+// The player in the rider list. They are not one of the quest's aliases, so they
+// ride under a handle of their own rather than a form id.
+constexpr u64 kPlayerRider = ~0ull;
+
+// How far from a vehicle's origin someone standing in its bed can be. A cart is
+// a couple of metres across and its riders are placed on marks inside it, some
+// of them right on the tailboard.
+constexpr f32 kSeatReach = 3.0f;
+constexpr f32 kSeatRise = 2.5f;
+
 // Bethesda's cart-passenger animations are furniture idles: each carries its seat
 // as a baked offset on the actor's COM, authored against the cart. Which idle a
 // rider gets is a property of the vehicle, not of any quest, so the seats are
@@ -188,15 +198,38 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
             bethesda::GlobalFormId{static_cast<u16>(parent >> 32), static_cast<u32>(parent)},
             &parent_pos, &parent_yaw))
       continue;
+    // The enable parent is what switches a set piece on, not what pulls it: Skyrim
+    // hangs both prisoner carts off the first horse, and towing the second one from
+    // there would drag it along seventeen metres off its own horse. Whichever of
+    // this quest's actors is standing in the shafts is the one pulling.
+    u64 puller = parent;
+    f32 shortest = Length(child_pos - parent_pos);
+    for (const Slot& s : slots_) {
+      if (s.quest != quest || s.actor == ref)
+        continue;
+      Vec3 at;
+      f32 facing = 0;
+      if (!RefRecordPose(
+              bethesda::GlobalFormId{static_cast<u16>(s.actor >> 32), static_cast<u32>(s.actor)},
+              &at, &facing))
+        continue;
+      const f32 gap = Length(child_pos - at);
+      if (gap < shortest) {
+        shortest = gap;
+        puller = s.actor;
+        parent_pos = at;
+        parent_yaw = facing;
+      }
+    }
     Tow tow;
     tow.ref = ref;
-    tow.parent = parent;
+    tow.parent = puller;
     const Vec3 rel = child_pos - parent_pos;
     const Vec3 f = ForwardOf(parent_yaw), r = RightOf(parent_yaw);
     tow.local = {Dot(rel, r), rel.y, Dot(rel, f)};  // right, up, forward
     tow.local_yaw = child_yaw - parent_yaw;
     tows_.push_back(tow);
-    RX_INFO("packages: {} rides its enable parent 0x{:x} ({:.1f} m behind)", alias.name, parent,
+    RX_INFO("packages: {} is pulled by 0x{:x} ({:.1f} m behind)", alias.name, puller,
             -tow.local.z);
   }
 
@@ -241,7 +274,7 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
         continue;
       const Vec3 rel = pos - ride_pos;
       const f32 planar = Length(Vec3{rel.x, 0, rel.z});
-      if (planar > 2.6f || std::fabs(rel.y) > 2.5f) {
+      if (planar > kSeatReach || std::fabs(rel.y) > kSeatRise) {
         RX_DEBUG("packages: {} stands {:.1f} m from 0x{:x}, not a rider", s.name, planar, tow.ref);
         continue;
       }
@@ -276,22 +309,60 @@ void AiPackageDirector::ArmQuest(u64 quest, u16 plugin, const quest::QuestDef& d
   }
 }
 
+u64 AiPackageDirector::MarkerChainNext(u64 marker) const {
+  if (!ctx_.records || marker == 0)
+    return 0;
+  const bethesda::GlobalFormId id{static_cast<u16>(marker >> 32), static_cast<u32>(marker)};
+  bethesda::Record record;
+  if (!ctx_.records->Parse(id, &record))
+    return 0;
+  // A patrol's mark is the head of a chain, not the destination: the XLKR that
+  // carries no keyword points at the next mark, and following them is what walks
+  // an authored route. A keyworded link is a different relationship entirely (the
+  // hold carriages hang their horse and seats off keyworded links), and only a
+  // marker is a waypoint, so a link to anything else ends the chain.
+  const bethesda::Subrecord* link = record.Find(FourCc('X', 'L', 'K', 'R'));
+  if (!link || FormAt(link, 0) != 0)
+    return 0;
+  const u32 raw = FormAt(link, 4);
+  if (raw == 0)
+    return 0;
+  const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(id);
+  const bethesda::GlobalFormId next =
+      ctx_.records->ResolveFrom(bethesda::RawFormId{raw}, stored ? stored->winning_plugin : 0);
+  bethesda::Record next_record;
+  if (!ctx_.records->Parse(next, &next_record))
+    return 0;
+  bethesda::Record base;
+  if (!ctx_.records->Parse(
+          ctx_.records->ResolveFrom(
+              bethesda::RawFormId{FormAt(next_record.Find(FourCc('N', 'A', 'M', 'E')), 0)},
+              next.plugin),
+          &base))
+    return 0;
+  return base.GetString(FourCc('E', 'D', 'I', 'D')).starts_with("XMarker") ? next.packed() : 0;
+}
+
 bool AiPackageDirector::ResolveDestination(const Slot& slot,
                                            const Package& pack,
                                            Vec3* out,
-                                           f32* radius) const {
+                                           f32* radius,
+                                           u64* ref) const {
   if (!ctx_.records)
     return false;
   const quest::PackageTarget& target = pack.def.target;
   *radius = base::Max(target.radius * kUnitsToMeters, 1.6f);
+  *ref = 0;
   auto pose_of = [&](u64 handle) {
     Vec3 pos;
     f32 yaw = 0;
     const bool ok = RefRecordPose(
         bethesda::GlobalFormId{static_cast<u16>(handle >> 32), static_cast<u32>(handle)}, &pos,
         &yaw);
-    if (ok)
+    if (ok) {
       *out = pos;
+      *ref = handle;
+    }
     return ok;
   };
   switch (target.kind) {
@@ -399,16 +470,33 @@ void AiPackageDirector::SelectPackages(const QuestStateCache& quests) {
     slot.arrived = false;
     slot.fired = false;
     slot.has_dest = false;
+    slot.chain = 0;
     slot.stall = 0;
     slot.last_dist = 0;
     if (want < 0)
       continue;
     Package& pack = slot.packages[static_cast<size_t>(want)];
-    slot.has_dest = pack.def.is_travel && ResolveDestination(slot, pack, &slot.dest, &slot.radius);
+    slot.has_dest =
+        pack.def.is_travel && ResolveDestination(slot, pack, &slot.dest, &slot.radius, &slot.dest_ref);
     if (pack.frags.on_begin.valid())
       FirePackageFragment(slot, pack, pack.frags.on_begin.function);
-    RX_INFO("packages: {} runs {}{}", slot.name, pack.editor_id,
-            slot.has_dest ? " (travelling)" : "");
+    // How far it has to walk, and from where: an actor whose cell has not
+    // streamed has no body to walk with, so its journey does not start until it
+    // does, and a leg that never completes is usually one of those.
+    base::String note;
+    if (slot.has_dest) {
+      Vec3 at;
+      f32 facing = 0;
+      char buf[64];
+      if (ActorPose(slot.actor, &at, &facing)) {
+        std::snprintf(buf, sizeof(buf), " (travelling %.0f m)",
+                      Length(Vec3{slot.dest.x - at.x, 0, slot.dest.z - at.z}));
+      } else {
+        std::snprintf(buf, sizeof(buf), " (travelling, not streamed in)");
+      }
+      note = buf;
+    }
+    RX_INFO("packages: {} runs {}{}", slot.name, pack.editor_id, note);
   }
 }
 
@@ -422,10 +510,33 @@ void AiPackageDirector::DriveTravel(f32 dt) {
       continue;  // not streamed in yet
     const f32 dist = Length(Vec3{slot.dest.x - pos.x, 0, slot.dest.z - pos.z});
     if (dist <= slot.radius) {
+      // Reached this mark: the route carries on if it chains, and only the last
+      // mark on the chain is an arrival. Skyrim's cart ride is authored that way,
+      // a handful of named marks each heading a run of nameless ones that bend the
+      // path around the mountain.
+      constexpr int kMaxChain = 64;
+      if (slot.chain < kMaxChain) {
+        if (const u64 next = MarkerChainNext(slot.dest_ref)) {
+          Vec3 at;
+          f32 facing = 0;
+          if (RefRecordPose(bethesda::GlobalFormId{static_cast<u16>(next >> 32),
+                                                   static_cast<u32>(next)},
+                            &at, &facing)) {
+            slot.dest = at;
+            slot.dest_ref = next;
+            ++slot.chain;
+            slot.stall = 0;
+            slot.last_dist = 0;
+            npc_->SetGuide(slot.actor, slot.dest);
+            continue;
+          }
+        }
+      }
       slot.arrived = true;
       npc_->ClearGuide(slot.actor);
       Package& pack = slot.packages[static_cast<size_t>(slot.active)];
-      RX_INFO("packages: {} arrived at {}'s target", slot.name, pack.editor_id);
+      RX_INFO("packages: {} arrived at {}'s target ({} mark(s) walked)", slot.name, pack.editor_id,
+              slot.chain + 1);
       if (pack.frags.on_end.valid()) {
         FirePackageFragment(slot, pack, pack.frags.on_end.function);
         slot.fired = true;
@@ -473,12 +584,14 @@ void AiPackageDirector::CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_y
         already = true;
     if (already)
       continue;
+    if (!actors_->NpcIsPerson(ctx_.quest_world->Find(slot.actor)))
+      continue;  // the escort's horses park against the cart; they do not get in it
     Vec3 pos;
     f32 yaw = 0;
     if (!ActorPose(slot.actor, &pos, &yaw))
       continue;
     const Vec3 rel = pos - ride_pos;
-    if (Length(Vec3{rel.x, 0, rel.z}) > 2.4f || std::fabs(rel.y) > 2.5f)
+    if (Length(Vec3{rel.x, 0, rel.z}) > kSeatReach || std::fabs(rel.y) > kSeatRise)
       continue;
     Rider rider;
     rider.actor = slot.actor;
@@ -491,6 +604,30 @@ void AiPackageDirector::CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_y
     RX_INFO("packages: {} boards 0x{:x}", slot.name, tow.ref);
     riders_.push_back(base::move(rider));
   }
+
+  // The player rides on the same terms as the cast. Skyrim's opening puts them
+  // in the cart by teleporting them onto a marker in it, so they are simply
+  // someone standing in the vehicle's footprint when it pulls away.
+  if (!actors_ || !actors_->HasPlayer())
+    return;
+  for (const Rider& r : riders_)
+    if (r.actor == kPlayerRider)
+      return;
+  Vec3 pos;
+  if (!actors_->PlayerWorldPos(&pos))
+    return;
+  const Vec3 rel = pos - ride_pos;
+  if (Length(Vec3{rel.x, 0, rel.z}) > kSeatReach || std::fabs(rel.y) > kSeatRise)
+    return;
+  Rider rider;
+  rider.actor = kPlayerRider;
+  rider.ride = tow.ref;
+  rider.local = {Dot(rel, RightOf(ride_yaw)), rel.y, Dot(rel, ForwardOf(ride_yaw))};
+  if (tow.cart)
+    rider.clip = tow.seats == 0 ? kCartDriverIdle : kCartPassengerIdles[(tow.seats - 1) % 3];
+  ++tow.seats;
+  RX_INFO("packages: the player boards 0x{:x}", tow.ref);
+  riders_.push_back(base::move(rider));
 }
 
 void AiPackageDirector::DriveTows() {
@@ -525,15 +662,28 @@ void AiPackageDirector::SeatRiders() {
   for (Rider& rider : riders_) {
     const ecs::Entity ride_entity = ctx_.quest_world->Find(rider.ride);
     const world::Transform* ride = ctx_.world->Get<world::Transform>(ride_entity);
-    const ecs::Entity actor_entity = ctx_.quest_world->Find(rider.actor);
-    world::Transform* t = ctx_.world->Get<world::Transform>(actor_entity);
-    if (!ride || !t)
+    if (!ride)
       continue;
-    if (!rider.seated && !rider.clip.empty())
-      rider.seated = actors_->PlayNpcClip(actor_entity, rider.clip);
     const f32 ride_yaw = YawOfQuat(ride->rotation);
     const Vec3 ride_pos{ride->position[0], ride->position[1], ride->position[2]};
     const Vec3 f = ForwardOf(ride_yaw), r = RightOf(ride_yaw);
+    if (rider.actor == kPlayerRider) {
+      // The player's body takes the seat and their capsule comes with it, or the
+      // character controller thinks it has been left standing in the road.
+      if (!rider.seated && !rider.clip.empty())
+        rider.seated = actors_->SeatPlayer(rider.clip);
+      const Vec3 local = rider.seated ? Vec3{0, 0, 0} : rider.local;
+      const Vec3 p = ride_pos + r * local.x + Vec3{0, local.y, 0} + f * local.z;
+      actors_->PlaceSeatedPlayer(p, YawOfForward(f));
+      actors_->TeleportPlayer(p.x, p.y, p.z);
+      continue;
+    }
+    const ecs::Entity actor_entity = ctx_.quest_world->Find(rider.actor);
+    world::Transform* t = ctx_.world->Get<world::Transform>(actor_entity);
+    if (!t)
+      continue;
+    if (!rider.seated && !rider.clip.empty())
+      rider.seated = actors_->PlayNpcClip(actor_entity, rider.clip);
     // A seated clip carries its own place on the vehicle (the seat is baked into the
     // COM track), so a rider it seats is planted on the vehicle origin and the clip
     // does the rest; one without a clip keeps the spot it was authored in.
@@ -614,23 +764,31 @@ void AiPackageDirector::StopScenePackage(u64 actor, u64 package) {
 }
 
 bool AiPackageDirector::JourneyStart(u64 quest, Vec3* pos) const {
-  // Where a quest's scripted journey begins: the placement of the first alias actor
-  // it stacks a travel package on. For an opening ride that is the top of the road.
-  for (const Slot& slot : slots_) {
-    if (slot.quest != quest)
-      continue;
-    bool travels = false;
+  auto travels = [](const Slot& slot) {
     for (const Package& p : slot.packages)
       if (p.def.is_travel && p.def.target.kind == quest::PackageTarget::Kind::kReference)
-        travels = true;
-    if (!travels)
-      continue;
+        return true;
+    return false;
+  };
+  auto placement = [&](const Slot& slot) {
     f32 yaw = 0;
-    if (RefRecordPose(bethesda::GlobalFormId{static_cast<u16>(slot.actor >> 32),
-                                             static_cast<u32>(slot.actor)},
-                      pos, &yaw))
+    return RefRecordPose(bethesda::GlobalFormId{static_cast<u16>(slot.actor >> 32),
+                                                static_cast<u32>(slot.actor)},
+                         pos, &yaw);
+  };
+  // A journey the player travels on begins where the animal pulling the vehicle
+  // stands. Its passengers are placed at the far end of the sequence (Skyrim
+  // parks the whole MQ101 cast on the execution square and teleports them up the
+  // road when the quest reaches the ride), so the towing actor is the only one
+  // whose placement is the actual start.
+  for (const Tow& tow : tows_)
+    for (const Slot& slot : slots_)
+      if (slot.quest == quest && slot.actor == tow.parent && travels(slot) && placement(slot))
+        return true;
+  // Nothing towed: the first alias actor with somewhere to walk.
+  for (const Slot& slot : slots_)
+    if (slot.quest == quest && travels(slot) && placement(slot))
       return true;
-  }
   return false;
 }
 

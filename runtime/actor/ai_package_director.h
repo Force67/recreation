@@ -47,9 +47,10 @@ class AiPackageDirector {
   void RunScenePackage(u64 actor, u64 package, u64 quest, u16 plugin);
   void StopScenePackage(u64 actor, u64 package);
 
-  // Where a quest's scripted journey begins: the placement of the first alias actor
-  // it hands a travel package to. The cutscene director boots the world there so a
-  // ride starts with its route streamed in. False when the quest travels nowhere.
+  // Where a quest's scripted journey begins: the placement of the actor pulling
+  // the vehicle it travels on, else of the first alias actor it hands a travel
+  // package to. The cutscene director boots the world there so a ride starts with
+  // its route streamed in. False when the quest travels nowhere.
   bool JourneyStart(u64 quest, Vec3* pos) const;
 
   int armed_count() const { return static_cast<int>(slots_.size()); }
@@ -84,6 +85,8 @@ class AiPackageDirector {
     bool arrived = false;
     bool fired = false;  // the arrival fragment has run for this leg
     Vec3 dest{};
+    u64 dest_ref = 0;  // the mark `dest` came from, so its chain can be followed
+    int chain = 0;     // marks walked on this leg, to stop a looped chain
     f32 radius = 2.0f;
     f32 stall = 0;      // seconds without meaningful progress
     f32 last_dist = 0;  // distance to the goal when progress was last measured
@@ -120,7 +123,14 @@ class AiPackageDirector {
   // their cast aboard at runtime (Skyrim's intro teleports the prisoners into the
   // cart), so the rig cannot be settled from the authored placements alone.
   void CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_yaw);
-  bool ResolveDestination(const Slot& slot, const Package& pack, Vec3* out, f32* radius) const;
+  bool ResolveDestination(const Slot& slot,
+                          const Package& pack,
+                          Vec3* out,
+                          f32* radius,
+                          u64* ref) const;
+  // The next mark a patrol's route chains on to (the unkeyworded XLKR off a
+  // marker), or 0 where the route ends.
+  u64 MarkerChainNext(u64 marker) const;
   // Runs a package fragment on the guest thread (attaching its PF_ script first).
   void FirePackageFragment(Slot& slot, Package& pack, const base::String& function);
   bool ActorPose(u64 handle, Vec3* pos, f32* yaw) const;
