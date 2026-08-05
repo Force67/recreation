@@ -76,6 +76,14 @@ class CarriageSystem {
     size_t waypoint = 0;
     world::CarriageRig rig;
     base::Vector<Part> parts;
+    // Wheels lifted out of the cart's art, each drawn at the physics wheel it
+    // sits on so it rolls and takes the suspension.
+    struct Wheel {
+      ecs::Entity entity{};
+      u32 index = 0;  // which of the vehicle's wheels this one is
+    };
+    base::Vector<Wheel> wheels;
+    bool wheels_split = false;  // the art has been cut up (once per carriage)
     Vec3 prev_hitch{};
     f32 report = 0;  // throttles the journey's progress log
     bool horse_walking = false;
@@ -95,8 +103,22 @@ class CarriageSystem {
   // Adds the carriage art that carries no link of its own (the wagon body is a
   // plain static beside the furniture) to the pieces the chassis will carry.
   void AddLooseArt(const Carriage& carriage, const Vec3& cart, base::Vector<Part>* parts);
-  base::String ModelFolderOfBase(bethesda::GlobalFormId base) const;
-  base::String ModelFolderOfRef(u64 ref) const;
+  base::String ModelPathOfBase(bethesda::GlobalFormId base) const;
+  base::String ModelPathOfRef(u64 ref) const;
+  // Cuts the wheels out of whichever piece of art carries them, leaving that
+  // piece the body and giving each wheel its own entity. Fills in the hub
+  // geometry the vehicle should be built with (track, wheelbase, radius and the
+  // height the axles want to sit at). False when the art has no wheels in it, in
+  // which case the cart still rolls, it just does not show it.
+  bool SplitWheels(Carriage& carriage,
+                   const base::Vector<Part>& parts,
+                   const Vec3& forward,
+                   const Vec3& centre,
+                   world::CarriageConfig* cfg,
+                   f32* axle_height);
+  // Pairs each art wheel with the vehicle wheel nearest it, so the art follows
+  // the physics whatever order either of them is in.
+  void BindWheelsToVehicle(Carriage& carriage);
   // Sends `carriage` down route `index`: the cart's pieces come off their
   // placements onto a physics chassis and the horse starts walking.
   bool Depart(Carriage& carriage, size_t index);

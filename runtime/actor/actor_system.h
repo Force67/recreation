@@ -61,6 +61,17 @@ class ActorSystem {
   f32 PlayerYaw() const;  // facing of the player biped, radians about engine up
   // Teleports the player (capsule + ECS transform); the target of a quest MoveTo.
   void TeleportPlayer(f32 x, f32 y, f32 z);
+  // Sits the player's biped on a piece of furniture: `clip_path` holds the pose
+  // and the caller plants it, since Bethesda's seated idles carry the seat as a
+  // baked offset on the COM. The locomotion machine stands down until
+  // UnseatPlayer, so the body keeps the pose instead of snapping back to idle.
+  // False when there is no player or the clip does not load.
+  bool SeatPlayer(const base::String& clip_path);
+  void UnseatPlayer();
+  bool player_seated() const { return player_seated_; }
+  // Plants a seated player: `position` is the furniture origin the clip is
+  // authored against, `yaw` which way the seat faces.
+  void PlaceSeatedPlayer(const Vec3& position, f32 yaw);
   // Mirrors the result of the rx character controller (owned by PlayerController)
   // onto the biped: `feet` position drives skeleton placement, `facing_yaw`
   // (biped +Z faces movement) sets the body rotation while `moving`, `planar_speed`
@@ -389,6 +400,7 @@ class ActorSystem {
 
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
+  bool player_seated_ = false;
   base::Optional<Actor> npc_template_;
   base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
   // Creature rig per race (packed RACE form id); an entry with no actor is a

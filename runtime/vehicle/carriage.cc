@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "components/world/cart_wheels.h"
 #include "components/world/components.h"
 #include "core/input.h"
 #include "core/log.h"
@@ -41,10 +42,18 @@ constexpr f32 kTrotSpeed = 3.4f;           // m/s, the pace a carriage horse kee
 constexpr f32 kGallopSpeed = 9.0f;         // m/s, the cap on how fast the hitch can pull
 constexpr f32 kMarkReached = 5.0f;         // m; the route's marks are road-coarse
 constexpr f32 kRigFootprint = 6.0f;        // m; how far a loose piece can stand and still belong
-// The driver's idle is a furniture animation: it carries his seat as a baked
-// offset on the COM, authored against the cart, so planting him on the cart
-// piece's origin and holding the clip puts him on the bench.
+constexpr f32 kChaseDistance = 4.0f;   // m behind the seat in third person
+constexpr f32 kChaseLift = 1.2f;       // m above the rider's eyes in third person
+constexpr f32 kChaseClearance = 1.0f;  // m the third-person boom keeps off the ground
+constexpr f32 kStepDownOffset = 2.2f;  // m to the side of the cart when getting off
+// Where an rx vehicle's wheels hang at rest, below the chassis attach point
+// (its suspension travel is 0.15..0.4 m and settles around the middle).
+constexpr f32 kSuspensionRest = 0.28f;
+// The cart idles are furniture animations: each carries its seat as a baked
+// offset on the COM, authored against the cart, so planting an actor on a
+// piece's origin and holding the clip puts them on the bench.
 const char* kDriverIdle = "meshes/actors/character/animations/carttraveldriveridle.hkx";
+const char* kPlayerSeatIdle = "meshes/actors/character/animations/carttravelplayeridle.hkx";
 
 Vec3 GameToEngine(const f32 p[3]) {
   return {p[0] * kUnitsToMeters, p[2] * kUnitsToMeters, -p[1] * kUnitsToMeters};
@@ -73,12 +82,19 @@ Vec3 Flatten(const Vec3& v) {
   return {v.x, 0, v.z};
 }
 
-// The directory a base object's model lives in, lower case with forward
-// slashes: "furniture/cart/" for every piece of a Skyrim carriage.
-base::String ModelFolder(const bethesda::Record& base) {
-  base::String path = base.GetString(FourCc('M', 'O', 'D', 'L'));
-  for (char& c : path)
-    c = c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+// A base object's world model as the asset database keys it, e.g.
+// "meshes/furniture/cart/cartfurnstatic01.nif". Empty when it has no model.
+base::String ModelPath(const bethesda::Record& base) {
+  const base::String model = base.GetString(FourCc('M', 'O', 'D', 'L'));
+  if (model.empty())
+    return {};
+  base::String path = asset::NormalizePath(model.c_str()).c_str();
+  return path.starts_with("meshes/") ? path : "meshes/" + path;
+}
+
+// The directory part of such a path: "meshes/furniture/cart/" for every piece
+// of a Skyrim carriage.
+base::String FolderOf(const base::String& path) {
   const size_t slash = path.rfind('/');
   return slash == base::String::npos ? base::String() : path.substr(0, slash + 1);
 }
@@ -195,12 +211,12 @@ void CarriageSystem::Park(Carriage& carriage) {
   }
 }
 
-base::String CarriageSystem::ModelFolderOfBase(bethesda::GlobalFormId base) const {
+base::String CarriageSystem::ModelPathOfBase(bethesda::GlobalFormId base) const {
   bethesda::Record record;
-  return ctx_.records->Parse(base, &record) ? ModelFolder(record) : base::String();
+  return ctx_.records->Parse(base, &record) ? ModelPath(record) : base::String();
 }
 
-base::String CarriageSystem::ModelFolderOfRef(u64 ref) const {
+base::String CarriageSystem::ModelPathOfRef(u64 ref) const {
   const bethesda::GlobalFormId id{static_cast<u16>(ref >> 32), static_cast<u32>(ref)};
   bethesda::Record refr;
   if (!ctx_.records->Parse(id, &refr))
@@ -211,7 +227,7 @@ base::String CarriageSystem::ModelFolderOfRef(u64 ref) const {
   u32 raw = 0;
   std::memcpy(&raw, name->data.data(), 4);
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(id);
-  return ModelFolderOfBase(ctx_.records->ResolveFrom(bethesda::RawFormId{raw},
+  return ModelPathOfBase(ctx_.records->ResolveFrom(bethesda::RawFormId{raw},
                                                      stored ? stored->winning_plugin : 0));
 }
 
@@ -224,7 +240,7 @@ void CarriageSystem::AddLooseArt(const Carriage& carriage,
   // the same model folder standing inside the rig's footprint is part of it.
   if (!ctx_.records)
     return;
-  const base::String folder = ModelFolderOfRef(carriage.refs.cart);
+  const base::String folder = FolderOf(ModelPathOfRef(carriage.refs.cart));
   if (folder.empty())
     return;
   ctx_.world->Each<world::Prop, world::Transform>(
@@ -236,7 +252,7 @@ void CarriageSystem::AddLooseArt(const Carriage& carriage,
           if (EntityFor(part.ref) == e)
             return;
         const world::FormLink* link = ctx_.world->Get<world::FormLink>(e);
-        if (!link || ModelFolderOfBase(prop.base) != folder)
+        if (!link || FolderOf(ModelPathOfBase(prop.base)) != folder)
           return;
         Part part;
         part.ref = link->form.packed();
@@ -245,6 +261,105 @@ void CarriageSystem::AddLooseArt(const Carriage& carriage,
         parts->push_back(part);
         RX_INFO("carriage: piece 0x{:x} rides along", part.ref);
       });
+}
+
+bool CarriageSystem::SplitWheels(Carriage& carriage,
+                                 const base::Vector<Part>& parts,
+                                 const Vec3& forward,
+                                 const Vec3& centre,
+                                 world::CarriageConfig* cfg,
+                                 f32* axle_height) {
+  if (carriage.wheels_split || !ctx_.assets || !ctx_.renderer || ctx_.config->headless)
+    return !carriage.wheels.empty();
+  carriage.wheels_split = true;  // one attempt: a cart either has wheels or it does not
+
+  for (const Part& part : parts) {
+    const ecs::Entity e = EntityFor(part.ref);
+    const world::Prop* prop = ctx_.world->Get<world::Prop>(e);
+    world::Renderable* renderable = ctx_.world->Get<world::Renderable>(e);
+    const world::Transform* transform = ctx_.world->Get<world::Transform>(e);
+    if (!prop || !renderable || !transform)
+      continue;
+    const asset::Mesh* source =
+        ctx_.assets->FindMesh(asset::MakeAssetId(ModelPathOfBase(prop->base).c_str()));
+    if (!source)
+      continue;
+    // The cart's own model space: a Bethesda mesh comes through the axis change
+    // with the axle along x, which is the axis a wheel is thin across.
+    const base::String name = "carriage/" + base::ToString(static_cast<i64>(part.ref));
+    world::CartParts split = world::SplitCartWheels(*source, name);
+    if (!split.split())
+      continue;
+
+    ctx_.renderer->UploadMesh(*ctx_.assets->AddMesh(base::move(split.body)));
+    renderable->mesh = asset::MakeAssetId(name.c_str());
+
+    // Each wheel becomes its own drawable, and its hub tells the vehicle where
+    // to put the wheel it will be drawn on.
+    const Quat part_rot{transform->rotation[0], transform->rotation[1], transform->rotation[2],
+                        transform->rotation[3]};
+    const Vec3 part_pos{transform->position[0], transform->position[1], transform->position[2]};
+    const Vec3 chassis_x{forward.z, 0, -forward.x};  // +X is the chassis's left
+    f32 track = 0, front = -1e30f, rear = 1e30f, radius = 0, height = 0;
+    for (world::CartWheel& wheel : split.wheels) {
+      const Vec3 hub = part_pos + Rotate(part_rot, wheel.hub * transform->scale);
+      const f32 local_x = Dot(hub - centre, chassis_x);
+      const f32 local_z = Dot(hub - centre, forward);
+      track += std::fabs(local_x);
+      front = base::Max(front, local_z);
+      rear = base::Min(rear, local_z);
+      radius += wheel.radius * transform->scale;
+      height += hub.y;
+
+      // Placed on its hub to start with, which is what pairs it with the
+      // vehicle wheel it belongs to once the rig exists.
+      Carriage::Wheel drawn;
+      drawn.entity = ctx_.world->Create();
+      world::Transform wheel_transform;
+      wheel_transform.position[0] = hub.x;
+      wheel_transform.position[1] = hub.y;
+      wheel_transform.position[2] = hub.z;
+      wheel_transform.scale = transform->scale;
+      ctx_.world->Add(drawn.entity, wheel_transform);
+      const asset::AssetId mesh = wheel.mesh.id;
+      ctx_.renderer->UploadMesh(*ctx_.assets->AddMesh(base::move(wheel.mesh)));
+      ctx_.world->Add(drawn.entity, world::Renderable{mesh});
+      carriage.wheels.push_back(drawn);
+    }
+    const f32 count = static_cast<f32>(split.wheels.size());
+    cfg->wheel_x = track / count;
+    cfg->wheel_radius = radius / count;
+    cfg->front_z = front;
+    cfg->rear_z = rear;
+    *axle_height = height / count;
+    RX_INFO("carriage: {} wheels cut out of 0x{:x} (track {:.2f} m, wheelbase {:.2f} m, r {:.2f} m)",
+            split.wheels.size(), part.ref, cfg->wheel_x * 2, front - rear, cfg->wheel_radius);
+    return true;
+  }
+  return false;
+}
+
+void CarriageSystem::BindWheelsToVehicle(Carriage& carriage) {
+  // Pair art to physics by position: whichever vehicle wheel is nearest an art
+  // wheel is the one it rides, so neither side has to know the other's order.
+  for (Carriage::Wheel& wheel : carriage.wheels) {
+    const world::Transform* t = ctx_.world->Get<world::Transform>(wheel.entity);
+    if (!t)
+      continue;
+    const Vec3 art{t->position[0], t->position[1], t->position[2]};
+    f32 best = 1e30f;
+    for (u32 i = 0; i < 4; ++i) {
+      Vec3 position;
+      f32 rotation[4];
+      if (!ctx_.physics->GetVehicleWheel(carriage.rig.vehicle(), i, &position, rotation))
+        continue;
+      const f32 distance = Length(position - art);
+      if (distance < best) {
+        best = distance;
+        wheel.index = i;
+      }
+    }
+  }
 }
 
 bool CarriageSystem::Depart(Carriage& carriage, size_t index) {
@@ -284,8 +399,15 @@ bool CarriageSystem::Depart(Carriage& carriage, size_t index) {
   // the rig holds the shape the placements describe.
   cfg.tongue_z = base::Max(Dot(harness - centre, forward) - kHitchBehindHorse, cfg.half_extent.z);
   cfg.rest_length = 0.4f;
+  // Wheels cut out of the art give the vehicle its real track, wheelbase and
+  // radius, so the wheels it rolls on are the ones being drawn.
+  f32 axle_height = centre.y + cfg.wheel_radius;
+  SplitWheels(carriage, parts, forward, centre, &cfg, &axle_height);
 
-  const Vec3 spawn{centre.x, centre.y + cfg.wheel_radius + cfg.half_extent.y + 0.2f, centre.z};
+  // Sit the chassis so its suspension hangs the axles where the art's are;
+  // otherwise the body rides above or below its own wheels.
+  const f32 axle_drop = 0.9f * cfg.half_extent.y + kSuspensionRest;
+  const Vec3 spawn{centre.x, axle_height + axle_drop, centre.z};
   if (!carriage.rig.Spawn(*ctx_.physics, spawn, std::atan2(forward.x, forward.z), cfg)) {
     RX_WARN("carriage: could not create the physics cart for 0x{:x}", carriage.refs.cart);
     return false;
@@ -314,6 +436,7 @@ bool CarriageSystem::Depart(Carriage& carriage, size_t index) {
     }
   }
   carriage.parts = base::move(parts);
+  BindWheelsToVehicle(carriage);
 
   carriage.driving = true;
   carriage.route = index;
@@ -511,6 +634,21 @@ void CarriageSystem::SyncRender() {
       t->rotation[2] = r.z;
       t->rotation[3] = r.w;
     }
+    // Wheels turn on the vehicle, which is what makes them roll with the ground
+    // and take the suspension rather than slide along under the body.
+    for (const Carriage::Wheel& wheel : carriage.wheels) {
+      Vec3 position;
+      f32 rotation[4];
+      world::Transform* t = ctx_.world->Get<world::Transform>(wheel.entity);
+      if (!t || !ctx_.physics->GetVehicleWheel(carriage.rig.vehicle(), wheel.index, &position,
+                                               rotation))
+        continue;
+      t->position[0] = position.x;
+      t->position[1] = position.y;
+      t->position[2] = position.z;
+      std::memcpy(t->rotation, rotation, sizeof(t->rotation));
+    }
+
     // The driver rides his bench, which is the cart piece itself.
     Vec3 cart, forward;
     Quat cart_rot;
@@ -553,10 +691,16 @@ base::Vector<base::String> CarriageSystem::RidePrompts() const {
     prompts.push_back("[E]  Get off");
     return prompts;
   }
+  // The holds go on one line: the HUD's prompt stack is three rows deep, and a
+  // carriage serves up to six.
+  base::String offers;
+  for (size_t i = 0; i < carriage.routes.size() && i < kMaxOfferedRoutes; ++i) {
+    if (!offers.empty())
+      offers += "   ";
+    offers += "[" + base::ToString(static_cast<int>(i) + 1) + "] " + carriage.routes[i].destination;
+  }
   prompts.push_back("Where to?");
-  for (size_t i = 0; i < carriage.routes.size() && i < kMaxOfferedRoutes; ++i)
-    prompts.push_back("[" + base::ToString(static_cast<int>(i) + 1) + "]  " +
-                      carriage.routes[i].destination);
+  prompts.push_back(offers);
   prompts.push_back("[E]  Get off");
   return prompts;
 }
@@ -575,10 +719,21 @@ bool CarriageSystem::Activate(u64 handle) {
       Arrive(carriage);
     riding_ = -1;
     ctx_.ride_active = false;
-    ctx_.third_person = true;
-    Vec3 eye;
-    if (SeatEye(carriage, &eye) && actors_)
-      actors_->TeleportPlayer(eye.x, eye.y - kSeatEyeHeight, eye.z);
+    // Step down beside the cart rather than through it, and hand the body back
+    // to the locomotion machine.
+    Vec3 seat, forward;
+    Quat rotation;
+    if (actors_ && RefPose(carriage.refs.seat ? carriage.refs.seat : carriage.refs.cart, &seat,
+                           &rotation) &&
+        CartForward(carriage, &forward)) {
+      const Vec3 side{-forward.z, 0, forward.x};
+      const Vec3 off = seat + side * kStepDownOffset;
+      f32 ground = off.y;
+      if (ctx_.streamer)
+        ctx_.streamer->GroundHeight(off.x, off.z, &ground);
+      actors_->UnseatPlayer();
+      actors_->TeleportPlayer(off.x, ground, off.z);
+    }
     RX_INFO("carriage: left the carriage");
     return true;
   }
@@ -601,9 +756,13 @@ bool CarriageSystem::Activate(u64 handle) {
   }
   riding_ = index;
   ctx_.ride_active = true;
-  ctx_.third_person = false;  // the game forces first person for the ride
   ride_yaw_ = 0;  // facing over the horse; mouse look turns from there
   ride_pitch_ = 0;
+  // Sit down in the bed: the game's own passenger idle carries the seat as a
+  // baked offset, so playing it on the seat piece's origin puts the player on
+  // the bench with the driver ahead of them.
+  if (actors_ && !actors_->SeatPlayer(kPlayerSeatIdle))
+    RX_WARN("carriage: no passenger idle to sit on, riding standing up");
   RX_INFO("carriage: boarded");
   return true;
 }
@@ -633,22 +792,45 @@ void CarriageSystem::UpdateRide(f32 dt, const InputState& input, const ActionSta
     }
   }
 
+  if (actions.pressed(Action::kToggleThirdPerson))
+    ctx_.third_person = !ctx_.third_person;
+
   // Look around from the seat. The heading is held relative to the cart, so a
   // passenger keeps facing over the horse as the carriage turns instead of
   // being left staring at the roadside.
   ride_yaw_ -= input.mouse_dx * kLookSensitivity;
   ride_pitch_ = base::Clamp(ride_pitch_ - input.mouse_dy * kLookSensitivity, -1.4f, 1.4f);
-  Vec3 eye, forward;
-  if (!SeatEye(carriage, &eye) || !CartForward(carriage, &forward))
+  Vec3 seat, forward;
+  Quat rotation;
+  if (!RefPose(carriage.refs.seat ? carriage.refs.seat : carriage.refs.cart, &seat, &rotation) ||
+      !CartForward(carriage, &forward))
     return;
-  const f32 yaw = YawOfForward(forward) + ride_yaw_;
+  const f32 cart_yaw = YawOfForward(forward);
+  const f32 yaw = cart_yaw + ride_yaw_;
+
+  // The body sits on the seat piece and rides with the cart; the capsule follows
+  // it so the character controller does not think the player has been left in
+  // the road.
+  if (actors_) {
+    actors_->PlaceSeatedPlayer(seat, cart_yaw);
+    actors_->TeleportPlayer(seat.x, seat.y, seat.z);
+  }
+
   const f32 cos_pitch = std::cos(ride_pitch_);
   const Vec3 look{-std::sin(yaw) * cos_pitch, std::sin(ride_pitch_), -std::cos(yaw) * cos_pitch};
+  // Third person watches the rider on the cart from just behind the seat; first
+  // person puts the view where their eyes are. The boom is lifted clear of the
+  // ground behind it, or a rise in the road buries the camera in the hillside.
+  Vec3 eye = seat + Vec3{0, kSeatEyeHeight, 0};
+  if (ctx_.third_person) {
+    eye = eye + Vec3{0, kChaseLift, 0} - look * kChaseDistance;
+    f32 ground = eye.y;
+    if (ctx_.streamer && ctx_.streamer->GroundHeight(eye.x, eye.z, &ground))
+      eye.y = base::Max(eye.y, ground + kChaseClearance);
+  }
   ctx_.walk_eye = eye;
   ctx_.walk_target = eye + look;
   ctx_.cam_yaw = yaw;
-  if (actors_)
-    actors_->TeleportPlayer(eye.x, eye.y - kSeatEyeHeight, eye.z);
   if (ctx_.camera) {
     ctx_.camera->set_position(eye);
     ctx_.camera->set_yaw_pitch(yaw, ride_pitch_);

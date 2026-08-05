@@ -239,6 +239,50 @@ void ActorSystem::MovePlayer(const Vec3& feet,
   }
 }
 
+bool ActorSystem::SeatPlayer(const base::String& clip_path) {
+  if (player_actor_ < 0 || config_.headless)
+    return false;
+  Actor& actor = actors_[player_actor_];
+  if (!PlayHavokClip(actor, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
+                     "character"))
+    return false;
+  // The locomotion machine outranks a direct clip, so it has to let go of the
+  // pose for the seat to hold; AttachLocomotion puts it back on standing up.
+  actor.loco_arch.reset();
+  actor.external_position = true;
+  actor.animate = true;
+  actor.speed = 0;
+  player_seated_ = true;
+  return true;
+}
+
+void ActorSystem::UnseatPlayer() {
+  if (player_actor_ < 0 || !player_seated_)
+    return;
+  Actor& actor = actors_[player_actor_];
+  actor.havok_clip.reset();
+  actor.external_position = false;
+  AttachLocomotion(actor, character_locomotion_);
+  player_seated_ = false;
+}
+
+void ActorSystem::PlaceSeatedPlayer(const Vec3& position, f32 yaw) {
+  if (player_actor_ < 0 || !player_seated_)
+    return;
+  Actor& actor = actors_[player_actor_];
+  actor.yaw = yaw;
+  if (world::Transform* t = world_.Get<world::Transform>(actor.entity)) {
+    t->position[0] = position.x;
+    t->position[1] = position.y;
+    t->position[2] = position.z;
+    const f32 h = yaw * 0.5f;
+    t->rotation[0] = 0;
+    t->rotation[1] = std::sin(h);
+    t->rotation[2] = 0;
+    t->rotation[3] = std::cos(h);
+  }
+}
+
 void ActorSystem::CreateTestCharacter() {
   if (config_.headless)
     return;
