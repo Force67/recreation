@@ -1,5 +1,6 @@
 #include "components/quest/quest_system.h"
 
+#include <base/algorithm.h>
 #include <base/containers/set.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
@@ -38,7 +39,13 @@ i32 QuestSystem::GetStage(QuestHandle quest) const {
 bool QuestSystem::SetStage(QuestHandle quest, i32 stage) {
   QuestState& q = Mutable(quest);
   const bool already_done = q.stage_done[stage];
-  q.stage = stage;
+  // The journal only moves forward. Setting a stage below the one already
+  // reached runs that stage's fragment and marks it done, but the quest keeps
+  // the highest stage it has been set to, which is what GetStage answers and
+  // what a condition gates on. Skyrim's opening depends on it: the cart ride's
+  // scene sets stage 15 to release the horses, then 14 for its own bookkeeping,
+  // while every leg of the ride gates on GetStage >= 15.
+  q.stage = base::Max(q.stage, stage);
   q.stage_done[stage] = true;
   q.running = true;  // setting a stage implies the quest is running
   // Re-setting an already-done stage is a no-op in the game, so it raises no
