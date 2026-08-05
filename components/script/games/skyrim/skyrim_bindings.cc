@@ -1513,7 +1513,8 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene,
   active_quest_ = owning_quest;
   u64 before = vm_->native_call_count();
   vm_->Call(papyrus::ObjectRef{scene}, function, {});
-  RX_DEBUG("scene fragment {} ran, {} native calls", function, vm_->native_call_count() - before);
+  RX_INFO("scene: 0x{:x} fires {}, {} native call(s)", scene, function,
+          vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
 }
