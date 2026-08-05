@@ -195,6 +195,12 @@ int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
   return a ? static_cast<int>(a->parts.size()) : 0;
 }
 
+bool ActorSystem::NpcIsPerson(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  const Actor* a = npc_actors_.find(key);
+  return a != nullptr && a->anim_project == "character";
+}
+
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);
@@ -353,8 +359,14 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     return;
   if (std::getenv("RX_SKEL_DUMP"))
     RX_INFO("TeleportPlayer({:.2f}, {:.2f}, {:.2f})", x, y, z);
-  if (player_actor_ < 0)
+  if (player_actor_ < 0) {
+    // A start-game quest decides where the player begins, and it runs its opening
+    // stage while the world is still loading, before there is a body to move.
+    // Skyrim's opening does exactly that: it puts the player in the cart. Keep the
+    // last such request and honour it when the avatar spawns.
+    pending_move_ = Vec3{x, y, z};
     return;
+  }
   Actor& a = actors_[player_actor_];
   if (a.character)
     physics_.SetCharacterPosition(a.character, Vec3{x, y, z});
@@ -363,10 +375,13 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     t->position[1] = y;
     t->position[2] = z;
   }
-  // If the rx character controller is live on this entity, reset its velocity and
-  // flag the teleport so the follow camera cuts (SyncCharacterCameraAnchors bumps
-  // the anchor revision) instead of swinging across the worldspace.
-  if (auto* st = world_.Get<character::CharacterState>(a.entity)) {
+  // The rx character controller owns its own capsule and rewrites the transform
+  // from it every step, so moving ours alone lasts exactly one frame. Move the
+  // controller's too where it is live, which also cuts the follow camera across
+  // the jump instead of swinging it over the worldspace.
+  if (world_.Get<character::CharacterBody>(a.entity)) {
+    character::TeleportCharacter(world_, physics_, a.entity, Vec3{x, y, z});
+  } else if (auto* st = world_.Get<character::CharacterState>(a.entity)) {
     st->velocity = {0, 0, 0};
     st->teleported = true;
   }
@@ -375,7 +390,8 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     tr->position[1] = y;
     tr->position[2] = z;
   }
-  RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
+  // No log here: a ride moves the player onto its seat every frame.
+  RX_DEBUG("player moved to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
 }
 
 bool ActorSystem::LoadActorPart(const base::String& path, Actor& actor, i32 attach_bone) {
@@ -852,6 +868,12 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
 
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(base::move(actor));
+  if (pending_move_) {
+    const Vec3 to = *pending_move_;
+    pending_move_.reset();
+    RX_INFO("player: starting where the quest put them, ({:.1f}, {:.1f}, {:.1f})", to.x, to.y, to.z);
+    TeleportPlayer(to.x, to.y, to.z);
+  }
   return true;
 }
 

@@ -303,6 +303,7 @@ bool LoadGameData(Engine& engine) {
         self->streamer_->EnterExterior(*self->world_);  // a move back out to the worldspace
       }
     }
+    RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
     self->actors_->TeleportPlayer(x, y, z);
   });
   // A connecting client is a passive replica: the server runs the scripts and is

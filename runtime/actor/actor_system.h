@@ -98,6 +98,10 @@ class ActorSystem {
   // How many drawable parts a streamed NPC's instance has. 0 means it has an actor
   // but nothing to render, which is invisible rather than missing.
   int NpcInstanceParts(ecs::Entity npc) const;
+  // Whether a spawned actor is a person rather than a creature, which is what
+  // decides if it can take a seat: a horse standing beside a cart is not a
+  // passenger, however close it parks.
+  bool NpcIsPerson(ecs::Entity npc) const;
   // World position of an NPC instance's head bone, as of the last pose update.
   // False when the entity has no actor or the rig has no head. What a camera
   // frames a conversation on, rather than guessing at the body's origin.
@@ -401,6 +405,9 @@ class ActorSystem {
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
   bool player_seated_ = false;
+  // Where a quest asked to put the player before there was a player to put, held
+  // until the avatar spawns.
+  base::Optional<Vec3> pending_move_;
   base::Optional<Actor> npc_template_;
   base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
   // Creature rig per race (packed RACE form id); an entry with no actor is a
