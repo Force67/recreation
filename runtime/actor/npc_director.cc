@@ -218,6 +218,8 @@ void NpcDirector::UpdateAmbient(f32 dt) {
           return;  // driven elsewhere
         if (combat_.find(handle) || world_.Has<world::Dead>(e))
           return;  // fighting / downed
+        if (world_.Has<world::Seated>(e))
+          return;  // held on furniture (a carriage bench, the shafts)
         if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
           if (ct->team != 0)
             return;  // a soldier awaiting orders, not an idler

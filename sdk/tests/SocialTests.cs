@@ -19,7 +19,7 @@ public static class SocialTests
 
     public static void Run(Check check)
     {
-        // ===== server: create a party, invite a player, accept =====
+        // server: create a party, invite a player, accept
         Rpc.Clear();
         EventBus.Clear();
         var rec = new Recording();
@@ -50,7 +50,7 @@ public static class SocialTests
         check.That("party now holds both members", Parties.Members(party).Count == 2);
         check.That("PartyChanged fired on join", changed.Contains(party));
 
-        // ===== leader-only enforcement =====
+        // leader-only enforcement
         rec.Emits.Clear();
         Parties.Invite(2u, 3u);  // 2 is a member, not the leader
         check.That("a non-leader invite is rejected (no notify)",
@@ -71,7 +71,7 @@ public static class SocialTests
         check.That("req_invite from the leader notifies the invitee",
             rec.Emits.Exists(e => e.Name == "social:invite" && e.Peer == 4u));
 
-        // ===== leave: a member drops, then the leader leaving disbands =====
+        // leave: a member drops, then the leader leaving disbands
         changed.Clear();
         Parties.Leave(2u);
         check.That("a leaving member is removed", Parties.Of(2u) == null);
@@ -82,7 +82,7 @@ public static class SocialTests
         check.That("leader leaving disbands the party", Parties.Of(1u) == null);
         check.That("a disbanded party has no members", Parties.Members(party).Count == 0);
 
-        // ===== client: membership arrives purely by bag replication =====
+        // client: membership arrives purely by bag replication
         Rpc.Clear();
         EventBus.Clear();
         Rpc.Bind(new Recording());
@@ -111,7 +111,7 @@ public static class SocialTests
         check.That("RequestLeave forwards to the server",
             clientRec.Emits.Exists(e => e.Name == "social:req_leave" && e.Target == RpcTarget.ToServer));
 
-        // ===== presence: local status/activity round-trips and notifies =====
+        // presence: local status/activity round-trips and notifies
         Rpc.Clear();
         EventBus.Clear();
         Rpc.Bind(new Recording());
@@ -130,7 +130,6 @@ public static class SocialTests
         Presence.SetActivity("Exploring Whiterun");
         check.Equal("activity reads back", "Exploring Whiterun", Presence.ActivityOf(Players.Local));
 
-        // ===== teardown =====
         Social.Reset();
         Platform.Reset();
         Rpc.Clear();

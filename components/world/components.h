@@ -103,6 +103,11 @@ struct CombatTeam {
 // as a target and the render path can hold a downed pose. Presence is the state.
 struct Dead {};
 
+// Tag marking an actor held on a piece of furniture: the carriage driver on his
+// bench, the horse in the shafts. Where it stands is the furniture's business,
+// so the ambient sandbox leaves it alone instead of wandering it off the cart.
+struct Seated {};
+
 // Tag marking an entity created by a quest (PlaceAtMe), with the issuing quest,
 // so quest-spawned content can be found by an ECS sweep as well as via the
 // QuestWorld provenance ledger.

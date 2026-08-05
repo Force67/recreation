@@ -1894,7 +1894,7 @@ void GameUi::Impl::ApplyMainMenu() {
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
-  // NEWS rail: pooled rows filled from CHANGELOG.md (most-recent first).
+  // NEWS rail: pooled rows, most-recent first.
   for (int i = 0; i < kMenuNewsRows; ++i) {
     const base::String id = base::ToString(i);
     const bool on = i < static_cast<int>(mm_news.size());
@@ -2721,7 +2721,7 @@ void GameUi::Build(Window& window,
   }
 
   // Size the UI canvas to the actual backbuffer (swapchain) extent, not the
-  // window size — they differ on HiDPI / when the swapchain is clamped, which
+  // window size; they differ on HiDPI / when the swapchain is clamped, which
   // otherwise lays the menu out over only part of the screen (a black bar).
   const float fb_w = static_cast<float>(renderer.output_width());
   const float fb_h = static_cast<float>(renderer.output_height());

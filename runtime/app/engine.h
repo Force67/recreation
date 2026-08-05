@@ -241,7 +241,7 @@ class Engine : public app::Application {
   // Active only on a fresh install, before SetupMainMenu takes over.
   void UpdateFirstRun(f32 dt);
   // Paints the three universe panes (Skyrim / Fallout 4 / Starfield) as original,
-  // per-pixel procedural concept art — atmospheric sky, silhouettes, grain — and
+  // per-pixel procedural concept art (atmospheric sky, silhouettes, grain) and
   // uploads them as the menu's pane backdrop textures. No external image assets:
   // the front screen is self-contained and non-infringing.
   void GenerateMenuBackdrops();

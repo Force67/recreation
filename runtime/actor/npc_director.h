@@ -81,6 +81,12 @@ class NpcDirector {
   // (grid A* over a downward-ray floor map) or, on streamed exterior terrain,
   // follows the cost-aware navmesh corridor. Routes the walking player.
   Vec3 PathToward(const Vec3& from, const Vec3& goal);
+  // The same for another mover, which keeps its own corridor under `nav_id` (a
+  // form handle). For something the engine steps itself rather than guides, like
+  // the carriage horse.
+  Vec3 PathFor(u64 nav_id, const Vec3& from, const Vec3& goal) {
+    return NavigateTo(nav_id, from, goal);
+  }
   // Per-tick navmesh bubble maintenance around the player (time-sliced tile
   // builds, corridor budgets). Call once per sim tick, before the NPC updates.
   void UpdateNav(f32 dt);

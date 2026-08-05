@@ -158,8 +158,10 @@ void Engine::UpdateCamera(f32 frame_delta) {
     interaction_->UpdateInteraction(false);
   } else if (carriage_ && carriage_->riding()) {
     // Seated as a carriage passenger: locomotion stands down, the carriage pins
-    // the player to the seat and frames the camera; activate again to dismount.
-    carriage_->UpdateRide(frame_delta);
+    // the player to the seat and frames the view from it (number keys pick the
+    // destination); activate again to get off.
+    window_->SetRelativeMouseMode(!menu);
+    carriage_->UpdateRide(frame_delta, input, *actions_);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
   } else if (ctx_.walk_mode && actors_->HasPlayer()) {
     WalkUpdate(frame_delta, !menu && !kb);

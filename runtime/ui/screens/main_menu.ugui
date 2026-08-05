@@ -1,4 +1,4 @@
-// NEXUS main menu — a full-bleed, three-pane cinematic front screen. Each pane
+// NEXUS main menu: a full-bleed, three-pane cinematic front screen. Each pane
 // is a universe (Skyrim / Fallout 4 / Starfield) with its own procedurally
 // painted backdrop (mm_bg0..2), a legibility scrim, a selection accent (mm_sel)
 // and a game label (mm_labt). The chrome floats on top: the NEXUS wordmark and

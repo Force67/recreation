@@ -10,7 +10,7 @@ deterministic on a given driver stack.
 # compare (GB10 / NVIDIA, from the nix dev shell):
 nix develop -c python3 tests/golden/golden.py --runner vkrun
 
-# after an intentional rendering change, regenerate and commit the refs:
+# generate or regenerate the local refs:
 nix develop -c python3 tests/golden/golden.py --runner vkrun --update
 ```
 
@@ -25,10 +25,9 @@ Notes:
   `setdefault`, so the refs' geometry is the default but an explicit env
   override still wins) so a WM that hands the window a different client size
   does not fail every scene as a size mismatch.
-- References are driver-stack-specific; the checked-in set is the NVIDIA
-  vkrun baseline at 1920x1008, stored at half resolution to keep git history
-  small. Scenes without a reference for the current platform run smoke-only
-  (crash / black-frame detection) instead of failing.
+- References are driver-stack-specific and are not checked in; generate a
+  local set with `--update` (stored at half resolution). Scenes without a
+  reference run smoke-only (crash / black-frame detection) instead of failing.
 - CI runs the smoke mode on lavapipe (`golden-smoke` job in build.yml),
   uploading captures as artifacts. Promote a runner capture set with
   `--update` to turn CI comparisons on, then drop the job's

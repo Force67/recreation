@@ -29,17 +29,28 @@ struct CarriageConfig {
   f32 handbrake_torque = 4000;  // Nm on the rear axle; the parking brake
 
   // Hitch. The tongue attach point sits `tongue_z` ahead of the chassis centre
-  // and `tongue_y` above it; a stiff spring-damper pulls it toward the horse's
-  // hitch point and holds a `rest_length` gap. The shaft both pulls (horse
-  // ahead) and pushes (cart coasting into a stopped horse). `hitch_damping`
-  // acts along the shaft on the tongue-vs-horse closing speed; `max_hitch_force`
-  // clamps the explicit spring so a large stretch can't blow up the 60 Hz step.
+  // and `tongue_y` above it; a spring-damper pulls it toward the horse's hitch
+  // point and holds a `rest_length` gap. The shaft both pulls (horse ahead) and
+  // pushes (cart coasting into a stopped horse). `hitch_damping` acts along the
+  // shaft on the tongue-vs-horse closing speed. `max_hitch_force` is what keeps
+  // the rig calm: the pull lands a shaft's length ahead of and above the centre
+  // of mass, so a force big enough to drag a stuck cart out also stands it on
+  // its back wheels. Keep it to what accelerates the cart at a walk and let the
+  // shaft's own length (max_shaft) handle anything worse.
   f32 tongue_z = 1.9f;
   f32 tongue_y = 0.1f;
-  f32 rest_length = 1.4f;       // m, tongue -> horse hitch
-  f32 hitch_stiffness = 24000;  // N/m
-  f32 hitch_damping = 5500;     // N/(m/s)
-  f32 max_hitch_force = 60000;  // N
+  f32 rest_length = 1.4f;      // m, tongue -> horse hitch
+  f32 hitch_stiffness = 6000;  // N/m
+  f32 hitch_damping = 2500;    // N/(m/s)
+  f32 max_hitch_force = 9000;  // N
+  // How far past `rest_length` the shaft stretches before it is treated as the
+  // rigid timber it is and the cart is dragged along instead of sprung.
+  f32 max_shaft = 2.0f;
+  // A cart on shafts cannot capsize: the harness and the animal in it hold the
+  // bed level. Past this much tilt (radians off vertical) the rig is being
+  // thrown by the ground rather than driven over it, so it is stood back up.
+  // Below it the chassis pitches and rolls with the road as it should.
+  f32 max_tilt = 0.35f;
 
   // Steering. The front axle turns toward the hitch direction: the signed yaw
   // between the chassis forward axis and the tongue->horse direction (ground

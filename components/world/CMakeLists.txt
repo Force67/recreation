@@ -1,6 +1,9 @@
 recreation_add_module(world
+  carriage_records.cc
   carriage_rig.cc
+  cart_wheels.cc
   cell_streaming.cc
+  road_map.cc
   cine_camera.cc
   grass_baker.cc
   land_baker.cc
@@ -14,7 +17,7 @@ recreation_add_module(world
 target_link_libraries(recreation_world PUBLIC rx::physics)
 target_link_libraries(recreation_world PUBLIC rx::render)
 target_link_libraries(recreation_world PUBLIC
-  rx::core rx::ecs rx::asset recreation::bethesda)
+  rx::core rx::ecs rx::asset recreation::bethesda recreation::quest)
 
 foreach(t cine_cameratest interactiontest npc_aitest objective_markertest
           steering_avoidancetest pathfindtest carriage_rigtest quest_worldtest
@@ -23,6 +26,9 @@ foreach(t cine_cameratest interactiontest npc_aitest objective_markertest
 endforeach()
 recreation_add_test(prop_streamingtest
   recreation::world recreation::script recreation::bethesda)
+recreation_add_test(carriage_recordstest recreation::world recreation::bethesda)
+recreation_add_test(cart_wheelstest recreation::world)
+recreation_add_test(road_maptest recreation::world recreation::bethesda)
 recreation_add_test(combattest
   recreation::script recreation::world recreation::quest)
 

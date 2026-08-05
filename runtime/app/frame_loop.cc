@@ -565,6 +565,11 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           line += p.label;
           prompts.push_back(line);
         }
+        // A seated carriage passenger is offered their destinations in the same
+        // stack.
+        if (carriage_)
+          for (const base::String& line : carriage_->RidePrompts())
+            prompts.push_back(line);
         game_ui_.SetPrompts(prompts);
       }
       // Publish the local viewer's world position (engine space) so mods can place

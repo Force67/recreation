@@ -1,4 +1,6 @@
-add_executable(esminfo main.cc)
+# road_map.cc is compiled in rather than linking recreation::world, which would
+# drag physics and render into a records CLI; it only needs bethesda + core.
+add_executable(esminfo main.cc ${CMAKE_SOURCE_DIR}/components/world/road_map.cc)
 target_link_libraries(esminfo PRIVATE recreation::bethesda recreation::dialogue recreation::quest
                                      rx::asset)
 recreation_set_warnings(esminfo)
