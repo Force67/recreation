@@ -75,6 +75,11 @@ class ActorSystem {
   // holding the clip puts them in the chair (or the cart bed). False when the entity
   // has no actor instance or the clip is missing.
   bool PlayNpcClip(ecs::Entity npc, const base::String& clip_path);
+  // Puts a streamed actor on its own rig's standing or moving clip, found in the
+  // folder its skeleton came from. Lets a caller that drives an animal (the
+  // carriage horse) leave which animal it is to the records. False when the
+  // entity has no actor instance or the rig ships no such clip.
+  bool PlayNpcGait(ecs::Entity npc, bool moving);
   // Whether a streamed NPC entity has a skinned actor instance, i.e. whether it is
   // being drawn at all. What tells a scene director that its cast is really on
   // screen rather than merely present in the ECS.
@@ -226,6 +231,9 @@ class ActorSystem {
     base::Vector<Mat4> bone_model;  // model-space per skeleton bone
     base::Vector<ActorPart> parts;
     bool animate = true;  // false = hold the bind pose
+    // The actors/<folder> this rig's skeleton and clips live under, which is
+    // what a clip played on it must be resolved against.
+    base::String anim_project = "character";
     // The hand-rolled procedural gait (anim::Locomotion) is authored against the
     // builtin biped's bones. A real game skeleton with no clip holds its bind pose
     // instead: running the procedural pose on a Bethesda rig lays the body out flat.
@@ -266,6 +274,18 @@ class ActorSystem {
   // without creating an entity; the shared rig-load behind CreateCreatureActor
   // and SpawnCreatureNpc.
   bool LoadCreatureRig(const base::String& name, const base::String& clip_override, Actor* out);
+  // The creature rig a placed actor's race calls for: the race form and the rig
+  // folder ("horse"). False when the race walks on the human character skeleton
+  // or names no skeleton at all. Read from the race's own skeleton model (RACE
+  // ANAM), so it covers whatever a game or a mod ships rather than a list of
+  // known creatures.
+  bool CreatureRigForBase(bethesda::GlobalFormId base_npc,
+                          bethesda::GlobalFormId* race,
+                          base::String* rig) const;
+  // The shared rig every actor of one creature race is instanced from, built on
+  // first sight of that race. Null (and remembered as such) when its assets are
+  // missing, so those actors fall back to the human body instead of retrying.
+  const Actor* CreatureTemplate(bethesda::GlobalFormId base_npc);
   bool PlayHavokClip(Actor& actor,
                      const base::String& animation_path,
                      const base::String& skeleton_hkx_path,
@@ -371,6 +391,9 @@ class ActorSystem {
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
   base::Optional<Actor> npc_template_;
   base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
+  // Creature rig per race (packed RACE form id); an entry with no actor is a
+  // race whose rig failed to load.
+  base::UnorderedMap<u64, base::Optional<Actor>> creature_templates_;
   base::UnorderedMap<u64, Actor> npc_actors_;
   base::Vector<u64> scratch_dead_actors_;
   base::UnorderedMap<u64, physics::BodyId> solid_bodies_;

@@ -153,13 +153,35 @@ bool ActorSystem::PlayNpcClip(ecs::Entity npc, const base::String& clip_path) {
   Actor* a = npc_actors_.find(key);
   if (!a)
     return false;
-  if (!PlayHavokClip(*a, clip_path, "meshes/actors/character/character assets/skeleton.hkx",
-                     "character"))
+  // Resolve the clip's tracks against the rig this actor actually wears: a
+  // horse's clips name horse bones, and matching them to the human skeleton
+  // lands two tracks and leaves the animal in its bind pose.
+  const base::String rig = "meshes/actors/" + a->anim_project + "/character assets/skeleton.hkx";
+  if (!PlayHavokClip(*a, clip_path, rig, a->anim_project))
     return false;
   a->animate = true;
   a->speed = 0.0f;
   a->external_position = true;  // the seat comes from the clip, the place from us
   return true;
+}
+
+bool ActorSystem::PlayNpcGait(ecs::Entity npc, bool moving) {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  const Actor* a = npc_actors_.find(key);
+  if (!a)
+    return false;
+  static const char* const kMoving[] = {"trotforward", "walkforward", "mtwalkforward",
+                                        "mt_walkforward"};
+  static const char* const kStanding[] = {"idle", "mt_idle", "idle_pet", "h2hidle"};
+  const char* const* names = moving ? kMoving : kStanding;
+  const size_t count = moving ? std::size(kMoving) : std::size(kStanding);
+  const base::String base = "meshes/actors/" + a->anim_project + "/animations/";
+  for (size_t i = 0; i < count; ++i) {
+    const base::String path = base + names[i] + ".hkx";
+    if (vfs_.Contains(asset::NormalizePath(path)) && PlayNpcClip(npc, path))
+      return true;
+  }
+  return false;
 }
 
 bool ActorSystem::HasNpcInstance(ecs::Entity npc) const {
@@ -1399,6 +1421,7 @@ bool ActorSystem::LoadCreatureRig(const base::String& name,
     return false;
   actor.animate = true;
   actor.foot_ik = false;
+  actor.anim_project = name;
 
   // Clip: explicit override, else the creature's common locomotion/idle names.
   base::Vector<base::String> candidates;
@@ -1409,6 +1432,11 @@ bool ActorSystem::LoadCreatureRig(const base::String& name,
   candidates.push_back(base + "animations/mt_idle.hkx");
   candidates.push_back(base + "animations/h2hidle.hkx");
   candidates.push_back(base + "animations/idle_pet.hkx");
+  // A mount keeps its clips under the plain names (the horse stands on
+  // idle.hkx and walks on walkforward.hkx), so a streamed one is not left in
+  // its bind pose.
+  candidates.push_back(base + "animations/idle.hkx");
+  candidates.push_back(base + "animations/walkforward.hkx");
   bool playing = false;
   for (const base::String& clip : candidates) {
     if (!vfs_.Contains(asset::NormalizePath(clip)))
@@ -1423,6 +1451,64 @@ bool ActorSystem::LoadCreatureRig(const base::String& name,
   RX_INFO("creature rig '{}': {} bones, {} parts", name, actor.skeleton.bones.size(),
           actor.parts.size());
   return true;
+}
+
+bool ActorSystem::CreatureRigForBase(bethesda::GlobalFormId base_npc,
+                                     bethesda::GlobalFormId* race_out,
+                                     base::String* rig) const {
+  constexpr u32 kRnam = FourCc('R', 'N', 'A', 'M');
+  constexpr u32 kAnam = FourCc('A', 'N', 'A', 'M');
+  bethesda::Record npc;
+  if (!records_.Parse(base_npc, &npc))
+    return false;
+  const bethesda::Subrecord* rnam = npc.Find(kRnam);
+  if (!rnam || rnam->data.size() < 4)
+    return false;
+  u32 raw = 0;
+  std::memcpy(&raw, rnam->data.data(), 4);
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(base_npc);
+  const bethesda::GlobalFormId race =
+      records_.ResolveFrom(bethesda::RawFormId{raw}, stored ? stored->winning_plugin : 0);
+  bethesda::Record race_record;
+  if (!records_.Parse(race, &race_record))
+    return false;
+  // The race's male skeleton, e.g. "Actors\Horse\Character Assets\Skeleton.nif".
+  // The folder under actors\ is the rig, and "character" is the human one every
+  // talking race shares.
+  base::String path = race_record.GetString(kAnam);
+  for (char& c : path)
+    c = c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const size_t actors = path.find("actors/");
+  if (actors == base::String::npos)
+    return false;
+  const size_t start = actors + 7;
+  const size_t end = path.find('/', start);
+  if (end == base::String::npos || end == start)
+    return false;
+  base::String name = path.substr(start, end - start);
+  if (name == "character")
+    return false;
+  *race_out = race;
+  *rig = base::move(name);
+  return true;
+}
+
+const ActorSystem::Actor* ActorSystem::CreatureTemplate(bethesda::GlobalFormId base_npc) {
+  bethesda::GlobalFormId race{};
+  base::String rig;
+  if (!CreatureRigForBase(base_npc, &race, &rig))
+    return nullptr;
+  if (base::Optional<Actor>* cached = creature_templates_.find(race.packed()))
+    return cached->has_value() ? &**cached : nullptr;
+  Actor actor;
+  if (!LoadCreatureRig(rig, "", &actor)) {
+    creature_templates_.insert(race.packed(), base::Optional<Actor>{});
+    RX_WARN("actors: race {:04x}:{:06x} wants the '{}' rig, which did not load", race.plugin,
+            race.local_id, rig);
+    return nullptr;
+  }
+  creature_templates_.insert(race.packed(), base::Optional<Actor>{base::move(actor)});
+  return &**creature_templates_.find(race.packed());
 }
 
 bool ActorSystem::CreateCreatureActor(const base::String& name, const base::String& clip_override) {
@@ -2200,20 +2286,36 @@ void ActorSystem::SyncNpcActors() {
     const u64 key = static_cast<u64>(e.generation) << 32 | e.index;
     if (npc_actors_.find(key))
       return;
-    const Actor* tmpl = &*npc_template_;
+    const Actor* tmpl = nullptr;
     bool is_soldier = false;
+    bool is_creature = false;
     if (const world::CombatTeam* ct = world_.Get<world::CombatTeam>(e))
       if (const Actor* st = SoldierTemplate(ct->team)) {
         tmpl = st;
         is_soldier = true;
       }
+    // A creature race (the carriage horse, the wolves) is not a person wearing a
+    // body: it brings its own skeleton and mesh, or it is drawn as a bald human.
+    if (!tmpl)
+      if (const Actor* creature = CreatureTemplate(npc.base)) {
+        tmpl = creature;
+        is_creature = true;
+      }
+    if (!tmpl) {
+      if (!npc_template_)
+        return;
+      tmpl = &*npc_template_;
+    }
     Actor a = *tmpl;
     a.entity = e;
     a.character = 0;
     a.pose.ResetToBind(a.skeleton);
+    // A creature's looping clip animates it in place; where it stands is the
+    // streamed transform's business (and the package director's).
+    a.external_position = is_creature;
     // Skyrim civilians get their own assembled, morphed FaceGen head; soldiers
     // already carry the default head from their (armoured) template copy.
-    if (!is_soldier && ctx_.game == bethesda::Game::kSkyrimSe)
+    if (!is_soldier && !is_creature && ctx_.game == bethesda::Game::kSkyrimSe)
       AttachHead(a, npc.base);
     npc_actors_.insert(key, base::move(a));
   });
