@@ -89,9 +89,15 @@ int main(int argc, char** argv) {
       return;
     ScriptAttachment att;
     base::Vector<QuestStageFragment> fragments;
+    SceneFragments scene;
+    PackageFragments package;
     bool is_quest = type == FourCc('Q', 'U', 'S', 'T');
-    bool ok = is_quest ? ParseQuestFragments(vmad->data, &att, &fragments)
-                       : ParseScriptAttachment(vmad->data, &att);
+    bool is_scene = type == FourCc('S', 'C', 'E', 'N');
+    bool is_package = type == FourCc('P', 'A', 'C', 'K');
+    bool ok = is_quest     ? ParseQuestFragments(vmad->data, &att, &fragments)
+              : is_scene   ? ParseSceneFragments(vmad->data, &att, &scene)
+              : is_package ? ParsePackageFragments(vmad->data, &att, &package)
+                           : ParseScriptAttachment(vmad->data, &att);
     if (!ok || att.scripts.empty())
       return;
     ++total;
@@ -107,6 +113,21 @@ int main(int argc, char** argv) {
     }
     for (const QuestStageFragment& f : fragments)
       std::printf("  stage %-4u -> %s.%s\n", f.stage, f.script_name.c_str(), f.function.c_str());
+    if (!scene.begin.function.empty())
+      std::printf("  begin      -> %s.%s\n", scene.begin.script_name.c_str(),
+                  scene.begin.function.c_str());
+    if (!scene.end.function.empty())
+      std::printf("  end        -> %s.%s\n", scene.end.script_name.c_str(),
+                  scene.end.function.c_str());
+    for (const ScenePhaseFragment& p : scene.phases)
+      std::printf("  phase %-4u %-5s -> %s.%s\n", p.phase, p.on_begin ? "begin" : "end",
+                  p.fragment.script_name.c_str(), p.fragment.function.c_str());
+    const PackageFragment* const pack[] = {&package.on_begin, &package.on_end, &package.on_change};
+    const char* const pack_when[] = {"on-begin", "on-end", "on-change"};
+    for (size_t i = 0; i < 3; ++i)
+      if (pack[i]->valid())
+        std::printf("  %-10s -> %s.%s\n", pack_when[i], pack[i]->script_name.c_str(),
+                    pack[i]->function.c_str());
   });
 
   char type_name[5] = {sig[0], sig[1], sig[2], sig[3], 0};
