@@ -67,7 +67,7 @@
         text { text: "A few quick steps and you'll be ready to cross between them. You can change anything later in Settings.";
           font-size: 15; color: #8a93a8; width: 440; }
         panel { layout: row; align: center; gap: 14; margin: 40 0 0 0;
-          panel fr_begin { cursor: pointer; padding: 14 30; corner-radius: 8;
+          panel fr_begin { cursor: pointer; padding: 22 30; corner-radius: 8;
             background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
             :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
             text { text: "BEGIN"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
@@ -90,7 +90,7 @@
               text fr_name0 { text: "Skyrim Special Edition"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
               text fr_path0 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
             text fr_stat0 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
-            panel fr_browse0 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+            panel fr_browse0 { cursor: pointer; padding: 24 18; corner-radius: 8; background: #ffffff0a;
               border-color: #ffffff22; border-width: 1;
               :hover { background: #ffffff18; transition: 0.14s ease-out; }
               text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
@@ -102,7 +102,7 @@
               text fr_name1 { text: "Fallout 4"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
               text fr_path1 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
             text fr_stat1 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
-            panel fr_browse1 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+            panel fr_browse1 { cursor: pointer; padding: 24 18; corner-radius: 8; background: #ffffff0a;
               border-color: #ffffff22; border-width: 1;
               :hover { background: #ffffff18; transition: 0.14s ease-out; }
               text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
@@ -114,7 +114,7 @@
               text fr_name2 { text: "Starfield"; font-size: 13; color: #eef2fb; letter-spacing: 2; text-transform: uppercase; }
               text fr_path2 { text: "Not located"; font: mono; font-size: 11; color: #6b7488; } }
             text fr_stat2 { text: "Not found"; font-size: 11; color: #6b7488; letter-spacing: 1; text-transform: uppercase; }
-            panel fr_browse2 { cursor: pointer; padding: 9 18; corner-radius: 8; background: #ffffff0a;
+            panel fr_browse2 { cursor: pointer; padding: 24 18; corner-radius: 8; background: #ffffff0a;
               border-color: #ffffff22; border-width: 1;
               :hover { background: #ffffff18; transition: 0.14s ease-out; }
               text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
@@ -123,10 +123,10 @@
         text { text: "Locate at least one game to continue."; font-size: 12; color: #6b7488; margin: 18 0 0 0; }
 
         panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
-          panel fr_back1 { cursor: pointer; padding: 14 22; corner-radius: 8;
+          panel fr_back1 { cursor: pointer; padding: 22 22; corner-radius: 8;
             :hover { background: #ffffff0c; transition: 0.14s ease-out; }
             text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
-          panel fr_next1 { cursor: pointer; padding: 14 30; corner-radius: 8;
+          panel fr_next1 { cursor: pointer; padding: 22 30; corner-radius: 8;
             background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
             :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
             text fr_next1_t { text: "NEXT"; font-size: 13; color: #6b6149; letter-spacing: 3; } }
@@ -144,7 +144,7 @@
         // default mode
         text { text: "DEFAULT MODE"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 30 0 9 0; }
         panel fr_modesel { position: relative; width: 420; cursor: pointer;
-          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 13 16;
+          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 21 16;
             corner-radius: 8; background: #070a10; border-color: #ffffff12; border-width: 1;
             :hover { border-color: #ffcc5566; transition: 0.14s ease-out; }
             text fr_modeval { text: "Exploration"; font-size: 14; color: #eef2fb; }
@@ -153,19 +153,19 @@
             layout: column; gap: 2; padding: 5; corner-radius: 8;
             background: #0d1018; border-color: #ffffff22; border-width: 1;
             shadow-color: #000000b0; shadow-blur: 40; shadow-y: 16;
-            panel fr_modeopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_modeopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Exploration"; font-size: 14; color: #c9d0de; }
               panel fr_modetick0 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; } }
-            panel fr_modeopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_modeopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Story"; font-size: 14; color: #c9d0de; }
               panel fr_modetick1 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
-            panel fr_modeopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_modeopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Survival"; font-size: 14; color: #c9d0de; }
               panel fr_modetick2 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
-            panel fr_modeopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_modeopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Sandbox"; font-size: 14; color: #c9d0de; }
               panel fr_modetick3 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
@@ -175,7 +175,7 @@
         // difficulty
         text { text: "DIFFICULTY"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 22 0 9 0; }
         panel fr_diffsel { position: relative; width: 420; cursor: pointer;
-          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 13 16;
+          panel { layout: row; align: center; justify: space-between; width: 100%; padding: 21 16;
             corner-radius: 8; background: #070a10; border-color: #ffffff12; border-width: 1;
             :hover { border-color: #ffcc5566; transition: 0.14s ease-out; }
             text fr_diffval { text: "Normal"; font-size: 14; color: #eef2fb; }
@@ -184,19 +184,19 @@
             layout: column; gap: 2; padding: 5; corner-radius: 8;
             background: #0d1018; border-color: #ffffff22; border-width: 1;
             shadow-color: #000000b0; shadow-blur: 40; shadow-y: 16;
-            panel fr_diffopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_diffopt0 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Novice"; font-size: 14; color: #c9d0de; }
               panel fr_difftick0 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
-            panel fr_diffopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_diffopt1 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Normal"; font-size: 14; color: #c9d0de; }
               panel fr_difftick1 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; } }
-            panel fr_diffopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_diffopt2 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Hard"; font-size: 14; color: #c9d0de; }
               panel fr_difftick2 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
-            panel fr_diffopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 10 12; corner-radius: 6;
+            panel fr_diffopt3 { cursor: pointer; layout: row; justify: space-between; align: center; padding: 22 12; corner-radius: 6;
               :hover { background: #ffffff0c; transition: 0.12s ease-out; }
               text { text: "Legendary"; font-size: 14; color: #c9d0de; }
               panel fr_difftick3 { width: 7; height: 7; corner-radius: 4; background: #ffcc55; visibility: collapsed; } }
@@ -205,21 +205,21 @@
 
         // toggles
         panel { layout: column; gap: 16; margin: 30 0 0 0;
-          panel fr_chk0 { layout: row; align: start; gap: 13; cursor: pointer;
+          panel fr_chk0 { layout: row; align: start; gap: 13; cursor: pointer; padding: 22 0;
             panel fr_chkbox0 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
               border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
               panel fr_chkmk0 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
             panel { layout: column; gap: 3;
               text { text: "Enable mods by default"; font-size: 14; color: #eef2fb; }
               text { text: "Load installed gameplay modules when a world starts"; font-size: 12; color: #6b7488; } } }
-          panel fr_chk1 { layout: row; align: start; gap: 13; cursor: pointer;
+          panel fr_chk1 { layout: row; align: start; gap: 13; cursor: pointer; padding: 22 0;
             panel fr_chkbox1 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
               border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
               panel fr_chkmk1 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
             panel { layout: column; gap: 3;
               text { text: "Share anonymous diagnostics"; font-size: 14; color: #eef2fb; }
               text { text: "Help improve Recreation. No personal data leaves your machine"; font-size: 12; color: #6b7488; } } }
-          panel fr_chk2 { layout: row; align: start; gap: 13; cursor: pointer;
+          panel fr_chk2 { layout: row; align: start; gap: 13; cursor: pointer; padding: 22 0;
             panel fr_chkbox2 { width: 19; height: 19; corner-radius: 5; background: #ffcc55;
               border-color: #ffcc55; border-width: 1; layout: column; justify: center; align: center;
               panel fr_chkmk2 { width: 9; height: 9; corner-radius: 2; background: #05070b; } }
@@ -229,10 +229,10 @@
         }
 
         panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
-          panel fr_back2 { cursor: pointer; padding: 14 22; corner-radius: 8;
+          panel fr_back2 { cursor: pointer; padding: 22 22; corner-radius: 8;
             :hover { background: #ffffff0c; transition: 0.14s ease-out; }
             text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
-          panel fr_next2 { cursor: pointer; padding: 14 30; corner-radius: 8;
+          panel fr_next2 { cursor: pointer; padding: 22 30; corner-radius: 8;
             background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
             :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
             text { text: "NEXT"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
@@ -252,7 +252,7 @@
           panel { flex-grow: 1; padding: 13 16; corner-radius: 8; background: #070a10;
             border-color: #ffffff12; border-width: 1;
             text fr_modspath_t { text: "~/.recreation/mods"; font: mono; font-size: 13; color: #eef2fb; } }
-          panel fr_browse_mods { cursor: pointer; padding: 13 20; corner-radius: 8; background: #ffffff0a;
+          panel fr_browse_mods { cursor: pointer; padding: 24 20; corner-radius: 8; background: #ffffff0a;
             border-color: #ffffff22; border-width: 1;
             :hover { background: #ffffff18; transition: 0.14s ease-out; }
             text { text: "BROWSE"; font-size: 11; color: #c9d0de; letter-spacing: 2; } }
@@ -272,10 +272,10 @@
             font-size: 12; color: #c9d0de; width: 410; } }
 
         panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
-          panel fr_back3 { cursor: pointer; padding: 14 22; corner-radius: 8;
+          panel fr_back3 { cursor: pointer; padding: 22 22; corner-radius: 8;
             :hover { background: #ffffff0c; transition: 0.14s ease-out; }
             text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
-          panel fr_next3 { cursor: pointer; padding: 14 30; corner-radius: 8;
+          panel fr_next3 { cursor: pointer; padding: 22 30; corner-radius: 8;
             background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
             :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
             text { text: "NEXT"; font-size: 13; color: #ffe6a0; letter-spacing: 3; } }
@@ -312,10 +312,10 @@
           font-size: 12; color: #6b7488; margin: 10 0 0 0; }
 
         panel { layout: row; align: center; gap: 14; margin: 34 0 0 0;
-          panel fr_back4 { cursor: pointer; padding: 14 22; corner-radius: 8;
+          panel fr_back4 { cursor: pointer; padding: 22 22; corner-radius: 8;
             :hover { background: #ffffff0c; transition: 0.14s ease-out; }
             text { text: "BACK"; font-size: 13; color: #8a93a8; letter-spacing: 3; } }
-          panel fr_launch { cursor: pointer; padding: 16 46; corner-radius: 8;
+          panel fr_launch { cursor: pointer; padding: 22 46; corner-radius: 8;
             background: #ffcc5522; border-color: #ffcc556b; border-width: 1;
             :hover { background: #ffcc5542; border-color: #ffcc55b3; transition: 0.14s ease-out; }
             text { text: "LAUNCH RECREATION"; font-size: 14; color: #ffe6a0; letter-spacing: 3; } }

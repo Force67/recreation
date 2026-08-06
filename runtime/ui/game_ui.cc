@@ -11,6 +11,7 @@
 #include "runtime/ui/game_ui.h"
 
 #include "runtime/camera/fly_camera.h"
+#include "runtime/ui/touch_pointer.h"
 
 #if defined(RECREATION_HAS_UGUI)
 
@@ -50,6 +51,17 @@ base::Option<const char*> UiFont{"ui.font", nullptr, "RECREATION_UI_FONT"};
 base::Option<const char*> UiFontMono{"ui.font.mono", nullptr, "RECREATION_UI_FONT_MONO"};
 base::Option<bool> UiHotReload{"ui.hot.reload", false, "RECREATION_UI_HOT_RELOAD"};
 base::Option<bool> UiMenu{"ui.menu", false, "RECREATION_UI_MENU"};
+// Opens the pause menu straight into its controls sub-view. The rebind list is
+// otherwise only reachable by clicking Settings, which leaves it out of reach
+// of a scripted RX_SCREENSHOT capture.
+base::Option<bool> UiMenuSettings{"ui.menu.settings", false, "RECREATION_UI_MENU_SETTINGS"};
+// Global UI scale. The .ugui screens are authored for a desktop pointer, where
+// a 50px button is comfortable; on the Deck's 216 PPI panel that is 5.9mm
+// against a fingertip contact patch of 8-10mm. ugui scales every px dimension
+// (font size, padding, fixed dimensions) when handed a design resolution below
+// the real one, so one knob grows the whole interface rather than restyling
+// every screen. 1.0 leaves the desktop layout untouched.
+base::Option<float> UiScale{"ui.scale", 1.0f, "RECREATION_UI_SCALE"};
 base::Option<bool> MainMenu{"main.menu", false, "RECREATION_MAIN_MENU"};
 base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
 base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
@@ -1126,6 +1138,7 @@ struct GameUi::Impl {
   bool quit_requested = false;
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   bool prev_mouse[3] = {};
+  TouchPointerState touch_pointer;
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking
@@ -2254,6 +2267,16 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   cfg.external_window = &impl_->host;
   cfg.width = static_cast<int>(window.width());
   cfg.height = static_cast<int>(window.height());
+  // A design resolution below the real one makes ugui scale every px dimension
+  // by real/design, so scale N means asking for a viewport N times smaller than
+  // we actually have.
+  if (UiScale.get() > 1.001f) {
+    cfg.scale_mode = ugui::ViewportScaleMode::kHeight;
+    cfg.design_width = static_cast<float>(window.width()) / UiScale.get();
+    cfg.design_height = static_cast<float>(window.height()) / UiScale.get();
+    RX_INFO("ui scale: {:.2f}x (design {:.0f}x{:.0f})", UiScale.get(), cfg.design_width,
+            cfg.design_height);
+  }
   if (!impl_->ui.Init(cfg)) {
     RX_WARN("ultragui init failed");
     return false;
@@ -2349,9 +2372,12 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->SetVisible("editor_root", false);
   impl_->SetVisible("cg_root", false);
 
-  // Debug aid: RECREATION_UI_MENU opens the pause menu at startup.
-  if (UiMenu)
+  // Debug aid: RECREATION_UI_MENU opens the pause menu at startup,
+  // RECREATION_UI_MENU_SETTINGS opens it on the controls sub-view.
+  if (UiMenu || UiMenuSettings)
     impl_->menu_open = true;
+  if (UiMenuSettings)
+    impl_->settings_open = true;
   impl_->ApplyMenuVisibility();  // menu starts hidden unless forced open
   // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
   if (MainMenu)
@@ -2737,19 +2763,35 @@ void GameUi::Build(Window& window,
   const float msy = window.height() > 0 ? fb_h / static_cast<float>(window.height()) : 1.f;
   impl->pointer_scale_x = msx;
   impl->pointer_scale_y = msy;
-  q.PushMove({in.mouse_x * msx, in.mouse_y * msy});
-  const ugui::MouseButton buttons[3] = {ugui::MouseButton::kLeft, ugui::MouseButton::kRight,
-                                        ugui::MouseButton::kMiddle};
-  const MouseButton rec_buttons[3] = {MouseButton::kLeft, MouseButton::kRight,
-                                      MouseButton::kMiddle};
-  for (int i = 0; i < 3; ++i) {
-    bool down = in.button(rec_buttons[i]);
-    if (down != impl->prev_mouse[i])
-      q.PushButton(buttons[i], down);
-    impl->prev_mouse[i] = down;
+  // A finger drives the same pointer the mouse does. This is what makes the HUD
+  // usable on a handheld: with touch.emits_mouse off (the steamdeck profile) SDL
+  // no longer synthesizes a cursor, so without this the panel does nothing. The
+  // decision lives in touch_pointer.h so it is testable without a panel.
+  const TouchPointerEvents touch_events =
+      ResolveTouchPointer(window.touch(), impl->touch_pointer, msx, msy);
+
+  if (touch_events.move)
+    q.PushMove({touch_events.x, touch_events.y});
+  if (touch_events.button)
+    q.PushButton(ugui::MouseButton::kLeft, touch_events.down);
+  if (touch_events.scroll)
+    q.PushScroll({0.0f, touch_events.scroll_y});
+
+  if (touch_events.use_mouse) {
+    q.PushMove({in.mouse_x * msx, in.mouse_y * msy});
+    const ugui::MouseButton buttons[3] = {ugui::MouseButton::kLeft, ugui::MouseButton::kRight,
+                                          ugui::MouseButton::kMiddle};
+    const MouseButton rec_buttons[3] = {MouseButton::kLeft, MouseButton::kRight,
+                                        MouseButton::kMiddle};
+    for (int i = 0; i < 3; ++i) {
+      bool down = in.button(rec_buttons[i]);
+      if (down != impl->prev_mouse[i])
+        q.PushButton(buttons[i], down);
+      impl->prev_mouse[i] = down;
+    }
+    if (in.wheel != 0.0f)
+      q.PushScroll({0.0f, in.wheel});
   }
-  if (in.wheel != 0.0f)
-    q.PushScroll({0.0f, in.wheel});
 
   // Feed gamepad + keyboard navigation into ugui's focus ring so menus with
   // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.

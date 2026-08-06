@@ -43,8 +43,8 @@
     }
 
     // ===================== command nav (left) =====================
-    panel { position: absolute; left: 86; top: 258; width: 300; layout: column; gap: 31;
-      panel mm_nav0 { position: relative; layout: column; gap: 3; cursor: pointer;
+    panel { position: absolute; left: 86; top: 220; width: 300; layout: column; gap: 0;
+      panel mm_nav0 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret0 { position: absolute; left: -30; top: 9; width: 14; height: 14;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
@@ -53,7 +53,7 @@
         text mm_navt0 { text: "PLAY"; font-size: 23; color: #ffcc55; letter-spacing: 3; }
         text mm_navs0 { text: "Choose your universe"; font-size: 12; color: #7a8396; letter-spacing: 1; }
       }
-      panel mm_nav1 { position: relative; layout: column; gap: 3; cursor: pointer;
+      panel mm_nav1 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret1 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
@@ -62,7 +62,7 @@
         text mm_navt1 { text: "MULTIPLAYER"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
         text mm_navs1 { text: "Join or host a server"; font-size: 12; color: #7a8396; letter-spacing: 1; }
       }
-      panel mm_nav2 { position: relative; layout: column; gap: 3; cursor: pointer;
+      panel mm_nav2 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret2 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
@@ -71,7 +71,7 @@
         text mm_navt2 { text: "MODS"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
         text mm_navs2 { text: "Browse and manage mods"; font-size: 12; color: #7a8396; letter-spacing: 1; }
       }
-      panel mm_nav3 { position: relative; layout: column; gap: 3; cursor: pointer;
+      panel mm_nav3 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret3 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
@@ -80,7 +80,7 @@
         text mm_navt3 { text: "SETTINGS"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
         text mm_navs3 { text: "Configure your experience"; font-size: 12; color: #7a8396; letter-spacing: 1; }
       }
-      panel mm_nav4 { position: relative; layout: column; gap: 3; cursor: pointer;
+      panel mm_nav4 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret4 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
@@ -89,7 +89,7 @@
         text mm_navt4 { text: "PROFILE"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
         text mm_navs4 { text: "View stats and progress"; font-size: 12; color: #7a8396; letter-spacing: 1; }
       }
-      panel mm_nav5 { position: relative; layout: column; gap: 3; cursor: pointer;
+      panel mm_nav5 { position: relative; layout: column; gap: 3; cursor: pointer; padding: 12 0;
         panel mm_caret5 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
           panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ff9a8a; }
           panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ff9a8a; }
@@ -118,7 +118,7 @@
         panel { layout: column; align: start; gap: 4; flex-grow: 1;
           text news2_title { text: ""; font-size: 13; color: #c9d0de; letter-spacing: 1; font-weight: 600; width: 100%; }
           text news2_sub { text: ""; font: mono; font-size: 11; color: #7e8699; } } }
-      panel act_news { cursor: pointer; layout: column; align: start; gap: 6; padding: 4 0; margin: 2 0 0 0;
+      panel act_news { cursor: pointer; layout: column; align: start; gap: 6; padding: 24 0; margin: 2 0 0 0;
         :hover { background: #ffffff0c; transition: 0.14s ease-out; }
         text { text: "VIEW CHANGELOG"; font-size: 11; color: #cfd6e6; letter-spacing: 2; }
         panel { width: 30; height: 1; background: #cfd6e6; } }
@@ -145,16 +145,16 @@
         panel { flex-grow: 1; }
 
         panel { flex-grow: 1; layout: row; align: center; justify: end; gap: 12;
-          panel act_globe { cursor: pointer; padding: 8; corner-radius: 7;
+          panel act_globe { cursor: pointer; padding: 21; corner-radius: 7;
             :hover { background: #ffffff14; transition: 0.14s ease-out; }
             image gl_globe { width: 22; height: 22; } }
-          panel act_discord { cursor: pointer; padding: 8; corner-radius: 7;
+          panel act_discord { cursor: pointer; padding: 21; corner-radius: 7;
             :hover { background: #ffffff14; transition: 0.14s ease-out; }
             image gl_discord { width: 24; height: 19; } }
-          panel act_changelog { cursor: pointer; padding: 8; corner-radius: 7;
+          panel act_changelog { cursor: pointer; padding: 21; corner-radius: 7;
             :hover { background: #ffffff14; transition: 0.14s ease-out; }
             image gl_changelog { width: 18; height: 20; } }
-          panel act_gear { cursor: pointer; padding: 8; corner-radius: 7;
+          panel act_gear { cursor: pointer; padding: 21; corner-radius: 7;
             :hover { background: #ffffff14; transition: 0.14s ease-out; }
             image gl_gear { width: 21; height: 21; } }
         }
@@ -170,7 +170,7 @@
         panel { layout: row; align: center; justify: space-between; width: 100%; margin: 0 0 16 0;
           text mm_screen_title { text: "MULTIPLAYER"; font-size: 25; color: #f2f4fb;
             letter-spacing: 8; text-transform: uppercase; }
-          panel mm_back { cursor: pointer; padding: 7 14; corner-radius: 8; background: #ffffff12;
+          panel mm_back { cursor: pointer; padding: 22 16; corner-radius: 8; background: #ffffff12;
             border-color: #ffffff1c; border-width: 1;
             :hover { background: #ffffff22; transition: 0.14s ease-out; }
             text { text: "Back"; font-size: 14; color: #cfd6e6; } }

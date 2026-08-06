@@ -4,6 +4,7 @@
 set(RECREATION_RUNTIME_SOURCES
   app/engine.cc
   app/frame_loop.cc
+  app/platform_profile.cc
   app/networking.cc
   app/managed_rpc.cc
   app/content_load.cc
@@ -161,4 +162,5 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(demo/trailertest recreation::weather rx::core SRCS demo/trailer.cc)
   recreation_add_test(editor/editor_layouttest rx::core)
   recreation_add_test(character/chargen_presettest rx::core)
+  recreation_add_test(ui/touch_pointertest rx::core)
 endif()
