@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "components/bethesda/game_profile.h"
 #include "components/world/cart_wheels.h"
 #include "components/world/components.h"
 #include "core/input.h"
@@ -51,6 +52,17 @@ constexpr f32 kStepDownOffset = 2.2f;  // m to the side of the cart when getting
 // Where an rx vehicle's wheels hang at rest, below the chassis attach point
 // (its suspension travel is 0.15..0.4 m and settles around the middle).
 constexpr f32 kSuspensionRest = 0.28f;
+constexpr f32 kCornerReached = 6.0f;  // m; how close counts as reaching a road corner
+// Road routing strides, in game units. A road is about 500 units wide, so the
+// coarse one still finds it while covering a leg between holds in a search that
+// finishes.
+constexpr f32 kFineStride = 128.0f;
+constexpr f32 kCoarseStride = 512.0f;
+// How much road to work out at a time, and how far off the end of that stretch
+// to look for a road to aim at.
+constexpr f32 kPlanHorizon = 40000.0f;    // game units, about 570 m
+constexpr f32 kPlanSnapRadius = 6000.0f;  // game units, about 85 m
+constexpr f32 kReplanInterval = 4.0f;     // s; a floor on how often a search runs
 // The cart idles are furniture animations: each carries its seat as a baked
 // offset on the COM, authored against the cart, so planting an actor on a
 // piece's origin and holding the clip puts them on the bench.
@@ -489,6 +501,55 @@ Vec3 CarriageSystem::HitchPoint(const Carriage& carriage) const {
          Vec3{0, kHarnessHeight, 0};
 }
 
+f32 CarriageSystem::RoadAt(const Vec3& position) {
+  if (!EnsureRoadSource())
+    return 0;
+  return roads_.At(position.x / kUnitsToMeters, -position.z / kUnitsToMeters);
+}
+
+bool CarriageSystem::EnsureRoadSource() {
+  if (!ctx_.records)
+    return false;
+  if (!worldspace_resolved_) {
+    worldspace_resolved_ = true;
+    worldspace_ =
+        ctx_.records->FindWorldspace(bethesda::GameProfile::For(ctx_.game).exterior_worldspace);
+    roads_.SetSource(ctx_.records, worldspace_);
+  }
+  return true;
+}
+
+void CarriageSystem::PlanLeg(Carriage& carriage, const Vec3& from, const Vec3& mark) {
+  // The route's marks are a hold apart, so the road between them is worked out
+  // here rather than steered for: an A* over the surface the landscape is
+  // painted with, which is the only record of where a road runs. It is planned
+  // a stretch at a time, both to bound what one search costs and because a
+  // carriage only needs to know the next bend, not the whole county.
+  carriage.leg.clear();
+  carriage.leg_next = 0;
+  if (!EnsureRoadSource())
+    return;
+  const Vec3 from_game{from.x / kUnitsToMeters, -from.z / kUnitsToMeters, 0};
+  Vec3 to_game{mark.x / kUnitsToMeters, -mark.z / kUnitsToMeters, 0};
+  const f32 span = Length(Flatten(mark - from)) / kUnitsToMeters;
+  const bool short_hop = span <= kPlanHorizon;
+  if (!short_hop) {
+    // Aim a stretch down the line toward the mark, on the best road there is:
+    // a stretch that starts and ends on a road keeps to it, one that ends in a
+    // field leaves the road twice.
+    const Vec3 toward = Normalize(Vec3{to_game.x - from_game.x, to_game.y - from_game.y, 0});
+    to_game = roads_.NearestRoad(from_game + toward * kPlanHorizon, kPlanSnapRadius);
+  }
+  const base::Vector<Vec3> route =
+      roads_.FindRoute(from_game, to_game, short_hop ? kFineStride : kCoarseStride);
+  for (const Vec3& point : route)
+    carriage.leg.push_back(Vec3{point.x * kUnitsToMeters, 0, -point.y * kUnitsToMeters});
+  RX_INFO("carriage: road route: {} corners over the next {:.0f} m ({:.0f} m to mark {})",
+          carriage.leg.size(),
+          Length(Flatten(Vec3{to_game.x * kUnitsToMeters, 0, -to_game.y * kUnitsToMeters} - from)),
+          Length(Flatten(mark - from)), carriage.waypoint + 1);
+}
+
 void CarriageSystem::Drive(Carriage& carriage, f32 dt) {
   const world::CarriageRoute& route = carriage.routes[carriage.route];
   const ecs::Entity horse = EntityFor(carriage.refs.horse);
@@ -513,15 +574,28 @@ void CarriageSystem::Drive(Carriage& carriage, f32 dt) {
     return;
   }
   const Vec3 mark = GameToEngine(route.waypoints.data() + carriage.waypoint * 3);
-  Vec3 step_to = mark;
+  // Plan the next stretch of road when the last one runs out (and not more than
+  // once in a while when there is no road to be found).
+  carriage.replan -= dt;
+  if (carriage.leg_next >= carriage.leg.size() && carriage.replan <= 0) {
+    carriage.replan = kReplanInterval;
+    PlanLeg(carriage, horse_pos, mark);
+  }
+  // Head for the next corner of the road route, or straight at the mark where
+  // no road was found between here and it.
+  while (carriage.leg_next < carriage.leg.size() &&
+         Length(Flatten(carriage.leg[carriage.leg_next] - horse_pos)) <= kCornerReached)
+    ++carriage.leg_next;
+  Vec3 step_to = carriage.leg_next < carriage.leg.size() ? carriage.leg[carriage.leg_next] : mark;
   if (npc_) {
-    // Follow the navmesh corridor only while it makes ground toward the mark.
-    // Past the bubble around the player, which is most of a leg between holds,
-    // it hands back corners at the edge of what it knows, and chasing those
-    // walks the carriage back and forth instead of down the road.
-    const Vec3 corner = npc_->PathFor(carriage.refs.horse, horse_pos, mark);
-    const f32 remaining = Length(Flatten(mark - horse_pos));
-    if (Length(Flatten(corner - horse_pos)) > 1.0f && Length(Flatten(mark - corner)) < remaining)
+    // Follow the corridor only while it makes ground toward the mark. Past the
+    // bubble, which is most of a leg between holds, it hands back corners at
+    // the edge of what it knows, and chasing those walks the carriage back and
+    // forth instead of down the road.
+    const Vec3 corner = npc_->PathFor(carriage.refs.horse, horse_pos, step_to);
+    const f32 remaining = Length(Flatten(step_to - horse_pos));
+    if (Length(Flatten(corner - horse_pos)) > 1.0f &&
+        Length(Flatten(step_to - corner)) < remaining)
       step_to = corner;
   }
   const Vec3 to_step = Flatten(step_to - horse_pos);
@@ -552,11 +626,16 @@ void CarriageSystem::Drive(Carriage& carriage, f32 dt) {
   // A line a minute on how the journey is going: which mark it is walking to and
   // how far off it still is. The ride is minutes long and crosses cells, so this
   // is what tells a log whether it is progressing or wedged.
+  // Telemetry for the progress line: how much of the journey has actually been
+  // on a road, which is what says whether the routing is doing its job.
+  carriage.road_samples += 1;
+  carriage.road_total += RoadAt(horse_pos);
   carriage.report -= dt;
   if (carriage.report <= 0) {
     carriage.report = 60.0f;
-    RX_INFO("carriage: bound for {}, mark {}/{}, {:.0f} m to it", route.destination,
-            carriage.waypoint + 1, stops, Length(Flatten(mark - horse_pos)));
+    RX_INFO("carriage: bound for {}, mark {}/{}, {:.0f} m to it, on road {:.0f}% of the way",
+            route.destination, carriage.waypoint + 1, stops, Length(Flatten(mark - horse_pos)),
+            100.0 * carriage.road_total / base::Max(carriage.road_samples, 1.0));
   }
 }
 

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -26,6 +27,7 @@
 #include "components/quest/quest_def.h"
 #include "components/quest/scene_record.h"
 #include "components/quest/scene_runtime.h"
+#include "components/world/road_map.h"
 
 namespace {
 
@@ -398,6 +400,99 @@ int DumpCellRefs(const base::String& data_dir, int x, int y) {
 
 // Dumps the LAND texture layers of one exterior cell, for grass placement
 // work.
+// Prints the road surface the landscape is painted with over a block of cells,
+// one character per sample. This is the only thing in the records that says
+// where a road runs, so it is worth being able to look at.
+int DumpRoads(const base::String& data_dir, int x, int y, int radius) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile))
+    return 1;
+  GlobalFormId world = records.FindWorldspace(profile.exterior_worldspace);
+  const RecordStore::ExteriorGrid* grid = records.ExteriorCells(world);
+  if (!grid)
+    return 1;
+
+  rx::world::RoadMap roads;
+  for (int cy = y - radius; cy <= y + radius; ++cy) {
+    for (int cx = x - radius; cx <= x + radius; ++cx) {
+      const RecordStore::ExteriorCell* cell =
+          grid->find(RecordStore::GridKey(static_cast<rx::i16>(cx), static_cast<rx::i16>(cy)));
+      if (cell && cell->land)
+        roads.AddCell(records, cell->land, static_cast<rx::i16>(cx), static_cast<rx::i16>(cy));
+    }
+  }
+  std::printf("cells %d..%d x %d..%d, %zu with land\n", x - radius, x + radius, y - radius,
+              y + radius, roads.cell_count());
+  const int span = (2 * radius + 1) * static_cast<int>(rx::world::RoadMap::kResolution);
+  const float step = 4096.0f / static_cast<float>(rx::world::RoadMap::kResolution);
+  for (int row = span - 1; row >= 0; --row) {  // north at the top
+    const float wy = (static_cast<float>(y - radius) * 4096.0f) + (static_cast<float>(row) + 0.5f) * step;
+    base::String line;
+    for (int col = 0; col < span; ++col) {
+      const float wx =
+          (static_cast<float>(x - radius) * 4096.0f) + (static_cast<float>(col) + 0.5f) * step;
+      const float w = roads.At(wx, wy);
+      line.push_back(w > 0.75f ? '#' : w > 0.4f ? '+' : w > 0.1f ? '.' : ' ');
+    }
+    std::printf("%s\n", line.c_str());
+  }
+  return 0;
+}
+
+// Routes a carriage leg over the painted roads and reports how much of it ends
+// up surfaced, which is the number that says whether the route follows a road.
+int DumpRoadRoute(const base::String& data_dir,
+                  float x1, float y1, float x2, float y2, float stride) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile))
+    return 1;
+  rx::world::RoadMap roads;
+  roads.SetSource(&records, records.FindWorldspace(profile.exterior_worldspace));
+
+  const auto started = std::chrono::steady_clock::now();
+  base::Vector<rx::Vec3> route = roads.FindRoute({x1, y1, 0}, {x2, y2, 0}, stride);
+  const double ms =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  const float direct = std::sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  if (route.empty()) {
+    std::printf("no route found (%.0f units direct, %zu cells read, %.0f ms)\n", direct,
+                roads.cell_count(), ms);
+    return 1;
+  }
+
+  // Walk the route at a fixed step and sample what is under it.
+  float length = 0, on_road = 0, samples = 0;
+  rx::Vec3 at{x1, y1, 0};
+  for (const rx::Vec3& corner : route) {
+    const float dx = corner.x - at.x, dy = corner.y - at.y;
+    const float span = std::sqrt(dx * dx + dy * dy);
+    for (float t = 0; t < span; t += 64.0f) {
+      const float f = t / std::max(span, 1e-3f);
+      on_road += roads.At(at.x + dx * f, at.y + dy * f) > 0.35f ? 1.0f : 0.0f;
+      samples += 1;
+    }
+    length += span;
+    at = corner;
+  }
+  // What the straight line would have managed, for comparison.
+  float direct_on_road = 0, direct_samples = 0;
+  for (float t = 0; t < direct; t += 64.0f) {
+    const float f = t / std::max(direct, 1e-3f);
+    direct_on_road += roads.At(x1 + (x2 - x1) * f, y1 + (y2 - y1) * f) > 0.35f ? 1.0f : 0.0f;
+    direct_samples += 1;
+  }
+  std::printf("  straight line: %.0f%% on road\n",
+              100.0f * direct_on_road / std::max(direct_samples, 1.0f));
+  std::printf("%zu corners, %.0f units (%.2fx direct), %.0f%% on road, %zu cells, %.0f ms\n",
+              route.size(), length, length / std::max(direct, 1.0f),
+              100.0f * on_road / std::max(samples, 1.0f), roads.cell_count(), ms);
+  return 0;
+}
+
 int DumpLand(const base::String& data_dir, int x, int y) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
   auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
@@ -1402,6 +1497,31 @@ int main(int argc, char** argv) {
 
   if (argc >= 4 && base::String(argv[2]) == "aliases")
     return DumpQuestAliases(argv[1], argv[3]);
+
+  if (argc >= 6 && base::String(argv[2]) == "roadroute") {
+    auto pair = [](const base::String& s, float* a, float* b) {
+      const size_t comma = s.find(',');
+      if (comma == base::String::npos)
+        return false;
+      *a = std::stof(s.substr(0, comma).c_str());
+      *b = std::stof(s.substr(comma + 1).c_str());
+      return true;
+    };
+    float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    if (!pair(argv[3], &x1, &y1) || !pair(argv[4], &x2, &y2))
+      return 1;
+    return DumpRoadRoute(argv[1], x1, y1, x2, y2, std::stof(argv[5]));
+  }
+
+  if (argc >= 4 && base::String(argv[2]) == "roads") {
+    base::String coords = argv[3];
+    size_t comma = coords.find(',');
+    if (comma == base::String::npos)
+      return 1;
+    return DumpRoads(argv[1], std::stoi(coords.substr(0, comma).c_str()),
+                     std::stoi(coords.substr(comma + 1).c_str()),
+                     argc >= 5 ? std::stoi(argv[4]) : 1);
+  }
 
   if (argc >= 4 && base::String(argv[2]) == "land") {
     base::String coords = argv[3];

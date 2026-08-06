@@ -8,6 +8,7 @@
 #include "components/bethesda/form_id.h"
 #include "components/world/carriage_records.h"
 #include "components/world/carriage_rig.h"
+#include "components/world/road_map.h"
 #include "core/math.h"
 #include "ecs/world.h"
 
@@ -85,7 +86,15 @@ class CarriageSystem {
     base::Vector<Wheel> wheels;
     bool wheels_split = false;  // the art has been cut up (once per carriage)
     Vec3 prev_hitch{};
+    // The road worked out for the leg being driven, and how far along it the
+    // carriage is. Empty where no road was found; the mark is then driven at
+    // directly.
+    base::Vector<Vec3> leg;
+    size_t leg_next = 0;
+    f32 replan = 0;
     f32 report = 0;  // throttles the journey's progress log
+    f64 road_total = 0;
+    f64 road_samples = 0;
     bool horse_walking = false;
     // The seated idles only take once the actor has a drawable instance, which
     // lands a frame or two after its cell does.
@@ -128,6 +137,14 @@ class CarriageSystem {
   // One journey step: waypoint bookkeeping plus the tow force on the cart.
   void Drive(Carriage& carriage, f32 dt);
 
+  // How much road is under a world position, decoding the cell's landscape the
+  // first time it is asked about. 0 off the road and where there is no land.
+  f32 RoadAt(const Vec3& position);
+  bool EnsureRoadSource();
+  // Works out the road between where the carriage stands and the next mark, and
+  // hands the journey the corners to drive.
+  void PlanLeg(Carriage& carriage, const Vec3& from, const Vec3& mark);
+
   ecs::Entity EntityFor(u64 ref) const;
   bool RefPose(u64 ref, Vec3* position, Quat* rotation) const;
   // Ground-plane direction from the cart toward the horse's mark: the axis the
@@ -142,6 +159,13 @@ class CarriageSystem {
   NpcDirector* npc_;
   world::CarriageKeywords keywords_;
   bool keywords_resolved_ = false;
+  // The roads the landscape is painted with, decoded cell by cell as a journey
+  // reaches them, plus the cells already looked at (a cell with no land, or none
+  // painted, must not be re-parsed every step).
+  world::RoadMap roads_;
+  base::UnorderedSet<u32> road_cells_read_;
+  bethesda::GlobalFormId worldspace_{};
+  bool worldspace_resolved_ = false;
   base::Vector<Carriage> carriages_;
   base::UnorderedSet<u64> examined_;  // actors already checked for a carriage
   f32 discover_timer_ = 0;

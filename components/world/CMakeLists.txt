@@ -3,6 +3,7 @@ recreation_add_module(world
   carriage_rig.cc
   cart_wheels.cc
   cell_streaming.cc
+  road_map.cc
   cine_camera.cc
   grass_baker.cc
   land_baker.cc
@@ -27,6 +28,7 @@ recreation_add_test(prop_streamingtest
   recreation::world recreation::script recreation::bethesda)
 recreation_add_test(carriage_recordstest recreation::world recreation::bethesda)
 recreation_add_test(cart_wheelstest recreation::world)
+recreation_add_test(road_maptest recreation::world recreation::bethesda)
 recreation_add_test(combattest
   recreation::script recreation::world recreation::quest)
 
