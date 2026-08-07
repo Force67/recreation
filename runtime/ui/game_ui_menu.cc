@@ -1,0 +1,662 @@
+// The front-of-house screens: character creation, the NEXUS main menu and the
+// first-run wizard. All three are modal, own their own input, and are driven
+// from engine-supplied views.
+
+#include "runtime/ui/game_ui_internal.h"
+
+#if defined(RECREATION_HAS_UGUI)
+
+namespace rx {
+
+base::String BuildCharGenSection() {
+  const char* FLD = "#000000";  // sunken field
+  const char* AC = "#ffffff";   // accent indigo
+  const char* TXP = "#ffffff";  // primary text
+  const char* TXS = "#9a9a9a";  // secondary text
+  const char* TXM = "#5e5e5e";  // muted text
+  base::String s;
+  char buf[1400];
+
+  const float contentW = kCgLeftW - 2 * kCgPad;
+  const float sexW = (contentW - 8.0f) / 2.0f;
+  const float tabW = (contentW - 2 * 6.0f) / 3.0f;
+
+  std::snprintf(buf, sizeof(buf),
+                "\n  panel cg_root {\n"
+                "    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;\n"
+                "    panel cg_left { position: absolute; left: 0; top: %g; width: %g; bottom: %g;"
+                " background: #0d0d0dff; border-color: #ffffff12; border-width: 1;\n",
+                kCgTop, kCgLeftW, kCgTop);
+  s += buf;
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: 16; font-size: 16; color: %s;"
+                " letter-spacing: 2; text: \"CHARACTER CREATION\"; }\n"
+                "      text { position: absolute; left: %g; top: 60; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"RACE\"; }\n",
+                kCgPad, TXP, kCgPad, TXM);
+  s += buf;
+  // Race rows (pooled).
+  for (int i = 0; i < kCgRaceRows; ++i) {
+    const base::String id = base::ToString(i);
+    std::snprintf(buf, sizeof(buf),
+                  "      panel cg_race%s { position: absolute; left: %g; top: %g; width: %g;"
+                  " height: %g; background: #ffffff00; cursor: pointer;"
+                  " :hover { background: #ffffff0e; }\n"
+                  "        text cg_race%s_t { position: absolute; left: 10; top: 5; font-size: 12;"
+                  " color: %s; text: \"\"; }\n      }\n",
+                  id.c_str(), kCgPad, kCgRaceY0 + i * kCgRaceRowH, contentW, kCgRaceRowH - 3.0f,
+                  id.c_str(), TXS);
+    s += buf;
+  }
+  // Sex toggle.
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: %g; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"SEX\"; }\n",
+                kCgPad, kCgSexY - 24.0f, TXM);
+  s += buf;
+  std::snprintf(
+      buf, sizeof(buf),
+      "      panel cg_sexm { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+      " background: %s; border-color: #ffffff14; border-width: 1;"
+      " layout: column; justify: center; align: center; cursor: pointer;"
+      " text cg_sexm_t { font-size: 13; color: %s; text: \"Male\"; } }\n"
+      "      panel cg_sexf { position: absolute; left: %g; top: %g; width: %g; height: %g;"
+      " background: %s; border-color: #ffffff14; border-width: 1;"
+      " layout: column; justify: center; align: center; cursor: pointer;"
+      " text cg_sexf_t { font-size: 13; color: %s; text: \"Female\"; } }\n",
+      kCgPad, kCgSexY, sexW, kCgBtnH, FLD, TXP, kCgPad + sexW + 8.0f, kCgSexY, sexW, kCgBtnH, FLD,
+      TXS);
+  s += buf;
+  // Preset cycler.
+  std::snprintf(buf, sizeof(buf),
+                "      text { position: absolute; left: %g; top: %g; font-size: 11; color: %s;"
+                " letter-spacing: 1; text: \"PRESET\"; }\n",
+                kCgPad, kCgPresetY - 24.0f, TXM);
+  s += buf;
+  std::snprintf(
+      buf, sizeof(buf),
+      "      panel cg_pprev { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+      " background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 15; color: %s; text: \"<\"; } }\n"
+      "      text cg_plabel { position: absolute; left: %g; top: %g; width: %g;"
+      " text-align: center; font-size: 12; color: %s; text: \"Preset 1\"; }\n"
+      "      panel cg_pnext { position: absolute; left: %g; top: %g; width: 40; height: %g;"
+      " background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 15; color: %s; text: \">\"; } }\n",
+      kCgPad, kCgPresetY, kCgBtnH, FLD, TXP, kCgPad + 46.0f, kCgPresetY + 8.0f, contentW - 92.0f,
+      TXP, kCgPad + contentW - 40.0f, kCgPresetY, kCgBtnH, FLD, TXP);
+  s += buf;
+  // Page tabs.
+  const char* pages[3] = {"Face", "Advanced", "Look"};
+  for (int i = 0; i < 3; ++i) {
+    const base::String id = base::ToString(i);
+    std::snprintf(buf, sizeof(buf),
+                  "      panel cg_page%s { position: absolute; left: %g; top: %g; width: %g;"
+                  " height: 32; background: %s; layout: column; justify: center;"
+                  " align: center; cursor: pointer;"
+                  " text cg_page%s_t { font-size: 12; color: %s; text: \"%s\"; } }\n",
+                  id.c_str(), kCgPad + i * (tabW + 6.0f), kCgPageY, tabW, i == 0 ? AC : FLD,
+                  id.c_str(), i == 0 ? TXP : TXS, pages[i]);
+    s += buf;
+  }
+  // Action buttons.
+  const char* acts[3] = {"Randomize", "Reset", "Save"};
+  const char* actn[3] = {"cg_rand", "cg_reset", "cg_save"};
+  for (int i = 0; i < 3; ++i) {
+    std::snprintf(buf, sizeof(buf),
+                  "      panel %s { position: absolute; left: %g; top: %g; width: %g; height: 30;"
+                  " background: %s; border-color: #ffffff14; border-width: 1;"
+                  " layout: column; justify: center; align: center; cursor: pointer;"
+                  " :hover { background: #ffffff14; }"
+                  " text { font-size: 13; color: %s; text: \"%s\"; } }\n",
+                  actn[i], kCgPad, kCgActY + i * kCgActH, contentW, i == 2 ? AC : FLD,
+                  i == 2 ? TXP : TXS, acts[i]);
+    s += buf;
+  }
+  std::snprintf(buf, sizeof(buf),
+                "      text cg_status { position: absolute; left: %g; top: %g; width: %g;"
+                " font-size: 11; color: %s; text: \"\"; }\n    }\n",
+                kCgPad, kCgActY + 3 * kCgActH + 8.0f, contentW, TXS);
+  s += buf;
+
+  // Right dock: page title + pager + pooled control rows.
+  std::snprintf(
+      buf, sizeof(buf),
+      "    panel cg_right { position: absolute; right: 0; top: %g; width: %g; bottom: %g;"
+      " background: #0d0d0dff; border-color: #ffffff12; border-width: 1;\n"
+      "      text cg_ptitle { position: absolute; left: 16; top: 16; font-size: 15;"
+      " color: %s; letter-spacing: 1; text: \"FACE\"; }\n"
+      "      text cg_scinfo { position: absolute; left: 16; top: 40; font-size: 11;"
+      " color: %s; text: \"\"; }\n"
+      "      panel cg_scup { position: absolute; right: 52; top: 14; width: 30; height: 26;"
+      " background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 13; color: %s; text: \"^\"; } }\n"
+      "      panel cg_scdn { position: absolute; right: 16; top: 14; width: 30; height: 26;"
+      " background: %s; layout: column; justify: center; align: center;"
+      " cursor: pointer; :hover { background: #ffffff18; }"
+      " text { font-size: 13; color: %s; text: \"v\"; } }\n",
+      kCgTop, kCgRightW, kCgTop, TXP, TXM, FLD, TXP, FLD, TXP);
+  s += buf;
+  for (int i = 0; i < kCgSliderRows; ++i) {
+    const base::String id = base::ToString(i);
+    std::snprintf(
+        buf, sizeof(buf),
+        "      panel cg_row%s { position: absolute; left: 8; top: %g; width: %g;"
+        " height: %g; background: #ffffff00; cursor: pointer;"
+        " :hover { background: #ffffff0c; }\n"
+        "        text cg_row%s_lbl { position: absolute; left: 10; top: 9; font-size: 12;"
+        " color: #c9cfdb; text: \"\"; }\n"
+        "        panel cg_row%s_sw { position: absolute; left: %g; top: 8; width: 14;"
+        " height: 14; background: #000000; }\n"
+        "        panel cg_row%s_trk { position: absolute; left: %g; top: %g; width: %g;"
+        " height: 8; background: %s; border-color: #ffffff14;"
+        " border-width: 1;\n"
+        "          panel cg_row%s_fill { position: absolute; left: 0; top: 0; width: 50%%;"
+        " height: 8; background: %s; }\n        }\n"
+        "        text cg_row%s_val { position: absolute; left: %g; top: 9; font-size: 11;"
+        " color: %s; text: \"\"; }\n      }\n",
+        id.c_str(), kCgRowsY0 + i * kCgRowH, kCgRightW - 16.0f, kCgRowH - 6.0f, id.c_str(),
+        id.c_str(), kCgTrackX - 8.0f - 20.0f, id.c_str(), kCgTrackX - 8.0f,
+        (kCgRowH - 6.0f) / 2.0f - 4.0f, kCgTrackW, FLD, id.c_str(), AC, id.c_str(),
+        kCgTrackX - 8.0f + kCgTrackW + 10.0f, TXS);
+    s += buf;
+  }
+  s += "    }\n  }\n";
+  return s;
+}
+
+// --- UI markup fragments (runtime/ui/*.ugui) --------------------------------
+// The static screens live in editable .ugui files so they can be tweaked and
+// hot-reloaded without a rebuild. The procedural screens (the scrolling compass
+// topbar, the map editor, the NEXUS main menu) are generated in code and
+// concatenated in as siblings of root. See RECREATION_UI_DIR (override the
+// fragment directory) and RECREATION_UI_HOT_RELOAD (reload on file change).
+
+// The .ugui fragments composed into root, in draw order. Also the hot-reload
+// watch list.
+
+void GameUi::Impl::ApplyCharGenView() {
+  // On the active<->inactive edge, hide the gameplay HUD while creating a
+  // character and restore it on exit (the overlay owns the whole screen).
+  if (chargen.active != chargen_prev_active) {
+    const bool hud = !chargen.active;
+    SetVisible("topbar", hud);
+    SetVisible("crosshair", hud);
+    SetVisible("vitals", hud);
+    SetVisible("readout", hud);
+    chargen_prev_active = chargen.active;
+  }
+  SetVisible("cg_root", chargen.active);
+  if (!chargen.active)
+    return;
+
+  auto setText = [&](const base::String& n, const base::String& t) {
+    SetText(n.c_str(), t.c_str());
+  };
+  auto setFill = [&](const base::String& n, float pct) {
+    SetStyleField(n.c_str(), [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); }, pct);
+  };
+
+  // Race list.
+  for (int i = 0; i < kCgRaceRows; ++i) {
+    const base::String row = "cg_race" + base::ToString(i);
+    if (i < static_cast<int>(chargen.races.size())) {
+      SetVisible(row.c_str(), true);
+      setText(row + "_t", chargen.races[i]);
+      const bool on = i == chargen.race;
+      SetBackground(row.c_str(), on ? kEdAccentSoft : kEdClear);
+      SetTextColor((row + "_t").c_str(), on ? kEdTxP : kEdTxS);
+    } else {
+      SetVisible(row.c_str(), false);
+    }
+  }
+
+  // Sex toggle + page tabs.
+  SetBackground("cg_sexm", chargen.sex == 0 ? kEdAccent : kEdField);
+  SetBackground("cg_sexf", chargen.sex == 1 ? kEdAccent : kEdField);
+  SetTextColor("cg_sexm_t", chargen.sex == 0 ? kEdTxP : kEdTxS);
+  SetTextColor("cg_sexf_t", chargen.sex == 1 ? kEdTxP : kEdTxS);
+  for (int i = 0; i < 3; ++i) {
+    const base::String tab = "cg_page" + base::ToString(i);
+    const bool on = i == chargen.page;
+    SetBackground(tab.c_str(), on ? kEdAccent : kEdField);
+    SetTextColor((tab + "_t").c_str(), on ? kEdTxP : kEdTxS);
+  }
+  setText("cg_plabel", chargen.preset_label);
+  setText("cg_status", chargen.status);
+
+  // Right dock: page title, pager readout, control rows.
+  setText("cg_ptitle", chargen.page_title);
+  if (chargen.row_total > kCgSliderRows) {
+    char b[64];
+    std::snprintf(b, sizeof(b), "%d-%d / %d", chargen.row_first + 1,
+                  base::Min(chargen.row_first + kCgSliderRows, chargen.row_total),
+                  chargen.row_total);
+    setText("cg_scinfo", b);
+  } else {
+    setText("cg_scinfo", "");
+  }
+  for (int i = 0; i < kCgSliderRows; ++i) {
+    const base::String row = "cg_row" + base::ToString(i);
+    if (i < static_cast<int>(chargen.rows.size())) {
+      const CharGenView::Row& r = chargen.rows[i];
+      SetVisible(row.c_str(), true);
+      setText(row + "_lbl", r.label);
+      setText(row + "_val", r.value);
+      setFill(row + "_fill", base::Clamp(r.fill, 0.0f, 1.0f) * 100.0f);
+      const bool sw = r.swatch != 0;
+      SetVisible((row + "_sw").c_str(), sw);
+      if (sw)
+        SetBackground((row + "_sw").c_str(), Rgba(r.swatch));
+    } else {
+      SetVisible(row.c_str(), false);
+    }
+  }
+}
+
+
+void GameUi::Impl::ApplyMainMenu() {
+  SetVisible("mainmenu", main_menu_open);
+  if (!main_menu_open) {
+    mm_prev_open = false;
+    return;
+  }
+  mm_prev_open = true;
+  auto setText = [&](const base::String& n, const base::String& t) {
+    SetText(n.c_str(), t.c_str());
+  };
+
+  // Emblems: rebind each frame so they survive a hot-reload tree rebuild.
+  for (const auto& [name, tex] : mm_glyphs)
+    if (tex)
+      ugui::SetImageTexture(Need(name.c_str()), tex, 1.0f, 1.0f);
+
+  // Columns: live backdrop image (only when a texture is set), selection accent,
+  // label text + availability dimming.
+  for (int i = 0; i < kMenuUniverses; ++i) {
+    const base::String id = base::ToString(i);
+    const bool has_bg = mm_backdrop[i] != 0;
+    if (has_bg)
+      ugui::SetImageTexture(Need(Pooled("mm_bg", i)), mm_backdrop[i], 1.0f, 1.0f);
+    SetVisible(Pooled("mm_bg", i), has_bg);
+    SetVisible(Pooled("mm_sel", i), i == mm_universe);
+    if (i < static_cast<int>(mm_universe_names.size()))
+      setText("mm_labt" + id, mm_universe_names[i]);
+    const bool avail = i >= static_cast<int>(mm_available.size()) || mm_available[i];
+    SetTextColor(Pooled("mm_labt", i), i == mm_universe ? Rgba(0xffffffffu)
+                                           : avail          ? Rgba(0x9a9a9affu)
+                                                            : Rgba(0x5e5e5effu));
+  }
+
+  // Left nav: caret + highlight on the selected row (QUIT reads red). The row's
+  // :selected state carries the eased pill background; the caret and text colour
+  // track the same index so keyboard and mouse share one highlight.
+  for (int i = 0; i < kMenuNavItems; ++i) {
+    const base::String id = base::ToString(i);
+    const bool on = i == mm_nav;
+    ugui::SetSelected(ui.world(), Need(Pooled("mm_nav", i)), on);
+    SetVisible(Pooled("mm_caret", i), on);
+    SetTextColor(Pooled("mm_navt", i), on ? Rgba(0xffffffffu) : Rgba(0x9a9a9affu));
+    SetTextColor(Pooled("mm_navs", i), on ? Rgba(0x9a9a9affu) : Rgba(0x5e5e5effu));
+  }
+
+  // Profile banner: real handle + system line; peer count only when in session.
+  const base::String sysline =
+      mm_stats.in_game && !mm_stats.universe.empty()
+          ? ("Level " + base::ToString(mm_stats.level) + "  ·  " + mm_stats.universe)
+          : (mm_stats.account + (mm_stats.machine.empty() ? "" : "@" + mm_stats.machine));
+  setText("mm_pname", mm_stats.player_name.empty() ? mm_stats.account : mm_stats.player_name);
+  setText("mm_psys", sysline);
+  SetVisible("mm_pnet", mm_stats.players_online > 0);
+  setText("mm_pcount", base::ToString(mm_stats.players_online));
+
+  // Build/version stamp.
+  setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
+
+  // NEWS rail: pooled rows, most-recent first.
+  for (int i = 0; i < kMenuNewsRows; ++i) {
+    const base::String id = base::ToString(i);
+    const bool on = i < static_cast<int>(mm_news.size());
+    SetVisible(Pooled("news", i), on);
+    if (on) {
+      setText("news" + id + "_title", mm_news[i].title);
+      setText("news" + id + "_sub", mm_news[i].detail);
+    }
+  }
+
+  // Sub-screen overlay: title + which body is shown. Body visibility is set
+  // unconditionally (not only when the screen is open) so a body never lingers
+  // visible while its screen is collapsed.
+  SetVisible("mm_screen", mm_screen != 0);
+  SetVisible("mm_body_mp", mm_screen == 1);
+  SetVisible("mm_body_mods", mm_screen == 2);
+  SetVisible("mm_body_settings", mm_screen == 3);
+  SetVisible("mm_body_profile", mm_screen == 4);
+  if (mm_screen != 0) {
+    const char* titles[5] = {"", "MULTIPLAYER", "MODS", "SETTINGS", "PROFILE"};
+    setText("mm_screen_title", titles[mm_screen]);
+  }
+  if (mm_screen == 1) {
+    setText("mm_mp_universe", mm_universe < static_cast<int>(mm_universe_names.size())
+                                  ? mm_universe_names[mm_universe]
+                                  : "");
+    setText("mm_mp_status", mm_stats.net_status.empty() ? "Offline" : mm_stats.net_status);
+  }
+  if (mm_screen == 2) {
+    for (int i = 0; i < kMenuModRows; ++i) {
+      const base::String id = base::ToString(i);
+      const bool row = i < static_cast<int>(mm_mods.size());
+      SetVisible(Pooled("mm_mod", i), row);
+      if (row)
+        setText("mm_modt" + id, mm_mods[i]);
+    }
+    SetVisible("mm_mods_empty", mm_mods.empty());
+  }
+  if (mm_screen == 4) {
+    // Header + real account/system identity (always shown).
+    setText("mm_pf_name", mm_stats.player_name.empty() ? mm_stats.account : mm_stats.player_name);
+    setText("mm_pf_sub", mm_stats.in_game && !mm_stats.universe.empty()
+                             ? ("Playing  ·  " + mm_stats.universe)
+                             : "Local profile");
+    setText("mm_pf_account", mm_stats.account.empty() ? "-" : mm_stats.account);
+    setText("mm_pf_machine", mm_stats.machine.empty() ? "-" : mm_stats.machine);
+    const base::String session =
+        mm_stats.players_online > 0
+            ? (base::ToString(mm_stats.players_online) + " online")
+            : (mm_stats.net_status.empty() ? "Single-player" : mm_stats.net_status);
+    setText("mm_pf_session", session);
+    setText("mm_pf_build", mm_stats.build.empty() ? "-" : ("v" + mm_stats.build));
+
+    // Character vitals/holdings only when a universe is actually loaded.
+    SetVisible("mm_pf_char", mm_stats.in_game);
+    SetVisible("mm_pf_hint", !mm_stats.in_game);
+    if (mm_stats.in_game) {
+      auto bar = [&](const char* fill, float v) {
+        SetStyleField(
+            fill, [](ugui::Style& s, float x) { s.width = ugui::Length::Pct(x); },
+            base::Clamp(v, 0.0f, 1.0f) * 100.0f);
+      };
+      bar("mm_pf_health", mm_stats.health);
+      bar("mm_pf_magicka", mm_stats.magicka);
+      bar("mm_pf_stamina", mm_stats.stamina);
+      setText("mm_pf_gold", base::ToString(mm_stats.gold));
+      setText("mm_pf_quests", base::ToString(mm_stats.active_quests));
+      setText("mm_pf_loc", mm_stats.location.empty() ? "-" : mm_stats.location);
+    }
+  }
+}
+
+void GameUi::Impl::ActivateNav() {
+  switch (mm_nav) {
+    case 0:  // PLAY: enter the selected universe (skip if its data is missing)
+      if (mm_universe < static_cast<int>(mm_available.size()) && !mm_available[mm_universe])
+        return;
+      mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      mm_request.universe = mm_universe;
+      mm_request.multiplayer = false;
+      break;
+    case 1:
+      mm_screen = 1;
+      break;  // MULTIPLAYER
+    case 2:
+      mm_screen = 2;
+      break;  // MODS
+    case 3:
+      mm_screen = 3;
+      break;  // SETTINGS
+    case 4:
+      mm_screen = 4;
+      break;  // PROFILE
+    case 5:
+      mm_request.kind = MainMenuRequest::Kind::kQuit;
+      break;  // QUIT
+  }
+}
+
+
+bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
+  if (!main_menu_open)
+    return false;
+  ugui::wid w = target;
+  for (int depth = 0; depth < 10 && w.valid(); ++depth) {
+    const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+    if (n) {
+      const base::String name = n->name.c_str();
+      // Match "<prefix><digit>" so labels like mm_navt2 don't alias mm_nav.
+      auto pref = [&](const char* p) -> int {
+        const size_t pl = std::strlen(p);
+        if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
+          return std::atoi(name.c_str() + pl);
+        return -1;
+      };
+      using K = MainMenuRequest::Kind;
+      if (name == "mm_back") {
+        mm_screen = 0;
+        return true;
+      }
+      if (name == "act_gear") {
+        mm_screen = 3;
+        return true;
+      }  // settings
+      if (name == "act_globe") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://github.com/";
+        return true;
+      }
+      if (name == "act_discord") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://discord.com/";
+        return true;
+      }
+      if (name == "act_changelog" || name == "act_news") {
+        mm_request.kind = K::kOpenUrl;
+        mm_request.url = "https://github.com/";
+        return true;
+      }
+      if (name == "mm_mp_host") {
+        mm_mp_mode = 0;
+        mm_request.kind = K::kHostServer;
+        mm_request.universe = mm_universe;
+        return true;
+      }
+      if (name == "mm_mp_join") {
+        mm_mp_mode = 1;
+        mm_request.kind = K::kJoinServer;
+        mm_request.universe = mm_universe;
+        return true;
+      }
+      if (int i = pref("mm_nav"); i >= 0) {
+        mm_nav = i;
+        ActivateNav();
+        return true;
+      }
+      if (int i = pref("mm_col"); i >= 0) {
+        if (mm_universe == i && mm_screen == 0) {
+          mm_nav = 0;
+          ActivateNav();
+        }  // re-click = play
+        else
+          mm_universe = i;
+        return true;
+      }
+    }
+    const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
+    w = h ? h->parent : ugui::wid{};
+  }
+  return false;
+}
+
+// First-run setup wizard, a parallel overlay to the main menu. It owns its page
+// and selections, the engine feeds it the located games and mods dir, and it
+// raises a request the engine consumes (browse, launch, cancel).
+
+void GameUi::Impl::ApplyFirstRun() {
+  SetVisible("firstrun", first_run_open);
+  if (!first_run_open)
+    return;
+  auto setText = [&](const base::String& n, const base::String& t) {
+    SetText(n.c_str(), t.c_str());
+  };
+
+  // Pages: exactly one visible.
+  for (int i = 0; i < kFirstRunSteps; ++i)
+    SetVisible(("fr_step" + base::ToString(i)).c_str(), i == fr_step);
+
+  // Progress rail: nodes filled up to (and including) the current page; the
+  // segments between filled nodes glow gold.
+  for (int i = 0; i < kFirstRunSteps; ++i) {
+    const bool done = i < fr_step, active = i == fr_step;
+    SetBackground(("fr_node" + base::ToString(i)).c_str(),
+                  active ? Rgba(0xffcc55ffu) : (done ? Rgba(0xffcc55ccu) : Rgba(0x00000000u)));
+  }
+  for (int i = 0; i < kFirstRunSteps - 1; ++i)
+    SetBackground(("fr_seg" + base::ToString(i)).c_str(),
+                  i < fr_step ? Rgba(0xffcc55ffu) : Rgba(0xffffff14u));
+
+  // Page 2: located games.
+  for (int i = 0; i < kFirstRunGames; ++i) {
+    const base::String id = base::ToString(i);
+    const bool found = i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located;
+    if (i < static_cast<int>(fr_view.games.size()) && !fr_view.games[i].name.empty())
+      setText("fr_name" + id, fr_view.games[i].name);
+    setText("fr_path" + id, found ? fr_view.games[i].path : base::String("Not located"));
+    SetTextColor(Pooled("fr_path", i), found ? Rgba(0x8a93a8ffu) : Rgba(0x6b7488ffu));
+    setText("fr_stat" + id, found ? "Located" : "Not found");
+    SetTextColor(Pooled("fr_stat", i), found ? Rgba(0x5fcf80ffu) : Rgba(0x6b7488ffu));
+  }
+  // NEXT is gated until at least one game is located (gold when ready).
+  SetTextColor("fr_next1_t", fr_located() > 0 ? Rgba(0xffe6a0ffu) : Rgba(0x6b6149ffu));
+
+  // Page 3: dropdowns + toggles.
+  static const char* const kModes[4] = {"Exploration", "Story", "Survival", "Sandbox"};
+  static const char* const kDiffs[4] = {"Novice", "Normal", "Hard", "Legendary"};
+  setText("fr_modeval", kModes[base::Clamp(fr_mode, 0, 3)]);
+  setText("fr_diffval", kDiffs[base::Clamp(fr_diff, 0, 3)]);
+  SetVisible("fr_modemenu", fr_dropdown == 0);
+  SetVisible("fr_diffmenu", fr_dropdown == 1);
+  for (int k = 0; k < 4; ++k) {
+    SetVisible(("fr_modetick" + base::ToString(k)).c_str(), k == fr_mode);
+    SetVisible(("fr_difftick" + base::ToString(k)).c_str(), k == fr_diff);
+  }
+  for (int i = 0; i < 3; ++i) {
+    SetBackground(("fr_chkbox" + base::ToString(i)).c_str(),
+                  fr_check[i] ? Rgba(0xffcc55ffu) : Rgba(0x070a10ffu));
+    SetVisible(("fr_chkmk" + base::ToString(i)).c_str(), fr_check[i]);
+  }
+
+  // Page 4: mods dir + recommended space.
+  setText("fr_modspath_t",
+          fr_view.mods_dir.empty() ? base::String("~/.recreation/mods") : fr_view.mods_dir);
+  if (!fr_view.space_label.empty())
+    setText("fr_space", fr_view.space_label);
+
+  // Page 5: a check badge on each located universe.
+  for (int i = 0; i < kFirstRunGames; ++i)
+    SetVisible(("fr_sealbadge" + base::ToString(i)).c_str(),
+               i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located);
+}
+
+void GameUi::Impl::AdvanceFirstRun() {
+  fr_dropdown = -1;
+  if (fr_step == 1 && fr_located() == 0)
+    return;  // locate page: need one game
+  if (fr_step < kFirstRunSteps - 1) {
+    ++fr_step;
+    return;
+  }
+  // Last page: advancing launches.
+  fr_request.kind = FirstRunRequest::Kind::kLaunch;
+  fr_request.mode = fr_mode;
+  fr_request.difficulty = fr_diff;
+  fr_request.enable_mods = fr_check[0];
+  fr_request.share_diagnostics = fr_check[1];
+  fr_request.check_updates = fr_check[2];
+}
+
+void GameUi::Impl::RetreatFirstRun() {
+  fr_dropdown = -1;
+  if (fr_step > 0)
+    --fr_step;
+  else
+    fr_request.kind = FirstRunRequest::Kind::kCancel;
+}
+
+bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
+  if (!first_run_open)
+    return false;
+  ugui::wid w = target;
+  for (int depth = 0; depth < 10 && w.valid(); ++depth) {
+    const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+    if (n) {
+      const base::String name = n->name.c_str();
+      auto pref = [&](const char* p) -> int {
+        const size_t pl = std::strlen(p);
+        if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
+          return std::atoi(name.c_str() + pl);
+        return -1;
+      };
+      using K = FirstRunRequest::Kind;
+      if (name == "fr_begin") {
+        AdvanceFirstRun();
+        return true;
+      }
+      if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4") {
+        RetreatFirstRun();
+        return true;
+      }
+      if (name == "fr_next1" || name == "fr_next2" || name == "fr_next3") {
+        AdvanceFirstRun();
+        return true;
+      }
+      if (name == "fr_launch") {
+        AdvanceFirstRun();  // shares the launch path (already on the last page)
+        return true;
+      }
+      if (name == "fr_browse_mods") {
+        fr_request.kind = K::kBrowseMods;
+        return true;
+      }
+      if (int i = pref("fr_browse"); i >= 0) {
+        fr_request.kind = K::kBrowseGame;
+        fr_request.index = i;
+        return true;
+      }
+      if (name == "fr_modesel") {
+        fr_dropdown = fr_dropdown == 0 ? -1 : 0;
+        return true;
+      }
+      if (name == "fr_diffsel") {
+        fr_dropdown = fr_dropdown == 1 ? -1 : 1;
+        return true;
+      }
+      if (int k = pref("fr_modeopt"); k >= 0) {
+        fr_mode = k;
+        fr_dropdown = -1;
+        return true;
+      }
+      if (int k = pref("fr_diffopt"); k >= 0) {
+        fr_diff = k;
+        fr_dropdown = -1;
+        return true;
+      }
+      if (int i = pref("fr_chk"); i >= 0 && i < 3) {
+        fr_check[i] = !fr_check[i];
+        return true;
+      }
+    }
+    const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
+    w = h ? h->parent : ugui::wid{};
+  }
+  // A click anywhere else inside the wizard dismisses an open dropdown. Either
+  // way the wizard owns every click while it is up (nothing is behind it).
+  fr_dropdown = -1;
+  return true;
+}
+
+
+}  // namespace rx
+
+#endif  // RECREATION_HAS_UGUI

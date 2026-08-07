@@ -41,6 +41,9 @@ set(RECREATION_RUNTIME_SOURCES
   ui/thumbnailer.cc
   ui/debug_ui.cc
   ui/game_ui.cc
+  ui/game_ui_doc.cc
+  ui/game_ui_editor.cc
+  ui/game_ui_menu.cc
 )
 
 set(RECREATION_RUNTIME_MODULES
