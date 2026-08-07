@@ -26,6 +26,7 @@ recreation_add_module(script
   games/skyrim/skyrim_natives_actor.cc
   games/skyrim/skyrim_natives_objectref.cc
   games/skyrim/skyrim_natives_game.cc
+  games/skyrim/skyrim_natives_vehicle.cc
   games/skyrim/skyrim_natives_debug.cc
   games/skyrim/skyrim_natives_magiceffect.cc
   games/skyrim/skyrim_natives_faction.cc

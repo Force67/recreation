@@ -18,6 +18,7 @@
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/strings.h"
 #include "components/quest/quest_graph.h"
+#include "core/input.h"
 #include "core/types.h"
 #include "core/world_clock.h"
 
@@ -29,6 +30,7 @@ class AudioSystem;
 #include "components/quest/scene_player.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
 #include "components/script/host/bridge.h"
+#include "components/script/vehicle_drive_sink.h"
 #include "components/script/world_effect_sink.h"
 
 namespace rx::script::papyrus {
@@ -82,6 +84,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Sink for quest-driven world mutations (spawn/move/enable/delete + cleanup).
   // Set by the runtime; when null, those bindings only update logical state.
   void set_world_sink(WorldEffectSink* sink) { world_sink_ = sink; }
+  // Sink for script commands that steer the ridden cart (the cart racing kit).
+  // Set by the runtime; when null, the Vehicle.Drive native is a no-op.
+  void set_vehicle_sink(script::VehicleDriveSink* sink) { vehicle_sink_ = sink; }
 
   // Routes an engine-triggered stage fragment onto a fiber so a latent Wait inside
   // it suspends instead of returning at once. Set by the runtime to the guest's
@@ -116,6 +121,22 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // from frame-to-frame displacement. Called on the main thread; shares the
   // snapshot mutex, read by Actor.IsRunning on the guest thread.
   void UpdateMovingActors(const base::Vector<u64>& running);
+
+  // Refreshes the held-key snapshot the Input.Held native reads. Called by the
+  // runtime each frame on the main thread; shares a mutex with the guest read.
+  void UpdateInputSnapshot(const base::Array<u8, static_cast<size_t>(Key::kCount)>& held);
+
+    // Refreshes the ridden-cart snapshot the Vehicle natives read: forward speed
+  // (m/s) and whether the player is riding. Called by the runtime each frame on
+  // the main thread; shares a mutex with the guest read.
+  void UpdateVehicleSnapshot(f32 speed, bool riding);
+
+  // SkyrimBindings overrides for the cart racing kit.
+  void DriveCart(f32 steer, f32 throttle) override;
+  void MoveCart(f32 x, f32 y, f32 z) override;
+  f32 CartSpeed() override;
+  bool IsRiding() override;
+  bool InputHeld(i32 key) override;
 
   // Replica mode (a multiplayer client): the server is authoritative for quests
   // and quest-driven world state, so the client's own scripts must not mutate
@@ -537,6 +558,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
+  script::VehicleDriveSink* vehicle_sink_ = nullptr;
+  // Held-key and ridden-cart speed snapshots, pushed by the runtime each frame
+  // on the main thread and read by the guest. Mutex-guarded like the live
+  // position snapshot so neither side races.
+  mutable std::mutex input_mutex_;
+  base::Array<u8, static_cast<size_t>(Key::kCount)> held_keys_{};
+  mutable std::mutex cart_speeds_mutex_;
+  f32 cart_speed_ = 0;
+  bool cart_riding_ = false;
   base::Function<void(base::Function<void()>)>
       fiber_runner_;  // engine-triggered fragments onto a fiber
   base::Function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above

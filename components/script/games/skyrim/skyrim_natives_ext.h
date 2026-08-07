@@ -64,6 +64,7 @@ void RegisterWorldExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterAudioVisualExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 void RegisterUtilityRest(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
+void RegisterVehicleExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings);
 
 }  // namespace rx::script::skyrim
 

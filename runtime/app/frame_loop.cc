@@ -181,6 +181,21 @@ void Engine::OnSimulate(f32 frame_delta) {
       for (const auto& [handle, pos] : position_snapshot_)
         prev_positions_[handle] = pos;
     }
+    // Cart racing kit snapshots: mirror the held keys and the ridden cart's speed
+    // onto the bindings so the guest reads them without racing the input/physics
+    // objects. Done here, just before the managed tick that consumes them.
+    if (managed_ && ctx_.bindings) {
+      base::Array<u8, static_cast<size_t>(Key::kCount)> held{};
+      if (window_ && !debug_ui_.wants_keyboard()) {
+        const InputState& keys = window_->input();
+        for (u8 k = 0; k < static_cast<u8>(Key::kCount); ++k)
+          held[static_cast<size_t>(k)] = keys.key(static_cast<Key>(k)) ? 1 : 0;
+      }
+      ctx_.bindings->UpdateInputSnapshot(held);
+      f32 speed = 0;
+      bool riding = carriage_ && carriage_->RiddenCartSpeed(&speed);
+      ctx_.bindings->UpdateVehicleSnapshot(speed, riding);
+    }
     // Advance the managed world: deliver any queued engine events to mod hooks,
     // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
     // into the engine through the bridge.

@@ -43,6 +43,8 @@ constexpr f32 kLookSensitivity = 0.0025f;  // radians per mouse pixel
 constexpr size_t kMaxOfferedRoutes = 6;    // as many as there are number keys
 constexpr f32 kTrotSpeed = 3.4f;           // m/s, the pace a carriage horse keeps
 constexpr f32 kGallopSpeed = 9.0f;         // m/s, the cap on how fast the hitch can pull
+constexpr f32 kPlayerTopSpeed = 18.0f;     // m/s, drive override max: throttle >1 is boost
+constexpr f32 kPlayerTurnRate = 1.1f;      // rad/s at full steer, for the cart racing kit
 constexpr f32 kMarkReached = 5.0f;         // m; the route's marks are road-coarse
 constexpr f32 kRigFootprint = 6.0f;        // m; how far a loose piece can stand and still belong
 constexpr f32 kChaseDistance = 4.0f;   // m behind the seat in third person
@@ -473,6 +475,15 @@ void CarriageSystem::Arrive(Carriage& carriage) {
   if (!carriage.driving)
     return;
   carriage.driving = false;
+  // The ride is over: hand the cart back to the AI. Clearing the override here
+  // is what keeps a scripted drive from leaking into the next journey.
+  carriage.player_driven = false;
+  carriage.drive_steer = 0;
+  carriage.drive_throttle = 0;
+  {
+    std::lock_guard<std::mutex> lock(remote_drive_.mutex);
+    remote_drive_.armed = false;
+  }
   if (ctx_.physics && carriage.rig.valid())
     ctx_.physics->RemoveVehicle(carriage.rig.vehicle());
   carriage.rig = world::CarriageRig{};
@@ -558,51 +569,93 @@ void CarriageSystem::Drive(Carriage& carriage, f32 dt) {
     Arrive(carriage);  // the horse streamed out from under us
     return;
   }
-  Vec3 horse_pos{horse_t->position[0], horse_t->position[1], horse_t->position[2]};
+Vec3 horse_pos{horse_t->position[0], horse_t->position[1], horse_t->position[2]};
 
-  // Waypoint bookkeeping. The marker chain is coarse (a handful of marks between
-  // two holds), so each leg is walked over the navmesh where the bubble around
-  // the player covers it and straight over the ground where it does not, which
-  // is most of a journey that crosses the map.
-  const size_t stops = route.waypoints.size() / 3;
-  while (carriage.waypoint < stops &&
-         Length(Flatten(GameToEngine(route.waypoints.data() + carriage.waypoint * 3) -
-                        horse_pos)) <= kMarkReached)
-    ++carriage.waypoint;
-  if (carriage.waypoint >= stops) {
-    Arrive(carriage);
-    return;
+  // Drain the remote-drive command slot (guest thread) for the ridden cart. Once
+  // armed, the override sticks until the ride ends (Arrive), so a script
+  // commanding it once keeps control from frame to frame.
+  {
+    std::lock_guard<std::mutex> lock(remote_drive_.mutex);
+    if (remote_drive_.armed && riding_ >= 0 && &carriage == &carriages_[static_cast<size_t>(riding_)]) {
+      carriage.player_driven = true;
+      carriage.drive_steer = remote_drive_.steer;
+      carriage.drive_throttle = remote_drive_.throttle;
+    }
   }
-  const Vec3 mark = GameToEngine(route.waypoints.data() + carriage.waypoint * 3);
-  // Plan the next stretch of road when the last one runs out (and not more than
-  // once in a while when there is no road to be found).
-  carriage.replan -= dt;
-  if (carriage.leg_next >= carriage.leg.size() && carriage.replan <= 0) {
-    carriage.replan = kReplanInterval;
-    PlanLeg(carriage, horse_pos, mark);
+
+  // Driving target: with player input the horse steers off its own current
+  // facing and its pace follows the throttle (0 holds); otherwise it follows
+  // the journey's marker chain at a trot.
+  Vec3 heading;
+  f32 pace;
+  if (carriage.player_driven) {
+    f32 yaw = YawOf({horse_t->rotation[0], horse_t->rotation[1], horse_t->rotation[2],
+                     horse_t->rotation[3]});
+    yaw += base::Clamp(carriage.drive_steer, -1.0f, 1.0f) * kPlayerTurnRate * dt;
+    SetYaw(horse_t->rotation, yaw);
+    heading = ForwardOf(yaw);
+    // Throttle is 0..1 at a walk-to-gallop pace; >1 is a boost overspeed up to
+    // twice the gallop, so the racing ruleset can spend its meter on speed.
+    pace = kGallopSpeed * base::Clamp(carriage.drive_throttle, 0.0f, 2.0f);
+  } else {
+    // Waypoint bookkeeping. The marker chain is coarse (a handful of marks between
+    // two holds), so each leg is walked over the navmesh where the bubble around
+    // the player covers it and straight over the ground where it does not, which
+    // is most of a journey that crosses the map.
+    const size_t stops = route.waypoints.size() / 3;
+    while (carriage.waypoint < stops &&
+           Length(Flatten(GameToEngine(route.waypoints.data() + carriage.waypoint * 3) -
+                           horse_pos)) <= kMarkReached)
+      ++carriage.waypoint;
+    if (carriage.waypoint >= stops) {
+      Arrive(carriage);
+      return;
+    }
+    const Vec3 mark = GameToEngine(route.waypoints.data() + carriage.waypoint * 3);
+    // Plan the next stretch of road when the last one runs out (and not more than
+    // once in a while when there is no road to be found).
+    carriage.replan -= dt;
+    if (carriage.leg_next >= carriage.leg.size() && carriage.replan <= 0) {
+      carriage.replan = kReplanInterval;
+      PlanLeg(carriage, horse_pos, mark);
+    }
+    // Head for the next corner of the road route, or straight at the mark where
+    // no road was found between here and it.
+    while (carriage.leg_next < carriage.leg.size() &&
+           Length(Flatten(carriage.leg[carriage.leg_next] - horse_pos)) <= kCornerReached)
+      ++carriage.leg_next;
+    Vec3 step_to = carriage.leg_next < carriage.leg.size() ? carriage.leg[carriage.leg_next] : mark;
+    if (npc_) {
+      // Follow the corridor only while it makes ground toward the mark. Past the
+      // bubble, which is most of a leg between holds, it hands back corners at
+      // the edge of what it knows, and chasing those walks the carriage back and
+      // forth instead of down the road.
+      const Vec3 corner = npc_->PathFor(carriage.refs.horse, horse_pos, step_to);
+      const f32 remaining = Length(Flatten(step_to - horse_pos));
+      if (Length(Flatten(corner - horse_pos)) > 1.0f &&
+          Length(Flatten(step_to - corner)) < remaining)
+        step_to = corner;
+    }
+    const Vec3 to_step = Flatten(step_to - horse_pos);
+    if (Length(to_step) < 1e-3f)
+      return;
+    heading = Normalize(to_step);
+    pace = kTrotSpeed;
+    // A line a minute on how the journey is going: which mark it is walking to
+    // and how far off it still is. The ride is minutes long and crosses cells,
+    // so this is what tells a log whether it is progressing or wedged. Skipped
+    // while the player is driving the cart, where marks are meaningless.
+    carriage.road_samples += 1;
+    carriage.road_total += RoadAt(horse_pos);
+    carriage.report -= dt;
+    if (carriage.report <= 0) {
+      carriage.report = 60.0f;
+      RX_INFO("carriage: bound for {}, mark {}/{}, {:.0f} m to it, on road {:.0f}% of the way",
+              route.destination, carriage.waypoint + 1, stops, Length(Flatten(mark - horse_pos)),
+              100.0 * carriage.road_total / base::Max(carriage.road_samples, 1.0));
+    }
   }
-  // Head for the next corner of the road route, or straight at the mark where
-  // no road was found between here and it.
-  while (carriage.leg_next < carriage.leg.size() &&
-         Length(Flatten(carriage.leg[carriage.leg_next] - horse_pos)) <= kCornerReached)
-    ++carriage.leg_next;
-  Vec3 step_to = carriage.leg_next < carriage.leg.size() ? carriage.leg[carriage.leg_next] : mark;
-  if (npc_) {
-    // Follow the corridor only while it makes ground toward the mark. Past the
-    // bubble, which is most of a leg between holds, it hands back corners at
-    // the edge of what it knows, and chasing those walks the carriage back and
-    // forth instead of down the road.
-    const Vec3 corner = npc_->PathFor(carriage.refs.horse, horse_pos, step_to);
-    const f32 remaining = Length(Flatten(step_to - horse_pos));
-    if (Length(Flatten(corner - horse_pos)) > 1.0f &&
-        Length(Flatten(step_to - corner)) < remaining)
-      step_to = corner;
-  }
-  const Vec3 to_step = Flatten(step_to - horse_pos);
-  if (Length(to_step) < 1e-3f)
-    return;
-  const Vec3 heading = Normalize(to_step);
-  horse_pos = horse_pos + heading * (kTrotSpeed * dt);
+  horse_pos = horse_pos + heading * (pace * dt);
   f32 ground = horse_pos.y;
   if (ctx_.streamer && ctx_.streamer->GroundHeight(horse_pos.x, horse_pos.z, &ground))
     horse_pos.y = ground;
@@ -611,32 +664,18 @@ void CarriageSystem::Drive(Carriage& carriage, f32 dt) {
   horse_t->position[1] = horse_pos.y;
   horse_t->position[2] = horse_pos.z;
   SetYaw(horse_t->rotation, horse_yaw);
-  actors_->SetNpcGait(horse, kTrotSpeed, true, horse_yaw);
+  actors_->SetNpcGait(horse, pace, true, horse_yaw);
 
   // The hitch point swings when the horse turns on the spot, which as a raw
   // finite difference reads as tens of metres a second and slaps the cart
   // across the road. No horse pulls faster than a gallop, so cap it there.
   const Vec3 hitch = HitchPoint(carriage);
   Vec3 hitch_velocity = dt > 0 ? (hitch - carriage.prev_hitch) * (1.0f / dt) : Vec3{};
-  if (const f32 speed = Length(hitch_velocity); speed > kGallopSpeed)
-    hitch_velocity = hitch_velocity * (kGallopSpeed / speed);
+  const f32 hitch_cap = carriage.player_driven ? kPlayerTopSpeed : kGallopSpeed;
+  if (const f32 speed = Length(hitch_velocity); speed > hitch_cap)
+    hitch_velocity = hitch_velocity * (hitch_cap / speed);
   carriage.prev_hitch = hitch;
   carriage.rig.Step(*ctx_.physics, hitch, hitch_velocity, dt);
-
-  // A line a minute on how the journey is going: which mark it is walking to and
-  // how far off it still is. The ride is minutes long and crosses cells, so this
-  // is what tells a log whether it is progressing or wedged.
-  // Telemetry for the progress line: how much of the journey has actually been
-  // on a road, which is what says whether the routing is doing its job.
-  carriage.road_samples += 1;
-  carriage.road_total += RoadAt(horse_pos);
-  carriage.report -= dt;
-  if (carriage.report <= 0) {
-    carriage.report = 60.0f;
-    RX_INFO("carriage: bound for {}, mark {}/{}, {:.0f} m to it, on road {:.0f}% of the way",
-            route.destination, carriage.waypoint + 1, stops, Length(Flatten(mark - horse_pos)),
-            100.0 * carriage.road_total / base::Max(carriage.road_samples, 1.0));
-  }
 }
 
 void CarriageSystem::Step(f32 dt) {
@@ -661,6 +700,30 @@ void CarriageSystem::Step(f32 dt) {
       Drive(carriage, dt);
     else
       Park(carriage);
+  }
+  // Drain a remote-respawn request (guest thread): snap the ridden horse to the
+  // position and let the rig follow. Applied here, after the drives, so the cart
+  // settles from the teleport as if it had just hit the mark.
+  {
+    std::lock_guard<std::mutex> lock(remote_move_.mutex);
+    if (remote_move_.armed) {
+      remote_move_.armed = false;
+      if (riding_ >= 0) {
+        Carriage& carriage = carriages_[static_cast<size_t>(riding_)];
+        const ecs::Entity horse = EntityFor(carriage.refs.horse);
+        if (world::Transform* t = ctx_.world->Get<world::Transform>(horse)) {
+          const f32 g[3] = {remote_move_.x, remote_move_.y, remote_move_.z};
+          Vec3 p = GameToEngine(g);
+          f32 ground = p.y;
+          if (ctx_.streamer && ctx_.streamer->GroundHeight(p.x, p.z, &ground))
+            p.y = ground;
+          t->position[0] = p.x;
+          t->position[1] = p.y;
+          t->position[2] = p.z;
+          carriage.prev_hitch = HitchPoint(carriage);
+        }
+      }
+    }
   }
   AutoRide();
 }
@@ -915,6 +978,33 @@ void CarriageSystem::UpdateRide(f32 dt, const InputState& input, const ActionSta
     ctx_.camera->set_position(eye);
     ctx_.camera->set_yaw_pitch(yaw, ride_pitch_);
   }
+}
+
+void CarriageSystem::DriveRemote(f32 steer, f32 throttle) {
+  std::lock_guard<std::mutex> lock(remote_drive_.mutex);
+  remote_drive_.steer = steer;
+  remote_drive_.throttle = throttle;
+  remote_drive_.armed = true;
+}
+
+bool CarriageSystem::RiddenCartSpeed(f32* speed) const {
+  *speed = 0;
+  if (riding_ < 0)
+    return false;
+  const Carriage& carriage = carriages_[static_cast<size_t>(riding_)];
+  if (!carriage.rig.valid() || !ctx_.physics)
+    return false;
+  const Vec3 v = ctx_.physics->GetLinearVelocity(carriage.rig.body());
+  *speed = Length(v);
+  return true;
+}
+
+void CarriageSystem::MoveRemote(f32 x, f32 y, f32 z) {
+  std::lock_guard<std::mutex> lock(remote_move_.mutex);
+  remote_move_.x = x;
+  remote_move_.y = y;
+  remote_move_.z = z;
+  remote_move_.armed = true;
 }
 
 }  // namespace rx

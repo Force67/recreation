@@ -136,6 +136,11 @@ bool LoadGameData(Engine& engine) {
   // through the provenance layer; the player teleports through a host hook since
   // it is an actor/capsule, not a registry entity.
   self->script_bindings_->set_world_sink(&self->runtime_world_sink_);
+  // Cart racing kit: point the script-facing vehicle sink at the carriage system
+  // (created in OnInitialize, before content loads), so a ridden cart can be
+  // driven from managed code. Null carriage keeps the Drive native a no-op.
+  self->runtime_vehicle_sink_.set_carriage(self->carriage_ ? &*self->carriage_ : nullptr);
+  self->script_bindings_->set_vehicle_sink(&self->runtime_vehicle_sink_);
   // Day/night clock: map the time globals (resolved by editor id, so it works
   // across Skyrim/Fallout/Starfield) onto the clock, then reseed it with the
   // game's authored TimeScale (Bethesda default 20), honouring the env overrides.

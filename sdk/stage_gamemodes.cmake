@@ -7,4 +7,5 @@ file(MAKE_DIRECTORY "${DIR}/gamemodes")
 file(COPY "${DIR}/Recreation.Skyrim.dll"
           "${DIR}/Recreation.Fallout.dll"
           "${DIR}/Recreation.Starfield.dll"
+          "${DIR}/Recreation.SkyrimCartRacing.dll"
      DESTINATION "${DIR}/gamemodes")

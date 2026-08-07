@@ -936,6 +936,7 @@ void RegisterSkyrimNatives(papyrus::NativeRegistry& reg, SkyrimBindings* binding
   RegisterAudioVisualExtra(reg, bindings);
   RegisterItemsExtra(reg, bindings);
   RegisterUtilityRest(reg, bindings);
+  RegisterVehicleExtra(reg, bindings);
 }
 
 }  // namespace rx::script::skyrim

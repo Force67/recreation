@@ -385,6 +385,21 @@ class SkyrimBindings {
   // toggle-able war-map panel.
   virtual void SetWarHold(i32 index, const base::String& name, i32 owner) {}
   virtual void SetWarProgress(f32 imperial_fraction) {}
+
+  // --- vehicle (the cart racing kit) ------------------------------------------
+  // Drives the ridden cart with steer [-1,1] and throttle [0,1], routing through
+  // the runtime's optional VehicleDriveSink (null keeps this a no-op). No-op
+  // when nothing is ridden.
+  virtual void DriveCart(f32 steer, f32 throttle) {}
+  virtual void MoveCart(f32 x, f32 y, f32 z) {}
+  // Forward speed of the ridden cart, m/s, from the runtime's per-frame speed
+  // snapshot (0 when no cart is ridden or the snapshot is absent).
+  virtual f32 CartSpeed() { return 0.0f; }
+  // Whether the player is riding a cart this frame, from the same snapshot.
+  virtual bool IsRiding() { return false; }
+  // Held state of a key, from the runtime's per-frame input snapshot. `key` is a
+  // core/input.h Key code; out-of-range and absent snapshots read false.
+  virtual bool InputHeld(i32 key) { return false; }
 };
 
 // Registers the Skyrim Papyrus native surface into reg, bound against bindings

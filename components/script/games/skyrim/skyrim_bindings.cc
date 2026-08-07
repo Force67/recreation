@@ -876,6 +876,45 @@ void RecordBackedSkyrimBindings::UpdatePositionSnapshot(
     live_positions_[handle] = pos;
 }
 
+void RecordBackedSkyrimBindings::UpdateInputSnapshot(
+    const base::Array<u8, static_cast<size_t>(Key::kCount)>& held) {
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  held_keys_ = held;
+}
+
+void RecordBackedSkyrimBindings::UpdateVehicleSnapshot(f32 speed, bool riding) {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  cart_speed_ = speed;
+  cart_riding_ = riding;
+}
+
+void RecordBackedSkyrimBindings::DriveCart(f32 steer, f32 throttle) {
+  if (vehicle_sink_)
+    vehicle_sink_->DriveCart(steer, throttle);
+}
+
+void RecordBackedSkyrimBindings::MoveCart(f32 x, f32 y, f32 z) {
+  if (vehicle_sink_)
+    vehicle_sink_->MoveRidden(x, y, z);
+}
+
+f32 RecordBackedSkyrimBindings::CartSpeed() {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  return cart_speed_;
+}
+
+bool RecordBackedSkyrimBindings::IsRiding() {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  return cart_riding_;
+}
+
+bool RecordBackedSkyrimBindings::InputHeld(i32 key) {
+  if (key < 0 || key >= static_cast<i32>(Key::kCount))
+    return false;
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  return held_keys_[static_cast<size_t>(key)] != 0;
+}
+
 i32 RecordBackedSkyrimBindings::GetNearbyRefs(ObjectRef center, f32 radius) {
   std::lock_guard<std::mutex> lock(live_positions_mutex_);
   nearby_cache_.clear();

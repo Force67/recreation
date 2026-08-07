@@ -17,6 +17,7 @@
 #include "components/audio/ambient.h"
 #include "components/bethesda/planet.h"
 #include "components/script/host/managed_host.h"
+#include "components/script/vehicle_drive_sink.h"
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
 #include "components/world/combat.h"
@@ -148,6 +149,30 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   world::WorldCommandQueue* queue_;
   world::CombatEventQueue* combat_;
   std::atomic<u32> next_handle_{1};
+};
+
+// VehicleDriveSink implementation: the Skyrim bindings call this on the guest
+// thread when a script drives a cart (the cart racing kit); it forwards to the
+// carriage system's DriveRemote, which crosses back to the main thread through
+// its own mutex slot. Null carriage means no ride is up and the command is
+// dropped. Header-only and tiny, like RuntimeWorldSink.
+class RuntimeVehicleSink : public script::VehicleDriveSink {
+ public:
+  explicit RuntimeVehicleSink(CarriageSystem* carriage) : carriage_(carriage) {}
+  void set_carriage(CarriageSystem* carriage) { carriage_ = carriage; }
+
+  void DriveCart(f32 steer, f32 throttle) override {
+    if (carriage_)
+      carriage_->DriveRemote(steer, throttle);
+  }
+
+  void MoveRidden(f32 x, f32 y, f32 z) override {
+    if (carriage_)
+      carriage_->MoveRemote(x, y, z);
+  }
+
+ private:
+  CarriageSystem* carriage_ = nullptr;
 };
 
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
@@ -356,6 +381,7 @@ class Engine : public app::Application {
   // frame into the npc director's combat driver.
   world::CombatEventQueue combat_event_queue_;
   RuntimeWorldSink runtime_world_sink_{&quest_world_queue_, &combat_event_queue_};
+  RuntimeVehicleSink runtime_vehicle_sink_{nullptr};  // pointed at carriage_ at load
 
   // The Vfs + audio system are owned by the host; non-owning views cached here.
   // Audio reads sound bytes lazily through the Vfs; the sound catalog (SOUN/SNDR
