@@ -542,7 +542,9 @@ void GEllipse(Glyph& g, float cx, float cy, float rx, float ry, float ang, float
 
 // Build every menu emblem, keyed by the image widget it binds to.
 base::Vector<base::Pair<base::String, Glyph>> BuildMenuGlyphs() {
-  const Rgb light{0.87f, 0.90f, 0.96f}, dim{0.58f, 0.62f, 0.72f}, tan{0.82f, 0.73f, 0.56f};
+  // `tan` was a gold used only by gl_profile. The UI is monochrome, so it is
+  // a neutral at the same luminance; see docs/ui-mock/.
+  const Rgb light{0.87f, 0.90f, 0.96f}, dim{0.58f, 0.62f, 0.72f}, tan{0.74f, 0.74f, 0.74f};
   const Rgb star{0.93f, 0.96f, 1.0f};
   base::Vector<base::Pair<base::String, Glyph>> out;
   auto make = [&](const char* name, int w, int h) -> Glyph& {
