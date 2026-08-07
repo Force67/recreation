@@ -1,10 +1,14 @@
-// Multiplayer interaction prompts ("[E]  Open the gate"), bottom-centre above the
-// gameplay activation prompt. A small pool of rows fed each frame from SetPrompts;
-// the box collapses when no prompt is active. Distinct from the engine's own
-// activate_box so a mod's prompts and the world's interaction prompt can coexist.
+// Multiplayer interaction prompts. Fed from SetPrompts; distinct from
+// activate_box so a module's prompts and the world's own prompt can coexist.
+// GameUi collapses the box and each row, so no per-row wrapper is needed.
 
-  panel mp_prompt_box { position: absolute; left: 710; bottom: 150; width: 500; layout: column; align: center; gap: 5; visibility: collapsed;
-    text mp_prompt0 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
-    text mp_prompt1 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
-    text mp_prompt2 { text: ""; font-size: 15; color: #eef2fb; letter-spacing: 1; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+  panel mp_prompt_box {
+    position: absolute; left: 0; bottom: 240; width: 100vw;
+    layout: column; align: center; gap: 8; visibility: collapsed;
+    text mp_prompt0 { class: t_body; text: ""; letter-spacing: 2;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text mp_prompt1 { class: t_body; text: ""; letter-spacing: 2;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text mp_prompt2 { class: t_body; text: ""; letter-spacing: 2;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
   }

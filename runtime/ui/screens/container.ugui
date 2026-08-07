@@ -1,31 +1,39 @@
-// Container loot panel: a dimmed full-screen overlay with a card naming the
-// container and listing its contents in a fixed pool of rows (kContainerRows),
-// filled/toggled in GameUi::Build. Starts hidden (toggled by SetContainer).
+// Container loot, on the menu chassis. container_item* (kContainerRows) is a
+// fixed pool; container_head takes the container's own name.
 
   panel container_box {
     position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-    layout: column; justify: center; align: center; background: #05070cdd;
-    panel container_card {
-      layout: column; align: start; padding: 28 40; width: 460;
-      background: #0d1018f7; corner-radius: 14; border-color: #ffffff1c; border-width: 1;
-      shadow-color: #000000aa; shadow-blur: 48; shadow-y: 18;
-      text container_head { text: ""; font-size: 22; color: #ffcc55; letter-spacing: 4;
-        text-transform: uppercase; margin: 0 0 12 0; }
-      text container_item0  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item1  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item2  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item3  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item4  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item5  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item6  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item7  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item8  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item9  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item10 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item11 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item12 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item13 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_hint { text: "press Esc to close"; font-size: 12;
-        color: #8a93a8; margin: 14 0 0 0; }
+    background: #000000e0; backdrop-blur: 26;
+    panel container_card { position: absolute; left: 130; right: 130; top: 76; bottom: 0;
+      layout: column;
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text container_head { class: t_mast; text: ""; }
+        text container_hint { class: t_micro2; text: "Esc to close"; }
+      }
+      panel { width: 100%; height: 1; margin: 26 0 0 0;
+        background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
+
+      panel { flex-grow: 1; layout: column; width: 100%; max-width: 720; padding: 44 0 0 0;
+        text { class: t_micro; text: "Contents"; margin: 0 0 18 0; }
+        text container_item0  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item1  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item2  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item3  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item4  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item5  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item6  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item7  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item8  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item9  { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item10 { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item11 { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item12 { class: t_body; text: ""; margin: 0 0 9 0; }
+        text container_item13 { class: t_body; text: ""; margin: 0 0 9 0; }
+      }
+      panel { height: 96; layout: row; align: center; gap: 44; width: 100%;
+        panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
+        ui_hint { k: "E"; a: "Take"; }
+        ui_hint { k: "Esc"; a: "Close"; }
+      }
     }
   }

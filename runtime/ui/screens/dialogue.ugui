@@ -1,14 +1,16 @@
-// Dialogue panel (bottom-centre): the speaker, their last line, and a fixed pool
-// of numbered topic rows (kDialogueOptionRows) filled/toggled in GameUi::Build.
+// Dialogue, bottom-centre. The topic list is static rather than a centred
+// scroll. GameUi toggles dialogue_box as a unit and each row inside it, so one
+// plate holds the lot and collapsed topics shrink it.
 
   panel dialogue_box {
-    position: absolute; left: 0; bottom: 70; width: 100vw; layout: column; align: center; gap: 4;
-    text dialogue_speaker { text: ""; font-size: 18; color: #ffcc55;
-      text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_npc { text: ""; font-size: 15; color: #d8def0; margin: 0 0 8 0;
-      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt0 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt1 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt2 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt3 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+    position: absolute; left: 0; bottom: 90; width: 100vw; layout: column; align: center;
+    panel { class: plate_w; layout: column; align: start; width: 900; padding: 26 34 28 34;
+      text dialogue_speaker { class: t_micro; text: ""; color: #ffffff; }
+      text dialogue_npc { class: t_body; text: ""; font-size: 19; margin: 12 0 0 0; }
+      panel { class: rule_dim; width: 100%; margin: 20 0 18 0; }
+      text dialogue_opt0 { class: t_body; text: ""; margin: 0 0 10 0; }
+      text dialogue_opt1 { class: t_body; text: ""; margin: 0 0 10 0; }
+      text dialogue_opt2 { class: t_body; text: ""; margin: 0 0 10 0; }
+      text dialogue_opt3 { class: t_body; text: ""; margin: 0 0 10 0; }
+    }
   }

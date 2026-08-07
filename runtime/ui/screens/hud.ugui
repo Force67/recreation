@@ -1,15 +1,14 @@
-// The centre crosshair. The compass topbar, vitals bars, and bottom-right
-// readout live in their own fragments; values here are static.
+// The centre reticle. ch_dot is an accent site: GameUi recolours it per domain.
 
   panel crosshair {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     layout: column; justify: center; align: center;
     panel cross {
-      width: 24; height: 24; position: relative;
-      panel ch_t { position: absolute; left: 11; top: 0;  width: 2; height: 8; background: #ffffffcc; }
-      panel ch_b { position: absolute; left: 11; top: 16; width: 2; height: 8; background: #ffffffcc; }
-      panel ch_l { position: absolute; left: 0;  top: 11; width: 8; height: 2; background: #ffffffcc; }
-      panel ch_r { position: absolute; left: 16; top: 11; width: 8; height: 2; background: #ffffffcc; }
-      panel ch_dot { position: absolute; left: 11; top: 11; width: 2; height: 2; background: #ffcc55; }
+      width: 26; height: 26; position: relative;
+      panel ch_t   { position: absolute; left: 12; top: 0;  width: 2; height: 8; background: #ffffffe0; }
+      panel ch_b   { position: absolute; left: 12; top: 18; width: 2; height: 8; background: #ffffffe0; }
+      panel ch_l   { position: absolute; left: 0;  top: 12; width: 8; height: 2; background: #ffffffe0; }
+      panel ch_r   { position: absolute; left: 18; top: 12; width: 8; height: 2; background: #ffffffe0; }
+      panel ch_dot { position: absolute; left: 12; top: 12; width: 2; height: 2; background: #ffffff; }
     }
   }

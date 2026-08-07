@@ -1,0 +1,13 @@
+// The area-title reveal. GameUi drives it from MainMenuStats::location, showing
+// on change only and timing out after kLocationRevealSeconds.
+
+  panel loc_box {
+    position: absolute; left: 0; bottom: 190; width: 100vw;
+    layout: column; align: center; visibility: collapsed;
+    panel { width: 640; layout: column; align: center;
+      panel { width: 100%; height: 1; background: #ffffff55; }
+      text loc_name { class: t_h1; text: ""; margin: 16 0 16 0;
+        text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+      panel { width: 100%; height: 1; background: #ffffff55; }
+    }
+  }
