@@ -9,3 +9,14 @@ file(COPY "${DIR}/Recreation.Skyrim.dll"
           "${DIR}/Recreation.Starfield.dll"
           "${DIR}/Recreation.SkyrimCartRacing.dll"
      DESTINATION "${DIR}/gamemodes")
+
+# Each assembly's menu manifest (and any key art beside it) lives with the
+# gamemode sources; the C# build has no reason to copy them, so stage them here.
+# The main menu reads them before the .NET runtime boots, which is the only way
+# it can know a mode exists.
+file(GLOB GAMEMODE_MANIFESTS
+     "${CMAKE_CURRENT_LIST_DIR}/default_gamemodes/*/*.json"
+     "${CMAKE_CURRENT_LIST_DIR}/default_gamemodes/*/*.png")
+if(GAMEMODE_MANIFESTS)
+  file(COPY ${GAMEMODE_MANIFESTS} DESTINATION "${DIR}/gamemodes")
+endif()

@@ -239,6 +239,7 @@ class Engine : public app::Application {
   friend void SetupExtraStreamers(Engine&);
   friend void BootManagedScripting(Engine&);
   friend void ResolveUniverses(Engine&);
+  friend void BuildMenuEntries(Engine&);
   friend void SetupMainMenu(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
@@ -267,8 +268,9 @@ class Engine : public app::Application {
   void UpdateFirstRun(f32 dt);
   // Paints the three universe panes (Skyrim / Fallout 4 / Starfield) as original,
   // per-pixel procedural concept art (atmospheric sky, silhouettes, grain) and
-  // uploads them as the menu's pane backdrop textures. No external image assets:
-  // the front screen is self-contained and non-infringing.
+  // uploads them as the menu's pane backdrop textures, then uploads each launch
+  // tile's key art from the path BuildMenuEntries resolved. A base game with no
+  // image left falls back to a painting; a mode with none gets a flat plate.
   void GenerateMenuBackdrops();
   // Per-frame: a few seconds after entering a universe, grabs one clean frame of
   // its world (HUD/overlays hidden) into the backdrop cache for next time.
@@ -330,6 +332,19 @@ class Engine : public app::Application {
     bool available = false;
   };
   base::Array<MenuUniverse, 3> menu_universes_;
+  // The flat launch grid the menu shows: the three universes, then every game
+  // mode whose manifest was found beside the staged assemblies. menu_entry_art_
+  // runs parallel to it and holds each entry's key-art PNG path: for a game its
+  // world capture or the one shipped in runtime/ui/art, for a mode whatever its
+  // manifest named. Empty where there is none. menu_mode_id_ is
+  // the mode a MODE tile launched, applied by EnterUniverse before the world (and
+  // with it the managed host) comes up; menu_mode_ids_ is every mode the menu
+  // could have launched, which is what tells the managed side that an unarmed
+  // mode is optional content rather than an ordinary mod.
+  base::Vector<GameUi::MenuEntry> menu_entries_;
+  base::Vector<base::String> menu_entry_art_;
+  base::String menu_mode_id_;
+  base::Vector<base::String> menu_mode_ids_;
   bool main_menu_active_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The
@@ -612,10 +627,13 @@ void SetupExtraStreamers(Engine& engine);
 // A no-op on a replica client, where scripts run server-authoritative.
 void BootManagedScripting(Engine& engine);
 // NEXUS main menu. ResolveUniverses fills menu_universes_ (the three games' data
-// dirs from args / env / a Steam scan); SetupMainMenu opens the menu without
-// loading a game; EnterUniverse loads the chosen game on demand so its C#
-// gameplay module boots (the module gates on being the primary domain).
+// dirs from args / env / a Steam scan); BuildMenuEntries turns those plus the
+// gamemode manifests staged beside the managed assemblies into the launch grid;
+// SetupMainMenu opens the menu without loading a game; EnterUniverse loads the
+// chosen game on demand so its C# gameplay module boots (the module gates on
+// being the primary domain), arming menu_mode_id_ on top of it.
 void ResolveUniverses(Engine& engine);
+void BuildMenuEntries(Engine& engine);
 void SetupMainMenu(Engine& engine);
 void EnterUniverse(Engine& engine,
                    int idx,

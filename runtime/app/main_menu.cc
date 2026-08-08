@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 #include "runtime/app/engine.h"
 
@@ -31,6 +33,16 @@
 #include "core/log.h"
 #include "runtime/app/engine_internal.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
+
+#if defined(RECREATION_HAS_UGUI)
+#include <stb_image.h>  // the key-art PNGs the launch tiles are painted from
+#endif
+
+// Where the base games' key art ships (runtime/ui/art, beside the .ugui
+// screens). Baked in absolute by CMake so a dev build finds the source tree.
+#ifndef RECREATION_UI_ART_DIR_DEFAULT
+#define RECREATION_UI_ART_DIR_DEFAULT "runtime/ui/art"
+#endif
 
 // The NEXUS main menu: the front door a bare windowed launch opens. Resolves the
 // installed universes (Steam/env scan), drives menu navigation and the
@@ -72,6 +84,238 @@ static base::Vector<base::String> MenuModulesFor(int universe) {
       return {"Recreation SDK", "Event Bus", "Fallout 4 content domain"};
   }
 }
+
+namespace {
+
+// One staged gamemode assembly, as described by the JSON manifest sitting beside
+// it in <managed dir>/gamemodes. The menu runs before the .NET runtime boots, so
+// a mode cannot be asked what it is through managed reflection: the manifest is
+// the only description available here.
+struct GameModeManifest {
+  base::String assembly;  // file stem, so an unmanifested .dll can be reported
+  base::String id;        // arms this mode once the domain is up
+  base::String kind;      // "mode" (its own tile) or "ruleset" (a game's base layer)
+  base::String title;
+  base::String detail;
+  base::String domain;  // menu universe the mode runs in ("Skyrim", ...)
+  base::String art;     // key-art PNG, resolved to a full path; empty if none
+};
+
+mem_size JsonSkipSpace(const base::String& text, mem_size i) {
+  while (i < text.size() &&
+         (text[i] == ' ' || text[i] == '\t' || text[i] == '\r' || text[i] == '\n'))
+    ++i;
+  return i;
+}
+
+// Reads the quoted string at text[i] (i on the opening quote) into out, leaving
+// i past the closing quote. Manifest fields are plain UTF-8, so a \u escape is a
+// parse failure rather than something to half-decode.
+bool JsonString(const base::String& text, mem_size& i, base::String& out) {
+  if (i >= text.size() || text[i] != '"')
+    return false;
+  out.clear();
+  for (++i; i < text.size(); ++i) {
+    if (text[i] == '"') {
+      ++i;
+      return true;
+    }
+    if (text[i] != '\\') {
+      out.push_back(text[i]);
+      continue;
+    }
+    if (++i >= text.size())
+      break;
+    switch (text[i]) {
+      case 'n':
+        out.push_back('\n');
+        break;
+      case 'r':
+        out.push_back('\r');
+        break;
+      case 't':
+        out.push_back('\t');
+        break;
+      case 'u':
+        return false;
+      default:
+        out.push_back(text[i]);
+        break;
+    }
+  }
+  return false;
+}
+
+// Reads a flat JSON object of string fields. Purpose-built for the manifest
+// rather than a JSON dependency: five strings do not justify one. A value that
+// is not a string is skipped, so a field a future manifest adds cannot fail the
+// parse; nesting is not supported and is what the "flat" in the name means.
+bool ParseFlatJson(const base::String& text,
+                   base::Vector<base::Pair<base::String, base::String>>& out) {
+  mem_size i = JsonSkipSpace(text, 0);
+  if (i >= text.size() || text[i] != '{')
+    return false;
+  ++i;
+  for (;;) {
+    i = JsonSkipSpace(text, i);
+    if (i >= text.size())
+      return false;
+    if (text[i] == '}')
+      return true;
+    if (text[i] == ',') {
+      ++i;
+      continue;
+    }
+    base::String key;
+    if (!JsonString(text, i, key))
+      return false;
+    i = JsonSkipSpace(text, i);
+    if (i >= text.size() || text[i] != ':')
+      return false;
+    i = JsonSkipSpace(text, i + 1);
+    if (i >= text.size())
+      return false;
+    if (text[i] == '"') {
+      base::String value;
+      if (!JsonString(text, i, value))
+        return false;
+      out.push_back({key, value});
+      continue;
+    }
+    while (i < text.size() && text[i] != ',' && text[i] != '}')
+      ++i;
+  }
+}
+
+// Fields the menu understands; anything else in the file is ignored. A manifest
+// without an id describes nothing that can be launched, so it fails.
+bool ReadManifest(const base::String& path, GameModeManifest& out) {
+  std::ifstream f(path.c_str());
+  if (!f)
+    return false;
+  base::String text;
+  std::string source;
+  while (std::getline(f, source)) {
+    text.append(source.c_str(), source.size());
+    text.push_back('\n');
+  }
+  base::Vector<base::Pair<base::String, base::String>> fields;
+  if (!ParseFlatJson(text, fields))
+    return false;
+  for (const auto& [key, value] : fields) {
+    if (key == "id")
+      out.id = value;
+    else if (key == "kind")
+      out.kind = value;
+    else if (key == "title")
+      out.title = value;
+    else if (key == "detail")
+      out.detail = value;
+    else if (key == "domain")
+      out.domain = value;
+    else if (key == "art")
+      out.art = value;
+  }
+  return !out.id.empty();
+}
+
+// Collects the manifests staged in <managed dir>/gamemodes, sorted by id so the
+// grid does not reshuffle with directory order. An assembly with no manifest is
+// reported rather than quietly dropped: a mistyped manifest name would otherwise
+// just make the mode vanish from the menu.
+base::Vector<GameModeManifest> ScanGameModes() {
+  base::Vector<GameModeManifest> out;
+  const char* managed = std::getenv("RECREATION_SCRIPTING_DIR");
+  if (!managed || !*managed)
+    return out;
+  namespace fs = std::filesystem;
+  const fs::path root = fs::path(managed) / "gamemodes";
+  std::error_code ec;
+  if (!fs::exists(root, ec))
+    return out;
+  base::Vector<base::String> assemblies;
+  for (const fs::directory_entry& entry : fs::directory_iterator(root, ec)) {
+    const fs::path& p = entry.path();
+    if (p.extension() == ".dll") {
+      assemblies.push_back(p.stem().string());
+      continue;
+    }
+    if (p.extension() != ".json")
+      continue;
+    GameModeManifest m;
+    m.assembly = p.stem().string();
+    if (!ReadManifest(p.string(), m)) {
+      RX_WARN("gamemodes: {} is not a readable manifest", p.string());
+      continue;
+    }
+    if (!m.art.empty()) {
+      const fs::path art = root / m.art.c_str();
+      if (fs::exists(art, ec)) {
+        m.art = art.string();
+      } else {
+        RX_WARN("gamemodes: {} names key art {} that is not there", m.id, m.art);
+        m.art.clear();
+      }
+    }
+    out.push_back(m);
+  }
+  for (const base::String& assembly : assemblies) {
+    bool described = false;
+    for (const GameModeManifest& m : out)
+      described = described || m.assembly == assembly;
+    if (!described)
+      RX_WARN("gamemodes: {}.dll has no manifest beside it, not listed", assembly);
+  }
+  base::Sort(out.data(), out.data() + out.size(),
+             [](const GameModeManifest& a, const GameModeManifest& b) {
+               return a.id.compare(b.id) < 0;
+             });
+  return out;
+}
+
+// Load-order length from a game's plugins.txt: non-blank, non-comment lines.
+// Bethesda's launchers mark an enabled plugin with a leading '*'; both forms
+// count, the file is the spine either way. 0 when there is no plugins.txt, and
+// the tile then omits the count rather than guessing one.
+int CountPlugins(const base::String& path) {
+  std::ifstream f(path.c_str());
+  if (!f)
+    return 0;
+  int count = 0;
+  std::string source;
+  while (std::getline(f, source)) {
+    const base::String line(source.c_str(), source.size());
+    const mem_size first = line.find_first_not_of(" \t\r\n");
+    if (first == base::String::npos || line[first] == '#')
+      continue;
+    ++count;
+  }
+  return count;
+}
+
+// Where a session parks a clean frame of this game's world (TickMenuCapture
+// writes it, RX_MENU_CAPTURE arms it).
+base::String WorldCapturePath(bethesda::Game game) {
+  return "thumbs/menu_" + GameSlug(game) + ".png";
+}
+
+// A base game tile's key art: a capture of its own world if a past session left
+// one, else the PNG shipped in the repo. Empty when neither is there, which is
+// what puts the tile on the painted fallback.
+base::String GameKeyArt(bethesda::Game game) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  const base::String live = WorldCapturePath(game);
+  if (fs::exists(live.c_str(), ec))
+    return live;
+  const base::String shipped =
+      base::String(RECREATION_UI_ART_DIR_DEFAULT "/menu_") + GameSlug(game) + ".png";
+  if (fs::exists(shipped.c_str(), ec))
+    return shipped;
+  return {};
+}
+
+}  // namespace
 
 void ResolveUniverses(Engine& engine) {
   Engine* const self = &engine;
@@ -134,6 +378,62 @@ void ResolveUniverses(Engine& engine) {
   }
 }
 
+// The launch grid: the three universes, then every mounted mode under the game
+// it runs in. Flat, so a mode is picked exactly the way a game is. Requires
+// ResolveUniverses to have run.
+void BuildMenuEntries(Engine& engine) {
+  Engine* const self = &engine;
+  self->menu_entries_.clear();
+  self->menu_entry_art_.clear();
+  self->menu_mode_ids_.clear();
+  for (int i = 0; i < static_cast<int>(self->menu_universes_.size()); ++i) {
+    const Engine::MenuUniverse& u = self->menu_universes_[i];
+    GameUi::MenuEntry e;
+    e.kind = GameUi::MenuEntry::Kind::kGame;
+    e.title = u.name;
+    e.state = u.available ? "Ready" : "Not located";
+    e.universe = i;
+    e.plugins = u.available ? CountPlugins(u.plugins_txt) : 0;
+    e.available = u.available;
+    // The cell count only exists once the game's records are loaded, which the
+    // menu deliberately has not done, so the detail line is the load order alone.
+    if (e.plugins > 0)
+      e.detail = base::ToString(e.plugins) + " plugins";
+    self->menu_entries_.push_back(e);
+    self->menu_entry_art_.push_back(GameKeyArt(u.game));
+  }
+  int mounted = 0;
+  for (const GameModeManifest& m : ScanGameModes()) {
+    if (m.kind != "mode")  // a per-game base ruleset, not something to pick
+      continue;
+    // Every mode is optional content the managed side must leave dormant unless
+    // it was armed, including one whose domain resolves to no tile below.
+    self->menu_mode_ids_.push_back(m.id);
+    int universe = -1;
+    for (int i = 0; i < static_cast<int>(self->menu_universes_.size()); ++i)
+      if (self->menu_universes_[i].name == m.domain)
+        universe = i;
+    if (universe < 0) {
+      RX_WARN("gamemodes: {} runs in unknown domain {}", m.id, m.domain);
+      continue;
+    }
+    GameUi::MenuEntry e;
+    e.kind = GameUi::MenuEntry::Kind::kMode;
+    e.title = m.title.empty() ? m.id : m.title;
+    e.detail = m.detail;
+    e.domain = m.domain;
+    e.state = "Mounted";
+    e.mode_id = m.id;
+    e.universe = universe;
+    e.available = self->menu_universes_[universe].available;
+    self->menu_entries_.push_back(e);
+    self->menu_entry_art_.push_back(m.art);
+    ++mounted;
+  }
+  self->game_ui_.SetMainMenuEntries(self->menu_entries_);
+  RX_INFO("menu: {} launch entries ({} game modes mounted)", self->menu_entries_.size(), mounted);
+}
+
 void SetupMainMenu(Engine& engine) {
   Engine* const self = &engine;
   self->main_menu_active_ = true;
@@ -145,6 +445,7 @@ void SetupMainMenu(Engine& engine) {
     avail.push_back(u.available);
   }
   self->game_ui_.SetMainMenuUniverses(names, avail);
+  BuildMenuEntries(engine);  // the grid GenerateMenuBackdrops then paints art for
   self->game_ui_.OpenMainMenu();
   self->game_ui_.SetMainMenuNews({{"Welcome to Recreation", "v" RECREATION_VERSION}});
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
@@ -177,6 +478,11 @@ void EnterUniverse(Engine& engine,
     else
       self->config_.connect_address = join_address;
   }
+  // A mode arms on top of the domain's base ruleset, it does not replace it, so
+  // the pick only adds an id. BootManagedScripting (inside LoadGameData) passes
+  // it, and the full set of modes, through the managed handshake.
+  if (!self->menu_mode_id_.empty())
+    RX_INFO("arming game mode {} on {}", self->menu_mode_id_, u.name);
   self->game_ui_.CloseMainMenu();
   self->main_menu_active_ = false;
   self->debug_ui_.SetVisible(!HideDebugUi);
@@ -188,7 +494,7 @@ void EnterUniverse(Engine& engine,
   // backdrop cache once it has streamed in, so a later menu shows the real scene.
   // Off by default, since a mid-stream grab can catch an unsettled frame.
   if (!self->config_.headless && MenuCapture) {
-    self->menu_capture_path_ = "thumbs/menu_" + GameSlug(self->config_.game) + ".png";
+    self->menu_capture_path_ = WorldCapturePath(self->config_.game);
     self->menu_capture_countdown_ = 600;  // ~10s at 60fps to let streaming + RT settle
   }
 #if RECREATION_HAS_NET
@@ -225,6 +531,12 @@ void Engine::UpdateMainMenu(f32 dt) {
     game_ui_.MainMenuMove(-1, 0);
   if (actions_->pressed(Action::kMenuRight) || in.key_pressed(Key::kD))
     game_ui_.MainMenuMove(+1, 0);
+  // A page is exactly two tile rows, so paging reuses the grid move rather than
+  // needing its own cursor. The footer advertises Q/E, so it has to work.
+  if (in.key_pressed(Key::kQ))
+    game_ui_.MainMenuMove(0, -2);
+  if (in.key_pressed(Key::kE))
+    game_ui_.MainMenuMove(0, +2);
   if (actions_->pressed(Action::kMenuAccept) || in.key_pressed(Key::kSpace))
     game_ui_.MainMenuActivate();
   if (actions_->pressed(Action::kMenuCancel))
@@ -235,6 +547,7 @@ void Engine::UpdateMainMenu(f32 dt) {
   const MainMenuRequest req = game_ui_.PollMainMenuRequest();
   switch (req.kind) {
     case MainMenuRequest::Kind::kEnterUniverse:
+      menu_mode_id_ = req.mode_id;  // empty for a base game tile
       EnterUniverse(*this, req.universe, false, false, "");
       break;
     case MainMenuRequest::Kind::kHostServer:
@@ -316,7 +629,13 @@ void Engine::RefreshMenuData() {
   }
 #endif
   game_ui_.SetMainMenuStats(stats);
-  game_ui_.SetMainMenuMods(MenuModulesFor(game_ui_.selected_universe()));
+  // A mode tile shows the modules of the game it runs in, so the Mods screen
+  // follows the grid selection rather than the universe column.
+  const int selected = game_ui_.selected_entry();
+  const int universe = (selected >= 0 && selected < static_cast<int>(menu_entries_.size()))
+                           ? menu_entries_[selected].universe
+                           : game_ui_.selected_universe();
+  game_ui_.SetMainMenuMods(MenuModulesFor(universe));
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +729,60 @@ base::Vector<unsigned char> PaintBackdrop(int universe, int W, int H) {
         c = Add(c, Rgb{0.9f, 0.95f, 1.0f}, Hash2(x, y, 7) * 0.7f + 0.2f);  // stars
 
       // shared finishing: film grain + edge vignette
+      const float g = (Hash2(x, y, 9090) - 0.5f) * 0.035f;
+      c = Add(c, Rgb{1.f, 1.f, 1.f}, g);
+      const float r = std::sqrt((u - 0.5f) * (u - 0.5f) + (v - 0.5f) * (v - 0.5f)) * 1.7f;
+      const float vig = 1.f - 0.28f * Smooth(0.55f, 1.30f, r);
+      c.r *= vig;
+      c.g *= vig;
+      c.b *= vig;
+
+      const size_t o = (static_cast<size_t>(y) * W + x) * 4;
+      out[o + 0] = static_cast<unsigned char>(Clamp01(c.r) * 255.f + 0.5f);
+      out[o + 1] = static_cast<unsigned char>(Clamp01(c.g) * 255.f + 0.5f);
+      out[o + 2] = static_cast<unsigned char>(Clamp01(c.b) * 255.f + 0.5f);
+      out[o + 3] = 255;
+    }
+  }
+  return out;
+}
+
+// A stable seed for one launch entry, so its painted art looks the same every
+// launch and two entries never collide by position in the grid.
+inline int TitleSeed(const base::String& title) {
+  u32 h = 2166136261u;
+  for (char c : title)
+    h = (h ^ static_cast<u32>(static_cast<unsigned char>(c))) * 16777619u;
+  return static_cast<int>(h & 0x7fffffu);
+}
+
+// Paint one launch entry's key art into a fresh RGBA8 buffer, in the same dark
+// atmosphere as the panes above. Everything that varies comes from `seed`: the
+// glow's tint and place, the ridge line's height and profile. Only base games
+// fall back to this, and only when their shipped PNG is missing.
+base::Vector<unsigned char> PaintEntryArt(int seed, int W, int H) {
+  base::Vector<unsigned char> out(static_cast<size_t>(W) * H * 4);
+  const float fw = static_cast<float>(W), fh = static_cast<float>(H);
+  const Rgb tints[4] = {
+      {0.27f, 0.37f, 0.53f}, {0.41f, 0.33f, 0.51f}, {0.24f, 0.44f, 0.43f}, {0.47f, 0.37f, 0.31f}};
+  const Rgb glow = tints[static_cast<int>(Hash2(seed, 1, 17) * 4.f) & 3];
+  const float gx = Mixf(0.30f, 0.70f, Hash2(seed, 2, 23));
+  const float gy = Mixf(0.28f, 0.52f, Hash2(seed, 3, 29));
+  const float ridge = Mixf(0.60f, 0.80f, Hash2(seed, 4, 31));
+  for (int y = 0; y < H; ++y) {
+    const float fy = static_cast<float>(y);
+    const float v = fy / (fh - 1.f);
+    for (int x = 0; x < W; ++x) {
+      const float fx = static_cast<float>(x);
+      const float u = fx / (fw - 1.f);
+      const Rgb base0{0.022f, 0.029f, 0.044f}, base1{0.044f, 0.056f, 0.080f};
+      Rgb c = Mix(base0, base1, Smooth(0.0f, 1.0f, v));
+      c = Add(c, glow, Disc(fx, fy, fw * gx, fh * gy, fh * 0.62f, fh * 0.62f) * 0.26f);
+      c = Add(c, Rgb{1.f, 1.f, 1.f}, (Fbm(u * 3.f, v * 4.f, seed + 11, 3) - 0.5f) * 0.02f);
+
+      const float land = ridge + (Fbm(u * 2.4f, 0.5f, seed + 41, 4) - 0.5f) * 0.18f;
+      c = Mix(c, Rgb{0.010f, 0.014f, 0.021f}, Smooth(land, land + 0.012f, v));
+
       const float g = (Hash2(x, y, 9090) - 0.5f) * 0.035f;
       c = Add(c, Rgb{1.f, 1.f, 1.f}, g);
       const float r = std::sqrt((u - 0.5f) * (u - 0.5f) + (v - 0.5f) * (v - 0.5f)) * 1.7f;
@@ -770,6 +1143,41 @@ void Engine::GenerateMenuBackdrops() {
       RX_INFO("menu backdrop {} painted ({}x{})", GameSlug(menu_universes_[i].game), W, H);
     }
   }
+  // Key art per launch entry, from the path BuildMenuEntries resolved: a game's
+  // world capture or shipped PNG, a mode's own manifest art.
+  const int EW = 384, EH = 288;
+  // The plate a mode with no art gets: one flat neutral tone, stretched over the
+  // tile. A mode is expected to ship its own image through the manifest's `art`
+  // field, and a blank plate says it did not far more honestly than a painting
+  // that pretends the mode has a look.
+  const unsigned char no_art[4] = {70, 73, 82, 255};
+  for (size_t i = 0; i < menu_entries_.size(); ++i) {
+    const GameUi::MenuEntry& entry = menu_entries_[i];
+    u64 tex = 0;
+    const base::String& art = menu_entry_art_[i];
+    if (!art.empty()) {
+      int w = 0, h = 0, channels = 0;
+      if (unsigned char* px = stbi_load(art.c_str(), &w, &h, &channels, 4)) {
+        tex = game_ui_.CreateUiTexture(w, h, px);
+        stbi_image_free(px);
+        RX_INFO("menu key art {} <- {} ({}x{})", entry.title, art, w, h);
+      } else {
+        RX_WARN("menu key art {} could not be decoded", art);
+      }
+    }
+    if (!tex && entry.kind == GameUi::MenuEntry::Kind::kGame) {
+      const base::Vector<unsigned char> px = PaintEntryArt(TitleSeed(entry.title), EW, EH);
+      tex = game_ui_.CreateUiTexture(EW, EH, px.data());
+      RX_WARN("menu key art {} missing, painted a fallback", entry.title);
+    }
+    if (!tex) {
+      tex = game_ui_.CreateUiTexture(1, 1, no_art);
+      RX_INFO("menu key art {} not supplied, flat plate", entry.title);
+    }
+    if (tex)
+      game_ui_.SetMainMenuEntryArt(static_cast<int>(i), tex);
+  }
+
   // Emblems / icons: line art bound to the menu's image widgets.
   for (const auto& [name, g] : BuildMenuGlyphs()) {
     const u64 tex = game_ui_.CreateUiTexture(g.w, g.h, g.px.data());
