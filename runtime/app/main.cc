@@ -30,6 +30,7 @@ void PrintUsage() {
   RX_INFO("  --name <name>         player name sent to the server");
   RX_INFO("  --cell <x,y>          exterior start cell (default: 5,-3 near Whiterun)");
   RX_INFO("  --interior <id>       load one interior cell (editor id or 0x form id)");
+  RX_INFO("  --load-save <path>    resume from a savegame (.ess/.fos)");
   RX_INFO("  --grass-density <f>   grass density multiplier (default: 1.0, 0 disables)");
   RX_INFO("  --max-quests <n>      cap quest scripts attached at load (0 = all, default)");
   RX_INFO("  --preset <tier>       auto (default) | android | steamdeck | low |");
@@ -157,6 +158,8 @@ int main(int argc, char** argv) {
       config.start_cell_explicit = true;
     } else if (arg == "--interior")
       config.interior = next();
+    else if (arg == "--load-save")
+      config.load_save = next();
     else if (arg == "--grass-density")
       config.grass_density = std::stof(next().c_str());
     else if (arg == "--max-quests")

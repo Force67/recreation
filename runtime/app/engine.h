@@ -16,6 +16,7 @@
 #include "app/host.h"
 #include "components/audio/ambient.h"
 #include "components/bethesda/planet.h"
+#include "components/bethesda/savegame_apply.h"
 #include "components/script/host/managed_host.h"
 #include "components/script/vehicle_drive_sink.h"
 #include "components/weather/director.h"
@@ -175,6 +176,17 @@ class RuntimeVehicleSink : public script::VehicleDriveSink {
   CarriageSystem* carriage_ = nullptr;
 };
 
+// A savegame the engine booted with (--load-save): the parsed file, the remap
+// of its form ids onto this run's load order, and where the player stood. Held
+// from the record load until the world is placed, since the three things that
+// need it happen at three different points of bring-up.
+struct LoadedSavegame {
+  bethesda::SaveFile file;
+  bethesda::FormRemap remap;
+  bethesda::PlayerPlacement player;
+  base::String worldspace;  // editor id of the player's worldspace, "" for an interior
+};
+
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
 // interaction, quest, npc, demos, weather, networking, data loading, the camera
 // and the UI) and drives it from the app::Host callbacks; the generic
@@ -233,6 +245,10 @@ class Engine : public app::Application {
   // / main_menu.cc); they reach the engine's internals as friends.
   friend bool LoadGameData(Engine&);
   friend void MountArchives(Engine&);
+  friend bool LoadSavegame(Engine&, const bethesda::LoadOrder&);
+  friend void ApplySavegameState(Engine&);
+  friend void ApplySavegameLocation(Engine&);
+  friend void PlaceSavegamePlayer(Engine&);
   friend bool LoadInterior(Engine&);
   friend bool LoadPlanetTile(Engine&, const base::String&);
   friend void LoadExtraDomains(Engine&);
@@ -409,6 +425,8 @@ class Engine : public app::Application {
   audio::AmbientDirector ambient_director_;
   base::UniquePointer<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
+  // The savegame this run booted from (--load-save), null without one.
+  base::UniquePointer<LoadedSavegame> save_;
   // Localized FULL/log/objective text for records (quest names, journal text).
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
@@ -618,6 +636,16 @@ class Engine : public app::Application {
 bool LoadGameData(Engine& engine);
 void MountArchives(Engine& engine);
 bool LoadInterior(Engine& engine);
+// Booting from a savegame (savegame_load.cc), in the order bring-up allows.
+// LoadSavegame reads the file and builds the form id remap while the run's
+// LoadOrder is still in scope; ApplySavegameState pushes globals, quest, actor
+// and reference state at the live systems before quest scripts attach;
+// ApplySavegameLocation points the streamer at the player's cell and
+// PlaceSavegamePlayer puts the player and camera on the exact saved spot.
+bool LoadSavegame(Engine& engine, const bethesda::LoadOrder& order);
+void ApplySavegameState(Engine& engine);
+void ApplySavegameLocation(Engine& engine);
+void PlaceSavegamePlayer(Engine& engine);
 // Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
 bool LoadPlanetTile(Engine& engine, const base::String& biom_name);
 void LoadExtraDomains(Engine& engine);

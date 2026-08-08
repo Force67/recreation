@@ -8,6 +8,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/networking.cc
   app/managed_rpc.cc
   app/content_load.cc
+  app/savegame_load.cc
   app/managed_scripting.cc
   app/main_menu.cc
   app/first_run.cc

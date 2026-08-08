@@ -99,6 +99,11 @@ bool LoadGameData(Engine& engine) {
     return false;
   RX_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
 
+  // A savegame is read here because this is the only point where the order the
+  // run actually loaded is still in hand; applying it comes later, in pieces.
+  if (!LoadSavegame(engine, order))
+    return false;
+
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
@@ -393,6 +398,9 @@ bool LoadGameData(Engine& engine) {
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
   }
+  // Before the quest scripts attach: their fragments must see the save's state,
+  // not run their opening stages over it.
+  ApplySavegameState(engine);
   self->quest_->AttachQuestScripts();
 
   // Load any additional games as live secondary domains before the managed world
@@ -554,9 +562,15 @@ bool LoadGameData(Engine& engine) {
   // --interior takes precedence when both are given.
   if (self->config_.interior.empty() && Interior.get())
     self->config_.interior = Interior.get();
+  // A save resumes where it was written: its cell wins over both the default
+  // start cell and the game's default worldspace.
+  ApplySavegameLocation(engine);
   if (!self->config_.interior.empty())
     return LoadInterior(engine);
-  if (!self->streamer_->SelectWorldspace(profile.exterior_worldspace))
+  const base::String& worldspace =
+      self->save_ && !self->save_->worldspace.empty() ? self->save_->worldspace
+                                                      : profile.exterior_worldspace;
+  if (!self->streamer_->SelectWorldspace(worldspace))
     return false;
 
   // Without an explicit --cell, start in the game's content-dense cell so the
@@ -633,6 +647,7 @@ bool LoadGameData(Engine& engine) {
   RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
           self->config_.start_cell_y, start.x, start.y, start.z);
   self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
+  PlaceSavegamePlayer(engine);
   self->showcase_regions_.push_back({{start.x, ground, start.z},
                                      base::String(profile.name),
                                      (self->streamer_ ? &*self->streamer_ : nullptr)});
@@ -869,6 +884,7 @@ bool LoadInterior(Engine& engine) {
   RX_INFO("interior {}: {} npcs loaded", self->config_.interior,
           self->streamer_->spawned_npc_count());
   self->actors_->MaybeSpawnWorldPlayer(start);
+  PlaceSavegamePlayer(engine);
   return true;
 }
 

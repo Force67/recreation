@@ -1,0 +1,180 @@
+#ifndef COMPONENTS_BETHESDA_SAVEGAME_APPLY_H
+#define COMPONENTS_BETHESDA_SAVEGAME_APPLY_H
+
+// Layer 3 of the savegame reader (see savegame.h): the decoded save onto the
+// live world.
+//
+// Two things live here. FormRemap turns a form id that only means something in
+// the save's load order into one that means the same thing in the running
+// game's, and refuses ids whose plugin is not loaded rather than landing on
+// whichever record now occupies that index. ApplySave then walks the change
+// forms and pushes what it understands at a SaveSink.
+//
+// Nothing here knows about the ECS, quests or Papyrus. Keeping the write side
+// behind SaveSink is what lets applying be tested without a world, and what
+// keeps Skyrim and Fallout 4 on one path: the sink is the only place a game's
+// runtime shape shows up.
+
+#include <base/containers/vector.h>
+#include <base/functional/function.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
+#include "components/bethesda/form_id.h"
+#include "components/bethesda/savegame.h"
+#include "components/bethesda/savegame_changeform.h"
+#include "core/types.h"
+
+namespace rx::bethesda {
+
+// The player's own reference, the same id in every game this reader covers.
+constexpr u32 kPlayerFormId = 0x00000014;
+
+// Why a form id could not be carried into the running game. Counted rather
+// than logged one by one: a save names six figures of them.
+struct RemapCounters {
+  u32 mapped = 0;
+  u32 missing_plugin = 0;  // the save's plugin is not in the running load order
+  u32 out_of_range = 0;    // mod index past the save's own plugin list
+  u32 created = 0;         // 0xFFxxxxxx, a form the save itself invented
+};
+
+// Save load order -> runtime load order.
+//
+// A save stores every id already resolved against its own plugin list, so the
+// top byte (or the ESL slot) means "the plugin that sat at this index when the
+// save was written". Nothing about the running game guarantees the same index
+// holds the same plugin, and a wrong answer here is silent: it lands on a real
+// record of the wrong mod. So the mapping goes through the plugin's file name,
+// and a name the runtime does not have refuses every id that came from it.
+class FormRemap {
+ public:
+  // `runtime_index` answers with the running game's load order index for a
+  // plugin file name, or 0xffff when it is not loaded (LoadOrder::IndexOf).
+  void Build(const SaveFile& save, const base::Function<u16(const base::String&)>& runtime_index);
+
+  // False when the id cannot be carried over; `reason` (optional) says which
+  // RemapCounters field the caller should charge it to.
+  enum class Refusal : u8 { kNone, kMissingPlugin, kOutOfRange, kCreated };
+  bool Map(u32 save_form_id, GlobalFormId* out, Refusal* reason = nullptr) const;
+
+  // Remaps a ref embedded in a change form payload, resolving it through the
+  // save's form id map first.
+  bool MapRef(ChangeRef ref, const SaveFile& save, GlobalFormId* out) const;
+
+  // Plugins the save was written with that the running game has not loaded.
+  // Every id from them is refused, so this is the list to show a player.
+  const base::Vector<base::String>& missing_plugins() const { return missing_plugins_; }
+  bool built() const { return built_; }
+
+ private:
+  // Save mod index -> runtime load order index, 0xffff for "not loaded". Only
+  // the first plugin_count_ entries are written, and only those are read.
+  u16 mod_[256];
+  // Save ESL slot -> runtime index. Light plugins do not occupy a mod index:
+  // their forms live at 0xFExxxxxx with the slot in the next 12 bits.
+  base::Vector<u16> light_;
+  base::Vector<base::String> missing_plugins_;
+  u8 plugin_count_ = 0;
+  bool built_ = false;
+};
+
+// The running game, as layer 3 needs to see it. Every id handed over is
+// already remapped. Methods default to doing nothing, because "the engine has
+// no home for this yet" is the normal case for a system it has not built.
+class SaveSink {
+ public:
+  virtual ~SaveSink() = default;
+
+  virtual void SetGlobal(GlobalFormId global, f32 value) {}
+
+  // Stages arrive in ascending order, each one the save recorded as run, then
+  // SetQuestState closes the quest out with the state the journal shows.
+  virtual void SetQuestStageDone(GlobalFormId quest, i32 stage) {}
+  virtual void SetQuestState(GlobalFormId quest, i32 stage, bool running, bool complete) {}
+  virtual void SetQuestObjective(GlobalFormId quest,
+                                 i32 objective,
+                                 bool displayed,
+                                 bool completed) {}
+  virtual void FillQuestAlias(GlobalFormId quest, u32 alias_id, GlobalFormId ref) {}
+
+  // Actor state is keyed by the NPC base form, because that is what the save
+  // changes; resolving a base to its placed reference is the runtime's job.
+  virtual void SetActorValue(GlobalFormId actor_base, base::StringRef name, f32 value) {}
+  virtual void SetActorFactionRank(GlobalFormId actor_base, GlobalFormId faction, i32 rank) {}
+  virtual void SetFactionReaction(GlobalFormId faction, GlobalFormId other, i32 reaction) {}
+
+  virtual void SetReferenceEnabled(GlobalFormId ref, bool enabled) {}
+  // `parent` is the cell the reference now sits in, or the worldspace when it
+  // sits outside; position is in game units, rotation in radians.
+  virtual void MoveReference(GlobalFormId ref,
+                             GlobalFormId parent,
+                             const f32 position[3],
+                             const f32 rotation[3]) {}
+};
+
+// Where the player stood when the save was written.
+struct PlayerPlacement {
+  bool valid = false;
+  // The worldspace (exterior) or cell (interior) the transform belongs to. Which
+  // one it is cannot be told from the save alone: the parent is a bare form id
+  // and only the record behind it says WRLD or CELL.
+  GlobalFormId parent;
+  f32 position[3] = {};
+  f32 rotation[3] = {};  // radians, x/y/z
+};
+
+struct SaveApplyStats {
+  RemapCounters forms;
+
+  u32 globals = 0;
+  u32 quests = 0;
+  u32 quest_stages = 0;
+  u32 quest_objectives = 0;
+  u32 quest_aliases = 0;
+  u32 actors = 0;
+  u32 actor_values = 0;
+  u32 actor_faction_ranks = 0;
+  u32 faction_reactions = 0;
+  u32 references_moved = 0;
+  u32 references_enabled = 0;
+  u32 references_disabled = 0;
+
+  // Change forms that decoded but whose id could not be remapped, so nothing
+  // was applied for them.
+  u32 refused = 0;
+  // Change forms layer 2 declined to decode (an unsupported version, or a
+  // record type with no decoder).
+  u32 undecoded = 0;
+
+  // What the save carries and this layer deliberately does not push at the
+  // sink, either because the payload group is not decoded or because no engine
+  // system owns it. Reported so the gap is visible instead of silent.
+  u32 cells_visited = 0;      // world map exploration bits
+  u32 cells_detached = 0;     // cells the save had purged from memory
+  u32 dialogue_said = 0;      // INFO records already spoken
+  u32 inventories = 0;        // container/actor inventory lists
+  u32 faction_crime = 0;      // crime factions carrying a bounty
+  u32 actor_ai_profiles = 0;  // aggression/confidence/morality/mood
+  u32 actor_levels = 0;       // NPC level and its level-mult form
+};
+
+// Finds the player's reference in the save and remaps its parent. False when
+// the save has no player record, when the record carries no transform, or when
+// the parent does not remap.
+bool FindPlayerPlacement(const SaveFile& save, const FormRemap& remap, PlayerPlacement* out);
+
+// Walks every change form once, in an order that puts state a later record may
+// depend on first: globals, then quests, then actor and faction state, then the
+// references themselves.
+void ApplySave(const SaveFile& save, const FormRemap& remap, SaveSink& sink, SaveApplyStats* stats);
+
+// The actor value name for a skill slot in an NPC_ record's skill array, or an
+// empty view when the game's layout is not established. Skyrim's order is the
+// 18 skills as the Creation Kit writes them; Fallout 4 reuses the group for a
+// different set that has not been validated here, so it yields nothing.
+base::StringRef ActorSkillName(SaveFormat format, u32 index);
+
+}  // namespace rx::bethesda
+
+#endif  // COMPONENTS_BETHESDA_SAVEGAME_APPLY_H
