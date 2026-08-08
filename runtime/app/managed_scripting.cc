@@ -81,6 +81,10 @@ void BootManagedScripting(Engine& engine) {
   self->managed_->SetRpcBridge(MakeManagedRpcBridge(*self));
 #endif
   self->managed_->SetRealm(realm);  // server / client / standalone mod filtering
+  // The launcher's mode pick plus every mode it offered, so the managed world
+  // starts the armed mode on top of the game's base ruleset and leaves the other
+  // modes dormant. Both empty when no launcher ran, which filters nothing.
+  self->managed_->SetGameModes(self->menu_mode_id_, self->menu_mode_ids_);
   if (!self->managed_->Boot(/*dotnet_root=*/"", runtime_config, assembly)) {
     self->managed_.Reset();  // unavailable: run without it
     return;

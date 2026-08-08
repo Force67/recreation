@@ -97,4 +97,12 @@ internal unsafe struct HostHandshake
     // The process role: 0 server (host), 1 client (replica), 2 standalone. The
     // mod host starts only the mods this role admits. Append-only.
     public int Realm;
+    // The game mode the launcher armed (UTF-8), or null for the plain game. A
+    // mode arms on top of the domain's base ruleset. Append-only.
+    public byte* ModeId;
+    // Every mode id the host offers as its own launch entry, so the mod host can
+    // tell an offered-but-unpicked mode from a base ruleset or an ordinary mod.
+    // A count of 0 means no launcher ran and nothing is filtered. Append-only.
+    public int ModeIdCount;
+    public byte** ModeIds;
 }

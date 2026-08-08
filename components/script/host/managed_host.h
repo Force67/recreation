@@ -72,6 +72,13 @@ class ManagedHost {
   // filters mods by. Call before Boot; passed through the handshake.
   void SetRealm(std::int32_t realm) { realm_ = realm; }
 
+  // Names the optional game mode the launcher armed (empty for the plain game)
+  // and every mode id the host offers as a selectable launch entry, so the
+  // managed world starts the armed one and leaves the rest dormant. Call before
+  // Boot; passed through the handshake. Both are copied, so the caller's strings
+  // need not outlive the call.
+  void SetGameModes(base::String armed, base::Vector<base::String> selectable);
+
   // Delivers an inbound session RPC to the managed world. Safe to call from any
   // engine thread; the callback runs on the guest thread. No-op when unavailable
   // or the managed side declined RPC.
@@ -125,6 +132,9 @@ class ManagedHost {
   const void* ui_widget_ops_ = nullptr;  // rx::ugui_cs::WidgetOps*, set before Boot
   RpcBridge rpc_bridge_{};               // multiplayer RPC surface, set before Boot
   std::int32_t realm_ = 2;               // process role, standalone until set
+  base::String mode_id_;                     // launcher's mode pick, empty = none
+  base::Vector<base::String> mode_ids_;      // every selectable mode id
+  base::Vector<const char*> mode_id_table_;  // handshake view: borrows mode_ids_
   bool available_ = false;
 
   std::mutex event_mutex_;
