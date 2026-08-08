@@ -248,6 +248,10 @@ struct MenuNewsItem {
 // gameplay module (SkyrimMod / Fallout / StarfieldMod gate on the primary).
 struct MainMenuRequest {
   enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit, kOpenUrl };
+  // Set alongside kEnterUniverse when a MODE tile was launched: the manifest id
+  // the managed host should arm once the domain is up. Empty means the base
+  // game, with whatever modes mount themselves as they do today.
+  base::String mode_id;
   Kind kind = Kind::kNone;
   int universe = 0;          // 0 Skyrim, 1 Fallout 4, 2 Starfield
   base::String address;      // join target ("ip[:port]"), for kJoinServer
@@ -478,6 +482,32 @@ class GameUi {
   void MainMenuActivate();
   bool MainMenuBack();
   bool MainMenuAtRoot() const;
+  // One launchable thing on the menu's tile grid: a base game, or a game mode
+  // mounted on top of one. Flat by design, so a mode sits at the same weight as
+  // the game it runs in; `kind` and `domain` say which it is rather than the
+  // layout implying it.
+  struct MenuEntry {
+    enum class Kind { kGame, kMode };
+    Kind kind = Kind::kGame;
+    base::String title;     // "Skyrim", "Cart Racing"
+    base::String detail;    // "142 plugins  ·  1,284 cells" / "3 laps  ·  6 checkpoints"
+    base::String domain;    // the game a mode runs in; empty for a game
+    base::String state;     // "Ready" / "Mounted" / "Not located"
+    base::String mode_id;   // manifest id to arm on launch; empty for a game
+    int universe = 0;       // which universe index this boots (0 Skyrim, 1 FO4, 2 Starfield)
+    int plugins = 0;        // load-order spine length
+    bool available = false; // false greys the tile and disables its play button
+    u64 art = 0;            // key-art texture, 0 until the thumbnail is ready
+  };
+
+  // The full grid, in display order. Replaces SetMainMenuUniverses; the menu
+  // pages over it internally.
+  void SetMainMenuEntries(const base::Vector<MenuEntry>& entries);
+  // Bind a key-art texture to one entry once it has been painted or loaded.
+  void SetMainMenuEntryArt(int entry, u64 texture);
+  // The entry the grid has focused, or -1 when the grid is empty.
+  int selected_entry() const;
+
   // The names/availability of the three universes (greyed out if data is
   // missing), the per-column live backdrop texture, the player/network banner,
   // and the loaded C# mod list shown on the Mods screen. All optional.

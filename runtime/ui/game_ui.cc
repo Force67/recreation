@@ -210,16 +210,20 @@ bool GameUi::main_menu_open() const {
 void GameUi::MainMenuMove(int dx, int dy) {
   if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
     return;
-  if (dy)
-    impl_->mm_nav = (impl_->mm_nav + dy + kMenuNavItems) % kMenuNavItems;
-  if (dx)
-    impl_->mm_universe = base::Clamp(impl_->mm_universe + dx, 0, kMenuUniverses - 1);
+  const int count = static_cast<int>(impl_->mm_entries.size());
+  if (count == 0)
+    return;
+  // One flat index across every page: dx walks the row and rolls onto the next,
+  // dy drops a grid row, and dy of +-2 is exactly a page (the Q/E step), since
+  // the page is always mm_entry / kMenuTiles.
+  const int step = dx + dy * kMenuTileCols;
+  impl_->mm_entry = base::Clamp(impl_->mm_entry + step, 0, count - 1);
 }
 
 void GameUi::MainMenuActivate() {
   if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
     return;
-  impl_->ActivateNav();
+  impl_->LaunchFocusedEntry();
 }
 
 bool GameUi::MainMenuBack() {
@@ -236,6 +240,33 @@ bool GameUi::MainMenuAtRoot() const {
   return impl_->initialized && impl_->main_menu_open && impl_->mm_screen == 0;
 }
 
+void GameUi::SetMainMenuEntries(const base::Vector<MenuEntry>& entries) {
+  if (!impl_->initialized)
+    return;
+  base::Vector<MenuEntry> next = entries;
+  // Art is bound separately (SetMainMenuEntryArt) once it has been painted, so a
+  // re-push carrying no texture keeps the one already on that tile.
+  for (size_t i = 0; i < next.size() && i < impl_->mm_entries.size(); ++i)
+    if (!next[i].art && next[i].title == impl_->mm_entries[i].title)
+      next[i].art = impl_->mm_entries[i].art;
+  impl_->mm_entries = base::move(next);
+  impl_->mm_entries_pushed = true;
+  impl_->mm_entry =
+      base::Clamp(impl_->mm_entry, 0, base::Max(0, static_cast<int>(entries.size()) - 1));
+}
+
+void GameUi::SetMainMenuEntryArt(int entry, u64 texture) {
+  if (!impl_->initialized || entry < 0 || entry >= static_cast<int>(impl_->mm_entries.size()))
+    return;
+  impl_->mm_entries[entry].art = texture;
+}
+
+int GameUi::selected_entry() const {
+  if (!impl_->initialized || impl_->mm_entries.empty())
+    return -1;
+  return impl_->mm_entry;
+}
+
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>& names,
                                   const base::Vector<bool>& available) {
   if (!impl_->initialized)
@@ -244,12 +275,14 @@ void GameUi::SetMainMenuUniverses(const base::Vector<base::String>& names,
     impl_->mm_universe_names = names;
   if (!available.empty())
     impl_->mm_available = available;
+  impl_->RebuildDerivedEntries();
 }
 
 void GameUi::SetMainMenuBackdrop(int universe, u64 texture) {
   if (!impl_->initialized || universe < 0 || universe >= kMenuUniverses)
     return;
   impl_->mm_backdrop[universe] = texture;
+  impl_->RebuildDerivedEntries();
 }
 
 void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
@@ -279,7 +312,9 @@ void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>& news) {
 }
 
 int GameUi::selected_universe() const {
-  return impl_->initialized ? impl_->mm_universe : 0;
+  if (!impl_->initialized || impl_->mm_entry >= static_cast<int>(impl_->mm_entries.size()))
+    return 0;
+  return impl_->mm_entries[impl_->mm_entry].universe;
 }
 
 MainMenuRequest GameUi::PollMainMenuRequest() {
@@ -1060,6 +1095,11 @@ bool GameUi::MainMenuBack() {
 }
 bool GameUi::MainMenuAtRoot() const {
   return false;
+}
+void GameUi::SetMainMenuEntries(const base::Vector<MenuEntry>&) {}
+void GameUi::SetMainMenuEntryArt(int, u64) {}
+int GameUi::selected_entry() const {
+  return -1;
 }
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}

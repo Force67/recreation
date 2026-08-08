@@ -258,6 +258,24 @@ void GameUi::Impl::ApplyCharGenView() {
 }
 
 
+// Until the engine pushes a real grid, the tiles are the located universes, so
+// the menu is playable on the old three-column data path.
+void GameUi::Impl::RebuildDerivedEntries() {
+  if (mm_entries_pushed)
+    return;
+  mm_entries.clear();
+  for (int i = 0; i < static_cast<int>(mm_universe_names.size()); ++i) {
+    GameUi::MenuEntry e;
+    e.title = mm_universe_names[i];
+    e.universe = i;
+    e.available = i >= static_cast<int>(mm_available.size()) || mm_available[i];
+    e.state = e.available ? "Ready" : "Not located";
+    e.art = i < kMenuUniverses ? mm_backdrop[i] : 0;
+    mm_entries.push_back(base::move(e));
+  }
+  mm_entry = base::Clamp(mm_entry, 0, base::Max(0, static_cast<int>(mm_entries.size()) - 1));
+}
+
 void GameUi::Impl::ApplyMainMenu() {
   SetVisible("mainmenu", main_menu_open);
   if (!main_menu_open) {
@@ -269,38 +287,77 @@ void GameUi::Impl::ApplyMainMenu() {
     SetText(n.c_str(), t.c_str());
   };
 
-  // Emblems: rebind each frame so they survive a hot-reload tree rebuild.
-  for (const auto& [name, tex] : mm_glyphs)
-    if (tex)
-      ugui::SetImageTexture(Need(name.c_str()), tex, 1.0f, 1.0f);
-
-  // Columns: live backdrop image (only when a texture is set), selection accent,
-  // label text + availability dimming.
-  for (int i = 0; i < kMenuUniverses; ++i) {
-    const base::String id = base::ToString(i);
-    const bool has_bg = mm_backdrop[i] != 0;
-    if (has_bg)
-      ugui::SetImageTexture(Need(Pooled("mm_bg", i)), mm_backdrop[i], 1.0f, 1.0f);
-    SetVisible(Pooled("mm_bg", i), has_bg);
-    SetVisible(Pooled("mm_sel", i), i == mm_universe);
-    if (i < static_cast<int>(mm_universe_names.size()))
-      setText("mm_labt" + id, mm_universe_names[i]);
-    const bool avail = i >= static_cast<int>(mm_available.size()) || mm_available[i];
-    SetTextColor(Pooled("mm_labt", i), i == mm_universe ? Rgba(0xffffffffu)
-                                           : avail          ? Rgba(0x9a9a9affu)
-                                                            : Rgba(0x5e5e5effu));
+  // Emblems: rebind each frame so they survive a hot-reload tree rebuild. The
+  // targets are optional (a screen may not carry that mark), hence FindWidget.
+  for (const auto& [name, tex] : mm_glyphs) {
+    ugui::wid w = tex ? ui.FindWidget(name.c_str()) : ugui::wid{};
+    if (w.valid())
+      ugui::SetImageTexture(w, tex, 1.0f, 1.0f);
   }
 
-  // Left nav: caret + highlight on the selected row (QUIT reads red). The row's
-  // :selected state carries the eased pill background; the caret and text colour
-  // track the same index so keyboard and mouse share one highlight.
-  for (int i = 0; i < kMenuNavItems; ++i) {
-    const base::String id = base::ToString(i);
-    const bool on = i == mm_nav;
-    ugui::SetSelected(ui.world(), Need(Pooled("mm_nav", i)), on);
-    SetVisible(Pooled("mm_caret", i), on);
-    SetTextColor(Pooled("mm_navt", i), on ? Rgba(0xffffffffu) : Rgba(0x9a9a9affu));
-    SetTextColor(Pooled("mm_navs", i), on ? Rgba(0x9a9a9affu) : Rgba(0x5e5e5effu));
+  // The tile grid: this page's entries, everything else collapsed. Selection is
+  // stated by the top rule, the border lift, and the art coming up to full.
+  const int count = static_cast<int>(mm_entries.size());
+  mm_entry = base::Clamp(mm_entry, 0, base::Max(0, count - 1));
+  const int page = mm_page();
+  for (int i = 0; i < kMenuTiles; ++i) {
+    const int index = page * kMenuTiles + i;
+    const bool shown = index < count;
+    SetVisible(Pooled("mm_tile", i), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuEntry& e = mm_entries[index];
+    const bool on = index == mm_entry;
+    const bool avail = e.available;
+
+    const bool has_art = e.art != 0;
+    if (has_art)
+      ugui::SetImageTexture(Need(Pooled("mm_art", i)), e.art, 1.0f, 1.0f);
+    SetVisible(Pooled("mm_art", i), has_art);
+    SetStyleField(Pooled("mm_art", i), [](ugui::Style& s, float v) { s.opacity = v; },
+                  on ? 1.0f : (avail ? 0.62f : 0.14f));
+    SetVisible(Pooled("mm_top", i), on);
+    SetBorderColor(Pooled("mm_tile", i), Rgba(on ? 0xffffff8cu : 0xffffff1cu));
+
+    // Load-order spine: one tick per plugin bucket the entry reports.
+    const int ticks = base::Clamp(e.plugins, 0, kMenuSpineTicks);
+    for (int t = 0; t < kMenuSpineTicks; ++t) {
+      const char* tick = Pooled("mm_sp", i * kMenuSpineTicks + t);
+      SetVisible(tick, t < ticks);
+      if (t < ticks)
+        SetBackground(tick, Rgba(on ? 0xffffffccu : 0xffffff3du));
+    }
+
+    SetText(Pooled("mm_state", i), e.state);
+    SetTextColor(Pooled("mm_state", i),
+                 Rgba(on ? 0xffffffffu : (avail ? 0xffffff8cu : 0x5e5e5effu)));
+    // A mode names the world it is mounted on, so the two read at one weight.
+    SetText(Pooled("mm_kind", i),
+            e.kind == GameUi::MenuEntry::Kind::kMode
+                ? (e.domain.empty() ? base::String("Mode") : "Mode  ·  " + e.domain)
+                : base::String("Game"));
+    SetText(Pooled("mm_title", i), e.title);
+    SetTextColor(Pooled("mm_title", i),
+                 Rgba(on ? 0xffffffffu : (avail ? 0xffffffccu : 0x5e5e5effu)));
+    SetText(Pooled("mm_detail", i), e.detail);
+
+    // The play button is glass at rest and solid white when focused, so the one
+    // key that boots is always the brightest thing on the screen.
+    SetBackground(Pooled("mm_play", i),
+                  Rgba(on ? 0xffffffffu : (avail ? 0x060606ffu : 0x030303ffu)));
+    SetBorderColor(Pooled("mm_play", i),
+                   Rgba(on ? 0xffffffffu : (avail ? 0xffffff33u : 0xffffff14u)));
+    SetBackground(Pooled("mm_tri", i),
+                  Rgba(on ? 0x000000ffu : (avail ? 0xffffffccu : 0x3a3a3affu)));
+  }
+
+  // Pager: the readout and one pip per page, the current one lit.
+  const int pages = mm_pages();
+  setText("mm_pagelbl", "Page " + base::ToString(page + 1) + " / " + base::ToString(pages));
+  for (int i = 0; i < kMenuPips; ++i) {
+    SetVisible(Pooled("mm_pip", i), i < pages);
+    if (i < pages)
+      SetBackground(Pooled("mm_pip", i), Rgba(i == page ? 0xffffffffu : 0xffffff26u));
   }
 
   // Profile banner: real handle + system line; peer count only when in session.
@@ -316,17 +373,6 @@ void GameUi::Impl::ApplyMainMenu() {
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
-  // NEWS rail: pooled rows, most-recent first.
-  for (int i = 0; i < kMenuNewsRows; ++i) {
-    const base::String id = base::ToString(i);
-    const bool on = i < static_cast<int>(mm_news.size());
-    SetVisible(Pooled("news", i), on);
-    if (on) {
-      setText("news" + id + "_title", mm_news[i].title);
-      setText("news" + id + "_sub", mm_news[i].detail);
-    }
-  }
-
   // Sub-screen overlay: title + which body is shown. Body visibility is set
   // unconditionally (not only when the screen is open) so a body never lingers
   // visible while its screen is collapsed.
@@ -340,8 +386,9 @@ void GameUi::Impl::ApplyMainMenu() {
     setText("mm_screen_title", titles[mm_screen]);
   }
   if (mm_screen == 1) {
-    setText("mm_mp_universe", mm_universe < static_cast<int>(mm_universe_names.size())
-                                  ? mm_universe_names[mm_universe]
+    const int universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
+    setText("mm_mp_universe", universe < static_cast<int>(mm_universe_names.size())
+                                  ? mm_universe_names[universe]
                                   : "");
     setText("mm_mp_status", mm_stats.net_status.empty() ? "Offline" : mm_stats.net_status);
   }
@@ -389,31 +436,18 @@ void GameUi::Impl::ApplyMainMenu() {
   }
 }
 
-void GameUi::Impl::ActivateNav() {
-  switch (mm_nav) {
-    case 0:  // PLAY: enter the selected universe (skip if its data is missing)
-      if (mm_universe < static_cast<int>(mm_available.size()) && !mm_available[mm_universe])
-        return;
-      mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
-      mm_request.universe = mm_universe;
-      mm_request.multiplayer = false;
-      break;
-    case 1:
-      mm_screen = 1;
-      break;  // MULTIPLAYER
-    case 2:
-      mm_screen = 2;
-      break;  // MODS
-    case 3:
-      mm_screen = 3;
-      break;  // SETTINGS
-    case 4:
-      mm_screen = 4;
-      break;  // PROFILE
-    case 5:
-      mm_request.kind = MainMenuRequest::Kind::kQuit;
-      break;  // QUIT
-  }
+void GameUi::Impl::LaunchFocusedEntry() {
+  if (mm_entry < 0 || mm_entry >= static_cast<int>(mm_entries.size()))
+    return;
+  const GameUi::MenuEntry& e = mm_entries[mm_entry];
+  if (!e.available)
+    return;
+  // A mode boots the game it is mounted on, with its manifest id armed; a game
+  // boots with an empty mode_id and whatever mounts itself.
+  mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+  mm_request.universe = e.universe;
+  mm_request.mode_id = e.mode_id;
+  mm_request.multiplayer = false;
 }
 
 
@@ -425,61 +459,67 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
     const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
     if (n) {
       const base::String name = n->name.c_str();
-      // Match "<prefix><digit>" so labels like mm_navt2 don't alias mm_nav.
+      // Match "<prefix><digit>" so only the pooled names hit, never a longer
+      // name that happens to start the same way.
       auto pref = [&](const char* p) -> int {
         const size_t pl = std::strlen(p);
         if (name.size() > pl && name.compare(0, pl, p) == 0 && name[pl] >= '0' && name[pl] <= '9')
           return std::atoi(name.c_str() + pl);
         return -1;
       };
+      // A tile slot is a position on the page; the entry it holds depends on it.
+      const int count = static_cast<int>(mm_entries.size());
+      auto focusSlot = [&](int slot) {
+        const int index = mm_page() * kMenuTiles + slot;
+        if (index < count)
+          mm_entry = index;
+      };
       using K = MainMenuRequest::Kind;
       if (name == "mm_back") {
         mm_screen = 0;
         return true;
       }
-      if (name == "act_gear") {
+      if (name == "mm_util_mods") {
+        mm_screen = 2;
+        return true;
+      }
+      if (name == "mm_util_settings") {
         mm_screen = 3;
         return true;
-      }  // settings
-      if (name == "act_globe") {
-        mm_request.kind = K::kOpenUrl;
-        mm_request.url = "https://github.com/";
+      }
+      if (name == "mm_util_profile") {
+        mm_screen = 4;
         return true;
       }
-      if (name == "act_discord") {
-        mm_request.kind = K::kOpenUrl;
-        mm_request.url = "https://discord.com/";
-        return true;
-      }
-      if (name == "act_changelog" || name == "act_news") {
-        mm_request.kind = K::kOpenUrl;
-        mm_request.url = "https://github.com/";
+      if (name == "mm_util_quit") {
+        mm_request.kind = K::kQuit;
         return true;
       }
       if (name == "mm_mp_host") {
         mm_mp_mode = 0;
         mm_request.kind = K::kHostServer;
-        mm_request.universe = mm_universe;
+        mm_request.universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
         return true;
       }
       if (name == "mm_mp_join") {
         mm_mp_mode = 1;
         mm_request.kind = K::kJoinServer;
-        mm_request.universe = mm_universe;
+        mm_request.universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
         return true;
       }
-      if (int i = pref("mm_nav"); i >= 0) {
-        mm_nav = i;
-        ActivateNav();
+      // Play sits inside its tile, so it has to win the match on the way up.
+      if (int i = pref("mm_play"); i >= 0) {
+        focusSlot(i);
+        LaunchFocusedEntry();
         return true;
       }
-      if (int i = pref("mm_col"); i >= 0) {
-        if (mm_universe == i && mm_screen == 0) {
-          mm_nav = 0;
-          ActivateNav();
-        }  // re-click = play
-        else
-          mm_universe = i;
+      if (int i = pref("mm_tile"); i >= 0) {
+        focusSlot(i);
+        return true;
+      }
+      if (int i = pref("mm_pip"); i >= 0) {
+        if (i * kMenuTiles < count)
+          mm_entry = i * kMenuTiles;
         return true;
       }
     }

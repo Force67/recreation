@@ -149,10 +149,12 @@ inline u32 AccentForUniverse(const base::String& name) {
 }
 
 // NEXUS main menu.
-constexpr int kMenuUniverses = 3;  // Skyrim, Fallout 4, Starfield
-constexpr int kMenuNavItems = 6;   // PLAY MULTIPLAYER MODS SETTINGS PROFILE QUIT
-constexpr int kMenuModRows = 16;   // pooled rows on the Mods sub-screen
-constexpr int kMenuNewsRows = 3;   // pooled rows on the NEWS rail
+constexpr int kMenuUniverses = 3;    // Skyrim, Fallout 4, Starfield
+constexpr int kMenuTileCols = 4;     // tiles across one grid row
+constexpr int kMenuTiles = 8;        // pooled tiles: two rows, and one page
+constexpr int kMenuSpineTicks = 10;  // pooled load-order ticks per tile
+constexpr int kMenuPips = 8;         // pooled page pips
+constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
 constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
 constexpr int kFirstRunGames = 3;  // game rows on the locate page
 
@@ -270,12 +272,15 @@ struct GameUi::Impl {
   // NEXUS main menu state, driven by the engine and the click router. The
   // request is raised here (click / keyboard) and consumed by PollMainMenuRequest.
   bool main_menu_open = false;
-  int mm_universe = 1;  // selected column: 0 Skyrim, 1 Fallout 4, 2 Starfield (centre)
-  int mm_nav = 0;       // highlighted left-nav row (0 PLAY .. 5 QUIT)
-  int mm_screen = 0;    // 0 root, 1 multiplayer, 2 mods, 3 settings, 4 profile
-  int mm_mp_mode = 0;   // last multiplayer choice: 0 host, 1 join
+  int mm_screen = 0;   // 0 root, 1 multiplayer, 2 mods, 3 settings, 4 profile
+  int mm_mp_mode = 0;  // last multiplayer choice: 0 host, 1 join
   MainMenuRequest mm_request;
   MainMenuStats mm_stats;
+  // The tile grid, in display order, and the focused tile within it. The page is
+  // not stored: it is mm_entry / kMenuTiles, so focus and paging cannot disagree.
+  base::Vector<GameUi::MenuEntry> mm_entries;
+  bool mm_entries_pushed = false;  // the engine replaced the derived set below
+  int mm_entry = 0;
   base::Vector<base::String> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
   base::Vector<bool> mm_available{true, true, true};
   base::Vector<base::String> mm_mods;
@@ -283,6 +288,11 @@ struct GameUi::Impl {
   u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};
   base::Vector<base::Pair<base::String, u64>> mm_glyphs;  // emblem widget -> texture
   bool mm_prev_open = false;  // edge-detect to hide the gameplay HUD while open
+
+  int mm_page() const { return mm_entry / kMenuTiles; }
+  int mm_pages() const {
+    return base::Max(1, (static_cast<int>(mm_entries.size()) + kMenuTiles - 1) / kMenuTiles);
+  }
 
   // First-run setup wizard state. The wizard owns its page (fr_step) and its
   // interactive selections (dropdowns, toggles); the engine pushes the located
@@ -297,9 +307,12 @@ struct GameUi::Impl {
   FirstRunRequest fr_request;
 
   // Drives every main-menu widget from the state above each frame; collapses the
-  // whole overlay when closed. Activate runs the highlighted nav item.
+  // whole overlay when closed. Launch boots the focused tile, if it is playable.
   void ApplyMainMenu();
-  void ActivateNav();
+  void LaunchFocusedEntry();
+  // Stands a tile grid up from the three located universes, so the menu works
+  // before anything calls SetMainMenuEntries. A pushed grid wins.
+  void RebuildDerivedEntries();
   // Climbs from a clicked widget to the nearest menu-handled name and acts on it.
   // Returns true if it consumed the click.
   bool RouteMainMenuClick(ugui::wid target);
