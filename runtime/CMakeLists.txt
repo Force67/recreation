@@ -134,6 +134,10 @@ if(RECREATION_HAS_UGUI)
   # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
   target_compile_definitions(recreation PRIVATE
     RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/screens")
+  # Key art shipped for the base-game tiles on the NEXUS grid. Absolute for the
+  # same reason: the dev build reads it straight out of the source tree.
+  target_compile_definitions(recreation PRIVATE
+    RECREATION_UI_ART_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/art")
   recreation_embed_shaders(recreation
     ui/shaders/ugui_quad.vs.hlsl
     ui/shaders/ugui_quad.ps.hlsl
