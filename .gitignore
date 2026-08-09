@@ -44,8 +44,14 @@ editor_layout.reclayout
 /run-starfield.sh
 /run-trailer.sh
 /run-all.sh
+/run-menu.sh
 /bench.sh
 run-local.sh
+
+# Savegames used to verify the load path. Player data, not ours to ship.
+*.ess
+*.fos
+/Skyrim Special Edition 100 Percent Complete Save-*/
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
