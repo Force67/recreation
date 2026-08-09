@@ -16,6 +16,7 @@
 
 #include "components/bethesda/compression.h"
 #include "components/bethesda/savegame.h"
+#include "components/bethesda/savegame_changeform.h"
 #include "core/types.h"
 
 namespace {
@@ -397,13 +398,236 @@ void TestRealSave() {
   }
 }
 
+// A Fallout 4 container, laid out the way the real ones on this machine are
+// (measured: header version 15, form version 68, an RGBA thumbnail, no whole
+// body codec, and a game version wstring between the form version and the
+// plugin block). The change form type byte carries Fallout 4's own numbering,
+// which is Skyrim's shifted down by one from INGR up.
+base::Vector<u8> BuildFallout4Save() {
+  base::Vector<u8> header;
+  PutU32(header, 15);  // header version
+  PutU32(header, 7);
+  PutWString(header, "Nate");
+  PutU32(header, 12);
+  PutWString(header, "Sanctuary Hills");
+  PutWString(header, "5d.16h.29m.5 days.16 hours.29 minutes");
+  PutWString(header, "HumanRace");
+  PutU16(header, 1);
+  PutF32(header, 0.0f);
+  PutF32(header, 200.0f);
+  for (int i = 0; i < 8; ++i)
+    PutU8(header, 0);  // FILETIME
+  PutU32(header, kShotW);
+  PutU32(header, kShotH);
+
+  base::Vector<u8> file;
+  PutBytes(file, "FO4_SAVEGAME", 12);
+  PutU32(file, u32(header.size()));
+  PutBytes(file, header.data(), header.size());
+  // Four bytes a pixel, unlike Skyrim LE's three.
+  for (u32 i = 0; i < kShotW * kShotH * 4; ++i)
+    PutU8(file, u8(i));
+
+  const size_t body_base = file.size();
+
+  base::Vector<u8> body;
+  PutU8(body, 68);                    // form version
+  PutWString(body, "1.10.163.0");     // game version, Skyrim writes none
+  base::Vector<u8> plugin_info;
+  PutU8(plugin_info, 1);
+  PutWString(plugin_info, "Fallout4.esm");
+  PutU16(plugin_info, 1);  // light plugin count
+  PutWString(plugin_info, "ccBGSFO4044-HellfirePowerArmor.esl");
+  PutU32(body, u32(plugin_info.size()));
+  PutBytes(body, plugin_info.data(), plugin_info.size());
+
+  const size_t flt_at = body.size();
+  for (int i = 0; i < 25; ++i)
+    PutU32(body, 0);
+
+  const size_t globals_at = body.size();
+  base::Vector<u8> globals;
+  PutU8(globals, u8(1 << 2));
+  PutRefId(globals, 1, 0x38);
+  PutF32(globals, 12.5f);
+  PutU32(body, 3);  // record type: global variables, the same slot as Skyrim
+  PutU32(body, u32(globals.size()));
+  PutBytes(body, globals.data(), globals.size());
+
+  const size_t change_forms_at = body.size();
+  // FACT, which Fallout 4 writes as 30 where Skyrim writes 31.
+  PutRefId(body, 1, 0x0001CBED);
+  PutU32(body, 0x80000000);
+  PutU8(body, u8((0u << 6) | 30u));
+  PutU8(body, 68);
+  PutU8(body, 4);
+  PutU8(body, 0);
+  PutBytes(body, "\x01\x02\x03\x04", 4);
+  // REFR, which both games write as 0.
+  PutRefId(body, 1, 0x14);
+  PutU32(body, 0x00000002);
+  PutU8(body, u8((0u << 6) | 0u));
+  PutU8(body, 68);
+  PutU8(body, 2);
+  PutU8(body, 0);
+  PutBytes(body, "\xaa\xbb", 2);
+
+  const size_t form_ids_at = body.size();
+  PutU32(body, 1);
+  PutU32(body, 0x0100BEEF);
+
+  auto patch = [&](size_t index, u32 value) {
+    const size_t at = flt_at + index * 4;
+    for (int i = 0; i < 4; ++i)
+      body[at + size_t(i)] = u8(value >> (8 * i));
+  };
+  patch(0, u32(body_base + form_ids_at));
+  patch(2, u32(body_base + globals_at));
+  patch(4, u32(body_base + change_forms_at));
+  patch(6, 1);
+  patch(9, 2);
+
+  PutBytes(file, body.data(), body.size());
+  return file;
+}
+
+void TestSyntheticFallout4() {
+  std::puts("synthetic fallout 4 save");
+  const base::Vector<u8> file = BuildFallout4Save();
+  const rx::ByteSpan bytes(file.data(), file.size());
+  Check("detects fallout 4", rx::bethesda::DetectSaveFormat(bytes) == SaveFormat::kFallout4);
+
+  SaveFile save;
+  if (!rx::bethesda::ReadSaveFile(bytes, save)) {
+    Check("parses", false);
+    return;
+  }
+  Check("format", save.format == SaveFormat::kFallout4);
+  Check("save number 7", save.save_number == 7);
+  Check("player name", save.player_name == "Nate");
+  Check("player level 12", save.player_level == 12);
+  Check("player location", save.player_location == "Sanctuary Hills");
+  // Days, hours, minutes, not Skyrim's hours, minutes, seconds.
+  Check("play time is 5 days 16 hours 29 minutes",
+        save.in_game_seconds == 5 * 86400.0f + 16 * 3600.0f + 29 * 60.0f);
+  // Only reachable if the game version wstring was consumed: the plugin block
+  // size sits right behind it and reading it at the wrong offset is garbage.
+  Check("one plugin and one light plugin",
+        save.plugins.size() == 1 && save.plugins[0] == "Fallout4.esm" &&
+            save.light_plugins.size() == 1 &&
+            save.light_plugins[0] == "ccBGSFO4044-HellfirePowerArmor.esl");
+  Check("form id map", save.form_ids.size() == 1 && save.form_ids[0] == 0x0100BEEF);
+  Check("one global", save.globals.size() == 1 && save.globals[0].first == 0x00000038 &&
+                          save.globals[0].second == 12.5f);
+  Check("two change forms", save.change_forms.size() == 2);
+  if (save.change_forms.size() == 2) {
+    // The type byte reads 30; layer 1 turns it into the FACT every layer above
+    // it knows, which is Skyrim's 31.
+    Check("type byte 30 decodes as FACT", save.change_forms[0].type == ChangeFormType::kFact);
+    Check("type byte 0 decodes as REFR", save.change_forms[1].type == ChangeFormType::kRefr);
+  }
+  Check("a fallout 4 type byte maps up, a skyrim one does not",
+        rx::bethesda::ChangeFormTypeOf(SaveFormat::kFallout4, 30) == ChangeFormType::kFact &&
+            rx::bethesda::ChangeFormTypeOf(SaveFormat::kSkyrimSe, 30) != ChangeFormType::kFact);
+  Check("the shift starts above BOOK, which both games number 13",
+        rx::bethesda::ChangeFormTypeOf(SaveFormat::kFallout4, 13) == ChangeFormType::kBook &&
+            rx::bethesda::ChangeFormTypeOf(SaveFormat::kSkyrimSe, 13) == ChangeFormType::kBook);
+}
+
+// A real Fallout 4 save. Not in the repo; point RX_FO4_SAVEGAME_TEST_FILE at
+// one to run this elsewhere.
+constexpr const char kRealFallout4SavePath[] =
+    "/speed/SteamLibrary/steamapps/compatdata/377160/pfx/drive_c/users/steamuser/Documents/"
+    "My Games/Fallout4/Saves/"
+    "Save1_ACCC01CEM636C61697265_Vault111Cryo_000016_20190713231124_1_2.fos";
+
+void TestRealFallout4Save() {
+  const char* path = std::getenv("RX_FO4_SAVEGAME_TEST_FILE");
+  if (!path)
+    path = kRealFallout4SavePath;
+
+  base::Vector<u8> file;
+  if (!ReadWholeFile(path, &file)) {
+    std::printf("real fallout 4 save: skipped, %s not present\n", path);
+    return;
+  }
+  std::puts("real fallout 4 save");
+  const rx::ByteSpan bytes(file.data(), file.size());
+  Check("detects fallout 4", rx::bethesda::DetectSaveFormat(bytes) == SaveFormat::kFallout4);
+
+  SaveFile save;
+  if (!rx::bethesda::ReadSaveFile(bytes, save)) {
+    Check("parses", false);
+    return;
+  }
+  Check("save number 1", save.save_number == 1);
+  Check("player name claire", save.player_name == "claire");
+  Check("player level 1", save.player_level == 1);
+  Check("player location Vault 111", save.player_location == "Vault 111");
+  // The save is German, so the unit letters are T/S/M rather than d/h/m and
+  // only the leading numbers are readable: 0 days, 0 hours, 16 minutes.
+  Check("16 minutes played", save.in_game_seconds == 16 * 60.0f);
+  Check("two plugins", save.plugins.size() == 2 && save.plugins[0] == "Fallout4.esm" &&
+                           save.plugins[1] == "CBBE.esp");
+  Check("no light plugins", save.light_plugins.empty());
+  // With one master and one esp almost every reference is owned by the first
+  // master, which RefID kind 1 spells directly, so the map stays empty.
+  Check("an empty form id map", save.form_ids.empty());
+  Check("910 globals", save.globals.size() == 910);
+  // The created-objects record is there and holds four empty tables: Fallout 4
+  // has no player enchanting or alchemy, so nothing ever lands in them.
+  Check("no created forms", save.created_forms.empty());
+  Check("5022 change forms", save.change_forms.size() == 5022);
+
+  u32 by_type[64] = {};
+  u32 created = 0, versions_68 = 0;
+  for (const rx::bethesda::ChangeForm& form : save.change_forms) {
+    by_type[static_cast<u32>(form.type) & 0x3f] += 1;
+    if ((form.form_id >> 24) == 0xff)
+      ++created;
+    if (form.version == 68)
+      ++versions_68;
+  }
+  Check("every change form is version 68", versions_68 == 5022);
+  Check("64 references the save created", created == 64);
+  Check("2838 REFR, 1411 ACHR, 62 CELL",
+        by_type[u32(ChangeFormType::kRefr)] == 2838 &&
+            by_type[u32(ChangeFormType::kAchr)] == 1411 &&
+            by_type[u32(ChangeFormType::kCell)] == 62);
+  Check("305 INFO, 281 QUST, 74 NPC_",
+        by_type[u32(ChangeFormType::kInfo)] == 305 && by_type[u32(ChangeFormType::kQust)] == 281 &&
+            by_type[u32(ChangeFormType::kNpc)] == 74);
+  // The shifted half. Each of these was confirmed by resolving the change form
+  // ids in Fallout4.esm and reading the record signature back, so the type
+  // bytes 28/30/35/36/39/44 really are these records.
+  Check("2 ECZN, 4 FACT, 1 SMQN, 39 SCEN, 4 PHZD, 1 LVLI",
+        by_type[u32(ChangeFormType::kEczn)] == 2 && by_type[u32(ChangeFormType::kFact)] == 4 &&
+            by_type[u32(ChangeFormType::kSmqn)] == 1 &&
+            by_type[u32(ChangeFormType::kScen)] == 39 &&
+            by_type[u32(ChangeFormType::kPhzd)] == 4 &&
+            by_type[u32(ChangeFormType::kLvli)] == 1);
+  // Layer 2 was derived against Skyrim change form version 78 and refuses
+  // anything outside 74..78, so nothing in a Fallout 4 save decodes yet.
+  u32 decoded = 0;
+  for (const rx::bethesda::ChangeForm& form : save.change_forms) {
+    rx::bethesda::ReferenceChange ref;
+    rx::bethesda::CellChange cell;
+    if (rx::bethesda::DecodeReference(form, ref) || rx::bethesda::DecodeCell(form, cell))
+      ++decoded;
+  }
+  Check("no payload decodes: the change form version is outside the validated range",
+        decoded == 0);
+}
+
 }  // namespace
 
 int main() {
   std::puts("savegametest");
   TestSynthetic();
+  TestSyntheticFallout4();
   TestTruncation();
   TestRealSave();
+  TestRealFallout4Save();
   std::printf("%s\n", g_failures == 0 ? "all checks passed" : "FAILURES");
   return g_failures == 0 ? 0 : 1;
 }

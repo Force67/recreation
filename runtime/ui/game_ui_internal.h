@@ -98,6 +98,7 @@ constexpr int kDialogueOptionRows = 4;  // matches the 1-4 selection keys
 constexpr int kJournalRows = 6;         // quests listed in the journal (1-N pick, 1-4 usable)
 constexpr int kJournalObjRows = 6;      // objectives shown for the selected journal quest
 constexpr int kWarHoldRows = 9;         // Skyrim's nine holds on the war-map panel
+constexpr int kPlayerMapRows = GameUi::PlayerMapView::kRows;  // location rows beside the map
 constexpr int kContainerRows = 14;      // item rows in the container loot panel
 constexpr int kHudGaugeRows = 6;        // pooled managed-gameplay gauge bars (oxygen, rads, ...)
 constexpr int kChatRows = 8;            // visible lines in the multiplayer chat box
@@ -190,7 +191,7 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
-constexpr int kUiFragmentCount = 18;
+constexpr int kUiFragmentCount = 19;
 extern const char* const kUiFragments[kUiFragmentCount];
 // Font discovery, in game_ui_doc.cc.
 const char* FindFont();
@@ -252,6 +253,9 @@ struct GameUi::Impl {
   bool journal_open = false;
   base::Vector<HudQuest> journal;
   int journal_selected = -1;
+
+  // World-map overlay, painted and driven by player_map.cc.
+  GameUi::PlayerMapView player_map;
 
   // War-map overlay, driven by the managed Civil War campaign.
   bool war_map_open = false;

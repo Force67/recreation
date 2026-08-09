@@ -35,6 +35,7 @@ recreation_add_module(bethesda
   savegame_apply.cc
   facegen.cc
   head_morph.cc
+  worn_armor.cc
 )
 
 target_link_libraries(recreation_bethesda PUBLIC rx::core rx::asset rx::physics kinema::kinema)
@@ -52,4 +53,5 @@ recreation_add_test(tritest recreation::bethesda)
 recreation_add_test(savegametest recreation::bethesda)
 recreation_add_test(savegame_changeformtest recreation::bethesda)
 recreation_add_test(savegame_applytest recreation::bethesda)
+recreation_add_test(worn_armortest recreation::bethesda)
 recreation_add_test(vmad_fo4test recreation::bethesda)

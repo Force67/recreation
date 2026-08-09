@@ -10,6 +10,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/content_load.cc
   app/savegame_load.cc
   app/map_state.cc
+  app/player_map.cc
   app/managed_scripting.cc
   app/main_menu.cc
   app/first_run.cc

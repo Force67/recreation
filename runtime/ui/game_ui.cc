@@ -496,6 +496,17 @@ void GameUi::SetWarMap(bool open,
   impl_->war_progress = imperial_fraction;
 }
 
+void GameUi::SetPlayerMap(const PlayerMapView& view) {
+  if (impl_->initialized)
+    impl_->player_map = view;
+}
+
+void GameUi::UpdateUiTexture(u64 texture, const u8* rgba) {
+  if (!impl_->initialized || texture == 0 || !rgba)
+    return;
+  impl_->backend.UpdateTexture(texture, rgba);
+}
+
 void GameUi::SetJournal(bool open, const base::Vector<HudQuest>& quests, int selected) {
   if (!impl_->initialized)
     return;
@@ -980,6 +991,37 @@ void GameUi::Build(Window& window,
     impl->SetText("war_map_progress", prog);
   }
 
+  // World map: the painted canvas plus the discovered-location rail beside it.
+  // The picture itself is a texture the engine repaints, so there is nothing to
+  // do here but bind it and fill the list.
+  impl->SetVisible("pmap_box", impl->player_map.open);
+  if (impl->player_map.open) {
+    const GameUi::PlayerMapView& map = impl->player_map;
+    impl->SetText("pmap_head", map.title.empty() ? base::String("Map") : map.title);
+    impl->SetText("pmap_sub", map.subtitle);
+    impl->SetText("pmap_where", map.where);
+    impl->SetText("pmap_status", map.status);
+    if (map.canvas != 0)
+      ugui::SetImageTexture(impl->Need("pmap_canvas"), map.canvas, 1.0f, 1.0f);
+    impl->SetVisible("pmap_canvas", map.canvas != 0);
+    for (int i = 0; i < kPlayerMapRows; ++i) {
+      const char* row = impl->Pooled("pmap_row", i);
+      if (i >= static_cast<int>(map.rows.size())) {
+        impl->SetVisible(row, false);
+        continue;
+      }
+      const GameUi::PlayerMapView::Row& entry = map.rows[i];
+      const bool on = i == map.selected;
+      impl->SetText(row, (on ? base::String("> ") : base::String("  ")) + entry.name + "   " +
+                             entry.detail);
+      // Three values, no colour: selected is white, a place that cannot be
+      // travelled to is muted, the rest sit between.
+      impl->SetTextColor(row, Rgba(on ? 0xffffffffu
+                                      : (entry.travelable ? 0x9a9a9affu : 0x5e5e5effu)));
+      impl->SetVisible(row, true);
+    }
+  }
+
   // Map editor overlay (asset browser, toolbar, inspector, status, reticle).
   impl->ApplyEditorView();
 
@@ -1056,6 +1098,8 @@ void GameUi::SetObjectiveMarker(bool, float, float) {}
 void GameUi::SetDialogue(const DialogueView&) {}
 void GameUi::SetContainer(const ContainerView&) {}
 void GameUi::SetJournal(bool, const base::Vector<HudQuest>&, int) {}
+void GameUi::SetPlayerMap(const PlayerMapView&) {}
+void GameUi::UpdateUiTexture(u64, const u8*) {}
 void GameUi::SetWarMap(bool, const base::Vector<WarHoldEntry>&, float) {}
 void GameUi::SetEditorView(const EditorView&) {}
 void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)>) {}

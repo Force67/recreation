@@ -83,6 +83,28 @@ int main(int argc, char** argv) {
   bindings.RemoveItem(chest, gold, 1000);
   check("over-remove clamps to 0", bindings.GetItemCount(chest, gold) == 0);
 
+  // Perks. A loaded save pushes its perk arrays through AddPerk, so HasPerk has
+  // to answer for them and the count has to be the actor's own.
+  {
+    const ObjectRef necromage{0x000581E4};  // Skyrim.esm Necromage
+    const ObjectRef impact{0x000153D2};     // Skyrim.esm Impact
+    check("no perks to start", bindings.GetPerkCount(actor) == 0 &&
+                                   !bindings.HasPerk(actor, necromage));
+    bindings.AddPerk(actor, necromage, 1);
+    bindings.AddPerk(actor, impact, 1);
+    check("two perks, both held", bindings.GetPerkCount(actor) == 2 &&
+                                      bindings.HasPerk(actor, necromage) &&
+                                      bindings.HasPerk(actor, impact));
+    check("another actor holds none of them",
+          bindings.GetPerkCount(chest) == 0 && !bindings.HasPerk(chest, necromage));
+    bindings.AddPerk(actor, necromage, 1);
+    check("adding one twice does not double it", bindings.GetPerkCount(actor) == 2);
+    bindings.RemovePerk(actor, necromage);
+    check("removed one, the other stands", bindings.GetPerkCount(actor) == 1 &&
+                                               !bindings.HasPerk(actor, necromage) &&
+                                               bindings.HasPerk(actor, impact));
+  }
+
   // Runtime alias fill (ReferenceAlias.ForceRefTo / Clear). Uses a quest handle
   // with no definition so only the runtime override is in play.
   {

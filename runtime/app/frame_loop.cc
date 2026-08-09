@@ -777,6 +777,13 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           holds.push_back({h.name, h.owner});
         game_ui_.SetWarMap(war_map_open_, holds, war_progress);
       }
+      // The world map (M): repaint the canvas and push the discovered-location
+      // list. Cheap when closed, which is the usual case.
+      RefreshPlayerMap(*this, frame_delta);
+      // The HUD's gold counter and the pause menu's character pane read the same
+      // stats block the front screen does, so it has to be refreshed while a
+      // universe is being played and not only while the menu is up.
+      RefreshMenuData();
       game_ui_.Build(*window_, *renderer_, camera_, frame_delta, &view);
     }
   }

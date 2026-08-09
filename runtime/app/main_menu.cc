@@ -30,6 +30,7 @@
 #include <utility>    // base::move for the procedural meshes
 
 #include "asset/mesh.h"
+#include "components/script/games/skyrim/skyrim_bindings.h"
 #include "core/log.h"
 #include "runtime/app/engine_internal.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
@@ -54,6 +55,9 @@ namespace rx {
 static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 static base::Option<bool> MenuCapture{"menu.capture", false, "RX_MENU_CAPTURE"};
 static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU_AUTOPLAY"};
+
+// Gold001, the currency record a Skyrim inventory counts money in.
+static constexpr u32 kGoldFormId = 0x0000000f;
 
 // The C# gameplay modules each universe installs once it is the primary domain,
 // previewed on the menu's Mods screen before the game loads. Skyrim and
@@ -542,8 +546,8 @@ void Engine::UpdateMainMenu(f32 dt) {
   if (actions_->pressed(Action::kMenuCancel))
     game_ui_.MainMenuBack();
 
-  RefreshMenuData();
-
+  // No RefreshMenuData here: the render path runs it every frame, menu or not,
+  // because the HUD reads the same block.
   const MainMenuRequest req = game_ui_.PollMainMenuRequest();
   switch (req.kind) {
     case MainMenuRequest::Kind::kEnterUniverse:
@@ -585,34 +589,65 @@ void Engine::RefreshMenuData() {
 
   // Real local-profile identity for the front screen: the OS account and host,
   // plus the configured multiplayer handle (falls back to the login name).
-  base::String login;
-  char host[256] = {0};
+  // Resolved once: this runs every frame now, and the machine's name does not
+  // change under it.
+  static const base::Pair<base::String, base::String> identity = [] {
+    base::String login;
+    char host[256] = {0};
 #if !defined(_WIN32)
-  if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name)
-    login = pw->pw_name;
-  if (gethostname(host, sizeof(host) - 1) != 0)
-    host[0] = '\0';
+    if (const struct passwd* pw = getpwuid(getuid()); pw && pw->pw_name)
+      login = pw->pw_name;
+    if (gethostname(host, sizeof(host) - 1) != 0)
+      host[0] = '\0';
 #endif
-  if (login.empty()) {
-    if (const char* u = std::getenv("USER"))
-      login = u;
-    else if (const char* u2 = std::getenv("USERNAME"))
-      login = u2;
-  }
-  if (!host[0]) {
-    if (const char* h = std::getenv("HOSTNAME"))
-      std::snprintf(host, sizeof(host), "%s", h);
-    else if (const char* h2 = std::getenv("COMPUTERNAME"))
-      std::snprintf(host, sizeof(host), "%s", h2);
-  }
+    if (login.empty()) {
+      if (const char* u = std::getenv("USER"))
+        login = u;
+      else if (const char* u2 = std::getenv("USERNAME"))
+        login = u2;
+    }
+    if (!host[0]) {
+      if (const char* h = std::getenv("HOSTNAME"))
+        std::snprintf(host, sizeof(host), "%s", h);
+      else if (const char* h2 = std::getenv("COMPUTERNAME"))
+        std::snprintf(host, sizeof(host), "%s", h2);
+    }
+    return base::Pair<base::String, base::String>{
+        login.empty() ? base::String("local") : login,
+        host[0] ? base::String(host) : base::String("this machine")};
+  }();
 
   const base::String handle(config_.player_name.c_str());
-  stats.account = login.empty() ? "local" : login;
-  stats.machine = host[0] ? host : "this machine";
+  stats.account = identity.first;
+  stats.machine = identity.second;
   stats.build = RECREATION_VERSION;
   stats.player_name = (handle.empty() || handle == "player") ? stats.account : handle;
-  stats.level = 0;
   stats.net_status = "Offline";
+
+  // The live character, once a universe is up. Read out of the bindings, which
+  // is the same store a loaded savegame writes into, so the banner and the HUD
+  // gold counter say what the running game believes rather than a placeholder.
+  // `location` stays empty: nothing in the engine names the cell the player is
+  // standing in yet.
+  stats.in_game = !main_menu_active_ && game_ != bethesda::Game::kUnknown;
+  if (stats.in_game) {
+    for (const MenuUniverse& u : menu_universes_) {
+      if (u.game == game_)
+        stats.universe = u.name;
+    }
+  }
+  if (stats.in_game && script_bindings_) {
+    const script::papyrus::ObjectRef player{
+        bethesda::GlobalFormId{0, bethesda::kPlayerFormId}.packed()};
+    auto& b = *script_bindings_;
+    stats.level = b.GetLevel(player);
+    stats.gold = b.GetItemCount(
+        player, script::papyrus::ObjectRef{bethesda::GlobalFormId{0, kGoldFormId}.packed()});
+    stats.health = b.GetActorValuePercentage(player, "Health");
+    stats.magicka = b.GetActorValuePercentage(player, "Magicka");
+    stats.stamina = b.GetActorValuePercentage(player, "Stamina");
+    stats.active_quests = static_cast<int>(b.quest_system().RunningCount());
+  }
 
   int avail = 0;
   for (const auto& u : menu_universes_)

@@ -22,6 +22,7 @@
 #include "components/world/grass_baker.h"
 #include "components/world/land_baker.h"
 #include "components/world/quest_world.h"
+#include "components/world/saved_spawns.h"
 #include "components/world/terrain_edits.h"
 #include "core/job_system.h"
 #include "core/math.h"
@@ -178,6 +179,12 @@ class CellStreamer {
   void set_ref_suppressor(base::Function<bool(u64 ref_handle)> fn) {
     ref_suppressor_ = base::move(fn);
   }
+
+  // Optional index of the references a resumed savegame created (see
+  // saved_spawns.h). Each cell places its share as it streams in, right after
+  // the references its records author and out of the same budget. Must outlive
+  // this streamer; unset = a save adds nothing to what the records place.
+  void set_saved_spawns(const SavedSpawnIndex* spawns) { saved_spawns_ = spawns; }
 
   // Converts + uploads a base form's world model to the shared renderer (salted
   // for this domain), exactly like a placed ref, but WITHOUT spawning an entity,
@@ -352,6 +359,7 @@ class CellStreamer {
     base::Vector<render::InstanceGroupHandle> instance_groups;
     size_t instance_count = 0;
     u32 next_ref = 0;
+    u32 next_saved = 0;  // savegame-created references placed so far
     bool addressability_done = false;
     bool terrain_done = false;
     bool grass_done = false;
@@ -450,6 +458,27 @@ class CellStreamer {
                       LoadedCell& cell,
                       u32& mesh_budget,
                       bool interior);
+  // A reference a resumed savegame created: same entity shape as a placed ref,
+  // but built from the base form and transform the save carries because no
+  // plugin has a REFR record for it. Returns false when the mesh budget ran out
+  // before it could be placed, so the caller retries it next tick.
+  bool SpawnSavedReference(ecs::World& world,
+                           i16 grid_x,
+                           i16 grid_y,
+                           const SavedSpawn& spawn,
+                           LoadedCell& cell,
+                           u32& mesh_budget,
+                           bool interior);
+  // Places the saved references of one cell, from cell.next_saved onwards.
+  // Returns false when a budget ran out mid-list.
+  bool SpawnSavedReferences(ecs::World& world,
+                            i16 grid_x,
+                            i16 grid_y,
+                            base::Span<const SavedSpawn> saved,
+                            LoadedCell& cell,
+                            u32& mesh_budget,
+                            u32& ref_budget,
+                            bool interior);
   // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
   // REFR XRDS radius override into a point light at `position` and records it on
   // the cell. No-op for other base types or when RX_PLACED_LIGHTS is off.
@@ -560,6 +589,8 @@ class CellStreamer {
   InteriorLighting interior_lighting_;
   base::Function<void(u64, bool)> on_location_change_;  // load-door transition hook
   base::Function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
+  const SavedSpawnIndex* saved_spawns_ = nullptr;
+  u32 saved_spawns_spawned_ = 0;
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;

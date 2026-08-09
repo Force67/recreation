@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cmath>
 #include <fstream>
 
@@ -38,12 +39,15 @@ static base::Option<const char*> LoadSaveFile{"load.save", nullptr, "RX_LOAD_SAV
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 constexpr u32 kWrld = FourCc('W', 'R', 'L', 'D');
 constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
+constexpr u32 kPerk = FourCc('P', 'E', 'R', 'K');
 // The TESForm flag a record carries when it is placed disabled. The engine
 // reads the same bit off the record when it streams a reference in.
 constexpr u32 kRecordFlagInitiallyDisabled = 0x800;
 // The NPC_ record behind the player reference, "Player" in both games this
 // reader covers. The save writes the player's level and skills onto it.
 constexpr u32 kPlayerBaseFormId = 0x00000007;
+// Gold001, the currency record every Skyrim inventory counts its money in.
+constexpr u32 kGoldFormId = 0x0000000f;
 
 bool GameMatchesSave(bethesda::Game game, bethesda::SaveFormat format) {
   switch (format) {
@@ -76,6 +80,8 @@ struct PlayerReadout {
   i32 level = 0;
   f32 health = 0, magicka = 0, stamina = 0, carry_weight = 0;
   f32 one_handed = 0, sneak = 0, destruction = 0;
+  i32 perks = 0;
+  i32 gold = 0;
 };
 
 PlayerReadout ReadPlayerBack(script::skyrim::RecordBackedSkyrimBindings& bindings) {
@@ -90,6 +96,9 @@ PlayerReadout ReadPlayerBack(script::skyrim::RecordBackedSkyrimBindings& binding
   out.one_handed = bindings.GetBaseActorValue(player, "OneHanded");
   out.sneak = bindings.GetBaseActorValue(player, "Sneak");
   out.destruction = bindings.GetBaseActorValue(player, "Destruction");
+  out.perks = bindings.GetPerkCount(player);
+  out.gold = bindings.GetItemCount(
+      player, script::papyrus::ObjectRef{bethesda::GlobalFormId{0, kGoldFormId}.packed()});
   return out;
 }
 
@@ -101,12 +110,18 @@ class EngineSaveSink : public bethesda::SaveSink {
                  const bethesda::RecordStore& records,
                  world::ActorStatsStore& actor_stats,
                  dialogue::SaidTopics& said,
-                 world::MapDiscovery& map)
+                 world::MapDiscovery& map,
+                 world::MapMarkers& markers,
+                 world::SavedSpawnIndex& spawns,
+                 f32 cell_size)
       : bindings_(bindings),
         records_(records),
         actor_stats_(actor_stats),
         said_(said),
-        map_(map) {}
+        map_(map),
+        markers_(markers),
+        spawns_(spawns),
+        cell_size_(cell_size) {}
 
   void SetGlobal(bethesda::GlobalFormId global, f32 value) override {
     bindings_.SetGlobalValue(Ref(global), value);
@@ -165,6 +180,21 @@ class EngineSaveSink : public bethesda::SaveSink {
     ++reference_values_;
     if (ref.plugin == 0 && ref.local_id == bethesda::kPlayerFormId)
       ++player_values_;
+  }
+
+  void AddReferencePerk(bethesda::GlobalFormId ref,
+                        bethesda::GlobalFormId perk,
+                        u32 rank) override {
+    // Only the ones this load order actually has a PERK record for: the remap
+    // answers for any form the plugin holds, so a perk id that lands on some
+    // other record type would be a perk the player never had.
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(perk);
+    if (!stored || stored->header.type != kPerk) {
+      ++unknown_perks_;
+      return;
+    }
+    bindings_.AddPerk(Ref(ref), Ref(perk), static_cast<i32>(rank));
+    ++perks_;
   }
 
   void SetActorFactionRank(bethesda::GlobalFormId actor_base,
@@ -241,6 +271,19 @@ class EngineSaveSink : public bethesda::SaveSink {
     ++visited_cells_;
   }
 
+  // The save only carries the two flags; what the place is called and where it
+  // sits came out of the records when the catalogue was built, so a marker the
+  // load order does not place is counted rather than invented.
+  void SetMapMarker(bethesda::GlobalFormId ref, bool visible, bool can_travel) override {
+    if (!markers_.SetFlags(ref, visible, can_travel)) {
+      ++unknown_markers_;
+      return;
+    }
+    ++markers_found_;
+    if (can_travel)
+      ++markers_travel_;
+  }
+
   void SetReferenceEnabled(bethesda::GlobalFormId ref, bool enabled) override {
     // Only the references whose state differs from the one the records place
     // them in are worth a command: the rest already come up right.
@@ -253,6 +296,47 @@ class EngineSaveSink : public bethesda::SaveSink {
       return;
     bindings_.SetEnabled(Ref(ref), enabled);
     ++toggled_refs_;
+  }
+
+  // Binned, not spawned: a save carries tens of thousands of these and only the
+  // cells in the load ring are ever standing, so the streamer places each cell's
+  // share when that cell comes in (see saved_spawns.h).
+  void SpawnCreatedReference(bethesda::GlobalFormId id,
+                             bethesda::GlobalFormId base,
+                             bethesda::GlobalFormId parent,
+                             const f32 position[3],
+                             const f32 rotation[3],
+                             f32 scale,
+                             bool actor) override {
+    // Without a base record there is nothing to render or collide with, and
+    // without a parent record there is no cell to bin it into.
+    if (!records_.Find(base)) {
+      ++unknown_refs_;
+      return;
+    }
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(parent);
+    if (!stored) {
+      ++unknown_refs_;
+      return;
+    }
+    world::SavedSpawn spawn;
+    spawn.handle = id;
+    spawn.base = base;
+    for (u32 axis = 0; axis < 3; ++axis) {
+      spawn.position[axis] = position[axis];
+      spawn.rotation[axis] = rotation[axis];
+    }
+    spawn.scale = scale;
+    spawn.actor = actor;
+    if (stored->header.type == kWrld) {
+      spawns_.AddExterior(parent, cell_size_, spawn);
+      ++spawns_exterior_;
+    } else if (stored->header.type == kCell) {
+      spawns_.AddInterior(parent, spawn);
+      ++spawns_interior_;
+    } else {
+      ++unknown_refs_;
+    }
   }
 
   void MoveReference(bethesda::GlobalFormId ref,
@@ -278,7 +362,7 @@ class EngineSaveSink : public bethesda::SaveSink {
                         bethesda::GlobalFormId item,
                         i32 delta,
                         bool equipped) override {
-    if (!records_.Find(container)) {
+    if (!KnownReference(container)) {
       ++unknown_refs_;
       return;
     }
@@ -304,10 +388,23 @@ class EngineSaveSink : public bethesda::SaveSink {
         "infamy, {} dialogue lines already said, {} exterior cells and {} interiors on the map",
         actor_levels_, ai_profiles_, infamy_factions_, said_.size(), visited_cells_,
         map_.VisitedInteriors());
+    RX_INFO("save: {} map markers discovered, {} of them fast travel destinations",
+            markers_found_, markers_travel_);
+    if (unknown_markers_ != 0)
+      RX_WARN("save: {} discovered markers name a reference this load order does not place",
+              unknown_markers_);
     RX_INFO("save: {} item stacks restored into {} containers seeded from their records",
             inventory_items_, seeded_containers_);
-    RX_INFO("save: {} actor values onto references, {} of them the player's own",
-            reference_values_, player_values_);
+    RX_INFO("save: {} actor values onto references, {} of them the player's own", reference_values_,
+            player_values_);
+    if (perks_ != 0 || unknown_perks_ != 0)
+      RX_INFO("save: {} perks onto references, {} named no PERK record here", perks_,
+              unknown_perks_);
+    RX_INFO(
+        "save: {} references the save created are queued for their cells ({} outside, {} in "
+        "interiors), across {} cells, {} in the fullest",
+        spawns_exterior_ + spawns_interior_, spawns_exterior_, spawns_interior_,
+        u32(spawns_.cells()), u32(spawns_.busiest_cell()));
     if (unplaced_actors_ != 0)
       RX_WARN("save: {} actor bases have no placed reference, their state was dropped",
               unplaced_actors_);
@@ -318,6 +415,17 @@ class EngineSaveSink : public bethesda::SaveSink {
  private:
   static script::papyrus::ObjectRef Ref(bethesda::GlobalFormId id) {
     return script::papyrus::ObjectRef{id.packed()};
+  }
+
+  // A reference the running game can be told about. Normally that means a
+  // plugin authors a record for it, with one exception: the player's own
+  // reference is one of the forms the engine defines itself and no plugin
+  // writes, so requiring a record here silently drops everything the save says
+  // about the player, their whole pack included.
+  bool KnownReference(bethesda::GlobalFormId ref) const {
+    if (ref.plugin == 0 && ref.local_id == bethesda::kPlayerFormId)
+      return true;
+    return records_.Find(ref) != nullptr;
   }
 
   // Actor state is saved against the NPC base form; the engine keys it by the
@@ -345,10 +453,17 @@ class EngineSaveSink : public bethesda::SaveSink {
   world::ActorStatsStore& actor_stats_;
   dialogue::SaidTopics& said_;
   world::MapDiscovery& map_;
+  world::MapMarkers& markers_;
+  world::SavedSpawnIndex& spawns_;
+  f32 cell_size_ = 0.0f;
+  u32 spawns_exterior_ = 0;
+  u32 spawns_interior_ = 0;
   base::UnorderedMap<u64, u64> placed_actors_;  // NPC base -> placed ref, 0 = none
   u32 actor_values_ = 0;
   u32 reference_values_ = 0;
   u32 player_values_ = 0;
+  u32 perks_ = 0;
+  u32 unknown_perks_ = 0;
   u32 faction_ranks_ = 0;
   u32 toggled_refs_ = 0;
   u32 moved_refs_ = 0;
@@ -356,6 +471,9 @@ class EngineSaveSink : public bethesda::SaveSink {
   u32 ai_profiles_ = 0;
   u32 infamy_factions_ = 0;
   u32 visited_cells_ = 0;
+  u32 markers_found_ = 0;
+  u32 markers_travel_ = 0;
+  u32 unknown_markers_ = 0;
   u32 unplaced_actors_ = 0;
   u32 unknown_refs_ = 0;
   base::UnorderedSet<u64> seeded_;  // containers already given their authored contents
@@ -417,14 +535,20 @@ void ApplySavegameState(Engine& engine) {
 
   bethesda::SaveApplyStats stats;
   EngineSaveSink sink(*self->script_bindings_, self->records_, self->actor_stats_,
-                      self->said_topics_, self->map_discovery_);
+                      self->said_topics_, self->map_discovery_, self->map_markers_,
+                      self->saved_spawns_,
+                      bethesda::GameProfile::For(self->game_).cell_size);
   // On the guest thread and synchronously: everything below is guest-owned
   // state, and the quest scripts that read it attach right after this returns.
   PlayerReadout readout;
+  const auto started = std::chrono::steady_clock::now();
   self->scripts_->guest().Dispatch([&](script::papyrus::VirtualMachine&) {
     bethesda::ApplySave(self->save_->file, self->save_->remap, sink, &stats);
     readout = ReadPlayerBack(*self->script_bindings_);
   });
+  const auto apply_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
 
   RX_INFO(
       "save: applied {} globals, {} quests ({} stages, {} objectives, {} alias fills), {} actors",
@@ -432,33 +556,37 @@ void ApplySavegameState(Engine& engine) {
       stats.actors);
   RX_INFO(
       "save: applied {} actor levels, {} ai profiles, {} faction infamy counts, "
-      "{} spoken dialogue lines, {} visited map grids",
+      "{} spoken dialogue lines, {} visited map grids, {} map markers ({} travelable)",
       stats.actor_levels, stats.actor_ai_profiles, stats.faction_infamy, stats.dialogue_said,
-      stats.cells_visited);
+      stats.cells_visited, stats.map_markers, stats.map_markers_travel);
   sink.LogTally();
   RX_INFO("save: {} form ids remapped, {} refused (created at runtime), {} change forms dropped",
           stats.forms.mapped, stats.forms.created, stats.refused);
   if (self->clock_)
     RX_INFO("save: resumed at game hour {:.2f} of day {}", self->clock_->hour(),
             self->clock_->game_days());
-  RX_INFO("save: applied {} inventories ({} item stacks)", stats.inventories,
-          stats.inventory_items);
+  RX_INFO("save: applied {} inventories ({} item stacks), {} perks on {} references",
+          stats.inventories, stats.inventory_items, stats.actor_perks, stats.actors_with_perks);
   // Systems the save carries state for that the engine has nowhere to put yet.
   RX_INFO(
       "save: not applied: {} inventories read only in part, {} item stacks naming a form the save "
-      "invented (of {} such forms), {} detached cells",
+      "invented (of {} such forms), {} cells whose owner changed",
       stats.inventories_incomplete, stats.inventory_items_created, stats.created_forms,
-      stats.cells_detached);
+      stats.cells_owned);
   RX_INFO(
-      "save: {} of the dropped change forms are references the save spawned, {} of which name a "
-      "base form this load order has; nothing spawns them yet",
-      stats.created_references, stats.created_references_with_base);
+      "save: {} references the save created, {} name a base form this load order has, {} handed "
+      "to the streamer, {} dropped as disabled or deleted",
+      stats.created_references, stats.created_references_with_base,
+      stats.created_references_spawned, stats.created_references_inert);
+  RX_INFO("save: applied in {} ms", apply_ms);
   // Read straight back out of the live systems rather than out of the decoder,
   // so the line says what the running game believes the player is.
-  RX_INFO("save: the player is now level {}, {:.0f}/{:.0f}/{:.0f} health/magicka/stamina, "
-          "carrying {:.0f}, one-handed {:.0f} sneak {:.0f} destruction {:.0f}",
-          readout.level, readout.health, readout.magicka, readout.stamina, readout.carry_weight,
-          readout.one_handed, readout.sneak, readout.destruction);
+  RX_INFO(
+      "save: the player is now level {}, {:.0f}/{:.0f}/{:.0f} health/magicka/stamina, "
+      "carrying {:.0f}, one-handed {:.0f} sneak {:.0f} destruction {:.0f}, "
+      "{} perks and {} gold",
+      readout.level, readout.health, readout.magicka, readout.stamina, readout.carry_weight,
+      readout.one_handed, readout.sneak, readout.destruction, readout.perks, readout.gold);
 }
 
 void ApplySavegameLocation(Engine& engine) {

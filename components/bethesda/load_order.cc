@@ -179,6 +179,7 @@ bool RecordStore::LoadAll(const base::String& data_dir,
             i16 grid_y = static_cast<i16>(std::floor(position[1] / cell_size));
             u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
             exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
+            ref_worldspace_[id.packed()] = world;
             ++persistent_refs;
           } else if (header.type == kInfo && inserted && ctx.dialogue.value != 0) {
             // Dialogue response under its DIAL topic (topic children group label).
@@ -301,6 +302,12 @@ const base::Vector<u64>* RecordStore::InteriorRefs(GlobalFormId cell) const {
 GlobalFormId RecordStore::InteriorCellOfRef(GlobalFormId ref) const {
   if (const u64* cell = ref_interior_cell_.find(ref.packed()))
     return GlobalFormId{static_cast<u16>(*cell >> 32), static_cast<u32>(*cell)};
+  return {};
+}
+
+GlobalFormId RecordStore::WorldspaceOfRef(GlobalFormId ref) const {
+  if (const u64* world = ref_worldspace_.find(ref.packed()))
+    return GlobalFormId{static_cast<u16>(*world >> 32), static_cast<u32>(*world)};
   return {};
 }
 

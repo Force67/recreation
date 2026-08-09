@@ -12,6 +12,7 @@ const char* const kUiFragments[kUiFragmentCount] = {
     "quest.ugui",     "hud_gauge.ugui",  "location.ugui",   "chat.ugui",
     "scoreboard.ugui",
     "mp_prompt.ugui", "nametag.ugui",    "journal.ugui",    "war_map.ugui",
+    "player_map.ugui",
     "dialogue.ugui",  "container.ugui",  "pause_menu.ugui", "main_menu.ugui",
     "first_run.ugui",
 };
@@ -98,6 +99,7 @@ base::String BuildUi() {
   s += LoadUiFragment("nametag.ugui");
   s += LoadUiFragment("journal.ugui");
   s += LoadUiFragment("war_map.ugui");
+  s += LoadUiFragment("player_map.ugui");
   s += LoadUiFragment("dialogue.ugui");
   s += LoadUiFragment("container.ugui");
   s += BuildEditorSection();   // procedural: Glyph icons; before the menu

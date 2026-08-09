@@ -17,6 +17,7 @@
 #include "components/bethesda/animation_data.h"
 #include "components/bethesda/hkx_anim.h"
 #include "components/bethesda/hkx_physics.h"
+#include "components/bethesda/worn_armor.h"
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
@@ -283,8 +284,20 @@ class ActorSystem {
   // scripted NPC is instanced from). False when no body assets could be loaded.
   bool EnsureNpcTemplate();
   // soldier_kind: 0 = bare civilian body, 1 = imperial-side soldier (worn
-  // cuirass in the body slot), 2 = stormcloak-side soldier.
-  bool LoadActorTemplate(Actor* out, int soldier_kind = 0);
+  // cuirass in the body slot), 2 = stormcloak-side soldier. `skip_slots` is a
+  // biped slot mask (bethesda::BipedSlotBit) of the bare parts to leave off
+  // because worn armour is going to cover them; skin under a cuirass is not
+  // just invisible, it z-fights through it.
+  bool LoadActorTemplate(Actor* out, int soldier_kind = 0, u32 skip_slots = 0);
+  // The armour an actor has equipped, resolved through ARMO -> ARMA -> model
+  // against the actor's own race. `covered` comes back as the biped slots the
+  // set fills. Empty when the bindings are not up or nothing is worn.
+  base::Vector<bethesda::WornArmor> ResolveEquippedArmor(bethesda::GlobalFormId npc_base,
+                                                         bethesda::GlobalFormId actor_ref,
+                                                         u32* covered);
+  // Loads each resolved piece as a skinned part sharing the actor's skeleton.
+  // Returns how many went on.
+  u32 AttachWornArmor(Actor& actor, base::Span<const bethesda::WornArmor> worn);
   // Plays a spline-compressed .hkx clip on the actor (replacing the
   // procedural gait). Resolves tracks to bones through the character
   // skeleton.hkx (cached). False when the file is missing or undecodable.
@@ -363,7 +376,12 @@ class ActorSystem {
   // Attaches head-part meshes riding the head bone. With a valid `npc` it
   // assembles + morphs that NPC's FaceGen head (face/eyes/brows/beard/hair);
   // otherwise (player, soldiers) it falls back to the default male head + hair.
-  void AttachHead(Actor& actor, bethesda::GlobalFormId npc, bool allow_groom = true);
+  // `covered_slots` are the biped slots worn armour already fills: a hood owns
+  // the hair slot, so the default hairstyle underneath has to go.
+  void AttachHead(Actor& actor,
+                  bethesda::GlobalFormId npc,
+                  bool allow_groom = true,
+                  u32 covered_slots = 0);
   // Builds a strand groom from a hair nif and rides it on the head bone. Replaces
   // the flat card hair when RX_STRAND_HAIR is on. No-op if the nif has no usable
   // geometry.

@@ -91,6 +91,29 @@ constexpr u32 kActorValueTableCount = 6;
 constexpr u32 kActorValueIndexCount = 256;
 constexpr u32 kMaxActorValueEntries = 256;
 
+// One perk an actor's block records, with the byte that follows the ref. That
+// byte reads 1 for every one of the 297 perks in the reference save, which is
+// what Skyrim's own records author (a multi-rank perk is a chain of separate
+// PERK records linked by NNAM, not one record at rank 3), so it is reported as
+// read rather than interpreted as a rank.
+struct ActorPerk {
+  ChangeRef perk;
+  u8 rank = 0;
+};
+
+// Bounds the perk search: a count past this, or a rank byte past that, is not a
+// perk array. Skyrim plus Update and the three add-ons author 523 PERK records
+// in total, so no actor of that load order can hold more than that many.
+constexpr u32 kMaxActorPerks = 2048;
+constexpr u8 kMaxActorPerkRank = 8;
+
+// The flags a map marker's extra data carries. Discovering a location sets both
+// of the first two: visible puts the icon on the map, can-travel makes it a fast
+// travel destination. The third is the "show all hidden markers" cheat.
+constexpr u8 kMapMarkerVisible = 0x01;
+constexpr u8 kMapMarkerCanTravelTo = 0x02;
+constexpr u8 kMapMarkerShowAllHidden = 0x04;
+
 struct ReferenceChange {
   bool moved = false;
   ChangeRef parent;  // the cell, or the worldspace when the ref sits outside
@@ -115,6 +138,18 @@ struct ReferenceChange {
   // none".
   base::Vector<ActorValueEntry> actor_values;
 
+  // An ACHR's perks, on the same terms as actor_values: found by a search of the
+  // block rather than a walk to it, and reported only when the block admits
+  // exactly one reading (see FindActorPerks). Empty is "not found".
+  base::Vector<ActorPerk> perks;
+
+  // Set when the reference's extra-data list carries a map marker, i.e. this
+  // REFR is a location on the world map and the save has an opinion about it.
+  // Only the flags travel in the save; the marker's name, icon and position
+  // stay in the REFR record the way the plugin authored them.
+  bool has_map_marker = false;
+  u8 map_marker_flags = 0;
+
   // How much of the payload the decoder actually understood. Anything past this
   // is a group this layer does not decode, not corruption.
   mem_size decoded_bytes = 0;
@@ -125,9 +160,10 @@ struct ReferenceChange {
 // The flag-driven groups (transform, form flags, base object, scale, extra
 // data, inventory, animation) are walked in full for both. What follows them on
 // an ACHR is the actor's own block: its AI process state first, which is
-// variable length and not decoded here, and the actor value tables inside it.
-// Those tables cannot be walked to, so they are searched for and only reported
-// when the payload admits exactly one reading; see the file for the rule.
+// variable length and not decoded here, and the actor value tables and perk
+// arrays inside it. Neither can be walked to, so both are searched for and only
+// reported when the payload admits exactly one reading; see the file for the
+// two rules.
 bool DecodeReference(const ChangeForm& form, ReferenceChange& out);
 
 // --- QUST ------------------------------------------------------------------
@@ -286,19 +322,38 @@ bool DecodeDialogueInfo(const ChangeForm& form, DialogueInfoChange& out);
 // --- CELL ------------------------------------------------------------------
 
 constexpr u32 kCellChangeFormFlags = 0x00000002;
-constexpr u32 kCellChangeDetached = 0x20000000;
-constexpr u32 kCellChangeVisitedGrid = 0x40000000;
+constexpr u32 kCellChangeOwnership = 0x00000008;
+constexpr u32 kCellChangeExteriorGrid = 0x20000000;
+constexpr u32 kCellChangeDetachTime = 0x40000000;
 constexpr u32 kCellChangeVisited = 0x80000000;
 
-// One 16x16 bit grid of the cell that the player has uncovered, as drawn on the
-// world map, plus the row mask that goes with it.
+// One 16x16 bit grid the player has uncovered. An exterior cell is one tile of
+// the world map and writes only the bits; an interior's local map is a set of
+// tiles, each carrying its own coordinate in the interior's own grid.
 struct CellVisitedGrid {
-  u16 mask = 0;
+  bool has_tile = false;
+  i8 tile_x = 0;
+  i8 tile_y = 0;
   u8 bits[32] = {};
 };
 
 struct CellChange {
-  bool detached = false;  // cell purged from memory, its refs unloaded
+  // The cell's own grid coordinate, written by the save rather than read off
+  // the record, and the one thing that says a CELL change form is an exterior:
+  // every interior in the reference save writes none. Measured, not assumed:
+  // all 8148 that carry it match the coordinate the CELL record's XCLC gives.
+  bool has_grid = false;
+  i8 grid_x = 0;
+  i8 grid_y = 0;
+  // Constant per worldspace across the reference save (Tamriel reads 1), so it
+  // indexes the worldspace somehow; which table is not established.
+  u16 grid_world = 0;
+
+  // The game hour the cell was last taken out of memory, which is what a cell
+  // reset counts from. Not an exceptional state: every cell but the handful
+  // still in memory around the player carries one.
+  bool has_detach_time = false;
+  u32 detach_time = 0;
 
   bool has_form_flags = false;
   u16 form_flags = 0;

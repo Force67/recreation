@@ -189,15 +189,15 @@ void SkipWString(Cursor& c) {
     c.Skip(size);
 }
 
-bool SkipExtraList(Cursor& c, InventoryItem* item);
+bool SkipExtraList(Cursor& c, InventoryItem* item, ReferenceChange* ref);
 bool SkipInlineActorBase(Cursor& c, u32 flags);
 
 // One entry of an extra-data list: a type byte and a payload whose size the
-// type decides. Only the two worn markers are read out; everything else is
-// stepped over. A type this table does not name ends the walk, because the
-// list carries no lengths and a guessed size turns every byte after it into
-// noise that still looks like data.
-bool SkipExtraEntry(Cursor& c, InventoryItem* item) {
+// type decides. Only the two worn markers and the map marker are read out;
+// everything else is stepped over. A type this table does not name ends the
+// walk, because the list carries no lengths and a guessed size turns every byte
+// after it into noise that still looks like data.
+bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
   const u8 type = c.U8();
   if (!c.ok())
     return false;
@@ -210,9 +210,19 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item) {
       if (item)
         item->equipped_left = true;
       return true;
+    case 44: {  // map marker: one byte of flags, and nothing else
+      const u8 flags = c.U8();
+      if (!c.ok())
+        return false;
+      if (ref) {
+        ref->has_map_marker = true;
+        ref->map_marker_flags = flags;
+      }
+      return true;
+    }
     case 0: case 29: case 32: case 53: case 61:
       return c.ok();
-    case 31: case 44: case 73: case 77: case 84: case 150: case 156:
+    case 31: case 73: case 77: case 84: case 150: case 156:
       c.Skip(1);
       return c.ok();
     case 36: case 79:
@@ -322,13 +332,14 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item) {
 }
 
 // A vsval count and that many entries. `item` collects the worn markers when
-// the list belongs to an inventory stack.
-bool SkipExtraList(Cursor& c, InventoryItem* item) {
+// the list belongs to an inventory stack; `ref` collects the ones that describe
+// the reference itself.
+bool SkipExtraList(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
   const u32 count = c.VsVal();
   if (!c.CountFits(count, 1))
     return false;
   for (u32 i = 0; i < count; ++i) {
-    if (!SkipExtraEntry(c, item))
+    if (!SkipExtraEntry(c, item, ref))
       return false;
   }
   return c.ok();
@@ -350,7 +361,7 @@ bool DecodeInventory(Cursor& c, base::Vector<InventoryItem>& out) {
     if (!c.CountFits(lists, 1))
       return false;
     for (u32 k = 0; k < lists; ++k) {
-      if (!SkipExtraList(c, &item))
+      if (!SkipExtraList(c, &item, nullptr))
         return false;
     }
     if (!c.ok())
@@ -486,6 +497,87 @@ void FindActorValues(ByteSpan block, base::Vector<ActorValueEntry>& out) {
     out.clear();
 }
 
+// One perk array: a vsval count and that many entries `stride` bytes wide, each
+// opening with a ref. A four byte entry carries one more byte after the ref.
+bool ReadPerkArray(Cursor& c, u32 stride, u32 max_count, base::Vector<ActorPerk>& out) {
+  const u32 count = c.VsVal();
+  if (count == 0 || count > max_count || !c.CountFits(count, stride))
+    return false;
+  out.reserve(count);
+  for (u32 i = 0; i < count; ++i) {
+    ActorPerk entry;
+    entry.perk = c.Ref();
+    if (stride == 4)
+      entry.rank = c.U8();
+    if (!c.ok())
+      return false;
+    // A perk array names a perk in every slot: no holes, no unused kind, and a
+    // rank byte inside the range a perk record can author.
+    if (entry.perk.none() || entry.perk.kind == ChangeRefKind::kUnused)
+      return false;
+    if (stride == 4 && (entry.rank == 0 || entry.rank > kMaxActorPerkRank))
+      return false;
+    out.push_back(entry);
+  }
+  return c.ok();
+}
+
+bool SameRef(ChangeRef a, ChangeRef b) {
+  return a.kind == b.kind && a.value == b.value;
+}
+
+// The pair of arrays at `at`: the ranked one, then a shorter bare one whose
+// entries are all in it. Only the ranked one is kept; the second exists to be
+// checked against, see FindActorPerks.
+bool ReadPerkArrays(ByteSpan block, mem_size at, base::Vector<ActorPerk>& out) {
+  Cursor c(ByteSpan(block.data() + at, block.size() - at));
+  base::Vector<ActorPerk> ranked;
+  if (!ReadPerkArray(c, 4, kMaxActorPerks, ranked))
+    return false;
+  base::Vector<ActorPerk> bare;
+  if (!ReadPerkArray(c, 3, static_cast<u32>(ranked.size()), bare))
+    return false;
+  for (const ActorPerk& entry : bare) {
+    bool listed = false;
+    for (const ActorPerk& have : ranked)
+      listed = listed || SameRef(have.perk, entry.perk);
+    if (!listed)
+      return false;
+  }
+  out = base::move(ranked);
+  return true;
+}
+
+// The perks sit at the far end of the actor block, some 85 KB past the value
+// tables and behind the same undecoded AI process state, so they are searched
+// for rather than walked to. There is no sentinel to key off here, so what is
+// searched for is the shape itself: a vsval count and that many (perk ref,
+// rank byte) entries, immediately followed by a second vsval count and that
+// many bare perk refs, every entry of the second array also appearing in the
+// first.
+//
+// That nesting is what makes the pair identifiable rather than a run of bytes
+// that reads like one. Over the reference player's 110036 byte actor block
+// exactly one offset satisfies it: 297 ranked perks (DestructionMaster100,
+// Necromage, DLC1VampiricBite ...) followed by 293 of the same refs again. As
+// with the value tables, a block that offers a second reading yields nothing,
+// so a guess is never reported as a perk.
+void FindActorPerks(ByteSpan block, base::Vector<ActorPerk>& out) {
+  bool ambiguous = false;
+  for (mem_size i = 0; i + 5 <= block.size(); ++i) {
+    base::Vector<ActorPerk> perks;
+    if (!ReadPerkArrays(block, i, perks))
+      continue;
+    if (!out.empty()) {
+      ambiguous = true;
+      break;
+    }
+    out = base::move(perks);
+  }
+  if (ambiguous)
+    out.clear();
+}
+
 // The walk stopped inside a group it could not size. Everything read before
 // that still holds, and decoded_bytes says where the understanding ends.
 bool Truncated(const Cursor& c, ReferenceChange& result, ReferenceChange& out) {
@@ -592,7 +684,7 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
   // The extra-data list is only present when one of the flags that names a kind
   // of extra data is set, and the two record types name different ones.
   const u32 extra_flags = actor ? kAchrExtraDataFlags : kRefrExtraDataFlags;
-  if ((form.flags & extra_flags) && !SkipExtraList(c, nullptr))
+  if ((form.flags & extra_flags) && !SkipExtraList(c, nullptr, &result))
     return Truncated(c, result, out);
 
   if (form.flags & (kRefrChangeInventory | kRefrChangeLeveledInventory)) {
@@ -622,8 +714,10 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
     return Truncated(c, result, out);
   }
 
-  if (actor)
+  if (actor) {
     FindActorValues(c.rest(), result.actor_values);
+    FindActorPerks(c.rest(), result.perks);
+  }
 
   result.decoded_bytes = c.offset();
   out = base::move(result);
@@ -853,35 +947,57 @@ bool DecodeCell(const ChangeForm& form, CellChange& out) {
   CellChange result;
   Cursor c(PayloadOf(form));
 
+  // The groups come in this order, which is not the flag order: the exterior
+  // coordinates and the detach time lead, the form flags follow them. A cell
+  // that carries both reads its coordinate at byte 2, which is what pins the
+  // order down (the sizes alone do not, they add up either way).
+  if (form.flags & kCellChangeExteriorGrid) {
+    result.has_grid = true;
+    result.grid_world = c.U16();
+    result.grid_x = static_cast<i8>(c.U8());
+    result.grid_y = static_cast<i8>(c.U8());
+  }
+  if (form.flags & kCellChangeDetachTime) {
+    result.has_detach_time = true;
+    result.detach_time = c.U32();
+  }
   if (form.flags & kCellChangeFormFlags) {
     result.has_form_flags = true;
     result.form_flags = c.U16();
   }
+  if (!c.ok())
+    return false;
 
-  result.detached = (form.flags & kCellChangeDetached) != 0;
-  if (result.detached)
-    c.Skip(3);
-
-  u32 grid_count = 0;
-  if (form.flags & kCellChangeVisitedGrid) {
-    c.Skip(4);
-    grid_count = c.VsVal();
-    if (!c.CountFits(grid_count, 34))
-      return false;
-    for (u32 i = 0; i < grid_count; ++i) {
+  if (form.flags & kCellChangeVisited) {
+    if (result.has_grid || !result.has_detach_time) {
+      // An exterior is one map tile, so its bits stand alone. A cell still in
+      // memory writes neither coordinate nor detach time and is one too: the
+      // player is standing in it, so it is an exterior of the streamed world.
       CellVisitedGrid grid;
-      grid.mask = c.U16();
       c.Bytes(grid.bits, sizeof(grid.bits));
       result.visited.push_back(grid);
+    } else {
+      // An interior's local map is a counted set of tiles at their own
+      // coordinates, which is how it covers a room bigger than one tile.
+      const u32 count = c.VsVal();
+      if (!c.CountFits(count, 34))
+        return false;
+      for (u32 i = 0; i < count; ++i) {
+        CellVisitedGrid grid;
+        grid.has_tile = true;
+        grid.tile_x = static_cast<i8>(c.U8());
+        grid.tile_y = static_cast<i8>(c.U8());
+        c.Bytes(grid.bits, sizeof(grid.bits));
+        result.visited.push_back(grid);
+      }
     }
   }
 
-  // Without the grid form the visited bits are written bare, with no mask.
-  if ((form.flags & kCellChangeVisited) && grid_count == 0) {
-    CellVisitedGrid grid;
-    c.Bytes(grid.bits, sizeof(grid.bits));
-    result.visited.push_back(grid);
-  }
+  // The owner sits behind the map data, not with the groups that lead the
+  // payload: reading it before them leaves the tile count three bytes off and
+  // the cell comes back with no map at all.
+  if (form.flags & kCellChangeOwnership)
+    c.Ref();
 
   if (!c.ok())
     return false;

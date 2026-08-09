@@ -432,6 +432,32 @@ class GameUi {
   };
   void SetWarMap(bool open, const base::Vector<WarHoldEntry>& holds, float imperial_fraction);
 
+  // The world map. The map picture itself is a texture the engine paints from
+  // the discovery bits and the marker catalogue (see CreateUiTexture /
+  // UpdateUiTexture); this only shows it and lists what is on it, so nothing
+  // about fog of war or fast travel lives in the UI.
+  struct PlayerMapView {
+    // Rows the screen has widgets for; the engine windows its list to this.
+    static constexpr int kRows = 14;
+    struct Row {
+      base::String name;
+      base::String detail;  // distance, or why it cannot be travelled to
+      bool travelable = false;
+    };
+    bool open = false;
+    base::String title;     // the worldspace being shown
+    base::String subtitle;  // "424 of 471 locations found"
+    base::String where;     // where the player is standing
+    base::String status;    // the last fast travel, or an empty line
+    u64 canvas = 0;         // painted map texture, 0 until it exists
+    base::Vector<Row> rows;  // the visible window of the location list
+    int selected = 0;        // index into rows, < 0 for none
+  };
+  void SetPlayerMap(const PlayerMapView& view);
+  // Pixels for a texture CreateUiTexture already returned, same size as before.
+  // The map canvas is repainted on every pan, zoom and selection.
+  void UpdateUiTexture(u64 texture, const u8* rgba);
+
   // Hide or show the gameplay HUD (compass, crosshair, vitals, readout) without
   // touching the pause menu. The cinematic showcase hides it for clean frames.
   void SetHudVisible(bool visible);

@@ -24,7 +24,9 @@
 #include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
 #include "components/world/map_discovery.h"
+#include "components/world/map_markers.h"
 #include "components/world/planet_tile.h"
+#include "components/world/saved_spawns.h"
 #include "core/input_bindings.h"
 #include "core/window.h"
 #include "core/world_clock.h"
@@ -189,6 +191,30 @@ struct LoadedSavegame {
   base::String worldspace;  // editor id of the player's worldspace, "" for an interior
 };
 
+// The world map overlay (player_map.cc). The map picture is painted into
+// `pixels` and uploaded once into `texture`, then re-uploaded whenever the view
+// changes; `shown` is the discovered-location list the rail beside it lists,
+// nearest first, and `selected` indexes it.
+struct PlayerMapState {
+  // Matches the canvas the .ugui reserves. A ugui image cannot be sized in
+  // percent, so the painter and the screen agree on one pixel size.
+  static constexpr int kCanvasWidth = 1000;
+  static constexpr int kCanvasHeight = 620;
+
+  bool open = false;
+  int selected = 0;
+  // The view rides the selected marker until the player pans by hand.
+  bool follow_selection = true;
+  f32 zoom = 1.0f;
+  f32 pan_x = 0.0f, pan_y = 0.0f;  // canvas pixels, from the framed centre
+  u64 texture = 0;
+  base::Vector<u8> pixels;
+  base::Vector<u32> shown;  // indices into MapMarkers::all()
+  base::String status;      // the last fast travel
+  bool dirty = true;
+  bool boot_applied = false;  // the RX_PLAYER_MAP / RX_FAST_TRAVEL hooks ran
+};
+
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
 // interaction, quest, npc, demos, weather, networking, data loading, the camera
 // and the UI) and drives it from the app::Host callbacks; the generic
@@ -251,6 +277,11 @@ class Engine : public app::Application {
   friend void ApplySavegameState(Engine&);
   friend void ApplySavegameLocation(Engine&);
   friend void PlaceSavegamePlayer(Engine&);
+  friend void BuildMapMarkers(Engine&);
+  friend void TogglePlayerMap(Engine&);
+  friend void UpdatePlayerMapInput(Engine&, const InputState&, const ActionState&);
+  friend void RefreshPlayerMap(Engine&, f32);
+  friend bool FastTravelToMarker(Engine&, bethesda::GlobalFormId);
   friend void MarkPlayerDiscovery(Engine&);
   friend void RefreshMapPanel(Engine&, f32);
   friend bool LoadInterior(Engine&);
@@ -439,10 +470,19 @@ class Engine : public app::Application {
   // map. Both are pure state a savegame fills and play adds to.
   dialogue::SaidTopics said_topics_;
   world::MapDiscovery map_discovery_;
+  // The named places on the map and which of them the player has found. Built
+  // from the records at load, then filled in by a savegame and by walking.
+  world::MapMarkers map_markers_;
   // Actor level and temperament, read off the NPC_ records and overridden by a
   // save. Outlives the streamer that reads it, which is why it lives here.
   world::ActorStatsStore actor_stats_;
+  // References a resumed savegame created while it was played, binned by cell.
+  // Filled once when the save is applied, read for the rest of the session by
+  // the streamer as each cell comes in, so it outlives both the save and the
+  // streamer on purpose.
+  world::SavedSpawnIndex saved_spawns_;
   MapPanel map_panel_;
+  PlayerMapState player_map_;
   f32 map_panel_timer_ = 0.0f;
   base::UniquePointer<world::CellStreamer> streamer_;
   // Procedural Starfield planet tile (RX_STARFIELD_PLANET): the generator plus
@@ -659,10 +699,26 @@ bool LoadSavegame(Engine& engine, const bethesda::LoadOrder& order);
 void ApplySavegameState(Engine& engine);
 void ApplySavegameLocation(Engine& engine);
 void PlaceSavegamePlayer(Engine& engine);
-// Map discovery on the live world (map_state.cc): MarkPlayerDiscovery uncovers
-// wherever the walking player stands, RefreshMapPanel snapshots the store for
-// the F5 window.
+// Map discovery on the live world (map_state.cc): BuildMapMarkers reads the
+// map-marker references out of the load order once, MarkPlayerDiscovery uncovers
+// wherever the walking player stands (and discovers a location they walk up to),
+// RefreshMapPanel snapshots the store for the F5 window.
+void BuildMapMarkers(Engine& engine);
 void MarkPlayerDiscovery(Engine& engine);
+// Which worldspace's map a worldspace draws on: itself, or the parent it borrows
+// map data from (Skyrim's walled cities are their own worldspaces but appear on
+// Tamriel's map at Tamriel's coordinates).
+bethesda::GlobalFormId MapWorldspaceFor(const bethesda::RecordStore& records,
+                                        bethesda::GlobalFormId worldspace);
+// The world map overlay (player_map.cc): the toggle, the input it takes while
+// open (selection, pan, zoom, travel) and the per-frame repaint + push to the UI.
+void TogglePlayerMap(Engine& engine);
+void UpdatePlayerMapInput(Engine& engine, const InputState& input, const ActionState& actions);
+void RefreshPlayerMap(Engine& engine, f32 dt);
+// Moves the player to a discovered map marker and spends the game time the walk
+// would have cost. False when the marker is unknown, is not a travel destination
+// or its worldspace cannot be streamed.
+bool FastTravelToMarker(Engine& engine, bethesda::GlobalFormId marker_ref);
 void RefreshMapPanel(Engine& engine, f32 dt);
 // Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
 bool LoadPlanetTile(Engine& engine, const base::String& biom_name);

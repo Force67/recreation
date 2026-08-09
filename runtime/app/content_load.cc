@@ -398,6 +398,10 @@ bool LoadGameData(Engine& engine) {
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
   }
+  // The map's catalogue of named places, before the save says which of them the
+  // player has found (there is nothing to flag otherwise).
+  BuildMapMarkers(engine);
+
   // Before the quest scripts attach: their fragments must see the save's state,
   // not run their opening stages over it.
   ApplySavegameState(engine);
@@ -490,6 +494,10 @@ bool LoadGameData(Engine& engine) {
   // Placed actors carry the level and temperament their record authors, plus
   // whatever the savegame applied before this streamer existed.
   self->streamer_->set_actor_stats(&self->actor_stats_);
+  // References the save created come in with the cell they stand in, out of the
+  // same budget as the records' own. Empty without a save, so this costs
+  // nothing on a new game.
+  self->streamer_->set_saved_spawns(&self->saved_spawns_);
   // Forward load-door cell transitions to the managed world (LocationChanged), so
   // mods react to where the player is. Runs on the main thread; drained next frame.
   if (self->managed_) {

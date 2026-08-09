@@ -186,19 +186,24 @@ u32 ResolveRefId(RefId ref, const base::Vector<u32>& form_ids) {
   }
 }
 
-// The header stores play time as "hours.minutes.seconds" (the reference save
-// reads "527.25.55"), which is the only numeric time it carries.
-f32 PlayTimeSeconds(const base::String& text) {
+// The header's play time, the only numeric time it carries. Skyrim writes
+// "hours.minutes.seconds" ("527.25.55"); Fallout 4 writes days, hours and
+// minutes with a unit letter after each and the whole thing spelled out again
+// ("5d.16h.29m.5 days.16 hours.29 minutes"), and both the letters and the words
+// are localized, so only the leading three numbers can be read.
+f32 PlayTimeSeconds(SaveFormat format, const base::String& text) {
   u32 part[3] = {0, 0, 0};
   size_t i = 0;
   for (u32& value : part) {
+    while (i < text.size() && (text[i] < '0' || text[i] > '9'))
+      ++i;
     while (i < text.size() && text[i] >= '0' && text[i] <= '9')
       value = value * 10 + static_cast<u32>(text[i++] - '0');
-    if (i < text.size() && text[i] == '.')
-      ++i;
   }
-  return static_cast<f32>(part[0]) * 3600.0f + static_cast<f32>(part[1]) * 60.0f +
-         static_cast<f32>(part[2]);
+  const f32 scale[2][3] = {{3600.0f, 60.0f, 1.0f}, {86400.0f, 3600.0f, 60.0f}};
+  const u32 row = format == SaveFormat::kFallout4 ? 1 : 0;
+  return static_cast<f32>(part[0]) * scale[row][0] + static_cast<f32>(part[1]) * scale[row][1] +
+         static_cast<f32>(part[2]) * scale[row][2];
 }
 
 const FormatTraits* MatchFormat(ByteSpan bytes) {
@@ -348,6 +353,7 @@ bool ReadCreatedObjects(ByteSpan body,
 bool ReadChangeForms(ByteSpan body,
                      size_t offset,
                      u32 count,
+                     SaveFormat format,
                      const base::Vector<u32>& form_ids,
                      base::Vector<ChangeForm>* out) {
   Reader r(body);
@@ -390,7 +396,7 @@ bool ReadChangeForms(ByteSpan body,
 
     ChangeForm& form = out->emplace_back();
     form.form_id = ResolveRefId(ref, form_ids);
-    form.type = static_cast<ChangeFormType>(type_byte & 0x3f);
+    form.type = ChangeFormTypeOf(format, type_byte);
     form.flags = flags;
     form.version = version;
 
@@ -450,6 +456,15 @@ SaveFormat DetectSaveFormat(ByteSpan bytes) {
   return traits ? traits->format : SaveFormat::kUnknown;
 }
 
+ChangeFormType ChangeFormTypeOf(SaveFormat format, u8 type_byte) {
+  const u8 value = type_byte & 0x3f;
+  // The first type Fallout 4 does not have is INGR, so from its slot up the
+  // enumeration is Skyrim's shifted down by one (see the header).
+  if (format == SaveFormat::kFallout4 && value >= static_cast<u8>(ChangeFormType::kIngr))
+    return static_cast<ChangeFormType>(value + 1);
+  return static_cast<ChangeFormType>(value);
+}
+
 bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
   const FormatTraits* traits = MatchFormat(bytes);
   if (!traits)
@@ -479,7 +494,7 @@ bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
   const u16 codec = traits->has_codec_field ? r.U16() : kCodecNone;
   if (!r.ok())
     return false;
-  save.in_game_seconds = PlayTimeSeconds(save.game_time);
+  save.in_game_seconds = PlayTimeSeconds(save.format, save.game_time);
 
   // Trust the header's own size over the field walk above, so a version that
   // appended a field still lands on the screenshot.
@@ -557,8 +572,8 @@ bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
   if (!ReadCreatedObjects(body, globals_offset, flt.global_data_table1_count, save.form_ids,
                           &save.created_forms))
     return false;
-  if (!ReadChangeForms(body, change_forms_offset, flt.change_form_count, save.form_ids,
-                       &save.change_forms))
+  if (!ReadChangeForms(body, change_forms_offset, flt.change_form_count, save.format,
+                       save.form_ids, &save.change_forms))
     return false;
 
   out = base::move(save);

@@ -288,6 +288,14 @@ class SkyrimBindings {
   virtual papyrus::ObjectRef GetEquippedShield(papyrus::ObjectRef actor) { return {}; }
   virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
 
+  // Perks an actor holds, and the rank it holds each at. This is what the actor
+  // knows, not what it does: nothing evaluates a PERK record's entry points yet,
+  // so a perk here changes what HasPerk answers and nothing else.
+  virtual void AddPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk, i32 rank) {}
+  virtual void RemovePerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) {}
+  virtual bool HasPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) { return false; }
+  virtual i32 GetPerkCount(papyrus::ObjectRef actor) { return 0; }
+
   // Enumerates an actor's authored faction memberships (its NPC_ record's SNAM
   // entries). GetFactionCount parses them into a cache and returns the count;
   // GetNthFaction / GetNthFactionRank read it by index. Runtime changes

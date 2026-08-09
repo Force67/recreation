@@ -453,6 +453,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
   void UnequipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
   bool IsEquipped(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
+  // Every base form the actor has equipped, in no particular order. What the
+  // renderer needs to dress a body: IsEquipped can only answer about a form the
+  // caller already knows to ask about.
+  void EquippedForms(papyrus::ObjectRef actor, base::Vector<bethesda::GlobalFormId>& out) const;
+  // Perks: what the actor holds, at what rank. A savegame's perk arrays and the
+  // Actor.AddPerk native land in the same store, so a script asking HasPerk sees
+  // the ones a loaded save gave the player.
+  void AddPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk, i32 rank) override;
+  void RemovePerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
+  bool HasPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
+  i32 GetPerkCount(papyrus::ObjectRef actor) override;
   // The equipped weapon / shield form (None if none), backing GetEquippedWeapon /
   // GetEquippedShield. Scans equipped_ and classifies by record signature: a WEAP
   // is the weapon; an ARMO whose biped template occupies the shield slot (39) is
@@ -557,9 +568,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef player_;
   base::UnorderedMap<u64, base::UnorderedMap<base::String, ActorValue>> actor_values_;
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> inventory_;
-  base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;  // actor -> equipped item forms
-  base::UnorderedMap<u64, base::Array<f32, 3>> positions_;     // SetPosition/MoveTo overrides
-  base::UnorderedMap<u64, f32> scales_;                        // SetScale overrides (default 1.0)
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;    // actor -> equipped item forms
+  base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> perks_;  // actor -> perk -> rank
+  base::UnorderedMap<u64, base::Array<f32, 3>> positions_;       // SetPosition/MoveTo overrides
+  base::UnorderedMap<u64, f32> scales_;                          // SetScale overrides (default 1.0)
   struct LockState {
     bool locked = false;
     i32 level = 0;

@@ -100,6 +100,9 @@ class RecordingSink : public rx::bethesda::SaveSink {
   void SetActorFactionRank(GlobalFormId actor_base, GlobalFormId faction, i32 rank) override {
     faction_ranks.push_back({actor_base, faction, rank});
   }
+  void AddReferencePerk(GlobalFormId ref, GlobalFormId perk, u32 rank) override {
+    perks.push_back({ref, perk, static_cast<i32>(rank)});
+  }
   void SetFactionReaction(GlobalFormId faction, GlobalFormId other, i32 reaction) override {
     reactions.push_back({faction, other, reaction});
   }
@@ -113,6 +116,9 @@ class RecordingSink : public rx::bethesda::SaveSink {
     infamy.push_back({faction, violent, non_violent});
   }
   void SetDialogueSaid(GlobalFormId info) override { said.push_back(info); }
+  void SetMapMarker(GlobalFormId ref, bool visible, bool can_travel) override {
+    markers.push_back({ref, visible, can_travel});
+  }
   void SetCellVisited(GlobalFormId cell,
                       base::Span<const rx::bethesda::CellVisitedGrid> grids) override {
     u32 tiles = 0;
@@ -136,6 +142,25 @@ class RecordingSink : public rx::bethesda::SaveSink {
       move.rotation[i] = rotation[i];
     }
     moves.push_back(move);
+  }
+  void SpawnCreatedReference(GlobalFormId id,
+                             GlobalFormId base,
+                             GlobalFormId parent,
+                             const f32 position[3],
+                             const f32 rotation[3],
+                             f32 scale,
+                             bool actor) override {
+    Spawn spawn;
+    spawn.id = id;
+    spawn.base = base;
+    spawn.parent = parent;
+    for (u32 i = 0; i < 3; ++i) {
+      spawn.position[i] = position[i];
+      spawn.rotation[i] = rotation[i];
+    }
+    spawn.scale = scale;
+    spawn.actor = actor;
+    spawns.push_back(spawn);
   }
 
   struct StageDone {
@@ -168,6 +193,15 @@ class RecordingSink : public rx::bethesda::SaveSink {
     f32 position[3] = {};
     f32 rotation[3] = {};
   };
+  struct Spawn {
+    GlobalFormId id;
+    GlobalFormId base;
+    GlobalFormId parent;
+    f32 position[3] = {};
+    f32 rotation[3] = {};
+    f32 scale = 1.0f;
+    bool actor = false;
+  };
 
   base::Vector<Value> globals;
   base::Vector<StageDone> stages;
@@ -177,6 +211,7 @@ class RecordingSink : public rx::bethesda::SaveSink {
   base::Vector<Value> actor_values;
   base::Vector<Rank> faction_ranks;
   base::Vector<Rank> reactions;
+  base::Vector<Rank> perks;  // reference, perk, rank
   struct Level {
     GlobalFormId actor;
     u32 level;
@@ -195,14 +230,21 @@ class RecordingSink : public rx::bethesda::SaveSink {
     u32 grids;
     u32 tiles;
   };
+  struct Marker {
+    GlobalFormId ref;
+    bool visible;
+    bool can_travel;
+  };
 
   base::Vector<Enabled> enabled_refs;
   base::Vector<Move> moves;
+  base::Vector<Spawn> spawns;
   base::Vector<Level> levels;
   base::Vector<Ai> ai_profiles;
   base::Vector<Infamy> infamy;
   base::Vector<GlobalFormId> said;
   base::Vector<Visited> visited;
+  base::Vector<Marker> markers;
 
   const Level* FindLevel(u32 local_id) const {
     for (const Level& entry : levels)
@@ -406,6 +448,31 @@ void TestApplySynthetic() {
     save.change_forms.push_back(ref);
   }
   {
+    // Skyrim's Helgen map marker (REFR 0x00017780), as a save writes it once the
+    // player has been there: an extra-data list holding nothing but the marker.
+    ChangeForm marker;
+    marker.form_id = 0x00017780;
+    marker.type = ChangeFormType::kRefr;
+    marker.version = 78;
+    marker.flags = 0x80000000;  // game-only extras, which is what puts the list here
+    PutCount(marker.data, 1);
+    PutU8(marker.data, 44);  // ExtraMapMarker
+    PutU8(marker.data, rx::bethesda::kMapMarkerVisible | rx::bethesda::kMapMarkerCanTravelTo);
+    save.change_forms.push_back(marker);
+  }
+  {
+    // A civil war camp: on the map, but never travelled to.
+    ChangeForm camp;
+    camp.form_id = 0x00016276;
+    camp.type = ChangeFormType::kRefr;
+    camp.version = 78;
+    camp.flags = 0x80000000;
+    PutCount(camp.data, 1);
+    PutU8(camp.data, 44);
+    PutU8(camp.data, rx::bethesda::kMapMarkerVisible);
+    save.change_forms.push_back(camp);
+  }
+  {
     // The player: an ACHR, so the transform is followed by the eight bytes an
     // actor writes with no flag asking for them.
     ChangeForm player;
@@ -465,6 +532,16 @@ void TestApplySynthetic() {
         sink.moves.size() == 1 && sink.moves[0].parent.plugin == 0 &&
             sink.moves[0].parent.local_id == 0x3C && sink.moves[0].position[1] == 200.0f);
   Check("reference disabled", sink.enabled_refs.size() == 1 && !sink.enabled_refs[0].enabled);
+
+  Check("two map markers applied", sink.markers.size() == 2 && stats.map_markers == 2);
+  Check("Helgen 0x00017780 is a travel destination",
+        sink.markers.size() == 2 && sink.markers[0].ref.plugin == 0 &&
+            sink.markers[0].ref.local_id == 0x00017780 && sink.markers[0].visible &&
+            sink.markers[0].can_travel);
+  Check("the Reach camp 0x00016276 is visible only",
+        sink.markers.size() == 2 && sink.markers[1].ref.local_id == 0x00016276 &&
+            sink.markers[1].visible && !sink.markers[1].can_travel &&
+            stats.map_markers_travel == 1);
 
   rx::bethesda::PlayerPlacement placement;
   Check("player found", rx::bethesda::FindPlayerPlacement(save, remap, &placement));
@@ -615,6 +692,23 @@ void TestRealSave() {
   Check("RiverwoodSleepingGiantInn carries nine local-map grids",
         inn && inn->grids == 9);
 
+  // Perks arrive against the player's reference, not his base form, and come out
+  // of the remap as the ids of the plugin that authored them: Necromage from the
+  // first master, DLC1VampiricBite from Dawnguard at index 2.
+  Check("297 perks applied, all of them the player's", stats.actor_perks == 297 &&
+                                                           stats.actors_with_perks == 1);
+  bool on_player = true, necromage = false, vampiric_bite = false;
+  for (const RecordingSink::Rank& perk : sink.perks) {
+    on_player = on_player && perk.actor.plugin == 0 && perk.actor.local_id == 0x00000014;
+    if (perk.faction.plugin == 0 && perk.faction.local_id == 0x000581E4)
+      necromage = perk.rank == 1;
+    if (perk.faction.plugin == 2 && perk.faction.local_id == 0x00005994)
+      vampiric_bite = perk.rank == 1;
+  }
+  Check("every one of them lands on the player reference 0x00000014", on_player);
+  Check("Necromage and Dawnguard's DLC1VampiricBite are among them",
+        necromage && vampiric_bite);
+
   Check("the line closing FFRiften10 (INFO 0x00013629) was spoken", sink.Said(0x00013629));
   Check("no id landed out of range", stats.forms.out_of_range == 0);
   Check("no plugin missing in the tally", stats.forms.missing_plugin == 0);
@@ -649,6 +743,39 @@ void TestRealSave() {
   }
   Check("surviving ids resolve identically", disagreed == 0 && agreed > 0);
 
+  // References the save created itself. Every one decodes and names a base
+  // form the load order has; a little under half are standing, the rest the
+  // save had already disabled or deleted.
+  Check("23280 created references, all naming a base form",
+        stats.created_references == 23280 && stats.created_references_with_base == 23280);
+  Check("10160 are standing, 13119 disabled or deleted",
+        stats.created_references_spawned == 10160 && stats.created_references_inert == 13119);
+  // The one left over is the reference whose parent cell is not in this order,
+  // so there is no space its coordinates mean anything in.
+  Check("one has no parent that remaps",
+        stats.created_references_with_base -
+                (stats.created_references_spawned + stats.created_references_inert) ==
+            1);
+  Check("the sink saw exactly the standing ones", sink.spawns.size() == 10160);
+  u32 actors = 0, in_tamriel = 0, off_slot = 0, no_base = 0;
+  for (const RecordingSink::Spawn& spawn : sink.spawns) {
+    if (spawn.actor)
+      ++actors;
+    if (spawn.parent.plugin == 0 && spawn.parent.local_id == 0x0000003Cu)
+      ++in_tamriel;
+    if (spawn.id.plugin != rx::bethesda::kCreatedReferencePlugin)
+      ++off_slot;
+    if (spawn.base.plugin == 0xffff)
+      ++no_base;
+  }
+  // The save's spawned actors are overwhelmingly disabled ambush templates, so
+  // what is left standing is a hundred-odd, not the 8274 ACHRs it carries.
+  Check("122 of them are actors", actors == 122);
+  Check("3678 stand in Tamriel, the rest in other worldspaces and interiors",
+        in_tamriel == 3678 && in_tamriel < sink.spawns.size());
+  Check("every handle is in the created-reference slot and names a real base",
+        off_slot == 0 && no_base == 0);
+
   std::printf(
       "  applied: %u globals, %u quests (%u stages, %u objectives, %u alias fills), %u actors "
       "(%u values, %u faction ranks), %u faction reactions, %u refs moved, %u disabled\n",
@@ -660,8 +787,8 @@ void TestRealSave() {
       "%u ai profiles, %u actor levels\n",
       stats.cells_visited, stats.dialogue_said, stats.faction_infamy, stats.actor_ai_profiles,
       stats.actor_levels);
-  std::printf("  carried but not applied: %u detached cells, %u inventories\n",
-              stats.cells_detached, stats.inventories);
+  std::printf("  carried but not applied: %u cells whose owner changed, %u inventories\n",
+              stats.cells_owned, stats.inventories);
   std::printf(
       "  form ids: %u mapped, %u created at runtime, %u refused; %u change forms dropped, "
       "%u undecoded\n",

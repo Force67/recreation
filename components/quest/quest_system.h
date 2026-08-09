@@ -103,9 +103,15 @@ class QuestSystem {
   QuestStatus Status(QuestHandle quest) const;
   // Every quest the system has touched, in unspecified order.
   base::Vector<QuestStatus> AllStatuses() const;
+  // The same set as handles only, without building a status (and its strings)
+  // for each. What a restored save's "leave these alone" check wants.
+  base::Vector<QuestHandle> TouchedQuests() const;
   // Running quests, for the HUD. include_inactive keeps quests whose journal is
   // hidden (active == false); the HUD omits them by default.
   base::Vector<QuestStatus> RunningStatuses(bool include_inactive = false) const;
+  // How many of them there are, without building a status (and its strings) for
+  // each. What a per-frame readout wants.
+  u32 RunningCount(bool include_inactive = false) const;
 
   // Overwrites one quest's state from a remote authority (multiplayer client).
   // Does not run fragments; fires kApplied so the HUD refreshes. Stage/objective

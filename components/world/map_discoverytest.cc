@@ -45,6 +45,16 @@ void TestCellBits() {
   map.MarkCell(kTamriel, 5, -3, more);
   Check("bits merge instead of replacing", map.CellTiles(kTamriel, 5, -3) == 14);
 
+  // bits[0] = 0x0f is the first four tiles of row 0; bits[31] = 0xff the last
+  // eight of row 15.
+  Check("the low bits of the first byte are the first tiles of the first row",
+        map.TileVisited(kTamriel, 5, -3, 0, 0) && map.TileVisited(kTamriel, 5, -3, 3, 0) &&
+            !map.TileVisited(kTamriel, 5, -3, 6, 0));
+  Check("the last byte is the end of the last row",
+        map.TileVisited(kTamriel, 5, -3, 15, 15) && map.TileVisited(kTamriel, 5, -3, 8, 15));
+  Check("a tile outside the cell is not visited", !map.TileVisited(kTamriel, 5, -3, 16, 0));
+  Check("an unvisited cell has no tiles set", !map.TileVisited(kTamriel, 0, 0, 0, 0));
+
   map.MarkCell(kTamriel, 5, -3);
   Check("marking the whole cell fills all 256 tiles", map.CellTiles(kTamriel, 5, -3) == 256);
 }

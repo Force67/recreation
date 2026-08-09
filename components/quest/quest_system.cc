@@ -214,6 +214,14 @@ base::Vector<QuestStatus> QuestSystem::AllStatuses() const {
   return out;
 }
 
+base::Vector<QuestHandle> QuestSystem::TouchedQuests() const {
+  base::Vector<QuestHandle> out;
+  out.reserve(states_.size());
+  for (const auto& [handle, state] : states_)
+    out.push_back(handle);
+  return out;
+}
+
 base::Vector<QuestStatus> QuestSystem::RunningStatuses(bool include_inactive) const {
   base::Vector<QuestStatus> out;
   for (const auto& [handle, state] : states_) {
@@ -226,6 +234,15 @@ base::Vector<QuestStatus> QuestSystem::RunningStatuses(bool include_inactive) co
     out.push_back(base::move(status));
   }
   return out;
+}
+
+u32 QuestSystem::RunningCount(bool include_inactive) const {
+  u32 count = 0;
+  for (const auto& [handle, state] : states_) {
+    if (state.running && (state.active || include_inactive))
+      ++count;
+  }
+  return count;
 }
 
 void QuestSystem::ApplyStatus(const QuestStatus& status) {

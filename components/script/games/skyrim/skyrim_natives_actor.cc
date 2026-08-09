@@ -136,19 +136,22 @@ void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
     return Value::Object(st::GetRef(self, "landingMarker"));
   });
 
+  // Perks go through the core binding, which is where a loaded save puts the
+  // ones the player already had, so HasPerk answers for those too.
+  reg.Register("Actor", "AddPerk", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).AddPerk(self, ArgO(a, 0), 1);
+    return Value();
+  });
+  reg.Register("Actor", "RemovePerk", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemovePerk(self, ArgO(a, 0));
+    return Value();
+  });
+  reg.Register("Actor", "HasPerk", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).HasPerk(self, ArgO(a, 0)));
+  });
+
   // Collection natives back onto member sets. AddSpell lives in the core binding,
   // so HasSpell only sees spells added through this batch's tracking key.
-  reg.Register("Actor", "AddPerk", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::AddMember(self, "perks", ArgO(a, 0));
-    return Value();
-  });
-  reg.Register("Actor", "RemovePerk", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::RemoveMember(self, "perks", ArgO(a, 0));
-    return Value();
-  });
-  reg.Register("Actor", "HasPerk", [](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(st::HasMember(self, "perks", ArgO(a, 0)));
-  });
   reg.Register("Actor", "AddShout", [](VirtualMachine&, ObjectRef self, Args& a) {
     st::AddMember(self, "shouts", ArgO(a, 0));
     return Value::Bool(true);

@@ -1451,6 +1451,41 @@ bool RecordBackedSkyrimBindings::IsEquipped(ObjectRef actor, ObjectRef item) {
   return it != nullptr && it->count(item.handle) != 0;
 }
 
+void RecordBackedSkyrimBindings::EquippedForms(ObjectRef actor,
+                                               base::Vector<bethesda::GlobalFormId>& out) const {
+  const auto* it = equipped_.find(actor.handle);
+  if (it == nullptr)
+    return;
+  out.reserve(out.size() + it->size());
+  for (u64 item : *it)
+    out.push_back(ToFormId(ObjectRef{item}));
+}
+
+void RecordBackedSkyrimBindings::AddPerk(ObjectRef actor, ObjectRef perk, i32 rank) {
+  if (actor.handle == 0 || perk.handle == 0)
+    return;
+  perks_[actor.handle][perk.handle] = rank < 1 ? 1 : rank;
+}
+
+void RecordBackedSkyrimBindings::RemovePerk(ObjectRef actor, ObjectRef perk) {
+  auto* it = perks_.find(actor.handle);
+  if (it == nullptr)
+    return;
+  it->erase(perk.handle);
+  if (it->empty())
+    perks_.erase(actor.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasPerk(ObjectRef actor, ObjectRef perk) {
+  auto* it = perks_.find(actor.handle);
+  return it != nullptr && it->find(perk.handle) != nullptr;
+}
+
+i32 RecordBackedSkyrimBindings::GetPerkCount(ObjectRef actor) {
+  auto* it = perks_.find(actor.handle);
+  return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetEquippedWeapon(ObjectRef actor) {
   if (!records_)
     return {};
@@ -1841,6 +1876,12 @@ bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) {
 void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
   if (replica_mode_)
     return;  // server starts quests; clients mirror the result
+  // Papyrus Quest.Start() does nothing to a quest that is already running, and
+  // that matters here: a restored save resumes hundreds of quests mid-story, so
+  // re-kicking the opening stage would replay their start logic (which, for the
+  // handful that open by moving the player, warps them off their save point).
+  if (quest_system_.IsRunning(quest.handle))
+    return;
   quest_system_.StartQuest(quest.handle);
   // Kick the opening stage so the quest's logic actually begins. The start
   // stage is the lowest one carrying a fragment.

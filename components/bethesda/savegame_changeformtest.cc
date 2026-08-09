@@ -150,10 +150,42 @@ constexpr const char* kRefrLootedChest =
 // with an extra-data list on the stack.
 constexpr const char* kRefrBarrel = "04434d220400000004082e0000000000240400";
 
-// CELL 0x00013A7B DragonBridgePenitusOculatusOutpost.
+// REFR 0x00015D51 Angarvunde, a location the player found. The whole payload is
+// the extra-data list that carries the map marker: one entry, one flags byte.
+constexpr const char* kMarkerAngarvunde = "042c03";
+
+// REFR 0x00016213 Blind Cliff Cave: the marker followed by a second extra (an
+// empty quest-alias list), so the walk only reaches the end of the payload if
+// it sized the marker right.
+constexpr const char* kMarkerBlindCliffCave = "082c038800";
+
+// REFR 0x00017780 Helgen, promoted into the save, so its marker sits behind a
+// transform group rather than at the head of the payload.
+constexpr const char* kMarkerHelgen =
+    "40003ccd5c8f467c3c9bc7a5d10f460000000000000080bfd9bd3f40003c0400ecff082c"
+    "038c0440028a";
+
+// REFR 0x00016276 Reach Stormcloak Camp: visible on the map but not travelled
+// to, which is how Skyrim leaves the civil war camps.
+constexpr const char* kMarkerStormcloakCamp =
+    "40003c25e1e8c7d95b444729d201c60000000000000080f5bdc84040003ce2ff0c00090c"
+    "00004000082c018c0440028a";
+
+// CELL 0x00013A7B DragonBridgePenitusOculatusOutpost, an interior: a detach
+// time and one local-map tile at (-1,-1).
 constexpr const char* kCellDragonBridge =
     "06b6000004ffff000000000000007f80ff80ff80ff80ff80ff80ff80ff00ff00000000"
     "00000000";
+
+// CELL 0x0000924F, an exterior of Tamriel at grid (-6,26): the coordinate
+// group, a detach time, and the one 16x16 map tile the cell itself is.
+constexpr const char* kCellTamrielExterior =
+    "0100fa1a30f50000ffffffffffffffff9fff1fff1fff1ffe1fc00fc00f800f000f0007"
+    "0007000700";
+
+// CELL 0x0000185F, the same worldspace at grid (-40,41), detached and with
+// nothing of it uncovered: coordinates and detach time, no map bits at all.
+constexpr const char* kCellTamrielUnseen = "0100d829466e0000";
 
 void TestChangeRef() {
   const u32 map[] = {0x0001A2B3u, 0x000FF001u, 0x0201CCDDu};
@@ -416,6 +448,56 @@ void TestContainerDelta() {
   Check("payload fully consumed", ingredients.decoded_bytes == barrel.data.size());
 }
 
+// A discovered location is a REFR whose extra-data list carries a map marker.
+// The save stores nothing but the flags: what the marker is called, where it
+// sits and which icon it draws all stay in the plugin's REFR record.
+void TestMapMarker() {
+  ChangeForm angarvunde =
+      Form(ChangeFormType::kRefr, 0x80000000u, kMarkerAngarvunde, 0x00015D51u);
+  ReferenceChange found;
+  Check("Angarvunde's marker decodes", DecodeReference(angarvunde, found));
+  Check("visible and travelable",
+        found.has_map_marker &&
+            found.map_marker_flags ==
+                (rx::bethesda::kMapMarkerVisible | rx::bethesda::kMapMarkerCanTravelTo));
+  Check("payload fully consumed", found.decoded_bytes == angarvunde.data.size());
+
+  ChangeForm blind_cliff =
+      Form(ChangeFormType::kRefr, 0x80000000u, kMarkerBlindCliffCave, 0x00016213u);
+  ReferenceChange second;
+  Check("a marker followed by another extra decodes",
+        DecodeReference(blind_cliff, second) && second.has_map_marker &&
+            second.map_marker_flags == 3);
+  Check("payload fully consumed", second.decoded_bytes == blind_cliff.data.size());
+
+  ChangeForm helgen = Form(ChangeFormType::kRefr, 0x82000000u, kMarkerHelgen, 0x00017780u);
+  ReferenceChange town;
+  Check("Helgen's marker decodes behind its transform", DecodeReference(helgen, town));
+  Check("it sits in the Tamriel worldspace 0x0000003C at Helgen's coordinates",
+        town.moved && IsDefault(town.parent, 0x0000003Cu) &&
+            town.position[0] == 18350.4004f && town.position[1] == -79480.9688f &&
+            town.position[2] == 9204.4111f);
+  Check("visible and travelable", town.has_map_marker && town.map_marker_flags == 3);
+  Check("payload fully consumed", town.decoded_bytes == helgen.data.size());
+
+  ChangeForm camp =
+      Form(ChangeFormType::kRefr, 0x82000001u, kMarkerStormcloakCamp, 0x00016276u);
+  ReferenceChange stormcloak;
+  Check("the Reach Stormcloak camp's marker decodes", DecodeReference(camp, stormcloak));
+  Check("visible but not a fast travel destination",
+        stormcloak.has_map_marker &&
+            (stormcloak.map_marker_flags & rx::bethesda::kMapMarkerVisible) != 0 &&
+            (stormcloak.map_marker_flags & rx::bethesda::kMapMarkerCanTravelTo) == 0);
+  Check("payload fully consumed", stormcloak.decoded_bytes == camp.data.size());
+
+  // The gold container from TestReference carries no extra-data list at all.
+  ChangeForm gold = Form(ChangeFormType::kRefr, 0x00000020u, kRefrGold, 0x000BBCD1u);
+  ReferenceChange container;
+  Check("a reference with no marker reports none",
+        DecodeReference(gold, container) && !container.has_map_marker &&
+            container.map_marker_flags == 0);
+}
+
 void TestDialogueInfo() {
   ChangeForm form = Form(ChangeFormType::kInfo, 0x80000000u, "");
   DialogueInfoChange info;
@@ -434,15 +516,57 @@ void TestDialogueInfo() {
 }
 
 void TestCell() {
+  // An interior: no coordinate group, so its map data is a counted list of
+  // local-map tiles that carry their own coordinate.
   ChangeForm form = Form(ChangeFormType::kCell, 0xc0000000u, kCellDragonBridge);
   CellChange cell;
   Check("DragonBridge outpost cell decodes", DecodeCell(form, cell));
-  Check("not detached", !cell.detached);
-  Check("one visited grid", cell.visited.size() == 1);
-  Check("grid mask", cell.visited[0].mask == 0xFFFF);
-  Check("grid bits", cell.visited[0].bits[7] == 0x7f && cell.visited[0].bits[8] == 0x80 &&
+  Check("no exterior coordinate", !cell.has_grid);
+  Check("detached at game hour 46598", cell.has_detach_time && cell.detach_time == 46598);
+  Check("one local map tile", cell.visited.size() == 1);
+  Check("the tile sits at (-1,-1)", cell.visited[0].has_tile && cell.visited[0].tile_x == -1 &&
+                                        cell.visited[0].tile_y == -1);
+  Check("tile bits", cell.visited[0].bits[7] == 0x7f && cell.visited[0].bits[8] == 0x80 &&
                          cell.visited[0].bits[31] == 0x00);
   Check("payload fully consumed", cell.decoded_bytes == form.data.size());
+
+  // An exterior: the coordinate group says where it is, and its map data is the
+  // one tile the cell is, written bare with no coordinate of its own.
+  ChangeForm outside = Form(ChangeFormType::kCell, 0xe0000000u, kCellTamrielExterior);
+  CellChange seen;
+  Check("an exterior cell decodes", DecodeCell(outside, seen));
+  Check("its grid is (-6,26)", seen.has_grid && seen.grid_x == -6 && seen.grid_y == 26);
+  Check("detached at game hour 62768", seen.has_detach_time && seen.detach_time == 62768);
+  Check("one bare map tile", seen.visited.size() == 1 && !seen.visited[0].has_tile);
+  Check("tile bits", seen.visited[0].bits[0] == 0xff && seen.visited[0].bits[8] == 0x9f &&
+                         seen.visited[0].bits[31] == 0x00);
+  Check("payload fully consumed", seen.decoded_bytes == outside.data.size());
+
+  // The two groups alone, with no map bits: the whole payload is 4 + 4.
+  ChangeForm unseen = Form(ChangeFormType::kCell, 0x60000000u, kCellTamrielUnseen);
+  CellChange bare;
+  Check("a cell with no map data decodes", DecodeCell(unseen, bare));
+  Check("its grid is (-40,41)", bare.has_grid && bare.grid_x == -40 && bare.grid_y == 41);
+  Check("detached at game hour 28230", bare.has_detach_time && bare.detach_time == 28230);
+  Check("nothing uncovered", bare.visited.empty());
+  Check("payload fully consumed", bare.decoded_bytes == unseen.data.size());
+
+  // The form flags follow the two leading groups rather than heading the
+  // payload, so a cell that carries them still reads its coordinate at byte 2.
+  base::Vector<u8> with_flags = Hex(kCellTamrielExterior);
+  with_flags.insert(with_flags.begin() + 8, 0x07);
+  with_flags.insert(with_flags.begin() + 9, 0x00);
+  ChangeForm flagged;
+  flagged.type = ChangeFormType::kCell;
+  flagged.version = 78;
+  flagged.flags = 0xe0000002u;
+  flagged.data = with_flags;
+  CellChange after;
+  Check("a cell carrying form flags decodes", DecodeCell(flagged, after));
+  Check("the coordinate is still (-6,26)",
+        after.has_grid && after.grid_x == -6 && after.grid_y == 26);
+  Check("form flags read 7", after.has_form_flags && after.form_flags == 7);
+  Check("payload fully consumed", after.decoded_bytes == flagged.data.size());
 }
 
 void TestMalformed() {
@@ -500,9 +624,10 @@ void TestMalformed() {
   FactionChange fac;
   Check("an absurd reaction count is rejected", !DecodeFaction(huge_reactions, fac));
 
-  ChangeForm huge_grid = Form(ChangeFormType::kCell, 0x40000000u, "00000000fcffff03");
+  // A detach time and then a tile count of four million with one byte behind it.
+  ChangeForm huge_grid = Form(ChangeFormType::kCell, 0xc0000000u, "00000000feffff03");
   CellChange cel;
-  Check("an absurd cell grid count is rejected", !DecodeCell(huge_grid, cel));
+  Check("an absurd cell tile count is rejected", !DecodeCell(huge_grid, cel));
 
   // Unknown versions must be refused outright rather than parsed on the
   // assumption that the layout held.
@@ -522,6 +647,13 @@ void TestMalformed() {
   QuestChange nothing;
   Check("an empty quest payload with all flags set is refused",
         !DecodeQuest(empty, nothing));
+
+  // An extra-data list that names a map marker and then stops must not read the
+  // flags byte off the end of the payload.
+  ChangeForm cut_marker = Form(ChangeFormType::kRefr, 0x80000000u, "042c", 0x00015D51u);
+  ReferenceChange cut;
+  Check("a marker cut off before its flags reports none",
+        DecodeReference(cut_marker, cut) && !cut.has_map_marker);
 
   ChangeForm empty_ref = Form(ChangeFormType::kRefr, 0x00000003u, "");
   ReferenceChange nothing_ref;
@@ -553,6 +685,23 @@ bool ReadWholeFile(const char* path, base::Vector<u8>* out) {
                   static_cast<size_t>(size);
   std::fclose(f);
   return ok;
+}
+
+bool AllPerksAtRank(const ReferenceChange& ref, u8 rank) {
+  for (const rx::bethesda::ActorPerk& perk : ref.perks) {
+    if (perk.rank != rank)
+      return false;
+  }
+  return !ref.perks.empty();
+}
+
+bool HasPerk(const ReferenceChange& ref, const rx::bethesda::SaveFile& save, u32 form_id) {
+  for (const rx::bethesda::ActorPerk& perk : ref.perks) {
+    if (ResolveChangeRef(perk.perk, base::Span<const u32>(save.form_ids.data(),
+                                                          save.form_ids.size())) == form_id)
+      return true;
+  }
+  return false;
 }
 
 f32 ActorValueOf(const ReferenceChange& ref, u32 index) {
@@ -630,6 +779,21 @@ void TestRealSave() {
   Check("carry weight 850 and speed 100",
         ActorValueOf(player, 32) == 850.0f && ActorValueOf(player, 30) == 100.0f);
 
+  // Perks. The search only reports a block that admits one reading, so a count
+  // here at all is the rule holding; the named ids are what the save actually
+  // recorded, cross-checked against the PERK records of the five plugins it was
+  // written with.
+  Check("297 perks, every one at rank 1",
+        player.perks.size() == 297 && AllPerksAtRank(player, 1));
+  Check("DestructionMaster100 and Necromage are among them",
+        HasPerk(player, save, 0x000C44C2u) && HasPerk(player, save, 0x000581E4u));
+  Check("so are the add-ons' DLC1VampiricBite and DLC2Smithing",
+        HasPerk(player, save, 0x02005994u) && HasPerk(player, save, 0x04024108u));
+  // 226 of the load order's 523 PERK records are not on this list, so it is the
+  // player's own set and not every perk that exists.
+  Check("TGSkeletonKeyPerk, handed back with the key, is not",
+        !HasPerk(player, save, 0x0010F13Fu));
+
   ActorBaseChange base;
   Check("the player's NPC_ record decodes", DecodeActorBase(*player_base, base));
   Check("level 271", base.has_stats && base.level == 271);
@@ -645,12 +809,25 @@ void TestRealSave() {
   // corpus checking the layout rather than one hand-picked record.
   u32 refr = 0, refr_exact = 0, achr = 0, achr_inventory = 0, achr_values = 0;
   u32 achr_full_tables = 0;
+  u32 achr_perks = 0, perks_total = 0;
+  u32 markers = 0, markers_travelable = 0, markers_visible_only = 0;
+  bool whiterun_found = false;
   for (const ChangeForm& form : save.change_forms) {
     if (form.type != ChangeFormType::kRefr && form.type != ChangeFormType::kAchr)
       continue;
     ReferenceChange decoded;
     if (!DecodeReference(form, decoded))
       continue;
+    if (decoded.has_map_marker) {
+      ++markers;
+      if (decoded.map_marker_flags & rx::bethesda::kMapMarkerCanTravelTo)
+        ++markers_travelable;
+      else if (decoded.map_marker_flags & rx::bethesda::kMapMarkerVisible)
+        ++markers_visible_only;
+      // The Whiterun marker, which Skyrim.esm places in WhiterunWorld.
+      if (form.form_id == 0x000162CEu)
+        whiterun_found = decoded.map_marker_flags == 3;
+    }
     if (form.type == ChangeFormType::kRefr) {
       ++refr;
       if (decoded.decoded_bytes == form.data.size())
@@ -664,6 +841,10 @@ void TestRealSave() {
         if (decoded.actor_values.size() == 45)
           ++achr_full_tables;
       }
+      if (!decoded.perks.empty()) {
+        ++achr_perks;
+        perks_total += static_cast<u32>(decoded.perks.size());
+      }
     }
   }
   Check("106098 REFR and 20658 ACHR change forms", refr == 106098 && achr == 20658);
@@ -676,6 +857,74 @@ void TestRealSave() {
   // up with any other count would be a coincidence being read as data.
   Check("67 actors carry value rows, all of them 45 rows",
         achr_values == 67 && achr_full_tables == 67);
+  // The perk search over all 20658 actor blocks finds the pattern exactly once,
+  // on the one actor in Skyrim that spends perk points.
+  Check("the player is the only actor carrying perks, and carries 297",
+        achr_perks == 1 && perks_total == 297);
+
+  // Skyrim.esm and its three add-ons place 471 map markers between them, so a
+  // hundred-percent save touching 424 of them is the right order of magnitude
+  // and every one of the four it left un-travelled is a civil war camp.
+  Check("424 references carry a map marker", markers == 424);
+  Check("420 of them are fast travel destinations, 4 are only visible",
+        markers_travelable == 420 && markers_visible_only == 4);
+  Check("Whiterun's marker 0x000162CE is discovered", whiterun_found);
+
+  // Every CELL, walked. A cell payload is nothing but its groups, so the whole
+  // corpus landing on its last byte is what says the group sizes and their
+  // order are right rather than adding up by luck on one record.
+  u32 cells = 0, cells_exact = 0, with_grid = 0, with_detach = 0, owned = 0;
+  u32 exterior_tiles = 0, interior_tiles = 0, tile_grids = 0;
+  u32 latest_detach = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kCell)
+      continue;
+    ++cells;
+    CellChange cell;
+    if (!DecodeCell(form, cell))
+      continue;
+    if (cell.decoded_bytes == form.data.size())
+      ++cells_exact;
+    if (cell.has_grid)
+      ++with_grid;
+    if (cell.has_detach_time) {
+      ++with_detach;
+      if (cell.detach_time > latest_detach)
+        latest_detach = cell.detach_time;
+    }
+    if (form.flags & rx::bethesda::kCellChangeOwnership)
+      ++owned;
+    if (cell.visited.empty())
+      continue;
+    if (cell.visited[0].has_tile) {
+      ++interior_tiles;
+      tile_grids += static_cast<u32>(cell.visited.size());
+    } else {
+      ++exterior_tiles;
+    }
+  }
+  Check("8793 CELL change forms, every payload consumed to the last byte",
+        cells == 8793 && cells_exact == 8793);
+  // The coordinate group is what an exterior cell is: no interior writes one,
+  // and the 8148 that do all match the coordinate their CELL record's XCLC
+  // gives (checked against the load order outside this test).
+  Check("8148 carry an exterior coordinate", with_grid == 8148);
+  // Almost every cell is out of memory in any save; the handful that are not
+  // are the load ring the player is standing in.
+  Check("8759 of 8793 carry a detach time", with_detach == 8759);
+  // The save's GameDaysPassed global reads 2616, so the cell that left memory
+  // last did so 2615.3 game days in: the field is a game hour, not a counter.
+  const f32 days_passed =
+      save.globals.size() > 4 && save.globals[4].first == 0x00000039u ? save.globals[4].second
+                                                                     : 0.0f;
+  const f32 hours_ago = days_passed * 24.0f - static_cast<f32>(latest_detach);
+  Check("the latest detach is game hour 62768, 16 hours behind GameDaysPassed",
+        latest_detach == 62768 && hours_ago > 0.0f && hours_ago < 24.0f);
+  Check("7 cells carry an owner the save changed", owned == 7);
+  // The two seen-data shapes never cross: a cell that writes its coordinate
+  // writes one bare tile, one that does not writes a counted list.
+  Check("5298 exteriors write one bare tile, 611 interiors write 5855 between them",
+        exterior_tiles == 5298 && interior_tiles == 611 && tile_grids == 5855);
 }
 
 }  // namespace
@@ -688,6 +937,7 @@ int main() {
   TestActorBase();
   TestReference();
   TestContainerDelta();
+  TestMapMarker();
   TestDialogueInfo();
   TestCell();
   TestMalformed();

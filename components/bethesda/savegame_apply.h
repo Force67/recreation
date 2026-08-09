@@ -31,6 +31,13 @@ namespace rx::bethesda {
 // The player's own reference, the same id in every game this reader covers.
 constexpr u32 kPlayerFormId = 0x00000014;
 
+// The load order slot a reference the save created at runtime is handed. No
+// plugin can occupy it (a load order holds at most 255 full plugins plus the
+// ESL range) and nothing else in the engine claims it, so a created reference
+// gets a stable handle that cannot collide with a record's, and the slot alone
+// says where the handle came from.
+constexpr u16 kCreatedReferencePlugin = 0xfffd;
+
 // Why a form id could not be carried into the running game. Counted rather
 // than logged one by one: a save names six figures of them.
 struct RemapCounters {
@@ -106,6 +113,9 @@ class SaveSink {
   // they are what the actor levelled its way to, and no other actor sharing
   // that base has them. The player's skills and vitals arrive here.
   virtual void SetReferenceActorValue(GlobalFormId ref, base::StringRef name, f32 value) {}
+  // A perk the save records on that reference, keyed like the reference values
+  // above: perks are earned, so they belong to the actor and not to its base.
+  virtual void AddReferencePerk(GlobalFormId ref, GlobalFormId perk, u32 rank) {}
   virtual void SetActorFactionRank(GlobalFormId actor_base, GlobalFormId faction, i32 rank) {}
   // Already a level, never the multiplier: the save's own player level resolves
   // a level-mult actor before it gets here.
@@ -121,8 +131,24 @@ class SaveSink {
   // Map exploration for one cell: `grids` is the uncovered-tile bitmap the save
   // stores, empty for a cell that is only known to have been entered.
   virtual void SetCellVisited(GlobalFormId cell, base::Span<const CellVisitedGrid> grids) {}
+  // A named location the player has found. `ref` is the map marker's own
+  // reference; what it is called and where it sits stay in that record, so a
+  // sink with no catalogue of markers cannot do anything with this.
+  virtual void SetMapMarker(GlobalFormId ref, bool visible, bool can_travel) {}
 
   virtual void SetReferenceEnabled(GlobalFormId ref, bool enabled) {}
+  // A reference the save itself created (a dropped weapon, a corpse, a critter
+  // a script spawned). No plugin has a record for it, so the base form and the
+  // transform below are its whole description and `id` is a synthetic handle in
+  // the created-reference slot. `parent` is the cell it sits in, or the
+  // worldspace when it sits outside; `actor` marks an ACHR.
+  virtual void SpawnCreatedReference(GlobalFormId id,
+                                     GlobalFormId base,
+                                     GlobalFormId parent,
+                                     const f32 position[3],
+                                     const f32 rotation[3],
+                                     f32 scale,
+                                     bool actor) {}
   // `parent` is the cell the reference now sits in, or the worldspace when it
   // sits outside; position is in game units, rotation in radians.
   virtual void MoveReference(GlobalFormId ref,
@@ -163,6 +189,8 @@ struct SaveApplyStats {
   u32 actor_values = 0;
   u32 actors_with_values = 0;   // references carrying a value table of their own
   u32 actor_values_unnamed = 0; // rows whose place in the value enumeration is unproven
+  u32 actor_perks = 0;          // perks pushed at the sink
+  u32 actors_with_perks = 0;    // references carrying a perk array
   u32 actor_faction_ranks = 0;
   u32 actor_levels = 0;       // NPC level, resolved through its level-mult form
   u32 actor_ai_profiles = 0;  // aggression/confidence/energy/morality/mood
@@ -170,6 +198,8 @@ struct SaveApplyStats {
   u32 faction_infamy = 0;     // crime factions carrying an infamy count
   u32 dialogue_said = 0;      // INFO records already spoken
   u32 cells_visited = 0;      // cells carrying world/local map exploration
+  u32 map_markers = 0;        // named locations the save has found
+  u32 map_markers_travel = 0; // of those, the ones that are travel destinations
   u32 references_moved = 0;
   u32 references_enabled = 0;
   u32 references_disabled = 0;
@@ -186,7 +216,10 @@ struct SaveApplyStats {
   // What the save carries and this layer deliberately does not push at the
   // sink, either because the payload group is not decoded or because no engine
   // system owns it. Reported so the gap is visible instead of silent.
-  u32 cells_detached = 0;  // cells the save had purged from memory
+  // Cells carrying an owner the save changed. The only CELL group this layer
+  // steps over rather than reads; the detach time and the exterior coordinates
+  // beside it are decoded (see CellChange).
+  u32 cells_owned = 0;
   // Inventories layer 2 could only read a prefix of, so what is there is not
   // the container's real contents and none of it is applied.
   u32 inventories_incomplete = 0;
@@ -196,10 +229,15 @@ struct SaveApplyStats {
   u32 created_forms = 0;
   u32 inventory_items_created = 0;
   // References the save spawned (0xFFxxxxxx REFR/ACHR change forms). Nothing
-  // can carry their ids over, but the payload names the base form they are an
-  // instance of, so they are one spawner away from being applicable.
+  // can carry their ids over, so they reach the sink under a handle of their
+  // own; the payload names the base form they are an instance of.
   u32 created_references = 0;
   u32 created_references_with_base = 0;
+  u32 created_references_spawned = 0;
+  // Spawned references the save had disabled or deleted. Nothing in the load
+  // order can name them, so no script can ever bring one back: they are dropped
+  // rather than pushed at the sink as entities that could never be seen.
+  u32 created_references_inert = 0;
 };
 
 // Finds the player's reference in the save and remaps its parent. False when

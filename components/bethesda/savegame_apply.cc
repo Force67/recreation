@@ -194,6 +194,39 @@ void ApplyFaction(const ChangeForm& form,
   }
 }
 
+// A 0xFFxxxxxx REFR/ACHR: the save's own reference. Its id means nothing in the
+// running game, so it is handed over under a synthetic one and the sink places
+// it from the base form and transform the payload carries.
+void ApplyCreatedReference(const ChangeForm& form,
+                           const ReferenceChange& ref,
+                           const SaveFile& save,
+                           const FormRemap& remap,
+                           SaveSink& sink,
+                           SaveApplyStats* stats) {
+  ++stats->created_references;
+  GlobalFormId base;
+  if (ref.base_object.none() || !remap.MapRef(ref.base_object, save, &base))
+    return;
+  ++stats->created_references_with_base;
+
+  // A reference the save had disabled or deleted has no handle anywhere in the
+  // load order, so nothing in the running game could ever enable it again.
+  if (ref.has_form_flags &&
+      (ref.form_flags & (kFormFlagDeleted | kFormFlagInitiallyDisabled)) != 0) {
+    ++stats->created_references_inert;
+    return;
+  }
+  GlobalFormId parent;
+  if (!ref.moved || !remap.MapRef(ref.parent, save, &parent))
+    return;
+
+  const GlobalFormId id{kCreatedReferencePlugin, form.form_id & 0xffffff};
+  sink.SpawnCreatedReference(id, base, parent, ref.position, ref.rotation,
+                             ref.has_scale ? ref.scale : 1.0f,
+                             form.type == ChangeFormType::kAchr);
+  ++stats->created_references_spawned;
+}
+
 void ApplyReference(const ChangeForm& form,
                     const SaveFile& save,
                     const FormRemap& remap,
@@ -209,16 +242,10 @@ void ApplyReference(const ChangeForm& form,
   if (!MapCounted(remap, form.form_id, &id, stats)) {
     ++stats->refused;
     // A reference the save spawned has no record in any plugin, so its id
-    // cannot be carried over. It does say what it is an instance of, though,
-    // and separating the ones that do from the ones that do not is what says
-    // how much of the drop is "nothing can spawn this yet" rather than "there
-    // is nothing readable here".
-    if ((form.form_id >> 24) == 0xff) {
-      ++stats->created_references;
-      GlobalFormId base;
-      if (!ref.base_object.none() && remap.MapRef(ref.base_object, save, &base))
-        ++stats->created_references_with_base;
-    }
+    // cannot be carried over. What it does carry is the base form it is an
+    // instance of and where it stands, which is enough to put it back.
+    if ((form.form_id >> 24) == 0xff)
+      ApplyCreatedReference(form, ref, save, remap, sink, stats);
     return;
   }
 
@@ -235,6 +262,17 @@ void ApplyReference(const ChangeForm& form,
   }
   if (!ref.actor_values.empty())
     ++stats->actors_with_values;
+
+  for (const ActorPerk& perk : ref.perks) {
+    GlobalFormId form;
+    if (!remap.MapRef(perk.perk, save, &form))
+      continue;
+    sink.AddReferencePerk(id, form, perk.rank);
+    ++stats->actor_perks;
+  }
+  if (!ref.perks.empty())
+    ++stats->actors_with_perks;
+
   if (!ref.inventory.empty() && !ref.inventory_complete)
     ++stats->inventories_incomplete;
   if (!ref.inventory.empty() && ref.inventory_complete) {
@@ -267,6 +305,15 @@ void ApplyReference(const ChangeForm& form,
       sink.MoveReference(id, parent, ref.position, ref.rotation);
       ++stats->references_moved;
     }
+  }
+
+  if (ref.has_map_marker) {
+    const bool visible = (ref.map_marker_flags & kMapMarkerVisible) != 0;
+    const bool can_travel = (ref.map_marker_flags & kMapMarkerCanTravelTo) != 0;
+    sink.SetMapMarker(id, visible, can_travel);
+    ++stats->map_markers;
+    if (can_travel)
+      ++stats->map_markers_travel;
   }
 
   if (ref.has_form_flags) {
@@ -474,8 +521,8 @@ void ApplySave(const SaveFile& save,
         ++stats->undecoded;
         continue;
       }
-      if (cell.detached)
-        ++stats->cells_detached;
+      if (form.flags & kCellChangeOwnership)
+        ++stats->cells_owned;
       if (cell.visited.empty())
         continue;
       GlobalFormId id;

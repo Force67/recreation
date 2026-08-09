@@ -34,17 +34,30 @@ enum class SaveFormat {
   kFallout4,   // "FO4_SAVEGAME"
 };
 
-// A ChangeForm's record type, as stored in the low 6 bits of its type byte.
-// Values follow the on-disk enumeration, so do not renumber. Each one below was
-// confirmed by resolving every change form in a Skyrim SE save through the
-// form-id map and reading back the record's real signature from the masters, so
-// the values are measured, not inferred from the record type order.
+// A ChangeForm's record type. The values are Skyrim's on-disk enumeration, so
+// do not renumber: each one was confirmed by resolving every change form in a
+// Skyrim SE save through the form-id map and reading back the record's real
+// signature from the masters, so they are measured, not inferred from the
+// record type order. Fallout 4 numbers the same types differently and layer 1
+// translates (see ChangeFormTypeOf), which is what keeps everything above it
+// off the game.
 enum class ChangeFormType : u8 {
   kRefr = 0, kAchr = 1, kPgre = 3, kCell = 6, kInfo = 7, kQust = 8,
   kNpc = 9, kBook = 13, kIngr = 16, kEczn = 29, kFact = 31, kWoop = 34,
   kSmqn = 36, kScen = 37, kLctn = 38, kRela = 39, kPhzd = 40, kFlst = 43,
-  kLvln = 44, kLvli = 45, kEnch = 48, kUnknown = 63,
+  kLvln = 44, kLvli = 45, kEnch = 48, kInnr = 50, kUnknown = 63,
 };
+
+// The record type behind a change form's raw type byte (its low 6 bits).
+//
+// Fallout 4 has no INGR, so every type from there up sits one below Skyrim's:
+// measured over 226623 change forms of three Fallout 4 saves by resolving each
+// one's id in Fallout4.esm and reading the signature back, which puts ECZN at
+// 28 (Skyrim 29), FACT at 30 (31), SMQN 35 (36), SCEN 36 (37), LCTN 37 (38),
+// PHZD 39 (40), FLST 42 (43), LVLI 44 (45) and INNR, which Skyrim does not
+// have, at 49. Where exactly the shift starts is not observable: no Fallout 4
+// save in hand carries a change form whose type falls in 17..27.
+ChangeFormType ChangeFormTypeOf(SaveFormat format, u8 type_byte);
 
 // What a form the player made at runtime was made as. The four tables are
 // stored in this order and nothing else in the save says which kind an id is.

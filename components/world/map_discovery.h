@@ -37,6 +37,11 @@ class MapDiscovery {
   bool InteriorVisited(bethesda::GlobalFormId cell) const;
   // Uncovered tiles of a cell, 0..256. Zero for a cell never visited.
   u32 CellTiles(bethesda::GlobalFormId worldspace, i16 x, i16 y) const;
+  // One sixteenth of a cell, `tx`/`ty` in 0..15. The savegame's 256 bits are
+  // read as 16 rows of 16, low bit first; the file says nothing about which
+  // corner row 0 is, so this is the store's convention and only the shape of a
+  // partly explored cell rests on it.
+  bool TileVisited(bethesda::GlobalFormId worldspace, i16 x, i16 y, u32 tx, u32 ty) const;
 
   u32 VisitedCells(bethesda::GlobalFormId worldspace) const;
   u32 VisitedCells() const;

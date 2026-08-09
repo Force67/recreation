@@ -45,6 +45,23 @@ u32 MapDiscovery::CellTiles(bethesda::GlobalFormId worldspace, i16 x, i16 y) con
   return tiles;
 }
 
+bool MapDiscovery::TileVisited(bethesda::GlobalFormId worldspace,
+                               i16 x,
+                               i16 y,
+                               u32 tx,
+                               u32 ty) const {
+  if (tx >= kCellSubdivisions || ty >= kCellSubdivisions)
+    return false;
+  const auto* world = worlds_.find(worldspace.packed());
+  if (!world)
+    return false;
+  const Cell* cell = world->find(GridKey(x, y));
+  if (!cell)
+    return false;
+  const u32 bit = ty * kCellSubdivisions + tx;
+  return (cell->bits[bit / 8] & (1u << (bit % 8))) != 0;
+}
+
 u32 MapDiscovery::VisitedCells(bethesda::GlobalFormId worldspace) const {
   const auto* world = worlds_.find(worldspace.packed());
   return world ? static_cast<u32>(world->size()) : 0;
