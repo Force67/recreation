@@ -103,6 +103,24 @@ class RecordingSink : public rx::bethesda::SaveSink {
   void SetFactionReaction(GlobalFormId faction, GlobalFormId other, i32 reaction) override {
     reactions.push_back({faction, other, reaction});
   }
+  void SetActorLevel(GlobalFormId actor_base, u32 level) override {
+    levels.push_back({actor_base, level});
+  }
+  void SetActorAi(GlobalFormId actor_base, const rx::bethesda::ActorAi& ai) override {
+    ai_profiles.push_back({actor_base, ai});
+  }
+  void SetFactionInfamy(GlobalFormId faction, u32 violent, u32 non_violent) override {
+    infamy.push_back({faction, violent, non_violent});
+  }
+  void SetDialogueSaid(GlobalFormId info) override { said.push_back(info); }
+  void SetCellVisited(GlobalFormId cell,
+                      base::Span<const rx::bethesda::CellVisitedGrid> grids) override {
+    u32 tiles = 0;
+    for (const rx::bethesda::CellVisitedGrid& grid : grids)
+      for (u8 byte : grid.bits)
+        tiles += static_cast<u32>(__builtin_popcount(byte));
+    visited.push_back({cell, static_cast<u32>(grids.size()), tiles});
+  }
   void SetReferenceEnabled(GlobalFormId ref, bool enabled) override {
     enabled_refs.push_back({ref, enabled});
   }
@@ -159,8 +177,63 @@ class RecordingSink : public rx::bethesda::SaveSink {
   base::Vector<Value> actor_values;
   base::Vector<Rank> faction_ranks;
   base::Vector<Rank> reactions;
+  struct Level {
+    GlobalFormId actor;
+    u32 level;
+  };
+  struct Ai {
+    GlobalFormId actor;
+    rx::bethesda::ActorAi ai;
+  };
+  struct Infamy {
+    GlobalFormId faction;
+    u32 violent;
+    u32 non_violent;
+  };
+  struct Visited {
+    GlobalFormId cell;
+    u32 grids;
+    u32 tiles;
+  };
+
   base::Vector<Enabled> enabled_refs;
   base::Vector<Move> moves;
+  base::Vector<Level> levels;
+  base::Vector<Ai> ai_profiles;
+  base::Vector<Infamy> infamy;
+  base::Vector<GlobalFormId> said;
+  base::Vector<Visited> visited;
+
+  const Level* FindLevel(u32 local_id) const {
+    for (const Level& entry : levels)
+      if (entry.actor.plugin == 0 && entry.actor.local_id == local_id)
+        return &entry;
+    return nullptr;
+  }
+  const Ai* FindAi(u32 local_id) const {
+    for (const Ai& entry : ai_profiles)
+      if (entry.actor.plugin == 0 && entry.actor.local_id == local_id)
+        return &entry;
+    return nullptr;
+  }
+  const Infamy* FindInfamy(u32 local_id) const {
+    for (const Infamy& entry : infamy)
+      if (entry.faction.plugin == 0 && entry.faction.local_id == local_id)
+        return &entry;
+    return nullptr;
+  }
+  const Visited* FindVisited(u32 local_id) const {
+    for (const Visited& entry : visited)
+      if (entry.cell.plugin == 0 && entry.cell.local_id == local_id)
+        return &entry;
+    return nullptr;
+  }
+  bool Said(u32 local_id) const {
+    for (const GlobalFormId& info : said)
+      if (info.plugin == 0 && info.local_id == local_id)
+        return true;
+    return false;
+  }
 };
 
 void PutU8(base::Vector<u8>& b, u8 v) {
@@ -328,13 +401,13 @@ void TestApplySynthetic() {
     PutF32(ref.data, 0.0f);
     PutF32(ref.data, 0.0f);
     PutF32(ref.data, 1.5f);
-    PutU32(ref.data, 0);  // the four bytes that always follow the transform
     PutU32(ref.data, rx::bethesda::kFormFlagInitiallyDisabled);
     PutU16(ref.data, 0);
     save.change_forms.push_back(ref);
   }
   {
-    // The player: an ACHR whose walk stops after the transform.
+    // The player: an ACHR, so the transform is followed by the eight bytes an
+    // actor writes with no flag asking for them.
     ChangeForm player;
     player.form_id = 0x00000014;
     player.type = ChangeFormType::kAchr;
@@ -347,6 +420,7 @@ void TestApplySynthetic() {
     PutF32(player.data, 0.0f);
     PutF32(player.data, 0.0f);
     PutF32(player.data, 0.5f);
+    PutU32(player.data, 0xffffffff);
     PutU32(player.data, 0);
     save.change_forms.push_back(player);
   }
@@ -414,6 +488,24 @@ void TestApplySynthetic() {
   Check("base game quest still applied", refused_sink.quests.size() == 1);
 }
 
+// The level a save reports is only half the answer: a level-mult actor stores a
+// 1000-based multiplier of the player's level and a range to clamp it into.
+void TestActorLevels() {
+  using rx::bethesda::kActorBaseFlagLevelMult;
+  using rx::bethesda::ResolveActorLevel;
+  const u32 mult = kActorBaseFlagLevelMult;
+
+  Check("a flat level ignores the player", ResolveActorLevel(0, 30, 0, 30, 271) == 30);
+  Check("a flat level of zero is still level 1", ResolveActorLevel(0, 0, 0, 0, 271) == 1);
+  // Ahtar: 1.0x, 6..30. A level 271 player puts him at his ceiling.
+  Check("1.0x clamps to the calc maximum", ResolveActorLevel(mult, 1000, 6, 30, 271) == 30);
+  Check("1.0x below the floor clamps up", ResolveActorLevel(mult, 1000, 6, 30, 2) == 6);
+  Check("1.0x inside the range is the player's level",
+        ResolveActorLevel(mult, 1000, 6, 30, 17) == 17);
+  Check("1.2x scales before clamping", ResolveActorLevel(mult, 1200, 10, 100, 20) == 24);
+  Check("a zero maximum is no ceiling", ResolveActorLevel(mult, 1000, 0, 0, 271) == 271);
+}
+
 // A real 11 MB, 100% complete Skyrim SE save. Not in the repo; point
 // RX_SAVEGAME_TEST_FILE at one to run this elsewhere.
 constexpr const char kRealSavePath[] =
@@ -477,6 +569,53 @@ void TestRealSave() {
   Check("4450 quest stages had run", stats.quest_stages == 4450);
   Check("1431 objectives applied", stats.quest_objectives == 1431);
   Check("926 actor bases applied", stats.actors == 926);
+  Check("405 actor levels applied", stats.actor_levels == 405);
+  Check("608 ai profiles applied", stats.actor_ai_profiles == 608);
+  Check("72 crime factions carry infamy", stats.faction_infamy == 72);
+  Check("9822 spoken dialogue lines applied", stats.dialogue_said == 9822);
+  Check("11153 visited map grids applied", stats.cells_visited == 11153);
+
+  // Levels come out resolved. The save's player is level 271, so a level-mult
+  // actor lands at 271 * mult / 1000 clamped to its own calc range.
+  const RecordingSink::Level* ahtar = sink.FindLevel(0x0001325F);  // Ahtar, mult 1.0x, 6..30
+  Check("Ahtar caps at his calc maximum of 30", ahtar && ahtar->level == 30);
+  const RecordingSink::Level* tullius = sink.FindLevel(0x0001327E);  // Tullius, 1.2x, 10..50
+  Check("General Tullius caps at his calc maximum of 50", tullius && tullius->level == 50);
+  const RecordingSink::Level* elenwen = sink.FindLevel(0x00013269);  // Elenwen, flat 30
+  Check("Elenwen keeps her flat level 30", elenwen && elenwen->level == 30);
+  const RecordingSink::Level* player = sink.FindLevel(0x00000007);
+  Check("the player base carries the save's level 271",
+        player && player->level == save.player_level && player->level == 271);
+
+  // Ahtar's AIDT, byte for byte what his NPC_ record authors.
+  const RecordingSink::Ai* ahtar_ai = sink.FindAi(0x0001325F);
+  Check("Ahtar is unaggressive, brave, moral and helps friends",
+        ahtar_ai && ahtar_ai->ai.aggression == 0 && ahtar_ai->ai.confidence == 3 &&
+            ahtar_ai->ai.energy == 50 && ahtar_ai->ai.morality == 3 && ahtar_ai->ai.mood == 7 &&
+            ahtar_ai->ai.assistance == 2);
+
+  // Infamy, violent first. CrimeFactionImperial authors an all-zero CRVA, so no
+  // crime against it is ever worth gold: its 73 can only be a crime count.
+  const RecordingSink::Infamy* whiterun = sink.FindInfamy(0x000267EA);
+  Check("CrimeFactionWhiterun has seen 44 violent and 247 non-violent crimes",
+        whiterun && whiterun->violent == 44 && whiterun->non_violent == 247);
+  const RecordingSink::Infamy* imperial = sink.FindInfamy(0x00028848);
+  Check("CrimeFactionImperial has seen 73 violent crimes and no theft",
+        imperial && imperial->violent == 73 && imperial->non_violent == 0);
+  const RecordingSink::Infamy* thieves = sink.FindInfamy(0x0010A794);
+  Check("CrimeFactionThievesGuild has seen 18 thefts and no violence",
+        thieves && thieves->violent == 0 && thieves->non_violent == 18);
+
+  // Map exploration: one bare 16x16 grid per exterior cell, several masked ones
+  // per interior.
+  const RecordingSink::Visited* icerunner = sink.FindVisited(0x00009251);
+  Check("IcerunnerExterior01 uncovered 220 of its 256 map tiles",
+        icerunner && icerunner->grids == 1 && icerunner->tiles == 220);
+  const RecordingSink::Visited* inn = sink.FindVisited(0x000133C6);
+  Check("RiverwoodSleepingGiantInn carries nine local-map grids",
+        inn && inn->grids == 9);
+
+  Check("the line closing FFRiften10 (INFO 0x00013629) was spoken", sink.Said(0x00013629));
   Check("no id landed out of range", stats.forms.out_of_range == 0);
   Check("no plugin missing in the tally", stats.forms.missing_plugin == 0);
   // What is left over is entirely forms the save itself created at runtime,
@@ -517,10 +656,12 @@ void TestRealSave() {
       stats.actors, stats.actor_values, stats.actor_faction_ranks, stats.faction_reactions,
       stats.references_moved, stats.references_disabled);
   std::printf(
-      "  carried but not applied: %u visited cell grids, %u detached cells, %u spoken infos, "
-      "%u inventories, %u crime factions, %u ai profiles, %u actor levels\n",
-      stats.cells_visited, stats.cells_detached, stats.dialogue_said, stats.inventories,
-      stats.faction_crime, stats.actor_ai_profiles, stats.actor_levels);
+      "  also applied: %u visited cell grids, %u spoken infos, %u faction infamy counts, "
+      "%u ai profiles, %u actor levels\n",
+      stats.cells_visited, stats.dialogue_said, stats.faction_infamy, stats.actor_ai_profiles,
+      stats.actor_levels);
+  std::printf("  carried but not applied: %u detached cells, %u inventories\n",
+              stats.cells_detached, stats.inventories);
   std::printf(
       "  form ids: %u mapped, %u created at runtime, %u refused; %u change forms dropped, "
       "%u undecoded\n",
@@ -534,6 +675,7 @@ int main() {
   std::puts("savegame_applytest");
   TestRemap();
   TestApplySynthetic();
+  TestActorLevels();
   TestRealSave();
   std::printf("%s\n", g_failures == 0 ? "all checks passed" : "FAILURES");
   return g_failures == 0 ? 0 : 1;

@@ -33,6 +33,11 @@ constexpr u16 kCodecZlib = 1;
 
 // The global data record that carries the global variable table.
 constexpr u32 kGlobalVariablesRecord = 3;
+// The one that carries the forms the player made at runtime. It sits in the
+// same table as the globals, not in tables 2 or 3.
+constexpr u32 kCreatedObjectsRecord = 4;
+// Four tables in a fixed order, one per CreatedFormKind.
+constexpr u32 kCreatedFormTables = 4;
 
 // Larger than any real save, so a length field past it is corrupt or hostile
 // rather than something worth allocating for.
@@ -287,6 +292,59 @@ bool ReadGlobals(ByteSpan body,
   return true;
 }
 
+// Created objects, walked out of the same table the globals live in. Four
+// vsval-counted arrays back to back, each entry a RefID, a count, and a
+// vsval-counted list of magic effects. The whole record is consumed exactly,
+// which is what says the layout is right.
+bool ReadCreatedObjects(ByteSpan body,
+                        size_t offset,
+                        u32 record_count,
+                        const base::Vector<u32>& form_ids,
+                        base::Vector<CreatedForm>* out) {
+  Reader r(body);
+  if (!r.SeekTo(offset))
+    return false;
+  for (u32 i = 0; i < record_count; ++i) {
+    const u32 type = r.U32();
+    const u32 length = r.U32();
+    ByteSpan payload = r.Take(length);
+    if (!r.ok())
+      return false;
+    if (type != kCreatedObjectsRecord)
+      continue;
+
+    Reader c(payload);
+    for (u32 table = 0; table < kCreatedFormTables; ++table) {
+      const u32 count = c.VsVal();
+      // Smallest entry is RefID(3) + count(4) + an empty effect list(1).
+      if (!c.ok() || static_cast<u64>(count) * 8 > c.remaining())
+        return false;
+      for (u32 k = 0; k < count && c.ok(); ++k) {
+        CreatedForm form;
+        form.form_id = ResolveRefId(c.ReadRefId(), form_ids);
+        form.unknown_count = c.U32();
+        form.kind = static_cast<CreatedFormKind>(table);
+        const u32 effects = c.VsVal();
+        if (!c.ok() || static_cast<u64>(effects) * 19 > c.remaining())
+          return false;
+        for (u32 e = 0; e < effects; ++e) {
+          CreatedEffect effect;
+          effect.effect = ResolveRefId(c.ReadRefId(), form_ids);
+          effect.magnitude = c.F32();
+          effect.duration = c.U32();
+          c.U32();  // area; zero for every effect in the reference save
+          effect.value = c.F32();
+          form.effects.push_back(effect);
+        }
+        out->push_back(base::move(form));
+      }
+    }
+    if (!c.ok())
+      return false;
+  }
+  return true;
+}
+
 bool ReadChangeForms(ByteSpan body,
                      size_t offset,
                      u32 count,
@@ -495,6 +553,9 @@ bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
     return false;
   if (!ReadGlobals(body, globals_offset, flt.global_data_table1_count, save.form_ids,
                    &save.globals))
+    return false;
+  if (!ReadCreatedObjects(body, globals_offset, flt.global_data_table1_count, save.form_ids,
+                          &save.created_forms))
     return false;
   if (!ReadChangeForms(body, change_forms_offset, flt.change_form_count, save.form_ids,
                        &save.change_forms))

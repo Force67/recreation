@@ -311,6 +311,11 @@ class SkyrimBindings {
   virtual i32 GetCrimeGold(papyrus::ObjectRef faction) { return 0; }
   virtual void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) {}
   virtual void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) {}
+  // Infamy: how many crimes of each kind the faction has seen. Separate from the
+  // bounty because paying one off leaves the other standing.
+  virtual void SetInfamy(papyrus::ObjectRef faction, i32 violent, i32 non_violent) {}
+  virtual i32 GetInfamyViolent(papyrus::ObjectRef faction) { return 0; }
+  virtual i32 GetInfamyNonViolent(papyrus::ObjectRef faction) { return 0; }
 
   // Quests (new in-engine state system).
   virtual i32 GetStage(papyrus::ObjectRef quest) { return 0; }

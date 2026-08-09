@@ -46,6 +46,36 @@ enum class ChangeFormType : u8 {
   kLvln = 44, kLvli = 45, kEnch = 48, kUnknown = 63,
 };
 
+// What a form the player made at runtime was made as. The four tables are
+// stored in this order and nothing else in the save says which kind an id is.
+enum class CreatedFormKind : u8 {
+  kWeaponEnchantment,
+  kArmorEnchantment,
+  kPotion,
+  kPoison,
+};
+
+struct CreatedEffect {
+  u32 effect = 0;        // MGEF form id, already resolved through the save
+  f32 magnitude = 0.0f;
+  u32 duration = 0;      // seconds
+  // The price the game computed, which is what the item is worth. Only the
+  // first effect of a multi-effect item carries it; the rest read 0.
+  f32 value = 0.0f;
+};
+
+// A base form the save invented: a player enchantment or an alchemy product.
+// Its id is 0xFFxxxxxx and no plugin has a record for it, so this table is the
+// only description of it that exists.
+struct CreatedForm {
+  u32 form_id = 0;
+  CreatedFormKind kind = CreatedFormKind::kWeaponEnchantment;
+  // Never zero and small (1..24 across the reference save), which reads like a
+  // copy count; ReSaver calls it timesUsed. Nothing in the file settles it.
+  u32 unknown_count = 0;
+  base::Vector<CreatedEffect> effects;
+};
+
 // One record as it sits in the file: still opaque, already decompressed.
 struct ChangeForm {
   u32 form_id = 0;          // resolved through the form-id map, not raw
@@ -81,6 +111,10 @@ struct SaveFile {
   // Global variables (form id -> value), the cheapest thing a save carries and
   // the one most gameplay systems read.
   base::Vector<base::Pair<u32, f32>> globals;
+  // Forms the save itself created. Not one of them has a ChangeForm of its own,
+  // so this list is their whole definition and a 0xFFxxxxxx id naming one
+  // cannot be resolved out of the change form block at all.
+  base::Vector<CreatedForm> created_forms;
 };
 
 // Layer 1. Returns false and leaves `out` untouched on a malformed file.

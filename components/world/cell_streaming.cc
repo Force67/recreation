@@ -19,6 +19,7 @@
 #include <memory>
 #include <span>
 
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/starfield_mesh.h"
 #include "components/world/components.h"
@@ -2907,6 +2908,8 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     world.Add(entity, transform);
     world.Add(entity, FormLink{id});
     world.Add(entity, Npc{base_id});
+    if (actor_stats_)
+      world.Add(entity, actor_stats_->For(base_id, base_record));
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
     Prop prop{base_id, classification.capabilities};
     std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
@@ -3898,6 +3901,7 @@ bool CellStreamer::LoadInterior(ecs::World& world,
   // tracked in interior_cell_ so a later transition (a door out) can unload
   // them; exterior streaming stays suspended while it is active.
   interior_cell_ = LoadedCell{};
+  interior_form_ = cell_id;
   interior_active_ = true;
   ResolveInteriorLighting(cell_id);
   LoadedCell& cell = interior_cell_;
@@ -3994,6 +3998,7 @@ bool CellStreamer::EnterInterior(ecs::World& world,
 void CellStreamer::EnterExterior(ecs::World& world) {
   UnloadInterior(world);
   interior_active_ = false;
+  interior_form_ = {};
   interior_lighting_ = InteriorLighting{};
   announced_idle_ = false;
   if (on_location_change_)

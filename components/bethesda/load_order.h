@@ -92,6 +92,11 @@ class RecordStore {
   using ExteriorGrid = base::UnorderedMap<u32, ExteriorCell>;
   const ExteriorGrid* ExteriorCells(GlobalFormId worldspace) const;
 
+  // The worldspace and grid coordinate an exterior CELL sits at. False for an
+  // interior cell, which has no grid. The savegame's map-visited bits arrive
+  // keyed by cell form id and mean nothing until they are placed on a grid.
+  bool CellGridLocation(GlobalFormId cell, GlobalFormId* worldspace, i16* x, i16* y) const;
+
   // Finds a worldspace by editor id, e.g. "Tamriel". Invalid plugin 0xffff
   // when not found.
   GlobalFormId FindWorldspace(base::StringRef editor_id) const;

@@ -34,6 +34,12 @@ struct Response {
   // available when these pass. ParseInfoRecord leaves the form-id params raw;
   // ParseTopic resolves them so they can be evaluated against engine state.
   quest::ConditionList conditions;
+  // ENAM bit 0x4: the line is offered once and never again. Read off the record
+  // rather than guessed: of the 9822 lines a 100% Skyrim save records as spoken,
+  // the 399 carrying this bit hang off the one-shot topics (every ...IntroTopic,
+  // ...InitialBranchTopic, ...ForcegreetTopic, CWVictoryTopic), and the
+  // repeatable ones (carriage destinations, services) do not carry it.
+  bool say_once = false;
 };
 
 // One DIAL topic and the responses under it.
@@ -72,6 +78,23 @@ bool ResponseAvailable(const Response& response, const quest::ConditionContext& 
 // in topic then response order -- the player's dialogue menu for an NPC.
 base::Vector<Response> AvailableResponses(const base::Vector<Topic>& topics,
                                           const quest::ConditionContext& ctx);
+
+// The lines the player has already heard, one entry per INFO. Kept per response
+// and not per topic because that is how the games record it: a topic stays open
+// while any line under it is still unheard, and only the say-once ones close.
+//
+// Filled from a resumed savegame and added to as the player talks, so a line
+// exhausted three hundred hours ago and one exhausted a minute ago read alike.
+class SaidTopics {
+ public:
+  void MarkSaid(Handle info) { said_[info] = true; }
+  bool Said(Handle info) const { return said_.find(info) != nullptr; }
+  size_t size() const { return said_.size(); }
+  void Clear() { said_.clear(); }
+
+ private:
+  base::UnorderedMap<Handle, bool> said_;
+};
 
 // A startup index from quest handle to the DIAL topics bound to it (by QNAM),
 // so opening dialogue for a quest does not rescan every topic.

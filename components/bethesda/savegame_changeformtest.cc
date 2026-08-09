@@ -5,12 +5,18 @@
 // complete, unmodified record body, and the record it came from is named above
 // it. The last block feeds the decoders truncated and corrupt input, which must
 // come back false rather than read past the buffer.
+//
+// The last block opens the save itself, when it is on the machine, and asserts
+// what only a whole record can show: the player's own 130087 byte ACHR.
 
+#include <base/containers/span.h>
 #include <base/containers/vector.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
+#include "components/bethesda/savegame.h"
 #include "components/bethesda/savegame_changeform.h"
 #include "core/types.h"
 
@@ -34,6 +40,7 @@ using rx::bethesda::QuestChange;
 using rx::bethesda::ReferenceChange;
 using rx::bethesda::ResolveChangeRef;
 using rx::f32;
+using rx::i64;
 using rx::u16;
 using rx::u32;
 using rx::u8;
@@ -59,8 +66,12 @@ base::Vector<u8> Hex(const char* text) {
   return out;
 }
 
-ChangeForm Form(ChangeFormType type, u32 flags, const char* hex) {
+// `form_id` matters to the reference decoder: a form the save invented at
+// runtime (0xFFxxxxxx) writes its base object into the transform group, so a
+// record pasted in without its id decodes as a different shape.
+ChangeForm Form(ChangeFormType type, u32 flags, const char* hex, u32 form_id = 0) {
   ChangeForm form;
+  form.form_id = form_id;
   form.type = type;
   form.flags = flags;
   form.version = 78;
@@ -106,10 +117,38 @@ constexpr const char* kRefrPlaced =
     "0000";
 
 // ACHR 0x00000014, the player. Only the leading transform is pasted in: the
-// real payload runs to 130087 bytes of actor state this layer does not decode,
-// and the decoder stops after the transform on an ACHR anyway.
+// real payload runs to 130087 bytes, so the whole record is exercised against
+// the save itself in TestRealSave instead.
 constexpr const char* kPlayerTransform =
     "40003c9806bcc60617bf47838350c6f8602bbe00000080be21c23e00000000";
+
+// ACHR 0x000D2B17, an actor standing in a Windhelm house: transform, form flags
+// and an inventory of two stacks, both marked worn, each carrying the outfit
+// item that put it there.
+constexpr const char* kActorDressed =
+    "41677e41336f45cb5da2c5e7d652c20000000000000080c1a99240ffffffffa2212038"
+    "2b0200000000084869910100000004088e49d5e0164869930100000004088e49d5e016"
+    "fff14ead3f000080bf803ae643b31031c4000000000000000000000000000000000000"
+    "000000000000000000001b8f0000000020420000000000000002000000000001000000"
+    "0001000000000000000000000000000000000000000000030000000000000000000000"
+    "0000000003000000000000000000000000000000030000000000000000000000000000"
+    "000300000000000000000000000000000010180000000000964219000000000070421a"
+    "000000000070424d00000000000000000000000000040100100000000000ffffff7f00"
+    "00000000000000";
+
+// REFR 0x0004FDAF, an urn whose base DB11LargeUrn (0x0004FDAE) authors 20000
+// gold. The save records -20000, i.e. the player emptied it.
+constexpr const char* kRefrEmptiedUrn =
+    "0904000040000488000440000fe0b1ffff003c000500436c6f7365002a0000000000";
+
+// REFR 0x00039F1C, MQ201ElenwenOfficeChest (base 0x000F684D), which authors one
+// copy each of two books. Both are recorded as -1.
+constexpr const char* kRefrLootedChest =
+    "048800084f6846ffffffff004f6845ffffffff003c000500436c6f7365002a0000000000";
+
+// REFR 0x000CD0B6, a BarrelIngredientCommon01 holding four of one ingredient
+// with an extra-data list on the stack.
+constexpr const char* kRefrBarrel = "04434d220400000004082e0000000000240400";
 
 // CELL 0x00013A7B DragonBridgePenitusOculatusOutpost.
 constexpr const char* kCellDragonBridge =
@@ -206,9 +245,9 @@ void TestFaction() {
             faction.reactions[2].combat_reaction == 1);
 
   Check("form flags", faction.has_form_flags && faction.form_flags == 0x00009070u);
-  Check("crime counts are 44 and 247",
-        faction.has_crime && faction.crime_count_a == 44 &&
-            faction.crime_count_b == 247);
+  Check("44 violent and 247 non-violent crimes on record",
+        faction.has_crime && faction.infamy_violent == 44 &&
+            faction.infamy_non_violent == 247);
   Check("first crime time is the never sentinel",
         faction.crime_time_a == -3.40282347e+38f);
   Check("second crime time", faction.crime_time_b == 41867.3125f);
@@ -250,7 +289,8 @@ void TestActorBase() {
 }
 
 void TestReference() {
-  ChangeForm gold = Form(ChangeFormType::kRefr, 0x00000020u, kRefrGold);
+  ChangeForm gold =
+      Form(ChangeFormType::kRefr, 0x00000020u, kRefrGold, 0x000BBCD1u);
   ReferenceChange container;
   Check("gold container decodes", DecodeReference(gold, container));
   Check("one inventory stack",
@@ -258,11 +298,12 @@ void TestReference() {
   Check("613 of Gold001 0x0000000F",
         IsDefault(container.inventory[0].item, 0x0000000Fu) &&
             container.inventory[0].count == 613 &&
-            container.inventory[0].extra_count == 0);
+            !container.inventory[0].equipped);
   Check("no transform recorded", !container.moved && !container.has_form_flags);
   Check("payload fully consumed", container.decoded_bytes == gold.data.size());
 
-  ChangeForm placed = Form(ChangeFormType::kRefr, 0x00000003u, kRefrPlaced);
+  ChangeForm placed =
+      Form(ChangeFormType::kRefr, 0x00000003u, kRefrPlaced, 0xFF00081Du);
   ReferenceChange ref;
   Check("placed reference decodes", DecodeReference(placed, ref));
   Check("parent cell is WhiterunDragonsreach 0x000165A3",
@@ -278,11 +319,16 @@ void TestReference() {
   Check("neither deleted nor initially disabled",
         (ref.form_flags & rx::bethesda::kFormFlagDeleted) == 0 &&
             (ref.form_flags & rx::bethesda::kFormFlagInitiallyDisabled) == 0);
+  // A created reference carries its base object inside the transform group, and
+  // that is the only thing that makes this payload add up to its 37 bytes.
+  Check("created reference names its base object 0x000F1470",
+        IsDefault(ref.base_object, 0x000F1470u));
   Check("payload fully consumed", ref.decoded_bytes == placed.data.size());
 
-  // An ACHR opens with the same transform, so the same decoder takes it, but it
-  // stops there: the rest of an actor record is not this layout.
-  ChangeForm player = Form(ChangeFormType::kAchr, 0xb8000c32u, kPlayerTransform);
+  // An ACHR opens with the same transform, so the same decoder takes it. This
+  // one is only the transform, so the walk has to stop where the bytes do.
+  ChangeForm player =
+      Form(ChangeFormType::kAchr, 0xb8000c32u, kPlayerTransform, 0x00000014u);
   ReferenceChange actor_ref;
   Check("the player's ACHR decodes", DecodeReference(player, actor_ref));
   Check("the player stands in the Tamriel worldspace 0x0000003C",
@@ -292,13 +338,82 @@ void TestReference() {
                                actor_ref.position[2] == -13344.8779f);
   Check("player rotation", actor_ref.rotation[0] == -0.167362094f &&
                                actor_ref.rotation[2] == 0.379163682f);
-  Check("the ACHR walk stops after the transform",
-        actor_ref.decoded_bytes == 31 && !actor_ref.has_form_flags &&
+  Check("a payload cut off after the transform reports only the transform",
+        actor_ref.decoded_bytes == 27 && !actor_ref.has_form_flags &&
             actor_ref.inventory.empty());
+
+  // A whole actor record: the eight bytes an ACHR writes with no flag asking
+  // for them, then the flag groups, then the actor's own block.
+  ChangeForm dressed =
+      Form(ChangeFormType::kAchr, 0x08000023u, kActorDressed, 0x000D2B17u);
+  ReferenceChange townsfolk;
+  Check("a dressed actor decodes", DecodeReference(dressed, townsfolk));
+  Check("stands in cell WindhelmHouseofClanShatterShield 0x0001677E",
+        townsfolk.moved && IsDefault(townsfolk.parent, 0x0001677Eu));
+  Check("form flags read past the unflagged eight bytes",
+        townsfolk.has_form_flags && townsfolk.form_flags == 0x0000022Bu);
+  Check("two inventory stacks, both worn",
+        townsfolk.inventory_complete && townsfolk.inventory.size() == 2 &&
+            townsfolk.inventory[0].equipped && townsfolk.inventory[1].equipped);
+  Check("wearing ClothesFineClothes01 0x00086991",
+        IsDefault(townsfolk.inventory[0].item, 0x00086991u) &&
+            townsfolk.inventory[0].count == 1);
+  Check("wearing ClothesFineBoots01 0x00086993",
+        IsDefault(townsfolk.inventory[1].item, 0x00086993u) &&
+            townsfolk.inventory[1].count == 1);
+  // Its value tables are all empty, which is the normal case: an ordinary NPC
+  // takes its values from its base record and stores no rows of its own.
+  Check("no actor values of its own", townsfolk.actor_values.empty());
+  Check("the flag groups end 70 bytes in, where the actor block starts",
+        townsfolk.decoded_bytes == 70);
 
   ReferenceChange other;
   Check("refuses a quest change form",
         !DecodeReference(Form(ChangeFormType::kQust, 3, kRefrPlaced), other));
+}
+
+// A saved inventory count is a DELTA against the contents the container's base
+// record authors, not the contents themselves. These three are the proof, and
+// the authored counts they are checked against come from Skyrim.esm: without
+// that reading, an emptied container looks like one holding a negative number
+// of things.
+void TestContainerDelta() {
+  ChangeForm urn =
+      Form(ChangeFormType::kRefr, 0x90000021u, kRefrEmptiedUrn, 0x0004FDAFu);
+  ReferenceChange emptied;
+  Check("the emptied urn decodes", DecodeReference(urn, emptied));
+  Check("one stack, complete",
+        emptied.inventory_complete && emptied.inventory.size() == 1);
+  // DB11LargeUrn authors 20000 Gold001, so -20000 is "the player took it all"
+  // and 20000 + (-20000) is the count that survives the load.
+  Check("Gold001 0x0000000F at -20000, exactly what the base record authors",
+        IsDefault(emptied.inventory[0].item, 0x0000000Fu) &&
+            emptied.inventory[0].count == -20000);
+  Check("payload fully consumed", emptied.decoded_bytes == urn.data.size());
+
+  ChangeForm chest =
+      Form(ChangeFormType::kRefr, 0x98000020u, kRefrLootedChest, 0x00039F1Cu);
+  ReferenceChange looted;
+  Check("the looted chest decodes", DecodeReference(chest, looted));
+  Check("two stacks", looted.inventory_complete && looted.inventory.size() == 2);
+  Check("both books at -1, one each as MQ201ElenwenOfficeChest authors them",
+        IsDefault(looted.inventory[0].item, 0x000F6846u) &&
+            looted.inventory[0].count == -1 &&
+            IsDefault(looted.inventory[1].item, 0x000F6845u) &&
+            looted.inventory[1].count == -1);
+  Check("payload fully consumed", looted.decoded_bytes == chest.data.size());
+
+  // A stack carrying extra data used to end the walk here; now the list is
+  // stepped over by type and the count on the far side of it still reads.
+  ChangeForm barrel =
+      Form(ChangeFormType::kRefr, 0x08000020u, kRefrBarrel, 0x000CD0B6u);
+  ReferenceChange ingredients;
+  Check("the ingredient barrel decodes", DecodeReference(barrel, ingredients));
+  Check("four of 0x00034D22 read past its extra-data list",
+        ingredients.inventory_complete && ingredients.inventory.size() == 1 &&
+            IsDefault(ingredients.inventory[0].item, 0x00034D22u) &&
+            ingredients.inventory[0].count == 4);
+  Check("payload fully consumed", ingredients.decoded_bytes == barrel.data.size());
 }
 
 void TestDialogueInfo() {
@@ -369,11 +484,16 @@ void TestMalformed() {
   QuestChange out;
   Check("an absurd stage count is rejected", !DecodeQuest(huge, out));
 
+  // An inventory count that cannot fit in what is left ends the walk. The
+  // record still decodes, because its transform stands, but not one item is
+  // reported off a count the payload cannot back.
   ChangeForm huge_inventory =
       Form(ChangeFormType::kRefr, 0x00000020u, "fcffff0300000000");
   ReferenceChange inv;
-  Check("an absurd inventory count is rejected",
-        !DecodeReference(huge_inventory, inv));
+  Check("an absurd inventory count yields no items",
+        DecodeReference(huge_inventory, inv) && inv.inventory.empty() &&
+            !inv.inventory_complete &&
+            inv.decoded_bytes < huge_inventory.data.size());
 
   ChangeForm huge_reactions =
       Form(ChangeFormType::kFact, 0x00000004u, "fcffff03000000");
@@ -409,6 +529,155 @@ void TestMalformed() {
         !DecodeReference(empty_ref, nothing_ref));
 }
 
+// The 100% complete save the layouts above were derived from. Not in the repo,
+// so this half is skipped when the file is not on the machine; point
+// RX_SAVEGAME_TEST_FILE at one to run it elsewhere. What it proves that a
+// pasted payload cannot: the player's own record, all 130087 bytes of it.
+constexpr const char kRealSavePath[] =
+    "/home/vince/Documents/Projects/recreation/Skyrim Special Edition 100 Percent Complete "
+    "Save-53504-1-0-1628477233/pawelos4.ess";
+
+bool ReadWholeFile(const char* path, base::Vector<u8>* out) {
+  std::FILE* f = std::fopen(path, "rb");
+  if (!f)
+    return false;
+  std::fseek(f, 0, SEEK_END);
+  const long size = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  if (size <= 0) {
+    std::fclose(f);
+    return false;
+  }
+  out->resize(static_cast<size_t>(size));
+  const bool ok = std::fread(out->data(), 1, static_cast<size_t>(size), f) ==
+                  static_cast<size_t>(size);
+  std::fclose(f);
+  return ok;
+}
+
+f32 ActorValueOf(const ReferenceChange& ref, u32 index) {
+  for (const rx::bethesda::ActorValueEntry& entry : ref.actor_values) {
+    if (entry.index == index)
+      return entry.value;
+  }
+  return -1.0f;
+}
+
+void TestRealSave() {
+  const char* path = std::getenv("RX_SAVEGAME_TEST_FILE");
+  if (!path)
+    path = kRealSavePath;
+  base::Vector<u8> file;
+  if (!ReadWholeFile(path, &file)) {
+    std::printf("real save: skipped, %s not present\n", path);
+    return;
+  }
+  rx::bethesda::SaveFile save;
+  if (!rx::bethesda::ReadSaveFile(rx::ByteSpan(file.data(), file.size()), save)) {
+    Check("the real save parses", false);
+    return;
+  }
+  std::puts("real save: Pawelos, level 271, 100% complete");
+
+  const ChangeForm* player_ref = nullptr;
+  const ChangeForm* player_base = nullptr;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.form_id == 0x00000014u && form.type == ChangeFormType::kAchr)
+      player_ref = &form;
+    if (form.form_id == 0x00000007u && form.type == ChangeFormType::kNpc)
+      player_base = &form;
+  }
+  Check("the save carries the player's reference and base form",
+        player_ref != nullptr && player_base != nullptr);
+  if (player_ref == nullptr || player_base == nullptr)
+    return;
+
+  ReferenceChange player;
+  Check("the player's 130087 byte ACHR decodes",
+        player_ref->data.size() == 130087 && DecodeReference(*player_ref, player));
+  Check("the flag groups end 20051 bytes in", player.decoded_bytes == 20051);
+  Check("scale 1.0", player.has_scale && player.scale == 1.0f);
+
+  Check("289 inventory stacks", player.inventory_complete &&
+                                    player.inventory.size() == 289);
+  i64 gold = 0;
+  u32 equipped = 0;
+  bool has_bow = false;
+  for (const rx::bethesda::InventoryItem& item : player.inventory) {
+    if (IsDefault(item.item, 0x0000000Fu))
+      gold = item.count;
+    if (item.equipped || item.equipped_left)
+      ++equipped;
+    // DLC1DragonboneBow, the weapon the save has in hand.
+    if (item.item.kind == ChangeRefKind::kFormIdIndex && item.equipped &&
+        ResolveChangeRef(item.item, base::Span<const u32>(save.form_ids.data(),
+                                                          save.form_ids.size())) ==
+            0x020176F4u)
+      has_bow = true;
+  }
+  Check("1694067 gold", gold == 1694067);
+  Check("eight stacks worn", equipped == 8);
+  Check("6315 arrows of the worn stack are ammunition", has_bow);
+
+  Check("45 actor values", player.actor_values.size() == 45);
+  Check("health, magicka and stamina are 1000 each",
+        ActorValueOf(player, 24) == 1000.0f && ActorValueOf(player, 25) == 1000.0f &&
+            ActorValueOf(player, 26) == 1000.0f);
+  bool skills_capped = true;
+  for (u32 av = 6; av <= 23; ++av)
+    skills_capped = skills_capped && ActorValueOf(player, av) == 100.0f;
+  Check("all eighteen skills at 100", skills_capped);
+  Check("carry weight 850 and speed 100",
+        ActorValueOf(player, 32) == 850.0f && ActorValueOf(player, 30) == 100.0f);
+
+  ActorBaseChange base;
+  Check("the player's NPC_ record decodes", DecodeActorBase(*player_base, base));
+  Check("level 271", base.has_stats && base.level == 271);
+  Check("three spells and 28 shouts",
+        base.spells.size() == 3 && base.levelled_spells.empty() &&
+            base.shouts.size() == 28);
+  Check("the first spell is Flames 0x00012FCD",
+        !base.spells.empty() && IsDefault(base.spells[0], 0x00012FCDu));
+  Check("32 faction ranks", base.factions.size() == 32);
+
+  // Every reference in the file, walked. A plain REFR has to consume its
+  // payload exactly or the decoder drops what it read, so this is the whole
+  // corpus checking the layout rather than one hand-picked record.
+  u32 refr = 0, refr_exact = 0, achr = 0, achr_inventory = 0, achr_values = 0;
+  u32 achr_full_tables = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kRefr && form.type != ChangeFormType::kAchr)
+      continue;
+    ReferenceChange decoded;
+    if (!DecodeReference(form, decoded))
+      continue;
+    if (form.type == ChangeFormType::kRefr) {
+      ++refr;
+      if (decoded.decoded_bytes == form.data.size())
+        ++refr_exact;
+    } else {
+      ++achr;
+      if (decoded.inventory_complete)
+        ++achr_inventory;
+      if (!decoded.actor_values.empty()) {
+        ++achr_values;
+        if (decoded.actor_values.size() == 45)
+          ++achr_full_tables;
+      }
+    }
+  }
+  Check("106098 REFR and 20658 ACHR change forms", refr == 106098 && achr == 20658);
+  // A plain reference is nothing but its groups, so landing anywhere but the
+  // last byte means the walk went wrong. Almost all of them land: the ones that
+  // do not carry an extra-data type this layer refuses to size.
+  Check("102196 REFR payloads consume to the last byte", refr_exact == 102196);
+  Check("17893 ACHR inventories walk to the end", achr_inventory == 17893);
+  // The 45 rows are the same 45 actor values every time, so a table that turns
+  // up with any other count would be a coincidence being read as data.
+  Check("67 actors carry value rows, all of them 45 rows",
+        achr_values == 67 && achr_full_tables == 67);
+}
+
 }  // namespace
 
 int main() {
@@ -418,9 +687,11 @@ int main() {
   TestFaction();
   TestActorBase();
   TestReference();
+  TestContainerDelta();
   TestDialogueInfo();
   TestCell();
   TestMalformed();
+  TestRealSave();
 
   if (g_failures == 0) {
     std::puts("savegame changeform: all checks passed");

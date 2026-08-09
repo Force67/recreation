@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/record.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_import.h"
@@ -730,6 +731,43 @@ void RecordBackedSkyrimBindings::ModCrimeGold(ObjectRef faction, i32 delta) {
   gold = base::Max(0, gold + delta);
 }
 
+void RecordBackedSkyrimBindings::SetInfamy(ObjectRef faction, i32 violent, i32 non_violent) {
+  infamy_[faction.handle] = Infamy{base::Max(0, violent), base::Max(0, non_violent)};
+}
+
+i32 RecordBackedSkyrimBindings::GetInfamyViolent(ObjectRef faction) {
+  const Infamy* it = infamy_.find(faction.handle);
+  return it == nullptr ? 0 : it->violent;
+}
+
+i32 RecordBackedSkyrimBindings::GetInfamyNonViolent(ObjectRef faction) {
+  const Infamy* it = infamy_.find(faction.handle);
+  return it == nullptr ? 0 : it->non_violent;
+}
+
+i32 RecordBackedSkyrimBindings::GetLevel(ObjectRef actor) {
+  if (const i32* level = actor_levels_.find(actor.handle))
+    return *level;
+  // No override: read the level off the actor's own NPC_ record. An actor whose
+  // base cannot be resolved is level 1 rather than a guess.
+  if (!records_)
+    return 1;
+  const ObjectRef base = GetBaseObject(actor);
+  bethesda::Record record;
+  if (base.handle == 0 || !records_->Parse(ToFormId(base), &record))
+    return 1;
+  bethesda::ActorStats stats;
+  if (!bethesda::ReadActorStats(record, player_level_, &stats))
+    return 1;
+  return static_cast<i32>(stats.level);
+}
+
+void RecordBackedSkyrimBindings::SetLevel(ObjectRef actor, i32 level) {
+  actor_levels_[actor.handle] = base::Max(1, level);
+  if (actor.handle == player_.handle)
+    player_level_ = static_cast<u32>(base::Max(1, level));
+}
+
 void RecordBackedSkyrimBindings::SetPlayerControl(i32 category, bool enabled) {
   if (!player_controls_init_) {
     player_controls_.fill(true);
@@ -1270,6 +1308,57 @@ void RecordBackedSkyrimBindings::Resurrect(ObjectRef actor) {
   dead_.erase(actor.handle);
   if (world_sink_)
     world_sink_->ActorResurrected(active_quest_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::SeedAuthoredInventory(ObjectRef container) {
+  if (records_ == nullptr || inventory_.contains(container.handle))
+    return;
+  const bethesda::GlobalFormId refr = ToFormId(container);
+  const bethesda::RecordStore::StoredRecord* placed = records_->Find(refr);
+  if (placed == nullptr)
+    return;
+  bethesda::Record record;
+  if (!records_->Parse(refr, &record))
+    return;
+  const bethesda::Subrecord* name = record.Find(FourCc('N', 'A', 'M', 'E'));
+  if (name == nullptr || name->data.size() < 4)
+    return;
+  u32 base_raw = 0;
+  std::memcpy(&base_raw, name->data.data(), 4);
+  const bethesda::GlobalFormId base =
+      records_->ResolveFrom(bethesda::RawFormId{base_raw}, placed->winning_plugin);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(base);
+  bethesda::Record contents;
+  if (stored == nullptr || !records_->Parse(base, &contents))
+    return;
+  // CNTO is { form id, count }. A levelled list in there is left alone: what it
+  // rolls is decided at runtime and the record does not say.
+  auto& bucket = inventory_[container.handle];
+  for (const bethesda::Subrecord& sub : contents.subrecords) {
+    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
+      continue;
+    u32 item_raw = 0;
+    i32 count = 0;
+    std::memcpy(&item_raw, sub.data.data(), 4);
+    std::memcpy(&count, sub.data.data() + 4, 4);
+    if (count <= 0)
+      continue;
+    const bethesda::GlobalFormId item =
+        records_->ResolveFrom(bethesda::RawFormId{item_raw}, stored->winning_plugin);
+    bucket[item.packed()] += count;
+  }
+}
+
+void RecordBackedSkyrimBindings::SetItemCount(ObjectRef container, ObjectRef item, i32 count) {
+  if (container.handle == 0 || item.handle == 0)
+    return;
+  if (count <= 0) {
+    auto* it = inventory_.find(container.handle);
+    if (it != nullptr)
+      it->erase(item.handle);
+    return;
+  }
+  inventory_[container.handle][item.handle] = count;
 }
 
 i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item) {

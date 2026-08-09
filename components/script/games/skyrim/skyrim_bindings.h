@@ -375,6 +375,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetCrimeGold(papyrus::ObjectRef faction) override;
   void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) override;
   void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) override;
+  // Crimes the faction has seen the player commit, violent and not. Unlike the
+  // bounty this is never paid off, so it is stored rather than derived.
+  void SetInfamy(papyrus::ObjectRef faction, i32 violent, i32 non_violent) override;
+  i32 GetInfamyViolent(papyrus::ObjectRef faction) override;
+  i32 GetInfamyNonViolent(papyrus::ObjectRef faction) override;
 
   // Player controls (new system).
   void SetPlayerControl(i32 category, bool enabled) override;
@@ -398,6 +403,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void ModActorValue(papyrus::ObjectRef actor, const base::String& av, f32 delta) override;
   void RestoreActorValue(papyrus::ObjectRef actor, const base::String& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
+  // The actor's level: an override the savegame set, else the level its NPC_
+  // record authors, with a level-mult actor scaled against the player's own.
+  i32 GetLevel(papyrus::ObjectRef actor) override;
+  void SetLevel(papyrus::ObjectRef actor, i32 level);
   void Resurrect(papyrus::ObjectRef actor) override;
   bool IsInCombat(papyrus::ObjectRef actor) override;
   void SetRelationshipRank(papyrus::ObjectRef a, papyrus::ObjectRef b, i32 rank) override;
@@ -423,6 +432,16 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // number. Unknown tokens are left in place. Guest-thread only (touches the
   // quest system + records). Returns raw unchanged when it carries no token.
   base::String ResolveQuestText(u64 quest, const base::String& raw);
+
+  // Fills a container's inventory from the contents its base record authors
+  // (the CNTO list on the CONT or NPC_ behind the reference), unless it already
+  // holds something. Silent, and idempotent: a save's item deltas are relative
+  // to these, so they have to be in place before the save is applied, and
+  // applying two saves in a row must not double them.
+  void SeedAuthoredInventory(papyrus::ObjectRef container);
+  // Sets a stack outright, without the add/remove events: restoring a save is
+  // not a pickup, and there is nobody listening yet when it runs.
+  void SetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count);
 
   // Inventory (new system).
   i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) override;
@@ -654,6 +673,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   base::Vector<base::Pair<u64, i32>> faction_cache_;
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> reactions_;     // faction -> other
   base::UnorderedMap<u64, i32> crime_gold_;                             // faction -> gold
+  struct Infamy {
+    i32 violent = 0;
+    i32 non_violent = 0;
+  };
+  base::UnorderedMap<u64, Infamy> infamy_;    // faction -> crimes seen
+  base::UnorderedMap<u64, i32> actor_levels_;  // actor -> level override
+  // The player's level, which every level-mult actor scales against. Kept here
+  // because GetLevel has to answer for actors the player never meets.
+  u32 player_level_ = 1;
   base::Array<bool, SkyrimBindings::kControlCount> player_controls_{};  // true = enabled
   bool player_controls_init_ = false;
   base::UnorderedMap<u64, f32> global_values_;               // GlobalVariable overrides

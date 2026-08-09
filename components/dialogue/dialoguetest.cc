@@ -134,6 +134,36 @@ void TestInfoRecord() {
   Check("no fragment without vmad", r2.fragment_script.empty());
 }
 
+void TestSaidTopics() {
+  std::puts("said topics:");
+  Buffers buf;
+  // ENAM is the INFO's response flags; bit 0x4 is "say once". 0x2 (random) is
+  // the neighbouring bit a wrong mask would pick up.
+  bethesda::Record once;
+  Add(once, FourCc('N', 'A', 'M', '1'), buf.Str("Welcome to the College."));
+  const rx::u32 once_flags = 0x00000004u;
+  Add(once, FourCc('E', 'N', 'A', 'M'), buf.Bytes(&once_flags, 4));
+  Check("say once read off ENAM", dialogue::ParseInfoRecord(once, 1, "", nullptr).say_once);
+
+  bethesda::Record repeat;
+  Add(repeat, FourCc('N', 'A', 'M', '1'), buf.Str("Where to?"));
+  const rx::u32 repeat_flags = 0x00000002u;
+  Add(repeat, FourCc('E', 'N', 'A', 'M'), buf.Bytes(&repeat_flags, 4));
+  Check("a random line is not say once",
+        !dialogue::ParseInfoRecord(repeat, 2, "", nullptr).say_once);
+
+  bethesda::Record bare;
+  Add(bare, FourCc('N', 'A', 'M', '1'), buf.Str("Hm."));
+  Check("no ENAM is not say once", !dialogue::ParseInfoRecord(bare, 3, "", nullptr).say_once);
+
+  dialogue::SaidTopics said;
+  Check("nothing said to begin with", !said.Said(0x000a5678ull) && said.size() == 0);
+  said.MarkSaid(0x000a5678ull);
+  said.MarkSaid(0x000a5678ull);
+  Check("a line said twice counts once", said.Said(0x000a5678ull) && said.size() == 1);
+  Check("another line is untouched", !said.Said(0x000a5679ull));
+}
+
 void TestInfoConditions() {
   std::puts("info conditions:");
   Buffers buf;
@@ -213,6 +243,7 @@ void TestAvailableResponses() {
 int main() {
   TestInfoFragments();
   TestInfoRecord();
+  TestSaidTopics();
   TestInfoConditions();
   TestAvailableResponses();
   if (g_failures == 0) {

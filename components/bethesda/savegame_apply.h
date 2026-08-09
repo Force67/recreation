@@ -15,6 +15,7 @@
 // keeps Skyrim and Fallout 4 on one path: the sink is the only place a game's
 // runtime shape shows up.
 
+#include <base/containers/span.h>
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/strings/string_ref.h>
@@ -101,8 +102,25 @@ class SaveSink {
   // Actor state is keyed by the NPC base form, because that is what the save
   // changes; resolving a base to its placed reference is the runtime's job.
   virtual void SetActorValue(GlobalFormId actor_base, base::StringRef name, f32 value) {}
+  // The values an ACHR carries are the reference's own, not its base form's:
+  // they are what the actor levelled its way to, and no other actor sharing
+  // that base has them. The player's skills and vitals arrive here.
+  virtual void SetReferenceActorValue(GlobalFormId ref, base::StringRef name, f32 value) {}
   virtual void SetActorFactionRank(GlobalFormId actor_base, GlobalFormId faction, i32 rank) {}
+  // Already a level, never the multiplier: the save's own player level resolves
+  // a level-mult actor before it gets here.
+  virtual void SetActorLevel(GlobalFormId actor_base, u32 level) {}
+  virtual void SetActorAi(GlobalFormId actor_base, const ActorAi& ai) {}
   virtual void SetFactionReaction(GlobalFormId faction, GlobalFormId other, i32 reaction) {}
+  // How many crimes of each kind the faction has seen the player commit. Not a
+  // bounty: infamy survives paying one off (see FactionChange).
+  virtual void SetFactionInfamy(GlobalFormId faction, u32 violent, u32 non_violent) {}
+
+  // A dialogue response the player has already heard.
+  virtual void SetDialogueSaid(GlobalFormId info) {}
+  // Map exploration for one cell: `grids` is the uncovered-tile bitmap the save
+  // stores, empty for a cell that is only known to have been entered.
+  virtual void SetCellVisited(GlobalFormId cell, base::Span<const CellVisitedGrid> grids) {}
 
   virtual void SetReferenceEnabled(GlobalFormId ref, bool enabled) {}
   // `parent` is the cell the reference now sits in, or the worldspace when it
@@ -111,6 +129,15 @@ class SaveSink {
                              GlobalFormId parent,
                              const f32 position[3],
                              const f32 rotation[3]) {}
+
+  // One stack of a container's or actor's inventory. `delta` is signed and
+  // relative to the contents the container's base record authors, never an
+  // absolute count, so a sink that has no model of the authored contents cannot
+  // apply this at all (see InventoryItem).
+  virtual void AddContainerItem(GlobalFormId container,
+                                GlobalFormId item,
+                                i32 delta,
+                                bool equipped) {}
 };
 
 // Where the player stood when the save was written.
@@ -134,11 +161,20 @@ struct SaveApplyStats {
   u32 quest_aliases = 0;
   u32 actors = 0;
   u32 actor_values = 0;
+  u32 actors_with_values = 0;   // references carrying a value table of their own
+  u32 actor_values_unnamed = 0; // rows whose place in the value enumeration is unproven
   u32 actor_faction_ranks = 0;
+  u32 actor_levels = 0;       // NPC level, resolved through its level-mult form
+  u32 actor_ai_profiles = 0;  // aggression/confidence/energy/morality/mood
   u32 faction_reactions = 0;
+  u32 faction_infamy = 0;     // crime factions carrying an infamy count
+  u32 dialogue_said = 0;      // INFO records already spoken
+  u32 cells_visited = 0;      // cells carrying world/local map exploration
   u32 references_moved = 0;
   u32 references_enabled = 0;
   u32 references_disabled = 0;
+  u32 inventories = 0;       // containers and actors whose contents were pushed
+  u32 inventory_items = 0;   // item stacks inside them
 
   // Change forms that decoded but whose id could not be remapped, so nothing
   // was applied for them.
@@ -150,13 +186,20 @@ struct SaveApplyStats {
   // What the save carries and this layer deliberately does not push at the
   // sink, either because the payload group is not decoded or because no engine
   // system owns it. Reported so the gap is visible instead of silent.
-  u32 cells_visited = 0;      // world map exploration bits
-  u32 cells_detached = 0;     // cells the save had purged from memory
-  u32 dialogue_said = 0;      // INFO records already spoken
-  u32 inventories = 0;        // container/actor inventory lists
-  u32 faction_crime = 0;      // crime factions carrying a bounty
-  u32 actor_ai_profiles = 0;  // aggression/confidence/morality/mood
-  u32 actor_levels = 0;       // NPC level and its level-mult form
+  u32 cells_detached = 0;  // cells the save had purged from memory
+  // Inventories layer 2 could only read a prefix of, so what is there is not
+  // the container's real contents and none of it is applied.
+  u32 inventories_incomplete = 0;
+  // Base forms the save invented (player enchantments, brewed potions). They
+  // exist only in the save's own tables, so nothing in the load order can be
+  // pointed at them and the items that name them are dropped.
+  u32 created_forms = 0;
+  u32 inventory_items_created = 0;
+  // References the save spawned (0xFFxxxxxx REFR/ACHR change forms). Nothing
+  // can carry their ids over, but the payload names the base form they are an
+  // instance of, so they are one spawner away from being applicable.
+  u32 created_references = 0;
+  u32 created_references_with_base = 0;
 };
 
 // Finds the player's reference in the save and remaps its parent. False when
@@ -174,6 +217,11 @@ void ApplySave(const SaveFile& save, const FormRemap& remap, SaveSink& sink, Sav
 // 18 skills as the Creation Kit writes them; Fallout 4 reuses the group for a
 // different set that has not been validated here, so it yields nothing.
 base::StringRef ActorSkillName(SaveFormat format, u32 index);
+
+// The name behind an ActorValueEntry's index. Only the values whose position in
+// the game's enumeration is established are named; the rest yield nothing, so a
+// row this does not know is dropped rather than applied to the wrong value.
+base::StringRef ActorValueName(SaveFormat format, u32 index);
 
 }  // namespace rx::bethesda
 

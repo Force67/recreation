@@ -20,6 +20,10 @@ constexpr u32 kObjectiveCompleted = 0x02;
 
 // Skyrim's NPC_ skill array, in the order the Creation Kit writes it. These are
 // the actor value names the engine already knows (see sdk/Engine/ActorValue.cs).
+// Where the 18 skills start in the game's actor value enumeration, which is the
+// order kSkyrimSkills is in.
+constexpr u32 kSkyrimFirstSkillValue = 6;
+
 constexpr const char* kSkyrimSkills[kActorSkillCount] = {
     "OneHanded",  "TwoHanded",   "Marksman",    "Block",    "Smithing",    "HeavyArmor",
     "LightArmor", "Pickpocket",  "Lockpicking", "Sneak",    "Alchemy",     "Speechcraft",
@@ -120,10 +124,16 @@ void ApplyActorBase(const ChangeForm& form,
   }
   ++stats->actors;
 
-  if (actor.has_stats)
+  if (actor.has_stats) {
+    sink.SetActorLevel(id, ResolveActorLevel(actor.base_flags, actor.level, actor.calc_min_level,
+                                             actor.calc_max_level, save.player_level));
     ++stats->actor_levels;
-  if (actor.has_ai)
+  }
+  if (actor.has_ai) {
+    sink.SetActorAi(id, ActorAi{actor.aggression, actor.confidence, actor.energy, actor.morality,
+                                actor.mood, actor.assistance});
     ++stats->actor_ai_profiles;
+  }
 
   if (actor.has_skills) {
     sink.SetActorValue(id, "Health", static_cast<f32>(actor.health));
@@ -168,8 +178,10 @@ void ApplyFaction(const ChangeForm& form,
     ++stats->refused;
     return;
   }
-  if (faction.has_crime)
-    ++stats->faction_crime;
+  if (faction.has_crime) {
+    sink.SetFactionInfamy(id, faction.infamy_violent, faction.infamy_non_violent);
+    ++stats->faction_infamy;
+  }
 
   for (const FactionReaction& reaction : faction.reactions) {
     const u32 raw = ResolveChangeRef(
@@ -186,7 +198,8 @@ void ApplyReference(const ChangeForm& form,
                     const SaveFile& save,
                     const FormRemap& remap,
                     SaveSink& sink,
-                    SaveApplyStats* stats) {
+                    SaveApplyStats* stats,
+                    bool move_it = true) {
   ReferenceChange ref;
   if (!DecodeReference(form, ref)) {
     ++stats->undecoded;
@@ -195,12 +208,55 @@ void ApplyReference(const ChangeForm& form,
   GlobalFormId id;
   if (!MapCounted(remap, form.form_id, &id, stats)) {
     ++stats->refused;
+    // A reference the save spawned has no record in any plugin, so its id
+    // cannot be carried over. It does say what it is an instance of, though,
+    // and separating the ones that do from the ones that do not is what says
+    // how much of the drop is "nothing can spawn this yet" rather than "there
+    // is nothing readable here".
+    if ((form.form_id >> 24) == 0xff) {
+      ++stats->created_references;
+      GlobalFormId base;
+      if (!ref.base_object.none() && remap.MapRef(ref.base_object, save, &base))
+        ++stats->created_references_with_base;
+    }
     return;
   }
-  if (!ref.inventory.empty())
-    ++stats->inventories;
 
-  if (ref.moved) {
+  // An actor's own values: what it levelled its way to, keyed by the reference
+  // rather than the base form because no other actor sharing that base has them.
+  for (const ActorValueEntry& value : ref.actor_values) {
+    const base::StringRef name = ActorValueName(save.format, value.index);
+    if (name.empty()) {
+      ++stats->actor_values_unnamed;
+      continue;
+    }
+    sink.SetReferenceActorValue(id, name, value.value);
+    ++stats->actor_values;
+  }
+  if (!ref.actor_values.empty())
+    ++stats->actors_with_values;
+  if (!ref.inventory.empty() && !ref.inventory_complete)
+    ++stats->inventories_incomplete;
+  if (!ref.inventory.empty() && ref.inventory_complete) {
+    ++stats->inventories;
+    for (const InventoryItem& entry : ref.inventory) {
+      const u32 raw = ResolveChangeRef(
+          entry.item, base::Span<const u32>(save.form_ids.data(), save.form_ids.size()));
+      // An item the save invented has no record anywhere in the load order, so
+      // it is counted rather than handed over as some other form.
+      if ((raw >> 24) == 0xff) {
+        ++stats->inventory_items_created;
+        continue;
+      }
+      GlobalFormId item;
+      if (raw == 0 || !MapCounted(remap, raw, &item, stats))
+        continue;
+      sink.AddContainerItem(id, item, entry.count, entry.equipped || entry.equipped_left);
+      ++stats->inventory_items;
+    }
+  }
+
+  if (ref.moved && move_it) {
     // Without its parent the transform is a position in an unknown space, so a
     // reference whose cell did not survive the remap is left where the records
     // put it rather than moved to coordinates that mean nothing.
@@ -300,6 +356,45 @@ base::StringRef ActorSkillName(SaveFormat format, u32 index) {
   }
 }
 
+base::StringRef ActorValueName(SaveFormat format, u32 index) {
+  if (format != SaveFormat::kSkyrimLe && format != SaveFormat::kSkyrimSe)
+    return {};
+  // The 18 skills sit at 6 through 23, which is where an actor's value table
+  // and the NPC_ skill array meet.
+  if (index >= kSkyrimFirstSkillValue && index < kSkyrimFirstSkillValue + kActorSkillCount)
+    return kSkyrimSkills[index - kSkyrimFirstSkillValue];
+  switch (index) {
+    case 0: return "Aggression";
+    case 1: return "Confidence";
+    case 2: return "Energy";
+    case 3: return "Morality";
+    case 4: return "Mood";
+    case 5: return "Assistance";
+    case 24: return "Health";
+    case 25: return "Magicka";
+    case 26: return "Stamina";
+    case 27: return "HealRate";
+    case 28: return "MagickaRate";
+    case 29: return "StaminaRate";
+    case 30: return "SpeedMult";
+    case 31: return "InventoryWeight";
+    case 32: return "CarryWeight";
+    case 33: return "CritChance";
+    case 34: return "MeleeDamage";
+    case 35: return "UnarmedDamage";
+    case 36: return "DamageResist";
+    case 37: return "PoisonResist";
+    case 38: return "ResistFire";
+    case 39: return "ResistShock";
+    case 40: return "ResistFrost";
+    case 41: return "ResistMagic";
+    case 42: return "ResistDisease";
+    // Past the resistances the enumeration is not established here, and a value
+    // applied to the wrong name is worse than one not applied at all.
+    default: return {};
+  }
+}
+
 bool FindPlayerPlacement(const SaveFile& save, const FormRemap& remap, PlayerPlacement* out) {
   for (const ChangeForm& form : save.change_forms) {
     if (form.form_id != kPlayerFormId)
@@ -333,6 +428,8 @@ void ApplySave(const SaveFile& save,
   if (!remap.built())
     return;
 
+  stats->created_forms = static_cast<u32>(save.created_forms.size());
+
   // Globals first: they are the cheapest state and the one quest conditions and
   // the world clock read, so nothing else should observe the authored values.
   for (const base::Pair<u32, f32>& global : save.globals) {
@@ -359,17 +456,17 @@ void ApplySave(const SaveFile& save,
       ApplyFaction(form, save, remap, sink, stats);
   }
   for (const ChangeForm& form : save.change_forms) {
-    // The player is a reference like any other, but where it stands decides
-    // which cell the world streams, so it is handed over on its own
-    // (FindPlayerPlacement) rather than as one move among a hundred thousand.
-    if (form.form_id == kPlayerFormId)
+    if (form.type != ChangeFormType::kRefr && form.type != ChangeFormType::kAchr)
       continue;
-    if (form.type == ChangeFormType::kRefr || form.type == ChangeFormType::kAchr)
-      ApplyReference(form, save, remap, sink, stats);
+    // The player's record goes through the same walk as any other reference,
+    // for its values and its pack, but not for its position: where the player
+    // stands decides which cell the world streams, so the boot path takes that
+    // on its own out of FindPlayerPlacement.
+    ApplyReference(form, save, remap, sink, stats, form.form_id != kPlayerFormId);
   }
 
-  // What is left is counted, not applied: the engine has nowhere to put a world
-  // map, a detached cell or a line of dialogue that was already spoken.
+  // Map exploration and spoken dialogue last: neither depends on anything above
+  // and both are counted per record rather than per group.
   for (const ChangeForm& form : save.change_forms) {
     if (form.type == ChangeFormType::kCell) {
       CellChange cell;
@@ -377,13 +474,29 @@ void ApplySave(const SaveFile& save,
         ++stats->undecoded;
         continue;
       }
-      stats->cells_visited += static_cast<u32>(cell.visited.size());
       if (cell.detached)
         ++stats->cells_detached;
+      if (cell.visited.empty())
+        continue;
+      GlobalFormId id;
+      if (!MapCounted(remap, form.form_id, &id, stats)) {
+        ++stats->refused;
+        continue;
+      }
+      sink.SetCellVisited(id, base::Span<const CellVisitedGrid>(cell.visited.data(),
+                                                                cell.visited.size()));
+      stats->cells_visited += static_cast<u32>(cell.visited.size());
     } else if (form.type == ChangeFormType::kInfo) {
       DialogueInfoChange info;
-      if (DecodeDialogueInfo(form, info) && info.said)
-        ++stats->dialogue_said;
+      if (!DecodeDialogueInfo(form, info) || !info.said)
+        continue;
+      GlobalFormId id;
+      if (!MapCounted(remap, form.form_id, &id, stats)) {
+        ++stats->refused;
+        continue;
+      }
+      sink.SetDialogueSaid(id);
+      ++stats->dialogue_said;
     }
   }
 }

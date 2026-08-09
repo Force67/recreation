@@ -29,6 +29,7 @@ recreation_add_module(bethesda
   strings.cc
   script_attachment.cc
   tri.cc
+  actor_stats.cc
   savegame.cc
   savegame_changeform.cc
   savegame_apply.cc

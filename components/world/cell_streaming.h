@@ -17,6 +17,7 @@
 #include "asset/asset_database.h"
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/load_order.h"
+#include "components/world/actor_stats_store.h"
 #include "components/world/components.h"
 #include "components/world/grass_baker.h"
 #include "components/world/land_baker.h"
@@ -70,6 +71,11 @@ class CellStreamer {
   // mapping here so quests can target them and clients can apply replicated
   // actor transforms by form id.
   void set_quest_world(QuestWorld* quest_world) { quest_world_ = quest_world; }
+
+  // Optional actor stats store: placed actors then come up carrying the level
+  // and temperament their NPC_ record authors, and whatever a resumed savegame
+  // overrode. Without it they carry the component's defaults.
+  void set_actor_stats(ActorStatsStore* stats) { actor_stats_ = stats; }
 
   // Optional job system: in-range cells then prefetch their base-model
   // conversions on worker threads (see RX_STREAM_PREFETCH), so the main-thread
@@ -201,6 +207,13 @@ class CellStreamer {
   bool EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_id, Vec3* camera_position);
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
+  // Where the player is, in the terms a map keeps: the worldspace being
+  // streamed and the cell the load ring is centred on, or the interior cell when
+  // one is loaded (invalid outside). What feeds the discovery store.
+  bethesda::GlobalFormId worldspace() const { return worldspace_; }
+  bethesda::GlobalFormId interior_cell() const { return interior_form_; }
+  i16 anchor_cell_x() const { return ring_center_x_; }
+  i16 anchor_cell_y() const { return ring_center_y_; }
   void SyncReference(ecs::World& world, u64 handle);
   u64 RuntimeHandleForSource(ecs::World& world,
                              u64 owner_handle,
@@ -543,6 +556,7 @@ class CellStreamer {
   // placed refs are tracked here so a later transition can unload them.
   bool interior_active_ = false;
   LoadedCell interior_cell_;
+  bethesda::GlobalFormId interior_form_;  // which cell interior_cell_ holds
   InteriorLighting interior_lighting_;
   base::Function<void(u64, bool)> on_location_change_;  // load-door transition hook
   base::Function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
@@ -591,6 +605,7 @@ class CellStreamer {
     f32 position_offset[3] = {};
   };
   base::UnorderedMap<u64, PropState> prop_states_;
+  ActorStatsStore* actor_stats_ = nullptr;
   base::UnorderedMap<u64, bool> addressable_refs_;
   base::UnorderedMap<u64, bool> addressable_records_indexed_;
   bool addressable_refs_built_ = false;

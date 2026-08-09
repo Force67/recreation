@@ -229,6 +229,23 @@ const RecordStore::ExteriorGrid* RecordStore::ExteriorCells(GlobalFormId worldsp
   return exterior_.find(worldspace.packed());
 }
 
+bool RecordStore::CellGridLocation(GlobalFormId cell,
+                                   GlobalFormId* worldspace,
+                                   i16* x,
+                                   i16* y) const {
+  const CellGridSlot* slot = cell_grid_.find(cell.packed());
+  if (!slot)
+    return false;
+  if (worldspace)
+    *worldspace = GlobalFormId{static_cast<u16>(slot->worldspace >> 32),
+                               static_cast<u32>(slot->worldspace)};
+  if (x)
+    *x = static_cast<i16>(slot->grid_key >> 16);
+  if (y)
+    *y = static_cast<i16>(slot->grid_key & 0xffff);
+  return true;
+}
+
 GlobalFormId RecordStore::FindWorldspace(base::StringRef editor_id) const {
   constexpr u32 kWrld = FourCc('W', 'R', 'L', 'D');
   constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');

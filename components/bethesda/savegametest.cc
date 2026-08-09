@@ -360,6 +360,41 @@ void TestRealSave() {
   Check("20658 ACHR change forms", achr == 20658);
   Check("926 NPC_ change forms", npc == 926);
   Check("137404 change forms carry a payload", with_payload == 137404);
+
+  // Created objects: four tables in kind order, the whole 14596 byte record
+  // consumed exactly. None of these ids has a change form of its own, which is
+  // why this table is the only place they are described.
+  using rx::bethesda::CreatedFormKind;
+  size_t by_kind[4] = {};
+  for (const auto& created : save.created_forms)
+    ++by_kind[static_cast<size_t>(created.kind)];
+  Check("394 created forms", save.created_forms.size() == 394);
+  Check("43 weapon and 233 armour enchantments", by_kind[0] == 43 && by_kind[1] == 233);
+  Check("95 potions and 23 poisons", by_kind[2] == 95 && by_kind[3] == 23);
+  if (save.created_forms.size() == 394) {
+    const auto& first = save.created_forms[0];
+    Check("first created form is weapon enchantment 0xFF00110B",
+          first.form_id == 0xff00110bu && first.kind == CreatedFormKind::kWeaponEnchantment);
+    Check("it has one effect, EnchInfluenceConfDownFFContactLow 0x0005B451",
+          first.effects.size() == 1 && first.effects[0].effect == 0x0005b451u);
+    Check("10 points for 30 seconds", first.effects.size() == 1 &&
+                                          first.effects[0].magnitude == 10.0f &&
+                                          first.effects[0].duration == 30);
+    // The first potion, a 158 point Fortify Marksman brewed for 60 seconds.
+    const auto& potion = save.created_forms[43 + 233];
+    Check("first potion is 0xFF006FD2",
+          potion.form_id == 0xff006fd2u && potion.kind == CreatedFormKind::kPotion);
+    Check("AlchFortifyMarksman 0x0003EB1B, 158 points for 60 seconds",
+          potion.effects.size() == 1 && potion.effects[0].effect == 0x0003eb1bu &&
+              potion.effects[0].magnitude == 158.0f && potion.effects[0].duration == 60);
+    size_t with_effects = 0;
+    for (const auto& created : save.created_forms) {
+      if (!created.effects.empty() && created.unknown_count != 0)
+        ++with_effects;
+    }
+    Check("every created form carries at least one effect and a non-zero count",
+          with_effects == 394);
+  }
 }
 
 }  // namespace

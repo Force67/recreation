@@ -21,6 +21,7 @@
 #include <base/containers/span.h>
 #include <base/containers/vector.h>
 
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/savegame.h"
 #include "core/types.h"
 
@@ -57,7 +58,10 @@ constexpr u32 kRefrChangeHavokMoved = 0x00000004;
 constexpr u32 kRefrChangeCellChanged = 0x00000008;
 constexpr u32 kRefrChangeScale = 0x00000010;
 constexpr u32 kRefrChangeInventory = 0x00000020;
+constexpr u32 kRefrChangeBaseObject = 0x00000080;
+constexpr u32 kRefrChangePromoted = 0x02000000;
 constexpr u32 kRefrChangeLeveledInventory = 0x08000000;
+constexpr u32 kRefrChangeAnimation = 0x10000000;
 
 // The runtime TESForm flags a reference carries, as written by the
 // kRefrChangeFormFlags group.
@@ -67,11 +71,25 @@ constexpr u32 kFormFlagInitiallyDisabled = 0x00000800;
 struct InventoryItem {
   ChangeRef item;
   i32 count = 0;
-  // Number of extra-data blocks hanging off this stack (enchantment charge,
-  // soul level, poison, ...). Their encoding is per-extra-type and is not
-  // decoded, so a non-zero count ends the item walk.
-  u32 extra_count = 0;
+  // Set by the ExtraWorn / ExtraWornLeft markers on the stack, which is how a
+  // save says an actor has the thing in hand rather than just in its bag.
+  bool equipped = false;
+  bool equipped_left = false;
 };
+
+// One row of an actor's value table: a game ActorValue index (24 is Health, 6
+// to 23 the eighteen skills) and what the save recorded for it.
+struct ActorValueEntry {
+  u32 index = 0;
+  f32 value = 0.0f;
+  u8 modifier = 0;  // which modifier slot the row belongs to; meaning unproven
+};
+
+// How many value tables sit together in an actor's payload, and the bounds a
+// table has to respect to be one rather than a coincidence.
+constexpr u32 kActorValueTableCount = 6;
+constexpr u32 kActorValueIndexCount = 256;
+constexpr u32 kMaxActorValueEntries = 256;
 
 struct ReferenceChange {
   bool moved = false;
@@ -83,19 +101,33 @@ struct ReferenceChange {
   u32 form_flags = 0;
   u16 form_flags_extra = 0;
 
+  bool has_scale = false;
+  f32 scale = 1.0f;
+  ChangeRef base_object;  // only written for a reference that swapped its base
+
   base::Vector<InventoryItem> inventory;
-  // False when the walk stopped early on an item carrying extra data, i.e.
+  // False when the walk stopped before the end of the item list, i.e.
   // `inventory` is a prefix of the real contents.
   bool inventory_complete = false;
+
+  // An ACHR's actor values, when the payload admitted exactly one reading of
+  // them (see DecodeReference). Empty is "not found", never "the actor has
+  // none".
+  base::Vector<ActorValueEntry> actor_values;
 
   // How much of the payload the decoder actually understood. Anything past this
   // is a group this layer does not decode, not corruption.
   mem_size decoded_bytes = 0;
 };
 
-// Handles both REFR and ACHR, but an ACHR yields the transform only: the actor
-// record carries state the plain reference layout does not describe, so the
-// walk stops rather than land mid-record on the groups after it.
+// Handles both REFR and ACHR.
+//
+// The flag-driven groups (transform, form flags, base object, scale, extra
+// data, inventory, animation) are walked in full for both. What follows them on
+// an ACHR is the actor's own block: its AI process state first, which is
+// variable length and not decoded here, and the actor value tables inside it.
+// Those tables cannot be walked to, so they are searched for and only reported
+// when the payload admits exactly one reading; see the file for the rule.
 bool DecodeReference(const ChangeForm& form, ReferenceChange& out);
 
 // --- QUST ------------------------------------------------------------------
@@ -133,14 +165,15 @@ bool DecodeQuest(const ChangeForm& form, QuestChange& out);
 
 // --- NPC_ (actor base) -----------------------------------------------------
 
-constexpr u32 kActorBaseChangeStats = 0x00000002;      // ACBS
-constexpr u32 kActorBaseChangeAi = 0x00000008;         // AIDT
-constexpr u32 kActorBaseChangeUnknown10 = 0x00000010;  // variable, not decoded
-constexpr u32 kActorBaseChangeFactions = 0x00000040;   // SNAM
-constexpr u32 kActorBaseChangeSkills = 0x00000200;     // DNAM
+constexpr u32 kActorBaseChangeFormFlags = 0x00000001;
+constexpr u32 kActorBaseChangeStats = 0x00000002;     // ACBS
+constexpr u32 kActorBaseChangeAi = 0x00000008;        // AIDT
+constexpr u32 kActorBaseChangeSpells = 0x00000010;    // spells and shouts
+constexpr u32 kActorBaseChangeFactions = 0x00000040;  // SNAM
+constexpr u32 kActorBaseChangeSkills = 0x00000200;    // DNAM
 
-// ACBS bit that turns `level` into a 1000-based multiplier of the player level.
-constexpr u32 kActorBaseFlagLevelMult = 0x00000080;
+// `level` becomes a 1000-based multiplier of the player level under
+// kActorBaseFlagLevelMult (actor_stats.h), the same bit the NPC_ record uses.
 
 constexpr u32 kActorSkillCount = 18;
 
@@ -164,6 +197,12 @@ struct ActorBaseChange {
   u16 bleedout_override = 0;
 
   base::Vector<ActorFactionRank> factions;
+
+  // What the actor knows: the spells it was given, the levelled variants the
+  // game rolled for it, and one entry per shout it has words for.
+  base::Vector<ChangeRef> spells;
+  base::Vector<ChangeRef> levelled_spells;
+  base::Vector<ChangeRef> shouts;
 
   bool has_ai = false;
   u8 aggression = 0;
@@ -204,12 +243,28 @@ struct FactionChange {
   bool has_form_flags = false;
   u32 form_flags = 0;
 
-  // Written for crime factions. The two counts track the player's outstanding
-  // bounty; which is the violent one is not established, so both are exposed.
+  // Written for crime factions. The two counts are the player's infamy with the
+  // faction, i.e. how many crimes of each kind it has seen, which is not the
+  // same thing as the outstanding bounty and is never cleared by paying one.
+  //
+  // Established against the reference save rather than assumed. Neither count
+  // can be gold, outstanding or accumulated: CrimeFactionImperial and
+  // CrimeFactionThievesGuild author a CRVA of all zeroes, so no crime against
+  // them is ever worth any gold, yet they read 73 and 18 here; the save's own
+  // misc stats put every hold's Bounty at 0 and the lifetime bounty at 83539,
+  // neither of which is any of these numbers. Violent is the first of the two:
+  // summed over all 72 crime factions the first count is 541 against a lifetime
+  // 169 murders + 361 assaults (the excess is one crime seen by more than one
+  // faction), while the second sums to 1968, far past anything violent, and is
+  // non-zero exactly where the player stole rather than killed (ThievesGuild
+  // 0/18, Imperial 73/0, CompanionsFaction 1/47).
   bool has_crime = false;
-  u32 crime_count_a = 0;
-  u32 crime_count_b = 0;
-  f32 crime_time_a = 0.0f;  // -FLT_MAX when never set
+  u32 infamy_violent = 0;
+  u32 infamy_non_violent = 0;
+  // Two game-time stamps in hours. The first reads -FLT_MAX ("never") in every
+  // record of the reference save and the second is usually a real hour, so what
+  // each one times is not established.
+  f32 crime_time_a = 0.0f;
   f32 crime_time_b = 0.0f;
 
   mem_size decoded_bytes = 0;
