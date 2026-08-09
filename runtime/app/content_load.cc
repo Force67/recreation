@@ -487,6 +487,9 @@ bool LoadGameData(Engine& engine) {
 
   self->streamer_ = base::MakeUnique<world::CellStreamer>(self->records_, profile, *self->assets_);
   self->ctx_.streamer = (self->streamer_ ? &*self->streamer_ : nullptr);
+  // Placed actors carry the level and temperament their record authors, plus
+  // whatever the savegame applied before this streamer existed.
+  self->streamer_->set_actor_stats(&self->actor_stats_);
   // Forward load-door cell transitions to the managed world (LocationChanged), so
   // mods react to where the player is. Runs on the main thread; drained next frame.
   if (self->managed_) {

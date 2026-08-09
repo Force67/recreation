@@ -513,8 +513,9 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         if (ctx_.auto_walk_has_goal)
           ctx_.auto_walk_goal = goal;
       }
+      RefreshMapPanel(*this, frame_delta);
       debug_ui_.Build(*renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
-                      quest_->native_trace_panel());
+                      quest_->native_trace_panel(), &map_panel_);
       // Drain queued Debug.Notification messages onto the HUD toast.
       {
         base::Vector<base::String> notifications;

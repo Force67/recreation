@@ -42,6 +42,7 @@ enum class Action : ActionId {
   kToggleDebug,
   kToggleTrace,
   kToggleQuests,
+  kToggleMap,
   // Menu navigation (also drives the ugui focus ring).
   kMenuUp,
   kMenuDown,

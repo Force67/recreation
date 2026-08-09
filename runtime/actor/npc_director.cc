@@ -342,6 +342,7 @@ void NpcDirector::AcquireTargets() {
     u64 handle;
     i32 team;
     float pos[3];
+    bool starts_fights;
   };
   base::Vector<Cand> cands;
   world_.Each<world::Npc, world::CombatTeam, world::FormLink, world::Transform>(
@@ -349,19 +350,26 @@ void NpcDirector::AcquireTargets() {
           world::Transform& t) {
         if (ct.team == 0 || world_.Has<world::Dead>(e) || IsActorInactive(world_, e))
           return;
-        cands.push_back(
-            {link.form.packed(), ct.team, {t.position[0], t.position[1], t.position[2]}});
+        // An unaggressive actor (AIDT aggression 0) is still a target but never
+        // opens a fight. An actor with no profile at all is left to engage, so a
+        // spawner that hands out no temperament behaves as it always did.
+        const world::ActorStats* stats = world_.Get<world::ActorStats>(e);
+        const bool starts_fights = !stats || !stats->has_ai || stats->ai.aggression > 0;
+        cands.push_back({link.form.packed(),
+                         ct.team,
+                         {t.position[0], t.position[1], t.position[2]},
+                         starts_fights});
       });
   // The player can fight on a side (so NPCs target it); it is a target only, never
   // an auto-attacker (EnterCombat ignores the player handle).
   Vec3 ppos;
   if (player_team_ != 0 && actors_->HasPlayer() && actors_->PlayerWorldPos(&ppos))
-    cands.push_back({kPlayerHandle, player_team_, {ppos.x, ppos.y, ppos.z}});
+    cands.push_back({kPlayerHandle, player_team_, {ppos.x, ppos.y, ppos.z}, false});
 
   const f32 r2 = combat_params_.engage_radius * combat_params_.engage_radius;
   for (const Cand& self : cands) {
-    if (self.handle == kPlayerHandle)
-      continue;  // player picks targets by input
+    if (self.handle == kPlayerHandle || !self.starts_fights)
+      continue;  // the player picks targets by input; the unaggressive pick none
     if (combat_.find(self.handle))
       continue;  // already engaged
     u64 best = 0;

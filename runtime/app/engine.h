@@ -21,7 +21,9 @@
 #include "components/script/vehicle_drive_sink.h"
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
+#include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
+#include "components/world/map_discovery.h"
 #include "components/world/planet_tile.h"
 #include "core/input_bindings.h"
 #include "core/window.h"
@@ -249,6 +251,8 @@ class Engine : public app::Application {
   friend void ApplySavegameState(Engine&);
   friend void ApplySavegameLocation(Engine&);
   friend void PlaceSavegamePlayer(Engine&);
+  friend void MarkPlayerDiscovery(Engine&);
+  friend void RefreshMapPanel(Engine&, f32);
   friend bool LoadInterior(Engine&);
   friend bool LoadPlanetTile(Engine&, const base::String&);
   friend void LoadExtraDomains(Engine&);
@@ -431,6 +435,15 @@ class Engine : public app::Application {
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
   dialogue::DialogueDb dialogue_;
+  // Dialogue lines already heard, and the cells the player has uncovered on the
+  // map. Both are pure state a savegame fills and play adds to.
+  dialogue::SaidTopics said_topics_;
+  world::MapDiscovery map_discovery_;
+  // Actor level and temperament, read off the NPC_ records and overridden by a
+  // save. Outlives the streamer that reads it, which is why it lives here.
+  world::ActorStatsStore actor_stats_;
+  MapPanel map_panel_;
+  f32 map_panel_timer_ = 0.0f;
   base::UniquePointer<world::CellStreamer> streamer_;
   // Procedural Starfield planet tile (RX_STARFIELD_PLANET): the generator plus
   // the resolved surface it reads from, kept alive for the session (the ground
@@ -646,6 +659,11 @@ bool LoadSavegame(Engine& engine, const bethesda::LoadOrder& order);
 void ApplySavegameState(Engine& engine);
 void ApplySavegameLocation(Engine& engine);
 void PlaceSavegamePlayer(Engine& engine);
+// Map discovery on the live world (map_state.cc): MarkPlayerDiscovery uncovers
+// wherever the walking player stands, RefreshMapPanel snapshots the store for
+// the F5 window.
+void MarkPlayerDiscovery(Engine& engine);
+void RefreshMapPanel(Engine& engine, f32 dt);
 // Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
 bool LoadPlanetTile(Engine& engine, const base::String& biom_name);
 void LoadExtraDomains(Engine& engine);

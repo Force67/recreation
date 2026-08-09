@@ -245,6 +245,24 @@ void ActorSystem::MovePlayer(const Vec3& feet,
   }
 }
 
+void ActorSystem::SetPlayerFacing(f32 yaw) {
+  if (player_actor_ < 0) {
+    // Same story as TeleportPlayer: a savegame says where the player looks
+    // while the world is still streaming, before there is a body to turn.
+    pending_yaw_ = yaw;
+    return;
+  }
+  Actor& actor = actors_[player_actor_];
+  actor.yaw = yaw;
+  if (world::Transform* t = world_.Get<world::Transform>(actor.entity)) {
+    const f32 h = yaw * 0.5f;
+    t->rotation[0] = 0;
+    t->rotation[1] = std::sin(h);
+    t->rotation[2] = 0;
+    t->rotation[3] = std::cos(h);
+  }
+}
+
 bool ActorSystem::SeatPlayer(const base::String& clip_path) {
   if (player_actor_ < 0 || config_.headless)
     return false;
@@ -873,6 +891,12 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
     pending_move_.reset();
     RX_INFO("player: starting where the quest put them, ({:.1f}, {:.1f}, {:.1f})", to.x, to.y, to.z);
     TeleportPlayer(to.x, to.y, to.z);
+  }
+  if (pending_yaw_) {
+    const f32 yaw = *pending_yaw_;
+    pending_yaw_.reset();
+    RX_INFO("player: facing where the save left them, {:.0f} degrees", yaw * 57.29578f);
+    SetPlayerFacing(yaw);
   }
   return true;
 }

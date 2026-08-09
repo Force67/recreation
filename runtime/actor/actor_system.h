@@ -61,6 +61,10 @@ class ActorSystem {
   f32 PlayerYaw() const;  // facing of the player biped, radians about engine up
   // Teleports the player (capsule + ECS transform); the target of a quest MoveTo.
   void TeleportPlayer(f32 x, f32 y, f32 z);
+  // Turns a standing player to face `yaw` (biped convention, +Z faces the
+  // heading). MovePlayer only turns the body while it is moving, so a resumed
+  // savegame has no other way to say which way the character was looking.
+  void SetPlayerFacing(f32 yaw);
   // Sits the player's biped on a piece of furniture: `clip_path` holds the pose
   // and the caller plants it, since Bethesda's seated idles carry the seat as a
   // baked offset on the COM. The locomotion machine stands down until
@@ -408,6 +412,9 @@ class ActorSystem {
   // Where a quest asked to put the player before there was a player to put, held
   // until the avatar spawns.
   base::Optional<Vec3> pending_move_;
+  // Which way a resumed savegame asked the player to face, held the same way:
+  // the save is read long before the body streams in.
+  base::Optional<f32> pending_yaw_;
   base::Optional<Actor> npc_template_;
   base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
   // Creature rig per race (packed RACE form id); an entry with no actor is a

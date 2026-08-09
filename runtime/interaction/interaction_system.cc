@@ -28,6 +28,7 @@ InteractionSystem::InteractionSystem(EngineContext& ctx, ActorSystem* actors)
       records_(*ctx.records),
       strings_(*ctx.strings),
       dialogue_(*ctx.dialogue),
+      said_(*ctx.said_topics),
       quest_world_(*ctx.quest_world),
       camera_(*ctx.camera),
       game_ui_(*ctx.game_ui) {}
@@ -41,7 +42,12 @@ void InteractionSystem::SyncHud() {
   // Mark the highlighted option with a caret so the pad/keyboard selection is
   // visible (matches the journal's tracked-quest caret convention).
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
-    const base::String& line = dialogue_session_.options[i].player_line;
+    const DialogueOption& option = dialogue_session_.options[i];
+    base::String line = option.player_line;
+    // A line the player has already heard is still offered (only say-once ones
+    // close), so it is marked rather than hidden, the way the games grey it out.
+    if (option.said)
+      line += "  (said)";
     dv.options.push_back(static_cast<int>(i) == dialogue_session_.selected ? "▶ " + line : line);
   }
   game_ui_.SetDialogue(dv);
@@ -299,21 +305,33 @@ void InteractionSystem::OpenDialogue(u64 npc) {
                   // that fails (Allows passes lines whose checks we cannot judge).
                   if (fit == SpeakerFit::kForeign || !ctx.Allows(r.conditions))
                     continue;
+                  const bool said = said_.Said(r.info);
+                  // A say-once line that has been said is spent; the rest stay on
+                  // offer and are only marked.
+                  if (said && r.say_once) {
+                    ++s.spent_lines;
+                    continue;
+                  }
                   DialogueOption opt;
                   opt.player_line = r.player_line;
                   opt.npc_line = r.npc_line;
                   opt.info = r.info;
                   opt.quest = q.handle;
                   opt.fragment_function = r.fragment_function;
+                  opt.said = said;
                   candidates.push_back({base::move(opt), t.priority, fit == SpeakerFit::kKeyed});
                 }
               }
             }
-            // Keyed-to-this-actor lines first, then by topic priority.
+            // Keyed-to-this-actor lines first, then unheard before heard, then by
+            // topic priority. Only four rows fit, so an exhausted topic must not
+            // push a fresh one off the panel.
             std::stable_sort(candidates.begin(), candidates.end(),
                              [](const Scored& a, const Scored& b) {
                                if (a.keyed != b.keyed)
                                  return a.keyed;
+                               if (a.opt.said != b.opt.said)
+                                 return !a.opt.said;
                                return a.priority > b.priority;
                              });
             constexpr size_t kMaxOptions = 4;  // the dialogue panel shows four rows
@@ -331,13 +349,14 @@ void InteractionSystem::OpenDialogue(u64 npc) {
 
 void InteractionSystem::ReportDialogueWith(u64 npc) {
   OpenDialogue(npc);
-  RX_INFO("dialogue probe: '{}' offers {} topic(s):", dialogue_session_.speaker,
-          dialogue_session_.options.size());
+  RX_INFO("dialogue probe: '{}' offers {} topic(s), {} say-once line(s) already spent:",
+          dialogue_session_.speaker, dialogue_session_.options.size(),
+          dialogue_session_.spent_lines);
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
     const DialogueOption& o = dialogue_session_.options[i];
-    RX_INFO("  [{}] \"{}\" -> info 0x{:x}{}", i,
+    RX_INFO("  [{}] \"{}\" -> info 0x{:x}{}{}", i,
             o.player_line.empty() ? "(forcegreet/silent)" : o.player_line, o.info,
-            o.fragment_function.empty() ? "" : " [has fragment]");
+            o.fragment_function.empty() ? "" : " [has fragment]", o.said ? " [said]" : "");
   }
   CloseDialogue();
 }
@@ -346,7 +365,10 @@ void InteractionSystem::SelectDialogueOption(int index) {
   if (!dialogue_session_.open || index < 0 ||
       index >= static_cast<int>(dialogue_session_.options.size()))
     return;
-  const DialogueOption opt = dialogue_session_.options[index];
+  DialogueOption& chosen = dialogue_session_.options[index];
+  chosen.said = true;
+  said_.MarkSaid(chosen.info);
+  const DialogueOption opt = chosen;
   dialogue_session_.npc_line = opt.npc_line;  // show the reply
   // Firing the INFO fragment (which advances the quest) is server-authoritative:
   // a client asks the server, the host / single-player runs it directly.

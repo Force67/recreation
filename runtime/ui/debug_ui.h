@@ -88,6 +88,23 @@ struct QuestPanel {
   base::Function<void()> clear_markers;
 };
 
+// The world the player has uncovered, snapshotted for the map window. `tiles`
+// is one byte per cell over the [min,max] grid bounds, row major from min_y up,
+// holding how many of that cell's 256 map tiles are known; 0 is unvisited. The
+// engine refreshes it from the discovery store while the window is open.
+struct MapPanel {
+  bool available = false;
+  base::String worldspace;
+  base::String location;  // interior name while inside one, empty outside
+  i16 min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+  i16 player_x = 0, player_y = 0;
+  bool player_outside = false;  // false while the player is in an interior
+  u32 visited_cells = 0;
+  u32 visited_interiors = 0;
+  u32 known_tiles = 0;
+  base::Vector<u8> tiles;
+};
+
 // Recently invoked Papyrus native functions, for the trace window. The engine
 // snapshots the guest VM's native-call ring here while the window is open and
 // wires Clear back to the guest thread.
@@ -123,7 +140,8 @@ class DebugUi {
              f32 frame_delta,
              render::FrameView* view,
              QuestPanel* quests = nullptr,
-             NativeTracePanel* trace = nullptr);
+             NativeTracePanel* trace = nullptr,
+             MapPanel* map = nullptr);
 
   // The day/night clock, so the Lighting panel can scrub the time of day and the
   // timescale. Null leaves those controls out.
@@ -146,10 +164,16 @@ class DebugUi {
   void ToggleVisible() { visible_ = !visible_; }
   void SetVisible(bool v) { visible_ = v; }
   // Hide/show every overlay window at once (renderer, trace, quests), for clean
-  // captures.
-  void SetAllVisible(bool v) { visible_ = trace_visible_ = quests_visible_ = v; }
+  // captures. The map only ever hides here: it is off by default, so turning
+  // the overlays on must not open a window nobody asked for.
+  void SetAllVisible(bool v) {
+    visible_ = trace_visible_ = quests_visible_ = v;
+    map_visible_ = map_visible_ && v;
+  }
   void ToggleTrace() { trace_visible_ = !trace_visible_; }
   void ToggleQuests() { quests_visible_ = !quests_visible_; }
+  void ToggleMap() { map_visible_ = !map_visible_; }
+  bool map_visible() const { return map_visible_; }
   bool trace_visible() const { return trace_visible_; }
   bool wants_mouse() const;
   bool wants_keyboard() const;
@@ -158,6 +182,8 @@ class DebugUi {
   // Renders the quest debugger body (list + selected-quest stage/objective
   // controls) into the current window.
   void RenderQuestPanel(QuestPanel* quests);
+  // The discovered-world map: one shaded square per cell, the player marked.
+  void RenderMapPanel(MapPanel* map);
 
   // Per-topic bodies of the render-settings window's tab bar. Each draws one
   // area of the pipeline; Build() wraps them in tab items so the long flat list
@@ -191,6 +217,7 @@ class DebugUi {
   Window* window_ = nullptr;    // for the live system-HDR state in the Display tab
   bool trace_visible_ = true;   // the native-call trace window (F2 toggles)
   bool quests_visible_ = true;  // the quest debugger window (F3 toggles)
+  bool map_visible_ = false;    // the discovered-world map window (F5 toggles)
   // Per-pass GPU timestamps follow overlay visibility; the boot value
   // (RX_GPU_TIMINGS / preset) is latched so a forced run keeps them.
   bool gpu_timings_latched_ = false;

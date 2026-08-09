@@ -1382,6 +1382,21 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
   const u64 look = interaction_->activate_target();
   quest_panel_.look_target = look;
   quest_panel_.look_label = interaction_->activate_label();
+  // An actor the player is looking at also shows the level and temperament its
+  // record (or the resumed save) gave it, which is the only place that state is
+  // visible from inside the game.
+  if (look != 0 && ctx_.quest_world) {
+    const ecs::Entity entity = ctx_.quest_world->Find(look);
+    if (world_.IsAlive(entity)) {
+      if (const world::ActorStats* stats = world_.Get<world::ActorStats>(entity)) {
+        quest_panel_.look_label += Fmt("  [level %u", stats->level);
+        if (stats->has_ai)
+          quest_panel_.look_label +=
+              Fmt(", aggression %u, confidence %u", stats->ai.aggression, stats->ai.confidence);
+        quest_panel_.look_label += "]";
+      }
+    }
+  }
   quest_panel_.look_following = look != 0 && npc_->is_follower(look);
   quest_panel_.follower_count = npc_->follower_count();
   quest_panel_.marker_count = static_cast<int>(quest_markers_.size());

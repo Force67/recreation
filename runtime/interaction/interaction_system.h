@@ -75,6 +75,7 @@ class InteractionSystem {
     u64 info = 0;
     u64 quest = 0;
     base::String fragment_function;
+    bool said = false;  // heard before, in this session or in the resumed save
   };
   struct DialogueSession {
     bool open = false;
@@ -83,6 +84,9 @@ class InteractionSystem {
     base::String npc_line;
     base::Vector<DialogueOption> options;
     int selected = 0;  // highlighted option for keyboard/gamepad navigation
+    // Say-once lines this actor has already spent, dropped before the panel saw
+    // them. Reported by the dialogue probe, which is where it can be checked.
+    int spent_lines = 0;
   };
   struct ContainerItem {
     base::String name;
@@ -101,6 +105,7 @@ class InteractionSystem {
   bethesda::RecordStore& records_;
   bethesda::StringTable& strings_;
   dialogue::DialogueDb& dialogue_;
+  dialogue::SaidTopics& said_;
   world::QuestWorld& quest_world_;
   FlyCamera& camera_;
   GameUi& game_ui_;

@@ -186,6 +186,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
     debug_ui_.ToggleTrace();
   if (actions_->pressed(Action::kToggleQuests) && !kb)
     debug_ui_.ToggleQuests();
+  if (actions_->pressed(Action::kToggleMap) && !kb)
+    debug_ui_.ToggleMap();
   if (actions_->pressed(Action::kToggleEditor) && !kb && editor_)
     editor_->Toggle();
   if (actions_->pressed(Action::kThrowDebug) && !menu && !kb && !ctx_.walk_mode && !editor_on)
