@@ -284,6 +284,10 @@ void InteractionSystem::OpenDialogue(u64 npc) {
               return keyed ? SpeakerFit::kForeign : SpeakerFit::kGeneric;
             };
             script::skyrim::SkyrimConditionContext ctx(binds);
+            // The speaker is who a line's relationship checks run against: a
+            // GetRelationshipRank in dialogue asks how THIS actor feels about
+            // the actor it names, which is almost always the player.
+            ctx.set_subject(npc);
             struct Scored {
               DialogueOption opt;
               i32 priority;

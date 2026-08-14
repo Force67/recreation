@@ -396,6 +396,130 @@ void TestRealSave() {
     Check("every created form carries at least one effect and a non-zero count",
           with_effects == 394);
   }
+
+  // Misc stats: the whole Stats page, 108 rows consuming all 2484 bytes of the
+  // record. The values are their own cross-check -- "Days Passed" agrees with
+  // the 2616 days the header's play time comes to -- and they settle what the
+  // FACT crime counters are: every Bounty row reads 0 while Murders and
+  // Assaults are counted, so a faction's numbers are infamy, not gold owed.
+  Check("108 misc stats", save.misc_stats.size() == 108);
+  u32 by_category[8] = {};
+  u32 bounty_rows = 0, bounty_total = 0;
+  const rx::bethesda::MiscStat* days = nullptr;
+  const rx::bethesda::MiscStat* murders = nullptr;
+  const rx::bethesda::MiscStat* assaults = nullptr;
+  const rx::bethesda::MiscStat* found = nullptr;
+  for (const rx::bethesda::MiscStat& stat : save.misc_stats) {
+    if (stat.category < 8)
+      ++by_category[stat.category];
+    if (stat.name == "Days Passed")
+      days = &stat;
+    if (stat.name == "Murders")
+      murders = &stat;
+    if (stat.name == "Assaults")
+      assaults = &stat;
+    if (stat.name == "Locations Discovered")
+      found = &stat;
+    // The ten hold bounties, not the two lifetime totals beside them. "The Rift
+    // Bounty" and "The Reach Bounty" are holds, so the two are named out.
+    if (stat.name.ends_with(" Bounty") && stat.name != "Total Lifetime Bounty" &&
+        stat.name != "Largest Bounty") {
+      ++bounty_rows;
+      bounty_total += stat.value;
+    }
+  }
+  Check("stats fall in 7 categories, none past 6",
+        by_category[0] == 28 && by_category[1] == 13 && by_category[2] == 13 &&
+            by_category[3] == 11 && by_category[4] == 15 && by_category[5] == 24 &&
+            by_category[6] == 4 && by_category[7] == 0);
+  Check("first row is Winterhold Bounty, crime category, zero",
+        !save.misc_stats.empty() && save.misc_stats[0].name == "Winterhold Bounty" &&
+            save.misc_stats[0].category == 5 && save.misc_stats[0].value == 0);
+  // The strongest cross-check there is between two of these tables: the stats
+  // record and the global variable record are decoded by different walks off
+  // different bytes, and GameDaysPassed (0x39) reads 2616.0049 against the
+  // stat's 2616. Not the header's play time, which is 527 hours at the wheel.
+  Check("Days Passed 2616 agrees with the GameDaysPassed global",
+        days != nullptr && days->value == 2616 && save.globals.size() > 4 &&
+            save.globals[4].first == 0x00000039u &&
+            u32(save.globals[4].second) == days->value);
+  Check("413 locations discovered", found != nullptr && found->value == 413);
+  Check("169 murders and 361 assaults", murders != nullptr && assaults != nullptr &&
+                                            murders->value == 169 && assaults->value == 361);
+  Check("all ten hold bounties are paid off", bounty_rows == 10 && bounty_total == 0);
+
+  // Player location. Its position is the player ACHR's transform to the byte,
+  // and both name Tamriel, so the two agree about where the player is; the cell
+  // coordinates beside it do not hold the cell that position falls in
+  // (floor(pos / 4096) is -6,23) and are a grid centre the game lags behind.
+  const rx::bethesda::SavedPlayerLocation& loc = save.player_place;
+  Check("player location decoded", loc.valid);
+  Check("next created id 0xFF0087C3", loc.next_object_id == 0xff0087c3u);
+  Check("coordinates and position both in Tamriel 0x3C",
+        loc.coord_worldspace == 0x0000003cu && loc.parent == 0x0000003cu);
+  Check("grid centre -7,24", loc.cell_x == -7 && loc.cell_y == 24);
+  Check("position is the player reference's own",
+        loc.position[0] == -24067.296875f && loc.position[1] == 97838.046875f &&
+            loc.position[2] == -13344.8779296875f);
+
+  // Weather. Both ids resolve to records of the type they should: 0x00000812 is
+  // CLMT SkyrimClimate and 0x000C8221 is WTHR SkyrimStormSnow, read back out of
+  // Skyrim.esm. The sky had settled, so there is nothing to fade from.
+  const rx::bethesda::SavedWeather& sky = save.weather;
+  Check("weather decoded", sky.valid);
+  Check("climate SkyrimClimate 0x00000812", sky.climate == 0x00000812u);
+  Check("weather SkyrimStormSnow 0x000C8221", sky.weather == 0x000c8221u);
+  Check("settled, so no previous weather and a full transition",
+        sky.previous == 0 && sky.transition == 1.0f);
+  // What pins the float triple's position: the weather record's current time is
+  // bit for bit the GameHour global (0x38), decoded out of a different record
+  // by a different walk. That also settles the unit as game hours.
+  Check("weather clock is the GameHour global",
+        save.globals.size() > 3 && save.globals[3].first == 0x00000038u &&
+            sky.current_time == save.globals[3].second);
+
+  // Ingredient pairs. Ten pairs consuming the record exactly, and every one of
+  // the 20 ids resolves to an INGR record in the masters -- none to a magic
+  // effect, which is what the wiki claims the second slot is.
+  Check("10 ingredient pairs", save.ingredient_pairs.size() == 10);
+  if (save.ingredient_pairs.size() == 10) {
+    Check("first pair CritterBeeIngredient 0x000A9195 + MothWingMonarch 0x000727E0",
+          save.ingredient_pairs[0].first == 0x000a9195u &&
+              save.ingredient_pairs[0].second == 0x000727e0u);
+    Check("last pair MountainFlower01Purple 0x00077E1E + HangingMoss 0x00057F91",
+          save.ingredient_pairs[9].first == 0x00077e1eu &&
+              save.ingredient_pairs[9].second == 0x00057f91u);
+  }
+  // The second global data table. The favourites record (109, 146 bytes) and the
+  // interface record (102, 1121 bytes) are both consumed exactly by the reader,
+  // and every id in them was cross-checked against the five plugins the save
+  // names: the favourites are seven SPEL and four SHOU, the three histories are
+  // a hundred entries each of WEAP, SPEL and SHOU and nothing else.
+  Check("11 magic favourites", save.magic_favourites.size() == 11);
+  if (save.magic_favourites.size() == 11) {
+    Check("the first is Incinerate 0x0010F7ED",
+          save.magic_favourites[0].form_id == 0x0010f7edu);
+    Check("UnrelentingForceShout 0x00013E07 is the seventh",
+          save.magic_favourites[6].form_id == 0x00013e07u);
+    // The only one written as an index into the form id map rather than as an
+    // id of the first master, so it also checks the map is being used.
+    Check("the last is Dawnguard's DLC01SummonSoulHorse 0x0200C600",
+          save.magic_favourites[10].form_id == 0x0200c600u);
+    u32 bound = 0;
+    for (const rx::bethesda::MagicFavourite& favourite : save.magic_favourites) {
+      if (favourite.hotkey >= 0)
+        ++bound;
+    }
+    // 37 hotkey slots, every one of them empty, so what a bound key looks like
+    // is not observable in this file.
+    Check("none of them is bound to a number key", bound == 0);
+  }
+  // The tail of each history. The worn weapon is DLC1DragonboneBow, which is
+  // what says the tail is the newest end and not the oldest.
+  Check("last used weapon DLC1DragonboneBow 0x020176F1",
+        save.last_used_weapon == 0x020176f1u);
+  Check("last used spell ConjureDremoraLord 0x0010DDEC, last shout Dragonrend 0x00044250",
+        save.last_used_spell == 0x0010ddecu && save.last_used_shout == 0x00044250u);
 }
 
 // A Fallout 4 container, laid out the way the real ones on this machine are
@@ -617,6 +741,50 @@ void TestRealFallout4Save() {
   }
   Check("no payload decodes: the change form version is outside the validated range",
         decoded == 0);
+
+  // Global data numbering does NOT shift between the games the way the change
+  // form types do. Fallout 4 writes the same record numbers Skyrim does, with
+  // its own set: measured across all 54 Fallout 4 saves on this machine, every
+  // one holds 0..11 and 100..103, 105..106, 109..111 and 113..117, and every
+  // group walks to exactly the offset the file location table gives for
+  // whatever follows it.
+  Check("99 misc stats", save.misc_stats.size() == 99);
+  u32 fo4_categories[8] = {};
+  const rx::bethesda::MiscStat* caps = nullptr;
+  for (const rx::bethesda::MiscStat& stat : save.misc_stats) {
+    if (stat.category < 8)
+      ++fo4_categories[stat.category];
+    if (stat.name == "Caps Found")
+      caps = &stat;
+  }
+  // Fallout 4 skips category 6 and uses 7, where Skyrim runs 0..6: the number
+  // is a tab index in that game's own menu and means nothing across the two.
+  Check("categories 0-5 and 7, none in 6",
+        fo4_categories[6] == 0 && fo4_categories[7] == 17 && fo4_categories[0] == 34);
+  // A save 16 minutes old, so the whole page reads zero. It being present at
+  // all is the point: the table is written from the first autosave.
+  Check("Caps Found present and zero on a fresh save", caps != nullptr && caps->value == 0);
+
+  // Player location is 30 bytes here against Skyrim SE's 31: the trailing byte
+  // is the later format's. The two worldspace slots differ because the player
+  // is indoors -- 0x000A7FF4 is the exterior they came from and 0x000016D8 the
+  // Vault 111 cryo cell the save's own header names.
+  const rx::bethesda::SavedPlayerLocation& loc = save.player_place;
+  Check("player location decoded", loc.valid);
+  Check("outside worldspace 0x000A7FF4, standing in cell 0x000016D8",
+        loc.coord_worldspace == 0x000a7ff4u && loc.parent == 0x000016d8u);
+  Check("grid centre 0,-1", loc.cell_x == 0 && loc.cell_y == -1);
+
+  Check("weather decoded", save.weather.valid && save.weather.weather != 0);
+  // No alchemy in Fallout 4, and no record 112 in any of the 54 saves.
+  Check("no ingredient pairs", save.ingredient_pairs.empty());
+  // The second global data table is refused for the same reason. Fallout 4 does
+  // number these records the same (its save carries a 102 and a 109 too) but
+  // lays them out differently: 65 bytes beginning 0x0001FFFFFFFF where Skyrim
+  // counts help messages, and three zero bytes where Skyrim counts favourites.
+  Check("no magic favourites and no last-used forms are read out of it",
+        save.magic_favourites.empty() && save.last_used_weapon == 0 &&
+            save.last_used_spell == 0 && save.last_used_shout == 0);
 }
 
 }  // namespace

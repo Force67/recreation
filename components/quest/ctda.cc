@@ -28,6 +28,8 @@ Func MapFunction(u16 id) {
       return Func::kGetStageDone;  // stage param2 of quest param1 has run
     case 72:
       return Func::kGetIsId;  // checks an actor's base form: the dialogue speaker gate
+    case 403:
+      return Func::kGetRelationshipRank;
     default:
       return Func::kRaw;
   }
@@ -104,7 +106,8 @@ void ResolveConditionForms(ConditionList& conditions,
       case Func::kGetItemCount:
       case Func::kGetDistance:
       case Func::kGetIsId:
-        c.param1 = remap(c.param1);  // a form id (quest / item / target / base)
+      case Func::kGetRelationshipRank:
+        c.param1 = remap(c.param1);  // a form id (quest / item / target / base / other actor)
         break;
       default:
         break;  // kGetActorValue param1 is an AV index; kRaw is unknown

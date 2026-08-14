@@ -95,6 +95,7 @@ constexpr u32 kXtel = FourCc('X', 'T', 'E', 'L');  // load-door teleport destina
 constexpr u32 kXloc = FourCc('X', 'L', 'O', 'C');  // lock data
 constexpr u32 kXesp = FourCc('X', 'E', 'S', 'P');  // enable-parent state
 constexpr u32 kXlkr = FourCc('X', 'L', 'K', 'R');  // linked reference
+constexpr u32 kXezn = FourCc('X', 'E', 'Z', 'N');  // encounter zone (ECZN form id)
 constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // quest alias forced reference
 constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
 constexpr u32 kVhgt = FourCc('V', 'H', 'G', 'T');
@@ -2831,6 +2832,37 @@ bool CellStreamer::SpawnGrass(ecs::World& world,
   return true;
 }
 
+bethesda::GlobalFormId CellStreamer::EncounterZoneOf(const bethesda::Record& refr,
+                                                    bethesda::GlobalFormId ref,
+                                                    u16 plugin) const {
+  const auto read = [this](const bethesda::Record& rec, u16 from) {
+    const bethesda::Subrecord* zone = rec.Find(kXezn);
+    if (!zone || zone->data.size() < 4)
+      return bethesda::GlobalFormId{0xffff, 0};
+    u32 raw;
+    std::memcpy(&raw, zone->data.data(), 4);
+    return records_.ResolveFrom(bethesda::RawFormId{raw}, from);
+  };
+  // A placement can name its own zone; otherwise the cell it stands in does,
+  // which is the usual case: a dungeon authors one XEZN and every actor inside
+  // it scales against that.
+  const bethesda::GlobalFormId own = read(refr, plugin);
+  if (own.plugin != 0xffff)
+    return own;
+  const bethesda::GlobalFormId cell = records_.InteriorCellOfRef(ref);
+  if (cell.plugin == 0xffff)
+    return {0xffff, 0};
+  if (const u64* cached = cell_zones_.find(cell.packed()))
+    return bethesda::GlobalFormId{static_cast<u16>(*cached >> 32), static_cast<u32>(*cached)};
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(cell);
+  bethesda::Record record;
+  bethesda::GlobalFormId found{0xffff, 0};
+  if (stored && records_.Parse(cell, &record))
+    found = read(record, stored->winning_plugin);
+  cell_zones_[cell.packed()] = found.packed();
+  return found;
+}
+
 bool CellStreamer::SpawnReference(ecs::World& world,
                                   i16 grid_x,
                                   i16 grid_y,
@@ -2917,8 +2949,10 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     world.Add(entity, transform);
     world.Add(entity, FormLink{id});
     world.Add(entity, Npc{base_id});
-    if (actor_stats_)
-      world.Add(entity, actor_stats_->For(base_id, base_record));
+    if (actor_stats_) {
+      world.Add(entity, actor_stats_->For(base_id, base_record,
+                                          EncounterZoneOf(refr, id, stored->winning_plugin)));
+    }
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
     Prop prop{base_id, classification.capabilities};
     std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
@@ -3172,8 +3206,10 @@ bool CellStreamer::SpawnSavedReference(ecs::World& world,
     world.Add(entity, transform);
     world.Add(entity, FormLink{spawn.handle});
     world.Add(entity, Npc{spawn.base});
+    // A reference the save spawned has no record, so nothing names a zone for
+    // it and it scales against the player like an unzoned actor.
     if (actor_stats_)
-      world.Add(entity, actor_stats_->For(spawn.base, base_record));
+      world.Add(entity, actor_stats_->For(spawn.base, base_record, {0xffff, 0}));
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
     Prop prop{spawn.base, classification.capabilities};
     std::memcpy(prop.authored_position, transform.position, sizeof(prop.authored_position));

@@ -406,6 +406,14 @@ bool LoadGameData(Engine& engine) {
   // not run their opening stages over it.
   ApplySavegameState(engine);
   self->quest_->AttachQuestScripts();
+  // What the save put back onto the quest scripts that just attached. The
+  // reference scripts add to it as their cells stream in. Read on the guest
+  // thread, which is the only one that writes those counters.
+  if (self->papyrus_restore_) {
+    rx::script::PapyrusRestorer* restorer = &*self->papyrus_restore_;
+    self->scripts_->guest().Dispatch(
+        [restorer](rx::script::papyrus::VirtualMachine&) { restorer->LogRestored(); });
+  }
 
   // Load any additional games as live secondary domains before the managed world
   // boots, so C# mods see every game's content at once.

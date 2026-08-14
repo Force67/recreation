@@ -31,6 +31,9 @@ class SkyrimBindings {
   // used by the VM to resolve `obj as Type` casts for refs with no script.
   virtual bool RefIsType(papyrus::ObjectRef ref, const base::String& type_name) { return false; }
   virtual base::String GetName(papyrus::ObjectRef form) { return ""; }
+  // A name that wins over the FULL the record authors. Papyrus has no SetName,
+  // but chargen renames the player and a savegame carries the result.
+  virtual void SetName(papyrus::ObjectRef form, const base::String& name) {}
   virtual bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) { return false; }
   // Enumerates a form's keywords (KWDA), so mods can categorise items by every
   // keyword they carry. GetKeywordCount parses them into a cache and returns the
@@ -64,12 +67,24 @@ class SkyrimBindings {
   // otherwise). The two are mutually exclusive in the record's DATA flags.
   virtual papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) { return {}; }
   virtual base::String GetBookSkill(papyrus::ObjectRef book) { return ""; }
+  // Replaces a book's DATA flags with the ones the runtime carries, which is
+  // what a resumed savegame restores. The two accessors above read these
+  // instead of the record's, so a skill book the save has already paid out
+  // comes back teaching nothing.
+  virtual void SetBookFlags(papyrus::ObjectRef book, i32 flags) {}
+  virtual bool IsBookRead(papyrus::ObjectRef book) { return false; }
 
   // The magic effects of an ingredient or potion/food (INGR or ALCH), shared by
   // alchemy (matching effects across ingredients) and consumables (applying a
   // potion's effects). Call GetMagicEffectCount first: it parses the effects
   // (EFID/EFIT) into a cache and returns the count; the GetNthMagicEffect*
   // accessors then read that cache by index.
+  // Which of an ingredient's four effects the player has discovered, one bit
+  // per slot in EFID order. Eating or brewing with the ingredient reveals them
+  // one at a time, and the alchemy menu shows only the known ones.
+  virtual void SetKnownIngredientEffects(papyrus::ObjectRef ingredient, i32 effects) {}
+  virtual i32 GetKnownIngredientEffects(papyrus::ObjectRef ingredient) { return 0; }
+
   virtual i32 GetMagicEffectCount(papyrus::ObjectRef item) { return 0; }
   virtual papyrus::ObjectRef GetNthMagicEffectId(i32 index) { return {}; }
   virtual f32 GetNthMagicEffectMagnitude(i32 index) { return 0; }
@@ -124,6 +139,13 @@ class SkyrimBindings {
   virtual papyrus::ObjectRef GetNthLeveledForm(i32 index) { return {}; }
   virtual i32 GetNthLeveledLevel(i32 index) { return 0; }
   virtual i32 GetNthLeveledCount(i32 index) { return 0; }
+  // An entry a script put on the list at runtime (AddForm), which the record
+  // does not author. GetLeveledListCount returns these behind the authored ones,
+  // so a resumed save's additions are picked from like any other entry.
+  virtual void AddLeveledListEntry(papyrus::ObjectRef list,
+                                   papyrus::ObjectRef form,
+                                   i32 level,
+                                   i32 count) {}
 
   // Sound playback, routed to the engine audio system when one is wired. PlaySound
   // resolves a SOUN/SNDR form to its asset and plays it, returning a voice id (0 on
@@ -286,7 +308,39 @@ class SkyrimBindings {
   // GetEquippedShield.
   virtual papyrus::ObjectRef GetEquippedWeapon(papyrus::ObjectRef actor) { return {}; }
   virtual papyrus::ObjectRef GetEquippedShield(papyrus::ObjectRef actor) { return {}; }
+  // Spells and shouts an actor knows. Like perks, this is knowledge and not
+  // behaviour: nothing casts off this list yet, so what changes is what
+  // HasSpell / GetSpellCount answer and what the HUD can show. A loaded save
+  // fills the same store, so a script asking HasSpell sees what the player had.
   virtual void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
+  virtual void RemoveSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) {}
+  virtual bool HasSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) { return false; }
+  virtual i32 GetSpellCount(papyrus::ObjectRef actor) { return 0; }
+  virtual void AddShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) {}
+  virtual void RemoveShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) {}
+  virtual bool HasShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) { return false; }
+  virtual i32 GetShoutCount(papyrus::ObjectRef actor) { return 0; }
+
+  // Words of power. A word is first taught (it shows in the shout list) and
+  // later unlocked with a dragon soul (it can be spoken), which is why the two
+  // are separate here even though a savegame only ever reports them together.
+  virtual void TeachWord(papyrus::ObjectRef word) {}
+  virtual void UnlockWord(papyrus::ObjectRef word) {}
+  virtual bool IsWordTaught(papyrus::ObjectRef word) { return false; }
+  virtual bool IsWordUnlocked(papyrus::ObjectRef word) { return false; }
+  virtual i32 GetKnownWordCount() { return 0; }
+
+  // The favourites menu: what is in it and which number key each entry is bound
+  // to (-1 for none), plus the last weapon, spell and shout the player used.
+  // Restored from a save; nothing else writes them yet.
+  virtual void AddMagicFavourite(papyrus::ObjectRef form, i32 hotkey) {}
+  virtual i32 GetMagicFavouriteCount() { return 0; }
+  virtual papyrus::ObjectRef GetNthMagicFavourite(i32 index) { return {}; }
+  virtual i32 GetNthMagicFavouriteHotkey(i32 index) { return -1; }
+  virtual void SetLastUsedMagic(papyrus::ObjectRef weapon,
+                                papyrus::ObjectRef spell,
+                                papyrus::ObjectRef shout) {}
+  virtual papyrus::ObjectRef GetEquippedShout(papyrus::ObjectRef actor) { return {}; }
 
   // Perks an actor holds, and the rank it holds each at. This is what the actor
   // knows, not what it does: nothing evaluates a PERK record's entry points yet,

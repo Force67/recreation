@@ -150,26 +150,29 @@ void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
     return Value::Bool(Resolve(bindings).HasPerk(self, ArgO(a, 0)));
   });
 
-  // Collection natives back onto member sets. AddSpell lives in the core binding,
-  // so HasSpell only sees spells added through this batch's tracking key.
-  reg.Register("Actor", "AddShout", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::AddMember(self, "shouts", ArgO(a, 0));
+  // Spells and shouts go through the core binding for the same reason perks do:
+  // a loaded save puts the player's spell book and shout list there, so HasSpell
+  // has to read the same store AddSpell writes.
+  reg.Register("Actor", "AddShout", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).AddShout(self, ArgO(a, 0));
     return Value::Bool(true);
   });
-  reg.Register("Actor", "RemoveShout", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::RemoveMember(self, "shouts", ArgO(a, 0));
+  reg.Register("Actor", "RemoveShout", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemoveShout(self, ArgO(a, 0));
     return Value::Bool(true);
   });
-  reg.Register("Actor", "RemoveSpell", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::RemoveMember(self, "spells", ArgO(a, 0));
+  reg.Register("Actor", "RemoveSpell", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemoveSpell(self, ArgO(a, 0));
     return Value::Bool(true);
   });
-  reg.Register("Actor", "DispelSpell", [](VirtualMachine&, ObjectRef self, Args& a) {
-    st::RemoveMember(self, "spells", ArgO(a, 0));
+  // Dispelling ends an active effect rather than forgetting the spell, but with
+  // nothing casting yet the two are the same store.
+  reg.Register("Actor", "DispelSpell", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    Resolve(bindings).RemoveSpell(self, ArgO(a, 0));
     return Value::Bool(true);
   });
-  reg.Register("Actor", "HasSpell", [](VirtualMachine&, ObjectRef self, Args& a) {
-    return Value::Bool(st::HasMember(self, "spells", ArgO(a, 0)));
+  reg.Register("Actor", "HasSpell", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    return Value::Bool(Resolve(bindings).HasSpell(self, ArgO(a, 0)));
   });
   // No member set is exposed to wipe wholesale, so these clear nothing observable.
   reg.Register("Actor", "DispelAllSpells",
@@ -188,8 +191,12 @@ void RegisterActorExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Actor", "GetEquippedShield", [bindings](VirtualMachine&, ObjectRef self, Args&) {
     return Value::Object(Resolve(bindings).GetEquippedShield(self));
   });
-  reg.Register("Actor", "GetEquippedShout", [](VirtualMachine&, ObjectRef self, Args&) {
-    return Value::Object(st::GetRef(self, "shout"));
+  // EquipShout writes the session's choice; with none made the binding answers
+  // with the last shout the loaded save used, which is the one it had up.
+  reg.Register("Actor", "GetEquippedShout", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    const ObjectRef equipped = st::GetRef(self, "shout");
+    return Value::Object(equipped.handle != 0 ? equipped
+                                              : Resolve(bindings).GetEquippedShout(self));
   });
   reg.Register("Actor", "GetEquippedSpell", [spell_key](VirtualMachine&, ObjectRef self, Args& a) {
     return Value::Object(st::GetRef(self, spell_key(ArgI(a, 0))));

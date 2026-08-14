@@ -42,8 +42,16 @@
             text { class: t_h2; text: "Settings"; flex-grow: 1; }
             text { class: t_micro2; text: "Controls"; }
           }
-          button btn_quit { position: relative; layout: row; align: center; height: 74;
+          button btn_stats { position: relative; layout: row; align: center; height: 74;
             padding: 0 30 0 26; cursor: pointer; tab-index: 2;
+            :hover { background: #ffffff14; } :focused { background: #ffffff1f; }
+            panel btn_stats_mk { position: absolute; left: 0; top: 18; bottom: 18;
+              width: 3; background: #ffffff; }
+            text { class: t_h2; text: "Stats"; flex-grow: 1; }
+            text stats_count { class: t_micro2; text: ""; }
+          }
+          button btn_quit { position: relative; layout: row; align: center; height: 74;
+            padding: 0 30 0 26; cursor: pointer; tab-index: 3;
             :hover { background: #ffffff14; } :focused { background: #ffffff1f; }
             text { class: t_h2; text: "Quit"; flex-grow: 1; }
             text { class: t_micro2; text: "To desktop"; }
@@ -90,6 +98,106 @@
               panel { layout: row; align: center; gap: 16;
                 text { class: t_micro2; text: "Stamina"; width: 74; }
                 ui_meter menu_sp { flex-grow: 1; w: 100%; h: 9; } }
+            }
+          }
+
+          // stats pane. A fixed pool of rows paged through the whole table: the
+          // save carries 108 of them and markup cannot size itself to the data.
+          panel menu_stats { layout: column; width: 100%;
+            panel { position: relative; padding: 0 0 16 0;
+              text stats_head { class: t_micro; text: "Stats"; color: #ffffff; }
+              panel { position: absolute; left: 0; right: 0; bottom: 0; height: 2;
+                background: #ffffff; } }
+            panel { class: rule; width: 100%; }
+
+            panel stats_rows { width: 100%; max-width: 640; layout: column; margin: 22 0 0 0;
+              panel stat_0 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_0_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_0_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_1 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_1_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_1_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_2 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_2_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_2_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_3 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_3_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_3_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_4 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_4_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_4_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_5 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_5_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_5_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_6 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_6_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_6_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_7 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_7_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_7_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_8 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_8_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_8_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_9 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_9_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_9_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_10 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_10_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_10_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_11 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_11_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_11_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_12 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_12_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_12_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_13 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_13_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_13_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_14 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_14_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_14_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_15 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_15_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_15_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_16 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_16_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_16_val { class: t_body; text: ""; font-size: 15; } }
+              panel stat_17 { layout: row; justify: space-between; align: center;
+                width: 100%; max-width: 640; height: 33;
+                text stat_17_lbl { class: t_dim; text: ""; font-size: 15; }
+                text stat_17_val { class: t_body; text: ""; font-size: 15; } }
+            }
+
+            text stats_empty { class: t_dim; font-size: 15; max-width: 620;
+              text: "Nothing counted yet. The engine keeps no counters of its own, so this page fills from a loaded save."; }
+
+            panel stats_pager { layout: row; gap: 12; align: center; margin: 26 0 0 0;
+              button btn_stats_prev { width: 34; height: 34; layout: column; justify: center;
+                align: center; cursor: pointer; border-color: #ffffff33; border-width: 1;
+                :hover { border-color: #ffffff; }
+                text { text: "<"; font-size: 15; color: #9a9a9a; } }
+              text stats_page { class: t_body; text: "1 / 1"; width: 110; text-align: center; }
+              button btn_stats_next { width: 34; height: 34; layout: column; justify: center;
+                align: center; cursor: pointer; border-color: #ffffff33; border-width: 1;
+                :hover { border-color: #ffffff; }
+                text { text: ">"; font-size: 15; color: #9a9a9a; } }
             }
           }
 

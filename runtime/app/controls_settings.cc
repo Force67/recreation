@@ -35,6 +35,20 @@ constexpr SettingsRow kRows[] = {
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 
+// Stats counters run to seven figures (3,258,245 gold found in the reference
+// save), which is unreadable without grouping.
+base::String Grouped(u32 value) {
+  char digits[16];
+  const int n = std::snprintf(digits, sizeof(digits), "%u", value);
+  base::String out;
+  for (int i = 0; i < n; ++i) {
+    if (i != 0 && (n - i) % 3 == 0)
+      out += ',';
+    out += digits[i];
+  }
+  return out;
+}
+
 }  // namespace
 
 void Engine::ApplyControls() {
@@ -183,6 +197,23 @@ void Engine::UpdateSettings() {
   view.invert_y = input_map_->invert_y;
   view.gamepad = pad.connected;
   game_ui_.SetControlsView(view);
+
+  // The Stats page. Nothing in the engine counts these, so only a loaded save
+  // ever changes the table and pushing it on the count moving is enough; the
+  // alternative is formatting a hundred strings every frame for a page that is
+  // usually not even open.
+  if (misc_stats_.size() != stats_pushed_) {
+    stats_pushed_ = misc_stats_.size();
+    StatsView stats;
+    stats.rows.reserve(misc_stats_.size());
+    for (const world::MiscStat& stat : misc_stats_.all()) {
+      StatsRow row;
+      row.label = stat.name;
+      row.value = Grouped(stat.value);
+      stats.rows.push_back(base::move(row));
+    }
+    game_ui_.SetStatsView(stats);
+  }
 }
 
 }  // namespace rx

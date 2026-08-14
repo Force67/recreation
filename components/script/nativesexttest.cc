@@ -90,6 +90,17 @@ class MockBindings : public SkyrimBindings {
     los_target = target;
     return has_los;
   }
+  // Words of power live in the binding store a savegame also fills, so the
+  // natives only forward; this is the smallest store that shows the forwarding.
+  base::Vector<base::Pair<ObjectRef, bool>> words;  // (word, unlocked)
+  void TeachWord(ObjectRef word) override { words.push_back({word, false}); }
+  void UnlockWord(ObjectRef word) override { words.push_back({word, true}); }
+  bool IsWordUnlocked(ObjectRef word) override {
+    for (const auto& [w, unlocked] : words)
+      if (w.handle == word.handle && unlocked)
+        return true;
+    return false;
+  }
   ObjectRef running_actor;
   bool actor_running = false;
   bool IsActorRunning(ObjectRef actor) override {

@@ -50,6 +50,18 @@ class Director {
                   RegionWeather regions,
                   u64 seed);
 
+  // Boots the schedule on a weather a savegame was left under, at the game time
+  // and the game-unit position it resumes at. Adds `weather` to the climate in
+  // force there when it is not already in it, because the engine's climate is
+  // a representative spread rather than the game's whole WTHR list.
+  //
+  // Not a new override mode. Selection is a pure function of (seed, game time),
+  // so landing on a given weather is a search for the seed whose slot at
+  // `game_days` picks it, and everything downstream -- the cross-fade, the
+  // cloudscape endpoints, the strike schedule -- stays consistent with it for
+  // free. Afterwards the weather goes on evolving normally.
+  bool ResumeWeather(const WeatherDef& weather, f64 game_days, f32 game_x, f32 game_y);
+
   // Debug panel / trailer override: copies *state and pins the weather to it;
   // null clears back to the climate. The pointers below let the debug UI edit
   // the override in place, unchanged from the pre-director wiring.

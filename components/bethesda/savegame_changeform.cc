@@ -94,6 +94,16 @@ class Cursor {
     return ref;
   }
 
+  // The next `count` bytes in place. Empty, with the cursor latched off, past
+  // the end.
+  ByteSpan Read(mem_size count) {
+    if (!Take(count))
+      return {};
+    const ByteSpan out(data_.data() + pos_, count);
+    pos_ += count;
+    return out;
+  }
+
   void Bytes(u8* dst, mem_size count) {
     if (!Take(count)) {
       std::memset(dst, 0, count);
@@ -189,14 +199,30 @@ void SkipWString(Cursor& c) {
     c.Skip(size);
 }
 
+base::String ReadWString(Cursor& c) {
+  const u16 size = c.U16();
+  if (size == 0 || !c.CountFits(size, 1))
+    return {};
+  base::Vector<u8> text;
+  text.resize(size);
+  c.Bytes(text.data(), size);
+  if (!c.ok())
+    return {};
+  return base::String(reinterpret_cast<const char*>(text.data()), size);
+}
+
 bool SkipExtraList(Cursor& c, InventoryItem* item, ReferenceChange* ref);
 bool SkipInlineActorBase(Cursor& c, u32 flags);
 
 // One entry of an extra-data list: a type byte and a payload whose size the
-// type decides. Only the two worn markers and the map marker are read out;
-// everything else is stepped over. A type this table does not name ends the
-// walk, because the list carries no lengths and a guessed size turns every byte
-// after it into noise that still looks like data.
+// type decides. A type this table does not name ends the walk, because the list
+// carries no lengths and a guessed size turns every byte after it into noise
+// that still looks like data.
+//
+// The types that are read out rather than stepped over were each pinned down by
+// the same two steps: the change flag that puts them in the list, and a value
+// the game authors elsewhere that they have to agree with. See the individual
+// cases; the sizes of the rest are what makes the payloads consume exactly.
 bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
   const u8 type = c.U8();
   if (!c.ok())
@@ -210,6 +236,60 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
       if (item)
         item->equipped_left = true;
       return true;
+    case 33: {  // ownership: who the thing belongs to, so who it is stolen from
+      const ChangeRef owner = c.Ref();
+      if (!c.ok())
+        return false;
+      if (item)
+        item->owner = owner;
+      return true;
+    }
+    case 36: {  // count: how many copies the list stands for
+      const u16 count = c.U16();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->has_stack_count = true;
+        item->stack_count = count;
+      }
+      return true;
+    }
+    case 37: {  // health, i.e. the temper multiplier
+      const f32 health = c.F32();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->has_health = true;
+        item->health = health;
+      }
+      return true;
+    }
+    case 40: {  // charge left in the enchantment
+      const f32 charge = c.F32();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->has_charge = true;
+        item->charge = charge;
+      }
+      return true;
+    }
+    case 42: {  // lock: level, flags, the key that opens it, then eight bytes
+      const u8 level = c.U8();
+      const u8 flags = c.U8();
+      const ChangeRef key = c.Ref();
+      c.Skip(4);  // zero on every lock in the reference save
+      c.Skip(4);  // 0 or 1, and nothing says which state is which
+      if (!c.ok())
+        return false;
+      if (ref) {
+        ref->has_lock = true;
+        ref->lock_level = level;
+        ref->lock_flags = flags;
+        ref->lock_key = key;
+      }
+      return true;
+    }
     case 44: {  // map marker: one byte of flags, and nothing else
       const u8 flags = c.U8();
       if (!c.ok())
@@ -220,30 +300,70 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
       }
       return true;
     }
+    case 62: {  // poison: what it is coated with and how many uses are left
+      const ChangeRef poison = c.Ref();
+      const u32 doses = c.U32();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->poison = poison;
+        item->poison_doses = doses;
+      }
+      return true;
+    }
+    case 73: {  // hotkey: the entry is the favourite, the byte is the slot
+      const u8 slot = c.U8();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->favourite = true;
+        item->hotkey = slot;
+      }
+      return true;
+    }
+    case 155: {  // enchantment: the form and the charge it holds when full
+      const ChangeRef enchantment = c.Ref();
+      const u16 charge = c.U16();
+      if (!c.ok())
+        return false;
+      if (item) {
+        item->enchantment = enchantment;
+        item->enchantment_charge = charge;
+      }
+      return true;
+    }
+    case 156: {  // soul: 1 petty through 5 grand
+      const u8 soul = c.U8();
+      if (!c.ok())
+        return false;
+      if (item)
+        item->soul = soul;
+      return true;
+    }
     case 0: case 29: case 32: case 53: case 61:
       return c.ok();
-    case 31: case 73: case 77: case 84: case 150: case 156:
+    case 31: case 77: case 84: case 150:
       c.Skip(1);
       return c.ok();
-    case 36: case 79:
+    case 79:
       c.Skip(2);
       return c.ok();
-    case 26: case 28: case 33: case 34: case 35: case 56: case 69: case 72:
+    case 26: case 28: case 34: case 35: case 56: case 69: case 72:
     case 101: case 104: case 112: case 133: case 142: case 146: case 157:
     case 164:
       c.Skip(3);
       return c.ok();
-    case 30: case 37: case 39: case 40: case 47: case 83: case 85: case 89:
+    case 30: case 39: case 47: case 83: case 85: case 89:
     case 93: case 160:
       c.Skip(4);
       return c.ok();
-    case 46: case 155:
+    case 46:
       c.Skip(5);
       return c.ok();
     case 102: case 159:
       c.Skip(6);
       return c.ok();
-    case 62: case 88: case 106: case 149:
+    case 88: case 106: case 149:
       c.Skip(7);
       return c.ok();
     case 176:
@@ -252,7 +372,7 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
     case 169:
       c.Skip(12);
       return c.ok();
-    case 25: case 42:
+    case 25:
       c.Skip(13);
       return c.ok();
     case 24:
@@ -314,8 +434,11 @@ bool SkipExtraEntry(Cursor& c, InventoryItem* item, ReferenceChange* ref) {
         return false;
       // -2 with both refs empty is how a save spells "the player typed this
       // name in"; anything else names a form that supplies the text.
-      if (a.none() && b.none() && kind == -2)
-        SkipWString(c);
+      if (a.none() && b.none() && kind == -2) {
+        base::String name = ReadWString(c);
+        if (item)
+          item->name = base::move(name);
+      }
       return c.ok();
     }
     case 45: {  // a levelled actor's rolled-up NPC_ record, written inline
@@ -360,6 +483,7 @@ bool DecodeInventory(Cursor& c, base::Vector<InventoryItem>& out) {
     const u32 lists = c.VsVal();
     if (!c.CountFits(lists, 1))
       return false;
+    item.described_copies = lists;
     for (u32 k = 0; k < lists; ++k) {
       if (!SkipExtraList(c, &item, nullptr))
         return false;
@@ -513,7 +637,7 @@ bool ReadPerkArray(Cursor& c, u32 stride, u32 max_count, base::Vector<ActorPerk>
       return false;
     // A perk array names a perk in every slot: no holes, no unused kind, and a
     // rank byte inside the range a perk record can author.
-    if (entry.perk.none() || entry.perk.kind == ChangeRefKind::kUnused)
+    if (entry.perk.none())
       return false;
     if (stride == 4 && (entry.rank == 0 || entry.rank > kMaxActorPerkRank))
       return false;
@@ -578,6 +702,65 @@ void FindActorPerks(ByteSpan block, base::Vector<ActorPerk>& out) {
     out.clear();
 }
 
+// One added-spell array: a u32 count and that many refs. A spell list names a
+// real form in every slot and never twice, which is what tells it from a run of
+// bytes that happens to read like refs.
+bool ReadSpellArray(ByteSpan block, mem_size at, base::Vector<ChangeRef>& out) {
+  if (block.size() - at < 4)
+    return false;
+  const u32 count = ReadU32(block, at);
+  if (count < kMinActorSpells || count > kMaxActorSpells)
+    return false;
+  at += 4;
+  if ((block.size() - at) / 3 < count)
+    return false;
+  base::Vector<ChangeRef> found;
+  found.reserve(count);
+  for (u32 i = 0; i < count; ++i, at += 3) {
+    ChangeRef ref;
+    const u32 packed = u32(block[at]) << 16 | u32(block[at + 1]) << 8 | u32(block[at + 2]);
+    ref.kind = static_cast<ChangeRefKind>((packed >> 22) & 0x3);
+    ref.value = packed & 0x3FFFFF;
+    if (ref.none() || ref.kind == ChangeRefKind::kUnused)
+      return false;
+    for (const ChangeRef& have : found) {
+      if (have.kind == ref.kind && have.value == ref.value)
+        return false;
+    }
+    found.push_back(ref);
+  }
+  out = base::move(found);
+  return true;
+}
+
+// The spells the actor was given during play sit in the same undecoded stretch
+// of the actor block the perks do, so they are searched for on the same terms:
+// the shape is a u32 count followed by that many distinct, non-empty refs, and a
+// block that offers more than one reading of it yields nothing at all.
+//
+// The length is what makes the shape identifiable, and where the cut goes was
+// swept rather than picked. Over the reference save's 20658 actor blocks, a
+// minimum of 12 entries leaves 65 blocks with exactly one reading and 64 of them
+// read a run of references rather than spells; 24 leaves 5, all still
+// references; 32 leaves one in the whole file, the player's 161, every one of
+// which resolves to a SPEL record in the masters. An actor with fewer added
+// spells than that yields nothing, which is the honest answer here.
+void FindActorSpells(ByteSpan block, base::Vector<ChangeRef>& out) {
+  bool ambiguous = false;
+  for (mem_size i = 0; i + 4 <= block.size(); ++i) {
+    base::Vector<ChangeRef> spells;
+    if (!ReadSpellArray(block, i, spells))
+      continue;
+    if (!out.empty()) {
+      ambiguous = true;
+      break;
+    }
+    out = base::move(spells);
+  }
+  if (ambiguous)
+    out.clear();
+}
+
 // The walk stopped inside a group it could not size. Everything read before
 // that still holds, and decoded_bytes says where the understanding ends.
 bool Truncated(const Cursor& c, ReferenceChange& result, ReferenceChange& out) {
@@ -614,6 +797,15 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
   const bool actor = form.type == ChangeFormType::kAchr;
   ReferenceChange result;
   Cursor c(PayloadOf(form));
+
+  // Three states with no payload at all: a container the player emptied, and a
+  // door or activator's open state. Read before the walk so a payload that stops
+  // short still reports them; a reference carrying the empty flag writes no
+  // inventory group at all (all 3433 of them in the reference save), so this
+  // flag is the only record that its contents are gone.
+  result.emptied = (form.flags & kRefrChangeEmpty) != 0;
+  result.open = (form.flags & kRefrChangeOpenState) != 0;
+  result.open_default = (form.flags & kRefrChangeOpenDefaultState) != 0;
 
   // The transform group's shape is chosen by the flags, not written down: a
   // reference the save itself created carries its base object with it, one that
@@ -693,16 +885,24 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
     result.inventory_complete = true;
   }
 
-  if (!actor && (form.flags & kRefrChangePromoted)) {
-    const u32 count = c.VsVal();
-    if (!c.CountFits(count, 3))
-      return Truncated(c, result, out);
-    c.Skip(count * 3);
-  }
+  // CHANGE_REFR_PROMOTED writes no group of its own: what it announces is an
+  // extra-data entry of type 140 in the list above, which the reference save
+  // puts on 19620 of the 19620 references that set the bit. Reading a ref array
+  // for it here cost 2701 references their last group: with it the walk lands on
+  // the last byte of 102196 of the save's 106098 REFR payloads, without it
+  // 104897.
   if (form.flags & kRefrChangeAnimation)
     SkipSizedBytes(c);
   if (!c.ok())
     return Truncated(c, result, out);
+
+  // Three states with no payload at all: a container the player emptied, and a
+  // door or activator's open state. A reference carrying the empty flag writes
+  // no inventory group (all 3433 of them), so this flag is the only record that
+  // its contents are gone.
+  result.emptied = (form.flags & kRefrChangeEmpty) != 0;
+  result.open = (form.flags & kRefrChangeOpenState) != 0;
+  result.open_default = (form.flags & kRefrChangeOpenDefaultState) != 0;
 
   // A plain reference is nothing but its groups, so its payload has to end
   // exactly here. When it does not, the walk went wrong somewhere it could not
@@ -717,6 +917,7 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
   if (actor) {
     FindActorValues(c.rest(), result.actor_values);
     FindActorPerks(c.rest(), result.perks);
+    FindActorSpells(c.rest(), result.spells);
   }
 
   result.decoded_bytes = c.offset();
@@ -861,6 +1062,17 @@ bool DecodeActorBase(const ChangeForm& form, ActorBaseChange& out) {
       return false;
   }
 
+  if (form.flags & kActorBaseChangeFullName) {
+    const u16 size = c.U16();
+    if (!c.CountFits(size, 1))
+      return false;
+    const ByteSpan text = c.Read(size);
+    if (!c.ok())
+      return false;
+    result.has_full_name = true;
+    result.full_name = base::String(reinterpret_cast<const char*>(text.data()), text.size());
+  }
+
   if (form.flags & kActorBaseChangeSkills) {
     result.has_skills = true;
     c.Bytes(result.skills, kActorSkillCount);
@@ -875,6 +1087,86 @@ bool DecodeActorBase(const ChangeForm& form, ActorBaseChange& out) {
       return false;
   }
 
+  if (form.flags & kActorBaseChangeClass)
+    c.Ref();
+
+  if (form.flags & kActorBaseChangeRace) {
+    result.has_race = true;
+    result.race = c.Ref();
+    result.original_race = c.Ref();
+    if (!c.ok())
+      return false;
+  }
+
+  if (form.flags & kActorBaseChangeFace) {
+    // The group leads with a byte that says whether a face follows at all. It
+    // reads 1 on the one payload in the reference save that carries the group;
+    // a face written as absent has not been seen.
+    const bool present = c.U8() != 0;
+    if (!c.ok())
+      return false;
+    if (present) {
+      result.has_face = true;
+      result.face.hair_color = c.Ref();
+      result.face.skin_tone = c.U32();
+      result.face.face_texture = c.Ref();
+      const u32 parts = c.VsVal();
+      if (!c.CountFits(parts, 3))
+        return false;
+      for (u32 i = 0; i < parts; ++i)
+        result.face.head_parts.push_back(c.Ref());
+      const bool morphs = c.U8() != 0;
+      if (!c.ok())
+        return false;
+      if (morphs) {
+        result.face.has_morphs = true;
+        const u32 sliders = c.U32();
+        if (!c.CountFits(sliders, 4))
+          return false;
+        for (u32 i = 0; i < sliders; ++i)
+          result.face.morphs.push_back(c.F32());
+        const u32 presets = c.U32();
+        if (!c.CountFits(presets, 4))
+          return false;
+        for (u32 i = 0; i < presets; ++i)
+          result.face.presets.push_back(c.I32());
+      }
+      if (!c.ok())
+        return false;
+    }
+  }
+
+  if (form.flags & kActorBaseChangeGender) {
+    result.has_gender = true;
+    result.female = c.U8() != 0;
+  }
+  if (form.flags & kActorBaseChangeDefaultOutfit)
+    c.Ref();
+  if (form.flags & kActorBaseChangeSleepOutfit)
+    c.Ref();
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeWordOfPower(const ChangeForm& form, WordOfPowerChange& out) {
+  if (form.type != ChangeFormType::kWoop)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  WordOfPowerChange result;
+  Cursor c(PayloadOf(form));
+  if (form.flags & kWordOfPowerChangeFormFlags) {
+    const u32 flags = c.U32();
+    c.U16();  // the same trailing short every form-flag group writes, always 0
+    if (!c.ok())
+      return false;
+    result.known = (flags & kWordOfPowerKnown) != 0;
+  }
   result.decoded_bytes = c.offset();
   out = base::move(result);
   return true;
@@ -999,6 +1291,173 @@ bool DecodeCell(const ChangeForm& form, CellChange& out) {
   if (form.flags & kCellChangeOwnership)
     c.Ref();
 
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeLocation(const ChangeForm& form, LocationChange& out) {
+  if (form.type != ChangeFormType::kLctn)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  LocationChange result;
+  Cursor c(PayloadOf(form));
+
+  // Two groups, cleared first. The order is what the eight records carrying
+  // both settle: they open with the two cleared bytes and the keyword count
+  // follows, and reading them the other way round makes the count a state byte
+  // and leaves the payload two bytes long.
+  if (form.flags & kLocationChangeCleared) {
+    result.has_cleared = true;
+    result.cleared = c.U8() != 0;
+    result.cleared_extra = c.U8();
+  }
+  if (form.flags & kLocationChangeKeywordData) {
+    const u32 count = c.VsVal();
+    if (!c.CountFits(count, 7))
+      return false;
+    result.keyword_data.reserve(count);
+    for (u32 i = 0; i < count; ++i) {
+      LocationKeywordValue entry;
+      entry.keyword = c.Ref();
+      entry.value = c.F32();
+      result.keyword_data.push_back(entry);
+    }
+  }
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeEncounterZone(const ChangeForm& form, EncounterZoneChange& out) {
+  if (form.type != ChangeFormType::kEczn)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  EncounterZoneChange result;
+  Cursor c(PayloadOf(form));
+
+  if (form.flags & kEncounterZoneChangeGameData) {
+    result.has_game_data = true;
+    result.stamp_a = c.U32();
+    result.stamp_b = c.U32();
+    result.stamp_c = c.U32();
+    result.level = c.U32();
+  }
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeLeveledList(const ChangeForm& form, LeveledListChange& out) {
+  if (form.type != ChangeFormType::kLvli && form.type != ChangeFormType::kLvln)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  LeveledListChange result;
+  Cursor c(PayloadOf(form));
+
+  if (form.flags & kLeveledListChangeAddedObject) {
+    // A bare byte, not the vsval every other count in this format uses: over
+    // the reference save's 27 leveled lists a u8 count consumes all 27 payloads
+    // to the last byte and a vsval count consumes none of them.
+    const u32 count = c.U8();
+    if (!c.CountFits(count, 7))
+      return false;
+    result.added.reserve(count);
+    for (u32 i = 0; i < count; ++i) {
+      LeveledListEntry entry;
+      entry.form = c.Ref();
+      entry.level = c.U16();
+      entry.count = c.U16();
+      result.added.push_back(entry);
+    }
+  }
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeBook(const ChangeForm& form, BookChange& out) {
+  if (form.type != ChangeFormType::kBook)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  BookChange result;
+  Cursor c(PayloadOf(form));
+
+  if (form.flags & kBookChangeRead) {
+    result.has_flags = true;
+    result.flags = c.U8();
+    result.read = (result.flags & kBookFlagRead) != 0;
+  }
+  result.skill_taken = (form.flags & kBookChangeSkillTaken) != 0;
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeIngredient(const ChangeForm& form, IngredientChange& out) {
+  if (form.type != ChangeFormType::kIngr)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  IngredientChange result;
+  Cursor c(PayloadOf(form));
+
+  if (form.flags & kIngredientChangeUse) {
+    result.has_known_effects = true;
+    result.known_effects = c.U32();
+  }
+  if (!c.ok())
+    return false;
+
+  result.decoded_bytes = c.offset();
+  out = base::move(result);
+  return true;
+}
+
+bool DecodeRelationship(const ChangeForm& form, RelationshipChange& out) {
+  if (form.type != ChangeFormType::kRela)
+    return false;
+  if (!VersionSupported(form))
+    return false;
+
+  RelationshipChange result;
+  Cursor c(PayloadOf(form));
+
+  // Which shape the payload takes is decided by the id, not by a flag, the same
+  // way a created reference carries its base object: a relationship no plugin
+  // authors has to say who it is between, one that exists as a record does not.
+  result.created = form.form_id >> 24 == 0xff;
+  if (result.created) {
+    result.parent = c.Ref();
+    result.child = c.Ref();
+    result.association = c.Ref();
+  }
+  if (form.flags & kRelationshipChangeData)
+    result.rank = c.U32();
   if (!c.ok())
     return false;
 

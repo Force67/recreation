@@ -1,5 +1,6 @@
 #include "components/bethesda/savegame.h"
 
+#include <base/containers/pair.h>
 #include <base/memory/move.h>
 
 #include <cstring>
@@ -31,13 +32,41 @@ constexpr FormatTraits kFormats[] = {
 constexpr u16 kCodecNone = 0;
 constexpr u16 kCodecZlib = 1;
 
-// The global data record that carries the global variable table.
+// Global data record numbers. MEASURED, not taken from a wiki: the reference
+// Skyrim SE save holds 0..8 in group 1 and 100..103, 105..114 in group 2, and
+// all 54 Fallout 4 saves on this machine hold 0..11 and 100..103, 105..106,
+// 109..111, 113..117 under the SAME numbers, so unlike the change form types
+// this enumeration does not shift between the two games. Note that neither
+// game writes 104, and that Skyrim's group 2 runs past 111, which is where a
+// walk that assumes a contiguous range goes wrong.
+//
+// Two of these were already read before the rest were decoded, and the walk
+// below keeps their decoding byte for byte as it was.
+constexpr u32 kMiscStatsRecord = 0;
+constexpr u32 kPlayerLocationRecord = 1;
 constexpr u32 kGlobalVariablesRecord = 3;
-// The one that carries the forms the player made at runtime. It sits in the
-// same table as the globals, not in tables 2 or 3.
+// The one in the third global data table that carries the Papyrus heap. It is
+// 13,183,418 bytes on the reference save, 40% of the whole decompressed body.
+constexpr u32 kPapyrusRecord = 1001;
+// The forms the player made at runtime. It sits in the same table as the
+// globals, not in tables 2 or 3.
 constexpr u32 kCreatedObjectsRecord = 4;
+constexpr u32 kWeatherRecord = 6;
+// The ingredient pair table. UESP numbers this 111; in the reference save 111
+// is five bytes and 112 is the 64 that hold ten pairs and consume exactly, so
+// 112 is the right number and the wiki is off by one here.
+constexpr u32 kIngredientPairRecord = 112;
 // Four tables in a fixed order, one per CreatedFormKind.
 constexpr u32 kCreatedFormTables = 4;
+
+// The two records of the second global data table this reader takes. Both were
+// found by walking the table rather than trusting a number: 108 is a single byte
+// in the reference save and cannot be a favourites list, 109 is 146 bytes and is
+// one, and 102 is the 1121 byte interface record.
+constexpr u32 kInterfaceRecord = 102;
+constexpr u32 kMagicFavouritesRecord = 109;
+// The interface record's three histories, in this order.
+constexpr u32 kLastUsedHistories = 3;
 
 // Larger than any real save, so a length field past it is corrupt or hostile
 // rather than something worth allocating for.
@@ -263,91 +292,313 @@ bool ReadFormIdArray(ByteSpan body, size_t offset, base::Vector<u32>* out) {
   return true;
 }
 
-bool ReadGlobals(ByteSpan body,
-                 size_t offset,
-                 u32 record_count,
+bool ReadGlobals(ByteSpan payload,
                  const base::Vector<u32>& form_ids,
                  base::Vector<base::Pair<u32, f32>>* out) {
+  Reader v(payload);
+  const u32 count = v.VsVal();
+  if (static_cast<u64>(count) * 7 > v.remaining())
+    return false;
+  out->reserve(count);
+  for (u32 k = 0; k < count; ++k) {
+    const u32 form_id = ResolveRefId(v.ReadRefId(), form_ids);
+    out->push_back({form_id, v.F32()});
+  }
+  return v.ok();
+}
+
+// Created objects. Four vsval-counted arrays back to back, each entry a RefID,
+// a count, and a vsval-counted list of magic effects. The whole record is
+// consumed exactly, which is what says the layout is right.
+bool ReadCreatedObjects(ByteSpan payload,
+                        const base::Vector<u32>& form_ids,
+                        base::Vector<CreatedForm>* out) {
+  Reader c(payload);
+  for (u32 table = 0; table < kCreatedFormTables; ++table) {
+    const u32 count = c.VsVal();
+    // Smallest entry is RefID(3) + count(4) + an empty effect list(1).
+    if (!c.ok() || static_cast<u64>(count) * 8 > c.remaining())
+      return false;
+    for (u32 k = 0; k < count && c.ok(); ++k) {
+      CreatedForm form;
+      form.form_id = ResolveRefId(c.ReadRefId(), form_ids);
+      form.unknown_count = c.U32();
+      form.kind = static_cast<CreatedFormKind>(table);
+      const u32 effects = c.VsVal();
+      if (!c.ok() || static_cast<u64>(effects) * 19 > c.remaining())
+        return false;
+      for (u32 e = 0; e < effects; ++e) {
+        CreatedEffect effect;
+        effect.effect = ResolveRefId(c.ReadRefId(), form_ids);
+        effect.magnitude = c.F32();
+        effect.duration = c.U32();
+        c.U32();  // area; zero for every effect in the reference save
+        effect.value = c.F32();
+        form.effects.push_back(effect);
+      }
+      out->push_back(base::move(form));
+    }
+  }
+  return c.ok();
+}
+
+// The Stats page: a u32 count then that many (name, category, value) rows, the
+// name a plain wstring. 108 rows consuming all 2484 bytes of the reference
+// save, and cross-checked against a different record of the same file: the
+// "Days Passed" row reads 2616 against the GameDaysPassed global's 2616.0049.
+// Not against the header's play time, which counts hours at the wheel (527).
+bool ReadMiscStats(ByteSpan payload, base::Vector<MiscStat>* out) {
+  Reader r(payload);
+  const u32 count = r.U32();
+  // Shortest row is an empty name (2), a category (1) and a value (4).
+  if (static_cast<u64>(count) * 7 > r.remaining())
+    return false;
+  out->reserve(count);
+  for (u32 i = 0; i < count; ++i) {
+    MiscStat stat;
+    stat.name = r.WString();
+    stat.category = r.U8();
+    stat.value = r.U32();
+    if (!r.ok())
+      return false;
+    out->push_back(base::move(stat));
+  }
+  // Nothing may be left: the count is the whole table, so a remainder would
+  // mean the row layout is wrong in a way the walk happened to survive.
+  return r.remaining() == 0;
+}
+
+// Consumes 31 bytes in Skyrim SE and 30 in Fallout 4 (the trailing byte is the
+// later format's), which is what pins the field list. The two worldspace slots
+// differ only when the player is indoors: over the 54 Fallout 4 saves the
+// second slot is the interior cell in every save whose header names an
+// interior and equals the first in every save whose header names an exterior.
+bool ReadPlayerLocation(ByteSpan payload,
+                        const base::Vector<u32>& form_ids,
+                        SavedPlayerLocation* out) {
+  Reader r(payload);
+  SavedPlayerLocation loc;
+  loc.next_object_id = r.U32();
+  loc.coord_worldspace = ResolveRefId(r.ReadRefId(), form_ids);
+  loc.cell_x = static_cast<i32>(r.U32());
+  loc.cell_y = static_cast<i32>(r.U32());
+  loc.parent = ResolveRefId(r.ReadRefId(), form_ids);
+  for (f32& v : loc.position)
+    v = r.F32();
+  if (!r.ok() || r.remaining() > 1)
+    return false;
+  loc.valid = true;
+  *out = loc;
+  return true;
+}
+
+// The record is 63 bytes in Skyrim SE and in Fallout 4 alike, and lays out as
+// six RefIDs, three floats, six u32, a float, a byte and a u32. Only the first
+// 30 bytes are taken here: the tail reads 0x20, five zeroes and 0.2 in the
+// reference save and nothing in the file says what any of it is, so it is left
+// alone rather than named wrongly.
+bool ReadWeather(ByteSpan payload, const base::Vector<u32>& form_ids, SavedWeather* out) {
+  Reader r(payload);
+  SavedWeather w;
+  w.climate = ResolveRefId(r.ReadRefId(), form_ids);
+  w.weather = ResolveRefId(r.ReadRefId(), form_ids);
+  w.previous = ResolveRefId(r.ReadRefId(), form_ids);
+  r.ReadRefId();  // reads back as a copy of `weather` in the reference save
+  r.ReadRefId();  // zero there, so neither slot's meaning is established
+  w.region_weather = ResolveRefId(r.ReadRefId(), form_ids);
+  w.current_time = r.F32();
+  w.begin_time = r.F32();
+  w.transition = r.F32();
+  if (!r.ok())
+    return false;
+  w.valid = true;
+  *out = w;
+  return true;
+}
+
+// A u32 count then that many RefID pairs, consuming exactly (4 + 10 * 6 = 64).
+bool ReadIngredientPairs(ByteSpan payload,
+                         const base::Vector<u32>& form_ids,
+                         base::Vector<IngredientPair>* out) {
+  Reader r(payload);
+  const u32 count = r.U32();
+  if (static_cast<u64>(count) * 6 != r.remaining())
+    return false;
+  out->reserve(count);
+  for (u32 i = 0; i < count; ++i) {
+    IngredientPair pair;
+    pair.first = ResolveRefId(r.ReadRefId(), form_ids);
+    pair.second = ResolveRefId(r.ReadRefId(), form_ids);
+    out->push_back(pair);
+  }
+  return r.ok();
+}
+
+// One group of global data: a flat (type, length, payload) list. Walked once
+// and dispatched by type, so a record with no decoder is stepped over by its
+// length like any other. The three groups walk to exactly the offset the file
+// location table gives for whatever follows them, which is what says the list
+// is being read right; a group whose walk runs off is refused whole.
+//
+// A decoder that fails leaves its field empty and the walk carries on: these
+// tables are read for flavour on top of a save the engine already boots, and
+// the alternative is a game that will not load because a stats row moved.
+void ReadMagicFavourites(ByteSpan payload,
+                         const base::Vector<u32>& form_ids,
+                         base::Vector<MagicFavourite>* out);
+void ReadInterface(ByteSpan payload, const base::Vector<u32>& form_ids, SaveFile* out);
+
+bool ReadGlobalDataGroup(ByteSpan body, size_t offset, u32 record_count, SaveFile* save) {
   Reader r(body);
   if (!r.SeekTo(offset))
     return false;
-  // Global data is a flat (type, length, payload) list; only the variable
-  // table means anything at this layer, the rest is stepped over by length.
   for (u32 i = 0; i < record_count; ++i) {
     const u32 type = r.U32();
     const u32 length = r.U32();
     ByteSpan payload = r.Take(length);
     if (!r.ok())
       return false;
-    if (type != kGlobalVariablesRecord)
-      continue;
-
-    Reader v(payload);
-    const u32 count = v.VsVal();
-    if (static_cast<u64>(count) * 7 > v.remaining())
-      return false;
-    out->reserve(count);
-    for (u32 k = 0; k < count; ++k) {
-      const u32 form_id = ResolveRefId(v.ReadRefId(), form_ids);
-      out->push_back({form_id, v.F32()});
+    switch (type) {
+      case kMiscStatsRecord:
+        if (!ReadMiscStats(payload, &save->misc_stats))
+          save->misc_stats.clear();
+        break;
+      case kPlayerLocationRecord:
+        if (!ReadPlayerLocation(payload, save->form_ids, &save->player_place))
+          save->player_place = {};
+        break;
+      case kGlobalVariablesRecord:
+        if (!ReadGlobals(payload, save->form_ids, &save->globals))
+          return false;
+        break;
+      case kCreatedObjectsRecord:
+        if (!ReadCreatedObjects(payload, save->form_ids, &save->created_forms))
+          return false;
+        break;
+      case kWeatherRecord:
+        if (!ReadWeather(payload, save->form_ids, &save->weather))
+          save->weather = {};
+        break;
+      case kMagicFavouritesRecord:
+        // Skyrim only. Fallout 4 numbers this record the same but lays it out
+        // differently: its 109 is three zero bytes, which is not a favourites
+        // list and a hotkey array. Measured, and the same refusal layer 2 makes.
+        if (save->format != SaveFormat::kFallout4)
+          ReadMagicFavourites(payload, save->form_ids, &save->magic_favourites);
+        break;
+      case kInterfaceRecord:
+        // Same refusal, same reason: Fallout 4's 102 is 65 bytes beginning
+        // 0x0001FFFFFFFF, which is not a count of help messages.
+        if (save->format != SaveFormat::kFallout4)
+          ReadInterface(payload, save->form_ids, save);
+        break;
+      case kIngredientPairRecord:
+        if (!ReadIngredientPairs(payload, save->form_ids, &save->ingredient_pairs))
+          save->ingredient_pairs.clear();
+        break;
+      default:
+        break;
     }
-    if (!v.ok())
-      return false;
   }
   return true;
 }
 
-// Created objects, walked out of the same table the globals live in. Four
-// vsval-counted arrays back to back, each entry a RefID, a count, and a
-// vsval-counted list of magic effects. The whole record is consumed exactly,
-// which is what says the layout is right.
-bool ReadCreatedObjects(ByteSpan body,
-                        size_t offset,
-                        u32 record_count,
-                        const base::Vector<u32>& form_ids,
-                        base::Vector<CreatedForm>* out) {
+// The Papyrus heap, out of the third global data table. Walked the same way the
+// first table is: a flat (type, length, payload) list stepped over by length.
+// A table that does not decode leaves the heap empty rather than failing the
+// whole save: everything else in the file is still worth having.
+void ReadPapyrus(ByteSpan body,
+                 size_t offset,
+                 u32 record_count,
+                 const base::Vector<u32>& form_ids,
+                 PapyrusHeap* out) {
   Reader r(body);
   if (!r.SeekTo(offset))
-    return false;
+    return;
   for (u32 i = 0; i < record_count; ++i) {
     const u32 type = r.U32();
     const u32 length = r.U32();
     ByteSpan payload = r.Take(length);
     if (!r.ok())
-      return false;
-    if (type != kCreatedObjectsRecord)
-      continue;
-
-    Reader c(payload);
-    for (u32 table = 0; table < kCreatedFormTables; ++table) {
-      const u32 count = c.VsVal();
-      // Smallest entry is RefID(3) + count(4) + an empty effect list(1).
-      if (!c.ok() || static_cast<u64>(count) * 8 > c.remaining())
-        return false;
-      for (u32 k = 0; k < count && c.ok(); ++k) {
-        CreatedForm form;
-        form.form_id = ResolveRefId(c.ReadRefId(), form_ids);
-        form.unknown_count = c.U32();
-        form.kind = static_cast<CreatedFormKind>(table);
-        const u32 effects = c.VsVal();
-        if (!c.ok() || static_cast<u64>(effects) * 19 > c.remaining())
-          return false;
-        for (u32 e = 0; e < effects; ++e) {
-          CreatedEffect effect;
-          effect.effect = ResolveRefId(c.ReadRefId(), form_ids);
-          effect.magnitude = c.F32();
-          effect.duration = c.U32();
-          c.U32();  // area; zero for every effect in the reference save
-          effect.value = c.F32();
-          form.effects.push_back(effect);
-        }
-        out->push_back(base::move(form));
-      }
-    }
-    if (!c.ok())
-      return false;
+      return;
+    if (type == kPapyrusRecord && !ReadPapyrusHeap(payload, form_ids, out))
+      return;
   }
-  return true;
+}
+
+// The favourites menu: the forms in it, then one slot per number key holding the
+// form bound to it, empty for an unbound key.
+//
+// The whole 146 byte record of the reference save is consumed exactly by this
+// reading, and all 11 favourites resolve to real records of the right kind
+// (Incinerate, ConjureDremoraLord, CloseWounds, Invisibility, Frenzy,
+// WardGreater and DLC01SummonSoulHorse as SPEL, UnrelentingForce, BecomeEthereal,
+// Dragonrend and AuraWhisper as SHOU). The hotkey array is 37 slots and every
+// one of them is empty in that save, so what a bound key looks like is not
+// observable; that the slots are three byte refs rather than anything else is,
+// because the 111 bytes left after the count divide by three and by nothing else
+// the count would fit.
+void ReadMagicFavourites(ByteSpan payload,
+                         const base::Vector<u32>& form_ids,
+                         base::Vector<MagicFavourite>* out) {
+  Reader r(payload);
+  const u32 count = r.VsVal();
+  if (!r.ok() || static_cast<u64>(count) * 3 > r.remaining())
+    return;
+  base::Vector<MagicFavourite> found;
+  found.reserve(count);
+  for (u32 i = 0; i < count; ++i) {
+    MagicFavourite favourite;
+    favourite.form_id = ResolveRefId(r.ReadRefId(), form_ids);
+    found.push_back(favourite);
+  }
+  const u32 slots = r.VsVal();
+  if (!r.ok() || static_cast<u64>(slots) * 3 > r.remaining())
+    return;
+  for (u32 slot = 0; slot < slots; ++slot) {
+    const u32 id = ResolveRefId(r.ReadRefId(), form_ids);
+    for (MagicFavourite& favourite : found) {
+      if (id != 0 && favourite.form_id == id)
+        favourite.hotkey = static_cast<i32>(slot);
+    }
+  }
+  if (!r.ok())
+    return;
+  *out = base::move(found);
+}
+
+// The interface record. What is wanted from it is the tail of each of the three
+// hundred-deep histories it keeps, which is the last weapon, spell and shout the
+// player used.
+//
+// Measured against the reference save, whose 1121 bytes this consumes exactly:
+// 21 shown help message ids, a byte, then three vsval-counted arrays of 100 refs
+// each, resolving to WEAP, SPEL and SHOU records respectively and to nothing
+// else. Which end of a history is the newest is settled by the player's own
+// pack: the weapon history runs 75 DLC1DragonboneSword then 25 DLC1DragonboneBow,
+// and the bow is the weapon the save has worn, so the last entry is the current
+// one.
+void ReadInterface(ByteSpan payload, const base::Vector<u32>& form_ids, SaveFile* out) {
+  Reader r(payload);
+  const u32 messages = r.U32();
+  if (static_cast<u64>(messages) * 4 > r.remaining())
+    return;
+  r.Skip(static_cast<size_t>(messages) * 4);
+  r.U8();
+
+  u32* const last[kLastUsedHistories] = {&out->last_used_weapon, &out->last_used_spell,
+                                         &out->last_used_shout};
+  for (u32 history = 0; history < kLastUsedHistories; ++history) {
+    const u32 count = r.VsVal();
+    if (!r.ok() || static_cast<u64>(count) * 3 > r.remaining())
+      return;
+    u32 newest = 0;
+    for (u32 i = 0; i < count; ++i)
+      newest = ResolveRefId(r.ReadRefId(), form_ids);
+    if (!r.ok())
+      return;
+    *last[history] = newest;
+  }
 }
 
 bool ReadChangeForms(ByteSpan body,
@@ -555,26 +806,40 @@ bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
     return false;
 
   size_t form_id_offset = 0;
-  size_t globals_offset = 0;
   size_t change_forms_offset = 0;
   if (!BodyOffset(flt.form_id_array_count_offset, body_base, body.size(), &form_id_offset) ||
-      !BodyOffset(flt.global_data_table1_offset, body_base, body.size(), &globals_offset) ||
       !BodyOffset(flt.change_forms_offset, body_base, body.size(), &change_forms_offset))
     return false;
-
   // The form id map has to come first: everything below resolves RefIDs
   // through it, and it is stored after the records that reference it.
   if (!ReadFormIdArray(body, form_id_offset, &save.form_ids))
     return false;
-  if (!ReadGlobals(body, globals_offset, flt.global_data_table1_count, save.form_ids,
-                   &save.globals))
-    return false;
-  if (!ReadCreatedObjects(body, globals_offset, flt.global_data_table1_count, save.form_ids,
-                          &save.created_forms))
-    return false;
+  // A group with no records has no offset worth trusting either, so the offset
+  // is only resolved for one that holds something. Group 3 is never walked: it
+  // is the Papyrus heap, the animation state and the timers, and 13 of the
+  // reference save's 32 MB sit in it with nothing above this layer able to use
+  // any of it yet.
+  const base::Pair<u32, u32> groups[] = {
+      {flt.global_data_table1_offset, flt.global_data_table1_count},
+      {flt.global_data_table2_offset, flt.global_data_table2_count},
+  };
+  for (const base::Pair<u32, u32>& group : groups) {
+    if (group.second == 0)
+      continue;
+    size_t offset = 0;
+    if (!BodyOffset(group.first, body_base, body.size(), &offset) ||
+        !ReadGlobalDataGroup(body, offset, group.second, &save))
+      return false;
+  }
   if (!ReadChangeForms(body, change_forms_offset, flt.change_form_count, save.format,
                        save.form_ids, &save.change_forms))
     return false;
+  // The Papyrus heap sits in the third global data table, past the change
+  // forms. Only Skyrim writes the layout savegame_papyrus.cc measured.
+  size_t papyrus_offset = 0;
+  if (save.format != SaveFormat::kFallout4 &&
+      BodyOffset(flt.global_data_table3_offset, body_base, body.size(), &papyrus_offset))
+    ReadPapyrus(body, papyrus_offset, flt.global_data_table3_count, save.form_ids, &save.papyrus);
 
   out = base::move(save);
   return true;

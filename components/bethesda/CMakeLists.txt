@@ -33,6 +33,7 @@ recreation_add_module(bethesda
   savegame.cc
   savegame_changeform.cc
   savegame_apply.cc
+  savegame_papyrus.cc
   facegen.cc
   head_morph.cc
   worn_armor.cc
@@ -53,5 +54,6 @@ recreation_add_test(tritest recreation::bethesda)
 recreation_add_test(savegametest recreation::bethesda)
 recreation_add_test(savegame_changeformtest recreation::bethesda)
 recreation_add_test(savegame_applytest recreation::bethesda)
+recreation_add_test(savegame_papyrustest recreation::bethesda)
 recreation_add_test(worn_armortest recreation::bethesda)
 recreation_add_test(vmad_fo4test recreation::bethesda)

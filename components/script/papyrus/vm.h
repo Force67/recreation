@@ -128,6 +128,13 @@ class VirtualMachine : public VmInterface {
   // to inspect live script state when bringing up a quest's fragments.
   base::Vector<base::String> MemberNames(ObjectRef self);
 
+  // Writes a member the instance's scripts already declare, and only that.
+  // Returns false for a name the instance does not have, which is how a
+  // savegame's variable for a script this load order compiles differently is
+  // counted and dropped instead of inventing a member no code ever reads.
+  // Matched case insensitively, like every other Papyrus name.
+  bool SetDeclaredMember(ObjectRef self, const base::String& name, Value value);
+
   // VmInterface, used by the interpreter.
   Value CallMethod(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
   Value CallStatic(const base::String& script_type,

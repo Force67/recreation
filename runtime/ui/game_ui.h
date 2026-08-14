@@ -307,6 +307,18 @@ struct ControlsView {
   bool gamepad = false;  // a pad is connected (drives glyph hints)
 };
 
+// The game's Stats page. One row per counter, in the game's own order, with
+// the label untranslated because that is the only name a savegame carries.
+// Handed over whole; the pane pages through it and the engine does not care
+// which page is up.
+struct StatsRow {
+  base::String label;
+  base::String value;  // pre-formatted, so grouping stays with the caller
+};
+struct StatsView {
+  base::Vector<StatsRow> rows;
+};
+
 // A request the Settings sub-view raises for the engine (which owns the
 // InputMap) to act on. Polled once per frame and cleared on consume, mirroring
 // MainMenuRequest.
@@ -492,6 +504,11 @@ class GameUi {
   // sensitivity, toggle invert, reset, test rumble).
   void SetControlsView(const ControlsView& view);
   SettingsRequest PollSettingsRequest();
+
+  // Pause-menu Stats sub-view. Cheap to hand over the whole table but not free,
+  // so the engine pushes it when the page opens rather than every frame.
+  void SetStatsView(const StatsView& view);
+  bool stats_open() const;
 
   // NEXUS main menu (the startup "choose your universe" screen). Distinct from
   // the in-game pause menu above. The engine opens it at boot, drives it with

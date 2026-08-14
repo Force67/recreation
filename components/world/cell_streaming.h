@@ -451,6 +451,11 @@ class CellStreamer {
   bool RefsGroundHeight(u32 grid_key,
                         const bethesda::RecordStore::ExteriorCell& cell,
                         f32* engine_y) const;
+  // The encounter zone a placed reference stands in: the one its own placement
+  // names, or the one its interior cell does. Invalid plugin when neither.
+  bethesda::GlobalFormId EncounterZoneOf(const bethesda::Record& refr,
+                                         bethesda::GlobalFormId ref,
+                                         u16 plugin) const;
   bool SpawnReference(ecs::World& world,
                       i16 grid_x,
                       i16 grid_y,
@@ -637,6 +642,9 @@ class CellStreamer {
   };
   base::UnorderedMap<u64, PropState> prop_states_;
   ActorStatsStore* actor_stats_ = nullptr;
+  // Interior CELL -> the encounter zone it names, filled on the first actor of
+  // that cell so a dungeon's record is parsed once rather than per actor.
+  mutable base::UnorderedMap<u64, u64> cell_zones_;
   base::UnorderedMap<u64, bool> addressable_refs_;
   base::UnorderedMap<u64, bool> addressable_records_indexed_;
   bool addressable_refs_built_ = false;

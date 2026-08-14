@@ -112,13 +112,30 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     if (n->name == "btn_resume") {
       impl->menu_open = false;
       impl->settings_open = false;
+      impl->stats_open = false;
       impl->ApplyMenuVisibility();
     } else if (n->name == "btn_settings") {
       impl->settings_open = true;
+      impl->stats_open = false;
       impl->ApplyMenuVisibility();
     } else if (n->name == "btn_settings_back") {
       impl->settings_open = false;
       impl->ApplyMenuVisibility();
+    } else if (n->name == "btn_stats") {
+      impl->stats_open = true;
+      impl->settings_open = false;
+      impl->stats_page = 0;
+      impl->ApplyMenuVisibility();
+      impl->ApplyStatsPage();
+    } else if (n->name == "btn_stats_prev" || n->name == "btn_stats_next") {
+      const size_t pages =
+          impl->stats_view.rows.empty()
+              ? 1
+              : (impl->stats_view.rows.size() + Impl::kStatsRows - 1) / Impl::kStatsRows;
+      // Wraps, so the pager works with three widgets and no disabled state.
+      impl->stats_page = n->name == "btn_stats_next" ? (impl->stats_page + 1) % pages
+                                                     : (impl->stats_page + pages - 1) % pages;
+      impl->ApplyStatsPage();
     } else if (n->name == "btn_quit") {
       impl->quit_requested = true;
     } else if (n->name.rfind("rebind_", 0) == 0 && n->name.find('_', 7) == base::String::npos) {
@@ -147,11 +164,14 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
 
   // Debug aid: RECREATION_UI_MENU opens the pause menu at startup,
   // RECREATION_UI_MENU_SETTINGS opens it on the controls sub-view.
-  if (UiMenu || UiMenuSettings)
+  if (UiMenu || UiMenuSettings || UiMenuStats)
     impl_->menu_open = true;
   if (UiMenuSettings)
     impl_->settings_open = true;
+  if (UiMenuStats)
+    impl_->stats_open = true;
   impl_->ApplyMenuVisibility();  // menu starts hidden unless forced open
+  impl_->ApplyStatsPage();
   // Debug aid: RECREATION_MAIN_MENU opens the NEXUS front menu at startup.
   if (MainMenu)
     impl_->main_menu_open = true;
@@ -178,6 +198,7 @@ void GameUi::ToggleMenu() {
     return;
   impl_->menu_open = !impl_->menu_open;
   impl_->settings_open = false;  // always reopen on the main pause screen
+  impl_->stats_open = false;
   impl_->ApplyMenuVisibility();
 }
 
@@ -379,6 +400,17 @@ FirstRunRequest GameUi::PollFirstRunRequest() {
 
 bool GameUi::settings_open() const {
   return impl_->initialized && impl_->settings_open;
+}
+
+bool GameUi::stats_open() const {
+  return impl_->initialized && impl_->stats_open;
+}
+
+void GameUi::SetStatsView(const StatsView& view) {
+  if (!impl_->initialized)
+    return;
+  impl_->stats_view = view;
+  impl_->ApplyStatsPage();
 }
 
 void GameUi::SetControlsView(const ControlsView& view) {
@@ -1124,6 +1156,10 @@ void GameUi::SetControlsView(const ControlsView&) {}
 SettingsRequest GameUi::PollSettingsRequest() {
   return {};
 }
+bool GameUi::stats_open() const {
+  return false;
+}
+void GameUi::SetStatsView(const StatsView&) {}
 bool GameUi::quit_requested() const {
   return false;
 }

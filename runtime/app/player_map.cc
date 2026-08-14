@@ -498,9 +498,10 @@ void RefreshPlayerMap(Engine& engine, f32 dt) {
   if (out.title.empty())
     out.title = "Map";
   char subtitle[96];
-  std::snprintf(subtitle, sizeof(subtitle), "%u of %u locations found",
+  std::snprintf(subtitle, sizeof(subtitle), "%u of %u locations found, %u cleared",
                 self->map_markers_.VisibleCount(),
-                static_cast<u32>(self->map_markers_.all().size()));
+                static_cast<u32>(self->map_markers_.all().size()),
+                self->map_markers_.ClearedCount());
   out.subtitle = subtitle;
   out.status = map.status;
   out.where = self->streamer_ && self->streamer_->in_interior()
@@ -528,6 +529,10 @@ void RefreshPlayerMap(Engine& engine, f32 dt) {
     const f32 dy = marker.position[1] - player[1];
     row.detail = marker.can_travel ? FormatDistance(std::sqrt(dx * dx + dy * dy))
                                    : base::String("no route");
+    // The same word the games put on a finished dungeon, beside the distance so
+    // the rail reads as one line rather than two columns.
+    if (marker.cleared)
+      row.detail += "  cleared";
     out.rows.push_back(row);
   }
   out.selected = map.selected - first;

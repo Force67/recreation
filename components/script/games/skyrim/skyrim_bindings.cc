@@ -462,7 +462,16 @@ bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const base::String& ty
 // Item record-data accessors (GetWeight, GetGoldValue, GetWeaponDamage,
 // GetArmorRating) live in skyrim_bindings_item_data.cc.
 
+void RecordBackedSkyrimBindings::SetName(ObjectRef form, const base::String& name) {
+  if (form.handle != 0)
+    names_[form.handle] = name;
+}
+
 base::String RecordBackedSkyrimBindings::GetName(ObjectRef form) {
+  // A renamed form answers with its new name whether or not it has a record:
+  // the player's own reference is a form no plugin authors.
+  if (const base::String* renamed = names_.find(form.handle))
+    return *renamed;
   if (!records_)
     return "";
   bethesda::Record record;
@@ -1484,6 +1493,140 @@ bool RecordBackedSkyrimBindings::HasPerk(ObjectRef actor, ObjectRef perk) {
 i32 RecordBackedSkyrimBindings::GetPerkCount(ObjectRef actor) {
   auto* it = perks_.find(actor.handle);
   return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+namespace {
+
+void AddToSet(base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  if (owner == 0 || member == 0)
+    return;
+  sets[owner].insert(member);
+}
+
+void RemoveFromSet(base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  auto* it = sets.find(owner);
+  if (it == nullptr)
+    return;
+  it->erase(member);
+  if (it->empty())
+    sets.erase(owner);
+}
+
+bool SetHas(const base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  const auto* it = sets.find(owner);
+  return it != nullptr && it->contains(member);
+}
+
+i32 SetSize(const base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner) {
+  const auto* it = sets.find(owner);
+  return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+}  // namespace
+
+void RecordBackedSkyrimBindings::AddSpell(ObjectRef actor, ObjectRef spell) {
+  AddToSet(spells_, actor.handle, spell.handle);
+}
+
+void RecordBackedSkyrimBindings::RemoveSpell(ObjectRef actor, ObjectRef spell) {
+  RemoveFromSet(spells_, actor.handle, spell.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasSpell(ObjectRef actor, ObjectRef spell) {
+  return SetHas(spells_, actor.handle, spell.handle);
+}
+
+i32 RecordBackedSkyrimBindings::GetSpellCount(ObjectRef actor) {
+  return SetSize(spells_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::AddShout(ObjectRef actor, ObjectRef shout) {
+  AddToSet(shouts_, actor.handle, shout.handle);
+}
+
+void RecordBackedSkyrimBindings::RemoveShout(ObjectRef actor, ObjectRef shout) {
+  RemoveFromSet(shouts_, actor.handle, shout.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasShout(ObjectRef actor, ObjectRef shout) {
+  return SetHas(shouts_, actor.handle, shout.handle);
+}
+
+i32 RecordBackedSkyrimBindings::GetShoutCount(ObjectRef actor) {
+  return SetSize(shouts_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::TeachWord(ObjectRef word) {
+  if (word.handle != 0)
+    words_[word.handle].taught = true;
+}
+
+void RecordBackedSkyrimBindings::UnlockWord(ObjectRef word) {
+  if (word.handle == 0)
+    return;
+  // A word cannot be unlocked without having been learned first, so unlocking
+  // one the game never taught still leaves the shout list right.
+  WordState& state = words_[word.handle];
+  state.taught = true;
+  state.unlocked = true;
+}
+
+bool RecordBackedSkyrimBindings::IsWordTaught(ObjectRef word) {
+  const WordState* state = words_.find(word.handle);
+  return state != nullptr && state->taught;
+}
+
+bool RecordBackedSkyrimBindings::IsWordUnlocked(ObjectRef word) {
+  const WordState* state = words_.find(word.handle);
+  return state != nullptr && state->unlocked;
+}
+
+i32 RecordBackedSkyrimBindings::GetKnownWordCount() {
+  return static_cast<i32>(words_.size());
+}
+
+void RecordBackedSkyrimBindings::AddMagicFavourite(ObjectRef form, i32 hotkey) {
+  if (form.handle == 0)
+    return;
+  for (Favourite& have : magic_favourites_) {
+    if (have.form == form.handle) {
+      have.hotkey = hotkey;
+      return;
+    }
+  }
+  magic_favourites_.push_back(Favourite{form.handle, hotkey});
+}
+
+i32 RecordBackedSkyrimBindings::GetMagicFavouriteCount() {
+  return static_cast<i32>(magic_favourites_.size());
+}
+
+ObjectRef RecordBackedSkyrimBindings::GetNthMagicFavourite(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= magic_favourites_.size())
+    return {};
+  return ObjectRef{magic_favourites_[static_cast<size_t>(index)].form};
+}
+
+i32 RecordBackedSkyrimBindings::GetNthMagicFavouriteHotkey(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= magic_favourites_.size())
+    return -1;
+  return magic_favourites_[static_cast<size_t>(index)].hotkey;
+}
+
+void RecordBackedSkyrimBindings::SetLastUsedMagic(ObjectRef weapon,
+                                                  ObjectRef spell,
+                                                  ObjectRef shout) {
+  last_used_weapon_ = weapon.handle;
+  last_used_spell_ = spell.handle;
+  last_used_shout_ = shout.handle;
+}
+
+// The shout the player has up. Nothing equips one yet, so the last one used is
+// the best answer the engine has, and it is what the save means by selected.
+ObjectRef RecordBackedSkyrimBindings::GetEquippedShout(ObjectRef actor) {
+  if (actor.handle != player_.handle)
+    return {};
+  return ObjectRef{last_used_shout_};
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetEquippedWeapon(ObjectRef actor) {

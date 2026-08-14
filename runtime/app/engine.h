@@ -18,6 +18,7 @@
 #include "components/bethesda/planet.h"
 #include "components/bethesda/savegame_apply.h"
 #include "components/script/host/managed_host.h"
+#include "components/script/papyrus_restore.h"
 #include "components/script/vehicle_drive_sink.h"
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
@@ -25,6 +26,7 @@
 #include "components/world/combat.h"
 #include "components/world/map_discovery.h"
 #include "components/world/map_markers.h"
+#include "components/world/misc_stats.h"
 #include "components/world/planet_tile.h"
 #include "components/world/saved_spawns.h"
 #include "core/input_bindings.h"
@@ -462,6 +464,10 @@ class Engine : public app::Application {
   bethesda::RecordStore records_;
   // The savegame this run booted from (--load-save), null without one.
   base::UniquePointer<LoadedSavegame> save_;
+  // Its Papyrus heap, in this run's terms. Outlives save_ on purpose: a
+  // reference's scripts attach when its cell streams in, long after the rest of
+  // the save has been applied and let go.
+  base::UniquePointer<script::PapyrusRestorer> papyrus_restore_;
   // Localized FULL/log/objective text for records (quest names, journal text).
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
@@ -470,6 +476,10 @@ class Engine : public app::Application {
   // map. Both are pure state a savegame fills and play adds to.
   dialogue::SaidTopics said_topics_;
   world::MapDiscovery map_discovery_;
+  // The Stats page. Only a resumed save fills it today: nothing in the engine
+  // counts kills or picked locks yet, so a fresh game leaves it empty and the
+  // menu says so rather than showing a page of zeroes.
+  world::MiscStats misc_stats_;
   // The named places on the map and which of them the player has found. Built
   // from the records at load, then filled in by a savegame and by walking.
   world::MapMarkers map_markers_;
@@ -528,6 +538,9 @@ class Engine : public app::Application {
   void SaveControls();    // write input_map_ back to controls.ini
   void ApplyControls();   // push sensitivity/invert to the camera, LED to the pad
   void UpdateSettings();  // drive the settings panel: rebind capture + sliders
+  // Stat rows already handed to the menu. Starts past any real size so the
+  // first frame pushes, which is what puts the empty-page text up.
+  mem_size stats_pushed_ = ~mem_size(0);
   base::String controls_path_;
   int capturing_row_ = -1;           // settings: row awaiting an input (-1 = idle)
   bool capture_prev_mouse_[3] = {};  // mouse-button edge tracking during capture

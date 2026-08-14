@@ -628,6 +628,12 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind, u32 skip_slots
   return true;
 }
 
+FaceBuilder& ActorSystem::faces() {
+  if (!face_builder_)
+    face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
+  return *face_builder_;
+}
+
 void ActorSystem::AttachHead(Actor& actor,
                              bethesda::GlobalFormId npc,
                              bool allow_groom,
@@ -645,10 +651,8 @@ void ActorSystem::AttachHead(Actor& actor,
   // rigidly to the head bone. The FaceState is transient (the GPU owns the
   // uploaded meshes; the parts reference them by id), so it is dropped after.
   if (npc.plugin != 0xffff && ctx_.records) {
-    if (!face_builder_)
-      face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
     FaceState fs;
-    if (face_builder_->AssembleNpc(npc, &fs)) {
+    if (faces().AssembleNpc(npc, &fs)) {
       fs.RebuildAndUpload();
       for (const BuiltFacePart& p : fs.parts()) {
         // The flat card hair part is replaced by the simulated groom below.
@@ -933,9 +937,15 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
                           : LoadActorTemplate(&actor, 0, covered);
   if (!loaded)
     return false;
-  // Skyrim bodies carry no head; give the player the default head + hair.
-  if (skyrim)
-    AttachHead(actor, bethesda::GlobalFormId{0xffff, 0}, /*allow_groom=*/true, covered);
+  // Skyrim bodies carry no head. The player's own face is normally the plugin's
+  // generic Player record, which is not worth assembling, so the default head
+  // stands in; a loaded save carries the real one and is worth assembling.
+  if (skyrim) {
+    const bethesda::GlobalFormId player_base{0, 0x00000007};
+    const bool saved = faces().HasOverride(player_base);
+    AttachHead(actor, saved ? player_base : bethesda::GlobalFormId{0xffff, 0},
+               /*allow_groom=*/true, covered);
+  }
   if (!worn.empty()) {
     const u32 attached =
         AttachWornArmor(actor, base::Span<const bethesda::WornArmor>(worn.data(), worn.size()));

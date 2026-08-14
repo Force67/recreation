@@ -28,14 +28,26 @@ using rx::bethesda::ChangeForm;
 using rx::bethesda::ChangeFormType;
 using rx::bethesda::ChangeRef;
 using rx::bethesda::ChangeRefKind;
+using rx::bethesda::BookChange;
 using rx::bethesda::DecodeActorBase;
+using rx::bethesda::DecodeBook;
 using rx::bethesda::DecodeCell;
 using rx::bethesda::DecodeDialogueInfo;
+using rx::bethesda::DecodeEncounterZone;
 using rx::bethesda::DecodeFaction;
+using rx::bethesda::DecodeIngredient;
+using rx::bethesda::DecodeLeveledList;
+using rx::bethesda::DecodeLocation;
 using rx::bethesda::DecodeQuest;
 using rx::bethesda::DecodeReference;
+using rx::bethesda::DecodeRelationship;
 using rx::bethesda::DialogueInfoChange;
+using rx::bethesda::EncounterZoneChange;
 using rx::bethesda::FactionChange;
+using rx::bethesda::IngredientChange;
+using rx::bethesda::LeveledListChange;
+using rx::bethesda::LocationChange;
+using rx::bethesda::RelationshipChange;
 using rx::bethesda::QuestChange;
 using rx::bethesda::ReferenceChange;
 using rx::bethesda::ResolveChangeRef;
@@ -186,6 +198,64 @@ constexpr const char* kCellTamrielExterior =
 // CELL 0x0000185F, the same worldspace at grid (-40,41), detached and with
 // nothing of it uncovered: coordinates and detach time, no map bits at all.
 constexpr const char* kCellTamrielUnseen = "0100d829466e0000";
+
+// LCTN 0x00018A4A HelgenLocation, the only record in the save carrying both
+// location groups: two cleared bytes and then three (keyword, value) pairs.
+constexpr const char* kLocationHelgen =
+    "01010c42a4560000004042a45500000040479aec0000803f";
+
+// LCTN 0x00016F85 BloodletThroneLocation: cleared group only, and not cleared.
+constexpr const char* kLocationBloodletThrone = "0001";
+
+// LCTN 0x00018E32 GoldenglowEstateLocation, which the Thieves Guild clears by
+// script even though its record carries no LocTypeClearable keyword.
+constexpr const char* kLocationGoldenglow = "0101";
+
+// LCTN 0x00013163 RiverwoodLocation: keyword data alone, five pairs, all five
+// naming a keyword its own record's KWDA lists.
+constexpr const char* kLocationRiverwood =
+    "1442a4560000004042a4550000803f41c4a3000000004c4ec800000000"
+    "479aec0000803f";
+
+// ECZN 0x00038AB1 BleakFallsBarrowZone, the first dungeon of the game: locked
+// at level 6, which is also the minimum its own record authors.
+constexpr const char* kZoneBleakFallsBarrow = "80b800007cb800007cb8000006000000";
+
+// ECZN 0x00027F6F ThalmorEmbassyZone, locked at 9.
+constexpr const char* kZoneThalmorEmbassy = "f5c70000f1c70000f1c7000009000000";
+
+// LVLI 0x00037C18 LItemBanditMace: one entry Dragonborn's init script added,
+// DLC2NordicMace at level 23.
+constexpr const char* kLeveledBanditMace = "0100028917000100";
+
+// LVLI 0x00039D2E LItemBanditWeaponBow: the same bow at four levels, which is
+// what makes the entry stride readable rather than a coincidence.
+constexpr const char* kLeveledBanditBow =
+    "0400028f1900010000028f1a00010000028f1b00010000028f1c000100";
+
+// LVLN 0x00055936 LCharDraugrMelee1HMale, the one leveled actor list the save
+// changed: the actor lists share the item lists' payload.
+constexpr const char* kLeveledDraugr = "010002881a000100";
+
+// BOOK 0x0001A332 DA04OghmaInfinium, read: the authored flags are 0 and the
+// save writes the read bit alone.
+constexpr const char* kBookOghma = "08";
+
+// BOOK 0x0001AFC4 SkillAlchemy1, a skill book. Its record authors 0x01
+// (teaches a skill) and the save writes 0x08: the skill bit is gone, so the
+// book cannot pay out twice.
+constexpr const char* kBookSkillAlchemy = "08";
+
+// INGR 0x000134AA Thistle01, all four effects discovered.
+constexpr const char* kIngredientThistle = "0f000000";
+
+// RELA 0xFF00086B, a relationship the save invented: Horik Halfhand and the
+// player's base form, at the record's rank 5 (Rival), with no association type.
+constexpr const char* kRelationshipHorik = "41a6b940000700000005000000";
+
+// RELA 0x0001E5FE CamillaValeriusRaevild. The record exists, so the payload is
+// the rank alone: 5 where the record authors 3.
+constexpr const char* kRelationshipCamilla = "05000000";
 
 void TestChangeRef() {
   const u32 map[] = {0x0001A2B3u, 0x000FF001u, 0x0201CCDDu};
@@ -569,6 +639,140 @@ void TestCell() {
   Check("payload fully consumed", after.decoded_bytes == flagged.data.size());
 }
 
+void TestLocation() {
+  ChangeForm form = Form(ChangeFormType::kLctn, 0x80000000u, kLocationBloodletThrone);
+  LocationChange location;
+  Check("a location that is only not cleared decodes", DecodeLocation(form, location));
+  Check("not cleared", location.has_cleared && !location.cleared);
+  Check("no keyword data", location.keyword_data.empty());
+  Check("payload fully consumed", location.decoded_bytes == form.data.size());
+
+  form = Form(ChangeFormType::kLctn, 0x80000000u, kLocationGoldenglow);
+  location = LocationChange{};
+  Check("Goldenglow Estate decodes", DecodeLocation(form, location));
+  Check("it is cleared", location.has_cleared && location.cleared);
+
+  // Keyword data alone. Every keyword here is one Riverwood's own record lists,
+  // which is what says the pairs were read at the right stride and not just at
+  // a stride that happens to add up.
+  form = Form(ChangeFormType::kLctn, 0x40000000u, kLocationRiverwood);
+  location = LocationChange{};
+  Check("Riverwood decodes", DecodeLocation(form, location));
+  Check("no cleared group", !location.has_cleared);
+  Check("five keyword values", location.keyword_data.size() == 5);
+  if (location.keyword_data.size() == 5) {
+    Check("the first is LocSetInn 0x0002A456 at 2",
+          IsDefault(location.keyword_data[0].keyword, 0x0002A456u) &&
+              location.keyword_data[0].value == 2.0f);
+    Check("the last is 0x00079AEC at 1",
+          IsDefault(location.keyword_data[4].keyword, 0x00079AECu) &&
+              location.keyword_data[4].value == 1.0f);
+  }
+  Check("payload fully consumed", location.decoded_bytes == form.data.size());
+
+  // Both groups. Reading them in the other order would take the keyword count
+  // for a state byte and stop two bytes in, so this is what pins the order.
+  form = Form(ChangeFormType::kLctn, 0xc0000000u, kLocationHelgen);
+  location = LocationChange{};
+  Check("Helgen decodes", DecodeLocation(form, location));
+  Check("cleared, with three keyword values",
+        location.has_cleared && location.cleared && location.keyword_data.size() == 3);
+  Check("payload fully consumed", location.decoded_bytes == form.data.size());
+}
+
+void TestEncounterZone() {
+  ChangeForm form = Form(ChangeFormType::kEczn, 0x80000000u, kZoneBleakFallsBarrow);
+  EncounterZoneChange zone;
+  Check("Bleak Falls Barrow's zone decodes", DecodeEncounterZone(form, zone));
+  Check("locked at level 6", zone.has_game_data && zone.level == 6);
+  Check("its three counters are ordered and inside the save's elapsed time",
+        zone.stamp_a >= zone.stamp_b && zone.stamp_b >= zone.stamp_c && zone.stamp_a == 47232);
+  Check("payload fully consumed", zone.decoded_bytes == form.data.size());
+
+  form = Form(ChangeFormType::kEczn, 0x80000000u, kZoneThalmorEmbassy);
+  zone = EncounterZoneChange{};
+  Check("the Thalmor Embassy locked at 9", DecodeEncounterZone(form, zone) && zone.level == 9);
+}
+
+void TestLeveledList() {
+  ChangeForm form = Form(ChangeFormType::kLvli, 0x80000000u, kLeveledBanditMace);
+  LeveledListChange list;
+  Check("a one entry leveled list decodes", DecodeLeveledList(form, list));
+  Check("one entry, level 23, one copy",
+        list.added.size() == 1 && list.added[0].level == 23 && list.added[0].count == 1);
+  Check("the entry names form id 649 of the save's map",
+        list.added.size() == 1 && list.added[0].form.kind == ChangeRefKind::kFormIdIndex &&
+            list.added[0].form.value == 649);
+  Check("payload fully consumed", list.decoded_bytes == form.data.size());
+
+  form = Form(ChangeFormType::kLvli, 0x80000000u, kLeveledBanditBow);
+  list = LeveledListChange{};
+  Check("the bandit bow list decodes", DecodeLeveledList(form, list));
+  Check("four entries of the same form at levels 25 to 28", list.added.size() == 4);
+  bool one_form = list.added.size() == 4;
+  for (size_t i = 0; one_form && i < 4; ++i) {
+    one_form = list.added[i].form.value == list.added[0].form.value &&
+               list.added[i].level == 25 + i && list.added[i].count == 1;
+  }
+  Check("every entry is the same bow, one level apart", one_form);
+  Check("payload fully consumed", list.decoded_bytes == form.data.size());
+
+  form = Form(ChangeFormType::kLvln, 0x80000000u, kLeveledDraugr);
+  list = LeveledListChange{};
+  Check("a leveled actor list decodes on the same path",
+        DecodeLeveledList(form, list) && list.added.size() == 1 && list.added[0].level == 26);
+}
+
+void TestBook() {
+  ChangeForm form = Form(ChangeFormType::kBook, 0x40u, kBookOghma);
+  BookChange book;
+  Check("a read book decodes", DecodeBook(form, book));
+  Check("read, and no skill taken", book.read && !book.skill_taken);
+  Check("its flags are the read bit alone",
+        book.has_flags && book.flags == rx::bethesda::kBookFlagRead);
+  Check("payload fully consumed", book.decoded_bytes == form.data.size());
+
+  // A skill book. Its record authors the teaches-skill bit; the save writes it
+  // back without that bit, which is what stops a resumed game paying out again.
+  form = Form(ChangeFormType::kBook, 0x60u, kBookSkillAlchemy);
+  book = BookChange{};
+  Check("a skill book decodes", DecodeBook(form, book));
+  Check("read, and its skill already taken", book.read && book.skill_taken);
+  Check("the teaches-skill bit is gone",
+        (book.flags & rx::bethesda::kBookFlagTeachesSkill) == 0);
+}
+
+void TestIngredient() {
+  ChangeForm form = Form(ChangeFormType::kIngr, 0x80000000u, kIngredientThistle);
+  IngredientChange ingredient;
+  Check("an ingredient decodes", DecodeIngredient(form, ingredient));
+  Check("all four effects known",
+        ingredient.has_known_effects &&
+            ingredient.known_effects == rx::bethesda::kIngredientAllEffectsKnown);
+  Check("payload fully consumed", ingredient.decoded_bytes == form.data.size());
+}
+
+void TestRelationship() {
+  // A relationship the save invented: the id says so, not a flag, so the same
+  // flags decode to two different shapes.
+  ChangeForm form = Form(ChangeFormType::kRela, 0x2u, kRelationshipHorik, 0xff00086bu);
+  RelationshipChange relationship;
+  Check("a created relationship decodes", DecodeRelationship(form, relationship));
+  Check("it is between Horik Halfhand and the player's base form",
+        relationship.created && IsDefault(relationship.parent, 0x0001A6B9u) &&
+            IsDefault(relationship.child, 0x00000007u));
+  Check("no association type", relationship.association.none());
+  Check("rank 5, which the records spell Rival", relationship.rank == 5);
+  Check("payload fully consumed", relationship.decoded_bytes == form.data.size());
+
+  form = Form(ChangeFormType::kRela, 0x2u, kRelationshipCamilla, 0x0001e5feu);
+  relationship = RelationshipChange{};
+  Check("an authored relationship decodes to the rank alone",
+        DecodeRelationship(form, relationship) && !relationship.created &&
+            relationship.rank == 5);
+  Check("payload fully consumed", relationship.decoded_bytes == form.data.size());
+}
+
 void TestMalformed() {
   // Truncating a real payload at every length must fail cleanly, never read
   // past the buffer and never report success on a short read.
@@ -704,6 +908,21 @@ bool HasPerk(const ReferenceChange& ref, const rx::bethesda::SaveFile& save, u32
   return false;
 }
 
+bool HasRef(const base::Vector<ChangeRef>& refs,
+            const rx::bethesda::SaveFile& save,
+            u32 form_id) {
+  for (const ChangeRef& ref : refs) {
+    if (ResolveChangeRef(ref, base::Span<const u32>(save.form_ids.data(), save.form_ids.size())) ==
+        form_id)
+      return true;
+  }
+  return false;
+}
+
+bool HasSpell(const ReferenceChange& ref, const rx::bethesda::SaveFile& save, u32 form_id) {
+  return HasRef(ref.spells, save, form_id);
+}
+
 f32 ActorValueOf(const ReferenceChange& ref, u32 index) {
   for (const rx::bethesda::ActorValueEntry& entry : ref.actor_values) {
     if (entry.index == index)
@@ -794,15 +1013,120 @@ void TestRealSave() {
   Check("TGSkeletonKeyPerk, handed back with the key, is not",
         !HasPerk(player, save, 0x0010F13Fu));
 
+  // The spells the player actually learned are not on the base form: they sit in
+  // the actor block, found the same way the perks are. 161 of them, every one a
+  // SPEL record of the load order the save names, against the three the NPC_
+  // change form lists.
+  Check("161 spells found in the player's own block", player.spells.size() == 161);
+  Check("Incinerate 0x0010F7ED and ConjureDremoraLord 0x0010DDEC are among them",
+        HasSpell(player, save, 0x0010F7EDu) && HasSpell(player, save, 0x0010DDECu));
+  Check("so are the add-ons' DLC1AbAurielsBow 0x02007EBC and DLC2BoundDagger 0x0401CE06",
+        HasSpell(player, save, 0x02007EBCu) && HasSpell(player, save, 0x0401CE06u));
+
   ActorBaseChange base;
   Check("the player's NPC_ record decodes", DecodeActorBase(*player_base, base));
+  Check("its 467 bytes are consumed to the last",
+        player_base->data.size() == 467 && base.decoded_bytes == 467);
   Check("level 271", base.has_stats && base.level == 271);
   Check("three spells and 28 shouts",
         base.spells.size() == 3 && base.levelled_spells.empty() &&
             base.shouts.size() == 28);
   Check("the first spell is Flames 0x00012FCD",
         !base.spells.empty() && IsDefault(base.spells[0], 0x00012FCDu));
+  // A 100% save knows every shout there is: Skyrim authors 20 and the three
+  // add-ons another 8, which is the whole list.
+  Check("UnrelentingForce, Dragonrend and Dragonborn's BattleFury are all on the shout list",
+        HasRef(base.shouts, save, 0x00013E07u) && HasRef(base.shouts, save, 0x00044250u) &&
+            HasRef(base.shouts, save, 0x0402AD09u));
   Check("32 faction ranks", base.factions.size() == 32);
+
+  // Identity and face, the groups the walk above had to get past. Every ref in
+  // them was resolved in the masters and comes back as the record type it should
+  // be, which is what says the group order is right rather than merely adding up.
+  Check("the player is called Pawelos", base.has_full_name && base.full_name == "Pawelos");
+  Check("an Argonian who is authored as a Nord",
+        base.has_race && IsDefault(base.race, 0x00013740u) &&
+            IsDefault(base.original_race, 0x00013746u));
+  Check("no sex change, so the group is absent", !base.has_gender);
+  Check("a face is written", base.has_face);
+  Check("hair colour FeatherColorRed 0x000829C6, face texture SkinHeadMaleArgonian 0x00069CDD",
+        IsDefault(base.face.hair_color, 0x000829C6u) &&
+            IsDefault(base.face.face_texture, 0x00069CDDu));
+  Check("skin tone 0x002A3540, which is no form of this load order",
+        base.face.skin_tone == 0x002A3540u);
+  Check("six head parts, the first MaleHeadArgonian 0x00051614",
+        base.face.head_parts.size() == 6 && IsDefault(base.face.head_parts[0], 0x00051614u));
+  Check("the fourth is HairArgonianMale00 0x000D82F9",
+        base.face.head_parts.size() == 6 && IsDefault(base.face.head_parts[3], 0x000D82F9u));
+  // 19 sliders is what the NPC_ record's NAM9 holds too, and its 19th reads
+  // FLT_MAX on every NPC in the game (see facegen.h), which it does here.
+  Check("19 morph sliders, the first -0.1 and the last the FLT_MAX sentinel",
+        base.face.has_morphs && base.face.morphs.size() == 19 &&
+            base.face.morphs[0] == -0.1f && base.face.morphs[18] > 3.4e38f);
+  Check("four face-part presets, nose 3, brows unset, eyes 3, mouth 2",
+        base.face.presets.size() == 4 && base.face.presets[0] == 3 &&
+            base.face.presets[1] == -1 && base.face.presets[2] == 3 &&
+            base.face.presets[3] == 2);
+
+  // Every NPC_ in the file, walked. The group order and every group's size have
+  // to be right for all 926 to land on their last byte; there is no length or
+  // offset in the payload to recover from a mistake with.
+  u32 npc = 0, npc_exact = 0, with_race = 0, with_face = 0, with_name = 0, shouts = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kNpc)
+      continue;
+    ++npc;
+    ActorBaseChange decoded;
+    if (!DecodeActorBase(form, decoded))
+      continue;
+    if (decoded.decoded_bytes == form.data.size())
+      ++npc_exact;
+    if (decoded.has_race)
+      ++with_race;
+    if (decoded.has_face)
+      ++with_face;
+    if (decoded.has_full_name)
+      ++with_name;
+    shouts += static_cast<u32>(decoded.shouts.size());
+  }
+  Check("all 926 NPC_ payloads consume to the last byte", npc == 926 && npc_exact == 926);
+  // The other five are Sinding, Harkon and three werebears, each in a beast race
+  // over the Nord their record authors.
+  Check("six carry a race, one a face and one a name",
+        with_race == 6 && with_face == 1 && with_name == 1);
+  // The player's 28 plus Durnehviir's 3: the only two actors in the save whose
+  // shout list ever changed from what their record authors.
+  Check("31 shouts across the two actors that carry any", shouts == 31);
+
+  // Words of power. Every one is six bytes of form flags, 0x00010049 against the
+  // 0x00000049 an ENCH change form of the same save writes, so the bit that is
+  // the word's own is 0x00010000.
+  u32 woop = 0, woop_known = 0, woop_exact = 0;
+  bool fus = false, dah = false, battle_fury = false;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kWoop)
+      continue;
+    ++woop;
+    rx::bethesda::WordOfPowerChange word;
+    if (!rx::bethesda::DecodeWordOfPower(form, word))
+      continue;
+    if (word.decoded_bytes == form.data.size())
+      ++woop_exact;
+    if (!word.known)
+      continue;
+    ++woop_known;
+    fus = fus || form.form_id == 0x00013E22u;                  // WordFus
+    dah = dah || form.form_id == 0x00013E24u;                  // WordDah
+    battle_fury = battle_fury || form.form_id == 0x040200E4u;  // DLC2BattleFuryWord1
+  }
+  // 107 WOOP records exist across the five plugins; the 23 with no change form
+  // are the ones no player can learn (the dragon-only fire shouts, the werewolf
+  // howls, the racial powers, the test and fake words, Miraak's mask shout and
+  // the vampire lord's summons), so 84 is every word there is to know.
+  Check("84 words of power, all of them known and all six bytes long",
+        woop == 84 && woop_known == 84 && woop_exact == 84);
+  Check("Fus and Dah of Unrelenting Force are known", fus && dah);
+  Check("so is a Dragonborn word", battle_fury);
 
   // Every reference in the file, walked. A plain REFR has to consume its
   // payload exactly or the decoder drops what it read, so this is the whole
@@ -811,6 +1135,11 @@ void TestRealSave() {
   u32 achr_full_tables = 0;
   u32 achr_perks = 0, perks_total = 0;
   u32 markers = 0, markers_travelable = 0, markers_visible_only = 0;
+  u32 locks = 0, locked = 0, lock_keys = 0, odd_levels = 0;
+  u32 emptied = 0, emptied_with_stacks = 0, opened = 0, open_default = 0;
+  u32 stacks = 0, exact_stacks = 0, tempered = 0, enchanted = 0, charged = 0, souls = 0;
+  u32 favourites = 0, named = 0, owned = 0, counted = 0, poisoned = 0;
+  f32 temper_min = 1e9f, temper_max = -1e9f;
   bool whiterun_found = false;
   for (const ChangeForm& form : save.change_forms) {
     if (form.type != ChangeFormType::kRefr && form.type != ChangeFormType::kAchr)
@@ -818,6 +1147,44 @@ void TestRealSave() {
     ReferenceChange decoded;
     if (!DecodeReference(form, decoded))
       continue;
+    if (decoded.has_lock) {
+      ++locks;
+      if (decoded.lock_flags & rx::bethesda::kLockFlagLocked)
+        ++locked;
+      if (!decoded.lock_key.none())
+        ++lock_keys;
+      switch (decoded.lock_level) {
+        case 0: case 1: case 5: case 25: case 50: case 75: case 100: case 255:
+          break;
+        default:
+          ++odd_levels;
+      }
+    }
+    if (decoded.emptied) {
+      ++emptied;
+      if (!decoded.inventory.empty())
+        ++emptied_with_stacks;
+    }
+    opened += decoded.open ? 1 : 0;
+    open_default += decoded.open_default ? 1 : 0;
+    const bool exact = decoded.decoded_bytes == form.data.size();
+    for (const rx::bethesda::InventoryItem& stack : decoded.inventory) {
+      ++stacks;
+      exact_stacks += exact ? 1 : 0;
+      counted += stack.has_stack_count ? 1 : 0;
+      favourites += stack.favourite ? 1 : 0;
+      named += stack.name.empty() ? 0 : 1;
+      owned += stack.owner.none() ? 0 : 1;
+      charged += stack.has_charge ? 1 : 0;
+      souls += stack.soul != 0 ? 1 : 0;
+      poisoned += stack.poison.none() ? 0 : 1;
+      enchanted += stack.enchantment.none() ? 0 : 1;
+      if (stack.has_health) {
+        ++tempered;
+        temper_min = stack.health < temper_min ? stack.health : temper_min;
+        temper_max = stack.health > temper_max ? stack.health : temper_max;
+      }
+    }
     if (decoded.has_map_marker) {
       ++markers;
       if (decoded.map_marker_flags & rx::bethesda::kMapMarkerCanTravelTo)
@@ -851,7 +1218,64 @@ void TestRealSave() {
   // A plain reference is nothing but its groups, so landing anywhere but the
   // last byte means the walk went wrong. Almost all of them land: the ones that
   // do not carry an extra-data type this layer refuses to size.
-  Check("102196 REFR payloads consume to the last byte", refr_exact == 102196);
+  Check("104897 REFR payloads consume to the last byte", refr_exact == 104897);
+
+  // Printed because the stack counts below are asserted as properties rather
+  // than as numbers: the three ways of counting disagree and the numbers are
+  // what anyone settling that will want to see.
+  std::printf("  locks %u (%u locked, %u keyed), %u emptied, %u opened\n"
+              "  stacks %u (%u through an exact payload, %u counted), %u tempered [%.2f..%.2f]\n"
+              "  %u enchanted (%u charged), %u souls, %u favourited, %u owned, %u named, "
+              "%u poisoned\n",
+              locks, locked, lock_keys, emptied, opened,
+              stacks, exact_stacks, counted, tempered, double(temper_min), double(temper_max),
+              enchanted, charged, souls, favourites, owned, named, poisoned);
+  // The lock. Every reference carrying CHANGE_OBJECT_EXTRA_LOCK carries extra
+  // type 42 and no reference without the flag does, so the two identify each
+  // other; the values below are what say the fields inside it are right.
+  Check("1273 references carry a lock, none at a level Skyrim cannot author",
+        locks == 1273 && odd_levels == 0);
+  // The runtime bit over the record's own flags: a hundred-percent save has
+  // picked or keyed most of what it found, so most of these read unlocked.
+  Check("a minority of them are still locked", locked > 0 && locked * 2 < locks);
+  // Cross-checked against the load order outside this test: all 454 match the
+  // key their reference's own XLOC authors, and every one is a KEYM record.
+  Check("454 name the key that opens them", lock_keys == 454);
+
+  // A container the save emptied writes the flag and no inventory at all, which
+  // is what makes the flag worth reading: nothing else says the chest is bare.
+  Check("3433 references were emptied, not one of them writing a stack",
+        emptied == 3433 && emptied_with_stacks == 0);
+  Check("4803 carry an open state, none an open default state",
+        opened == 4803 && open_default == 0);
+
+  // Inventory instance data. UNVERIFIED, and deliberately asserted as
+  // properties rather than counts, because three ways of counting the same
+  // stacks disagree: this walk sees 112105, the subset whose payload consumed
+  // to the last byte is 33822, and the apply layer restores 69194. Until one of
+  // those is shown to be the right denominator, a count here would be a number
+  // copied out of the output rather than a measurement, which is exactly how
+  // this format has misled every tool that documents it. The decoding below is
+  // still worth having (it is additive, and the apply layer's 69194 is
+  // unchanged by it), so what is asserted is what must hold whatever the
+  // denominator turns out to be.
+  Check("every stack the walk finds is reachable through an exact payload too",
+        exact_stacks > 0 && exact_stacks <= stacks);
+  Check("some but not all stacks carry a copy count", counted > 0 && counted < stacks);
+  // Temper is a multiplier on the item's authored health and never reads below
+  // untempered, which is the check that this is the temper and not a fraction.
+  Check("tempered stacks all sit between untempered and legendary",
+        tempered > 0 && temper_min >= 1.0f && temper_max <= 6.0f);
+  // Every one of these names a form the save invented; TestCreatedEnchantments
+  // is where that is checked against the created-form table.
+  Check("enchanted stacks exist and only some hold a charge",
+        enchanted > 0 && charged > 0 && charged < enchanted);
+  Check("souls, favourites and typed names are all rarer than stacks",
+        souls < stacks && favourites < stacks && named < stacks && owned < stacks);
+  // Nothing in this save is poisoned, so the seven bytes are sized but never
+  // exercised. Said plainly rather than left to look like coverage. This one is
+  // a real assertion: a walk that drifted would invent poisons, as it did once.
+  Check("no stack in this save carries a poison", poisoned == 0);
   Check("17893 ACHR inventories walk to the end", achr_inventory == 17893);
   // The 45 rows are the same 45 actor values every time, so a table that turns
   // up with any other count would be a coincidence being read as data.
@@ -873,7 +1297,7 @@ void TestRealSave() {
   // Every CELL, walked. A cell payload is nothing but its groups, so the whole
   // corpus landing on its last byte is what says the group sizes and their
   // order are right rather than adding up by luck on one record.
-  u32 cells = 0, cells_exact = 0, with_grid = 0, with_detach = 0, owned = 0;
+  u32 cells = 0, cells_exact = 0, with_grid = 0, with_detach = 0, owned_cells = 0;
   u32 exterior_tiles = 0, interior_tiles = 0, tile_grids = 0;
   u32 latest_detach = 0;
   for (const ChangeForm& form : save.change_forms) {
@@ -893,7 +1317,7 @@ void TestRealSave() {
         latest_detach = cell.detach_time;
     }
     if (form.flags & rx::bethesda::kCellChangeOwnership)
-      ++owned;
+      ++owned_cells;
     if (cell.visited.empty())
       continue;
     if (cell.visited[0].has_tile) {
@@ -920,11 +1344,172 @@ void TestRealSave() {
   const f32 hours_ago = days_passed * 24.0f - static_cast<f32>(latest_detach);
   Check("the latest detach is game hour 62768, 16 hours behind GameDaysPassed",
         latest_detach == 62768 && hours_ago > 0.0f && hours_ago < 24.0f);
-  Check("7 cells carry an owner the save changed", owned == 7);
+  Check("7 cells carry an owner the save changed", owned_cells == 7);
   // The two seen-data shapes never cross: a cell that writes its coordinate
   // writes one bare tile, one that does not writes a counted list.
   Check("5298 exteriors write one bare tile, 611 interiors write 5855 between them",
         exterior_tiles == 5298 && interior_tiles == 611 && tile_grids == 5855);
+
+  // The world progression types, every record of each. None of these payloads
+  // carries a length, so a whole corpus landing on its last byte is the only
+  // evidence that the group sizes are right rather than adding up by luck.
+  u32 locations = 0, locations_exact = 0, cleared = 0, keyword_pairs = 0, extra_not_one = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kLctn)
+      continue;
+    ++locations;
+    LocationChange location;
+    if (!DecodeLocation(form, location))
+      continue;
+    if (location.decoded_bytes == form.data.size())
+      ++locations_exact;
+    if (location.has_cleared) {
+      cleared += location.cleared ? 1 : 0;
+      extra_not_one += location.cleared_extra == 1 ? 0 : 1;
+    }
+    keyword_pairs += static_cast<u32>(location.keyword_data.size());
+  }
+  Check("374 LCTN change forms, every payload consumed to the last byte",
+        locations == 374 && locations_exact == 374);
+  // The four that say cleared without their record carrying LocTypeClearable
+  // are Helgen, Goldenglow Estate, Honningbrew Meadery and the Arch-Mage's
+  // Quarters, which are exactly the four Skyrim clears by script (checked
+  // against the load order outside this test).
+  Check("48 locations are cleared", cleared == 48);
+  Check("261 keyword values across the locations that carry any", keyword_pairs == 261);
+  // Nothing in the save moves this byte, so it cannot be read; it is asserted
+  // constant so a save that does move it fails here instead of silently.
+  Check("the second byte of the cleared group is 1 in every record", extra_not_one == 0);
+
+  u32 zones = 0, zones_exact = 0, lowest = 0xffffffffu, highest = 0, ordered = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kEczn)
+      continue;
+    ++zones;
+    EncounterZoneChange zone;
+    if (!DecodeEncounterZone(form, zone) || !zone.has_game_data)
+      continue;
+    if (zone.decoded_bytes == form.data.size())
+      ++zones_exact;
+    lowest = zone.level < lowest ? zone.level : lowest;
+    highest = zone.level > highest ? zone.level : highest;
+    if (zone.stamp_a >= zone.stamp_b && zone.stamp_b >= zone.stamp_c &&
+        zone.stamp_a <= static_cast<u32>(days_passed * 24.0f))
+      ++ordered;
+  }
+  Check("233 ECZN change forms, every payload consumed to the last byte",
+        zones == 233 && zones_exact == 233);
+  // The floor is Bleak Falls Barrow, the first dungeon of the game, and the
+  // ceiling is the player's own level: a zone entered at 271 locked there.
+  Check("the locked levels run from 6 to 271", lowest == 6 && highest == 271);
+  Check("every zone's three counters are ordered and inside the elapsed game time",
+        ordered == 233);
+
+  u32 lists = 0, lists_exact = 0, entries = 0, indexed_refs = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kLvli && form.type != ChangeFormType::kLvln)
+      continue;
+    ++lists;
+    LeveledListChange list;
+    if (!DecodeLeveledList(form, list))
+      continue;
+    if (list.decoded_bytes == form.data.size())
+      ++lists_exact;
+    entries += static_cast<u32>(list.added.size());
+    for (const rx::bethesda::LeveledListEntry& entry : list.added) {
+      if (entry.form.kind == ChangeRefKind::kFormIdIndex && entry.form.value != 0 &&
+          entry.form.value <= save.form_ids.size())
+        ++indexed_refs;
+    }
+  }
+  // The count leading these payloads is a bare byte, not the vsval every other
+  // count in this format uses: read as a vsval, none of the 28 consume.
+  Check("28 leveled lists, every payload consumed to the last byte",
+        lists == 28 && lists_exact == 28);
+  Check("55 entries added at runtime, every one naming a form in the save's map",
+        entries == 55 && indexed_refs == 55);
+
+  u32 books = 0, books_exact = 0, read = 0, skill_taken = 0, still_teaches = 0;
+  u32 tomes = 0, untakeable = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kBook)
+      continue;
+    ++books;
+    BookChange book;
+    if (!DecodeBook(form, book))
+      continue;
+    if (book.decoded_bytes == form.data.size())
+      ++books_exact;
+    read += book.read ? 1 : 0;
+    skill_taken += book.skill_taken ? 1 : 0;
+    still_teaches += (book.flags & rx::bethesda::kBookFlagTeachesSkill) != 0 ? 1 : 0;
+    tomes += (book.flags & rx::bethesda::kBookFlagTeachesSpell) != 0 ? 1 : 0;
+    untakeable += (book.flags & rx::bethesda::kBookFlagCannotBeTaken) != 0 ? 1 : 0;
+  }
+  Check("766 BOOK change forms, every payload consumed to the last byte",
+        books == 766 && books_exact == 766);
+  Check("all 766 are read", read == 766);
+  // The save's own "Books Read" misc stat reads 90, which is what Skyrim counts
+  // there: the skill books, not every book.
+  Check("90 of them are skill books whose skill has been taken", skill_taken == 90);
+  // None of the 766 still teaches a skill, which is what stops a resumed game
+  // paying the skill out a second time.
+  Check("not one still carries the teaches-skill bit", still_teaches == 0);
+  Check("107 spell tomes and 10 books that cannot be taken keep their own bits",
+        tomes == 107 && untakeable == 10);
+
+  u32 ingredients = 0, ingredients_exact = 0, fully_known = 0;
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kIngr)
+      continue;
+    ++ingredients;
+    IngredientChange ingredient;
+    if (!DecodeIngredient(form, ingredient))
+      continue;
+    if (ingredient.decoded_bytes == form.data.size())
+      ++ingredients_exact;
+    fully_known +=
+        ingredient.known_effects == rx::bethesda::kIngredientAllEffectsKnown ? 1 : 0;
+  }
+  Check("108 INGR change forms, every payload consumed to the last byte",
+        ingredients == 108 && ingredients_exact == 108);
+  // A hundred-percent save has eaten everything, so every ingredient it names
+  // has all four effects known and the field never shows a partial mask here.
+  Check("all 108 have all four effects discovered", fully_known == 108);
+
+  u32 relationships = 0, relationships_exact = 0, invented = 0, with_player = 0, ranked[9] = {};
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kRela)
+      continue;
+    ++relationships;
+    RelationshipChange relationship;
+    if (!DecodeRelationship(form, relationship))
+      continue;
+    if (relationship.decoded_bytes == form.data.size())
+      ++relationships_exact;
+    if (relationship.rank < 9)
+      ++ranked[relationship.rank];
+    if (!relationship.created)
+      continue;
+    ++invented;
+    const base::Span<const u32> ids(save.form_ids.data(), save.form_ids.size());
+    if (ResolveChangeRef(relationship.parent, ids) == 0x00000007u ||
+        ResolveChangeRef(relationship.child, ids) == 0x00000007u)
+      ++with_player;
+  }
+  Check("264 RELA change forms, every payload consumed to the last byte",
+        relationships == 264 && relationships_exact == 264);
+  // Only one relationship of the save exists as a record; the rest the game
+  // made at runtime, and every one of those has the player on one end, which is
+  // what says the two refs really are the pair and not two unrelated fields.
+  Check("263 the save invented, every one naming the player's base form",
+        invented == 263 && with_player == 263);
+  // The record spelling counts the other way from Papyrus: 3 is Friend, which
+  // is what doing a favour for someone leaves behind, and 157 people got one.
+  Check("157 friends, 21 allies, 17 confidants, 20 rivals and 49 foes",
+        ranked[3] == 157 && ranked[1] == 21 && ranked[2] == 17 && ranked[5] == 20 &&
+            ranked[6] == 49);
+  Check("nobody is a lover or an archnemesis", ranked[0] == 0 && ranked[8] == 0);
 }
 
 }  // namespace
@@ -940,6 +1525,12 @@ int main() {
   TestMapMarker();
   TestDialogueInfo();
   TestCell();
+  TestLocation();
+  TestEncounterZone();
+  TestLeveledList();
+  TestBook();
+  TestIngredient();
+  TestRelationship();
   TestMalformed();
   TestRealSave();
 

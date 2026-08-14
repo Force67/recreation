@@ -116,6 +116,38 @@ class RecordingSink : public rx::bethesda::SaveSink {
     infamy.push_back({faction, violent, non_violent});
   }
   void SetDialogueSaid(GlobalFormId info) override { said.push_back(info); }
+  void AddActorSpell(GlobalFormId actor_base, GlobalFormId spell) override {
+    base_spells.push_back({actor_base, spell, 0});
+  }
+  void AddActorShout(GlobalFormId actor_base, GlobalFormId shout) override {
+    base_shouts.push_back({actor_base, shout, 0});
+  }
+  void AddReferenceSpell(GlobalFormId ref, GlobalFormId spell) override {
+    ref_spells.push_back({ref, spell, 0});
+  }
+  void SetWordOfPowerKnown(GlobalFormId word) override { words.push_back(word); }
+  void AddMagicFavourite(GlobalFormId form, i32 hotkey) override {
+    favourites.push_back({form, GlobalFormId{}, hotkey});
+  }
+  void SetLastUsedMagic(GlobalFormId weapon, GlobalFormId spell, GlobalFormId shout) override {
+    last_weapon = weapon;
+    last_spell = spell;
+    last_shout = shout;
+  }
+  void SetActorName(GlobalFormId actor_base, base::StringRef name) override {
+    names.push_back({actor_base, base::String(name.data(), name.size()), 0.0f});
+  }
+  void SetActorRace(GlobalFormId actor_base,
+                    GlobalFormId race,
+                    GlobalFormId original_race) override {
+    races.push_back({actor_base, race, original_race});
+  }
+  void SetActorSex(GlobalFormId actor_base, bool female) override {
+    sexes.push_back({actor_base, female});
+  }
+  void SetActorFace(GlobalFormId actor_base, const rx::bethesda::SavedFace& face) override {
+    faces.push_back({actor_base, face});
+  }
   void SetMapMarker(GlobalFormId ref, bool visible, bool can_travel) override {
     markers.push_back({ref, visible, can_travel});
   }
@@ -245,6 +277,29 @@ class RecordingSink : public rx::bethesda::SaveSink {
   base::Vector<GlobalFormId> said;
   base::Vector<Visited> visited;
   base::Vector<Marker> markers;
+  struct Race {
+    GlobalFormId actor;
+    GlobalFormId race;
+    GlobalFormId original;
+  };
+  struct Sex {
+    GlobalFormId actor;
+    bool female;
+  };
+  struct Face {
+    GlobalFormId actor;
+    rx::bethesda::SavedFace face;
+  };
+  base::Vector<Rank> base_spells;  // actor base, spell, unused
+  base::Vector<Rank> base_shouts;
+  base::Vector<Rank> ref_spells;  // reference, spell, unused
+  base::Vector<GlobalFormId> words;
+  base::Vector<Rank> favourites;  // form, unused, hotkey
+  GlobalFormId last_weapon, last_spell, last_shout;
+  base::Vector<Value> names;
+  base::Vector<Race> races;
+  base::Vector<Sex> sexes;
+  base::Vector<Face> faces;
 
   const Level* FindLevel(u32 local_id) const {
     for (const Level& entry : levels)
@@ -708,6 +763,45 @@ void TestRealSave() {
   Check("every one of them lands on the player reference 0x00000014", on_player);
   Check("Necromage and Dawnguard's DLC1VampiricBite are among them",
         necromage && vampiric_bite);
+
+  // Magic. The base form carries the shouts and the handful of spells the game
+  // hands out; the player's own reference carries the spell book they built.
+  // The player's three and Durnehviir's two, and their 28 and 3 shouts: the two
+  // actors in the save whose base spell list ever changed.
+  Check("5 spells and 31 shouts off the NPC_ change forms",
+        stats.actor_spells == 5 && stats.actor_shouts == 31);
+  Check("161 spells off the player's own reference, and no other actor's",
+        stats.reference_spells == 161 && stats.actors_with_spells == 1);
+  bool spells_on_player = true;
+  for (const RecordingSink::Rank& spell : sink.ref_spells)
+    spells_on_player = spells_on_player && spell.actor.plugin == 0 &&
+                       spell.actor.local_id == 0x00000014;
+  Check("all of them land on the player reference 0x00000014", spells_on_player);
+  Check("84 words of power known", stats.words_of_power == 84 && sink.words.size() == 84);
+  Check("11 magic favourites, none of them hotkeyed",
+        stats.magic_favourites == 11 && stats.magic_hotkeys == 0);
+  Check("the last shout used is Dragonrend 0x00044250",
+        sink.last_shout.plugin == 0 && sink.last_shout.local_id == 0x00044250);
+  Check("the last weapon is Dawnguard's DLC1DragonboneBow, remapped onto plugin 2",
+        sink.last_weapon.plugin == 2 && sink.last_weapon.local_id == 0x000176F1);
+
+  // Identity. One name and one face in the whole save, both the player's; six
+  // races, the other five beast forms the game put actors into.
+  Check("one actor renamed, one face, six races",
+        stats.actor_names == 1 && stats.actor_faces == 1 && stats.actor_races == 6);
+  Check("the player base 0x00000007 is renamed Pawelos",
+        sink.names.size() == 1 && sink.names[0].form.plugin == 0 &&
+            sink.names[0].form.local_id == 0x00000007 && sink.names[0].name == "Pawelos");
+  Check("and is an Argonian 0x00013740 over the Nord 0x00013746 its record authors",
+        !sink.races.empty() && sink.races[0].actor.local_id == 0x00000007 &&
+            sink.races[0].race.local_id == 0x00013740 &&
+            sink.races[0].original.local_id == 0x00013746);
+  Check("its face carries six head parts, 19 morphs and four presets",
+        sink.faces.size() == 1 && sink.faces[0].face.head_parts.size() == 6 &&
+            sink.faces[0].face.morphs.size() == 19 && sink.faces[0].face.presets.size() == 4);
+  Check("with FeatherColorRed 0x000829C6 for hair and a skin tone of 0x002A3540",
+        sink.faces.size() == 1 && sink.faces[0].face.hair_color.local_id == 0x000829C6 &&
+            sink.faces[0].face.skin_tone == 0x002A3540u);
 
   Check("the line closing FFRiften10 (INFO 0x00013629) was spoken", sink.Said(0x00013629));
   Check("no id landed out of range", stats.forms.out_of_range == 0);

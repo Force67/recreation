@@ -71,6 +71,18 @@ class ScriptSystem {
   // script instance was created.
   void set_on_scripts_attached(base::Function<void(u64)> cb) { on_attach_ = base::move(cb); }
 
+  // Invoked on the guest thread the moment a script is attached and its
+  // editor-baked properties are seeded, before OnInit. It is the only point at
+  // which a savegame can put a script's member variables back, because a
+  // reference's scripts attach when its cell streams in and not when the save
+  // is applied. Returning true means the instance came out of a save: it was
+  // initialized once already, so OnInit is not raised again, the same way the
+  // game does not re-run OnInit on load.
+  void set_on_script_restored(
+      base::Function<bool(papyrus::VirtualMachine&, papyrus::ObjectRef, const base::String&)> cb) {
+    on_restore_ = base::move(cb);
+  }
+
   PapyrusGuest& guest() { return guest_; }
   size_t loaded_script_count();
 
@@ -78,6 +90,8 @@ class ScriptSystem {
   asset::Vfs* vfs_;
   PapyrusGuest guest_;
   base::Function<void(u64)> on_attach_;
+  base::Function<bool(papyrus::VirtualMachine&, papyrus::ObjectRef, const base::String&)>
+      on_restore_;
   // Script names we have already reported as unloadable, so a game whose
   // bytecode the VM cannot execute yet (Starfield) warns once per script
   // instead of once per attachment.

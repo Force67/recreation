@@ -9,6 +9,7 @@ recreation_add_module(world
   land_baker.cc
   map_discovery.cc
   map_markers.cc
+  misc_stats.cc
   planet_tile.cc
   prop_streaming.cc
   quest_world.cc

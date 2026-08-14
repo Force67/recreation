@@ -33,6 +33,10 @@ struct MapMarker {
   u8 icon = 0;           // TNAM marker type, i.e. which symbol the map draws
   bool visible = false;
   bool can_travel = false;
+  // The place has been finished off. Not a property of the marker at all: it
+  // belongs to the LCTN the marker stands for, and whoever knows that link sets
+  // it here so the map can draw it without a location graph of its own.
+  bool cleared = false;
 };
 
 class MapMarkers {
@@ -49,11 +53,15 @@ class MapMarkers {
   // game writes when the player discovers a location. Returns true only the
   // first time, so the caller can announce it.
   bool Discover(bethesda::GlobalFormId ref);
+  // Marks the place behind a marker as finished off. Like the flags above this
+  // only ever turns on. False when no marker with that reference is known.
+  bool SetCleared(bethesda::GlobalFormId ref);
 
   const base::Vector<MapMarker>& all() const { return markers_; }
   const MapMarker* Find(bethesda::GlobalFormId ref) const;
   u32 VisibleCount() const;
   u32 TravelableCount() const;
+  u32 ClearedCount() const;
 
   // The nearest marker to a point in game units, searched in one worldspace and
   // within `radius` units. Null when nothing is in range. Undiscovered only,

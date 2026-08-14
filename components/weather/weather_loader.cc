@@ -292,24 +292,45 @@ base::Vector<base::Pair<WeatherDef, u32>> Synthetic(
 
 }  // namespace
 
+bool LoadWeather(const bethesda::RecordStore& records,
+                 bethesda::GlobalFormId id,
+                 WeatherDef* out,
+                 WeatherGrade* grade) {
+  const bethesda::RecordStore::StoredRecord* stored = records.Find(id);
+  bethesda::Record rec;
+  if (!stored || stored->header.type != kWthr || !records.Parse(id, &rec))
+    return false;
+  WeatherDef def;
+  def.form = id.packed();
+  def.editor_id = rec.GetString(kEdid);
+  def.kind = Classify(rec, def.editor_id);
+  def.DeriveFromKind();
+  // The radstorm's deliberate green cast wins over the authored grade.
+  WeatherGrade applied = WeatherGrade::kNone;
+  if (ApplyRadstorm(&def))
+    applied = WeatherGrade::kRadstorm;
+  else if (ApplyColorGrade(rec, &def))
+    applied = WeatherGrade::kColorGrade;
+  DecodeAuthoredFields(records, rec, stored->winning_plugin, &def);
+  if (grade)
+    *grade = applied;
+  *out = base::move(def);
+  return true;
+}
+
 int LoadWeathers(const bethesda::RecordStore& records, base::UnorderedMap<u64, WeatherDef>* out) {
   int n = 0, rad = 0, graded = 0;
   bool storm_logged = false;
   records.EachOfType(
-      kWthr, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
-        bethesda::Record rec;
-        if (!records.Parse(id, &rec))
-          return;
+      kWthr, [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord&) {
         WeatherDef def;
-        def.form = id.packed();
-        def.editor_id = rec.GetString(kEdid);
-        def.kind = Classify(rec, def.editor_id);
-        def.DeriveFromKind();
-        if (ApplyRadstorm(&def))
-          ++rad;  // radstorm's deliberate green cast wins over the authored grade
-        else if (ApplyColorGrade(rec, &def))
+        WeatherGrade grade = WeatherGrade::kNone;
+        if (!LoadWeather(records, id, &def, &grade))
+          return;
+        if (grade == WeatherGrade::kRadstorm)
+          ++rad;
+        else if (grade == WeatherGrade::kColorGrade)
           ++graded;
-        DecodeAuthoredFields(records, rec, stored.winning_plugin, &def);
         // One decoded storm logged in full: an end-to-end check of the DATA/SNAM
         // parse against real data without a debugger.
         if (!storm_logged && !def.sound_thunder.empty()) {

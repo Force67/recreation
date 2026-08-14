@@ -87,6 +87,18 @@ class FormRemap {
   bool built_ = false;
 };
 
+// A face the save carries, with every form id already remapped. The morph and
+// preset arrays are the NPC_ record's NAM9 and NAMA in the same order, so a head
+// builder can consume this exactly where it consumes the authored ones.
+struct SavedFace {
+  GlobalFormId hair_color;
+  GlobalFormId face_texture;
+  u32 skin_tone = 0;  // 0x00RRGGBB (see ActorFaceChange)
+  base::Vector<GlobalFormId> head_parts;
+  base::Vector<f32> morphs;
+  base::Vector<i32> presets;
+};
+
 // The running game, as layer 3 needs to see it. Every id handed over is
 // already remapped. Methods default to doing nothing, because "the engine has
 // no home for this yet" is the normal case for a system it has not built.
@@ -95,6 +107,22 @@ class SaveSink {
   virtual ~SaveSink() = default;
 
   virtual void SetGlobal(GlobalFormId global, f32 value) {}
+
+  // One row of the Stats page. `name` is the game's own key and the only label
+  // the save carries; it points into the SaveFile and does not outlive it.
+  virtual void SetMiscStat(base::StringRef name, u8 category, u32 value) {}
+
+  // The sky the save was left under. `previous` is 0 when the weather had
+  // settled, in which case `transition` is 1 and there is nothing to fade from.
+  virtual void SetWeather(GlobalFormId climate,
+                          GlobalFormId weather,
+                          GlobalFormId previous,
+                          f32 transition) {}
+
+  // Two ingredients the game recorded as a pair. Both are INGR (measured), and
+  // in the reference save no pair shares an effect, so this is a memory of
+  // combinations that yielded nothing rather than a discovered-effect set.
+  virtual void SetIngredientPair(GlobalFormId first, GlobalFormId second) {}
 
   // Stages arrive in ascending order, each one the save recorded as run, then
   // SetQuestState closes the quest out with the state the journal shows.
@@ -116,6 +144,36 @@ class SaveSink {
   // A perk the save records on that reference, keyed like the reference values
   // above: perks are earned, so they belong to the actor and not to its base.
   virtual void AddReferencePerk(GlobalFormId ref, GlobalFormId perk, u32 rank) {}
+  // A spell or a shout the actor's base form records. Both are on the base
+  // because that is where the game writes them, but only the shouts are the
+  // whole story: the reference save's NPC_ record for the player lists three
+  // spells against the 161 its own reference carries, so a sink that wants the
+  // player's spell book has to take AddReferenceSpell too.
+  virtual void AddActorSpell(GlobalFormId actor_base, GlobalFormId spell) {}
+  virtual void AddActorShout(GlobalFormId actor_base, GlobalFormId shout) {}
+  // A spell the actor learned during play, keyed by the reference the way perks
+  // are: it is earned, so it belongs to the actor and not to its base.
+  virtual void AddReferenceSpell(GlobalFormId ref, GlobalFormId spell) {}
+  // A word of power the player knows. Learning a word and unlocking it with a
+  // dragon soul are two states in the game and one bit here (see
+  // WordOfPowerChange), so a known word is reported as both.
+  virtual void SetWordOfPowerKnown(GlobalFormId word) {}
+  // One entry of the favourites menu; `hotkey` is the number key it is bound to,
+  // -1 when it is only in the list.
+  virtual void AddMagicFavourite(GlobalFormId form, i32 hotkey) {}
+  // The last weapon, spell and shout the player used, any of them invalid when
+  // the save records none. The shout is the one the game has selected.
+  virtual void SetLastUsedMagic(GlobalFormId weapon, GlobalFormId spell, GlobalFormId shout) {}
+
+  // Who the actor is, as chargen and the game left it rather than as the record
+  // authors it. `original_race` is what a beast-form actor turns back into.
+  virtual void SetActorName(GlobalFormId actor_base, base::StringRef name) {}
+  virtual void SetActorRace(GlobalFormId actor_base,
+                            GlobalFormId race,
+                            GlobalFormId original_race) {}
+  virtual void SetActorSex(GlobalFormId actor_base, bool female) {}
+  virtual void SetActorFace(GlobalFormId actor_base, const SavedFace& face) {}
+
   virtual void SetActorFactionRank(GlobalFormId actor_base, GlobalFormId faction, i32 rank) {}
   // Already a level, never the multiplier: the save's own player level resolves
   // a level-mult actor before it gets here.
@@ -156,6 +214,37 @@ class SaveSink {
                              const f32 position[3],
                              const f32 rotation[3]) {}
 
+  // A place the player has finished off, i.e. what the map calls "Cleared".
+  // `location` is the LCTN form; where it is drawn stays in the records.
+  virtual void SetLocationCleared(GlobalFormId location, bool cleared) {}
+  // A number the runtime hung on a location under a keyword. Skyrim's own
+  // GetKeywordDataForLocation reads this table.
+  virtual void SetLocationKeywordValue(GlobalFormId location,
+                                       GlobalFormId keyword,
+                                       f32 value) {}
+  // The level an encounter zone locked to when the player first entered it.
+  // Everything the zone spawns scales against this instead of the player.
+  virtual void SetEncounterZoneLevel(GlobalFormId zone, u32 level) {}
+  // An entry a script added to a levelled list at runtime, on top of the ones
+  // the record authors.
+  virtual void AddLeveledListEntry(GlobalFormId list,
+                                   GlobalFormId form,
+                                   u32 level,
+                                   u32 count) {}
+  // A book the player has read. `flags` is the book's whole runtime DATA flags
+  // byte, so a sink that answers "what does this book teach" can answer it the
+  // way the save left it: a skill book whose skill has been taken comes back
+  // with its teaches-skill bit already cleared.
+  virtual void SetBookRead(GlobalFormId book, u8 flags, bool skill_taken) {}
+  // Which of an ingredient's four effects the player has discovered, one bit per
+  // effect slot.
+  virtual void SetKnownIngredientEffects(GlobalFormId ingredient, u32 effects) {}
+  // How two actors feel about each other. `rank` is already in the engine's
+  // direction (+4 lover to -4 archnemesis), not the record's; the ids are the
+  // NPC_ base forms the save names, so resolving them to placed actors is the
+  // runtime's job.
+  virtual void SetRelationshipRank(GlobalFormId a, GlobalFormId b, i32 rank) {}
+
   // One stack of a container's or actor's inventory. `delta` is signed and
   // relative to the contents the container's base record authors, never an
   // absolute count, so a sink that has no model of the authored contents cannot
@@ -181,6 +270,9 @@ struct SaveApplyStats {
   RemapCounters forms;
 
   u32 globals = 0;
+  u32 misc_stats = 0;       // rows of the Stats page
+  u32 ingredient_pairs = 0; // pairs whose two ingredients both remapped
+  bool weather = false;     // the save named a weather this load order has
   u32 quests = 0;
   u32 quest_stages = 0;
   u32 quest_objectives = 0;
@@ -191,6 +283,16 @@ struct SaveApplyStats {
   u32 actor_values_unnamed = 0; // rows whose place in the value enumeration is unproven
   u32 actor_perks = 0;          // perks pushed at the sink
   u32 actors_with_perks = 0;    // references carrying a perk array
+  u32 actor_spells = 0;         // spells off NPC_ change forms
+  u32 actor_shouts = 0;         // shouts off NPC_ change forms
+  u32 reference_spells = 0;     // spells found in an actor's own block
+  u32 actors_with_spells = 0;   // references carrying an added-spell list
+  u32 words_of_power = 0;       // words the player has learned and unlocked
+  u32 magic_favourites = 0;     // entries of the favourites menu
+  u32 magic_hotkeys = 0;        // of those, the ones bound to a number key
+  u32 actor_names = 0;          // actors renamed since their record was authored
+  u32 actor_races = 0;
+  u32 actor_faces = 0;
   u32 actor_faction_ranks = 0;
   u32 actor_levels = 0;       // NPC level, resolved through its level-mult form
   u32 actor_ai_profiles = 0;  // aggression/confidence/energy/morality/mood
@@ -200,6 +302,17 @@ struct SaveApplyStats {
   u32 cells_visited = 0;      // cells carrying world/local map exploration
   u32 map_markers = 0;        // named locations the save has found
   u32 map_markers_travel = 0; // of those, the ones that are travel destinations
+  u32 locations = 0;          // LCTN change forms that decoded
+  u32 locations_cleared = 0;  // of those, the ones the player has finished off
+  u32 location_keywords = 0;  // (keyword, number) pairs hung on a location
+  u32 encounter_zones = 0;    // zones carrying the level they locked to
+  u32 leveled_lists = 0;      // lists a script added to at runtime
+  u32 leveled_entries = 0;    // entries inside them
+  u32 books_read = 0;
+  u32 books_skill_taken = 0;  // of those, skill books that already paid out
+  u32 ingredients = 0;        // ingredients with at least one effect discovered
+  u32 ingredient_effects = 0; // effects discovered across them
+  u32 relationships = 0;      // actor pairs carrying a personal rank
   u32 references_moved = 0;
   u32 references_enabled = 0;
   u32 references_disabled = 0;
@@ -238,7 +351,15 @@ struct SaveApplyStats {
   // order can name them, so no script can ever bring one back: they are dropped
   // rather than pushed at the sink as entities that could never be seen.
   u32 created_references_inert = 0;
+  // Relationships the save invented whose two ends do not both survive the
+  // remap, so there is no pair to hang a rank on.
+  u32 relationships_unresolved = 0;
 };
+
+// The rank a RELA record spells (0 lover to 8 archnemesis) in the direction
+// Papyrus and the engine count it, +4 lover to -4 archnemesis. A rank past the
+// record's own range comes back as 0 (acquaintance) rather than off the scale.
+i32 RelationshipRankOf(u32 record_rank);
 
 // Finds the player's reference in the save and remaps its parent. False when
 // the save has no player record, when the record carries no transform, or when

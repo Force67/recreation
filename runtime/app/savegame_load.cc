@@ -14,11 +14,15 @@
 #include "components/bethesda/savegame_apply.h"
 #include "components/quest/quest_system.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
+#include "components/script/games/skyrim/skyrim_native_state.h"
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/value.h"
+#include "components/weather/weather_loader.h"
 #include "core/log.h"
+#include "runtime/actor/actor_system.h"
 #include "runtime/app/engine.h"
 #include "runtime/app/engine_internal.h"
+#include "runtime/character/face.h"
 
 // Booting from a savegame: read the file, remap its form ids onto this run's
 // load order, push what the engine has a home for at the live systems, and
@@ -40,6 +44,13 @@ constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 constexpr u32 kWrld = FourCc('W', 'R', 'L', 'D');
 constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
 constexpr u32 kPerk = FourCc('P', 'E', 'R', 'K');
+constexpr u32 kSpel = FourCc('S', 'P', 'E', 'L');
+constexpr u32 kShou = FourCc('S', 'H', 'O', 'U');
+constexpr u32 kWoop = FourCc('W', 'O', 'O', 'P');
+constexpr u32 kRace = FourCc('R', 'A', 'C', 'E');
+constexpr u32 kLctn = FourCc('L', 'C', 'T', 'N');
+// The map marker reference a location draws itself at.
+constexpr u32 kMnam = FourCc('M', 'N', 'A', 'M');
 // The TESForm flag a record carries when it is placed disabled. The engine
 // reads the same bit off the record when it streams a reference in.
 constexpr u32 kRecordFlagInitiallyDisabled = 0x800;
@@ -82,6 +93,8 @@ struct PlayerReadout {
   f32 one_handed = 0, sneak = 0, destruction = 0;
   i32 perks = 0;
   i32 gold = 0;
+  i32 spells = 0, shouts = 0, words = 0, favourites = 0;
+  base::String name;
 };
 
 PlayerReadout ReadPlayerBack(script::skyrim::RecordBackedSkyrimBindings& bindings) {
@@ -97,6 +110,11 @@ PlayerReadout ReadPlayerBack(script::skyrim::RecordBackedSkyrimBindings& binding
   out.sneak = bindings.GetBaseActorValue(player, "Sneak");
   out.destruction = bindings.GetBaseActorValue(player, "Destruction");
   out.perks = bindings.GetPerkCount(player);
+  out.spells = bindings.GetSpellCount(player);
+  out.shouts = bindings.GetShoutCount(player);
+  out.words = bindings.GetKnownWordCount();
+  out.favourites = bindings.GetMagicFavouriteCount();
+  out.name = bindings.GetName(player);
   out.gold = bindings.GetItemCount(
       player, script::papyrus::ObjectRef{bethesda::GlobalFormId{0, kGoldFormId}.packed()});
   return out;
@@ -113,6 +131,8 @@ class EngineSaveSink : public bethesda::SaveSink {
                  world::MapDiscovery& map,
                  world::MapMarkers& markers,
                  world::SavedSpawnIndex& spawns,
+                 world::MiscStats& misc_stats,
+                 FaceBuilder& faces,
                  f32 cell_size)
       : bindings_(bindings),
         records_(records),
@@ -121,11 +141,31 @@ class EngineSaveSink : public bethesda::SaveSink {
         map_(map),
         markers_(markers),
         spawns_(spawns),
+        misc_stats_(misc_stats),
+        faces_(faces),
         cell_size_(cell_size) {}
 
   void SetGlobal(bethesda::GlobalFormId global, f32 value) override {
     bindings_.SetGlobalValue(Ref(global), value);
   }
+
+  void SetMiscStat(base::StringRef name, u8 category, u32 value) override {
+    misc_stats_.Set(name, category, value);
+  }
+
+  // Kept, not pushed: the sky is resumed after this whole pass, because that
+  // needs the world clock and the clock only reads right once the globals above
+  // have landed on it. The climate and the weather being faded out of are not
+  // taken -- this engine's sky is driven by a climate it builds itself, and it
+  // cross-fades on its own schedule.
+  void SetWeather(bethesda::GlobalFormId,
+                  bethesda::GlobalFormId weather,
+                  bethesda::GlobalFormId,
+                  f32) override {
+    weather_ = weather;
+  }
+
+  bethesda::GlobalFormId weather() const { return weather_; }
 
   // Straight at the quest system, not through the bindings: the binding-level
   // SetStage runs the stage's script fragment, which would replay everything
@@ -197,6 +237,90 @@ class EngineSaveSink : public bethesda::SaveSink {
     ++perks_;
   }
 
+  // Spells and shouts land on the placed reference, not the base form: that is
+  // what the bindings key an actor's knowledge by, and it is what a script's
+  // HasSpell(Game.GetPlayer(), ...) asks about.
+  void AddActorSpell(bethesda::GlobalFormId actor_base, bethesda::GlobalFormId spell) override {
+    const u64 actor = PlacedActor(actor_base);
+    if (actor == 0 || !IsRecord(spell, kSpel))
+      return;
+    bindings_.AddSpell(script::papyrus::ObjectRef{actor}, Ref(spell));
+    ++spells_;
+  }
+
+  void AddActorShout(bethesda::GlobalFormId actor_base, bethesda::GlobalFormId shout) override {
+    const u64 actor = PlacedActor(actor_base);
+    if (actor == 0 || !IsRecord(shout, kShou))
+      return;
+    bindings_.AddShout(script::papyrus::ObjectRef{actor}, Ref(shout));
+    ++shouts_;
+  }
+
+  void AddReferenceSpell(bethesda::GlobalFormId ref, bethesda::GlobalFormId spell) override {
+    if (!IsRecord(spell, kSpel)) {
+      ++unknown_spells_;
+      return;
+    }
+    bindings_.AddSpell(Ref(ref), Ref(spell));
+    ++spells_;
+  }
+
+  void SetWordOfPowerKnown(bethesda::GlobalFormId word) override {
+    if (!IsRecord(word, kWoop)) {
+      ++unknown_words_;
+      return;
+    }
+    bindings_.UnlockWord(Ref(word));
+    ++words_;
+  }
+
+  void AddMagicFavourite(bethesda::GlobalFormId form, i32 hotkey) override {
+    bindings_.AddMagicFavourite(Ref(form), hotkey);
+    ++favourites_;
+  }
+
+  void SetLastUsedMagic(bethesda::GlobalFormId weapon,
+                        bethesda::GlobalFormId spell,
+                        bethesda::GlobalFormId shout) override {
+    bindings_.SetLastUsedMagic(Ref(weapon), Ref(spell), Ref(shout));
+    last_shout_ = shout;
+  }
+
+  // Identity and appearance. The name goes onto the base form the way the save
+  // stores it; the face and race go to the head builder, which is what turns
+  // them back into a head when the player's body is assembled.
+  void SetActorName(bethesda::GlobalFormId actor_base, base::StringRef name) override {
+    const base::String text(name.data(), name.size());
+    // Onto the base form, which is where the save records it and where a
+    // reference's own GetName falls through to, and onto the placed reference,
+    // whose id is what a script holds.
+    bindings_.SetName(Ref(actor_base), text);
+    const u64 actor = PlacedActor(actor_base);
+    if (actor != 0)
+      bindings_.SetName(script::papyrus::ObjectRef{actor}, text);
+    ++names_;
+  }
+
+  // The original race is what a beast-form actor turns back into; nothing in the
+  // engine transforms anyone yet, so only the race it is in now is applied.
+  void SetActorRace(bethesda::GlobalFormId actor_base,
+                    bethesda::GlobalFormId race,
+                    bethesda::GlobalFormId) override {
+    if (!IsRecord(race, kRace))
+      return;
+    faces_.OverrideRace(actor_base, race);
+    ++races_;
+  }
+
+  void SetActorSex(bethesda::GlobalFormId actor_base, bool female) override {
+    faces_.OverrideSex(actor_base, female);
+  }
+
+  void SetActorFace(bethesda::GlobalFormId actor_base, const bethesda::SavedFace& face) override {
+    faces_.OverrideFace(actor_base, face);
+    ++faces_applied_;
+  }
+
   void SetActorFactionRank(bethesda::GlobalFormId actor_base,
                            bethesda::GlobalFormId faction,
                            i32 rank) override {
@@ -250,6 +374,96 @@ class EngineSaveSink : public bethesda::SaveSink {
 
   void SetDialogueSaid(bethesda::GlobalFormId info) override {
     said_.MarkSaid(info.packed());
+  }
+
+  // Cleared state lands in two places, because two systems ask different
+  // questions of it: Papyrus asks the location (Location.IsCleared), and the map
+  // asks the marker. The link between them is the LCTN's own MNAM, so it is
+  // resolved here rather than stored twice by the decoder.
+  void SetLocationCleared(bethesda::GlobalFormId location, bool cleared) override {
+    bethesda::Record record;
+    if (!records_.Parse(location, &record) || record.header.type != kLctn) {
+      ++unknown_refs_;
+      return;
+    }
+    script::skyrim::state::SetFlag(Ref(location), "cleared", cleared);
+    ++locations_cleared_;
+    const bethesda::Subrecord* marker = record.Find(kMnam);
+    if (!marker || marker->data.size() < 4)
+      return;
+    u32 raw;
+    std::memcpy(&raw, marker->data.data(), 4);
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(location);
+    const bethesda::GlobalFormId ref =
+        records_.ResolveFrom(bethesda::RawFormId{raw}, stored ? stored->winning_plugin : 0);
+    if (markers_.SetCleared(ref))
+      ++markers_cleared_;
+  }
+
+  // The same table the Civil War scripts read a hold's owner out of
+  // (Location.GetKeywordData), so this is not a store of its own.
+  void SetLocationKeywordValue(bethesda::GlobalFormId location,
+                               bethesda::GlobalFormId keyword,
+                               f32 value) override {
+    bindings_.SetKeywordData(Ref(location), Ref(keyword), value);
+    ++location_keywords_;
+  }
+
+  void SetEncounterZoneLevel(bethesda::GlobalFormId zone, u32 level) override {
+    if (!records_.Find(zone)) {
+      ++unknown_refs_;
+      return;
+    }
+    actor_stats_.SetZoneLevel(zone, level);
+    ++zones_;
+  }
+
+  void AddLeveledListEntry(bethesda::GlobalFormId list,
+                           bethesda::GlobalFormId form,
+                           u32 level,
+                           u32 count) override {
+    if (!records_.Find(list) || !records_.Find(form)) {
+      ++unknown_refs_;
+      return;
+    }
+    bindings_.AddLeveledListEntry(Ref(list), Ref(form), static_cast<i32>(level),
+                                  static_cast<i32>(count));
+    ++leveled_entries_;
+  }
+
+  // The whole flags byte, not just "read": a skill book comes back from the save
+  // with its teaches-skill bit already gone, which is what stops the resumed
+  // game handing the skill out a second time.
+  void SetBookRead(bethesda::GlobalFormId book, u8 flags, bool skill_taken) override {
+    if (!records_.Find(book)) {
+      ++unknown_refs_;
+      return;
+    }
+    bindings_.SetBookFlags(Ref(book), flags);
+    ++books_read_;
+    if (skill_taken)
+      ++books_skill_taken_;
+  }
+
+  void SetKnownIngredientEffects(bethesda::GlobalFormId ingredient, u32 effects) override {
+    if (!records_.Find(ingredient)) {
+      ++unknown_refs_;
+      return;
+    }
+    bindings_.SetKnownIngredientEffects(Ref(ingredient), static_cast<i32>(effects));
+    ++ingredients_;
+  }
+
+  // The save names the two NPC_ base forms; the engine keys relationships by the
+  // placed reference, the same way faction ranks and actor values resolve.
+  void SetRelationshipRank(bethesda::GlobalFormId a, bethesda::GlobalFormId b, i32 rank) override {
+    const u64 first = PlacedActor(a);
+    const u64 second = PlacedActor(b);
+    if (first == 0 || second == 0)
+      return;
+    bindings_.SetRelationshipRank(script::papyrus::ObjectRef{first},
+                                  script::papyrus::ObjectRef{second}, rank);
+    ++relationships_;
   }
 
   // A cell's map bits are only worth anything once they sit on a grid, so an
@@ -390,6 +604,13 @@ class EngineSaveSink : public bethesda::SaveSink {
         map_.VisitedInteriors());
     RX_INFO("save: {} map markers discovered, {} of them fast travel destinations",
             markers_found_, markers_travel_);
+    RX_INFO(
+        "save: {} locations cleared ({} of them showing on the map), {} location keyword values, "
+        "{} encounter zones hold the level they locked to",
+        locations_cleared_, markers_cleared_, location_keywords_, zones_);
+    RX_INFO("save: {} books read ({} skill books already paid out), {} ingredients carry known "
+            "effects, {} entries added to leveled lists, {} actor relationships",
+            books_read_, books_skill_taken_, ingredients_, leveled_entries_, relationships_);
     if (unknown_markers_ != 0)
       RX_WARN("save: {} discovered markers name a reference this load order does not place",
               unknown_markers_);
@@ -400,6 +621,18 @@ class EngineSaveSink : public bethesda::SaveSink {
     if (perks_ != 0 || unknown_perks_ != 0)
       RX_INFO("save: {} perks onto references, {} named no PERK record here", perks_,
               unknown_perks_);
+    RX_INFO(
+        "save: {} spells and {} shouts restored, {} words of power known, {} magic favourites; "
+        "the shout in hand is {}",
+        spells_, shouts_, words_, favourites_,
+        last_shout_.plugin == 0xffff ? base::String("none")
+                                     : Fmt("0x%02x%06x", last_shout_.plugin, last_shout_.local_id));
+    if (unknown_spells_ != 0 || unknown_words_ != 0)
+      RX_WARN("save: {} spells and {} words name no record of their kind here", unknown_spells_,
+              unknown_words_);
+    if (names_ != 0 || races_ != 0 || faces_applied_ != 0)
+      RX_INFO("save: {} actors renamed, {} put in another race, {} carry their own face", names_,
+              races_, faces_applied_);
     RX_INFO(
         "save: {} references the save created are queued for their cells ({} outside, {} in "
         "interiors), across {} cells, {} in the fullest",
@@ -415,6 +648,14 @@ class EngineSaveSink : public bethesda::SaveSink {
  private:
   static script::papyrus::ObjectRef Ref(bethesda::GlobalFormId id) {
     return script::papyrus::ObjectRef{id.packed()};
+  }
+
+  // Whether the id names a record of that signature in this load order. The
+  // remap answers for any form the plugin holds, so an id that lands on some
+  // other record type is one the save meant for a plugin this run does not have.
+  bool IsRecord(bethesda::GlobalFormId id, u32 signature) const {
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
+    return stored != nullptr && stored->header.type == signature;
   }
 
   // A reference the running game can be told about. Normally that means a
@@ -455,6 +696,9 @@ class EngineSaveSink : public bethesda::SaveSink {
   world::MapDiscovery& map_;
   world::MapMarkers& markers_;
   world::SavedSpawnIndex& spawns_;
+  world::MiscStats& misc_stats_;
+  bethesda::GlobalFormId weather_;
+  FaceBuilder& faces_;
   f32 cell_size_ = 0.0f;
   u32 spawns_exterior_ = 0;
   u32 spawns_interior_ = 0;
@@ -464,6 +708,16 @@ class EngineSaveSink : public bethesda::SaveSink {
   u32 player_values_ = 0;
   u32 perks_ = 0;
   u32 unknown_perks_ = 0;
+  u32 spells_ = 0;
+  u32 unknown_spells_ = 0;
+  u32 shouts_ = 0;
+  u32 words_ = 0;
+  u32 unknown_words_ = 0;
+  u32 favourites_ = 0;
+  u32 names_ = 0;
+  u32 races_ = 0;
+  u32 faces_applied_ = 0;
+  bethesda::GlobalFormId last_shout_;
   u32 faction_ranks_ = 0;
   u32 toggled_refs_ = 0;
   u32 moved_refs_ = 0;
@@ -476,6 +730,15 @@ class EngineSaveSink : public bethesda::SaveSink {
   u32 unknown_markers_ = 0;
   u32 unplaced_actors_ = 0;
   u32 unknown_refs_ = 0;
+  u32 locations_cleared_ = 0;
+  u32 markers_cleared_ = 0;
+  u32 location_keywords_ = 0;
+  u32 zones_ = 0;
+  u32 leveled_entries_ = 0;
+  u32 books_read_ = 0;
+  u32 books_skill_taken_ = 0;
+  u32 ingredients_ = 0;
+  u32 relationships_ = 0;
   base::UnorderedSet<u64> seeded_;  // containers already given their authored contents
   u32 seeded_containers_ = 0;
   u32 inventory_items_ = 0;
@@ -536,7 +799,7 @@ void ApplySavegameState(Engine& engine) {
   bethesda::SaveApplyStats stats;
   EngineSaveSink sink(*self->script_bindings_, self->records_, self->actor_stats_,
                       self->said_topics_, self->map_discovery_, self->map_markers_,
-                      self->saved_spawns_,
+                      self->saved_spawns_, self->misc_stats_, self->actors_->faces(),
                       bethesda::GameProfile::For(self->game_).cell_size);
   // On the guest thread and synchronously: everything below is guest-owned
   // state, and the quest scripts that read it attach right after this returns.
@@ -559,6 +822,13 @@ void ApplySavegameState(Engine& engine) {
       "{} spoken dialogue lines, {} visited map grids, {} map markers ({} travelable)",
       stats.actor_levels, stats.actor_ai_profiles, stats.faction_infamy, stats.dialogue_said,
       stats.cells_visited, stats.map_markers, stats.map_markers_travel);
+  RX_INFO(
+      "save: decoded {} locations ({} cleared, {} keyword values), {} encounter zones, "
+      "{} leveled lists ({} entries), {} books read ({} skill books), {} ingredients "
+      "({} effects), {} relationships",
+      stats.locations, stats.locations_cleared, stats.location_keywords, stats.encounter_zones,
+      stats.leveled_lists, stats.leveled_entries, stats.books_read, stats.books_skill_taken,
+      stats.ingredients, stats.ingredient_effects, stats.relationships);
   sink.LogTally();
   RX_INFO("save: {} form ids remapped, {} refused (created at runtime), {} change forms dropped",
           stats.forms.mapped, stats.forms.created, stats.refused);
@@ -579,6 +849,58 @@ void ApplySavegameState(Engine& engine) {
       stats.created_references, stats.created_references_with_base,
       stats.created_references_spawned, stats.created_references_inert);
   RX_INFO("save: applied in {} ms", apply_ms);
+
+  // The Papyrus heap. Not applied here: only the quest scripts exist at this
+  // point, and a reference's scripts attach when its cell streams in. So the
+  // index is built now, while the remap is in hand, and every attachment from
+  // here on (starting with the quest scripts, right after this returns) asks it
+  // what the save held for that instance.
+  if (self->save_->file.papyrus.present) {
+    const auto papyrus_started = std::chrono::steady_clock::now();
+    self->papyrus_restore_ = base::MakeUnique<script::PapyrusRestorer>();
+    self->papyrus_restore_->Build(base::move(self->save_->file.papyrus), self->save_->remap);
+    script::PapyrusRestorer* restorer = &*self->papyrus_restore_;
+    self->scripts_->set_on_script_restored(
+        [restorer](script::papyrus::VirtualMachine& vm, script::papyrus::ObjectRef instance,
+                   const base::String& script) {
+          return restorer->Apply(vm, instance, script);
+        });
+    const auto papyrus_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - papyrus_started)
+                                .count();
+    RX_INFO("papyrus: heap indexed in {} ms", papyrus_ms);
+    self->papyrus_restore_->LogCoverage();
+  }
+
+  // The Stats page and the sky. Both come out of the save's global data rather
+  // than its change forms, so neither depends on a record being placed.
+  if (stats.misc_stats != 0)
+    RX_INFO("save: {} stats rows, {} days passed, {} locations found, {} people killed, "
+            "{} lifetime bounty",
+            stats.misc_stats, self->misc_stats_.Value("Days Passed"),
+            self->misc_stats_.Value("Locations Discovered"),
+            self->misc_stats_.Value("People Killed"),
+            self->misc_stats_.Value("Total Lifetime Bounty"));
+  if (stats.ingredient_pairs != 0)
+    RX_INFO("save: {} ingredient combinations remembered", stats.ingredient_pairs);
+
+  // The sky the save was left under. Without a placement the region lookup
+  // would run at the origin, which is a different climate from wherever the
+  // player actually is.
+  if (stats.weather && self->clock_ && self->save_->player.valid) {
+    const bethesda::GlobalFormId id = sink.weather();
+    const f32* at = self->save_->player.position;
+    weather::WeatherDef def;
+    if (!weather::LoadWeather(self->records_, id, &def)) {
+      RX_WARN("save: weather {:04x}:{:06x} names no WTHR record here, the sky rolls fresh",
+              id.plugin, id.local_id);
+    } else if (self->director_.ResumeWeather(def, self->clock_->game_days(), at[0], at[1])) {
+      RX_INFO("save: resumed the sky on '{}'", def.editor_id);
+    } else {
+      RX_WARN("save: could not seat weather '{}' in the climate, the sky rolls fresh",
+              def.editor_id);
+    }
+  }
   // Read straight back out of the live systems rather than out of the decoder,
   // so the line says what the running game believes the player is.
   RX_INFO(
@@ -587,6 +909,9 @@ void ApplySavegameState(Engine& engine) {
       "{} perks and {} gold",
       readout.level, readout.health, readout.magicka, readout.stamina, readout.carry_weight,
       readout.one_handed, readout.sneak, readout.destruction, readout.perks, readout.gold);
+  RX_INFO("save: {} answers to {} spells, {} shouts, {} words of power and {} favourites",
+          readout.name.empty() ? base::String("the player") : readout.name, readout.spells,
+          readout.shouts, readout.words, readout.favourites);
 }
 
 void ApplySavegameLocation(Engine& engine) {

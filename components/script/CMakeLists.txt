@@ -13,6 +13,7 @@ recreation_add_module(script
   papyrus/transpile.cc
   papyrus/vm.cc
   papyrus_guest.cc
+  papyrus_restore.cc
   script_system.cc
   host/clr_host.cc
   host/guest_bridge.cc
@@ -64,6 +65,7 @@ endforeach()
 recreation_add_test(script_lifecycletest recreation::script rx::asset)
 recreation_add_test(daycycletest recreation::script rx::core)
 recreation_add_test(replicamodetest recreation::script recreation::bethesda)
+recreation_add_test(papyrus_restoretest recreation::script recreation::bethesda)
 
 # Corpus harnesses: these want a real Skyrim data directory, so they are built
 # for manual runs but stay out of the ctest gate.

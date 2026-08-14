@@ -64,6 +64,8 @@ inline base::Option<bool> UiMenu{"ui.menu", false, "RECREATION_UI_MENU"};
 // otherwise only reachable by clicking Settings, which leaves it out of reach
 // of a scripted RX_SCREENSHOT capture.
 inline base::Option<bool> UiMenuSettings{"ui.menu.settings", false, "RECREATION_UI_MENU_SETTINGS"};
+// Same, for the stats sub-view, which is otherwise only reachable by clicking.
+inline base::Option<bool> UiMenuStats{"ui.menu.stats", false, "RECREATION_UI_MENU_STATS"};
 // Global UI scale. The .ugui screens are authored for a desktop pointer, where
 // a 50px button is comfortable; on the Deck's 216 PPI panel that is 5.9mm
 // against a fingertip contact patch of 8-10mm. ugui scales every px dimension
@@ -208,8 +210,13 @@ struct GameUi::Impl {
   bool initialized = false;
   bool menu_open = false;
   bool settings_open = false;  // settings sub-view of the pause menu
+  bool stats_open = false;     // stats sub-view of the pause menu
   bool quit_requested = false;
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
+  // Rows the stats pane shows at once; the markup authors exactly this many.
+  static constexpr size_t kStatsRows = 18;
+  StatsView stats_view;
+  size_t stats_page = 0;
   bool prev_mouse[3] = {};
   TouchPointerState touch_pointer;
   float pointer_scale_x = 1.0f;
@@ -465,14 +472,43 @@ struct GameUi::Impl {
           s.visibility = v > 0.5f ? ugui::Visibility::kVisible : ugui::Visibility::kCollapsed;
         },
         menu_open ? 1.0f : 0.0f);
-    // Settings is a sub-page: the entry list stays put and only the detail
-    // pane swaps. The marker rail follows whichever entry owns the visible one.
+    // Settings and Stats are sub-pages: the entry list stays put and only the
+    // pane beside it swaps. The marker rail follows whichever entry owns the
+    // visible one.
+    const bool root = !settings_open && !stats_open;
     SetVisible("menu_buttons", true);
-    SetVisible("menu_detail", !settings_open);
+    SetVisible("menu_detail", root);
     SetVisible("menu_settings", settings_open);
-    SetVisible("btn_resume_mk", !settings_open);
+    SetVisible("menu_stats", stats_open);
+    SetVisible("btn_resume_mk", root);
     SetVisible("btn_settings_mk", settings_open);
-    ugui::SetText(ui.FindWidget("menu_title"), settings_open ? "Settings" : "Paused");
+    SetVisible("btn_stats_mk", stats_open);
+    ugui::SetText(ui.FindWidget("menu_title"),
+                  settings_open ? "Settings" : (stats_open ? "Stats" : "Paused"));
+  }
+
+  // Fills the Stats pane's fixed row pool from the current page and hides the
+  // leftovers, so a short last page does not leave the previous one's rows up.
+  void ApplyStatsPage() {
+    const size_t total = stats_view.rows.size();
+    const size_t pages = total == 0 ? 1 : (total + kStatsRows - 1) / kStatsRows;
+    if (stats_page >= pages)
+      stats_page = pages - 1;
+    for (size_t i = 0; i < kStatsRows; ++i) {
+      const size_t at = stats_page * kStatsRows + i;
+      const base::String row = "stat_" + base::ToString(int(i));
+      const bool used = at < total;
+      SetVisible(row.c_str(), used);
+      if (!used)
+        continue;
+      SetText((row + "_lbl").c_str(), stats_view.rows[at].label.c_str());
+      SetText((row + "_val").c_str(), stats_view.rows[at].value.c_str());
+    }
+    SetVisible("stats_empty", total == 0);
+    SetVisible("stats_pager", total > kStatsRows);
+    SetText("stats_page",
+            (base::ToString(int(stats_page + 1)) + " / " + base::ToString(int(pages))).c_str());
+    SetText("stats_count", total == 0 ? "" : base::ToString(int(total)).c_str());
   }
 
   // --- .ugui hot reload -----------------------------------------------------
@@ -510,6 +546,7 @@ struct GameUi::Impl {
     SetVisible("editor_root", editor.active);
     editor_prev_active = editor.active;
     ApplyMenuVisibility();
+    ApplyStatsPage();
     ApplyMainMenu();
     ApplyFirstRun();
     RX_INFO("ui: hot-reloaded {} .ugui fragment(s)", sizeof(kUiFragments) / sizeof(*kUiFragments));

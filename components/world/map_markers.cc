@@ -39,6 +39,14 @@ bool MapMarkers::Discover(bethesda::GlobalFormId ref) {
   return true;
 }
 
+bool MapMarkers::SetCleared(bethesda::GlobalFormId ref) {
+  MapMarker* marker = FindMutable(ref);
+  if (!marker)
+    return false;
+  marker->cleared = true;
+  return true;
+}
+
 u32 MapMarkers::VisibleCount() const {
   u32 count = 0;
   for (const MapMarker& marker : markers_)
@@ -50,6 +58,13 @@ u32 MapMarkers::TravelableCount() const {
   u32 count = 0;
   for (const MapMarker& marker : markers_)
     count += marker.can_travel ? 1 : 0;
+  return count;
+}
+
+u32 MapMarkers::ClearedCount() const {
+  u32 count = 0;
+  for (const MapMarker& marker : markers_)
+    count += marker.cleared ? 1 : 0;
   return count;
 }
 

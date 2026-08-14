@@ -271,12 +271,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetFormType(papyrus::ObjectRef form) override;
   bool RefIsType(papyrus::ObjectRef ref, const base::String& type_name) override;
   base::String GetName(papyrus::ObjectRef form) override;
+  void SetName(papyrus::ObjectRef form, const base::String& name) override;
   bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
   i32 GetKeywordCount(papyrus::ObjectRef form) override;
   papyrus::ObjectRef GetNthKeyword(i32 index) override;
   papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) override;
   papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) override;
   base::String GetBookSkill(papyrus::ObjectRef book) override;
+  void SetBookFlags(papyrus::ObjectRef book, i32 flags) override;
+  bool IsBookRead(papyrus::ObjectRef book) override;
+  void SetKnownIngredientEffects(papyrus::ObjectRef ingredient, i32 effects) override;
+  i32 GetKnownIngredientEffects(papyrus::ObjectRef ingredient) override;
   f32 GetWeight(papyrus::ObjectRef form) override;
   i32 GetGoldValue(papyrus::ObjectRef form) override;
   i32 GetWeaponDamage(papyrus::ObjectRef weapon) override;
@@ -312,6 +317,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetNthLeveledForm(i32 index) override;
   i32 GetNthLeveledLevel(i32 index) override;
   i32 GetNthLeveledCount(i32 index) override;
+  void AddLeveledListEntry(papyrus::ObjectRef list,
+                           papyrus::ObjectRef form,
+                           i32 level,
+                           i32 count) override;
   i32 GetFormListSize(papyrus::ObjectRef list) override;
   papyrus::ObjectRef GetNthListForm(i32 index) override;
   i32 PlaySound(papyrus::ObjectRef sound, papyrus::ObjectRef source) override;
@@ -464,6 +473,30 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void RemovePerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
   bool HasPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
   i32 GetPerkCount(papyrus::ObjectRef actor) override;
+  // Spells, shouts and words of power, on the same footing as the perks above:
+  // one store per actor that both a loaded save and the Papyrus natives write,
+  // so HasSpell answers for the spell book the save restored.
+  void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  void RemoveSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  bool HasSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  i32 GetSpellCount(papyrus::ObjectRef actor) override;
+  void AddShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  void RemoveShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  bool HasShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  i32 GetShoutCount(papyrus::ObjectRef actor) override;
+  void TeachWord(papyrus::ObjectRef word) override;
+  void UnlockWord(papyrus::ObjectRef word) override;
+  bool IsWordTaught(papyrus::ObjectRef word) override;
+  bool IsWordUnlocked(papyrus::ObjectRef word) override;
+  i32 GetKnownWordCount() override;
+  void AddMagicFavourite(papyrus::ObjectRef form, i32 hotkey) override;
+  i32 GetMagicFavouriteCount() override;
+  papyrus::ObjectRef GetNthMagicFavourite(i32 index) override;
+  i32 GetNthMagicFavouriteHotkey(i32 index) override;
+  void SetLastUsedMagic(papyrus::ObjectRef weapon,
+                        papyrus::ObjectRef spell,
+                        papyrus::ObjectRef shout) override;
+  papyrus::ObjectRef GetEquippedShout(papyrus::ObjectRef actor) override;
   // The equipped weapon / shield form (None if none), backing GetEquippedWeapon /
   // GetEquippedShield. Scans equipped_ and classifies by record signature: a WEAP
   // is the weapon; an ARMO whose biped template occupies the shield slot (39) is
@@ -549,6 +582,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     i32 flags = 0;
     base::Vector<LeveledEntry> entries;
   };
+  // A book's DATA flags, runtime override first, the record's otherwise.
+  u8 BookFlags(papyrus::ObjectRef book, const bethesda::Record& rec) const;
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   // Reads a 4-byte form-id subrecord off `from`'s record and resolves it
   // against the load order. Used for record fields that point at another form.
@@ -570,6 +605,24 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> inventory_;
   base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;    // actor -> equipped item forms
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> perks_;  // actor -> perk -> rank
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> spells_;      // actor -> spell forms
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> shouts_;      // actor -> shout forms
+  // Word of power -> whether it is taught and whether it is unlocked. Not per
+  // actor: only the player ever learns words.
+  struct WordState {
+    bool taught = false;
+    bool unlocked = false;
+  };
+  base::UnorderedMap<u64, WordState> words_;
+  struct Favourite {
+    u64 form = 0;
+    i32 hotkey = -1;
+  };
+  base::Vector<Favourite> magic_favourites_;
+  base::UnorderedMap<u64, base::String> names_;  // renamed forms, over their FULL
+  u64 last_used_weapon_ = 0;
+  u64 last_used_spell_ = 0;
+  u64 last_used_shout_ = 0;
   base::UnorderedMap<u64, base::Array<f32, 3>> positions_;       // SetPosition/MoveTo overrides
   base::UnorderedMap<u64, f32> scales_;                          // SetScale overrides (default 1.0)
   struct LockState {
@@ -700,6 +753,13 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   base::Map<base::Pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
   base::UnorderedMap<u64, u64> location_fills_;        // location-alias handle -> location handle
   base::Map<base::Pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
+  // Runtime state the records do not author, so the accessors that read a
+  // record have to consult these first. A book's flags lose the teaches-skill
+  // bit once its skill has been taken, which is how a resumed save stops the
+  // same book paying out twice.
+  base::UnorderedMap<u64, u8> book_flags_;
+  base::UnorderedMap<u64, u32> known_ingredient_effects_;  // INGR -> bit per effect slot
+  base::UnorderedMap<u64, base::Vector<LeveledEntry>> leveled_additions_;
   // The day/night clock and the packed handles of the globals that proxy it.
   // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).
   WorldClock* clock_ = nullptr;

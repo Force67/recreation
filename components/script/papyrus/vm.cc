@@ -443,6 +443,27 @@ Value* VirtualMachine::MemberVar(ObjectRef self, const base::String& name) {
   return it == nullptr ? nullptr : &*it;
 }
 
+bool VirtualMachine::SetDeclaredMember(ObjectRef self, const base::String& name, Value value) {
+  Instance* inst = FindInstance(self);
+  if (inst == nullptr)
+    return false;
+  if (Value* exact = inst->members.find(name)) {
+    *exact = base::move(value);
+    return true;
+  }
+  // The .pex and the save were written by the same compiler, so the spelling
+  // normally matches outright; the scan is the fallback for a script rebuilt
+  // with different casing.
+  const base::String want = Lower(name);
+  for (auto entry : inst->members) {
+    if (Lower(entry.key) == want) {
+      inst->members[entry.key] = base::move(value);
+      return true;
+    }
+  }
+  return false;
+}
+
 base::Vector<base::String> VirtualMachine::MemberNames(ObjectRef self) {
   base::Vector<base::String> names;
   if (Instance* inst = FindInstance(self)) {

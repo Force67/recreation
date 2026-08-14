@@ -112,6 +112,10 @@ class ActorSystem {
   // frames a conversation on, rather than guessing at the body's origin.
   bool NpcHeadWorld(ecs::Entity npc, Vec3* out);
 
+  // The head builder, created on first use. A savegame reaches it to override
+  // the face its records author, which happens long before any head is built.
+  FaceBuilder& faces();
+
   // --- Spawning ---
   bool SpawnPlayerActor(const Vec3& pos);
   void MaybeSpawnWorldPlayer(const Vec3& ground_pos);

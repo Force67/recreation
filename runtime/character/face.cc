@@ -264,11 +264,65 @@ const FaceBuilder::Decoded* FaceBuilder::DecodedTexture(const base::String& path
   return ok ? &**slot : nullptr;
 }
 
+void FaceBuilder::OverrideFace(bethesda::GlobalFormId npc, const bethesda::SavedFace& face) {
+  FaceOverride& entry = overrides_[npc.packed()];
+  entry.has_face = true;
+  entry.face = face;
+}
+
+void FaceBuilder::OverrideRace(bethesda::GlobalFormId npc, bethesda::GlobalFormId race) {
+  if (race.plugin != 0xffff)
+    overrides_[npc.packed()].race = race;
+}
+
+void FaceBuilder::OverrideSex(bethesda::GlobalFormId npc, bool female) {
+  FaceOverride& entry = overrides_[npc.packed()];
+  entry.has_sex = true;
+  entry.female = female;
+}
+
+bool FaceBuilder::HasOverride(bethesda::GlobalFormId npc) const {
+  return overrides_.find(npc.packed()) != nullptr;
+}
+
 bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   auto face = bethesda::ResolveNpcFace(*ctx_.records, npc);
   if (!face) {
     RX_WARN("face: not an NPC_ {:04x}:{:06x}", npc.plugin, npc.local_id);
     return false;
+  }
+  // A savegame's face wins over the authored one: the record still holds the
+  // head the plugin shipped, and chargen replaced every field of it.
+  if (const FaceOverride* over = overrides_.find(npc.packed())) {
+    if (over->race.plugin != 0xffff)
+      face->race = over->race;
+    if (over->has_sex)
+      face->female = over->female;
+    if (over->has_face) {
+      if (!over->face.head_parts.empty())
+        face->head_parts = over->face.head_parts;
+      if (over->face.hair_color.plugin != 0xffff)
+        face->hair_color = over->face.hair_color;
+      if (over->face.face_texture.plugin != 0xffff)
+        face->face_texture_set = over->face.face_texture;
+      // The record stores the skin tint as three floats and the save as one
+      // packed byte triple (see ActorFaceChange); 255 is the scale that turns
+      // one into the other.
+      if (over->face.skin_tone != 0) {
+        for (u32 k = 0; k < 3; ++k)
+          face->skin_tone[k] = f32((over->face.skin_tone >> (16 - 8 * k)) & 0xff) / 255.0f;
+        face->has_skin_tone = true;
+      }
+      const size_t sliders =
+          base::Min<size_t>(over->face.morphs.size(), bethesda::kFaceMorphCount);
+      for (size_t i = 0; i < sliders; ++i)
+        face->face_morph[i] = over->face.morphs[i];
+      face->has_face_morph = face->has_face_morph || sliders != 0;
+      const size_t presets = base::Min<size_t>(over->face.presets.size(), 4);
+      for (size_t i = 0; i < presets; ++i)
+        face->face_parts[i] = over->face.presets[i];
+      face->has_face_parts = face->has_face_parts || presets != 0;
+    }
   }
   auto race = bethesda::ResolveRaceHead(*ctx_.records, face->race);
   if (!race) {

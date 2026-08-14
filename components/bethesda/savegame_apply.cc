@@ -161,6 +161,60 @@ void ApplyActorBase(const ChangeForm& form,
     sink.SetActorFactionRank(id, faction, entry.rank);
     ++stats->actor_faction_ranks;
   }
+
+  // The levelled variants sit with the spells the actor was given outright: both
+  // are things it can cast, and nothing downstream needs to tell them apart.
+  for (const base::Vector<ChangeRef>* list : {&actor.spells, &actor.levelled_spells}) {
+    for (const ChangeRef& entry : *list) {
+      GlobalFormId spell;
+      if (!remap.MapRef(entry, save, &spell))
+        continue;
+      sink.AddActorSpell(id, spell);
+      ++stats->actor_spells;
+    }
+  }
+  for (const ChangeRef& entry : actor.shouts) {
+    GlobalFormId shout;
+    if (!remap.MapRef(entry, save, &shout))
+      continue;
+    sink.AddActorShout(id, shout);
+    ++stats->actor_shouts;
+  }
+
+  if (actor.has_full_name) {
+    sink.SetActorName(id, actor.full_name);
+    ++stats->actor_names;
+  }
+  if (actor.has_race) {
+    GlobalFormId race, original;
+    if (remap.MapRef(actor.race, save, &race)) {
+      // A record with no original race is a record that has never changed shape,
+      // so the current one stands in for both rather than the sink seeing an id
+      // that names nothing.
+      if (!remap.MapRef(actor.original_race, save, &original))
+        original = race;
+      sink.SetActorRace(id, race, original);
+      ++stats->actor_races;
+    }
+  }
+  if (actor.has_gender)
+    sink.SetActorSex(id, actor.female);
+
+  if (actor.has_face) {
+    SavedFace face;
+    remap.MapRef(actor.face.hair_color, save, &face.hair_color);
+    remap.MapRef(actor.face.face_texture, save, &face.face_texture);
+    face.skin_tone = actor.face.skin_tone;
+    for (const ChangeRef& part : actor.face.head_parts) {
+      GlobalFormId head_part;
+      if (remap.MapRef(part, save, &head_part))
+        face.head_parts.push_back(head_part);
+    }
+    face.morphs = actor.face.morphs;
+    face.presets = actor.face.presets;
+    sink.SetActorFace(id, face);
+    ++stats->actor_faces;
+  }
 }
 
 void ApplyFaction(const ChangeForm& form,
@@ -273,6 +327,16 @@ void ApplyReference(const ChangeForm& form,
   if (!ref.perks.empty())
     ++stats->actors_with_perks;
 
+  for (const ChangeRef& entry : ref.spells) {
+    GlobalFormId spell;
+    if (!remap.MapRef(entry, save, &spell))
+      continue;
+    sink.AddReferenceSpell(id, spell);
+    ++stats->reference_spells;
+  }
+  if (!ref.spells.empty())
+    ++stats->actors_with_spells;
+
   if (!ref.inventory.empty() && !ref.inventory_complete)
     ++stats->inventories_incomplete;
   if (!ref.inventory.empty() && ref.inventory_complete) {
@@ -326,7 +390,159 @@ void ApplyReference(const ChangeForm& form,
   }
 }
 
+void ApplyLocation(const ChangeForm& form,
+                   const SaveFile& save,
+                   const FormRemap& remap,
+                   SaveSink& sink,
+                   SaveApplyStats* stats) {
+  LocationChange location;
+  if (!DecodeLocation(form, location)) {
+    ++stats->undecoded;
+    return;
+  }
+  GlobalFormId id;
+  if (!MapCounted(remap, form.form_id, &id, stats)) {
+    ++stats->refused;
+    return;
+  }
+  ++stats->locations;
+
+  if (location.has_cleared && location.cleared) {
+    sink.SetLocationCleared(id, true);
+    ++stats->locations_cleared;
+  }
+  for (const LocationKeywordValue& entry : location.keyword_data) {
+    GlobalFormId keyword;
+    if (!remap.MapRef(entry.keyword, save, &keyword))
+      continue;
+    sink.SetLocationKeywordValue(id, keyword, entry.value);
+    ++stats->location_keywords;
+  }
+}
+
+void ApplyEncounterZone(const ChangeForm& form,
+                        const FormRemap& remap,
+                        SaveSink& sink,
+                        SaveApplyStats* stats) {
+  EncounterZoneChange zone;
+  if (!DecodeEncounterZone(form, zone)) {
+    ++stats->undecoded;
+    return;
+  }
+  if (!zone.has_game_data)
+    return;
+  GlobalFormId id;
+  if (!MapCounted(remap, form.form_id, &id, stats)) {
+    ++stats->refused;
+    return;
+  }
+  sink.SetEncounterZoneLevel(id, zone.level);
+  ++stats->encounter_zones;
+}
+
+void ApplyLeveledList(const ChangeForm& form,
+                      const SaveFile& save,
+                      const FormRemap& remap,
+                      SaveSink& sink,
+                      SaveApplyStats* stats) {
+  LeveledListChange list;
+  if (!DecodeLeveledList(form, list)) {
+    ++stats->undecoded;
+    return;
+  }
+  if (list.added.empty())
+    return;
+  GlobalFormId id;
+  if (!MapCounted(remap, form.form_id, &id, stats)) {
+    ++stats->refused;
+    return;
+  }
+  ++stats->leveled_lists;
+  for (const LeveledListEntry& entry : list.added) {
+    GlobalFormId added;
+    if (!remap.MapRef(entry.form, save, &added))
+      continue;
+    sink.AddLeveledListEntry(id, added, entry.level, entry.count);
+    ++stats->leveled_entries;
+  }
+}
+
+void ApplyBook(const ChangeForm& form,
+               const FormRemap& remap,
+               SaveSink& sink,
+               SaveApplyStats* stats) {
+  BookChange book;
+  if (!DecodeBook(form, book)) {
+    ++stats->undecoded;
+    return;
+  }
+  if (!book.read)
+    return;
+  GlobalFormId id;
+  if (!MapCounted(remap, form.form_id, &id, stats)) {
+    ++stats->refused;
+    return;
+  }
+  sink.SetBookRead(id, book.flags, book.skill_taken);
+  ++stats->books_read;
+  if (book.skill_taken)
+    ++stats->books_skill_taken;
+}
+
+void ApplyIngredient(const ChangeForm& form,
+                     const FormRemap& remap,
+                     SaveSink& sink,
+                     SaveApplyStats* stats) {
+  IngredientChange ingredient;
+  if (!DecodeIngredient(form, ingredient)) {
+    ++stats->undecoded;
+    return;
+  }
+  if (!ingredient.has_known_effects || ingredient.known_effects == 0)
+    return;
+  GlobalFormId id;
+  if (!MapCounted(remap, form.form_id, &id, stats)) {
+    ++stats->refused;
+    return;
+  }
+  sink.SetKnownIngredientEffects(id, ingredient.known_effects);
+  ++stats->ingredients;
+  for (u32 bit = 0; bit < 4; ++bit)
+    stats->ingredient_effects += (ingredient.known_effects >> bit) & 1;
+}
+
+void ApplyRelationship(const ChangeForm& form,
+                       const SaveFile& save,
+                       const FormRemap& remap,
+                       SaveSink& sink,
+                       SaveApplyStats* stats) {
+  RelationshipChange relationship;
+  if (!DecodeRelationship(form, relationship)) {
+    ++stats->undecoded;
+    return;
+  }
+  // A relationship a plugin authors names its two actors in its own record, so
+  // the save writes only the rank and there is no pair to hand over here; only
+  // the ones the save invented carry both ends.
+  if (!relationship.created)
+    return;
+  GlobalFormId a, b;
+  if (!remap.MapRef(relationship.parent, save, &a) ||
+      !remap.MapRef(relationship.child, save, &b)) {
+    ++stats->relationships_unresolved;
+    return;
+  }
+  sink.SetRelationshipRank(a, b, RelationshipRankOf(relationship.rank));
+  ++stats->relationships;
+}
+
 }  // namespace
+
+i32 RelationshipRankOf(u32 record_rank) {
+  if (record_rank > kRelationshipRankArchnemesis)
+    return 0;
+  return static_cast<i32>(kRelationshipRankAcquaintance) - static_cast<i32>(record_rank);
+}
 
 void FormRemap::Build(const SaveFile& save,
                       const base::Function<u16(const base::String&)>& runtime_index) {
@@ -442,6 +658,26 @@ base::StringRef ActorValueName(SaveFormat format, u32 index) {
   }
 }
 
+// The player location global data as a placement. Only a fallback: it carries
+// no rotation, so a player placed from it faces whichever way the engine's
+// default is. Its position and parent are the player reference's own to the
+// byte in the reference save, which is what makes it a safe stand-in when the
+// change form is missing or carries no transform.
+bool PlacementFromPlayerLocation(const SaveFile& save,
+                                 const FormRemap& remap,
+                                 PlayerPlacement* out) {
+  if (!save.player_place.valid)
+    return false;
+  PlayerPlacement placement;
+  if (!remap.Map(save.player_place.parent, &placement.parent))
+    return false;
+  for (u32 i = 0; i < 3; ++i)
+    placement.position[i] = save.player_place.position[i];
+  placement.valid = true;
+  *out = placement;
+  return true;
+}
+
 bool FindPlayerPlacement(const SaveFile& save, const FormRemap& remap, PlayerPlacement* out) {
   for (const ChangeForm& form : save.change_forms) {
     if (form.form_id != kPlayerFormId)
@@ -450,10 +686,10 @@ bool FindPlayerPlacement(const SaveFile& save, const FormRemap& remap, PlayerPla
       continue;
     ReferenceChange ref;
     if (!DecodeReference(form, ref) || !ref.moved)
-      return false;
+      return PlacementFromPlayerLocation(save, remap, out);
     PlayerPlacement placement;
     if (!remap.MapRef(ref.parent, save, &placement.parent))
-      return false;
+      return PlacementFromPlayerLocation(save, remap, out);
     for (u32 i = 0; i < 3; ++i) {
       placement.position[i] = ref.position[i];
       placement.rotation[i] = ref.rotation[i];
@@ -462,7 +698,9 @@ bool FindPlayerPlacement(const SaveFile& save, const FormRemap& remap, PlayerPla
     *out = placement;
     return true;
   }
-  return false;
+  // A save whose player never moved from where the records place them writes no
+  // transform at all, and the global data is then the only word on it.
+  return PlacementFromPlayerLocation(save, remap, out);
 }
 
 void ApplySave(const SaveFile& save,
@@ -487,6 +725,38 @@ void ApplySave(const SaveFile& save,
     ++stats->globals;
   }
 
+  // The global data tables, which name no records the passes below depend on.
+  // Stat rows are keyed by the game's own name, so they cross a load order
+  // unchanged and nothing about them needs remapping.
+  for (const MiscStat& stat : save.misc_stats) {
+    sink.SetMiscStat(base::StringRef(stat.name.data(), stat.name.size()), stat.category,
+                     stat.value);
+    ++stats->misc_stats;
+  }
+  if (save.weather.valid) {
+    GlobalFormId climate, weather, previous;
+    // The weather itself is the point: without it there is nothing to resume,
+    // and a climate whose weather is gone would only reroll the sky anyway.
+    if (MapCounted(remap, save.weather.weather, &weather, stats)) {
+      // Left at the default "no plugin" id when the save wrote none, which is
+      // what a settled sky does with `previous`.
+      if (save.weather.climate != 0)
+        remap.Map(save.weather.climate, &climate);
+      if (save.weather.previous != 0)
+        remap.Map(save.weather.previous, &previous);
+      sink.SetWeather(climate, weather, previous, save.weather.transition);
+      stats->weather = true;
+    }
+  }
+  for (const IngredientPair& pair : save.ingredient_pairs) {
+    GlobalFormId first, second;
+    if (!MapCounted(remap, pair.first, &first, stats) ||
+        !MapCounted(remap, pair.second, &second, stats))
+      continue;
+    sink.SetIngredientPair(first, second);
+    ++stats->ingredient_pairs;
+  }
+
   // Then the record types, each in its own pass so the order is the order of
   // the passes and not of whatever the file happens to list first: quests
   // before the actors and references their aliases point at.
@@ -502,6 +772,35 @@ void ApplySave(const SaveFile& save,
     if (form.type == ChangeFormType::kFact)
       ApplyFaction(form, save, remap, sink, stats);
   }
+  // World progression before the references: an encounter zone's locked level
+  // decides what the actors standing in it are worth, and a levelled list's
+  // added entries decide what a container holds.
+  for (const ChangeForm& form : save.change_forms) {
+    switch (form.type) {
+      case ChangeFormType::kLctn:
+        ApplyLocation(form, save, remap, sink, stats);
+        break;
+      case ChangeFormType::kEczn:
+        ApplyEncounterZone(form, remap, sink, stats);
+        break;
+      case ChangeFormType::kLvli:
+      case ChangeFormType::kLvln:
+        ApplyLeveledList(form, save, remap, sink, stats);
+        break;
+      case ChangeFormType::kBook:
+        ApplyBook(form, remap, sink, stats);
+        break;
+      case ChangeFormType::kIngr:
+        ApplyIngredient(form, remap, sink, stats);
+        break;
+      case ChangeFormType::kRela:
+        ApplyRelationship(form, save, remap, sink, stats);
+        break;
+      default:
+        break;
+    }
+  }
+
   for (const ChangeForm& form : save.change_forms) {
     if (form.type != ChangeFormType::kRefr && form.type != ChangeFormType::kAchr)
       continue;
@@ -510,6 +809,50 @@ void ApplySave(const SaveFile& save,
     // stands decides which cell the world streams, so the boot path takes that
     // on its own out of FindPlayerPlacement.
     ApplyReference(form, save, remap, sink, stats, form.form_id != kPlayerFormId);
+  }
+
+  // Words of power after the shouts they belong to, so a sink that keys a word
+  // off its shout has the shout already.
+  for (const ChangeForm& form : save.change_forms) {
+    if (form.type != ChangeFormType::kWoop)
+      continue;
+    WordOfPowerChange word;
+    if (!DecodeWordOfPower(form, word)) {
+      ++stats->undecoded;
+      continue;
+    }
+    if (!word.known)
+      continue;
+    GlobalFormId id;
+    if (!MapCounted(remap, form.form_id, &id, stats)) {
+      ++stats->refused;
+      continue;
+    }
+    sink.SetWordOfPowerKnown(id);
+    ++stats->words_of_power;
+  }
+
+  // The favourites menu and the last-used histories come out of the container's
+  // own tables rather than a change form, so they run once, here.
+  for (const MagicFavourite& favourite : save.magic_favourites) {
+    GlobalFormId id;
+    if (favourite.form_id == 0 || !MapCounted(remap, favourite.form_id, &id, stats))
+      continue;
+    sink.AddMagicFavourite(id, favourite.hotkey);
+    ++stats->magic_favourites;
+    if (favourite.hotkey >= 0)
+      ++stats->magic_hotkeys;
+  }
+  {
+    GlobalFormId weapon, spell, shout;
+    const u32 raw[3] = {save.last_used_weapon, save.last_used_spell, save.last_used_shout};
+    GlobalFormId* const out[3] = {&weapon, &spell, &shout};
+    for (u32 i = 0; i < 3; ++i) {
+      if (raw[i] != 0)
+        remap.Map(raw[i], out[i]);
+    }
+    if (weapon.plugin != 0xffff || spell.plugin != 0xffff || shout.plugin != 0xffff)
+      sink.SetLastUsedMagic(weapon, spell, shout);
   }
 
   // Map exploration and spoken dialogue last: neither depends on anything above

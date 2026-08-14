@@ -11,6 +11,7 @@
 #include "components/bethesda/facegen.h"
 #include "components/bethesda/form_id.h"
 #include "components/bethesda/head_morph.h"
+#include "components/bethesda/savegame_apply.h"
 #include "components/bethesda/tri.h"
 #include "core/types.h"
 
@@ -48,6 +49,19 @@ class FaceBuilder {
   // out->RebuildAndUpload().
   bool AssembleNpc(bethesda::GlobalFormId npc, FaceState* out);
 
+  // A face a savegame carries, which replaces the one the NPC_ record authors:
+  // chargen rewrote the player's head parts, morphs, hair colour and skin tone,
+  // and the record still holds whatever the plugin shipped. Empty head parts or
+  // an invalid colour leave that part of the record's face alone.
+  void OverrideFace(bethesda::GlobalFormId npc, const bethesda::SavedFace& face);
+  // The race a savegame put the actor in, which is what picks the head shape and
+  // the whole tint layer set, and the sex, which picks the head between them.
+  void OverrideRace(bethesda::GlobalFormId npc, bethesda::GlobalFormId race);
+  void OverrideSex(bethesda::GlobalFormId npc, bool female);
+  // Whether anything has been overridden for this NPC, so the player actor knows
+  // to assemble a real head instead of falling back to the default one.
+  bool HasOverride(bethesda::GlobalFormId npc) const;
+
  private:
   friend class FaceState;
   const bethesda::TriMorphSet* Tri(const base::String& vfs_path);
@@ -76,6 +90,17 @@ class FaceBuilder {
   // the map rehashes on later inserts, but that only moves the pointers, never
   // the heap objects behind them. A cached entry with 0 verts / empty lods marks
   // an absent (failed/missing) tri or mesh.
+  // What a savegame said an NPC's face is, keyed by its base form. Applied over
+  // the record's own NpcFaceData in AssembleNpc.
+  struct FaceOverride {
+    bool has_face = false;
+    bethesda::SavedFace face;
+    bethesda::GlobalFormId race;
+    bool has_sex = false;
+    bool female = false;
+  };
+  base::UnorderedMap<u64, FaceOverride> overrides_;
+
   EngineContext& ctx_;
   base::UnorderedMap<u64, base::UniquePointer<bethesda::TriMorphSet>> tri_cache_;
   base::UnorderedMap<u64, base::UniquePointer<asset::Mesh>> mesh_cache_;

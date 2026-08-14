@@ -38,11 +38,29 @@ class ActorStatsStore {
   u32 player_level() const { return player_level_; }
   size_t overrides() const { return overrides_.size(); }
 
+  // The level an encounter zone locked to the first time the player walked into
+  // it. Everything the zone holds scales against that instead of the player, so
+  // a dungeon done at level 6 is still a level 6 dungeon when a level 271
+  // character walks back in.
+  void SetZoneLevel(bethesda::GlobalFormId zone, u32 level) { zones_[zone.packed()] = level; }
+  // Zero when the zone never locked, which means "scale against the player".
+  u32 ZoneLevel(bethesda::GlobalFormId zone) const {
+    const u32* level = zones_.find(zone.packed());
+    return level ? *level : 0;
+  }
+  size_t zones() const { return zones_.size(); }
+
   // Stats for one placed actor, from its base NPC_ record and any override.
+  // `zone` is the encounter zone the actor stands in, invalid or unknown for
+  // one that stands in none.
+  // A default-constructed id is already plugin 0xffff, so omitting the zone
+  // says "stands in none" rather than needing a spelling of its own.
   bethesda::ActorStats For(bethesda::GlobalFormId base,
-                           const bethesda::Record& base_record) const {
+                           const bethesda::Record& base_record,
+                           bethesda::GlobalFormId zone = {}) const {
+    const u32 locked = zone.plugin == 0xffff ? 0 : ZoneLevel(zone);
     bethesda::ActorStats stats;
-    bethesda::ReadActorStats(base_record, player_level_, &stats);
+    bethesda::ReadActorStats(base_record, locked != 0 ? locked : player_level_, &stats);
     const Entry* entry = overrides_.find(base.packed());
     if (!entry)
       return stats;
@@ -55,7 +73,10 @@ class ActorStatsStore {
     return stats;
   }
 
-  void Clear() { overrides_.clear(); }
+  void Clear() {
+    overrides_.clear();
+    zones_.clear();
+  }
 
  private:
   // The two groups are written independently by a savegame, so each says for
@@ -68,6 +89,7 @@ class ActorStatsStore {
   };
 
   base::UnorderedMap<u64, Entry> overrides_;
+  base::UnorderedMap<u64, u32> zones_;  // ECZN -> the level it locked to
   u32 player_level_ = 1;
 };
 
