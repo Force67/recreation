@@ -55,3 +55,10 @@ run-local.sh
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
+
+# Cached nix dev environments (devenv.sh) and their gcroots.
+/.devenv-*
+/devenv.sh
+
+# ctest scratch output
+/Testing/
