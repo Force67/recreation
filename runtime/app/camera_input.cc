@@ -109,7 +109,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
   bool kb = debug_ui_.wants_keyboard();
   // Modal overlays that consume Esc; captured before the branches below so the
   // Esc that closes one does not also open the pause menu this frame.
-  bool modal = interaction_->dialogue_open() || interaction_->container_open();
+  bool modal =
+      interaction_->dialogue_open() || interaction_->container_open() || war_map_open_;
   // The map editor takes over navigation and input while on; its own Esc cancels
   // (clear brush / cancel move), so the pause menu yields to it.
   const bool editor_on = editor_ && editor_->active();
@@ -125,8 +126,9 @@ void Engine::UpdateCamera(f32 frame_delta) {
   if (actions_->pressed(Action::kToggleJournal) && !menu && !kb && !modal && !editor_on)
     quest_->ToggleJournal();
   // The war map (M): the Civil War campaign board, a modern overlay over the
-  // managed campaign state.
-  if (input.key_pressed(Key::kM) && !menu && !kb && !modal && !editor_on)
+  // managed campaign state. It is itself modal, so M stays live while it is up
+  // (otherwise the key that opened the board could not close it again).
+  if (input.key_pressed(Key::kM) && !menu && !kb && !editor_on && (war_map_open_ || !modal))
     war_map_open_ = !war_map_open_;
 
   if (editor_on) {
@@ -140,13 +142,16 @@ void Engine::UpdateCamera(f32 frame_delta) {
     // so it keeps reading raw keys rather than going through the action layer.
     editor_->Update(input, frame_delta, allow);
   } else if (interaction_->container_open()) {
+    window_->SetRelativeMouseMode(false);  // free cursor so the loot rows can be clicked
     interaction_->UpdateContainerInput(input, *actions_);  // Esc / pad B closes the loot view
     interaction_->UpdateInteraction(false);  // freeze movement/activation while looting
   } else if (interaction_->dialogue_open()) {
+    window_->SetRelativeMouseMode(false);  // free cursor so topics can be clicked
     // dpad/arrows highlight, A/Enter or 1-4 select, B/Esc leaves.
     interaction_->UpdateDialogueInput(input, *actions_);
     interaction_->UpdateInteraction(false);  // freeze movement/activation while talking
   } else if (quest_->journal_open()) {
+    window_->SetRelativeMouseMode(false);  // free cursor so quest rows can be clicked
     // The journal is a modal overlay: a number key pins that quest to track,
     // pad B closes it; movement is frozen while it is open.
     const Key num[4] = {Key::k1, Key::k2, Key::k3, Key::k4};
@@ -156,6 +161,11 @@ void Engine::UpdateCamera(f32 frame_delta) {
     if (actions_->pressed(Action::kMenuCancel))
       quest_->ToggleJournal();
     interaction_->UpdateInteraction(false);
+  } else if (war_map_open_) {
+    window_->SetRelativeMouseMode(false);  // free cursor so the board can be clicked
+    if (actions_->pressed(Action::kMenuCancel))
+      war_map_open_ = false;
+    interaction_->UpdateInteraction(false);  // freeze movement while the board is up
   } else if (carriage_ && carriage_->riding()) {
     // Seated as a carriage passenger: locomotion stands down, the carriage pins
     // the player to the seat and frames the view from it (number keys pick the
@@ -175,6 +185,34 @@ void Engine::UpdateCamera(f32 frame_delta) {
     camera_.Update(input, *actions_, allow_mouse, allow_keyboard, frame_delta);
     window_->SetRelativeMouseMode(!menu && camera_.looking());
     interaction_->UpdateInteraction(false);  // clears any stale prompt outside walk mode
+  }
+
+  // Clicks on the gameplay overlays. The UI raises a request and the engine,
+  // which owns these systems, acts on it (mirrors the settings panel).
+  switch (const HudRequest hud = game_ui_.PollHudRequest(); hud.kind) {
+    case HudRequest::Kind::kJournalPin:
+      quest_->PinJournalSlot(hud.index);
+      break;
+    case HudRequest::Kind::kJournalClose:
+      quest_->ToggleJournal();
+      break;
+    case HudRequest::Kind::kDialogueOption:
+      interaction_->SelectDialogueOption(hud.index);
+      break;
+    case HudRequest::Kind::kContainerTake:
+      interaction_->TakeContainerItem(hud.index);
+      break;
+    case HudRequest::Kind::kContainerTakeAll:
+      interaction_->TakeAllContainerItems();
+      break;
+    case HudRequest::Kind::kContainerClose:
+      interaction_->CloseContainer();
+      break;
+    case HudRequest::Kind::kWarMapClose:
+      war_map_open_ = false;
+      break;
+    case HudRequest::Kind::kNone:
+      break;
   }
 
   interaction_->SyncHud();   // mirror the conversation / loot view into the HUD
