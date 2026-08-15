@@ -197,7 +197,9 @@ ecs::Entity ItemBridge::PlayerInventoryEntity() {
   return player;
 }
 
-bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) {
+bool ItemBridge::BuildDef(bethesda::GlobalFormId base,
+                          inventory::ItemDef* out,
+                          bool with_world_model) {
   if (!ctx_.records)
     return false;
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(base);
@@ -237,8 +239,9 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
   // World mesh + a box collision shape from its bounds, via the streamer's model
   // pipeline (converts + uploads to the shared renderer, salted for this domain).
   asset::AssetId render_id{};
-  const asset::Mesh* mesh =
-      ctx_.streamer ? ctx_.streamer->PrepareItemModel(base, &render_id) : nullptr;
+  const asset::Mesh* mesh = with_world_model && ctx_.streamer
+                                ? ctx_.streamer->PrepareItemModel(base, &render_id)
+                                : nullptr;
   if (mesh) {
     def.world_mesh = render_id;
     // Collision box from the lod-0 vertex AABB. Item NIFs are NOT symmetric about
@@ -285,18 +288,37 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out) 
   return true;
 }
 
-inventory::ItemDefId ItemBridge::DefForBase(bethesda::GlobalFormId base) {
+inventory::ItemDefId ItemBridge::DefForBase(bethesda::GlobalFormId base, bool with_world_model) {
   const u64 key = base.packed();
-  if (auto* it = base_to_def_.find(key); it != nullptr)
+  if (auto* it = base_to_def_.find(key); it != nullptr) {
+    if (with_world_model)
+      EnsureWorldModel(*it);
     return *it;
+  }
   inventory::ItemDef def;
-  if (!BuildDef(base, &def))
+  if (!BuildDef(base, &def, with_world_model))
     return inventory::kInvalidItemDef;
   const inventory::ItemDefId id = next_def_id_++;
   catalog_.Register(id, def);
   base_to_def_[key] = id;
   def_to_base_[id] = base;
+  if (!with_world_model)
+    defs_without_model_.insert(id);
   return id;
+}
+
+void ItemBridge::EnsureWorldModel(inventory::ItemDefId def) {
+  if (defs_without_model_.count(def) == 0)
+    return;
+  auto* base = def_to_base_.find(def);
+  if (base == nullptr)
+    return;
+  inventory::ItemDef rebuilt;
+  if (BuildDef(*base, &rebuilt, /*with_world_model=*/true))
+    catalog_.Register(def, rebuilt);
+  // Cleared either way: a base whose model will not convert must not be retried
+  // on every drop.
+  defs_without_model_.erase(def);
 }
 
 bool ItemBridge::TryPickUp(u64 ref_handle) {
@@ -433,6 +455,9 @@ void ItemBridge::DropLast() {
   spawn.scale = kUnitsToMeters;  // render the NIF at world size (matches placed refs)
 
   const inventory::ItemDefId item = inv->entries[entry].item;
+  // A stack a savegame seeded has no world model yet; this is the moment it
+  // needs one.
+  EnsureWorldModel(item);
   const inventory::ItemDef* def = catalog_.Find(item);
   const f32 mass = def ? def->mass : 1.0f;
   // A gentle forward toss plus a little lift so it arcs and tumbles to rest.
@@ -550,6 +575,51 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
           removed_refs_.size());
 }
 
+u32 ItemBridge::SeedFromSavegame() {
+  if (!ctx_.bindings || !ctx_.world)
+    return 0;
+  const ecs::Entity player = PlayerInventoryEntity();
+  if (!ctx_.world->IsAlive(player))
+    return 0;
+  inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
+  if (!inv)
+    return 0;
+
+  // The player's own reference, the fixed form id every game this reader covers
+  // gives it, and the id the savegame loader keyed the pack by.
+  constexpr u32 kPlayerRefFormId = 0x00000014;
+  const script::papyrus::ObjectRef holder{bethesda::GlobalFormId{0, kPlayerRefFormId}.packed()};
+  const i32 forms = ctx_.bindings->GetNumItems(holder);
+  u32 stacks = 0, units = 0, unusable = 0;
+  for (i32 i = 0; i < forms; ++i) {
+    const script::papyrus::ObjectRef form = ctx_.bindings->GetNthForm(holder, i);
+    if (form.handle == 0)
+      continue;
+    const i32 count = ctx_.bindings->GetItemCount(holder, form);
+    if (count <= 0)
+      continue;
+    const bethesda::GlobalFormId base{static_cast<u16>(form.handle >> 32),
+                                      static_cast<u32>(form.handle)};
+    // Not every form a save leaves in the pack is a thing the world can hold: a
+    // spell tome's taught spell, a quest token with no model. Those stay where
+    // the bindings keep them, which is where Papyrus asks about them.
+    const inventory::ItemDefId def = DefForBase(base, /*with_world_model=*/false);
+    if (def == inventory::kInvalidItemDef) {
+      ++unusable;
+      continue;
+    }
+    const u32 added = inventory::AddItem(*inv, catalog_, def, static_cast<u32>(count));
+    if (added == 0)
+      continue;
+    ++stacks;
+    units += added;
+  }
+  RX_INFO("item: the savegame's pack holds {} stacks ({} items) the world can carry, {} forms it "
+          "keeps only for the scripts",
+          stacks, units, unusable);
+  return stacks;
+}
+
 void ItemBridge::OnPlayerReady() {
   PlayerInventoryEntity();  // ensure the player carries an Inventory + stable Guid
   // The cell streamer skips any ref we have marked removed, so a picked-up item
@@ -558,6 +628,17 @@ void ItemBridge::OnPlayerReady() {
     ctx_.streamer->set_ref_suppressor(
         [this](u64 handle) { return removed_refs_.count(handle) != 0; });
   if (!loaded_) {
+    // A run booted from a savegame carries that save's pack, not the sandbox
+    // profile's: the save is the whole account of what this player owns, and
+    // mixing the two would hand them a second copy of everything. It is not
+    // written back either (SavePath keeps the profile for sandbox play), because
+    // nothing here can write a .ess yet and clobbering the profile with a
+    // resumed save's 1.7 million gold is not a trade worth making.
+    if (ctx_.config && !ctx_.config->load_save.empty()) {
+      SeedFromSavegame();
+      loaded_ = true;
+      return;
+    }
     Load();
     loaded_ = true;
     // Cells around the spawn may have streamed in before the suppressor was set;
@@ -579,6 +660,11 @@ void ItemBridge::OnPlayerReady() {
 
 void ItemBridge::Save() const {
   if (!ctx_.world)
+    return;
+  // A resumed savegame's pack belongs to that save, not to the sandbox profile
+  // this file is (see OnPlayerReady). Writing it here would leave the next
+  // ordinary session carrying a stranger's inventory.
+  if (ctx_.config && !ctx_.config->load_save.empty())
     return;
   base::Vector<u8> blob;
   PutU32(blob, kBlobMagic);
@@ -638,7 +724,7 @@ bool ItemBridge::Load() {
     const u32 local = r.U32();
     const bethesda::GlobalFormId base{plugin, local};
     inventory::ItemDef def;
-    if (!BuildDef(base, &def))
+    if (!BuildDef(base, &def, /*with_world_model=*/true))
       continue;  // record gone (mod removed): drop the def
     catalog_.Register(id, def);
     base_to_def_[base.packed()] = id;
