@@ -18,6 +18,7 @@
 #include "components/script/papyrus/alias_handle.h"
 #include "components/script/papyrus/value.h"
 #include "components/weather/weather_loader.h"
+#include "components/world/cell_streaming.h"
 #include "core/log.h"
 #include "runtime/actor/actor_system.h"
 #include "runtime/app/engine.h"
@@ -43,6 +44,10 @@ static base::Option<const char*> LoadSaveFile{"load.save", nullptr, "RX_LOAD_SAV
 constexpr u32 kEdid = FourCc('E', 'D', 'I', 'D');
 constexpr u32 kWrld = FourCc('W', 'R', 'L', 'D');
 constexpr u32 kCell = FourCc('C', 'E', 'L', 'L');
+constexpr u32 kAchr = FourCc('A', 'C', 'H', 'R');
+constexpr u32 kName = FourCc('N', 'A', 'M', 'E');  // a reference's base form
+constexpr u32 kData = FourCc('D', 'A', 'T', 'A');  // a reference's placement
+constexpr u32 kXscl = FourCc('X', 'S', 'C', 'L');  // a reference's scale
 constexpr u32 kPerk = FourCc('P', 'E', 'R', 'K');
 constexpr u32 kSpel = FourCc('S', 'P', 'E', 'L');
 constexpr u32 kShou = FourCc('S', 'H', 'O', 'U');
@@ -557,15 +562,55 @@ class EngineSaveSink : public bethesda::SaveSink {
                      bethesda::GlobalFormId parent,
                      const f32 position[3],
                      const f32 rotation[3]) override {
-    if (!records_.Find(ref)) {
+    const bethesda::RecordStore::StoredRecord* stored = records_.Find(ref);
+    if (!stored) {
       ++unknown_refs_;
       return;
     }
     // Game units in, exactly like the Papyrus SetPosition this shares a store
-    // with; the world sink converts. The reference's new cell and its rotation
-    // have nowhere to go (see the report in LogTally).
+    // with; the world sink converts.
     bindings_.SetPosition(Ref(ref), position[0], position[1], position[2]);
     ++moved_refs_;
+    // A reference that only shifted inside its own cell is placed by that cell
+    // and moved by the command above once it stands. One that left its cell has
+    // to be placed by the cell it went to instead, or it comes back wherever its
+    // record puts it and disappears with a cell it is no longer in.
+    if (!LeftItsCell(ref, parent, position))
+      return;
+    bethesda::Record record;
+    if (!records_.Parse(ref, &record))
+      return;
+    const bethesda::Subrecord* name = record.Find(kName);
+    if (!name || name->data.size() < 4) {
+      ++unknown_refs_;
+      return;
+    }
+    u32 raw;
+    std::memcpy(&raw, name->data.data(), 4);
+    world::SavedSpawn spawn;
+    spawn.handle = ref;
+    spawn.base = records_.ResolveFrom(bethesda::RawFormId{raw}, stored->winning_plugin);
+    if (!records_.Find(spawn.base)) {
+      ++unknown_refs_;
+      return;
+    }
+    for (u32 axis = 0; axis < 3; ++axis) {
+      spawn.position[axis] = position[axis];
+      spawn.rotation[axis] = rotation[axis];
+    }
+    // The save carries no scale for a reference it only moved, so the record's
+    // own is still the right one.
+    if (const bethesda::Subrecord* scale = record.Find(kXscl); scale && scale->data.size() >= 4)
+      std::memcpy(&spawn.scale, scale->data.data(), 4);
+    spawn.actor = stored->header.type == kAchr;
+    spawn.relocated = true;
+    if (const bethesda::RecordStore::StoredRecord* home = records_.Find(parent);
+        home && home->header.type == kWrld) {
+      spawns_.AddExterior(parent, cell_size_, spawn);
+    } else {
+      spawns_.AddInterior(parent, spawn);
+    }
+    ++relocated_refs_;
   }
 
   // The save stores container contents as a signed delta against what the
@@ -595,8 +640,10 @@ class EngineSaveSink : public bethesda::SaveSink {
   }
 
   void LogTally() const {
-    RX_INFO("save: {} actor values, {} faction ranks, {} references toggled, {} moved",
-            actor_values_, faction_ranks_, toggled_refs_, moved_refs_);
+    RX_INFO(
+        "save: {} actor values, {} faction ranks, {} references toggled, {} moved ({} of them out "
+        "of the cell their record is in, and re-homed to the one they stand in)",
+        actor_values_, faction_ranks_, toggled_refs_, moved_refs_, relocated_refs_);
     RX_INFO(
         "save: {} actor levels and {} ai profiles onto placed actors, {} crime factions carry "
         "infamy, {} dialogue lines already said, {} exterior cells and {} interiors on the map",
@@ -669,6 +716,41 @@ class EngineSaveSink : public bethesda::SaveSink {
     return records_.Find(ref) != nullptr;
   }
 
+  // Whether the save left a reference somewhere other than the cell its record
+  // is authored in. `parent` is the cell it now sits in, or the worldspace when
+  // it sits outside, and `position` is where in that space.
+  //
+  // The two exterior cases are decided on the grid coordinate rather than the
+  // cell form: the save names only the worldspace for a reference standing
+  // outside, so there is no cell id on either side to compare. That also means a
+  // reference carried between two worldspaces is only caught when its
+  // coordinates change with it, which in practice they always do.
+  bool LeftItsCell(bethesda::GlobalFormId ref,
+                   bethesda::GlobalFormId parent,
+                   const f32 position[3]) const {
+    const bethesda::GlobalFormId interior = records_.InteriorCellOfRef(ref);
+    const bethesda::RecordStore::StoredRecord* home = records_.Find(parent);
+    if (!home)
+      return false;
+    if (home->header.type != kWrld)
+      return interior.plugin == 0xffff || interior.packed() != parent.packed();
+    // Outside now. A reference the records put in an interior has left it, and
+    // one that was already outside has only left if its grid cell changed.
+    if (interior.plugin != 0xffff)
+      return true;
+    bethesda::Record record;
+    const bethesda::Subrecord* data = nullptr;
+    if (!records_.Parse(ref, &record) || !(data = record.Find(kData)) || data->data.size() < 24)
+      return false;
+    f32 authored[3];
+    std::memcpy(authored, data->data.data(), sizeof(authored));
+    return Grid(authored[0]) != Grid(position[0]) || Grid(authored[1]) != Grid(position[1]);
+  }
+
+  i32 Grid(f32 game_units) const {
+    return cell_size_ > 0.0f ? static_cast<i32>(std::floor(game_units / cell_size_)) : 0;
+  }
+
   // Actor state is saved against the NPC base form; the engine keys it by the
   // placed reference. Unique NPCs have exactly one, which is what a save's
   // per-actor state describes.
@@ -721,6 +803,7 @@ class EngineSaveSink : public bethesda::SaveSink {
   u32 faction_ranks_ = 0;
   u32 toggled_refs_ = 0;
   u32 moved_refs_ = 0;
+  u32 relocated_refs_ = 0;
   u32 actor_levels_ = 0;
   u32 ai_profiles_ = 0;
   u32 infamy_factions_ = 0;
@@ -969,9 +1052,28 @@ void PlaceSavegamePlayer(Engine& engine) {
   const f32* position = self->save_->player.position;
   // Bethesda space (Z up) to engine space (Y up, metres), the same axis change
   // every streamed reference goes through.
-  const Vec3 feet{position[0] * scale, position[2] * scale, -position[1] * scale};
+  Vec3 feet{position[0] * scale, position[2] * scale, -position[1] * scale};
   // Game euler z is the compass yaw, which is already the engine's camera yaw.
   const f32 yaw = self->save_->player.rotation[2];
+
+  // The save's height is the game's own terrain, and this engine bakes its from
+  // the same LAND records, but not to the same surface: the heightfield samples
+  // a 33x33 grid per cell and the game's collision mesh does not, so a save left
+  // on a slope can land a few centimetres inside ours. A capsule that starts
+  // inside the ground is pushed through it rather than out of it, and the player
+  // then falls for the rest of the session. So the ground has the last word on
+  // the height, and only upwards: a save on a rooftop or a bridge is above the
+  // terrain and must stay there.
+  if (self->streamer_ && !self->streamer_->in_interior()) {
+    f32 ground = 0;
+    if (!self->streamer_->GroundHeight(feet.x, feet.z, &ground)) {
+      RX_WARN("save: no terrain under the player's resume position, standing where the save says");
+    } else if (feet.y < ground) {
+      RX_INFO("save: the resume position is {:.2f} m inside the terrain, standing on it instead",
+              ground - feet.y);
+      feet.y = ground;
+    }
+  }
 
   self->actors_->TeleportPlayer(feet.x, feet.y, feet.z);
   // The body too, not just the camera: walk mode seeds its heading off the
