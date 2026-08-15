@@ -781,25 +781,53 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
   s.name = RecordName(base);
   if (s.name.empty())
     s.name = "Container";
-  // CNTO holds the contents: item form id (4) + count (4). Names resolve against
-  // the base record's owning plugin; the row pool caps how many we show.
-  for (const bethesda::Subrecord& sub : cont.subrecords) {
-    if (s.items.size() >= 14)
-      break;
-    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
-      continue;
-    u32 item_raw;
-    i32 count;
-    std::memcpy(&item_raw, sub.data.data(), 4);
-    std::memcpy(&count, sub.data.data() + 4, 4);
-    bethesda::GlobalFormId item =
-        records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
-    ContainerItem ci;
-    ci.count = count;
-    ci.name = RecordName(item);
-    if (ci.name.empty())
-      ci.name = "(item)";
-    s.items.push_back(base::move(ci));
+  // What this chest holds NOW, which is only the record's CNTO list for one the
+  // game has never touched. A resumed savegame seeds every container it changed
+  // with the record's contents and then applies its own signed deltas, and a
+  // script that took or added something writes there too, so the live inventory
+  // outranks the record whenever it knows this container at all. Reading CNTO
+  // regardless is what used to refill a chest the player emptied hours ago.
+  const i32 live = ctx_.bindings ? ctx_.bindings->GetNumItems(
+                                       script::papyrus::ObjectRef{refr.packed()})
+                                 : 0;
+  if (live > 0) {
+    for (i32 i = 0; i < live && s.items.size() < 14; ++i) {
+      const script::papyrus::ObjectRef form = ctx_.bindings->GetNthForm(
+          script::papyrus::ObjectRef{refr.packed()}, i);
+      const i32 count =
+          ctx_.bindings->GetItemCount(script::papyrus::ObjectRef{refr.packed()}, form);
+      if (form.handle == 0 || count <= 0)
+        continue;
+      ContainerItem ci;
+      ci.count = count;
+      ci.name = RecordName(bethesda::GlobalFormId{static_cast<u16>(form.handle >> 32),
+                                                  static_cast<u32>(form.handle)});
+      if (ci.name.empty())
+        ci.name = "(item)";
+      s.items.push_back(base::move(ci));
+    }
+  } else {
+    // CNTO holds the contents: item form id (4) + count (4). Names resolve
+    // against the base record's owning plugin; the row pool caps how many we
+    // show.
+    for (const bethesda::Subrecord& sub : cont.subrecords) {
+      if (s.items.size() >= 14)
+        break;
+      if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
+        continue;
+      u32 item_raw;
+      i32 count;
+      std::memcpy(&item_raw, sub.data.data(), 4);
+      std::memcpy(&count, sub.data.data() + 4, 4);
+      bethesda::GlobalFormId item =
+          records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
+      ContainerItem ci;
+      ci.count = count;
+      ci.name = RecordName(item);
+      if (ci.name.empty())
+        ci.name = "(item)";
+      s.items.push_back(base::move(ci));
+    }
   }
   container_session_ = base::move(s);
   RX_INFO("container: opened '{}' ({} items)", container_session_.name,
