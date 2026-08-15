@@ -31,6 +31,8 @@ set(RECREATION_RUNTIME_SOURCES
   narrative/quest_director.cc
   interaction/interaction_system.cc
   interaction/item_bridge.cc
+  magic/spell_visual.cc
+  magic/spell_vfx.cc
   demo/demo_scenes.cc
   demo/trailer.cc
   editor/editor.cc
@@ -161,4 +163,5 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(demo/trailertest recreation::weather rx::core SRCS demo/trailer.cc)
   recreation_add_test(editor/editor_layouttest rx::core)
   recreation_add_test(character/chargen_presettest rx::core)
+  recreation_add_test(magic/spell_vfxtest rx::core rx::render SRCS magic/spell_visual.cc magic/spell_vfx.cc)
 endif()

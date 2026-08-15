@@ -8,6 +8,7 @@
 #include "render/core/renderer.h"
 #include "runtime/app/engine_context.h"
 #include "runtime/character/face.h"
+#include "runtime/magic/spell_vfx.h"
 
 namespace rx {
 
@@ -53,6 +54,7 @@ class DemoScenes {
   void CreateStrandHairDemoScene();
   void CreateImposterDemoScene();
   void CreateSssDemoScene();
+  void CreateSpellDemoScene();
 
   struct DemoParticle {
     Vec3 position;
@@ -95,6 +97,14 @@ class DemoScenes {
   // pointers into it) and one editable FaceState per assembled head.
   base::UniquePointer<FaceBuilder> face_builder_;
   base::Vector<FaceState> faces_;
+
+  // Spell demo: one channelled effect per archetype, plus periodic impacts.
+  magic::SpellVfx spells_;
+  base::Vector<Vec3> spell_pedestals_;
+  bool spell_demo_ = false;
+  f32 spell_time_ = 0;
+  f32 spell_impact_accum_ = 0;
+  u32 spell_impact_next_ = 0;
 
   base::Vector<u32> hair_grooms_;  // strand-hair demo groom handles
   u32 hair_orbit_groom_ = 0;       // the groom driven on a slow orbit

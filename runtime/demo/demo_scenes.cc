@@ -81,6 +81,23 @@ void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
       view.lights.push_back(l);
     }
   }
+  if (spell_demo_) {
+    // Fire an impact at one pedestal after another, so the burst-and-fade path
+    // is on screen next to the channelled ones.
+    spell_time_ += dt;
+    spell_impact_accum_ += dt;
+    if (spell_impact_accum_ >= 1.4f && !spell_pedestals_.empty()) {
+      spell_impact_accum_ = 0;
+      const u32 index = spell_impact_next_ % spell_pedestals_.size();
+      spell_impact_next_ = (spell_impact_next_ + 1) % spell_pedestals_.size();
+      Vec3 at = spell_pedestals_[index];
+      at.y += 1.6f;  // above the muzzle, where a projectile would have landed
+      spells_.Begin(static_cast<magic::SpellArchetype>(index), magic::CastPhase::kImpact, at);
+    }
+    spells_.Step(dt);
+    spells_.EmitToView(view);
+  }
+
   if (fur_ball_) {
     view.fur_ball = true;
     view.fur_position = fur_position_;
@@ -1468,6 +1485,75 @@ void DemoScenes::CreateFacesDemoScene() {
   }
 }
 
+void DemoScenes::CreateSpellDemoScene() {
+  // Every spell archetype channelling at once on a dark floor, so the schools
+  // can be compared side by side. The original engine drew all of these through
+  // one unlit effect shader that differed only by texture and palette; here
+  // each is an HDR emissive pool with its own motion and its own dynamic light,
+  // which is the part that never existed before.
+  asset::Material floor_mat;
+  floor_mat.id = asset::MakeAssetId("builtin/spells/floor");
+  floor_mat.base_color_factor[0] = 0.14f;
+  floor_mat.base_color_factor[1] = 0.14f;
+  floor_mat.base_color_factor[2] = 0.16f;
+  floor_mat.roughness_factor = 0.55f;  // damp enough to catch the coloured light
+  if (!config_.headless)
+    renderer_.UploadMaterial(floor_mat);
+
+  asset::Mesh ground =
+      asset::MakeBox(60.0f, 0.2f, 24.0f, asset::MakeAssetId("builtin/spells/ground"));
+  ground.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(ground.lods[0].indices.size()), floor_mat.id});
+  if (!config_.headless)
+    renderer_.UploadMesh(ground);
+  ecs::Entity floor = world_.Create();
+  world_.Add(floor, world::Transform{.position = {0, -0.2f, 0}});
+  world_.Add(floor, world::Renderable{ground.id});
+
+  // A pedestal per archetype gives each light something to fall on, which is
+  // how you can tell the colours apart at a glance.
+  asset::Mesh pillar =
+      asset::MakeBox(0.7f, 1.0f, 0.7f, asset::MakeAssetId("builtin/spells/pillar"));
+  pillar.lods[0].submeshes.push_back(
+      {0, static_cast<u32>(pillar.lods[0].indices.size()), floor_mat.id});
+  if (!config_.headless)
+    renderer_.UploadMesh(pillar);
+
+  const u32 count = static_cast<u32>(magic::SpellArchetype::kCount);
+  const f32 spacing = 2.2f;
+  const f32 start = -0.5f * spacing * static_cast<f32>(count - 1);
+  for (u32 i = 0; i < count; ++i) {
+    const f32 x = start + spacing * static_cast<f32>(i);
+    ecs::Entity e = world_.Create();
+    world_.Add(e, world::Transform{.position = {x, 0.5f, 0}});
+    world_.Add(e, world::Renderable{pillar.id});
+
+    const Vec3 muzzle{x, 1.45f, 0};
+    spell_pedestals_.push_back(muzzle);
+    const auto archetype = static_cast<magic::SpellArchetype>(i);
+    spells_.Begin(archetype, magic::CastPhase::kProjectile, muzzle);
+    RX_INFO("spell demo: {} at x={:.1f}", magic::SpellArchetypeName(archetype), x);
+  }
+
+  spell_demo_ = true;
+
+  // Night, so the spells are the only real light source in the scene.
+  ctx_.scene_owns_sun = true;
+  renderer_.settings().sun_direction = {0.2f, -0.35f, -0.9f};
+  renderer_.settings().sun_intensity = 0.05f;
+  renderer_.settings().sun_color = {0.4f, 0.5f, 0.8f};
+  renderer_.settings().ambient = 0.015f;
+  // Near-clear sky: the default overcast deck lit by even a dim sun hazes the
+  // whole frame and washes the spell colours out.
+  renderer_.settings().cloud_coverage = 0.05f;
+  renderer_.settings().exposure = 0.30f;
+
+  camera_.set_position({0.0f, 2.6f, 13.0f});
+  camera_.set_yaw_pitch(0.0f, -0.10f);
+  camera_.speed = 4.0f;
+  RX_INFO("spell demo: {} archetypes channelling, impacts every 1.4s", count);
+}
+
 void DemoScenes::CreateFireDemoScene() {
   // A campfire at dusk: stone ground, a log ring, gpu-simulated flames and
   // embers (additive hdr), and a flickering point light that the rt path
@@ -2062,6 +2148,10 @@ void DemoScenes::CreateDemoScene() {
   }
   if (config_.demo_scene == "sss") {
     CreateSssDemoScene();
+    return;
+  }
+  if (config_.demo_scene == "spells") {
+    CreateSpellDemoScene();
     return;
   }
   if (config_.demo_scene == "autolod") {
