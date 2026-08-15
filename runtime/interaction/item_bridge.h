@@ -45,6 +45,12 @@ class ItemBridge {
   // authoritative (a client routes activation to the server, which calls this).
   bool TryPickUp(u64 ref_handle);
 
+  // Adds `count` units of an item BASE record straight to the player's
+  // inventory. Container loot has a base form and a count rather than a world
+  // reference, so it cannot go through TryPickUp. Returns false when the base is
+  // not a usable item or nothing fit.
+  bool TakeItem(bethesda::GlobalFormId base, u32 count);
+
   // Drops the most recently added inventory stack in front of the player as a
   // dynamic physics body with a small forward toss. No-op when the inventory is
   // empty or no player exists. Bound to the drop keybind.

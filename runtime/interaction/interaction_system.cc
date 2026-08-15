@@ -755,6 +755,9 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
   s.name = RecordName(base);
   if (s.name.empty())
     s.name = "Container";
+  // What the player already carried out of this chest, so it is not offered
+  // twice.
+  const base::Vector<u64>* taken = looted_.find(handle);
   // CNTO holds the contents: item form id (4) + count (4). Names resolve against
   // the base record's owning plugin; the row pool caps how many we show.
   for (const bethesda::Subrecord& sub : cont.subrecords) {
@@ -768,8 +771,16 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
     std::memcpy(&count, sub.data.data() + 4, 4);
     bethesda::GlobalFormId item =
         records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
+    if (taken) {
+      bool already = false;
+      for (u64 packed : *taken)
+        already = already || packed == item.packed();
+      if (already)
+        continue;
+    }
     ContainerItem ci;
     ci.count = count;
+    ci.base = item;
     ci.name = RecordName(item);
     if (ci.name.empty())
       ci.name = "(item)";
@@ -790,6 +801,28 @@ void InteractionSystem::UpdateContainerInput(const InputState& input, const Acti
     return;
   if (actions.pressed(Action::kMenuCancel))
     CloseContainer();  // Esc / pad B
+}
+
+void InteractionSystem::TakeContainerItem(int index) {
+  if (!container_session_.open || !ctx_.items)
+    return;
+  if (index < 0 || index >= static_cast<int>(container_session_.items.size()))
+    return;
+  const ContainerItem& item = container_session_.items[index];
+  const u32 count = item.count > 0 ? static_cast<u32>(item.count) : 1u;
+  if (!ctx_.items->TakeItem(item.base, count))
+    return;  // not a carryable record (a leveled list, say): leave it on the pile
+  looted_[container_session_.container].push_back(item.base.packed());
+  container_session_.items.erase(container_session_.items.begin() + index);
+}
+
+void InteractionSystem::TakeAllContainerItems() {
+  if (!container_session_.open)
+    return;
+  // Back to front so each removal leaves the untouched indices valid, and rows
+  // TakeItem refuses simply stay put.
+  for (int i = static_cast<int>(container_session_.items.size()) - 1; i >= 0; --i)
+    TakeContainerItem(i);
 }
 
 }  // namespace rx

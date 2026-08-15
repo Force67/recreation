@@ -371,6 +371,35 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
   return true;
 }
 
+bool ItemBridge::TakeItem(bethesda::GlobalFormId base, u32 count) {
+  if (!ctx_.world || count == 0)
+    return false;
+  if (!IsItemBase(base))
+    return false;
+  const inventory::ItemDefId def = DefForBase(base);
+  if (def == inventory::kInvalidItemDef)
+    return false;
+  const ecs::Entity player = PlayerInventoryEntity();
+  if (!ctx_.world->IsAlive(player))
+    return false;
+  inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
+  if (!inv)
+    return false;
+  const u32 added = inventory::AddItem(*inv, catalog_, def, count);
+  if (added == 0)
+    return false;
+
+  base::String display = RecordNameFor(base);
+  if (display.empty())
+    display = "item";
+  if (ctx_.game_ui)
+    ctx_.game_ui->FlashQuestUpdate("Took " + display);
+  RX_INFO("item: took '{}' x{} from a container (base {:04x}:{:06x})", display, added, base.plugin,
+          base.local_id);
+  Save();
+  return true;
+}
+
 base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
   if (!ctx_.records)
     return {};
