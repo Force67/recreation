@@ -828,9 +828,22 @@ void CharGen::Update(const InputState& input, f32 dt) {
       ApplyScript(s);
   }
 
-  const f32 w = static_cast<f32>(ctx_.renderer->output_width());
-  const f32 h = static_cast<f32>(ctx_.renderer->output_height());
-  const f32 mx = input.mouse_x, my = input.mouse_y;
+  // The panels below are laid out in the UI's 1080p design space, so both the
+  // canvas extent and the cursor have to be expressed in it: the backbuffer is a
+  // different size (HiDPI here, smaller on a handheld) and the raw window cursor
+  // a third.
+  f32 w = static_cast<f32>(ctx_.renderer->output_width());
+  f32 h = static_cast<f32>(ctx_.renderer->output_height());
+  f32 mx = input.mouse_x, my = input.mouse_y;
+  if (ctx_.game_ui) {
+    f32 cw = 0, ch = 0;
+    ctx_.game_ui->CanvasSize(&cw, &ch);
+    if (cw > 0.0f && ch > 0.0f) {
+      w = cw;
+      h = ch;
+    }
+    ctx_.game_ui->ScalePointer(mx, my, &mx, &my);
+  }
   const f32 dx = mx - prev_mx_, dy = my - prev_my_;
   const bool lmb = input.button(MouseButton::kLeft);
   const bool press = lmb && !prev_lmb_;

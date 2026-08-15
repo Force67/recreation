@@ -1076,9 +1076,22 @@ world::Transform* MapEditor::SelectedTransform() {
 
 // --- picking / placement geometry ---
 
+// The UI's design-space canvas. Every dock constant below, and the pointer once
+// ScalePointer has run, is in that space; it is NOT the backbuffer size, which
+// the UI scales away from (see GameUi::CanvasSize).
+static void UiCanvas(const EngineContext& ctx, f32* w, f32* h) {
+  if (ctx.game_ui) {
+    ctx.game_ui->CanvasSize(w, h);
+    if (*w > 0.0f && *h > 0.0f)
+      return;
+  }
+  *w = static_cast<f32>(ctx.renderer->output_width());
+  *h = static_cast<f32>(ctx.renderer->output_height());
+}
+
 bool MapEditor::PointerOverUi(const InputState& input) const {
-  const f32 w = static_cast<f32>(ctx_.renderer->output_width());
-  const f32 h = static_cast<f32>(ctx_.renderer->output_height());
+  f32 w, h;
+  UiCanvas(ctx_, &w, &h);
   f32 x = input.mouse_x, y = input.mouse_y;
   if (ctx_.game_ui)
     ctx_.game_ui->ScalePointer(x, y, &x, &y);
@@ -1101,8 +1114,8 @@ Vec3 MapEditor::CursorRayDir(const InputState& input) const {
   const Vec3 fwd = ctx_.camera->forward();
   const Vec3 right = Normalize(Cross(fwd, {0, 1, 0}));
   const Vec3 up = Cross(right, fwd);
-  const f32 w = static_cast<f32>(ctx_.renderer->output_width());
-  const f32 h = static_cast<f32>(ctx_.renderer->output_height());
+  f32 w, h;
+  UiCanvas(ctx_, &w, &h);
   const f32 aspect = h > 0 ? w / h : 1.0f;
   const f32 tan_half = std::tan(kFovY * 0.5f);
   f32 pointer_x = input.mouse_x, pointer_y = input.mouse_y;
@@ -1202,8 +1215,8 @@ bool MapEditor::ProjectToScreen(const Vec3& world, f32* sx, f32* sy) const {
   const f32 zc = Dot(to, cf);
   if (zc <= 0.1f)
     return false;  // behind the camera
-  const f32 w = static_cast<f32>(ctx_.renderer->output_width());
-  const f32 h = static_cast<f32>(ctx_.renderer->output_height());
+  f32 w, h;
+  UiCanvas(ctx_, &w, &h);
   const f32 aspect = h > 0 ? w / h : 1.0f;
   const f32 tan_half = std::tan(kFovY * 0.5f);
   const f32 ndc_x = (Dot(to, cr) / zc) / (tan_half * aspect);
@@ -1728,8 +1741,8 @@ void MapEditor::PushView() {
       const Vec3 to = wc - eye;
       const f32 zc = Dot(to, cf);
       if (zc > 0.1f) {
-        const f32 w = static_cast<f32>(ctx_.renderer->output_width());
-        const f32 h = static_cast<f32>(ctx_.renderer->output_height());
+        f32 w, h;
+        UiCanvas(ctx_, &w, &h);
         const f32 aspect = h > 0 ? w / h : 1.0f;
         const f32 tan_half = std::tan(kFovY * 0.5f);
         const f32 ndc_x = (Dot(to, cr) / zc) / (tan_half * aspect);
