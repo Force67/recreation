@@ -130,6 +130,7 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.dialogue = &dialogue_;
   ctx_.said_topics = &said_topics_;
   ctx_.map_discovery = &map_discovery_;
+  ctx_.created_forms = &created_forms_;
   ctx_.quest_world = (quest_world_ ? &*quest_world_ : nullptr);
   ctx_.debug_ui = &debug_ui_;
   ctx_.request_quit = [this] { RequestQuit(); };

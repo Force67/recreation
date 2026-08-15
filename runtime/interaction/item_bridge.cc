@@ -16,6 +16,7 @@
 #include "asset/mesh.h"
 #include "components/bethesda/record.h"
 #include "components/world/cell_streaming.h"
+#include "components/world/created_forms.h"
 #include "components/world/components.h"
 #include "components/world/quest_world.h"
 #include "core/log.h"
@@ -202,6 +203,28 @@ bool ItemBridge::BuildDef(bethesda::GlobalFormId base,
                           bool with_world_model) {
   if (!ctx_.records)
     return false;
+  // A form a savegame invented (a brewed potion, a player enchantment) has no
+  // record anywhere, so its whole description is the save's own table. It gets
+  // an invisible box like any other model-less item: the game does not author a
+  // mesh for one either.
+  if (ctx_.created_forms) {
+    if (const world::CreatedForm* made = ctx_.created_forms->Find(base)) {
+      inventory::ItemDef def;
+      def.name_hash = base.packed();
+      def.max_stack = 1000;
+      def.flags = FourCc('A', 'L', 'C', 'H');
+      def.weight = made->weight;
+      def.payload = made->value;
+      def.mass = base::Clamp(made->weight > 0.0f ? made->weight * 0.5f : 0.2f, 0.1f, 100.0f);
+      def.friction = 0.6f;
+      def.restitution = 0.05f;
+      def.scale = kUnitsToMeters;
+      def.shape.kind = physics::ShapeDesc::Kind::kBox;
+      def.shape.half_extents = Vec3{7.0f, 7.0f, 7.0f};
+      *out = def;
+      return true;
+    }
+  }
   const bethesda::RecordStore::StoredRecord* stored = ctx_.records->Find(base);
   if (!stored || !IsItemType(stored->header.type))
     return false;
@@ -394,6 +417,9 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
 }
 
 base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
+  if (ctx_.created_forms)
+    if (const world::CreatedForm* made = ctx_.created_forms->Find(id))
+      return made->name;
   if (!ctx_.records)
     return {};
   bethesda::Record record;

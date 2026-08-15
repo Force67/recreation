@@ -38,6 +38,19 @@ constexpr u32 kPlayerFormId = 0x00000014;
 // says where the handle came from.
 constexpr u16 kCreatedReferencePlugin = 0xfffd;
 
+// The same trick for a base form the save invented: a potion the player brewed
+// or an enchantment they made. A different slot from the references above, so a
+// handle still says on its own what kind of thing it names.
+constexpr u16 kCreatedFormPlugin = 0xfffc;
+
+// One effect of a form the save invented, with its magic effect already remapped.
+struct CreatedFormEffect {
+  GlobalFormId effect;   // MGEF
+  f32 magnitude = 0.0f;
+  u32 duration = 0;      // seconds
+  f32 value = 0.0f;      // only the first effect of an item carries the price
+};
+
 // Why a form id could not be carried into the running game. Counted rather
 // than logged one by one: a save names six figures of them.
 struct RemapCounters {
@@ -245,6 +258,15 @@ class SaveSink {
   // runtime's job.
   virtual void SetRelationshipRank(GlobalFormId a, GlobalFormId b, i32 rank) {}
 
+  // A base form the save invented. No plugin has a record for it, so these
+  // effects are its whole description and `id` is a synthetic handle in the
+  // created-form slot; the inventory stacks below name it by that handle. A sink
+  // that cannot make a form out of this should ignore it, and the stacks naming
+  // it then land on nothing.
+  virtual void AddCreatedForm(GlobalFormId id,
+                              CreatedFormKind kind,
+                              base::Span<const CreatedFormEffect> effects) {}
+
   // One stack of a container's or actor's inventory. `delta` is signed and
   // relative to the contents the container's base record authors, never an
   // absolute count, so a sink that has no model of the authored contents cannot
@@ -337,10 +359,11 @@ struct SaveApplyStats {
   // the container's real contents and none of it is applied.
   u32 inventories_incomplete = 0;
   // Base forms the save invented (player enchantments, brewed potions). They
-  // exist only in the save's own tables, so nothing in the load order can be
-  // pointed at them and the items that name them are dropped.
+  // exist only in the save's own tables, so they reach the sink under a handle
+  // of their own and the stacks naming them are pushed against that handle.
   u32 created_forms = 0;
-  u32 inventory_items_created = 0;
+  u32 created_forms_with_effects = 0;  // of those, the ones whose effects resolved
+  u32 inventory_items_created = 0;     // stacks of one, pushed under that handle
   // References the save spawned (0xFFxxxxxx REFR/ACHR change forms). Nothing
   // can carry their ids over, so they reach the sink under a handle of their
   // own; the payload names the base form they are an instance of.

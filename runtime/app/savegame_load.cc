@@ -48,6 +48,8 @@ constexpr u32 kAchr = FourCc('A', 'C', 'H', 'R');
 constexpr u32 kName = FourCc('N', 'A', 'M', 'E');  // a reference's base form
 constexpr u32 kData = FourCc('D', 'A', 'T', 'A');  // a reference's placement
 constexpr u32 kXscl = FourCc('X', 'S', 'C', 'L');  // a reference's scale
+constexpr u32 kMgef = FourCc('M', 'G', 'E', 'F');
+constexpr u32 kFull = FourCc('F', 'U', 'L', 'L');  // a record's displayed name
 constexpr u32 kPerk = FourCc('P', 'E', 'R', 'K');
 constexpr u32 kSpel = FourCc('S', 'P', 'E', 'L');
 constexpr u32 kShou = FourCc('S', 'H', 'O', 'U');
@@ -137,6 +139,8 @@ class EngineSaveSink : public bethesda::SaveSink {
                  world::MapMarkers& markers,
                  world::SavedSpawnIndex& spawns,
                  world::MiscStats& misc_stats,
+                 world::CreatedForms& created_forms,
+                 const bethesda::StringTable& strings,
                  FaceBuilder& faces,
                  f32 cell_size)
       : bindings_(bindings),
@@ -147,6 +151,8 @@ class EngineSaveSink : public bethesda::SaveSink {
         markers_(markers),
         spawns_(spawns),
         misc_stats_(misc_stats),
+        created_forms_(created_forms),
+        strings_(strings),
         faces_(faces),
         cell_size_(cell_size) {}
 
@@ -613,6 +619,53 @@ class EngineSaveSink : public bethesda::SaveSink {
     ++relocated_refs_;
   }
 
+  // A potion the player brewed or an enchantment they made. The save's table is
+  // the only description there is, so the name is built the way the game builds
+  // it: after the effect the thing mostly does. Everything else comes off that
+  // effect's own record, which the load order does have.
+  void AddCreatedForm(bethesda::GlobalFormId id,
+                      bethesda::CreatedFormKind kind,
+                      base::Span<const bethesda::CreatedFormEffect> effects) override {
+    if (effects.empty())
+      return;
+    const bool consumable = kind == bethesda::CreatedFormKind::kPotion ||
+                            kind == bethesda::CreatedFormKind::kPoison;
+    world::CreatedForm form;
+    form.consumable = consumable;
+    // The price the game computed sits on the first effect and is 0 on the rest.
+    form.value = static_cast<u32>(base::Max(0.0f, effects[0].value));
+    // Alchemy products all weigh the same in Skyrim; an enchantment is not an
+    // item of its own and weighs nothing.
+    form.weight = consumable ? 0.5f : 0.0f;
+
+    // The strongest effect names the thing, which is how the game names it, and
+    // magnitude is the only ordering the table gives.
+    const bethesda::CreatedFormEffect* strongest = &effects[0];
+    for (const bethesda::CreatedFormEffect& effect : effects)
+      if (effect.magnitude > strongest->magnitude)
+        strongest = &effect;
+    base::String effect_name;
+    bethesda::Record record;
+    if (records_.Parse(strongest->effect, &record) && record.header.type == kMgef)
+      effect_name = DisplayName(record);
+    if (effect_name.empty())
+      effect_name = "Unknown";
+    switch (kind) {
+      case bethesda::CreatedFormKind::kPotion:
+        form.name = "Potion of " + effect_name;
+        break;
+      case bethesda::CreatedFormKind::kPoison:
+        form.name = "Poison of " + effect_name;
+        break;
+      default:
+        form.name = effect_name;  // an enchantment is named after its effect
+        break;
+    }
+    created_forms_.Add(id, form);
+    bindings_.SetName(Ref(id), form.name);
+    ++created_forms_added_;
+  }
+
   // The save stores container contents as a signed delta against what the
   // records author, so the authored contents have to be in the store before the
   // delta means anything. Seeding them here rather than at streaming time is
@@ -622,6 +675,12 @@ class EngineSaveSink : public bethesda::SaveSink {
                         i32 delta,
                         bool equipped) override {
     if (!KnownReference(container)) {
+      ++unknown_refs_;
+      return;
+    }
+    // A form the save invented that described nothing this load order has (its
+    // effects named no records) is not a thing anyone could hold.
+    if (!KnownItem(item)) {
       ++unknown_refs_;
       return;
     }
@@ -663,6 +722,10 @@ class EngineSaveSink : public bethesda::SaveSink {
               unknown_markers_);
     RX_INFO("save: {} item stacks restored into {} containers seeded from their records",
             inventory_items_, seeded_containers_);
+    if (created_forms_added_ != 0)
+      RX_INFO("save: {} potions, poisons and enchantments the player made are back, named after "
+              "what they do",
+              created_forms_added_);
     RX_INFO("save: {} actor values onto references, {} of them the player's own", reference_values_,
             player_values_);
     if (perks_ != 0 || unknown_perks_ != 0)
@@ -714,6 +777,28 @@ class EngineSaveSink : public bethesda::SaveSink {
     if (ref.plugin == 0 && ref.local_id == bethesda::kPlayerFormId)
       return true;
     return records_.Find(ref) != nullptr;
+  }
+
+  // A form the inventory can hold: a record, or one of the forms the save made.
+  bool KnownItem(bethesda::GlobalFormId item) const {
+    return item.plugin == bethesda::kCreatedFormPlugin ? created_forms_.Find(item) != nullptr
+                                                       : records_.Find(item) != nullptr;
+  }
+
+  // A record's displayed name. A localized plugin stores a 4-byte string id in
+  // FULL and the text lives in the .STRINGS tables; a non-localized one stores
+  // the text itself.
+  base::String DisplayName(const bethesda::Record& record) const {
+    const bethesda::Subrecord* full = record.Find(kFull);
+    if (!full)
+      return {};
+    if (full->data.size() >= 4) {
+      u32 string_id;
+      std::memcpy(&string_id, full->data.data(), 4);
+      if (const base::String* text = strings_.Find(string_id))
+        return base::String(text->c_str());
+    }
+    return record.GetString(kFull);
   }
 
   // Whether the save left a reference somewhere other than the cell its record
@@ -779,6 +864,9 @@ class EngineSaveSink : public bethesda::SaveSink {
   world::MapMarkers& markers_;
   world::SavedSpawnIndex& spawns_;
   world::MiscStats& misc_stats_;
+  world::CreatedForms& created_forms_;
+  const bethesda::StringTable& strings_;
+  u32 created_forms_added_ = 0;
   bethesda::GlobalFormId weather_;
   FaceBuilder& faces_;
   f32 cell_size_ = 0.0f;
@@ -882,7 +970,8 @@ void ApplySavegameState(Engine& engine) {
   bethesda::SaveApplyStats stats;
   EngineSaveSink sink(*self->script_bindings_, self->records_, self->actor_stats_,
                       self->said_topics_, self->map_discovery_, self->map_markers_,
-                      self->saved_spawns_, self->misc_stats_, self->actors_->faces(),
+                      self->saved_spawns_, self->misc_stats_, self->created_forms_,
+                      self->strings_, self->actors_->faces(),
                       bethesda::GameProfile::For(self->game_).cell_size);
   // On the guest thread and synchronously: everything below is guest-owned
   // state, and the quest scripts that read it attach right after this returns.
@@ -922,10 +1011,11 @@ void ApplySavegameState(Engine& engine) {
           stats.inventories, stats.inventory_items, stats.actor_perks, stats.actors_with_perks);
   // Systems the save carries state for that the engine has nowhere to put yet.
   RX_INFO(
-      "save: not applied: {} inventories read only in part, {} item stacks naming a form the save "
-      "invented (of {} such forms), {} cells whose owner changed",
-      stats.inventories_incomplete, stats.inventory_items_created, stats.created_forms,
-      stats.cells_owned);
+      "save: {} of the {} forms the save invented describe something this load order has, and {} "
+      "item stacks name one",
+      stats.created_forms_with_effects, stats.created_forms, stats.inventory_items_created);
+  RX_INFO("save: not applied: {} inventories read only in part, {} cells whose owner changed",
+          stats.inventories_incomplete, stats.cells_owned);
   RX_INFO(
       "save: {} references the save created, {} name a base form this load order has, {} handed "
       "to the streamer, {} dropped as disabled or deleted",

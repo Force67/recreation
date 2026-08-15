@@ -345,8 +345,11 @@ void ApplyReference(const ChangeForm& form,
       const u32 raw = ResolveChangeRef(
           entry.item, base::Span<const u32>(save.form_ids.data(), save.form_ids.size()));
       // An item the save invented has no record anywhere in the load order, so
-      // it is counted rather than handed over as some other form.
+      // it goes over under the same handle its description was pushed with
+      // (AddCreatedForm above) rather than as some other form.
       if ((raw >> 24) == 0xff) {
+        sink.AddContainerItem(id, GlobalFormId{kCreatedFormPlugin, raw & 0xffffff}, entry.count,
+                              entry.equipped || entry.equipped_left);
         ++stats->inventory_items_created;
         continue;
       }
@@ -714,6 +717,29 @@ void ApplySave(const SaveFile& save,
     return;
 
   stats->created_forms = static_cast<u32>(save.created_forms.size());
+
+  // The forms the save itself made, before the inventories that name them. Their
+  // ids are 0xFFxxxxxx and no remap can carry those, so each gets a handle in the
+  // created-form slot; the effects inside DO name records, and a form whose
+  // effects this load order has none of describes nothing.
+  base::Vector<CreatedFormEffect> effects;
+  for (const CreatedForm& form : save.created_forms) {
+    effects.clear();
+    for (const CreatedEffect& source : form.effects) {
+      CreatedFormEffect effect;
+      if (!remap.Map(source.effect, &effect.effect))
+        continue;
+      effect.magnitude = source.magnitude;
+      effect.duration = source.duration;
+      effect.value = source.value;
+      effects.push_back(effect);
+    }
+    if (effects.empty())
+      continue;
+    sink.AddCreatedForm(GlobalFormId{kCreatedFormPlugin, form.form_id & 0xffffff}, form.kind,
+                        base::Span<const CreatedFormEffect>(effects.data(), effects.size()));
+    ++stats->created_forms_with_effects;
+  }
 
   // Globals first: they are the cheapest state and the one quest conditions and
   // the world clock read, so nothing else should observe the authored values.

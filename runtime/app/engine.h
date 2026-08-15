@@ -26,6 +26,7 @@
 #include "components/world/combat.h"
 #include "components/world/map_discovery.h"
 #include "components/world/map_markers.h"
+#include "components/world/created_forms.h"
 #include "components/world/misc_stats.h"
 #include "components/world/planet_tile.h"
 #include "components/world/saved_spawns.h"
@@ -491,6 +492,10 @@ class Engine : public app::Application {
   // the streamer as each cell comes in, so it outlives both the save and the
   // streamer on purpose.
   world::SavedSpawnIndex saved_spawns_;
+  // The potions the player brewed and the enchantments they made, out of a
+  // resumed savegame's created-object table. Nothing in the load order describes
+  // one, so this is where the inventory and the item catalogue ask about them.
+  world::CreatedForms created_forms_;
   MapPanel map_panel_;
   PlayerMapState player_map_;
   f32 map_panel_timer_ = 0.0f;

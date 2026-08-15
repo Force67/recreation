@@ -16,6 +16,7 @@
 #include "components/script/host/managed_host.h"
 #include "components/script/script_system.h"
 #include "components/world/cell_streaming.h"
+#include "components/world/created_forms.h"
 #include "components/world/map_discovery.h"
 #include "components/world/quest_world.h"
 #include "core/math.h"
@@ -130,6 +131,9 @@ struct EngineContext {
   // uncovered. Both survive a savegame load and grow as the player plays.
   dialogue::SaidTopics* said_topics = nullptr;
   world::MapDiscovery* map_discovery = nullptr;
+  // Base forms a resumed savegame invented (brewed potions, player
+  // enchantments). Null without one; nothing in the records describes these.
+  world::CreatedForms* created_forms = nullptr;
   world::QuestWorld* quest_world = nullptr;
   DebugUi* debug_ui = nullptr;
   GameUi* game_ui = nullptr;
