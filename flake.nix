@@ -221,6 +221,7 @@
               ninja
               gdb
               directx-shader-compiler  # dxc, hlsl -> spirv
+              shader-slang             # slangc, rx's .slang shaders
               glslang                  # FidelityFX shader permutations
               pkg-config               # libultragui finds freetype/harfbuzz
               freetype                 # libultragui text rasterization
