@@ -47,6 +47,12 @@ class InteractionSystem {
   bool TryOpenContainer(u64 handle);
   void CloseContainer();
   void UpdateContainerInput(const InputState& input, const ActionState& actions);
+  // Loot the open container: move one row, or everything, into the player's
+  // inventory. A taken row leaves the list and is remembered for that container
+  // so reopening it does not offer the same loot again (for this session; the
+  // container's own contents are read from the records each time it opens).
+  void TakeContainerItem(int index);
+  void TakeAllContainerItems();
 
   // Authoritative entry points the server / single-player run directly (a client
   // routes the request to the server, which calls these).
@@ -87,6 +93,7 @@ class InteractionSystem {
   struct ContainerItem {
     base::String name;
     i32 count = 0;
+    bethesda::GlobalFormId base;  // the item record, for moving it into the inventory
   };
   struct ContainerSession {
     bool open = false;
@@ -116,6 +123,9 @@ class InteractionSystem {
 
   DialogueSession dialogue_session_;
   ContainerSession container_session_;
+  // Container handle -> the packed item bases already looted out of it, so a
+  // reopened chest offers only what is left.
+  base::UnorderedMap<u64, base::Vector<u64>> looted_;
   u64 activate_target_ = 0;
   base::String activate_label_;
   // Trigger references, keyed by form handle, plus the set of refs already
