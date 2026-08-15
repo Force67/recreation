@@ -1,31 +1,169 @@
-// Quest journal overlay: a dimmed full-screen panel with a card listing the
-// player's active quests and, for the selected one, its objectives. journal_q*
-// (kJournalRows) and journal_obj* (kJournalObjRows) are fixed pools filled and
-// toggled in GameUi::Build. Starts hidden (toggled by SetJournal).
+// Quest journal overlay: a dimmed, blurred full-screen panel with a two-pane
+// card. Left pane = the active quest list (journal_q0..q5, clickable rows with
+// _lbl/_tag children, journal_empty when there are none). Right pane = the
+// selected quest's detail (journal_sel_title/_status) and its objectives
+// (journal_obj0..obj5 with _mark/_lbl children; C++ writes "✓"/"•" into _mark,
+// recolors done rows, and may set text-decoration: line-through on done _lbl).
+// C++ fills all texts and toggles row visibility each frame; rows past the
+// filled count and journal_empty should start collapsed. The tracked quest is
+// marked by C++ (gold _tag text + row background #ffcc5522 / border #ffcc5544).
+// Starts hidden (toggled by SetJournal).
 
   panel journal_box {
     position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-    layout: column; justify: center; align: center; background: #05070cdd;
+    layout: column; justify: center; align: center;
+    background: #05070cdd; backdrop-blur: 28;
     panel journal_card {
-      layout: column; align: start; padding: 30 44; width: 580;
+      layout: column; width: 68%; padding: 26 32;
       background: #0d1018f7; corner-radius: 14; border-color: #ffffff1c; border-width: 1;
       shadow-color: #000000aa; shadow-blur: 48; shadow-y: 18;
-      text journal_head { text: "Journal"; font-size: 24; color: #ffcc55; letter-spacing: 6;
-        text-transform: uppercase; margin: 0 0 14 0; }
-      text journal_q0 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_q1 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_q2 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_q3 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_q4 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_q5 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 3 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel journal_rule { width: 492; height: 1; background: #ffffff1f; margin: 12 0 12 0; }
-      text journal_obj0 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_obj1 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_obj2 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_obj3 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_obj4 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_obj5 { text: ""; font-size: 13; color: #c7e0ff; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text journal_hint { text: "press a number to track, J to close"; font-size: 12;
-        color: #8a93a8; margin: 14 0 0 0; }
+
+      panel journal_head_row { layout: row; justify: space-between; align: center; width: 100%;
+        text journal_head { text: "Journal"; font-size: 24; color: #ffcc55; letter-spacing: 6;
+          text-transform: uppercase; }
+        panel journal_count_pill { background: #ffffff0a; border-color: #ffffff14; border-width: 1;
+          corner-radius: 12; padding: 5 12;
+          text journal_count { text: ""; font-size: 11; color: #8a93a8; letter-spacing: 3;
+            text-transform: uppercase; }
+        }
+      }
+      panel { width: 100%; height: 1; background: #ffffff1f; margin: 16 0 18 0; }
+
+      panel journal_body { layout: row; width: 100%;
+        panel journal_list { layout: column; gap: 5; width: 38%;
+          text { text: "Quests"; font-size: 11; color: #8a93a8; letter-spacing: 3;
+            text-transform: uppercase; margin: 0 0 6 0; }
+          button journal_q0 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 0;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q0_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q0_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          button journal_q1 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 1;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q1_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q1_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          button journal_q2 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 2;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q2_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q2_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          button journal_q3 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 3;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q3_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q3_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          button journal_q4 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 4;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q4_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q4_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          button journal_q5 { layout: row; justify: space-between; align: center; width: 100%;
+            padding: 10 12; corner-radius: 8; background: #ffffff06; cursor: pointer; tab-index: 5;
+            :hover { background: #ffffff14; }
+            :pressed { background: #ffffff20; }
+            :focused { background: #ffcc5530; }
+            text journal_q5_lbl { text: ""; font-size: 15; color: #d8def0;
+              text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            text journal_q5_tag { text: ""; font-size: 10; color: #8a93a8; letter-spacing: 2;
+              text-transform: uppercase; }
+          }
+          text journal_empty { text: "No active quests."; font-size: 13; color: #6b7488;
+            margin: 4 0 0 12; }
+        }
+
+        panel journal_split { width: 1; background: #ffffff14; margin: 0 22; }
+
+        panel journal_detail { layout: column; flex-grow: 1;
+          text journal_sel_title { text: ""; font-size: 22; color: #f2f4fb; letter-spacing: 1; }
+          text journal_sel_status { text: ""; font-size: 11; color: #ffcc55; letter-spacing: 2;
+            text-transform: uppercase; margin: 5 0 0 0; }
+          panel { width: 100%; height: 1; background: #ffffff14; margin: 14 0 12 0; }
+          text { text: "Objectives"; font-size: 11; color: #8a93a8; letter-spacing: 3;
+            text-transform: uppercase; margin: 0 0 6 0; }
+          panel journal_objs { layout: column; gap: 3; width: 100%;
+            panel journal_obj0 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj0_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj0_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+            panel journal_obj1 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj1_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj1_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+            panel journal_obj2 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj2_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj2_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+            panel journal_obj3 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj3_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj3_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+            panel journal_obj4 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj4_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj4_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+            panel journal_obj5 { layout: row; align: center; gap: 10; width: 100%; padding: 6 8;
+              corner-radius: 6; background: #ffffff06;
+              text journal_obj5_mark { text: ""; font-size: 13; color: #ffcc55; width: 16;
+                text-align: center; }
+              text journal_obj5_lbl { text: ""; font-size: 14; color: #c7e0ff;
+                text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+            }
+          }
+        }
+      }
+
+      panel { width: 100%; height: 1; background: #ffffff1f; margin: 20 0 14 0; }
+      panel journal_foot { layout: row; justify: space-between; align: center; width: 100%;
+        text journal_hint { text: "press a number to track, J to close"; font-size: 12;
+          color: #8a93a8; }
+        button journal_close { text: "Close"; font-size: 14; color: #e8ecf6; text-align: center;
+          background: #ffcc5522; corner-radius: 8; padding: 4 12; cursor: pointer;
+          border-color: #ffcc5544; border-width: 1; tab-index: 6;
+          :hover { background: #ffcc5538; color: #ffffff; }
+          :pressed { background: #ffcc5555; }
+          :focused { background: #ffcc5544; color: #ffffff; border-color: #ffcc55cc; }
+        }
+      }
     }
   }

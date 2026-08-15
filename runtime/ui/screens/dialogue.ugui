@@ -1,14 +1,89 @@
-// Dialogue panel (bottom-centre): the speaker, their last line, and a fixed pool
-// of numbered topic rows (kDialogueOptionRows) filled/toggled in GameUi::Build.
+// Dialogue panel (bottom-centre): the NPC's speech on its own scrim card, then
+// a clickable list of topic rows. C++ (GameUi::Build) fills dialogue_speaker /
+// dialogue_npc / dialogue_optN_num / dialogue_optN_lbl each frame and toggles
+// dialogue_optN and dialogue_box visibility.
+//
+// dialogue_npc is a rich-text (NOT a plain text): ugui's text widget never
+// wraps, rich-text wraps between spans. C++ must fill it with one span per
+// word (SetRichTextSpans, color #d8def0), not ugui::SetText. Its height
+// reserves three lines so a long line can never push the topics around.
 
   panel dialogue_box {
-    position: absolute; left: 0; bottom: 70; width: 100vw; layout: column; align: center; gap: 4;
-    text dialogue_speaker { text: ""; font-size: 18; color: #ffcc55;
-      text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_npc { text: ""; font-size: 15; color: #d8def0; margin: 0 0 8 0;
-      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt0 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt1 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt2 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text dialogue_opt3 { text: ""; font-size: 15; color: #c7e0ff; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+    position: absolute; left: 0; bottom: 44; width: 100vw;
+    layout: column; align: center; gap: 10;
+
+    panel dialogue_speech {
+      width: 680; layout: column; gap: 8; padding: 14 22 16 22; overflow: hidden;
+      background: #0d1018de; background-end: #0a0c14de; gradient-angle: 180;
+      corner-radius: 12; border-color: #ffffff1c; border-width: 1;
+      backdrop-blur: 10; shadow-color: #00000073; shadow-blur: 34; shadow-y: 10;
+      panel dialogue_speaker_row { layout: row; align: center; gap: 14; width: 100%;
+        text dialogue_speaker { text: ""; font-size: 15; font-weight: 600; color: #ffcc55;
+          letter-spacing: 3; text-transform: uppercase;
+          text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+        panel { flex-grow: 1; height: 1; background: #ffffff1f; }
+      }
+      rich-text dialogue_npc { width: 100%; height: 74; overflow: hidden;
+        font-size: 16; color: #d8def0; line-height: 1.1; }
+    }
+
+    panel dialogue_choices {
+      width: 680; layout: column; gap: 3; padding: 8;
+      background: #0d1018de; background-end: #0a0c14de; gradient-angle: 180;
+      corner-radius: 12; border-color: #ffffff1c; border-width: 1;
+      backdrop-blur: 10; shadow-color: #00000073; shadow-blur: 34; shadow-y: 10;
+
+      button dialogue_opt0 { layout: row; align: center; gap: 12; width: 100%;
+        padding: 8 10; corner-radius: 8; cursor: pointer;
+        border-width: 1; border-color: #00000000; tab-index: 0;
+        :hover { background: #ffcc551e; border-color: #ffcc5540; }
+        :pressed { background: #ffcc5540; border-color: #ffcc5566; }
+        :focused { background: #ffcc5530; border-color: #ffcc55cc; }
+        panel { width: 22; height: 22; layout: column; justify: center; align: center;
+          background: #ffcc5518; border-color: #ffcc5544; border-width: 1; corner-radius: 6;
+          text dialogue_opt0_num { text: ""; font-size: 12; color: #ffcc55; }
+        }
+        text dialogue_opt0_lbl { text: ""; font-size: 15; color: #c7e0ff;
+          text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+      }
+      button dialogue_opt1 { layout: row; align: center; gap: 12; width: 100%;
+        padding: 8 10; corner-radius: 8; cursor: pointer;
+        border-width: 1; border-color: #00000000; tab-index: 1;
+        :hover { background: #ffcc551e; border-color: #ffcc5540; }
+        :pressed { background: #ffcc5540; border-color: #ffcc5566; }
+        :focused { background: #ffcc5530; border-color: #ffcc55cc; }
+        panel { width: 22; height: 22; layout: column; justify: center; align: center;
+          background: #ffcc5518; border-color: #ffcc5544; border-width: 1; corner-radius: 6;
+          text dialogue_opt1_num { text: ""; font-size: 12; color: #ffcc55; }
+        }
+        text dialogue_opt1_lbl { text: ""; font-size: 15; color: #c7e0ff;
+          text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+      }
+      button dialogue_opt2 { layout: row; align: center; gap: 12; width: 100%;
+        padding: 8 10; corner-radius: 8; cursor: pointer;
+        border-width: 1; border-color: #00000000; tab-index: 2;
+        :hover { background: #ffcc551e; border-color: #ffcc5540; }
+        :pressed { background: #ffcc5540; border-color: #ffcc5566; }
+        :focused { background: #ffcc5530; border-color: #ffcc55cc; }
+        panel { width: 22; height: 22; layout: column; justify: center; align: center;
+          background: #ffcc5518; border-color: #ffcc5544; border-width: 1; corner-radius: 6;
+          text dialogue_opt2_num { text: ""; font-size: 12; color: #ffcc55; }
+        }
+        text dialogue_opt2_lbl { text: ""; font-size: 15; color: #c7e0ff;
+          text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+      }
+      button dialogue_opt3 { layout: row; align: center; gap: 12; width: 100%;
+        padding: 8 10; corner-radius: 8; cursor: pointer;
+        border-width: 1; border-color: #00000000; tab-index: 3;
+        :hover { background: #ffcc551e; border-color: #ffcc5540; }
+        :pressed { background: #ffcc5540; border-color: #ffcc5566; }
+        :focused { background: #ffcc5530; border-color: #ffcc55cc; }
+        panel { width: 22; height: 22; layout: column; justify: center; align: center;
+          background: #ffcc5518; border-color: #ffcc5544; border-width: 1; corner-radius: 6;
+          text dialogue_opt3_num { text: ""; font-size: 12; color: #ffcc55; }
+        }
+        text dialogue_opt3_lbl { text: ""; font-size: 15; color: #c7e0ff;
+          text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+      }
+    }
   }

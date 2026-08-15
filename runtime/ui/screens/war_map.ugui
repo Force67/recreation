@@ -1,34 +1,142 @@
-// War-map overlay: a dimmed full-screen panel with a card showing the Civil War
-// campaign, each of Skyrim's holds and which side controls it, plus an overall
-// war-progress bar. war_hold0..8 (kWarHoldRows) are a fixed pool filled and
-// coloured in GameUi::Build from the managed Civil War campaign. Starts hidden
-// (toggled by SetWarMap).
+// War-map overlay: a campaign status board for the Civil War. A frosted
+// full-screen dimmer with a card: title, faction face-off (Imperial Legion vs
+// Stormcloaks with hold counts), the nine holds as rows with a faction colour
+// chip + owner label, a two-sided war-progress bar and a footer with the key
+// hint and a Close button. war_hold0..8 (kWarHoldRows) are a fixed pool; C++
+// fills war_holdN_lbl / war_holdN_own, recolours war_holdN_chip's background
+// and war_holdN_own's text colour per faction, sets war_bar_fill's width in %,
+// and fills war_map_sub / war_imp_count / war_stm_count / war_map_progress.
+// Starts hidden (toggled by SetWarMap).
 
   panel war_map_box {
     position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-    layout: column; justify: center; align: center; background: #05070cdd;
+    layout: column; justify: center; align: center;
+    background: #05070cdd; backdrop-blur: 28;
     panel war_map_card {
-      layout: column; align: start; padding: 30 44; width: 560;
-      background: #0d1018f7; corner-radius: 14; border-color: #ffffff1c; border-width: 1;
+      layout: column; align: stretch; width: 47%; padding: 26 36;
+      background: #0d1018f7; background-end: #0a0c14f7; corner-radius: 16;
+      border-color: #ffffff1c; border-width: 1;
       shadow-color: #000000aa; shadow-blur: 48; shadow-y: 18;
-      text war_map_head { text: "War for Skyrim"; font-size: 24; color: #ffcc55; letter-spacing: 5;
-        text-transform: uppercase; margin: 0 0 4 0; }
-      text war_map_sub { text: ""; font-size: 13; color: #8a93a8; margin: 0 0 14 0; }
-      text war_hold0 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold1 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold2 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold3 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold4 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold5 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold6 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold7 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold8 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel war_map_rule { width: 472; height: 1; background: #ffffff1f; margin: 12 0 10 0; }
-      panel war_bar_track { width: 472; height: 10; background: #2a3142; corner-radius: 5;
-        panel war_bar_fill { position: absolute; left: 0; top: 0; width: 1; height: 10;
-          background: #4f7fd8; corner-radius: 5; }
+
+      panel war_map_headbox { layout: column; align: center;
+        text war_map_head { text: "War for Skyrim"; font-size: 23; color: #ffcc55;
+          letter-spacing: 6; text-transform: uppercase;
+          text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+        text war_map_sub { text: ""; font-size: 12; color: #8a93a8; letter-spacing: 1; margin: 5 0 0 0; }
       }
-      text war_map_progress { text: ""; font-size: 13; color: #c7e0ff; margin: 8 0 0 0; }
-      text war_map_hint { text: "press M to close"; font-size: 12; color: #8a93a8; margin: 12 0 0 0; }
+
+      panel war_map_versus { layout: row; align: center; margin: 18 0 0 0;
+        panel war_map_fac_imp { layout: column; align: start; gap: 3; flex-grow: 1;
+          text { text: "Imperial Legion"; font-size: 12; color: #6f9fe8;
+            letter-spacing: 3; text-transform: uppercase; }
+          panel { layout: row; align: end; gap: 8;
+            text war_imp_count { text: ""; font-size: 30; color: #f2f4fb; }
+            text { text: "HOLDS"; font-size: 12; color: #8a93a8; letter-spacing: 1; margin: 0 0 5 0; }
+          }
+        }
+        text { text: "VS"; font-size: 13; color: #5c6478; letter-spacing: 2; margin: 0 18; }
+        panel war_map_fac_stm { layout: column; align: end; gap: 3; flex-grow: 1;
+          text { text: "Stormcloaks"; font-size: 12; color: #e86f6f;
+            letter-spacing: 3; text-transform: uppercase; }
+          panel { layout: row; align: end; gap: 8;
+            text war_stm_count { text: ""; font-size: 30; color: #f2f4fb; }
+            text { text: "HOLDS"; font-size: 12; color: #8a93a8; letter-spacing: 1; margin: 0 0 5 0; }
+          }
+        }
+      }
+
+      panel { width: 100%; height: 1; background: #ffffff1f; margin: 16 0 12 0; }
+      text { text: "Holds of Skyrim"; font-size: 10; color: #8a93a8;
+        letter-spacing: 3; text-transform: uppercase; margin: 0 0 8 0; }
+
+      panel war_map_board { layout: column; gap: 5; width: 100%;
+        panel war_hold0 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold0_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold0_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold0_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold1 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold1_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold1_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold1_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold2 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold2_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold2_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold2_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold3 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold3_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold3_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold3_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold4 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold4_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold4_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold4_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold5 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold5_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold5_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold5_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold6 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold6_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold6_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold6_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold7 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold7_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold7_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold7_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+        panel war_hold8 { layout: row; align: center; gap: 12; width: 100%; padding: 7 12;
+          background: #ffffff06; corner-radius: 7;
+          panel war_hold8_chip { width: 5; height: 18; corner-radius: 2; background: #b6bdcc; }
+          text war_hold8_lbl { text: ""; font-size: 14; color: #d8def0; flex-grow: 1;
+            text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text war_hold8_own { text: ""; font-size: 12; color: #b6bdcc; letter-spacing: 2; text-transform: uppercase; }
+        }
+      }
+
+      panel { width: 100%; height: 1; background: #ffffff1f; margin: 16 0 12 0; }
+      panel war_map_warrow { layout: row; justify: space-between; align: center; margin: 0 0 8 0;
+        text { text: "War Progress"; font-size: 10; color: #8a93a8;
+          letter-spacing: 3; text-transform: uppercase; }
+        text war_map_progress { text: ""; font-size: 12; color: #c7e0ff; }
+      }
+      panel war_bar_track { width: 100%; height: 12; corner-radius: 6; overflow: hidden;
+        background: #6e3a40; border-color: #ffffff14; border-width: 1;
+        panel war_bar_fill { width: 0%; height: 100%; corner-radius: 6;
+          background: #4f7fd8; background-end: #6f9fe8; gradient-angle: 90; }
+      }
+
+      panel war_map_footer { layout: row; justify: space-between; align: center; margin: 16 0 0 0;
+        text war_map_hint { text: "press M to close"; font-size: 12; color: #8a93a8; }
+        button war_map_close {
+          text: "Close"; font-size: 14; color: #e8ecf6; letter-spacing: 1;
+          background: #ffcc5522; corner-radius: 8; padding: 7 24; cursor: pointer;
+          border-color: #ffcc5544; border-width: 1; tab-index: 0;
+          :hover { background: #ffcc5538; color: #ffffff; }
+          :pressed { background: #ffcc5555; }
+          :focused { background: #ffcc5544; color: #ffffff; border-color: #ffcc55cc; }
+        }
+      }
     }
   }

@@ -313,6 +313,25 @@ struct SettingsRequest {
   int delta = 0;  // kSensKbm / kSensPad: -1 or +1
 };
 
+// A click on one of the gameplay overlays (journal, loot, conversation, war
+// map). The UI raises it, the engine polls it once per frame and calls the
+// system that owns the action, mirroring MainMenuRequest / SettingsRequest: the
+// UI layer knows nothing of quests or inventories.
+struct HudRequest {
+  enum class Kind {
+    kNone,
+    kJournalPin,       // index = journal row: track that quest
+    kJournalClose,     //
+    kDialogueOption,   // index = topic row
+    kContainerTake,    // index = item row
+    kContainerTakeAll, //
+    kContainerClose,   //
+    kWarMapClose,      //
+  };
+  Kind kind = Kind::kNone;
+  int index = 0;
+};
+
 // A click (or scroll) inside the editor overlay, forwarded from the UI to
 // MapEditor which owns all the logic. `index` meaning depends on the kind.
 struct EditorUiEvent {
@@ -438,8 +457,12 @@ class GameUi {
   // registers the callback that receives clicks/scrolls on the editor widgets.
   void SetEditorView(const EditorView& view);
   void SetEditorEventSink(base::Function<void(const EditorUiEvent&)> sink);
-  // Converts raw window-space input to the framebuffer-sized editor canvas.
+  // Converts raw window-space input into the UI's 1080p design space, which is
+  // what the overlays' own hit-test geometry (kEd*, kCg*) is written in. Use
+  // CanvasSize for the matching canvas extent: the backbuffer is a different
+  // size again, so measuring panels off the renderer's output would not line up.
   void ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const;
+  void CanvasSize(f32* width, f32* height) const;
 
   // Character-creation overlay: the race / sex / preset / page controls and the
   // scrollable slider list. CharGen owns all the interaction (it hit-tests its own
@@ -462,6 +485,20 @@ class GameUi {
   // sensitivity, toggle invert, reset, test rumble).
   void SetControlsView(const ControlsView& view);
   SettingsRequest PollSettingsRequest();
+
+  // The gameplay overlays' clicks (pin a quest, pick a topic, take loot, close a
+  // panel). Consumed once per frame by the engine, which owns those systems.
+  HudRequest PollHudRequest();
+
+  // RX_UI_PROBE: walks every screen in turn and, for each visible interactive
+  // widget, hit-tests its centre and dry-runs the click routers, so a button
+  // that is covered by another panel or wired to nothing fails loudly instead of
+  // silently doing nothing. Drives itself over several frames; returns true
+  // while it is still running. Reports each screen's results to the log.
+  bool RunUiProbe();
+  // The screen the probe just laid out and wants captured, once; empty when
+  // there is nothing to grab. The engine owns the renderer, so it takes the shot.
+  base::String PollProbeShot();
 
   // NEXUS main menu (the startup "choose your universe" screen). Distinct from
   // the in-game pause menu above. The engine opens it at boot, drives it with

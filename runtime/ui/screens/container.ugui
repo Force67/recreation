@@ -1,31 +1,134 @@
-// Container loot panel: a dimmed full-screen overlay with a card naming the
-// container and listing its contents in a fixed pool of rows (kContainerRows),
-// filled/toggled in GameUi::Build. Starts hidden (toggled by SetContainer).
+// Container loot panel: a blurred full-screen overlay with a card naming the
+// container (container_head + container_count), a fixed pool of clickable item
+// rows (container_item0..13, each with _lbl/_qty children), an empty state
+// (container_empty) and a Take All / Close footer. GameUi::Build fills the
+// texts and toggles row/empty visibility each frame. Starts hidden (toggled
+// by SetContainer).
 
   panel container_box {
     position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-    layout: column; justify: center; align: center; background: #05070cdd;
+    layout: column; justify: center; align: center;
+    background: #05070cdd; backdrop-blur: 28;
     panel container_card {
-      layout: column; align: start; padding: 28 40; width: 460;
-      background: #0d1018f7; corner-radius: 14; border-color: #ffffff1c; border-width: 1;
+      layout: column; align: stretch; width: 520; padding: 26 30 22 30;
+      background: #0d1018f7; background-end: #0a0c14f7; corner-radius: 16;
+      border-color: #ffffff1c; border-width: 1;
       shadow-color: #000000aa; shadow-blur: 48; shadow-y: 18;
-      text container_head { text: ""; font-size: 22; color: #ffcc55; letter-spacing: 4;
-        text-transform: uppercase; margin: 0 0 12 0; }
-      text container_item0  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item1  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item2  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item3  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item4  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item5  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item6  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item7  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item8  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item9  { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item10 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item11 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item12 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_item13 { text: ""; font-size: 15; color: #d8def0; margin: 0 0 2 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text container_hint { text: "press Esc to close"; font-size: 12;
-        color: #8a93a8; margin: 14 0 0 0; }
+      panel container_head_row { layout: row; justify: space-between; align: end; width: 100%;
+        text container_head { text: ""; font-size: 22; color: #ffcc55; letter-spacing: 4;
+          text-transform: uppercase; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+        text container_count { text: ""; font-size: 11; color: #8a93a8; letter-spacing: 3;
+          text-transform: uppercase; margin: 0 0 3 0; }
+      }
+      panel container_rule_top { width: 100%; height: 1; background: #ffffff1f; margin: 14 0 12 0; }
+      panel container_list { layout: column; gap: 3; width: 100%;
+        button container_item0 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 1;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item0_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item0_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item1 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 2;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item1_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item1_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item2 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 3;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item2_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item2_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item3 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 4;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item3_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item3_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item4 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 5;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item4_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item4_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item5 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 6;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item5_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item5_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item6 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 7;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item6_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item6_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item7 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 8;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item7_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item7_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item8 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 9;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item8_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item8_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item9 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 10;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item9_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item9_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item10 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 11;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item10_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item10_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item11 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 12;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item11_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item11_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item12 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 13;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item12_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item12_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        button container_item13 { layout: row; justify: space-between; align: center; width: 100%;
+          padding: 7 12; corner-radius: 7; background: #ffffff06; cursor: pointer; tab-index: 14;
+          :hover { background: #ffffff14; } :pressed { background: #ffffff20; } :focused { background: #ffcc5530; }
+          text container_item13_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+          text container_item13_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
+        }
+        text container_empty { text: "This container is empty."; font-size: 13; color: #8a93a8;
+          text-align: center; padding: 10 0; visibility: collapsed; }
+      }
+      panel container_rule_bot { width: 100%; height: 1; background: #ffffff1f; margin: 12 0 14 0; }
+      panel container_footer { layout: row; align: center; gap: 10; width: 100%;
+        button container_take_all {
+          text: "Take All"; font-size: 15; color: #ffe6a0; text-align: center;
+          letter-spacing: 2; text-transform: uppercase; flex-grow: 1;
+          background: #ffcc5522; corner-radius: 9; padding: 11 0; cursor: pointer;
+          border-color: #ffcc5544; border-width: 1; tab-index: 0;
+          :hover { background: #ffcc5538; color: #ffffff; }
+          :pressed { background: #ffcc5555; }
+          :focused { background: #ffcc5544; color: #ffffff; border-color: #ffcc55cc; }
+        }
+        button container_close {
+          text: "Close"; font-size: 14; color: #cfd6e6; text-align: center;
+          background: #ffffff0c; corner-radius: 9; padding: 11 22; cursor: pointer;
+          border-color: #ffffff1c; border-width: 1; tab-index: 15;
+          :hover { background: #ffffff1c; color: #ffffff; }
+          :pressed { background: #ffffff28; }
+          :focused { background: #ffffff1c; color: #ffffff; border-color: #ffcc55cc; }
+        }
+        text container_hint { text: "Esc to close"; font-size: 11; color: #8a93a8; margin: 0 0 0 6; }
+      }
     }
   }

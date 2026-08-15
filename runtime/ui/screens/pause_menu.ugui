@@ -113,7 +113,9 @@
           panel { layout: row; gap: 10; align: center;
             button btn_skbm_dec { text: "−"; font-size: 16; color: #e8ecf6; background: #ffffff10;
               corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
-            text sens_kbm_val { text: "0.0025"; font-size: 13; color: #ffcc55; }
+            // Fixed width so the -/+ pair sits at the same x as the row below,
+            // whatever the value's own width is.
+            text sens_kbm_val { text: "0.0025"; font-size: 13; color: #ffcc55; width: 54; text-align: center; }
             button btn_skbm_inc { text: "+"; font-size: 16; color: #e8ecf6; background: #ffffff10;
               corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
           }
@@ -123,7 +125,7 @@
           panel { layout: row; gap: 10; align: center;
             button btn_spad_dec { text: "−"; font-size: 16; color: #e8ecf6; background: #ffffff10;
               corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
-            text sens_pad_val { text: "2.6"; font-size: 13; color: #ffcc55; }
+            text sens_pad_val { text: "2.6"; font-size: 13; color: #ffcc55; width: 54; text-align: center; }
             button btn_spad_inc { text: "+"; font-size: 16; color: #e8ecf6; background: #ffffff10;
               corner-radius: 6; padding: 2 12; cursor: pointer; :hover { background: #ffffff20; } }
           }

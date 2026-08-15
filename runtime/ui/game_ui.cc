@@ -18,6 +18,7 @@
 #include <ugui/style/style.h>
 #include <ugui/ultragui.h>
 #include <ugui/widgets/image.h>
+#include <ugui/widgets/rich_text.h>
 #include <ugui/widgets/text.h>
 #include <ugui/widgets/widget.h>
 #include <ugui/widgets/widget_registry.h>
@@ -74,6 +75,10 @@ float CompassStripLeft(float heading_deg) {
 // ultragui document has no way to add widgets on the fly.
 constexpr int kQuestObjectiveRows = 6;
 constexpr int kDialogueOptionRows = 4;  // matches the 1-4 selection keys
+// Speech box sizing (dialogue.ugui): roughly how many characters fit on one
+// wrapped line of the 680-wide card at 16px, and the height one line occupies.
+constexpr size_t kDialogueLineChars = 76;
+constexpr float kDialogueLineHeight = 25.0f;
 constexpr int kJournalRows = 6;         // quests listed in the journal (1-N pick, 1-4 usable)
 constexpr int kJournalObjRows = 6;      // objectives shown for the selected journal quest
 constexpr int kWarHoldRows = 9;         // Skyrim's nine holds on the war-map panel
@@ -1125,6 +1130,7 @@ struct GameUi::Impl {
   bool settings_open = false;  // settings sub-view of the pause menu
   bool quit_requested = false;
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
+  HudRequest hud_request;            // raised by the gameplay overlays, polled by the engine
   bool prev_mouse[3] = {};
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
@@ -1264,6 +1270,44 @@ struct GameUi::Impl {
     ugui::SetStyle(ui.world(), w, style);
   }
 
+  // Fills a rich-text widget with a sentence. ugui's plain text widget never
+  // wraps and rich-text only breaks between spans, so a wrapping line has to be
+  // handed over one word per span (the trailing space rides with the word).
+  void SetWrappedText(const char* name, const base::String& text, ugui::Color color) {
+    ugui::wid w = ui.FindWidget(name);
+    if (!w.valid())
+      return;
+    ugui::Vector<ugui::TextSpan> spans;
+    size_t start = 0;
+    while (start < text.size()) {
+      size_t space = text.find(' ', start);
+      const bool last = space == base::String::npos;
+      const size_t end = last ? text.size() : space + 1;  // keep the space
+      ugui::TextSpan span;
+      span.text = ugui::String(text.substr(start, end - start).c_str());
+      span.color = color;
+      spans.push_back(base::move(span));
+      start = end;
+    }
+    ugui::SetRichTextSpans(w, spans);
+  }
+
+  // Strikes a line through a text widget (a completed journal objective), which
+  // is how "done" reads without a check-mark glyph.
+  void SetStrikeThrough(const char* name, bool on) {
+    ugui::wid w = ui.FindWidget(name);
+    if (!w.valid())
+      return;
+    ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
+    if (!sc)
+      return;
+    ugui::Style style = sc->style;
+    style.text_decoration =
+        on ? ugui::TextDecoration::kStrikethrough : ugui::TextDecoration::kNone;
+    style.text_decoration_color = style.text_color;
+    ugui::SetStyle(ui.world(), w, style);
+  }
+
   void SetTextColor(const char* name, ugui::Color color) {
     ugui::wid w = ui.FindWidget(name);
     if (!w.valid())
@@ -1283,6 +1327,43 @@ struct GameUi::Impl {
   // Climbs from a clicked widget to the nearest editor-handled name and forwards
   // the matching event to editor_sink. Returns true if it consumed the click.
   bool RouteEditorClick(ugui::wid target);
+
+  // The pause menu / settings panel, and the gameplay overlays, by widget name.
+  // Both are called for every ancestor of the clicked widget (see the click
+  // router), so a click on a row's label acts like a click on the row.
+  bool RouteMenuClick(const base::String& name);
+  bool RouteHudClick(const base::String& name);
+
+  // --- RX_UI_PROBE: click-test every button on every screen ------------------
+  // Runs one screen per step so each gets a laid-out frame before it is probed.
+  int probe_step = -1;   // -1 off, else the screen being probed
+  int probe_settle = 0;  // frames this screen has been up (see ProbeStep)
+  int probe_pass = 0;     // widgets that hit-tested and routed
+  int probe_fail = 0;     // widgets a click reaches but nothing handles
+  int probe_covered = 0;  // widgets another panel is drawn over
+  base::String probe_shot;  // screen the engine should capture, once it is laid out
+  void ProbeStep();
+  // Re-asserts the current step's screen state at the top of every Build. The
+  // engine pushes the live (closed) conversation and loot views every frame, so
+  // opening them once would be undone before the frame is laid out.
+  void ProbeApplyScreen();
+  void ProbeScreen(const char* label);
+  void ProbeWidget(ugui::wid w, const char* screen);
+  void CollectProbeTargets(ugui::wid w, base::Vector<ugui::wid>* out);
+  // Runs the click routers over a widget's ancestor chain WITHOUT keeping any
+  // of their effects, so probing a button cannot quit the game or load a world.
+  bool DryRunClick(ugui::wid target);
+  // "<prefix><digits>" -> the index, or -1. Keeps a label like journal_q0_lbl
+  // from aliasing the row prefix it is nested under.
+  static int RowIndex(const base::String& name, const char* prefix) {
+    const size_t pl = std::strlen(prefix);
+    if (name.size() <= pl || name.compare(0, pl, prefix) != 0)
+      return -1;
+    for (size_t i = pl; i < name.size(); ++i)
+      if (name[i] < '0' || name[i] > '9')
+        return -1;
+    return std::atoi(name.c_str() + pl);
+  }
 
   void ApplyMenuVisibility() {
     SetStyleField(
@@ -2160,6 +2241,323 @@ void GameUi::Impl::RetreatFirstRun() {
     fr_request.kind = FirstRunRequest::Kind::kCancel;
 }
 
+// The pause menu and its settings sub-view, by widget name. Only the panel that
+// is actually showing may act, so a click cannot reach a collapsed control.
+bool GameUi::Impl::RouteMenuClick(const base::String& name) {
+  if (!menu_open)
+    return false;
+  if (!settings_open) {
+    if (name == "btn_resume") {
+      menu_open = false;
+      ApplyMenuVisibility();
+      return true;
+    }
+    if (name == "btn_settings") {
+      settings_open = true;
+      ApplyMenuVisibility();
+      return true;
+    }
+    if (name == "btn_quit") {
+      quit_requested = true;
+      return true;
+    }
+    return false;
+  }
+  if (name == "btn_settings_back") {
+    settings_open = false;
+    ApplyMenuVisibility();
+    return true;
+  }
+  if (int i = RowIndex(name, "rebind_"); i >= 0) {
+    // A rebind row: ask the engine to capture the next input for that action.
+    settings_request = {SettingsRequest::Kind::kRebind, i, 0};
+    return true;
+  }
+  if (name == "btn_skbm_dec" || name == "btn_skbm_inc") {
+    settings_request = {SettingsRequest::Kind::kSensKbm, 0, name == "btn_skbm_inc" ? +1 : -1};
+    return true;
+  }
+  if (name == "btn_spad_dec" || name == "btn_spad_inc") {
+    settings_request = {SettingsRequest::Kind::kSensPad, 0, name == "btn_spad_inc" ? +1 : -1};
+    return true;
+  }
+  if (name == "btn_invert") {
+    settings_request = {SettingsRequest::Kind::kInvertToggle, 0, 0};
+    return true;
+  }
+  if (name == "btn_reset") {
+    settings_request = {SettingsRequest::Kind::kReset, 0, 0};
+    return true;
+  }
+  if (name == "btn_rumble") {
+    settings_request = {SettingsRequest::Kind::kTestRumble, 0, 0};
+    return true;
+  }
+  return false;
+}
+
+// The gameplay overlays (journal, loot, conversation, war map). Each raises a
+// request the engine consumes; the UI itself owns none of these systems.
+bool GameUi::Impl::RouteHudClick(const base::String& name) {
+  using K = HudRequest::Kind;
+  auto raise = [&](K kind, int index) {
+    hud_request = {kind, index};
+    return true;
+  };
+  if (journal_open) {
+    if (int i = RowIndex(name, "journal_q"); i >= 0)
+      return raise(K::kJournalPin, i);
+    if (name == "journal_close")
+      return raise(K::kJournalClose, 0);
+  }
+  if (container.open) {
+    if (int i = RowIndex(name, "container_item"); i >= 0)
+      return raise(K::kContainerTake, i);
+    if (name == "container_take_all")
+      return raise(K::kContainerTakeAll, 0);
+    if (name == "container_close")
+      return raise(K::kContainerClose, 0);
+  }
+  if (dialogue.open) {
+    if (int i = RowIndex(name, "dialogue_opt"); i >= 0)
+      return raise(K::kDialogueOption, i);
+  }
+  if (war_map_open && name == "war_map_close")
+    return raise(K::kWarMapClose, 0);
+  return false;
+}
+
+// --- RX_UI_PROBE -------------------------------------------------------------
+// Opening a screen and looking at it proves it renders; it does not prove its
+// buttons work. This walks every screen, and for each visible interactive
+// widget hit-tests the point a player would click and dry-runs the routers, so
+// "covered by another panel" and "wired to nothing" both fail loudly.
+
+// Everything the routers may touch, saved around a dry run so probing a button
+// cannot quit the game, load a universe or leave a menu open.
+struct ProbeSnapshot {
+  bool menu_open, settings_open, quit_requested;
+  SettingsRequest settings_request;
+  HudRequest hud_request;
+  int mm_screen, mm_nav, mm_universe, mm_mp_mode;
+  MainMenuRequest mm_request;
+  int fr_step, fr_mode, fr_diff, fr_dropdown;
+  bool fr_check[3];
+  FirstRunRequest fr_request;
+};
+
+bool GameUi::Impl::DryRunClick(ugui::wid target) {
+  const ProbeSnapshot saved{menu_open,   settings_open, quit_requested, settings_request,
+                            hud_request, mm_screen,     mm_nav,         mm_universe,
+                            mm_mp_mode,  mm_request,    fr_step,        fr_mode,
+                            fr_diff,     fr_dropdown,   {fr_check[0], fr_check[1], fr_check[2]},
+                            fr_request};
+  // The editor forwards to a sink that acts immediately, so it gets muted too.
+  base::Function<void(const EditorUiEvent&)> sink = base::move(editor_sink);
+  editor_sink = {};
+
+  bool consumed = RouteFirstRunClick(target) || RouteMainMenuClick(target) ||
+                  RouteEditorClick(target);
+  if (!consumed) {
+    ugui::wid a = target;
+    for (int depth = 0; depth < 10 && a.valid() && !consumed; ++depth) {
+      if (const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(a)) {
+        const base::String name = n->name.c_str();
+        consumed = RouteHudClick(name) || RouteMenuClick(name);
+      }
+      const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(a);
+      a = h ? h->parent : ugui::wid{};
+    }
+  }
+
+  editor_sink = base::move(sink);
+  menu_open = saved.menu_open;
+  settings_open = saved.settings_open;
+  quit_requested = saved.quit_requested;
+  settings_request = saved.settings_request;
+  hud_request = saved.hud_request;
+  mm_screen = saved.mm_screen;
+  mm_nav = saved.mm_nav;
+  mm_universe = saved.mm_universe;
+  mm_mp_mode = saved.mm_mp_mode;
+  mm_request = saved.mm_request;
+  fr_step = saved.fr_step;
+  fr_mode = saved.fr_mode;
+  fr_diff = saved.fr_diff;
+  fr_dropdown = saved.fr_dropdown;
+  for (int i = 0; i < 3; ++i)
+    fr_check[i] = saved.fr_check[i];
+  fr_request = saved.fr_request;
+  ApplyMenuVisibility();  // RouteMenuClick may have swapped the pause sub-view
+  return consumed;
+}
+
+void GameUi::Impl::CollectProbeTargets(ugui::wid w, base::Vector<ugui::wid>* out) {
+  if (!w.valid())
+    return;
+  const ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
+  if (sc && sc->style.visibility == ugui::Visibility::kCollapsed)
+    return;  // a collapsed subtree is not on screen, so nothing in it is clickable
+  const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+  const ugui::Transform* t = ui.world().Get<ugui::Transform>(w);
+  const bool interactive =
+      n && (n->kind == ugui::WidgetKind::kButton || (sc && sc->style.cursor == ugui::Cursor::kPointer));
+  if (interactive && n && !n->name.empty() && t && t->rect.w > 0.5f && t->rect.h > 0.5f)
+    out->push_back(w);
+  if (const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w))
+    for (ugui::wid kid : h->children)
+      CollectProbeTargets(kid, out);
+}
+
+void GameUi::Impl::ProbeWidget(ugui::wid w, const char* screen) {
+  const ugui::WidgetNode* n = ui.world().Get<ugui::WidgetNode>(w);
+  const ugui::Transform* t = ui.world().Get<ugui::Transform>(w);
+  if (!n || !t)
+    return;
+  const base::String name = n->name.c_str();
+  const ugui::wid root = ui.FindWidget("root");
+  const ugui::Vec2 point = t->rect.center();
+
+  // What a click at the widget's centre would actually land on.
+  const ugui::wid hit = ugui::HitTest(ui.world(), root, point);
+  bool reaches = false;
+  for (ugui::wid a = hit; a.valid() && !reaches;) {
+    reaches = a == w;
+    const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(a);
+    a = h ? h->parent : ugui::wid{};
+  }
+  if (!reaches) {
+    // Something is drawn over it. Usually that is deliberate (a sub-screen
+    // covering the menu behind it), so this is reported rather than failed; the
+    // coverer is named so an accidental one is still obvious.
+    const ugui::WidgetNode* hn = hit.valid() ? ui.world().Get<ugui::WidgetNode>(hit) : nullptr;
+    RX_INFO("ui probe: {}/{} covered by '{}'", screen, name,
+            hn && !hn->name.empty() ? hn->name.c_str() : "(unnamed)");
+    ++probe_covered;
+    return;
+  }
+  if (!DryRunClick(hit)) {
+    RX_ERROR("ui probe: {}/{} DEAD - nothing handles a click on it", screen, name);
+    ++probe_fail;
+    return;
+  }
+  ++probe_pass;
+}
+
+void GameUi::Impl::ProbeScreen(const char* label) {
+  base::Vector<ugui::wid> targets;
+  CollectProbeTargets(ui.FindWidget("root"), &targets);
+  const int pass0 = probe_pass, fail0 = probe_fail, cov0 = probe_covered;
+  for (ugui::wid w : targets)
+    ProbeWidget(w, label);
+  RX_INFO("ui probe: {} - {} ok, {} broken, {} covered", label, probe_pass - pass0,
+          probe_fail - fail0, probe_covered - cov0);
+}
+
+// The labels double as the screenshot file names.
+static const char* kProbeScreens[] = {
+    "pause",         "pause-settings", "journal",     "container",     "dialogue",
+    "war-map",       "menu",           "menu-multiplayer", "menu-mods", "menu-settings",
+    "menu-profile",  "setup-welcome",  "setup-games", "setup-play",    "setup-mods",
+    "setup-ready",
+};
+constexpr int kProbeScreenCount = static_cast<int>(sizeof(kProbeScreens) / sizeof(*kProbeScreens));
+
+void GameUi::Impl::ProbeStep() {
+  if (probe_step < 0)
+    return;
+  // A screen is held for four frames: opened, laid out (the capture is asked for
+  // here), captured (the renderer writes the previous frame's request), probed.
+  if (probe_settle < 3) {
+    if (probe_settle == 1)
+      probe_shot = kProbeScreens[probe_step];
+    ++probe_settle;
+    return;
+  }
+  ProbeScreen(kProbeScreens[probe_step]);
+  probe_settle = 0;
+  if (++probe_step >= kProbeScreenCount) {
+    RX_INFO("ui probe: done - {} button(s) ok, {} broken, {} covered", probe_pass, probe_fail,
+            probe_covered);
+    probe_step = -1;
+    ApplyMenuVisibility();
+  }
+}
+
+void GameUi::Impl::ProbeApplyScreen() {
+  if (probe_step < 0)
+    return;
+  {
+    // Close everything, then open just the screen this step is about.
+    menu_open = settings_open = false;
+    journal_open = war_map_open = false;
+    container.open = dialogue.open = false;
+    main_menu_open = first_run_open = false;
+    switch (probe_step) {
+      case 0:
+        menu_open = true;
+        break;
+      case 1:
+        menu_open = settings_open = true;
+        break;
+      case 2:
+        journal_open = true;
+        if (journal.empty()) {  // sample rows, so there is something to click
+          for (int i = 0; i < 3; ++i) {
+            HudQuest q;
+            q.title = "Probe quest " + base::ToString(i + 1);
+            q.objectives.push_back({"Probe objective", i == 0});
+            journal.push_back(base::move(q));
+          }
+          journal_selected = 0;
+        }
+        break;
+      case 3:
+        container.open = true;
+        if (container.items.empty()) {
+          container.name = "Probe chest";
+          for (int i = 0; i < 3; ++i)
+            container.items.push_back({"Probe item " + base::ToString(i + 1), i + 1});
+        }
+        break;
+      case 4:
+        dialogue.open = true;
+        if (dialogue.options.empty()) {
+          dialogue.speaker = "Probe";
+          dialogue.npc_line = "Does every topic in this list answer a click?";
+          for (int i = 0; i < 4; ++i)
+            dialogue.options.push_back("Probe topic " + base::ToString(i + 1));
+        }
+        break;
+      case 5:
+        war_map_open = true;
+        if (war_holds.empty())
+          for (int i = 0; i < 9; ++i)
+            war_holds.push_back({"Probe hold " + base::ToString(i + 1), i % 3});
+        break;
+      case 6:
+      case 7:
+      case 8:
+      case 9:
+      case 10:
+        main_menu_open = true;
+        mm_screen = probe_step - 6;  // 0 root, then multiplayer / mods / settings / profile
+        break;
+      case 11:
+      case 12:
+      case 13:
+      case 14:
+      case 15:
+        first_run_open = true;
+        fr_step = probe_step - 11;
+        break;
+      default:
+        break;
+    }
+    ApplyMenuVisibility();
+  }
+}
+
 bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
   if (!first_run_open)
     return false;
@@ -2254,6 +2652,15 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   cfg.external_window = &impl_->host;
   cfg.width = static_cast<int>(window.width());
   cfg.height = static_cast<int>(window.height());
+  // Every screen is authored at 1080p (the HUD's fixed offsets, the compass
+  // maths, the editor's dock constants), and the canvas is the backbuffer, which
+  // is larger on a HiDPI window and smaller on a handheld. Without a scale mode
+  // the whole UI is laid out in raw backbuffer pixels, so it shrinks to two
+  // thirds on this box's 2880x1620 swapchain. kContain keeps it the same
+  // fraction of the screen everywhere.
+  cfg.scale_mode = ugui::ViewportScaleMode::kContain;
+  cfg.design_width = 1920.0f;
+  cfg.design_height = 1080.0f;
   if (!impl_->ui.Init(cfg)) {
     RX_WARN("ultragui init failed");
     return false;
@@ -2310,38 +2717,19 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
       return;  // the front menu owns this click
     if (impl->RouteEditorClick(w))
       return;  // editor overlay owns this click
-    ugui::WidgetNode* n = impl->ui.world().Get<ugui::WidgetNode>(w);
-    if (!n)
-      return;
-    if (n->name == "btn_resume") {
-      impl->menu_open = false;
-      impl->settings_open = false;
-      impl->ApplyMenuVisibility();
-    } else if (n->name == "btn_settings") {
-      impl->settings_open = true;
-      impl->ApplyMenuVisibility();
-    } else if (n->name == "btn_settings_back") {
-      impl->settings_open = false;
-      impl->ApplyMenuVisibility();
-    } else if (n->name == "btn_quit") {
-      impl->quit_requested = true;
-    } else if (n->name.rfind("rebind_", 0) == 0 && n->name.find('_', 7) == base::String::npos) {
-      // A rebind row (rebind_<N>): ask the engine to capture the next input.
-      impl->settings_request = {SettingsRequest::Kind::kRebind, std::atoi(n->name.c_str() + 7), 0};
-    } else if (n->name == "btn_skbm_dec") {
-      impl->settings_request = {SettingsRequest::Kind::kSensKbm, 0, -1};
-    } else if (n->name == "btn_skbm_inc") {
-      impl->settings_request = {SettingsRequest::Kind::kSensKbm, 0, +1};
-    } else if (n->name == "btn_spad_dec") {
-      impl->settings_request = {SettingsRequest::Kind::kSensPad, 0, -1};
-    } else if (n->name == "btn_spad_inc") {
-      impl->settings_request = {SettingsRequest::Kind::kSensPad, 0, +1};
-    } else if (n->name == "btn_invert") {
-      impl->settings_request = {SettingsRequest::Kind::kInvertToggle, 0, 0};
-    } else if (n->name == "btn_reset") {
-      impl->settings_request = {SettingsRequest::Kind::kReset, 0, 0};
-    } else if (n->name == "btn_rumble") {
-      impl->settings_request = {SettingsRequest::Kind::kTestRumble, 0, 0};
+    // ugui hit-tests to the DEEPEST widget under the cursor, so a click on a
+    // row's label arrives as that label, not the row. Climb to the nearest
+    // ancestor either router knows, the way the menu/editor routers do.
+    ugui::wid a = w;
+    for (int depth = 0; depth < 10 && a.valid(); ++depth) {
+      const ugui::WidgetNode* n = impl->ui.world().Get<ugui::WidgetNode>(a);
+      if (n) {
+        const base::String name = n->name.c_str();
+        if (impl->RouteHudClick(name) || impl->RouteMenuClick(name))
+          return;
+      }
+      const ugui::Hierarchy* h = impl->ui.world().Get<ugui::Hierarchy>(a);
+      a = h ? h->parent : ugui::wid{};
     }
   });
 
@@ -2572,6 +2960,35 @@ SettingsRequest GameUi::PollSettingsRequest() {
   return r;
 }
 
+bool GameUi::RunUiProbe() {
+  if (!impl_->initialized)
+    return false;
+  if (impl_->probe_step < 0 && impl_->probe_pass == 0 && impl_->probe_fail == 0) {
+    RX_INFO("ui probe: starting");
+    impl_->probe_step = 0;
+    impl_->probe_settle = 0;
+  }
+  return impl_->probe_step >= 0;
+}
+
+base::String GameUi::PollProbeShot() {
+  base::String shot;
+  if (impl_->initialized) {
+    shot = base::move(impl_->probe_shot);
+    impl_->probe_shot.clear();
+  }
+  return shot;
+}
+
+HudRequest GameUi::PollHudRequest() {
+  HudRequest r;
+  if (impl_->initialized) {
+    r = impl_->hud_request;
+    impl_->hud_request = HudRequest{};  // consume
+  }
+  return r;
+}
+
 void GameUi::SetQuest(const HudQuest& quest) {
   if (impl_->initialized)
     impl_->quest = quest;
@@ -2682,10 +3099,22 @@ void GameUi::SetEditorEventSink(base::Function<void(const EditorUiEvent&)> sink)
 }
 
 void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas_y) const {
+  // Window pixels -> backbuffer canvas -> the 1080p design space the overlays'
+  // own hit-test geometry (kEd*, kCg*) is written in.
+  const f32 s = impl_->initialized ? impl_->ui.ui_scale() : 1.0f;
+  const f32 inv = s > 0.0f ? 1.0f / s : 1.0f;
   if (canvas_x)
-    *canvas_x = window_x * impl_->pointer_scale_x;
+    *canvas_x = window_x * impl_->pointer_scale_x * inv;
   if (canvas_y)
-    *canvas_y = window_y * impl_->pointer_scale_y;
+    *canvas_y = window_y * impl_->pointer_scale_y * inv;
+}
+
+void GameUi::CanvasSize(f32* width, f32* height) const {
+  const f32 s = impl_->initialized && impl_->ui.ui_scale() > 0.0f ? impl_->ui.ui_scale() : 1.0f;
+  if (width)
+    *width = impl_->host.window_width / s;
+  if (height)
+    *height = impl_->host.window_height / s;
 }
 
 void GameUi::SetCharGenView(const CharGenView& view) {
@@ -2708,6 +3137,10 @@ void GameUi::Build(Window& window,
   if (!impl_->initialized)
     return;
   Impl* impl = (impl_ ? &*impl_ : nullptr);
+
+  // RX_UI_PROBE owns which screen is up while it runs, re-asserted here because
+  // the engine pushes the live views (a closed conversation, no loot) each frame.
+  impl->ProbeApplyScreen();
 
   // Hot reload: poll the .ugui fragments a few times a second and rebuild the
   // tree in place when one is edited. Gated on RECREATION_UI_HOT_RELOAD.
@@ -2950,7 +3383,10 @@ void GameUi::Build(Window& window,
 
   // Floating world-space nametags: place each label at its screen position. The
   // engine projects the world position; we centre the pill on it (a rough half
-  // width per character) and bias it up so it floats above the player.
+  // width per character) and bias it up so it floats above the player. The
+  // projection is in real framebuffer pixels while every offset here is in design
+  // pixels that ugui scales, so it has to come back through the scale first.
+  const float ui_scale = impl->ui.ui_scale() > 0.0f ? impl->ui.ui_scale() : 1.0f;
   for (int i = 0; i < kNametags; ++i) {
     const base::String tag = "nametag" + base::ToString(i);
     if (static_cast<size_t>(i) < impl->nametags.size()) {
@@ -2959,9 +3395,10 @@ void GameUi::Build(Window& window,
       const float half_w = 7.0f + n.label.size() * 3.7f;  // approx half the pill width
       impl->SetStyleField(
           tag.c_str(), [](ugui::Style& s, float v) { s.left_offset = ugui::Length::Px(v); },
-          n.sx - half_w);
+          n.sx / ui_scale - half_w);
       impl->SetStyleField(
-          tag.c_str(), [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); }, n.sy);
+          tag.c_str(), [](ugui::Style& s, float v) { s.top = ugui::Length::Px(v); },
+          n.sy / ui_scale);
       impl->SetVisible(tag.c_str(), true);
     } else {
       impl->SetVisible(tag.c_str(), false);
@@ -2977,9 +3414,11 @@ void GameUi::Build(Window& window,
     base::String row = "quest_obj" + base::ToString(i);
     if (has_quest && static_cast<size_t>(i) < impl->quest.objectives.size()) {
       const HudQuest::Objective& o = impl->quest.objectives[i];
-      // A check for done objectives, a bullet for the rest.
-      base::String line = (o.completed ? "✓  " : "•  ") + o.text;
-      ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
+      // A bullet for both states, dimmed once done: the UI font (whatever
+      // fc-match resolves) has no check mark, and a tofu box is worse than no
+      // mark at all.
+      ugui::SetText(impl->ui.FindWidget(row.c_str()), ("•  " + o.text).c_str());
+      impl->SetTextColor(row.c_str(), o.completed ? Rgba(0x7f8798ffu) : Rgba(0xd8def0ffu));
       impl->SetVisible(row.c_str(), true);
     } else {
       impl->SetVisible(row.c_str(), false);
@@ -3004,72 +3443,122 @@ void GameUi::Build(Window& window,
   impl->SetVisible("dialogue_box", dlg.open);
   if (dlg.open) {
     ugui::SetText(impl->ui.FindWidget("dialogue_speaker"), dlg.speaker.c_str());
-    ugui::SetText(impl->ui.FindWidget("dialogue_npc"), dlg.npc_line.c_str());
+    impl->SetWrappedText("dialogue_npc", dlg.npc_line, Rgba(0xd8def0ffu));
+    // Rich text measures its spans unwrapped, so the speech box cannot size
+    // itself. Reserve only the lines this line actually needs (up to three, past
+    // which it clips) instead of always leaving room for three.
+    const int lines =
+        base::Clamp(static_cast<int>(dlg.npc_line.size() / kDialogueLineChars) + 1, 1, 3);
+    impl->SetStyleField(
+        "dialogue_npc", [](ugui::Style& s, float v) { s.height = ugui::Length::Px(v); },
+        static_cast<float>(lines) * kDialogueLineHeight);
     for (int i = 0; i < kDialogueOptionRows; ++i) {
       const base::String row = "dialogue_opt" + base::ToString(i);
       if (i < static_cast<int>(dlg.options.size())) {
-        const base::String line = base::ToString(i + 1) + ". " + dlg.options[i];
-        ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
-        impl->SetVisible(row.c_str(), true);
-      } else {
-        impl->SetVisible(row.c_str(), false);
+        ugui::SetText(impl->ui.FindWidget((row + "_num").c_str()),
+                      base::ToString(i + 1).c_str());
+        ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), dlg.options[i].c_str());
       }
+      impl->SetVisible(row.c_str(), i < static_cast<int>(dlg.options.size()));
     }
   }
 
-  // Container loot panel: the container's name and a fixed pool of item rows.
+  // Container loot panel: the container's name, a fixed pool of clickable item
+  // rows (name + quantity), and the Take All action, which an empty chest drops.
   const ContainerView& cont = impl->container;
   impl->SetVisible("container_box", cont.open);
   if (cont.open) {
     ugui::SetText(impl->ui.FindWidget("container_head"), cont.name.c_str());
+    const int items = static_cast<int>(cont.items.size());
+    ugui::SetText(impl->ui.FindWidget("container_count"),
+                  (base::ToString(items) + (items == 1 ? " item" : " items")).c_str());
     for (int i = 0; i < kContainerRows; ++i) {
       const base::String row = "container_item" + base::ToString(i);
-      if (i < static_cast<int>(cont.items.size())) {
-        base::String line = cont.items[i].name;
-        if (cont.items[i].count > 1)
-          line += "  x" + base::ToString(cont.items[i].count);
-        ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
-        impl->SetVisible(row.c_str(), true);
-      } else {
-        impl->SetVisible(row.c_str(), false);
+      if (i < items) {
+        ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), cont.items[i].name.c_str());
+        // A single of something needs no count; a stack reads as "x3".
+        const base::String qty =
+            cont.items[i].count > 1 ? "x" + base::ToString(cont.items[i].count) : base::String();
+        ugui::SetText(impl->ui.FindWidget((row + "_qty").c_str()), qty.c_str());
       }
+      impl->SetVisible(row.c_str(), i < items);
     }
-    // An empty chest still gets a line so it does not read as a bug.
-    if (cont.items.empty()) {
-      ugui::SetText(impl->ui.FindWidget("container_item0"), "(empty)");
-      impl->SetVisible("container_item0", true);
-    }
+    // An empty chest says so, rather than showing a blank card that reads as a
+    // bug, and loses the action that would have nothing to take.
+    impl->SetVisible("container_empty", items == 0);
+    impl->SetVisible("container_take_all", items > 0);
   }
 
   // Quest journal: a numbered list of active quests; an arrow marks the tracked
   // one and its objectives are listed below.
   impl->SetVisible("journal_box", impl->journal_open);
   if (impl->journal_open) {
+    const int quests = static_cast<int>(impl->journal.size());
+    ugui::SetText(impl->ui.FindWidget("journal_count"),
+                  (base::ToString(quests) + " active").c_str());
     for (int i = 0; i < kJournalRows; ++i) {
       const base::String row = "journal_q" + base::ToString(i);
-      if (i < static_cast<int>(impl->journal.size())) {
-        const base::String mark = i == impl->journal_selected ? "▶ " : "   ";
-        const base::String line = mark + base::ToString(i + 1) + ". " + impl->journal[i].title;
-        ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
-        impl->SetVisible(row.c_str(), true);
-      } else {
-        impl->SetVisible(row.c_str(), false);
+      if (i < quests) {
+        const HudQuest& q = impl->journal[i];
+        const bool tracked = i == impl->journal_selected;
+        int done = 0;
+        for (const HudQuest::Objective& o : q.objectives)
+          done += o.completed ? 1 : 0;
+        ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()),
+                      (base::ToString(i + 1) + ". " + q.title).c_str());
+        // The tracked quest says so; the rest show how far along they are.
+        const base::String tag =
+            tracked ? base::String("tracked")
+                    : base::ToString(done) + "/" + base::ToString(q.objectives.size());
+        ugui::SetText(impl->ui.FindWidget((row + "_tag").c_str()), tag.c_str());
+        impl->SetTextColor((row + "_tag").c_str(),
+                           tracked ? Rgba(0xffcc55ffu) : Rgba(0x8a93a8ffu));
+        impl->SetTextColor((row + "_lbl").c_str(),
+                           tracked ? Rgba(0xffffffffu) : Rgba(0xd8def0ffu));
+        impl->SetBackground(row.c_str(), tracked ? Rgba(0xffcc5522u) : Rgba(0xffffff06u));
       }
+      impl->SetVisible(row.c_str(), i < quests);
     }
-    const HudQuest* sel = (impl->journal_selected >= 0 &&
-                           impl->journal_selected < static_cast<int>(impl->journal.size()))
-                              ? &impl->journal[impl->journal_selected]
-                              : nullptr;
+    impl->SetVisible("journal_empty", quests == 0);
+
+    // The detail pane follows the tracked quest, falling back to the first one
+    // so the pane is never blank while quests exist.
+    const int detail = impl->journal_selected >= 0 && impl->journal_selected < quests
+                           ? impl->journal_selected
+                           : (quests > 0 ? 0 : -1);
+    const HudQuest* sel = detail >= 0 ? &impl->journal[detail] : nullptr;
+    ugui::SetText(impl->ui.FindWidget("journal_sel_title"), sel ? sel->title.c_str() : "");
+    if (sel) {
+      int done = 0;
+      for (const HudQuest::Objective& o : sel->objectives)
+        done += o.completed ? 1 : 0;
+      const base::String status = detail == impl->journal_selected
+                                      ? base::String("Tracked  ·  ")
+                                      : base::String("Not tracked  ·  ");
+      ugui::SetText(
+          impl->ui.FindWidget("journal_sel_status"),
+          (status + base::ToString(done) + " of " + base::ToString(sel->objectives.size()) +
+           " objectives done")
+              .c_str());
+    } else {
+      ugui::SetText(impl->ui.FindWidget("journal_sel_status"), "");
+    }
     for (int i = 0; i < kJournalObjRows; ++i) {
       const base::String row = "journal_obj" + base::ToString(i);
-      if (sel && i < static_cast<int>(sel->objectives.size())) {
-        const base::String line =
-            (sel->objectives[i].completed ? "✓  " : "•  ") + sel->objectives[i].text;
-        ugui::SetText(impl->ui.FindWidget(row.c_str()), line.c_str());
-        impl->SetVisible(row.c_str(), true);
-      } else {
-        impl->SetVisible(row.c_str(), false);
+      const bool on = sel && i < static_cast<int>(sel->objectives.size());
+      if (on) {
+        const HudQuest::Objective& o = sel->objectives[i];
+        // Bullets for both states (the UI font has no check mark); a done
+        // objective is struck through and dimmed instead.
+        ugui::SetText(impl->ui.FindWidget((row + "_mark").c_str()), "•");
+        ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), o.text.c_str());
+        impl->SetTextColor((row + "_mark").c_str(),
+                           o.completed ? Rgba(0x6f9c6fffu) : Rgba(0xffcc55ffu));
+        impl->SetTextColor((row + "_lbl").c_str(),
+                           o.completed ? Rgba(0x6b7488ffu) : Rgba(0xc7e0ffffu));
+        impl->SetStrikeThrough((row + "_lbl").c_str(), o.completed);
       }
+      impl->SetVisible(row.c_str(), on);
     }
   }
 
@@ -3077,7 +3566,7 @@ void GameUi::Build(Window& window,
   // coloured by side, with the overall war-progress bar.
   impl->SetVisible("war_map_box", impl->war_map_open);
   if (impl->war_map_open) {
-    int imperial = 0, stormcloak = 0;
+    int imperial = 0, stormcloak = 0, contested = 0;
     for (int i = 0; i < kWarHoldRows; ++i) {
       const base::String row = "war_hold" + base::ToString(i);
       if (i < static_cast<int>(impl->war_holds.size())) {
@@ -3086,20 +3575,31 @@ void GameUi::Build(Window& window,
         const ugui::Color col = h.owner == 1   ? Rgba(0x6f9fe8ffu)
                                 : h.owner == 2 ? Rgba(0xe86f6fffu)
                                                : Rgba(0xb6bdccffu);
-        ugui::SetText(impl->ui.FindWidget(row.c_str()), (h.name + "  --  " + owner).c_str());
-        impl->SetTextColor(row.c_str(), col);
+        ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), h.name.c_str());
+        ugui::SetText(impl->ui.FindWidget((row + "_own").c_str()), owner);
+        impl->SetTextColor((row + "_own").c_str(), col);
+        impl->SetBackground((row + "_chip").c_str(), col);
         impl->SetVisible(row.c_str(), true);
         if (h.owner == 1)
           ++imperial;
-        if (h.owner == 2)
+        else if (h.owner == 2)
           ++stormcloak;
+        else
+          ++contested;
       } else {
         impl->SetVisible(row.c_str(), false);
       }
     }
+    ugui::SetText(impl->ui.FindWidget("war_imp_count"), base::ToString(imperial).c_str());
+    ugui::SetText(impl->ui.FindWidget("war_stm_count"), base::ToString(stormcloak).c_str());
+    // The face-off shows each side's count, so the subtitle carries what is
+    // still in play.
     char sub[96];
-    std::snprintf(sub, sizeof(sub), "Imperial Legion %d   |   Stormcloaks %d", imperial,
-                  stormcloak);
+    if (contested > 0)
+      std::snprintf(sub, sizeof(sub), "%d hold%s still contested", contested,
+                    contested == 1 ? "" : "s");
+    else
+      std::snprintf(sub, sizeof(sub), "Every hold has declared");
     ugui::SetText(impl->ui.FindWidget("war_map_sub"), sub);
     impl->SetStyleField(
         "war_bar_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
@@ -3125,6 +3625,9 @@ void GameUi::Build(Window& window,
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
+
+  // RX_UI_PROBE: click-test one screen per frame, now that layout is current.
+  impl->ProbeStep();
 
   // Tell the renderer whether any widget wants backdrop blur this frame, so it
   // only captures + blurs the backbuffer when a frosted panel is actually shown.
@@ -3195,6 +3698,12 @@ void GameUi::ScalePointer(f32 window_x, f32 window_y, f32* canvas_x, f32* canvas
   if (canvas_y)
     *canvas_y = window_y;
 }
+void GameUi::CanvasSize(f32* width, f32* height) const {
+  if (width)
+    *width = 0.0f;
+  if (height)
+    *height = 0.0f;
+}
 void GameUi::SetCharGenView(const CharGenView&) {}
 u64 GameUi::CreateUiTexture(int, int, const u8*) {
   return 0;
@@ -3208,6 +3717,15 @@ bool GameUi::settings_open() const {
 }
 void GameUi::SetControlsView(const ControlsView&) {}
 SettingsRequest GameUi::PollSettingsRequest() {
+  return {};
+}
+HudRequest GameUi::PollHudRequest() {
+  return {};
+}
+bool GameUi::RunUiProbe() {
+  return false;
+}
+base::String GameUi::PollProbeShot() {
   return {};
 }
 bool GameUi::quit_requested() const {

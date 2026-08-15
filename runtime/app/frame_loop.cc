@@ -55,6 +55,10 @@ static base::Option<const char*> UiShot{"ui.shot", nullptr, "RX_UI_SHOT"};
 static base::Option<bool> NavDebug{"nav.debug", false, "REC_NAV_DEBUG"};
 static base::Option<float> NavDebugRadius{"nav.debug.radius", 16.0f, "REC_NAV_DEBUG_RADIUS"};
 static base::Option<int> UiShotFrames{"ui.shot.frames", 30, "RX_UI_SHOT_FRAMES"};
+// RX_UI_PROBE walks every screen, click-testing each button; RX_UI_PROBE_SHOTS
+// names a directory to also drop a screenshot of each screen into.
+static base::Option<bool> UiProbe{"ui.probe", false, "RX_UI_PROBE"};
+static base::Option<const char*> UiProbeShots{"ui.probe.shots", nullptr, "RX_UI_PROBE_SHOTS"};
 // RX_FIXED_DT (golden-image capture) is owned by app::Host now.
 
 void Engine::ApplyDebugCommand(const base::String& verb, const base::String& arg) {
@@ -771,6 +775,18 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
 // grabs the frame after RX_UI_SHOT_FRAMES (default 30) and quits, so a headless
 // GPU run can capture the NEXUS menu at boot without loading a universe.
 void Engine::OnFrameEnd() {
+  // RX_UI_PROBE: walk every screen, click-test every button, capture each one,
+  // then quit. The UI drives the walk; the renderer is ours, so the shots are
+  // taken here.
+  if (UiProbe) {
+    const bool running = game_ui_.RunUiProbe();
+    if (base::String shot = game_ui_.PollProbeShot(); !shot.empty()) {
+      if (const char* dir = UiProbeShots.get())
+        renderer_->CaptureScreenshot((base::String(dir) + "/" + shot + ".png").c_str());
+    }
+    if (!running)
+      host_->RequestQuit();
+  }
   if (const char* shot = UiShot.get()) {
     static int ui_shot_frames = 0;
     static const int ui_shot_target = [] {
