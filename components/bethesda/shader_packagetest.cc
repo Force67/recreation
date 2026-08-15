@@ -260,6 +260,85 @@ void TestSdp() {
   Check("truncated blob rejected", !cut.valid);
 }
 
+// A DXBC container whose token stream carries real declarations, so the
+// reflection has something to count.
+base::Vector<u8> MakeDxbcWithDecls(u32 program_type,
+                                   u32 textures,
+                                   u32 samplers,
+                                   u32 cb_slot_a,
+                                   u32 cb_vectors_a,
+                                   u32 cb_slot_b,
+                                   u32 cb_vectors_b,
+                                   u32 instructions) {
+  base::Vector<u8> tokens;
+  auto decl_cb = [&](u32 slot, u32 vectors) {
+    PutU32(tokens, (4u << 24) | 89);  // dcl_constantbuffer, 4 dwords
+    PutU32(tokens, 0x00208006);       // operand: cb file, two indices
+    PutU32(tokens, slot);
+    PutU32(tokens, vectors);
+  };
+  decl_cb(cb_slot_a, cb_vectors_a);
+  decl_cb(cb_slot_b, cb_vectors_b);
+  for (u32 i = 0; i < samplers; ++i) {
+    PutU32(tokens, (3u << 24) | 90);  // dcl_sampler, 3 dwords
+    PutU32(tokens, 0x00006000);
+    PutU32(tokens, i);
+  }
+  for (u32 i = 0; i < textures; ++i) {
+    PutU32(tokens, (4u << 24) | 88);  // dcl_resource, 4 dwords
+    PutU32(tokens, 0x00107000);
+    PutU32(tokens, i);
+    PutU32(tokens, 0x5555);  // return type
+  }
+  for (u32 i = 0; i < instructions; ++i) {
+    PutU32(tokens, (2u << 24) | 1);  // a two-dword core instruction
+    PutU32(tokens, 0);
+  }
+
+  base::Vector<u8> b;
+  PutBytes(b, "DXBC", 4);
+  for (int i = 0; i < 16; ++i)
+    b.push_back(u8(0xb0 + i));
+  PutU32(b, 1);
+  PutU32(b, 0);  // total size, patched below
+  PutU32(b, 1);
+  PutU32(b, 0x24);
+  PutBytes(b, "SHEX", 4);
+  PutU32(b, 8 + static_cast<u32>(tokens.size()));
+  PutU32(b, (program_type << 16) | 0x50);
+  PutU32(b, 2 + static_cast<u32>(tokens.size()) / 4);
+  PutBytes(b, tokens.data(), tokens.size());
+
+  const u32 total = static_cast<u32>(b.size());
+  std::memcpy(b.data() + 0x18, &total, 4);
+  return b;
+}
+
+void TestReflection() {
+  std::puts("reflection");
+
+  base::Vector<u8> dxbc = MakeDxbcWithDecls(/*program_type=*/0, /*textures=*/3, /*samplers=*/2,
+                                            /*cb_slot_a=*/1, /*cb_vectors_a=*/3,
+                                            /*cb_slot_b=*/12, /*cb_vectors_b=*/20,
+                                            /*instructions=*/7);
+  rx::bethesda::ShaderReflection r =
+      rx::bethesda::ReflectShader(rx::ByteSpan(dxbc.data(), dxbc.size()));
+
+  Check("reflects", r.valid);
+  Check("textures counted", r.textures == 3);
+  Check("samplers counted", r.samplers == 2);
+  Check("constant buffers counted", r.constant_buffers == 2);
+  Check("slots as a mask", r.constant_buffer_slots == ((1u << 1) | (1u << 12)));
+  Check("float4s summed", r.constant_buffer_vectors == 23);
+  Check("instructions counted", r.instructions == 7);
+
+  // D3D9 bytecode carries none of this.
+  base::Vector<u8> d3d9 = MakeD3d9(0xffff0200, 8);
+  rx::bethesda::ShaderReflection none =
+      rx::bethesda::ReflectShader(rx::ByteSpan(d3d9.data(), d3d9.size()));
+  Check("d3d9 bytecode not reflected", !none.valid);
+}
+
 void TestRejects() {
   std::puts("rejects");
   base::Vector<u8> junk;
@@ -279,6 +358,7 @@ int main() {
   TestFxp();
   TestFallout4Fxp();
   TestSdp();
+  TestReflection();
   TestRejects();
 
   if (g_failures == 0) {

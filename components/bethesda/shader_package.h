@@ -105,6 +105,24 @@ struct ShaderPackage {
 // truncated or partly-understood package still reports what it had.
 ShaderPackage ParseShaderPackage(ByteSpan data);
 
+// What a DXBC blob declares it needs. With the names gone this is all the
+// interface a .fxp shader still describes about itself, and it is what tells
+// the technique-id permutations apart: the bit that adds a texture is the bit
+// that turns a material feature on.
+struct ShaderReflection {
+  u32 textures = 0;
+  u32 samplers = 0;
+  u32 constant_buffers = 0;
+  u32 constant_buffer_slots = 0;    // bit N set when register bN is declared
+  u32 constant_buffer_vectors = 0;  // total float4s declared across them
+  u32 instructions = 0;
+  bool valid = false;
+};
+
+// Walks the shader chunk's declarations. Only meaningful for DXBC (.fxp); the
+// D3D9 blobs in a .sdp return valid=false.
+ShaderReflection ReflectShader(ByteSpan bytecode);
+
 }  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_SHADER_PACKAGE_H_
