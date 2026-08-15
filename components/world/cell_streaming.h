@@ -464,13 +464,17 @@ class CellStreamer {
   bethesda::GlobalFormId EncounterZoneOf(const bethesda::Record& refr,
                                          bethesda::GlobalFormId ref,
                                          u16 plugin) const;
+  // `re_homed` marks the call that places a reference a savegame moved into
+  // THIS cell, so the check that keeps the authoring cell off it does not also
+  // stop the cell it belongs in now (see saved_spawns.h).
   bool SpawnReference(ecs::World& world,
                       i16 grid_x,
                       i16 grid_y,
                       u64 ref_id,
                       LoadedCell& cell,
                       u32& mesh_budget,
-                      bool interior);
+                      bool interior,
+                      bool re_homed = false);
   // A reference a resumed savegame created: same entity shape as a placed ref,
   // but built from the base form and transform the save carries because no
   // plugin has a REFR record for it. Returns false when the mesh budget ran out
@@ -647,6 +651,12 @@ class CellStreamer {
     bool deleted = false;
     bool moved = false;
     f32 position_offset[3] = {};
+    // A resumed savegame's own placement for this reference: the record's whole
+    // DATA triple (position then euler, game units), replacing it rather than
+    // offsetting it. A save says where a thing IS; a runtime move says how far a
+    // script pushed it from where its record puts it.
+    bool replaced = false;
+    f32 placement[6] = {};
   };
   base::UnorderedMap<u64, PropState> prop_states_;
   ActorStatsStore* actor_stats_ = nullptr;

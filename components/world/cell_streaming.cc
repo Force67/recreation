@@ -2869,7 +2869,8 @@ bool CellStreamer::SpawnReference(ecs::World& world,
                                   u64 ref_id,
                                   LoadedCell& cell,
                                   u32& mesh_budget,
-                                  bool interior) {
+                                  bool interior,
+                                  bool re_homed) {
   bethesda::GlobalFormId id{static_cast<u16>(ref_id >> 32), static_cast<u32>(ref_id)};
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   if (!stored)
@@ -2880,8 +2881,9 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   if (ref_suppressor_ && ref_suppressor_(id.packed()))
     return true;
   // Nor does one a resumed savegame left standing in another cell: it is binned
-  // with the cell it moved to and placed from there (see saved_spawns.h).
-  if (saved_spawns_ && saved_spawns_->Relocated(id.packed()))
+  // with the cell it moved to and placed from there (see saved_spawns.h). That
+  // cell's own call is the one exception.
+  if (!re_homed && saved_spawns_ && saved_spawns_->Relocated(id.packed()))
     return true;
   // Nor does one that is already in the world: a reference moved out of this cell
   // was re-homed rather than deleted (see UnloadCell), and placing it again from
@@ -2920,12 +2922,19 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   if (saved_state && saved_state->deleted)
     return true;
 
+  // Where this reference stands: its record's DATA, unless a resumed savegame
+  // put it somewhere else. That is a whole placement, position and euler both,
+  // not the offset a runtime move records, because the save is describing where
+  // the thing IS rather than how far a script pushed it.
+  f32 placement[6];
+  std::memcpy(placement, data->data.data(), 24);
+  if (saved_state && saved_state->replaced)
+    std::memcpy(placement, saved_state->placement, sizeof(placement));
+
   // Placed actors (ACHR) have no static model -- their visuals come from the base
   // NPC's race/skeleton, rendered separately. Create an interactable actor entity
   // from the placement, tagged with its base, and skip the static-mesh path.
   if (stored->header.type == kAchr) {
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     ecs::Entity entity = world.Create();
     Transform transform;
     Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
@@ -2977,9 +2986,7 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // A LIGH ref emits a point light whether or not its base has a world model
   // (many placed lights are meshless emitters), so add it before the mesh path.
   {
-    f32 pos[3];
-    std::memcpy(pos, data->data.data(), 12);
-    const Vec3 position = ToWorld(pos[0], pos[1], pos[2]);
+    const Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
     AddPlacedLight(base_id, id.packed(), refr, position, cell);
     AddPlacedDecal(base_id, id, refr, position, cell);
   }
@@ -2987,8 +2994,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // A pack-in (Starfield PKIN) is a prefab: its CNAM cell's refs instantiate
   // at this reference's transform (retaining walls, spaceport buildings).
   if (base_stored && base_stored->header.type == kPkin && !logical) {
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     f32 scale = 1.0f;
     if (const bethesda::Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4) {
       std::memcpy(&scale, xscl->data.data(), 4);
@@ -3010,8 +3015,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
       return true;
     }
 
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     Transform transform;
     Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
     transform.position[0] = position.x;
@@ -3067,8 +3070,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     return true;
   }
 
-  f32 placement[6];
-  std::memcpy(placement, data->data.data(), 24);
   f32 scale = 1.0f;
   if (const bethesda::Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4) {
     std::memcpy(&scale, xscl->data.data(), 4);
@@ -3174,6 +3175,22 @@ bool CellStreamer::SpawnSavedReference(ecs::World& world,
     return true;
   if (ref_suppressor_ && ref_suppressor_(handle))
     return true;
+
+  // A reference the records author, which a savegame left in this cell instead
+  // of its own, is placed BY its record: that is where its door destination, its
+  // placed script, its lock, its light and its encounter zone come from, and a
+  // save moving something does not take any of that away. Only the placement is
+  // the save's (see PropState::replaced).
+  if (spawn.relocated) {
+    PropState& state = prop_states_[handle];
+    state.replaced = true;
+    for (u32 axis = 0; axis < 3; ++axis) {
+      state.placement[axis] = spawn.position[axis];
+      state.placement[3 + axis] = spawn.rotation[axis];
+    }
+    return SpawnReference(world, grid_x, grid_y, handle, cell, mesh_budget, interior,
+                          /*re_homed=*/true);
+  }
 
   const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(spawn.base);
   if (!base_stored)
