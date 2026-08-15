@@ -2879,6 +2879,10 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // even after their cell streams out and back in.
   if (ref_suppressor_ && ref_suppressor_(id.packed()))
     return true;
+  // Nor does one a resumed savegame left standing in another cell: it is binned
+  // with the cell it moved to and placed from there (see saved_spawns.h).
+  if (saved_spawns_ && saved_spawns_->Relocated(id.packed()))
+    return true;
   // Nor does one that is already in the world: a reference moved out of this cell
   // was re-homed rather than deleted (see UnloadCell), and placing it again from
   // the record would leave two of the same actor standing in Skyrim.

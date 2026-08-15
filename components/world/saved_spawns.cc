@@ -22,11 +22,15 @@ void SavedSpawnIndex::AddExterior(bethesda::GlobalFormId worldspace,
     return;
   exterior_[worldspace.packed()][GridKeyFor(spawn.position[0], spawn.position[1], cell_size)]
       .push_back(spawn);
+  if (spawn.relocated)
+    relocated_[spawn.handle.packed()] = true;
   ++count_;
 }
 
 void SavedSpawnIndex::AddInterior(bethesda::GlobalFormId cell, const SavedSpawn& spawn) {
   interior_[cell.packed()].push_back(spawn);
+  if (spawn.relocated)
+    relocated_[spawn.handle.packed()] = true;
   ++count_;
 }
 

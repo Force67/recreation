@@ -80,6 +80,37 @@ void TestInterior() {
   Check("one cell", index.cells() == 1);
 }
 
+// A reference the records author, which the save left in another cell: it bins
+// like a created one but under its own form id, and the cell whose records
+// author it has to be told to leave it alone.
+void TestRelocated() {
+  std::puts("relocated references");
+  SavedSpawnIndex index;
+  const GlobalFormId tamriel{0, 0x3c};
+  const GlobalFormId house{0, 0x16778};
+  SavedSpawn walked = At(0x1a2b3, 8500.0f, -300.0f);
+  walked.handle = GlobalFormId{0, 0x1a2b3};  // a real record, not a created id
+  walked.relocated = true;
+  index.AddExterior(tamriel, kCellSize, walked);
+  SavedSpawn carried = At(0x1a2b4, 0.0f, 0.0f);
+  carried.handle = GlobalFormId{0, 0x1a2b4};
+  carried.relocated = true;
+  index.AddInterior(house, carried);
+
+  Check("both bin", index.size() == 2 && index.relocated() == 2);
+  Check("the exterior one lands in the cell it stands in",
+        index.Exterior(tamriel, 2, -1).size() == 1);
+  Check("the interior one lands in its cell", index.Interior(house).size() == 1);
+  Check("their authoring cells are told", index.Relocated(walked.handle.packed()) &&
+                                              index.Relocated(carried.handle.packed()));
+  // A created reference is not relocated: nothing authors it, so no cell has to
+  // be held back from placing it.
+  index.AddExterior(tamriel, kCellSize, At(7, 0.0f, 0.0f));
+  Check("a created reference is not held back", index.relocated() == 2 &&
+                                                    !index.Relocated(GlobalFormId{0xfffd, 7}
+                                                                         .packed()));
+}
+
 void TestEmpty() {
   std::puts("empty index");
   SavedSpawnIndex index;
@@ -98,6 +129,7 @@ int main() {
   std::puts("saved_spawnstest");
   TestExterior();
   TestInterior();
+  TestRelocated();
   TestEmpty();
   std::printf("%s\n", g_failures == 0 ? "all checks passed" : "FAILURES");
   return g_failures == 0 ? 0 : 1;
