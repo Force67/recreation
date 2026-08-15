@@ -280,6 +280,14 @@ class CellStreamer {
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
 
+  // How far above GroundHeight a character capsule has to be set down. The
+  // sampled 33x33 lattice and the heightfield collider do not agree to the
+  // millimetre, and a capsule that starts even a centimetre inside the ground is
+  // resolved DOWNWARD by the character solver: it leaves through the floor and
+  // falls hundreds of metres. Every placement onto terrain (boot, a savegame
+  // resume, a fast travel) leaves this much air and lets gravity close it.
+  static constexpr f32 kGroundClearance = 0.25f;
+
   // Bethesda LAND sculpting. Radius/strength/flatten target are engine metres;
   // the adapter converts them onto the canonical 32-quad game-height lattice.
   // Each call is one live dab; the editor merges a drag's dabs into one change.

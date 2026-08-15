@@ -260,8 +260,16 @@ bool FastTravelToMarker(Engine& engine, bethesda::GlobalFormId marker_ref) {
   // Game units back to engine space, the same axis change
   // the savegame loader places the player with. The marker sits on the ground,
   // so the player lands on it.
-  const Vec3 feet{marker->position[0] * scale, marker->position[2] * scale,
-                  -marker->position[1] * scale};
+  Vec3 feet{marker->position[0] * scale, marker->position[2] * scale,
+            -marker->position[1] * scale};
+  // The marker sits on the ground the game authored, which is not to the
+  // millimetre the ground this engine bakes, and a capsule that lands inside the
+  // heightfield leaves through the floor (see CellStreamer::kGroundClearance).
+  if (f32 ground = 0; !self->streamer_->in_interior() &&
+                      self->streamer_->GroundHeight(feet.x, feet.z, &ground) &&
+                      feet.y < ground + world::CellStreamer::kGroundClearance) {
+    feet.y = ground + world::CellStreamer::kGroundClearance;
+  }
   self->actors_->TeleportPlayer(feet.x, feet.y, feet.z);
   self->camera_.set_position({feet.x, feet.y + 1.8f, feet.z});
 

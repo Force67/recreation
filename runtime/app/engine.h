@@ -233,9 +233,9 @@ class Engine : public app::Application {
   bool OnInitialize(app::Services& services) override;
   // Frame-cadence game simulation (scripting, quests, npc/combat, networking);
   // runs in both windowed and headless (dedicated-server) modes.
-  void OnSimulate(f32 frame_delta) override;
+  void OnSimulate(f32 raw_frame_delta) override;
   // Windowed-only per-frame policy: weather/sky, camera, menus, UI begin.
-  void OnUpdate(f32 frame_delta) override;
+  void OnUpdate(f32 raw_frame_delta) override;
   // Windowed-only: builds this frame's FrameView (camera, gathered draws,
   // actors, lights, decals, HUD).
   void OnBuildView(f32 frame_delta, render::FrameView& view) override;

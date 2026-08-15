@@ -6,6 +6,7 @@
 #include <mutex>
 #include <span>
 
+#include <base/algorithm.h>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
@@ -33,6 +34,19 @@
 // the render path that builds the FrameView and submits it. Split out of the
 // core lifecycle unit so the hot loop reads on its own.
 namespace rx {
+
+// The longest step any system is handed, whatever the frame really cost.
+//
+// The frame that finishes streaming a cell ring is seconds long, and everything
+// downstream integrates it as one step: the player capsule falls 300 m through a
+// collider that had not been built yet, actors cross half a hold, physics tunnels
+// through the world in between. No system here is better for being given more
+// than a fraction of a second at once -- a long frame is a stall to absorb, not
+// time the world has to live through. The world clock keeps its own real-time
+// accounting, so the time of day does not drift because of this.
+static f32 LongestStep(f32 frame_delta) {
+  return base::Min(frame_delta, 1.0f / 15.0f);
+}
 
 // Case-insensitive ASCII string compare, for matching a NetEntity model against a
 // record's editor id.
@@ -128,7 +142,8 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 // fixed-step ECS stages. The host advanced the clock and resolved input; the
 // pre-sim capsule sync runs as a kPreSim ECS system (registered in
 // OnInitialize).
-void Engine::OnSimulate(f32 frame_delta) {
+void Engine::OnSimulate(f32 raw_frame_delta) {
+  const f32 frame_delta = LongestStep(raw_frame_delta);
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload; drained on the main thread where the Vfs
   // is not being read (a fresh mount is picked up by next frame's streaming).
@@ -294,7 +309,8 @@ void Engine::OnSimulate(f32 frame_delta) {
 // Windowed-only per-frame policy driven by app::Host::OnUpdate: weather/sky, the
 // menus, the camera and the UI begin. The host runs the kPreRender ECS stage
 // after this returns, then calls OnBuildView.
-void Engine::OnUpdate(f32 frame_delta) {
+void Engine::OnUpdate(f32 raw_frame_delta) {
+  const f32 frame_delta = LongestStep(raw_frame_delta);
   {
     {
       // Weather, parsed from the game's WTHR/CLMT/REGN, drives our physical

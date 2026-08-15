@@ -665,7 +665,11 @@ bool LoadGameData(Engine& engine) {
   self->camera_.speed = 30.0f;
   RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
           self->config_.start_cell_y, start.x, start.y, start.z);
-  self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
+  // On the terrain, not 10 m up like the camera, and a little clear of it: a
+  // capsule set down exactly on the heightfield starts inside it and is resolved
+  // downward, out through the floor (see CellStreamer::kGroundClearance).
+  self->actors_->MaybeSpawnWorldPlayer(
+      {start.x, ground + world::CellStreamer::kGroundClearance, start.z});
   PlaceSavegamePlayer(engine);
   self->showcase_regions_.push_back({{start.x, ground, start.z},
                                      base::String(profile.name),

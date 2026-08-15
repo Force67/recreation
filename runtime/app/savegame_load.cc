@@ -1059,19 +1059,20 @@ void PlaceSavegamePlayer(Engine& engine) {
   // The save's height is the game's own terrain, and this engine bakes its from
   // the same LAND records, but not to the same surface: the heightfield samples
   // a 33x33 grid per cell and the game's collision mesh does not, so a save left
-  // on a slope can land a few centimetres inside ours. A capsule that starts
-  // inside the ground is pushed through it rather than out of it, and the player
-  // then falls for the rest of the session. So the ground has the last word on
-  // the height, and only upwards: a save on a rooftop or a bridge is above the
-  // terrain and must stay there.
+  // on a slope lands a few centimetres inside ours. A capsule that starts inside
+  // the ground is resolved DOWNWARD by the character solver and shoots hundreds
+  // of metres under the world, which is why a resumed save used to open on an
+  // empty grey plane. So the terrain has the last word on the height, and the
+  // player is set down a little clear of it rather than exactly on it. Only ever
+  // upwards: a save on a rooftop or a bridge is above the terrain and stays.
   if (self->streamer_ && !self->streamer_->in_interior()) {
     f32 ground = 0;
     if (!self->streamer_->GroundHeight(feet.x, feet.z, &ground)) {
       RX_WARN("save: no terrain under the player's resume position, standing where the save says");
-    } else if (feet.y < ground) {
-      RX_INFO("save: the resume position is {:.2f} m inside the terrain, standing on it instead",
+    } else if (feet.y < ground + world::CellStreamer::kGroundClearance) {
+      RX_INFO("save: the resume position is {:.2f} m into the terrain, setting down on top of it",
               ground - feet.y);
-      feet.y = ground;
+      feet.y = ground + world::CellStreamer::kGroundClearance;
     }
   }
 
