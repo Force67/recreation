@@ -26,6 +26,16 @@ constexpr size_t kFallout4FirstRecord = 20;
 
 enum class FxpLayout { kSkyrim, kFallout4 };
 
+// Tokenised-program opcodes. The declaration block starts at dcl_resource, so
+// anything below it is a core instruction; the shader-model 4.1 and 5 opcodes
+// that sit above the block are not counted, which is fine for comparing
+// permutations of one family against each other.
+constexpr u32 kOpDclResource = 88;
+constexpr u32 kOpDclConstantBuffer = 89;
+constexpr u32 kOpDclSampler = 90;
+constexpr u32 kOpCustomData = 254;
+constexpr u32 kOpFirstDeclaration = kOpDclResource;
+
 constexpr u32 kMaxSlots = 5;
 
 constexpr u32 kSdpVersion = 100;
@@ -302,6 +312,80 @@ const char* ShaderStageName(ShaderStage stage) {
       break;
   }
   return "unknown";
+}
+
+ShaderReflection ReflectShader(ByteSpan bytecode) {
+  ShaderReflection out;
+  const u8* p = bytecode.data();
+  const size_t avail = bytecode.size();
+  if (avail < kDxbcChunkTableOffset + 4 || !IsDxbc(p))
+    return out;
+
+  const u32 chunks = ReadU32At(p + kDxbcChunkCountOffset);
+  if (avail < kDxbcChunkTableOffset + static_cast<size_t>(chunks) * 4)
+    return out;
+
+  for (u32 i = 0; i < chunks; ++i) {
+    const u32 offset = ReadU32At(p + kDxbcChunkTableOffset + i * 4);
+    if (avail < static_cast<size_t>(offset) + 16)
+      continue;
+    const u8* chunk = p + offset;
+    if (!(chunk[0] == 'S' && chunk[1] == 'H' &&
+          ((chunk[2] == 'E' && chunk[3] == 'X') || (chunk[2] == 'D' && chunk[3] == 'R'))))
+      continue;
+
+    // Chunk body: version token, dword length, then the token stream.
+    const u32 length = ReadU32At(chunk + 12);
+    const size_t body = offset + 8;
+    size_t end = body + static_cast<size_t>(length) * 4;
+    if (end > avail)
+      end = avail;
+
+    size_t at = body + 8;
+    while (at + 4 <= end) {
+      const u32 token = ReadU32At(p + at);
+      const u32 opcode = token & 0x7ff;
+      u32 words = (token >> 24) & 0x7f;
+      // Custom data blocks carry their own length in the following dword.
+      if (opcode == kOpCustomData) {
+        if (at + 8 > end)
+          break;
+        words = ReadU32At(p + at + 4);
+      }
+      if (words == 0)
+        break;
+
+      switch (opcode) {
+        case kOpDclResource:
+          ++out.textures;
+          break;
+        case kOpDclSampler:
+          ++out.samplers;
+          break;
+        case kOpDclConstantBuffer: {
+          ++out.constant_buffers;
+          // Operand: token, operand token, then the slot and its float4 count.
+          if (at + 16 <= end) {
+            const u32 slot = ReadU32At(p + at + 8);
+            if (slot < 32)
+              out.constant_buffer_slots |= 1u << slot;
+            out.constant_buffer_vectors += ReadU32At(p + at + 12);
+          }
+          break;
+        }
+        default:
+          // Declarations occupy the opcode range below the first real
+          // instruction; everything else is code.
+          if (opcode < kOpFirstDeclaration)
+            ++out.instructions;
+          break;
+      }
+      at += static_cast<size_t>(words) * 4;
+    }
+    out.valid = true;
+    break;
+  }
+  return out;
 }
 
 ShaderPackage ParseShaderPackage(ByteSpan data) {

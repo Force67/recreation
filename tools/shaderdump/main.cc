@@ -1,3 +1,4 @@
+#include <base/containers/unordered_map.h>
 #include <base/memory/move.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
@@ -37,6 +38,7 @@ struct Options {
   // so the 64-bit spelling is qualified; see assetdump.
   rx::i64 group = -1;
   u32 limit = 0;
+  bool techniques = false;
 };
 
 bool IsShaderPackage(base::StringRef path) {
@@ -116,6 +118,69 @@ void PrintGroup(const bethesda::ShaderPackage& package, u32 group, u32 limit) {
   }
 }
 
+// The cost of flipping one technique bit on, summed over matched pairs.
+struct BitEffect {
+  u32 pairs = 0;
+  i32 textures = 0;
+  i32 samplers = 0;
+  i32 vectors = 0;
+  i32 instructions = 0;
+};
+
+// The technique id is a bitfield of material features, and the package never
+// says which bit is which. What it does say is what each permutation compiled
+// down to, so the bit's meaning falls out of comparing shaders whose ids differ
+// in that bit ALONE: the bit that adds a texture and a sampler switches a map
+// on, the bit that only adds instructions is a lighting or blending mode.
+// Averaging over all shaders instead would blur the bits together, since the
+// permutations are far from evenly spread.
+void PrintTechniqueBits(const bethesda::ShaderPackage& package,
+                        u32 group,
+                        bethesda::ShaderStage stage) {
+  base::UnorderedMap<u32, bethesda::ShaderReflection> by_technique;
+  for (const bethesda::PackagedShader& s : package.shaders) {
+    if (s.group != group || s.stage != stage)
+      continue;
+    const bethesda::ShaderReflection r = bethesda::ReflectShader(s.bytecode);
+    if (r.valid)
+      by_technique.emplace(s.technique_id, r);
+  }
+  if (by_technique.empty())
+    return;
+
+  BitEffect effects[32];
+  for (const auto& [technique, off] : by_technique) {
+    for (u32 bit = 0; bit < 32; ++bit) {
+      if ((technique >> bit) & 1)
+        continue;
+      const bethesda::ShaderReflection* on = by_technique.find(technique | (1u << bit));
+      if (!on)
+        continue;
+      BitEffect& e = effects[bit];
+      ++e.pairs;
+      e.textures += static_cast<i32>(on->textures) - static_cast<i32>(off.textures);
+      e.samplers += static_cast<i32>(on->samplers) - static_cast<i32>(off.samplers);
+      e.vectors += static_cast<i32>(on->constant_buffer_vectors) -
+                   static_cast<i32>(off.constant_buffer_vectors);
+      e.instructions +=
+          static_cast<i32>(on->instructions) - static_cast<i32>(off.instructions);
+    }
+  }
+
+  std::printf("group %u %s: %zu techniques, cost of setting each bit (mean over matched pairs)\n",
+              group, bethesda::ShaderStageName(stage),
+              static_cast<size_t>(by_technique.size()));
+  std::printf("  bit   pairs   textures  samplers  cb_float4s  instructions\n");
+  for (u32 bit = 0; bit < 32; ++bit) {
+    const BitEffect& e = effects[bit];
+    if (e.pairs == 0)
+      continue;
+    const double n = e.pairs;
+    std::printf("  %-3u  %6u   %+8.2f  %+8.2f  %+10.1f  %+12.1f\n", bit, e.pairs,
+                e.textures / n, e.samplers / n, e.vectors / n, e.instructions / n);
+  }
+}
+
 // One shader per file, plus a manifest row carrying what the bytecode lost.
 bool WritePackage(const base::String& out_dir,
                   const base::String& package_name,
@@ -175,8 +240,9 @@ int main(int argc, char** argv) {
   if (argc < 2) {
     std::printf(
         "usage: shaderdump <data-dir> [--out <dir>] [--group <n>] [--limit <n>]\n"
-        "  --out    write every shader's bytecode plus manifest.tsv\n"
-        "  --group  list the shaders of one group instead of the summary\n");
+        "  --out         write every shader's bytecode plus manifest.tsv\n"
+        "  --group       list the shaders of one group instead of the summary\n"
+        "  --techniques  with --group, show what each technique bit costs\n");
     return 1;
   }
 
@@ -190,6 +256,8 @@ int main(int argc, char** argv) {
       options.group = std::atoll(argv[++i]);
     else if (arg == "--limit" && i + 1 < argc)
       options.limit = static_cast<u32>(std::atoll(argv[++i]));
+    else if (arg == "--techniques")
+      options.techniques = true;
     else {
       std::printf("unknown argument: %s\n", argv[i]);
       return 1;
@@ -254,8 +322,14 @@ int main(int argc, char** argv) {
     }
 
     if (options.group >= 0) {
-      std::printf("%s group %lld:\n", path.c_str(), static_cast<long long>(options.group));
-      PrintGroup(package, static_cast<u32>(options.group), options.limit);
+      const u32 group = static_cast<u32>(options.group);
+      if (options.techniques) {
+        PrintTechniqueBits(package, group, bethesda::ShaderStage::kVertex);
+        PrintTechniqueBits(package, group, bethesda::ShaderStage::kPixel);
+      } else {
+        std::printf("%s group %u:\n", path.c_str(), group);
+        PrintGroup(package, group, options.limit);
+      }
       continue;
     }
 
