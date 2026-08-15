@@ -2,6 +2,7 @@
 
 #include <base/memory/move.h>
 
+#include <cstdio>
 #include <cstring>
 
 namespace rx::bethesda {
@@ -384,6 +385,66 @@ ShaderReflection ReflectShader(ByteSpan bytecode) {
     }
     out.valid = true;
     break;
+  }
+  return out;
+}
+
+namespace {
+
+// Signature chunk: u32 elementCount, u32 unused, then 24-byte elements whose
+// name offset is relative to the chunk body.
+bool ReadSignature(const u8* p, size_t avail, u32 offset, base::Vector<base::String>* out) {
+  if (avail < static_cast<size_t>(offset) + 16)
+    return false;
+  const size_t body = offset + 8;
+  const u32 count = ReadU32At(p + body);
+  if (count > 64 || avail < body + 8 + static_cast<size_t>(count) * 24)
+    return false;
+
+  for (u32 i = 0; i < count; ++i) {
+    const size_t element = body + 8 + static_cast<size_t>(i) * 24;
+    const u32 name_offset = ReadU32At(p + element);
+    const u32 semantic_index = ReadU32At(p + element + 4);
+    if (body + name_offset >= avail)
+      continue;
+    const char* name = reinterpret_cast<const char*>(p + body + name_offset);
+    size_t len = 0;
+    while (body + name_offset + len < avail && name[len] != 0 && len < 64)
+      ++len;
+
+    base::String semantic(name, len);
+    char suffix[16];
+    std::snprintf(suffix, sizeof(suffix), "%u", semantic_index);
+    semantic += suffix;
+    out->push_back(base::move(semantic));
+  }
+  return true;
+}
+
+}  // namespace
+
+ShaderSignatures ReflectSignatures(ByteSpan bytecode) {
+  ShaderSignatures out;
+  const u8* p = bytecode.data();
+  const size_t avail = bytecode.size();
+  if (avail < kDxbcChunkTableOffset + 4 || !IsDxbc(p))
+    return out;
+
+  const u32 chunks = ReadU32At(p + kDxbcChunkCountOffset);
+  if (avail < kDxbcChunkTableOffset + static_cast<size_t>(chunks) * 4)
+    return out;
+
+  for (u32 i = 0; i < chunks; ++i) {
+    const u32 offset = ReadU32At(p + kDxbcChunkTableOffset + i * 4);
+    if (avail < static_cast<size_t>(offset) + 8)
+      continue;
+    const u8* chunk = p + offset;
+    const bool is_input = std::memcmp(chunk, "ISGN", 4) == 0;
+    const bool is_output = std::memcmp(chunk, "OSGN", 4) == 0;
+    if (!is_input && !is_output)
+      continue;
+    if (ReadSignature(p, avail, offset, is_input ? &out.inputs : &out.outputs))
+      out.valid = true;
   }
   return out;
 }

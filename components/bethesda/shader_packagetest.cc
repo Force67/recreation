@@ -339,6 +339,75 @@ void TestReflection() {
   Check("d3d9 bytecode not reflected", !none.valid);
 }
 
+// A container with a real input signature chunk beside the shader chunk, which
+// is what survives the .fxp reflection strip.
+base::Vector<u8> MakeDxbcWithSignature(const char* const* semantics,
+                                       const u32* semantic_indices,
+                                       u32 count) {
+  // Chunk body: count, 8, then 24-byte elements, then the name pool.
+  base::Vector<u8> body;
+  PutU32(body, count);
+  PutU32(body, 8);
+  const u32 pool_start = 8 + count * 24;
+  u32 name_offset = pool_start;
+  for (u32 i = 0; i < count; ++i) {
+    PutU32(body, name_offset);
+    PutU32(body, semantic_indices[i]);
+    PutU32(body, 0);           // system value type
+    PutU32(body, 3);           // component type
+    PutU32(body, i);           // register
+    PutU32(body, 0x0f0f);      // mask + rw mask + pad
+    name_offset += static_cast<u32>(std::strlen(semantics[i])) + 1;
+  }
+  for (u32 i = 0; i < count; ++i)
+    PutBytes(body, semantics[i], std::strlen(semantics[i]) + 1);
+
+  base::Vector<u8> b;
+  PutBytes(b, "DXBC", 4);
+  for (int i = 0; i < 16; ++i)
+    b.push_back(u8(0xc0 + i));
+  PutU32(b, 1);
+  PutU32(b, 0);   // total size, patched below
+  PutU32(b, 2);   // two chunks
+  PutU32(b, 0x28);
+  PutU32(b, 0);   // second chunk offset, patched below
+  PutBytes(b, "ISGN", 4);
+  PutU32(b, static_cast<u32>(body.size()));
+  PutBytes(b, body.data(), body.size());
+
+  const u32 shex_offset = static_cast<u32>(b.size());
+  std::memcpy(b.data() + 0x24, &shex_offset, 4);
+  PutBytes(b, "SHEX", 4);
+  PutU32(b, 8);
+  PutU32(b, (1u << 16) | 0x50);  // a vertex shader
+  PutU32(b, 2);
+
+  const u32 total = static_cast<u32>(b.size());
+  std::memcpy(b.data() + 0x18, &total, 4);
+  return b;
+}
+
+void TestSignatures() {
+  std::puts("signatures");
+
+  const char* semantics[] = {"POSITION", "TEXCOORD", "TEXCOORD", "BLENDINDICES"};
+  const u32 indices[] = {0, 0, 4, 0};
+  base::Vector<u8> dxbc = MakeDxbcWithSignature(semantics, indices, 4);
+
+  rx::bethesda::ShaderSignatures sig =
+      rx::bethesda::ReflectSignatures(rx::ByteSpan(dxbc.data(), dxbc.size()));
+
+  Check("reads a signature", sig.valid);
+  Check("all inputs", sig.inputs.size() == 4);
+  if (sig.inputs.size() != 4)
+    return;
+  Check("semantic name kept", sig.inputs[0] == "POSITION0");
+  // The index is what separates an instance transform row from a plain UV.
+  Check("semantic index appended", sig.inputs[2] == "TEXCOORD4");
+  Check("skinning input seen", sig.inputs[3] == "BLENDINDICES0");
+  Check("no outputs declared", sig.outputs.empty());
+}
+
 void TestRejects() {
   std::puts("rejects");
   base::Vector<u8> junk;
@@ -359,6 +428,7 @@ int main() {
   TestFallout4Fxp();
   TestSdp();
   TestReflection();
+  TestSignatures();
   TestRejects();
 
   if (g_failures == 0) {
