@@ -101,6 +101,7 @@ class DemoScenes {
   // Spell demo: one channelled effect per archetype, plus periodic impacts.
   magic::SpellVfx spells_;
   base::Vector<Vec3> spell_pedestals_;
+  base::Vector<u32> spell_casts_;  // handles, so RX_SPELLS can track the camera
   bool spell_demo_ = false;
   f32 spell_time_ = 0;
   f32 spell_impact_accum_ = 0;

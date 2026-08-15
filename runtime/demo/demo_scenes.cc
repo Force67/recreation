@@ -40,6 +40,8 @@ static base::Option<const char*> HairData{
     "RX_HAIR_DATA"};
 // Faces-demo camera: 0 = the full six-head lineup, 1 = a 3/4 portrait of the
 // first head (head ~60% of frame), 2 = a straight-on pair (Nazeem + Ysolda).
+static base::Option<bool> SpellsInWorld{"spells", false, "RX_SPELLS",
+                                       "place the spell archetypes in front of the camera"};
 static base::Option<int> FaceShot{"faces.shot", 0, "RX_FACE_SHOT",
                                   "faces demo camera: 0 lineup, 1 hero 3/4, 2 front pair"};
 
@@ -81,6 +83,62 @@ void DemoScenes::EmitToView(f32 dt, render::FrameView& view) {
       view.lights.push_back(l);
     }
   }
+  // RX_SPELLS=1 puts the same effects in whatever world is loaded, in an arc in
+  // front of the camera, so they can be judged against real game lighting and
+  // geometry rather than a demo floor.
+  if (bool(SpellsInWorld) && spell_pedestals_.empty()) {
+    const u32 count = static_cast<u32>(magic::SpellArchetype::kCount);
+    const Vec3 eye = camera_.position();
+    Vec3 ahead = camera_.forward();
+    ahead.y = 0;
+    const f32 len = std::sqrt(ahead.x * ahead.x + ahead.z * ahead.z);
+    if (len > 0.001f) {
+      ahead.x /= len;
+      ahead.z /= len;
+    } else {
+      ahead = {0, 0, -1};
+    }
+    const Vec3 right{-ahead.z, 0, ahead.x};
+    const f32 spacing = 2.0f;
+    const f32 start = -0.5f * spacing * static_cast<f32>(count - 1);
+    for (u32 i = 0; i < count; ++i) {
+      const f32 offset = start + spacing * static_cast<f32>(i);
+      const Vec3 at{eye.x + ahead.x * 7.0f + right.x * offset, eye.y - 0.4f,
+                    eye.z + ahead.z * 7.0f + right.z * offset};
+      spell_pedestals_.push_back(at);
+      spell_casts_.push_back(
+          spells_.Begin(static_cast<magic::SpellArchetype>(i), magic::CastPhase::kProjectile, at));
+    }
+    spell_demo_ = true;
+    RX_INFO("spells: {} archetypes placed in front of the camera", count);
+  }
+
+  // The world moves the camera after the first frame (start-game quests
+  // teleport the player), so the in-world set rides along instead of being
+  // stranded wherever the camera happened to start.
+  if (bool(SpellsInWorld) && !spell_casts_.empty()) {
+    const Vec3 eye = camera_.position();
+    Vec3 ahead = camera_.forward();
+    ahead.y = 0;
+    const f32 len = std::sqrt(ahead.x * ahead.x + ahead.z * ahead.z);
+    if (len > 0.001f) {
+      ahead.x /= len;
+      ahead.z /= len;
+    } else {
+      ahead = {0, 0, -1};
+    }
+    const Vec3 right{-ahead.z, 0, ahead.x};
+    const f32 spacing = 2.0f;
+    const f32 start = -0.5f * spacing * static_cast<f32>(spell_casts_.size() - 1);
+    for (size_t i = 0; i < spell_casts_.size(); ++i) {
+      const f32 offset = start + spacing * static_cast<f32>(i);
+      const Vec3 at{eye.x + ahead.x * 7.0f + right.x * offset, eye.y - 0.4f,
+                    eye.z + ahead.z * 7.0f + right.z * offset};
+      spell_pedestals_[i] = at;
+      spells_.Move(spell_casts_[i], at);
+    }
+  }
+
   if (spell_demo_) {
     // Fire an impact at one pedestal after another, so the burst-and-fade path
     // is on screen next to the channelled ones.
