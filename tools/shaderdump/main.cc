@@ -1,3 +1,4 @@
+#include <base/algorithm.h>
 #include <base/containers/unordered_map.h>
 #include <base/memory/move.h>
 #include <base/strings/string_ref.h>
@@ -39,6 +40,7 @@ struct Options {
   rx::i64 group = -1;
   u32 limit = 0;
   bool techniques = false;
+  bool map = false;
 };
 
 bool IsShaderPackage(base::StringRef path) {
@@ -181,6 +183,93 @@ void PrintTechniqueBits(const bethesda::ShaderPackage& package,
   }
 }
 
+// What a group's shaders have in common, which is the evidence for what the
+// unnamed group is. Vertex inputs say what geometry the class draws, render
+// target counts say which pass it belongs to, and an oversized constant buffer
+// is a bone palette.
+struct GroupEvidence {
+  base::Vector<base::String> inputs;  // distinct vertex semantics
+  u32 max_textures = 0;
+  u32 max_samplers = 0;
+  u32 max_targets = 0;
+  u32 max_cb_vectors = 0;
+};
+
+void NoteInput(GroupEvidence* e, const base::String& semantic) {
+  for (const base::String& seen : e->inputs) {
+    if (seen == semantic)
+      return;
+  }
+  e->inputs.push_back(semantic);
+}
+
+void PrintMap(const bethesda::ShaderPackage& package) {
+  for (size_t g = 0; g < package.groups.size(); ++g) {
+    const bethesda::ShaderGroup& group = package.groups[g];
+    // The one-permutation tail is post-effect blits; they say little and there
+    // are hundreds of them.
+    if (group.shader_count <= 2 && package.groups.size() > 32)
+      continue;
+
+    GroupEvidence evidence;
+    for (u32 i = 0; i < group.shader_count; ++i) {
+      const bethesda::PackagedShader& s = package.shaders[group.first_shader + i];
+      const bethesda::ShaderReflection r = bethesda::ReflectShader(s.bytecode);
+      if (r.valid) {
+        evidence.max_textures = base::Max(evidence.max_textures, r.textures);
+        evidence.max_samplers = base::Max(evidence.max_samplers, r.samplers);
+        evidence.max_cb_vectors = base::Max(evidence.max_cb_vectors, r.constant_buffer_vectors);
+      }
+      const bethesda::ShaderSignatures sig = bethesda::ReflectSignatures(s.bytecode);
+      if (!sig.valid)
+        continue;
+      if (s.stage == bethesda::ShaderStage::kVertex) {
+        for (const base::String& in : sig.inputs)
+          NoteInput(&evidence, in);
+      } else if (s.stage == bethesda::ShaderStage::kPixel) {
+        u32 targets = 0;
+        for (const base::String& out : sig.outputs) {
+          if (out.find("SV_Target") != base::String::npos ||
+              out.find("SV_TARGET") != base::String::npos)
+            ++targets;
+        }
+        evidence.max_targets = base::Max(evidence.max_targets, targets);
+      }
+    }
+
+    std::printf("group %-3zu vs=%-5u ps=%-5u cs=%-3u | tex<=%-2u samp<=%-2u rt<=%u cbvec<=%u\n", g,
+                group.vertex_count, group.pixel_count, group.compute_count, evidence.max_textures,
+                evidence.max_samplers, evidence.max_targets, evidence.max_cb_vectors);
+    std::printf("          inputs:");
+    for (const base::String& in : evidence.inputs)
+      std::printf(" %s", in.c_str());
+    std::printf("\n");
+  }
+}
+
+// .sdp packages kept their names, so the catalogue of what a shader library
+// actually contains is readable straight off them. Grouping by the leading
+// letters is enough to see the families.
+void PrintNameCatalogue(const bethesda::ShaderPackage& package) {
+  base::UnorderedMap<base::String, u32> families;
+  for (const bethesda::PackagedShader& s : package.shaders) {
+    base::String prefix;
+    for (size_t i = 0; i < s.name.size(); ++i) {
+      const char c = s.name[i];
+      if (c == '.' || (c >= '0' && c <= '9'))
+        break;
+      prefix.push_back(c);
+    }
+    if (prefix.empty())
+      prefix = "?";
+    ++families[prefix];
+  }
+  std::printf("  families:");
+  for (const auto& [prefix, count] : families)
+    std::printf(" %s=%u", prefix.c_str(), count);
+  std::printf("\n");
+}
+
 // One shader per file, plus a manifest row carrying what the bytecode lost.
 bool WritePackage(const base::String& out_dir,
                   const base::String& package_name,
@@ -242,7 +331,8 @@ int main(int argc, char** argv) {
         "usage: shaderdump <data-dir> [--out <dir>] [--group <n>] [--limit <n>]\n"
         "  --out         write every shader's bytecode plus manifest.tsv\n"
         "  --group       list the shaders of one group instead of the summary\n"
-        "  --techniques  with --group, show what each technique bit costs\n");
+        "  --techniques  with --group, show what each technique bit costs\n"
+        "  --map         per-group evidence for what each unnamed group draws\n");
     return 1;
   }
 
@@ -258,6 +348,8 @@ int main(int argc, char** argv) {
       options.limit = static_cast<u32>(std::atoll(argv[++i]));
     else if (arg == "--techniques")
       options.techniques = true;
+    else if (arg == "--map")
+      options.map = true;
     else {
       std::printf("unknown argument: %s\n", argv[i]);
       return 1;
@@ -330,6 +422,15 @@ int main(int argc, char** argv) {
         std::printf("%s group %u:\n", path.c_str(), group);
         PrintGroup(package, group, options.limit);
       }
+      continue;
+    }
+
+    if (options.map) {
+      std::printf("%s\n", path.c_str());
+      if (package.groups.empty())
+        PrintNameCatalogue(package);
+      else
+        PrintMap(package);
       continue;
     }
 

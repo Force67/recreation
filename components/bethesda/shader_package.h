@@ -123,6 +123,18 @@ struct ShaderReflection {
 // D3D9 blobs in a .sdp return valid=false.
 ShaderReflection ReflectShader(ByteSpan bytecode);
 
+// The input and output signatures, which the .fxp strip left behind. These
+// still carry semantic NAMES, so they say what geometry a shader class eats
+// (POSITION/NORMAL/TANGENT/COLOR, and the per-class extras) and how many render
+// targets it writes — the strongest evidence of what an unnamed group is for.
+struct ShaderSignatures {
+  base::Vector<base::String> inputs;
+  base::Vector<base::String> outputs;
+  bool valid = false;
+};
+
+ShaderSignatures ReflectSignatures(ByteSpan bytecode);
+
 }  // namespace rx::bethesda
 
 #endif  // RECREATION_BETHESDA_SHADER_PACKAGE_H_
