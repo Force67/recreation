@@ -3241,11 +3241,21 @@ void GameUi::Build(Window& window,
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftY, pad.axis(GamepadAxis::kLeftY));
   }
   // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
+  // Only while a screen is actually up: ugui keeps focus on whatever was last
+  // clicked, so forwarding these during play would let Space (jump) or Enter
+  // press a button on a menu the player closed minutes ago.
+  const bool screen_up = impl->menu_open || impl->main_menu_open || impl->first_run_open ||
+                         impl->journal_open || impl->war_map_open || impl->container.open ||
+                         impl->dialogue.open;
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (in.key_pressed(Key::kTab))
-    q.PushKey(258, 0, true, false, shift_mod);
-  if (in.key_pressed(Key::kReturn))
-    q.PushKey(257, 0, true, false, 0);
+  if (screen_up) {
+    if (in.key_pressed(Key::kTab))
+      q.PushKey(258, 0, true, false, shift_mod);
+    if (in.key_pressed(Key::kReturn))
+      q.PushKey(257, 0, true, false, 0);
+    if (in.key_pressed(Key::kSpace))
+      q.PushKey(32, 0, true, false, 0);
+  }
 
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.

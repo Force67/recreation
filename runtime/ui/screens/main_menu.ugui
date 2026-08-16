@@ -18,6 +18,9 @@
         image mm_bg0 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
         panel { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #05070b00; background-end: #05070bcc; gradient-angle: 180; }
         panel mm_sel0 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #9fb4d600; background-end: #9fb4d614; gradient-angle: 180; visibility: collapsed; }
+        panel { position: absolute; left: 0; right: 0; bottom: 186; layout: column; align: center;
+          text mm_labt0 { text: ""; font-size: 20; color: #dfe4ef; letter-spacing: 5;
+            text-transform: uppercase; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; } }
       }
 
       panel mm_col1 { width: 30vw; height: 100%; position: relative; overflow: hidden; cursor: pointer;
@@ -27,6 +30,9 @@
         panel mm_sel1 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #ffce6600; background-end: #ffce6616; gradient-angle: 180; visibility: collapsed; }
         panel { position: absolute; left: 0; right: 0; top: 300; layout: column; align: center;
           image mm_hero { width: 440; height: 440; } }
+        panel { position: absolute; left: 0; right: 0; bottom: 186; layout: column; align: center;
+          text mm_labt1 { text: ""; font-size: 20; color: #dfe4ef; letter-spacing: 5;
+            text-transform: uppercase; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; } }
       }
 
       panel mm_col2 { width: 35vw; height: 100%; position: relative; overflow: hidden; cursor: pointer;
@@ -34,6 +40,9 @@
         image mm_bg2 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
         panel { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #05070b00; background-end: #05070bcc; gradient-angle: 180; }
         panel mm_sel2 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #8ea2e800; background-end: #8ea2e816; gradient-angle: 180; visibility: collapsed; }
+        panel { position: absolute; left: 0; right: 0; bottom: 186; layout: column; align: center;
+          text mm_labt2 { text: ""; font-size: 20; color: #dfe4ef; letter-spacing: 5;
+            text-transform: uppercase; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; } }
       }
     }
 
@@ -157,6 +166,7 @@
           panel act_gear { cursor: pointer; padding: 8; corner-radius: 7;
             :hover { background: #ffffff14; transition: 0.14s ease-out; }
             image gl_gear { width: 21; height: 21; } }
+          text mm_build { text: ""; font: mono; font-size: 11; color: #6b7488; margin: 0 0 0 10; }
         }
       }
     }
