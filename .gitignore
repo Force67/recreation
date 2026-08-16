@@ -43,8 +43,21 @@ editor_layout.reclayout
 /run-starfield.sh
 /run-trailer.sh
 /run-all.sh
+/run-menu.sh
 /bench.sh
 run-local.sh
+/devenv.sh
+
+# Cached nix dev environment written by devenv.sh, plus its gcroot links
+/.devenv-*.sh
+/.devenv-*-profile
+/.devenv-*-profile-*-link
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
+
+# UI design-loop scratch (html/png prototypes)
+/docs/ui-mock/
+
+# Downloaded savegames used for .ess loading tests
+/Skyrim Special Edition 100 Percent Complete Save*/
