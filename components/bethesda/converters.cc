@@ -67,10 +67,13 @@ size_t MipChainSize(asset::TextureFormat format, u32 width, u32 height, u32 mips
 bool PathIsLinearData(base::StringRef path) {
   size_t dot = path.rfind('.');
   base::StringRef stem = dot == base::StringRef::npos ? path : path.subslice(0, dot);
-  // Normal maps and the PBR data channels (roughness/metallic/occlusion) are
-  // linear data, not colour, so a UNORM DDS of one must not be sampled as sRGB.
+  // Normal maps, the PBR data channels (roughness/metallic/occlusion) and the
+  // Bethesda environment mask (_em, how much of the cubemap a texel reflects)
+  // are linear data, not colour, so a UNORM DDS of one must not be sampled as
+  // sRGB - that would bend the mask's midtones down by more than half.
   return stem.ends_with("_n") || stem.ends_with("_msn") || stem.ends_with("_normal") ||
-         stem.ends_with("_rough") || stem.ends_with("_metal") || stem.ends_with("_ao");
+         stem.ends_with("_rough") || stem.ends_with("_metal") || stem.ends_with("_ao") ||
+         stem.ends_with("_em");
 }
 
 }  // namespace
