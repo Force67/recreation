@@ -264,6 +264,7 @@ struct ShaderInfo {
   u32 flags2 = 0;
   f32 emissive[3] = {0, 0, 0};
   f32 emissive_multiple = 1;
+  f32 alpha = 1;  // material opacity, multiplied into the blend coverage
   f32 glossiness = 80;
   f32 refraction_strength = 0;  // screen distortion amount, SLSF1 refraction only
   f32 env_map_scale = -1;       // environment map reflectivity (type 1); -1 = absent
@@ -1211,7 +1212,8 @@ static NifConversion ConvertNifImpl(ByteSpan data,
       for (f32& v : info.emissive)
         v = r.Read<f32>();
       info.emissive_multiple = r.Read<f32>();
-      r.Skip(4 + 4);  // clamp mode, alpha
+      r.Skip(4);  // texture clamp mode
+      info.alpha = r.Read<f32>();
       info.refraction_strength = r.Read<f32>();
       info.glossiness = r.Read<f32>();
       bool base_ok = r.ok;
@@ -1711,6 +1713,9 @@ static NifConversion ConvertNifImpl(ByteSpan data,
         }
       }
       material.two_sided = (shader->flags2 & 0x10) != 0;
+      // The property's own alpha scales the surface's coverage (ghosts, ice,
+      // gauze). Only the blend path reads it; an opaque draw ignores alpha.
+      material.base_color_factor[3] *= base::Clamp(shader->alpha, 0.0f, 1.0f);
       material.metallic_factor = 0;
       // Specular power to perceptual roughness, Karis' approximation. Env-mapped
       // surfaces relax the matte floor so their reflection stays sharp.

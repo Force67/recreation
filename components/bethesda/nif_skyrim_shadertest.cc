@@ -92,6 +92,7 @@ constexpr float kSpecularStrength = 2.0f;
 constexpr float kSoftLighting = 0.3f;
 constexpr float kRimPower = 4.0f;
 constexpr float kEnvMapScale = 0.8f;
+constexpr float kAlpha = 0.6f;
 
 // BSLightingShaderProperty, Skyrim (BS 100) layout as the reader walks it.
 void PutShaderProperty(base::Vector<rx::u8>& b, rx::i32 texture_set_block) {
@@ -110,7 +111,7 @@ void PutShaderProperty(base::Vector<rx::u8>& b, rx::i32 texture_set_block) {
     PutF32(b, 0.0f);  // emissive color
   PutF32(b, 1.0f);    // emissive multiple
   PutU32(b, 0);       // texture clamp mode
-  PutF32(b, 1.0f);    // alpha
+  PutF32(b, kAlpha);
   PutF32(b, 0.0f);    // refraction strength
   PutF32(b, kGlossiness);
   for (float v : kSpecularColor)
@@ -242,6 +243,11 @@ int main() {
   // The fills tint by subsurface_color, which defaults to skin red; anything
   // that is not skin or hair whites it out.
   CheckNear("fill tint neutralized", m.subsurface_color[0], 1.0f);
+
+  // The property alpha rides the base colour's coverage. It sits between the
+  // clamp mode and the refraction strength, so a wrong width here would shift
+  // every float after it.
+  CheckNear("material alpha", m.base_color_factor[3], kAlpha);
 
   // Glossiness still drives roughness (Karis), capped so the reflection reads.
   Check("roughness from glossiness", m.roughness_factor > 0.0f && m.roughness_factor <= 0.35f);
