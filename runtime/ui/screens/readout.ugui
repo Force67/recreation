@@ -1,12 +1,16 @@
-// Bottom-right readout: fps / coords / heading. Text is driven each frame from
-// engine state in GameUi::Build.
+// Bottom-right corner: currency, then technical detail at tertiary grey.
 
   panel readout {
-    position: absolute; right: 30; bottom: 30; layout: column; align: end; gap: 3;
-    text hud_fps { text: "-- fps"; font-size: 15; color: #cfd6e6;
-      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text hud_coords { text: "x -- y -- z --"; font-size: 12; color: #aab2c6;
-      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text hud_heading { text: "--"; font-size: 12; color: #aab2c6;
-      text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+    position: absolute; right: 52; bottom: 48; layout: column; align: end; gap: 12;
+    panel { layout: row; align: baseline; gap: 12;
+      text { class: t_micro2; text: "Gold"; letter-spacing: 4; }
+      text hud_gold { class: t_num; text: "0";
+        text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    }
+    text hud_fps { class: t_faint; text: "-- fps"; text-align: right;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text hud_coords { class: t_faint; text: "X -- Y -- Z --"; text-align: right;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text hud_heading { class: t_faint; text: "--"; text-align: right;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
   }

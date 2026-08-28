@@ -6,6 +6,7 @@
 #include <mutex>
 #include <span>
 
+#include <base/algorithm.h>
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
@@ -33,6 +34,19 @@
 // the render path that builds the FrameView and submits it. Split out of the
 // core lifecycle unit so the hot loop reads on its own.
 namespace rx {
+
+// The longest step any system is handed, whatever the frame really cost.
+//
+// The frame that finishes streaming a cell ring is seconds long, and everything
+// downstream integrates it as one step: the player capsule falls 300 m through a
+// collider that had not been built yet, actors cross half a hold, physics tunnels
+// through the world in between. No system here is better for being given more
+// than a fraction of a second at once -- a long frame is a stall to absorb, not
+// time the world has to live through. The world clock keeps its own real-time
+// accounting, so the time of day does not drift because of this.
+static f32 LongestStep(f32 frame_delta) {
+  return base::Min(frame_delta, 1.0f / 15.0f);
+}
 
 // Case-insensitive ASCII string compare, for matching a NetEntity model against a
 // record's editor id.
@@ -128,7 +142,8 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 // fixed-step ECS stages. The host advanced the clock and resolved input; the
 // pre-sim capsule sync runs as a kPreSim ECS system (registered in
 // OnInitialize).
-void Engine::OnSimulate(f32 frame_delta) {
+void Engine::OnSimulate(f32 raw_frame_delta) {
+  const f32 frame_delta = LongestStep(raw_frame_delta);
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload; drained on the main thread where the Vfs
   // is not being read (a fresh mount is picked up by next frame's streaming).
@@ -180,6 +195,21 @@ void Engine::OnSimulate(f32 frame_delta) {
       prev_positions_.clear();
       for (const auto& [handle, pos] : position_snapshot_)
         prev_positions_[handle] = pos;
+    }
+    // Cart racing kit snapshots: mirror the held keys and the ridden cart's speed
+    // onto the bindings so the guest reads them without racing the input/physics
+    // objects. Done here, just before the managed tick that consumes them.
+    if (managed_ && ctx_.bindings) {
+      base::Array<u8, static_cast<size_t>(Key::kCount)> held{};
+      if (window_ && !debug_ui_.wants_keyboard()) {
+        const InputState& keys = window_->input();
+        for (u8 k = 0; k < static_cast<u8>(Key::kCount); ++k)
+          held[static_cast<size_t>(k)] = keys.key(static_cast<Key>(k)) ? 1 : 0;
+      }
+      ctx_.bindings->UpdateInputSnapshot(held);
+      f32 speed = 0;
+      bool riding = carriage_ && carriage_->RiddenCartSpeed(&speed);
+      ctx_.bindings->UpdateVehicleSnapshot(speed, riding);
     }
     // Advance the managed world: deliver any queued engine events to mod hooks,
     // then run the per-frame behaviours (Skyrim soft logic), all dispatching back
@@ -279,7 +309,8 @@ void Engine::OnSimulate(f32 frame_delta) {
 // Windowed-only per-frame policy driven by app::Host::OnUpdate: weather/sky, the
 // menus, the camera and the UI begin. The host runs the kPreRender ECS stage
 // after this returns, then calls OnBuildView.
-void Engine::OnUpdate(f32 frame_delta) {
+void Engine::OnUpdate(f32 raw_frame_delta) {
+  const f32 frame_delta = LongestStep(raw_frame_delta);
   {
     {
       // Weather, parsed from the game's WTHR/CLMT/REGN, drives our physical
@@ -498,8 +529,9 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
         if (ctx_.auto_walk_has_goal)
           ctx_.auto_walk_goal = goal;
       }
+      RefreshMapPanel(*this, frame_delta);
       debug_ui_.Build(*renderer_, camera_, frame_delta, &view, quest_->quest_panel(),
-                      quest_->native_trace_panel());
+                      quest_->native_trace_panel(), &map_panel_);
       // Drain queued Debug.Notification messages onto the HUD toast.
       {
         base::Vector<base::String> notifications;
@@ -761,6 +793,13 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           holds.push_back({h.name, h.owner});
         game_ui_.SetWarMap(war_map_open_, holds, war_progress);
       }
+      // The world map (M): repaint the canvas and push the discovered-location
+      // list. Cheap when closed, which is the usual case.
+      RefreshPlayerMap(*this, frame_delta);
+      // The HUD's gold counter and the pause menu's character pane read the same
+      // stats block the front screen does, so it has to be refreshed while a
+      // universe is being played and not only while the menu is up.
+      RefreshMenuData();
       game_ui_.Build(*window_, *renderer_, camera_, frame_delta, &view);
     }
   }

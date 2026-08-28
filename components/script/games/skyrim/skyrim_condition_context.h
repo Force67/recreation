@@ -23,10 +23,16 @@ class SkyrimConditionContext : public quest::ConditionContext {
  public:
   explicit SkyrimConditionContext(RecordBackedSkyrimBindings* bindings) : bindings_(bindings) {}
 
+  // The actor a condition runs on when it names no reference of its own: the
+  // speaker, for a dialogue line. Without one the functions that need a subject
+  // stay unjudged rather than answering about the wrong actor.
+  void set_subject(u64 actor) { subject_ = actor; }
+
   float GetStage(u64 quest) const override;
   float GetStageDone(u64 quest, u64 stage) const override;
   float GetGlobal(u64 global) const override;
   float GetItemCount(quest::RunOn run_on, u64 reference, u64 item) const override;
+  float GetRelationshipRank(quest::RunOn run_on, u64 reference, u64 other) const override;
 
   // True if every comparison uses a function this context evaluates faithfully.
   bool Supports(const quest::ConditionList& conditions) const;
@@ -39,9 +45,10 @@ class SkyrimConditionContext : public quest::ConditionContext {
  private:
   // Whether this context evaluates `func` against real state (vs. treating it as
   // an unknown "pass").
-  static bool Understood(quest::Func func);
+  bool Understood(quest::Func func) const;
 
   RecordBackedSkyrimBindings* bindings_;
+  u64 subject_ = 0;
 };
 
 }  // namespace rx::script::skyrim

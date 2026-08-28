@@ -19,6 +19,7 @@
 #include <memory>
 #include <span>
 
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/starfield_mesh.h"
 #include "components/world/components.h"
@@ -94,6 +95,7 @@ constexpr u32 kXtel = FourCc('X', 'T', 'E', 'L');  // load-door teleport destina
 constexpr u32 kXloc = FourCc('X', 'L', 'O', 'C');  // lock data
 constexpr u32 kXesp = FourCc('X', 'E', 'S', 'P');  // enable-parent state
 constexpr u32 kXlkr = FourCc('X', 'L', 'K', 'R');  // linked reference
+constexpr u32 kXezn = FourCc('X', 'E', 'Z', 'N');  // encounter zone (ECZN form id)
 constexpr u32 kAlfr = FourCc('A', 'L', 'F', 'R');  // quest alias forced reference
 constexpr u32 kModl = FourCc('M', 'O', 'D', 'L');
 constexpr u32 kVhgt = FourCc('V', 'H', 'G', 'T');
@@ -1200,12 +1202,12 @@ void CellStreamer::Update(ecs::World& world, const Vec3& camera_position) {
   if (all_done && !announced_idle_) {
     announced_idle_ = true;
     RX_INFO(
-        "streaming idle: {} cells, {} entities, {} instances, {} meshes converted, {} refs "
-        "skipped, "
+        "streaming idle: {} cells, {} entities ({} of them the savegame's own), {} instances, "
+        "{} meshes converted, {} refs skipped, "
         "{} land bakes, {} terrain instances, {} water planes, {} grass instances ({} verts)",
-        loaded_.size(), spawned_entities_, spawned_instances_, base_meshes_.size(), skipped_refs_,
-        baker_.baked_count(), terrain_instances_, water_planes_, grass_baker_.total_instances(),
-        grass_baker_.total_vertices());
+        loaded_.size(), spawned_entities_, saved_spawns_spawned_, spawned_instances_,
+        base_meshes_.size(), skipped_refs_, baker_.baked_count(), terrain_instances_,
+        water_planes_, grass_baker_.total_instances(), grass_baker_.total_vertices());
   } else if (!all_done) {
     announced_idle_ = false;
   }
@@ -1290,6 +1292,15 @@ bool CellStreamer::LoadCellIncremental(ecs::World& world,
       return false;
     }
     ++cell.next_ref;
+  }
+  // The save's own references last, so the cell already stands the way the
+  // records author it before anything a play session added goes on top.
+  if (saved_spawns_ &&
+      !SpawnSavedReferences(world, grid_x, grid_y,
+                            saved_spawns_->Exterior(worldspace_, grid_x, grid_y), cell,
+                            mesh_budget, ref_budget, false)) {
+    CommitInstances(world, cell);
+    return false;
   }
   if (!CommitInstances(world, cell))
     return false;
@@ -2821,13 +2832,45 @@ bool CellStreamer::SpawnGrass(ecs::World& world,
   return true;
 }
 
+bethesda::GlobalFormId CellStreamer::EncounterZoneOf(const bethesda::Record& refr,
+                                                    bethesda::GlobalFormId ref,
+                                                    u16 plugin) const {
+  const auto read = [this](const bethesda::Record& rec, u16 from) {
+    const bethesda::Subrecord* zone = rec.Find(kXezn);
+    if (!zone || zone->data.size() < 4)
+      return bethesda::GlobalFormId{0xffff, 0};
+    u32 raw;
+    std::memcpy(&raw, zone->data.data(), 4);
+    return records_.ResolveFrom(bethesda::RawFormId{raw}, from);
+  };
+  // A placement can name its own zone; otherwise the cell it stands in does,
+  // which is the usual case: a dungeon authors one XEZN and every actor inside
+  // it scales against that.
+  const bethesda::GlobalFormId own = read(refr, plugin);
+  if (own.plugin != 0xffff)
+    return own;
+  const bethesda::GlobalFormId cell = records_.InteriorCellOfRef(ref);
+  if (cell.plugin == 0xffff)
+    return {0xffff, 0};
+  if (const u64* cached = cell_zones_.find(cell.packed()))
+    return bethesda::GlobalFormId{static_cast<u16>(*cached >> 32), static_cast<u32>(*cached)};
+  const bethesda::RecordStore::StoredRecord* stored = records_.Find(cell);
+  bethesda::Record record;
+  bethesda::GlobalFormId found{0xffff, 0};
+  if (stored && records_.Parse(cell, &record))
+    found = read(record, stored->winning_plugin);
+  cell_zones_[cell.packed()] = found.packed();
+  return found;
+}
+
 bool CellStreamer::SpawnReference(ecs::World& world,
                                   i16 grid_x,
                                   i16 grid_y,
                                   u64 ref_id,
                                   LoadedCell& cell,
                                   u32& mesh_budget,
-                                  bool interior) {
+                                  bool interior,
+                                  bool re_homed) {
   bethesda::GlobalFormId id{static_cast<u16>(ref_id >> 32), static_cast<u32>(ref_id)};
   const bethesda::RecordStore::StoredRecord* stored = records_.Find(id);
   if (!stored)
@@ -2836,6 +2879,11 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // Persistently removed refs (e.g. an item the player picked up) never re-place,
   // even after their cell streams out and back in.
   if (ref_suppressor_ && ref_suppressor_(id.packed()))
+    return true;
+  // Nor does one a resumed savegame left standing in another cell: it is binned
+  // with the cell it moved to and placed from there (see saved_spawns.h). That
+  // cell's own call is the one exception.
+  if (!re_homed && saved_spawns_ && saved_spawns_->Relocated(id.packed()))
     return true;
   // Nor does one that is already in the world: a reference moved out of this cell
   // was re-homed rather than deleted (see UnloadCell), and placing it again from
@@ -2874,12 +2922,19 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   if (saved_state && saved_state->deleted)
     return true;
 
+  // Where this reference stands: its record's DATA, unless a resumed savegame
+  // put it somewhere else. That is a whole placement, position and euler both,
+  // not the offset a runtime move records, because the save is describing where
+  // the thing IS rather than how far a script pushed it.
+  f32 placement[6];
+  std::memcpy(placement, data->data.data(), 24);
+  if (saved_state && saved_state->replaced)
+    std::memcpy(placement, saved_state->placement, sizeof(placement));
+
   // Placed actors (ACHR) have no static model -- their visuals come from the base
   // NPC's race/skeleton, rendered separately. Create an interactable actor entity
   // from the placement, tagged with its base, and skip the static-mesh path.
   if (stored->header.type == kAchr) {
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     ecs::Entity entity = world.Create();
     Transform transform;
     Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
@@ -2907,6 +2962,10 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     world.Add(entity, transform);
     world.Add(entity, FormLink{id});
     world.Add(entity, Npc{base_id});
+    if (actor_stats_) {
+      world.Add(entity, actor_stats_->For(base_id, base_record,
+                                          EncounterZoneOf(refr, id, stored->winning_plugin)));
+    }
     world.Add(entity, CellMembership{grid_x, grid_y, interior});
     Prop prop{base_id, classification.capabilities};
     std::memcpy(prop.authored_position, authored_position, sizeof(authored_position));
@@ -2927,9 +2986,7 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // A LIGH ref emits a point light whether or not its base has a world model
   // (many placed lights are meshless emitters), so add it before the mesh path.
   {
-    f32 pos[3];
-    std::memcpy(pos, data->data.data(), 12);
-    const Vec3 position = ToWorld(pos[0], pos[1], pos[2]);
+    const Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
     AddPlacedLight(base_id, id.packed(), refr, position, cell);
     AddPlacedDecal(base_id, id, refr, position, cell);
   }
@@ -2937,8 +2994,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
   // A pack-in (Starfield PKIN) is a prefab: its CNAM cell's refs instantiate
   // at this reference's transform (retaining walls, spaceport buildings).
   if (base_stored && base_stored->header.type == kPkin && !logical) {
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     f32 scale = 1.0f;
     if (const bethesda::Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4) {
       std::memcpy(&scale, xscl->data.data(), 4);
@@ -2960,8 +3015,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
       return true;
     }
 
-    f32 placement[6];
-    std::memcpy(placement, data->data.data(), 24);
     Transform transform;
     Vec3 position = ToWorld(placement[0], placement[1], placement[2]);
     transform.position[0] = position.x;
@@ -3017,8 +3070,6 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     return true;
   }
 
-  f32 placement[6];
-  std::memcpy(placement, data->data.data(), 24);
   f32 scale = 1.0f;
   if (const bethesda::Subrecord* xscl = refr.Find(kXscl); xscl && xscl->data.size() >= 4) {
     std::memcpy(&scale, xscl->data.data(), 4);
@@ -3105,6 +3156,152 @@ bool CellStreamer::SpawnReference(ecs::World& world,
     } else {
       SyncProp(world, entity, cell);
     }
+  }
+  return true;
+}
+
+bool CellStreamer::SpawnSavedReference(ecs::World& world,
+                                       i16 grid_x,
+                                       i16 grid_y,
+                                       const SavedSpawn& spawn,
+                                       LoadedCell& cell,
+                                       u32& mesh_budget,
+                                       bool interior) {
+  const u64 handle = spawn.handle.packed();
+  // Already standing: this cell streamed out and back in, or the reference was
+  // re-homed out of another cell rather than destroyed. Placing it again would
+  // leave two of the same corpse on the floor.
+  if (quest_world_ && world.IsAlive(quest_world_->Find(handle)))
+    return true;
+  if (ref_suppressor_ && ref_suppressor_(handle))
+    return true;
+
+  // A reference the records author, which a savegame left in this cell instead
+  // of its own, is placed BY its record: that is where its door destination, its
+  // placed script, its lock, its light and its encounter zone come from, and a
+  // save moving something does not take any of that away. Only the placement is
+  // the save's (see PropState::replaced).
+  if (spawn.relocated) {
+    PropState& state = prop_states_[handle];
+    state.replaced = true;
+    for (u32 axis = 0; axis < 3; ++axis) {
+      state.placement[axis] = spawn.position[axis];
+      state.placement[3 + axis] = spawn.rotation[axis];
+    }
+    return SpawnReference(world, grid_x, grid_y, handle, cell, mesh_budget, interior,
+                          /*re_homed=*/true);
+  }
+
+  const bethesda::RecordStore::StoredRecord* base_stored = records_.Find(spawn.base);
+  if (!base_stored)
+    return true;
+  bethesda::Record base_record;
+  const bool base_script = records_.Parse(spawn.base, &base_record) && base_record.Find(kVmad);
+  // No REFR record to read a placed script, a primitive or a teleport off, so
+  // the base is all there is to classify by. Stateful either way: a reference a
+  // play session created is something the player did, and it keeps an entity of
+  // its own rather than folding into a cell instance batch.
+  const PropClassification classification = ClassifyProp({.base_type = base_stored->header.type,
+                                                          .placed_script = false,
+                                                          .base_script = base_script,
+                                                          .primitive = false,
+                                                          .teleport = false,
+                                                          .stateful = true});
+
+  Transform transform;
+  const Vec3 position = ToWorld(spawn.position[0], spawn.position[1], spawn.position[2]);
+  transform.position[0] = position.x;
+  transform.position[1] = position.y;
+  transform.position[2] = position.z;
+
+  if (spawn.actor) {
+    // Like a placed ACHR: a plain yaw about engine up, because the skinned actor
+    // converts its own Bethesda-space skeleton and composing the axis change
+    // again tips the body onto its back.
+    const f32 half = -spawn.rotation[2] * 0.5f;
+    transform.rotation[0] = 0;
+    transform.rotation[1] = std::sin(half);
+    transform.rotation[2] = 0;
+    transform.rotation[3] = std::cos(half);
+    ecs::Entity entity = world.Create();
+    world.Add(entity, transform);
+    world.Add(entity, FormLink{spawn.handle});
+    world.Add(entity, Npc{spawn.base});
+    // A reference the save spawned has no record, so nothing names a zone for
+    // it and it scales against the player like an unzoned actor.
+    if (actor_stats_)
+      world.Add(entity, actor_stats_->For(spawn.base, base_record, {0xffff, 0}));
+    world.Add(entity, CellMembership{grid_x, grid_y, interior});
+    Prop prop{spawn.base, classification.capabilities};
+    std::memcpy(prop.authored_position, transform.position, sizeof(prop.authored_position));
+    world.Add(entity, prop);
+    cell.entities.push_back(entity);
+    if (quest_world_)
+      quest_world_->Register(handle, entity);
+    SyncProp(world, entity, cell);
+    ++spawned_entities_;
+    ++spawned_npcs_;
+    ++saved_spawns_spawned_;
+    return true;
+  }
+
+  bool budget_exceeded = false;
+  const asset::Mesh* mesh = MeshForBase(spawn.base, mesh_budget, budget_exceeded);
+  if (budget_exceeded)
+    return false;
+  if (!mesh || !EnsureUploaded(*mesh)) {
+    ++skipped_refs_;
+    return true;
+  }
+  RefrRotationToEngine(spawn.rotation, transform.rotation);
+  transform.scale = spawn.scale * kUnitsToMeters;
+
+  ecs::Entity entity = world.Create();
+  world.Add(entity, transform);
+  world.Add(entity, Renderable{RenderMeshId(mesh->id)});
+  world.Add(entity, FormLink{spawn.handle});
+  world.Add(entity, CellMembership{grid_x, grid_y, interior});
+  Prop prop{spawn.base, classification.capabilities};
+  std::memcpy(prop.authored_position, transform.position, sizeof(prop.authored_position));
+  world.Add(entity, prop);
+  cell.entities.push_back(entity);
+
+  if (physics_ && IsCollidable(*mesh, assets_)) {
+    const u64 physics_key = RenderMeshId(mesh->id).hash;
+    if (physics_->has_mesh_shape(physics_key) || physics_->RegisterMeshShape(physics_key, *mesh)) {
+      const physics::BodyId body = physics_->AddStaticMeshInstance(
+          physics_key, position, transform.rotation, transform.scale);
+      world.Add(entity, PropPhysics{body, PropMotion::kStatic});
+      world.Get<Prop>(entity)->capabilities |= kPropPhysics;
+    }
+  }
+  if (quest_world_)
+    quest_world_->Register(handle, entity);
+  SyncProp(world, entity, cell);
+  ++spawned_entities_;
+  ++saved_spawns_spawned_;
+  return true;
+}
+
+bool CellStreamer::SpawnSavedReferences(ecs::World& world,
+                                        i16 grid_x,
+                                        i16 grid_y,
+                                        base::Span<const SavedSpawn> saved,
+                                        LoadedCell& cell,
+                                        u32& mesh_budget,
+                                        u32& ref_budget,
+                                        bool interior) {
+  while (cell.next_saved < saved.size()) {
+    // An interior loads in one shot, outside Update, so the frame deadline is
+    // whatever the last streamed frame left behind and reading it here would
+    // stop the interior halfway through with nothing to resume it.
+    if (mesh_budget == 0 || ref_budget == 0 || (!interior && StreamBudgetExpired()))
+      return false;
+    --ref_budget;
+    if (!SpawnSavedReference(world, grid_x, grid_y, saved[cell.next_saved], cell, mesh_budget,
+                             interior))
+      return false;  // budget ran out mid-reference; retry the same one next tick
+    ++cell.next_saved;
   }
   return true;
 }
@@ -3898,6 +4095,7 @@ bool CellStreamer::LoadInterior(ecs::World& world,
   // tracked in interior_cell_ so a later transition (a door out) can unload
   // them; exterior streaming stays suspended while it is active.
   interior_cell_ = LoadedCell{};
+  interior_form_ = cell_id;
   interior_active_ = true;
   ResolveInteriorLighting(cell_id);
   LoadedCell& cell = interior_cell_;
@@ -3907,6 +4105,11 @@ bool CellStreamer::LoadInterior(ecs::World& world,
   cell.addressability_done = true;
   for (u64 ref_id : *refs) {
     SpawnReference(world, 0, 0, ref_id, cell, mesh_budget, true);
+  }
+  if (saved_spawns_) {
+    u32 ref_budget = 0xffffffff;
+    SpawnSavedReferences(world, 0, 0, saved_spawns_->Interior(cell_id), cell, mesh_budget,
+                         ref_budget, true);
   }
 
   // Spawn slightly above the centroid of what was placed.
@@ -3994,6 +4197,7 @@ bool CellStreamer::EnterInterior(ecs::World& world,
 void CellStreamer::EnterExterior(ecs::World& world) {
   UnloadInterior(world);
   interior_active_ = false;
+  interior_form_ = {};
   interior_lighting_ = InteriorLighting{};
   announced_idle_ = false;
   if (on_location_change_)

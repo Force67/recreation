@@ -19,6 +19,12 @@ public static class ModHost
     // The engine's role, set from the handshake before Boot. Standalone (run
     // everything) until told otherwise, so single-player and tests are unchanged.
     private static int _hostRealm = ModDiscovery.HostStandalone;
+    // The optional game mode the launcher armed, and the set of mods that are
+    // selectable modes rather than base rulesets or ordinary mods. Both come from
+    // the handshake before Boot; an empty set filters nothing, so a launch with no
+    // launcher (and every test) loads mods exactly as it did before.
+    private static string? _gameMode;
+    private static readonly HashSet<string> SelectableModes = new(StringComparer.Ordinal);
 
     public static IReadOnlyList<GameBehaviour> ActiveBehaviours => Behaviours;
     public static bool Booted => _booted;
@@ -27,6 +33,18 @@ public static class ModHost
     // starts only the mods that role admits. Call before Boot.
     public static void SetHostRealm(int hostRealm) => _hostRealm = hostRealm;
 
+    // Names the armed game mode (null or empty for none) and every mod name that
+    // is a selectable mode. A mod in `selectable` loads only when it is the armed
+    // one; an armed mode adds to the domain's base ruleset, it does not replace
+    // it. Call before Boot.
+    public static void SetGameModes(string? armed, IEnumerable<string> selectable)
+    {
+        _gameMode = string.IsNullOrEmpty(armed) ? null : armed;
+        SelectableModes.Clear();
+        foreach (string id in selectable)
+            if (!string.IsNullOrEmpty(id)) SelectableModes.Add(id);
+    }
+
     // Discovers and loads every mod in the currently loaded assemblies, then
     // starts the auto-start behaviours. Idempotent.
     public static void Boot()
@@ -34,6 +52,10 @@ public static class ModHost
         if (_booted) return;
         _booted = true;
         Console.WriteLine("[managed] mod host booting");
+        if (SelectableModes.Count > 0)
+            Console.WriteLine(_gameMode != null
+                ? $"[mods] game mode {_gameMode} armed, {SelectableModes.Count} selectable"
+                : $"[mods] no game mode armed, {SelectableModes.Count} selectable");
         // Complete the per-form component lifecycle: when a form unloads, detach
         // the behaviours attached to it so they stop ticking on a stale handle.
         // The subscription is cleared by Shutdown (EventBus.Clear) and re-added on
@@ -50,8 +72,15 @@ public static class ModHost
         var list = new List<Assembly>(assemblies);
         foreach (Type modType in ModDiscovery.FindMods(list, _hostRealm))
         {
-            if (Activator.CreateInstance(modType) is not IMod mod) continue;
             var meta = modType.GetCustomAttribute<ModAttribute>();
+            // Decided before instantiation so a mode the launcher did not arm
+            // never reaches OnLoad.
+            if (meta != null && SelectableModes.Contains(meta.Name) && meta.Name != _gameMode)
+            {
+                Console.WriteLine($"[mods] game mode {meta.Name} not armed, skipping");
+                continue;
+            }
+            if (Activator.CreateInstance(modType) is not IMod mod) continue;
             Console.WriteLine($"[managed] loading mod {meta?.Name ?? modType.Name}");
             Mods.Add(mod);
             try

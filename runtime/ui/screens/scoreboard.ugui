@@ -1,22 +1,28 @@
-// Multiplayer scoreboard (the hold-Tab player list). A centered panel with a
-// title, a header line and a fixed pool of player rows, all fed each frame from
-// SetScoreboard. The whole panel collapses when the scoreboard is closed. Each
-// line is a single pre-formatted string (name + cells) so the row pool stays flat.
+// Multiplayer scoreboard (hold Tab). Rows arrive from SetScoreboard as
+// pre-formatted strings. Centred by a full-width wrapper rather than a pixel
+// offset so it stays centred at any resolution.
 
-  panel scoreboard_box { position: absolute; left: 610; top: 150; width: 700; layout: column; align: stretch; gap: 4; visibility: collapsed; padding: 18; background: #0a0c14e0; corner-radius: 10; border-color: #2a3142aa; border-width: 1; shadow-color: #00000088; shadow-blur: 24; shadow-y: 6;
-    text scoreboard_title { text: ""; font-size: 20; color: #f0f4fb; letter-spacing: 1; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_header { text: ""; font-size: 12; color: #8b94a8; letter-spacing: 2; }
-    panel scoreboard_rule { height: 1; background: #2a3142; }
-    text scoreboard_row0 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row1 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row2 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row3 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row4 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row5 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row6 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row7 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row8 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row9 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row10 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
-    text scoreboard_row11 { text: ""; font-size: 14; color: #d7deec; text-shadow-color: #000000a0; text-shadow-x: 1; text-shadow-y: 1; }
+  panel scoreboard_box {
+    position: absolute; left: 0; top: 150; width: 100vw;
+    layout: column; align: center; visibility: collapsed;
+    panel { class: plate_w; layout: column; align: stretch; width: 860; padding: 30 34 34 34;
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text scoreboard_title { class: t_h1; text: ""; font-size: 26; letter-spacing: 6; }
+        text { class: t_micro2; text: "Tab"; } }
+      panel { class: rule; width: 100%; margin: 20 0 0 0; }
+      text scoreboard_header { class: t_micro; text: ""; margin: 18 0 12 0; }
+      panel scoreboard_rule { class: rule_dim; width: 100%; margin: 0 0 14 0; }
+      text scoreboard_row0  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row1  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row2  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row3  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row4  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row5  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row6  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row7  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row8  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row9  { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row10 { class: t_body; text: ""; margin: 0 0 8 0; }
+      text scoreboard_row11 { class: t_body; text: ""; margin: 0 0 8 0; }
+    }
   }

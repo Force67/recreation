@@ -169,6 +169,15 @@ f32 RecordBackedSkyrimBindings::GetWeight(ObjectRef form) {
   return 0.0f;
 }
 
+// A book's DATA flags as the game carries them: what the record authors unless
+// the runtime has replaced them, which is what reading the book does.
+u8 RecordBackedSkyrimBindings::BookFlags(ObjectRef book, const bethesda::Record& rec) const {
+  if (const u8* runtime = book_flags_.find(book.handle))
+    return *runtime;
+  const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
+  return data && !data->data.empty() ? data->data[0] : 0;
+}
+
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
   if (!records_)
     return {};
@@ -184,7 +193,7 @@ papyrus::ObjectRef RecordBackedSkyrimBindings::GetBookSpell(ObjectRef book) {
   // BOOK DATA: { uint8 flags; uint8 type; uint16 pad; uint32 teaches; ... }. The
   // 0x04 flag marks a spell tome, where `teaches` is the taught spell's form id.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 8 || (data->data[0] & 0x04) == 0)
+  if (!data || data->data.size() < 8 || (BookFlags(book, rec) & 0x04) == 0)
     return {};
   u32 raw;
   std::memcpy(&raw, data->data.data() + 4, 4);
@@ -201,12 +210,32 @@ base::String RecordBackedSkyrimBindings::GetBookSkill(ObjectRef book) {
   if (rec.header.type != FourCc('B', 'O', 'O', 'K'))
     return "";
   // The 0x01 flag marks a skill book, where `teaches` is the skill's AV index.
+  // A book whose skill has already been taken has lost that bit, so it teaches
+  // nothing and cannot raise the skill a second time.
   const bethesda::Subrecord* data = rec.Find(FourCc('D', 'A', 'T', 'A'));
-  if (!data || data->data.size() < 8 || (data->data[0] & 0x01) == 0)
+  if (!data || data->data.size() < 8 || (BookFlags(book, rec) & 0x01) == 0)
     return "";
   u32 index;
   std::memcpy(&index, data->data.data() + 4, 4);
   return SkillAvName(index);
+}
+
+void RecordBackedSkyrimBindings::SetBookFlags(ObjectRef book, i32 flags) {
+  book_flags_[book.handle] = static_cast<u8>(flags);
+}
+
+bool RecordBackedSkyrimBindings::IsBookRead(ObjectRef book) {
+  const u8* flags = book_flags_.find(book.handle);
+  return flags && (*flags & 0x08) != 0;
+}
+
+void RecordBackedSkyrimBindings::SetKnownIngredientEffects(ObjectRef ingredient, i32 effects) {
+  known_ingredient_effects_[ingredient.handle] = static_cast<u32>(effects);
+}
+
+i32 RecordBackedSkyrimBindings::GetKnownIngredientEffects(ObjectRef ingredient) {
+  const u32* known = known_ingredient_effects_.find(ingredient.handle);
+  return known ? static_cast<i32>(*known) : 0;
 }
 
 namespace {

@@ -39,6 +39,10 @@ public static unsafe class ScriptHost
         // Filter which mods start by the process role: server + shared on a host,
         // client + shared on a client, everything in single-player.
         ModHost.SetHostRealm(handshake->Realm);
+        // Filter which optional game mode starts: the launcher hands over its pick
+        // plus every mode it could have picked, so an unpicked mode stays dormant
+        // while the game's base ruleset loads either way.
+        ModHost.SetGameModes(Marshal.PtrToStringUTF8((IntPtr)handshake->ModeId), ReadModeIds(handshake));
         ModHost.Boot();
 
         // Load drop-in user mods from RECREATION_MODS_DIR, if set.
@@ -71,6 +75,18 @@ public static unsafe class ScriptHost
         // over the bound primary backend so Domains is never empty when bound.
         if (Domains.Count == 0 && Native.Backend != null)
             Domains.Register(new GameWorld("primary", Native.Backend), isPrimary: true);
+    }
+
+    // The handshake's table of selectable game mode ids, as managed strings.
+    // Empty when the host offers no modes (any launch path without the launcher).
+    private static string[] ReadModeIds(HostHandshake* handshake)
+    {
+        int count = handshake->ModeIdCount;
+        if (count <= 0 || handshake->ModeIds == null) return Array.Empty<string>();
+        var ids = new string[count];
+        for (int i = 0; i < count; i++)
+            ids[i] = Marshal.PtrToStringUTF8((IntPtr)handshake->ModeIds[i]) ?? string.Empty;
+        return ids;
     }
 
     // RX_DOMAINS_REPORT: list every game a mod can reach this session.

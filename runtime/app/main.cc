@@ -1,10 +1,12 @@
 #include <base/strings/xstring.h>
 
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 #include "core/log.h"
 #include "runtime/app/engine.h"
+#include "runtime/app/platform_profile.h"
 
 namespace {
 
@@ -28,10 +30,13 @@ void PrintUsage() {
   RX_INFO("  --name <name>         player name sent to the server");
   RX_INFO("  --cell <x,y>          exterior start cell (default: 5,-3 near Whiterun)");
   RX_INFO("  --interior <id>       load one interior cell (editor id or 0x form id)");
+  RX_INFO("  --load-save <path>    resume from a savegame (.ess/.fos)");
   RX_INFO("  --grass-density <f>   grass density multiplier (default: 1.0, 0 disables)");
   RX_INFO("  --max-quests <n>      cap quest scripts attached at load (0 = all, default)");
   RX_INFO("  --preset <tier>       auto (default) | android | steamdeck | low |");
   RX_INFO("                        medium | high | ultra | console");
+  RX_INFO("  --profile <name>      platform profile ini from runtime/app/profiles");
+  RX_INFO("                        (e.g. steamdeck): game + engine knobs on the tier");
   RX_INFO("  --no-taa              disable temporal antialiasing");
   RX_INFO("  --upscaler <id>       fsr3 | dlss | xess");
   RX_INFO("  --no-rt               disable raytracing");
@@ -72,6 +77,19 @@ rx::render::UpscalerKind ParseUpscaler(const base::String& id) {
 
 int main(int argc, char** argv) {
   rx::EngineConfig config;
+  rx::PlatformProfile profile;
+
+  // Pre-scan for --profile so the file lands before the rest of the command
+  // line is parsed: an explicit flag has to beat the profile it sits on.
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::strcmp(argv[i], "--profile") != 0) continue;
+    const std::filesystem::path path = rx::FindPlatformProfile(argv[i + 1]);
+    if (path.empty() || !rx::LoadPlatformProfile(path, config, &profile)) {
+      RX_ERROR("platform profile '{}' not found (set REC_PROFILE_DIR?)", argv[i + 1]);
+      return 1;
+    }
+    break;
+  }
 
   for (int i = 1; i < argc; ++i) {
     base::String arg = argv[i];
@@ -140,12 +158,16 @@ int main(int argc, char** argv) {
       config.start_cell_explicit = true;
     } else if (arg == "--interior")
       config.interior = next();
+    else if (arg == "--load-save")
+      config.load_save = next();
     else if (arg == "--grass-density")
       config.grass_density = std::stof(next().c_str());
     else if (arg == "--max-quests")
       config.max_quest_scripts = std::stoi(next().c_str());
     else if (arg == "--preset")
       config.preset = rx::render::ParsePreset(next().c_str());
+    else if (arg == "--profile")
+      next();  // already consumed by the pre-scan above
     else if (arg == "--no-taa")
       config.renderer.aa_mode = rx::render::AntiAliasingMode::kNone;
     else if (arg == "--upscaler")
@@ -172,6 +194,12 @@ int main(int argc, char** argv) {
   app_config.preset = config.preset;
   app_config.headless = config.headless;
   app_config.gather_entity_draws = false;
+  // The profile's [render] section is replayed here rather than at load time:
+  // the host rebuilds RenderSettings from the tier once device caps are known,
+  // and runs this after, so the profile is the last word.
+  app_config.tune_settings = [&profile](rx::render::RenderSettings& s) {
+    profile.ApplyRenderSettings(s);
+  };
 
   rx::Engine engine(config);
   rx::app::Host host;

@@ -29,6 +29,11 @@ void ManagedHost::AddDomain(base::String name,
   domains_.push_back(base::move(domain));
 }
 
+void ManagedHost::SetGameModes(base::String armed, base::Vector<base::String> selectable) {
+  mode_id_ = base::move(armed);
+  mode_ids_ = base::move(selectable);
+}
+
 bool ManagedHost::Boot(const base::String& dotnet_root,
                        const base::String& runtime_config,
                        const base::String& assembly) {
@@ -48,6 +53,15 @@ bool ManagedHost::Boot(const base::String& dotnet_root,
   handshake_.ui_widget_ops = ui_widget_ops_;  // null when there is no UI backend
   handshake_.rpc = rpc_bridge_;               // emit/on null when networking is off
   handshake_.realm = realm_;                  // server / client / standalone
+  // Built here, after mode_ids_ has stopped growing, so the borrowed c_str()s
+  // stay valid for as long as the handshake does.
+  mode_id_table_.clear();
+  mode_id_table_.reserve(mode_ids_.size());
+  for (const base::String& id : mode_ids_)
+    mode_id_table_.push_back(id.c_str());
+  handshake_.mode_id = mode_id_.empty() ? nullptr : mode_id_.c_str();
+  handshake_.mode_id_count = static_cast<std::int32_t>(mode_id_table_.size());
+  handshake_.mode_ids = mode_id_table_.data();
 
   // Apply the per-platform / per-role GC and heap profile to the runtime before
   // it starts. Keyed by realm (dedicated server vs client vs standalone) and the

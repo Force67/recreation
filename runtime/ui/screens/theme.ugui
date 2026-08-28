@@ -1,0 +1,64 @@
+// Shared style classes and components for every screen. Design rationale and
+// the mocks these implement live in docs/ui-mock/.
+//
+// PRELUDE: game_ui.cc concatenates this ahead of `panel root`, because `class`
+// and `component` are top-level declarations while the screens are nested
+// inside root. It contributes no widgets.
+//
+// Two engine constraints the whole system is built around:
+//   - `left: 30%` resolves to 0. Positional work is pixels or flexbox.
+//   - `:hover`/`:focused` style the widget they sit on, not its children, so a
+//     control whose label changes on hover carries that text on the widget.
+//   - `visibility: collapsed` in markup is ignored; only SetVisible works.
+
+// black #000000  plate #0d0d0d  fg #ffffff  dim #9a9a9a  dim2 #5e5e5e
+// line #ffffff1c  line2 #ffffff33  line3 #ffffff10  accent #ffffff (per domain)
+
+// ===================== type =====================
+class t_mast   { font-size: 44; color: #ffffff; letter-spacing: 13; text-transform: uppercase; }
+class t_h1     { font-size: 30; color: #ffffff; letter-spacing: 10; text-transform: uppercase; }
+class t_h2     { font-size: 23; color: #9a9a9a; letter-spacing: 4;  }
+class t_num    { font-size: 26; color: #ffffff; letter-spacing: 2;  }
+class t_micro  { font-size: 11; color: #5e5e5e; letter-spacing: 5; text-transform: uppercase; }
+class t_micro2 { font-size: 10; color: #5e5e5e; letter-spacing: 3; text-transform: uppercase; }
+class t_key    { font-size: 11; color: #ffffff; letter-spacing: 5; text-transform: uppercase; }
+class t_body   { font-size: 15; color: #ffffff; letter-spacing: 1; }
+class t_dim    { font-size: 13; color: #9a9a9a; letter-spacing: 1; }
+class t_faint  { font-size: 11; color: #5e5e5e; letter-spacing: 2; }
+class t_out    { color: #5e5e5e; }
+
+// ===================== surface =====================
+class plate_w  { background: #000000e0; }   // over live gameplay
+class rule     { height: 1; background: #ffffff1c; }
+class rule_dim { height: 1; background: #ffffff10; }
+
+// ===================== components =====================
+
+// A named instance takes the instance name for its ROOT and prefixes its
+// children, so `ui_meter bar_health {}` yields bar_health / bar_health_track /
+// bar_health_fill, the pair GameUi drives. The bare wrapper root exists to keep
+// that naming; collapsing it renames the track.
+component ui_meter {
+  prop w: 100%;
+  prop c: #ffffff;
+  prop h: 11;
+  panel box {
+    panel track { width: 100%; height: $h; overflow: hidden;
+      background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+      panel fill { width: $w; height: 100%; background: $c; }
+      // marks the bar's maximum, not the fill's edge
+      panel { position: absolute; right: 0; top: 0; width: 1; height: 100%; background: #ffffff26; }
+    }
+  }
+}
+
+component ui_hint {
+  prop k: "E";
+  prop a: "ACTION";
+  panel { layout: row; align: center; gap: 12;
+    panel cap { width: 26; height: 26; layout: column; justify: center; align: center;
+      border-color: #ffffff2e; border-width: 1;
+      text t { font-size: 11; color: #ffffff; text: $k; } }
+    text a { font-size: 11; color: #5e5e5e; text: $a; letter-spacing: 3; text-transform: uppercase; } }
+}
+

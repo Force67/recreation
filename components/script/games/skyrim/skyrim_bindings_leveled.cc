@@ -48,7 +48,20 @@ i32 RecordBackedSkyrimBindings::GetLeveledListCount(ObjectRef list) {
            count});
     }
   }
+  // Entries a script added at runtime sit behind the authored ones, so an index
+  // into the cache means the same thing whether or not a save was resumed.
+  if (const base::Vector<LeveledEntry>* added = leveled_additions_.find(id.packed())) {
+    for (const LeveledEntry& entry : *added)
+      leveled_cache_.entries.push_back(entry);
+  }
   return static_cast<i32>(leveled_cache_.entries.size());
+}
+
+void RecordBackedSkyrimBindings::AddLeveledListEntry(ObjectRef list,
+                                                     ObjectRef form,
+                                                     i32 level,
+                                                     i32 count) {
+  leveled_additions_[ToFormId(list).packed()].push_back({form.handle, level, count});
 }
 
 i32 RecordBackedSkyrimBindings::GetLeveledChanceNone() {

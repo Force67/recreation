@@ -34,6 +34,7 @@ void RegisterGameInput(InputMap& map) {
   map.RegisterAction(Action::kToggleDebug, "toggle_debug");
   map.RegisterAction(Action::kToggleTrace, "toggle_trace");
   map.RegisterAction(Action::kToggleQuests, "toggle_quests");
+  map.RegisterAction(Action::kToggleMap, "toggle_map");
   map.RegisterAction(Action::kMenuUp, "menu_up");
   map.RegisterAction(Action::kMenuDown, "menu_down");
   map.RegisterAction(Action::kMenuLeft, "menu_left");
@@ -105,6 +106,7 @@ void RegisterGameInput(InputMap& map) {
     m.AddBinding(Action::kToggleDebug, key(Key::kF1));
     m.AddBinding(Action::kToggleTrace, key(Key::kF2));
     m.AddBinding(Action::kToggleQuests, key(Key::kF3));
+    m.AddBinding(Action::kToggleMap, key(Key::kF5));
 
     // Menu navigation: keyboard arrows + gamepad dpad and left stick.
     m.AddBinding(Action::kMenuUp, key(Key::kArrowUp));

@@ -1,34 +1,43 @@
-// War-map overlay: a dimmed full-screen panel with a card showing the Civil War
-// campaign, each of Skyrim's holds and which side controls it, plus an overall
-// war-progress bar. war_hold0..8 (kWarHoldRows) are a fixed pool filled and
-// coloured in GameUi::Build from the managed Civil War campaign. Starts hidden
-// (toggled by SetWarMap).
+// The Civil War campaign board. war_hold0..8 (kWarHoldRows) is a fixed pool
+// filled in GameUi::Build and coloured by side: white Imperial, signal-red
+// Stormcloak, grey contested.
 
   panel war_map_box {
     position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-    layout: column; justify: center; align: center; background: #05070cdd;
-    panel war_map_card {
-      layout: column; align: start; padding: 30 44; width: 560;
-      background: #0d1018f7; corner-radius: 14; border-color: #ffffff1c; border-width: 1;
-      shadow-color: #000000aa; shadow-blur: 48; shadow-y: 18;
-      text war_map_head { text: "War for Skyrim"; font-size: 24; color: #ffcc55; letter-spacing: 5;
-        text-transform: uppercase; margin: 0 0 4 0; }
-      text war_map_sub { text: ""; font-size: 13; color: #8a93a8; margin: 0 0 14 0; }
-      text war_hold0 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold1 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold2 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold3 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold4 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold5 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold6 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold7 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      text war_hold8 { text: ""; font-size: 16; color: #d8def0; margin: 0 0 4 0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel war_map_rule { width: 472; height: 1; background: #ffffff1f; margin: 12 0 10 0; }
-      panel war_bar_track { width: 472; height: 10; background: #2a3142; corner-radius: 5;
-        panel war_bar_fill { position: absolute; left: 0; top: 0; width: 1; height: 10;
-          background: #4f7fd8; corner-radius: 5; }
+    background: #000000e0; backdrop-blur: 26;
+    panel war_map_card { position: absolute; left: 130; right: 130; top: 76; bottom: 0;
+      layout: column;
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text war_map_head { class: t_mast; text: "War for Skyrim"; }
+        text war_map_hint { class: t_micro2; text: "M to close"; }
       }
-      text war_map_progress { text: ""; font-size: 13; color: #c7e0ff; margin: 8 0 0 0; }
-      text war_map_hint { text: "press M to close"; font-size: 12; color: #8a93a8; margin: 12 0 0 0; }
+      panel { width: 100%; height: 1; margin: 26 0 0 0;
+        background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
+
+      panel { flex-grow: 1; layout: row; align: stretch; width: 100%; padding: 44 0 0 0;
+        panel { width: 560; layout: column;
+          text war_map_sub { class: t_micro; text: ""; margin: 0 0 18 0; }
+          text war_hold0 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold1 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold2 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold3 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold4 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold5 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold6 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold7 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+          text war_hold8 { class: t_body; text: ""; font-size: 16; margin: 0 0 10 0; }
+        }
+        panel { width: 1; background: #ffffff1c; }
+        panel { flex-grow: 1; layout: column; padding: 0 0 0 56;
+          text { class: t_micro; text: "Imperial control"; margin: 0 0 18 0; }
+          ui_meter war_bar { width: 100%; max-width: 560; w: 1%; h: 14; }
+          text war_map_progress { class: t_body; text: ""; margin: 18 0 0 0; }
+          panel war_map_rule { class: rule_dim; width: 100%; max-width: 560; margin: 26 0 0 0; }
+        }
+      }
+      panel { height: 96; layout: row; align: center; gap: 44; width: 100%;
+        panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
+        ui_hint { k: "M"; a: "Close"; }
+      }
     }
   }

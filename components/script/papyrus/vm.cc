@@ -79,14 +79,24 @@ base::String VirtualMachine::LoadScript(ByteSpan pex_data) {
 base::String VirtualMachine::AddScript(PexFile pex) {
   if (pex.objects.empty())
     return "";
-  LoadedScript ls;
-  ls.pex = base::move(pex);
-  ls.name = ls.pex.Str(ls.pex.objects[0].name);
-  ls.parent = ls.pex.Str(ls.pex.objects[0].parent_class);
-  base::String key = Lower(ls.name);
-  LoadedScript& stored = (scripts_[key] = base::move(ls));
-  stored.object = &stored.pex.objects[0];  // fix pointer after the move
-  return stored.name;
+  auto ls = base::MakeUnique<LoadedScript>();
+  ls->pex = base::move(pex);
+  ls->name = ls->pex.Str(ls->pex.objects[0].name);
+  ls->parent = ls->pex.Str(ls->pex.objects[0].parent_class);
+  ls->object = &ls->pex.objects[0];
+  base::String key = Lower(ls->name);
+  base::String name = ls->name;
+  // Never replace a script that is already loaded. A Frame holds references
+  // straight into the PexFile for the whole activation, and a parked fiber
+  // (Utility.Wait) keeps them across many frames, so freeing the old
+  // LoadedScript here would pull the bytecode out from under a running call.
+  // Re-registration is reachable: EnsureScriptLoaded guards on the file name
+  // while this keys on the pex's declared object name, so a .pex whose object
+  // differs from its filename arrives again on every attachment.
+  if (scripts_.count(key) != 0)
+    return name;
+  scripts_[key] = base::move(ls);
+  return name;
 }
 
 bool VirtualMachine::HasScript(const base::String& type) const {
@@ -95,7 +105,7 @@ bool VirtualMachine::HasScript(const base::String& type) const {
 
 VirtualMachine::LoadedScript* VirtualMachine::FindScript(const base::String& type) {
   auto* it = scripts_.find(Lower(type));
-  return it == nullptr ? nullptr : &*it;
+  return it == nullptr ? nullptr : &**it;
 }
 
 VirtualMachine::Instance* VirtualMachine::FindInstance(ObjectRef instance) {
@@ -440,6 +450,30 @@ Value* VirtualMachine::MemberVar(ObjectRef self, const base::String& name) {
     return nullptr;
   auto* it = inst->members.find(name);
   return it == nullptr ? nullptr : &*it;
+}
+
+bool VirtualMachine::SetDeclaredMember(ObjectRef self, const base::String& name, Value value) {
+  Instance* inst = FindInstance(self);
+  if (inst == nullptr)
+    return false;
+  if (Value* exact = inst->members.find(name)) {
+    *exact = base::move(value);
+    return true;
+  }
+  // The .pex and the save were written by the same compiler, so the spelling
+  // normally matches outright; the scan is the fallback for a script rebuilt
+  // with different casing.
+  const base::String want = Lower(name);
+  for (auto entry : inst->members) {
+    if (Lower(entry.key) == want) {
+      // Assign through the iterator, not operator[]: entry.key references the
+      // map's own slot, and operator[] may rehash first, destroying that key
+      // before it hashes it. The entry is already the one we want anyway.
+      entry.value = base::move(value);
+      return true;
+    }
+  }
+  return false;
 }
 
 base::Vector<base::String> VirtualMachine::MemberNames(ObjectRef self) {

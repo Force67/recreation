@@ -38,7 +38,7 @@ mkdir -p "$DOTNET_CLI_HOME"
   -c Release -o "$OUT" -v minimal
 
 # The default gamemodes are separate assemblies loaded from <out>/gamemodes.
-for game in Skyrim Fallout Starfield; do
+for game in Skyrim Fallout Starfield SkyrimCartRacing; do
   "$DOTNET" build "$REPO/sdk/default_gamemodes/$game/Recreation.$game.csproj" \
     -c Release -o "$OUT/gamemodes" -v minimal
 done

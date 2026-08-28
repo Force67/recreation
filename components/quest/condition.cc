@@ -15,6 +15,8 @@ float LeftSide(const Comparison& c, const ConditionContext& ctx) {
       return ctx.GetStage(c.param1);
     case Func::kGetStageDone:
       return ctx.GetStageDone(c.param1, c.param2);
+    case Func::kGetRelationshipRank:
+      return ctx.GetRelationshipRank(c.run_on, c.reference, c.param1);
     case Func::kGetIsId:
       break;  // speaker gate, judged by the dialogue layer; raw here
     case Func::kRaw:

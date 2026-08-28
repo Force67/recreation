@@ -27,12 +27,29 @@ float SkyrimConditionContext::GetItemCount(quest::RunOn run_on, u64 reference, u
   return static_cast<float>(bindings_->GetItemCount(container, ObjectRef{item}));
 }
 
-bool SkyrimConditionContext::Understood(quest::Func func) {
+float SkyrimConditionContext::GetRelationshipRank(quest::RunOn run_on,
+                                                  u64 reference,
+                                                  u64 other) const {
+  // The rank is symmetric, so which end is the subject only matters for finding
+  // the pair: an explicit reference run-on names it, otherwise it is whoever the
+  // condition is being asked about (the speaker of a dialogue line).
+  const u64 self = (run_on == quest::RunOn::kReference && reference) ? reference : subject_;
+  if (self == 0 || other == 0)
+    return 0.0f;
+  return static_cast<float>(
+      bindings_->GetRelationshipRank(ObjectRef{self}, ObjectRef{other}));
+}
+
+bool SkyrimConditionContext::Understood(quest::Func func) const {
   switch (func) {
     case quest::Func::kGetStage:
     case quest::Func::kGetStageDone:
     case quest::Func::kGetItemCount:
       return true;  // backed by real bindings state (global RHS handled too)
+    case quest::Func::kGetRelationshipRank:
+      // Only once somebody has said who the condition runs on. Judging it
+      // against the wrong actor would hide lines rather than leave them alone.
+      return subject_ != 0;
     default:
       return false;  // GetIsId (speaker gate), GetActorValue, GetDistance, raw
   }

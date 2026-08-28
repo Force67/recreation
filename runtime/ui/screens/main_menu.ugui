@@ -1,376 +1,560 @@
-// NEXUS main menu: a full-bleed, three-pane cinematic front screen. Each pane
-// is a universe (Skyrim / Fallout 4 / Starfield) with its own procedurally
-// painted backdrop (mm_bg0..2), a legibility scrim, a selection accent (mm_sel)
-// and a game label (mm_labt). The chrome floats on top: the NEXUS wordmark and
-// tagline (centre), the command nav (left), the NEWS rail (right), and a bottom
-// band with the local profile, the session tagline and the social row.
-// Emblems are bound from procedural textures (gl_*). Drives the SAME widgets
-// GameUi expects: mm_col0..2, mm_bg/mm_sel/mm_labt, mm_nav0..5 (+ mm_caret/
-// mm_navt/mm_navs), mm_pname/mm_psys/mm_pnet/mm_pcount/mm_build, mm_screen.
+// The front-end. PLAY is a paged grid of launchable tiles: one per base game or
+// per game mode mounted on one. See docs/ui-mock/untarnished_mainmenu_tiles.html.
+//
+// A tile is one object: full-bleed key art (mm_art*), a scrim so the meta reads
+// over it, the load-order spine (mm_sp*, kMenuSpineTicks ticks per tile) top
+// left, state top right, kind/title/detail bottom left, and a square play button
+// (mm_play*) bottom right. mm_top* is the 2px rule marking the focused tile.
+//
+// Eight tiles are declared; GameUi shows the entries of the current page and
+// collapses the rest. The utilities that used to be a left nav (Mods, Settings,
+// Profile, Quit) sit in the top bar; mm_screen still holds their sub-pages and
+// covers the grid while one is open.
+//
+// Three engine notes. The play glyph is a rotated square inside a clip box
+// rather than U+25B6, and the Move hint reads "<>" rather than arrows, because
+// the UI font carries neither Geometric Shapes nor Arrows and would draw tofu
+// (pause_menu.ugui spells its up/down hint "^v" for the same reason). And a
+// panel that has a border must have an OPAQUE background, or ugui fills the
+// whole rect with the border colour: hence #060606 on mm_play*, which is what
+// the mock's #00000099 composites to over the scrim anyway.
 
   panel mainmenu {
-    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #05070b;
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #000000;
+    panel { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+      background: #0e1013; background-end: #000000; gradient-angle: 180; }
 
-    // ===================== universe panes =====================
-    panel { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; layout: row;
+    panel { position: absolute; left: 130; right: 130; top: 64; bottom: 0; layout: column;
 
-      panel mm_col0 { width: 35vw; height: 100%; position: relative; overflow: hidden; cursor: pointer;
-        image mm_bg0 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-        panel { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #05070b00; background-end: #05070bcc; gradient-angle: 180; }
-        panel mm_sel0 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #9fb4d600; background-end: #9fb4d614; gradient-angle: 180; visibility: collapsed; }
-      }
-
-      panel mm_col1 { width: 30vw; height: 100%; position: relative; overflow: hidden; cursor: pointer;
-        panel { position: absolute; left: 0; top: 0; bottom: 0; width: 1; background: #ffffff10; }
-        image mm_bg1 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-        panel { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #05070b00; background-end: #05070bcc; gradient-angle: 180; }
-        panel mm_sel1 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #ffce6600; background-end: #ffce6616; gradient-angle: 180; visibility: collapsed; }
-        panel { position: absolute; left: 0; right: 0; top: 300; layout: column; align: center;
-          image mm_hero { width: 440; height: 440; } }
-      }
-
-      panel mm_col2 { width: 35vw; height: 100%; position: relative; overflow: hidden; cursor: pointer;
-        panel { position: absolute; left: 0; top: 0; bottom: 0; width: 1; background: #ffffff10; }
-        image mm_bg2 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-        panel { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #05070b00; background-end: #05070bcc; gradient-angle: 180; }
-        panel mm_sel2 { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #8ea2e800; background-end: #8ea2e816; gradient-angle: 180; visibility: collapsed; }
-      }
-    }
-
-    // ===================== centre wordmark =====================
-    panel { position: absolute; left: 0; top: 104; width: 100vw; layout: column; align: center;
-      text { text: "RECREATION"; font-size: 46; color: #eef2fb; letter-spacing: 12; }
-    }
-
-    // ===================== command nav (left) =====================
-    panel { position: absolute; left: 86; top: 258; width: 300; layout: column; gap: 31;
-      panel mm_nav0 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret0 { position: absolute; left: -30; top: 9; width: 14; height: 14;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ffcc55; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ffcc55; } }
-        text mm_navt0 { text: "PLAY"; font-size: 23; color: #ffcc55; letter-spacing: 3; }
-        text mm_navs0 { text: "Choose your universe"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-      panel mm_nav1 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret1 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ffcc55; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ffcc55; } }
-        text mm_navt1 { text: "MULTIPLAYER"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
-        text mm_navs1 { text: "Join or host a server"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-      panel mm_nav2 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret2 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ffcc55; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ffcc55; } }
-        text mm_navt2 { text: "MODS"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
-        text mm_navs2 { text: "Browse and manage mods"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-      panel mm_nav3 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret3 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ffcc55; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ffcc55; } }
-        text mm_navt3 { text: "SETTINGS"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
-        text mm_navs3 { text: "Configure your experience"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-      panel mm_nav4 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret4 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ffcc55; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ffcc55; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ffcc55; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ffcc55; } }
-        text mm_navt4 { text: "PROFILE"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
-        text mm_navs4 { text: "View stats and progress"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-      panel mm_nav5 { position: relative; layout: column; gap: 3; cursor: pointer;
-        panel mm_caret5 { position: absolute; left: -30; top: 8; width: 14; height: 14; visibility: collapsed;
-          panel { position: absolute; left: 0;   top: 0;   width: 2.4; height: 13;  background: #ff9a8a; }
-          panel { position: absolute; left: 2.4; top: 1.6; width: 2.4; height: 9.8; background: #ff9a8a; }
-          panel { position: absolute; left: 4.8; top: 3.6; width: 2.4; height: 5.8; background: #ff9a8a; }
-          panel { position: absolute; left: 7.2; top: 5.4; width: 2.4; height: 2.2; background: #ff9a8a; } }
-        text mm_navt5 { text: "QUIT"; font-size: 23; color: #9aa3b6; letter-spacing: 3; }
-        text mm_navs5 { text: "Exit to desktop"; font-size: 12; color: #7a8396; letter-spacing: 1; }
-      }
-    }
-
-    // ===================== NEWS rail (right) =====================
-    panel { position: absolute; right: 56; top: 150; width: 258; layout: column; align: start; gap: 17;
-      text { text: "NEWS"; font-size: 12; color: #8b93a6; letter-spacing: 4; }
-      panel news0 { layout: row; align: start; gap: 11; width: 100%;
-        panel { width: 5; height: 5; corner-radius: 3; background: #ffcc55; margin: 7 0 0 0; }
-        panel { layout: column; align: start; gap: 4; flex-grow: 1;
-          text news0_title { text: ""; font-size: 13; color: #e8ecf6; letter-spacing: 1; font-weight: 600; width: 100%; }
-          text news0_sub { text: ""; font: mono; font-size: 11; color: #7e8699; } } }
-      panel news1 { layout: row; align: start; gap: 11; width: 100%;
-        panel { width: 5; height: 5; corner-radius: 3; background: #ffffff44; margin: 7 0 0 0; }
-        panel { layout: column; align: start; gap: 4; flex-grow: 1;
-          text news1_title { text: ""; font-size: 13; color: #c9d0de; letter-spacing: 1; font-weight: 600; width: 100%; }
-          text news1_sub { text: ""; font: mono; font-size: 11; color: #7e8699; } } }
-      panel news2 { layout: row; align: start; gap: 11; width: 100%;
-        panel { width: 5; height: 5; corner-radius: 3; background: #ffffff44; margin: 7 0 0 0; }
-        panel { layout: column; align: start; gap: 4; flex-grow: 1;
-          text news2_title { text: ""; font-size: 13; color: #c9d0de; letter-spacing: 1; font-weight: 600; width: 100%; }
-          text news2_sub { text: ""; font: mono; font-size: 11; color: #7e8699; } } }
-      panel act_news { cursor: pointer; layout: column; align: start; gap: 6; padding: 4 0; margin: 2 0 0 0;
-        :hover { background: #ffffff0c; transition: 0.14s ease-out; }
-        text { text: "VIEW CHANGELOG"; font-size: 11; color: #cfd6e6; letter-spacing: 2; }
-        panel { width: 30; height: 1; background: #cfd6e6; } }
-    }
-
-    // ===================== bottom band =====================
-    panel { position: absolute; left: 0; right: 0; bottom: 0; height: 150;
-      panel { position: absolute; left: 54; right: 54; top: 0; height: 1; background: #ffffff12; }
-      panel { layout: row; align: center; width: 100%; height: 100%; padding: 0 54;
-
-        panel { flex-grow: 1; layout: row; align: center; gap: 18;
-          image gl_profile { width: 46; height: 46; }
-          panel { layout: column; gap: 3;
-            text mm_pname { text: "Wanderer"; font-size: 18; color: #eef1f8; letter-spacing: 1; }
-            text mm_psys { text: "Level 42"; font: mono; font-size: 12; color: #8b93a6; }
-          }
-          panel { width: 1; height: 30; background: #ffffff14; margin: 0 6; }
-          panel mm_pnet { layout: row; align: center; gap: 9;
-            image gl_peers { width: 22; height: 16; }
-            text mm_pcount { text: "3"; font: mono; font-size: 14; color: #cfd6e6; }
-          }
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text { class: t_mast; font-size: 32; letter-spacing: 13; text: "Recreation"; }
+        panel { layout: row; align: center; gap: 16; margin: 0 -10 0 0;
+          panel mm_util_mods { cursor: pointer; padding: 6 10;
+            :hover { background: #ffffff0a; }
+            text { font-size: 11; letter-spacing: 4; text-transform: uppercase;
+              color: #9a9a9a; text: "Mods"; } }
+          panel mm_util_settings { cursor: pointer; padding: 6 10;
+            :hover { background: #ffffff0a; }
+            text { font-size: 11; letter-spacing: 4; text-transform: uppercase;
+              color: #9a9a9a; text: "Settings"; } }
+          panel mm_util_profile { cursor: pointer; padding: 6 10;
+            :hover { background: #ffffff0a; }
+            text { font-size: 11; letter-spacing: 4; text-transform: uppercase;
+              color: #9a9a9a; text: "Profile"; } }
+          panel mm_util_quit { cursor: pointer; padding: 6 10;
+            :hover { background: #ffffff0a; }
+            text { font-size: 11; letter-spacing: 4; text-transform: uppercase;
+              color: #5e5e5e; text: "Quit"; } }
         }
+      }
+      panel { width: 100%; height: 1; margin: 22 0 0 0;
+        background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
 
+      panel { layout: row; align: center; justify: space-between; width: 100%;
+        margin: 28 0 0 0;
+        text { class: t_micro; text: "Play"; }
+        panel { layout: row; align: center; gap: 16;
+          text mm_pagelbl { class: t_micro; text: "Page 1 / 1"; }
+          panel { layout: row; gap: 5;
+            panel mm_pip0 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip1 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip2 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip3 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip4 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip5 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip6 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+            panel mm_pip7 { width: 26; height: 3; background: #ffffff26; cursor: pointer; }
+          } } }
+
+      panel { layout: row; flex-wrap: wrap; gap: 18; width: 100%; height: 590;
+        align-content: start; margin: 20 0 0 0;
+        panel mm_tile0 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art0 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top0 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp0 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp1 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp2 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp3 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp4 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp5 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp6 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp7 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp8 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp9 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state0 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind0 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title0 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail0 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play0 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri0 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile1 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art1 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top1 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp10 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp11 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp12 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp13 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp14 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp15 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp16 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp17 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp18 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp19 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state1 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind1 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title1 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail1 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play1 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri1 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile2 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art2 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top2 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp20 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp21 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp22 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp23 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp24 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp25 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp26 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp27 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp28 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp29 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state2 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind2 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title2 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail2 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play2 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri2 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile3 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art3 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top3 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp30 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp31 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp32 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp33 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp34 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp35 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp36 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp37 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp38 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp39 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state3 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind3 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title3 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail3 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play3 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri3 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile4 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art4 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top4 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp40 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp41 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp42 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp43 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp44 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp45 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp46 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp47 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp48 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp49 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state4 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind4 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title4 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail4 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play4 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri4 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile5 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art5 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top5 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp50 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp51 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp52 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp53 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp54 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp55 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp56 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp57 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp58 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp59 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state5 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind5 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title5 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail5 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play5 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri5 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile6 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art6 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top6 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp60 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp61 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp62 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp63 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp64 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp65 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp66 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp67 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp68 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp69 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state6 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind6 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title6 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail6 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play6 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri6 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+        panel mm_tile7 { width: 400; height: 286; position: relative; overflow: hidden;
+          cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+          :hover { border-color: #ffffff5e; }
+          image mm_art7 { position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+            opacity: 0.62; }
+          panel { position: absolute; left: 0; right: 0; bottom: 0; height: 177;
+            background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+          panel mm_top7 { position: absolute; left: 0; right: 0; top: 0; height: 2;
+            background: #ffffff; }
+          panel { position: absolute; left: 18; top: 20; layout: column; gap: 3;
+            panel mm_sp70 { width: 22; height: 2; background: #ffffff3d; }
+            panel mm_sp71 { width: 14; height: 2; background: #ffffff3d; }
+            panel mm_sp72 { width: 26; height: 2; background: #ffffff3d; }
+            panel mm_sp73 { width: 11; height: 2; background: #ffffff3d; }
+            panel mm_sp74 { width: 19; height: 2; background: #ffffff3d; }
+            panel mm_sp75 { width: 24; height: 2; background: #ffffff3d; }
+            panel mm_sp76 { width: 9; height: 2; background: #ffffff3d; }
+            panel mm_sp77 { width: 17; height: 2; background: #ffffff3d; }
+            panel mm_sp78 { width: 13; height: 2; background: #ffffff3d; }
+            panel mm_sp79 { width: 21; height: 2; background: #ffffff3d; }
+          }
+          text mm_state7 { position: absolute; right: 16; top: 16; font-size: 9;
+            letter-spacing: 3; text-transform: uppercase; color: #ffffff8c; text: ""; }
+          panel { position: absolute; left: 18; right: 86; bottom: 16; layout: column;
+            text mm_kind7 { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+              color: #ffffff8c; text: ""; }
+            text mm_title7 { font-size: 22; letter-spacing: 4; text-transform: uppercase;
+              color: #ffffffcc; margin: 8 0 0 0; text: ""; }
+            text mm_detail7 { font-size: 11; letter-spacing: 1; color: #ffffff7a;
+              margin: 7 0 0 0; text: ""; } }
+          panel mm_play7 { position: absolute; right: 16; bottom: 16; width: 46; height: 46;
+            layout: row; justify: center; align: center; cursor: pointer;
+            background: #060606; border-color: #ffffff33; border-width: 1;
+            panel { width: 10; height: 19; overflow: hidden; position: relative;
+              panel mm_tri7 { position: absolute; left: -6; top: 3; width: 13; height: 13;
+                background: #ffffffcc; rotation: 45; } } } }
+      }
+
+      panel { flex-grow: 1; }
+
+      panel { height: 88; layout: row; align: center; gap: 26; width: 100%;
+        position: relative;
+        panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
+        text mm_pname { font-size: 16; letter-spacing: 3; text-transform: uppercase;
+          color: #ffffff; text: "Wanderer"; }
+        text mm_psys { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+          color: #5e5e5e; text: ""; }
+        panel mm_pnet { layout: row; align: center; gap: 10;
+          image gl_peers { width: 20; height: 14; }
+          text mm_pcount { class: t_micro2; text: "0"; } }
         panel { flex-grow: 1; }
-
-        panel { flex-grow: 1; layout: row; align: center; justify: end; gap: 12;
-          panel act_globe { cursor: pointer; padding: 8; corner-radius: 7;
-            :hover { background: #ffffff14; transition: 0.14s ease-out; }
-            image gl_globe { width: 22; height: 22; } }
-          panel act_discord { cursor: pointer; padding: 8; corner-radius: 7;
-            :hover { background: #ffffff14; transition: 0.14s ease-out; }
-            image gl_discord { width: 24; height: 19; } }
-          panel act_changelog { cursor: pointer; padding: 8; corner-radius: 7;
-            :hover { background: #ffffff14; transition: 0.14s ease-out; }
-            image gl_changelog { width: 18; height: 20; } }
-          panel act_gear { cursor: pointer; padding: 8; corner-radius: 7;
-            :hover { background: #ffffff14; transition: 0.14s ease-out; }
-            image gl_gear { width: 21; height: 21; } }
-        }
+        panel { layout: row; align: center; gap: 30;
+          panel { layout: row; align: center; gap: 11;
+            panel { width: 26; height: 26; layout: row; justify: center; align: center;
+              border-color: #ffffff2e; border-width: 1;
+              text { font-size: 11; color: #ffffff; text: "<>"; } }
+            text { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+              color: #5e5e5e; text: "Move"; } }
+          panel { layout: row; align: center; gap: 11;
+            panel { width: 26; height: 26; layout: row; justify: center; align: center;
+              border-color: #ffffff2e; border-width: 1;
+              text { font-size: 11; color: #ffffff; text: "Q"; } }
+            panel { width: 26; height: 26; layout: row; justify: center; align: center;
+              border-color: #ffffff2e; border-width: 1;
+              text { font-size: 11; color: #ffffff; text: "E"; } }
+            text { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+              color: #5e5e5e; text: "Page"; } }
+          panel { layout: row; align: center; gap: 11;
+            panel { height: 26; padding: 0 7; layout: row; justify: center; align: center;
+              border-color: #ffffff2e; border-width: 1;
+              text { font-size: 11; color: #ffffff; text: "Enter"; } }
+            text { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+              color: #5e5e5e; text: "Play"; } } }
+        text mm_build { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+          color: #5e5e5e; margin: 0 0 0 30; text: ""; }
       }
-    }
 
-    // ===================== sub-screen overlay =====================
-    panel mm_screen { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
-      layout: column; justify: center; align: center; background: #04060bee; visibility: collapsed;
-      panel mm_card { layout: column; align: start; padding: 34 44; width: 640;
-        background: #0b0e16fa; corner-radius: 16; border-color: #ffffff1c; border-width: 1;
-        shadow-color: #000000aa; shadow-blur: 52; shadow-y: 20;
-        panel { layout: row; align: center; justify: space-between; width: 100%; margin: 0 0 16 0;
-          text mm_screen_title { text: "MULTIPLAYER"; font-size: 25; color: #f2f4fb;
-            letter-spacing: 8; text-transform: uppercase; }
-          panel mm_back { cursor: pointer; padding: 7 14; corner-radius: 8; background: #ffffff12;
-            border-color: #ffffff1c; border-width: 1;
-            :hover { background: #ffffff22; transition: 0.14s ease-out; }
-            text { text: "Back"; font-size: 14; color: #cfd6e6; } }
+      panel mm_screen { position: absolute; left: 0; top: 92; right: 0; bottom: 88;
+        background: #000000; layout: column;
+        panel { layout: row; align: center; justify: space-between; width: 100%;
+          text mm_screen_title { class: t_micro; text: "Multiplayer"; color: #ffffff; }
+          panel mm_back { cursor: pointer; padding: 8 14; border-color: #ffffff33;
+            border-width: 1;
+            :hover { border-color: #ffffff; }
+            text { class: t_micro2; text: "Back"; } } }
+        panel { class: rule; width: 100%; margin: 16 0 26 0; }
+
+
+        panel mm_body_mp { layout: column; width: 100%;
+          text { class: t_micro; text: "Session"; }
+          text mm_mp_universe { class: t_h2; text: "Skyrim"; color: #ffffff; margin: 12 0 0 0; }
+          panel { layout: row; gap: 20; margin: 22 0 0 0;
+            panel mm_mp_host { width: 328; position: relative; cursor: pointer;
+              layout: column; padding: 24; border-color: #ffffff8c; border-width: 1;
+              background: #101215;
+              :hover { background: #16191d; }
+              panel { position: absolute; left: 0; right: 0; top: 0; height: 2;
+                background: #ffffff; }
+              text { class: t_h2; text: "Host"; font-size: 17; letter-spacing: 4;
+                text-transform: uppercase; color: #ffffff; }
+              text { class: t_faint; text: "Open this world to others";
+                margin: 12 0 0 0; } }
+            panel mm_mp_join { width: 328; cursor: pointer; layout: column; padding: 24;
+              border-color: #ffffff1c; border-width: 1; background: #08090b;
+              :hover { border-color: #ffffff8c; }
+              text { class: t_h2; text: "Join"; font-size: 17; letter-spacing: 4;
+                text-transform: uppercase; }
+              text { class: t_faint; text: "Connect to a running session";
+                margin: 12 0 0 0; } } }
+          text { class: t_micro2; text: "Listen address"; margin: 26 0 8 0; }
+          panel { width: 676; height: 40; layout: column; justify: center;
+            text mm_mp_addr { class: t_body; text: "127.0.0.1:29700"; } }
+          panel { width: 676; height: 1; background: #ffffff33; }
+          text mm_mp_status { class: t_micro2; text: "Offline"; margin: 20 0 0 0; }
         }
-        panel { width: 100%; height: 1; background: #ffffff18; margin: 0 0 18 0; }
-        panel mm_body_mp { layout: column; gap: 12; width: 100%;
-          text { text: "SELECTED UNIVERSE"; font-size: 11; color: #8a93a8; letter-spacing: 3; }
-          text mm_mp_universe { text: "Skyrim"; font-size: 19; color: #ffcc55; letter-spacing: 1; }
-          panel { layout: row; gap: 12; width: 100%; margin: 6 0 0 0;
-            panel mm_mp_host { flex-grow: 1; cursor: pointer; layout: column; gap: 4; padding: 15 16;
-              corner-radius: 10; background: #ffcc5522; border-color: #ffcc5544; border-width: 1;
-              :hover { background: #ffcc5538; border-color: #ffcc5577; transition: 0.14s ease-out; }
-              text { text: "HOST SERVER"; font-size: 15; color: #ffe6a0; letter-spacing: 2; }
-              text { text: "Start a session others can join"; font-size: 12; color: #c9b894; }
-            }
-            panel mm_mp_join { flex-grow: 1; cursor: pointer; layout: column; gap: 4; padding: 15 16;
-              corner-radius: 10; background: #ffffff0c; border-color: #ffffff1c; border-width: 1;
-              :hover { background: #ffffff18; border-color: #ffffff33; transition: 0.14s ease-out; }
-              text { text: "JOIN SERVER"; font-size: 15; color: #e8ecf6; letter-spacing: 2; }
-              text mm_mp_addr { text: "127.0.0.1:29700"; font: mono; font-size: 12; color: #9aa3b6; }
-            }
+
+
+        panel mm_body_mods { layout: column; width: 100%;
+          text mm_mods_head { class: t_micro; text: "Modules"; }
+          panel mm_mods_list { layout: column; width: 100%; max-width: 1040;
+            margin: 20 0 0 0;
+            panel mm_mod0 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt0 { class: t_dim; text: ""; } }
+            panel mm_mod1 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt1 { class: t_dim; text: ""; } }
+            panel mm_mod2 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt2 { class: t_dim; text: ""; } }
+            panel mm_mod3 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt3 { class: t_dim; text: ""; } }
+            panel mm_mod4 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt4 { class: t_dim; text: ""; } }
+            panel mm_mod5 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt5 { class: t_dim; text: ""; } }
+            panel mm_mod6 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt6 { class: t_dim; text: ""; } }
+            panel mm_mod7 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt7 { class: t_dim; text: ""; } }
+            panel mm_mod8 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt8 { class: t_dim; text: ""; } }
+            panel mm_mod9 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt9 { class: t_dim; text: ""; } }
+            panel mm_mod10 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt10 { class: t_dim; text: ""; } }
+            panel mm_mod11 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt11 { class: t_dim; text: ""; } }
+            panel mm_mod12 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt12 { class: t_dim; text: ""; } }
+            panel mm_mod13 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt13 { class: t_dim; text: ""; } }
+            panel mm_mod14 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt14 { class: t_dim; text: ""; } }
+            panel mm_mod15 { layout: row; align: center; height: 42; gap: 20;
+              text mm_modt15 { class: t_dim; text: ""; } }
           }
-          text mm_mp_status { text: "Offline"; font: mono; font-size: 12; color: #8a93a8; margin: 6 0 0 0; }
-          text { text: "The session opens as you enter the world."; font-size: 11; color: #6b7488; }
+          text mm_mods_empty { class: t_faint; text: "Enter a universe to load its modules.";
+            margin: 16 0 0 0; }
         }
-        panel mm_body_mods { layout: column; gap: 9; width: 100%;
-          text mm_mods_head { text: "C# GAMEPLAY MODULES"; font-size: 11; color: #8a93a8; letter-spacing: 3; }
-          panel mm_mods_list { layout: column; gap: 5; width: 100%;
-            panel mm_mod0 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt0 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod1 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt1 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod2 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt2 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod3 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt3 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod4 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt4 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod5 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt5 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod6 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt6 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod7 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt7 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod8 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt8 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod9 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt9 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod10 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt10 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod11 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt11 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod12 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt12 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod13 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt13 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod14 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt14 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-            panel mm_mod15 { layout: row; align: center; gap: 11; width: 100%; padding: 6 9; corner-radius: 7; background: #ffffff06;
-              panel { width: 7; height: 7; corner-radius: 4; background: #46c463; }
-              text mm_modt15 { text: ""; font: mono; font-size: 13; color: #d6dbe7; flex-grow: 1; }
-            }
-          }
-          text mm_mods_empty { text: "Enter a universe to load its gameplay modules."; font-size: 12; color: #6b7488; }
+
+
+        panel mm_body_settings { layout: column; width: 100%; max-width: 640;
+          text { class: t_micro; text: "Controls"; margin: 0 0 12 0; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Move"; } text { class: t_body; text: "WASD"; } }
+          panel { class: rule_dim; width: 100%; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Look"; } text { class: t_body; text: "Mouse"; } }
+          panel { class: rule_dim; width: 100%; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Sprint"; } text { class: t_body; text: "Shift"; } }
+          panel { class: rule_dim; width: 100%; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Activate"; } text { class: t_body; text: "E"; } }
+          panel { class: rule_dim; width: 100%; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Journal"; } text { class: t_body; text: "J"; } }
+          panel { class: rule_dim; width: 100%; }
+          panel { layout: row; justify: space-between; align: center; height: 44;
+            text { class: t_dim; text: "Pause"; } text { class: t_body; text: "Esc"; } }
         }
-        panel mm_body_settings { layout: column; gap: 5; width: 100%;
-          text { text: "CONTROLS"; font-size: 11; color: #8a93a8; letter-spacing: 3; margin: 0 0 4 0; }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Move"; font-size: 14; color: #d8def0; }
-            text { text: "WASD"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Look"; font-size: 14; color: #d8def0; }
-            text { text: "Mouse"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Sprint"; font-size: 14; color: #d8def0; }
-            text { text: "Shift"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Activate / talk"; font-size: 14; color: #d8def0; }
-            text { text: "E"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Toggle walk / fly"; font-size: 14; color: #d8def0; }
-            text { text: "T"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Journal"; font-size: 14; color: #d8def0; }
-            text { text: "J"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Quest debugger"; font-size: 14; color: #d8def0; }
-            text { text: "F3"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Map editor"; font-size: 14; color: #d8def0; }
-            text { text: "F4"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-          panel { layout: row; justify: space-between; align: center; width: 100%; padding: 5 0;
-            text { text: "Pause menu"; font-size: 14; color: #d8def0; }
-            text { text: "Esc"; font: mono; font-size: 14; color: #9aa2b6; }
-          }
-        }
-        panel mm_body_profile { layout: column; gap: 16; width: 100%;
-          panel { layout: row; align: center; gap: 16; width: 100%;
+
+
+        panel mm_body_profile { layout: column; width: 100%;
+          panel { layout: row; align: center; gap: 18;
             image gl_profile2 { width: 44; height: 44; }
-            panel { layout: column; gap: 3;
-              text mm_pf_name { text: "local"; font-size: 22; color: #eef1f8; letter-spacing: 1; }
-              text mm_pf_sub { text: ""; font: mono; font-size: 12; color: #9aa3b6; }
-            }
+            panel { layout: column; gap: 6;
+              text mm_pf_name { class: t_h2; text: "local"; color: #ffffff; }
+              text mm_pf_sub { class: t_faint; text: ""; } } }
+          panel { class: rule; width: 100%; max-width: 640; margin: 26 0 8 0; }
+          panel { layout: row; justify: space-between; align: center; width: 100%;
+            max-width: 640; height: 44;
+            text { class: t_micro2; text: "Account"; }
+            text mm_pf_account { class: t_body; text: "-"; } }
+          panel { class: rule_dim; width: 100%; max-width: 640; }
+          panel { layout: row; justify: space-between; align: center; width: 100%;
+            max-width: 640; height: 44;
+            text { class: t_micro2; text: "Machine"; }
+            text mm_pf_machine { class: t_body; text: "-"; } }
+          panel { class: rule_dim; width: 100%; max-width: 640; }
+          panel { layout: row; justify: space-between; align: center; width: 100%;
+            max-width: 640; height: 44;
+            text { class: t_micro2; text: "Session"; }
+            text mm_pf_session { class: t_body; text: "-"; } }
+          panel { class: rule_dim; width: 100%; max-width: 640; }
+          panel { layout: row; justify: space-between; align: center; width: 100%;
+            max-width: 640; height: 44;
+            text { class: t_micro2; text: "Build"; }
+            text mm_pf_build { class: t_body; text: "-"; } }
+
+          panel mm_pf_char { layout: column; width: 100%; max-width: 640; margin: 26 0 0 0;
+            panel { layout: row; align: center; gap: 16; margin: 0 0 10 0;
+              text { class: t_micro2; text: "Health"; width: 74; }
+              ui_meter mm_pf_health { flex-grow: 1; w: 100%; h: 9; } }
+            panel { layout: row; align: center; gap: 16; margin: 0 0 10 0;
+              text { class: t_micro2; text: "Magicka"; width: 74; }
+              ui_meter mm_pf_magicka { flex-grow: 1; w: 100%; h: 9; } }
+            panel { layout: row; align: center; gap: 16; margin: 0 0 18 0;
+              text { class: t_micro2; text: "Stamina"; width: 74; }
+              ui_meter mm_pf_stamina { flex-grow: 1; w: 100%; h: 9; } }
+            panel { layout: row; justify: space-between; align: center; width: 100%;
+              height: 44;
+              text { class: t_micro2; text: "Gold"; }
+              text mm_pf_gold { class: t_body; text: "-"; } }
+            panel { class: rule_dim; width: 100%; }
+            panel { layout: row; justify: space-between; align: center; width: 100%;
+              height: 44;
+              text { class: t_micro2; text: "Quests"; }
+              text mm_pf_quests { class: t_body; text: "-"; } }
+            panel { class: rule_dim; width: 100%; }
+            panel { layout: row; justify: space-between; align: center; width: 100%;
+              height: 44;
+              text { class: t_micro2; text: "Location"; }
+              text mm_pf_loc { class: t_body; text: "-"; } }
           }
-          panel { layout: row; gap: 10; width: 100%;
-            panel { flex-grow: 1; layout: column; gap: 3; padding: 11 13; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-              text { text: "ACCOUNT"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-              text mm_pf_account { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-            }
-            panel { flex-grow: 1; layout: column; gap: 3; padding: 11 13; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-              text { text: "MACHINE"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-              text mm_pf_machine { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-            }
-          }
-          panel { layout: row; gap: 10; width: 100%;
-            panel { flex-grow: 1; layout: column; gap: 3; padding: 11 13; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-              text { text: "SESSION"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-              text mm_pf_session { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-            }
-            panel { flex-grow: 1; layout: column; gap: 3; padding: 11 13; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-              text { text: "BUILD"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-              text mm_pf_build { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-            }
-          }
-          panel mm_pf_char { layout: column; gap: 12; width: 100%; visibility: collapsed;
-            panel { width: 100%; height: 1; background: #ffffff14; }
-            panel { layout: column; gap: 9; width: 100%;
-              panel { layout: row; align: center; gap: 12; width: 100%;
-                text { text: "Health"; font-size: 12; color: #9aa3b6; width: 66; }
-                panel mm_pf_htrack { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc; corner-radius: 6; border-color: #00000066; border-width: 1;
-                  panel mm_pf_health { width: 100%; height: 100%; corner-radius: 6; background: #b23a3a; background-end: #e8645d; }
-                }
-              }
-              panel { layout: row; align: center; gap: 12; width: 100%;
-                text { text: "Magicka"; font-size: 12; color: #9aa3b6; width: 66; }
-                panel mm_pf_mtrack { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc; corner-radius: 6; border-color: #00000066; border-width: 1;
-                  panel mm_pf_magicka { width: 100%; height: 100%; corner-radius: 6; background: #3a63b2; background-end: #5d92e8; }
-                }
-              }
-              panel { layout: row; align: center; gap: 12; width: 100%;
-                text { text: "Stamina"; font-size: 12; color: #9aa3b6; width: 66; }
-                panel mm_pf_strack { flex-grow: 1; height: 12; overflow: hidden; background: #0c0e16cc; corner-radius: 6; border-color: #00000066; border-width: 1;
-                  panel mm_pf_stamina { width: 100%; height: 100%; corner-radius: 6; background: #3aa05a; background-end: #5de88a; }
-                }
-              }
-            }
-            panel { layout: row; gap: 10; width: 100%;
-              panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-                text { text: "GOLD"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-                text mm_pf_gold { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-              }
-              panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-                text { text: "QUESTS"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-                text mm_pf_quests { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-              }
-              panel { flex-grow: 1; layout: column; gap: 3; padding: 10 12; corner-radius: 9; background: #ffffff0a; border-color: #ffffff14; border-width: 1;
-                text { text: "LOCATION"; font-size: 10; color: #8a93a8; letter-spacing: 2; }
-                text mm_pf_loc { text: "-"; font: mono; font-size: 15; color: #eef1f8; }
-              }
-            }
-          }
-          text mm_pf_hint { text: "Enter a universe to load a character."; font-size: 11; color: #6b7488; }
+          text mm_pf_hint { class: t_faint; text: "Enter a universe to load a character.";
+            margin: 18 0 0 0; }
         }
       }
     }

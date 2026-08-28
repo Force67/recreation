@@ -156,6 +156,21 @@ void QuestDirector::AttachQuestScripts() {
   // Start-Game-Enabled quests come online at load (RX_NO_AUTOSTART disables it).
   const bool no_autostart_ = bool(NoAutostart);
   int autostarted = 0;
+  int resumed = 0;
+  // A restored save already says what every quest it recorded is doing, running
+  // or long since finished, so the sweep must leave those alone: starting a
+  // completed quest again would replay it from stage one. Quests the save never
+  // heard of (new content in this load order) still come online normally.
+  //
+  // Snapshotting the handles up front is deliberate. The save is fully applied
+  // by the time this runs and nothing has been submitted to the guest thread
+  // yet, so this is the one moment the state can be read from here without
+  // racing the StartQuest calls the loop is about to queue.
+  base::UnorderedMap<u64, bool> restored;
+  if (ctx_.bindings) {
+    for (u64 handle : ctx_.bindings->quest_system().TouchedQuests())
+      restored[handle] = true;
+  }
   records_.EachOfType(
       FourCc('Q', 'U', 'S', 'T'),
       [&](bethesda::GlobalFormId id, const bethesda::RecordStore::StoredRecord& stored) {
@@ -216,9 +231,12 @@ void QuestDirector::AttachQuestScripts() {
         // always-on controllers and intro quests, start them so
         // their dialogue topics and start logic come online, the
         // way the story manager would (e.g. CW00A's join lines).
-        const bool sge = def.start_game_enabled && !no_autostart_;
+        const bool from_save = restored.find(handle) != nullptr;
+        const bool sge = def.start_game_enabled && !no_autostart_ && !from_save;
         if (sge)
           ++autostarted;
+        else if (def.start_game_enabled && from_save)
+          ++resumed;
         // The per-log-entry condition gates, taken before the definition moves
         // to the guest and with their form ids resolved so they can evaluate.
         base::Vector<quest::StageDef> stage_gates = def.stages;
@@ -244,7 +262,11 @@ void QuestDirector::AttachQuestScripts() {
       });
   RX_INFO("papyrus: instantiated {} scripts across {} quests, {} script types loaded", instances,
           quests, ctx_.scripts->loaded_script_count());
-  RX_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
+  if (resumed > 0)
+    RX_INFO("quest: auto-started {} start-game-enabled quests, {} more resumed from the save",
+            autostarted, resumed);
+  else
+    RX_INFO("quest: auto-started {} start-game-enabled quests", autostarted);
   RX_INFO("quest: resolved {} objective compass targets from forced-ref aliases",
           objective_targets_.size());
   RX_INFO("quest: {} alias package stack(s) armed", packages_ ? packages_->armed_count() : 0);
@@ -1382,6 +1404,21 @@ void QuestDirector::RefreshQuestPanel(f32 dt) {
   const u64 look = interaction_->activate_target();
   quest_panel_.look_target = look;
   quest_panel_.look_label = interaction_->activate_label();
+  // An actor the player is looking at also shows the level and temperament its
+  // record (or the resumed save) gave it, which is the only place that state is
+  // visible from inside the game.
+  if (look != 0 && ctx_.quest_world) {
+    const ecs::Entity entity = ctx_.quest_world->Find(look);
+    if (world_.IsAlive(entity)) {
+      if (const world::ActorStats* stats = world_.Get<world::ActorStats>(entity)) {
+        quest_panel_.look_label += Fmt("  [level %u", stats->level);
+        if (stats->has_ai)
+          quest_panel_.look_label +=
+              Fmt(", aggression %u, confidence %u", stats->ai.aggression, stats->ai.confidence);
+        quest_panel_.look_label += "]";
+      }
+    }
+  }
   quest_panel_.look_following = look != 0 && npc_->is_follower(look);
   quest_panel_.follower_count = npc_->follower_count();
   quest_panel_.marker_count = static_cast<int>(quest_markers_.size());

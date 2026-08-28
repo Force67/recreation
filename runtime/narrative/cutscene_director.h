@@ -67,8 +67,9 @@ class CutsceneDirector {
   // game's conversation scenes hang off script-less dialogue quests.
   u64 FindQuestByEditorId(const base::String& editor_id);
 
-  // Where the armed quest's first scene plays, from its cast's authored placements.
-  // False when nothing is armed or none of the cast is placed in an exterior.
+  // Where the armed quest's first scene plays: where its ride sets off if it has
+  // one, else its cast's authored placements. False when nothing is armed or none
+  // of the cast is placed in an exterior.
   bool ArmedSceneLocation(Vec3* pos);
 
   bool StartScene(u64 scene);

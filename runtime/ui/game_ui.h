@@ -248,6 +248,10 @@ struct MenuNewsItem {
 // gameplay module (SkyrimMod / Fallout / StarfieldMod gate on the primary).
 struct MainMenuRequest {
   enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit, kOpenUrl };
+  // Set alongside kEnterUniverse when a MODE tile was launched: the manifest id
+  // the managed host should arm once the domain is up. Empty means the base
+  // game, with whatever modes mount themselves as they do today.
+  base::String mode_id;
   Kind kind = Kind::kNone;
   int universe = 0;          // 0 Skyrim, 1 Fallout 4, 2 Starfield
   base::String address;      // join target ("ip[:port]"), for kJoinServer
@@ -301,6 +305,18 @@ struct ControlsView {
   base::String sens_pad;  // formatted gamepad look sensitivity
   bool invert_y = false;
   bool gamepad = false;  // a pad is connected (drives glyph hints)
+};
+
+// The game's Stats page. One row per counter, in the game's own order, with
+// the label untranslated because that is the only name a savegame carries.
+// Handed over whole; the pane pages through it and the engine does not care
+// which page is up.
+struct StatsRow {
+  base::String label;
+  base::String value;  // pre-formatted, so grouping stays with the caller
+};
+struct StatsView {
+  base::Vector<StatsRow> rows;
 };
 
 // A request the Settings sub-view raises for the engine (which owns the
@@ -428,6 +444,32 @@ class GameUi {
   };
   void SetWarMap(bool open, const base::Vector<WarHoldEntry>& holds, float imperial_fraction);
 
+  // The world map. The map picture itself is a texture the engine paints from
+  // the discovery bits and the marker catalogue (see CreateUiTexture /
+  // UpdateUiTexture); this only shows it and lists what is on it, so nothing
+  // about fog of war or fast travel lives in the UI.
+  struct PlayerMapView {
+    // Rows the screen has widgets for; the engine windows its list to this.
+    static constexpr int kRows = 14;
+    struct Row {
+      base::String name;
+      base::String detail;  // distance, or why it cannot be travelled to
+      bool travelable = false;
+    };
+    bool open = false;
+    base::String title;     // the worldspace being shown
+    base::String subtitle;  // "424 of 471 locations found"
+    base::String where;     // where the player is standing
+    base::String status;    // the last fast travel, or an empty line
+    u64 canvas = 0;         // painted map texture, 0 until it exists
+    base::Vector<Row> rows;  // the visible window of the location list
+    int selected = 0;        // index into rows, < 0 for none
+  };
+  void SetPlayerMap(const PlayerMapView& view);
+  // Pixels for a texture CreateUiTexture already returned, same size as before.
+  // The map canvas is repainted on every pan, zoom and selection.
+  void UpdateUiTexture(u64 texture, const u8* rgba);
+
   // Hide or show the gameplay HUD (compass, crosshair, vitals, readout) without
   // touching the pause menu. The cinematic showcase hides it for clean frames.
   void SetHudVisible(bool visible);
@@ -463,6 +505,11 @@ class GameUi {
   void SetControlsView(const ControlsView& view);
   SettingsRequest PollSettingsRequest();
 
+  // Pause-menu Stats sub-view. Cheap to hand over the whole table but not free,
+  // so the engine pushes it when the page opens rather than every frame.
+  void SetStatsView(const StatsView& view);
+  bool stats_open() const;
+
   // NEXUS main menu (the startup "choose your universe" screen). Distinct from
   // the in-game pause menu above. The engine opens it at boot, drives it with
   // mouse + the keyboard helpers below, feeds it live data, and polls the
@@ -478,6 +525,32 @@ class GameUi {
   void MainMenuActivate();
   bool MainMenuBack();
   bool MainMenuAtRoot() const;
+  // One launchable thing on the menu's tile grid: a base game, or a game mode
+  // mounted on top of one. Flat by design, so a mode sits at the same weight as
+  // the game it runs in; `kind` and `domain` say which it is rather than the
+  // layout implying it.
+  struct MenuEntry {
+    enum class Kind { kGame, kMode };
+    Kind kind = Kind::kGame;
+    base::String title;     // "Skyrim", "Cart Racing"
+    base::String detail;    // "142 plugins  ·  1,284 cells" / "3 laps  ·  6 checkpoints"
+    base::String domain;    // the game a mode runs in; empty for a game
+    base::String state;     // "Ready" / "Mounted" / "Not located"
+    base::String mode_id;   // manifest id to arm on launch; empty for a game
+    int universe = 0;       // which universe index this boots (0 Skyrim, 1 FO4, 2 Starfield)
+    int plugins = 0;        // load-order spine length
+    bool available = false; // false greys the tile and disables its play button
+    u64 art = 0;            // key-art texture, 0 until the thumbnail is ready
+  };
+
+  // The full grid, in display order. Replaces SetMainMenuUniverses; the menu
+  // pages over it internally.
+  void SetMainMenuEntries(const base::Vector<MenuEntry>& entries);
+  // Bind a key-art texture to one entry once it has been painted or loaded.
+  void SetMainMenuEntryArt(int entry, u64 texture);
+  // The entry the grid has focused, or -1 when the grid is empty.
+  int selected_entry() const;
+
   // The names/availability of the three universes (greyed out if data is
   // missing), the per-column live backdrop texture, the player/network banner,
   // and the loaded C# mod list shown on the Mods screen. All optional.

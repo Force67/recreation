@@ -52,6 +52,13 @@ Response ParseInfoRecord(const bethesda::Record& record,
   if (const bethesda::Subrecord* nam1 = record.Find(FourCc('N', 'A', 'M', '1')))
     out.npc_line = ResolveLString(*nam1, strings, plugin);
 
+  if (const bethesda::Subrecord* enam = record.Find(FourCc('E', 'N', 'A', 'M'));
+      enam && enam->data.size() >= 4) {
+    u32 flags;
+    std::memcpy(&flags, enam->data.data(), 4);
+    out.say_once = (flags & 0x4) != 0;
+  }
+
   if (const bethesda::Subrecord* vmad = record.Find(FourCc('V', 'M', 'A', 'D'))) {
     bethesda::ScriptAttachment attachment;
     bethesda::InfoFragments frags;

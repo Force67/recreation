@@ -97,6 +97,52 @@ void Director::SetContent(base::Vector<base::Pair<WeatherDef, u32>> climate,
   last_fired_slot_ = INT64_MIN;
 }
 
+bool Director::ResumeWeather(const WeatherDef& weather, f64 game_days, f32 game_x, f32 game_y) {
+  if (weather.form == 0)
+    return false;
+
+  // The climate that will actually be in force where the save resumes: a REGN
+  // region overrides the worldspace's, and ResolveRegion would swap to it on
+  // the first tick and undo an alignment made against the wrong list. Doing it
+  // here also settles the region so that first tick is not a cross-fade.
+  u64 region = 0;
+  const auto* region_climate = regions_.ClimateAt(game_x, game_y, &region);
+  base::Vector<base::Pair<WeatherDef, u32>> climate =
+      region_climate ? *region_climate : default_climate_;
+  active_region_ = region;
+  region_blend_t_ = 1.0f;
+
+  // The climate the engine built need not contain this weather: Skyrim's is a
+  // synthetic spread of one representative per kind, and the save was left
+  // under a specific WTHR. The game had it blowing here, so it belongs in the
+  // list; it goes in at the mean weight so it neither dominates nor vanishes.
+  bool present = false;
+  u32 total = 0;
+  for (const base::Pair<WeatherDef, u32>& entry : climate) {
+    total += entry.second == 0 ? 1 : entry.second;
+    present = present || entry.first.form == weather.form;
+  }
+  if (!present)
+    climate.push_back({weather, climate.empty() ? 1u : base::Max(1u, total / u32(climate.size()))});
+  system_.SetClimate(climate);
+
+  // Each try is one hash and the target's odds are its share of the weight, so
+  // it lands in a handful; this bound only decides how long a hopeless search
+  // runs (an empty climate, or one whose weights round the target to nothing).
+  constexpr u64 kSeedTries = 4096;
+  for (u64 i = 0; i < kSeedTries; ++i) {
+    const u64 candidate = seed_ + i;
+    system_.set_seed(candidate);
+    if (system_.Current(game_days).form == weather.form) {
+      seed_ = candidate;
+      last_fired_slot_ = INT64_MIN;
+      return true;
+    }
+  }
+  system_.set_seed(seed_);
+  return false;
+}
+
 void Director::SetOverride(const WeatherState* state) {
   override_ = state != nullptr;
   if (state)

@@ -4,6 +4,7 @@
 #include <base/containers/unordered_set.h>
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
+#include <mutex>
 
 #include "components/bethesda/form_id.h"
 #include "components/world/carriage_records.h"
@@ -48,6 +49,18 @@ class CarriageSystem {
   // Frame-cadence ride update: seats the player, reads the destination keys and
   // frames the view from the seat (first person, as the game forces).
   void UpdateRide(f32 dt, const InputState& input, const ActionState& actions);
+
+  // The cart racing kit: commands the ridden cart `cart` to steer [-1,1] and
+  // throttle [0,1], overriding the journey's path-follow while that ride lasts.
+  // Called on the guest thread (from the script bindings' Vehicle.Drive); the
+  // values cross to the main thread through a mutex slot drained by Drive.
+  void DriveRemote(f32 steer, f32 throttle);
+  // The ridden cart's forward speed in m/s from its physics body, and whether
+  // the player is riding at all. False/0 when nothing is ridden or the rig is
+  // down. Main thread only.
+  bool RiddenCartSpeed(f32* speed) const;
+  // Snaps the ridden ride back to a game-space position (respawn), guest thread.
+  void MoveRemote(f32 x, f32 y, f32 z);
   // kActivateRef handler: boards or leaves the carriage `handle` belongs to.
   // Returns true when it owned the handle.
   bool Activate(u64 handle);
@@ -100,6 +113,13 @@ class CarriageSystem {
     // lands a frame or two after its cell does.
     bool driver_seated = false;
     bool horse_seated = false;
+    // Player-drive override (the cart racing kit): when set, Drive steers with
+    // the commanded input instead of following the marker chain. Set by
+    // DriveRemote, cleared by Arrive (the ride ending), so it cannot leak into
+    // ordinary journeys.
+    bool player_driven = false;
+    f32 drive_steer = 0;
+    f32 drive_throttle = 0;
   };
 
   // Adds any carriage whose driver has streamed in and is not known yet.
@@ -175,6 +195,26 @@ class CarriageSystem {
   f32 ride_yaw_ = 0;  // passenger's heading, relative to the way the cart points
   f32 ride_pitch_ = 0;
   base::String label_;
+  // The remote-drive command slot, written on the guest thread by DriveRemote
+  // and drained by the ride's Drive on the main thread. Applies to the ridden
+  // cart only.
+  struct RemoteDrive {
+    std::mutex mutex;
+    f32 steer = 0;
+    f32 throttle = 0;
+    bool armed = false;
+  };
+  RemoteDrive remote_drive_;
+  // Remote-respawn request, written on the guest thread by MoveRemote and
+  // drained by Step.
+  struct RemoteMove {
+    std::mutex mutex;
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    bool armed = false;
+  };
+  RemoteMove remote_move_;
 };
 
 }  // namespace rx

@@ -7,9 +7,13 @@ recreation_add_module(world
   cine_camera.cc
   grass_baker.cc
   land_baker.cc
+  map_discovery.cc
+  map_markers.cc
+  misc_stats.cc
   planet_tile.cc
   prop_streaming.cc
   quest_world.cc
+  saved_spawns.cc
   navgrid.cc
   terrain_edits.cc
 )
@@ -21,7 +25,8 @@ target_link_libraries(recreation_world PUBLIC
 
 foreach(t cine_cameratest interactiontest npc_aitest objective_markertest
           steering_avoidancetest pathfindtest carriage_rigtest quest_worldtest
-          navgridtest)
+          navgridtest map_discoverytest map_markerstest actor_stats_storetest
+          saved_spawnstest)
   recreation_add_test(${t} recreation::world)
 endforeach()
 recreation_add_test(prop_streamingtest

@@ -1,35 +1,55 @@
-// Quest tracker (top-right objective list), the centered objective-marker text,
-// the "quest updated" toast, and the centered activation prompt. Text and
-// visibility are driven each frame from engine state; the quest_obj* rows are a
-// fixed pool (kQuestObjectiveRows) filled and toggled in GameUi::Build.
+// The notification rail, right-aligned. No plate: these are transient, so
+// legibility comes from the text shadow rather than a permanent slab.
+//
+// quest_rule is an accent site. The objective rows stay bare text widgets
+// rather than gaining bullets, because GameUi collapses each row individually
+// and a wrapper would leave its bullet stranded once the text was hidden.
 
   panel questtracker {
-    position: absolute; right: 30; top: 86; layout: column; align: end; gap: 5; width: 380;
-    text quest_title { text: ""; font-size: 17; color: #ffcc55; text-align: right;
-      letter-spacing: 1; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj0 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj1 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj2 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj3 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj4 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-    text quest_obj5 { text: ""; font-size: 13; color: #d8def0; text-align: right; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
+    position: absolute; right: 52; top: 120; width: 380; layout: column; align: end;
+    text quest_title { class: t_key; text: ""; text-align: right;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    panel quest_rule { width: 100%; height: 1; background: #ffffff77; margin: 10 0 16 0; }
+    text quest_obj0 { class: t_body; text: ""; font-size: 19; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text quest_obj1 { class: t_dim; text: ""; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text quest_obj2 { class: t_dim; text: ""; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text quest_obj3 { class: t_dim; text: ""; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text quest_obj4 { class: t_out; text: ""; font-size: 13; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    text quest_obj5 { class: t_out; text: ""; font-size: 13; text-align: right; margin: 0 0 9 0;
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
   }
 
   panel quest_marker_box {
-    position: absolute; top: 52; left: 0; width: 100vw; layout: column; align: center;
-    text quest_marker_text { text: ""; font-size: 13; color: #ffe6a0; letter-spacing: 1;
-      text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+    position: absolute; top: 78; left: 0; width: 100vw; layout: column; align: center;
+    text quest_marker_text { class: t_micro2; text: "";
+      text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
   }
 
+  // same shape as the location reveal in location.ugui
   panel quest_toast_box {
-    position: absolute; top: 120; left: 0; width: 100vw; layout: column; align: center;
-    text quest_toast { text: ""; font-size: 21; color: #ffcc55; letter-spacing: 3;
-      text-transform: uppercase; text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 2; }
+    position: absolute; top: 150; left: 0; width: 100vw; layout: column; align: center;
+    panel { width: 460; layout: column; align: center;
+      panel { width: 100%; height: 1; background: #ffffff55; }
+      text quest_toast { class: t_key; text: ""; font-size: 13; margin: 14 0 14 0;
+        text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+      panel { width: 100%; height: 1; background: #ffffff55; }
+    }
   }
 
+  // acc_prompt_key carries the accent on its border.
   panel activate_box {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     layout: column; justify: center; align: center;
-    text activate_prompt { text: ""; font-size: 18; color: #f0f2fb; margin: 110 0 0 0;
-      text-shadow-color: #000000e0; text-shadow-x: 1; text-shadow-y: 1; }
+    panel { layout: row; align: center; gap: 14; margin: 120 0 0 0;
+      panel acc_prompt_key { width: 28; height: 28; layout: column; justify: center; align: center;
+        border-color: #ffffff77; border-width: 1;
+        text { text: "E"; font-size: 12; color: #ffffff; letter-spacing: 1; } }
+      text activate_prompt { class: t_body; text: ""; font-size: 16; letter-spacing: 2;
+        text-shadow-color: #000000cc; text-shadow-x: 1; text-shadow-y: 1; }
+    }
   }

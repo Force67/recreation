@@ -179,6 +179,7 @@ bool RecordStore::LoadAll(const base::String& data_dir,
             i16 grid_y = static_cast<i16>(std::floor(position[1] / cell_size));
             u64 world = order.Resolve(ctx.worldspace, i, masters).packed();
             exterior_[world].emplace(GridKey(grid_x, grid_y)).first->refs.push_back(id.packed());
+            ref_worldspace_[id.packed()] = world;
             ++persistent_refs;
           } else if (header.type == kInfo && inserted && ctx.dialogue.value != 0) {
             // Dialogue response under its DIAL topic (topic children group label).
@@ -227,6 +228,23 @@ GlobalFormId RecordStore::ResolveFrom(RawFormId raw, u16 plugin) const {
 
 const RecordStore::ExteriorGrid* RecordStore::ExteriorCells(GlobalFormId worldspace) const {
   return exterior_.find(worldspace.packed());
+}
+
+bool RecordStore::CellGridLocation(GlobalFormId cell,
+                                   GlobalFormId* worldspace,
+                                   i16* x,
+                                   i16* y) const {
+  const CellGridSlot* slot = cell_grid_.find(cell.packed());
+  if (!slot)
+    return false;
+  if (worldspace)
+    *worldspace = GlobalFormId{static_cast<u16>(slot->worldspace >> 32),
+                               static_cast<u32>(slot->worldspace)};
+  if (x)
+    *x = static_cast<i16>(slot->grid_key >> 16);
+  if (y)
+    *y = static_cast<i16>(slot->grid_key & 0xffff);
+  return true;
 }
 
 GlobalFormId RecordStore::FindWorldspace(base::StringRef editor_id) const {
@@ -284,6 +302,12 @@ const base::Vector<u64>* RecordStore::InteriorRefs(GlobalFormId cell) const {
 GlobalFormId RecordStore::InteriorCellOfRef(GlobalFormId ref) const {
   if (const u64* cell = ref_interior_cell_.find(ref.packed()))
     return GlobalFormId{static_cast<u16>(*cell >> 32), static_cast<u32>(*cell)};
+  return {};
+}
+
+GlobalFormId RecordStore::WorldspaceOfRef(GlobalFormId ref) const {
+  if (const u64* world = ref_worldspace_.find(ref.packed()))
+    return GlobalFormId{static_cast<u16>(*world >> 32), static_cast<u32>(*world)};
   return {};
 }
 

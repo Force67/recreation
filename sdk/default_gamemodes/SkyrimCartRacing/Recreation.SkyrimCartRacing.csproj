@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- An optional, separately-built default gamemode: the super cart xtreme
+       racing ruleset, loaded at runtime from the gamemodes/ directory rather than
+       baked into the core SDK (so a server can drop it in or leave it out). It is
+       a first-party mod: the [Mod]/[AutoStart] types are discovered by the same
+       boot scan as any mod.
+
+       References the SDK COMPILE-TIME ONLY (Private=false) so the built DLL does
+       not carry its own Recreation.Scripting copy; at load it binds to the
+       engine's already-loaded SDK. Shipping a duplicate would split assembly
+       identity. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Recreation.SkyrimCartRacing</AssemblyName>
+    <RootNamespace>Recreation.Games.SkyrimCartRacing</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Recreation.Scripting.csproj" Private="false" />
+  </ItemGroup>
+
+  <!-- The test runner exercises this ruleset's internal seams. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Recreation.Scripting.Tests" />
+  </ItemGroup>
+
+</Project>

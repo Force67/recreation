@@ -30,11 +30,22 @@ void RegisterFactionExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings
                                    st::GetInt(self, "crimeGoldViolent"));
                });
 
-  // Infamy and stolen-item bookkeeping have no engine source yet.
+  // Infamy is the count of crimes the faction has seen, violent and not; a
+  // savegame carries it and paying a bounty does not clear it.
+  reg.Register("Faction", "GetInfamyViolent", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    return Value::Int(Resolve(bindings).GetInfamyViolent(self));
+  });
+  reg.Register("Faction", "GetInfamyNonViolent",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetInfamyNonViolent(self));
+               });
+  reg.Register("Faction", "GetInfamy", [bindings](VirtualMachine&, ObjectRef self, Args&) {
+    auto& b = Resolve(bindings);
+    return Value::Int(b.GetInfamyViolent(self) + b.GetInfamyNonViolent(self));
+  });
+
+  // Stolen-item bookkeeping has no engine source yet.
   auto zero = [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); };
-  reg.Register("Faction", "GetInfamy", zero);
-  reg.Register("Faction", "GetInfamyNonViolent", zero);
-  reg.Register("Faction", "GetInfamyViolent", zero);
   reg.Register("Faction", "GetStolenItemValueCrime", zero);
   reg.Register("Faction", "GetStolenItemValueNoCrime", zero);
 

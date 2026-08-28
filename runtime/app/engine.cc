@@ -128,6 +128,9 @@ bool Engine::OnInitialize(app::Services& services) {
   ctx_.records = &records_;
   ctx_.strings = &strings_;
   ctx_.dialogue = &dialogue_;
+  ctx_.said_topics = &said_topics_;
+  ctx_.map_discovery = &map_discovery_;
+  ctx_.created_forms = &created_forms_;
   ctx_.quest_world = (quest_world_ ? &*quest_world_ : nullptr);
   ctx_.debug_ui = &debug_ui_;
   ctx_.request_quit = [this] { RequestQuit(); };
@@ -268,6 +271,8 @@ bool Engine::OnInitialize(app::Services& services) {
       return;
     }
     streamer_->Update(world, anchor);
+    // Standing somewhere uncovers it on the map, the same store a savegame fills.
+    MarkPlayerDiscovery(*this);
     // Secondary worldspaces follow the same anchor; each applies its own offset
     // internally so it streams the region that lands beside the primary world.
     for (auto& extra : extra_streamers_)
