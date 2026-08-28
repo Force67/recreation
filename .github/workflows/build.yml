@@ -73,6 +73,11 @@ jobs:
           -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build
+      # The suite was being compiled and never run, so a test could go red and
+      # nothing said so. These are the format readers, the wire decoders and the
+      # savegame fuzz sweep: all deterministic, none needs game data or a GPU.
+      - name: test
+        run: ctest --test-dir build --output-on-failure -j"$(nproc)"
       - uses: actions/upload-artifact@v4
         with:
           name: recreation-linux-x64
