@@ -16,6 +16,7 @@
 
 #include "components/bethesda/compression.h"
 #include "components/bethesda/savegame.h"
+#include "components/bethesda/savegame_fixture.h"
 #include "components/bethesda/savegame_changeform.h"
 #include "core/types.h"
 
@@ -75,102 +76,10 @@ constexpr u32 kSyntheticFormIds[] = {0x02001234, 0x03005678, 0x0400abcd};
 // The save the reader is checked against. Field values are arbitrary but the
 // layout is the real one, so the offsets in the file location table are file
 // absolute and have to survive the same arithmetic a real save does.
-base::Vector<u8> BuildSkyrimLeSave() {
-  base::Vector<u8> header;
-  PutU32(header, 9);  // header version, below the SE cutoff
-  PutU32(header, 42);
-  PutWString(header, "Testinius");
-  PutU32(header, 37);
-  PutWString(header, "Whiterun");
-  PutWString(header, "12.34.56");
-  PutWString(header, "NordRace");
-  PutU16(header, 0);
-  PutF32(header, 100.0f);
-  PutF32(header, 200.0f);
-  for (int i = 0; i < 8; ++i)
-    PutU8(header, 0);  // FILETIME
-  PutU32(header, kShotW);
-  PutU32(header, kShotH);
-
-  base::Vector<u8> file;
-  PutBytes(file, "TESV_SAVEGAME", 13);
-  PutU32(file, u32(header.size()));
-  PutBytes(file, header.data(), header.size());
-  for (u32 i = 0; i < kShotW * kShotH * 3; ++i)
-    PutU8(file, u8(i));
-
-  const size_t body_base = file.size();
-
-  base::Vector<u8> body;
-  PutU8(body, 74);  // form version
-  base::Vector<u8> plugin_info;
-  PutU8(plugin_info, 2);
-  PutWString(plugin_info, "Skyrim.esm");
-  PutWString(plugin_info, "Update.esm");
-  PutU32(body, u32(plugin_info.size()));
-  PutBytes(body, plugin_info.data(), plugin_info.size());
-
-  // The table is patched once the blocks below are laid out.
-  const size_t flt_at = body.size();
-  for (int i = 0; i < 25; ++i)
-    PutU32(body, 0);
-
-  const size_t globals_at = body.size();
-  base::Vector<u8> globals;
-  PutU8(globals, u8(3 << 2));      // vsval count of 3
-  PutRefId(globals, 1, 0x3a);      // TimeScale, owned by the first master
-  PutF32(globals, 20.0f);
-  PutRefId(globals, 0, 2);         // one based index into the form id array
-  PutF32(globals, 1.5f);
-  PutRefId(globals, 2, 0x99);      // created during play
-  PutF32(globals, -3.0f);
-  PutU32(body, 3);  // record type: global variables
-  PutU32(body, u32(globals.size()));
-  PutBytes(body, globals.data(), globals.size());
-
-  const size_t change_forms_at = body.size();
-  // Uncompressed, one byte lengths.
-  PutRefId(body, 1, 0x14);
-  PutU32(body, 0x0b);
-  PutU8(body, u8((0u << 6) | 1u));  // ACHR
-  PutU8(body, 74);
-  PutU8(body, 4);
-  PutU8(body, 0);
-  PutBytes(body, "\xde\xad\xbe\xef", 4);
-  // zlib compressed, two byte lengths.
-  const u8 plain[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-  base::Vector<u8> packed = rx::bethesda::ZlibDeflate(rx::ByteSpan(plain, sizeof(plain)));
-  PutRefId(body, 0, 3);
-  PutU32(body, 0x1c);
-  PutU8(body, u8((1u << 6) | 6u));  // CELL
-  PutU8(body, 74);
-  PutU16(body, u16(packed.size()));
-  PutU16(body, u16(sizeof(plain)));
-  PutBytes(body, packed.data(), packed.size());
-
-  const size_t form_ids_at = body.size();
-  PutU32(body, 3);
-  for (u32 id : kSyntheticFormIds)
-    PutU32(body, id);
-
-  auto patch = [&](size_t index, u32 value) {
-    const size_t at = flt_at + index * 4;
-    for (int i = 0; i < 4; ++i)
-      body[at + size_t(i)] = u8(value >> (8 * i));
-  };
-  patch(0, u32(body_base + form_ids_at));
-  patch(2, u32(body_base + globals_at));
-  patch(4, u32(body_base + change_forms_at));
-  patch(6, 1);  // global data table 1 record count
-  patch(9, 2);  // change form count
-
-  PutBytes(file, body.data(), body.size());
-  return file;
-}
 
 void TestSynthetic() {
   std::puts("synthetic skyrim le save");
-  const base::Vector<u8> file = BuildSkyrimLeSave();
+  const base::Vector<u8> file = rx::bethesda::BuildSyntheticSkyrimLeSave();
   const rx::ByteSpan bytes(file.data(), file.size());
 
   Check("detects skyrim le", rx::bethesda::DetectSaveFormat(bytes) == SaveFormat::kSkyrimLe);
@@ -223,7 +132,7 @@ void TestSynthetic() {
 // none may read past its own end, which is what the sanitizer build watches.
 void TestTruncation() {
   std::puts("truncation");
-  const base::Vector<u8> file = BuildSkyrimLeSave();
+  const base::Vector<u8> file = rx::bethesda::BuildSyntheticSkyrimLeSave();
   bool all_rejected = true;
   bool out_untouched = true;
   for (size_t n = 0; n < file.size(); ++n) {
@@ -527,97 +436,10 @@ void TestRealSave() {
 // body codec, and a game version wstring between the form version and the
 // plugin block). The change form type byte carries Fallout 4's own numbering,
 // which is Skyrim's shifted down by one from INGR up.
-base::Vector<u8> BuildFallout4Save() {
-  base::Vector<u8> header;
-  PutU32(header, 15);  // header version
-  PutU32(header, 7);
-  PutWString(header, "Nate");
-  PutU32(header, 12);
-  PutWString(header, "Sanctuary Hills");
-  PutWString(header, "5d.16h.29m.5 days.16 hours.29 minutes");
-  PutWString(header, "HumanRace");
-  PutU16(header, 1);
-  PutF32(header, 0.0f);
-  PutF32(header, 200.0f);
-  for (int i = 0; i < 8; ++i)
-    PutU8(header, 0);  // FILETIME
-  PutU32(header, kShotW);
-  PutU32(header, kShotH);
-
-  base::Vector<u8> file;
-  PutBytes(file, "FO4_SAVEGAME", 12);
-  PutU32(file, u32(header.size()));
-  PutBytes(file, header.data(), header.size());
-  // Four bytes a pixel, unlike Skyrim LE's three.
-  for (u32 i = 0; i < kShotW * kShotH * 4; ++i)
-    PutU8(file, u8(i));
-
-  const size_t body_base = file.size();
-
-  base::Vector<u8> body;
-  PutU8(body, 68);                    // form version
-  PutWString(body, "1.10.163.0");     // game version, Skyrim writes none
-  base::Vector<u8> plugin_info;
-  PutU8(plugin_info, 1);
-  PutWString(plugin_info, "Fallout4.esm");
-  PutU16(plugin_info, 1);  // light plugin count
-  PutWString(plugin_info, "ccBGSFO4044-HellfirePowerArmor.esl");
-  PutU32(body, u32(plugin_info.size()));
-  PutBytes(body, plugin_info.data(), plugin_info.size());
-
-  const size_t flt_at = body.size();
-  for (int i = 0; i < 25; ++i)
-    PutU32(body, 0);
-
-  const size_t globals_at = body.size();
-  base::Vector<u8> globals;
-  PutU8(globals, u8(1 << 2));
-  PutRefId(globals, 1, 0x38);
-  PutF32(globals, 12.5f);
-  PutU32(body, 3);  // record type: global variables, the same slot as Skyrim
-  PutU32(body, u32(globals.size()));
-  PutBytes(body, globals.data(), globals.size());
-
-  const size_t change_forms_at = body.size();
-  // FACT, which Fallout 4 writes as 30 where Skyrim writes 31.
-  PutRefId(body, 1, 0x0001CBED);
-  PutU32(body, 0x80000000);
-  PutU8(body, u8((0u << 6) | 30u));
-  PutU8(body, 68);
-  PutU8(body, 4);
-  PutU8(body, 0);
-  PutBytes(body, "\x01\x02\x03\x04", 4);
-  // REFR, which both games write as 0.
-  PutRefId(body, 1, 0x14);
-  PutU32(body, 0x00000002);
-  PutU8(body, u8((0u << 6) | 0u));
-  PutU8(body, 68);
-  PutU8(body, 2);
-  PutU8(body, 0);
-  PutBytes(body, "\xaa\xbb", 2);
-
-  const size_t form_ids_at = body.size();
-  PutU32(body, 1);
-  PutU32(body, 0x0100BEEF);
-
-  auto patch = [&](size_t index, u32 value) {
-    const size_t at = flt_at + index * 4;
-    for (int i = 0; i < 4; ++i)
-      body[at + size_t(i)] = u8(value >> (8 * i));
-  };
-  patch(0, u32(body_base + form_ids_at));
-  patch(2, u32(body_base + globals_at));
-  patch(4, u32(body_base + change_forms_at));
-  patch(6, 1);
-  patch(9, 2);
-
-  PutBytes(file, body.data(), body.size());
-  return file;
-}
 
 void TestSyntheticFallout4() {
   std::puts("synthetic fallout 4 save");
-  const base::Vector<u8> file = BuildFallout4Save();
+  const base::Vector<u8> file = rx::bethesda::BuildSyntheticFallout4Save();
   const rx::ByteSpan bytes(file.data(), file.size());
   Check("detects fallout 4", rx::bethesda::DetectSaveFormat(bytes) == SaveFormat::kFallout4);
 

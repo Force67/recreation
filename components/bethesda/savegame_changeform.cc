@@ -2,6 +2,7 @@
 
 #include <base/memory/move.h>
 
+#include <cmath>
 #include <cstring>
 
 namespace rx::bethesda {
@@ -883,8 +884,15 @@ bool DecodeReference(const ChangeForm& form, ReferenceChange& out) {
     const f32 scale = c.F32();
     if (!c.ok())
       return Truncated(c, result, out);
-    result.has_scale = true;
-    result.scale = scale;
+    // Four bytes the file chose, headed for a transform and a physics shape. A
+    // NaN propagates into the matrix and takes the reference's whole subtree
+    // with it; a zero or a huge value gives Jolt a degenerate shape. Skyrim's
+    // own editor bounds scale to [0.1, 10], so anything outside that says the
+    // field is not a scale and the record's own value is the better answer.
+    if (std::isfinite(scale) && scale >= 0.1f && scale <= 10.0f) {
+      result.has_scale = true;
+      result.scale = scale;
+    }
   }
   if (!c.ok())
     return Truncated(c, result, out);

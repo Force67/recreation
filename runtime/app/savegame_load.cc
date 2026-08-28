@@ -79,6 +79,13 @@ bool GameMatchesSave(bethesda::Game game, bethesda::SaveFormat format) {
   }
 }
 
+// A generous ceiling on a savegame. The largest real ones are tens of megabytes
+// (the reference 100%-complete save is 14); this is well past any of them and
+// well short of a size worth allocating for on a whim. --load-save takes a path
+// from the command line, so without it a typo naming a disk image reads the
+// whole thing into memory before the reader gets to reject it.
+constexpr std::streamsize kMaxSaveFileBytes = 512ll * 1024 * 1024;
+
 bool ReadWholeFile(const base::String& path, base::Vector<u8>* out) {
   std::ifstream file(path.c_str(), std::ios::binary | std::ios::ate);
   if (!file)
@@ -86,6 +93,11 @@ bool ReadWholeFile(const base::String& path, base::Vector<u8>* out) {
   const std::streamsize size = file.tellg();
   if (size <= 0)
     return false;
+  if (size > kMaxSaveFileBytes) {
+    RX_WARN("save: {} is {} MB, past the {} MB a savegame may be", path.c_str(),
+            size / (1024 * 1024), kMaxSaveFileBytes / (1024 * 1024));
+    return false;
+  }
   file.seekg(0);
   out->resize(static_cast<size_t>(size));
   return bool(file.read(reinterpret_cast<char*>(out->data()), size));
